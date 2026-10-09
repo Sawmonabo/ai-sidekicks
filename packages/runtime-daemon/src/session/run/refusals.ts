@@ -1,6 +1,6 @@
 // The run engine's refusals, each projected onto the wire by its code.
 
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import { RUN_INVALID_TRANSITION_CODE } from "@ai-sidekicks/contracts/run/control";
 import type { RunStateChangeState } from "@ai-sidekicks/contracts/run/events";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";

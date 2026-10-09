@@ -1,9 +1,13 @@
 // Daemon-internal session types. `DaemonSessionRecord` is separate from the wire-facing
-// `SessionRecord` in `@ai-sidekicks/contracts`: it carries the owner the bootstrap event names.
+// `SessionRecord` in `@ai-sidekicks/contracts`: it carries the owner the bootstrap event names and
+// the directory row the sessions list and the session read answer from.
+
+import type { SessionActivity } from "@ai-sidekicks/contracts/session/directory";
+import type { SessionShape, SessionState } from "@ai-sidekicks/contracts/session/methods";
 
 /**
- * One `session_events` row as `SessionService.readEvents` returns it to the projector. The content
- * column is left out. `sequence`, not `monotonicNs`, is the order key.
+ * One `session_events` row with its columns as stored, the content column left out. `sequence`,
+ * not `monotonicNs`, is the order key.
  */
 export interface StoredEvent {
   readonly id: string;
@@ -20,10 +24,36 @@ export interface StoredEvent {
   readonly version: string; // semver "MAJOR.MINOR"
 }
 
-/** The projector's view of one session: id, creation time, the last folded sequence, the owner. */
-export interface DaemonSessionRecord {
+/** How a session's most recent run to end its working time left it. */
+export type SessionRunOutcome = Extract<SessionActivity, "done" | "failed" | "idle">;
+
+/**
+ * The event-derived columns of a session's `sessions` row, exactly as a rebuild from the log
+ * produces them. Times are RFC 3339 UTC with milliseconds.
+ */
+export interface SessionDirectoryRow {
   readonly sessionId: string;
-  readonly createdAt: string; // RFC 3339 UTC
+  readonly shape: SessionShape;
+  readonly state: SessionState;
+  /** `null` while the session is unnamed. */
+  readonly name: string | null;
+  /** The opening of the first user message, `null` before one. */
+  readonly firstMessagePreview: string | null;
+  readonly branch: string | null;
+  /** When it was pinned, `null` while it is not; pinned sessions sort by it. */
+  readonly pinnedAt: string | null;
+  /** When it was muted, `null` while it is not. */
+  readonly mutedAt: string | null;
+  readonly scratchForDefinitionId: string | null;
+  readonly parentSessionId: string | null;
+  readonly lastRunOutcome: SessionRunOutcome;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly lastActivityAt: string;
+}
+
+/** The projector's view of one session: its directory row, the last folded sequence and the owner. */
+export interface DaemonSessionRecord extends SessionDirectoryRow {
   readonly asOfSequence: number;
   /**
    * The session's owner, read off the `session.created` envelope's `actor`; `null` when a

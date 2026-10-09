@@ -46,8 +46,11 @@ export const AgentIdSchema: z.ZodType<AgentId, AgentId> = brandedUuidIdSchema<Ag
 
 // The provider binding
 
-/** A provider's own vocabulary token: a model id, an effort or a speed. */
-const providerTokenSchema = (label: string): z.ZodString =>
+/**
+ * A provider's own vocabulary token: a model id, an effort or a speed, bounded and free-form
+ * because the vocabulary is the provider's. `label` names the field in the refusal message.
+ */
+export const providerTokenSchema = (label: string): z.ZodString =>
   wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, label);
 
 /**
@@ -69,8 +72,22 @@ export interface AgentProviderBinding {
   effort: string | null;
   outputSpeed?: string | undefined;
 }
-/** Parses an {@link AgentProviderBinding}. */
-export const AgentProviderBindingSchema: z.ZodType<AgentProviderBinding, AgentProviderBinding> = z
+/**
+ * Parses an {@link AgentProviderBinding}. Typed as the binding and as its object schema, so the
+ * schema is checked against the binding and a shape that is part of one derives from it with
+ * `pick` or `omit`.
+ */
+export const AgentProviderBindingSchema: z.ZodType<AgentProviderBinding, AgentProviderBinding> &
+  z.ZodObject<
+    {
+      driverName: z.ZodType<ProviderName, ProviderName>;
+      modelId: z.ZodString;
+      providerAccountId: z.ZodNullable<z.ZodType<ProviderAccountId, ProviderAccountId>>;
+      effort: z.ZodNullable<z.ZodString>;
+      outputSpeed: z.ZodOptional<z.ZodString>;
+    },
+    z.core.$strict
+  > = z
   .object({
     driverName: ProviderNameSchema,
     modelId: providerTokenSchema("AgentProviderBinding.modelId"),

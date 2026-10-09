@@ -1,8 +1,9 @@
 // `session.subscribe` through the method registry and streaming primitive: changes batch into
-// frames after the ack, a slow connection drops instead of waiting, a malformed event cancels the
-// subscription, a source that fails to start sends nothing, and the upstream detaches with it.
+// frames after the ack, a slow connection drops live changes instead of waiting, a catch-up waits
+// for room and drops none, an event of a type the wire has no payload variant for still reaches
+// the screen, a source that fails to start sends nothing, and the upstream detaches with it.
 
-import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 
 import type { AgentId } from "@ai-sidekicks/contracts/agent/definition";
 import type {
@@ -11,23 +12,30 @@ import type {
   SessionSubscribeRequest,
   SessionSubscribeResponse,
 } from "@ai-sidekicks/contracts/session/methods";
-import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import type { JsonRpcNotification } from "@ai-sidekicks/contracts/jsonrpc/message";
+import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
 import type { SessionEvent } from "@ai-sidekicks/contracts/event/variant-types";
 import type {
   SubscriptionId,
   SubscriptionNotifyParams,
 } from "@ai-sidekicks/contracts/jsonrpc/streaming";
-import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { JSONRPC_VERSION } from "@ai-sidekicks/contracts/jsonrpc/message";
 import {
   STREAM_FRAME_MAX_CHANGES,
   SUBSCRIPTION_END_METHOD,
   SUBSCRIPTION_NOTIFY_METHOD,
 } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 
+import {
+  openSessionLog,
+  type SessionLog,
+} from "../../../../session/directory/__fixtures__/event-log.js";
 import { MethodRegistryImpl } from "../../../registry.js";
 import { StreamingPrimitive } from "../../../streaming-primitive.js";
 
+import type { SessionEventListener } from "../../../../events/session/followers.js";
 import {
   registerSessionSubscribe,
   SESSION_STREAM_WINDOW_MS,
@@ -128,50 +136,80 @@ async function crossAckBarrier(): Promise<void> {
   await new Promise<void>((resolve) => setImmediate(resolve));
 }
 
-/** The frame each captured `$/subscription/notify` carried, in send order. */
-function sentFrames(send: Mock<SendFrame>): SessionStreamFrame<SessionEvent>[] {
-  return send.mock.calls.map(([, frame]) => {
-    expect(frame.jsonrpc).toBe(JSONRPC_VERSION);
-    expect(frame.method).toBe(SUBSCRIPTION_NOTIFY_METHOD);
-    return (frame.params as SubscriptionNotifyParams<SessionStreamFrame<SessionEvent>>).value;
-  });
+/**
+ * The frame each captured `$/subscription/notify` carried, in send order; only those of
+ * `subscriptionId` when one is named.
+ */
+function sentFrames(
+  send: Mock<SendFrame>,
+  subscriptionId?: SubscriptionId,
+): SessionStreamFrame<EventEnvelope>[] {
+  return send.mock.calls
+    .map(([, frame]) => {
+      expect(frame.jsonrpc).toBe(JSONRPC_VERSION);
+      expect(frame.method).toBe(SUBSCRIPTION_NOTIFY_METHOD);
+      return frame.params as SubscriptionNotifyParams<SessionStreamFrame<EventEnvelope>>;
+    })
+    .filter((params) => subscriptionId === undefined || params.subscriptionId === subscriptionId)
+    .map((params) => params.value);
 }
 
-interface SubscribedStream {
-  readonly send: Mock<SendFrame>;
-  readonly primitive: StreamingPrimitive;
+/** One subscription on the test connection, and the upstream's handle for feeding it changes. */
+interface SessionStream {
   readonly subscriptionId: SubscriptionId;
   readonly onChange: (change: SessionStreamChange<SessionEvent>) => void;
+  /** Ends the upstream's catch-up, so the changes after it are live. */
+  readonly endCatchUp: () => void;
 }
 
-/** Registers the handler, subscribes on transport 7 and crosses the ack barrier. */
+interface SubscribedStream extends SessionStream {
+  readonly send: Mock<SendFrame>;
+  readonly primitive: StreamingPrimitive;
+  /** Opens one more subscription on the same connection and crosses its ack barrier. */
+  readonly subscribeAgain: () => Promise<SessionStream>;
+}
+
+/**
+ * Registers the handler, subscribes on transport 7 and crosses the ack barrier. The upstream has
+ * nothing stored, so its catch-up ends at once, unless `isCatchingUp` keeps it open.
+ */
 async function subscribeWith(
   outboundQueue: OutboundQueue,
-  catchUp: readonly SessionStreamChange<SessionEvent>[] = [],
+  { isCatchingUp = false }: { readonly isCatchingUp?: boolean } = {},
 ): Promise<SubscribedStream> {
   const registry = new MethodRegistryImpl();
   const send = vi.fn<SendFrame>();
   const primitive = new StreamingPrimitive({ registry, send });
-  const onChangeHolder: { current: ((change: SessionStreamChange<SessionEvent>) => void) | null } =
-    { current: null };
+  const listenerHolder: { current: SessionEventListener | null } = { current: null };
   registerSessionSubscribe(registry, {
     streamingPrimitive: primitive,
     outboundQueue,
-    subscribeToSession: (_sessionId, _afterCursor, onChange) => {
-      onChangeHolder.current = onChange;
-      for (const change of catchUp) onChange(change);
+    subscribeToSession: (_sessionId, _afterCursor, listener) => {
+      listenerHolder.current = listener;
+      if (!isCatchingUp) listener.onCaughtUp();
       return () => undefined;
     },
   });
-  const result = (await registry.dispatch(
-    "session.subscribe",
-    { sessionId: TEST_SESSION_ID },
-    { transportId: 7 },
-  )) as SessionSubscribeResponse;
-  await crossAckBarrier();
-  const onChange = onChangeHolder.current;
-  if (onChange === null) throw new Error("unreachable — subscribeToSession ran during dispatch");
-  return { send, primitive, subscriptionId: result.subscriptionId, onChange };
+  const subscribe = async (): Promise<SessionStream> => {
+    const result = (await registry.dispatch(
+      "session.subscribe",
+      { sessionId: TEST_SESSION_ID },
+      { transportId: 7 },
+    )) as SessionSubscribeResponse;
+    await crossAckBarrier();
+    const listener = listenerHolder.current;
+    if (listener === null) throw new Error("unreachable — subscribeToSession ran during dispatch");
+    return {
+      subscriptionId: result.subscriptionId,
+      onChange: (change) => {
+        listener.onChange(change);
+      },
+      endCatchUp: () => {
+        listener.onCaughtUp();
+      },
+    };
+  };
+  return { ...(await subscribe()), send, primitive, subscribeAgain: subscribe };
 }
 
 describe("session.subscribe batches a session's changes into frames", () => {
@@ -204,7 +242,7 @@ describe("session.subscribe batches a session's changes into frames", () => {
     expect(subscribeToSession).toHaveBeenCalledWith(
       TEST_SESSION_ID,
       afterCursor,
-      expect.any(Function),
+      expect.any(Object),
     );
     expect(registry.isMutating("session.subscribe")).toBe(false);
   });
@@ -266,8 +304,8 @@ describe("session.subscribe batches a session's changes into frames", () => {
     registerSessionSubscribe(registry, {
       streamingPrimitive: primitive,
       outboundQueue: ALWAYS_ROOM,
-      subscribeToSession: (_sessionId, _afterCursor, onChange) => {
-        for (const change of catchUp) onChange(change);
+      subscribeToSession: (_sessionId, _afterCursor, listener) => {
+        for (const change of catchUp) listener.onChange(change);
         return () => undefined;
       },
     });
@@ -299,27 +337,8 @@ describe("session.subscribe never waits for a connection that falls behind", () 
     vi.useRealTimers();
   });
 
-  it("drops the frame that does not fit and marks the next frame that does", async () => {
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    const outbound = controllableOutboundQueue();
-    const stream = await subscribeWith(outbound.queue);
-
-    outbound.fill();
-    stream.onChange(changeAt(1));
-    vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS);
-    expect(stream.send).not.toHaveBeenCalled();
-
-    stream.onChange(changeAt(2));
-    outbound.drain();
-
-    expect(sentFrames(stream.send)).toStrictEqual([{ changes: [changeAt(2)], dropped: true }]);
-    vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS);
-    expect(stream.send).toHaveBeenCalledTimes(1);
-  });
-
   it(
-    "sends one frame with no changes, the drop mark and the newest cursor once a quiet " +
-      "connection catches up",
+    "drops the frame that does not fit and marks only the next frame that does, " + "once per gap",
     async () => {
       vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
       const outbound = controllableOutboundQueue();
@@ -327,17 +346,86 @@ describe("session.subscribe never waits for a connection that falls behind", () 
 
       outbound.fill();
       stream.onChange(changeAt(1));
-      stream.onChange(changeAt(2));
       vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS);
       expect(stream.send).not.toHaveBeenCalled();
-
+      stream.onChange(changeAt(2));
       outbound.drain();
+      stream.onChange(changeAt(3));
+      vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS);
+
+      // A second slow stretch raises its own mark rather than leaning on the first.
+      outbound.fill();
+      stream.onChange(changeAt(4));
+      vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS);
+      stream.onChange(changeAt(5));
+      outbound.drain();
+      vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS);
 
       expect(sentFrames(stream.send)).toStrictEqual([
+        { changes: [changeAt(2)], dropped: true },
+        { changes: [changeAt(3)] },
+        { changes: [changeAt(5)], dropped: true },
+      ]);
+    },
+  );
+
+  it("keeps taking changes while the connection reads nothing, and holds none of them", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const outbound = controllableOutboundQueue();
+    const stream = await subscribeWith(outbound.queue);
+    const changes = Array.from({ length: 2 * STREAM_FRAME_MAX_CHANGES + 5 }, (_, index) =>
+      changeAt(index),
+    );
+
+    outbound.fill();
+    // Full frames and window-closed frames alike, across several windows.
+    for (const burst of [
+      changes.slice(0, STREAM_FRAME_MAX_CHANGES + 3),
+      changes.slice(STREAM_FRAME_MAX_CHANGES + 3, STREAM_FRAME_MAX_CHANGES + 5),
+      changes.slice(STREAM_FRAME_MAX_CHANGES + 5),
+    ]) {
+      for (const change of burst) stream.onChange(change);
+      vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS);
+      expect(stream.send).not.toHaveBeenCalled();
+      // One wait for room, however many frames were dropped.
+      expect(outbound.drainListenerCount()).toBe(1);
+    }
+
+    outbound.drain();
+
+    expect(sentFrames(stream.send)).toStrictEqual([
+      { changes: [], dropped: true, cursor: changes.at(-1)?.cursor },
+    ]);
+  });
+
+  it(
+    "sends one frame with no changes, the drop mark and the newest cursor once a quiet " +
+      "connection catches up, and none to a stream that dropped nothing",
+    async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const outbound = controllableOutboundQueue();
+      const behind = await subscribeWith(outbound.queue);
+      const current = await behind.subscribeAgain();
+
+      current.onChange(changeAt(0));
+      vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS);
+      outbound.fill();
+      behind.onChange(changeAt(1));
+      behind.onChange(changeAt(2));
+      vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS);
+      expect(sentFrames(behind.send, behind.subscriptionId)).toStrictEqual([]);
+
+      outbound.drain();
+      outbound.fill();
+      outbound.drain();
+      vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS);
+
+      expect(sentFrames(behind.send, behind.subscriptionId)).toStrictEqual([
         { changes: [], dropped: true, cursor: changeAt(2).cursor },
       ]);
-      vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS);
-      expect(stream.send).toHaveBeenCalledTimes(1);
+      expect(sentFrames(behind.send, current.subscriptionId)).toStrictEqual([
+        { changes: [changeAt(0)] },
+      ]);
     },
   );
 
@@ -357,83 +445,157 @@ describe("session.subscribe never waits for a connection that falls behind", () 
   });
 });
 
-// A frame the primitive refuses throws `StreamingValidationError` from a turn no dispatch
-// wrapper covers: the barrier's flush, or the upstream's own turn. The barrier cancels the
-// subscription and logs; these tests pin that on both sides of the ack.
-
-describe("session.subscribe survives a malformed frame", () => {
+describe("session.subscribe catches up at the connection's pace and drops nothing", () => {
   afterEach(() => {
     vi.useRealTimers();
-    vi.restoreAllMocks();
   });
 
-  it(
-    "catch-up: a malformed event in a catch-up frame ends the subscription refused and sends " +
-      "nothing else",
-    async () => {
-      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-      const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
-      const malformed = { cursor: "cursor-0" as EventCursor, event: {} as SessionEvent };
-      const catchUp = [
-        malformed,
-        ...Array.from({ length: STREAM_FRAME_MAX_CHANGES }, (_, index) => changeAt(index + 1)),
-      ];
-
-      const stream = await subscribeWith(ALWAYS_ROOM, catchUp);
-      vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS);
-
-      // The bad event never reaches the client; its stream ends refused instead.
-      expect(stream.send.mock.calls).toMatchObject([
-        [
-          expect.any(Number),
-          {
-            method: SUBSCRIPTION_END_METHOD,
-            params: {
-              subscriptionId: stream.subscriptionId,
-              reason: "refused",
-              // The failure's own sanitized words, not the bare "ended" line.
-              error: {
-                code: JsonRpcErrorCode.InternalError,
-                message: expect.stringContaining("value validation failed"),
-              },
-            },
-          },
-        ],
-      ]);
-      expect(stream.primitive.cancelSubscription(stream.subscriptionId)).toBe(false);
-      expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
-      const [prefix, err] = consoleErrorSpy.mock.calls[0] ?? [];
-      expect(prefix).toContain("[session.subscribe] catch-up event validation/emission failed");
-      expect(prefix).toContain(stream.subscriptionId);
-      expect((err as Error).name).toBe("StreamingValidationError");
-    },
-  );
-
-  it("live tail: a malformed event cancels the subscription, never throwing upstream", async () => {
+  it("holds a stored frame that finds the queue full, then sends the rest once caught up", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const stream = await subscribeWith(ALWAYS_ROOM);
+    const outbound = controllableOutboundQueue();
+    const stream = await subscribeWith(outbound.queue, { isCatchingUp: true });
 
-    stream.onChange({ cursor: "cursor-0" as EventCursor, event: {} as SessionEvent });
-    expect(() => vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS)).not.toThrow();
+    outbound.fill();
+    stream.onChange(changeAt(1));
+    stream.onChange(changeAt(2));
+    vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS);
+    expect(stream.send).not.toHaveBeenCalled();
+    expect(outbound.drainListenerCount()).toBe(1);
 
-    // The bad event never reaches the client; its stream ends refused instead.
-    expect(stream.send.mock.calls).toMatchObject([
-      [
-        expect.any(Number),
-        {
-          method: SUBSCRIPTION_END_METHOD,
-          params: {
-            subscriptionId: stream.subscriptionId,
-            reason: "refused",
-            error: { code: JsonRpcErrorCode.InternalError },
+    outbound.drain();
+    stream.onChange(changeAt(3));
+    // The catch-up's last change goes out as it ends, with no wait for the window.
+    stream.endCatchUp();
+
+    expect(sentFrames(stream.send)).toStrictEqual([
+      { changes: [changeAt(1), changeAt(2)] },
+      { changes: [changeAt(3)] },
+    ]);
+  });
+
+  it("delivers a long log whole and in order to a connection each frame fills", async () => {
+    const log = await openSessionLog();
+    try {
+      // Pages of the log's default size, two frames each; the third and later meet a full queue.
+      const renameCount = 348;
+      await log.createSession(TEST_SESSION_ID, "chat");
+      await Promise.all(
+        Array.from({ length: renameCount }, (_, index) =>
+          log.append(TEST_SESSION_ID, "session.renamed", "session_lifecycle", {
+            sessionId: TEST_SESSION_ID,
+            name: `Name ${String(index)}`,
+            origin: "user",
+          }),
+        ),
+      );
+      const registry = new MethodRegistryImpl();
+      let isFull = false;
+      const drainListeners: (() => void)[] = [];
+      const send = vi.fn<SendFrame>(() => {
+        isFull = true;
+      });
+      registerSessionSubscribe(registry, {
+        streamingPrimitive: new StreamingPrimitive({ registry, send }),
+        outboundQueue: {
+          isFull: () => isFull,
+          onceDrained: (_transportId, listener) => {
+            drainListeners.push(listener);
+            return () => {
+              drainListeners.splice(drainListeners.indexOf(listener), 1);
+            };
           },
         },
-      ],
-    ]);
-    expect(stream.primitive.cancelSubscription(stream.subscriptionId)).toBe(false);
-    const [prefix] = consoleErrorSpy.mock.calls[0] ?? [];
-    expect(prefix).toContain("[session.subscribe] live-tail event validation/emission failed");
+        subscribeToSession: (sessionId, afterCursor, listener) =>
+          log.eventLog.follow(sessionId, afterCursor, listener),
+      });
+
+      await registry.dispatch(
+        "session.subscribe",
+        { sessionId: TEST_SESSION_ID },
+        { transportId: 7 },
+      );
+      // Each turn lets a waiting page read on; each drain empties the queue for the next frame.
+      let quietTurns = 0;
+      while (quietTurns < 2) {
+        await crossAckBarrier();
+        isFull = false;
+        const woken = drainListeners.splice(0);
+        for (const listener of woken) listener();
+        quietTurns = woken.length === 0 ? quietTurns + 1 : 0;
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve, 3 * SESSION_STREAM_WINDOW_MS));
+
+      const frames = sentFrames(send);
+      expect(frames.filter((frame) => frame.dropped === true)).toStrictEqual([]);
+      const sequences = frames.flatMap((frame) =>
+        frame.changes.map((change) => change.event.sequence),
+      );
+      expect(sequences).toStrictEqual(
+        Array.from({ length: renameCount + 2 }, (_, sequence) => sequence),
+      );
+    } finally {
+      await log.scratch.close();
+    }
+  });
+});
+
+// The stored log holds event types the wire has no payload variant for yet (a run's own
+// lifecycle among them), and a frame carries each event as its envelope, so such an event reaches
+// the screen like any other. This runs over the real log and its `follow`, on real timers, since
+// the database writer batches on a timer of its own.
+
+describe("session.subscribe carries an event the wire has no payload variant for", () => {
+  let log: SessionLog;
+
+  beforeEach(async () => {
+    log = await openSessionLog();
+  });
+
+  afterEach(async () => {
+    await log.scratch.close();
+  });
+
+  /** Lets the open batch window close and its frame go out. */
+  async function closeWindow(): Promise<void> {
+    await new Promise<void>((resolve) => setTimeout(resolve, 3 * SESSION_STREAM_WINDOW_MS));
+  }
+
+  // An event of a type with no payload variant yet, which the log stores as it stores any.
+  function appendEventWithoutVariant(): Promise<void> {
+    return log.append(TEST_SESSION_ID, "run.turn_started", "run_lifecycle", {
+      sessionId: TEST_SESSION_ID,
+    });
+  }
+
+  it("sends it in the catch-up and live, and keeps the stream open", async () => {
+    await log.createSession(TEST_SESSION_ID, "chat");
+    await appendEventWithoutVariant();
+    const registry = new MethodRegistryImpl();
+    const send = vi.fn<SendFrame>();
+    const primitive = new StreamingPrimitive({ registry, send });
+    registerSessionSubscribe(registry, {
+      streamingPrimitive: primitive,
+      outboundQueue: ALWAYS_ROOM,
+      subscribeToSession: (sessionId, afterCursor, listener) =>
+        log.eventLog.follow(sessionId, afterCursor, listener),
+    });
+    const { subscriptionId } = (await registry.dispatch(
+      "session.subscribe",
+      { sessionId: TEST_SESSION_ID },
+      { transportId: 7 },
+    )) as SessionSubscribeResponse;
+    await crossAckBarrier();
+    await closeWindow();
+
+    await appendEventWithoutVariant();
+    await closeWindow();
+
+    const types = sentFrames(send).flatMap((frame) =>
+      frame.changes.map((change) => change.event.type),
+    );
+    expect(types.filter((type) => type === "run.turn_started")).toHaveLength(2);
+    expect(types.at(-1)).toBe("run.turn_started");
+    expect(primitive.cancelSubscription(subscriptionId)).toBe(true);
   });
 });
 
@@ -478,6 +640,39 @@ describe("session.subscribe detaches the upstream when the subscription ends", (
     ).rejects.toThrow("no such session");
     await crossAckBarrier();
     expect(send).not.toHaveBeenCalled();
+  });
+
+  it("an upstream that fails after the ack ends the subscription with its error", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const registry = new MethodRegistryImpl();
+    const send = vi.fn<SendFrame>();
+    const primitive = new StreamingPrimitive({ registry, send });
+    let failUpstream: (error: unknown) => void = () => undefined;
+    registerSessionSubscribe(registry, {
+      streamingPrimitive: primitive,
+      outboundQueue: ALWAYS_ROOM,
+      subscribeToSession: (_sessionId, _afterCursor, listener) => {
+        failUpstream = (error) => {
+          listener.onFailure(error);
+        };
+        return () => undefined;
+      },
+    });
+    const { subscriptionId } = (await registry.dispatch(
+      "session.subscribe",
+      { sessionId: TEST_SESSION_ID },
+      { transportId: 7 },
+    )) as SessionSubscribeResponse;
+    await crossAckBarrier();
+
+    failUpstream(new Error("the log could not be read"));
+
+    expect(send.mock.calls).toMatchObject([
+      [7, { method: SUBSCRIPTION_END_METHOD, params: { subscriptionId, reason: "refused" } }],
+    ]);
+    expect(primitive.cancelSubscription(subscriptionId)).toBe(false);
+    expect(consoleError).toHaveBeenCalledOnce();
+    consoleError.mockRestore();
   });
 
   it("a `$/subscription/cancel` from the same connection detaches the upstream", async () => {

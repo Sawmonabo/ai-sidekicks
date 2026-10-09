@@ -4,21 +4,20 @@ import { describe, expect, it } from "vitest";
 
 import { refusesAt } from "../../__tests__/safe-parse.test-support.js";
 import { EVENT_FIELD_MAX_LEN } from "../../event/envelope.js";
-import { EVENT_CURSOR_MAX_LEN } from "../../session/id.js";
-import { MAX_MESSAGE_BYTES, jsonUtf8ByteLength } from "../../jsonrpc/message.js";
+import { EVENT_CURSOR_MAX_LEN } from "../../session/event-cursor.js";
+import { MAX_MESSAGE_BYTES } from "../../jsonrpc/message.js";
+import { jsonUtf8ByteLength } from "../../jsonrpc/byte-length.js";
 import { ChildRunSummarySchema } from "../child-run-summary.js";
+import { PAGE_MAX_BYTES, countEntriesFittingOneFrame } from "../../jsonrpc/page.js";
 import {
-  countEntriesFittingOneFrame,
   ChildRunExpandResponseSchema,
   REASONING_ENTRY_CONTENT_MAX_LEN,
   REASONING_SURFACE_ENTRIES_MAX,
   ReasoningSurfaceReadResponseSchema,
-  TRANSCRIPT_PAGE_MAX_BYTES,
-  TRANSCRIPT_READ_LIMIT_MAX,
   TranscriptReadResponseSchema,
 } from "../operations.js";
+import { TRANSCRIPT_READ_LIMIT_MAX, TRANSCRIPT_EVENT_ROW_SUMMARY_MAX_LEN } from "../limits.js";
 import { TranscriptBodyReadResponseSchema } from "../content.js";
-import { TRANSCRIPT_EVENT_ROW_SUMMARY_MAX_LEN } from "../row.js";
 import { TranscriptSearchResponseSchema } from "../search.js";
 import {
   RUN_ID,
@@ -238,7 +237,7 @@ describe("a reply fits one frame", () => {
 
   it("the byte budget, not the row cap, bounds a window that fits the framer", () => {
     // Every field is at its own bound, so this page is contract-valid on every axis but size.
-    expect(jsonUtf8ByteLength(worstCasePage)).toBeGreaterThan(TRANSCRIPT_PAGE_MAX_BYTES);
+    expect(jsonUtf8ByteLength(worstCasePage)).toBeGreaterThan(PAGE_MAX_BYTES);
     expect(
       TranscriptReadResponseSchema.safeParse({ entries: worstCasePage, hasMore: false }).success,
     ).toBe(false);
@@ -289,7 +288,7 @@ describe("a reply fits one frame", () => {
           timestamp: TIMESTAMP,
         }),
       );
-      expect(jsonUtf8ByteLength(worstCaseEntries)).toBeGreaterThan(TRANSCRIPT_PAGE_MAX_BYTES);
+      expect(jsonUtf8ByteLength(worstCaseEntries)).toBeGreaterThan(PAGE_MAX_BYTES);
       expect(
         ReasoningSurfaceReadResponseSchema.safeParse(
           reasoningPage({ reasoningEntries: worstCaseEntries }),
@@ -308,7 +307,7 @@ describe("a reply fits one frame", () => {
       ).toBe(true);
 
       // A body whose JSON form is over one frame while its length is not.
-      const overFrameBody = worstCaseUnit.repeat(Math.ceil(TRANSCRIPT_PAGE_MAX_BYTES / 6) + 1);
+      const overFrameBody = worstCaseUnit.repeat(Math.ceil(PAGE_MAX_BYTES / 6) + 1);
       refusesAt(
         TranscriptBodyReadResponseSchema,
         { status: "available", body: overFrameBody },
@@ -348,7 +347,7 @@ describe("a reply fits one frame", () => {
     // unconsumed cursor, a continuation that never advances.
     const unfittableRow = {
       ...runScopedRow,
-      payload: { blob: "x".repeat(TRANSCRIPT_PAGE_MAX_BYTES) },
+      payload: { blob: "x".repeat(PAGE_MAX_BYTES) },
     };
     expect(countEntriesFittingOneFrame([unfittableRow], TRANSCRIPT_READ_LIMIT_MAX)).toBe(1);
     // That single-row page is still refused at the boundary, never put on the wire.

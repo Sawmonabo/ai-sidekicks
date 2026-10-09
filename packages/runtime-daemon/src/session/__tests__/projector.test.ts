@@ -1,6 +1,6 @@
-// `rebuildSession()` projects the owner from the bootstrap `session.created` event's `actor`, and
-// refuses an event log whose bootstrap is missing or not at sequence 0, since projecting from it
-// would present partial state as complete.
+// `rebuildSession()` opens the record from the bootstrap `session.created` event, its owner from
+// the event's `actor`, and refuses an event log whose bootstrap is missing or not at sequence 0,
+// since projecting from it would present partial state as complete.
 
 import { describe, expect, it } from "vitest";
 
@@ -14,16 +14,27 @@ import {
 } from "../__fixtures__/stored-event.js";
 
 describe("session-projector — bootstrap projection", () => {
-  it("records the owner from a single session.created event", () => {
+  it("opens the record from a single session.created event, owner included", () => {
     const record: DaemonSessionRecord | null = rebuildSession([makeCreatedEvent()]);
-    expect(record).not.toBeNull();
-    if (record === null) return; // type guard for TS
 
-    expect(record.sessionId).toBe(SESSION_ID);
-    expect(record.createdAt).toBe(OCCURRED_AT);
-    expect(record.asOfSequence).toBe(0);
-
-    expect(record.ownerActor).toBe(OWNER_ACTOR_ID);
+    expect(record).toEqual({
+      sessionId: SESSION_ID,
+      shape: "chat",
+      state: "provisioning",
+      name: null,
+      firstMessagePreview: null,
+      branch: null,
+      pinnedAt: null,
+      mutedAt: null,
+      scratchForDefinitionId: null,
+      parentSessionId: null,
+      lastRunOutcome: "idle",
+      createdAt: OCCURRED_AT,
+      updatedAt: OCCURRED_AT,
+      lastActivityAt: OCCURRED_AT,
+      asOfSequence: 0,
+      ownerActor: OWNER_ACTOR_ID,
+    });
   });
 });
 
@@ -38,7 +49,7 @@ describe("session-projector — bootstrap refusals", () => {
       category: "session_lifecycle",
       type: "session.activated",
       actor: OWNER_ACTOR_ID,
-      payload: { sessionId: SESSION_ID },
+      payload: { sessionId: SESSION_ID, previousState: "provisioning", newState: "active" },
       correlationId: null,
       causationId: null,
       version: "1.0",

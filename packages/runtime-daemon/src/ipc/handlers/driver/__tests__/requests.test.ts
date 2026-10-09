@@ -13,7 +13,7 @@ import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts/provid
 import type { DriverCapabilityReport } from "@ai-sidekicks/contracts/provider/driver/methods";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import { DRIVER_CAPABILITY_FLAGS } from "@ai-sidekicks/contracts/provider/driver/capabilities";
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import { PROVIDER_NAMES } from "@ai-sidekicks/contracts/provider/name";
 
 import { captureRejection } from "../../../../__fixtures__/capture-failure.js";

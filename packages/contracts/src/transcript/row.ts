@@ -21,21 +21,12 @@ import {
 import { RunIdSchema, type RunId } from "../run/id.js";
 import { RunRolledBackEventSchema, type RunRolledBackEvent } from "../run/control.js";
 import { wireFreeFormString, FILE_PATH_MAX_LEN } from "../free-form-string.js";
-import {
-  EventCursorSchema,
-  SessionIdSchema,
-  type EventCursor,
-  type SessionId,
-} from "../session/id.js";
+import { EventCursorSchema, SessionIdSchema, type SessionId } from "../session/id.js";
+import { type EventCursor } from "../session/event-cursor.js";
 
 import { ChildRunSummarySchema, type ChildRunSummary } from "./child-run-summary.js";
+import { TRANSCRIPT_EVENT_ROW_SUMMARY_MAX_LEN } from "./limits.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
-
-/**
- * Cap on `TranscriptEventRowBase.summary`, the row's one-line summary. Larger than an identifier
- * because it is prose; a summary that needs more belongs in `payload`.
- */
-export const TRANSCRIPT_EVENT_ROW_SUMMARY_MAX_LEN = 4096;
 
 /** The event type the `rollback_boundary` arm pins, as registered in `SessionEventType`. */
 export const TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE = "run.rolled_back" as const;

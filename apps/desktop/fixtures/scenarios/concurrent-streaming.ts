@@ -37,7 +37,10 @@
 // Beside the session's own read it answers the MCP servers and Providers settings pages, whose
 // reads belong to the machine rather than the session.
 
-import { encodeEventCursor, START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/id";
+import {
+  encodeEventCursor,
+  START_OF_LOG_POSITION,
+} from "@ai-sidekicks/contracts/session/event-cursor";
 
 import {
   composeScenarioInstant,
@@ -541,13 +544,16 @@ export const CONCURRENT_STREAMING_SCENARIO: Scenario = {
         session: {
           id: SESSION_ID,
           state: "active",
+          shape: "project",
+          muted: false,
           createdAt: STARTED_AT_ISO,
           updatedAt: newestBeatInstant(CONCURRENT_STREAMING_BEATS),
           draft: "",
+          tags: [],
         },
         transcriptCursors: {
           earliest: encodeEventCursor(START_OF_LOG_POSITION),
-          latest: findBeatCursor(CONCURRENT_STREAMING_BEATS, CONCURRENT_STREAMING_BEATS.length),
+          latest: findBeatCursor(CONCURRENT_STREAMING_BEATS, CONCURRENT_STREAMING_BEATS.length - 1),
         },
       },
     },

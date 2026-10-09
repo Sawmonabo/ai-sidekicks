@@ -9,9 +9,8 @@
 // (`callDaemon` never throws and the first-turn rejection is caught), so a failed leg becomes
 // a refusal instead of an unhandled rejection a shipped window does not report.
 
-import type { AgentProviderBinding } from "@ai-sidekicks/contracts/agent/definition";
 import type { ExecutionMode, RepoMountId } from "@ai-sidekicks/contracts/repo/mount";
-import type { SessionBinding } from "@ai-sidekicks/contracts/session/directory";
+import type { SessionBinding, SessionLead } from "@ai-sidekicks/contracts/session/directory";
 import { callDaemon, type DaemonReplyRefusalCode } from "#renderer/services/daemon/reply.js";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
@@ -45,8 +44,8 @@ export interface NewSessionSendRequest {
   readonly firstTurnAlreadyQueued: boolean;
   /** The project the session works in; absent, the session is a chat. */
   readonly repoMount: DraftRepoMount | undefined;
-  /** The lead's provider, model, account and effort the session starts on. */
-  readonly lead: AgentProviderBinding;
+  /** The lead's provider, model and effort the session starts on; the daemon picks the account. */
+  readonly lead: SessionLead;
   /** The draft's one key for its create, so a create sent again names the session already made. */
   readonly clientIdempotencyKey: string;
   readonly firstTurn: string;

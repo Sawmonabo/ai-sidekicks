@@ -4,6 +4,7 @@
 
 import { z } from "zod";
 
+import { jsonUtf8ByteLength } from "./byte-length.js";
 import { DAEMON_HELLO_METHOD } from "./negotiation.js";
 
 /** The `jsonrpc` member every envelope carries. */
@@ -17,35 +18,6 @@ export type JsonRpcVersion = typeof JSONRPC_VERSION;
  * It bounds the transport only; a paged reply sizes itself against its own page budget.
  */
 export const MAX_MESSAGE_BYTES: number = 4 * 1024 * 1024;
-
-/**
- * The UTF-8 byte length of `value` serialized as JSON, the quantity {@link MAX_MESSAGE_BYTES}
- * bounds, or `Number.POSITIVE_INFINITY` when it cannot be serialized. It never throws, because its
- * callers are zod refinements; it counts by hand because this package has no `Buffer`.
- */
-export function jsonUtf8ByteLength(value: unknown): number {
-  let serialized: string;
-  try {
-    serialized = JSON.stringify(value) ?? "";
-  } catch {
-    return Number.POSITIVE_INFINITY;
-  }
-  let byteLength = 0;
-  for (let index = 0; index < serialized.length; index += 1) {
-    const codeUnit = serialized.charCodeAt(index);
-    if (codeUnit < 0x80) {
-      byteLength += 1;
-    } else if (codeUnit < 0x800) {
-      byteLength += 2;
-    } else if (codeUnit >= 0xd800 && codeUnit <= 0xdbff && index + 1 < serialized.length) {
-      byteLength += 4;
-      index += 1;
-    } else {
-      byteLength += 3;
-    }
-  }
-  return byteLength;
-}
 
 /**
  * The largest JSON-RPC `id`, in bytes once JSON-encoded (a UUID id is 38). The reply echoes the
@@ -128,22 +100,6 @@ export const TRANSPORT_UNAVAILABLE_CODE = "transport.unavailable" as const;
  * `EPERM`), and any other socket failure is `unreachable`.
  */
 export type TransportUnavailableReason = "not_listening" | "access_denied" | "unreachable";
-
-/**
- * The five numeric error codes JSON-RPC 2.0 reserves and the only ones the daemon emits;
- * domain errors ride in `error.data.type`. Shared so the daemon's mapping and the SDK's decoding
- * use one declaration.
- */
-export const JsonRpcErrorCode = {
-  ParseError: -32700,
-  InvalidRequest: -32600,
-  MethodNotFound: -32601,
-  InvalidParams: -32602,
-  InternalError: -32603,
-} as const;
-
-/** The union of the numeric values in {@link JsonRpcErrorCode}. */
-export type JsonRpcErrorCodeValue = (typeof JsonRpcErrorCode)[keyof typeof JsonRpcErrorCode];
 
 /**
  * The error object of a JSON-RPC response. `message` is sanitized by the gateway

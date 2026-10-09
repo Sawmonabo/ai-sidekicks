@@ -787,10 +787,9 @@ describe("canonicalizeEvent — sequence must be faithfully representable", () =
   it("refuses the collapsed pair that would otherwise share canonical bytes", () => {
     // Why the guard exists, in three steps.
     //
-    // Step 1: the collapse is reachable on the read path. `session_events.sequence` is a 64-bit
-    // SQLite INTEGER; `SessionService` reads it with `safeIntegers(true)` so it arrives as a
-    // `bigint`, and `hydrateRow` narrows it with `Number(row.sequence)`. Two distinct stored rows
-    // land on one number.
+    // Step 1: the collapse is reachable wherever a stored sequence becomes a number.
+    // `session_events.sequence` is a 64-bit SQLite INTEGER, and `Number(...)` of two distinct
+    // stored values past 2^53 - 1 lands on one number.
     const collapsedLower = Number(9007199254740992n);
     const collapsedUpper = Number(9007199254740993n);
     expect(collapsedUpper).toBe(collapsedLower);

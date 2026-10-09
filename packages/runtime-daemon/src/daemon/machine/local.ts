@@ -4,7 +4,7 @@
 
 import { NodeIdSchema, type NodeId } from "@ai-sidekicks/contracts/runtime-node/id";
 
-import type { DatabaseConnections } from "../../database/connections.js";
+import type { DatabaseConnections } from "../../database/connection/lifecycle.js";
 import { mintUuidV7 } from "../../uuid-v7.js";
 
 /** This machine as the daemon knows it. */

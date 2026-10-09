@@ -3,12 +3,8 @@
 import { z } from "zod";
 
 import { AgentIdSchema, type AgentId } from "../../agent/definition.js";
-import {
-  EventCursorSchema,
-  SessionIdSchema,
-  type EventCursor,
-  type SessionId,
-} from "../../session/id.js";
+import { EventCursorSchema, SessionIdSchema, type SessionId } from "../../session/id.js";
+import { type EventCursor } from "../../session/event-cursor.js";
 import { DeviceIdSchema, type DeviceId } from "../../trust-statement.js";
 import { WorkflowRunIdSchema, type WorkflowRunId } from "./id.js";
 

@@ -10,7 +10,8 @@ import {
   type TranscriptReadRequest,
   type TranscriptReadResponse,
 } from "@ai-sidekicks/contracts/transcript/operations";
-import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { type DaemonReply } from "#renderer/services/daemon/reply.js";
@@ -21,10 +22,10 @@ import { EarlierHistoryReader, type EarlierPageRead } from "./earlier-reader.js"
 const SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5a44a5";
 
 /** Where the store's window opens: the position its establishing read submitted. */
-const WINDOW_HEAD_CURSOR = "cursor-at-40";
+const WINDOW_HEAD_CURSOR = "cursor-at-40" as EventCursor;
 
 /** Where a later completed read re-opens it — the head a refresh moves the store to. */
-const LATER_WINDOW_HEAD_CURSOR = "cursor-at-60";
+const LATER_WINDOW_HEAD_CURSOR = "cursor-at-60" as EventCursor;
 
 function rowAt(sequence: number): TranscriptEventRow {
   return {
@@ -107,7 +108,7 @@ function heldRead(): {
   };
 }
 
-function openStore(options: { readonly readFromCursor?: string } = {}): SessionStore {
+function openStore(options: { readonly readFromCursor?: EventCursor } = {}): SessionStore {
   const store = new SessionStore({ sessionId: SESSION_ID });
   store.initialize({
     cursor: 41,
@@ -179,7 +180,7 @@ describe("EarlierHistoryReader — three windows, two presses, and then nothing 
   it("carries the refusal a rejected read answered with, and offers the press again", async () => {
     // The read answers the scripted positions and refuses this one.
     const { read } = immediateRead();
-    const store = openStore({ readFromCursor: "cursor-nobody-scripted" });
+    const store = openStore({ readFromCursor: "cursor-nobody-scripted" as EventCursor });
     const reader = new EarlierHistoryReader();
 
     await reader.loadEarlier(read, store);
@@ -190,29 +191,31 @@ describe("EarlierHistoryReader — three windows, two presses, and then nothing 
     expect(sequencesOf(store)).toStrictEqual([40, 41]);
   });
 
-  it("starts the walk over when a completed read re-establishes the window", async () => {
+  it("keeps the walk going across a repair that kept the window's head", async () => {
     const { read } = immediateRead();
     const store = openStore({ readFromCursor: WINDOW_HEAD_CURSOR });
     const reader = new EarlierHistoryReader();
     await reader.loadEarlier(read, store);
-    expect(sequencesOf(store)).toStrictEqual([35, 36, 37, 40, 41]);
 
-    // The same head cursor, so comparing positions would notice nothing; the store's window
-    // generation, re-taken by any completed read, does. The cursor is ahead of the store's,
-    // since a read behind it is refused as stale.
+    // The repair replays from the window's head; the page already loaded stays in front of it.
+    store.markDegraded("stream-diverged");
     store.initialize({
-      cursor: 45,
       entities: [],
-      transcript: [44, 45].map((sequence) => eventOfKind(SESSION_ID, "run.started", sequence)),
+      streamAfterCursor: WINDOW_HEAD_CURSOR,
       readFromCursor: WINDOW_HEAD_CURSOR,
     });
+    store.applyBatch([41, 42].map((sequence) => eventOfKind(SESSION_ID, "run.started", sequence)));
+    expect(store.snapshot().isReplaying).toBe(false);
 
+    // The next press asks from where the walk stood, not from the head again.
     await reader.loadEarlier(read, store);
-    expect(sequencesOf(store)).toStrictEqual([35, 36, 37, 44, 45]);
+    expect(sequencesOf(store)).toStrictEqual([30, 31, 35, 36, 37, 40, 41, 42]);
   });
 });
 
+/** A repair read landing on the store, its window opened higher up the log. */
 function refreshWindowHigherUp(store: SessionStore): void {
+  store.markReadFailed();
   store.initialize({
     cursor: 61,
     entities: [],

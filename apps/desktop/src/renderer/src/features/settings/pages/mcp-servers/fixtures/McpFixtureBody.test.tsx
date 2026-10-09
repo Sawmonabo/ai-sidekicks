@@ -43,6 +43,7 @@ const SESSION_B = "22222222-2222-4222-8222-222222222222" as SessionId;
 // The service's sessions, naming both running sessions as the session list does.
 const SESSION_DIRECTORY: SessionDirectoryState = {
   status: "served",
+  chatCount: 0,
   sessions: [
     sessionListEntry({ sessionId: SESSION_A, name: "Fix login" }),
     sessionListEntry({ sessionId: SESSION_B, name: "Tidy the docs" }),

@@ -12,7 +12,8 @@ import type {
   SubscriptionEndParams,
   SubscriptionNotifyParams,
 } from "@ai-sidekicks/contracts/jsonrpc/streaming";
-import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { JSONRPC_VERSION } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import {
   SUBSCRIPTION_CANCEL_METHOD,
   SUBSCRIPTION_END_METHOD,

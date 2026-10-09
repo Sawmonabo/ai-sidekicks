@@ -9,7 +9,7 @@ import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
 import type { WorkflowRunAttentionEntry } from "@ai-sidekicks/contracts/workflow/run/records";
 import type { WorkflowWaitCause } from "@ai-sidekicks/contracts/workflow/run/status";
 
-import type { DatabaseConnections } from "../../database/connections.js";
+import type { DatabaseConnections } from "../../database/connection/lifecycle.js";
 import { GOING_RUN_STATUSES_SQL } from "./record.js";
 import {
   spentAccountColumns,

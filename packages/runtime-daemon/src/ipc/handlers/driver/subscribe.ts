@@ -29,7 +29,6 @@ import { SubscribeAckResponseSchema } from "@ai-sidekicks/contracts/jsonrpc/stre
 
 import type { StreamingPrimitive } from "../../streaming-primitive.js";
 import { createSubscriptionAckBarrier } from "../../subscription-ack-barrier.js";
-import { translateDriverError } from "./requests.js";
 
 /** Dependencies for `driver.subscribeEvents`. */
 export interface DriverSubscribeEventsDeps {
@@ -54,8 +53,8 @@ export interface DriverSubscribeEventsDeps {
 
 /**
  * Binds `driver.subscribeEvents` onto the registry. A dispatch without a transport id throws a
- * plain `Error` (an internal error on the wire), and a failing `subscribeToDriverEvents` is
- * mapped through `translateDriverError` after the subscription is canceled.
+ * plain `Error` (an internal error on the wire), and a failing `subscribeToDriverEvents` throws
+ * its own error after the subscription is canceled.
  *
  * The stream validates against `SessionEventSchema` and drops any event outside
  * `DRIVER_EVENT_TYPES`, so a session-wide source does not cancel the subscription over an
@@ -95,7 +94,7 @@ export function registerDriverSubscribeEvents(
     } catch (thrown) {
       // Released at once, and with no end frame for an id the client never received.
       deps.streamingPrimitive.cancelSubscription(sub.subscriptionId);
-      translateDriverError(thrown);
+      throw thrown;
     }
 
     barrier.release();

@@ -12,17 +12,17 @@ import {
   EventCursorSchema,
   SessionIdSchema,
   UserIdSchema,
-  type EventCursor,
   type SessionId,
   type UserId,
 } from "./id.js";
+import { type EventCursor } from "./event-cursor.js";
 import {
-  SESSION_NAME_MAX_LEN,
   SessionShapeSchema,
   SessionStateSchema,
   type SessionShape,
   type SessionState,
 } from "./methods.js";
+import { SESSION_NAME_MAX_LEN } from "./name.js";
 
 /** The session a fork was taken from, and the message it was taken at. */
 export interface SessionCreatedParent {
@@ -58,9 +58,9 @@ export const SessionCreatedPayloadSchema: z.ZodType<SessionCreatedPayload> = z
   .strict();
 
 /**
- * The payload of a lifecycle move — `session.archived`, `session.reactivated`,
- * `session.closed` — naming the state the session left and the one it is in. `actor` is the
- * person who acted, absent when the daemon moved it.
+ * The payload of a lifecycle move — `session.activated`, `session.archived`,
+ * `session.reactivated`, `session.closed` — naming the state the session left and the one it is
+ * in. `actor` is the person who acted, absent when the daemon moved it.
  */
 export interface SessionLifecycleChangePayload {
   sessionId: SessionId;

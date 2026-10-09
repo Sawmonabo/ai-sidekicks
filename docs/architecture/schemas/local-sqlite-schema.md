@@ -6,8 +6,9 @@ The database is one schema, created whole when the daemon first opens it. There 
 
 **Storage boundary:** Machine-scoped execution truth and recovery data. See [Data Architecture](../data-architecture.md).
 
-Five areas keep their tables in files of their own, beside this one:
+Six areas keep their tables in files of their own, beside this one:
 
+- [Workspace and Git Tables (Plan-006, Plan-007, Plan-008)](local-sqlite-workspace-and-git-tables.md)
 - [Orchestration Tables (Plan-013)](local-sqlite-orchestration-tables.md)
 - [Workflow Tables (Plan-014)](local-sqlite-workflow-tables.md)
 - [MCP Governance Tables (Plan-022)](local-sqlite-mcp-governance-tables.md)
@@ -22,6 +23,7 @@ PRAGMA synchronous = FULL;      -- override better-sqlite3 default (NORMAL) for 
 PRAGMA foreign_keys = ON;
 PRAGMA busy_timeout = 5000;
 PRAGMA secure_delete = ON;      -- deleted content is overwritten with zeros, so a deleted session leaves no readable freed page
+PRAGMA cache_size = -2000;      -- on every connection, read-only ones included: SQLite's own 2,000 KiB page cache, where better-sqlite3 builds with 16,000
 ```
 
 ---
@@ -50,8 +52,8 @@ CREATE TABLE session_events (
   UNIQUE(session_id, sequence)
 );
 
-CREATE INDEX idx_session_events_session_seq ON session_events(session_id, sequence);
 CREATE INDEX idx_session_events_type ON session_events(session_id, type);
+CREATE INDEX idx_session_events_skipped ON session_events(session_id) WHERE type = 'recovery.damaged_events_skipped';
 CREATE INDEX idx_session_events_correlation ON session_events(correlation_id) WHERE correlation_id IS NOT NULL;
 CREATE UNIQUE INDEX idx_session_events_run_terminal_once ON session_events(json_extract(payload, '$.runId'), json_extract(payload, '$.runVersion')) WHERE category = 'run_lifecycle' AND type IN ('run.completed', 'run.failed', 'run.interrupted', 'run.stopped');
 
@@ -164,11 +166,14 @@ CREATE TABLE session_tags (
   PRIMARY KEY (session_id, tag_folded)
 );
 
-CREATE INDEX idx_session_tags_tag ON session_tags(tag_folded, session_id);
+-- Covers the tags in use, which `Add tag` suggests: one spelling per fold, read from the index alone.
+CREATE INDEX idx_session_tags_tag ON session_tags(tag_folded, tag);
 
 -- Each session's related list, computed ahead by personalized PageRank cut at two steps and stored
--- under the session's id, so a read is one indexed lookup. A new link re-scores, in the background
--- after its event is written, only the two sessions it joins and their neighbors.
+-- under the session's id, so a read is one indexed lookup. Only the sessions it links to directly are
+-- stored, each scored with the two-step paths that also reach it, since every row of the list names a
+-- link. A new link re-scores, in the background after its event is written, only the two sessions it
+-- joins and their neighbors.
 CREATE TABLE session_related (
   session_id          TEXT NOT NULL,
   related_session_id  TEXT NOT NULL,
@@ -177,9 +182,47 @@ CREATE TABLE session_related (
 );
 
 CREATE INDEX idx_session_related_score ON session_related(session_id, score DESC);
+-- A purge deletes the entries naming the purged session from every other session's list.
+CREATE INDEX idx_session_related_related ON session_related(related_session_id);
+
+-- Each session.create's idempotency key, the session it made and where that session works: its
+-- mount, its execution mode and the group it asked for (NULL for none, and for every chat). Written
+-- in the session.created write, so a retry with the key, or the daemon's start, finishes a session
+-- left provisioning.
+CREATE TABLE session_create_requests (
+  client_idempotency_key  TEXT NOT NULL PRIMARY KEY,
+  session_id              TEXT NOT NULL UNIQUE,
+  repo_mount_id           TEXT NOT NULL,
+  execution_mode          TEXT NOT NULL
+    CHECK (execution_mode IN ('bound-root', 'provisioned-worktree')),
+  group_id                TEXT
+) STRICT;
+
+-- A chat's conversion: the session.convert key it runs under, which the latest request that
+-- resumed it takes over, and the project mount it attached. Written as soon as the mount is, so a
+-- retry resumes onto that mount, and answered from session.converted once that lands. One per chat.
+CREATE TABLE session_convert_requests (
+  client_idempotency_key  TEXT NOT NULL PRIMARY KEY,
+  session_id              TEXT NOT NULL UNIQUE,
+  repo_mount_id           TEXT NOT NULL
+) STRICT;
+
+-- Each workspace file a conversion has dealt with, recorded as its copy lands: copied, or not
+-- copied with the reason. A resumed conversion skips every path here and counts from these rows;
+-- the files not copied are read a page at a time by session.convertSkippedFileList.
+CREATE TABLE session_convert_files (
+  session_id  TEXT NOT NULL,
+  path        TEXT NOT NULL,
+  outcome     TEXT NOT NULL
+    CHECK (outcome IN ('copied', 'repository_has_file', 'repository_path_not_a_folder', 'link',
+      'special_file')),
+  PRIMARY KEY (session_id, path)
+) STRICT, WITHOUT ROWID;
 ```
 
-Budget, at 10,000 sessions, 1,000,000 indexed messages, 100,000 links and 30,000 tags, measured on the daemon's own build: a related list under 1 ms and a search under 50 ms at p95. Measured on SQLite 3.50.4 at that size, a stored related list read in 0.012 ms and a tag or group lookup in 0.033 ms at p95.
+Budget, at 10,000 sessions, 1,000,000 indexed messages, 100,000 links and 30,000 tags, measured on the daemon's own build: a related list under 1 ms and a search under 50 ms at p95. Measured on the daemon's build (SQLite 3.53.4, Apple M1 Pro) at 10,000 sessions and 100,000 links: a stored related list read in 0.128 ms at p95, about 20 stored rows per session, and the re-score after one new link took 55 ms of wall time at p95 in the background, yielding to the event loop every 2 ms between sessions; one session's scoring is not split, and the longest turn of the daemon's main thread measured 12 ms (6 to 10 ms at p95).
+
+A conversion records each file as its copy lands without waiting for that record before the next copy, with at most 100 records waiting at once, so the writer folds them into shared batches. Measured on the same build, converting a chat of 1 KiB files in 100 folders took 0.36 s and 68 writer batches at 1,000 files and 29 s at 100,000 files; awaiting each record would hold every file for the writer's 10 ms batch window, 12.6 s at 1,000 files.
 
 ---
 
@@ -459,148 +502,6 @@ CREATE TABLE node_trust_state (
 
 ---
 
-## Workspace and Git Tables (Plan-006, Plan-007, Plan-008)
-
-```sql
--- Owner: Plan-006
-CREATE TABLE repo_mounts (
-  id                  TEXT PRIMARY KEY,
-  node_id             TEXT NOT NULL,          -- this machine's own node id, stamped by the daemon and never taken from the caller; a mount belongs to the machine, not to a session
-  local_path          TEXT NOT NULL,          -- user-entered attach path (provenance)
-  canonical_root      TEXT NOT NULL,          -- resolver output: absolute, symlink-resolved (envelope/dedupe key)
-  origin              TEXT NOT NULL DEFAULT 'attached'
-                      CHECK(origin IN ('attached', 'managed')),
-                                              -- 'attached' = a project's folder the person attached or cloned; 'managed' = a chat's
-                                              -- git-initialized workspace the daemon owns (Spec-001 §Required Behavior; ADR-030)
-  managed_session_id  TEXT,                   -- the one chat a managed mount belongs to (event-sourced session id, no FK, matching session_id columns elsewhere)
-  state               TEXT NOT NULL DEFAULT 'attached'
-                      CHECK(state IN ('attached', 'detached', 'archived')),
-  attached_at         TEXT NOT NULL,
-  updated_at          TEXT NOT NULL,
-  metadata            TEXT NOT NULL DEFAULT '{}', -- JSON; commonDir: attach-persisted canonicalized git common directory — the repo-identity anchor bind/run re-derivation must match (Spec-007 §Repo Identity And Common-Directory Keying (V1 Definition)); reads never write it
-  CHECK ((origin = 'managed') = (managed_session_id IS NOT NULL))
-);
-
--- Active-mount uniqueness binds the CANONICAL root per owning node (Plan-006 D-006-7): two
--- entered aliases resolving to one root are one mount, whichever session asked, and a folder
--- is listed once per machine with what uses it; detached rows stay re-attachable as new rows.
-CREATE UNIQUE INDEX idx_repo_mounts_active_root
-  ON repo_mounts(node_id, canonical_root) WHERE state = 'attached';
-CREATE UNIQUE INDEX idx_repo_mounts_managed_session
-  ON repo_mounts(managed_session_id) WHERE managed_session_id IS NOT NULL;
-
--- Owner: Plan-006
-CREATE TABLE workspaces (
-  id              TEXT PRIMARY KEY,
-  session_id      TEXT NOT NULL,
-  repo_mount_id   TEXT NOT NULL REFERENCES repo_mounts(id),
-  execution_mode  TEXT NOT NULL               -- where the session works, chosen at bind (session.create or repo.workspaceBind): 'bound-root' = the project's own checkout; 'provisioned-worktree' = a worktree of its own. A chat's managed workspace is always 'bound-root'
-                  CHECK(execution_mode IN ('bound-root', 'provisioned-worktree')),
-  fs_root         TEXT,                       -- resolved filesystem root
-  state           TEXT NOT NULL DEFAULT 'preparing'
-                  CHECK(state IN ('preparing', 'ready', 'stale', 'archived')),
-  metadata        TEXT NOT NULL DEFAULT '{}', -- JSON; lastError detail on a failed mode switch (Spec-007); boundRoot: admitted bind origin — the bound-root execution-root carrier, never cleared by a new preparation (Spec-007/Spec-008)
-  created_at      TEXT NOT NULL,
-  updated_at      TEXT NOT NULL
-);
-
-CREATE INDEX idx_workspaces_session ON workspaces(session_id);
-CREATE INDEX idx_workspaces_repo ON workspaces(repo_mount_id);
-
--- Owner: Plan-007 (provenance columns, active-branch uniqueness, cleanup stamp — D-007-5)
-CREATE TABLE worktrees (
-  id                    TEXT PRIMARY KEY,
-  repo_mount_id         TEXT NOT NULL REFERENCES repo_mounts(id),
-  created_by_session_id TEXT NOT NULL,              -- creating-session provenance (Spec-008 §State And Data Implications; session ids are event-sourced — no FK, matching session_id columns elsewhere)
-  created_by_run_id     TEXT,                       -- creating-run provenance; NULL = pre-run explicit prepare (run ids are event-sourced, not FK-constrained)
-  branch_name           TEXT NOT NULL,
-  fs_root               TEXT NOT NULL,              -- filesystem path to worktree (under the daemon execution-roots dir, D-007-6)
-  state                 TEXT NOT NULL DEFAULT 'creating'
-                        CHECK(state IN ('creating', 'ready', 'dirty', 'merged', 'retired', 'failed')),
-  created_at            TEXT NOT NULL,
-  updated_at            TEXT NOT NULL,
-  cleaned_at            TEXT                        -- async disk-cleanup stamp (retire records state; the sweep stamps cleanup)
-);
-
-CREATE INDEX idx_worktrees_repo ON worktrees(repo_mount_id);
--- At most one live checkout per (mount, branch): mirrors git's own constraint — a checkout existing
--- on disk (any non-retired, non-failed state, including 'merged') still holds the branch. Race arbiter
--- for the provenance-split collision policy (Spec-008 §Branch, Base And Preparation Rules).
-CREATE UNIQUE INDEX idx_worktrees_active_branch ON worktrees(repo_mount_id, branch_name)
-  WHERE state NOT IN ('retired', 'failed');
-
--- Owner: Plan-007
--- A worktree removed with `Discard and remove`, kept whole until the person presses `Delete now`; nothing
--- deletes it automatically. The folder is moved intact to
--- ~/.ai-sidekicks/worktrees/<project>/.removed/<name>-<removed id>/, holding the tree, a copy of git's
--- per-worktree record and a pack of the staged objects, and every commit the kept record names is pinned
--- in the person's repository under refs/sidekicks/removed/<removed id>/. `Put back` moves the tree back and
--- removes the pins; `Delete now` deletes the kept folder and the pins (Spec-008 §State And Data Implications).
-CREATE TABLE removed_worktrees (
-  id              TEXT PRIMARY KEY,
-  mount_id        TEXT NOT NULL REFERENCES repo_mounts(id),
-  project_id      TEXT NOT NULL,              -- the project record the worktree belonged to
-  worktree_name   TEXT NOT NULL,
-  original_path   TEXT NOT NULL,              -- where the worktree lived, for `Put back`
-  branch          TEXT NOT NULL,
-  head_commit     TEXT NOT NULL,
-  removed_at      TEXT NOT NULL,
-  size_bytes      INTEGER,                    -- read once after the discard, off its path; NULL until read
-  size_read_at    TEXT
-);
-
-CREATE INDEX idx_removed_worktrees_project ON removed_worktrees(project_id);
-
--- Owner: Plan-007 | Extended by: Plan-008
--- Root carrier (D-007-5): provisioned-worktree rows reference the worktree; bound-root rows reference
--- none (the project's own checkout carries no Plan-007 root row).
-CREATE TABLE branch_contexts (
-  id                 TEXT PRIMARY KEY,
-  workspace_id       TEXT NOT NULL REFERENCES workspaces(id),
-  worktree_id        TEXT REFERENCES worktrees(id),
-  base_branch        TEXT NOT NULL,
-  head_branch        TEXT NOT NULL,
-  upstream_ref       TEXT,
-  created_at         TEXT NOT NULL,
-  updated_at         TEXT NOT NULL
-);
-
-CREATE INDEX idx_branch_contexts_workspace ON branch_contexts(workspace_id);
-CREATE UNIQUE INDEX idx_branch_contexts_worktree_workspace ON branch_contexts(worktree_id, workspace_id) WHERE worktree_id IS NOT NULL;  -- one binding row per (workspace, worktree) — D-007-15 upsert; the worktree-keyed BranchContextRead resolves on the pair
-
--- Owner: Plan-007 (D-007-16) | Extended by: Plan-014
--- Per-run execution binding (Spec-008 §State And Data Implications: execution mode as run setup data):
--- which workspace, mode and root a run that works in a repository executes against. One row per run, written
--- at the run's start: an agent run keyed by its run id, a workflow run keyed by its workflow run id (both
--- event-sourced UUIDs, so the PRIMARY KEY carries no FK). A run in a chat's own folder, and a `None` run, writes no row. A workflow
--- run's row lives as long as the run's record, and a session that moves while the run is paused leaves its
--- steps on the recorded root (Spec-015 §Interfaces And Contracts).
--- released_at stamps run-terminal release; an undo leaves it as it is (Spec-003 §Required Behavior; the Plan-007 bundle owns the implementing task).
-CREATE TABLE run_execution_contexts (
-  run_id             TEXT PRIMARY KEY,
-  session_id         TEXT NOT NULL,                  -- event-sourced session id (no FK, matching session_id columns elsewhere)
-  workspace_id       TEXT NOT NULL REFERENCES workspaces(id),
-  execution_mode     TEXT NOT NULL
-                     CHECK(execution_mode IN ('bound-root', 'provisioned-worktree')),
-  execution_root     TEXT NOT NULL,
-  git_common_dir     TEXT NOT NULL,                  -- `git rev-parse --git-common-dir` (absolute) captured at context creation: the surviving canonical git dir for the base pins under `refs/sidekicks/base/<owner id>/` and the alternate a capture is read through, so pin removal outlives a worktree retirement of execution_root (provisioned-worktree → the main repository's git dir; bound-root → <root>/.git)
-  worktree_id        TEXT REFERENCES worktrees(id),
-  branch_context_id  TEXT NOT NULL REFERENCES branch_contexts(id),
-  point_capture_error TEXT,                          -- workflow runs: why a snapshot point after the start failed to capture; NULL while every point captured. A fault at the start fails the run before its first step instead
-  created_at         TEXT NOT NULL,
-  released_at        TEXT,
-  -- Mode-conditional identity: a provisioned-worktree row names its worktree, a bound-root row names none,
-  -- and both carry their branch context (Spec-008 §State And Data Implications).
-  CHECK ((execution_mode = 'provisioned-worktree') = (worktree_id IS NOT NULL))
-);
-
-CREATE INDEX idx_run_execution_contexts_workspace ON run_execution_contexts(workspace_id);
-```
-
-**Project record.** An attached repository is a project, and each project keeps a durable record beside its mount: its display name, the setup steps its worktrees run after preparation, its own environment rows, whether it is archived, and a cloning mark while `repo.clone` fetches it. One origin holds one project record, so attaching a folder that is already a project finds that project. Renaming a project edits the display name alone. Deleting a project forgets the record and detaches its mount; its sessions and the folder on disk stay ([Spec-007 §Required Behavior](../../specs/007-repo-attachment-and-workspace-binding.md#required-behavior)). The removed-worktree records, the agent definitions and the workflow secrets key a project by this record's id.
-
----
-
 ## Artifact Tables (Plan-011)
 
 ```sql
@@ -851,4 +752,25 @@ CREATE TABLE shared_ports (
 
 ## Session Search Index
 
-The search across every session and a session's own find are answered from the daemon's own full-text index on Tantivy over session titles, message text, tool calls, group names and tags. The index lives outside this database and is built from it: every write that changes searchable text adds a row to an outbox table here in the same transaction, the daemon applies the outbox to the index in batches and deletes the rows each durable index commit holds, and a crash replays what the index has not committed ([ADR-041](../../decisions/041-session-search-on-tantivy.md)). It reaches every session the list holds, archived ones included, with no cap. Only settled messages are indexed, never streamed chunks; prefix fields of one to four characters serve search as the person types; and the index merges its segments when the daemon is idle. A `tag:<tag>` term matches the tag and every tag nested under it through `session_tags`. A search with words alone answers in BM25 order (k1 1.2, b 0.75, a word in half or more of the rows weighted 1e-6); where it also names a relation or a tag, the BM25 rank and the relation rank from `session_related` are merged by Reciprocal Rank Fusion, each list contributing 1/(60 + its rank), and the person's `Search all sessions` box gets its hits grouped by session, while the agents' `session_search` gets them grouped by project, then group, then session, each branch ordered by its best score. The outbox table's name and columns are set by [Plan-001](../../plans/001-session-core.md) T6.9, and its DDL lands with the index and the search reads, `session.search` across sessions and `transcript.search` within one ([api-payload-contracts §Operations Not Yet Built](../contracts/api-payload-contracts.md#operations-not-yet-built)).
+The search across every session and a session's own find are answered from the daemon's own full-text index on Tantivy over session titles, message text, tool calls, group names and tags. The index lives outside this database and is built from it: every write that changes searchable text adds a row to an outbox table here in the same transaction, the daemon applies the outbox to the index in batches and deletes the rows each durable index commit holds, and a crash replays what the index has not committed ([ADR-041](../../decisions/041-session-search-on-tantivy.md)). It reaches every session the list holds, archived ones included, with no cap. Only settled messages are indexed, never streamed chunks; prefix fields of one to four characters serve search as the person types; and the index merges its segments when the daemon is idle, no merge writing more than 250,000 live rows, rewriting each segment that held a purged session's or a deleted group's rows. A `tag:<tag>` term matches the tag and every tag nested under it: the index holds each tag row under its tag's fold cut at every `/` (`billing/stripe` under `billing` and `billing/stripe`), with its session's last activity. A search with words answers in BM25 order (k1 1.2, b 0.75, a word in half or more of the rows weighted 1e-6). A tag narrows the sessions searched to those it matches and adds nothing to a score; a tag with no words lists its sessions most recently active first. Where the agents' `session_search` names a related session, the BM25 rank and the relation rank are merged by Reciprocal Rank Fusion, each list contributing 1/(60 + its rank); the person's box names no session, so `session_related` takes no part, and the person's `Search all sessions` box gets its hits grouped by session, while the agents' `session_search` gets them grouped by project, then group, then session, each branch ordered by its best score. The outbox is `session_search_outbox`, written by triggers on `session_events` (a settled message or tool call as it is appended), `sessions` (a title, a move between groups, a purge, and a move of its last activity, which re-reads the session's tag rows), `session_groups` (a name, a deletion) and `session_tags`. It copies no text: the search thread reads each row's text as this database holds it when a batch is read, at most 50,000 outbox rows or 16 MiB of text, ending a batch at a deleted session or group, and a row gone by then leaves the index. An index row's key is its source row's rowid times four plus its kind's slot (`event` 0, `title` 1, `group` 2, `tag` 3), and its owner is a session's rowid in `sessions` or, for a group name, the group's rowid in `session_groups`; nothing vacuums this database, so those rowids never move. A missing or unreadable index, or one whose last applied outbox id is past any id this outbox has given (an index built from another database), is rebuilt from this database while the daemon serves, in a child process the search thread starts and waits on, so the build's memory goes with that process when it exits; the build reads each source table through its highest rowid at the build's start, a later row reaching the index through the outbox, each batch holding every kind's rows through the same share of its table, then merges its segments, and the search thread then opens it. A search's later pages read the index as its first page did; because a source table gives a deleted row's rowid to the next row it inserts, `session_search_rowid_floors` logs every delete that lowers an indexed table's highest rowid, with the new highest, and a later page credits a held row only while its source rowid is no higher than every highest rowid logged since that view, so a row at a rowid a later row took is passed over like a purged one. The source tables insert without naming a rowid and never `REPLACE`, whose deletes fire no trigger. A held search is let go after 5 minutes unpaged or 30 minutes in all, and past 16 held the least recently paged goes first; a cursor of a search let go is refused `session.search_cursor_unresolvable`.
+
+```sql
+CREATE TABLE session_search_outbox (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,  -- never reused, so the id an index commit records always means the same row
+  index_key  INTEGER NOT NULL,                   -- source rowid * 4 + the kind's slot
+  kind       TEXT NOT NULL CHECK (kind IN ('event', 'title', 'group', 'tag')),
+  owner_key  INTEGER NOT NULL,                   -- sessions.rowid, or session_groups.rowid for a group name
+  -- 'row': read the row at index_key again; 'owner': the session or group at index_key left with
+  -- every row it owns; 'members': read the group's members again
+  operation  TEXT NOT NULL CHECK (operation IN ('row', 'owner', 'members'))
+) STRICT;
+
+CREATE TABLE session_search_rowid_floors (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind           TEXT NOT NULL,                  -- the index rows the table's rows source
+  highest_rowid  INTEGER NOT NULL                -- the table's highest rowid after the delete; 0 when empty
+) STRICT;
+
+-- A search by tag and words reads each tagged session's rowid and last activity from here alone.
+CREATE INDEX idx_sessions_activity ON sessions(id, last_activity_at);
+```

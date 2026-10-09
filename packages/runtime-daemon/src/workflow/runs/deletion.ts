@@ -14,7 +14,7 @@ import {
   EventEnvelopeVersionSchema,
   type EventEnvelopeVersion,
 } from "@ai-sidekicks/contracts/event/envelope";
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { WorkflowDefinitionId } from "@ai-sidekicks/contracts/workflow/definition/document";
 import type { WorkflowRunDeletedPayload } from "@ai-sidekicks/contracts/workflow/run/control";
@@ -29,7 +29,7 @@ import {
   type WorkflowRunsDeletePreviewResponse,
 } from "@ai-sidekicks/contracts/workflow/run/records";
 
-import type { DatabaseConnections } from "../../database/connections.js";
+import type { DatabaseConnections } from "../../database/connection/lifecycle.js";
 import type { WriteStatement } from "../../database/statement.js";
 import { WriteRefusedError } from "../../database/writer.js";
 import { SessionEventAppender, type SessionEventLog } from "../../events/session/appender.js";

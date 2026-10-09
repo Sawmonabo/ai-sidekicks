@@ -69,7 +69,7 @@ export type EarlierPageRead = (
 export class EarlierHistoryReader {
   /**
    * The store window this walk is based on, once observed. The store's own claim, re-taken
-   * by any read that re-establishes its base state, whatever position that read used.
+   * by any read that starts the store's log over, whatever position that read used.
    */
   #baseWindowGeneration: CurrentGenerationClaim | undefined;
   /**
@@ -190,9 +190,9 @@ export class EarlierHistoryReader {
    * Starts the walk over when the store's window is not the one it was based on, and
    * answers the window generation it is based on now.
    *
-   * One comparison covers both ways a window moves: a different acknowledged head, and the
-   * same head re-read after the old log (and any rows prepended to it) was thrown away. The
-   * caller keeps the generation until its reply lands.
+   * One comparison covers every way a window moves, since the store re-takes its generation
+   * whenever a read starts its log over, at whatever head. The caller keeps the generation until
+   * its reply lands.
    */
   #rebaseIfWindowMoved(sessionStore: SessionStore): CurrentGenerationClaim {
     const baseWindowGeneration = this.#baseWindowGeneration;

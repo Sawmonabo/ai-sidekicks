@@ -8,7 +8,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { JsonRpcNotification } from "@ai-sidekicks/contracts/jsonrpc/message";
 import type { MachinePresence, PresenceSubscribeResponse } from "@ai-sidekicks/contracts/presence";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
-import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { JSONRPC_VERSION } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import {
   SUBSCRIPTION_END_METHOD,
   SUBSCRIPTION_NOTIFY_METHOD,

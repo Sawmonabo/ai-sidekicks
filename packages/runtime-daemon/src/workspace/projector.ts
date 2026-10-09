@@ -164,8 +164,8 @@ export function computeWorkspaceHealth(
   };
 }
 
-// The matrix is keyed by `vcs_type` alone: worktree availability is not probed at read time, and a
-// mode that cannot be prepared fails at preparation.
+// The matrix is keyed by the mount's origin and `vcs_type`: worktree availability is not probed at
+// read time, and a mode that cannot be prepared fails at preparation.
 
 /**
  * The modes a mount's workspace may take, its default, and a reason for each mode it may not take.
@@ -183,10 +183,10 @@ type ExecutionModeVerdict =
   | { readonly available: false; readonly reason: string };
 
 /**
- * The capability answer for one `vcs_type`. The `Record<ExecutionMode, ...>` makes the verdict
+ * The capability answer for one kind of mount. The `Record<ExecutionMode, ...>` makes the verdict
  * table total, so a mode added in contracts fails this compile.
  */
-interface VcsTypeCapabilityProfile {
+interface MountCapabilityProfile {
   readonly defaultMode: ExecutionMode;
   readonly modeVerdicts: Readonly<Record<ExecutionMode, ExecutionModeVerdict>>;
 }
@@ -199,7 +199,19 @@ const GIT_CAPABILITY_PROFILE = {
     "bound-root": { available: true },
     "provisioned-worktree": { available: true },
   },
-} as const satisfies VcsTypeCapabilityProfile;
+} as const satisfies MountCapabilityProfile;
+
+// A chat's managed workspace: its own root only, so a run never leaves the chat's folder.
+const MANAGED_CAPABILITY_PROFILE = {
+  defaultMode: "bound-root",
+  modeVerdicts: {
+    "bound-root": { available: true },
+    "provisioned-worktree": {
+      available: false,
+      reason: "a chat's managed workspace offers only its own root",
+    },
+  },
+} as const satisfies MountCapabilityProfile;
 
 // The taxonomy order in which `availableModes` and `restrictions` are emitted, pinned total below.
 const EXECUTION_MODES_IN_TAXONOMY_ORDER = [
@@ -212,23 +224,27 @@ type _AssertTaxonomyOrderIsExhaustive = _AssertExtends<
   (typeof EXECUTION_MODES_IN_TAXONOMY_ORDER)[number]
 >;
 
-/** The `repo_mounts` field the capability projection reads. */
+/** The `repo_mounts` facts the capability projection reads. */
 export interface ExecutionModeCapabilityRow {
   readonly vcsType: VcsType;
+  /** Whether the mount is a chat's managed workspace rather than a project's folder. */
+  readonly isManaged: boolean;
 }
 
 /** Projects a mount's allowed execution modes, with a reason for each mode it does not allow. */
 export function computeExecutionModeCapabilities(
   mountRow: ExecutionModeCapabilityRow,
 ): ExecutionModeCapabilities {
-  return projectCapabilityProfile(capabilityProfileFor(mountRow.vcsType));
+  return projectCapabilityProfile(
+    mountRow.isManaged ? MANAGED_CAPABILITY_PROFILE : capabilityProfileFor(mountRow.vcsType),
+  );
 }
 
 /**
  * Resolves the profile for one `vcs_type`. The `never` binding fails the compile for a new member,
  * and the throw fails closed for a raw database value instead of answering with git modes.
  */
-function capabilityProfileFor(vcsType: VcsType): VcsTypeCapabilityProfile {
+function capabilityProfileFor(vcsType: VcsType): MountCapabilityProfile {
   switch (vcsType) {
     case "git":
       return GIT_CAPABILITY_PROFILE;
@@ -244,7 +260,7 @@ function capabilityProfileFor(vcsType: VcsType): VcsTypeCapabilityProfile {
   }
 }
 
-function projectCapabilityProfile(profile: VcsTypeCapabilityProfile): ExecutionModeCapabilities {
+function projectCapabilityProfile(profile: MountCapabilityProfile): ExecutionModeCapabilities {
   // Built fresh per call: a shared array is one caller's `.push` from corrupting later responses.
   const availableModes: ExecutionMode[] = [];
   const restrictions: Partial<Record<ExecutionMode, string>> = {};

@@ -27,7 +27,6 @@ import {
   type ScratchDatabase,
 } from "../../../database/__fixtures__/scratch.js";
 import { EventLogService } from "../../../events/log-service.js";
-import { SessionService } from "../../../session/service.js";
 import { ExecutionRootService } from "../../../workspace/execution-root-service.js";
 import { WorkspaceEventEmitter } from "../../../workspace/event-emitter.js";
 import { requireWorkspaceRow } from "../../../workspace/__fixtures__/rows.js";
@@ -289,13 +288,18 @@ beforeEach(async () => {
   const executionRootsDirectory: string = join(fixtureRoot, "execution-roots");
   const scratch: ScratchDatabase = await openScratchDatabase();
   const db: DatabaseType = new Database(scratch.databasePath);
-  const eventLog = new EventLogService({ writer: scratch.writer });
+  const eventLog = new EventLogService({
+    writer: scratch.writer,
+    reader: scratch.reader,
+    writeServiceLog: (line) => {
+      throw new Error(`unexpected service log line: ${line}`);
+    },
+  });
   const clock = (): string => CLOCK_INSTANT;
 
   const workspaces = new WorkspaceService({
     database: scratch,
     events: new WorkspaceEventEmitter({ sessionEvents: eventLog }),
-    sessions: new SessionService(scratch.reader),
     now: clock,
   });
   // No `git` seam: that selects the production `execFile` runner.

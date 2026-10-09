@@ -1,12 +1,15 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
   "extends": "../../tsconfig.node.json",
+  // Type-checks only, writing nothing but its build info: rolldown writes the daemon's JavaScript,
+  // bundled, and no entry exports anything to declare. `composite` stays for the solution's
+  // `tsc -b`.
   "compilerOptions": {
-    "outDir": "./dist",
+    "noEmit": true,
     "rootDir": "./src",
     "tsBuildInfoFile": "./.tsbuildinfo"
   },
-  "references": [{ "path": "../contracts" }],
+  "references": [{ "path": "../contracts" }, { "path": "../search-ranking" }],
   "include": ["src/**/*"],
-  "exclude": ["dist", "node_modules", "src/**/__tests__/**", "src/**/__fixtures__/**"]
+  "exclude": ["node_modules", "src/**/__tests__/**", "src/**/__fixtures__/**"]
 }

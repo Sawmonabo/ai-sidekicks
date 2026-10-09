@@ -150,7 +150,13 @@ beforeEach(async () => {
   const tmpDir: string = mkdtempSync(join(tmpdir(), "ai-sidekicks-worktree-service-test-"));
   const scratch: ScratchDatabase = await openScratchDatabase();
   const db: DatabaseType = new Database(scratch.databasePath);
-  const eventLog = new EventLogService({ writer: scratch.writer });
+  const eventLog = new EventLogService({
+    writer: scratch.writer,
+    reader: scratch.reader,
+    writeServiceLog: (line) => {
+      throw new Error(`unexpected service log line: ${line}`);
+    },
+  });
   const executionRootsDirectory: string = join(tmpDir, "execution-roots");
   ctx = {
     scratch,
@@ -586,6 +592,16 @@ describe("WorktreeService.cleanupPass", () => {
     expect(refusal).toBeInstanceOf(Error);
     expect(removedPaths).toEqual([]);
     expect(readWorktreeRow(created.worktreeId).cleaned_at).toBeNull();
+  });
+
+  it("retires a live worktree on a detached mount", async () => {
+    const service = makeService();
+    const created = await createReadyWorktree(service);
+    ctx.db.prepare(`UPDATE repo_mounts SET state = 'detached'`).run();
+
+    const result = await service.cleanupPass();
+
+    expect(result.retiredWorktreeIds).toEqual([created.worktreeId]);
   });
 
   it("leaves a live worktree on an attached mount alone", async () => {

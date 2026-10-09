@@ -4,7 +4,8 @@
 // all-or-none; a literal could write a row the projector never emits.
 
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
-import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { clockLocaleFor, formatZonedDateTime } from "#renderer/lib/wire/figures.js";

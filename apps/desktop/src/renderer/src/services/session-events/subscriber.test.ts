@@ -5,13 +5,27 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 import { createFixtureBridge } from "../platform/bridge.fixture.js";
+import type { SessionReadResponse } from "@ai-sidekicks/contracts/session/methods";
+
 import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
+import { TRANSCRIPT_STATES_SCENARIO } from "#fixtures/scenarios/transcript-states.js";
+import {
+  lastScriptedBeatMs,
+  withDaemonCall,
+  withDaemonSubscribe,
+} from "#test/helpers/fixture/bridge.js";
+import { sessionReadThroughDaemon } from "../daemon/session/read/base-state.js";
 import { APPLY_COALESCE_MS } from "#renderer/lib/reads/refresh/caps.js";
 import { windowTripwires } from "#renderer/lib/tripwires/registry.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { SessionStoreRegistry } from "#renderer/store/session/registry.js";
 import { SessionEventSubscriber } from "./subscriber.js";
-import { PAST_EVERY_BEAT_MS, SESSION_ID, createHarness } from "./subscriber.test-support.js";
+import {
+  PAST_EVERY_BEAT_MS,
+  SESSION_ID,
+  createHarness,
+  landReads,
+} from "./subscriber.test-support.js";
 
 // Tripwires throw in development; under test they are recorded, so a case can assert none fired.
 beforeEach(() => {
@@ -20,10 +34,11 @@ beforeEach(() => {
 });
 
 describe("SessionEventSubscriber — the console's one subscription to the wire", () => {
-  it("admits every beat of an open session to the apply chokepoint", () => {
+  it("admits every beat of an open session to the apply chokepoint", async () => {
     const { registry, subscriber, engine } = createHarness();
     subscriber.attach();
     registry.open(SESSION_ID);
+    await landReads(engine);
 
     engine.advance(PAST_EVERY_BEAT_MS);
 
@@ -42,12 +57,13 @@ describe("SessionEventSubscriber — the console's one subscription to the wire"
     subscriber.dispose();
   });
 
-  it("binds a session that was already open before it attached", () => {
+  it("binds a session that was already open before it attached", async () => {
     // The lost-open race in the order that loses it: the session is open before the subscriber
     // subscribes to the registry, so one listening only for changes would never hear of it.
     const { registry, subscriber, engine } = createHarness();
     registry.open(SESSION_ID);
     subscriber.attach();
+    await landReads(engine);
 
     engine.advance(PAST_EVERY_BEAT_MS);
 
@@ -59,9 +75,9 @@ describe("SessionEventSubscriber — the console's one subscription to the wire"
     subscriber.dispose();
   });
 
-  it("asks for the base-state read in the same act as taking the subscription", async () => {
-    // Nothing else called `requestRefresh` on an open, so even a registry with a working read never
-    // performed one. The control is the count: zero without the request, with an empty transcript.
+  it("reads an opened session first and opens its stream once that read lands", async () => {
+    // Nothing else calls `requestRefresh` on an open, so without it no read is performed and no
+    // stream opens. The control is the count: zero without the request, with an empty transcript.
     const { bridge, scenarioEngine: engine } = createFixtureBridge({
       scenario: CONCURRENT_STREAMING_SCENARIO,
     });
@@ -69,7 +85,7 @@ describe("SessionEventSubscriber — the console's one subscription to the wire"
     const registry = new SessionStoreRegistry({
       read: (_sessionId, reasons) => {
         reasonsSeen.push(...reasons);
-        return Promise.resolve({ cursor: 0, entities: [] });
+        return Promise.resolve({ entities: [] });
       },
       clock: engine.clock,
       refreshDebounceMs: 0,
@@ -96,7 +112,53 @@ describe("SessionEventSubscriber — the console's one subscription to the wire"
     subscriber.dispose();
   });
 
-  it("refuses a delivered payload that is not a session event, and counts it", () => {
+  it("opens the first stream after the acknowledged position the read named", async () => {
+    // Every beat has fallen due before the session opens, so the acknowledged row is in the log.
+    const { bridge: base, scenarioEngine: engine } = createFixtureBridge({
+      scenario: TRANSCRIPT_STATES_SCENARIO,
+    });
+    engine.advance(lastScriptedBeatMs(TRANSCRIPT_STATES_SCENARIO) + 1);
+    let acknowledged: string | undefined;
+    const { bridge: reading } = withDaemonCall(base, async (call, passThrough) => {
+      const reply = await passThrough();
+      if (call.method === "session.read") {
+        acknowledged = (reply as SessionReadResponse).transcriptCursors.acknowledged;
+      }
+      return reply;
+    });
+    const opens: unknown[] = [];
+    const bridge = withDaemonSubscribe(reading, (passThrough, _handler, request) => {
+      opens.push(request);
+      return passThrough();
+    });
+    const sessionId = TRANSCRIPT_STATES_SCENARIO.sessionId;
+    const registry = new SessionStoreRegistry({
+      read: sessionReadThroughDaemon(bridge),
+      clock: engine.clock,
+      refreshDebounceMs: 0,
+    });
+    const subscriber = new SessionEventSubscriber({ registry, bridge, clock: engine.clock });
+    subscriber.attach();
+    registry.open(sessionId);
+    await landReads(engine);
+    engine.advance(APPLY_COALESCE_MS + 1);
+
+    expect(acknowledged).toBeDefined();
+    expect(opens).toEqual([{ sessionId, afterCursor: acknowledged }]);
+    // The window starts after the acknowledged row, which heads it, and holds every row after it.
+    const beats = TRANSCRIPT_STATES_SCENARIO.beats;
+    const acknowledgedIndex = beats.findIndex((beat) => beat.event.cursor === acknowledged);
+    const store = registry.peek(sessionId)?.snapshot();
+    expect(store?.windowHeadCursor).toBe(acknowledged);
+    expect(store?.transcript.map((event) => event.sequence)).toEqual(
+      beats.slice(acknowledgedIndex + 1).map((beat) => beat.event.sequence),
+    );
+    expect(store?.gaps).toEqual([]);
+
+    subscriber.dispose();
+  });
+
+  it("refuses a delivered payload that is not a session event, and counts it", async () => {
     const { registry, subscriber, engine } = createHarness({
       ...CONCURRENT_STREAMING_SCENARIO,
       id: "concurrent-streaming-malformed-payload-probe",
@@ -104,6 +166,7 @@ describe("SessionEventSubscriber — the console's one subscription to the wire"
     });
     subscriber.attach();
     registry.open(SESSION_ID);
+    await landReads(engine);
 
     engine.advance(1);
 

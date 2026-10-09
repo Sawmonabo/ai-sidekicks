@@ -15,10 +15,8 @@ import path from "node:path";
 import { setImmediate } from "node:timers/promises";
 import { inspect } from "node:util";
 
-import {
-  JsonRpcErrorCode,
-  TRANSPORT_UNAVAILABLE_CODE,
-} from "@ai-sidekicks/contracts/jsonrpc/message";
+import { TRANSPORT_UNAVAILABLE_CODE } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import type { SubscriptionId } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 import {
   MACHINE_SETTINGS_DEFAULTS,

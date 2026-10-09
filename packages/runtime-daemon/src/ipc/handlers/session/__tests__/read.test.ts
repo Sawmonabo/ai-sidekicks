@@ -4,21 +4,22 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { SessionReadRequest } from "@ai-sidekicks/contracts/session/methods";
+import { type SessionId } from "@ai-sidekicks/contracts/session/id";
 import {
   encodeEventCursor,
   START_OF_LOG_POSITION,
-  type SessionId,
-} from "@ai-sidekicks/contracts/session/id";
+} from "@ai-sidekicks/contracts/session/event-cursor";
 import type { HandlerContext } from "@ai-sidekicks/contracts/jsonrpc/registry";
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import { SessionReadResponseSchema } from "@ai-sidekicks/contracts/session/methods";
 
 import { mapJsonRpcError } from "../../../jsonrpc-error-mapping.js";
 import { MethodRegistryImpl } from "../../../registry.js";
 import { SessionNotFoundError } from "../../../session-errors.js";
 import { captureRejection } from "../../../../__fixtures__/capture-failure.js";
+import type { SessionLogRead } from "../../../../session/service.js";
 
-import { registerSessionRead, type SessionLogRead, type SessionReadDeps } from "../read.js";
+import { registerSessionRead, type SessionReadDeps } from "../read.js";
 
 const TEST_SESSION_ID = "550e8400-e29b-41d4-a716-446655440000" as SessionId;
 const UNKNOWN_SESSION_ID = "aabbccdd-eeff-4011-8022-334455667788" as SessionId;
@@ -38,8 +39,11 @@ function buildSessionLogRead(): SessionLogRead {
     session: {
       id: TEST_SESSION_ID,
       state: "active",
+      shape: "chat",
+      muted: false,
       createdAt: "2026-01-22T19:14:35.000Z",
       updatedAt: "2026-01-22T19:14:35.000Z",
+      tags: [],
     },
     transcriptCursors: {
       earliest: encodeEventCursor(START_OF_LOG_POSITION),

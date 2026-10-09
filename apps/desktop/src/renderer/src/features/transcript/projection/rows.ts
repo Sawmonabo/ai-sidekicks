@@ -13,7 +13,8 @@ import {
 } from "@ai-sidekicks/contracts/transcript/row";
 import type { EventCategory } from "@ai-sidekicks/contracts/event/envelope";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
-import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 
 import { readRollbackBoundaryPayload } from "#renderer/services/daemon/payload/rollback-boundary.js";
 import { type ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";

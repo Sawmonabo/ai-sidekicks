@@ -1,17 +1,12 @@
-// The session directory: how a reader ages a row's activity, the rules `session.create` holds a
-// new session to (born with its lead; a scratch session is a definition's, in a chat), and its
-// reply, which echoes the configuration resolved from a definition.
+// The session directory: how a reader ages a row's activity, and the rules `session.create` holds a
+// new session to (its lead names no account; only a project session is filed in a group).
 import { describe, expect, it } from "vitest";
 
-import {
-  SessionCreateRequestSchema,
-  SessionCreateResponseSchema,
-  sessionActivityAsOf,
-} from "../directory.js";
+import { SessionCreateRequestSchema, sessionActivityAsOf } from "../directory.js";
 
-const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
 const MOUNT_ID = "770e8400-e29b-41d4-a716-446655440002";
-const DEFINITION_ID = "990e8400-e29b-41d4-a716-446655440004";
+const GROUP_ID = "aa0e8400-e29b-41d4-a716-446655440005";
+const ACCOUNT_ID = "bb0e8400-e29b-41d4-a716-446655440006";
 const IDEMPOTENCY_KEY = "0f2b4d5e-9999-4999-8999-999999999999";
 const AT = "2026-09-24T02:00:00.000Z";
 
@@ -34,14 +29,10 @@ describe("reading a row's activity", () => {
 });
 
 describe("session.create", () => {
-  const lead = {
-    driverName: "claude",
-    modelId: "claude-opus-4-5",
-    providerAccountId: null,
-    effort: "high",
-  };
+  const lead = { driverName: "claude", modelId: "claude-opus-4-5", effort: "high" };
+  const resolvedLead = { ...lead, providerAccountId: ACCOUNT_ID };
 
-  it("accepts a lead in a chat or a project, and a definition's scratch chat", () => {
+  it("accepts a lead in a chat or a project", () => {
     expect(
       SessionCreateRequestSchema.safeParse({
         clientIdempotencyKey: IDEMPOTENCY_KEY,
@@ -56,62 +47,34 @@ describe("session.create", () => {
         lead,
       }).success,
     ).toBe(true);
-    expect(
-      SessionCreateRequestSchema.safeParse({
-        clientIdempotencyKey: IDEMPOTENCY_KEY,
-        binding: { kind: "chat" },
-        leadDefinitionId: DEFINITION_ID,
-        scratch: true,
-      }).success,
-    ).toBe(true);
   });
 
-  it("refuses a session with no lead", () => {
+  it("refuses a lead that names an account, which the daemon resolves", () => {
     expect(
       SessionCreateRequestSchema.safeParse({
         clientIdempotencyKey: IDEMPOTENCY_KEY,
         binding: { kind: "chat" },
+        lead: resolvedLead,
       }).success,
     ).toBe(false);
   });
 
-  it("refuses a scratch session with no definition, or with a repo", () => {
+  it("files a project session in a group, and refuses a chat in one", () => {
+    expect(
+      SessionCreateRequestSchema.safeParse({
+        clientIdempotencyKey: IDEMPOTENCY_KEY,
+        binding: { kind: "project", repoMountId: MOUNT_ID, executionMode: "bound-root" },
+        lead,
+        groupId: GROUP_ID,
+      }).success,
+    ).toBe(true);
     expect(
       SessionCreateRequestSchema.safeParse({
         clientIdempotencyKey: IDEMPOTENCY_KEY,
         binding: { kind: "chat" },
         lead,
-        scratch: true,
+        groupId: GROUP_ID,
       }).success,
-    ).toBe(false);
-    expect(
-      SessionCreateRequestSchema.safeParse({
-        clientIdempotencyKey: IDEMPOTENCY_KEY,
-        binding: { kind: "project", repoMountId: MOUNT_ID, executionMode: "provisioned-worktree" },
-        leadDefinitionId: DEFINITION_ID,
-        scratch: true,
-      }).success,
-    ).toBe(false);
-  });
-
-  it("answers with the session's shape, and the configuration its definition resolved", () => {
-    expect(
-      SessionCreateResponseSchema.safeParse({
-        sessionId: SESSION_ID,
-        shape: "chat",
-        state: "provisioning",
-        resolvedConfiguration: {
-          resolvedFromDefinitionId: DEFINITION_ID,
-          resolvedBinding: lead,
-          toolAllowlist: null,
-          instructions: "Review the diff.",
-          goal: null,
-        },
-      }).success,
-    ).toBe(true);
-    expect(
-      SessionCreateResponseSchema.safeParse({ sessionId: SESSION_ID, state: "provisioning" })
-        .success,
     ).toBe(false);
   });
 });

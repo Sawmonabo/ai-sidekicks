@@ -10,10 +10,10 @@
 //   body (assistant text, reasoning blocks, tool arguments, tool results) comes from
 //   `TranscriptContentSource`, which this module declares and does not implement.
 
+import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
-import type { StoredEvent } from "../../session/records.js";
 import type {
   CanonicalReasoningDisclosure,
   CanonicalTranscriptProjection,
@@ -23,10 +23,11 @@ import type {
 } from "../driver/contract.js";
 
 /**
- * The slice of the session store the fold reads: the signature of `SessionService.readEvents`.
+ * The slice of the session store the fold reads: every logged event of one session, in sequence
+ * order. `SessionService` implements it over the event log's reads.
  */
 export interface TranscriptEventReader {
-  readEvents(sessionId: string): ReadonlyArray<StoredEvent>;
+  readEvents(sessionId: SessionId): readonly EventEnvelope[];
 }
 
 /**
@@ -98,7 +99,7 @@ const TRANSCRIPT_BEARING_EVENT_TYPE_SET: ReadonlySet<string> = new Set(
  * payload names the run: a row naming no run cannot be proven to belong to this one, and admitting
  * it could carry another run's conversation into this run's hand-over brief.
  */
-function isEventInRunScope(event: StoredEvent, runId: RunId): boolean {
+function isEventInRunScope(event: EventEnvelope, runId: RunId): boolean {
   if (!TRANSCRIPT_BEARING_EVENT_TYPE_SET.has(event.type)) {
     return false;
   }
@@ -303,9 +304,7 @@ export class CanonicalTranscriptFold {
    * append, `builtAtPosition` moves. Nothing is memoized between calls.
    */
   build(request: CanonicalTranscriptFoldRequest): CanonicalTranscriptProjection {
-    const loggedEvents: ReadonlyArray<StoredEvent> = this.#eventReader.readEvents(
-      request.sessionId as string,
-    );
+    const loggedEvents: readonly EventEnvelope[] = this.#eventReader.readEvents(request.sessionId);
 
     // Taken over the whole log, not only the run's rows, so an append anywhere in the session moves
     // `builtAtPosition`.
@@ -539,7 +538,7 @@ export class CanonicalTranscriptFold {
    * an empty `contentUnavailable` segment, so the turn keeps its position and the loss is
    * declared; dropping it would erase typed words silently.
    */
-  #userSegmentsFor(event: StoredEvent): readonly CanonicalTranscriptSegment[] {
+  #userSegmentsFor(event: EventEnvelope): readonly CanonicalTranscriptSegment[] {
     const text: string | undefined = readStringMember(event.payload, "message");
     if (text === undefined) {
       return [{ kind: "text", position: event.sequence, text: "", contentUnavailable: true }];
@@ -548,7 +547,7 @@ export class CanonicalTranscriptFold {
   }
 
   #assistantSegmentsFor(
-    event: StoredEvent,
+    event: EventEnvelope,
     reference: TranscriptContentReference,
     deferredEnclosedResults: Map<number, DeferredEnclosedToolResult>,
     unreadableReasoningPositions: Set<number>,

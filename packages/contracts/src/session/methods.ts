@@ -1,11 +1,12 @@
 // Session contracts: the session read and subscribe shapes, the frame a session's stream sends,
 // the verbs called on one session (rename, archive, reactivate, close, pin, mute, restart, and the
-// two actions of a session whose history is damaged) and the two searches. The events those verbs
-// append are in `./events.ts`.
+// two actions of a session whose history is damaged), the two searches and the read of a
+// conversion's skipped files. The events those verbs append are in `./events.ts`.
 import { z } from "zod";
 
 import { FILE_PATH_MAX_LEN, wireFreeFormString } from "../free-form-string.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
+import { requireMemberToRideOneFrame } from "../jsonrpc/page.js";
 import {
   StreamFrameSchema,
   SubscribeAckResponseSchema,
@@ -13,7 +14,21 @@ import {
   type SubscribeAckResponse,
 } from "../jsonrpc/streaming.js";
 import { defineMethodDescriptors, type MethodDescriptor } from "../method-descriptor.js";
-import { EventCursorSchema, SessionIdSchema, type EventCursor, type SessionId } from "./id.js";
+import { TagListSchema } from "../tag.js";
+import {
+  SessionConvertSkippedFileListRequestSchema,
+  SessionConvertSkippedFileListResponseSchema,
+  type SessionConvertSkippedFileListRequest,
+  type SessionConvertSkippedFileListResponse,
+} from "./convert.js";
+import { EventCursorSchema, SessionIdSchema, type SessionId } from "./id.js";
+import { type EventCursor } from "./event-cursor.js";
+import { SESSION_NAME_MAX_LEN } from "./name.js";
+import {
+  SESSION_SEARCH_HIT_LINE_MAX_LEN,
+  SESSION_SEARCH_PAGE_LIMIT_MAX,
+  SESSION_SEARCH_QUERY_MAX_LEN,
+} from "./search.js";
 
 /** Where a session is in its lifecycle. */
 export type SessionState = "provisioning" | "active" | "archived" | "closed" | "purge_requested";
@@ -27,27 +42,65 @@ export const SessionStateSchema: z.ZodType<SessionState> = z.enum([
 ]);
 
 /**
- * One session as `session.read` answers it. `draft` is the unsent composer draft the daemon
- * holds for the session, the whole text, and the empty string when none is held: Send clears
- * it, and a half-typed message reaches the person's other devices through this read.
+ * What a session is bound to, kept as a stored fact rather than a mode flag: a `chat` works in
+ * a managed workspace the daemon owns, a `project` in a repository the person attached.
+ * Converting a chat changes it in place, so it is read from the session, never fixed at creation.
+ */
+export type SessionShape = "chat" | "project";
+/** Parses a {@link SessionShape}. */
+export const SessionShapeSchema: z.ZodType<SessionShape, SessionShape> = z.enum([
+  "chat",
+  "project",
+]);
+
+/**
+ * A change the session's state does not take: a `provisioning` session is neither archived,
+ * closed nor converted, and a `purge_requested` one, being deleted, takes no change.
+ * `data.fields`: `sessionId`, `state`.
+ */
+export const SESSION_CHANGE_REFUSED_CODE = "session.change_refused" as const;
+
+/** A change to a session that has been closed, which takes none. `data.fields`: `sessionId`. */
+export const SESSION_ALREADY_CLOSED_CODE = "session.already_closed" as const;
+
+/**
+ * One session as `session.read` answers it.
+ *
+ * - `name` is absent while the session is untitled; a surface then shows its first message.
+ * - `muted` is whether the person muted the session's notifications.
+ * - `draft` is the unsent composer draft the daemon holds, the whole text, and the empty string
+ *   when none is held: Send clears it, and a half-typed message reaches the person's other
+ *   devices through this read.
+ * - `tags` are the session's tags as first written, in the order of their case fold.
  */
 export interface SessionRecord {
   id: SessionId;
   state: SessionState;
+  shape: SessionShape;
+  name?: string | undefined;
+  muted: boolean;
   createdAt: string;
   updatedAt: string;
   draft: string;
+  tags: string[];
 }
-/** Parses a {@link SessionRecord}. */
+/** Parses a {@link SessionRecord}; its tags fit the shared page budget. */
 export const SessionRecordSchema: z.ZodType<SessionRecord> = z
   .object({
     id: SessionIdSchema,
     state: SessionStateSchema,
+    shape: SessionShapeSchema,
+    name: wireFreeFormString(SESSION_NAME_MAX_LEN, "SessionRecord.name").optional(),
+    muted: z.boolean(),
     createdAt: isoDateTimeSchema,
     updatedAt: isoDateTimeSchema,
     draft: z.string(),
+    tags: TagListSchema,
   })
-  .strict();
+  .strict()
+  .superRefine((record, issueContext) => {
+    requireMemberToRideOneFrame(record.tags, "tags", issueContext);
+  });
 
 /** The session `session.read` answers with. */
 export interface SessionReadRequest {
@@ -133,21 +186,6 @@ export function SessionStreamFrameSchema<Event>(
 }
 
 /**
- * What a session is bound to, kept as a stored fact rather than a mode flag: a `chat` works in
- * a managed workspace the daemon owns, a `project` in a repository the person attached.
- * Converting a chat changes it in place, so it is read from the session, never fixed at creation.
- */
-export type SessionShape = "chat" | "project";
-/** Parses a {@link SessionShape}. */
-export const SessionShapeSchema: z.ZodType<SessionShape, SessionShape> = z.enum([
-  "chat",
-  "project",
-]);
-
-/** The longest session name the daemon stores. */
-export const SESSION_NAME_MAX_LEN = 256;
-
-/**
  * The request of every verb that acts on one session and takes nothing else: archive,
  * reactivate, close, pin, unpin, mute, unmute, restart, and the damaged history's continue and
  * delete.
@@ -198,20 +236,44 @@ export const SessionRenameResponseSchema: z.ZodType<SessionRenameResponse> = z
   })
   .strict();
 
-/** The longest query `session.search` and `session.fileSearch` accept. */
-export const SESSION_SEARCH_QUERY_MAX_LEN = 256;
+// The longest `session.search` cursor accepted; a guard against pathological lengths.
+const SESSION_SEARCH_CURSOR_MAX_LEN = 256;
 
 /**
- * The `session.search` input: the text typed in the search box. The daemon matches it against
- * every session's title and message text, archived sessions included, and returns every hit in
- * the index's own ranked order with no cap, so the request carries no limit.
+ * Where the next `session.search` page starts. The daemon writes it and owns its format; a client
+ * passes it back unchanged with the same query. It continues the search its first page read, so a
+ * write between pages neither repeats a hit nor drops one, except a hit whose row, group
+ * membership or session has since gone or whose title, group name or tag was renamed so the words
+ * no longer match it; a cursor of a search the daemon has let go is refused, and the client
+ * searches again.
+ */
+export type SessionSearchCursor = string & { readonly __brand: "SessionSearchCursor" };
+/** Parses a {@link SessionSearchCursor}; any bounded non-empty string, which the daemon reads. */
+export const SessionSearchCursorSchema: z.ZodType<SessionSearchCursor, SessionSearchCursor> = z
+  .string()
+  .min(1)
+  .max(SESSION_SEARCH_CURSOR_MAX_LEN)
+  .brand<"SessionSearchCursor">() as unknown as z.ZodType<SessionSearchCursor, SessionSearchCursor>;
+
+/**
+ * The `session.search` input: the text typed in the search box and, past the first page, the
+ * previous page's `nextCursor`. The daemon matches the text against every session's title,
+ * message text, tool calls, group name and tags, archived sessions included, and every hit is
+ * reachable page by page. `limit` caps the hits on one page, at most
+ * {@link SESSION_SEARCH_PAGE_LIMIT_MAX}, which is also the default.
  */
 export interface SessionSearchRequest {
   query: string;
+  afterCursor?: SessionSearchCursor | undefined;
+  limit?: number | undefined;
 }
 /** Parses a {@link SessionSearchRequest}. */
 export const SessionSearchRequestSchema: z.ZodType<SessionSearchRequest, SessionSearchRequest> = z
-  .object({ query: wireFreeFormString(SESSION_SEARCH_QUERY_MAX_LEN, "SessionSearchRequest.query") })
+  .object({
+    query: wireFreeFormString(SESSION_SEARCH_QUERY_MAX_LEN, "SessionSearchRequest.query"),
+    afterCursor: SessionSearchCursorSchema.optional(),
+    limit: z.number().int().positive().max(SESSION_SEARCH_PAGE_LIMIT_MAX).optional(),
+  })
   .strict();
 
 /**
@@ -242,7 +304,7 @@ export interface SessionSearchHit {
 const SessionSearchHitSchema: z.ZodType<SessionSearchHit> = z
   .object({
     cursor: EventCursorSchema,
-    line: z.string(),
+    line: z.string().max(SESSION_SEARCH_HIT_LINE_MAX_LEN),
     matchRanges: z.array(SearchMatchRangeSchema).min(1),
   })
   .strict();
@@ -261,14 +323,46 @@ const SessionSearchGroupSchema: z.ZodType<SessionSearchGroup> = z
   })
   .strict();
 
-/** The `session.search` result: hits grouped by session, in the index's ranked order. */
-export interface SessionSearchResponse {
-  groups: SessionSearchGroup[];
-}
-/** Parses a {@link SessionSearchResponse}. */
+/**
+ * One `session.search` page: hits grouped by session, the sessions in the order of their best
+ * hit and each session's hits best first. A session's hits stay on one page unless they alone
+ * overflow a page; then that session fills the page and the next page continues it under the same
+ * `sessionId`. A continuing page carries at least one group and the cursor to continue from.
+ */
+export type SessionSearchResponse =
+  | {
+      groups: [SessionSearchGroup, ...SessionSearchGroup[]];
+      hasMore: true;
+      nextCursor: SessionSearchCursor;
+    }
+  | { groups: SessionSearchGroup[]; hasMore: false };
+
+/**
+ * Parses a {@link SessionSearchResponse}: a page carries at most
+ * {@link SESSION_SEARCH_PAGE_LIMIT_MAX} hits and fits the shared page budget.
+ */
 export const SessionSearchResponseSchema: z.ZodType<SessionSearchResponse> = z
-  .object({ groups: z.array(SessionSearchGroupSchema) })
-  .strict();
+  .discriminatedUnion("hasMore", [
+    z
+      .object({
+        groups: z.tuple([SessionSearchGroupSchema], SessionSearchGroupSchema),
+        hasMore: z.literal(true),
+        nextCursor: SessionSearchCursorSchema,
+      })
+      .strict(),
+    z.object({ groups: z.array(SessionSearchGroupSchema), hasMore: z.literal(false) }).strict(),
+  ])
+  .superRefine((page, issueContext) => {
+    const hitCount = page.groups.reduce((total, group) => total + group.hits.length, 0);
+    if (hitCount > SESSION_SEARCH_PAGE_LIMIT_MAX) {
+      issueContext.addIssue({
+        code: "custom",
+        path: ["groups"],
+        message: `a page carries at most ${String(SESSION_SEARCH_PAGE_LIMIT_MAX)} hits, not ${String(hitCount)}`,
+      });
+    }
+    requireMemberToRideOneFrame(page.groups, "groups", issueContext);
+  });
 
 /**
  * The `session.fileSearch` input: the text typed after `@` in a session's draft. An empty query
@@ -293,6 +387,13 @@ export const SessionFileSearchRequestSchema: z.ZodType<
       }),
   })
   .strict();
+
+/**
+ * A `session.fileSearch` whose session has no working folder in place, yet or any more; nothing is
+ * listed. `data.fields`: `sessionId`.
+ */
+export const SESSION_WORKING_FOLDER_UNAVAILABLE_CODE =
+  "session.working_folder_unavailable" as const;
 
 /**
  * The `session.fileSearch` result: the matching files' paths relative to the working folder,
@@ -400,6 +501,11 @@ export interface SessionMethodDescriptors {
     SessionFileSearchRequest,
     SessionFileSearchResponse
   >;
+  readonly "session.convertSkippedFileList": MethodDescriptor<
+    "session.convertSkippedFileList",
+    SessionConvertSkippedFileListRequest,
+    SessionConvertSkippedFileListResponse
+  >;
 }
 
 // The descriptor shared by every verb that takes only the session and returns nothing.
@@ -454,5 +560,12 @@ export const SESSION_METHOD_DESCRIPTORS: SessionMethodDescriptors = defineMethod
     mutating: false,
     requestSchema: SessionFileSearchRequestSchema,
     responseSchema: SessionFileSearchResponseSchema,
+  },
+  "session.convertSkippedFileList": {
+    method: "session.convertSkippedFileList",
+    procedureType: "query",
+    mutating: false,
+    requestSchema: SessionConvertSkippedFileListRequestSchema,
+    responseSchema: SessionConvertSkippedFileListResponseSchema,
   },
 });

@@ -10,7 +10,8 @@ import {
   type DaemonRecoveryState,
   type DaemonRecoveryStatus,
 } from "@ai-sidekicks/contracts/daemon/recovery";
-import { START_OF_LOG_POSITION, type SessionId } from "@ai-sidekicks/contracts/session/id";
+import { type SessionId } from "@ai-sidekicks/contracts/session/id";
+import { START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/event-cursor";
 import type { SessionWriteRefusedDetails } from "@ai-sidekicks/contracts/session/recovery";
 import { canonicalizeUuid } from "@ai-sidekicks/contracts/uuid-canonical";
 

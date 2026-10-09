@@ -4,7 +4,10 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { encodeEventCursor, START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/id";
+import {
+  encodeEventCursor,
+  START_OF_LOG_POSITION,
+} from "@ai-sidekicks/contracts/session/event-cursor";
 
 import {
   openScratchDatabase,
@@ -15,7 +18,8 @@ import { insertStoredEvent } from "../../../../session/__fixtures__/stored-event
 import { MethodRegistryImpl } from "../../../registry.js";
 import { SessionNotFoundError } from "../../../session-errors.js";
 import { registerSessionDraftUpdate } from "../draft-update.js";
-import { registerSessionRead, type SessionLogRead } from "../read.js";
+import type { SessionLogRead } from "../../../../session/service.js";
+import { registerSessionRead } from "../read.js";
 
 const SESSION_ID = "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c9d0e";
 const UNKNOWN_SESSION_ID = "0190f5a2-7c1e-7a3b-8d4e-000000000000";
@@ -26,8 +30,11 @@ const LOG_READ = {
   session: {
     id: SESSION_ID,
     state: "active",
+    shape: "chat",
+    muted: false,
     createdAt: "2026-09-29T17:00:00.000Z",
     updatedAt: "2026-09-29T17:00:00.000Z",
+    tags: [] as string[],
   },
   transcriptCursors: {
     earliest: encodeEventCursor(START_OF_LOG_POSITION),

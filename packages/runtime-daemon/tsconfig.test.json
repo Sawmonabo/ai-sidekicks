@@ -1,12 +1,10 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  // Type-validates test files without emitting. The production `tsconfig.json`
-  // excludes `src/**/__tests__/**` so test files don't ship in `dist/`; this
-  // config covers them via a `noEmit` typecheck pass.
+  // Type-validates the tests, which the source's `tsconfig.json` leaves out, without emitting.
   "extends": "../../tsconfig.node.json",
   "compilerOptions": {
     "noEmit": true,
-    "rootDir": "./src",
+    "rootDir": ".",
     // `isolatedDeclarations` needs `declaration`; `composite: false` keeps this config out of the
     // project-references graph.
     "composite": false,
@@ -14,6 +12,6 @@
     "declarationMap": false,
     "sourceMap": false
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*", "tests/**/*.ts", "rolldown.config.ts"],
   "exclude": ["dist", "node_modules"]
 }

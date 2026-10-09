@@ -11,13 +11,15 @@
 
 import type {
   JsonRpcError,
-  JsonRpcErrorCodeValue,
   JsonRpcErrorData,
   JsonRpcErrorResponse,
   JsonRpcId,
 } from "@ai-sidekicks/contracts/jsonrpc/message";
-import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
+import type { JsonRpcErrorCodeValue } from "@ai-sidekicks/contracts/jsonrpc/error-code";
+import { JSONRPC_VERSION } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import { FramingError } from "@ai-sidekicks/contracts/content-length-framing";
+import { EventCursorUnresolvableError } from "@ai-sidekicks/contracts/session/event-cursor";
 
 import { SecureDefaultsValidationError } from "../bootstrap/secure-defaults.js";
 import { DaemonDomainError } from "./domain-error.js";
@@ -413,6 +415,10 @@ export function mapJsonRpcError(thrown: unknown, requestId: JsonRpcId): JsonRpcE
     // A missing resource is a param-shape failure: the supplied sessionId does not resolve.
     numericCode = JsonRpcErrorCode.InvalidParams;
     data = buildSessionNotFoundData(thrown);
+  } else if (thrown instanceof EventCursorUnresolvableError) {
+    // The supplied cursor names no position in the session's log.
+    numericCode = JsonRpcErrorCode.InvalidParams;
+    data = { type: thrown.code, fields: { cursor: thrown.cursor } };
   } else if (thrown instanceof SecureDefaultsValidationError) {
     // Boot-time config is the person's request parameters, so a bad setting is invalid params.
     numericCode = JsonRpcErrorCode.InvalidParams;

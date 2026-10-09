@@ -9,9 +9,10 @@
 import type { Database, Statement } from "better-sqlite3";
 
 import { EventEnvelopeVersionSchema } from "@ai-sidekicks/contracts/event/envelope";
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
-import { START_OF_LOG_POSITION, type SessionId } from "@ai-sidekicks/contracts/session/id";
+import { type SessionId } from "@ai-sidekicks/contracts/session/id";
+import { START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/event-cursor";
 import { SESSION_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/methods";
 import { canonicalizeUuid } from "@ai-sidekicks/contracts/uuid-canonical";
 import {
@@ -34,7 +35,8 @@ import {
 import { DaemonDomainError } from "../ipc/domain-error.js";
 import { KeyedLock } from "../keyed-lock.js";
 import { registerDescribedMethod } from "../ipc/handlers/register-described-method.js";
-import { MalformedStoredEventError, type SessionService } from "../session/service.js";
+import { MalformedStoredEventError } from "../events/session/read.js";
+import type { SessionService } from "../session/service.js";
 import {
   ProjectionFailureError,
   REBUILD_PAGE_SIZE,

@@ -62,6 +62,7 @@ jobs:
       desktop: ${{ steps.filter.outputs.desktop || 'true' }}
       structure: ${{ steps.filter.outputs.structure || 'true' }}
       deps: ${{ steps.filter.outputs.deps || 'true' }}
+      search-index: ${{ steps.filter.outputs.search-index || 'true' }}
       slow-jobs: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'main') }}
     steps:
       - uses: actions/checkout@v5
@@ -98,7 +99,7 @@ jobs:
               - '.github/workflows/ci.yml'
               - '.github/actions/setup-electron-display/**'
             # knip reads every workspace, its own config, the manifests and the files that name
-            # entries (this workflow, the lefthook config).
+            # entries (the workflows, the lefthook config).
             structure:
               - 'apps/**'
               - 'packages/**'
@@ -109,6 +110,7 @@ jobs:
               - 'pnpm-workspace.yaml'
               - 'lefthook.yml'
               - '.github/workflows/ci.yml'
+              - '.github/workflows/mutation.yml'
             deps:
               - 'pnpm-lock.yaml'
               - '**/package.json'
@@ -121,6 +123,13 @@ jobs:
               # The daemon's SQLite shell, which every leg builds, and the repair that runs it.
               - 'packages/runtime-daemon/sqlite-shell/**'
               - 'packages/runtime-daemon/src/recovery/database-file/**'
+            # The session search's addon crate, the Cargo workspace files it builds under, and
+            # this workflow.
+            search-index:
+              - 'packages/search-index/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.github/workflows/ci.yml'
 
   # The Node floor as major.minor, read from `.nvmrc`, for the `test` matrix: its job name renders
   # the value, and `.nvmrc` whole would rename the check. Checks out `.nvmrc` alone.
@@ -221,6 +230,11 @@ jobs:
 
       - name: Format check (full repo)
         run: pnpm -w exec prettier --check .
+
+      # The session search's addon is a Rust crate the build compiles and the tests run through
+      # Cargo. The action installs the newest stable Rust; SHA-pinned.
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
 
       # Every workspace but the desktop: the `desktop` job's bundle leg builds it whenever a file
       # its filter names changes, so building it here too would build it twice.
@@ -381,6 +395,13 @@ jobs:
       - name: Set up Electron on a display
         uses: ./.github/actions/setup-electron-display
 
+      # A tier's turbo edges build the daemon and with it the session search's addon, which
+      # compiles from Rust. The remote cache above returns the addon while its inputs are
+      # unchanged; on a miss it compiles with this toolchain, not whichever the runner image
+      # carries. The newest stable Rust; SHA-pinned.
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+
       # A window manager on that display, for the leg that runs the end-to-end tier. Bare Xvfb has
       # none, and without one a window never minimizes, so the end-to-end check that minimizes a
       # window could only fail here. Openbox is one small package. Readiness comes from openbox
@@ -487,197 +508,15 @@ jobs:
       - name: Dead code (knip, every workspace)
         run: pnpm run structure:dead-code
 
-  # Mutation testing over the packages: informational, no score threshold, and outside `ci-gate`, so
-  # it never holds a merge. StrykerJS has no sharding, so `tools/mutation-shards.mjs` splits each
-  # package's source files into shards balanced by the tests their mutants ran last time, and the
-  # matrix runs every shard in parallel against the package's saved results.
-  #
-  # It runs only where `slow-jobs` is set. A pull request into main mutates only the files it
-  # changed, re-tests only the mutants whose code or covering tests changed since the saved results,
-  # and skips static mutants (module-level code, which re-runs the whole suite per mutant). The
-  # nightly run and a manual run mutate every file, static mutants included, and the merge job saves
-  # the combined results. A cold full run is hours of runner time (the daemon alone is over three
-  # hours on a fast laptop), hence the long time limit, which only stops a hung job.
-  mutation-plan:
-    name: mutation plan
+  # Mutation testing over the packages, in `mutation.yml`. Informational and outside `ci-gate`, so
+  # it never holds a merge; it runs only where `slow-jobs` is set.
+  mutation:
+    name: mutation
     needs: [changes]
     if: needs.changes.outputs.slow-jobs == 'true'
-    runs-on: ubuntu-latest
     permissions:
       contents: read
-    outputs:
-      matrix: ${{ steps.plan.outputs.matrix }}
-    env:
-      # Shards per package, sized from the measured full-run cost and kept to
-      # 19 jobs in all, under the 20 jobs a free plan runs at once.
-      MUTATION_SHARDS: '{"client-sdk": 1, "contracts": 3, "control-plane": 2, "crypto-paseto": 1, "runtime-daemon": 12}'
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ env.SWEEP_REF }}
-          # A pull request's changed files are read against its base commit.
-          fetch-depth: 0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version-file: .nvmrc
-          # This job runs no install; with pnpm absent, the cache lookup fails.
-          package-manager-cache: false
-
-      - name: Restore mutation results
-        uses: actions/cache/restore@v4
-        with:
-          path: packages/*/.stryker/incremental.json
-          key: stryker-incremental-${{ github.sha }}
-          restore-keys: stryker-incremental-
-
-      - name: Plan shards
-        id: plan
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: echo "matrix=$(node tools/mutation-shards.mjs plan)" >> "$GITHUB_OUTPUT"
-
-  mutation:
-    name: mutation (${{ matrix.package }} ${{ matrix.shard }})
-    needs: [mutation-plan]
-    if: needs.mutation-plan.outputs.matrix != '{"include":[]}'
-    runs-on: ubuntu-latest
-    timeout-minutes: 330
-    permissions:
-      contents: read
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.mutation-plan.outputs.matrix) }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ env.SWEEP_REF }}
-
-      - name: Setup pnpm
-        # SHA-pinned; Renovate's pinGitHubActionDigests preset (renovate.json5) keeps it current.
-        uses: pnpm/action-setup@8b2eead6074fefa43a68bf4c9e0f03ea4126b5ba # v6.0.3
-        with:
-          version: 10.33.2
-          run_install: false
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version-file: .nvmrc
-          cache: "pnpm"
-
-      - name: Restore the daemon's SQLite shell
-        uses: ./.github/actions/restore-sqlite-shell
-
-      - name: Install dependencies
-        env:
-          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
-        run: pnpm install --frozen-lockfile
-
-      - name: Restore mutation results
-        uses: actions/cache/restore@v4
-        with:
-          path: packages/*/.stryker/incremental.json
-          key: stryker-incremental-${{ github.sha }}
-          restore-keys: stryker-incremental-
-
-      # A pull request's summary lists the surviving mutants in the files it
-      # changed; a full run's summary is the score table.
-      - name: Mutation testing
-        working-directory: packages/${{ matrix.package }}
-        env:
-          MUTATE: ${{ matrix.mutate }}
-          SHARD: ${{ matrix.shard }}
-          PACKAGE: ${{ matrix.package }}
-          PULL_REQUEST: ${{ github.event_name == 'pull_request' }}
-        run: |
-          report="$RUNNER_TEMP/mutation.txt"
-          status=0
-          static=()
-          [[ "$PULL_REQUEST" == "true" ]] && static=(--ignoreStatic)
-          pnpm exec stryker run ../../stryker.config.json --mutate "$MUTATE" "${static[@]}" > "$report" 2>&1 || status=$?
-          {
-            echo "### Mutation testing: $PACKAGE, shard $SHARD"
-            echo '```text'
-            if [[ $status -ne 0 ]]; then
-              tail -n 60 "$report"
-            elif [[ "$PULL_REQUEST" == "true" ]]; then
-              grep -Ev '^[0-9]{2}:[0-9]{2}:[0-9]{2} \([0-9]+\) (INFO|DEBUG)' "$report"
-            else
-              sed -n '/tests per mutant on average/,$p' "$report" | grep -Ev ' (INFO|DEBUG) '
-            fi
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          exit $status
-
-      - name: Record the shard's files
-        if: ${{ github.event_name != 'pull_request' }}
-        env:
-          MUTATE: ${{ matrix.mutate }}
-        run: printf '%s\n' "$MUTATE" > "packages/${{ matrix.package }}/.stryker/mutated-files.txt"
-
-      - name: Upload shard results
-        if: ${{ github.event_name != 'pull_request' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.package }}--${{ matrix.shard }}
-          path: |
-            packages/${{ matrix.package }}/.stryker/incremental.json
-            packages/${{ matrix.package }}/.stryker/mutated-files.txt
-          # The results live under the package's `.stryker/` folder, which
-          # upload-artifact skips as hidden unless told otherwise.
-          include-hidden-files: true
-          retention-days: 1
-
-  # Folds every shard's results over the saved ones and saves them for the next
-  # run. A shard that failed or timed out leaves its files' earlier results in
-  # place. A scheduled run's cache scope is the default branch, which every
-  # branch reads; a manual run saves into the scope of the ref it ran on.
-  mutation-merge:
-    name: mutation merge
-    needs: [mutation]
-    if: ${{ !cancelled() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ env.SWEEP_REF }}
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version-file: .nvmrc
-          # This job runs no install; with pnpm absent, the cache lookup fails.
-          package-manager-cache: false
-
-      - name: Restore mutation results
-        uses: actions/cache/restore@v4
-        with:
-          path: packages/*/.stryker/incremental.json
-          key: stryker-incremental-${{ github.sha }}
-          restore-keys: stryker-incremental-
-
-      - name: Download shard results
-        uses: actions/download-artifact@v4
-        with:
-          # Shard artifacts are named `<package>--<shard>`; the run's other artifacts are not shards.
-          pattern: "*--*"
-          path: ${{ runner.temp }}/mutation-shards
-
-      - name: Merge
-        run: node tools/mutation-shards.mjs merge "$RUNNER_TEMP/mutation-shards"
-
-      - name: Save mutation results
-        uses: actions/cache/save@v4
-        with:
-          path: packages/*/.stryker/incremental.json
-          key: stryker-incremental-${{ github.sha }}
+    uses: ./.github/workflows/mutation.yml
 
   # Advisory: absent from `ci-gate`'s `needs`, so a coverage regression never blocks a merge. This
   # is measurement only; no number gates anything.
@@ -692,8 +531,12 @@ jobs:
     # second install and test sweep nothing gates on.
     if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
+    # Job-scoped for the Turborepo remote cache, as in `test`: the signature key is read by the
+    # `pnpm turbo run` step.
     permissions:
       contents: read
+    env:
+      TURBO_REMOTE_CACHE_SIGNATURE_KEY: ${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -725,6 +568,16 @@ jobs:
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
         run: pnpm install --frozen-lockfile
+
+      # The workspace builds the coverage run depends on come from the remote cache while their
+      # inputs are unchanged, the session search's addon among them. SHA-pinned.
+      - name: Turborepo remote cache (GitHub Actions cache backend)
+        uses: rharkor/caching-for-turbo@2238fae6eb9a9936f92356f54cb3660200d105e7 # v2.5.1
+
+      # The daemon's build compiles the addon from Rust on a cache miss. The newest stable Rust;
+      # SHA-pinned.
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
 
       - name: Coverage
         run: pnpm turbo run test:coverage
@@ -766,7 +619,7 @@ jobs:
   #   ubuntu-latest    → linux-x64
   #   ubuntu-24.04-arm → linux-arm64
   #   macos-latest     → darwin-arm64
-  #   macos-15-intel   → darwin-x64     (the last Intel macOS image)
+  #   macos-15-intel   → darwin-x64
   #   windows-latest   → win32-x64
   # `win32-arm64` and the two `linuxmusl-*` prebuilds ship in the same tarball and are not covered:
   # `windows-11-arm` is not a target, and no hosted musl runner exists, so a musl check would need a
@@ -838,10 +691,43 @@ jobs:
         working-directory: packages/runtime-daemon
         run: pnpm exec vitest run src/recovery/database-file
 
+  # The session search's addon crate on an Intel Mac: its tests on x64 macOS, which the `test`
+  # job's Linux runner does not cover. It runs when the crate, the Cargo workspace files or this
+  # workflow change, and on every push and scheduled run.
+  search-index-intel-mac:
+    name: search index (macOS x64)
+    needs: [changes]
+    if: needs.changes.outputs.search-index == 'true'
+    runs-on: macos-26-intel
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.SWEEP_REF }}
+
+      # The newest stable Rust; SHA-pinned.
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+
+      - name: Test the addon's crate
+        run: cargo test -p search-index --locked
+
   ci-gate:
     name: ci-gate
     runs-on: ubuntu-latest
-    needs: [changes, node-version, test, desktop, desktop-slow, structure, native-prebuilds]
+    needs:
+      [
+        changes,
+        node-version,
+        test,
+        desktop,
+        desktop-slow,
+        structure,
+        native-prebuilds,
+        search-index-intel-mac,
+      ]
     if: always()
     steps:
       - name: Aggregate required-checks status
@@ -876,5 +762,6 @@ jobs:
           check desktop-slow "${{ needs.desktop-slow.result }}"
           check structure "${{ needs.structure.result }}"
           check native-prebuilds "${{ needs.native-prebuilds.result }}"
+          check search-index-intel-mac "${{ needs.search-index-intel-mac.result }}"
           if [[ $fail -ne 0 ]]; then exit 1; fi
           echo "ci-gate: all required jobs succeeded or were skipped"

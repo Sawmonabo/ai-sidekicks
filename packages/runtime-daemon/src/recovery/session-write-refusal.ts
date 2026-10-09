@@ -1,7 +1,7 @@
 // The one refusal a session with damaged history gives each write: at the wire for a call that
 // names it, and at the append for every event of it, whoever writes.
 
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { SESSION_WRITE_REFUSED_CODE } from "@ai-sidekicks/contracts/session/recovery";
 

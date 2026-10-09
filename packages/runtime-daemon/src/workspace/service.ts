@@ -15,21 +15,24 @@ import {
   ExecutionModeSchema,
   RepoMountIdSchema,
   WorkspaceIdSchema,
+  WorkspaceStateSchema,
   type ExecutionMode,
   type VcsType,
   type WorkspaceState,
 } from "@ai-sidekicks/contracts/repo/mount";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type {
   WorkspaceBindRequest,
   WorkspaceBindResponse,
   WorkspaceListRequest,
   WorkspaceListResponse,
 } from "@ai-sidekicks/contracts/repo/workspace";
-import type { DatabaseConnections } from "../database/connections.js";
+import type { DatabaseConnections } from "../database/connection/lifecycle.js";
 import type { WriteStatement } from "../database/statement.js";
 import { WriteRefusedError, type DatabaseWriter } from "../database/writer.js";
 import { SessionNotFoundError } from "../ipc/session-errors.js";
-import { RepoMountNotFoundError } from "./repo/errors.js";
+import { sessionExistsStatement } from "../session/directory/lookups.js";
+import { RepoMountManagedError, RepoMountNotFoundError } from "./repo/errors.js";
 import { TrustEnvelopeValidator } from "./trust-envelope.js";
 import type { WorkspaceEventEmitter } from "./event-emitter.js";
 import { mintUuidV7 } from "../uuid-v7.js";
@@ -63,9 +66,17 @@ import {
 } from "./errors.js";
 import { normalizeWorkspaceLastError } from "./last-error.js";
 
+// A session's live workspace on one mount. The predicate is `idx_workspaces_live_session_mount`'s,
+// which holds it to one row; an archived workspace is history and does not count.
+const LIVE_WORKSPACE_OF_SESSION_ON_MOUNT = `session_id = @session_id
+      AND repo_mount_id = @repo_mount_id
+      AND state <> 'archived'`;
+
 // `SELECT` rather than `VALUES` re-tests the mount's attachment inside the write: a detach cascade
-// can flip the mount during `bind`'s awaits, and the foreign key would still hold. Zero rows
-// refuses the write and takes the `workspace.preparing` event with it.
+// can flip the mount during `bind`'s awaits, and the foreign key would still hold. The write also
+// re-tests that the session has no live workspace on the mount, which another bind may have made
+// during those awaits. Zero rows refuses the write and takes the `workspace.preparing` event with
+// it.
 const BIND_WORKSPACE_SQL = `INSERT INTO workspaces (
      id, session_id, repo_mount_id, execution_mode, fs_root, state, metadata,
      created_at, updated_at
@@ -73,7 +84,8 @@ const BIND_WORKSPACE_SQL = `INSERT INTO workspaces (
    SELECT @id, @session_id, @repo_mount_id, @execution_mode, NULL, 'preparing', '{}',
           @now, @now
      FROM repo_mounts
-    WHERE id = @repo_mount_id AND state = 'attached'`;
+    WHERE id = @repo_mount_id AND state = 'attached'
+      AND NOT EXISTS (SELECT 1 FROM workspaces WHERE ${LIVE_WORKSPACE_OF_SESSION_ON_MOUNT})`;
 
 // `stale` is a legal predecessor so a failed switch can be retried. `fs_root` is nulled because a
 // stale root would keep matching approvals; `lastError` is cleared so a retried `preparing` row
@@ -129,15 +141,6 @@ const RELEASE_BUSY_SQL = `UPDATE workspaces
           updated_at = @now
     WHERE id = @workspace_id AND state = 'busy'`;
 
-/**
- * The session-existence predicate a bind checks first (`SessionService.rebuildSession` satisfies
- * it; `null` means no such session). A `rebuildSession` that throws (a corrupt event chain)
- * propagates unchanged, since a 404 would send the person to recreate a session that exists.
- */
-export interface SessionExistenceReader {
-  rebuildSession(sessionId: string): unknown;
-}
-
 /** Constructor dependencies. Every optional member defaults to the real one. */
 export interface WorkspaceServiceDeps {
   /**
@@ -147,7 +150,6 @@ export interface WorkspaceServiceDeps {
   readonly database: DatabaseConnections;
   /** The single seam through which workspace lifecycle events are appended. */
   readonly events: WorkspaceEventEmitter;
-  readonly sessions: SessionExistenceReader;
   /** Containment validator. Defaults to a stock `TrustEnvelopeValidator`. */
   readonly trustEnvelope?: TrustEnvelopeValidator;
   /**
@@ -171,18 +173,20 @@ export interface BindWorkspaceInput extends WorkspaceBindRequest {
 }
 
 /**
- * Owns every workspace lifecycle transition and statement against `workspaces`, except the detach
- * cascade's read and archive write in `./repo/mount-service.js`, which share the mount flip's
- * write. Legal predecessor states live in each `UPDATE`'s `WHERE` clause.
+ * Owns every workspace lifecycle transition and write to `workspaces`, except the deletes and the
+ * archive that share another row's write: the detach cascade's archive and a managed mount's
+ * deletion in `./repo/mount-service.js`, and the session purge's delete of the session's rows.
+ * Legal predecessor states live in each `UPDATE`'s `WHERE` clause.
  */
 export class WorkspaceService {
   readonly #events: WorkspaceEventEmitter;
-  readonly #sessions: SessionExistenceReader;
   readonly #trustEnvelope: TrustEnvelopeValidator;
   readonly #probePath: FilesystemPathProbeFn;
   readonly #now: () => string;
   readonly #newWorkspaceId: () => string;
 
+  readonly #selectSessionStmt: Statement;
+  readonly #selectLiveWorkspaceStmt: Statement;
   readonly #selectAttachedMountStmt: Statement;
   readonly #selectAttachedMountRootsStmt: Statement;
   readonly #selectWorkspaceStmt: Statement;
@@ -192,7 +196,6 @@ export class WorkspaceService {
 
   constructor(deps: WorkspaceServiceDeps) {
     this.#events = deps.events;
-    this.#sessions = deps.sessions;
     this.#trustEnvelope = deps.trustEnvelope ?? new TrustEnvelopeValidator();
     this.#probePath = deps.probePath ?? createDefaultPathProbe();
     this.#now = deps.now ?? ((): string => new Date().toISOString());
@@ -201,9 +204,17 @@ export class WorkspaceService {
     const database = deps.database.reader;
     this.#writer = deps.database.writer;
 
+    this.#selectSessionStmt = database.prepare("SELECT 1 FROM sessions WHERE id = @session_id");
+
+    this.#selectLiveWorkspaceStmt = database.prepare(
+      `SELECT id, execution_mode, state
+         FROM workspaces
+        WHERE ${LIVE_WORKSPACE_OF_SESSION_ON_MOUNT}`,
+    );
+
     // Attached only: a detached mount is not a bind target, and `repo.not_found` is more honest.
     this.#selectAttachedMountStmt = database.prepare(
-      `SELECT id, canonical_root, vcs_type
+      `SELECT id, canonical_root, vcs_type, managed_session_id
          FROM repo_mounts
         WHERE id = @repo_mount_id AND state = 'attached'`,
     );
@@ -240,14 +251,19 @@ export class WorkspaceService {
 
   /**
    * Bind a workspace to an attached mount (`repo.workspaceBind`); it lands `preparing` with a NULL
-   * `fs_root` that {@link completeRootPreparation} fills. Throws `SessionNotFoundError`, before any
-   * read or write, when `sessionId` names no session.
+   * `fs_root` that {@link completeRootPreparation} fills. A session that already has a live
+   * workspace on the mount is answered that workspace as it stands, its mode and state whatever
+   * the request asked, and nothing is probed or written. Throws `SessionNotFoundError`, before any
+   * probe or write, when `sessionId` names no session, `RepoMountNotFoundError` for a mount that
+   * is not attached, and `RepoMountManagedError` for another chat's managed workspace.
    */
   async bind(input: BindWorkspaceInput): Promise<WorkspaceBindResponse> {
-    if (this.#sessions.rebuildSession(input.sessionId) === null) {
-      throw new SessionNotFoundError(`session ${input.sessionId} does not exist`, {
-        sessionId: input.sessionId,
-      });
+    if (this.#selectSessionStmt.get({ session_id: input.sessionId }) === undefined) {
+      throw sessionNotFound(input.sessionId);
+    }
+    const boundEarlier = this.#readLiveWorkspace(input);
+    if (boundEarlier !== undefined) {
+      return boundEarlier;
     }
 
     const mountRow = this.#selectAttachedMountStmt.get({
@@ -256,10 +272,15 @@ export class WorkspaceService {
     if (mountRow === undefined) {
       throw new RepoMountNotFoundError(input.repoMountId);
     }
+    // A managed mount is its own chat's folder alone; its owner never changes, so the read decides.
+    if (mountRow.managed_session_id !== null && mountRow.managed_session_id !== input.sessionId) {
+      throw new RepoMountManagedError(input.repoMountId);
+    }
 
     // Mode capability before any filesystem work.
     const capabilities = computeExecutionModeCapabilities({
       vcsType: mountRow.vcs_type as VcsType,
+      isManaged: mountRow.managed_session_id !== null,
     });
     if (!capabilities.availableModes.includes(input.executionMode)) {
       throw new WorkspaceModeUnsupportedError(
@@ -296,8 +317,9 @@ export class WorkspaceService {
     const workspaceId = this.#newWorkspaceId();
     const createdAt = this.#now();
 
-    // The mount's attachment is re-tested in this write; zero rows means a detach cascade won the
-    // race, and the refusal takes the event with it.
+    // The mount's attachment, and that the session has no live workspace on it, are re-tested in
+    // this write; zero rows means a detach cascade or another bind won the race, and the refusal
+    // takes the event with it.
     const insertRow: WriteStatement = {
       sql: BIND_WORKSPACE_SQL,
       bindings: {
@@ -311,25 +333,43 @@ export class WorkspaceService {
     };
 
     // The birth event carries `repoMountId`, the only place a transcript reader learns the
-    // workspace/mount association.
-    await expectSingleRowChanged(
-      this.#events.emitWorkspacePreparing({
-        sessionId: input.sessionId,
-        workspaceId,
-        repoMountId: mountRow.id,
-        actor: input.actor ?? null,
-        transactionalPrelude: [insertRow],
-      }),
+    // workspace/mount association. The session's row is re-tested in the same write, so a purge
+    // between the read above and this write refuses it.
+    return expectSingleRowChanged(
+      this.#events
+        .emitWorkspacePreparing({
+          sessionId: input.sessionId,
+          workspaceId,
+          repoMountId: mountRow.id,
+          actor: input.actor ?? null,
+          transactionalPrelude: [sessionExistsStatement(input.sessionId), insertRow],
+        })
+        .then(
+          (): WorkspaceBindResponse => ({
+            workspaceId: WorkspaceIdSchema.parse(workspaceId),
+            executionMode: input.executionMode,
+            state: "preparing",
+          }),
+          (error: unknown): WorkspaceBindResponse => {
+            if (!(error instanceof WriteRefusedError)) {
+              throw error;
+            }
+            if (error.statementIndex === 0) {
+              throw sessionNotFound(input.sessionId);
+            }
+            // A bind of this session to this mount that committed during the awaits above is the
+            // answer; with none, the mount left `attached` and the refusal stands.
+            const boundMeanwhile = this.#readLiveWorkspace(input);
+            if (boundMeanwhile === undefined) {
+              throw error;
+            }
+            return boundMeanwhile;
+          },
+        ),
       workspaceId,
       "bind",
       "its repo mount",
     );
-
-    return {
-      workspaceId: WorkspaceIdSchema.parse(workspaceId),
-      executionMode: input.executionMode,
-      state: "preparing",
-    };
   }
 
   /**
@@ -402,6 +442,7 @@ export class WorkspaceService {
 
     const capabilities = computeExecutionModeCapabilities({
       vcsType: mountRow.vcs_type as VcsType,
+      isManaged: mountRow.managed_session_id !== null,
     });
     if (!capabilities.availableModes.includes(targetMode)) {
       throw new WorkspaceModeUnsupportedError(
@@ -681,6 +722,22 @@ export class WorkspaceService {
     }
   }
 
+  // The session's live workspace on the mount as stored, or `undefined` when it has none.
+  #readLiveWorkspace(input: BindWorkspaceInput): WorkspaceBindResponse | undefined {
+    const row = this.#selectLiveWorkspaceStmt.get({
+      session_id: input.sessionId,
+      repo_mount_id: input.repoMountId,
+    }) as Pick<WorkspaceRow, "id" | "execution_mode" | "state"> | undefined;
+    if (row === undefined) {
+      return undefined;
+    }
+    return {
+      workspaceId: WorkspaceIdSchema.parse(row.id),
+      executionMode: ExecutionModeSchema.parse(row.execution_mode),
+      state: WorkspaceStateSchema.parse(row.state),
+    };
+  }
+
   #findWorkspaceRow(workspaceId: string): WorkspaceRow | undefined {
     return this.#selectWorkspaceStmt.get({
       workspace_id: workspaceId,
@@ -722,4 +779,8 @@ export class WorkspaceService {
       { kind: "illegal_state_transition", workspaceId: row.id },
     );
   }
+}
+
+function sessionNotFound(sessionId: SessionId): SessionNotFoundError {
+  return new SessionNotFoundError(`session ${sessionId} does not exist`, { sessionId });
 }

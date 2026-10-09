@@ -95,7 +95,13 @@ export function makeQueueItem(): QueueItemSummary {
 /** Opens a scratch database and a run engine over it. */
 export async function openRunEngineFixture(): Promise<RunEngineFixture> {
   const database = await openScratchDatabase();
-  const sessionEvents = new EventLogService({ writer: database.writer });
+  const sessionEvents = new EventLogService({
+    writer: database.writer,
+    reader: database.reader,
+    writeServiceLog: (line) => {
+      throw new Error(`unexpected service log line: ${line}`);
+    },
+  });
   const sessionId = SessionIdSchema.parse(randomUUID());
   const queuedAppender = new SessionEventAppender(
     { sessionEvents },

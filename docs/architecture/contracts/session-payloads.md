@@ -7,14 +7,16 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 ```ts
 // SessionCreate
 interface SessionCreateRequest {
-  clientIdempotencyKey: string; // a UUID
+  // A UUID. A create retried with a key the daemon already recorded answers the session that key made,
+  // as it stands now, and makes nothing.
+  clientIdempotencyKey: string;
   // Where the new session works, bound in this same call, so no session exists unbound and its shape is
   // known from its first record.
   binding: SessionBinding;
-  // The lead's binding spelled out: its driver, model, account and effort, as the app chose them for a
-  // new session. A create names this, `leadDefinitionId`, or both; beside a definition, it is the binding
-  // the definition runs on. `providerAccountId` null follows the provider's current account.
-  lead?: AgentProviderBinding;
+  // The lead spelled out: its driver, model and effort, and its output speed where one was picked, as the
+  // app chose them for a new session. A create names this, `leadDefinitionId`, or both; beside a
+  // definition, it is the binding the definition runs on. It names no account: the daemon resolves it.
+  lead?: SessionLead;
   // The saved definition this session's LEAD runs under: a request that spells its axes out in full
   // names none, and one naming a definition need not respell the axes the definition supplies. It is how
   // Try it starts a scratch session led by the definition under test, and it is the same daemon path a
@@ -40,10 +42,14 @@ interface SessionCreateRequest {
 type SessionBinding =
   | { kind: "chat" }
   | { kind: "project"; repoMountId: RepoMountId; executionMode: ExecutionMode };
+type SessionLead = Omit<AgentProviderBinding, "providerAccountId">;
 interface SessionCreateResponse {
   sessionId: SessionId;
   shape: SessionShape;
   state: SessionState;
+  // The binding the daemon resolved for the lead, the account among it: the same values the session's
+  // `session.created` records.
+  lead: AgentProviderBinding;
   // Present iff the request carried `leadDefinitionId`: the echo lets a caller render what it actually
   // got instead of re-reading the registry and assuming it has not moved (agent-definition-payloads.md §Plan-024).
   resolvedConfiguration?: AgentResolvedConfiguration;
@@ -133,6 +139,8 @@ interface SessionRecord {
   // Whether the person muted this session's notifications (`session.mute` below). The same fact rides each
   // `session.list` entry.
   muted: boolean;
+  // The session's own tags, ordered ignoring case: the chips on the inspector's Identity `Tags` line.
+  tags: string[];
   // The working-folder move a run boundary will apply, or null when none is pending
   // (`session.setWorkingFolder` below); `worktreeId: null` targets the project's repo root.
   pendingWorkingFolder: { worktreeId: WorktreeId | null } | null;
@@ -362,6 +370,56 @@ interface SessionTargetRequest {
 // the session already in the state it asks for appends nothing and answers the same.
 type SessionVerbResponse = Record<string, never>;
 
+// SessionConvert — session.convert. Converts a chat to a project in place: attaches the repository at
+// the typed `path`, copies the chat's files in, skipping each it cannot copy safely, keeps the managed
+// workspace, and records `session.converted`. Each file's outcome is recorded as it lands, so a
+// conversion that stopped part way (`session.convert_incomplete`) resumes when a convert names the
+// same folder, under any key: no file is copied twice, the counts are the whole conversion's, and
+// that request's key takes the conversion over. A convert naming another folder is refused
+// `session.convert_refused`, reason `conversion_unfinished`. A retry with the key of a finished
+// conversion answers it and copies nothing. Files whose copies land just before the daemon stops,
+// and so have no record yet, read as `repository_has_file` when the conversion resumes.
+interface SessionConvertRequest {
+  sessionId: SessionId;
+  path: string; // the folder as typed, carried as data and checked before anything is copied
+  clientIdempotencyKey: string; // UUID
+}
+interface SessionConvertResponse {
+  copiedCount: number;
+  skippedCount: number; // each skipped file, with its reason, is read through session.convertSkippedFileList
+}
+// session.converted payload (Spec-005 §Session Lifecycle).
+interface SessionConvertedPayload extends SessionConvertResponse {
+  sessionId: SessionId;
+  repoMountId: RepoMountId;
+}
+type SessionConvertSkipReason =
+  | "repository_has_file"
+  | "repository_path_not_a_folder"
+  | "link"
+  | "special_file";
+interface SessionConvertSkippedFile {
+  path: string; // relative to the workspace
+  reason: SessionConvertSkipReason;
+}
+
+// SessionConvertSkippedFileList — session.convertSkippedFileList. The files a conversion did not copy,
+// a page at a time in path order, every one on some page. A session never converted, or one that
+// copied every file, answers an empty last page.
+interface SessionConvertSkippedFileListRequest {
+  sessionId: SessionId;
+  afterCursor?: SessionConvertSkippedFileCursor; // opaque, the daemon's own: the previous page's nextCursor
+  limit?: number; // files per page, at most SESSION_CONVERT_SKIPPED_FILE_PAGE_LIMIT_MAX (256), which is also the default
+}
+// A page's files also fit one frame (PAGE_MAX_BYTES, transcript-payloads.md §Plan-010).
+type SessionConvertSkippedFileListResponse =
+  | {
+      files: SessionConvertSkippedFile[];
+      hasMore: true;
+      nextCursor: SessionConvertSkippedFileCursor;
+    } // at least one file
+  | { files: SessionConvertSkippedFile[]; hasMore: false };
+
 // session.pinned / session.unpinned / session.muted / session.unmuted payloads (Spec-005 §Session
 // Lifecycle). Pinned rows sit in the order they were pinned, and the session row's `muted_at` is rebuilt
 // from these events and goes with the session.
@@ -383,15 +441,25 @@ interface SessionAdvisorChangedPayload {
 
 // SessionSearch — session.search. One search over session titles, message text, tool calls, session
 // group names and tags across every session the list holds, archived ones included, answering the
-// palette's search box, with no cap. Results come grouped by session, each session by its score, in
-// the index's ranked order. The project, then session group, then session tree is the agents'
-// `session_search` tool's alone.
+// palette's search box, with no cap on how many hits a person can reach: the answer comes a page at a
+// time, every hit on some page. Results come grouped by session, each session by its best hit, in the
+// index's ranked order. A session's hits stay on one page unless they alone overflow it; then that
+// session fills the page and the next continues it under the same `sessionId`. The project, then
+// session group, then session tree is the agents' `session_search` tool's alone.
 interface SessionSearchRequest {
   query: string;
+  // Opaque, the daemon's own. It continues the search its first page read, so a write between pages
+  // neither repeats a hit nor drops one, except a hit whose row, group membership or session has since
+  // gone or whose title, group name or tag was renamed so the words no longer match it. It is refused `session.search_cursor_unresolvable` when it names no page or names a search the
+  // daemon has let go (5 minutes unpaged, 30 minutes in all, or the least recently paged once more
+  // than 16 are held); the client then searches again.
+  afterCursor?: SessionSearchCursor;
+  limit?: number; // hits per page, at most SESSION_SEARCH_PAGE_LIMIT_MAX (256), which is also the default
 }
-interface SessionSearchResponse {
-  groups: SessionSearchGroup[];
-}
+// A page's groups also fit one frame (PAGE_MAX_BYTES, transcript-payloads.md §Plan-010).
+type SessionSearchResponse =
+  | { groups: SessionSearchGroup[]; hasMore: true; nextCursor: SessionSearchCursor } // at least one group
+  | { groups: SessionSearchGroup[]; hasMore: false };
 interface SessionSearchGroup {
   sessionId: SessionId;
   name?: string; // absent for an untitled session, as on the session record
@@ -422,7 +490,7 @@ interface TranscriptSearchRequest {
   limit?: number; // at most TRANSCRIPT_READ_LIMIT_MAX (transcript-payloads.md §Plan-010)
 }
 // A continuing page carries at least one hit and the cursor to continue from. A page's hits also fit one
-// frame (TRANSCRIPT_PAGE_MAX_BYTES, transcript-payloads.md §Plan-010).
+// frame (PAGE_MAX_BYTES, transcript-payloads.md §Plan-010).
 type TranscriptSearchResponse =
   | { matchCount: number; hits: TranscriptSearchHit[]; hasMore: true; nextCursor: EventCursor }
   | { matchCount: number; hits: TranscriptSearchHit[]; hasMore: false };
@@ -433,6 +501,43 @@ interface TranscriptSearchHit {
   // At least one, in UTF-16 code units of `snippet`; they run in order, never overlap, and sit inside it.
   matchRanges: SearchMatchRange[];
 }
+
+// SessionList — session.list, live: the list, then each change. The opening list comes as the
+// acknowledgment and then `page` changes, each fitting one message (PAGE_MAX_BYTES), before any other
+// change; it is whole at the acknowledgment or page marked `isComplete`. A reader shows no part of it as
+// the whole list.
+interface SessionListAck {
+  subscriptionId: SubscriptionId;
+  sessions: SessionListEntry[];
+  chatCount: number; // the chats not archived, closed or awaiting purge, counted by the daemon
+  isComplete: boolean;
+}
+type SessionListChange =
+  | { kind: "page"; sessions: SessionListEntry[]; chatCount: number; isComplete: boolean } // at least one entry
+  | { kind: "upsert"; entry: SessionListEntry; chatCount: number }
+  | { kind: "remove"; sessionId: SessionId; chatCount: number }; // only a purge removes one
+// A project entry names its project's mount, its branch and the group it sits in; a chat entry counts
+// its documents, absent until the chat's artifact store counts them.
+type SessionListEntry = (
+  | {
+      shape: "project";
+      repoMountId: RepoMountId;
+      branch?: string;
+      group?: { groupId: SessionGroupId; name: string };
+    }
+  | { shape: "chat"; documentCount?: number }
+) & {
+  sessionId: SessionId;
+  name?: string; // absent while untitled; the row then shows firstMessagePreview
+  firstMessagePreview?: string;
+  state: SessionState;
+  activity: "running" | "waiting" | "done" | "failed" | "idle";
+  activityRenewedAt: string; // republished every 15 s while running or waiting; older than 45 s reads idle
+  pinnedAt?: string;
+  muted: boolean;
+  exchange?: { peerSessionId: SessionId; peerName: string; messageCount: number };
+  lastActivityAt: string;
+};
 
 // ---- Groups, links and tags: the person's half ----
 // The person places, relates and labels sessions as the agents do through `session_group` and
@@ -508,8 +613,9 @@ interface SessionLinkRemoveRequest {
 }
 
 // session.tagAdd / session.tagRemove — the `Tags` line on the inspector's Identity: `Add tag` and a
-// chip's remove control. A tag is matched ignoring case and nests with `/`; one holding a space, or
-// empty, is refused `session.tag_refused` with nothing written.
+// chip's remove control. A tag is matched ignoring case and nests with `/`; `tag` follows the one tag
+// rule (`TagSchema` in `packages/contracts/src/tag.ts`: never empty, no whitespace, no empty level
+// around a `/`), so a tag it refuses is refused as invalid params with nothing written.
 interface SessionTagRequest {
   sessionId: SessionId;
   tag: string;
@@ -537,6 +643,8 @@ The console's `session.*` operations beyond the [Plan-005](../../plans/005-local
 | `session.attachmentRemove` | `mutation` | `SessionAttachmentRemoveRequest` | `SessionAttachmentRemoveResponse` |
 | `session.mute` | `mutation` | `SessionTargetRequest` | `SessionVerbResponse` |
 | `session.unmute` | `mutation` | `SessionTargetRequest` | `SessionVerbResponse` |
+| `session.convert` | `mutation` | `SessionConvertRequest` | `SessionConvertResponse` |
+| `session.convertSkippedFileList` | `query` | `SessionConvertSkippedFileListRequest` | `SessionConvertSkippedFileListResponse` |
 | `session.recoveryContinue` | `mutation` | `SessionTargetRequest` | `SessionVerbResponse` |
 | `session.recoveryDelete` | `mutation` | `SessionTargetRequest` | `SessionVerbResponse` |
 | `session.search` | `query` | `SessionSearchRequest` | `SessionSearchResponse` |

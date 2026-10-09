@@ -25,6 +25,7 @@ import { EventLogService } from "../../events/log-service.js";
 import { SessionEventAppender } from "../../events/session/appender.js";
 import { SessionPurge } from "../../events/session/purge.js";
 import { MethodRegistryImpl } from "../../ipc/registry.js";
+import { KeyedLock } from "../../keyed-lock.js";
 import {
   openRunEngineFixture,
   type RunEngineFixture,
@@ -168,6 +169,10 @@ describe("the recovery pass at a restart", () => {
     const status = new RecoveryStatusTracker();
     const sessionEvents = new EventLogService({
       writer,
+      reader,
+      writeServiceLog: (line) => {
+        throw new Error(`unexpected service log line: ${line}`);
+      },
       refuseSessionWrite: (sessionId, eventType) => {
         refuseEventOfDamagedSession(status, sessionId, eventType);
       },
@@ -184,7 +189,16 @@ describe("the recovery pass at a restart", () => {
       sessionEvents: new SessionService(reader),
       eventLog: sessionEvents,
       projectionRebuild,
-      purge: new SessionPurge({ writer, nodeId, eventLog: sessionEvents }),
+      // The purge's folder removal, list refresh and re-scoring have nothing to act on here.
+      purge: new SessionPurge({
+        writer,
+        nodeId,
+        eventLog: sessionEvents,
+        managedWorkspaces: { deleteFolder: () => Promise.resolve() },
+        sessionLock: new KeyedLock<SessionId>(),
+        sessionList: { refresh: () => {} },
+        relatedRanking: { rescoreAround: () => {} },
+      }),
       runs: fixture.runs,
       runEngine: fixture.restartEngine(),
       status,

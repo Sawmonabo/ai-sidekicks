@@ -23,6 +23,7 @@ const UNLISTED_SESSION = "019b7892-1a00-7c31-8110-cca0117a0703" as SessionId;
 
 const DIRECTORY: SessionDirectoryState = {
   status: "served",
+  chatCount: 1,
   sessions: [
     sessionListEntry({ sessionId: TITLED_SESSION, name: "Fix login" }),
     sessionListEntry({ sessionId: UNTITLED_SESSION, shape: "chat" }),

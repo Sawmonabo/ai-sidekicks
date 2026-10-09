@@ -1,0 +1,28 @@
+{
+  "$schema": "../../node_modules/turbo/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    // The build compiles the Rust crate into the addon for this platform and writes its loader
+    // and declarations; the workspace's Cargo files pin the crates it compiles.
+    "build": {
+      "inputs": [
+        "$TURBO_EXTENDS$",
+        "Cargo.toml",
+        "build.rs",
+        "$TURBO_ROOT$/Cargo.toml",
+        "$TURBO_ROOT$/Cargo.lock"
+      ],
+      "outputs": ["index.js", "index.d.ts", "*.node"],
+      // A task's hash leaves out the operating system and processor the addon is built for; CI's
+      // runners name theirs, so its shared cache never hands one platform's addon to another.
+      "env": ["RUNNER_OS", "RUNNER_ARCH"],
+      // Cargo's job limit, its incremental setting (CI turns it off) and the toolchain's folders,
+      // which Turborepo's strict environment mode would otherwise withhold.
+      "passThroughEnv": ["CARGO_BUILD_JOBS", "CARGO_INCREMENTAL", "CARGO_HOME", "RUSTUP_HOME"]
+    },
+    // The tests are the crate's own, compiled and run by Cargo.
+    "test": {
+      "passThroughEnv": ["CARGO_BUILD_JOBS", "CARGO_INCREMENTAL", "CARGO_HOME", "RUSTUP_HOME"]
+    }
+  }
+}

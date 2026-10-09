@@ -10,14 +10,15 @@ import type {
 } from "@ai-sidekicks/contracts/transcript/operations";
 import type { HandlerContext } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
-import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 import {
   TRANSCRIPT_CHILD_RUN_EXPAND_METHOD,
   TRANSCRIPT_READ_METHOD,
   TRANSCRIPT_REASONING_SURFACE_READ_METHOD,
 } from "@ai-sidekicks/contracts/transcript/methods";
-import { TRANSCRIPT_READ_LIMIT_MAX } from "@ai-sidekicks/contracts/transcript/operations";
+import { TRANSCRIPT_READ_LIMIT_MAX } from "@ai-sidekicks/contracts/transcript/limits";
 
 // Imported through the barrel, the surface callers bind transcript methods from.
 import { registerTranscriptMethod } from "../index.js";

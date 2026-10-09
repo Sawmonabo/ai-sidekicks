@@ -9,6 +9,8 @@ import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-st
 import { type BridgeComposition } from "#renderer/services/platform/bridge-context.js";
 import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
+import { type ScenarioEngine } from "#renderer/services/daemon/engine.fixture.js";
+import { REFRESH_DEBOUNCE_MS } from "#renderer/lib/reads/refresh/caps.js";
 import { type SessionDiagnostics } from "#renderer/services/session-events/diagnostics-handle.js";
 import { type ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import {
@@ -44,6 +46,7 @@ interface DiagnosticsHolder {
  * handed, so a case reads what the hook gave over rather than a page property.
  */
 function compositionHarness(): {
+  readonly scenarioEngine: ScenarioEngine;
   readonly diagnosticsHolder: DiagnosticsHolder;
   readonly wrapper: (props: { readonly children: ReactNode }) => React.JSX.Element;
 } {
@@ -66,6 +69,7 @@ function compositionHarness(): {
     },
   };
   return {
+    scenarioEngine,
     diagnosticsHolder,
     wrapper: function CompositionHost(props: { readonly children: ReactNode }) {
       return (
@@ -114,8 +118,8 @@ describe("useSessionStoreRegistry — the projectors the window's stores fold wi
 });
 
 describe("useSessionStoreRegistry: the window's registry and the subscriber feeding it", () => {
-  it("mints a subscriber beside the registry and binds the open session", () => {
-    const { diagnosticsHolder, wrapper } = compositionHarness();
+  it("mints a subscriber beside the registry and binds the open session", async () => {
+    const { scenarioEngine, diagnosticsHolder, wrapper } = compositionHarness();
     render(<SessionProbe sessionId={BOUND_SESSION_ID} onObserve={() => undefined} />, {
       wrapper,
     });
@@ -127,6 +131,11 @@ describe("useSessionStoreRegistry: the window's registry and the subscriber feed
     expect(diagnostics).toBeDefined();
     expect(diagnostics?.openSessionIds()).toEqual([BOUND_SESSION_ID]);
 
+    // The stream binds once the session's read has landed, which the refresh debounce releases.
+    await act(async () => {
+      scenarioEngine.advance(REFRESH_DEBOUNCE_MS + 1);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
     expect(diagnostics?.boundSessionIds()).toEqual([BOUND_SESSION_ID]);
   });
 });

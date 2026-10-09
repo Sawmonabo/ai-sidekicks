@@ -1,34 +1,38 @@
-// Reads a session's events back in `sequence ASC` order, whole or a page after a known sequence,
-// and rebuilds its record from the stored events on every call; no snapshot is persisted. A range
-// the session skipped past as damaged is never read, and while its history is damaged no read
-// goes past its last good point.
+// The session service's reads: one session's record and transcript cursors as `session.read`
+// answers them, from the `sessions` row its events keep in step and its tags; the session's whole
+// log, or a page of it after a known sequence; and a rebuild of the record from that log through
+// the projector, over the same envelope reads the event log serves, which skip a range the session
+// skipped past as damaged and, while its history is damaged, stop at its last good point.
 
 import type { Database, Statement } from "better-sqlite3";
 
-import { EventEnvelopeSchema, type EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
-import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
+import { type SessionId } from "@ai-sidekicks/contracts/session/id";
+import {
+  encodeEventCursor,
+  START_OF_LOG_POSITION,
+} from "@ai-sidekicks/contracts/session/event-cursor";
+import type {
+  SessionReadRequest,
+  SessionReadResponse,
+  SessionRecord,
+  SessionShape,
+  SessionState,
+} from "@ai-sidekicks/contracts/session/methods";
 
-import { outsideSkippedRangesSql } from "../events/session/skipped-ranges.js";
-import type { DaemonSessionRecord, StoredEvent } from "./records.js";
-import { rebuildSession as rebuildSessionFromEvents } from "./projector.js";
+import {
+  prepareSessionEventReads,
+  type DamagedFromSequenceReader,
+  type SessionEventReads,
+} from "../events/session/read.js";
+import { sessionNotFound } from "./not-found.js";
+import { rebuildSession } from "./projector.js";
+import type { DaemonSessionRecord } from "./records.js";
 
-// A row as better-sqlite3 returns it from the events query. `safeIntegers` applies to every
-// integer column of a statement, so `sequence` and `monotonic_ns` both arrive as bigint.
-// `sequence` is converted back to a number at hydration (a per-session counter cannot reach
-// 2^53); `monotonic_ns` stays bigint because `process.hrtime.bigint()` can exceed it.
-interface SessionEventRow {
-  readonly id: string;
-  readonly session_id: string;
-  readonly sequence: bigint;
-  readonly occurred_at: string;
-  readonly monotonic_ns: bigint;
-  readonly category: string;
-  readonly type: string;
-  readonly actor: string | null;
-  readonly payload: string;
-  readonly correlation_id: string | null;
-  readonly causation_id: string | null;
-  readonly version: string;
+/** A session's read as its row, tags and log answer it: everything but the held draft. */
+export interface SessionLogRead {
+  session: Omit<SessionRecord, "draft">;
+  transcriptCursors: SessionReadResponse["transcriptCursors"];
 }
 
 /** A page of a session's events after a known sequence; with no `limit`, every later event. */
@@ -51,85 +55,94 @@ export interface EventsReadAfterSequenceResponse {
   readonly hasMore: boolean;
 }
 
-const EVENT_COLUMNS_SQL = `id, session_id, sequence, occurred_at, monotonic_ns,
-                category, type, actor, payload,
-                correlation_id, causation_id, version`;
-
-// SQLite reads a negative limit as no limit.
+// A negative limit reads every event.
 const NO_LIMIT = -1;
 
-/** A stored event row whose payload or envelope fails to parse; `sequence` is the row's. */
-export class MalformedStoredEventError extends Error {
-  readonly sequence: number;
-
-  constructor(message: string, sequence: number, options?: ErrorOptions) {
-    super(message, options);
-    this.name = "MalformedStoredEventError";
-    this.sequence = sequence;
-  }
+// The `sessions` columns `session.read` answers from.
+interface SessionReadRow {
+  readonly state: SessionState;
+  readonly shape: SessionShape;
+  readonly name: string | null;
+  readonly muted_at: string | null;
+  readonly created_at: string;
+  readonly updated_at: string;
 }
 
 /**
- * The sequence a session's reads stop before while its history is damaged, `undefined` while it
- * reads whole.
+ * Reads one session: its record and cursors from its row, its whole log, or its record rebuilt
+ * from that log.
  */
-export type DamagedFromSequenceReader = (sessionId: SessionId) => number | undefined;
-
-/** Reads a session's events and rebuilds its record from them. */
 export class SessionService {
-  // Only the statements are kept: each one references its database, which keeps the connection
-  // alive.
-  readonly #readEventsStatement: Statement;
-  readonly #readEventsAfterSequenceStatement: Statement;
-  readonly #readDamagedFromSequence: DamagedFromSequenceReader;
+  readonly #reader: Database;
+  readonly #eventReads: SessionEventReads;
+  readonly #selectRow: Statement<[string], SessionReadRow>;
+  readonly #selectTags: Statement<[string], { readonly tag: string }>;
 
-  constructor(db: Database, readDamagedFromSequence: DamagedFromSequenceReader = () => undefined) {
-    this.#readDamagedFromSequence = readDamagedFromSequence;
-    this.#readEventsStatement = db
-      .prepare(
-        `SELECT ${EVENT_COLUMNS_SQL}
-         FROM session_events AS event
-         WHERE session_id = @session_id
-           AND (@before_sequence IS NULL OR sequence < @before_sequence)
-           AND ${outsideSkippedRangesSql("event")}
-         ORDER BY sequence ASC`,
-      )
-      // Returns integer columns as bigint so a `monotonic_ns` above 2^53 round-trips exactly.
-      .safeIntegers(true);
-    this.#readEventsAfterSequenceStatement = db
-      .prepare(
-        `SELECT ${EVENT_COLUMNS_SQL}
-         FROM session_events AS event
-         WHERE session_id = @session_id AND sequence > @after_sequence
-           AND (@before_sequence IS NULL OR sequence < @before_sequence)
-           AND (@event_types IS NULL OR type IN (SELECT value FROM json_each(@event_types)))
-           AND ${outsideSkippedRangesSql("event")}
-         ORDER BY sequence ASC
-         LIMIT @limit`,
-      )
-      .safeIntegers(true);
+  /** `readDamagedFromSequence` says where a damaged session's reads stop; none stop when absent. */
+  constructor(reader: Database, readDamagedFromSequence?: DamagedFromSequenceReader) {
+    this.#reader = reader;
+    this.#eventReads = prepareSessionEventReads(reader, readDamagedFromSequence);
+    this.#selectRow = reader.prepare(
+      `SELECT state, shape, name, muted_at, created_at, updated_at
+         FROM sessions
+        WHERE id = ?`,
+    );
+    this.#selectTags = reader.prepare(
+      "SELECT tag FROM session_tags WHERE session_id = ? ORDER BY tag_folded",
+    );
   }
 
   /**
-   * Returns the session's events after `afterSequence` as envelopes, at most `limit` of them,
-   * only of `eventTypes` and only before `beforeSequence` when each is given. Throws
-   * {@link MalformedStoredEventError} when a stored row is not a well-formed envelope.
+   * The session's record, without the held draft, and its transcript cursors: `earliest` is the
+   * start of the log, `latest` its newest readable event, or the start of the log too when its
+   * history is damaged before any. Row, tags and head are read in one snapshot, so no event the
+   * row reflects lies past `latest`. Throws `session.not_found` for a session this daemon holds no
+   * row for.
+   */
+  readSession(request: SessionReadRequest): SessionLogRead {
+    const { row, tags, head } = this.#reader.transaction(() => ({
+      row: this.#selectRow.get(request.sessionId),
+      tags: this.#selectTags.all(request.sessionId).map((tagRow) => tagRow.tag),
+      head: this.#eventReads.readHead(request.sessionId),
+    }))();
+    if (row === undefined) {
+      throw sessionNotFound(request.sessionId);
+    }
+    return {
+      session: {
+        id: request.sessionId,
+        state: row.state,
+        shape: row.shape,
+        ...(row.name === null ? {} : { name: row.name }),
+        muted: row.muted_at !== null,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        tags,
+      },
+      transcriptCursors: {
+        earliest: encodeEventCursor(START_OF_LOG_POSITION),
+        latest: encodeEventCursor(head ?? START_OF_LOG_POSITION),
+      },
+    };
+  }
+
+  /**
+   * The session's events after `afterSequence`, at most `limit` of them, only of `eventTypes` and
+   * only before `beforeSequence` when each is given. Throws `MalformedStoredEventError` when a
+   * stored row is not a well-formed envelope.
    */
   readEventsAfterSequence(
     request: EventsReadAfterSequenceRequest,
   ): EventsReadAfterSequenceResponse {
     // One row past the page says whether another page follows.
-    const rows = this.#readEventsAfterSequenceStatement.all({
-      session_id: request.sessionId,
-      after_sequence: request.afterSequence,
-      event_types: request.eventTypes === undefined ? null : JSON.stringify(request.eventTypes),
-      before_sequence: this.#readBefore(request.sessionId, request.beforeSequence) ?? null,
-      limit: request.limit === undefined ? NO_LIMIT : request.limit + 1,
-    }) as ReadonlyArray<SessionEventRow>;
-    const hasMore = request.limit !== undefined && rows.length > request.limit;
-    const events = (hasMore ? rows.slice(0, request.limit) : rows).map((row) =>
-      toEventEnvelope(hydrateRow(row)),
+    const rows = this.#eventReads.readAfter(
+      request.sessionId,
+      request.afterSequence,
+      request.limit === undefined ? NO_LIMIT : request.limit + 1,
+      { eventTypes: request.eventTypes, beforeSequence: request.beforeSequence },
     );
+    const hasMore = request.limit !== undefined && rows.length > request.limit;
+    const events = hasMore ? rows.slice(0, request.limit) : rows;
     return {
       events,
       nextSequence: events.at(-1)?.sequence ?? request.afterSequence,
@@ -137,98 +150,17 @@ export class SessionService {
     };
   }
 
-  /** Returns a session's events ordered by `sequence ASC`, or `[]` for an unknown session. */
-  readEvents(sessionId: string): ReadonlyArray<StoredEvent> {
-    const rows: ReadonlyArray<SessionEventRow> = this.#readEventsStatement.all({
-      session_id: sessionId,
-      before_sequence: this.#readBefore(sessionId as SessionId, undefined) ?? null,
-    }) as ReadonlyArray<SessionEventRow>;
-    return rows.map((row) => hydrateRow(row));
+  /** Every event of the session's log in sequence order; none for a session with no events. */
+  readEvents(sessionId: SessionId): EventEnvelope[] {
+    const head = this.#eventReads.readHead(sessionId);
+    return head === undefined ? [] : this.#eventReads.readWindow(sessionId, 0, head);
   }
 
-  // The earlier of the request's own bound and the session's last good point.
-  #readBefore(sessionId: SessionId, beforeSequence: number | undefined): number | undefined {
-    const damagedFromSequence = this.#readDamagedFromSequence(sessionId);
-    if (damagedFromSequence === undefined) {
-      return beforeSequence;
-    }
-    return beforeSequence === undefined
-      ? damagedFromSequence
-      : Math.min(beforeSequence, damagedFromSequence);
+  /**
+   * Rebuilds the session's record from its whole log, or `null` when it has no events. Throws
+   * what the projector throws for a log that does not open at `session.created`.
+   */
+  rebuildSession(sessionId: SessionId): DaemonSessionRecord | null {
+    return rebuildSession(this.readEvents(sessionId));
   }
-
-  /** Rebuilds a session's record from its events, or `null` when it has no events. */
-  rebuildSession(sessionId: string): DaemonSessionRecord | null {
-    return rebuildSessionFromEvents(this.readEvents(sessionId));
-  }
-}
-
-function hydrateRow(row: SessionEventRow): StoredEvent {
-  const sequence: number = Number(row.sequence);
-  return {
-    id: row.id,
-    sessionId: row.session_id,
-    sequence,
-    occurredAt: row.occurred_at,
-    monotonicNs: row.monotonic_ns,
-    category: row.category,
-    type: row.type,
-    actor: row.actor,
-    payload: parsePayload(row),
-    correlationId: row.correlation_id,
-    causationId: row.causation_id,
-    version: row.version,
-  };
-}
-
-// The tolerant envelope parse keeps an event type this build does not know as a stub.
-function toEventEnvelope(event: StoredEvent): EventEnvelope {
-  const parsed = EventEnvelopeSchema.safeParse({
-    id: event.id,
-    sessionId: event.sessionId,
-    sequence: event.sequence,
-    occurredAt: event.occurredAt,
-    category: event.category,
-    type: event.type,
-    actor: event.actor,
-    payload: event.payload,
-    ...(event.correlationId === null ? {} : { correlationId: event.correlationId }),
-    ...(event.causationId === null ? {} : { causationId: event.causationId }),
-    version: event.version,
-  });
-  if (!parsed.success) {
-    throw new MalformedStoredEventError(
-      `The stored event id=${event.id} sequence=${String(event.sequence)} is not a well-formed ` +
-        "envelope",
-      event.sequence,
-      { cause: parsed.error },
-    );
-  }
-  return parsed.data;
-}
-
-// The read-side trust boundary: a stored row may hold JSON that is not an object. Failing here
-// names the row, where the consumer would fail with a misleading error. It checks only that the
-// payload is an object; the payload schema is not re-validated.
-function parsePayload(row: SessionEventRow): Record<string, unknown> {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(row.payload);
-  } catch (err) {
-    throw new MalformedStoredEventError(
-      `SessionService.hydrateRow: payload is not valid JSON for event id=${row.id} sequence=` +
-        `${String(row.sequence)} (${err instanceof Error ? err.message : String(err)})`,
-      Number(row.sequence),
-      { cause: err },
-    );
-  }
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new MalformedStoredEventError(
-      `SessionService.hydrateRow: payload must be a JSON object for event id=${row.id} ` +
-        `sequence=${String(row.sequence)} (got ` +
-        `${parsed === null ? "null" : Array.isArray(parsed) ? "array" : typeof parsed})`,
-      Number(row.sequence),
-    );
-  }
-  return parsed as Record<string, unknown>;
 }

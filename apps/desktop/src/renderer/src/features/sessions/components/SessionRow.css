@@ -50,3 +50,9 @@
   flex-wrap: wrap;
   gap: var(--meridian-space-2);
 }
+
+/* An untitled session's words, faint and italic, never mistaken for a name. */
+.meridian-session-row__untitled {
+  color: var(--meridian-text-faint);
+  font-style: italic;
+}

@@ -2,6 +2,7 @@ import "./SessionRow.css";
 
 import { memo, type MemoExoticComponent } from "react";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
+import { sessionDisplayTitleOf } from "#renderer/store/session/directory/display-title.js";
 import { isSessionBeingDeleted, type SessionListRow } from "../rows/list-row.js";
 import { SessionRowFacts } from "./SessionRowFacts.js";
 
@@ -22,15 +23,23 @@ export const SessionRow: MemoExoticComponent<(props: SessionRowProps) => React.J
   function SessionRow(props: SessionRowProps): React.JSX.Element {
     const { row } = props;
     const isBeingDeleted = isSessionBeingDeleted(row.state);
+    const displayTitle = sessionDisplayTitleOf(row);
+    // A session nothing names, not even by its shape, is told apart by its id.
+    const title =
+      displayTitle === undefined ? (
+        <WireFigure value={row.sessionId} />
+      ) : displayTitle.isUntitled ? (
+        <span className="meridian-session-row__untitled">{displayTitle.text}</span>
+      ) : (
+        displayTitle.text
+      );
     return (
       <div
         className={`meridian-session-row${isBeingDeleted ? " meridian-session-row--deleting" : ""}`}
       >
         <div className="meridian-session-row__identity">
           {isBeingDeleted ? (
-            <span className="meridian-session-row__name">
-              <WireFigure value={row.sessionId} />
-            </span>
+            <span className="meridian-session-row__name">{title}</span>
           ) : (
             <button
               type="button"
@@ -39,7 +48,7 @@ export const SessionRow: MemoExoticComponent<(props: SessionRowProps) => React.J
                 props.onOpen(row.sessionId);
               }}
             >
-              <WireFigure value={row.sessionId} />
+              {title}
             </button>
           )}
           <SessionRowFacts row={row} nowMilliseconds={props.nowMilliseconds} />

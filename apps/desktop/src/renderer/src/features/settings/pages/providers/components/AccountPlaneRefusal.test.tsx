@@ -1,5 +1,10 @@
 // The refusal is never suppressed, and the handoff never becomes an act.
 
+import {
+  PROVIDER_ACCOUNT_NO_DEFAULT_CODE,
+  PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE,
+  PROVIDER_ACCOUNT_NOT_REGISTERED_CODE,
+} from "@ai-sidekicks/contracts/provider/account/methods";
 import type {
   ProviderAccountId,
   ProviderLoginExpiredRemedy,
@@ -50,7 +55,7 @@ function renderRefusal(
 
 describe("an account-plane refusal on a console screen", () => {
   it("draws the daemon's sentence before what it adds, and reads both out in that order", () => {
-    const { shown, announced } = renderRefusal("provideraccount.not_registered");
+    const { shown, announced } = renderRefusal(PROVIDER_ACCOUNT_NOT_REGISTERED_CODE);
     const remedy = "Sign in to run work on this provider.";
     const text = shown.textContent;
     expect(text.indexOf(DAEMON_SENTENCE)).toBe(0);
@@ -62,7 +67,7 @@ describe("an account-plane refusal on a console screen", () => {
   });
 
   it("offers one navigation, and moving is all pressing it does", () => {
-    const { shown, openPage } = renderRefusal("provideraccount.no_default");
+    const { shown, openPage } = renderRefusal(PROVIDER_ACCOUNT_NO_DEFAULT_CODE);
     const actions = shown.querySelectorAll<HTMLButtonElement>(".meridian-account-handoff__action");
     expect(actions).toHaveLength(1);
     actions[0]?.click();
@@ -70,7 +75,7 @@ describe("an account-plane refusal on a console screen", () => {
   });
 
   it("offers a refused account move the remedy that account carries, and none without it", () => {
-    const tokenAccount = renderRefusal("provideraccount.not_authenticated", {
+    const tokenAccount = renderRefusal(PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE, {
       kind: "paste_token",
       accountId: "pa-0001" as ProviderAccountId,
     });
@@ -78,7 +83,7 @@ describe("an account-plane refusal on a console screen", () => {
     expect(tokenText).toContain(ACCOUNT_PLANE_REMEDY_SENTENCES.paste_token("claude"));
     expect(tokenText).not.toContain(ACCOUNT_PLANE_REMEDY_SENTENCES.sign_in("claude"));
     cleanup();
-    const uncarried = renderRefusal("provideraccount.not_authenticated");
+    const uncarried = renderRefusal(PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE);
     expect(uncarried.shown.querySelector(".meridian-account-handoff")).toBeNull();
     expect(uncarried.announced()).toBe(DAEMON_SENTENCE);
   });

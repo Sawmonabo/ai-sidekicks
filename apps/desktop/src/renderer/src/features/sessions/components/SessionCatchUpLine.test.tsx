@@ -14,11 +14,14 @@ import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBrid
 import { OpenSessionEntry } from "#renderer/store/session/open/entry.js";
 import { SessionStore } from "#renderer/store/session/store.js";
 import { failingRepoMountsReader } from "#test/helpers/failing-repo-mounts-reader.js";
+import { eventOfKind } from "#test/helpers/session/events.js";
 import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
 import { CATCH_UP_LINE_DWELL_MS } from "../hooks/useCatchUpLineWords.js";
+import { type LiveAnnouncer } from "#renderer/components/LiveAnnouncer/announcer.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { LIVE_ANNOUNCEMENT_HOLD_MS } from "#renderer/components/LiveAnnouncer/caps.js";
 import { drawnText, liveRegionText } from "#test/helpers/live-region.js";
+import { spiedAnnouncer } from "#test/helpers/spied-announcer.js";
 import { SessionCatchUpLine } from "./SessionCatchUpLine.js";
 
 const SESSION_ID = "session-catching-up";
@@ -34,11 +37,12 @@ function renderLine(
   sessionStore: SessionStore,
   clock: ManualClock,
   onTryAgain: (sessionId: string) => void = () => undefined,
+  announcer?: LiveAnnouncer,
 ): HTMLElement {
   const fixture = createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO });
   return render(
     <PlatformBridgeProvider bridge={fixture.bridge} clock={clock}>
-      <LiveAnnouncerProvider clock={clock}>
+      <LiveAnnouncerProvider announcer={announcer} clock={clock}>
         <SessionCatchUpLine sessionStore={sessionStore} onTryAgain={onTryAgain} />
       </LiveAnnouncerProvider>
     </PlatformBridgeProvider>,
@@ -100,6 +104,86 @@ describe("SessionCatchUpLine", () => {
       "Couldn't catch up",
     ]);
     expect(drawnText(container)).toBe("");
+  });
+
+  it("says it couldn't catch up each time a replay fails on the same row", async () => {
+    const clock = new ManualClock(0);
+    const entry = new OpenSessionEntry("session-failing-row", {
+      read: () => Promise.resolve({ entities: [] }),
+      clock,
+      applyCoalesceMs: 0,
+      refreshDebounceMs: 20,
+      projectors: {
+        "run.starting": (event) => {
+          if (event.sequence === 7) {
+            throw new TypeError("the payload was not the shape this projector claims");
+          }
+          return [];
+        },
+      },
+    });
+    const spied = spiedAnnouncer(clock);
+    const container = renderLine(
+      entry.store,
+      clock,
+      () => {
+        entry.refreshScheduler.request("user-request");
+      },
+      spied.announcer,
+    );
+    async function landRead(): Promise<void> {
+      await act(async () => {
+        clock.advance(21);
+        for (let turn = 0; turn < 4; turn += 1) {
+          await Promise.resolve();
+        }
+      });
+    }
+    function deliver(sequences: readonly number[]): void {
+      act(() => {
+        entry.applyQueue.enqueueAll(
+          sequences.map((sequence) => eventOfKind(entry.store.sessionId, "run.starting", sequence)),
+        );
+        entry.applyQueue.flush();
+      });
+    }
+    function pressTryAgain(): void {
+      const tryAgain = container.querySelector("button");
+      if (tryAgain === null) {
+        throw new Error("the failed line drew no Try again");
+      }
+      fireEvent.click(tryAgain);
+    }
+
+    entry.refreshScheduler.request("subscribe");
+    await landRead();
+    deliver([6, 7]);
+    advance(clock, CATCH_UP_LINE_DWELL_MS);
+    const afterTheRowFailed = drawnText(container);
+    // A replay failing on the same row inside the hold leaves the words where they stood.
+    pressTryAgain();
+    await landRead();
+    deliver([6, 7]);
+    advance(clock, CATCH_UP_LINE_DWELL_MS);
+    // One that runs past the hold is catching up while it runs.
+    pressTryAgain();
+    await landRead();
+    advance(clock, CATCH_UP_LINE_DWELL_MS);
+    const whileTheReplayRuns = drawnText(container);
+    deliver([6, 7]);
+    advance(clock, CATCH_UP_LINE_DWELL_MS);
+    entry.dispose();
+
+    expect(afterTheRowFailed).toBe("Couldn't catch up · Try again");
+    expect(whileTheReplayRuns).toBe("Catching up…");
+    // No read is coming for the row, so the line stands with Try again.
+    expect(drawnText(container)).toBe("Couldn't catch up · Try again");
+    // Each failure is said, the one that never moved the words included.
+    expect(spied.spokenOn("assertive")).toStrictEqual([
+      "Couldn't catch up",
+      "Couldn't catch up",
+      "Couldn't catch up",
+    ]);
   });
 
   it("says it couldn't catch up if the mounts read fails after a good session read", async () => {

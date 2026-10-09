@@ -10,7 +10,7 @@ import type {
   WorkflowStepReadResponse,
 } from "@ai-sidekicks/contracts/workflow/run/step/methods";
 
-import type { DatabaseConnections } from "../../database/connections.js";
+import type { DatabaseConnections } from "../../database/connection/lifecycle.js";
 import { WorkflowNotFoundError } from "../not-found.js";
 import { InvalidCursorError } from "./invalid-cursor.js";
 

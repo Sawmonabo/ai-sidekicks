@@ -2,7 +2,7 @@
 // mistake, refused with the code a request whose params fail their schema gets, so a client
 // handles both one way.
 
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 
 import { DaemonDomainError } from "../../ipc/domain-error.js";
 

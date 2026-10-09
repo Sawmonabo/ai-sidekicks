@@ -235,6 +235,12 @@
     // `rolldown.config.ts`, and its Vitest plugin reads the tests beside their subjects.
     "apps/cli": {},
     "packages/crypto-paseto": {},
+    "packages/search-index": {
+      // The package's loader is the file its addon build writes, not source: its fallbacks name
+      // the per-platform packages napi-rs publishes for other projects, and this one publishes
+      // none. The negation drops it from the entries `exports` adds.
+      "entry": ["!index.js"]
+    },
     "packages/search-ranking": {},
     "packages/client-sdk": {},
     "packages/control-plane": {
@@ -259,8 +265,13 @@
       ]
     },
     "packages/runtime-daemon": {
-      // The database writer's worker thread: started by its file's URL, which knip cannot follow.
-      "entry": ["src/database/worker.ts"],
+      // The database writer's and the search's worker threads, and the search index's build
+      // process: each started by its file's URL, which knip cannot follow.
+      "entry": [
+        "src/database/worker.ts",
+        "src/session/search/thread/worker.ts",
+        "src/session/search/index/child.ts"
+      ],
       // `scutil` is the macOS utility the daemon runs to read the computer name it reports, and its
       // test runs to check it; `mkfifo` makes the named pipe the stop tests hold a write on; both
       // ship with the operating system, never as a package dependency.
@@ -302,8 +313,6 @@
         "re2js",
         // The email digest of what needs the person's attention.
         "nodemailer",
-        // Matching a workflow file-watch trigger's path patterns.
-        "picomatch",
         // A short workflow code step run in its own memory-bounded engine.
         "quickjs-emscripten",
         // The picture of an attachment's first page and its covered copy.
@@ -317,9 +326,6 @@
         // The machine's `presence.read` binding, which nothing registers until Remote Control
         // reports the devices connected to this machine.
         "src/ipc/handlers/presence/read.ts",
-        // `session.create`'s binding, which nothing registers until the daemon's startup binds the
-        // session methods onto its registry.
-        "src/ipc/handlers/session/create.ts",
         // The input schemas of the workflow agent tools, read by their handlers once the daemon
         // serves them.
         "src/workflow/agent-tools/inputs.ts",

@@ -11,30 +11,11 @@ import {
   type HydratedContentUnavailableReason,
   type HydratedSessionEventContent,
 } from "../event/envelope.js";
-import { jsonUtf8ByteLength } from "../jsonrpc/message.js";
 import { wireFreeFormString, FILE_PATH_MAX_LEN } from "../free-form-string.js";
 import { SessionIdSchema, type SessionId } from "../session/id.js";
 
-import { TRANSCRIPT_PAGE_MAX_BYTES } from "./operations.js";
+import { requireMemberToRideOneFrame } from "../jsonrpc/page.js";
 import { countSchema } from "../internal/wire-scalars.js";
-
-/** Refuse stored text over the page budget, so an oversized reply is a failed read. */
-const requireMemberToRideOneFrame = (
-  member: unknown,
-  memberName: string,
-  issueContext: z.RefinementCtx,
-): void => {
-  const measuredBytes = jsonUtf8ByteLength(member);
-  if (measuredBytes > TRANSCRIPT_PAGE_MAX_BYTES) {
-    issueContext.addIssue({
-      code: "custom",
-      path: [memberName],
-      message:
-        `${memberName} measures ${String(measuredBytes)} JSON bytes, over the ` +
-        `${String(TRANSCRIPT_PAGE_MAX_BYTES)}-byte page budget`,
-    });
-  }
-};
 
 // transcript.bodyRead
 

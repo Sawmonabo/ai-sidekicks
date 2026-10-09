@@ -9,7 +9,10 @@
 // workflow tables, which live in `workflow/schema.ts` and are appended below;
 // there are no numbered migrations.
 
+import { DAMAGED_EVENTS_SKIPPED_TYPE } from "../events/session/skipped-ranges.js";
 import { WORKFLOW_SCHEMA_SQL } from "../workflow/schema.js";
+
+import { SEARCH_INDEX_SCHEMA_SQL } from "./search/index/schema.js";
 
 /**
  * The whole daemon schema. `applyMigrations` executes it once, in one
@@ -41,8 +44,11 @@ CREATE TABLE session_events (
   UNIQUE (session_id, sequence)
 ) STRICT;
 
-CREATE INDEX idx_session_events_session_seq ON session_events(session_id, sequence);
 CREATE INDEX idx_session_events_type ON session_events(session_id, type);
+-- The sessions that skipped a damaged range, few or none, so a read over many
+-- sessions' rows probes the skipped ranges of those sessions alone.
+CREATE INDEX idx_session_events_skipped ON session_events(session_id)
+  WHERE type = '${DAMAGED_EVENTS_SKIPPED_TYPE}';
 CREATE INDEX idx_session_events_correlation ON session_events(correlation_id)
   WHERE correlation_id IS NOT NULL;
 -- At most one terminal event per (runId, runVersion). The key lives in the JSON
@@ -115,6 +121,146 @@ CREATE TABLE session_drafts (
   text        TEXT NOT NULL,
   updated_at  TEXT NOT NULL                     -- RFC 3339 UTC, ms precision
 ) STRICT;
+
+-- ---------------------------------------------------------------------------
+-- The session directory: one row per session this daemon hosts, which the
+-- sessions list and the session read answer from, and its groups, links,
+-- tags and related lists.
+-- ---------------------------------------------------------------------------
+-- A project's named groups. A chat has none.
+CREATE TABLE session_groups (
+  id           TEXT NOT NULL PRIMARY KEY,
+  project_id   TEXT NOT NULL,                   -- the project record the group belongs to
+  name         TEXT NOT NULL,                   -- the person's own casing, for display
+  -- The full-Unicode case fold of name, written by the store on every insert and rename.
+  name_folded  TEXT NOT NULL,
+  created_at   TEXT NOT NULL
+) STRICT;
+
+-- A group's name is unique in its project ignoring case, compared on its fold.
+CREATE UNIQUE INDEX idx_session_groups_name_folded ON session_groups(project_id, name_folded);
+
+-- The event-derived columns are written in each event's own write, before its
+-- row, and equal a rebuild from the log. group_id is written by its service and
+-- never rebuilt.
+CREATE TABLE sessions (
+  id                         TEXT NOT NULL PRIMARY KEY,
+  shape                      TEXT NOT NULL CHECK(shape IN ('chat', 'project')),
+  state                      TEXT NOT NULL
+    CHECK(state IN ('provisioning', 'active', 'archived', 'closed', 'purge_requested')),
+  name                       TEXT,              -- NULL while unnamed
+  -- The first user message's opening, cut to the session name's bound.
+  first_message_preview      TEXT,
+  branch                     TEXT,              -- from session.branch_changed
+  pinned_at                  TEXT,              -- NULL while not pinned; pinned rows sort by it
+  muted_at                   TEXT,              -- NULL while not muted
+  scratch_for_definition_id  TEXT,              -- the definition a scratch session tries
+  parent_session_id          TEXT,              -- the session a fork was taken from
+  -- How the session's most recent run to end its working time left it. The session reads waiting
+  -- while any of its runs in runs waits, else running while any works, else this.
+  last_run_outcome           TEXT NOT NULL DEFAULT 'idle'
+    CHECK(last_run_outcome IN ('done', 'failed', 'idle')),
+  created_at                 TEXT NOT NULL,     -- RFC 3339 UTC, ms precision
+  updated_at                 TEXT NOT NULL,
+  last_activity_at           TEXT NOT NULL,
+  -- The one group of its project the session sits in; NULL for none and for every chat.
+  group_id                   TEXT REFERENCES session_groups(id)
+) STRICT;
+
+CREATE INDEX idx_sessions_group ON sessions(group_id);
+-- The list's shape grouping and the chats count.
+CREATE INDEX idx_sessions_shape_state ON sessions(shape, state);
+-- A search by tag and words reads each tagged session's rowid and last activity from here alone.
+CREATE INDEX idx_sessions_activity ON sessions(id, last_activity_at);
+
+-- Each session.create's idempotency key, the session it made and where that session works: its
+-- mount, its execution mode and the group it asked for (NULL for none, and for every chat). Written
+-- in the session.created write, so a retry with the key, or the daemon's start, finishes a session
+-- left provisioning.
+CREATE TABLE session_create_requests (
+  client_idempotency_key  TEXT NOT NULL PRIMARY KEY,
+  session_id              TEXT NOT NULL UNIQUE,
+  repo_mount_id           TEXT NOT NULL,
+  execution_mode          TEXT NOT NULL
+    CHECK(execution_mode IN ('bound-root', 'provisioned-worktree')),
+  group_id                TEXT
+) STRICT;
+
+-- A chat's conversion: the session.convert key it runs under, which the latest request that
+-- resumed it takes over, and the project mount it attached. Written as soon as the mount is, so a
+-- retry resumes onto that mount, and answered from session.converted once that lands. One per chat.
+CREATE TABLE session_convert_requests (
+  client_idempotency_key  TEXT NOT NULL PRIMARY KEY,
+  session_id              TEXT NOT NULL UNIQUE,
+  repo_mount_id           TEXT NOT NULL
+) STRICT;
+
+-- Each workspace file a conversion has dealt with, recorded as its copy lands: copied, or not
+-- copied with the reason. A resumed conversion skips every path here and counts from these rows.
+CREATE TABLE session_convert_files (
+  session_id  TEXT NOT NULL,
+  path        TEXT NOT NULL,
+  outcome     TEXT NOT NULL
+    CHECK(outcome IN ('copied', 'repository_has_file', 'repository_path_not_a_folder', 'link',
+      'special_file')),
+  PRIMARY KEY (session_id, path)
+) STRICT, WITHOUT ROWID;
+
+-- What a session holds outside its event log that the spawn path reads:
+-- configuration the person set, never rebuilt from events.
+CREATE TABLE session_console_state (
+  -- Written at session.create for a Claude Code session, and for any other on
+  -- the first press that needs it.
+  session_id          TEXT NOT NULL PRIMARY KEY,
+  -- This session's own bound on the steps of one turn; NULL falls back to the
+  -- machine's value. Zero would forbid the turn it bounds.
+  max_steps_per_turn  INTEGER
+                      CHECK (max_steps_per_turn IS NULL OR max_steps_per_turn >= 1),
+  -- A Claude Code session's own advisor model, NULL when it is off.
+  advisor_model       TEXT,
+  updated_at          TEXT NOT NULL
+) STRICT;
+
+-- One row per pair of sessions and kind, written or bumped when the event that
+-- makes it is recorded. Only a 'related' row is ever deleted.
+CREATE TABLE session_links (
+  source_session_id  TEXT NOT NULL,
+  target_session_id  TEXT NOT NULL,
+  kind               TEXT NOT NULL
+    CHECK (kind IN ('started', 'copied_from', 'messaged', 'asked', 'mentioned', 'related')),
+  use_count          INTEGER NOT NULL DEFAULT 1 CHECK (use_count >= 1),
+  first_at           TEXT NOT NULL,
+  last_at            TEXT NOT NULL,             -- a link's weight halves every 30 days from here
+  PRIMARY KEY (source_session_id, target_session_id, kind)
+) STRICT;
+
+CREATE INDEX idx_session_links_target ON session_links(target_session_id, source_session_id);
+
+-- Any number of tags per session, nested with '/'; a prefix match on the fold
+-- finds a parent's children.
+CREATE TABLE session_tags (
+  session_id  TEXT NOT NULL,
+  tag         TEXT NOT NULL,                    -- as written, for display
+  tag_folded  TEXT NOT NULL,
+  PRIMARY KEY (session_id, tag_folded)
+) STRICT;
+
+-- Covers the tags-in-use read, which takes one spelling per fold from the index alone.
+CREATE INDEX idx_session_tags_tag ON session_tags(tag_folded, tag);
+
+-- Each session's ranked related list, computed ahead so a read is one lookup.
+CREATE TABLE session_related (
+  session_id          TEXT NOT NULL,
+  related_session_id  TEXT NOT NULL,
+  score               REAL NOT NULL,
+  PRIMARY KEY (session_id, related_session_id)
+) STRICT;
+
+CREATE INDEX idx_session_related_score ON session_related(session_id, score DESC);
+-- A purge deletes the entries naming the purged session from every other session's list.
+CREATE INDEX idx_session_related_related ON session_related(related_session_id);
+
+${SEARCH_INDEX_SCHEMA_SQL}
 
 -- ---------------------------------------------------------------------------
 -- This machine: its id, minted at the daemon's first start, and the friendly
@@ -232,17 +378,26 @@ CREATE TABLE repo_mounts (
   canonical_root  TEXT NOT NULL,
   vcs_type        TEXT NOT NULL DEFAULT 'git'
                   CHECK(vcs_type IN ('git')),
+  -- 'attached' is a project's folder the person attached or cloned; 'managed'
+  -- is a chat's git-initialized workspace the daemon owns.
+  origin          TEXT NOT NULL DEFAULT 'attached'
+                  CHECK(origin IN ('attached', 'managed')),
+  -- The one chat a managed mount belongs to; event-sourced, so no foreign key.
+  managed_session_id TEXT,
   state           TEXT NOT NULL DEFAULT 'attached'
                   CHECK(state IN ('attached', 'detached', 'archived')),
   attached_at     TEXT NOT NULL,
   updated_at      TEXT NOT NULL,
-  metadata        TEXT NOT NULL DEFAULT '{}'    -- JSON
+  metadata        TEXT NOT NULL DEFAULT '{}',   -- JSON
+  CHECK ((origin = 'managed') = (managed_session_id IS NOT NULL))
 ) STRICT;
 
 -- Two aliases of one root on one machine are one mount; the same path on two
 -- machines is two filesystems; a detached row does not block a re-attach.
 CREATE UNIQUE INDEX idx_repo_mounts_active_root
   ON repo_mounts(node_id, canonical_root) WHERE state = 'attached';
+CREATE UNIQUE INDEX idx_repo_mounts_managed_session
+  ON repo_mounts(managed_session_id) WHERE managed_session_id IS NOT NULL;
 
 CREATE TABLE workspaces (
   id              TEXT PRIMARY KEY,
@@ -260,6 +415,10 @@ CREATE TABLE workspaces (
 
 CREATE INDEX idx_workspaces_session ON workspaces(session_id);
 CREATE INDEX idx_workspaces_repo ON workspaces(repo_mount_id);
+-- A session has one live workspace on a mount, so binding it again answers that one; an archived
+-- row is history and does not count.
+CREATE UNIQUE INDEX idx_workspaces_live_session_mount
+  ON workspaces(session_id, repo_mount_id) WHERE state <> 'archived';
 
 -- Session and run ids are event-sourced, so they carry no foreign key.
 CREATE TABLE worktrees (

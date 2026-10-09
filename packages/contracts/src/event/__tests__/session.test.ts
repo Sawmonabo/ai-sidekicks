@@ -43,6 +43,22 @@ describe("SessionEventSchema", () => {
     },
   );
 
+  it("parses session.activated as the move from provisioning to active", () => {
+    const activated = {
+      ...buildSessionCreatedEvent(),
+      id: "evt-0002",
+      sequence: 1,
+      type: "session.activated",
+      payload: { sessionId: SESSION_ID, previousState: "provisioning", newState: "active" },
+    };
+    const parsed = SessionEventSchema.parse(activated);
+    expect(parsed.type === "session.activated" && parsed.payload.newState).toBe("active");
+    // A payload that names no state the session moved to is refused.
+    expect(
+      SessionEventSchema.safeParse({ ...activated, payload: { sessionId: SESSION_ID } }).success,
+    ).toBe(false);
+  });
+
   it("rejects a category/type mismatch (usage_telemetry on session.created)", () => {
     // Wire-integrity check: the per-variant `category: z.literal(...)`
     // forbids cross-namespace smuggling. If this ever silently accepted,

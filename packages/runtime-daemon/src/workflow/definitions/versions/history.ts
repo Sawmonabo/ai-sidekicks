@@ -3,7 +3,7 @@
 import type { Statement } from "better-sqlite3";
 
 import type { AgentId } from "@ai-sidekicks/contracts/agent/definition";
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import type {
   WorkflowDefinitionId,
   WorkflowDocumentHashedBody,
@@ -18,7 +18,7 @@ import type {
   WorkflowVersionReadResponse,
 } from "@ai-sidekicks/contracts/workflow/definition/methods";
 
-import type { DatabaseConnections } from "../../../database/connections.js";
+import type { DatabaseConnections } from "../../../database/connection/lifecycle.js";
 import { DaemonDomainError } from "../../../ipc/domain-error.js";
 import type { RegistryDispatchCode } from "../../../ipc/registry.js";
 import { WorkflowNotFoundError } from "../../not-found.js";

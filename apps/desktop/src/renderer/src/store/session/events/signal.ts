@@ -4,11 +4,15 @@
 // subject is a `SessionStore` transition.
 //
 // Cursor bookkeeping is the hazard: comparing against the newly-arrived state rather than the
-// last one seen would re-signal on every transition, and forgetting the `<=` guard would
-// re-signal on one that admitted nothing.
+// last one seen would re-signal on every transition, and dropping the guard on an unmoved cursor
+// would re-signal on one that admitted nothing. A repair swaps in a window whose filled holes sit
+// below the cursor already seen, so on the swap the rows the window did not hold before are the
+// ones counted, whether or not a cause raised during the replay still stands.
 
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 
+import { isRepairEdge } from "#renderer/store/reads/triggers.js";
+import type { ProjectedSessionEvent } from "../entities/vocabulary.js";
 import type { SessionStore } from "../store.js";
 
 /**
@@ -24,14 +28,24 @@ export function subscribeToSessionEventKinds(
 ): () => void {
   const watched = new Set<string>(watchedKinds);
   let lastSeenCursor = sessionStore.snapshot().cursor;
-  return sessionStore.readable.subscribe((state) => {
+  return sessionStore.readable.subscribe((state, previous) => {
     const previousCursor = lastSeenCursor;
-    if (state.cursor <= previousCursor) {
+    let arrived: readonly ProjectedSessionEvent[];
+    // A replay that passed the held rows ends replaying; one passed at once never showed it, and
+    // only clears the cause.
+    const isSwap =
+      (previous.isReplaying && !state.isReplaying) ||
+      isRepairEdge(previous.degradedCause, state.degradedCause);
+    if (isSwap) {
+      const heldRows = new Set(previous.transcript);
+      arrived = state.transcript.filter((event) => !heldRows.has(event));
+    } else if (state.cursor > previousCursor) {
+      arrived = state.transcript.filter((event) => event.sequence > previousCursor);
+    } else {
       return;
     }
     lastSeenCursor = state.cursor;
-    const admitted = state.transcript.filter((event) => event.sequence > previousCursor);
-    if (admitted.some((event) => watched.has(event.kind))) {
+    if (arrived.some((event) => watched.has(event.kind))) {
       onChangeSignal();
     }
   });

@@ -17,7 +17,7 @@ import type {
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
 import type { WorkflowRunStatus } from "@ai-sidekicks/contracts/workflow/run/status";
 
-import type { DatabaseConnections } from "../../database/connections.js";
+import type { DatabaseConnections } from "../../database/connection/lifecycle.js";
 import type { WriteStatement } from "../../database/statement.js";
 import { WorkflowNotFoundError } from "../not-found.js";
 import { readStoredWorkflowDocument } from "./stored-document.js";

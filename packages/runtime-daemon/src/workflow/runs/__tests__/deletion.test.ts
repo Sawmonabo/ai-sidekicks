@@ -48,6 +48,17 @@ let deletion: WorkflowRunDeletion;
 let versionId: string;
 let checkout: WorkflowRunExecutionContext;
 
+// The daemon's event log over the scratch database, which logs nothing in these tests.
+function eventLogOver(scratch: ScratchDatabase): EventLogService {
+  return new EventLogService({
+    writer: scratch.writer,
+    reader: scratch.reader,
+    writeServiceLog: (line) => {
+      throw new Error(`unexpected service log line: ${line}`);
+    },
+  });
+}
+
 beforeEach(async () => {
   database = await openScratchDatabase();
   // A run's gate answers reference the approval requests table, which the daemon schema does not
@@ -55,7 +66,7 @@ beforeEach(async () => {
   await database.writer.write([
     { sql: "CREATE TABLE approval_requests (id TEXT PRIMARY KEY) STRICT" },
   ]);
-  deletion = new WorkflowRunDeletion(database, new EventLogService({ writer: database.writer }));
+  deletion = new WorkflowRunDeletion(database, eventLogOver(database));
   versionId = await insertWorkflowVersion(database.writer, "Nightly review");
   checkout = await insertExecutionContextCheckout(database.writer);
 });
@@ -283,7 +294,7 @@ describe("deleting runs older than an instant", () => {
     const failedRunRows = readRunRows(database.reader, failedRunId);
     const appendFailure = new Error("the disk is full");
     // The fixture session's write, which goes first, fails; the other session's still goes.
-    const sessionEvents = new EventLogService({ writer: database.writer });
+    const sessionEvents = eventLogOver(database);
     const failingSessionEvents: SessionEventLog = {
       append: (envelope, options) =>
         envelope.sessionId === FIXTURE_SESSION_ID

@@ -2,6 +2,7 @@
 // cap then cuts. A backward page is only worth reading if the cap keeps it, so each case asserts
 // the merge and the retention together.
 
+import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import { describe, expect, it } from "vitest";
 
 import { SessionStore } from "./store.js";
@@ -19,7 +20,7 @@ function openStore(options: { readonly transcriptCap?: number } = {}): SessionSt
     cursor: 20,
     entities: [],
     transcript: eventsAt([18, 19, 20]),
-    readFromCursor: "cursor-at-18",
+    readFromCursor: "cursor-at-18" as EventCursor,
   });
   return store;
 }
@@ -66,6 +67,8 @@ describe("SessionStore.prependEarlierEvents — growing the log at its head", ()
     // The retained end is private; a caller sees only which rows survive the cap.
     expect(store.prependEarlierEvents(eventsAt([17])).admitted).toBe(1);
 
+    // A store holding a window takes a read only as a repair.
+    store.markReadFailed();
     store.initialize({
       cursor: 30,
       entities: [],

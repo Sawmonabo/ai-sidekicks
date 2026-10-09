@@ -1,6 +1,6 @@
 // The one `workflow.not_found` refusal every workflow store raises, whatever it was asked for.
 
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import { WORKFLOW_NOT_FOUND_CODE } from "@ai-sidekicks/contracts/workflow/run/failures";
 import type { WorkflowStepKey } from "@ai-sidekicks/contracts/workflow/run/step/record";
 

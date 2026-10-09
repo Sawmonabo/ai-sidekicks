@@ -15,11 +15,17 @@ import { countStoreListeners } from "#test/helpers/session/store/listeners.js";
 import { OpenSessionRowProjection, useOpenSessionProjection } from "./useOpenSessionProjection.js";
 import type { SessionListRow } from "../rows/list-row.js";
 
-/** Establish a base state on an open store, the way a completed read would. */
+/**
+ * Establish a base state on an open store, the way a completed read would. A store holding one
+ * takes another only as a repair, so a later one lands after a failed read.
+ */
 function establish(
   store: SessionStore,
   options: { readonly cursor: number; readonly touchedAtIso: string },
 ): void {
+  if (store.snapshot().initialized) {
+    store.markReadFailed();
+  }
   store.initialize({
     cursor: options.cursor,
     entities: [
@@ -101,7 +107,7 @@ describe("OpenSessionRowProjection", () => {
 
     // Negative control: the session still open still wakes it.
     establish(openStore, { cursor: 1, touchedAtIso: "2026-01-01T13:00:00.000Z" });
-    expect(notifications).toBe(1);
+    expect(notifications).toBeGreaterThan(0);
   });
 
   it("holds no subscription once the last subscriber has gone", () => {
@@ -118,7 +124,8 @@ describe("OpenSessionRowProjection", () => {
     });
     // Negative control, taken first: while subscribed, it is woken.
     establish(store, { cursor: 1, touchedAtIso: "2026-01-01T12:00:00.000Z" });
-    expect(notifications).toBe(1);
+    const wokenWhileSubscribed = notifications;
+    expect(wokenWhileSubscribed).toBeGreaterThan(0);
     expect(liveListeners()).toBe(1);
 
     release();
@@ -127,7 +134,7 @@ describe("OpenSessionRowProjection", () => {
     // Counted on the store: with no subscriber left, a listener left behind notifies nobody.
     expect(liveListeners()).toBe(0);
     establish(store, { cursor: 2, touchedAtIso: "2026-01-01T13:00:00.000Z" });
-    expect(notifications).toBe(1);
+    expect(notifications).toBe(wokenWhileSubscribed);
   });
 
   it("re-reads when an open session's projection moves", () => {

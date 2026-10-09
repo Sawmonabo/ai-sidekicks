@@ -16,7 +16,9 @@
 
 import {
   PROVIDER_ACCOUNT_IN_USE_CODE,
+  PROVIDER_ACCOUNT_NO_DEFAULT_CODE,
   PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE,
+  PROVIDER_ACCOUNT_NOT_REGISTERED_CODE,
 } from "@ai-sidekicks/contracts/provider/account/methods";
 import type {
   ProviderLoginExpiredRemedy,
@@ -35,8 +37,8 @@ import type { SettingsPageId } from "#renderer/routing/settings-page-ids.js";
  * their constants; the router below is keyed by every one, so it is total.
  */
 export type AccountPlaneRefusalCode =
-  | "provideraccount.not_registered"
-  | "provideraccount.no_default"
+  | typeof PROVIDER_ACCOUNT_NOT_REGISTERED_CODE
+  | typeof PROVIDER_ACCOUNT_NO_DEFAULT_CODE
   | "provideraccount.unknown"
   | "provideraccount.credential_home_unavailable"
   | typeof PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE
@@ -74,10 +76,10 @@ const ACCOUNT_PLANE_HANDOFFS: Readonly<
   Record<AccountPlaneRefusalCode, AccountPlaneHandoffRoute | null>
 > = {
   // Nothing is registered for the provider, so the act is registration.
-  "provideraccount.not_registered": { section: "providers", remedyKind: "register" },
+  [PROVIDER_ACCOUNT_NOT_REGISTERED_CODE]: { section: "providers", remedyKind: "register" },
   // Accounts exist and none is the provider's default; the daemon lists candidates and elects
   // none.
-  "provideraccount.no_default": { section: "providers", remedyKind: "choose_default" },
+  [PROVIDER_ACCOUNT_NO_DEFAULT_CODE]: { section: "providers", remedyKind: "choose_default" },
   // An account resolved and its home is unusable; `sign_in` is the arm the readiness projection
   // puts on `home_missing` and the one that names a home.
   "provideraccount.credential_home_unavailable": { section: "providers", remedyKind: "sign_in" },

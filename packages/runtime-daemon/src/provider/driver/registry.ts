@@ -8,30 +8,34 @@
 // The gate fails closed: a flag is supported only when its cached value is exactly `true`.
 // `applyIntervention` is not gated here, because its degraded fallback must reach the driver.
 //
-// The error classes carry a stable `driver.*` code and a leak-safe message with structured
-// `fields`, like `ipc/session-errors.ts`.
+// The error classes are daemon domain errors: a stable `driver.*` code and a leak-safe message,
+// with structured detail the wire carries as `data.fields`.
 
 import type {
   DriverCapabilities,
   DriverCapabilityFlag,
 } from "@ai-sidekicks/contracts/provider/driver/capabilities";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
+
+import { DaemonDomainError } from "../../ipc/domain-error.js";
 import { DRIVER_CAPABILITY_UNSUPPORTED_MESSAGE, type ProviderDriver } from "./contract.js";
 
 /**
  * Thrown when a capability check targets a `driverId` that is not registered.
  *
- * `code` is `driver.unavailable`. The message is a fixed sentence and `fields` carries only
+ * `code` is `driver.unavailable`. The message is a fixed sentence and its detail carries only
  * `{ driverId }`, so nothing internal leaks.
  */
-export class DriverUnavailableError extends Error {
-  readonly code = "driver.unavailable" as const;
-  readonly fields: { readonly driverId: ProviderName };
+export class DriverUnavailableError extends DaemonDomainError {
+  declare readonly code: "driver.unavailable";
 
   constructor(driverId: ProviderName) {
-    super("Provider driver is currently unavailable");
-    this.name = "DriverUnavailableError";
-    this.fields = { driverId };
+    super("Provider driver is currently unavailable", {
+      code: "driver.unavailable",
+      jsonRpcCode: JsonRpcErrorCode.InternalError,
+      detail: { driverId },
+    });
   }
 }
 
@@ -39,17 +43,19 @@ export class DriverUnavailableError extends Error {
  * Thrown by the fail-closed gate when a flag is declared `false` or is absent from the cached
  * snapshot.
  *
- * `code` is `driver.capability_unsupported`. The message is a fixed sentence and `fields`
+ * `code` is `driver.capability_unsupported`. The message is a fixed sentence and its detail
  * carries only `{ driverId, flag }`.
  */
-export class DriverCapabilityUnsupportedError extends Error {
-  readonly code = "driver.capability_unsupported" as const;
-  readonly fields: { readonly driverId: ProviderName; readonly flag: DriverCapabilityFlag };
+export class DriverCapabilityUnsupportedError extends DaemonDomainError {
+  declare readonly code: "driver.capability_unsupported";
 
   constructor(driverId: ProviderName, flag: DriverCapabilityFlag) {
-    super(DRIVER_CAPABILITY_UNSUPPORTED_MESSAGE);
-    this.name = "DriverCapabilityUnsupportedError";
-    this.fields = { driverId, flag };
+    // `InvalidRequest`: the params resolve and a protocol-state contract fails.
+    super(DRIVER_CAPABILITY_UNSUPPORTED_MESSAGE, {
+      code: "driver.capability_unsupported",
+      jsonRpcCode: JsonRpcErrorCode.InvalidRequest,
+      detail: { driverId, flag },
+    });
   }
 }
 

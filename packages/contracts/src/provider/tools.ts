@@ -4,7 +4,7 @@
 // registers them; each schema checks the arguments where the call reaches the daemon.
 import { z } from "zod";
 
-import { SESSION_NAME_MAX_LEN } from "../session/methods.js";
+import { SESSION_NAME_MAX_LEN } from "../session/name.js";
 import {
   FILE_PATH_MAX_LEN,
   wireFreeFormString,

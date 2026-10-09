@@ -100,6 +100,8 @@ interface RepoMountReattachResponse {
 // (`provisioned-worktree`) or the checkout the project already has (`bound-root`). A new session binds in
 // the same step as `session.create`; this call serves a converted chat, and it checks, once, that the
 // picked folder belongs to the project.
+// A session already holding a live workspace on the mount is answered that workspace as it stands,
+// and nothing is written.
 interface WorkspaceBindRequest {
   sessionId: SessionId;
   repoMountId: RepoMountId;

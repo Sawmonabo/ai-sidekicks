@@ -4,6 +4,7 @@
 import Database from "better-sqlite3";
 import type { Database as DatabaseType } from "better-sqlite3";
 
+import { PAGE_CACHE_SIZE_PRAGMA, prepareOrClose } from "../database/connection/setup.js";
 import { DAEMON_SCHEMA_SQL } from "./daemon-schema.js";
 
 /**
@@ -13,10 +14,12 @@ import { DAEMON_SCHEMA_SQL } from "./daemon-schema.js";
  * - WAL journal mode: readers run during writes.
  * - synchronous=FULL: overrides better-sqlite3's NORMAL default so a committed event survives
  *   power loss.
- * - foreign_keys=ON: enforces foreign keys at INSERT and UPDATE.
+ * - foreign_keys=ON: enforces foreign keys at INSERT, UPDATE and DELETE, so a row another row
+ *   names cannot be deleted before it.
  * - busy_timeout=5000: a concurrent writer waits up to 5 s before SQLITE_BUSY surfaces.
  * - secure_delete=ON: a deleted row's page is overwritten with zeros, so a purged session's
  *   content does not linger in free pages.
+ * - cache_size=-2000: the page cache every connection holds, read-only ones included.
  */
 export function applyPragmas(db: DatabaseType): void {
   db.pragma("journal_mode = WAL");
@@ -24,6 +27,7 @@ export function applyPragmas(db: DatabaseType): void {
   db.pragma("foreign_keys = ON");
   db.pragma("busy_timeout = 5000");
   db.pragma("secure_delete = ON");
+  db.pragma(PAGE_CACHE_SIZE_PRAGMA);
 }
 
 /**
@@ -58,23 +62,10 @@ export function applyMigrations(db: DatabaseType): void {
  * collection and making a retry flaky.
  */
 export function openDatabase(dbPath: string): DatabaseType {
-  const db: DatabaseType = new Database(dbPath);
-  try {
+  return prepareOrClose(new Database(dbPath), (db) => {
     applyPragmas(db);
     applyMigrations(db);
-  } catch (err) {
-    try {
-      db.close();
-    } catch (closeFailure) {
-      throw new AggregateError(
-        [err, closeFailure],
-        "opening the database failed, and closing the half-open handle failed too",
-        { cause: closeFailure },
-      );
-    }
-    throw err;
-  }
-  return db;
+  });
 }
 
 // Probes `sqlite_master` so the common case, an existing database, throws nothing.

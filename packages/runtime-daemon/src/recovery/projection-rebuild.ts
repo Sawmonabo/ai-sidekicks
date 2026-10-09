@@ -17,16 +17,17 @@ import { DAEMON_SCOPE_SENTINEL_SESSION_ID } from "@ai-sidekicks/contracts/event/
 import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
 import { SessionEventSchema } from "@ai-sidekicks/contracts/event/session";
 import type { SessionEvent } from "@ai-sidekicks/contracts/event/variant-types";
-import { START_OF_LOG_POSITION, type SessionId } from "@ai-sidekicks/contracts/session/id";
+import { type SessionId } from "@ai-sidekicks/contracts/session/id";
+import { START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/event-cursor";
 
 import { DATABASE_NOW_SQL, type WriteStatement } from "../database/statement.js";
 import { WriteRefusedError, type DatabaseWriter } from "../database/writer.js";
 import { sessionAppendLock } from "../events/session/append-lock.js";
-import {
-  MalformedStoredEventError,
-  type EventsReadAfterSequenceRequest,
-  type EventsReadAfterSequenceResponse,
-  type SessionService,
+import { MalformedStoredEventError } from "../events/session/read.js";
+import type {
+  EventsReadAfterSequenceRequest,
+  EventsReadAfterSequenceResponse,
+  SessionService,
 } from "../session/service.js";
 import { hasSqliteErrorCode } from "../session/sqlite-error-code.js";
 import { mintUuidV7 } from "../uuid-v7.js";

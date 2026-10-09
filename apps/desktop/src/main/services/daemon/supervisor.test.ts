@@ -14,7 +14,7 @@ import {
   JsonRpcTransportPeerClosedError,
   JsonRpcTransportUnavailableError,
 } from "@ai-sidekicks/client-sdk";
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import {
   CURRENT_PROTOCOL_VERSION,
   NEGOTIATION_TOKEN_INVALID_CODE,

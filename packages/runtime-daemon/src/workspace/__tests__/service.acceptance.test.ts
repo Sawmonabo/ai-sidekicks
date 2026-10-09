@@ -18,9 +18,8 @@ import {
   closeDatabaseConnections,
   openDatabaseConnections,
   type DatabaseConnections,
-} from "../../database/connections.js";
+} from "../../database/connection/lifecycle.js";
 import { EventLogService } from "../../events/log-service.js";
-import { SessionService } from "../../session/service.js";
 import { RepoMountService } from "../repo/mount-service.js";
 import { WorkspaceEventEmitter } from "../event-emitter.js";
 import { WorkspaceService } from "../service.js";
@@ -33,8 +32,8 @@ import {
   readLifecycleEventTypes,
   requireMountRow,
   requireWorkspaceRow,
-  seedSession,
 } from "../__fixtures__/rows.js";
+import { seedSessionRow } from "../../session/directory/__fixtures__/directory-rows.js";
 import { buildFixtureEnvironment, runFixtureGit } from "../../git/__fixtures__/command.js";
 import { captureRejection } from "../../__fixtures__/capture-failure.js";
 
@@ -110,22 +109,31 @@ afterAll(() => {
 interface DaemonStack {
   readonly emitter: WorkspaceEventEmitter;
   readonly workspaces: WorkspaceService;
-  readonly sessions: SessionService;
   readonly mounts: RepoMountService;
 }
 
 function buildDaemonStack(database: DatabaseConnections, now: () => string): DaemonStack {
   const emitter = new WorkspaceEventEmitter({
-    sessionEvents: new EventLogService({ writer: database.writer }),
+    sessionEvents: new EventLogService({
+      writer: database.writer,
+      reader: database.reader,
+      writeServiceLog: (line) => {
+        throw new Error(`unexpected service log line: ${line}`);
+      },
+    }),
   });
   // The production id sources run; assertions name ids by identity or set membership.
-  const sessions = new SessionService(database.reader);
-  const workspaces = new WorkspaceService({ database, events: emitter, sessions, now });
+  const workspaces = new WorkspaceService({ database, events: emitter, now });
   return {
     emitter,
     workspaces,
-    sessions,
-    mounts: new RepoMountService({ database, events: emitter, nodeId: NODE_ID, now }),
+    mounts: new RepoMountService({
+      database,
+      events: emitter,
+      nodeId: NODE_ID,
+      now,
+      archiveUnfinishedCreates: () => Promise.resolve(),
+    }),
   };
 }
 
@@ -177,8 +185,8 @@ beforeEach(async () => {
     boundRootCheckout,
   };
 
-  await seedSession(database.writer, SESSION_ID);
-  await seedSession(database.writer, OTHER_SESSION_ID);
+  await seedSessionRow(database.writer, SESSION_ID);
+  await seedSessionRow(database.writer, OTHER_SESSION_ID);
 });
 
 afterEach(async () => {
@@ -209,8 +217,11 @@ interface LifecycleEventPayload {
   readonly state?: string;
 }
 
-function readPayloadsOfType(type: string): readonly LifecycleEventPayload[] {
-  return readLifecycleEnvelopes(harness.database.reader, SESSION_ID)
+function readPayloadsOfType(
+  type: string,
+  sessionId: SessionId = SESSION_ID,
+): readonly LifecycleEventPayload[] {
+  return readLifecycleEnvelopes(harness.database.reader, sessionId)
     .filter((row) => row.type === type)
     .map((row) => JSON.parse(row.payload) as LifecycleEventPayload);
 }
@@ -323,9 +334,10 @@ describe("one session binds workspaces across multiple repo mounts", () => {
       repoMountId: attached.alpha.repoMountId,
       executionMode: "bound-root",
     });
-    // A second workspace on alpha, naming a subdirectory of the mount.
+    // Another session's workspace on alpha, naming a subdirectory of the mount: one mount serves
+    // any number of sessions, each with its own workspace.
     const subdirectoryWorkspace = await harness.stack.workspaces.bind({
-      sessionId: SESSION_ID,
+      sessionId: OTHER_SESSION_ID,
       repoMountId: attached.alpha.repoMountId,
       executionMode: "provisioned-worktree",
       directory: BOUND_SUBDIRECTORY,
@@ -357,7 +369,6 @@ describe("one session binds workspaces across multiple repo mounts", () => {
     ).toEqual(
       new Map([
         [String(rootWorkspace.workspaceId), ["bound-root", "preparing"]],
-        [String(subdirectoryWorkspace.workspaceId), ["provisioned-worktree", "preparing"]],
         [String(betaWorkspace.workspaceId), ["provisioned-worktree", "preparing"]],
       ]),
     );
@@ -367,18 +378,19 @@ describe("one session binds workspaces across multiple repo mounts", () => {
       new Set([String(attached.alpha.repoMountId), String(attached.beta.repoMountId)]),
     );
 
-    // It is still scoped: one mount's slice, and a session that bound nothing sees nothing.
+    // It is still scoped: one mount's slice, and a session sees only its own workspaces.
     const alphaOnly = await harness.stack.workspaces.list({
       sessionId: SESSION_ID,
       repoMountId: attached.alpha.repoMountId,
     });
-    expect(new Set(alphaOnly.workspaces.map((workspace) => String(workspace.id)))).toEqual(
-      new Set([String(rootWorkspace.workspaceId), String(subdirectoryWorkspace.workspaceId)]),
-    );
+    expect(alphaOnly.workspaces.map((workspace) => String(workspace.id))).toEqual([
+      String(rootWorkspace.workspaceId),
+    ]);
 
     const otherSession = await harness.stack.workspaces.list({ sessionId: OTHER_SESSION_ID });
-    expect(otherSession.workspaces).toEqual([]);
-    expect(readLifecycleEventTypes(harness.database.reader, OTHER_SESSION_ID)).toEqual([]);
+    expect(otherSession.workspaces.map((workspace) => String(workspace.id))).toEqual([
+      String(subdirectoryWorkspace.workspaceId),
+    ]);
   });
 });
 
@@ -404,8 +416,9 @@ describe("the full-lifecycle event sequence", () => {
     expect(requireWorkspaceRow(harness.database.reader, alphaWorkspace.workspaceId).fs_root).toBe(
       harness.provisionedWorktreeRoot,
     );
+    // Another session's workspace on alpha, so the detach archives two dependents.
     const subdirectoryWorkspace = await harness.stack.workspaces.bind({
-      sessionId: SESSION_ID,
+      sessionId: OTHER_SESSION_ID,
       repoMountId: alpha.repoMountId,
       executionMode: "bound-root",
       directory: BOUND_SUBDIRECTORY,
@@ -424,7 +437,6 @@ describe("the full-lifecycle event sequence", () => {
     ).toEqual(
       new Map([
         [String(alphaWorkspace.workspaceId), "stale"],
-        [String(subdirectoryWorkspace.workspaceId), "preparing"],
         [String(betaWorkspace.workspaceId), "preparing"],
       ]),
     );
@@ -462,14 +474,18 @@ describe("the full-lifecycle event sequence", () => {
       "workspace.preparing",
       "workspace.ready",
       "workspace.preparing",
-      "workspace.preparing",
       "workspace.stale",
       "workspace.archived",
+    ]);
+    expect(readLifecycleEventTypes(harness.database.reader, OTHER_SESSION_ID)).toEqual([
+      "workspace.preparing",
       "workspace.archived",
     ]);
 
     // Each cascaded archival names its workspace and its mount, once.
-    const archivedPayloads = readPayloadsOfType("workspace.archived");
+    const archivedPayloads = [SESSION_ID, OTHER_SESSION_ID].flatMap((sessionId) =>
+      readPayloadsOfType("workspace.archived", sessionId),
+    );
     expect(new Set(archivedPayloads.map((payload) => payload.workspaceId))).toEqual(
       new Set([String(alphaWorkspace.workspaceId), String(subdirectoryWorkspace.workspaceId)]),
     );

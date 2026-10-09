@@ -5,7 +5,7 @@
 // `features/sessions/start.ts`, because each step names a store or a route the
 // draft does not hold.
 
-import type { AgentProviderBinding } from "@ai-sidekicks/contracts/agent/definition";
+import type { SessionLead } from "@ai-sidekicks/contracts/session/directory";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 
 /**
@@ -28,11 +28,11 @@ export interface NewSessionControlProps {
   /** The call the send makes once the session exists, to queue the first message. */
   readonly queueFirstTurn: FirstTurnQueueCall;
   /**
-   * The lead a new session starts on: its provider, model, account and effort. The control
+   * The lead a new session starts on: its provider, model and effort. The control
    * offers no model or effort choice of its own, so the composition that mounts it names
    * the lead, and a draft opened later starts on the lead named then.
    */
-  readonly lead: AgentProviderBinding;
+  readonly lead: SessionLead;
   /**
    * The session a completed send produced, told once when it completed. Not called for a
    * partial send: the draft stays for it, and navigating away would hide the refusal that

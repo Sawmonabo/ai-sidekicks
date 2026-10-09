@@ -1,6 +1,7 @@
 // The database writer: the writes of one batch commit together or not at all, a write's events
 // never split, a write that cannot reach the worker fails alone, a close commits what it took or
-// fails what its bound cut off, and at the queue's cap a canonical event waits while an
+// fails what its bound cut off, a checkpoint that skips the wait for readers holds the writer for
+// none of the busy timeout, and at the queue's cap a canonical event waits while an
 // assistant's thinking update is dropped, with the depth warning and the drop count on the log.
 
 import Database from "better-sqlite3";
@@ -61,6 +62,17 @@ function storedEventCount(type?: string): number {
           .prepare("SELECT COUNT(*) AS count FROM session_events WHERE type = ?")
           .get(type);
   return (row as { count: number }).count;
+}
+
+// One draft row, written as any service writes.
+async function writeDraft(text: string): Promise<void> {
+  await scratch.writer.write([
+    {
+      sql: `INSERT INTO session_drafts (session_id, text, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT (session_id) DO UPDATE SET text = excluded.text`,
+      bindings: [SESSION, text, "2026-10-06T12:00:00.000Z"],
+    },
+  ]);
 }
 
 // Whether `work` has settled once every pending callback of this turn has run.
@@ -237,6 +249,37 @@ describe("closing", () => {
   it("refuses a checkpoint once closed", async () => {
     await scratch.writer.close();
     await expect(scratch.writer.checkpoint("PASSIVE")).rejects.toThrow(/closed/);
+  });
+});
+
+describe("a checkpoint a reader keeps busy", () => {
+  it("answers busy at once when it skips the wait, and the next call waits again", async () => {
+    await writeDraft("first");
+    // A reader holding a snapshot older than the log's newest frame keeps a truncation busy.
+    const reader = new Database(scratch.databasePath, { readonly: true });
+    onTestFinished(() => {
+      reader.close();
+    });
+    reader.exec("BEGIN");
+    reader.prepare("SELECT COUNT(*) FROM session_drafts").get();
+    await writeDraft("second");
+
+    const startedAt = performance.now();
+    const skipped = await scratch.writer.checkpoint("TRUNCATE", { shouldWaitForReaders: false });
+    const skippedMs = performance.now() - startedAt;
+
+    expect(skipped.isBusy).toBe(true);
+    // Far below the connection's five-second busy timeout.
+    expect(skippedMs).toBeLessThan(1_000);
+
+    // The busy timeout is back: this call waits for the reader, which ends while it waits.
+    setTimeout(() => {
+      reader.exec("COMMIT");
+    }, 200);
+    const waited = await scratch.writer.checkpoint("TRUNCATE");
+
+    expect(waited.isBusy).toBe(false);
+    expect(waited.logFrames).toBe(0);
   });
 });
 

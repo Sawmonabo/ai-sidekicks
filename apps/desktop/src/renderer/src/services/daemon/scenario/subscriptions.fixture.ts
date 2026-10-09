@@ -5,9 +5,12 @@
 // stream is catch up, then follow, so a store opened mid-scenario does not read the next beat as a
 // sequence gap, and one re-opened after a cursor catches up only past it. `wire.fixture.ts`
 // composes this function.
-import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts/error";
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
-import { encodeEventCursor, START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/id";
+import {
+  EVENT_CURSOR_UNRESOLVABLE_CODE,
+  encodeEventCursor,
+  START_OF_LOG_POSITION,
+} from "@ai-sidekicks/contracts/session/event-cursor";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 
 import type { DaemonSubscriptionEnd } from "#shared/daemon/forwarding.js";
 import type { Unsubscribe } from "#shared/preload-api.js";

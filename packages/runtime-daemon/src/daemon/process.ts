@@ -1,14 +1,18 @@
 // The daemon as a running process. Its start takes the data-folder lock before anything else, so of
-// two starts on one data folder only one goes on; it then opens the database, through its writer
-// for writes and a read-only connection for reads, kills the terminal children a previous run left
-// running and builds the terminal host over this run's orphan guard, knows this machine, captures
-// the environment providers are built from, listens on its socket and writes this start's session
-// token once the bind has succeeded, then runs its recovery pass, refusing writes until that pass
-// has ended and, after it, only the writes of a session whose history is damaged. Before the
-// database opens, a damaged file is repaired; one that cannot be is left untouched and the start
-// fails, naming why. A client that reads the previous token in the moment between the bind and
-// the write is refused once, and its next read finds this start's token. Its stop, asked for over
-// the socket or by a terminate signal, ends it cleanly.
+// two starts on one data folder only one goes on. It then starts capturing the login shell's
+// environment, which providers are built from, and loading the session services' modules; while
+// those run, it repairs a damaged database file, dropping the search index built from the file it
+// replaces and failing the start, naming why, when it cannot, opens the database, through its
+// writer for writes and a read-only connection for reads, starts the search thread, which opens its
+// own read-only connection and the search index, building the index again when it cannot serve,
+// while the start goes on, kills the terminal children a previous run left running and knows this
+// machine. It builds the terminal host over this run's orphan guard, listens on its socket and
+// writes this start's session token once the bind has succeeded, then runs its recovery pass,
+// refusing writes until that pass has ended and, after it, only the writes of a session whose
+// history is damaged; the session services' background work starts once the pass has ended. A
+// client that reads the previous token in the moment between the bind and the write is refused
+// once, and its next read finds this start's token. Its stop, asked for over the socket or by a
+// terminate signal, ends it cleanly.
 
 import { randomBytes } from "node:crypto";
 import { chmod, mkdir } from "node:fs/promises";
@@ -34,15 +38,15 @@ import {
   closeDatabaseConnections,
   openDatabaseConnections,
   type DatabaseConnections,
-} from "../database/connections.js";
-import { EventLogService } from "../events/log-service.js";
-import { SessionPurge } from "../events/session/purge.js";
+} from "../database/connection/lifecycle.js";
 import { findBranchPatternRefusal } from "../git/branch-name-pattern.js";
+import { createGitRunner, findGitExecutable, type GitRunner } from "../git/process.js";
 import { InFlightMutations } from "../ipc/in-flight-mutations.js";
 import { LocalIpcGateway } from "../ipc/local-gateway.js";
 import { ProtocolNegotiator } from "../ipc/protocol-negotiation.js";
 import { MethodRegistryImpl } from "../ipc/registry.js";
 import { StreamingPrimitive } from "../ipc/streaming-primitive.js";
+import { ProviderRegistry } from "../provider/driver/registry.js";
 import type { SpawnEnvPair } from "../provider/spawn-env.js";
 import type { DrainResult, PtyHost } from "../pty/host/contract.js";
 import type { OrphanGuard } from "../pty/orphan/guard.js";
@@ -59,10 +63,11 @@ import { refuseEventOfDamagedSession } from "../recovery/session-write-refusal.j
 import { StartupRecovery } from "../recovery/startup.js";
 import { RecoveryStatusTracker } from "../recovery/status.js";
 import { RecoveryWriteGate } from "../recovery/write-gate.js";
+import { SESSION_DIRECTORY_PROJECTION } from "../session/directory/projection.js";
 import { RunEngine } from "../session/run/engine.js";
 import { RUNS_PROJECTION } from "../session/run/projection.js";
 import { RunStateReader } from "../session/run/read.js";
-import { SessionService } from "../session/service.js";
+import { SearchThread } from "../session/search/thread/handle.js";
 import { DaemonAlreadyRunningError } from "./already-running-error.js";
 import { takeDataFolderLock, type DataFolderLock } from "./data-folder-lock.js";
 import { registerLifecycleMethods } from "./lifecycle-methods.js";
@@ -71,9 +76,13 @@ import { MachineSettingsFile } from "./machine/settings/file.js";
 import { registerMachineSettingsMethods } from "./machine/settings/methods.js";
 import type { ProcessTreeUsage } from "./process-tree-usage.js";
 import { prepareRunFolder, writeSessionToken } from "./run-folder.js";
+import type { registerSessionMethods } from "./session-methods.js";
 import { registerStatusMethods } from "./status-methods.js";
 
-const DATABASE_FILE_NAME = "daemon.db";
+/** The daemon's database file in its data folder. */
+export const DATABASE_FILE_NAME = "daemon.db";
+/** The search index's folder in the data folder, beside the database it is built from. */
+export const SEARCH_INDEX_FOLDER_NAME = "search-index";
 
 // The session token's size: 256 bits from the system's secure random source.
 const SESSION_TOKEN_BYTES = 32;
@@ -100,8 +109,14 @@ export interface DaemonProcessOptions {
   readonly createPtyHost: (orphanGuard: OrphanGuard) => Pick<PtyHost, "shutdown">;
   /** Reads this machine's friendly name; called only at the first start. */
   readonly readMachineName: () => Promise<string>;
-  /** Captures the base environment every provider process is built from. */
-  readonly captureProviderBaseEnvironment: () => Promise<readonly SpawnEnvPair[]>;
+  /**
+   * Captures the base environment every provider process is built from. A start that fails before
+   * it reads the capture aborts `signal`, with "the start failed" as its reason, and the capture
+   * ends at once.
+   */
+  readonly captureProviderBaseEnvironment: (
+    signal: AbortSignal,
+  ) => Promise<readonly SpawnEnvPair[]>;
   /** The service's own release version, which the status read reports. */
   readonly serviceVersion: string;
   /** The daemon's own process as the system knows it, which the status read reports. */
@@ -132,6 +147,7 @@ export class DaemonProcess {
 
   readonly #dataFolderLock: DataFolderLock;
   readonly #database: DatabaseConnections;
+  readonly #searchThread: SearchThread;
   readonly #gateway: LocalIpcGateway;
   readonly #inFlightMutations: InFlightMutations;
   readonly #recoveryStatus = new RecoveryStatusTracker();
@@ -141,6 +157,10 @@ export class DaemonProcess {
   readonly #ptyHost: Pick<PtyHost, "shutdown">;
   readonly #orphanGuard: OrphanGuard;
   readonly #writeServiceLog: (line: string) => void;
+  // The provider drivers the daemon holds, which a session's close ends its provider leg through.
+  readonly #providers = new ProviderRegistry();
+  readonly #startSessionServices: () => Promise<void>;
+  readonly #stopSessionServices: () => Promise<void>;
   readonly #stopOutcome = Promise.withResolvers<DaemonStopOutcome>();
   #processState: DaemonProcessState = "starting";
   #stopping: Promise<void> | undefined;
@@ -151,12 +171,16 @@ export class DaemonProcess {
     dataFolder: string;
     dataFolderLock: DataFolderLock;
     database: DatabaseConnections;
-    /** Whether the start found the database file damaged and could not repair it. */
+    /** The machine settings file, whose backup folder the start's repair read. */
     settingsFile: MachineSettingsFile;
     orphanGuard: OrphanGuard;
+    searchThread: SearchThread;
     localMachine: LocalMachine;
     providerBaseEnvironment: readonly SpawnEnvPair[];
+    /** The runner for the `git` found along the login shell's `PATH`. */
+    git: GitRunner;
     sessionToken: string;
+    registerSessionMethods: typeof registerSessionMethods;
   }) {
     const { options } = parts;
     this.localMachine = parts.localMachine;
@@ -164,70 +188,9 @@ export class DaemonProcess {
     this.#dataFolderLock = parts.dataFolderLock;
     this.#database = parts.database;
     this.#orphanGuard = parts.orphanGuard;
+    this.#searchThread = parts.searchThread;
     this.#ptyHost = options.createPtyHost(parts.orphanGuard);
     this.#writeServiceLog = options.writeServiceLog;
-
-    const { reader, writer } = parts.database;
-    const sessionEvents = new EventLogService({
-      writer,
-      refuseSessionWrite: (sessionId, eventType) => {
-        refuseEventOfDamagedSession(this.#recoveryStatus, sessionId, eventType);
-      },
-    });
-    const runEngine = new RunEngine({ reader, sessionEvents });
-    const sessionReads = new SessionService(reader, (sessionId) =>
-      this.#recoveryStatus.readDamagedFromSequence(sessionId),
-    );
-    const runs = new RunStateReader(reader);
-    const projectionRebuild = new ProjectionRebuildService({
-      reader,
-      writer,
-      sessionEvents: sessionReads,
-      projections: [RUNS_PROJECTION],
-    });
-    const damagedHistory = new DamagedHistory({
-      reader,
-      sessionEvents: sessionReads,
-      eventLog: sessionEvents,
-      projectionRebuild,
-      purge: new SessionPurge({
-        writer,
-        nodeId: parts.localMachine.nodeId,
-        eventLog: sessionEvents,
-        now: options.now,
-      }),
-      runs,
-      runEngine,
-      status: this.#recoveryStatus,
-    });
-    const asideOptions = {
-      databasePath: path.join(parts.dataFolder, DATABASE_FILE_NAME),
-      dataFolder: parts.dataFolder,
-      now: options.now,
-      writeServiceLog: options.writeServiceLog,
-    };
-    this.#startupRecovery = new StartupRecovery({
-      nodeId: parts.localMachine.nodeId,
-      reader,
-      sessionEvents,
-      projectionRebuild,
-      damagedHistory,
-      storeAside: {
-        // Every write the pass queued commits first, so the copy holds them.
-        copy: async () => {
-          await writer.flush();
-          return copyDatabaseFilesAside(asideOptions);
-        },
-        findCopyOfSession: (sessionId, headSequence) =>
-          findAsideCopyOfSession(asideOptions, sessionId, headSequence),
-        recordSession: recordSessionInAsideCopy,
-      },
-      runs,
-      runEngine,
-      status: this.#recoveryStatus,
-      now: options.now,
-      writeServiceLog: options.writeServiceLog,
-    });
 
     // The negotiation gate wraps the recovery gate, which wraps the recording registry, so a
     // refused call is never recorded.
@@ -265,11 +228,84 @@ export class DaemonProcess {
         this.#gateway.notify(transportId, notification);
       },
     });
-    registerDamagedHistoryMethods(registry, damagedHistory);
     registerMachineSettingsMethods(registry, {
       settingsFile: parts.settingsFile,
       streamingPrimitive,
-      findBranchPatternRefusal,
+      findBranchPatternRefusal: (pattern) => findBranchPatternRefusal(pattern, parts.git),
+    });
+    const sessionServices = parts.registerSessionMethods(registry, {
+      database: parts.database,
+      homeDirectory: options.homeDirectory,
+      nodeId: parts.localMachine.nodeId,
+      git: parts.git,
+      settingsFile: parts.settingsFile,
+      providers: this.#providers,
+      streamingPrimitive,
+      // The gateway is built just below; a stream reads its queues only once it listens.
+      outboundQueue: {
+        isFull: (transportId) => this.#gateway.isFull(transportId),
+        onceDrained: (transportId, listener) => this.#gateway.onceDrained(transportId, listener),
+      },
+      searchThread: parts.searchThread,
+      refuseSessionWrite: (sessionId, eventType) => {
+        refuseEventOfDamagedSession(this.#recoveryStatus, sessionId, eventType);
+      },
+      readDamagedFromSequence: (sessionId) =>
+        this.#recoveryStatus.readDamagedFromSequence(sessionId),
+      writeServiceLog: options.writeServiceLog,
+    });
+    this.#startSessionServices = sessionServices.start;
+    this.#stopSessionServices = sessionServices.stop;
+    // The pass and the damaged history append through the daemon's one event log, so what they
+    // write reaches the sessions list like any other event, and read through its session reads,
+    // which stop at a damaged session's last good point.
+    const { reader, writer } = parts.database;
+    const runEngine = new RunEngine({ reader, sessionEvents: sessionServices.eventLog });
+    const runs = new RunStateReader(reader);
+    const projectionRebuild = new ProjectionRebuildService({
+      reader,
+      writer,
+      sessionEvents: sessionServices.sessions,
+      projections: [SESSION_DIRECTORY_PROJECTION, RUNS_PROJECTION],
+    });
+    const damagedHistory = new DamagedHistory({
+      reader,
+      sessionEvents: sessionServices.sessions,
+      eventLog: sessionServices.eventLog,
+      projectionRebuild,
+      purge: sessionServices.purge,
+      runs,
+      runEngine,
+      status: this.#recoveryStatus,
+    });
+    registerDamagedHistoryMethods(registry, damagedHistory);
+    const asideOptions = {
+      databasePath: path.join(parts.dataFolder, DATABASE_FILE_NAME),
+      dataFolder: parts.dataFolder,
+      now: options.now,
+      writeServiceLog: options.writeServiceLog,
+    };
+    this.#startupRecovery = new StartupRecovery({
+      nodeId: parts.localMachine.nodeId,
+      reader,
+      sessionEvents: sessionServices.eventLog,
+      projectionRebuild,
+      damagedHistory,
+      storeAside: {
+        // Every write the pass queued commits first, so the copy holds them.
+        copy: async () => {
+          await writer.flush();
+          return copyDatabaseFilesAside(asideOptions);
+        },
+        findCopyOfSession: (sessionId, headSequence) =>
+          findAsideCopyOfSession(asideOptions, sessionId, headSequence),
+        recordSession: recordSessionInAsideCopy,
+      },
+      runs,
+      runEngine,
+      status: this.#recoveryStatus,
+      now: options.now,
+      writeServiceLog: options.writeServiceLog,
     });
 
     this.#gateway = new LocalIpcGateway({
@@ -300,13 +336,25 @@ export class DaemonProcess {
       this.#recoveryStatus.markStoreFailed();
       options.writeServiceLog(`The database writer failed: ${describeError(error)}`);
     });
+    // A search thread whose index failed to open, rebuild or apply, or that died, fails every
+    // search from then on, so the service reads as degraded too, while every other service goes on.
+    void this.#searchThread.whenWorkerFailed.then((error) => {
+      this.#markDegraded();
+      options.writeServiceLog(`The search thread failed: ${describeError(error)}`);
+    });
+    // A managed workspaces watch that could not start or failed reports no chat's write from then
+    // on, so the service reads as degraded; the watch has already said why in the service log.
+    void sessionServices.managedWorkspaceWrites.whenFailed.then(() => {
+      this.#markDegraded();
+    });
   }
 
   /**
-   * Starts the daemon and resolves once it listens and its recovery pass has ended; a pass that
-   * fails leaves the node's recovery state saying so and never fails the start. Throws
-   * `DaemonAlreadyRunningError` when another daemon holds the data folder or answers on the
-   * socket; any other failure releases what the start had taken.
+   * Starts the daemon and resolves once it listens, its recovery pass has ended and the session
+   * services' background work has started; a pass that fails leaves the node's recovery state
+   * saying so and never fails the start. Throws `DaemonAlreadyRunningError` when another daemon
+   * holds the data folder or answers on the socket; any other failure releases what the start had
+   * taken.
    */
   static async start(options: DaemonProcessOptions): Promise<DaemonProcess> {
     const startedAt = options.now();
@@ -319,8 +367,23 @@ export class DaemonProcess {
     await mkdir(dataFolder, { recursive: true, mode: 0o700 });
     await chmod(dataFolder, 0o700);
     const dataFolderLock = takeDataFolderLock(dataFolder);
+    // The login shell and the session services' load are the start's longest steps, so both begin
+    // first and run while the rest of the start does. Each settles into an outcome at once, so a
+    // failure is never left unhandled: the start reads both once the rest is done, or in its
+    // cleanup when it fails before then. A start that fails, the load included, ends the login
+    // shell rather than wait for it.
+    const captureAbort = new AbortController();
+    const sessionMethodsAndCapture = Promise.allSettled([
+      import("./session-methods.js").catch((error: unknown) => {
+        captureAbort.abort("the start failed");
+        throw error;
+      }),
+      options.captureProviderBaseEnvironment(captureAbort.signal),
+    ]);
+    let isSessionMethodsAndCaptureRead = false;
     try {
       const databasePath = path.join(dataFolder, DATABASE_FILE_NAME);
+      const indexFolderPath = path.join(dataFolder, SEARCH_INDEX_FOLDER_NAME);
       const settingsFile = new MachineSettingsFile({
         filePath: path.join(options.homeDirectory, ...MACHINE_SETTINGS_FILE_PATH_SEGMENTS),
         now: options.now,
@@ -329,6 +392,7 @@ export class DaemonProcess {
       const fileRepair = await repairDatabaseFile({
         databasePath,
         dataFolder,
+        indexFolderPath,
         readBackupFolder: async () =>
           (await settingsFile.read()).settings.backup.folder ??
           path.join(dataFolder, BACKUP_DEFAULT_FOLDER_NAME),
@@ -347,7 +411,16 @@ export class DaemonProcess {
         databasePath,
         writeServiceLog: options.writeServiceLog,
       });
+      // The search thread opens the index on its own thread from here on, building it again if it
+      // must; the start never waits for it, and a search waits for its open.
+      const searchThread = SearchThread.start({
+        databasePath,
+        indexFolderPath,
+        writer: database.writer,
+        writeServiceLog: options.writeServiceLog,
+      });
       let orphanGuard: OrphanGuard | undefined;
+      let daemon: DaemonProcess | undefined;
       try {
         const orphans = await options.openOrphanGuard(dataFolder);
         orphanGuard = orphans.guard;
@@ -357,12 +430,28 @@ export class DaemonProcess {
           options.readMachineName,
           options.now,
         );
-        const providerBaseEnvironment = await options.captureProviderBaseEnvironment();
+        const [sessionMethods, capture] = await sessionMethodsAndCapture;
+        isSessionMethodsAndCaptureRead = true;
+        if (sessionMethods.status === "rejected" && capture.status === "rejected") {
+          throw new AggregateError(
+            [sessionMethods.reason, capture.reason],
+            "The session services' load and the login shell's read both failed",
+          );
+        }
+        if (sessionMethods.status === "rejected") {
+          throw sessionMethods.reason;
+        }
+        if (capture.status === "rejected") {
+          throw capture.reason;
+        }
+        const providerBaseEnvironment = capture.value;
+        // Found once, along the login shell's PATH; a missing git fails where git is first used.
+        const git = createGitRunner(await findGitExecutable(providerBaseEnvironment));
 
         await prepareRunFolder(options.runFolder);
         // A new token at every start, so the previous start's token no longer opens a connection.
         const sessionToken = randomBytes(SESSION_TOKEN_BYTES).toString("hex");
-        const daemon = new DaemonProcess({
+        daemon = new DaemonProcess({
           options,
           startedAt,
           dataFolder,
@@ -370,48 +459,70 @@ export class DaemonProcess {
           database,
           settingsFile,
           orphanGuard,
+          searchThread,
           localMachine,
           providerBaseEnvironment,
+          git,
           sessionToken,
+          registerSessionMethods: sessionMethods.value.registerSessionMethods,
         });
         await daemon.#listen(options.runFolder, sessionToken);
         daemon.#recoveryPass = daemon.#startupRecovery.run();
         await daemon.#recoveryPass;
+        await daemon.#startSessionServices();
         return daemon;
       } catch (startError) {
         const cleanupFailures: unknown[] = [];
-        try {
-          await orphanGuard?.close();
-        } catch (closeError) {
-          cleanupFailures.push(closeError);
+        // The session services' background work reads the database, so it ends first.
+        if (daemon !== undefined) {
+          try {
+            await daemon.#stopSessionServices();
+          } catch (error) {
+            cleanupFailures.push(error);
+          }
         }
-        try {
-          await closeDatabaseConnections(database);
-        } catch (closeError) {
-          cleanupFailures.push(closeError);
+        const searchThreadClose = searchThread.close();
+        const closes = await Promise.allSettled([
+          searchThreadClose,
+          orphanGuard?.close(),
+          // After the search thread's read-only connection, as at a stop, so the writer closes
+          // last and folds the write-ahead log into the database file.
+          Promise.allSettled([searchThreadClose]).then(() => closeDatabaseConnections(database)),
+        ]);
+        for (const close of closes) {
+          if (close.status === "rejected") {
+            cleanupFailures.push(close.reason);
+          }
         }
         throw withCleanupFailures(startError, cleanupFailures, "The daemon's start");
       }
     } catch (startError) {
+      const cleanupFailures: unknown[] = [];
+      if (!isSessionMethodsAndCaptureRead) {
+        captureAbort.abort("the start failed");
+        for (const outcome of await sessionMethodsAndCapture) {
+          if (outcome.status === "rejected") {
+            cleanupFailures.push(outcome.reason);
+          }
+        }
+      }
       try {
         dataFolderLock.release();
       } catch (releaseError) {
-        throw new AggregateError(
-          [startError, releaseError],
-          "The daemon's start failed, and letting its data folder go after that failed too",
-          { cause: releaseError },
-        );
+        cleanupFailures.push(releaseError);
       }
-      throw startError;
+      throw withCleanupFailures(startError, cleanupFailures, "The daemon's start");
     }
   }
 
   /**
    * Stops the daemon: closes the socket and every connection, then, side by side and each within
-   * the drain bound, waits for the calls already under way and the start's recovery pass, and
-   * drains every terminal (each gets its graceful signal, then a kill); then stops watching
-   * terminal children's exits and, in what is left of the bound, waits for every write taken to
-   * commit, failing any still unfinished, closes the database and lets the data folder go.
+   * the drain bound, waits for the calls already under way, the start's recovery pass and the
+   * session services' background work, lets the searches under way finish and ends the search
+   * thread, and drains every terminal (each gets its graceful signal, then a kill); then stops
+   * watching terminal children's exits and, in what is left of the bound, waits for every write
+   * taken to commit, failing any still unfinished, closes the database and lets the data folder
+   * go.
    * Repeated calls share the first stop.
    */
   stop(): Promise<void> {
@@ -484,17 +595,29 @@ export class DaemonProcess {
     } catch (error) {
       failures.push(error);
     }
-    // The calls under way, the recovery pass and the terminals are independent, so all finish
-    // inside one drain bound. A call or a pass still running at the bound fails once the database
-    // closes under it.
-    const [stillWriting, hasPassEnded, drain] = await Promise.allSettled([
-      this.#inFlightMutations.waitForPendingWithin(DAEMON_STOP_DRAIN_BOUND_MS),
-      waitWithin(this.#recoveryPass, DAEMON_STOP_DRAIN_BOUND_MS),
-      this.#ptyHost.shutdown({
-        perSessionTimeoutMs: DAEMON_STOP_TERMINAL_DRAIN_MS,
-        hostTimeoutMs: DAEMON_STOP_TERMINAL_HOST_DRAIN_MS,
-      }),
-    ]);
+    // The calls under way, the recovery pass, the session services' background work, the searches
+    // and the terminals are independent, so all finish inside one drain bound. A call, a pass or a
+    // background write still running at the bound fails once the database closes under it, and its
+    // batch rolls back.
+    const [stillWriting, hasPassEnded, drain, haveSessionServicesEnded, haveSearchesEnded] =
+      await Promise.allSettled([
+        this.#inFlightMutations.waitForPendingWithin(DAEMON_STOP_DRAIN_BOUND_MS),
+        waitWithin(this.#recoveryPass, DAEMON_STOP_DRAIN_BOUND_MS),
+        this.#ptyHost.shutdown({
+          perSessionTimeoutMs: DAEMON_STOP_TERMINAL_DRAIN_MS,
+          hostTimeoutMs: DAEMON_STOP_TERMINAL_HOST_DRAIN_MS,
+        }),
+        endWithinDrainBound(this.#stopSessionServices(), failures),
+        endWithinDrainBound(this.#searchThread.close(), failures),
+      ]);
+    if (haveSessionServicesEnded.status === "fulfilled" && !haveSessionServicesEnded.value) {
+      this.#writeServiceLog(
+        "The stop's drain bound passed; the session services' background work is still running.",
+      );
+    }
+    if (haveSearchesEnded.status === "fulfilled" && !haveSearchesEnded.value) {
+      this.#writeServiceLog("The stop's drain bound passed; a search is still running.");
+    }
     if (stillWriting.status === "fulfilled" && stillWriting.value > 0) {
       this.#writeServiceLog(
         `The stop's drain bound passed; writes still running: ${String(stillWriting.value)}.`,
@@ -551,6 +674,23 @@ function describeDrain(drain: DrainResult): string {
     `${drain.sidecarExitedCleanly ? "exited cleanly" : "did not exit cleanly"}` +
     `${drain.taskkillEscalated ? " and was killed" : ""}.`
   );
+}
+
+// Waits for `work` within the stop's drain bound: resolves `true` once it ended, its failure, if
+// any, added to `failures`, or `false` when the bound passed first.
+async function endWithinDrainBound(work: Promise<unknown>, failures: unknown[]): Promise<boolean> {
+  const failure = work.then(
+    () => undefined,
+    (error: unknown) => ({ error }),
+  );
+  if (!(await waitWithin(failure, DAEMON_STOP_DRAIN_BOUND_MS))) {
+    return false;
+  }
+  const ended = await failure;
+  if (ended !== undefined) {
+    failures.push(ended.error);
+  }
+  return true;
 }
 
 function describeError(error: unknown): string {

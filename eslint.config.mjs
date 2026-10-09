@@ -143,6 +143,9 @@ const repositoryConfig = defineConfig(
       // Scoped to `tmp/`, matching .gitignore: `.agents/` itself is not ignored, so `.agents/**`
       // would exempt future committed content.
       "**/.agents/tmp/**",
+      // The search index's loader and declarations, which its addon build writes.
+      "packages/search-index/index.js",
+      "packages/search-index/index.d.ts",
     ],
   },
   js.configs.recommended,

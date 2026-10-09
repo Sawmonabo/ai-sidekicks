@@ -255,6 +255,30 @@ export class LocalIpcGateway {
     this.#sendEnvelope(state, notification);
   }
 
+  /**
+   * Whether the connection's outbound queue is full: its unsent bytes reached the socket's buffer
+   * limit and have not drained since, so a frame written now would only queue behind them. A
+   * closed connection reads as not full.
+   */
+  isFull(transportId: number): boolean {
+    return this.#connections.get(transportId)?.socket.writableNeedDrain ?? false;
+  }
+
+  /**
+   * Calls `listener` once the connection's outbound queue has drained, and returns a detach. A
+   * closed connection never calls it, and a connection's listeners are released as it closes.
+   */
+  onceDrained(transportId: number, listener: () => void): () => void {
+    const socket = this.#connections.get(transportId)?.socket;
+    if (socket === undefined) {
+      return () => undefined;
+    }
+    socket.once("drain", listener);
+    return () => {
+      socket.removeListener("drain", listener);
+    };
+  }
+
   // ------------------------------------------------------------------------
   // Per-connection wiring
   // ------------------------------------------------------------------------
@@ -543,6 +567,8 @@ export class LocalIpcGateway {
     }
     state.disposed = true;
     this.#connections.delete(state.transport.id);
+    // The gateway is the only listener for `drain`, and a closed connection never drains.
+    state.socket.removeAllListeners("drain");
     if (this.#hooks !== null) {
       this.#hooks.onDisconnect(state.transport, reason);
     }

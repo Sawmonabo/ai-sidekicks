@@ -2,10 +2,10 @@ import type { Statement } from "better-sqlite3";
 
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
-import type { DatabaseConnections } from "../database/connections.js";
+import type { DatabaseConnections } from "../database/connection/lifecycle.js";
 import type { WriteStatement } from "../database/statement.js";
 import { WriteRefusedError, type DatabaseWriter } from "../database/writer.js";
-import { SessionNotFoundError } from "../ipc/session-errors.js";
+import { sessionNotFound } from "./not-found.js";
 
 // Returns one row only while the session has an event, so a guarded write refuses an unknown one.
 const SESSION_EXISTS_SQL = "SELECT 1 FROM session_events WHERE session_id = ? LIMIT 1";
@@ -38,7 +38,7 @@ export class SessionDraftStore {
 
   /**
    * Holds `text` as the session's draft, or clears the draft when `text` is empty, and resolves
-   * with when it was stored once committed. Rejects with {@link SessionNotFoundError} for a
+   * with when it was stored once committed. Rejects with `session.not_found` for a
    * session the daemon has no record of.
    */
   async write(sessionId: SessionId, text: string): Promise<string> {
@@ -55,7 +55,7 @@ export class SessionDraftStore {
       ]);
     } catch (error) {
       if (error instanceof WriteRefusedError) {
-        throw new SessionNotFoundError(`No session ${sessionId}.`, { sessionId });
+        throw sessionNotFound(sessionId);
       }
       throw error;
     }

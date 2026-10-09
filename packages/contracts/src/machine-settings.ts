@@ -10,6 +10,7 @@
 // saving, and the drivers read the names they set on the processes they start from it.
 import { z } from "zod";
 
+import { AgentProviderBindingSchema, type AgentProviderBinding } from "./agent/definition.js";
 import { DAEMON_DATA_FOLDER_NAME } from "./daemon/data.js";
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc/streaming.js";
 import {
@@ -325,6 +326,15 @@ export const BranchNamePatternSchema: z.ZodType<string, string> =
     }
   });
 
+/**
+ * The lead's model and effort the person last picked, which a new session starts on while
+ * `newSessionCarriesLastModel` is on. The service writes it each time a pick moves it; `effort`
+ * `null` is the driver's default.
+ */
+export type LastLeadModel = Pick<AgentProviderBinding, "driverName" | "modelId" | "effort">;
+const LastLeadModelSchema: z.ZodType<LastLeadModel, LastLeadModel> =
+  AgentProviderBindingSchema.pick({ driverName: true, modelId: true, effort: true });
+
 /** Every value the machine's settings file holds. */
 export interface MachineSettings {
   /** `Check for updates automatically`. */
@@ -342,6 +352,8 @@ export interface MachineSettings {
   defaultCheckout: ExecutionMode;
   /** `Start a new session on the last model and effort used`. */
   newSessionCarriesLastModel: boolean;
+  /** The last model and effort picked, `null` before the first pick. */
+  lastLeadModel: LastLeadModel | null;
   /** `Keep this Mac awake while a sidekick is working`. */
   keepAwakeWhileAgentWorks: boolean;
   /** `Keep this Mac awake for other devices`, held only while on power. */
@@ -371,6 +383,7 @@ export const MACHINE_SETTINGS_DEFAULTS: Readonly<MachineSettings> = Object.freez
   advisorModel: null,
   defaultCheckout: "provisioned-worktree",
   newSessionCarriesLastModel: true,
+  lastLeadModel: null,
   keepAwakeWhileAgentWorks: false,
   keepAwakeForOtherDevices: false,
   notifications: {
@@ -414,6 +427,7 @@ const MACHINE_SETTINGS_MEMBER_SCHEMAS = {
   ).nullable(),
   defaultCheckout: ExecutionModeSchema,
   newSessionCarriesLastModel: z.boolean(),
+  lastLeadModel: LastLeadModelSchema.nullable(),
   keepAwakeWhileAgentWorks: z.boolean(),
   keepAwakeForOtherDevices: z.boolean(),
   notifications: NotificationSettingsSchema,

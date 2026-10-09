@@ -30,11 +30,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DAEMON_DATA_FOLDER_NAME } from "@ai-sidekicks/contracts/daemon/data";
 import { DAEMON_READY_LINE } from "@ai-sidekicks/contracts/daemon/lifecycle";
-import {
-  JSONRPC_VERSION,
-  JsonRpcErrorCode,
-  MAX_MESSAGE_BYTES,
-} from "@ai-sidekicks/contracts/jsonrpc/message";
+import { JSONRPC_VERSION, MAX_MESSAGE_BYTES } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import { CURRENT_PROTOCOL_VERSION } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 import { resolveDaemonRunFolder } from "@ai-sidekicks/contracts/daemon/run-folder";
 import { MACHINE_SETTINGS_FILE_PATH_SEGMENTS } from "@ai-sidekicks/contracts/machine-settings";

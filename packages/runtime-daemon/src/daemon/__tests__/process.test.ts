@@ -4,29 +4,20 @@
 // reach, and, before the bind, a socket path longer than the platform binds, while a path at that
 // limit binds and answers a hello; a data folder other accounts could read becomes the person's
 // alone; of two starts racing for one socket, the loser is refused and the token file holds the
-// winner's token.
-// Over the socket, the status read reports the running service and its process, and reads
-// degraded once the listener fails; `daemon.start` is a method it does not have; a flush leaves
-// it running and answers only once the writes queued before it have committed, a stop or restart
-// ends it with another client still connected, and a connection whose handshake was incompatible
-// cannot stop it. The machine's settings file is read and written over the socket: one client's
-// change reaches the file and another client's subscription, and a closed connection's
-// subscription lets go of the file. A stop waits for a write under way and leaves it on disk, and
-// ends within its drain bound while a write hangs.
+// winner's token; a start that fails at the bind stops the session services it built and closes
+// the search thread and the database, and one whose session services fail to load fails with what
+// the load threw, never leaving it unhandled, and frees the data folder. A start that fails while
+// its login shell runs ends the shell and fails at once.
 
-import { execFileSync } from "node:child_process";
-import { constants as fsConstants } from "node:fs";
-import { access, chmod, lstat, mkdir, mkdtemp, open, readFile, rm } from "node:fs/promises";
+import { access, chmod, lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 
-import Database from "better-sqlite3";
-import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 
 import { DAEMON_DATA_FOLDER_NAME } from "@ai-sidekicks/contracts/daemon/data";
 import {
-  DAEMON_STOP_DRAIN_BOUND_MS,
   DAEMON_STOP_TERMINAL_DRAIN_MS,
   DAEMON_STOP_TERMINAL_HOST_DRAIN_MS,
 } from "@ai-sidekicks/contracts/daemon/lifecycle";
@@ -34,131 +25,94 @@ import {
   resolveDaemonRunFolder,
   type DaemonRunFolder,
 } from "@ai-sidekicks/contracts/daemon/run-folder";
-
 import { JSONRPC_VERSION } from "@ai-sidekicks/contracts/jsonrpc/message";
 import { CURRENT_PROTOCOL_VERSION } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 
-import type { DaemonStatusReadResponse } from "@ai-sidekicks/contracts/daemon/status";
-import type { ProcessIdentity } from "@ai-sidekicks/contracts/process-identity";
-import {
-  MACHINE_SETTINGS_DEFAULTS,
-  MACHINE_SETTINGS_FILE_PATH_SEGMENTS,
-} from "@ai-sidekicks/contracts/machine-settings";
-
 import { SecureDefaultsValidationError } from "../../bootstrap/secure-defaults.js";
-import { DatabaseWriter } from "../../database/writer.js";
-import { connect, type Client } from "../../ipc/__fixtures__/local-socket-client.js";
+import { connect } from "../../ipc/__fixtures__/local-socket-client.js";
 import { readSocketPathLimit } from "../../ipc/socket-path-limit.js";
-import type { DrainResult, PtyHost } from "../../pty/host/contract.js";
-import { openOrphanGuard } from "../../pty/orphan/guard.js";
 import { DaemonAlreadyRunningError } from "../already-running-error.js";
+import { captureLoginShellEnvironment } from "../login-shell-environment.js";
 import { DaemonProcess, type DaemonProcessOptions } from "../process.js";
-import { MachineSettingsFile } from "../machine/settings/file.js";
-import { readProcessTreeUsage } from "../process-tree-usage.js";
+import {
+  DRAIN_NOTHING,
+  EMPTY_DRAIN,
+  homeDirectory,
+  isSocketAnswering,
+  runFolder,
+  scratch,
+  started,
+  startDaemon,
+  startSearchThread,
+  useDaemonFolders,
+  useSearchThreads,
+  writeAheadLogPath,
+} from "./process.test-support.js";
 
-// Every server this file's daemons create, so a test can fail the daemon's own listener the way
-// the operating system would, with an `error` event on the listening server.
-const createdServers = vi.hoisted((): import("node:net").Server[] => []);
+// A bind failure queued here fails the next server's listen the way the operating system would,
+// with an `error` event on the listening server.
+const bindFailures = vi.hoisted((): NodeJS.ErrnoException[] => []);
 vi.mock("node:net", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:net")>();
   return {
     ...actual,
     createServer: (...args: Parameters<typeof actual.createServer>) => {
       const server = actual.createServer(...args);
-      createdServers.push(server);
+      const bindFailure = bindFailures.shift();
+      if (bindFailure !== undefined) {
+        server.listen = (() => {
+          process.nextTick(() => server.emit("error", bindFailure));
+          return server;
+        }) as typeof server.listen;
+      }
       return server;
     },
   };
 });
 
-const EMPTY_DRAIN: DrainResult = {
-  sessionsDrained: 0,
-  sessionsForcedKilled: 0,
-  sidecarExitedCleanly: true,
-  taskkillEscalated: false,
-};
+// The session services this file's daemons have built and not yet stopped. A failure set here is
+// what the session services' module throws when it next loads, which registering this mock again
+// brings about.
+const runningSessionServices = vi.hoisted(() => new Set<() => Promise<void>>());
+const sessionMethodsLoad = vi.hoisted((): { failure: Promise<Error> | undefined } => ({
+  failure: undefined,
+}));
+const mockSessionMethods = vi.hoisted(
+  () => async (importOriginal: () => Promise<typeof import("../session-methods.js")>) => {
+    if (sessionMethodsLoad.failure !== undefined) {
+      throw await sessionMethodsLoad.failure;
+    }
+    const actual = await importOriginal();
+    return {
+      ...actual,
+      registerSessionMethods: (...args: Parameters<typeof actual.registerSessionMethods>) => {
+        const services = actual.registerSessionMethods(...args);
+        const stop = async (): Promise<void> => {
+          await services.stop();
+          runningSessionServices.delete(stop);
+        };
+        runningSessionServices.add(stop);
+        return { ...services, stop };
+      },
+    };
+  },
+);
+vi.mock("../session-methods.js", mockSessionMethods);
 
-let scratch: string;
-let homeDirectory: string;
-let runFolder: DaemonRunFolder;
-const started: DaemonProcess[] = [];
-
-beforeEach(async () => {
-  scratch = await mkdtemp(path.join(os.tmpdir(), "aisk-"));
-  homeDirectory = path.join(scratch, "home");
-  const runtimeDirectory = path.join(scratch, "run");
-  await mkdir(homeDirectory);
-  await mkdir(runtimeDirectory, { mode: 0o700 });
-  runFolder = resolveDaemonRunFolder({
-    platform: process.platform,
-    runtimeDirectory,
-    temporaryDirectory: os.tmpdir(),
-    userId: os.userInfo().uid,
-  });
-});
-
-afterEach(async () => {
-  for (const daemon of started.splice(0)) {
-    await daemon.stop().catch(() => undefined);
-  }
-  await rm(scratch, { recursive: true, force: true });
-});
-
-const STARTED_AT = "2026-10-04T12:00:00.000Z";
-const SERVICE_VERSION = "1.4.0";
-const PROCESS_IDENTITY: ProcessIdentity = {
-  processId: process.pid,
-  bootId: "boot-1",
-  processStartTime: "Sun Oct  4 12:00:00 2026",
-};
-
-async function startDaemon(
-  ptyHost: Pick<PtyHost, "shutdown">,
-  place: Partial<Pick<DaemonProcessOptions, "homeDirectory" | "runFolder">> = {},
-  start: (options: DaemonProcessOptions) => Promise<DaemonProcess> = (options) =>
-    DaemonProcess.start(options),
-): Promise<DaemonProcess> {
-  const options: DaemonProcessOptions = {
-    homeDirectory: place.homeDirectory ?? homeDirectory,
-    runFolder: place.runFolder ?? runFolder,
-    openOrphanGuard: (dataFolder) =>
-      openOrphanGuard({
-        dataFolder,
-        bootId: PROCESS_IDENTITY.bootId,
-        readProcessIdentity: () => Promise.resolve(undefined),
-        operatingSystem: {},
-        writeServiceLog: () => {},
-      }),
-    createPtyHost: () => ptyHost,
-    readMachineName: () => Promise.resolve("Test machine"),
-    captureProviderBaseEnvironment: () => Promise.resolve([]),
-    serviceVersion: SERVICE_VERSION,
-    processIdentity: PROCESS_IDENTITY,
-    readProcessTreeUsage: () => readProcessTreeUsage(process.pid),
-    now: () => new Date(STARTED_AT),
-    writeServiceLog: () => {},
+// Makes the session services' module throw what `failure` resolves to when it next loads, until
+// the returned function, or the end of the test, restores it.
+function failSessionMethodsLoad(failure: Promise<Error>): () => void {
+  const restore = (): void => {
+    sessionMethodsLoad.failure = undefined;
+    vi.doMock("../session-methods.js", mockSessionMethods);
   };
-  const daemon = await start(options);
-  started.push(daemon);
-  return daemon;
+  sessionMethodsLoad.failure = failure;
+  vi.doMock("../session-methods.js", mockSessionMethods);
+  onTestFinished(restore);
+  return restore;
 }
 
-function isSocketAnswering(socketPath: string): Promise<boolean> {
-  return new Promise<boolean>((resolve) => {
-    const probe = net.createConnection(socketPath);
-    probe.once("connect", () => {
-      probe.destroy();
-      resolve(true);
-    });
-    probe.once("error", () => {
-      probe.destroy();
-      resolve(false);
-    });
-  });
-}
-
-const writeAheadLogPath = (): string =>
-  path.join(homeDirectory, DAEMON_DATA_FOLDER_NAME, "daemon.db-wal");
+useDaemonFolders();
 
 describe("DaemonProcess.stop", () => {
   it("closes the socket, then drains every terminal, then closes the database", async () => {
@@ -200,7 +154,7 @@ describe("DaemonProcess.stop", () => {
 
 describe("DaemonProcess.start", () => {
   it("refuses a data folder another daemon holds, before it binds a socket of its own", async () => {
-    await startDaemon({ shutdown: () => Promise.resolve(EMPTY_DRAIN) });
+    await startDaemon(DRAIN_NOTHING);
     const otherRuntimeDirectory = path.join(scratch, "other-run");
     await mkdir(otherRuntimeDirectory, { mode: 0o700 });
     const otherRunFolder = resolveDaemonRunFolder({
@@ -210,10 +164,9 @@ describe("DaemonProcess.start", () => {
       userId: os.userInfo().uid,
     });
 
-    const failure = await startDaemon(
-      { shutdown: () => Promise.resolve(EMPTY_DRAIN) },
-      { runFolder: otherRunFolder },
-    ).catch((error: unknown) => error);
+    const failure = await startDaemon(DRAIN_NOTHING, { runFolder: otherRunFolder }).catch(
+      (error: unknown) => error,
+    );
 
     expect(failure).toBeInstanceOf(DaemonAlreadyRunningError);
     expect(failure).toMatchObject({
@@ -224,15 +177,12 @@ describe("DaemonProcess.start", () => {
   });
 
   it("refuses a socket another daemon answers on, and leaves that daemon serving", async () => {
-    await startDaemon({ shutdown: () => Promise.resolve(EMPTY_DRAIN) });
+    await startDaemon(DRAIN_NOTHING);
     const otherHomeDirectory = path.join(scratch, "other-home");
     await mkdir(otherHomeDirectory);
 
     await expect(
-      startDaemon(
-        { shutdown: () => Promise.resolve(EMPTY_DRAIN) },
-        { homeDirectory: otherHomeDirectory },
-      ),
+      startDaemon(DRAIN_NOTHING, { homeDirectory: otherHomeDirectory }),
     ).rejects.toBeInstanceOf(DaemonAlreadyRunningError);
     expect(await isSocketAnswering(runFolder.socketPath)).toBe(true);
   });
@@ -241,9 +191,44 @@ describe("DaemonProcess.start", () => {
     await mkdir(runFolder.folderPath, { mode: 0o700 });
     await chmod(runFolder.folderPath, 0o755);
 
-    await expect(startDaemon({ shutdown: () => Promise.resolve(EMPTY_DRAIN) })).rejects.toThrow(
-      "it must be 700",
-    );
+    await expect(startDaemon(DRAIN_NOTHING)).rejects.toThrow("it must be 700");
+  });
+
+  it("stops the session services and closes the search thread and the database when the bind fails", async () => {
+    const threads = useSearchThreads(startSearchThread);
+    const runningBefore = runningSessionServices.size;
+    bindFailures.push(Object.assign(new Error("address already in use"), { code: "EADDRINUSE" }));
+
+    await expect(startDaemon(DRAIN_NOTHING)).rejects.toThrow(DaemonAlreadyRunningError);
+
+    expect(runningSessionServices.size).toBe(runningBefore);
+    await expect(threads[0]!.searchSessions({ query: "retry" })).rejects.toThrow(/closed/u);
+    await expect(access(writeAheadLogPath())).rejects.toMatchObject({ code: "ENOENT" });
+    // The data folder is free again, so the next start takes it.
+    await startDaemon(DRAIN_NOTHING);
+  });
+
+  it("fails with what the session services' load threw, never left unhandled, and closes the database and frees the data folder", async () => {
+    // A rejection nothing handled would end the daemon before its start could clean up.
+    const unhandled: unknown[] = [];
+    const recordUnhandled = (reason: unknown): void => {
+      unhandled.push(reason);
+    };
+    process.on("unhandledRejection", recordUnhandled);
+    onTestFinished(() => {
+      process.off("unhandledRejection", recordUnhandled);
+    });
+    const loadFailure = new Error("A session service's module failed to load");
+    const restoreSessionMethodsLoad = failSessionMethodsLoad(Promise.resolve(loadFailure));
+
+    const failure = await startDaemon(DRAIN_NOTHING).catch((error: unknown) => error);
+    restoreSessionMethodsLoad();
+
+    // The test runner wraps what a mocked module throws, keeping it as the cause.
+    expect(failure).toMatchObject({ cause: loadFailure });
+    expect(unhandled).toStrictEqual([]);
+    await expect(access(writeAheadLogPath())).rejects.toMatchObject({ code: "ENOENT" });
+    await startDaemon(DRAIN_NOTHING);
   });
 
   it("makes a data folder other accounts could read readable by the person alone", async () => {
@@ -252,14 +237,104 @@ describe("DaemonProcess.start", () => {
     await mkdir(dataFolder);
     await chmod(dataFolder, 0o755);
 
-    await startDaemon({ shutdown: () => Promise.resolve(EMPTY_DRAIN) });
+    await startDaemon(DRAIN_NOTHING);
     expect((await lstat(dataFolder)).mode & 0o777).toBe(0o700);
   });
 });
 
+// A login shell that writes its process id, then sleeps past any wait a test has, captured the way
+// a daemon captures one; `running` resolves with its process id once it runs.
+async function useSleepingLoginShell(): Promise<{
+  capture: DaemonProcessOptions["captureProviderBaseEnvironment"];
+  running: Promise<number>;
+  logged: string[];
+  shellPath: string;
+}> {
+  const shellPath = path.join(scratch, "sleeping-shell");
+  const processIdPath = path.join(scratch, "sleeping-shell.pid");
+  await writeFile(shellPath, `#!/bin/sh\necho $$ > '${processIdPath}'\nexec sleep 60\n`, {
+    mode: 0o700,
+  });
+  const running = vi.waitFor(
+    async () => {
+      const text = await readFile(processIdPath, "utf8");
+      expect(text).toMatch(/^\d+\n$/u);
+      return Number(text);
+    },
+    { timeout: 4_000 },
+  );
+  const logged: string[] = [];
+  const capture = (signal: AbortSignal): ReturnType<typeof captureLoginShellEnvironment> =>
+    captureLoginShellEnvironment({
+      platform: process.platform,
+      shell: shellPath,
+      homeDirectory,
+      userName: os.userInfo().username,
+      readUserTempDirectory: () => Promise.resolve(os.tmpdir()),
+      readWindowsDriveMounts: () => Promise.resolve([]),
+      deadlineMs: 60_000,
+      serviceEnvironment: process.env,
+      writeServiceLog: (line) => logged.push(line),
+      signal,
+    });
+  return { capture, running, logged, shellPath };
+}
+
+// The shell said why it was ended, and neither it nor anything it started is left running.
+async function expectShellEnded(shell: Awaited<ReturnType<typeof useSleepingLoginShell>>) {
+  expect(shell.logged).toContain(
+    `The login shell (${shell.shellPath}) was ended, since the start failed.`,
+  );
+  const processId = await shell.running;
+  await vi.waitFor(() => {
+    expect(() => process.kill(processId, 0)).toThrow(expect.objectContaining({ code: "ESRCH" }));
+  });
+}
+
+// Its login shell would sleep a minute, three times each test's bound, so a start that waited for
+// the shell could never fail in time. The bound is wide because a loaded machine can take 3 s.
+describe.skipIf(process.platform === "win32")(
+  "a start that fails while its login shell runs",
+  { timeout: 20_000 },
+  () => {
+    it("ends the shell and fails at once when the orphan sweep fails", async () => {
+      const shell = await useSleepingLoginShell();
+      const sweepFailure = new Error("The orphan registry could not be read");
+
+      const failure = await startDaemon(DRAIN_NOTHING, {}, (options) =>
+        DaemonProcess.start({
+          ...options,
+          captureProviderBaseEnvironment: shell.capture,
+          openOrphanGuard: async () => {
+            await shell.running;
+            throw sweepFailure;
+          },
+        }),
+      ).catch((error: unknown) => error);
+
+      expect(failure).toBe(sweepFailure);
+      await expectShellEnded(shell);
+    });
+
+    it("ends the shell and fails at once when the session services fail to load", async () => {
+      const shell = await useSleepingLoginShell();
+      const loadFailure = new Error("A session service's module failed to load");
+      failSessionMethodsLoad(shell.running.then(() => loadFailure));
+
+      const failure = await startDaemon(DRAIN_NOTHING, {}, (options) =>
+        DaemonProcess.start({ ...options, captureProviderBaseEnvironment: shell.capture }),
+      ).catch((error: unknown) => error);
+
+      // The test runner wraps what a mocked module throws, keeping it as the cause.
+      expect(failure).toMatchObject({ cause: loadFailure });
+      await expectShellEnded(shell);
+    });
+  },
+);
+
 describe("the socket path's length", () => {
   // A run folder whose socket path is exactly `socketPathBytes` long.
-  async function useRunFolderWithSocketPathOf(socketPathBytes: number): Promise<void> {
+  async function makeRunFolderWithSocketPathOf(socketPathBytes: number): Promise<DaemonRunFolder> {
     const shortest = resolveDaemonRunFolder({
       platform: process.platform,
       runtimeDirectory: path.join(scratch, "r"),
@@ -269,29 +344,30 @@ describe("the socket path's length", () => {
     const padding = socketPathBytes - Buffer.byteLength(shortest.socketPath, "utf8");
     const runtimeDirectory = path.join(scratch, "r".repeat(1 + padding));
     await mkdir(runtimeDirectory, { mode: 0o700 });
-    runFolder = resolveDaemonRunFolder({
+    const sized = resolveDaemonRunFolder({
       platform: process.platform,
       runtimeDirectory,
       temporaryDirectory: os.tmpdir(),
       userId: os.userInfo().uid,
     });
-    expect(Buffer.byteLength(runFolder.socketPath, "utf8")).toBe(socketPathBytes);
+    expect(Buffer.byteLength(sized.socketPath, "utf8")).toBe(socketPathBytes);
+    return sized;
   }
 
   it.skipIf(process.platform === "win32")(
     "binds a path at the platform's own limit and answers a hello there",
     async () => {
-      await useRunFolderWithSocketPathOf(await readSocketPathLimit());
-      await startDaemon({ shutdown: () => Promise.resolve(EMPTY_DRAIN) });
+      const atLimit = await makeRunFolderWithSocketPathOf(await readSocketPathLimit());
+      await startDaemon(DRAIN_NOTHING, { runFolder: atLimit });
 
-      const client = await connect(runFolder.socketPath);
+      const client = await connect(atLimit.socketPath);
       client.send({
         jsonrpc: JSONRPC_VERSION,
         id: 1,
         method: "daemon.hello",
         params: {
           protocolVersion: CURRENT_PROTOCOL_VERSION,
-          sessionToken: await readFile(runFolder.tokenPath, "utf8"),
+          sessionToken: await readFile(atLimit.tokenPath, "utf8"),
         },
       });
       expect(await client.replies(1)).toMatchObject([{ id: 1, result: { compatible: true } }]);
@@ -303,9 +379,9 @@ describe("the socket path's length", () => {
     "refuses a path one byte over the limit before the bind, naming the limit and the length",
     async () => {
       const limit = await readSocketPathLimit();
-      await useRunFolderWithSocketPathOf(limit + 1);
+      const overLimit = await makeRunFolderWithSocketPathOf(limit + 1);
 
-      const failure = await startDaemon({ shutdown: () => Promise.resolve(EMPTY_DRAIN) }).catch(
+      const failure = await startDaemon(DRAIN_NOTHING, { runFolder: overLimit }).catch(
         (error: unknown) => error,
       );
 
@@ -316,13 +392,13 @@ describe("the socket path's length", () => {
           `is ${String(limit + 1)} bytes and the limit is ${String(limit)}`,
         ),
       });
-      await expect(lstat(runFolder.socketPath)).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(lstat(overLimit.socketPath)).rejects.toMatchObject({ code: "ENOENT" });
       // The platform's own bind refuses that path too, so the limit is the platform's.
       await expect(
         new Promise((resolve, reject) => {
           const server = net.createServer();
           server.once("error", reject);
-          server.listen(runFolder.socketPath, () => {
+          server.listen(overLimit.socketPath, () => {
             server.close(resolve);
           });
         }),
@@ -344,9 +420,7 @@ describe("the socket path's limit under a long TMPDIR", () => {
         const freshLimit = await import("../../ipc/socket-path-limit.js");
         expect(await freshLimit.readSocketPathLimit()).toBe(limit);
         const fresh = await import("../process.js");
-        await startDaemon({ shutdown: () => Promise.resolve(EMPTY_DRAIN) }, {}, (options) =>
-          fresh.DaemonProcess.start(options),
-        );
+        await startDaemon(DRAIN_NOTHING, {}, (options) => fresh.DaemonProcess.start(options));
         expect(await isSocketAnswering(runFolder.socketPath)).toBe(true);
       } finally {
         if (temporaryDirectory === undefined) {
@@ -360,8 +434,9 @@ describe("the socket path's limit under a long TMPDIR", () => {
 });
 
 describe("two starts racing for the socket", () => {
+  // Ten starts, each loading the database writer's and the search thread's workers from TypeScript
+  // source, take up to about 7 s in CI's coverage run, so the bound is about twice that.
   it("leave the token file holding the token of the daemon that owns the socket", async () => {
-    const drain = { shutdown: () => Promise.resolve(EMPTY_DRAIN) };
     // Two data folders, so the data-folder lock lets both through and the bind decides.
     const homes = [path.join(scratch, "home-a"), path.join(scratch, "home-b")];
     for (const home of homes) {
@@ -370,7 +445,7 @@ describe("two starts racing for the socket", () => {
     // Each round starts over the previous round's token file, as a restart does.
     for (let round = 0; round < 5; round += 1) {
       const outcomes = await Promise.allSettled(
-        homes.map((home) => startDaemon(drain, { homeDirectory: home })),
+        homes.map((home) => startDaemon(DRAIN_NOTHING, { homeDirectory: home })),
       );
       const winners = outcomes.flatMap((outcome) =>
         outcome.status === "fulfilled" ? [outcome.value] : [],
@@ -397,362 +472,5 @@ describe("two starts racing for the socket", () => {
       await winners[0]!.stop();
       started.splice(started.indexOf(winners[0]!), 1);
     }
-  });
-});
-
-// A connection whose handshake has completed, offering `helloProtocolVersion`; `call` sends one
-// request and resolves with its reply.
-async function openSession(helloProtocolVersion: string = CURRENT_PROTOCOL_VERSION): Promise<{
-  client: Client;
-  call: (method: string, params?: unknown) => Promise<unknown>;
-}> {
-  const client = await connect(runFolder.socketPath);
-  let nextId = 1;
-  const call = async (method: string, params: unknown = {}): Promise<unknown> => {
-    const id = nextId;
-    nextId += 1;
-    client.send({
-      jsonrpc: JSONRPC_VERSION,
-      id,
-      method,
-      params,
-      ...(method === "daemon.hello" ? {} : { protocolVersion: CURRENT_PROTOCOL_VERSION }),
-    });
-    const replies = await client.replies(id);
-    return replies.find((reply) => (reply as { id: unknown }).id === id);
-  };
-  await call("daemon.hello", {
-    protocolVersion: helloProtocolVersion,
-    sessionToken: await readFile(runFolder.tokenPath, "utf8"),
-  });
-  return { client, call };
-}
-
-function whenClosed(client: Client): Promise<void> {
-  return new Promise((resolve) => {
-    if (client.socket.closed) {
-      resolve();
-    } else {
-      client.socket.once("close", () => {
-        resolve();
-      });
-    }
-  });
-}
-
-describe("the lifecycle verbs over the socket", () => {
-  const drainNothing = { shutdown: () => Promise.resolve(EMPTY_DRAIN) };
-
-  it("the status read reports the running service, its socket, data folder and processes", async () => {
-    await startDaemon(drainNothing);
-    const { client, call } = await openSession();
-
-    const reply = await call("daemon.status.read");
-
-    expect(reply).toMatchObject({
-      result: {
-        processState: "running",
-        processIdentity: PROCESS_IDENTITY,
-        version: SERVICE_VERSION,
-        protocolVersion: CURRENT_PROTOCOL_VERSION,
-        transportEndpoint: runFolder.socketPath,
-        dataDirectory: path.join(homeDirectory, DAEMON_DATA_FOLDER_NAME),
-        startedAt: STARTED_AT,
-        uptimeMs: 0,
-        processor: { readAt: STARTED_AT },
-        memory: { readAt: STARTED_AT },
-      },
-    });
-    const { result } = reply as { result: DaemonStatusReadResponse };
-    expect(result.memory?.residentBytes).toBeGreaterThan(0);
-    await client.close();
-  });
-
-  it("the status read reports degraded once the listener fails, and the log says why", async () => {
-    const serviceLog: string[] = [];
-    await startDaemon(drainNothing, {}, (options) =>
-      DaemonProcess.start({
-        ...options,
-        writeServiceLog: (line) => {
-          serviceLog.push(line);
-        },
-      }),
-    );
-    const { client, call } = await openSession();
-    const listener = createdServers.find((server) => server.address() === runFolder.socketPath);
-
-    listener?.emit("error", new Error("accept failed"));
-
-    expect(await call("daemon.status.read")).toMatchObject({
-      result: { processState: "degraded" },
-    });
-    expect(serviceLog).toContain("The socket's listener failed: accept failed");
-    await client.close();
-  });
-
-  it("refuses daemon.start as unknown, since a cold start is a spawn", async () => {
-    await startDaemon(drainNothing);
-    const { client, call } = await openSession();
-
-    expect(await call("daemon.start")).toMatchObject({
-      error: { code: -32601, data: { type: "method_not_found" } },
-    });
-    await client.close();
-  });
-
-  it("a flush answers flushed and leaves the service, its terminals and its database running", async () => {
-    const drains: unknown[] = [];
-    await startDaemon({
-      shutdown: (options) => {
-        drains.push(options);
-        return Promise.resolve(EMPTY_DRAIN);
-      },
-    });
-    const { client, call } = await openSession();
-
-    expect(await call("daemon.flush")).toMatchObject({ result: { flushed: true } });
-
-    expect(await call("daemon.status.read")).toMatchObject({ result: { processState: "running" } });
-    expect(drains).toStrictEqual([]);
-    await access(writeAheadLogPath());
-    await client.close();
-  });
-
-  it("answers a flush only once the write queued before it has committed", async () => {
-    const writers: DatabaseWriter[] = [];
-    const openWriter = DatabaseWriter.open.bind(DatabaseWriter);
-    const spy = vi.spyOn(DatabaseWriter, "open").mockImplementation(async (options) => {
-      const writer = await openWriter(options);
-      writers.push(writer);
-      return writer;
-    });
-    onTestFinished(() => {
-      spy.mockRestore();
-    });
-    await startDaemon(drainNothing);
-    const writer = writers[0]!;
-    const { client, call } = await openSession();
-
-    // Another connection holds the write lock, so the write the flush sends waits at the worker.
-    const lockHolder = new Database(path.join(homeDirectory, DAEMON_DATA_FOLDER_NAME, "daemon.db"));
-    onTestFinished(() => {
-      lockHolder.close();
-    });
-    lockHolder.exec("BEGIN IMMEDIATE");
-    let isQueuedCommitted = false;
-    const queued = writer
-      .write([
-        {
-          sql: `INSERT INTO node_trust_state (node_id, owner_user_id, established_at, updated_at)
-                VALUES ('node-1', 'user-1', @now, @now)`,
-          bindings: { now: STARTED_AT },
-        },
-      ])
-      .then(() => {
-        isQueuedCommitted = true;
-      });
-    const flushed = call("daemon.flush").then((answer) => ({
-      answer,
-      isQueuedCommittedAtAnswer: isQueuedCommitted,
-    }));
-    await new Promise<void>((resolve) => {
-      setTimeout(resolve, 200);
-    });
-    lockHolder.exec("ROLLBACK");
-
-    expect(await flushed).toMatchObject({
-      answer: { result: { flushed: true } },
-      isQueuedCommittedAtAnswer: true,
-    });
-    await queued;
-    await client.close();
-  });
-
-  it.each(["daemon.stop", "daemon.restart"])(
-    "%s answers accepted with another client connected, ends the daemon and frees its data folder",
-    async (method) => {
-      const drains: unknown[] = [];
-      const daemon = await startDaemon({
-        shutdown: (options) => {
-          drains.push(options);
-          return Promise.resolve(EMPTY_DRAIN);
-        },
-      });
-      const caller = await openSession();
-      const bystander = await openSession();
-
-      expect(await caller.call(method)).toMatchObject({ result: { accepted: true } });
-
-      expect(await daemon.whenStopped()).toStrictEqual({ isClean: true });
-      await whenClosed(bystander.client);
-      expect(drains).toHaveLength(1);
-      expect(await isSocketAnswering(runFolder.socketPath)).toBe(false);
-      await expect(access(writeAheadLogPath())).rejects.toMatchObject({ code: "ENOENT" });
-      // The data folder is free again, so the next start takes it.
-      await startDaemon(drainNothing);
-    },
-  );
-
-  it("refuses every mutating verb on a connection whose handshake was incompatible", async () => {
-    await startDaemon(drainNothing);
-    const { client, call } = await openSession("2999-12-31");
-
-    for (const method of ["daemon.stop", "daemon.restart", "daemon.flush"]) {
-      expect(await call(method)).toMatchObject({
-        error: { data: { type: "protocol.version_mismatch" } },
-      });
-    }
-    expect(await call("daemon.status.read")).toMatchObject({ result: { processState: "running" } });
-    await client.close();
-  });
-});
-
-/** Resolves with the `$/subscription/notify` frames `client` has received, once it has `count`. */
-async function notifications(client: Client, count: number): Promise<unknown[]> {
-  for (let received = count; ; received += 1) {
-    const frames = (await client.replies(received)).filter(
-      (frame) => (frame as { method?: unknown }).method === "$/subscription/notify",
-    );
-    if (frames.length >= count) {
-      return frames;
-    }
-  }
-}
-
-describe("the machine's settings over the socket", () => {
-  const drainNothing = { shutdown: () => Promise.resolve(EMPTY_DRAIN) };
-  const settingsPath = (): string =>
-    path.join(homeDirectory, ...MACHINE_SETTINGS_FILE_PATH_SEGMENTS);
-
-  it("reads the defaults, and one client's change reaches the file and another's subscription", async () => {
-    await startDaemon(drainNothing);
-    const listener = await openSession();
-    const writer = await openSession();
-
-    expect(await writer.call("daemon.machineSettingsRead")).toMatchObject({
-      result: { settings: MACHINE_SETTINGS_DEFAULTS },
-    });
-    const acknowledged = (await listener.call("daemon.machineSettingsSubscribe")) as {
-      result: { subscriptionId: string };
-    };
-    expect(
-      await writer.call("daemon.machineSettingsUpdate", { change: { screenReaderMode: true } }),
-    ).toMatchObject({ result: { settings: { screenReaderMode: true } } });
-
-    const changed = { ...MACHINE_SETTINGS_DEFAULTS, screenReaderMode: true };
-    expect(await notifications(listener.client, 2)).toStrictEqual([
-      {
-        jsonrpc: JSONRPC_VERSION,
-        method: "$/subscription/notify",
-        params: {
-          subscriptionId: acknowledged.result.subscriptionId,
-          value: { settings: MACHINE_SETTINGS_DEFAULTS },
-        },
-      },
-      {
-        jsonrpc: JSONRPC_VERSION,
-        method: "$/subscription/notify",
-        params: {
-          subscriptionId: acknowledged.result.subscriptionId,
-          value: { settings: changed },
-        },
-      },
-    ]);
-    expect(JSON.parse(await readFile(settingsPath(), "utf8"))).toStrictEqual(changed);
-    await listener.client.close();
-    await writer.client.close();
-  });
-
-  it("a stop waits for a write under way and leaves it on disk", async () => {
-    // The settings file is a named pipe, so a settings write waits on its read until the test
-    // writes the file's contents into the pipe.
-    await mkdir(path.dirname(settingsPath()), { recursive: true });
-    execFileSync("mkfifo", [settingsPath()]);
-    const daemon = await startDaemon(drainNothing);
-    const writer = await openSession();
-    const stopper = await openSession();
-    writer.client.send({
-      jsonrpc: JSONRPC_VERSION,
-      id: 50,
-      method: "daemon.machineSettingsUpdate",
-      params: { change: { screenReaderMode: true } },
-      protocolVersion: CURRENT_PROTOCOL_VERSION,
-    });
-    // The write is under way once its read has opened the pipe.
-    const pipe = await vi.waitFor(() =>
-      open(settingsPath(), fsConstants.O_WRONLY | fsConstants.O_NONBLOCK),
-    );
-
-    expect(await stopper.call("daemon.stop")).toMatchObject({ result: { accepted: true } });
-    // The stop closes the socket before it drains, so the write finishes during the drain.
-    await whenClosed(writer.client);
-    await pipe.writeFile(JSON.stringify(MACHINE_SETTINGS_DEFAULTS));
-    await pipe.close();
-
-    expect(await daemon.whenStopped()).toStrictEqual({ isClean: true });
-    // The write's rename replaced the pipe with the file.
-    expect((await lstat(settingsPath())).isFile()).toBe(true);
-    expect(JSON.parse(await readFile(settingsPath(), "utf8"))).toStrictEqual({
-      ...MACHINE_SETTINGS_DEFAULTS,
-      screenReaderMode: true,
-    });
-  });
-
-  it("a stop ends within its drain bound while a write never finishes", async () => {
-    // The settings file is a named pipe with no writer, so a settings write that reads it waits.
-    await mkdir(path.dirname(settingsPath()), { recursive: true });
-    execFileSync("mkfifo", [settingsPath()]);
-    const logged: string[] = [];
-    const daemon = await startDaemon(drainNothing, {}, (options) =>
-      DaemonProcess.start({ ...options, writeServiceLog: (line) => logged.push(line) }),
-    );
-    const writer = await openSession();
-    const stopper = await openSession();
-    writer.client.send({
-      jsonrpc: JSONRPC_VERSION,
-      id: 50,
-      method: "daemon.machineSettingsUpdate",
-      params: { change: { screenReaderMode: true } },
-      protocolVersion: CURRENT_PROTOCOL_VERSION,
-    });
-    // The write is under way once its read has opened the pipe.
-    await vi.waitFor(async () => {
-      const pipe = await open(settingsPath(), fsConstants.O_WRONLY | fsConstants.O_NONBLOCK);
-      onTestFinished(() => pipe.close());
-    });
-
-    const askedAt = Date.now();
-    expect(await stopper.call("daemon.stop")).toMatchObject({ result: { accepted: true } });
-    expect(await daemon.whenStopped()).toStrictEqual({ isClean: true });
-
-    expect(Date.now() - askedAt).toBeLessThan(DAEMON_STOP_DRAIN_BOUND_MS + 1_000);
-    expect(logged).toContain("The stop's drain bound passed; writes still running: 1.");
-  }, 10_000);
-
-  it("lets go of the file when a subscribed connection closes", async () => {
-    const detached = vi.fn<() => void>();
-    const subscribeToFile = MachineSettingsFile.prototype.subscribe;
-    const spy = vi
-      .spyOn(MachineSettingsFile.prototype, "subscribe")
-      .mockImplementation(async function (this: MachineSettingsFile, listener) {
-        const unsubscribe = await subscribeToFile.call(this, listener);
-        return () => {
-          detached();
-          unsubscribe();
-        };
-      });
-    onTestFinished(() => {
-      spy.mockRestore();
-    });
-    await startDaemon(drainNothing);
-    const { client, call } = await openSession();
-    await call("daemon.machineSettingsSubscribe");
-    await notifications(client, 1);
-
-    await client.close();
-
-    await vi.waitFor(() => {
-      expect(detached).toHaveBeenCalledOnce();
-    });
-  });
+  }, 15_000);
 });

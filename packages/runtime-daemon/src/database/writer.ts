@@ -7,19 +7,17 @@
 // write carries, such as a workflow tick's, commit together. At the queue's cap a write waits for
 // the next batch to commit, except an assistant's thinking update, which is dropped and counted.
 
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
-
-import Database from "better-sqlite3";
 
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 
+import { waitWithin } from "../bounded-wait.js";
 import type { ServiceLogWriter } from "../daemon/service-log.js";
 import type { SessionEventRow } from "../events/session/insert.js";
-import type { CheckpointMode, CheckpointResult } from "./checkpoint.js";
+import { rebuildError } from "../worker/carried-error.js";
+import { moduleUrlBeside } from "../worker/module-url.js";
+import type { CheckpointMode, CheckpointOptions, CheckpointResult } from "./checkpoint.js";
 import type {
-  CarriedError,
   WriteJob,
   WriteJobOutcome,
   WriterReply,
@@ -41,12 +39,7 @@ const ALERT_DEPTH = 8_000;
 // The one event type the queue may drop at its cap: narration a later event supersedes.
 const DROPPABLE_EVENT_TYPE = "assistant.thinking_update" satisfies SessionEventType;
 
-// The worker module sits beside this one, with this module's own extension, in the source tree
-// and in the build alike.
-const WORKER_URL = new URL(
-  `./worker${path.extname(fileURLToPath(import.meta.url))}`,
-  import.meta.url,
-);
+const WORKER_URL = moduleUrlBeside(import.meta.url, "worker");
 
 /** A write refused because a statement's row count was not the one it expected. */
 export class WriteRefusedError extends Error {
@@ -134,6 +127,7 @@ export class DatabaseWriter {
   #sampleTimer: ReturnType<typeof setInterval> | undefined;
   #latestEventTags: EventTags | undefined;
   readonly #droppedBySession = new Map<string, number>();
+  readonly #commitListeners = new Set<() => void>();
   #failure: Error | undefined;
   #closing: Promise<number> | undefined;
 
@@ -240,6 +234,20 @@ export class DatabaseWriter {
   }
 
   /**
+   * Calls `onCommitted` after each batch that committed a write, once the batch's writes have
+   * settled, until the detach it returns runs.
+   */
+  followCommits(onCommitted: () => void): () => void {
+    const listener = (): void => {
+      onCommitted();
+    };
+    this.#commitListeners.add(listener);
+    return () => {
+      this.#commitListeners.delete(listener);
+    };
+  }
+
+  /**
    * Resolves once every write taken before this call has committed or failed; a write taken
    * afterward does not extend the wait.
    */
@@ -257,14 +265,22 @@ export class DatabaseWriter {
   }
 
   /**
-   * Runs a WAL checkpoint in `mode` on the writer's connection, between batches. Throws once the
-   * writer is closing or closed.
+   * Runs a WAL checkpoint in `mode` on the writer's connection, between batches; every write waits
+   * behind it, a busy one included unless it skips the wait for readers. Throws once the writer is
+   * closing or closed.
    */
-  async checkpoint(mode: CheckpointMode): Promise<CheckpointResult> {
+  async checkpoint(
+    mode: CheckpointMode,
+    options: CheckpointOptions = {},
+  ): Promise<CheckpointResult> {
     if (this.#closing !== undefined) {
       throw new Error("The database writer is closed; the checkpoint did not run");
     }
-    const reply = await this.#request({ type: "checkpoint", mode });
+    const reply = await this.#request({
+      type: "checkpoint",
+      mode,
+      shouldWaitForReaders: options.shouldWaitForReaders ?? true,
+    });
     switch (reply.type) {
       case "checkpointed":
         return reply.result;
@@ -316,17 +332,7 @@ export class DatabaseWriter {
       await this.flush();
       return true;
     }
-    let boundTimer: ReturnType<typeof setTimeout> | undefined;
-    const boundPassed = new Promise<boolean>((resolve) => {
-      boundTimer = setTimeout(() => {
-        resolve(false);
-      }, boundMs);
-    });
-    try {
-      return await Promise.race([this.flush().then(() => true), boundPassed]);
-    } finally {
-      clearTimeout(boundTimer);
-    }
+    return waitWithin(this.flush(), boundMs);
   }
 
   // Resolves with the write's outcome once committed, or `undefined` when it was dropped.
@@ -444,6 +450,11 @@ export class DatabaseWriter {
             entry.resolve(outcome);
           }
         });
+        if (reply.outcomes.some((outcome) => outcome.status === "committed")) {
+          for (const listener of this.#commitListeners) {
+            listener();
+          }
+        }
         return;
       case "batch-failed": {
         const batchFailure = rebuildError(reply.error);
@@ -579,18 +590,6 @@ export class DatabaseWriter {
 
 function describeTags(tags: EventTags | undefined): string {
   return tags === undefined ? "" : `; session_id=${tags.sessionId} event_category=${tags.category}`;
-}
-
-// A SQLite error comes back as better-sqlite3's own class, so a caller can test its code.
-function rebuildError(carried: CarriedError): Error {
-  const error =
-    carried.sqliteCode === undefined
-      ? new Error(carried.message)
-      : new Database.SqliteError(carried.message, carried.sqliteCode);
-  if (carried.stack !== undefined) {
-    error.stack = carried.stack;
-  }
-  return error;
 }
 
 function unexpectedReply(reply: WriterReply): Error {

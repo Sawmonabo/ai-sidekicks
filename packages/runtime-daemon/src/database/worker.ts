@@ -10,9 +10,9 @@ import { LRUCache } from "lru-cache";
 
 import { prepareSessionEventInsert } from "../events/session/insert.js";
 import { openDatabase } from "../session/migration-runner.js";
+import { carryError } from "../worker/carried-error.js";
 import type { CheckpointMode, CheckpointResult } from "./checkpoint.js";
 import type {
-  CarriedError,
   WriteJob,
   WriteJobOutcome,
   WriterReply,
@@ -133,6 +133,19 @@ function serve(connection: Database): void {
     return { isBusy: row.busy !== 0, logFrames: row.log, checkpointedFrames: row.checkpointed };
   };
 
+  // A checkpoint calls the busy handler while a reader holds an older snapshot, which holds the
+  // connection, and every write behind it, for the whole busy timeout; with none it answers busy
+  // at once. The timeout is put back whatever the checkpoint does.
+  const checkpointWithoutWaiting = (mode: CheckpointMode): CheckpointResult => {
+    const busyTimeoutMs = connection.pragma("busy_timeout", { simple: true }) as number;
+    connection.pragma("busy_timeout = 0");
+    try {
+      return checkpoint(mode);
+    } finally {
+      connection.pragma(`busy_timeout = ${String(busyTimeoutMs)}`);
+    }
+  };
+
   port.on("message", (request: WriterRequest) => {
     switch (request.type) {
       case "batch":
@@ -144,7 +157,12 @@ function serve(connection: Database): void {
         return;
       case "checkpoint":
         try {
-          post({ type: "checkpointed", result: checkpoint(request.mode) });
+          post({
+            type: "checkpointed",
+            result: request.shouldWaitForReaders
+              ? checkpoint(request.mode)
+              : checkpointWithoutWaiting(request.mode),
+          });
         } catch (error) {
           post({ type: "checkpoint-failed", error: carryError(error) });
         }
@@ -156,17 +174,4 @@ function serve(connection: Database): void {
         return;
     }
   });
-}
-
-// A thread boundary keeps only plain data, so an error travels as its message, stack and code.
-function carryError(error: unknown): CarriedError {
-  if (!(error instanceof Error)) {
-    return { message: String(error), stack: undefined, sqliteCode: undefined };
-  }
-  const code: unknown = "code" in error ? error.code : undefined;
-  return {
-    message: error.message,
-    stack: error.stack,
-    sqliteCode: typeof code === "string" && code.startsWith("SQLITE_") ? code : undefined,
-  };
 }

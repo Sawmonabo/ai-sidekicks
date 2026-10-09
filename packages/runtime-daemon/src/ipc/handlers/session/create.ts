@@ -17,10 +17,11 @@ import { registerDescribedMethod } from "../register-described-method.js";
 /** What `session.create`'s handler calls. */
 export interface SessionCreateDeps {
   /**
-   * Creates the session and answers its id, shape and state. The implementation appends
-   * `session.created` before it answers, and mints the id with the daemon-wide `mintUuidV7`:
-   * the wire schemas accept any UUID version only because control-plane ids are v4, and a
-   * daemon id is never v4.
+   * Creates the session and answers its id, shape, state and the lead's binding as the daemon
+   * resolved it, account included; a request whose `clientIdempotencyKey` already made a session
+   * answers that session. The implementation appends `session.created` before it answers, and
+   * mints the id with the daemon-wide `mintUuidV7`: the wire schemas accept any UUID version only
+   * because control-plane ids are v4, and a daemon id is never v4.
    */
   readonly createSession: (request: SessionCreateRequest) => Promise<SessionCreateResponse>;
 }

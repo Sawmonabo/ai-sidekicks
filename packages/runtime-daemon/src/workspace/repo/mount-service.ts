@@ -1,14 +1,16 @@
 /**
- * Repo-mount lifecycle service, the daemon-side owner of the `repo_mounts` table. A mount belongs
- * to the machine, not a session: attach stamps the daemon's node id, writes no workspace and
- * appends no event.
+ * Repo-mount lifecycle service, the daemon-side owner of the `repo_mounts` table. An attached
+ * mount belongs to the machine, not a session: attach stamps the daemon's node id, writes no
+ * workspace and appends no event. A managed mount is one chat's own workspace folder, attached at
+ * that chat's create and deleted with it.
  *
  * - Attach has no containment check: attaching a path is what admits it to the trust envelope.
  * - A duplicate root is caught by `idx_repo_mounts_active_root` on the INSERT; a pre-read races.
  * - Detach checks for running agents, archives and flips the mount in one write, then appends
- *   `workspace.archived` events, so a crash leaves rows durable and events missing.
- * - On Windows bare `git` resolves from the working directory first, so config supplies an
- *   absolute `gitExecutablePath`.
+ *   `workspace.archived` events and archives each session whose create never finished, so a crash
+ *   leaves rows durable and events missing. A managed mount is never detached.
+ * - On Windows bare `git` resolves from the working directory first, so the daemon hands this
+ *   service a resolver whose runner names the absolute `git` it found at start.
  */
 
 import type { Statement } from "better-sqlite3";
@@ -16,6 +18,7 @@ import type { Statement } from "better-sqlite3";
 import { NodeIdSchema, type NodeId } from "@ai-sidekicks/contracts/runtime-node/id";
 import {
   RepoAttachResponseSchema,
+  type RepoMountOrigin,
   type RepoAttachRequest,
   type RepoAttachResponse,
   type RepoDetachRequest,
@@ -29,14 +32,18 @@ import {
   WorkspaceIdSchema,
   type RepoMountId,
   type RepoMountState,
+  type VcsType,
   type WorkspaceState,
 } from "@ai-sidekicks/contracts/repo/mount";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
-import type { DatabaseConnections } from "../../database/connections.js";
+import type { DatabaseConnections } from "../../database/connection/lifecycle.js";
+import type { WriteStatement } from "../../database/statement.js";
 import type { DatabaseWriter } from "../../database/writer.js";
 import {
   RepoAlreadyAttachedError,
   RepoDetachConflictError,
+  RepoMountManagedError,
   RepoMountNotFoundError,
 } from "./errors.js";
 import { RepoRootResolver } from "./root-resolver.js";
@@ -89,6 +96,7 @@ interface RepoMountRow {
   readonly local_path: string;
   readonly canonical_root: string;
   readonly vcs_type: string;
+  readonly origin: string;
   readonly state: string;
   readonly attached_at: string;
 }
@@ -96,6 +104,14 @@ interface RepoMountRow {
 interface DependentWorkspaceRow {
   readonly id: string;
   readonly session_id: string;
+}
+
+// The machine's attached mount at one canonical root.
+interface ActiveMountRow {
+  readonly id: string;
+  readonly canonical_root: string;
+  readonly vcs_type: string;
+  readonly origin: string;
 }
 
 /** Constructor dependencies. Every optional member defaults to the real one. */
@@ -106,18 +122,13 @@ export interface RepoMountServiceDeps {
   readonly events: WorkspaceEventEmitter;
   /** The daemon's own node id, stamped on every mount it attaches. */
   readonly nodeId: NodeId;
-  /** Defaults to a stock `RepoRootResolver`; mutually exclusive with {@link gitExecutablePath}. */
+  /** Defaults to a stock `RepoRootResolver`, which runs bare `git`. */
   readonly resolver?: RepoRootResolver;
   /**
-   * Absolute `git` path for the default resolver. Required on `win32` unless {@link resolver} is
-   * given.
+   * Archives each session a create left `provisioning` in a project since detached, which the
+   * detach cascade runs once the mount is detached.
    */
-  readonly gitExecutablePath?: string;
-  /**
-   * Platform for the win32 `git`-pinning guard; defaults to `process.platform`. The guard catches
-   * an omission by the composition root, not a hostile caller.
-   */
-  readonly platform?: NodeJS.Platform;
+  readonly archiveUnfinishedCreates: () => Promise<void>;
   /**
    * Reachability probe for {@link RepoMountService.read}. The default reads the clock before the
    * probe, so `checkedAt` is never newer than the observation it timestamps.
@@ -147,6 +158,14 @@ export type RepoMountDetachOutcome = Omit<
   "archivedSessionIds" | "forgottenProjectId"
 >;
 
+/** Inputs for {@link RepoMountService.attachManaged}. */
+export interface AttachManagedMountInput {
+  /** The one chat the mount belongs to. */
+  readonly sessionId: SessionId;
+  /** The workspace folder: absolute and symlink-resolved, as every mount root is. */
+  readonly canonicalRoot: string;
+}
+
 /** Inputs for {@link RepoMountService.detach}. */
 export interface DetachRepoMountInput extends RepoDetachRequest {
   /** Envelope actor; defaults to the system actor. */
@@ -165,12 +184,45 @@ const ARCHIVED_WORKSPACE_STATE = "archived" satisfies WorkspaceState;
 
 const BUSY_WORKSPACE_STATE = "busy" satisfies WorkspaceState;
 
+const ATTACHED_MOUNT_ORIGIN = "attached" satisfies RepoMountOrigin["kind"];
+
+const MANAGED_MOUNT_ORIGIN = "managed" satisfies RepoMountOrigin["kind"];
+
+// A chat's workspace is a git repository the daemon itself initialized.
+const MANAGED_MOUNT_VCS_TYPE = "git" satisfies VcsType;
+
 const INSERT_MOUNT_SQL = `INSERT INTO repo_mounts (
-     id, node_id, local_path, canonical_root, vcs_type, state, attached_at, updated_at, metadata
+     id, node_id, local_path, canonical_root, vcs_type, origin, managed_session_id, state,
+     attached_at, updated_at, metadata
    ) VALUES (
-     @id, @node_id, @local_path, @canonical_root, @vcs_type, '${ATTACHED_MOUNT_STATE}', @now,
-     @now, '{}'
+     @id, @node_id, @local_path, @canonical_root, @vcs_type, @origin, @managed_session_id,
+     '${ATTACHED_MOUNT_STATE}', @now, @now, '{}'
    )`;
+
+// The workspaces on the chat's managed mount.
+const MANAGED_WORKSPACE_IDS_SQL = `SELECT workspace.id
+     FROM workspaces AS workspace
+     JOIN repo_mounts AS mount ON mount.id = workspace.repo_mount_id
+    WHERE mount.managed_session_id = @session_id`;
+
+// Each row that names a workspace on the mount goes before it, and each workspace before the mount,
+// because every foreign key holds on DELETE too.
+const DELETE_MANAGED_MOUNT_SQL: readonly string[] = [
+  `DELETE FROM run_execution_contexts WHERE workspace_id IN (${MANAGED_WORKSPACE_IDS_SQL})`,
+  `DELETE FROM branch_contexts WHERE workspace_id IN (${MANAGED_WORKSPACE_IDS_SQL})`,
+  `DELETE FROM workspaces
+    WHERE repo_mount_id IN (SELECT id FROM repo_mounts WHERE managed_session_id = @session_id)`,
+  "DELETE FROM repo_mounts WHERE managed_session_id = @session_id",
+];
+
+/**
+ * The statements that delete a chat's managed mount row with every workspace on it and the run and
+ * branch rows naming those workspaces, in foreign-key order; a session with none matches nothing.
+ * They go in one write, alone or inside the purge's.
+ */
+export function managedMountDeletionStatements(sessionId: SessionId): readonly WriteStatement[] {
+  return DELETE_MANAGED_MOUNT_SQL.map((sql) => ({ sql, bindings: { session_id: sessionId } }));
+}
 
 // A dependent with an agent running in it: `busy`, or holding a run whose execution root is
 // unreleased, since a run releases its workspace hold and its execution root separately.
@@ -222,10 +274,12 @@ const DETACH_MOUNT_SQL = `UPDATE repo_mounts
 
 /**
  * Owns every read and write of the `repo_mounts` table. The detach cascade also archives the
- * mount's `workspaces` rows here, because they must share one write with the mount flip.
+ * mount's `workspaces` rows here, and a managed mount's deletion deletes them, because each must
+ * share one write with the mount row it follows.
  */
 export class RepoMountService {
   readonly #events: WorkspaceEventEmitter;
+  readonly #archiveUnfinishedCreates: () => Promise<void>;
   readonly #nodeId: NodeId;
   readonly #resolver: RepoRootResolver;
   readonly #probePath: FilesystemPathProbeFn;
@@ -235,41 +289,13 @@ export class RepoMountService {
   readonly #writer: Pick<DatabaseWriter, "write">;
   readonly #selectMountStmt: Statement;
   readonly #selectActiveMountByRootStmt: Statement;
+  readonly #selectManagedRootStmt: Statement;
 
   constructor(deps: RepoMountServiceDeps) {
-    if (deps.resolver !== undefined && deps.gitExecutablePath !== undefined) {
-      // Loud, not a precedence rule: preferring one would leave a daemon that believes it pinned
-      // an absolute `git` and did not.
-      throw new TypeError(
-        "RepoMountService: supply either a ready-made resolver or a gitExecutablePath, not both. " +
-          "A gitExecutablePath is only honored by the resolver this service constructs, so " +
-          "passing both would silently drop the pinned executable path.",
-      );
-    }
-
-    if (
-      (deps.platform ?? process.platform) === "win32" &&
-      deps.resolver === undefined &&
-      deps.gitExecutablePath === undefined
-    ) {
-      // Fail closed: the stock resolver spawns bare `git`, and a `git.exe` planted in the
-      // working directory would run.
-      throw new TypeError(
-        "RepoMountService: on win32 you must supply either an absolute gitExecutablePath or a " +
-          "ready-made resolver. Spawning bare `git` there lets a git.exe in the daemon's own " +
-          "working directory execute instead of the system one.",
-      );
-    }
-
     this.#events = deps.events;
+    this.#archiveUnfinishedCreates = deps.archiveUnfinishedCreates;
     this.#nodeId = deps.nodeId;
-    this.#resolver =
-      deps.resolver ??
-      new RepoRootResolver(
-        // Conditional spread: under `exactOptionalPropertyTypes` an explicit `undefined` is not an
-        // absent key, and the resolver's own default would be skipped.
-        deps.gitExecutablePath === undefined ? {} : { gitExecutablePath: deps.gitExecutablePath },
-      );
+    this.#resolver = deps.resolver ?? new RepoRootResolver();
     this.#probePath = deps.probePath ?? createDefaultPathProbe();
     this.#now = deps.now ?? ((): string => new Date().toISOString());
     this.#newRepoMountId = deps.newRepoMountId ?? mintUuidV7;
@@ -279,19 +305,23 @@ export class RepoMountService {
 
     // Unscoped by state: a read must answer for a `detached` mount.
     this.#selectMountStmt = database.prepare(
-      `SELECT id, node_id, local_path, canonical_root, vcs_type, state, attached_at
+      `SELECT id, node_id, local_path, canonical_root, vcs_type, origin, state, attached_at
          FROM repo_mounts
         WHERE id = @repo_mount_id`,
     );
 
-    // Behind `repo.already_attached`. The predicate mirrors `idx_repo_mounts_active_root`; if they
-    // diverge, the refusal degrades to an internal error.
+    // Behind `repo.already_attached` and the folder's mount lookup. The predicate mirrors
+    // `idx_repo_mounts_active_root`; if they diverge, the refusal degrades to an internal error.
     this.#selectActiveMountByRootStmt = database.prepare(
-      `SELECT id
+      `SELECT id, canonical_root, vcs_type, origin
          FROM repo_mounts
         WHERE node_id = @node_id
           AND canonical_root = @canonical_root
           AND state = '${ATTACHED_MOUNT_STATE}'`,
+    );
+
+    this.#selectManagedRootStmt = database.prepare(
+      `SELECT canonical_root FROM repo_mounts WHERE managed_session_id = @session_id`,
     );
   }
 
@@ -320,10 +350,80 @@ export class RepoMountService {
       localPath: input.localPath,
       canonicalRoot: resolution.canonicalRoot,
       vcsType: resolution.vcsType,
+      managedSessionId: null,
       attachedAt,
     });
 
     return response;
+  }
+
+  /**
+   * Attach a local path, or answer the machine's mount for that folder when one is attached
+   * already. Throws `RepoRootResolutionError`, or `RepoAlreadyAttachedError` when the folder is a
+   * chat's managed workspace, which is never a project.
+   */
+  async attachOrReuse(input: RepoAttachPathRequest): Promise<RepoAttachResponse> {
+    try {
+      return await this.attach(input);
+    } catch (error) {
+      if (!(error instanceof RepoAlreadyAttachedError)) {
+        throw error;
+      }
+      // With none, the folder is a chat's managed workspace, or its mount was detached since the
+      // refused insert; the refusal stands.
+      const { mount } = await this.#resolveFolderMount(input);
+      if (mount === undefined) {
+        throw error;
+      }
+      return this.#projectAttachResponse({
+        repoMountId: mount.id,
+        canonicalRoot: mount.canonical_root,
+        vcsType: mount.vcs_type,
+      });
+    }
+  }
+
+  /**
+   * The canonical root of the folder at `localPath`, resolved the way `attach` resolves it,
+   * attaching nothing. Throws `RepoRootResolutionError` for a path that resolves to no repository.
+   */
+  async resolveFolder(input: RepoAttachPathRequest): Promise<{ readonly canonicalRoot: string }> {
+    const { canonicalRoot } = await this.#resolver.resolveCanonicalRoot(input.localPath);
+    return { canonicalRoot };
+  }
+
+  /** The folder of the chat's managed workspace, or `undefined` when the session has none. */
+  readManagedRoot(sessionId: SessionId): string | undefined {
+    const row = this.#selectManagedRootStmt.get({ session_id: sessionId }) as
+      | { readonly canonical_root: string }
+      | undefined;
+    return row?.canonical_root;
+  }
+
+  /**
+   * Register a chat's workspace folder as its managed mount, before the folder exists: the
+   * daemon chose the root, so nothing is resolved. Throws `RepoAlreadyAttachedError` when the
+   * root, which the session id names, is already attached.
+   */
+  async attachManaged(input: AttachManagedMountInput): Promise<RepoMountId> {
+    const repoMountId = RepoMountIdSchema.parse(this.#newRepoMountId());
+    await this.#insertMountRow({
+      repoMountId,
+      localPath: input.canonicalRoot,
+      canonicalRoot: input.canonicalRoot,
+      vcsType: MANAGED_MOUNT_VCS_TYPE,
+      managedSessionId: input.sessionId,
+      attachedAt: this.#now(),
+    });
+    return repoMountId;
+  }
+
+  /**
+   * Delete a chat's managed mount row and every row on it, in one write. A session with no managed
+   * mount writes nothing, so a repeat is safe.
+   */
+  async deleteManaged(sessionId: SessionId): Promise<void> {
+    await this.#writer.write(managedMountDeletionStatements(sessionId));
   }
 
   /**
@@ -338,11 +438,11 @@ export class RepoMountService {
   }
 
   /**
-   * Detach a mount and archive its workspaces (a no-op if not `attached`); refuses with
-   * `RepoDetachConflictError`, naming the running session, while an agent runs in any of them
-   * (`busy`, or a run whose execution root is unreleased). Rejects with
-   * `detach_notification_incomplete` if committed but an event append failed; the rows are the
-   * truth and a rerun is a no-op.
+   * Detach a mount and archive its workspaces (a no-op if not `attached`). Refuses a chat's
+   * managed mount with `RepoMountManagedError`, and refuses with `RepoDetachConflictError`, naming
+   * the running session, while an agent runs in any of its workspaces (`busy`, or a run whose
+   * execution root is unreleased). Rejects with `detach_notification_incomplete` if committed but
+   * an event append failed; the rows are the truth and a rerun is a no-op.
    */
   async detach(input: DetachRepoMountInput): Promise<RepoMountDetachOutcome> {
     const actor = input.actor ?? null;
@@ -350,6 +450,11 @@ export class RepoMountService {
     const repoMountId = input.repoMountId;
 
     const row = this.#requireMountRow(repoMountId);
+    // A chat's managed workspace goes only with its chat's purge, so it is no detach target. The
+    // origin never changes, so the row read decides it.
+    if (row.origin !== ATTACHED_MOUNT_ORIGIN) {
+      throw new RepoMountManagedError(repoMountId);
+    }
     if (row.state !== ATTACHED_MOUNT_STATE) {
       return this.#projectDetachOutcome(repoMountId, row.state, []);
     }
@@ -388,6 +493,12 @@ export class RepoMountService {
         failures.push(error);
       }
     }
+    // A session its create left provisioning here has nowhere left to bind.
+    try {
+      await this.#archiveUnfinishedCreates();
+    } catch (error) {
+      failures.push(error);
+    }
 
     const archivedWorkspaceIds = archivedWorkspaces.map((workspace) => workspace.id);
     if (failures.length > 0) {
@@ -395,8 +506,8 @@ export class RepoMountService {
       // but the detach committed.
       throw new RepoMountServiceInvariantError(
         `repo mount "${repoMountId}" detached and archived ${archivedWorkspaceIds.length} ` +
-          `workspace(s), but ${failures.length} workspace.archived append(s) failed; the rows ` +
-          `are committed and the log under-reports them`,
+          `workspace(s), but ${failures.length} of the appends after it failed; the rows are ` +
+          `committed and the log under-reports them`,
         {
           kind: "detach_notification_incomplete",
           repoMountId,
@@ -417,6 +528,8 @@ export class RepoMountService {
     readonly localPath: string;
     readonly canonicalRoot: string;
     readonly vcsType: string;
+    /** The chat a managed mount belongs to; `null` makes the mount an attached one. */
+    readonly managedSessionId: SessionId | null;
     readonly attachedAt: string;
   }): Promise<void> {
     try {
@@ -429,6 +542,8 @@ export class RepoMountService {
             local_path: fields.localPath,
             canonical_root: fields.canonicalRoot,
             vcs_type: fields.vcsType,
+            origin: fields.managedSessionId === null ? ATTACHED_MOUNT_ORIGIN : MANAGED_MOUNT_ORIGIN,
+            managed_session_id: fields.managedSessionId,
             now: fields.attachedAt,
           },
         },
@@ -440,7 +555,7 @@ export class RepoMountService {
       const conflict = this.#selectActiveMountByRootStmt.get({
         node_id: this.#nodeId,
         canonical_root: fields.canonicalRoot,
-      }) as { readonly id: string } | undefined;
+      }) as ActiveMountRow | undefined;
       if (conflict === undefined) {
         // Another constraint (id collision, `vcs_type` CHECK): rethrow, or the caller would be
         // sent to detach a mount that does not exist.
@@ -448,6 +563,19 @@ export class RepoMountService {
       }
       throw new RepoAlreadyAttachedError(conflict.id);
     }
+  }
+
+  // The folder's resolved root and the project mount at it; a chat's managed mount is never one.
+  async #resolveFolderMount(input: RepoAttachPathRequest): Promise<{
+    readonly canonicalRoot: string;
+    readonly mount: ActiveMountRow | undefined;
+  }> {
+    const { canonicalRoot } = await this.#resolver.resolveCanonicalRoot(input.localPath);
+    const mount = this.#selectActiveMountByRootStmt.get({
+      node_id: this.#nodeId,
+      canonical_root: canonicalRoot,
+    }) as ActiveMountRow | undefined;
+    return { canonicalRoot, mount: mount?.origin === ATTACHED_MOUNT_ORIGIN ? mount : undefined };
   }
 
   /** Fetch a mount row in any state, or refuse with `repo.not_found`. */

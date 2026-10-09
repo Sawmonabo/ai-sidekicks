@@ -13,11 +13,15 @@ function servedDirectory(sessionIds: readonly string[]): SessionDirectoryState {
   return {
     status: "served",
     sessions: sessionIds.map((sessionId) => sessionListEntry({ sessionId })),
+    chatCount: 0,
   };
 }
 
 function projectedRow(overrides: Partial<SessionListRow> & { sessionId: string }): SessionListRow {
   return {
+    name: undefined,
+    firstMessagePreview: undefined,
+    shape: undefined,
     state: "active",
     touchedAtIso: "2026-01-01T10:00:00.000Z",
     userIds: [],
@@ -36,13 +40,31 @@ describe("mergeSessionRows — two sources, neither dropped", () => {
     expect(rows.map((row) => row.sessionId)).toStrictEqual(["session-node", "session-local"]);
   });
 
-  it("names a session once when both sources hold it", () => {
+  it("titles a session once when both sources hold it, from what the daemon's list carries", () => {
     const rows = mergeSessionRows({
-      directory: servedDirectory(["session-both"]),
-      windowSessionIds: ["session-both"],
-      projectedRows: [projectedRow({ sessionId: "session-both" })],
+      directory: {
+        status: "served",
+        sessions: [
+          sessionListEntry({ sessionId: "session-named", name: "Storage backends" }),
+          sessionListEntry({
+            sessionId: "session-untitled",
+            firstMessagePreview: "Why does the build cache miss",
+            shape: "chat",
+          }),
+        ],
+        chatCount: 1,
+      },
+      windowSessionIds: ["session-named", "session-untitled"],
+      projectedRows: [
+        projectedRow({ sessionId: "session-named" }),
+        projectedRow({ sessionId: "session-untitled" }),
+      ],
     });
 
-    expect(rows).toHaveLength(1);
+    // The store projects none of these, so its fuller row must not drop what the list carries.
+    expect(rows.map((row) => [row.name, row.firstMessagePreview, row.shape])).toStrictEqual([
+      ["Storage backends", undefined, "project"],
+      [undefined, "Why does the build cache miss", "chat"],
+    ]);
   });
 });

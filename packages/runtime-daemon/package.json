@@ -12,7 +12,6 @@
     "./typescript-source-loader": "./tests/helpers/typescript-source-loader.mjs",
     "./main": {
       "@ai-sidekicks/source": "./src/main.ts",
-      "types": "./dist/main.d.ts",
       "import": "./dist/main.js"
     }
   },
@@ -24,15 +23,18 @@
     "tests/helpers/typescript-source-loader.mjs"
   ],
   "scripts": {
-    "build": "tsc -b",
+    "build": "rolldown -c rolldown.config.ts",
     "typecheck": "tsc -b && tsc -p tsconfig.test.json && tsc -p tsconfig.sqlite-shell.json",
-    "lint": "eslint src sqlite-shell",
-    "test": "vitest run",
-    "test:coverage": "vitest run --coverage",
+    "lint": "eslint src tests sqlite-shell rolldown.config.ts",
+    "test": "vitest run --project=unit",
+    "test:coverage": "vitest run --project=unit --coverage",
+    "test:endurance": "vitest run --project=endurance",
     "postinstall": "node --experimental-strip-types sqlite-shell/compile.ts"
   },
   "dependencies": {
     "@ai-sidekicks/contracts": "workspace:*",
+    "@ai-sidekicks/search-index": "workspace:*",
+    "@ai-sidekicks/search-ranking": "workspace:*",
     "@anthropic-ai/sandbox-runtime": "0.0.78",
     "@cedar-policy/cedar-wasm": "4.13.0",
     "@dagrejs/dagre": "3.1.1",
@@ -49,7 +51,9 @@
     "bun": "1.4.2",
     "canonicalize": "5.1.0",
     "croner": "10.0.1",
+    "fdir": "6.5.0",
     "fflate": "0.8.3",
+    "ignore": "7.0.12",
     "jsonata": "2.2.2",
     "koffi": "^3.3.2",
     "lru-cache": "^11.5.3",
@@ -76,6 +80,7 @@
     "@types/pidusage": "2.0.5",
     "@types/semver": "^7.8.0",
     "@vitest/coverage-v8": "catalog:testing",
+    "rolldown": "1.2.12",
     "vitest": "catalog:testing"
   }
 }

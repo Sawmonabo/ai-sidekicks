@@ -12,7 +12,7 @@ import type {
 } from "@ai-sidekicks/contracts/workflow/run/records";
 import type { WorkflowWaitCause } from "@ai-sidekicks/contracts/workflow/run/status";
 
-import type { DatabaseConnections } from "../../database/connections.js";
+import type { DatabaseConnections } from "../../database/connection/lifecycle.js";
 import {
   RUN_COLUMNS,
   STEP_COLUMNS,

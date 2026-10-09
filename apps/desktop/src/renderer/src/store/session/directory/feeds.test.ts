@@ -1,9 +1,11 @@
-// The window's session list: one feed however many views read it, the list it delivers folded with
-// each change after it, and a list read again on request. The feed is a scripted function the
-// test hands the store, so the store's own logic is measured.
+// The window's session list: one feed however many views read it, a list served only once its
+// last page lands, folded with each change after it, the chat count each delivery carries, and a
+// list read again on request. The feed is a scripted function the test hands the store, so the
+// store's own logic is measured.
 
 import { describe, expect, it } from "vitest";
 
+import type { SessionListEntry } from "@ai-sidekicks/contracts/session/directory";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { SessionDirectoryFeeds } from "./feeds.js";
 import type {
@@ -46,11 +48,34 @@ function scriptedFeed(): ScriptedFeed {
   };
 }
 
-function listOf(...names: readonly string[]): SessionDirectoryFrame {
+function entriesOf(...names: readonly string[]): SessionListEntry[] {
+  return names.map((name) => sessionListEntry({ sessionId: `session-${name}`, name }));
+}
+
+/** The whole list in one delivery, or its first part when `isComplete` is false. */
+function listOf(names: readonly string[], isComplete = true): SessionDirectoryFrame {
+  return { kind: "list", sessions: entriesOf(...names), chatCount: 0, isComplete };
+}
+
+/** One continuing page, which carries at least one session. */
+function pageOf(
+  [firstName, ...otherNames]: readonly [string, ...string[]],
+  chatCount: number,
+  isComplete: boolean,
+) {
+  const sessions: [SessionListEntry, ...SessionListEntry[]] = [
+    sessionListEntry({ sessionId: `session-${firstName}`, name: firstName }),
+    ...entriesOf(...otherNames),
+  ];
   return {
-    kind: "list",
-    sessions: names.map((name) => sessionListEntry({ sessionId: `session-${name}`, name })),
-  };
+    kind: "change",
+    change: { kind: "page", sessions, chatCount, isComplete },
+  } as const satisfies SessionDirectoryFrame;
+}
+
+/** The chat count a served list holds, or the status it holds instead. */
+function chatCountIn(state: SessionDirectoryState): number | string {
+  return state.status === "served" ? state.chatCount : state.status;
 }
 
 /** The names a served list holds, in order, or the status it holds instead. */
@@ -59,7 +84,7 @@ function namesIn(state: SessionDirectoryState): readonly (string | undefined)[] 
 }
 
 describe("the window's session list", () => {
-  it("reads until the list arrives, then moves one entry per change", () => {
+  it("reads until the list arrives, then moves one entry and the chat count per change", () => {
     const feeds = new SessionDirectoryFeeds();
     const scripted = scriptedFeed();
     feeds.watch(scripted.feed, () => undefined);
@@ -68,11 +93,15 @@ describe("the window's session list", () => {
     // Negative control: a change before the list moves nothing, since the list restates it.
     scripted.deliver({
       kind: "change",
-      change: { kind: "upsert", entry: sessionListEntry({ sessionId: "session-early" }) },
+      change: {
+        kind: "upsert",
+        entry: sessionListEntry({ sessionId: "session-early" }),
+        chatCount: 0,
+      },
     });
     expect(namesIn(feeds.stateOf(scripted.feed))).toBe("reading");
 
-    scripted.deliver(listOf("web", "api"));
+    scripted.deliver(listOf(["web", "api"]));
     expect(namesIn(feeds.stateOf(scripted.feed))).toStrictEqual(["web", "api"]);
 
     scripted.deliver({
@@ -80,18 +109,21 @@ describe("the window's session list", () => {
       change: {
         kind: "upsert",
         entry: sessionListEntry({ sessionId: "session-web", name: "site" }),
+        chatCount: 0,
       },
     });
     scripted.deliver({
       kind: "change",
       change: {
         kind: "upsert",
-        entry: sessionListEntry({ sessionId: "session-docs", name: "docs" }),
+        entry: sessionListEntry({ sessionId: "session-docs", name: "docs", shape: "chat" }),
+        chatCount: 1,
       },
     });
+    expect(chatCountIn(feeds.stateOf(scripted.feed))).toBe(1);
     scripted.deliver({
       kind: "change",
-      change: { kind: "remove", sessionId: "session-api" as SessionId },
+      change: { kind: "remove", sessionId: "session-api" as SessionId, chatCount: 1 },
     });
     expect(namesIn(feeds.stateOf(scripted.feed))).toStrictEqual(["site", "docs"]);
 
@@ -107,7 +139,7 @@ describe("the window's session list", () => {
     const releaseSecond = feeds.watch(scripted.feed, () => woken.push("second"));
     expect(scripted.openCount()).toBe(1);
 
-    scripted.deliver(listOf("web"));
+    scripted.deliver(listOf(["web"]));
     expect(woken).toStrictEqual(["first", "second"]);
 
     releaseFirst();
@@ -118,18 +150,34 @@ describe("the window's session list", () => {
     expect(namesIn(feeds.stateOf(scripted.feed))).toBe("reading");
   });
 
-  it("reads the list again on request, keeping the old one until the new one lands", () => {
+  it("serves a list delivered in pages only once its last page lands, whole and in order", () => {
     const feeds = new SessionDirectoryFeeds();
     const scripted = scriptedFeed();
     feeds.watch(scripted.feed, () => undefined);
-    scripted.deliver(listOf("web"));
+
+    scripted.deliver(listOf(["web"], false));
+    scripted.deliver(pageOf(["api"], 0, false));
+    expect(namesIn(feeds.stateOf(scripted.feed))).toBe("reading");
+
+    scripted.deliver(pageOf(["docs"], 1, true));
+    expect(namesIn(feeds.stateOf(scripted.feed))).toStrictEqual(["web", "api", "docs"]);
+    expect(chatCountIn(feeds.stateOf(scripted.feed))).toBe(1);
+  });
+
+  it("reads the list again on request, keeping the old one until every page of the new one lands", () => {
+    const feeds = new SessionDirectoryFeeds();
+    const scripted = scriptedFeed();
+    feeds.watch(scripted.feed, () => undefined);
+    scripted.deliver(listOf(["web"]));
 
     feeds.reread(scripted.feed);
     expect(scripted.closeCount()).toBe(1);
     expect(scripted.openCount()).toBe(2);
     expect(namesIn(feeds.stateOf(scripted.feed))).toStrictEqual(["web"]);
 
-    scripted.deliver(listOf("web", "api"));
-    expect(namesIn(feeds.stateOf(scripted.feed))).toStrictEqual(["web", "api"]);
+    scripted.deliver(listOf(["web", "api"], false));
+    expect(namesIn(feeds.stateOf(scripted.feed))).toStrictEqual(["web"]);
+    scripted.deliver(pageOf(["docs"], 0, true));
+    expect(namesIn(feeds.stateOf(scripted.feed))).toStrictEqual(["web", "api", "docs"]);
   });
 });

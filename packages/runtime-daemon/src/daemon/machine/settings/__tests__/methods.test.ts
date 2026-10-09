@@ -9,10 +9,8 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  JsonRpcErrorCode,
-  type JsonRpcNotification,
-} from "@ai-sidekicks/contracts/jsonrpc/message";
+import { type JsonRpcNotification } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import {
   MACHINE_SETTINGS_DEFAULTS,
   MACHINE_SETTINGS_FILE_PATH_SEGMENTS,

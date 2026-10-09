@@ -1,24 +1,15 @@
 // The session directory as a client reads and moves it: the live sessions list and its
 // entries, creating a session (where it works and who leads it), converting a chat to a
 // project (its shapes in `session/convert.ts`), forking a session, moving its working folder,
-// and the `session.*` method table for these verbs and for `session.subscribe`.
-//
-// The subscribe shapes name the session event union, which imports `session/methods.ts` at load,
-// so they cannot live there.
+// and the `session.*` method table for these verbs and for `session.subscribe`, whose frames
+// carry each event as its envelope, so a type the wire has no payload variant for still parses.
 import { z } from "zod";
 
-import {
-  AgentDefinitionIdSchema,
-  AgentProviderBindingSchema,
-  AgentResolvedConfigurationSchema,
-  type AgentDefinitionId,
-  type AgentProviderBinding,
-  type AgentResolvedConfiguration,
-} from "../agent/definition.js";
-import { SessionEventSchema } from "../event/session.js";
-import type { SessionEvent } from "../event/variant-types.js";
+import { AgentProviderBindingSchema, type AgentProviderBinding } from "../agent/definition.js";
+import { EventEnvelopeSchema, type EventEnvelope } from "../event/envelope.js";
 import { wireFreeFormString, wireUncappedFreeFormString } from "../free-form-string.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
+import { requireMemberToRideOneFrame } from "../jsonrpc/page.js";
 import { SubscriptionIdSchema, type SubscribeAckResponse } from "../jsonrpc/streaming.js";
 import {
   defineMethodDescriptors,
@@ -40,9 +31,10 @@ import {
   type SessionConvertRequest,
   type SessionConvertResponse,
 } from "./convert.js";
-import { EventCursorSchema, SessionIdSchema, type EventCursor, type SessionId } from "./id.js";
+import { SessionGroupIdSchema, type SessionGroupId } from "./groups.js";
+import { EventCursorSchema, SessionIdSchema, type SessionId } from "./id.js";
+import { type EventCursor } from "./event-cursor.js";
 import {
-  SESSION_NAME_MAX_LEN,
   SessionShapeSchema,
   SessionStateSchema,
   SessionStreamFrameSchema,
@@ -54,6 +46,7 @@ import {
   type SessionSubscribeRequest,
   type SessionSubscribeResponse,
 } from "./methods.js";
+import { SESSION_NAME_MAX_LEN } from "./name.js";
 
 /**
  * What a session is doing, as the daemon derives it: exactly one of five, and no client
@@ -72,9 +65,6 @@ export const SessionActivitySchema: z.ZodType<SessionActivity> = z.enum([
 
 /**
  * How often the daemon republishes a quiet running or waiting session's entry.
- *
- * @consumedBy the daemon's `session.list` feed, which republishes a quiet running or waiting
- * session's entry
  */
 export const SESSION_ACTIVITY_RENEW_INTERVAL_MS = 15_000;
 
@@ -118,10 +108,30 @@ const SessionExchangeSchema: z.ZodType<SessionExchange> = z
   })
   .strict();
 
-/** What a list entry carries for its shape: a project's key and branch, or a chat's documents. */
+/** The group of its project a session sits in, named as the list draws it. */
+export interface SessionListGroup {
+  groupId: SessionGroupId;
+  name: string;
+}
+const SessionListGroupSchema: z.ZodType<SessionListGroup> = z
+  .object({
+    groupId: SessionGroupIdSchema,
+    name: wireFreeFormString(SESSION_NAME_MAX_LEN, "SessionListGroup.name"),
+  })
+  .strict();
+
+/**
+ * What a list entry carries for its shape: a project's key, branch and group, or a chat's
+ * document count, absent until the chat's artifact store counts them. A chat sits in no group.
+ */
 export type SessionListEntryPlace =
-  | { shape: "project"; repoMountId: RepoMountId; branch?: string | undefined }
-  | { shape: "chat"; documentCount: number };
+  | {
+      shape: "project";
+      repoMountId: RepoMountId;
+      branch?: string | undefined;
+      group?: SessionListGroup | undefined;
+    }
+  | { shape: "chat"; documentCount?: number | undefined };
 
 /**
  * One row of the sessions list, everything the row draws from one feed so the list opens no
@@ -129,8 +139,9 @@ export type SessionListEntryPlace =
  *
  * - `name` is absent while the session is untitled; the row then shows `firstMessagePreview`,
  *   itself absent before the first message.
- * - A project entry names its project and, once known, the branch the daemon holds for the
- *   session, so the row costs no git read; a chat entry counts its documents.
+ * - A project entry names its project, once known the branch the daemon holds for the session,
+ *   so the row costs no git read, and its group while it is in one; a chat entry counts its
+ *   documents once its artifact store counts them, and carries no count before.
  * - `pinnedAt` is present exactly while the session is pinned; pinned rows sit in the order
  *   they were pinned.
  * - `state` puts archived and closed sessions in the `Archived` group; `activity` is the row's
@@ -173,13 +184,14 @@ export const SessionListEntrySchema: z.ZodType<SessionListEntry> = z.discriminat
       shape: z.literal("project"),
       repoMountId: RepoMountIdSchema,
       branch: wireUncappedFreeFormString("SessionListEntry.branch").optional(),
+      group: SessionListGroupSchema.optional(),
     })
     .strict(),
   z
     .object({
       ...sessionListEntryCommonFields,
       shape: z.literal("chat"),
-      documentCount: countSchema,
+      documentCount: countSchema.optional(),
     })
     .strict(),
 ]);
@@ -191,26 +203,64 @@ export const SessionListRequestSchema: z.ZodType<SessionListRequest, SessionList
   .object({})
   .strict();
 
-/** `session.list`'s acknowledgment: the subscription and every session as it stands. */
+/**
+ * `session.list`'s acknowledgment: the subscription, the first page of every session as it
+ * stands, and `chatCount`, the chats in the live list (chat sessions not archived, closed or
+ * awaiting purge) as the daemon counts them for the Chats header, so no reader counts. While
+ * `isComplete` is false the rest of the list follows as `page` changes, each fitting one message,
+ * before any other change; the list is whole once a page arrives with `isComplete` true.
+ */
 export interface SessionListAck extends SubscribeAckResponse {
   readonly sessions: SessionListEntry[];
+  readonly chatCount: number;
+  readonly isComplete: boolean;
 }
 /** Parses a {@link SessionListAck}. */
 export const SessionListAckSchema: z.ZodType<SessionListAck> = z
-  .object({ subscriptionId: SubscriptionIdSchema, sessions: z.array(SessionListEntrySchema) })
-  .strict();
+  .object({
+    subscriptionId: SubscriptionIdSchema,
+    sessions: z.array(SessionListEntrySchema),
+    chatCount: countSchema,
+    isComplete: z.boolean(),
+  })
+  .strict()
+  .superRefine((ack, issueContext) => {
+    requireMemberToRideOneFrame(ack.sessions, "sessions", issueContext);
+  });
 
 /**
- * One change to the list after the acknowledgment: an entry as it now stands, or a session
- * that has left the list, which only a purge does.
+ * One change to the list after the acknowledgment: a further page of the opening list, an entry
+ * as it now stands, or a session that has left the list, which only a purge does. Each carries
+ * `chatCount` as it stands after the change.
  */
 export type SessionListChange =
-  | { kind: "upsert"; entry: SessionListEntry }
-  | { kind: "remove"; sessionId: SessionId };
+  | {
+      kind: "page";
+      sessions: [SessionListEntry, ...SessionListEntry[]];
+      chatCount: number;
+      isComplete: boolean;
+    }
+  | { kind: "upsert"; entry: SessionListEntry; chatCount: number }
+  | { kind: "remove"; sessionId: SessionId; chatCount: number };
 /** Parses a {@link SessionListChange}. */
 export const SessionListChangeSchema: z.ZodType<SessionListChange> = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("upsert"), entry: SessionListEntrySchema }).strict(),
-  z.object({ kind: z.literal("remove"), sessionId: SessionIdSchema }).strict(),
+  z
+    .object({
+      kind: z.literal("page"),
+      sessions: z.tuple([SessionListEntrySchema], SessionListEntrySchema),
+      chatCount: countSchema,
+      isComplete: z.boolean(),
+    })
+    .strict()
+    .superRefine((page, issueContext) => {
+      requireMemberToRideOneFrame(page.sessions, "sessions", issueContext);
+    }),
+  z
+    .object({ kind: z.literal("upsert"), entry: SessionListEntrySchema, chatCount: countSchema })
+    .strict(),
+  z
+    .object({ kind: z.literal("remove"), sessionId: SessionIdSchema, chatCount: countSchema })
+    .strict(),
 ]);
 
 /**
@@ -237,68 +287,56 @@ export const SessionBindingSchema: z.ZodType<SessionBinding, SessionBinding> = z
 );
 
 /**
+ * The lead as the app chose it: its provider, model and effort, and its output speed where one
+ * was picked. It names no account: the daemon resolves that.
+ */
+export type SessionLead = Omit<AgentProviderBinding, "providerAccountId">;
+const SessionLeadSchema: z.ZodType<SessionLead, SessionLead> = AgentProviderBindingSchema.omit({
+  providerAccountId: true,
+});
+
+/**
  * What `session.create` takes: where the session works and who leads it.
  *
- * - `lead` is the lead's provider, model, account and effort, as the app chose them.
- * - `leadDefinitionId` names a saved definition the lead runs under; with `lead` beside it,
- *   `lead` is the binding the definition runs on.
- * - At least one of the two is present: a session is born with its lead.
- * - `scratch` asks for the definition's scratch session, which the daemon reuses while one is
- *   open, so it needs `leadDefinitionId` and a chat binding: a scratch session has no repo.
+ * - `lead` is the lead's provider, model and effort, as the app chose them; the daemon resolves
+ *   the account. A session is born with its lead.
+ * - `groupId` files the new session in that group of its project, so it needs a project
+ *   binding: a chat sits in no group.
  */
 export interface SessionCreateRequest {
   clientIdempotencyKey: string;
   binding: SessionBinding;
-  lead?: AgentProviderBinding | undefined;
-  leadDefinitionId?: AgentDefinitionId | undefined;
-  scratch?: true | undefined;
+  lead: SessionLead;
+  groupId?: SessionGroupId | undefined;
 }
-/** Parses a {@link SessionCreateRequest}; a session must name a lead binding or a definition. */
+/** Parses a {@link SessionCreateRequest}; a group needs a project. */
 export const SessionCreateRequestSchema: z.ZodType<SessionCreateRequest, SessionCreateRequest> = z
   .object({
     clientIdempotencyKey: z.uuid(),
     binding: SessionBindingSchema,
-    lead: AgentProviderBindingSchema.optional(),
-    leadDefinitionId: AgentDefinitionIdSchema.optional(),
-    scratch: z.literal(true).optional(),
+    lead: SessionLeadSchema,
+    groupId: SessionGroupIdSchema.optional(),
   })
   .strict()
   .superRefine((request, context) => {
-    if (request.lead === undefined && request.leadDefinitionId === undefined) {
+    if (request.groupId !== undefined && request.binding.kind !== "project") {
       context.addIssue({
         code: "custom",
-        path: ["lead"],
-        message: "A session starts with its lead: name a binding, a definition, or both.",
+        path: ["groupId"],
+        message: "A chat sits in no group.",
       });
-    }
-    if (request.scratch === true) {
-      if (request.leadDefinitionId === undefined) {
-        context.addIssue({
-          code: "custom",
-          path: ["leadDefinitionId"],
-          message: "A scratch session is led by the definition under test.",
-        });
-      }
-      if (request.binding.kind !== "chat") {
-        context.addIssue({
-          code: "custom",
-          path: ["binding"],
-          message: "A scratch session has no repo.",
-        });
-      }
     }
   });
 
 /**
- * What `session.create` answers. `resolvedConfiguration` is present exactly when the request
- * named a definition: what the lead was started with, so the caller shows what it got rather
- * than re-reading the definition.
+ * What `session.create` answers. `lead` is the binding the daemon resolved for the lead, the
+ * account among it.
  */
 export interface SessionCreateResponse {
   sessionId: SessionId;
   shape: SessionShape;
   state: SessionState;
-  resolvedConfiguration?: AgentResolvedConfiguration | undefined;
+  lead: AgentProviderBinding;
 }
 /** Parses a {@link SessionCreateResponse}. */
 export const SessionCreateResponseSchema: z.ZodType<SessionCreateResponse> = z
@@ -306,7 +344,7 @@ export const SessionCreateResponseSchema: z.ZodType<SessionCreateResponse> = z
     sessionId: SessionIdSchema,
     shape: SessionShapeSchema,
     state: SessionStateSchema,
-    resolvedConfiguration: AgentResolvedConfigurationSchema.optional(),
+    lead: AgentProviderBindingSchema,
   })
   .strict();
 
@@ -471,7 +509,7 @@ export interface SessionDirectoryMethodDescriptors {
     "session.subscribe",
     SessionSubscribeRequest,
     SessionSubscribeResponse,
-    SessionStreamFrame<SessionEvent>
+    SessionStreamFrame<EventEnvelope>
   >;
   readonly "session.convert": MethodDescriptor<
     "session.convert",
@@ -519,7 +557,7 @@ export const SESSION_DIRECTORY_METHOD_DESCRIPTORS: SessionDirectoryMethodDescrip
       mutating: false,
       requestSchema: SessionSubscribeRequestSchema,
       responseSchema: SessionSubscribeResponseSchema,
-      emissionSchema: SessionStreamFrameSchema(SessionEventSchema),
+      emissionSchema: SessionStreamFrameSchema(EventEnvelopeSchema),
     },
     "session.convert": {
       method: "session.convert",

@@ -10,7 +10,10 @@
 // wire contract: ids are UUIDs, and `session.created` carries the session's shape and its
 // lead, not a title, which its `.strict()` schema rejects.
 
-import { encodeEventCursor, START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/id";
+import {
+  encodeEventCursor,
+  START_OF_LOG_POSITION,
+} from "@ai-sidekicks/contracts/session/event-cursor";
 
 import { composeSessionCreatedPayload } from "../data/opening-entries.js";
 import {
@@ -73,13 +76,16 @@ export const FIRST_RUN_SCENARIO: Scenario = {
         session: {
           id: SESSION_ID,
           state: "provisioning",
+          shape: "chat",
+          muted: false,
           createdAt: STARTED_AT_ISO,
           updatedAt: STARTED_AT_ISO,
           draft: "",
+          tags: [],
         },
         transcriptCursors: {
           earliest: encodeEventCursor(START_OF_LOG_POSITION),
-          latest: findBeatCursor(FIRST_RUN_BEATS, FIRST_RUN_BEATS.length),
+          latest: findBeatCursor(FIRST_RUN_BEATS, FIRST_RUN_BEATS.length - 1),
         },
       },
     },

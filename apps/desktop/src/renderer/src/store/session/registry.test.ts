@@ -201,6 +201,36 @@ describe("SessionStoreRegistry: applies go through the queue, reads through the 
     registry.disposeAll();
     expect(clock.pendingCount).toBe(0);
   });
+
+  it("leaves a session to its replay, or behind for a cause it raises again, until asked", async () => {
+    const clock = new ManualClock(0);
+    const registry = new SessionStoreRegistry({ read: readsNothing, clock, refreshDebounceMs: 20 });
+    registry.open("session-gap").markDegraded("sequence-gap");
+    registry.open("session-failing-row").markDegraded("projection-failed");
+    const replaying = registry.open("session-1");
+    replaying.initialize(emptyBaseState(0));
+    replaying.applyBatch([runEventAt(1, "run-1"), runEventAt(3, "run-3")]);
+    replaying.initialize({ entities: [] });
+    async function settle(): Promise<void> {
+      clock.advance(21);
+      await crossMacrotaskBoundary();
+    }
+
+    registry.requestRefreshOfEverySession("window-focus");
+    await settle();
+    // A read would replay the log and fail on the same row, so focus leaves it be.
+    expect(registry.refreshCountFor("session-gap")).toBe(1);
+    expect(registry.refreshCountFor("session-failing-row")).toBe(0);
+    // A read would start the replay under way over.
+    expect(registry.refreshCountFor("session-1")).toBe(0);
+    expect(replaying.snapshot().isReplaying).toBe(true);
+
+    // Try again is the person asking.
+    registry.requestRefresh("session-failing-row", "user-request");
+    await settle();
+    expect(registry.refreshCountFor("session-failing-row")).toBe(1);
+    registry.disposeAll();
+  });
 });
 
 describe("SessionStoreRegistry — a lossy delivery arms exactly one repair", () => {

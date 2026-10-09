@@ -55,7 +55,16 @@ let ctx: TestContext;
 beforeEach(async () => {
   // No session row is seeded because `session_events.session_id` has no foreign key.
   const database = await openScratchDatabase();
-  ctx = { database, eventLog: new EventLogService({ writer: database.writer }) };
+  ctx = {
+    database,
+    eventLog: new EventLogService({
+      writer: database.writer,
+      reader: database.reader,
+      writeServiceLog: (line) => {
+        throw new Error(`unexpected service log line: ${line}`);
+      },
+    }),
+  };
 });
 
 afterEach(async () => {

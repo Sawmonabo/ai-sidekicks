@@ -40,11 +40,10 @@ import type { Handler, MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/re
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { DRIVER_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/provider/driver/methods";
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 
 import type { DriverCapabilityCache } from "../../../provider/capability/cache.js";
 import {
-  DriverCapabilityUnsupportedError,
   DriverUnavailableError,
   type ProviderRegistry,
 } from "../../../provider/driver/registry.js";
@@ -140,39 +139,6 @@ export interface DriverListProviderCommandsDeps {
 }
 
 /**
- * Projects a provider-layer typed error onto its registered wire code and rethrows anything else;
- * it always throws. `capability_unsupported` is `InvalidRequest`: the params resolve and a
- * protocol-state contract fails.
- */
-export function translateDriverError(thrown: unknown): never {
-  // `detail` is a copy so the mapper's sanitizer cannot mutate the error's own fields.
-  if (thrown instanceof DriverUnavailableError) {
-    throw new DaemonDomainError(thrown.message, {
-      code: thrown.code,
-      jsonRpcCode: JsonRpcErrorCode.InternalError,
-      detail: { ...thrown.fields },
-    });
-  }
-
-  if (thrown instanceof DriverCapabilityUnsupportedError) {
-    throw new DaemonDomainError(thrown.message, {
-      code: thrown.code,
-      jsonRpcCode: JsonRpcErrorCode.InvalidRequest,
-      detail: { ...thrown.fields },
-    });
-  }
-  throw thrown;
-}
-
-async function withDriverErrorTranslation<T>(operation: () => Promise<T>): Promise<T> {
-  try {
-    return await operation();
-  } catch (thrown) {
-    translateDriverError(thrown);
-  }
-}
-
-/**
  * Resolves the driver bound to a run, or refuses: the address fails first (`run.not_found`), then
  * availability, so a run id that never existed is not reported as a driver problem.
  */
@@ -188,7 +154,7 @@ function resolveDriverForRunOrThrow(
   const driver = deps.providerRegistry.lookup(driverName);
   if (driver === undefined) {
     // The run names a driver this node has not loaded; reuse the registry's error class.
-    translateDriverError(new DriverUnavailableError(driverName));
+    throw new DriverUnavailableError(driverName);
   }
   return { driverName, driver };
 }
@@ -273,14 +239,9 @@ export function registerDriverListCapabilities(
   deps: DriverListCapabilitiesDeps,
 ): void {
   const handler: Handler<DriverReadParams, ListCapabilitiesResult> = async () => {
-    const drivers: DriverCapabilityReport[] = [];
-    try {
-      for (const driverName of sortedDriverNames(deps.providerRegistry)) {
-        drivers.push(deps.capabilityCache.read(driverName));
-      }
-    } catch (thrown) {
-      translateDriverError(thrown);
-    }
+    const drivers: DriverCapabilityReport[] = sortedDriverNames(deps.providerRegistry).map(
+      (driverName) => deps.capabilityCache.read(driverName),
+    );
     return { drivers };
   };
 
@@ -293,19 +254,17 @@ export function registerDriverListCapabilities(
  */
 export function registerDriverListModels(registry: MethodRegistry, deps: DriverCatalogDeps): void {
   const handler: Handler<ListModelsRequest, ListModelsResult> = async () => {
-    const drivers = await withDriverErrorTranslation(async () =>
-      Promise.all(
-        sortedDriverNames(deps.providerRegistry).map(
-          async (driverName): Promise<DriverModelReport> => {
-            const driver = deps.providerRegistry.lookup(driverName);
-            if (driver === undefined) {
-              // The roster and lookup disagree only if a driver was removed between them.
-              throw new DriverUnavailableError(driverName);
-            }
-            requireDriverOperation(driver, driverName, "listModels");
-            return { driverName, models: await driver.listModels() };
-          },
-        ),
+    const drivers = await Promise.all(
+      sortedDriverNames(deps.providerRegistry).map(
+        async (driverName): Promise<DriverModelReport> => {
+          const driver = deps.providerRegistry.lookup(driverName);
+          if (driver === undefined) {
+            // The roster and lookup disagree only if a driver was removed between them.
+            throw new DriverUnavailableError(driverName);
+          }
+          requireDriverOperation(driver, driverName, "listModels");
+          return { driverName, models: await driver.listModels() };
+        },
       ),
     );
     return { drivers };
@@ -317,18 +276,16 @@ export function registerDriverListModels(registry: MethodRegistry, deps: DriverC
 /** Binds `driver.listModes`; a separate method so a caller wanting one axis skips the other. */
 export function registerDriverListModes(registry: MethodRegistry, deps: DriverCatalogDeps): void {
   const handler: Handler<DriverReadParams, ListModesResult> = async () => {
-    const drivers = await withDriverErrorTranslation(async () =>
-      Promise.all(
-        sortedDriverNames(deps.providerRegistry).map(
-          async (driverName): Promise<DriverModeReport> => {
-            const driver = deps.providerRegistry.lookup(driverName);
-            if (driver === undefined) {
-              throw new DriverUnavailableError(driverName);
-            }
-            requireDriverOperation(driver, driverName, "listModes");
-            return { driverName, modes: await driver.listModes() };
-          },
-        ),
+    const drivers = await Promise.all(
+      sortedDriverNames(deps.providerRegistry).map(
+        async (driverName): Promise<DriverModeReport> => {
+          const driver = deps.providerRegistry.lookup(driverName);
+          if (driver === undefined) {
+            throw new DriverUnavailableError(driverName);
+          }
+          requireDriverOperation(driver, driverName, "listModes");
+          return { driverName, modes: await driver.listModes() };
+        },
       ),
     );
     return { drivers };
@@ -346,12 +303,10 @@ export function registerDriverInterruptRun(
   deps: DriverDispatchDeps,
 ): void {
   const handler: Handler<InterruptRunParams, EmptyPayload> = async (params) => {
-    return withDriverErrorTranslation(async () => {
-      const { driverName, driver } = resolveDriverForRunOrThrow(deps, params.runId);
-      requireDriverOperation(driver, driverName, "interruptRun");
-      await driver.interruptRun(params);
-      return {};
-    });
+    const { driverName, driver } = resolveDriverForRunOrThrow(deps, params.runId);
+    requireDriverOperation(driver, driverName, "interruptRun");
+    await driver.interruptRun(params);
+    return {};
   };
 
   registerDescribedMethod(registry, DRIVER_METHOD_DESCRIPTORS["driver.interruptRun"], handler);
@@ -367,14 +322,12 @@ export function registerDriverApplyIntervention(
   deps: DriverDispatchDeps,
 ): void {
   const handler: Handler<ApplyInterventionParams, DriverInterventionResult> = async (params) => {
-    return withDriverErrorTranslation(async () => {
-      const { driverName, driver } = resolveDriverForRunOrThrow(deps, params.targetRunId);
-      requireDriverOperation(driver, driverName, "applyIntervention");
-      if (params.type === "steer" && (params.payload.attachments?.length ?? 0) > 0) {
-        refuseAttachmentDeliveryUnsupported(driverName);
-      }
-      return driver.applyIntervention(params);
-    });
+    const { driverName, driver } = resolveDriverForRunOrThrow(deps, params.targetRunId);
+    requireDriverOperation(driver, driverName, "applyIntervention");
+    if (params.type === "steer" && (params.payload.attachments?.length ?? 0) > 0) {
+      refuseAttachmentDeliveryUnsupported(driverName);
+    }
+    return driver.applyIntervention(params);
   };
 
   registerDescribedMethod(registry, DRIVER_METHOD_DESCRIPTORS["driver.applyIntervention"], handler);
@@ -407,19 +360,17 @@ export function registerDriverCompactContext(
       refuseNoLiveBinding();
     }
 
-    return withDriverErrorTranslation(async () => {
-      const driver = deps.providerRegistry.lookup(resolution.driverName);
-      if (driver === undefined) {
-        // The binding names a driver this node has not loaded.
-        throw new DriverUnavailableError(resolution.driverName);
-      }
-      deps.providerRegistry.checkCapability(resolution.driverName, "context_compaction");
-      requireDriverOperation(driver, resolution.driverName, "compactContext");
-      // The driver's params are binding-addressed; the daemon has already resolved the run.
-      return driver.compactContext({
-        sessionId: params.sessionId,
-        bindingId: resolution.bindingId,
-      });
+    const driver = deps.providerRegistry.lookup(resolution.driverName);
+    if (driver === undefined) {
+      // The binding names a driver this node has not loaded.
+      throw new DriverUnavailableError(resolution.driverName);
+    }
+    deps.providerRegistry.checkCapability(resolution.driverName, "context_compaction");
+    requireDriverOperation(driver, resolution.driverName, "compactContext");
+    // The driver's params are binding-addressed; the daemon has already resolved the run.
+    return driver.compactContext({
+      sessionId: params.sessionId,
+      bindingId: resolution.bindingId,
     });
   };
 
@@ -479,43 +430,41 @@ export function registerDriverListProviderCommands(
       refuseNoLiveBinding();
     }
 
-    return withDriverErrorTranslation(async () => {
-      // Admit every binding before any dispatch starts, so a refusal means zero dispatches.
-      const admitted = resolution.bindings.map((resolvedBinding) => {
-        const driver = deps.providerRegistry.lookup(resolvedBinding.driverName);
-        if (driver === undefined) {
-          throw new DriverUnavailableError(resolvedBinding.driverName);
-        }
-        deps.providerRegistry.checkCapability(resolvedBinding.driverName, "provider_commands");
-        requireDriverOperation(driver, resolvedBinding.driverName, "listProviderCommands");
-        return { driver, resolvedBinding };
-      });
-
-      // Parallel, since each read is a live provider round-trip; `Promise.all` keeps order. No wire
-      // request admits a binding member, so a cross-binding dispatch cannot be expressed.
-      const groups: ProviderCommandBindingGroup[] = await Promise.all(
-        admitted.map(async ({ driver, resolvedBinding }) => {
-          const reply = await driver.listProviderCommands({
-            sessionId: params.sessionId,
-            bindingId: resolvedBinding.bindingId,
-          });
-          const [soleGroup] = reply.bindings;
-          if (soleGroup === undefined || reply.bindings.length !== 1) {
-            // A plain Error (`-32603`): a broken driver contract is not a refusal a caller can act
-            // on.
-            throw new Error(
-              `driver.listProviderCommands: driver "${resolvedBinding.driverName}" answered ` +
-                `${String(reply.bindings.length)} groups for one binding (the driver ` +
-                `operation contract is exactly one)`,
-            );
-          }
-          verifyDriverStampedRoutingPair(soleGroup, resolvedBinding);
-          return soleGroup;
-        }),
-      );
-
-      return { bindings: groups };
+    // Admit every binding before any dispatch starts, so a refusal means zero dispatches.
+    const admitted = resolution.bindings.map((resolvedBinding) => {
+      const driver = deps.providerRegistry.lookup(resolvedBinding.driverName);
+      if (driver === undefined) {
+        throw new DriverUnavailableError(resolvedBinding.driverName);
+      }
+      deps.providerRegistry.checkCapability(resolvedBinding.driverName, "provider_commands");
+      requireDriverOperation(driver, resolvedBinding.driverName, "listProviderCommands");
+      return { driver, resolvedBinding };
     });
+
+    // Parallel, since each read is a live provider round-trip; `Promise.all` keeps order. No wire
+    // request admits a binding member, so a cross-binding dispatch cannot be expressed.
+    const groups: ProviderCommandBindingGroup[] = await Promise.all(
+      admitted.map(async ({ driver, resolvedBinding }) => {
+        const reply = await driver.listProviderCommands({
+          sessionId: params.sessionId,
+          bindingId: resolvedBinding.bindingId,
+        });
+        const [soleGroup] = reply.bindings;
+        if (soleGroup === undefined || reply.bindings.length !== 1) {
+          // A plain Error (`-32603`): a broken driver contract is not a refusal a caller can act
+          // on.
+          throw new Error(
+            `driver.listProviderCommands: driver "${resolvedBinding.driverName}" answered ` +
+              `${String(reply.bindings.length)} groups for one binding (the driver ` +
+              `operation contract is exactly one)`,
+          );
+        }
+        verifyDriverStampedRoutingPair(soleGroup, resolvedBinding);
+        return soleGroup;
+      }),
+    );
+
+    return { bindings: groups };
   };
 
   registerDescribedMethod(

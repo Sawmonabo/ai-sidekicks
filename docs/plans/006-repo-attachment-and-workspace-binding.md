@@ -94,7 +94,7 @@ Each decision below is binding contract surface for the Tasks blocks.
 ## Data And Storage Changes
 
 - Local `repo_mounts` and `workspaces` tables with ownership, origin and execution-root fields, and the project record beside the mount.
-- See [Local SQLite Schema](../architecture/schemas/local-sqlite-schema.md) for column definitions — `repo_mounts` carries `node_id` + `canonical_root` + `origin` + `updated_at` and the per-machine active-root unique index; the project record carries its name, slug, setup steps, environment rows, branch-name pattern, archived flag and cloning mark; `workspaces` carries `metadata` and an `execution_mode` CHECK over the places (D-006-7). Mount health is a derived projection, never a column (D-006-2).
+- See [Workspace and Git Tables](../architecture/schemas/local-sqlite-workspace-and-git-tables.md#workspace-and-git-tables-plan-006-plan-007-plan-008) for column definitions — `repo_mounts` carries `node_id` + `canonical_root` + `origin` + `updated_at` and the per-machine active-root unique index; the project record carries its name, slug, setup steps, environment rows, branch-name pattern, archived flag and cloning mark; `workspaces` carries `metadata` and an `execution_mode` CHECK over the places (D-006-7). Mount health is a derived projection, never a column (D-006-2).
 
 ## API And Transport Changes
 
@@ -221,7 +221,7 @@ The four NUMBERED phases map 1:1 onto the four Implementation Steps. Phase 1 has
   - **Files:** the daemon's one SQLite schema and its test (EXTEND)
   - **Spec coverage:** [Spec-007 §State And Data Implications](../specs/007-repo-attachment-and-workspace-binding.md#state-and-data-implications) (repo mount record persists canonical root, owner node, lifecycle state; workspace record persists execution root, repo association, health)
   - **Verifies invariant:** I-006-5
-  - **Consumes:** `openDatabase` canonical handle factory ← Plan-001 Phase 3 (shipped); DDL ← local-sqlite-schema.md §Workspace and Git Tables (D-006-7)
+  - **Consumes:** `openDatabase` canonical handle factory ← Plan-001 Phase 3 (shipped); DDL ← [Workspace and Git Tables](../architecture/schemas/local-sqlite-workspace-and-git-tables.md#workspace-and-git-tables-plan-006-plan-007-plan-008) (D-006-7)
   - Note: the tables and their indexes (including the partial-unique `idx_repo_mounts_active_root`) are declared in the one schema exactly as the schema doc gives them. Tests assert: for each contract enum member of `state`, `execution_mode` and `vcs_type` an insert succeeds, and for a non-member it fails; FK enforcement on `workspaces.repo_mount_id`; duplicate active attach of one canonical root blocked by the partial unique index, and a detached row permits re-attach.
 
 - **T2.2 — `workspace/event-emitter.ts` — single emission seam for the `session_lifecycle` workspace events and the project's `repo.attached` / `repo.detached` records.**

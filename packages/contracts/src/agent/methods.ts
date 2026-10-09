@@ -23,6 +23,7 @@ import {
   AgentIdSchema,
   AgentProviderBindingSchema,
   AgentResolvedConfigurationSchema,
+  providerTokenSchema,
   type AgentDefinitionCreateRequest,
   type AgentDefinitionCreateResponse,
   type AgentDefinitionDeleteRequest,
@@ -58,10 +59,7 @@ import {
 import { ProviderNameSchema, type ProviderName } from "../provider/name.js";
 import { DRIVER_TOOL_NAME_MAX_LEN } from "../provider/driver/length-limits.js";
 import { RunIdSchema, type RunId } from "../run/id.js";
-import {
-  DRIVER_WIRE_HANDLE_MAX_LEN,
-  DRIVER_WIRE_TOKEN_MAX_LEN,
-} from "../provider/driver/methods.js";
+import { DRIVER_WIRE_HANDLE_MAX_LEN } from "../provider/driver/methods.js";
 import {
   ProviderOutputSpeedStateSchema,
   type ProviderOutputSpeedState,
@@ -163,10 +161,6 @@ export const AgentListAckSchema: z.ZodType<AgentListAck> = z
 
 // agent.configUpdate
 
-/** A binding member a running agent's switch may name. */
-const switchMemberSchema = (label: string): z.ZodString =>
-  wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, label);
-
 /**
  * Move a running agent's model, effort, speed or provider: an omitted member is unchanged and at
  * least one moves, settled by the binding events. A provider switch applies at the end of the run
@@ -189,9 +183,9 @@ export const AgentConfigUpdateRequestSchema: z.ZodType<
   .object({
     agentId: AgentIdSchema,
     driverName: ProviderNameSchema.optional(),
-    modelId: switchMemberSchema("modelId").optional(),
-    effort: switchMemberSchema("effort").optional(),
-    outputSpeed: switchMemberSchema("outputSpeed").optional(),
+    modelId: providerTokenSchema("modelId").optional(),
+    effort: providerTokenSchema("effort").optional(),
+    outputSpeed: providerTokenSchema("outputSpeed").optional(),
     interruptAndSwitch: z.boolean().optional(),
   })
   .strict()

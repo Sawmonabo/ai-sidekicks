@@ -8,7 +8,11 @@ import { join, win32 as win32Path } from "node:path";
 
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { GitInvocationFailure, GitRunner } from "../../../git/process.js";
+import {
+  createGitRunner,
+  type GitInvocationFailure,
+  type GitRunner,
+} from "../../../git/process.js";
 import { RepoRootResolutionError, type RepoRootResolutionReason } from "../errors.js";
 import { GIT_FATAL_EXIT_CODE, RepoRootResolver } from "../root-resolver.js";
 
@@ -435,12 +439,18 @@ describe("not_a_git_repository is git's own verdict on absent metadata, and noth
     },
     {
       refusal: "a missing git executable",
-      resolver: () => new RepoRootResolver({ gitExecutablePath: fixtures.missingGitExecutable }),
+      resolver: () => new RepoRootResolver({ git: createGitRunner(fixtures.missingGitExecutable) }),
+      input: () => fixtures.nestedDirectory,
+    },
+    {
+      // No git along the login shell's PATH: the daemon starts, and the first resolution refuses.
+      refusal: "no git found at start",
+      resolver: () => new RepoRootResolver({ git: createGitRunner(undefined) }),
       input: () => fixtures.nestedDirectory,
     },
     {
       refusal: "a git file that is not executable",
-      resolver: () => new RepoRootResolver({ gitExecutablePath: fixtures.nonExecutableGitFile }),
+      resolver: () => new RepoRootResolver({ git: createGitRunner(fixtures.nonExecutableGitFile) }),
       input: () => fixtures.repositoryRoot,
     },
     ...(onPosix
@@ -449,7 +459,7 @@ describe("not_a_git_repository is git's own verdict on absent metadata, and noth
             refusal: "a git that outlives its timeout",
             resolver: () =>
               new RepoRootResolver({
-                gitExecutablePath: fixtures.hangingGitScript,
+                git: createGitRunner(fixtures.hangingGitScript),
                 gitCommandTimeoutMs: 150,
               }),
             input: () => fixtures.repositoryRoot,

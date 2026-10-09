@@ -78,7 +78,7 @@ describe("health projections — one outage, two surfaces", () => {
 
 describe("computeExecutionModeCapabilities — git mounts", () => {
   it("offers both modes with provisioned-worktree default", () => {
-    const capabilities = computeExecutionModeCapabilities({ vcsType: "git" });
+    const capabilities = computeExecutionModeCapabilities({ vcsType: "git", isManaged: false });
 
     expect(capabilities.availableModes).toEqual(["bound-root", "provisioned-worktree"]);
     expect(capabilities.defaultMode).toBe("provisioned-worktree");

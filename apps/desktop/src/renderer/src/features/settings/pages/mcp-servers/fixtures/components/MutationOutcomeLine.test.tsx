@@ -30,6 +30,7 @@ const APPLIED_SESSION = "019b7892-1a00-7c31-8110-cca0117a0605" as SessionId;
 
 const DIRECTORY: SessionDirectoryState = {
   status: "served",
+  chatCount: 1,
   sessions: [
     sessionListEntry({ sessionId: TITLED_SESSION, name: "Refresh-token expiry" }),
     sessionListEntry({ sessionId: UNTITLED_CHAT, shape: "chat" }),
@@ -163,6 +164,7 @@ describe("MutationOutcomeLine", () => {
     rerender(
       drawOver({
         status: "served",
+        chatCount: DIRECTORY.chatCount,
         sessions: [
           ...DIRECTORY.sessions,
           sessionListEntry({ sessionId: UNLISTED_SESSION, name: "Fix login" }),

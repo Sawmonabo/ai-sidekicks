@@ -14,9 +14,9 @@ import type { JsonRpcErrorResponse } from "@ai-sidekicks/contracts/jsonrpc/messa
 import {
   JSON_RPC_ID_MAX_BYTES,
   JSONRPC_VERSION,
-  JsonRpcErrorCode,
   MAX_MESSAGE_BYTES,
 } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import { encodeFrame } from "@ai-sidekicks/contracts/content-length-framing";
 import { DeviceIdSchema } from "@ai-sidekicks/contracts/trust-statement";
 
@@ -384,6 +384,83 @@ describe("LocalIpcGateway stop", () => {
       await stopping;
       expect(writeSpy).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe("LocalIpcGateway outbound queue", () => {
+  it("reads full while the client stops reading and signals once it has drained", async () => {
+    const socketPath = ephemeralSocketPath("queue");
+    bootstrap({ localIpcPath: socketPath });
+    const transportIds: number[] = [];
+    let disconnected: () => void = () => undefined;
+    const disconnect = new Promise<void>((resolve) => {
+      disconnected = resolve;
+    });
+    const gateway = new LocalIpcGateway({
+      registry: new MethodRegistryImpl(),
+      deviceId: SERVICE_DEVICE_ID,
+      hooks: {
+        onConnect: (transport) => {
+          transportIds.push(transport.id);
+        },
+        onDisconnect: () => {
+          disconnected();
+        },
+        onError: () => undefined,
+        onListenerError: () => undefined,
+      },
+    });
+    await gateway.start();
+    const client = await connect(socketPath);
+    try {
+      // The gateway sees the connection a turn after the client does.
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      const [transportId] = transportIds;
+      if (transportId === undefined) throw new Error("the gateway saw no connection");
+      // Several times what the local socket's kernel buffers hold, so the bytes stay queued in
+      // the daemon while the client reads nothing.
+      const notificationCount = 4;
+      const sendAll = (): void => {
+        for (let index = 0; index < notificationCount; index += 1) {
+          gateway.notify(transportId, {
+            jsonrpc: JSONRPC_VERSION,
+            method: "x.value",
+            params: { text: "q".repeat(256 * 1024) },
+          });
+        }
+      };
+      client.socket.pause();
+      sendAll();
+      expect(gateway.isFull(transportId)).toBe(true);
+      const drained = vi.fn();
+      gateway.onceDrained(transportId, drained);
+
+      for (let turn = 0; turn < 3; turn += 1) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+      expect(gateway.isFull(transportId)).toBe(true);
+      expect(drained).not.toHaveBeenCalled();
+
+      client.socket.resume();
+      await client.replies(notificationCount);
+      await vi.waitFor(() => {
+        expect(drained).toHaveBeenCalledTimes(1);
+      });
+      expect(gateway.isFull(transportId)).toBe(false);
+
+      // A connection that closes while full reads as not full, so no stream waits on it.
+      client.socket.pause();
+      sendAll();
+      expect(gateway.isFull(transportId)).toBe(true);
+      client.socket.destroy();
+      await disconnect;
+      expect(gateway.isFull(transportId)).toBe(false);
+    } finally {
+      // A paused client never takes the queued bytes, so an orderly close would never finish.
+      client.socket.destroy();
+      await gateway.stop();
+      await fs.rm(socketPath, { force: true });
+    }
   });
 });
 

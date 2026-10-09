@@ -17,7 +17,7 @@ import type { SessionCallbackTool } from "@ai-sidekicks/contracts/provider/drive
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { Statement } from "better-sqlite3";
 
-import type { DatabaseConnections } from "../database/connections.js";
+import type { DatabaseConnections } from "../database/connection/lifecycle.js";
 import type { DatabaseWriter } from "../database/writer.js";
 import { assertValidContractVersion, assertValidResumeHandle } from "./output-validation.js";
 import { mintUuidV7 } from "../uuid-v7.js";

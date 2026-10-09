@@ -1,6 +1,7 @@
-// Proves WorkspaceService never persists a workspace outside its mount or for a missing session,
-// scrubs credentials from a recorded failure, turns a vanished root into a persisted `stale`, and
-// grants a run hold to exactly one run. Real SQLite, event log and directories.
+// Proves WorkspaceService never persists a workspace outside its mount, on another chat's managed
+// mount, for a missing session or twice for one session on one mount, scrubs credentials from a
+// recorded failure, turns a vanished root into a persisted `stale`, and grants a run hold to
+// exactly one run. Real SQLite, event log and directories.
 
 import { mkdirSync, rmSync } from "node:fs";
 import { mkdtemp, realpath } from "node:fs/promises";
@@ -19,7 +20,11 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { openScratchDatabase, type ScratchDatabase } from "../../database/__fixtures__/scratch.js";
 import { EventLogService } from "../../events/log-service.js";
 import { SessionNotFoundError } from "../../ipc/session-errors.js";
-import { TrustEnvelopeViolationError } from "../repo/errors.js";
+import {
+  RepoMountManagedError,
+  RepoMountNotFoundError,
+  TrustEnvelopeViolationError,
+} from "../repo/errors.js";
 import { TrustEnvelopeValidator } from "../trust-envelope.js";
 import { WorkspaceEventEmitter } from "../event-emitter.js";
 import type { FilesystemPathProbe } from "../projector.js";
@@ -30,18 +35,16 @@ import {
 } from "../last-error.js";
 import {
   WorkspaceBusyError,
+  WorkspaceModeUnsupportedError,
   WorkspaceServiceInvariantError,
   WorkspaceStaleError,
 } from "../errors.js";
-import {
-  WorkspaceService,
-  type SessionExistenceReader,
-  type WorkspaceServiceDeps,
-} from "../service.js";
+import { WorkspaceService, type WorkspaceServiceDeps } from "../service.js";
 import { type FilesystemPathProbeFn } from "../row-guards.js";
 
 import { bindReadyWorkspace } from "../__fixtures__/bound-root.js";
 import { readWorkspaceRow, requireWorkspaceRow } from "../__fixtures__/rows.js";
+import { seedSessionRow } from "../../session/directory/__fixtures__/directory-rows.js";
 import { captureRejection } from "../../__fixtures__/capture-failure.js";
 
 // ----------------------------------------------------------------------------
@@ -53,6 +56,7 @@ import { captureRejection } from "../../__fixtures__/capture-failure.js";
 const SESSION_ID: SessionId = "0190f8b0-0000-7000-8000-000000000001" as SessionId;
 const OTHER_SESSION_ID: SessionId = "0190f8b0-0000-7000-8000-000000000002" as SessionId;
 const GIT_MOUNT_ID: RepoMountId = "0190f8b1-0000-7000-8000-000000000001" as RepoMountId;
+const MANAGED_MOUNT_ID: RepoMountId = "0190f8b1-0000-7000-8000-000000000002" as RepoMountId;
 const RUN_ID: string = "0190f8b3-0000-7000-8000-000000000001";
 const OTHER_RUN_ID: string = "0190f8b3-0000-7000-8000-000000000002";
 
@@ -65,11 +69,8 @@ const WORKSPACE_ID_POOL: readonly string[] = [
   "0190f8b2-0000-7000-8000-000000000005",
   "0190f8b2-0000-7000-8000-000000000006",
 ];
-
-/** Knows the one session this suite binds under; every other id names no session. */
-const KNOWN_SESSIONS: SessionExistenceReader = {
-  rebuildSession: (sessionId) => (sessionId === SESSION_ID ? { sessionId } : null),
-};
+// An id no pooled source mints, for a workspace that must not collide with one.
+const UNPOOLED_WORKSPACE_ID: string = "0190f8b2-0000-7000-8000-000000000007";
 
 /** What a bind that its preparation then completes appends, in order. */
 const READY_BIND_EVENTS: readonly string[] = ["workspace.preparing", "workspace.ready"];
@@ -90,7 +91,6 @@ function createService(overrides: Partial<WorkspaceServiceDeps> = {}): Workspace
   return new WorkspaceService({
     database: harness.database,
     events: harness.emitter,
-    sessions: KNOWN_SESSIONS,
     newWorkspaceId: makeWorkspaceIdSource(),
     ...overrides,
   });
@@ -195,7 +195,13 @@ beforeEach(async () => {
   );
   const database = await openScratchDatabase();
   const emitter = new WorkspaceEventEmitter({
-    sessionEvents: new EventLogService({ writer: database.writer }),
+    sessionEvents: new EventLogService({
+      writer: database.writer,
+      reader: database.reader,
+      writeServiceLog: (line) => {
+        throw new Error(`unexpected service log line: ${line}`);
+      },
+    }),
   });
 
   // `siblingRoot` exists so the traversal arm fails on containment rather than on absence.
@@ -211,13 +217,14 @@ beforeEach(async () => {
     service: new WorkspaceService({
       database,
       events: emitter,
-      sessions: KNOWN_SESSIONS,
       newWorkspaceId: makeWorkspaceIdSource(),
     }),
     tmpDir,
     gitMountRoot,
     siblingRoot,
   };
+  // Only this session has a directory row; every other id names no session.
+  await seedSessionRow(database.writer, SESSION_ID);
 });
 
 afterEach(async () => {
@@ -303,6 +310,167 @@ describe("bind", () => {
     // The whole write rolled back: no orphan row and no `workspace.preparing` event.
     expect(countRows("workspaces")).toBe(0);
     expect(readEventTypes()).toEqual([]);
+  });
+
+  it("refuses a bind whose session row is deleted DURING the containment await", async () => {
+    // A purge landing between the session read and the write: the write re-tests the row.
+    const validator = new TrustEnvelopeValidator();
+    const validateExecutionRootOriginal = validator.validateExecutionRoot.bind(validator);
+    vi.spyOn(validator, "validateExecutionRoot").mockImplementationOnce(async (candidate) => {
+      const resolved = await validateExecutionRootOriginal(candidate);
+      await writeRaw("DELETE FROM sessions WHERE id = ?", SESSION_ID);
+      return resolved;
+    });
+
+    const refusal = await captureRejection(() =>
+      createService({ trustEnvelope: validator }).bind({
+        sessionId: SESSION_ID,
+        repoMountId: GIT_MOUNT_ID,
+        executionMode: "bound-root",
+      }),
+    );
+
+    expect(refusal).toBeInstanceOf(SessionNotFoundError);
+    expect(countRows("workspaces")).toBe(0);
+    expect(readEventTypes()).toEqual([]);
+  });
+
+  it("binds a chat's managed mount for that chat alone, at its own root only", async () => {
+    await writeRaw(
+      `INSERT INTO repo_mounts (id, node_id, local_path, canonical_root, origin,
+                               managed_session_id, attached_at, updated_at)
+       VALUES (?, 'node-local', ?, ?, 'managed', ?, ?, ?)`,
+      MANAGED_MOUNT_ID,
+      harness.siblingRoot,
+      harness.siblingRoot,
+      SESSION_ID,
+      "2026-08-04T00:00:00.000Z",
+      "2026-08-04T00:00:00.000Z",
+    );
+    await seedSessionRow(harness.database.writer, OTHER_SESSION_ID);
+
+    const refusal = await captureRejection(() =>
+      harness.service.bind({
+        sessionId: OTHER_SESSION_ID,
+        repoMountId: MANAGED_MOUNT_ID,
+        executionMode: "bound-root",
+      }),
+    );
+
+    expect(refusal).toBeInstanceOf(RepoMountManagedError);
+    expect(countRows("workspaces")).toBe(0);
+    expect(readEventTypes(OTHER_SESSION_ID)).toEqual([]);
+
+    const worktreeRefusal = await captureRejection(() =>
+      harness.service.bind({
+        sessionId: SESSION_ID,
+        repoMountId: MANAGED_MOUNT_ID,
+        executionMode: "provisioned-worktree",
+      }),
+    );
+    expect(worktreeRefusal).toBeInstanceOf(WorkspaceModeUnsupportedError);
+    expect(countRows("workspaces")).toBe(0);
+
+    const workspaceId = await bindReadyWorkspace(
+      harness.service,
+      SESSION_ID,
+      MANAGED_MOUNT_ID,
+      harness.siblingRoot,
+    );
+    expect(requireWorkspaceRow(harness.database.reader, workspaceId).repo_mount_id).toBe(
+      MANAGED_MOUNT_ID,
+    );
+
+    // Nor does a mode switch move the chat into a worktree.
+    const switchRefusal = await captureRejection(() =>
+      harness.service.beginRootPreparation(workspaceId, "provisioned-worktree"),
+    );
+    expect(switchRefusal).toBeInstanceOf(WorkspaceModeUnsupportedError);
+    expect(requireWorkspaceRow(harness.database.reader, workspaceId).state).toBe("ready");
+  });
+
+  it("answers a repeat bind to the mount with its live workspace, writing nothing", async () => {
+    const workspaceId = await bindReadyWorkspace(
+      harness.service,
+      SESSION_ID,
+      GIT_MOUNT_ID,
+      harness.gitMountRoot,
+    );
+    const probePath = vi.fn<FilesystemPathProbeFn>();
+
+    const again = await createService({ probePath }).bind({
+      sessionId: SESSION_ID,
+      repoMountId: GIT_MOUNT_ID,
+      executionMode: "bound-root",
+    });
+
+    expect(again).toEqual({ workspaceId, executionMode: "bound-root", state: "ready" });
+    expect(probePath).not.toHaveBeenCalled();
+    expect(countRows("workspaces")).toBe(1);
+    expect(readEventTypes()).toEqual(READY_BIND_EVENTS);
+    // The database itself holds the session to one live workspace on the mount.
+    await expect(
+      writeRaw(
+        `INSERT INTO workspaces (id, session_id, repo_mount_id, execution_mode, state, created_at,
+                                 updated_at)
+         VALUES (?, ?, ?, 'bound-root', 'ready', ?, ?)`,
+        UNPOOLED_WORKSPACE_ID,
+        SESSION_ID,
+        GIT_MOUNT_ID,
+        "2026-08-04T00:00:00.000Z",
+        "2026-08-04T00:00:00.000Z",
+      ),
+    ).rejects.toThrow(/UNIQUE constraint failed/);
+  });
+
+  it("does not answer an archived workspace: its detached mount refuses the bind", async () => {
+    await bindReadyWorkspace(harness.service, SESSION_ID, GIT_MOUNT_ID, harness.gitMountRoot);
+    await writeRaw("UPDATE repo_mounts SET state = 'detached' WHERE id = ?", GIT_MOUNT_ID);
+    await writeRaw(
+      "UPDATE workspaces SET state = 'archived' WHERE repo_mount_id = ?",
+      GIT_MOUNT_ID,
+    );
+
+    const refusal = await captureRejection(() =>
+      harness.service.bind({
+        sessionId: SESSION_ID,
+        repoMountId: GIT_MOUNT_ID,
+        executionMode: "bound-root",
+      }),
+    );
+
+    expect(refusal).toBeInstanceOf(RepoMountNotFoundError);
+    expect(countRows("workspaces")).toBe(1);
+  });
+
+  it("answers a bind that another bind of the session to the mount beat to the write", async () => {
+    // The other bind lands between this one's reads and its write.
+    let boundMeanwhile: string | undefined;
+    const validator = new TrustEnvelopeValidator();
+    const validateExecutionRootOriginal = validator.validateExecutionRoot.bind(validator);
+    vi.spyOn(validator, "validateExecutionRoot").mockImplementationOnce(async (candidate) => {
+      const resolved = await validateExecutionRootOriginal(candidate);
+      const meanwhile = await harness.service.bind({
+        sessionId: SESSION_ID,
+        repoMountId: GIT_MOUNT_ID,
+        executionMode: "bound-root",
+      });
+      boundMeanwhile = meanwhile.workspaceId;
+      return resolved;
+    });
+
+    const answer = await createService({
+      trustEnvelope: validator,
+      newWorkspaceId: () => UNPOOLED_WORKSPACE_ID,
+    }).bind({ sessionId: SESSION_ID, repoMountId: GIT_MOUNT_ID, executionMode: "bound-root" });
+
+    expect(answer).toEqual({
+      workspaceId: boundMeanwhile,
+      executionMode: "bound-root",
+      state: "preparing",
+    });
+    expect(countRows("workspaces")).toBe(1);
+    expect(readEventTypes()).toEqual(["workspace.preparing"]);
   });
 });
 

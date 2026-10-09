@@ -17,11 +17,15 @@ const LAST_ACTIVE_AT = "2026-01-01T09:00:00.000Z";
 export function sessionListEntry(entry: {
   readonly sessionId: string;
   readonly name?: string;
+  readonly firstMessagePreview?: string;
   readonly shape?: SessionListEntry["shape"];
 }): SessionListEntry {
   const common = {
     sessionId: entry.sessionId as SessionId,
     ...(entry.name === undefined ? {} : { name: entry.name }),
+    ...(entry.firstMessagePreview === undefined
+      ? {}
+      : { firstMessagePreview: entry.firstMessagePreview }),
     state: "active",
     activity: "idle",
     activityRenewedAt: LAST_ACTIVE_AT,
@@ -29,6 +33,6 @@ export function sessionListEntry(entry: {
     lastActivityAt: LAST_ACTIVE_AT,
   } as const;
   return entry.shape === "chat"
-    ? { ...common, shape: "chat", documentCount: 0 }
+    ? { ...common, shape: "chat" }
     : { ...common, shape: "project", repoMountId: REPO_MOUNT_ID };
 }
