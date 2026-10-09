@@ -11,8 +11,6 @@ docs/archive/reference/**
 # Vendored upstream test vectors must remain byte-identical to upstream
 # (sha256 recorded in PROVENANCE.md is the source-of-truth integrity check).
 packages/crypto-paseto/src/__fixtures__/v4.json
-# The daemon's declarations, which `tsc` writes beside its bundle.
-packages/runtime-daemon/types/**
 # The search index's loader and declarations, which its addon build writes.
 packages/search-index/index.js
 packages/search-index/index.d.ts

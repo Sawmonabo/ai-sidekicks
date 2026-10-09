@@ -2,17 +2,16 @@
   "$schema": "../../node_modules/turbo/schema.json",
   "extends": ["//"],
   "tasks": {
-    // The build bundles the daemon by the bundle's config into `dist/`, and `tsc` writes the
-    // declarations to `types/`.
+    // The build bundles the daemon by the bundle's config into `dist/`; `tsc` writes nothing.
     "build": {
       "inputs": ["$TURBO_EXTENDS$", "rolldown.config.ts"],
-      "outputs": ["$TURBO_EXTENDS$", "types/**"]
+      "outputs": ["dist/**"]
     },
     // The tests and the bundle's config are type-checked with the source, and the install script
-    // that builds the daemon's SQLite shell on its own. `tsc -b` writes only the declarations.
+    // that builds the daemon's SQLite shell on its own. `tsc -b` writes only its build info.
     "typecheck": {
       "inputs": ["$TURBO_EXTENDS$", "tests/**", "rolldown.config.ts", "sqlite-shell/*.ts"],
-      "outputs": ["types/**", ".tsbuildinfo"]
+      "outputs": [".tsbuildinfo"]
     },
     // The root inputs plus the tests and the SQLite shell's install script.
     "lint": {

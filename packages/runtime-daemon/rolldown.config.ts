@@ -4,8 +4,8 @@
 // Each worker thread and child process is an entry written where its source sits, and a module
 // that finds a file from its own location keeps its source path in a chunk of its own, so the
 // worker beside the module that starts it and the package's manifest are found from the build as
-// from the source. `tsc` writes only the declarations, to their own folder, so the bundle's folder
-// is emptied before each build and holds no chunk an earlier build wrote.
+// from the source. `tsc` only type-checks, so the bundle's folder is emptied before each build and
+// holds no chunk an earlier build wrote.
 import { globSync, readFileSync } from "node:fs";
 import path from "node:path";
 
