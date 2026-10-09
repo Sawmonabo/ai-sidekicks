@@ -6,7 +6,7 @@ use std::collections::BinaryHeap;
 use tantivy::postings::{Postings, SegmentPostings, TermInfo};
 use tantivy::query::BitSetDocSet;
 use tantivy::schema::{Field, IndexRecordOption};
-use tantivy::{DocId, DocSet, SegmentReader, TERMINATED, Term};
+use tantivy::{DocId, DocSet, InvertedIndexReader, SegmentReader, TERMINATED, Term};
 use tantivy_common::BitSet;
 
 use crate::phrase::Phrase;
@@ -109,43 +109,90 @@ fn text_cursor(
     })
 }
 
+/// Below one posting in this many rows of a segment, a long prefix's postings are sorted rather
+/// than summed into an array as long as the segment.
+const SPARSE_POSTINGS_PER_ROW: u64 = 128;
+
 // A prefix longer than every prefix field, for scoring: each word it begins read whole, a block of
-// rows at a time, its counts added into its rows' slots, so the prefix's count in a row is one
-// lookup. Every word's rows are read once, where merging them a row at a time costs a heap step or
-// a refilled window per row asked.
+// rows at a time, its counts summed per row, so the prefix's count in a row is a lookup. Every
+// word's rows are read once, where merging them a row at a time costs a heap step or a refilled
+// window per row asked.
 fn summed_cursor(
     segment: &SegmentReader,
     text: Field,
     prefix: &str,
 ) -> tantivy::Result<Option<TokenCursor>> {
     let term_infos = prefix_term_infos(segment, text, prefix)?;
-    let Some((first, rest)) = term_infos.split_first() else {
+    if term_infos.is_empty() {
         return Ok(None);
-    };
+    }
     let inverted = segment.inverted_index(text)?;
-    let mut counts = vec![0u32; segment.max_doc() as usize];
-    let mut rows = BitSet::with_max_value(segment.max_doc());
-    // One block reader, reset to each word in turn.
+    let postings: u64 = term_infos
+        .iter()
+        .map(|term_info| u64::from(term_info.doc_freq))
+        .sum();
+    let summed = if postings * SPARSE_POSTINGS_PER_ROW < u64::from(segment.max_doc()) {
+        let mut pairs = Vec::with_capacity(postings as usize);
+        for_each_posting(&inverted, &term_infos, |doc, frequency| {
+            pairs.push((doc, frequency));
+        })?;
+        pairs.sort_unstable_by_key(|(doc, _)| *doc);
+        let mut rows: Vec<DocId> = Vec::with_capacity(pairs.len());
+        let mut counts: Vec<u32> = Vec::with_capacity(pairs.len());
+        for (doc, frequency) in pairs {
+            match (rows.last(), counts.last_mut()) {
+                (Some(last), Some(count)) if *last == doc => *count += frequency,
+                _ => {
+                    rows.push(doc);
+                    counts.push(frequency);
+                }
+            }
+        }
+        SummedRows::Sparse {
+            rows,
+            counts,
+            place: 0,
+        }
+    } else {
+        let mut counts = vec![0u32; segment.max_doc() as usize];
+        let mut rows = BitSet::with_max_value(segment.max_doc());
+        for_each_posting(&inverted, &term_infos, |doc, frequency| {
+            counts[doc as usize] += frequency;
+            rows.insert(doc);
+        })?;
+        SummedRows::Dense {
+            rows: BitSetDocSet::from(rows),
+            counts,
+        }
+    };
+    Ok(Some(TokenCursor::Summed(Box::new(summed))))
+}
+
+// Hands `visit` each row and count of every term in `term_infos`, a term at a time, through one
+// block reader reset to each term in turn.
+fn for_each_posting(
+    inverted: &InvertedIndexReader,
+    term_infos: &[TermInfo],
+    mut visit: impl FnMut(DocId, u32),
+) -> tantivy::Result<()> {
+    let Some((first, rest)) = term_infos.split_first() else {
+        return Ok(());
+    };
     let mut block =
         inverted.read_block_postings_from_terminfo(first, IndexRecordOption::WithFreqs)?;
-    let mut words = rest.iter();
+    let mut terms = rest.iter();
     loop {
         while !block.docs().is_empty() {
             for (doc, frequency) in block.docs().iter().zip(block.freqs()) {
-                counts[*doc as usize] += frequency;
-                rows.insert(*doc);
+                visit(*doc, *frequency);
             }
             block.advance();
         }
-        let Some(term_info) = words.next() else {
-            break;
+        let Some(term_info) = terms.next() else {
+            return Ok(());
         };
         inverted.reset_block_postings_from_terminfo(term_info, &mut block)?;
     }
-    Ok(Some(TokenCursor::Summed(Box::new(SummedRows {
-        rows: BitSetDocSet::from(rows),
-        counts,
-    }))))
 }
 
 // Where every term of `field` that `prefix` begins sits in `segment`'s term dictionary, in term
@@ -211,10 +258,63 @@ pub enum TokenCursor {
 
 /// Every row a prefix's words hold in one segment, deleted rows included, with the words' counts
 /// summed per row.
-pub struct SummedRows {
-    rows: BitSetDocSet,
-    /// Indexed by row; zero for a row no word holds.
-    counts: Vec<u32>,
+pub enum SummedRows {
+    /// The rows as a bit set, and a count for every row of the segment, zero where no word is.
+    Dense {
+        rows: BitSetDocSet,
+        counts: Vec<u32>,
+    },
+    /// The rows ascending with their counts, and the place of the current one.
+    Sparse {
+        rows: Vec<DocId>,
+        counts: Vec<u32>,
+        place: usize,
+    },
+}
+
+impl SummedRows {
+    fn doc(&self) -> DocId {
+        match self {
+            SummedRows::Dense { rows, .. } => rows.doc(),
+            SummedRows::Sparse { rows, place, .. } => {
+                rows.get(*place).copied().unwrap_or(TERMINATED)
+            }
+        }
+    }
+
+    fn advance(&mut self) -> DocId {
+        match self {
+            SummedRows::Dense { rows, .. } => rows.advance(),
+            SummedRows::Sparse { place, .. } => {
+                *place += 1;
+                self.doc()
+            }
+        }
+    }
+
+    fn seek(&mut self, target: DocId) -> DocId {
+        match self {
+            SummedRows::Dense { rows, .. } => rows.seek(target),
+            SummedRows::Sparse { rows, place, .. } => {
+                *place += rows[(*place).min(rows.len())..].partition_point(|doc| *doc < target);
+                self.doc()
+            }
+        }
+    }
+
+    fn frequency(&self) -> u32 {
+        match self {
+            SummedRows::Dense { rows, counts } => counts[rows.doc() as usize],
+            SummedRows::Sparse { counts, place, .. } => counts[*place],
+        }
+    }
+
+    fn rows(&self) -> u64 {
+        match self {
+            SummedRows::Dense { rows, .. } => u64::from(rows.size_hint()),
+            SummedRows::Sparse { rows, .. } => rows.len() as u64,
+        }
+    }
 }
 
 impl TokenCursor {
@@ -223,7 +323,7 @@ impl TokenCursor {
         match self {
             TokenCursor::Term(postings) => postings.doc(),
             TokenCursor::Union(union) => union.doc,
-            TokenCursor::Summed(summed) => summed.rows.doc(),
+            TokenCursor::Summed(summed) => summed.doc(),
         }
     }
 
@@ -232,7 +332,7 @@ impl TokenCursor {
         match self {
             TokenCursor::Term(postings) => postings.advance(),
             TokenCursor::Union(union) => union.advance(),
-            TokenCursor::Summed(summed) => summed.rows.advance(),
+            TokenCursor::Summed(summed) => summed.advance(),
         }
     }
 
@@ -242,7 +342,7 @@ impl TokenCursor {
             TokenCursor::Term(postings) if postings.doc() >= target => postings.doc(),
             TokenCursor::Term(postings) => postings.seek(target),
             TokenCursor::Union(union) => union.seek(target),
-            TokenCursor::Summed(summed) => summed.rows.seek(target),
+            TokenCursor::Summed(summed) => summed.seek(target),
         }
     }
 
@@ -255,7 +355,7 @@ impl TokenCursor {
                 .iter()
                 .map(|index| union.postings[*index].term_freq())
                 .sum(),
-            TokenCursor::Summed(summed) => summed.counts[summed.rows.doc() as usize],
+            TokenCursor::Summed(summed) => summed.frequency(),
         }
     }
 
@@ -284,7 +384,7 @@ impl TokenCursor {
                 .iter()
                 .map(|postings| u64::from(postings.doc_freq()))
                 .sum(),
-            TokenCursor::Summed(summed) => u64::from(summed.rows.size_hint()),
+            TokenCursor::Summed(summed) => summed.rows(),
         }
     }
 }

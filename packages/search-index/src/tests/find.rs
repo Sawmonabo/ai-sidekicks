@@ -8,7 +8,7 @@ use crate::tokenizer::tokenize;
 use crate::{IndexRow, IndexRowKind, SearchQuery};
 
 use super::seeded_set::{SeededSetSize, generate};
-use super::support::{ScratchFolder, batch, open_engine, query};
+use super::support::{ScratchFolder, batch, event, open_engine, query};
 
 const SIZE: SeededSetSize = SeededSetSize {
     sessions: 20,
@@ -18,6 +18,8 @@ const SIZE: SeededSetSize = SeededSetSize {
 };
 // Every fiftieth message goes to this session, so it holds the most rows.
 const LARGEST_SESSION: u64 = 2;
+// A prefix longer than every prefix field that no seeded word begins.
+const RARE_PREFIX: &str = "qqqqq";
 
 // Whether every phrase of `searched` occurs in `text` on its own.
 fn every_phrase_occurs(text: &str, searched: &SearchQuery) -> bool {
@@ -35,6 +37,14 @@ fn every_phrase_occurs(text: &str, searched: &SearchQuery) -> bool {
 fn find_counts_equal_the_marks_on_every_row() {
     let mut rows: Vec<IndexRow> = Vec::new();
     generate(SIZE, |row| rows.push(row));
+    // Two words of a long prefix no other row holds, so the segment's few postings of it are
+    // sorted and summed rather than added into an array as long as the segment. Its key is below
+    // every other row's, so it is the session's oldest.
+    rows.push(event(
+        0,
+        LARGEST_SESSION,
+        &format!("{RARE_PREFIX}a {RARE_PREFIX}b {RARE_PREFIX}a"),
+    ));
     let mut session_rows: Vec<(u64, String)> = rows
         .iter()
         .filter(|row| row.kind == IndexRowKind::Event && row.owner_key as u64 == LARGEST_SESSION)
@@ -76,6 +86,7 @@ fn find_counts_equal_the_marks_on_every_row() {
         query(&[joined.as_str()], false),
         query(&[joined_prefix.as_str()], true),
         query(&[long_prefix.as_str()], true),
+        query(&[RARE_PREFIX], true),
     ];
 
     let folder = ScratchFolder::new("find");
