@@ -135,7 +135,7 @@ function nothingWaiting(answeredCount: number, nowMs: number): readonly FigureSe
   }
   return [
     "Nothing waiting · you answered ",
-    ...runCountWords(answeredCount, "derived"),
+    ...runCountWords(answeredCount),
     ` this ${partOfDayAt(nowMs)}`,
   ];
 }

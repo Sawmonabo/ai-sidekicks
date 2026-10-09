@@ -87,8 +87,11 @@ export function useAppCommands(input: AppCommandsInput): number {
         lastSettingsPage,
       ),
       ...buildRailControlCommands({
+        toggleSessionsList: () => {
+          windowStoreUsedLast()?.toggleSessionsTrackList("sessions");
+        },
         toggleNotificationsList: () => {
-          windowStoreUsedLast()?.toggleNotificationsList();
+          windowStoreUsedLast()?.toggleSessionsTrackList("notifications");
         },
         chooseNextColorScheme: () => {
           const windowStore = windowStoreUsedLast();

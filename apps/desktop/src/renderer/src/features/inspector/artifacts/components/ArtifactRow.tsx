@@ -7,7 +7,11 @@ import { Chip } from "#renderer/components/Chip/Chip.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { codeWords } from "#renderer/lib/code-words.js";
-import { formatByteQuantity, formatAge, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
+import {
+  formatByteQuantity,
+  formatRelativeTime,
+  formatZonedDateTime,
+} from "#renderer/lib/wire/figures.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import { type ArtifactManifestRow } from "../model.js";
 import { ARTIFACT_STATE_TONES } from "../copy.js";
@@ -15,7 +19,7 @@ import { ARTIFACT_STATE_TONES } from "../copy.js";
 /** What one manifest row renders and the re-read it may offer. */
 export interface ArtifactRowProps {
   readonly row: ArtifactManifestRow;
-  /** The instant the caller draws the age against. */
+  /** The instant the row was rendered against; ages move only when the section re-reads. */
   readonly nowMilliseconds: number;
   /** Whether this row's manifest re-read is on the wire; holds the control that sent it. */
   readonly isManifestReadInFlight?: boolean | undefined;
@@ -43,7 +47,7 @@ export function ArtifactRow(props: ArtifactRowProps): React.JSX.Element {
         </span>
         <span className="meridian-artifact-row__age">
           <WireFigure
-            value={formatAge(row.createdAt, props.nowMilliseconds)}
+            value={formatRelativeTime(row.createdAt, props.nowMilliseconds)}
             hoverLabel={formatZonedDateTime(row.createdAt, clockLocale)}
           />
         </span>

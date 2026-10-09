@@ -24,6 +24,7 @@ import {
   warmDestination,
 } from "../NavigationRail/destinations.js";
 import { RAIL_CONTROL_LABELS } from "../NavigationRail/control-labels.js";
+import { RAIL_ENTRY_TEMPLATES } from "../NavigationRail/NavigationRail.js";
 import { AppFrame } from "./AppFrame.js";
 import { useRailChords } from "./hooks/useRailChords.js";
 
@@ -64,10 +65,8 @@ export function AppShell(props: AppShellProps): React.JSX.Element {
   const banners = useWindowStore(frameStore, (state) => state.banners);
   // A boolean, so a window with no card up re-renders on nothing.
   const isModalDialogOpen = useWindowStore(frameStore, (state) => state.isModalDialogOpen);
-  const isNotificationsListOpen = useWindowStore(
-    frameStore,
-    (state) => state.sessionsTrackList === "notifications",
-  );
+  const sessionsTrackList = useWindowStore(frameStore, (state) => state.sessionsTrackList);
+  const sessionsListId = useId();
   const notificationsListId = useId();
   const railChords = useRailChords(props.readBoundChord);
 
@@ -85,20 +84,29 @@ export function AppShell(props: AppShellProps): React.JSX.Element {
           frameStore.navigate(routeForDestination(destination, lastSettingsPage.pageId));
         },
         chords: railChords,
+        sessionsList: {
+          isExpanded: sessionsTrackList === "sessions",
+          controlsId: sessionsListId,
+          onToggle: () => {
+            frameStore.toggleSessionsTrackList("sessions");
+          },
+        },
         // No count yet: the window mounts no attention reader, so the bell draws no pip.
         attention: {
-          isExpanded: isNotificationsListOpen,
+          isExpanded: sessionsTrackList === "notifications",
           controlsId: notificationsListId,
           onToggle: () => {
-            frameStore.toggleNotificationsList();
+            frameStore.toggleSessionsTrackList("notifications");
           },
         },
         onCycleColorScheme: props.onCycleColorScheme,
         isUpdateStaged: props.isUpdateStaged,
       }}
       sessionsTrack={
-        isNotificationsListOpen ? (
-          // The notifications list's mount point, which its body fills.
+        // Each list's mount point, which its body fills.
+        sessionsTrackList === "sessions" ? (
+          <section id={sessionsListId} aria-label={RAIL_ENTRY_TEMPLATES.sessions.label} />
+        ) : sessionsTrackList === "notifications" ? (
           <section id={notificationsListId} aria-label={RAIL_CONTROL_LABELS.notifications} />
         ) : undefined
       }

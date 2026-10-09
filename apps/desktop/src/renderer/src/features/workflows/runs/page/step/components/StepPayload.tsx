@@ -30,7 +30,7 @@ export interface StepPayloadProps {
  */
 export function StepPayload(props: StepPayloadProps): React.JSX.Element {
   const clipboardCopy = usePayloadJsonCopy(props.items, props.label);
-  const count = itemCountWords(props.items.length, "derived");
+  const count = itemCountWords(props.items.length);
   const note: readonly FigureSentencePart[] =
     props.storage.kind === "inline"
       ? ["Inline · ", ...count]

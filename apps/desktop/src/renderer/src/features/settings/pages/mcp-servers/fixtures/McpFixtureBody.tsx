@@ -27,8 +27,7 @@ import {
   type ProviderName,
 } from "@ai-sidekicks/contracts/provider/name";
 import { structuralKey } from "#renderer/lib/structural-key.js";
-import { relativeTimeChangesAt } from "#renderer/lib/wire/figures.js";
-import { useDrawnInstant } from "#renderer/hooks/useDrawnInstant.js";
+import { useRelativeTimesNow } from "#renderer/hooks/useRelativeTimesNow.js";
 import type { SessionDirectoryState } from "#renderer/store/session/directory/state.js";
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
@@ -207,13 +206,7 @@ export function McpFixtureBody(props: {
   const state = usePushDrivenRead(inventoryRead);
   const servers = state.kind === "loaded" ? state.value.servers : NO_SERVERS;
   const observedStamps = observedStampsOf(servers);
-  // Woken when a drawn age would next read differently, `2 minutes ago` becoming `3 minutes ago`.
-  const nowMilliseconds = useDrawnInstant(clock, observedStamps, (instant) =>
-    Math.min(
-      Number.POSITIVE_INFINITY,
-      ...observedStamps.map((stamp) => relativeTimeChangesAt(stamp, instant)),
-    ),
-  );
+  const nowMilliseconds = useRelativeTimesNow(clock, observedStamps);
   if (state.kind === "not-loaded") {
     return <LoadingNotice clock={clock} placement="block" title="Reading the server list…" />;
   }

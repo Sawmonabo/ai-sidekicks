@@ -3,7 +3,7 @@
 import { render, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { formatAge } from "#renderer/lib/wire/figures.js";
+import { formatRelativeTime } from "#renderer/lib/wire/figures.js";
 import { worktreeRecord } from "../repo-mounts.test-support.js";
 import { WorktreeCard } from "./WorktreeCard.js";
 import { liveBridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
@@ -24,6 +24,6 @@ describe("WorktreeCard — the face", () => {
     // The fixture record is `ready`, which the chip reads as a word.
     expect(container.textContent).toContain("Ready");
     expect(container.textContent).toContain(record.path);
-    expect(container.textContent).toContain(formatAge(record.createdAt, NOW_MILLISECONDS));
+    expect(container.textContent).toContain(formatRelativeTime(record.createdAt, NOW_MILLISECONDS));
   });
 });

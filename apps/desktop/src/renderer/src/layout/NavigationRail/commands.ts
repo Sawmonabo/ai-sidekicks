@@ -1,6 +1,8 @@
 // The rail's own acts: one command per rail destination, walked from `RAIL_DESTINATIONS` so the
-// palette, the chord table and the rail share one closed set, a chord for those that hold one, and
-// the rows of the rail's two controls. Every row sits in the palette's `Console` group.
+// palette, the chord table and the rail share one closed set, a chord for those that hold one, the
+// rows of the rail's two controls, and the Sessions button's own act, which shows or hides the
+// sessions list. Every row but that act sits in the palette's `Console` group; it sits in
+// `Sessions`, the group the Keyboard page lists it under.
 
 import { RAIL_DESTINATIONS, type RailDestination } from "#renderer/routing/readers.js";
 import type { AppRoute } from "#renderer/routing/routes.js";
@@ -15,8 +17,9 @@ import { RAIL_CONTROL_LABELS } from "./control-labels.js";
 import { RAIL_ENTRY_TEMPLATES } from "./NavigationRail.js";
 import { routeForDestination, warmDestination } from "./destinations.js";
 
-/** What the rail's two control rows do, each on the window used last. */
+/** What the rail's control rows do, each on the window used last. */
 export interface RailControlActs {
+  readonly toggleSessionsList: () => void;
   readonly toggleNotificationsList: () => void;
   readonly chooseNextColorScheme: () => void;
 }
@@ -30,8 +33,7 @@ export interface RailControlActs {
 export const RAIL_NAVIGATION_DETAILS: Readonly<Record<RailDestination, RailNavigationDetail>> = {
   sessions: {
     commandId: "frame.goToSessions",
-    title: "Sessions list",
-    chord: "$mod+b",
+    title: RAIL_ENTRY_TEMPLATES.sessions.label,
     keywords: ["home"],
   },
   sidekicks: {
@@ -58,17 +60,25 @@ export const RAIL_NAVIGATION_DETAILS: Readonly<Record<RailDestination, RailNavig
   },
 };
 
+/** The Sessions button's act: it shows or hides the sessions list beside the rail. */
+export const SESSIONS_LIST_COMMAND = {
+  commandId: "frame.toggleSessionsList",
+  title: "Sessions list",
+  chord: "$mod+b",
+} as const;
+
 /**
- * The rail's chords, in rail order, for the destinations that hold one.
+ * The rail's chords: the sessions list's, then the destinations' that hold one, in rail order.
  *
  * None fires in a text input: navigating away mid-sentence loses what was typed.
  */
-export const RAIL_KEYBINDINGS: readonly FrameKeybinding[] = RAIL_DESTINATIONS.flatMap(
-  (destination) => {
+export const RAIL_KEYBINDINGS: readonly FrameKeybinding[] = [
+  { chord: SESSIONS_LIST_COMMAND.chord, commandId: SESSIONS_LIST_COMMAND.commandId },
+  ...RAIL_DESTINATIONS.flatMap((destination) => {
     const { chord, commandId } = RAIL_NAVIGATION_DETAILS[destination];
     return chord === undefined ? [] : [{ chord, commandId }];
-  },
-);
+  }),
+];
 
 /**
  * Contributes the rail's chords ahead of every feature's, since the table listens in the capture
@@ -109,11 +119,19 @@ export function buildNavigationCommands(
 }
 
 /**
- * The rows of the rail's two controls, titled with the rail's labels: one opens or shuts the
- * notifications list, the other steps the color scheme. The caller's acts pick the window.
+ * The rows of the rail's controls: the Sessions button's act, which shows or hides the sessions
+ * list, then the two controls titled with the rail's labels, one opening or shutting the
+ * notifications list, the other stepping the color scheme. The caller's acts pick the window.
  */
 export function buildRailControlCommands(acts: RailControlActs): readonly FrameCommand[] {
   return [
+    {
+      id: SESSIONS_LIST_COMMAND.commandId,
+      title: SESSIONS_LIST_COMMAND.title,
+      group: SESSIONS_COMMAND_GROUP,
+      keywords: ["sidebar", "flyout"],
+      run: acts.toggleSessionsList,
+    },
     {
       id: "frame.toggleNotifications",
       title: RAIL_CONTROL_LABELS.notifications,
@@ -142,5 +160,8 @@ interface RailNavigationDetail {
 
 const NAVIGATION_COMMAND_OWNER = "navigation";
 
-/** The palette group every rail row sits in. */
+/** The palette group every rail row but the sessions list's sits in. */
 const CONSOLE_COMMAND_GROUP = "Console";
+
+/** The palette and Keyboard group the sessions list's act sits in. */
+const SESSIONS_COMMAND_GROUP = "Sessions";

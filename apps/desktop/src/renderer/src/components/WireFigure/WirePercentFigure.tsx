@@ -9,10 +9,7 @@ export interface WirePercentFigureProps {
   readonly percent: number;
 }
 
-/**
- * A percent the wire sent, rounded for reading, with every digit it sent in its hover label where
- * the rounding drops some.
- */
+/** A percent the wire sent, rounded for reading, with every digit it sent in its hover label. */
 export function WirePercentFigure(props: WirePercentFigureProps): React.JSX.Element {
   const { percent } = props;
   const rounded = useMemo(() => formatPercent(percent / 100), [percent]);

@@ -45,7 +45,6 @@ export const ATTENTION_ROLES = [
   "amber-text",
   "amber-mark",
   "amber-ground",
-  "amber-ink",
   "red-text",
   "red-mark",
   "red-ground",

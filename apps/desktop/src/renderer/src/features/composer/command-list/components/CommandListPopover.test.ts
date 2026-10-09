@@ -1,7 +1,9 @@
 // What the popover draws and what a press on it does: a closed console command is not drawn, a
-// provider row runs nothing and a console row runs. Driven through the whole composer, because
-// that is where an open popover exists.
+// provider row runs nothing, a console row runs, and a row the provider declared disabled takes
+// neither the cursor nor a press. Driven through the whole composer, because that is where an
+// open popover exists.
 
+import { act, fireEvent } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { commandRegistry } from "#renderer/registries/commands/registry.js";
 import {
@@ -18,7 +20,9 @@ import {
   typeIntoLine,
 } from "./CommandListPopover.test-support.js";
 import { agentPane } from "../../Composer.test-support.js";
-import type { RecordedDaemonCall } from "#test/helpers/fixture/bridge.js";
+import { bridgeAnswering, type RecordedDaemonCall } from "#test/helpers/fixture/bridge.js";
+import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
+import { WAITING_FOR_INPUT_SCENARIO } from "#fixtures/scenarios/waiting-for-input.js";
 import { recordingBridge } from "../provider/enumeration.test-support.js";
 
 describe("CommandList — the list activates its active row", () => {
@@ -76,6 +80,55 @@ describe("CommandList — the list activates its active row", () => {
   });
 });
 
+describe("CommandList — a row that cannot act", () => {
+  it("is stepped over by the keys and ignores a press, while the row before it takes both", async () => {
+    // The scenario's provider rows are `compact` then `review`; `review` comes back disabled.
+    const { bridge } = bridgeAnswering(async (call, passThrough) => {
+      const reply = await passThrough();
+      return call.method === "driver.listProviderCommands" ? withReviewDisabled(reply) : reply;
+    }, WAITING_FOR_INPUT_SCENARIO);
+    const mounted = await mountComposer({
+      bridge,
+      focusedPane: agentPane(composerLeadAgentId()),
+    });
+    await typeIntoLine(mounted.line, "/");
+    const list = await stepIntoList(mounted);
+    await stepToFirstProviderRow(mounted, list);
+    const rowNamed = (name: string): HTMLElement => {
+      const row = [...mounted.container.querySelectorAll<HTMLElement>('[role="option"]')].find(
+        (option) => option.querySelector(".meridian-command-discovery__name")?.textContent === name,
+      );
+      if (row === undefined) {
+        throw new Error(`the list drew no ${name} row`);
+      }
+      return row;
+    };
+    expect(activeRow(mounted.container, list)).toBe(rowNamed("compact"));
+    expect(rowNamed("review").getAttribute("aria-disabled")).toBe("true");
+
+    await pressOnList(list, "ArrowDown");
+    expect(activeRow(mounted.container, list)).toBe(rowNamed("compact"));
+    await pressOnList(list, "End");
+    expect(activeRow(mounted.container, list)).toBe(rowNamed("compact"));
+
+    await act(async () => {
+      fireEvent.mouseDown(rowNamed("review"));
+      fireEvent.click(rowNamed("review"));
+      await crossMacrotaskBoundary();
+    });
+    expect(activeRow(mounted.container, list)).toBe(rowNamed("compact"));
+    expect(mounted.container.querySelector(".meridian-command-discovery__notice")).toBeNull();
+
+    await act(async () => {
+      fireEvent.click(rowNamed("compact"));
+      await crossMacrotaskBoundary();
+    });
+    expect(
+      mounted.container.querySelector(".meridian-command-discovery__notice")?.textContent,
+    ).toContain(NOT_RUNNABLE_FRAGMENT);
+  });
+});
+
 describe("CommandList — only what runs here is drawn", () => {
   it("leaves a closed command out of the list and keeps an open one", async () => {
     const closedCommandId = `${TEST_COMMAND_ID}.closed`;
@@ -103,6 +156,22 @@ describe("CommandList — only what runs here is drawn", () => {
     expect(optionNames(mounted.container)).not.toContain(closedCommandId);
   });
 });
+
+/** The scenario's enumeration reply with its `review` entry declared disabled. */
+function withReviewDisabled(reply: unknown): unknown {
+  const served = reply as {
+    readonly bindings: readonly { readonly entries: readonly { readonly name: string }[] }[];
+  };
+  return {
+    ...served,
+    bindings: served.bindings.map((binding) => ({
+      ...binding,
+      entries: binding.entries.map((entry) =>
+        entry.name === "review" ? { ...entry, enabled: false } : entry,
+      ),
+    })),
+  };
+}
 
 /**
  * Steps the active row to the first provider entry, the one kind of row that names its provider

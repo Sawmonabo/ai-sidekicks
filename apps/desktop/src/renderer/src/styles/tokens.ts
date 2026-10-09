@@ -164,17 +164,16 @@ export const TINTED_GROUND_PAIRS: readonly (readonly [string, string])[] = [
 ];
 
 /**
- * Ink paired with the fill it is painted on: a control whose whole face is the accent, and the
- * attention pip's figure on the amber. Its own list, not part of `TINTED_GROUND_PAIRS`, because a
- * tinted ground is a wash that can carry other text while a fill admits exactly one ink. Every
- * face a control wears is a row, so `accent-pressed` is paired as the resting face is. The inks are
- * absent from `TEXT_FLOOR_TOKEN_NAMES` because that list is measured on the four neutral grounds,
- * where a dark ink would rightly fail.
+ * Ink paired with the fill it is painted on: a control whose whole face is the accent. Its own
+ * list, not part of `TINTED_GROUND_PAIRS`, because a tinted ground is a wash that can carry other
+ * text while a fill admits exactly one ink. Every face a control wears is a row, so
+ * `accent-pressed` is paired as the resting face is. The ink is absent from
+ * `TEXT_FLOOR_TOKEN_NAMES` because that list is measured on the four neutral grounds, where a dark
+ * ink would rightly fail.
  */
 export const FILL_INK_PAIRS: readonly (readonly [string, string])[] = [
   ["accent-ink", "accent"],
   ["accent-ink", "accent-pressed"],
-  ["amber-ink", "amber-mark"],
 ];
 
 /**

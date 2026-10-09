@@ -103,7 +103,7 @@ function RunGraphFlow(props: RunGraphCanvasProps): React.JSX.Element {
     [onSelectNode],
   );
 
-  const { onKeyDown, onFocus } = useRunGraphKeyboard(canvasRef, nodes, edges, follow, onSelectNode);
+  const { onKeyDown, onFocus } = useRunGraphKeyboard(nodes, follow, onSelectNode);
 
   return (
     <div

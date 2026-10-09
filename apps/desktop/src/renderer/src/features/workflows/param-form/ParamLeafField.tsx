@@ -8,12 +8,10 @@ import { useState } from "react";
 
 import type { WorkflowParamSpec, WorkflowParamType } from "@ai-sidekicks/contracts/workflow/kind";
 
-import { FigureSentence } from "#renderer/components/FigureSentence/FigureSentence.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { TextBox } from "#renderer/components/TextBox/TextBox.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { refuse, RefusalError, type Refusal } from "#renderer/lib/refusal/contract.js";
-import type { FigureSentencePart } from "#renderer/lib/figure-sentence.js";
 import type { PickedFolder } from "#shared/preload-api.js";
 import { ActionButton } from "../components/ActionButton.js";
 import { readPickedFolder } from "./answers.js";
@@ -24,7 +22,7 @@ export interface ParamLeafFieldProps {
   readonly answer: unknown;
   readonly onAnswerChange: (next: unknown) => void;
   /** The sentence the last check refused this answer with, if it did. */
-  readonly issue: readonly FigureSentencePart[] | undefined;
+  readonly issue: string | undefined;
   readonly isDisabled: boolean;
   /** The control's id; the help line and issue take it as their prefix. */
   readonly controlId: string;
@@ -50,7 +48,7 @@ export function ParamLeafField(props: ParamLeafFieldProps): React.JSX.Element {
       )}
       {issue === undefined ? null : (
         <p id={issueId} className="meridian-workflow-param-form__issue">
-          <FigureSentence parts={issue} />
+          {issue}
         </p>
       )}
     </>

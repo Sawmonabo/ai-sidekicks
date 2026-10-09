@@ -4,7 +4,9 @@
 // counted on the machine's own calendar. A compact count is shortened by the platform's own
 // notation, and its widest form is what the platform prints at a rounding edge. A time's hover
 // title is the time on the machine's own calendar and clock, with its zone. A row's age reads one
-// count in one unit, and its view wakes exactly when that reading changes.
+// count in one unit, and its view wakes exactly when that reading changes. A byte count and a
+// percent carry every digit the wire sent for their hover label, even where the reading shows it
+// whole.
 
 import { describe, expect, it } from "vitest";
 
@@ -13,7 +15,9 @@ import {
   dayClockChangesAt,
   formatAge,
   formatCompactCount,
+  formatByteQuantity,
   formatDayClock,
+  formatExactPercent,
   formatMoney,
   formatUnitDuration,
   formatZonedDateTime,
@@ -39,6 +43,15 @@ describe("formatCompactCount", () => {
     expect(formatCompactCount(3_400_000, "en-US")).toBe("3.4M");
     expect(formatCompactCount(123_456_789_012, "en-US")).toBe("123B");
     expect(widestCompactCount("en-US")).toBe("1000T");
+  });
+});
+
+describe("a quantity's exact wire value", () => {
+  it("is every digit the wire sent, scaled or whole", () => {
+    expect(formatByteQuantity(1_234_567, "en-US").exactText).toBe("1,234,567 bytes");
+    expect(formatByteQuantity(512, "en-US").exactText).toBe("512 bytes");
+    expect(formatExactPercent(42.375, "en-US")).toBe("42.375%");
+    expect(formatExactPercent(42, "en-US")).toBe("42%");
   });
 });
 

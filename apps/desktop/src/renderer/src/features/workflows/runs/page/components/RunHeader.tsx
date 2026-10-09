@@ -6,7 +6,6 @@ import { parseInstant } from "#renderer/lib/instant.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
 import { Chip } from "#renderer/components/Chip/Chip.js";
 import { FigureSentence } from "#renderer/components/FigureSentence/FigureSentence.js";
-import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { callDaemon } from "#renderer/services/daemon/reply.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
@@ -106,11 +105,7 @@ export function RunHeader(props: RunHeaderProps): React.JSX.Element {
         <Fact term="Started">
           <DayClockFigure at={run.startedAt} nowMs={nowMs} locale={clockLocale} />
         </Fact>
-        {durationWords === undefined ? null : (
-          <Fact term="Duration">
-            <DerivedFigure text={durationWords} />
-          </Fact>
-        )}
+        {durationWords === undefined ? null : <Fact term="Duration">{durationWords}</Fact>}
         <Fact term="Trigger">{TRIGGER_KIND_WORDS[run.triggerKind]}</Fact>
         <Fact term="Started by">
           {startedByWords(run.startedBy)}

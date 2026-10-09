@@ -1,5 +1,4 @@
 import type { AttentionItem } from "@ai-sidekicks/contracts/attention";
-import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
 import { type AttentionReading } from "#renderer/store/attention/summary.js";
 import { NotificationEntryList } from "./NotificationEntryList.js";
@@ -27,7 +26,7 @@ export function NotificationsListBody(props: {
       {waiting.length === 0 ? null : (
         <section className="meridian-attention__group" aria-label="Waiting on you">
           <h3 className="meridian-attention__group-title">
-            Waiting on you <DerivedFigure text={formatCount(waiting.length)} />
+            Waiting on you <span>{formatCount(waiting.length)}</span>
           </h3>
           <NotificationEntryList
             items={waiting}

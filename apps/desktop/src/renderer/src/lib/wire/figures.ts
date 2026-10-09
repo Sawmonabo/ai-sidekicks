@@ -54,7 +54,7 @@ export interface FormattedByteQuantity {
   readonly text: string;
   /**
    * The whole byte count in words, `1,234,567 bytes`, for a hover label; `undefined` where `text`
-   * already shows it whole, in bytes, or shows no figure.
+   * shows no figure.
    */
   readonly exactText: string | undefined;
 }
@@ -103,7 +103,7 @@ export function formatByteQuantity(byteCount: number, locale?: string): Formatte
     value,
     unit,
     text: `${value}\u00A0${unit}`,
-    exactText: unitIndex === 0 ? undefined : numberFormatFor("byteCount", locale).format(byteCount),
+    exactText: numberFormatFor("byteCount", locale).format(byteCount),
   };
 }
 
@@ -298,14 +298,6 @@ export function relativeTimeChangesAt(fromIso: string, nowMilliseconds: number):
 }
 
 /**
- * A numeric code as the wire sent it, such as an exit code, `1` or `-9`: never grouped or rounded,
- * since a code names an outcome rather than counting anything.
- */
-export function formatNumericCode(code: number): string {
-  return String(code);
-}
-
-/**
  * A row's age: `now` under a minute, then one whole count in one unit with no `ago`, `5m`, `3h`,
  * `2d`, `1w`, `4mo`, `1y`. An instant ahead of the clock reads `now`; an unreadable stamp renders
  * an em dash. The hover carries `formatZonedDateTime` of the same stamp.
@@ -434,15 +426,13 @@ export function formatDate(iso: string, locale: string): string {
 
 /**
  * The percent behind `formatPercent(percent / 100)` with every digit the wire sent, for a hover
- * label; `undefined` where the rounded text already shows it whole or shows no figure.
+ * label; `undefined` where the rounded text shows no figure.
  */
 export function formatExactPercent(percent: number, locale?: string): string | undefined {
-  const rounded = formatPercent(percent / 100, locale);
-  if (rounded === UNREADABLE_FIGURE) {
+  if (formatPercent(percent / 100, locale) === UNREADABLE_FIGURE) {
     return undefined;
   }
-  const exact = numberFormatFor("exactPercent", locale).format(percent / 100);
-  return exact === rounded ? undefined : exact;
+  return numberFormatFor("exactPercent", locale).format(percent / 100);
 }
 
 /**

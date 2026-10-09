@@ -39,8 +39,8 @@ export interface WindowBanner extends Pick<Refusal, "code" | "detail"> {
  */
 export type RouteHistoryWrite = "push" | "replace";
 
-/** A list the sessions track beside the rail can hold. */
-export type SessionsTrackList = "notifications";
+/** A list the sessions track beside the rail can hold: the sessions list or the notifications. */
+export type SessionsTrackList = "sessions" | "notifications";
 
 /** The window store's state: route, modal-dialog flag, banners, sessions track, focus, report. */
 export interface WindowStoreState {
@@ -257,12 +257,13 @@ export class WindowStore {
     this.#store.setState({ banners: banners.filter((banner) => banner.id !== bannerId) });
   }
 
-  /** Open the notifications list in the sessions track, or close the track while it holds it. */
-  public toggleNotificationsList(): void {
+  /**
+   * Open `list` in the sessions track, in place of the other list, or close the track while it
+   * holds `list`.
+   */
+  public toggleSessionsTrackList(list: SessionsTrackList): void {
     const { sessionsTrackList } = this.#store.getState();
-    this.#store.setState({
-      sessionsTrackList: sessionsTrackList === "notifications" ? undefined : "notifications",
-    });
+    this.#store.setState({ sessionsTrackList: sessionsTrackList === list ? undefined : list });
   }
 
   /**
@@ -307,7 +308,7 @@ export class WindowStore {
 const LEAVE_NOT_ASKED = refuse(
   "navigation",
   "leave-not-asked",
-  "Could not ask about the unsaved changes, so the screen stayed open.",
+  "Couldn't check for unsaved changes, so you're still here.",
 );
 
 /**

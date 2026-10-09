@@ -23,7 +23,6 @@ export const GRAPHITE_PALETTE: ThemePalette = {
     "amber-mark": { light: oklch(0.6, 0.15, 80), dark: oklch(0.78, 0.14, 80) },
     "amber-ground": { light: oklch(0.925, 0.025, 80), dark: oklch(0.268, 0.031, 76) },
     // The figure on the attention pip, dark on both ambers.
-    "amber-ink": { light: oklch(0.16, 0.02, 80), dark: oklch(0.16, 0.02, 80) },
     "red-text": { light: oklch(0.485, 0.185, 27), dark: oklch(0.73, 0.17, 25) },
     "red-mark": { light: oklch(0.53, 0.18, 27), dark: oklch(0.66, 0.19, 25) },
     "red-ground": { light: oklch(0.924, 0.025, 35), dark: oklch(0.256, 0.043, 30) },

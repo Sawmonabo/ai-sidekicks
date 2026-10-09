@@ -58,13 +58,19 @@ export function DeleteOlderRuns(props: { readonly bridge: PlatformBridge }): Rea
             disabled={deleteCount === undefined || deleteCount === 0 || state.isDeleting}
             onClick={act.confirm}
           >
-            <FigureSentence
-              parts={[
-                "Delete ",
-                // Until the preview is read, the app's own zero stands in for the daemon's count.
-                ...runCountWords(deleteCount ?? 0, deleteCount === undefined ? "derived" : "wire"),
-              ]}
-            />
+            {/* One text run, so the button's gap never stands in for a space. Until the preview is
+                read, a plain zero stands in for the daemon's count. */}
+            <span>
+              <FigureSentence
+                parts={[
+                  "Delete ",
+                  ...runCountWords(
+                    deleteCount ?? 0,
+                    deleteCount === undefined ? undefined : "wire",
+                  ),
+                ]}
+              />
+            </span>
           </ActionButton>
         </DeleteOlderChoice>
       );

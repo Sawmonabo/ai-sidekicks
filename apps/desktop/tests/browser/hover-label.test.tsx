@@ -10,8 +10,8 @@
 // once, from the control. Escape on a focused control puts its label away and nothing else: the
 // page never sees that press, and its default is canceled; once the control scrolls its label out
 // of view, Escape is the page's again and leaves the label to return with its control. Escape over
-// a hovered control puts away its label alone, without reaching the page, and the focused control's
-// label returns once the pointer leaves.
+// a hovered control puts its label away and goes on to the page, so the open Find field closes on
+// the same press, and the focused control's label returns once the pointer leaves.
 
 import { useState, type CSSProperties } from "react";
 import { act, cleanup, isInaccessible, render, waitFor } from "@testing-library/react";
@@ -21,6 +21,9 @@ import { userEvent } from "vitest/browser";
 import { HoverLabel } from "#renderer/components/HoverLabel/HoverLabel.js";
 import { WindowHoverLabel } from "#renderer/components/HoverLabel/WindowHoverLabel.js";
 import { TextBox } from "#renderer/components/TextBox/TextBox.js";
+import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { FindBox } from "#renderer/features/transcript/find/components/FindBox.js";
+import { findInTranscript } from "#renderer/features/transcript/find/matcher.js";
 
 /** How long the label is watched once the pointer is on it, for a close the crossing set off. */
 const SETTLE_MS = 300;
@@ -214,7 +217,7 @@ it("shows words a focused or hovered control gains, and keeps an Escaped label a
   });
 });
 
-it("puts away only the hovered control's label, and the focused one's returns", async () => {
+it("puts away the hovered control's label and passes the Escape on, and the focused one's returns", async () => {
   let pageEscapes = 0;
   const { getByRole } = render(
     <div
@@ -257,13 +260,58 @@ it("puts away only the hovered control's label, and the focused one's returns", 
   await waitFor(() => {
     expect(shownLabel()).toBeNull();
   });
-  expect(pageEscapes, "the Escape that put the hovered label away reached the page").toBe(0);
+  expect(pageEscapes, "the Escape that put the hovered label away was kept from the page").toBe(1);
   await act(async () => {
     await userEvent.hover(getByRole("button", { name: "After" }));
   });
   await waitFor(() => {
     expect(shownLabel()?.textContent, "focus on A lost its label to B's Escape").toBe("Label A");
   });
+});
+
+it("closes the Find field and a label the pointer alone opened on one Escape", async () => {
+  let closeCount = 0;
+  const { getByRole } = render(
+    <LiveAnnouncerProvider>
+      <div style={{ display: "flex", flexDirection: "column", gap: "64px", padding: "64px" }}>
+        <FindBox
+          query=""
+          result={findInTranscript([], "")}
+          currentMatchIndex={-1}
+          openRequestCount={1}
+          onQueryChange={() => undefined}
+          onStep={() => undefined}
+          onClose={() => {
+            closeCount += 1;
+          }}
+        />
+        <HoverLabel text="Label A" textRole="description">
+          <button type="button">A</button>
+        </HoverLabel>
+        <WindowHoverLabel />
+      </div>
+    </LiveAnnouncerProvider>,
+  );
+  const field = getByRole("searchbox");
+  act(() => {
+    field.focus();
+  });
+  await act(async () => {
+    await userEvent.hover(getByRole("button", { name: "A" }));
+  });
+  await waitFor(() => {
+    expect(shownLabel()?.textContent).toBe("Label A");
+  });
+  expect(document.activeElement).toBe(field);
+
+  await act(async () => {
+    await userEvent.keyboard("{Escape}");
+  });
+
+  await waitFor(() => {
+    expect(shownLabel()).toBeNull();
+  });
+  expect(closeCount, "the Escape that put the hovered label away left Find open").toBe(1);
 });
 
 it("leaves Escape to the page once a focused control scrolls its label out of view", async () => {

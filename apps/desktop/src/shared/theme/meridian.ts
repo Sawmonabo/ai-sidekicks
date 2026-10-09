@@ -20,7 +20,6 @@ export const MERIDIAN_PALETTE: ThemePalette = {
     "amber-ground": { light: oklch(0.955, 0.04, 80), dark: oklch(0.26, 0.045, 72) },
     // The figure on the attention pip, painted on `amber-mark`. Dark in both schemes, as
     // `accent-ink` is: the scheme's light ground on the light amber stays under 3:1.
-    "amber-ink": { light: oklch(0.13, 0.03, 68), dark: oklch(0.22, 0.04, 72) },
     "red-text": { light: oklch(0.485, 0.19, 25), dark: oklch(0.775, 0.145, 25) },
     "red-mark": { light: oklch(0.575, 0.215, 25), dark: oklch(0.66, 0.19, 25) },
     "red-ground": { light: oklch(0.95, 0.03, 25), dark: oklch(0.25, 0.055, 25) },

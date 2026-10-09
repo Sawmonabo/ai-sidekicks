@@ -1,5 +1,5 @@
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
-import { useAgesNow } from "#renderer/hooks/useAgesNow.js";
+import { useRelativeTimesNow } from "#renderer/hooks/useRelativeTimesNow.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { type AgentLibrarySnapshot, type AgentLibraryView } from "../view.js";
 import { NO_SAVED_DEFINITIONS, type AgentDefinitionRow } from "../definition-rows.js";
@@ -12,7 +12,7 @@ export function SavedDefinitions(props: {
 }): React.JSX.Element {
   const { snapshot, view } = props;
   const { reading } = snapshot;
-  const nowMilliseconds = useAgesNow(
+  const nowMilliseconds = useRelativeTimesNow(
     useClock(),
     reading.kind === "rows" ? reading.rows.flatMap(instantReadings) : [],
   );

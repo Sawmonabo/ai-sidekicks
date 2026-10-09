@@ -102,7 +102,12 @@ describe("leaving a screen that holds unsaved edits", () => {
     await crossMacrotaskBoundary();
 
     expect(frameStore.getState().route).toEqual(EDITOR_ROUTE);
-    expect(frameStore.getState().banners).toMatchObject([{ code: "leave-not-asked" }]);
+    expect(frameStore.getState().banners).toMatchObject([
+      {
+        code: "leave-not-asked",
+        detail: "Couldn't check for unsaved changes, so you're still here.",
+      },
+    ]);
   });
 
   it("asks nothing for a move the screen stays on, and asks for one inside its destination", () => {

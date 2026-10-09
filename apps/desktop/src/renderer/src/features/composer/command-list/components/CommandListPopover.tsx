@@ -41,11 +41,6 @@ const PROVIDER_ENTRY_NOT_RUNNABLE =
   "Provider commands and skills are listed for reference. This app " +
   "starts no turn from one, so there is nothing here to run.";
 
-/** The same press on a row the provider declared disabled; it is disabled there too. */
-const PROVIDER_ENTRY_DISABLED =
-  "The provider published this entry as disabled, so it is " +
-  "unavailable there as well as here. Nothing was run.";
-
 /** The console group's heading: it names the act, so a person knows what pressing does. */
 const CONSOLE_GROUP_LABEL = "This app's commands — these run here";
 
@@ -98,7 +93,13 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
     [readCommands],
   );
 
-  const boundedIndex = entries.length === 0 ? -1 : Math.min(activeIndex, entries.length - 1);
+  // The cursor rests only on a row that can act, so the first of them takes it when the list
+  // opens and the keys step over a row the provider declared disabled.
+  const actableIndexes = entries.flatMap((entry, index) =>
+    isDeclaredUnavailable(entry) ? [] : [index],
+  );
+  const boundedIndex =
+    actableIndexes.find((index) => index >= activeIndex) ?? actableIndexes.at(-1) ?? -1;
   // Rows keep their flat position: the cursor, aria-activedescendant and Enter all count over
   // `entries`, so per-group numbering would light one row and activate another.
   const consoleRows = groupRowsOf(entries, "console");
@@ -112,8 +113,8 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
     }
   }, [stepIntoListToken]);
 
-  // Enter, Space and a press on a row act through here: a console entry runs, a provider entry
-  // is answered with why nothing ran.
+  // Enter, Space and a press on a row that can act come through here: a console entry runs, a
+  // provider entry is answered with why nothing ran.
   const activateEntry = useCallback(
     (entry: CommandListEntry) => {
       if (entry.source === "console") {
@@ -124,25 +125,18 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
         );
         return;
       }
-      setActivationNotice(
-        isDeclaredUnavailable(entry) ? PROVIDER_ENTRY_DISABLED : PROVIDER_ENTRY_NOT_RUNNABLE,
-      );
+      setActivationNotice(PROVIDER_ENTRY_NOT_RUNNABLE);
     },
     [executor],
   );
 
   const onListKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLUListElement>) => {
-      if (event.key === "ArrowDown") {
+      const movedIndex = cursorMove(event.key, actableIndexes, boundedIndex);
+      if (movedIndex !== undefined) {
         event.preventDefault();
         setActivationNotice(undefined);
-        setActiveIndex((index) => Math.min(index + 1, entries.length - 1));
-        return;
-      }
-      if (event.key === "ArrowUp") {
-        event.preventDefault();
-        setActivationNotice(undefined);
-        setActiveIndex((index) => Math.max(index - 1, 0));
+        setActiveIndex(movedIndex);
         return;
       }
       // Enter and Space act on the row aria-activedescendant names, from the same bounded index.
@@ -160,7 +154,7 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
         onDismiss();
       }
     },
-    [activateEntry, boundedIndex, entries, onDismiss],
+    [activateEntry, actableIndexes, boundedIndex, entries, onDismiss],
   );
 
   return (
@@ -250,6 +244,33 @@ interface CommandListPopoverProps {
  */
 function rowId(listId: string, index: number): string {
   return `${listId}-row-${String(index)}`;
+}
+
+/**
+ * Where a cursor key moves the cursor among the rows that can act: the arrows one row, Home and
+ * End to the first and last. `undefined` for any other key, or while no row can act.
+ */
+function cursorMove(
+  key: string,
+  actableIndexes: readonly number[],
+  activeIndex: number,
+): number | undefined {
+  const position = actableIndexes.indexOf(activeIndex);
+  if (position < 0) {
+    return undefined;
+  }
+  switch (key) {
+    case "ArrowDown":
+      return actableIndexes[Math.min(position + 1, actableIndexes.length - 1)];
+    case "ArrowUp":
+      return actableIndexes[Math.max(position - 1, 0)];
+    case "Home":
+      return actableIndexes[0];
+    case "End":
+      return actableIndexes.at(-1);
+    default:
+      return undefined;
+  }
 }
 
 /** One group's rows, each keeping its position in the flat sequence; catalog order is kept. */

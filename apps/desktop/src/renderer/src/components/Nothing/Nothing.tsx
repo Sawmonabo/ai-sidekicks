@@ -201,7 +201,10 @@ function renderBlock(
     <div className={className} aria-busy={traits.busy}>
       <p className="meridian-nothing__title">
         {traits.glyph === undefined ? null : <Glyph name={traits.glyph} size={GLYPH_SIZE_ROW} />}
-        <FigureSentence parts={sentenceParts(props.title)} />
+        {/* One flex item, so the title's gap sits after the glyph and never between its words. */}
+        <span>
+          <FigureSentence parts={sentenceParts(props.title)} />
+        </span>
       </p>
       {props.detail === undefined ? null : (
         <p className={traits.detailClassName}>

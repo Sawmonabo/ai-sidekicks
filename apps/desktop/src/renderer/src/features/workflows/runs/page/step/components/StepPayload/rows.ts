@@ -209,7 +209,7 @@ function valueText(value: unknown): string {
  * pairing sent: `Item 2 · from item 0`.
  */
 function itemHeadWords(index: number, item: WorkflowItem): readonly FigureSentencePart[] {
-  const head: readonly FigureSentencePart[] = ["Item ", { derived: formatCount(index) }];
+  const head: readonly FigureSentencePart[] = [`Item ${formatCount(index)}`];
   if (item.pairedItem === undefined) {
     return head;
   }

@@ -1,7 +1,7 @@
 // One row of the discovery list: the name, what it does, and the state it is in. The row is its
 // own control: a press on it does what Enter does on the active row, and nothing pressable sits
-// inside it, since an option may hold no control. An entry the provider declared disabled is
-// rendered disabled and never explained, because the entry has no reason member.
+// inside it, since an option may hold no control. An entry the provider declared disabled cannot
+// act: it is drawn disabled, ignores a press and is never explained, since it has no reason member.
 
 import { PROVIDER_LABELS } from "@ai-sidekicks/contracts/provider/name";
 
@@ -34,10 +34,10 @@ export function CommandListRow(props: CommandListRowProps): React.JSX.Element {
       role="option"
       aria-selected={isActive}
       // Present only where declared: `false` on every other row would be a state the reply never
-      // reported. The row stays reachable by the arrows either way.
+      // reported.
       aria-disabled={isUnavailable ? true : undefined}
-      onMouseDown={onSelect}
-      onClick={onActivate}
+      onMouseDown={isUnavailable ? undefined : onSelect}
+      onClick={isUnavailable ? undefined : onActivate}
     >
       <span className="meridian-command-discovery__name">
         <WireFigure value={entry.name} />

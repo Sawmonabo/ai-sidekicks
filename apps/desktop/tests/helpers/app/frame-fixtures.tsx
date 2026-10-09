@@ -29,6 +29,11 @@ const RAIL: NavigationRailProps = {
   current: undefined,
   onSelect: () => undefined,
   chords: {},
+  sessionsList: {
+    isExpanded: false,
+    controlsId: "frame-fixture-sessions",
+    onToggle: () => undefined,
+  },
   attention: {
     isExpanded: false,
     controlsId: "frame-fixture-notifications",
