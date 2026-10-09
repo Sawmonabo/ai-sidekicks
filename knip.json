@@ -38,7 +38,7 @@
   "workspaces": {
     ".": {
       // The repo's own scripts: each is run, never imported, so each is an entry and an export in
-      // one is dead. knip skips the exports of an entry it finds in a CI workflow, even with
+      // one is dead. knip skips the exports of an entry it finds in the CI workflow, even with
       // `includeEntryExports`, so only the scripts CI does not launch are checked for exports.
       "entry": ["tools/*.mjs", "tools/__tests__/*.test.mjs"],
       "project": ["tools/**/*.mjs"],
