@@ -62,7 +62,7 @@ Rules 2, 4, 9 and 12 are answered by running the tools, not by reading: `knip` o
 ## Working style
 
 - A user instruction outranks this file; this file outranks any skill or plugin text. When two instructions conflict, take the reversible reading and say so.
-- Do the task asked; report anything else you found as a follow-up with a reason, not as extra changes.
+- Do the task asked, and fix in the same task every bug, issue or gap you find while doing it, never splitting one into a follow-up. Only a blocker outside the repo waits, named with what unblocks it.
 - Before reporting, audit each claim against a tool result from this session and report only work you can point to evidence for. A failing test or check is yours to investigate and resolve before you report. Every writer and every reviewer also applies the file-naming rule in [Folders by topic](#folders-by-topic) and [Comments and docstrings](#comments-and-docstrings) to each file it wrote or reviewed.
 - Proceed without asking for normal development and git work; ask only before an action that could damage the machine or the environment outside this repo.
 - Run the package's tests for what you changed, and `pnpm typecheck && pnpm lint` before a PR. Rerun a test only for a new failure.
