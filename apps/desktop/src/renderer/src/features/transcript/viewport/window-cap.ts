@@ -9,8 +9,9 @@
 // The span is held by its end rows, so it survives the feed handing over the whole log on every
 // pass, and an end at the log's first or last row stays there as the log grows at it. A run group
 // goes with its children: no end falls between a row and the row it hangs from. A cut never takes
-// the reader's row, a row on screen, a held row or a row of a run still being written; it stops
-// short of the first one, and names it.
+// the reader's row, a row on screen, a held row or a working row (a reply still streaming, a tool
+// call still running, an ask still open); it stops short of the first one, and names it. Every
+// other row goes, a live run's settled rows among them.
 //
 // The feed hands over the whole projected log on every reconcile, so the key index describes the
 // last log ingested and an ingest re-indexes only the span that differs from it.
@@ -44,7 +45,7 @@ export const PRUNE_DEFERRAL_REASONS = [
   "reading-floor",
   "on-screen-rows",
   "held-rows",
-  "live-run-group",
+  "working-rows",
 ] as const;
 
 /** One deferral reason. Derived from the enumeration, never restated. */
@@ -55,10 +56,10 @@ export interface PruneConditions {
   /** `ScrollController.vetoesPrune()` — a programmatic write is in flight. */
   readonly scrollControllerVetoes: boolean;
   /**
-   * The run groups still being written, by the key their rows hang from. A row of one is never
-   * let go: a live run is the story the reader is following, and its rows still grow.
+   * Whether a row is still working: a reply still streaming, a tool call still running, an
+   * approval, intervention or question still open. A working row is never let go.
    */
-  readonly liveRunGroupKeys: ReadonlySet<string>;
+  readonly isWorkingRow: (rowKey: string) => boolean;
   /** `ReadingAnchor.heldRowKeys()`. A held row is never let go. */
   readonly heldRowKeys: readonly string[];
   /** The rows the viewport has on screen, as the virtualizer laid them out. Never let go. */
@@ -678,8 +679,7 @@ type RowProtection = (row: WindowRow) => PruneDeferralReason | undefined;
 
 /**
  * The rows a cut must stop short of, with the reason each names: the reader's row, which outranks
- * the others, a row on screen, a held row, then a row of a run still being written, which is
- * matched by the run group it hangs from rather than listed row by row.
+ * the others, a row on screen, a held row, then a working row.
  */
 function rowProtection(
   conditions: PruneConditions,
@@ -695,13 +695,8 @@ function rowProtection(
   if (readerRowKey !== undefined) {
     reasons.set(readerRowKey, "reading-floor");
   }
-  const liveRunGroupKeys = conditions.liveRunGroupKeys;
   return (row) =>
-    reasons.get(row.key) ??
-    (liveRunGroupKeys.has(row.key) ||
-    (row.parentKey !== undefined && liveRunGroupKeys.has(row.parentKey))
-      ? "live-run-group"
-      : undefined);
+    reasons.get(row.key) ?? (conditions.isWorkingRow(row.key) ? "working-rows" : undefined);
 }
 
 /** A key's first position in a log, or `-1`; a repeated key resolves to its first occurrence. */

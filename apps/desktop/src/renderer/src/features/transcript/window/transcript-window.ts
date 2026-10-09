@@ -71,7 +71,7 @@ export interface TranscriptWindowModel {
   readonly rows: readonly TranscriptEventRow[];
   /**
    * The runs the log has not seen end, by run id, which is the key their rows hang from: the log
-   * is busy while one stands, and the viewport never lets go of their rows.
+   * is busy while one stands, and only a live run's rows can still be working.
    */
   readonly liveRunGroupKeys: ReadonlySet<string>;
 }

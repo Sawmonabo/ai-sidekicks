@@ -174,7 +174,7 @@
     {
       "id": "steady-heap-sustained-streaming",
       "label": "Steady heap, sustained-streaming live stream",
-      "subject": "Renderer heap over thirty minutes of the sustained-streaming scenario streaming live on the scenario clock — agents' turns streaming and finishing one after another while the reader follows the live tail — both its ceiling and its flatness, since a heap that stays under the ceiling while climbing is still a leak.",
+      "subject": "Renderer heap over thirty minutes of the sustained-streaming scenario streaming live on the scenario clock — agents' turns streaming one after another with every run left live while the reader follows the live tail — both its ceiling and its flatness, since a heap that stays under the ceiling while climbing is still a leak.",
       "specTarget": "flat over thirty minutes; ≤ 250 MB renderer heap",
       "limit": {
         "comparison": "<=",

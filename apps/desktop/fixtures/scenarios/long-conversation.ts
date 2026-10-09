@@ -298,13 +298,15 @@ export interface ConversationTurnInput {
   readonly startsAtMs: number;
   /** Scenario time between two beats of the turn; zero lands the whole turn on one tick. */
   readonly beatSpacingMs: number;
+  /** Whether each run ends with its turn; a run that does not stays live after its last row. */
+  readonly endsRuns: boolean;
 }
 
 /**
  * One turn of a conversation with the concurrent-streaming cast: the person's message, then a run
  * per agent, one after another, each thinking, replying in several pieces with tool calls and
- * their results after each, and ending its turn. Every identifier, block and length is a function
- * of the turn, agent and reply indices alone.
+ * their results after each, and ending its turn where `endsRuns` says. Every identifier, block and
+ * length is a function of the turn, agent and reply indices alone.
  */
 export function composeConversationTurn(input: ConversationTurnInput): readonly ScriptEntry[] {
   const { sessionId, turnIndex } = input;
@@ -403,16 +405,18 @@ export function composeConversationTurn(input: ConversationTurnInput): readonly 
         );
       }
     }
-    // The turn is finished: its run ends, so its group is settled rather than live.
-    entries.push(
-      lane.transition(runId, {
-        atMs: nextAtMs(),
-        runVersion: 4,
-        previousState: "running",
-        newState: "completed",
-        completionKind: "turn",
-      }),
-    );
+    // The turn is finished: where runs end, its group is ended rather than live.
+    if (input.endsRuns) {
+      entries.push(
+        lane.transition(runId, {
+          atMs: nextAtMs(),
+          runVersion: 4,
+          previousState: "running",
+          newState: "completed",
+          completionKind: "turn",
+        }),
+      );
+    }
   }
   return entries;
 }
@@ -444,6 +448,7 @@ function composeLongConversationBeats(): readonly ScenarioBeat[] {
           turnIndex,
           startsAtMs: (turnIndex + 1) * HISTORY_TURN_SPACING_MS,
           beatSpacingMs: 0,
+          endsRuns: true,
         }),
       ).flat(),
       ...composeConcurrentStreamingLanes({

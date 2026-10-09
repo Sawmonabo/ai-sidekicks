@@ -32,10 +32,10 @@ export interface ViewportSnapshot {
 export interface ViewportConditions {
   readonly rows: readonly ViewportRow[];
   /**
-   * The run groups the log has not seen end, by the key their rows hang from. The window never
-   * lets go of their rows.
+   * Whether a row is still working: a reply still streaming, a tool call still running, an ask
+   * still open. The window never lets go of one; a new function when the working rows change.
    */
-  readonly liveRunGroupKeys: ReadonlySet<string>;
+  readonly isWorkingRow: (rowKey: string) => boolean;
 }
 
 /**

@@ -4,9 +4,9 @@
 // It plays the long conversation's turns (`composeConversationTurn`) one after another, with
 // every beat a fixed step of scenario time after the one before: a person's message, then each
 // agent of the cast in turn thinking, replying in several pieces with tool calls and their results
-// between them, and ending its turn. A finished run group folds to its receipt, so a reader
-// following the live tail sees finished turns scroll away above it while the next one streams,
-// and the transcript window lets go of what has gone far enough.
+// between them, and ending its turn. No run ends: every run stays live after its turn, so a reader
+// following the live tail sees settled turns of live runs scroll away above it while the next one
+// streams, and the transcript window lets go of what has gone far enough, live or not.
 //
 // The turns run until the stream has covered half an hour of scenario time, so a run that walks
 // the clock over the whole script has watched the session stream for that long.
@@ -65,6 +65,7 @@ function composeStreamingTurns(): readonly ScriptEntry[] {
       turnIndex,
       startsAtMs: lastAtMs + BEAT_SPACING_MS,
       beatSpacingMs: BEAT_SPACING_MS,
+      endsRuns: false,
     });
     entries.push(...turn);
     lastAtMs = turn.at(-1)?.atMs ?? lastAtMs;
@@ -90,7 +91,7 @@ function composeSustainedStreamingBeats(): readonly ScenarioBeat[] {
   });
 }
 
-/** Half an hour of agents' turns streaming and finishing one after another, never pausing. */
+/** Half an hour of agents' turns streaming one after another, never pausing, no run ending. */
 export const SUSTAINED_STREAMING_SCENARIO: Scenario = defineScenario(
   {
     id: "sustained-streaming",
@@ -98,7 +99,8 @@ export const SUSTAINED_STREAMING_SCENARIO: Scenario = defineScenario(
     purpose:
       "A session that streams without pause for half an hour — a person's message, then four " +
       "agents one after another thinking, replying in pieces and calling tools, each turn " +
-      "finishing and scrolling away above a reader following the live tail as the next streams in.",
+      "settling with its run still live and scrolling away above a reader following the live " +
+      "tail as the next streams in.",
     sessionId: SESSION_ID,
     startedAtIso: STARTED_AT_ISO,
     openingNotices: SESSION_LIST_OPENING_NOTICES,

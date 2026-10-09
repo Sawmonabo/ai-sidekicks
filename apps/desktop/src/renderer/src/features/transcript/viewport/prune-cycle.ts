@@ -147,7 +147,7 @@ export class ViewportPruneCycle {
     this.#window.ingest(conditions.rows);
     const outcome = this.#window.prune({
       scrollControllerVetoes: this.#scroll.vetoesPrune(),
-      liveRunGroupKeys: conditions.liveRunGroupKeys,
+      isWorkingRow: conditions.isWorkingRow,
       heldRowKeys,
       onScreenRowKeys,
       readingPosition,
@@ -335,10 +335,10 @@ export class ViewportPruneCycle {
    * Whether the condition that refused the last pass is gone. Total over
    * `PRUNE_DEFERRAL_REASONS`, so a new reason is a compile error until classified.
    *
-   * `within-share` owes nothing, and the feed already re-runs the pass when a run ends, which is
-   * when `live-run-group` clears, so those answer `false`. The sets compare rather than test for empty:
-   * only a changed engagement, screen or place helps a stopped cut, and comparing makes the
-   * re-ask single-shot.
+   * `within-share` owes nothing, and the feed already re-runs the pass when the working rows
+   * change, which is when `working-rows` clears, so those answer `false`. The sets compare rather
+   * than test for empty: only a changed engagement, screen or place helps a stopped cut, and
+   * comparing makes the re-ask single-shot.
    */
   #deferralHasCleared(owedBecause: PruneDeferralReason): boolean {
     switch (owedBecause) {
@@ -361,7 +361,7 @@ export class ViewportPruneCycle {
       case "held-rows":
         return !sameRowKeySet(this.#anchor.heldRowKeys(), this.#lastHeldRowKeys);
       case "within-share":
-      case "live-run-group":
+      case "working-rows":
         return false;
     }
   }

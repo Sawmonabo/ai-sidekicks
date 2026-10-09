@@ -138,7 +138,7 @@ export function useTranscriptViewport(
   const {
     clock,
     rows,
-    liveRunGroupKeys,
+    isWorkingRow,
     landingRowKey,
     rememberedRowHeights,
     heightKindOf,
@@ -241,11 +241,11 @@ export function useTranscriptViewport(
     if (controller.isDisposed) {
       return;
     }
-    controller.reconcile({ rows, liveRunGroupKeys });
-  }, [controller, rows, liveRunGroupKeys]);
+    controller.reconcile({ rows, isWorkingRow });
+  }, [controller, rows, isWorkingRow]);
 
   // Re-asks a cut the reconcile above could not finish. That effect depends only on the rows and
-  // the live runs, but the window also stops a cut while a programmatic scroll is
+  // the working rows, but the window also stops a cut while a programmatic scroll is
   // mid-write or the rows it wants are held, on screen or under the reader; none of those moves a
   // dependency. The reading mode carries a return to the tail, and `lastPrune`'s identity the rest
   // because the veto is raised and dropped inside one synchronous write. It cannot spin: a

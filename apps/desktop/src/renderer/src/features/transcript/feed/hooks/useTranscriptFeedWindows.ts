@@ -5,7 +5,7 @@
 // so that stage publishes its window alone. The one viewport binding, reveal engine and history
 // reader are minted here, since the reader is asked by the viewport and measured in it.
 
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
@@ -21,6 +21,7 @@ import {
 import { useDuplicateRowKeyCapture } from "../../viewport/hooks/useDuplicateRowKeyCapture.js";
 import { useTranscriptFirstReadSettled } from "../../window/hooks/useTranscriptFirstReadSettled.js";
 import { useTranscriptProjection } from "../../window/hooks/useTranscriptProjection.js";
+import { readWorkingRows } from "../../window/working-rows.js";
 import {
   type TranscriptPipelineStage,
   type TranscriptWindowModel,
@@ -146,10 +147,24 @@ export function useTranscriptFeedWindows(
       rowBodyLengthOf(committedTranscriptWindow.current, isRevealingRow.current, rowKey),
     [committedTranscriptWindow, isRevealingRow],
   );
+  // The rows the window keeps whatever their distance: read once per window and register
+  // revision, beside the reveal, which answers whether a live run's newest reply still streams.
+  const waitingOnPerson = inputs.sessionStore.waitingOnPersonRecords;
+  const workingRows = useMemo(
+    () => readWorkingRows(unfurledWindow, waitingOnPerson),
+    [unfurledWindow, waitingOnPerson],
+  );
+  const isRevealing = reveal.isRevealing;
+  const isWorkingRow = useCallback(
+    (rowKey: string) =>
+      workingRows.rowIds.has(rowKey) ||
+      (workingRows.newestReplyRowIds.has(rowKey) && isRevealing(rowKey)),
+    [workingRows, isRevealing],
+  );
   const viewport = useTranscriptViewport({
     clock: inputs.clock,
     rows: transcriptWindow.viewportRows,
-    liveRunGroupKeys: transcriptWindow.liveRunGroupKeys,
+    isWorkingRow,
     landingRowKey,
     rememberedRowHeights: inputs.sessionStore.rememberedRowHeights,
     heightKindOf,

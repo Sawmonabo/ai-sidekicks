@@ -15,7 +15,7 @@ import {
   type RunTerminalEventType,
 } from "./lifecycle-events.js";
 
-/** Whether a run group is still being written: a live one keeps its rows in the window. */
+/** Whether a run group is still being written or has ended. */
 export const RUN_GROUP_LIFECYCLES = ["live", "terminal"] as const;
 
 /** One lifecycle value of a run group. */

@@ -17,7 +17,8 @@
 // The run must have moved for any of that to mean something: the beats delivered grow at every
 // reading and reach the end of the script, the stream reaches the store through a real
 // subscription, and the store keeps letting go, so the events it holds stay a stretch of the log
-// whose oldest position moves on rather than the whole log.
+// whose oldest position moves on rather than the whole log. No run of the script ends, so what the
+// window and the store let go are the settled rows of runs still live.
 
 import process from "node:process";
 

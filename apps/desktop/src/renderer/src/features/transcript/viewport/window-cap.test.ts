@@ -1,6 +1,6 @@
 // The transcript window lets go on both sides of the reader, by the window's own height, and never
-// takes the reader's row or a row on screen. Rows are one flat height, so where each cut falls is
-// arithmetic a case can state.
+// takes the reader's row, a row on screen or a working row. Rows are one flat height, so where each
+// cut falls is arithmetic a case can state.
 
 import { describe, expect, it } from "vitest";
 
@@ -35,7 +35,7 @@ function flatLog(
 /** A reader at the top of their row in the middle of the log, with nothing refusing a cut. */
 const READING_MID_LOG: PruneConditions = {
   scrollControllerVetoes: false,
-  liveRunGroupKeys: new Set(),
+  isWorkingRow: () => false,
   heldRowKeys: [],
   onScreenRowKeys: [],
   readingPosition: { rowKey: rowKey(READER_ROW_INDEX), offsetWithinViewportPx: 0 },
@@ -103,26 +103,36 @@ describe("the transcript window — letting go around the reader", () => {
     expect(heldKeys(window).at(-1)).toBe(rowKey(readerRowIndex));
   });
 
-  it("lets go far above the reader while a run near the tail is written, and keeps its rows", () => {
-    // A live run's rows sit between the reader and the tail. The cut walking up from the tail
-    // stops at its last row; the cut above, far from the run, lets go as it would with none.
+  it("lets go of a live run's settled rows far from the reader, and keeps a working one", () => {
+    // A live run's header and rows sit far below the reader. Settled, the whole run group goes
+    // like any other rows; while one of its rows still works, the cut stops at that row and
+    // keeps the group whole, header included.
     const liveRunGroupKey = "run-live";
-    const liveRowIndexes = Array.from({ length: 10 }, (_unused, offset) => 300 + offset);
-    const window = new TranscriptWindow();
-    window.ingest(
-      flatLog((index) => (liveRowIndexes.includes(index) ? liveRunGroupKey : undefined)),
-    );
+    const liveRowIndexes = Array.from({ length: 9 }, (_unused, offset) => 301 + offset);
+    const liveLog = flatLog((index) =>
+      liveRowIndexes.includes(index) ? liveRunGroupKey : undefined,
+    ).map((row, index) => (index === 300 ? { ...row, key: liveRunGroupKey } : row));
+    const liveGroupKeys = [liveRunGroupKey, ...liveRowIndexes.map(rowKey)];
+    const settledWindow = new TranscriptWindow();
+    settledWindow.ingest(liveLog);
 
-    const outcome = window.prune({
+    const settled = settledWindow.prune(READING_MID_LOG);
+
+    expect(settled.owedBecause).toBeUndefined();
+    expect(settled.prunedKeys).toStrictEqual(expect.arrayContaining(liveGroupKeys));
+
+    const workingRowKey = rowKey(305);
+    const workingWindow = new TranscriptWindow();
+    workingWindow.ingest(liveLog);
+
+    const working = workingWindow.prune({
       ...READING_MID_LOG,
-      liveRunGroupKeys: new Set([liveRunGroupKey]),
+      isWorkingRow: (key) => key === workingRowKey,
     });
 
-    expect(heldKeys(window)[0]).toBe(rowKey(READER_ROW_INDEX - RETAINED_ROWS));
-    expect(outcome.prunedKeys).toContain(rowKey(0));
-    for (const liveRowIndex of liveRowIndexes) {
-      expect(heldKeys(window)).toContain(rowKey(liveRowIndex));
-    }
-    expect(outcome.owedBecause).toBe("live-run-group");
+    expect(heldKeys(workingWindow)).toStrictEqual(expect.arrayContaining(liveGroupKeys));
+    expect(heldKeys(workingWindow).at(-1)).toBe(rowKey(309));
+    expect(working.prunedKeys).toContain(rowKey(399));
+    expect(working.owedBecause).toBe("working-rows");
   });
 });

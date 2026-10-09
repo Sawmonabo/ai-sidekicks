@@ -16,9 +16,9 @@ export function syntheticRows(count: number, runGroupKey?: string): readonly Vie
   }));
 }
 
-/** Reconcile conditions with no run still being written. */
-export const CALM: { liveRunGroupKeys: ReadonlySet<string> } = {
-  liveRunGroupKeys: new Set(),
+/** Reconcile conditions with no row still working. */
+export const CALM: { isWorkingRow: (rowKey: string) => boolean } = {
+  isWorkingRow: () => false,
 };
 
 /** A controller attached to a detached element, with the clock its cases advance. */
