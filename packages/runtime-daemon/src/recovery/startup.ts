@@ -62,6 +62,8 @@ export interface StartupRecoveryDeps {
   readonly runs: Pick<RunStateReader, "listLiveRuns">;
   readonly runEngine: Pick<RunEngine, "settleRunAfterRestart">;
   readonly status: RecoveryStatusTracker;
+  /** Told what failed the store, so a damaged file is repaired. */
+  readonly reportStoreFailure: (error: unknown) => void;
   readonly now: () => Date;
   readonly writeServiceLog: (line: string) => void;
 }
@@ -175,6 +177,7 @@ export class StartupRecovery {
     } catch (error) {
       // A failure outside one session's fold is the store's: nothing more can be trusted.
       status.markStoreFailed();
+      this.#deps.reportStoreFailure(error);
       this.#deps.writeServiceLog(`The recovery pass failed: ${describeError(error)}`);
       await this.#recordFailure(base, {
         failureKind: hasSqliteErrorCode(error, "SQLITE_") ? "persistence_unavailable" : "other",

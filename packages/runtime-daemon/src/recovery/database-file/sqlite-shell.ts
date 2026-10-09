@@ -1,11 +1,12 @@
-// SQLite's own recovery, `sqlite3_recover`, run through the `sqlite3` shell's `.recover`: the
-// shell reads the damaged file read-only and writes the SQL that rebuilds every row it can reach,
-// and a second shell runs that SQL into a fresh file. The binding the daemon links is built
-// without the page virtual table the recovery reads through and exposes no recovery call, so the
-// daemon carries its own shell, compiled at install from the binding's SQLite source with the page
-// table added (`sqlite-shell/binding.gyp`). A shell that is missing, of another release than the
-// binding or built without the page table means a damaged install and is refused before it runs,
-// and a recovery that runs far past its expected time is stopped.
+// The daemon's own `sqlite3` shell, which the start's check runs in, and SQLite's own recovery,
+// `sqlite3_recover`, run through the shell's `.recover`: the shell reads the damaged file
+// read-only and writes the SQL that rebuilds every row it can reach, and a second shell runs that
+// SQL into a fresh file. The binding the daemon links is built without the page virtual table the
+// recovery reads through and exposes no recovery call, so the daemon carries its own shell,
+// compiled at install from the binding's SQLite source with the page table added
+// (`sqlite-shell/binding.gyp`). A shell that is missing, of another release than the binding or
+// built without the page table means a damaged install and is refused before it runs, and a
+// recovery that runs far past its expected time is stopped.
 
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { stat } from "node:fs/promises";
@@ -14,8 +15,8 @@ import { promisify } from "node:util";
 
 import Database from "better-sqlite3";
 
-// The shell the daemon's install builds, in the package folder three levels above this file.
-const SQLITE_SHELL_PROGRAM = fileURLToPath(
+/** The shell the daemon's install builds, in the package folder three levels above this file. */
+export const SQLITE_SHELL_PROGRAM: string = fileURLToPath(
   new URL(
     `../../../sqlite-shell/build/Release/sqlite3${process.platform === "win32" ? ".exe" : ""}`,
     import.meta.url,
@@ -75,7 +76,11 @@ export async function recoverIntoFreshFile(damagedPath: string, freshPath: strin
   }
 }
 
-async function refuseUnfitShell(): Promise<void> {
+/**
+ * Rejects when the shell is missing, cannot run, is of another SQLite release than the binding or
+ * is built without the page table, each of which means a damaged install.
+ */
+export async function refuseUnfitShell(): Promise<void> {
   let versionOutput: string;
   let pageTableOutput: string;
   try {

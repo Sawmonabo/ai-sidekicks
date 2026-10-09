@@ -6,6 +6,7 @@
 // failure fails every write in the batch. A write is never split across batches, so the events one
 // write carries, such as a workflow tick's, commit together. At the queue's cap a write waits for
 // the next batch to commit, except an assistant's thinking update, which is dropped and counted.
+// A writer opened with a hold queues every write and sends none until the hold is let go.
 
 import { Worker } from "node:worker_threads";
 
@@ -70,6 +71,13 @@ export interface DatabaseWriterOptions {
   readonly databasePath: string;
   /** Where the queue's backpressure warnings and drop counts go. */
   readonly writeServiceLog: ServiceLogWriter;
+  /**
+   * Holds every write in the queue until it resolves; its rejection before a close ends the
+   * writer with its reason, so no held write is ever sent.
+   */
+  readonly writesHeldUntil?: Promise<void> | undefined;
+  /** Told of each failure SQLite raised for a write, a batch or a checkpoint, before its caller. */
+  readonly onWriteFailed?: (error: Error) => void;
 }
 
 // The session and category a backpressure warning names: the latest event that joined the queue.
@@ -108,6 +116,9 @@ export class DatabaseWriter {
 
   readonly #worker: Worker;
   readonly #writeServiceLog: ServiceLogWriter;
+  readonly #onWriteFailed: ((error: Error) => void) | undefined;
+  // Whether the writes wait for the hold the writer was opened with.
+  #isHeld: boolean;
   readonly #workerFailure = Promise.withResolvers<Error>();
   readonly #exited: Promise<void>;
   // Replies come back in the order the requests went out.
@@ -134,6 +145,20 @@ export class DatabaseWriter {
   private constructor(worker: Worker, options: DatabaseWriterOptions) {
     this.#worker = worker;
     this.#writeServiceLog = options.writeServiceLog;
+    this.#onWriteFailed = options.onWriteFailed;
+    this.#isHeld = options.writesHeldUntil !== undefined;
+    options.writesHeldUntil?.then(
+      () => {
+        this.#isHeld = false;
+        this.#pump();
+      },
+      (error: unknown) => {
+        // A close has already failed the held writes; the writer ends its own way.
+        if (this.#closing === undefined) {
+          this.#fail(error instanceof Error ? error : new Error(String(error)));
+        }
+      },
+    );
     this.whenWorkerFailed = this.#workerFailure.promise;
     this.#exited = new Promise<void>((resolve) => {
       worker.once("exit", () => {
@@ -285,17 +310,27 @@ export class DatabaseWriter {
       case "checkpointed":
         return reply.result;
       case "checkpoint-failed":
-        throw rebuildError(reply.error);
+        throw this.#reportFailure(rebuildError(reply.error));
       default:
         throw unexpectedReply(reply);
     }
   }
 
   /**
+   * Ends the writer at once, without the checkpoint a close makes, so the database's files stay as
+   * they are: every write taken and every later one fails with `error`, and
+   * {@link whenWorkerFailed} resolves with it.
+   */
+  end(error: Error): void {
+    this.#fail(error);
+  }
+
+  /**
    * Takes no new write, waits for every write taken to commit or fail, then closes the connection
    * and ends the worker; resolves with the number of writes left unfinished. Given `drainWithinMs`,
    * waits that long at most: the writes still unfinished then fail, the worker is ended, and a
-   * batch it had not committed rolls back whole. Repeated calls share the first close.
+   * batch it had not committed rolls back whole. Writes still held fail at once, uncommitted.
+   * Repeated calls share the first close.
    */
   close(drainWithinMs?: number): Promise<number> {
     this.#closing ??= this.#runClose(drainWithinMs);
@@ -303,6 +338,7 @@ export class DatabaseWriter {
   }
 
   async #runClose(drainWithinMs: number | undefined): Promise<number> {
+    const heldCount = this.#isHeld ? this.#refuseHeldWrites() : 0;
     const isDrained = await this.#drainWithin(drainWithinMs);
     this.#stopSampling();
     if (this.#failure !== undefined) {
@@ -316,14 +352,31 @@ export class DatabaseWriter {
         new Error("The database writer closed at its drain bound; this write was not committed"),
       );
       await this.#exited;
-      return unfinishedCount;
+      return heldCount + unfinishedCount;
     }
     const reply = await this.#request({ type: "close" });
     if (reply.type !== "closed") {
       throw unexpectedReply(reply);
     }
     await this.#exited;
-    return 0;
+    return heldCount;
+  }
+
+  // Fails every write the hold kept from the worker, so a close never waits on a hold no one will
+  // let go; returns how many there were.
+  #refuseHeldWrites(): number {
+    this.#isHeld = false;
+    const held = [...this.#waiting.splice(0), ...this.#queued.splice(0)];
+    const refusal = new Error(
+      "The database writer closed while its writes were held; this write was not committed",
+    );
+    for (const entry of held) {
+      entry.reject(refusal);
+    }
+    this.#depth = 0;
+    this.#queuedSize = 0;
+    this.#latestEventTags = undefined;
+    return held.length;
   }
 
   // Whether every write taken has settled within `boundMs`; with no bound, waits until they have.
@@ -379,14 +432,19 @@ export class DatabaseWriter {
       case "refused":
         throw new WriteRefusedError(outcome.statementIndex, outcome.rowCount);
       case "failed":
-        throw rebuildError(outcome.error);
+        throw this.#reportFailure(rebuildError(outcome.error));
     }
   }
 
-  // Sends the next batch when none is at the worker and the queued writes are due: the batch is
-  // full, its wait has passed, or a flush is waiting.
+  #reportFailure(error: Error): Error {
+    this.#onWriteFailed?.(error);
+    return error;
+  }
+
+  // Sends the next batch when no hold keeps the writes, none is at the worker and the queued
+  // writes are due: the batch is full, its wait has passed, or a flush is waiting.
   #pump(): void {
-    if (this.#inFlight !== undefined || this.#queued.length === 0) {
+    if (this.#isHeld || this.#inFlight !== undefined || this.#queued.length === 0) {
       return;
     }
     const isDue = this.#queuedSize >= BATCH_ENTRY_LIMIT || this.#isBatchDue || this.#flushCount > 0;
@@ -457,7 +515,7 @@ export class DatabaseWriter {
         }
         return;
       case "batch-failed": {
-        const batchFailure = rebuildError(reply.error);
+        const batchFailure = this.#reportFailure(rebuildError(reply.error));
         this.#finishBatch(batch, (entry) => {
           entry.reject(batchFailure);
         });

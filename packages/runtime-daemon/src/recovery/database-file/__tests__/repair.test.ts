@@ -1,11 +1,12 @@
-// The database file's repair at a start, on a real file with a damaged page: the damaged files
-// are copied aside byte for byte, the rows are recovered into a fresh file through the SQLite
+// The database file's repair at a start of the damage a run recorded, on a real file with a
+// damaged page: the damaged files are copied aside byte for byte, the rows are recovered into a fresh file through the SQLite
 // shell, a session the newest backup holds more events of takes them from it while a session the
 // file holds more of keeps its own, and the fresh file replaces the damaged one with every
 // projection cursor cleared. A backup that cannot be read is passed over, a file the recovery
 // cannot read stays untouched with one copy aside however often a start meets it, a replacement a
-// crash cut short is finished, and a sound file is left as it is. A replaced file takes the search
-// index built from it, a crash cut short included, and a sound file keeps its index.
+// crash cut short is finished, and a file with no damage recorded is left as it is. A replaced
+// file takes the search index built from it, a crash cut short included, and a file left as it is
+// keeps its index.
 
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -18,6 +19,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { BACKUP_MANIFEST_FILE_NAME } from "@ai-sidekicks/contracts/daemon/backup";
 
 import { openDatabase } from "../../../session/migration-runner.js";
+import { recordDatabaseDamage } from "../damage.js";
 import { repairDatabaseFile } from "../repair.js";
 
 const PAGE_SIZE = 4096;
@@ -85,7 +87,8 @@ async function writeBackup(name: string, takenAt: string, counts: Record<string,
   );
 }
 
-// Overwrites the first page of the session-event type index with bytes no page holds.
+// Overwrites the first page of the session-event type index with bytes no page holds, and records
+// the damage as a run that met it does.
 async function damageIndexPage(): Promise<void> {
   const database = new Database(databasePath, { readonly: true });
   const rootPage = database
@@ -101,10 +104,12 @@ async function damageIndexPage(): Promise<void> {
   const file = await readFile(databasePath);
   file.fill(0xa5, (rootPage - 1) * PAGE_SIZE, rootPage * PAGE_SIZE);
   await writeFile(databasePath, file);
+  await recordDatabaseDamage(databasePath, "an index page is damaged");
 }
 
 // Gives each event a snapshot row pointing at it, then overwrites one of the event table's leaf
-// pages, so the snapshots of the events on it point at rows the recovery cannot bring back.
+// pages, so the snapshots of the events on it point at rows the recovery cannot bring back, and
+// records the damage.
 async function damageEventPageUnderSnapshots(sessionId: string, count: number): Promise<void> {
   const database = openDatabase(databasePath);
   const insert = database.prepare(
@@ -128,6 +133,7 @@ async function damageEventPageUnderSnapshots(sessionId: string, count: number): 
   const file = await readFile(databasePath);
   file.fill(0xa5, (leafPage - 1) * PAGE_SIZE, leafPage * PAGE_SIZE);
   await writeFile(databasePath, file);
+  await recordDatabaseDamage(databasePath, "an event page is damaged");
 }
 
 function countRows(table: "session_snapshots"): number {
@@ -216,7 +222,7 @@ describe("the database file's repair", () => {
       BACKUP_MANIFEST_FILE_NAME,
     ]);
 
-    // A sound file is checked and left as it is, with its index.
+    // The replacement took the damage record, so the next start leaves the file as it is.
     await writeIndexFolder();
     await expect(repair()).resolves.toStrictEqual({ outcome: "intact" });
     expect(existsSync(indexFolderPath)).toBe(true);
@@ -255,6 +261,7 @@ describe("the database file's repair", () => {
     // A header no SQLite reads.
     file.fill(0xa5, 0, 100);
     await writeFile(databasePath, file);
+    await recordDatabaseDamage(databasePath, "file is not a database");
 
     const first = await repair();
     const second = await repair();

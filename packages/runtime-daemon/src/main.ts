@@ -150,5 +150,7 @@ void daemon.whenStopped().then((outcome) => {
       `The daemon's stop failed: ${failure instanceof Error ? failure.message : String(failure)}`,
     );
   }
-  process.exit(outcome.isClean ? 0 : 1);
+  // A stop for a damaged file exits as a failure, so whoever started the daemon starts it again
+  // and the start repairs the file.
+  process.exit(outcome.isClean && !outcome.isFileDamaged ? 0 : 1);
 });

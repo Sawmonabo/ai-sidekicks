@@ -247,6 +247,7 @@ describe("the recovery pass at a restart", () => {
       runs: fixture.runs,
       runEngine: fixture.restartEngine(),
       status,
+      reportStoreFailure: () => {},
       now: () => new Date(OCCURRED_AT),
       writeServiceLog: () => {},
     });
