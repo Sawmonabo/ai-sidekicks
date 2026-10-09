@@ -19,8 +19,8 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
-    // Required by the solution-file project-references graph in /tsconfig.json: `tsc -b` refuses a
-    // referenced project without `composite: true`, and every package tsconfig inherits this base.
+    // TypeScript requires `composite` on every referenced project: the root solution and the
+    // packages that reference each other (the desktop app's tsconfig among them) inherit it here.
     "composite": true
   }
 }
