@@ -19,6 +19,7 @@ import * as path from "node:path";
 import Database from "better-sqlite3";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 
+import { AgentIdSchema } from "@ai-sidekicks/contracts/agent/definition";
 import { DAEMON_DATA_FOLDER_NAME } from "@ai-sidekicks/contracts/daemon/data";
 import { EventEnvelopeVersionSchema } from "@ai-sidekicks/contracts/event/envelope";
 import {
@@ -274,6 +275,7 @@ describe("DaemonProcess.start", () => {
       runId,
       runVersion: 0,
       newState: "queued" as const,
+      agentId: AgentIdSchema.parse(randomUUID()),
     };
     await new SessionEventAppender(
       { sessionEvents },

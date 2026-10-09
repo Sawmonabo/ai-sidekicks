@@ -483,6 +483,7 @@ export const LONG_CONVERSATION_SCENARIO: Scenario = defineScenario(
               state: "active",
               shape: "project",
               muted: false,
+              pendingWorkingFolder: null,
               createdAt: STARTED_AT_ISO,
               updatedAt: newestBeatInstant(beats),
               draft: "",
