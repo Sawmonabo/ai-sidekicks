@@ -14,7 +14,7 @@ import {
   EventEnvelopeVersionSchema,
   type EventEnvelopeVersion,
 } from "@ai-sidekicks/contracts/event/envelope";
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { WorkflowDefinitionId } from "@ai-sidekicks/contracts/workflow/definition/document";
 import type { WorkflowRunDeletedPayload } from "@ai-sidekicks/contracts/workflow/run/control";

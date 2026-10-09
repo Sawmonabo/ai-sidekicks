@@ -5,7 +5,7 @@
 import { z } from "zod";
 
 import { FILE_PATH_MAX_LEN } from "../../free-form-string.js";
-import { jsonUtf8ByteLength } from "../../jsonrpc/message.js";
+import { jsonUtf8ByteLength } from "../../jsonrpc/byte-length.js";
 import { defineMethodDescriptors, type MethodDescriptor } from "../../method-descriptor.js";
 import { ProjectIdSchema, type ProjectId } from "../../project.js";
 import { SessionIdSchema, type SessionId } from "../../session/id.js";

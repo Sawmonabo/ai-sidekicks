@@ -10,13 +10,11 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts/error";
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts/session/event-cursor";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import type { EventCursor } from "@ai-sidekicks/contracts/session/id";
-import {
-  SESSION_SEARCH_CURSOR_UNRESOLVABLE_CODE,
-  type SessionSearchCursor,
-} from "@ai-sidekicks/contracts/session/methods";
+import { type SessionSearchCursor } from "@ai-sidekicks/contracts/session/methods";
+import { SESSION_SEARCH_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts/session/search";
 
 import { mapJsonRpcError } from "../../../../ipc/jsonrpc-error-mapping.js";
 import { openDatabase } from "../../../migration-runner.js";

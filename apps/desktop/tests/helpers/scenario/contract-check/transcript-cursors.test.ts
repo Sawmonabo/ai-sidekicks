@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { DaemonEvent, DaemonSubscribeParams } from "@ai-sidekicks/contracts/daemon/method-map";
-import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts/error";
+import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts/session/event-cursor";
 import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
 import type {
   SessionReadResponse,

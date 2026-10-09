@@ -5,7 +5,8 @@ import { describe, expect, it } from "vitest";
 import { refusesAt } from "../../__tests__/safe-parse.test-support.js";
 import { EVENT_FIELD_MAX_LEN } from "../../event/envelope.js";
 import { EVENT_CURSOR_MAX_LEN } from "../../session/id.js";
-import { MAX_MESSAGE_BYTES, jsonUtf8ByteLength } from "../../jsonrpc/message.js";
+import { MAX_MESSAGE_BYTES } from "../../jsonrpc/message.js";
+import { jsonUtf8ByteLength } from "../../jsonrpc/byte-length.js";
 import { ChildRunSummarySchema } from "../child-run-summary.js";
 import { PAGE_MAX_BYTES, countEntriesFittingOneFrame } from "../../jsonrpc/page.js";
 import {
@@ -13,11 +14,10 @@ import {
   REASONING_ENTRY_CONTENT_MAX_LEN,
   REASONING_SURFACE_ENTRIES_MAX,
   ReasoningSurfaceReadResponseSchema,
-  TRANSCRIPT_READ_LIMIT_MAX,
   TranscriptReadResponseSchema,
 } from "../operations.js";
+import { TRANSCRIPT_READ_LIMIT_MAX, TRANSCRIPT_EVENT_ROW_SUMMARY_MAX_LEN } from "../limits.js";
 import { TranscriptBodyReadResponseSchema } from "../content.js";
-import { TRANSCRIPT_EVENT_ROW_SUMMARY_MAX_LEN } from "../row.js";
 import { TranscriptSearchResponseSchema } from "../search.js";
 import {
   RUN_ID,

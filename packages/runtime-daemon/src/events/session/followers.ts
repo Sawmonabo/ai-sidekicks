@@ -20,11 +20,11 @@
 
 import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
 import type { SessionStreamChange } from "@ai-sidekicks/contracts/session/methods";
+import { type SessionId } from "@ai-sidekicks/contracts/session/id";
 import {
   START_OF_LOG_POSITION,
   encodeEventCursor,
-  type SessionId,
-} from "@ai-sidekicks/contracts/session/id";
+} from "@ai-sidekicks/contracts/session/event-cursor";
 import { canonicalizeUuid } from "@ai-sidekicks/contracts/uuid-canonical";
 
 import type { ServiceLogWriter } from "../../daemon/service-log.js";

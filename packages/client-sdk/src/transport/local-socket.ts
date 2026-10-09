@@ -6,7 +6,6 @@ import * as net from "node:net";
 
 import { encodeFrame, FrameAccumulator } from "@ai-sidekicks/contracts/content-length-framing";
 import {
-  JsonRpcErrorCode,
   JsonRpcServerMessageSchema,
   MAX_MESSAGE_BYTES,
   TRANSPORT_UNAVAILABLE_CODE,
@@ -16,6 +15,7 @@ import {
   type JsonRpcServerMessage,
   type TransportUnavailableReason,
 } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 
 import { JsonRpcTransportClosedError, type ClientTransport } from "./json-rpc.js";
 

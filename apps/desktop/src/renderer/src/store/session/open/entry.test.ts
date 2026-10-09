@@ -5,7 +5,8 @@
 // queued never reaches the replay. A replay that loses its stream goes on after the newest row it
 // folded. Every position the stream refused stays out of the next read's reach.
 
-import { encodeEventCursor, type EventCursor } from "@ai-sidekicks/contracts/session/id";
+import { type EventCursor } from "@ai-sidekicks/contracts/session/id";
+import { encodeEventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "#renderer/lib/clock.js";

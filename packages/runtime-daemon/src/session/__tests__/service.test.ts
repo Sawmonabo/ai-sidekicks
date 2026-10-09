@@ -15,11 +15,11 @@ import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { EventEnvelopeVersionSchema } from "@ai-sidekicks/contracts/event/envelope";
+import { type SessionId } from "@ai-sidekicks/contracts/session/id";
 import {
   encodeEventCursor,
   START_OF_LOG_POSITION,
-  type SessionId,
-} from "@ai-sidekicks/contracts/session/id";
+} from "@ai-sidekicks/contracts/session/event-cursor";
 
 import {
   closeDatabaseConnections,

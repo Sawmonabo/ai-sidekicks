@@ -7,7 +7,10 @@
 
 import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
 import { STREAM_FRAME_MAX_CHANGES } from "@ai-sidekicks/contracts/jsonrpc/streaming";
-import { encodeEventCursor, START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/id";
+import {
+  encodeEventCursor,
+  START_OF_LOG_POSITION,
+} from "@ai-sidekicks/contracts/session/event-cursor";
 import type { SessionStreamFrame } from "@ai-sidekicks/contracts/session/methods";
 import { beforeEach, describe, expect, it } from "vitest";
 

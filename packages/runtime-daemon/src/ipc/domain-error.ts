@@ -6,7 +6,7 @@
  * a bare `-32603` with no `data.type` is an unclassified daemon failure.
  */
 
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 
 /**
  * The JSON-RPC numeric a domain error may project to, bound to the canonical `JsonRpcErrorCode`

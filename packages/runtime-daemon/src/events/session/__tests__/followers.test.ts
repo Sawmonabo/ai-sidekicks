@@ -6,13 +6,15 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { EventCursorUnresolvableError } from "@ai-sidekicks/contracts/error";
+import {
+  EventCursorUnresolvableError,
+  START_OF_LOG_POSITION,
+  encodeEventCursor,
+} from "@ai-sidekicks/contracts/session/event-cursor";
 import { EventEnvelopeVersionSchema } from "@ai-sidekicks/contracts/event/envelope";
 import {
   EventCursorSchema,
   SessionIdSchema,
-  START_OF_LOG_POSITION,
-  encodeEventCursor,
   type SessionId,
 } from "@ai-sidekicks/contracts/session/id";
 

@@ -4,7 +4,10 @@
 // the transcript's empty state. Its one reply is `session.read`; a call it does not answer is
 // refused by name and each view renders that refusal where it happened.
 
-import { encodeEventCursor, START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/id";
+import {
+  encodeEventCursor,
+  START_OF_LOG_POSITION,
+} from "@ai-sidekicks/contracts/session/event-cursor";
 
 import type { Scenario } from "../scenario.js";
 

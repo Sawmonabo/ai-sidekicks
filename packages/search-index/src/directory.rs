@@ -287,6 +287,12 @@ pub struct ReadCache {
 struct CachedRanges {
     by_key: HashMap<RangeKey, OwnedBytes>,
     bytes: usize,
+    // The ranges the cap kept out, each counted once, so a measurement reads the search's whole
+    // working set.
+    #[cfg(all(test, feature = "measurements"))]
+    refused: std::collections::HashSet<RangeKey>,
+    #[cfg(all(test, feature = "measurements"))]
+    refused_bytes: usize,
 }
 
 thread_local! {
@@ -316,13 +322,23 @@ impl ReadCache {
         CURRENT_READ_CACHE.with(|current| {
             if let Some(cache) = current.borrow().as_ref() {
                 let mut ranges = cache.ranges.lock().unwrap_or_else(PoisonError::into_inner);
-                if ranges.bytes + bytes.len() <= READ_CACHE_BYTES_MAX
-                    && ranges.by_key.insert(key, bytes.clone()).is_none()
-                {
+                if ranges.bytes + bytes.len() > READ_CACHE_BYTES_MAX {
+                    #[cfg(all(test, feature = "measurements"))]
+                    if ranges.refused.insert(key) {
+                        ranges.refused_bytes += bytes.len();
+                    }
+                } else if ranges.by_key.insert(key, bytes.clone()).is_none() {
                     ranges.bytes += bytes.len();
                 }
             }
         });
+    }
+
+    /// The bytes the cache holds, and the bytes of the ranges its cap kept out.
+    #[cfg(all(test, feature = "measurements"))]
+    pub(crate) fn held_and_refused_bytes(&self) -> (usize, usize) {
+        let ranges = self.ranges.lock().unwrap_or_else(PoisonError::into_inner);
+        (ranges.bytes, ranges.refused_bytes)
     }
 }
 

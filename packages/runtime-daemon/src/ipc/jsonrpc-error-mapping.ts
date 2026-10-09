@@ -11,14 +11,15 @@
 
 import type {
   JsonRpcError,
-  JsonRpcErrorCodeValue,
   JsonRpcErrorData,
   JsonRpcErrorResponse,
   JsonRpcId,
 } from "@ai-sidekicks/contracts/jsonrpc/message";
-import { JSONRPC_VERSION, JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
+import type { JsonRpcErrorCodeValue } from "@ai-sidekicks/contracts/jsonrpc/error-code";
+import { JSONRPC_VERSION } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import { FramingError } from "@ai-sidekicks/contracts/content-length-framing";
-import { EventCursorUnresolvableError } from "@ai-sidekicks/contracts/error";
+import { EventCursorUnresolvableError } from "@ai-sidekicks/contracts/session/event-cursor";
 
 import { SecureDefaultsValidationError } from "../bootstrap/secure-defaults.js";
 import { DaemonDomainError } from "./domain-error.js";

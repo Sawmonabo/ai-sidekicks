@@ -3,7 +3,7 @@
  * names its subject and never embeds a path or credential.
  */
 
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import type { ExecutionMode } from "@ai-sidekicks/contracts/repo/mount";
 import { DaemonDomainError } from "../ipc/domain-error.js";
 

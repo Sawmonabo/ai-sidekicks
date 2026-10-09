@@ -40,7 +40,7 @@ import type { Handler, MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/re
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { DRIVER_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/provider/driver/methods";
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 
 import type { DriverCapabilityCache } from "../../../provider/capability/cache.js";
 import {

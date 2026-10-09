@@ -2,7 +2,7 @@
 // the page's hit limit and one message, and where the next page starts. A session whose hits
 // alone overflow a page fills the page by itself and the next page continues it.
 
-import { jsonUtf8ByteLength } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { jsonUtf8ByteLength } from "@ai-sidekicks/contracts/jsonrpc/byte-length";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { SessionSearchGroup, SessionSearchHit } from "@ai-sidekicks/contracts/session/methods";
 import { PAGE_MAX_BYTES, countEntriesFittingOneFrame } from "@ai-sidekicks/contracts/jsonrpc/page";

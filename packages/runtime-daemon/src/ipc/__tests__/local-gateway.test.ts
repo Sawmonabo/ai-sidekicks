@@ -14,9 +14,9 @@ import type { JsonRpcErrorResponse } from "@ai-sidekicks/contracts/jsonrpc/messa
 import {
   JSON_RPC_ID_MAX_BYTES,
   JSONRPC_VERSION,
-  JsonRpcErrorCode,
   MAX_MESSAGE_BYTES,
 } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import { encodeFrame } from "@ai-sidekicks/contracts/content-length-framing";
 import { DeviceIdSchema } from "@ai-sidekicks/contracts/trust-statement";
 

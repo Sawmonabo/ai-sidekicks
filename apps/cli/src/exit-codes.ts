@@ -6,7 +6,7 @@ import {
 import {
   JsonRpcErrorCode,
   type JsonRpcErrorCodeValue,
-} from "@ai-sidekicks/contracts/jsonrpc/message";
+} from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import { CommanderError } from "commander";
 
 /**

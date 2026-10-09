@@ -14,15 +14,8 @@ import {
 } from "../session/id.js";
 
 import { requireMemberToRideOneFrame } from "../jsonrpc/page.js";
-import { TRANSCRIPT_READ_LIMIT_MAX } from "./operations.js";
-import { TRANSCRIPT_EVENT_ROW_SUMMARY_MAX_LEN } from "./row.js";
+import { TRANSCRIPT_READ_LIMIT_MAX, TRANSCRIPT_SEARCH_TEXT_MAX_LEN } from "./limits.js";
 import { countSchema } from "../internal/wire-scalars.js";
-
-/**
- * The longest query, and the longest snippet a hit carries: each is one line of
- * a row's text, the same measure as a row's one-line summary.
- */
-export const TRANSCRIPT_SEARCH_TEXT_MAX_LEN: number = TRANSCRIPT_EVENT_ROW_SUMMARY_MAX_LEN;
 
 /**
  * Search one session. Hits come newest first; `beforeCursor` continues from the

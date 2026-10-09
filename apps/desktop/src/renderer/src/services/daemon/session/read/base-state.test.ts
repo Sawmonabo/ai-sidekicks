@@ -1,7 +1,10 @@
 // The base state a store opens on: the daemon's `session.read`, answered at the position the
 // opening picks, passing over a refused one, or refused.
 
-import { encodeEventCursor, START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/id";
+import {
+  encodeEventCursor,
+  START_OF_LOG_POSITION,
+} from "@ai-sidekicks/contracts/session/event-cursor";
 import type { SessionReadResponse } from "@ai-sidekicks/contracts/session/methods";
 import { describe, expect, it } from "vitest";
 

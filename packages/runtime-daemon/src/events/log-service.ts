@@ -19,14 +19,13 @@
 import type { Database } from "better-sqlite3";
 
 import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
+import { type EventCursor, type SessionId } from "@ai-sidekicks/contracts/session/id";
 import {
   START_OF_LOG_POSITION,
   decodeEventCursor,
   encodeEventCursor,
-  type EventCursor,
-  type SessionId,
-} from "@ai-sidekicks/contracts/session/id";
-import { EventCursorUnresolvableError } from "@ai-sidekicks/contracts/error";
+  EventCursorUnresolvableError,
+} from "@ai-sidekicks/contracts/session/event-cursor";
 
 import type { ServiceLogWriter } from "../daemon/service-log.js";
 import type { WriteStatement } from "../database/statement.js";

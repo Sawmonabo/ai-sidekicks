@@ -95,7 +95,13 @@ export async function openSearchServices(options: SearchServicesOptions): Promis
     index.setGroupMembers(outbox.readEveryGroupMembers());
     return {
       sessionSearch,
-      transcriptSearch: new TranscriptSearchService(reader, index, rows),
+      transcriptSearch: new TranscriptSearchService({
+        reader,
+        index,
+        rows,
+        floorLog,
+        appliedFloorPosition: () => applier.floorPosition(),
+      }),
       rebuildReason,
       applyWaiting: () => applier.applyWaiting(),
       mergeSegments: () => index.mergeSegments(),

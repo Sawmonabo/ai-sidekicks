@@ -17,7 +17,8 @@ import { DAEMON_SCOPE_SENTINEL_SESSION_ID } from "@ai-sidekicks/contracts/event/
 import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
 import { SessionEventSchema } from "@ai-sidekicks/contracts/event/session";
 import type { SessionEvent } from "@ai-sidekicks/contracts/event/variant-types";
-import { START_OF_LOG_POSITION, type SessionId } from "@ai-sidekicks/contracts/session/id";
+import { type SessionId } from "@ai-sidekicks/contracts/session/id";
+import { START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/event-cursor";
 
 import { DATABASE_NOW_SQL, type WriteStatement } from "../database/statement.js";
 import { WriteRefusedError, type DatabaseWriter } from "../database/writer.js";

@@ -4,7 +4,7 @@
 // thread also tells the main thread, unasked, when an index commit is durable, so the outbox rows
 // it holds are deleted, and when applying the outbox failed.
 
-import { EventCursorUnresolvableError } from "@ai-sidekicks/contracts/error";
+import { EventCursorUnresolvableError } from "@ai-sidekicks/contracts/session/event-cursor";
 import type {
   SessionSearchRequest,
   SessionSearchResponse,

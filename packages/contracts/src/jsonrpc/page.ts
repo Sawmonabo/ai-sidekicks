@@ -3,7 +3,7 @@
 // transport's message limit.
 import type { z } from "zod";
 
-import { jsonUtf8ByteLength } from "./message.js";
+import { jsonUtf8ByteLength } from "./byte-length.js";
 
 /**
  * The byte ceiling on a reply's one large member, measured as {@link jsonUtf8ByteLength} of that

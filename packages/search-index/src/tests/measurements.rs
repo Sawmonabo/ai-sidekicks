@@ -9,7 +9,8 @@
 //! - `steady_batches` applies small batches of new messages: each commit's time and the peak.
 //! - `searches` times the probe queries' first and next pages, prefixes of five or more
 //!   characters, tag searches with and without words and the find box on the largest session,
-//!   with the footprint before and after the run.
+//!   with the footprint before and after the run, and with positioned reads the bytes each
+//!   search's read cache holds after its two pages and the bytes its cap kept out.
 //! - `visibility` times a one-row `apply` until a search opened afterward finds the row.
 //! - `purge_and_merge` purges the largest session, times the counts a search reads after it, and
 //!   merges until the purge is expunged. It changes the index, so it runs last.
@@ -364,8 +365,8 @@ fn probes() -> Vec<Probe> {
 }
 
 // One search's first page and the page after it, each its sessions and their hits: the two pages'
-// times and how many sessions they showed.
-fn time_pages(engine: &IndexEngine, probe: &Probe) -> (f64, f64, usize) {
+// times, how many sessions they showed, and the bytes its read cache held and refused after them.
+fn time_pages(engine: &IndexEngine, probe: &Probe) -> (f64, f64, usize, (usize, usize)) {
     let started = Instant::now();
     let version = engine.current_version();
     let mut view = SearchView::open(version, probe.query.as_ref(), probe.tag_folds.clone())
@@ -384,6 +385,7 @@ fn time_pages(engine: &IndexEngine, probe: &Probe) -> (f64, f64, usize) {
         first_page,
         elapsed_milliseconds(started),
         first.len() + next.len(),
+        view.read_cache_bytes(),
     )
 }
 
@@ -404,17 +406,23 @@ fn searches() {
         time_pages(&engine, &probe);
         let (mut first, mut next) = (Vec::new(), Vec::new());
         let mut sessions = 0;
+        let mut read_cache = (0, 0);
         for _ in 0..settings.runs {
-            let (first_page, next_page, shown) = time_pages(&engine, &probe);
+            let (first_page, next_page, shown, cached) = time_pages(&engine, &probe);
             first.push(first_page);
             next.push(next_page);
             sessions = shown;
+            read_cache = cached;
         }
+        let (held, refused) = read_cache;
         report(format!(
-            "{}: first page {}; next page {}; {sessions} sessions on the two pages",
+            "{}: first page {}; next page {}; {sessions} sessions on the two pages; read cache \
+             {:.1} MiB held, {:.1} MiB kept out",
             probe.name,
             percentiles(first),
             percentiles(next),
+            held as f64 / MEBIBYTE,
+            refused as f64 / MEBIBYTE,
         ));
     }
     let lo = query(&["lo"], false);
@@ -498,7 +506,7 @@ fn purge_and_merge() {
         SearchView::open(engine.current_version(), lo.query.as_ref(), Vec::new())
             .expect("the search opens");
         let counting = elapsed_milliseconds(started);
-        let (first_page, _, _) = time_pages(&engine, &lo);
+        let (first_page, _, _, _) = time_pages(&engine, &lo);
         report(format!(
             "{when}: counting \"{}\" {counting:.2} ms, first page {first_page:.2} ms, {}",
             lo.name,

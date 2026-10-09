@@ -6,12 +6,11 @@
 
 import type { Database } from "better-sqlite3";
 
+import { type EventCursor, type SessionId } from "@ai-sidekicks/contracts/session/id";
 import {
   START_OF_LOG_POSITION,
   encodeEventCursor,
-  type EventCursor,
-  type SessionId,
-} from "@ai-sidekicks/contracts/session/id";
+} from "@ai-sidekicks/contracts/session/event-cursor";
 
 import { indexKeyOf } from "../index/columns.js";
 import {

@@ -5,12 +5,12 @@
 import type { AgentId } from "@ai-sidekicks/contracts/agent/definition";
 import {
   JSONRPC_VERSION,
-  JsonRpcErrorCode,
   type JsonRpcError,
   type JsonRpcNotification,
   type JsonRpcRequest,
   type JsonRpcServerMessage,
 } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import type { SessionEvent } from "@ai-sidekicks/contracts/event/variant-types";
 import type { SessionShape } from "@ai-sidekicks/contracts/session/methods";
 import type { SessionId, UserId } from "@ai-sidekicks/contracts/session/id";

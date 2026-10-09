@@ -4,7 +4,10 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { encodeEventCursor, START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/id";
+import {
+  encodeEventCursor,
+  START_OF_LOG_POSITION,
+} from "@ai-sidekicks/contracts/session/event-cursor";
 
 import {
   openScratchDatabase,

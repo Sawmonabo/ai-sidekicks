@@ -17,7 +17,7 @@ import {
   TRANSCRIPT_READ_METHOD,
   TRANSCRIPT_REASONING_SURFACE_READ_METHOD,
 } from "@ai-sidekicks/contracts/transcript/methods";
-import { TRANSCRIPT_READ_LIMIT_MAX } from "@ai-sidekicks/contracts/transcript/operations";
+import { TRANSCRIPT_READ_LIMIT_MAX } from "@ai-sidekicks/contracts/transcript/limits";
 
 // Imported through the barrel, the surface callers bind transcript methods from.
 import { registerTranscriptMethod } from "../index.js";

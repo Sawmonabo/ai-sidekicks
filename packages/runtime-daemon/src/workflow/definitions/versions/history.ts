@@ -3,7 +3,7 @@
 import type { Statement } from "better-sqlite3";
 
 import type { AgentId } from "@ai-sidekicks/contracts/agent/definition";
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import type {
   WorkflowDefinitionId,
   WorkflowDocumentHashedBody,

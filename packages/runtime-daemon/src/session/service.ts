@@ -7,11 +7,11 @@
 import type { Database, Statement } from "better-sqlite3";
 
 import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
+import { type SessionId } from "@ai-sidekicks/contracts/session/id";
 import {
   encodeEventCursor,
   START_OF_LOG_POSITION,
-  type SessionId,
-} from "@ai-sidekicks/contracts/session/id";
+} from "@ai-sidekicks/contracts/session/event-cursor";
 import type {
   SessionReadRequest,
   SessionReadResponse,

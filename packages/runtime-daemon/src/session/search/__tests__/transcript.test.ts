@@ -2,13 +2,15 @@
 // row, every page counting every match in the session, which is the sum of the marks its hits
 // carry; a damaged session is searched and counted before its last good point alone; a row whose
 // payload damage left unreadable is never indexed, and a range its session skipped past as damaged
-// leaves the index, whether the index applies the skip or is built again.
+// leaves the index, whether the index applies the skip or is built again; and a deleted row whose
+// rowid another session's row takes before the index applies either is no hit, so every page stays
+// in the session's own log.
 
 import { rm } from "node:fs/promises";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { encodeEventCursor } from "@ai-sidekicks/contracts/session/id";
+import { encodeEventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import {
   TranscriptSearchResponseSchema,
   type TranscriptSearchHit,
@@ -140,6 +142,54 @@ describe("transcript.search", () => {
     const lastPage = searchBeforeDamage(1);
     expect(lastPage).toMatchObject({ matchCount: 1 + 2, hasMore: false });
     expect(lastPage.hits.map((hit) => hit.rowId)).toEqual([rowIds[0]]);
+  });
+
+  it("keeps every page in the session's own log once a deleted row's rowid is taken", async () => {
+    const { database } = fixture;
+    const sessionId = sessionIdOf(1);
+    const otherSessionId = sessionIdOf(2);
+    insertSession(database, sessionId);
+    insertSession(database, otherSessionId);
+    const rowIds = [0, 1, 2, 3].map((sequence) =>
+      insertEvent(database, {
+        sessionId,
+        sequence,
+        type: "user.message",
+        message: `retry ${String(sequence)}`,
+      }),
+    );
+    await fixture.settle();
+    // The session's newest row goes, and the other session's next row takes its rowid, before the
+    // index applies either.
+    const rowidOf = (eventId: string | undefined): unknown =>
+      database.prepare("SELECT rowid FROM session_events WHERE id = ?").pluck().get(eventId);
+    const deletedRowid = rowidOf(rowIds[3]);
+    database.prepare("DELETE FROM session_events WHERE id = ?").run(rowIds[3]);
+    const otherRowId = insertEvent(database, {
+      sessionId: otherSessionId,
+      sequence: 0,
+      type: "user.message",
+      message: "retry elsewhere",
+    });
+    expect(rowidOf(otherRowId)).toBe(deletedRowid);
+    const { transcriptSearch } = fixture.services();
+
+    let page = transcriptSearch.search({ sessionId, query: "retry", limit: 1 });
+    const pages = [page];
+    while (page.hasMore) {
+      page = transcriptSearch.search({
+        sessionId,
+        query: "retry",
+        limit: 1,
+        beforeCursor: page.nextCursor,
+      });
+      pages.push(page);
+    }
+
+    expect(pages.flatMap(({ hits }) => hits.map((hit) => hit.rowId))).toEqual(
+      rowIds.slice(0, 3).toReversed(),
+    );
+    expect(pages.map(({ matchCount }) => matchCount)).toEqual([3, 3, 3]);
   });
 
   it("never counts an unreadable row or a skipped range, applied or built again", async () => {

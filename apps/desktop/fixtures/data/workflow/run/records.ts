@@ -12,7 +12,8 @@ import type {
 import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 import type { QuestionId } from "@ai-sidekicks/contracts/question";
 import type { ProcessExit } from "@ai-sidekicks/contracts/run/control";
-import { encodeEventCursor, type SessionId } from "@ai-sidekicks/contracts/session/id";
+import { type SessionId } from "@ai-sidekicks/contracts/session/id";
+import { encodeEventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import type {
   WorkflowDefinitionId,
   WorkflowDocument,

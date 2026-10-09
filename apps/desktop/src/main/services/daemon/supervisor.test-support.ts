@@ -9,11 +9,8 @@ import {
   type DaemonConnection as DaemonClientConnection,
   type DaemonConnectionObserver,
 } from "@ai-sidekicks/client-sdk";
-import {
-  JSONRPC_VERSION,
-  JsonRpcErrorCode,
-  type JsonRpcRequest,
-} from "@ai-sidekicks/contracts/jsonrpc/message";
+import { JSONRPC_VERSION, type JsonRpcRequest } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import {
   CURRENT_PROTOCOL_VERSION,
   NEGOTIATION_VERSION_MISMATCH_CODE,

@@ -37,7 +37,10 @@
 // Beside the session's own read it answers the MCP servers and Providers settings pages, whose
 // reads belong to the machine rather than the session.
 
-import { encodeEventCursor, START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/id";
+import {
+  encodeEventCursor,
+  START_OF_LOG_POSITION,
+} from "@ai-sidekicks/contracts/session/event-cursor";
 
 import {
   composeScenarioInstant,

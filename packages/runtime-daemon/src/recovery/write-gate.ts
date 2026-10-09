@@ -10,7 +10,7 @@ import {
   DAEMON_WRITE_REFUSED_CODE,
   type DaemonWriteRefusedDetails,
 } from "@ai-sidekicks/contracts/daemon/recovery";
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import { SESSION_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/session/methods";
 import { SessionIdSchema, type SessionId } from "@ai-sidekicks/contracts/session/id";

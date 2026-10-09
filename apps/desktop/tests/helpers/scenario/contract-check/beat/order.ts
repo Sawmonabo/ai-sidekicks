@@ -1,7 +1,7 @@
 // Where a beat sits: in the tick order the clock reaches it in, and in the log position the store
 // reads it at.
 
-import { START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/id";
+import { START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/event-cursor";
 
 import type { ScenarioContractDefect } from "../defect.js";
 import type { Scenario } from "#fixtures/scenario.js";

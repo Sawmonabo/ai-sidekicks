@@ -29,7 +29,10 @@
 //   - A machine body. `assistant.*` and `tool.*` payloads describe their body and never carry
 //     it; the body is stored in `content_payload`.
 
-import { encodeEventCursor, START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/id";
+import {
+  encodeEventCursor,
+  START_OF_LOG_POSITION,
+} from "@ai-sidekicks/contracts/session/event-cursor";
 
 import {
   composeScenarioInstant,

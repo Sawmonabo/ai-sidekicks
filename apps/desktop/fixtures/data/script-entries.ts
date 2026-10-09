@@ -18,7 +18,7 @@
 
 import type { AgentListEntry } from "@ai-sidekicks/contracts/agent/methods";
 import type { RunCompletionKind } from "@ai-sidekicks/contracts/run/control";
-import { encodeEventCursor } from "@ai-sidekicks/contracts/session/id";
+import { encodeEventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 
 import type { ScenarioBeat } from "../scenario.js";
 

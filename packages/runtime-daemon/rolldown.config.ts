@@ -86,6 +86,9 @@ const config: RolldownOptions = {
       groups: [
         {
           debugName: "modules that read their own location",
+          // Each such chunk holds its module alone, so an entry that shares one of its imports,
+          // as a worker shares a module with the code that starts it, loads only that import.
+          includeDependenciesRecursively: false,
           name: (moduleId) => {
             // An id is the module's absolute path, written with the platform's separators or not.
             const modulePath = path.resolve(moduleId);

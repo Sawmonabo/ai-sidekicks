@@ -9,7 +9,7 @@ import {
   type AgentResolvedConfiguration,
 } from "../../../agent/definition.js";
 import { uuidTextFormSchema } from "../../../internal/branded.js";
-import { jsonUtf8ByteLength } from "../../../jsonrpc/message.js";
+import { jsonUtf8ByteLength } from "../../../jsonrpc/byte-length.js";
 import { QuestionIdSchema, type QuestionId } from "../../../question.js";
 import { ProcessExitSchema, type ProcessExit } from "../../../run/control.js";
 import { UsdMicrosSchema } from "../../../session/cost.js";

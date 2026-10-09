@@ -4,13 +4,13 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { SessionReadRequest } from "@ai-sidekicks/contracts/session/methods";
+import { type SessionId } from "@ai-sidekicks/contracts/session/id";
 import {
   encodeEventCursor,
   START_OF_LOG_POSITION,
-  type SessionId,
-} from "@ai-sidekicks/contracts/session/id";
+} from "@ai-sidekicks/contracts/session/event-cursor";
 import type { HandlerContext } from "@ai-sidekicks/contracts/jsonrpc/registry";
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import { SessionReadResponseSchema } from "@ai-sidekicks/contracts/session/methods";
 
 import { mapJsonRpcError } from "../../../jsonrpc-error-mapping.js";

@@ -11,11 +11,11 @@ import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 
 import {
-  JsonRpcErrorCode,
   MAX_MESSAGE_BYTES,
-  jsonUtf8ByteLength,
   type JsonRpcNotification,
 } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
+import { jsonUtf8ByteLength } from "@ai-sidekicks/contracts/jsonrpc/byte-length";
 import {
   SUBSCRIPTION_END_METHOD,
   SUBSCRIPTION_NOTIFY_METHOD,

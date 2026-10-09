@@ -15,6 +15,7 @@ import {
 } from "../session/id.js";
 
 import { refuseSelfParentingRun } from "./child-run-summary.js";
+import { TRANSCRIPT_READ_LIMIT_MAX } from "./limits.js";
 import { TranscriptEventRowSchema, type TranscriptEventRow } from "./row.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 
@@ -46,13 +47,6 @@ const requireNondecreasingSequence = (
 };
 
 // transcript.read
-
-/**
- * Ceiling on a single `transcript.read` window, matching the package's other capped-count wire
- * members. It is a count ceiling, not a size one: `PAGE_MAX_BYTES` typically
- * trips first, since this many worst-case rows do not fit one frame.
- */
-export const TRANSCRIPT_READ_LIMIT_MAX = 256;
 
 /**
  * A bounded read window over one session's transcript. `afterCursor` and `beforeCursor` are

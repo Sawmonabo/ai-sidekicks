@@ -44,7 +44,7 @@
 // Reading a frame is `services/daemon/session/event/payload.ts`. The four reads the endurance
 // tier makes (`diagnostics-handle.ts`) are composed here and handed out as `diagnostics`.
 
-import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts/error";
+import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts/session/event-cursor";
 import type { EventCursor } from "@ai-sidekicks/contracts/session/id";
 import type { TranscriptWindowReading } from "#renderer/lib/transcript-window-diagnostics.js";
 import { describeSubscriptionEnd, type DaemonSubscriptionEnd } from "#shared/daemon/forwarding.js";

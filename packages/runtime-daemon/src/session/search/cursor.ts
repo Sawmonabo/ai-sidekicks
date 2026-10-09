@@ -2,12 +2,9 @@
 // search's later pages read what its first page held, so a cursor names that search by its id and
 // a place in its order of sessions; a cursor of a search no longer held continues nothing.
 
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
-import {
-  SESSION_SEARCH_CURSOR_UNRESOLVABLE_CODE,
-  SessionSearchCursorSchema,
-  type SessionSearchCursor,
-} from "@ai-sidekicks/contracts/session/methods";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
+import type { SessionSearchCursor } from "@ai-sidekicks/contracts/session/methods";
+import { SESSION_SEARCH_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts/session/search";
 
 import { DaemonDomainError } from "../../ipc/domain-error.js";
 
@@ -37,9 +34,8 @@ export function encodeSearchCursor(
   position: SearchPagePosition,
 ): SessionSearchCursor {
   const afterHitKey = position.afterHitKey === undefined ? "" : `:${String(position.afterHitKey)}`;
-  return SessionSearchCursorSchema.parse(
-    `${snapshotId}:${String(position.sessionIndex)}${afterHitKey}`,
-  );
+  // A snapshot id and two safe integers run to at most 70 characters, inside the cursor's bound.
+  return `${snapshotId}:${String(position.sessionIndex)}${afterHitKey}` as SessionSearchCursor;
 }
 
 /**

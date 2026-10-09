@@ -23,6 +23,11 @@ import {
 } from "./convert.js";
 import { EventCursorSchema, SessionIdSchema, type EventCursor, type SessionId } from "./id.js";
 import { SESSION_NAME_MAX_LEN } from "./name.js";
+import {
+  SESSION_SEARCH_HIT_LINE_MAX_LEN,
+  SESSION_SEARCH_PAGE_LIMIT_MAX,
+  SESSION_SEARCH_QUERY_MAX_LEN,
+} from "./search.js";
 
 /** Where a session is in its lifecycle. */
 export type SessionState = "provisioning" | "active" | "archived" | "closed" | "purge_requested";
@@ -230,15 +235,6 @@ export const SessionRenameResponseSchema: z.ZodType<SessionRenameResponse> = z
   })
   .strict();
 
-/** The longest query `session.search` and `session.fileSearch` accept. */
-export const SESSION_SEARCH_QUERY_MAX_LEN = 256;
-
-/** The most hits one `session.search` page carries, across all its sessions. */
-export const SESSION_SEARCH_PAGE_LIMIT_MAX = 256;
-
-/** The longest line a `session.search` hit carries: the stretch of a message around its matches. */
-export const SESSION_SEARCH_HIT_LINE_MAX_LEN = 4096;
-
 // The longest `session.search` cursor accepted; a guard against pathological lengths.
 const SESSION_SEARCH_CURSOR_MAX_LEN = 256;
 
@@ -257,13 +253,6 @@ export const SessionSearchCursorSchema: z.ZodType<SessionSearchCursor, SessionSe
   .min(1)
   .max(SESSION_SEARCH_CURSOR_MAX_LEN)
   .brand<"SessionSearchCursor">() as unknown as z.ZodType<SessionSearchCursor, SessionSearchCursor>;
-
-/**
- * A `session.search` cursor the daemon did not write, one written for another kind of query, or
- * one whose search the daemon no longer holds.
- */
-export const SESSION_SEARCH_CURSOR_UNRESOLVABLE_CODE =
-  "session.search_cursor_unresolvable" as const;
 
 /**
  * The `session.search` input: the text typed in the search box and, past the first page, the

@@ -2,7 +2,7 @@
 // resumes from when it has acknowledged nothing.
 import { describe, expect, it } from "vitest";
 
-import { encodeEventCursor, START_OF_LOG_POSITION } from "../id.js";
+import { encodeEventCursor, START_OF_LOG_POSITION } from "../event-cursor.js";
 import { SessionReadResponseSchema } from "../methods.js";
 
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";

@@ -2,53 +2,73 @@
 // whether or not a screen has loaded it. Hits come newest first, one per row, and the match count
 // covers every match in the session, counted as the lines are marked, so a find box's count speaks
 // for all of it. A hit's line is read from the database by its key and marked on its text there;
-// a row gone since the index saw it is passed over.
+// a row gone since the index saw it is passed over, and so is a key whose rowid a later row may
+// have taken since, which the rowid floor log names until the index has caught up.
 
 import type { Database, Statement } from "better-sqlite3";
 
-import { decodeEventCursor, encodeEventCursor } from "@ai-sidekicks/contracts/session/id";
 import { countEntriesFittingOneFrame } from "@ai-sidekicks/contracts/jsonrpc/page";
-import { TRANSCRIPT_READ_LIMIT_MAX } from "@ai-sidekicks/contracts/transcript/operations";
+import { decodeEventCursor, encodeEventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import {
+  TRANSCRIPT_READ_LIMIT_MAX,
   TRANSCRIPT_SEARCH_TEXT_MAX_LEN,
-  type TranscriptSearchHit,
-  type TranscriptSearchRequest,
-  type TranscriptSearchResponse,
+} from "@ai-sidekicks/contracts/transcript/limits";
+import type {
+  TranscriptSearchHit,
+  TranscriptSearchRequest,
+  TranscriptSearchResponse,
 } from "@ai-sidekicks/contracts/transcript/search";
-import type { SearchIndex } from "@ai-sidekicks/search-index";
+import type { SearchIndex, SearchQuery, SessionFind } from "@ai-sidekicks/search-index";
 
 import { sessionNotFound } from "../not-found.js";
 import { HitLineReader } from "./hits.js";
 import { indexKeyOf } from "./index/columns.js";
 import type { IndexRowReader } from "./index/rows.js";
 import { parseFindQuery } from "./query.js";
+import type { RowidFloorLog } from "./rowid-floors.js";
 
 const SESSION_KEY_SQL = "SELECT rowid FROM sessions WHERE id = ?";
 
-// The session's newest log row before a position. A session's rows are appended at its next
-// sequence, each above every rowid then held, so within a session rowid order is the log's order.
+// The rowid of the session's newest log row before a position: one entry of the session's
+// sequence index. A deleted row's rowid can come back on a later row, but a new row is appended at
+// its session's next sequence with a rowid above every rowid then held, so within a session the
+// rows held keep rowid order and log order alike, and that row's rowid is the highest before it.
 const LAST_ROWID_BEFORE_SQL = `
-  SELECT max(rowid) FROM session_events WHERE session_id = ? AND sequence < ?`;
+  SELECT rowid FROM session_events WHERE session_id = ? AND sequence < ?
+   ORDER BY sequence DESC LIMIT 1`;
+
+/** What `transcript.search` reads: the daemon's read connection and the search index. */
+export interface TranscriptSearchServiceDeps {
+  readonly reader: Database;
+  readonly index: Pick<SearchIndex, "findInSession" | "markMatches">;
+  readonly rows: IndexRowReader;
+  readonly floorLog: RowidFloorLog;
+  /**
+   * Where the rowid floor log stood when the index last matched the database; a search checks its
+   * rows from there.
+   */
+  readonly appliedFloorPosition: () => number;
+}
 
 /** Answers `transcript.search` from the search index and the daemon's read connection. */
 export class TranscriptSearchService {
   readonly #reader: Database;
   readonly #index: Pick<SearchIndex, "findInSession">;
+  readonly #floorLog: RowidFloorLog;
+  readonly #appliedFloorPosition: () => number;
   readonly #hitLines: HitLineReader;
   readonly #sessionKey: Statement<[string], number>;
-  readonly #lastRowidBefore: Statement<[string, number], number | null>;
+  readonly #lastRowidBefore: Statement<[string, number], number>;
 
-  constructor(
-    reader: Database,
-    index: Pick<SearchIndex, "findInSession" | "markMatches">,
-    rows: IndexRowReader,
-  ) {
-    this.#reader = reader;
-    this.#index = index;
-    this.#hitLines = new HitLineReader(rows, index, TRANSCRIPT_SEARCH_TEXT_MAX_LEN);
-    this.#sessionKey = reader.prepare<[string], number>(SESSION_KEY_SQL).pluck();
-    this.#lastRowidBefore = reader
-      .prepare<[string, number], number | null>(LAST_ROWID_BEFORE_SQL)
+  constructor(deps: TranscriptSearchServiceDeps) {
+    this.#reader = deps.reader;
+    this.#index = deps.index;
+    this.#floorLog = deps.floorLog;
+    this.#appliedFloorPosition = deps.appliedFloorPosition;
+    this.#hitLines = new HitLineReader(deps.rows, deps.index, TRANSCRIPT_SEARCH_TEXT_MAX_LEN);
+    this.#sessionKey = deps.reader.prepare<[string], number>(SESSION_KEY_SQL).pluck();
+    this.#lastRowidBefore = deps.reader
+      .prepare<[string, number], number>(LAST_ROWID_BEFORE_SQL)
       .pluck();
   }
 
@@ -77,7 +97,7 @@ export class TranscriptSearchService {
     if (searchQuery === undefined) {
       return { matchCount: 0, hits: [], hasMore: false };
     }
-    const { rowKeys, matchCounts } = this.#index.findInSession(sessionKey, searchQuery);
+    const { rowKeys, matchCounts } = this.#heldMatches(sessionKey, searchQuery);
     const placeBefore = (sequence: number | undefined): number =>
       sequence === undefined
         ? 0
@@ -112,10 +132,26 @@ export class TranscriptSearchService {
       : { matchCount, hits, hasMore: false };
   }
 
+  // The session's hits, highest key first, and each one's match count, without a key whose rowid
+  // a later row may have taken since the index last matched the database: that row can be another
+  // session's, and its position would start the next page in another session's log.
+  #heldMatches(sessionKey: number, searchQuery: SearchQuery): SessionFind {
+    const isHeldRow = this.#floorLog.heldRowCheck(this.#appliedFloorPosition());
+    const found = this.#index.findInSession(sessionKey, searchQuery);
+    const held: SessionFind = { rowKeys: [], matchCounts: [] };
+    found.rowKeys.forEach((key, place) => {
+      if (isHeldRow(key)) {
+        held.rowKeys.push(key);
+        held.matchCounts.push(found.matchCounts[place] ?? 0);
+      }
+    });
+    return held;
+  }
+
   // The highest key a row of the session before `beforeSequence` can have; -1 when it has none.
   #highestKeyBefore(sessionId: string, beforeSequence: number): number {
-    const rowid = this.#lastRowidBefore.get(sessionId, beforeSequence) ?? null;
-    return rowid === null ? -1 : indexKeyOf(rowid, "event");
+    const rowid = this.#lastRowidBefore.get(sessionId, beforeSequence);
+    return rowid === undefined ? -1 : indexKeyOf(rowid, "event");
   }
 }
 

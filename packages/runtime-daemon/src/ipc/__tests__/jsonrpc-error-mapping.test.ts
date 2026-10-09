@@ -4,9 +4,9 @@
 
 import { describe, expect, it } from "vitest";
 
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import { encodeFrame } from "@ai-sidekicks/contracts/content-length-framing";
-import { EventCursorUnresolvableError } from "@ai-sidekicks/contracts/error";
+import { EventCursorUnresolvableError } from "@ai-sidekicks/contracts/session/event-cursor";
 
 import { SecureDefaultsValidationError } from "../../bootstrap/secure-defaults.js";
 import { DaemonDomainError } from "../domain-error.js";

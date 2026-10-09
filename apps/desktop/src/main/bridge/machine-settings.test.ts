@@ -4,7 +4,8 @@
 
 import { setImmediate } from "node:timers/promises";
 
-import { JsonRpcErrorCode, type JsonRpcError } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { type JsonRpcError } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import {
   DAEMON_ENVIRONMENT_NAME_REFUSED_CODE,
   environmentNameRefusal,

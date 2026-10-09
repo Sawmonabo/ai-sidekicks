@@ -15,7 +15,7 @@ import type {
   DriverCapabilities,
   DriverCapabilityFlag,
 } from "@ai-sidekicks/contracts/provider/driver/capabilities";
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
 import { DaemonDomainError } from "../../ipc/domain-error.js";

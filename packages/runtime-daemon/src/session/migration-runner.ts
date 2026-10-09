@@ -4,7 +4,7 @@
 import Database from "better-sqlite3";
 import type { Database as DatabaseType } from "better-sqlite3";
 
-import { PAGE_CACHE_SIZE_PRAGMA, prepareOrClose } from "../database/connections.js";
+import { PAGE_CACHE_SIZE_PRAGMA, prepareOrClose } from "../database/handle.js";
 import { DAEMON_SCHEMA_SQL } from "./daemon-schema.js";
 
 /**

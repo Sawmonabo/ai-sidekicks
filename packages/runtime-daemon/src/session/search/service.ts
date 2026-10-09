@@ -14,19 +14,21 @@
 
 import type { Database, Statement } from "better-sqlite3";
 
+import { type SessionId } from "@ai-sidekicks/contracts/session/id";
 import {
   START_OF_LOG_POSITION,
   encodeEventCursor,
-  type SessionId,
-} from "@ai-sidekicks/contracts/session/id";
+} from "@ai-sidekicks/contracts/session/event-cursor";
 import {
-  SESSION_SEARCH_HIT_LINE_MAX_LEN,
-  SESSION_SEARCH_PAGE_LIMIT_MAX,
   type SessionSearchCursor,
   type SessionSearchHit,
   type SessionSearchRequest,
   type SessionSearchResponse,
 } from "@ai-sidekicks/contracts/session/methods";
+import {
+  SESSION_SEARCH_HIT_LINE_MAX_LEN,
+  SESSION_SEARCH_PAGE_LIMIT_MAX,
+} from "@ai-sidekicks/contracts/session/search";
 import type { SearchIndex } from "@ai-sidekicks/search-index";
 
 import {

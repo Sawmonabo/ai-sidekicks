@@ -141,6 +141,12 @@ impl SearchView {
             }
         }
     }
+
+    /// The bytes this search's read cache holds, and the bytes of the ranges its cap kept out.
+    #[cfg(all(test, feature = "measurements"))]
+    pub(crate) fn read_cache_bytes(&self) -> (usize, usize) {
+        self.read_cache.held_and_refused_bytes()
+    }
 }
 
 fn hits_in_order(scored: &ScoredSessions, sessions: &[u64]) -> Vec<Vec<u64>> {

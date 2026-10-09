@@ -4,7 +4,7 @@
 // stop at its last good point, where every read of it stops.
 
 import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
-import { decodeEventCursor } from "@ai-sidekicks/contracts/session/id";
+import { decodeEventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import {
   SESSION_METHOD_DESCRIPTORS,
   type SessionSearchGroup,

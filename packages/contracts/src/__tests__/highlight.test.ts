@@ -10,7 +10,7 @@ import {
   HighlightReadRequestSchema,
   HighlightReadResponseSchema,
 } from "../highlight.js";
-import { jsonUtf8ByteLength } from "../jsonrpc/message.js";
+import { jsonUtf8ByteLength } from "../jsonrpc/byte-length.js";
 
 describe("highlight.read request", () => {
   it("accepts a known language and its source", () => {

@@ -1,5 +1,5 @@
 import { JsonRpcRemoteError } from "@ai-sidekicks/client-sdk";
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import { describe, expect, it } from "vitest";
 
 import { exitCodeForFailure } from "./exit-codes.js";

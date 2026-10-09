@@ -14,7 +14,7 @@ import {
   type MachineSettingsReading,
   type MachineSettingsSubscribeRequest,
 } from "@ai-sidekicks/contracts/machine-settings";
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import type { Handler, MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import type { SubscribeAckResponse } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 

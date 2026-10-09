@@ -6,7 +6,10 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { START_OF_LOG_POSITION, encodeEventCursor } from "@ai-sidekicks/contracts/session/id";
+import {
+  START_OF_LOG_POSITION,
+  encodeEventCursor,
+} from "@ai-sidekicks/contracts/session/event-cursor";
 import type { SessionSearchHit } from "@ai-sidekicks/contracts/session/methods";
 
 import { insertSession, insertTag, sessionIdOf } from "../__fixtures__/index-rows.js";

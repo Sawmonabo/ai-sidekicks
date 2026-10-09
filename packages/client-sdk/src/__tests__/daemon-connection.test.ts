@@ -20,11 +20,11 @@ import {
 } from "@ai-sidekicks/contracts/daemon/run-folder";
 import {
   JSONRPC_VERSION,
-  JsonRpcErrorCode,
   MAX_MESSAGE_BYTES,
   type JsonRpcErrorResponse,
   type JsonRpcRequest,
 } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import {
   CURRENT_PROTOCOL_VERSION,
   SUPPORTED_PROTOCOL_VERSIONS,

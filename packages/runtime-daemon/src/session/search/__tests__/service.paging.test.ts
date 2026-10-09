@@ -7,16 +7,16 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { jsonUtf8ByteLength } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { jsonUtf8ByteLength } from "@ai-sidekicks/contracts/jsonrpc/byte-length";
 import { PAGE_MAX_BYTES } from "@ai-sidekicks/contracts/jsonrpc/page";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import {
-  SESSION_SEARCH_CURSOR_UNRESOLVABLE_CODE,
   SessionSearchResponseSchema,
   type SessionSearchCursor,
   type SessionSearchGroup,
   type SessionSearchRequest,
 } from "@ai-sidekicks/contracts/session/methods";
+import { SESSION_SEARCH_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts/session/search";
 
 import { DaemonDomainError } from "../../../ipc/domain-error.js";
 import {

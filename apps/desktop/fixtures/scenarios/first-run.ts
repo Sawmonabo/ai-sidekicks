@@ -10,7 +10,10 @@
 // wire contract: ids are UUIDs, and `session.created` carries the session's shape and its
 // lead, not a title, which its `.strict()` schema rejects.
 
-import { encodeEventCursor, START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/id";
+import {
+  encodeEventCursor,
+  START_OF_LOG_POSITION,
+} from "@ai-sidekicks/contracts/session/event-cursor";
 
 import { composeSessionCreatedPayload } from "../data/opening-entries.js";
 import {

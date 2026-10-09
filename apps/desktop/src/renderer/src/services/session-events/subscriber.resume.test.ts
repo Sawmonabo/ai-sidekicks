@@ -4,9 +4,9 @@
 // the real fixture bridge playing the concurrent-streaming scenario, whose whole-session stream
 // catches up past a cursor as the daemon does.
 
-import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts/error";
+import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts/session/event-cursor";
 import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import type { SessionStreamFrame } from "@ai-sidekicks/contracts/session/methods";
 import { beforeEach, describe, expect, it } from "vitest";
 

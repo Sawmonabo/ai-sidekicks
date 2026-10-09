@@ -11,13 +11,15 @@ import {
   CONTENT_LENGTH_PAYLOAD_KEY,
   CONTENT_TRUNCATED_PAYLOAD_KEY,
 } from "@ai-sidekicks/contracts/event/declared-variants";
-import { EventCursorUnresolvableError } from "@ai-sidekicks/contracts/error";
+import {
+  EventCursorUnresolvableError,
+  encodeEventCursor,
+} from "@ai-sidekicks/contracts/session/event-cursor";
 import { EventEnvelopeVersionSchema } from "@ai-sidekicks/contracts/event/envelope";
 import { RunIdSchema, type RunId } from "@ai-sidekicks/contracts/run/id";
 import {
   EventCursorSchema,
   SessionIdSchema,
-  encodeEventCursor,
   type EventCursor,
   type SessionId,
 } from "@ai-sidekicks/contracts/session/id";

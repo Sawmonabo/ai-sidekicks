@@ -12,7 +12,7 @@ import { parentPort, workerData, type MessagePort } from "node:worker_threads";
 import type { Database as DatabaseType } from "better-sqlite3";
 
 import { withCleanupFailures } from "../../../cleanup-failures.js";
-import { openDatabaseReader } from "../../../database/connections.js";
+import { openDatabaseReader } from "../../../database/handle.js";
 import {
   carrySearchError,
   type SearchThreadAnswer,
