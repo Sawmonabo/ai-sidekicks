@@ -212,8 +212,8 @@ describe("one provider's import", () => {
       }),
     );
     const line =
-      "Imported 125 of 128 sessions from Claude Code · 34 already here · 1 failed · " +
-      "2 files could not be read.";
+      "Imported 125 of 128 sessions from Claude Code · 34 already here · " +
+      "2 files could not be read · 1 failed.";
     const row = screen.getByRole("button", { name: line });
     expect(screen.queryByText("truncated", { exact: false })).toBeNull();
     fireEvent.click(row);

@@ -20,7 +20,7 @@ import { KeyboardPage } from "./KeyboardPage.js";
  * Registered on the real registry, which the page reads by name.
  */
 const TEST_COMMAND_IDS = [
-  "frame.goToSessions",
+  "frame.toggleSessionsList",
   "frame.goToWorkflows",
   "bridge.checkForUpdates",
 ] as const;
@@ -77,9 +77,9 @@ export async function recordChordOnto(
 beforeEach(() => {
   commandRegistry.registerAll([
     {
-      id: "frame.goToSessions",
-      title: "Sessions",
-      group: "App",
+      id: "frame.toggleSessionsList",
+      title: "Sessions list",
+      group: "Sessions",
       run: () => undefined,
     },
     {

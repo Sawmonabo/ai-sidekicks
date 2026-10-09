@@ -1,6 +1,6 @@
-// A settled import's line drawn in Chromium: the failed tally in the failure red and the unreadable
-// tally in the attention amber, while the service's own counts before them keep the line's ink,
-// the negative control for a line drawn in one hue as a whole.
+// A settled import's line drawn in Chromium: already here receding, the unreadable tally in the
+// attention amber and the failed tally in the failure red, while the imported counts keep the
+// line's own muted ink, the negative control for a line drawn in one hue as a whole.
 
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, expect, it } from "vitest";
@@ -15,20 +15,11 @@ import type { ProviderImportModel } from "#renderer/features/settings/pages/prov
 import { ImportProgressLine } from "#renderer/features/settings/pages/providers/import/panel/ImportProgressLine.js";
 
 import "#renderer/features/settings/pages/providers/import/panel/ProviderImportPanel.css";
+import { computedTokenColor } from "#test/helpers/token-color.js";
 
 afterEach(() => {
   cleanup();
 });
-
-/** The color `token` resolves to, as the browser reports a computed color. */
-function tokenColor(token: string): string {
-  const probe = document.createElement("span");
-  probe.style.color = `var(--meridian-${token})`;
-  document.body.append(probe);
-  const color = getComputedStyle(probe).color;
-  probe.remove();
-  return color;
-}
 
 /** A settled import that failed one conversation and could not read two files. */
 function settledModel(): ProviderImportModel {
@@ -62,7 +53,7 @@ function settledModel(): ProviderImportModel {
   };
 }
 
-it("draws the failed tally red and the unreadable tally amber, the counts before them plain", () => {
+it("draws already here faint, the unreadable tally amber and the failed tally red", () => {
   installMeridianTokens(document);
   const { container } = render(<ImportProgressLine model={settledModel()} />, {
     wrapper: LiveAnnouncerProvider,
@@ -76,8 +67,8 @@ it("draws the failed tally red and the unreadable tally amber, the counts before
     return getComputedStyle(span).color;
   };
 
-  expect(colorOf(" · 1 failed")).toBe(tokenColor("red-text"));
-  expect(colorOf(" · 2 files could not be read.")).toBe(tokenColor("amber-text"));
-  expect(colorOf("34")).not.toBe(tokenColor("red-text"));
-  expect(colorOf("34")).not.toBe(tokenColor("amber-text"));
+  expect(colorOf(" · 34 already here")).toBe(computedTokenColor("text-faint"));
+  expect(colorOf(" · 2 files could not be read")).toBe(computedTokenColor("amber-text"));
+  expect(colorOf(" · 1 failed.")).toBe(computedTokenColor("red-text"));
+  expect(colorOf("125")).toBe(computedTokenColor("text-muted"));
 });

@@ -10,20 +10,11 @@ import {
   NavigationRail,
   RAIL_ENTRY_TEMPLATES,
 } from "#renderer/layout/NavigationRail/NavigationRail.js";
+import { computedTokenColor } from "#test/helpers/token-color.js";
 
 afterEach(() => {
   cleanup();
 });
-
-/** The color `token` resolves to, as the browser reports a computed color. */
-function tokenColor(token: string): string {
-  const probe = document.createElement("span");
-  probe.style.color = `var(--meridian-${token})`;
-  document.body.append(probe);
-  const color = getComputedStyle(probe).color;
-  probe.remove();
-  return color;
-}
 
 it("draws the pip as the amber wash in an amber outline, its count in amber text", () => {
   installMeridianTokens(document);
@@ -52,11 +43,11 @@ it("draws the pip as the amber wash in an amber outline, its count in amber text
   }
 
   const pipStyle = getComputedStyle(pip);
-  expect(pipStyle.backgroundColor).toBe(tokenColor("amber-ground"));
+  expect(pipStyle.backgroundColor).toBe(computedTokenColor("amber-ground"));
   expect(pipStyle.borderTopStyle).toBe("solid");
-  expect(pipStyle.borderTopColor).toBe(tokenColor("amber-mark"));
+  expect(pipStyle.borderTopColor).toBe(computedTokenColor("amber-mark"));
   const figureStyle = getComputedStyle(figure);
   expect(figure.textContent).toBe("5");
-  expect(figureStyle.color).toBe(tokenColor("amber-text"));
+  expect(figureStyle.color).toBe(computedTokenColor("amber-text"));
   expect(figureStyle.fontWeight).toBe("400");
 });

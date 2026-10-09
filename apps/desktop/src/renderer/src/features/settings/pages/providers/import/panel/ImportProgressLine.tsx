@@ -4,9 +4,9 @@
 // but measures nothing; once it ends the row says how it ended, and where conversations failed
 // or files could not be read, pressing the row unfolds them. The counts read, imported, total and
 // already here, and the names of attached projects, are the service's own and drawn as wire
-// figures; the failed and unreadable counts are the row's own tallies of the lists the service
-// sent, and their clauses draw in the failure red and the attention amber. A filled bar or
-// percentage would invent a denominator nobody sent.
+// figures; the unreadable and failed counts are the row's own tallies of the lists the service
+// sent. Already here recedes, and the unreadable and failed clauses draw in the attention amber
+// and the failure red. A filled bar or percentage would invent a denominator nobody sent.
 
 import { Collapsible } from "@base-ui/react/collapsible";
 import { useMemo } from "react";
@@ -204,13 +204,14 @@ function SettledLine(props: {
 /** One stretch of the settled line, drawn in the hue its tone names where it has one. */
 interface SettledClause {
   readonly parts: readonly FigureSentencePart[];
-  readonly tone?: "failure" | "attention";
+  readonly tone?: "quiet" | "attention" | "failure";
 }
 
 /** The class each toned clause wears. */
 const SETTLED_CLAUSE_TONE_CLASSES: Readonly<Record<NonNullable<SettledClause["tone"]>, string>> = {
-  failure: "meridian-provider-import__clause--failure",
+  quiet: "meridian-provider-import__clause--quiet",
   attention: "meridian-provider-import__clause--attention",
+  failure: "meridian-provider-import__clause--failure",
 };
 
 /**
@@ -236,10 +237,12 @@ function settledClauses(
     { parts: head },
     ...(settlement.alreadyHere === 0
       ? []
-      : [{ parts: [{ wire: formatCount(settlement.alreadyHere) }, " already here"] }]),
-    ...(failureCount === 0
-      ? []
-      : [{ parts: [`${formatCount(failureCount)} failed`], tone: "failure" as const }]),
+      : [
+          {
+            parts: [{ wire: formatCount(settlement.alreadyHere) }, " already here"],
+            tone: "quiet" as const,
+          },
+        ]),
     ...(unreadableCount === 0
       ? []
       : [
@@ -251,6 +254,9 @@ function settledClauses(
             tone: "attention" as const,
           },
         ]),
+    ...(failureCount === 0
+      ? []
+      : [{ parts: [`${formatCount(failureCount)} failed`], tone: "failure" as const }]),
     ...(attachedProjects.length === 0
       ? []
       : [

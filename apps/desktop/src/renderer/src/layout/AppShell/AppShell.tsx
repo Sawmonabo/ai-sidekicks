@@ -24,7 +24,7 @@ import {
   warmDestination,
 } from "../NavigationRail/destinations.js";
 import { RAIL_CONTROL_LABELS } from "../NavigationRail/control-labels.js";
-import { RAIL_ENTRY_TEMPLATES } from "../NavigationRail/NavigationRail.js";
+import { SESSIONS_LIST_COMMAND } from "../NavigationRail/commands.js";
 import { AppFrame } from "./AppFrame.js";
 import { useRailChords } from "./hooks/useRailChords.js";
 
@@ -105,7 +105,7 @@ export function AppShell(props: AppShellProps): React.JSX.Element {
       sessionsTrack={
         // Each list's mount point, which its body fills.
         sessionsTrackList === "sessions" ? (
-          <section id={sessionsListId} aria-label={RAIL_ENTRY_TEMPLATES.sessions.label} />
+          <section id={sessionsListId} aria-label={SESSIONS_LIST_COMMAND.title} />
         ) : sessionsTrackList === "notifications" ? (
           <section id={notificationsListId} aria-label={RAIL_CONTROL_LABELS.notifications} />
         ) : undefined

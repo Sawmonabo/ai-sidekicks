@@ -56,7 +56,7 @@ it("draws Next waiting (2) as one run of text, the count against its parenthesis
         pauseAct={{ kind: "idle" }}
         onSetPaused={() => undefined}
       />
-      {/* The split label the button once drew, in the same treatment. */}
+      {/* The same label split into words and a figure, in the same treatment. */}
       <button
         type="button"
         className="meridian-action-button meridian-action-button--small meridian-action-button--outline"

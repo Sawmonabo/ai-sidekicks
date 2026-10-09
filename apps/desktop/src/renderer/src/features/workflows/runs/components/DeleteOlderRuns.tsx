@@ -9,7 +9,6 @@ import {
   type DeleteOlderThanDays,
 } from "../hooks/useDeleteOlderRuns.js";
 import { runCountWords } from "../../words.js";
-import { FigureSentence } from "#renderer/components/FigureSentence/FigureSentence.js";
 import { joinFigureSentence } from "#renderer/lib/figure-sentence.js";
 import { ActionButton } from "../../components/ActionButton.js";
 import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
@@ -31,7 +30,11 @@ export function DeleteOlderRuns(props: { readonly bridge: PlatformBridge }): Rea
       return (
         <span className="meridian-workflows-delete-older">
           <ActionButton onClick={act.open}>Delete runs older than…</ActionButton>
-          <DeletedLine deletedCount={state.deletedCount} />
+          <AnnouncedLine
+            element="span"
+            words={`${runWords(state.deletedCount)} deleted · runs marked Keep stayed`}
+            politeness="polite"
+          />
         </span>
       );
     case "open": {
@@ -40,13 +43,8 @@ export function DeleteOlderRuns(props: { readonly bridge: PlatformBridge }): Rea
         <DeleteOlderChoice days={state.days} onChoose={act.choose} onCancel={act.close}>
           {deleteCount === undefined ? null : (
             <span>
-              <FigureSentence
-                parts={[
-                  ...runCountWords(deleteCount, "wire"),
-                  " would go. A run marked Keep stays, and a run waiting on a person is never " +
-                    "touched.",
-                ]}
-              />
+              {`${runWords(deleteCount)} would go. A run marked Keep stays, and a run waiting on ` +
+                "a person is never touched."}
             </span>
           )}
           {state.refusal === undefined ? null : (
@@ -58,19 +56,7 @@ export function DeleteOlderRuns(props: { readonly bridge: PlatformBridge }): Rea
             disabled={deleteCount === undefined || deleteCount === 0 || state.isDeleting}
             onClick={act.confirm}
           >
-            {/* One text run, so the button's gap never stands in for a space. Until the preview is
-                read, a plain zero stands in for the daemon's count. */}
-            <span>
-              <FigureSentence
-                parts={[
-                  "Delete ",
-                  ...runCountWords(
-                    deleteCount ?? 0,
-                    deleteCount === undefined ? undefined : "wire",
-                  ),
-                ]}
-              />
-            </span>
+            {`Delete ${runWords(deleteCount ?? 0)}`}
           </ActionButton>
         </DeleteOlderChoice>
       );
@@ -130,15 +116,6 @@ function DeleteOlderChoice(props: {
   );
 }
 
-/** The receipt a served delete leaves, with the daemon's count of the runs it deleted. */
-function DeletedLine(props: { readonly deletedCount: number }): React.JSX.Element {
-  const parts = [
-    ...runCountWords(props.deletedCount, "wire"),
-    " deleted · runs marked Keep stayed",
-  ];
-  return (
-    <AnnouncedLine element="span" words={joinFigureSentence(parts)} politeness="polite">
-      <FigureSentence parts={parts} />
-    </AnnouncedLine>
-  );
+function runWords(count: number): string {
+  return joinFigureSentence(runCountWords(count));
 }

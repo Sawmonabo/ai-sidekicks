@@ -231,7 +231,7 @@ function edgeClassName(isFlowing: boolean, isDisabled: boolean): string | undefi
 // and a screen reader reads as the count's description. A figure, so it takes no Tab stop.
 function edgeCountLabel(count: number): React.ReactNode {
   return createElement(HoverLabel, {
-    text: joinFigureSentence(itemCountWords(count)),
+    text: joinFigureSentence(itemCountWords(count, "wire")),
     textRole: "description",
     children: createElement("tspan", null, formatCompactCount(count)),
   });

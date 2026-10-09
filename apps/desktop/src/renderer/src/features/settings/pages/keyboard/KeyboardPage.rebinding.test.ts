@@ -44,26 +44,26 @@ describe("keyboard page — what it changes", () => {
       expect(keybindingOverrides.overrides["bridge.checkForUpdates"]).toBe("Alt+KeyJ");
     });
 
-    await recordChordOnto(container, "Sessions", RECORDED_PRESS);
+    await recordChordOnto(container, "Sessions list", RECORDED_PRESS);
 
     await waitFor(() => {
-      expect(rowOf(container, "Sessions").textContent ?? "").toContain(
+      expect(rowOf(container, "Sessions list").textContent ?? "").toContain(
         "already opens Check for updates.",
       );
     });
     // Refused before anything moved.
-    expect(keybindingOverrides.overrides["frame.goToSessions"]).toBeUndefined();
+    expect(keybindingOverrides.overrides["frame.toggleSessionsList"]).toBeUndefined();
   });
 
   it("resets a row back to the chord the app ships, and announces that once", async () => {
     // The override is put on the seam directly so the reset is the only act performed and the
     // only thing spoken; the announcer's standing-message queue is its own contract.
-    await keybindingOverrides.bind("frame.goToSessions", "Alt+KeyJ");
+    await keybindingOverrides.bind("frame.toggleSessionsList", "Alt+KeyJ");
     const { container } = renderKeyboardPage();
-    expect(keybindingOverrides.overrides["frame.goToSessions"]).toBe("Alt+KeyJ");
+    expect(keybindingOverrides.overrides["frame.toggleSessionsList"]).toBe("Alt+KeyJ");
 
-    const reset = within(rowOf(container, "Sessions")).queryByRole("button", {
-      name: (name) => name.startsWith("Reset Sessions to "),
+    const reset = within(rowOf(container, "Sessions list")).queryByRole("button", {
+      name: (name) => name.startsWith("Reset Sessions list to "),
     });
     expect(reset).not.toBeNull();
     await act(async () => {
@@ -72,7 +72,7 @@ describe("keyboard page — what it changes", () => {
     });
 
     await waitFor(() => {
-      expect(keybindingOverrides.overrides["frame.goToSessions"]).toBeUndefined();
+      expect(keybindingOverrides.overrides["frame.toggleSessionsList"]).toBeUndefined();
     });
     expect(politeText(container)).toContain("back to the chord the app ships");
   });

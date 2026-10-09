@@ -1,7 +1,8 @@
 // The sessions list's chord and button, proved by driving the composed window in Chromium, where
 // the sessions track animates: the platform modifier and B shows the sessions list beside the rail
-// and hides it again, as a press on the Sessions button does, and neither leaves the screen the
-// window is on. The screen staying put is the negative control for a chord that navigates.
+// and hides it again, as a press on the Sessions button does, from a text field too, and neither
+// leaves the screen the window is on. The screen staying put is the negative control for a chord
+// that navigates.
 
 import { act, cleanup, fireEvent } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -16,10 +17,10 @@ const WORKFLOWS_HASH = "#/workflows";
  * Press the platform modifier and B. Both modifiers are dispatched and exactly one can match,
  * since tinykeys resolves `$mod` to `Meta` on a Mac user agent and `Control` elsewhere.
  */
-async function pressSessionsListChord(ownerWindow: Window): Promise<void> {
+async function pressSessionsListChord(target: Window | Element): Promise<void> {
   await act(async () => {
-    fireEvent.keyDown(ownerWindow, { key: "b", code: "KeyB", ctrlKey: true });
-    fireEvent.keyDown(ownerWindow, { key: "b", code: "KeyB", metaKey: true });
+    fireEvent.keyDown(target, { key: "b", code: "KeyB", ctrlKey: true });
+    fireEvent.keyDown(target, { key: "b", code: "KeyB", metaKey: true });
     await crossMacrotaskBoundary();
   });
 }
@@ -62,7 +63,7 @@ describe("the sessions list", () => {
     expect(button.getAttribute("aria-label")).toMatch(/^Sessions .*B$/u);
 
     await pressSessionsListChord(mounted.ownerWindow);
-    expect(trackListName(mounted)).toBe("Sessions");
+    expect(trackListName(mounted)).toBe("Sessions list");
     expect(button.getAttribute("aria-expanded")).toBe("true");
     expect(button.getAttribute("aria-controls")).toBe(
       mounted.ownerWindow.document.querySelector(".meridian-frame__sessions-track section")?.id,
@@ -84,5 +85,15 @@ describe("the sessions list", () => {
     await pressSessionsListChord(mounted.ownerWindow);
     expect(button.getAttribute("aria-expanded")).toBe("false");
     expect(mounted.ownerWindow.location.hash).toBe(WORKFLOWS_HASH);
+
+    // Typing in a field keeps the chord, and what was typed stays where it was.
+    const field = mounted.ownerWindow.document.createElement("textarea");
+    mounted.ownerWindow.document.body.append(field);
+    field.value = "half a sentence";
+    field.focus();
+    await pressSessionsListChord(field);
+    field.remove();
+    expect(button.getAttribute("aria-expanded")).toBe("true");
+    expect(field.value).toBe("half a sentence");
   });
 });

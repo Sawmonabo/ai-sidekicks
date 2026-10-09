@@ -51,13 +51,18 @@
   align-items: baseline;
 }
 
-/* A settled import's failed clause, and its clause of files that could not be read. */
-.meridian-provider-import__clause--failure {
-  color: var(--meridian-red-text);
+/* A settled import's clauses: already here recedes, files that could not be read are amber and
+ * failed conversations red. */
+.meridian-provider-import__clause--quiet {
+  color: var(--meridian-text-faint);
 }
 
 .meridian-provider-import__clause--attention {
   color: var(--meridian-amber-text);
+}
+
+.meridian-provider-import__clause--failure {
+  color: var(--meridian-red-text);
 }
 
 /* The bar under a running import, on a line of its own. It sweeps rather than fills, since the

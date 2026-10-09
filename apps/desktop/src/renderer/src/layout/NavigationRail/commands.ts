@@ -70,10 +70,15 @@ export const SESSIONS_LIST_COMMAND = {
 /**
  * The rail's chords: the sessions list's, then the destinations' that hold one, in rail order.
  *
- * None fires in a text input: navigating away mid-sentence loses what was typed.
+ * The sessions list's fires in a text input too, since it leaves the screen and what was typed
+ * where they are. No destination's does: navigating away mid-sentence loses what was typed.
  */
 export const RAIL_KEYBINDINGS: readonly FrameKeybinding[] = [
-  { chord: SESSIONS_LIST_COMMAND.chord, commandId: SESSIONS_LIST_COMMAND.commandId },
+  {
+    chord: SESSIONS_LIST_COMMAND.chord,
+    commandId: SESSIONS_LIST_COMMAND.commandId,
+    allowInTextInput: true,
+  },
   ...RAIL_DESTINATIONS.flatMap((destination) => {
     const { chord, commandId } = RAIL_NAVIGATION_DETAILS[destination];
     return chord === undefined ? [] : [{ chord, commandId }];

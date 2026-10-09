@@ -27,6 +27,7 @@ import { APPEARANCE_THEMES, THEME_PALETTES, type AppearanceTheme } from "#shared
 import { contrastRatio, formatOklch, type SrgbColor } from "#shared/color.js";
 import { tokenVariableName } from "#shared/token-variable.js";
 import { clearMediaEmulation, emulateSystemScheme } from "#test/helpers/media-emulation.js";
+import { computedTokenColor } from "#test/helpers/token-color.js";
 
 /** One rendering: a theme in one scheme. */
 interface Rendering {
@@ -84,11 +85,7 @@ function applyRendering(rendering: Rendering): void {
 
 /** The color Chromium paints for a token now, read back from a pixel it drew. */
 function readPaintedColor(tokenName: string): SrgbColor {
-  const probe = document.createElement("span");
-  probe.style.color = tokenReference(tokenName);
-  document.body.append(probe);
-  const computedColor = getComputedStyle(probe).color;
-  probe.remove();
+  const computedColor = computedTokenColor(tokenName);
   const canvas = document.createElement("canvas");
   canvas.width = 1;
   canvas.height = 1;
