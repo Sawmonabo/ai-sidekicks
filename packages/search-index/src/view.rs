@@ -13,8 +13,9 @@ use crate::phrase::query_phrases;
 use crate::tags::TaggedSessions;
 use crate::version::IndexVersion;
 
-/// How many sessions the first pruned ranking holds; a later page past them doubles it.
-const FIRST_TOP_SESSIONS: usize = 32;
+/// How many sessions the first pruned ranking holds: as many as a first page of hits spans when
+/// each session shows one, so that page ranks once. A later page past them doubles it.
+const FIRST_TOP_SESSIONS: usize = 256;
 
 /// One search over one version of the index; every page of it reads that version.
 pub struct SearchView {

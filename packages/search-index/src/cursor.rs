@@ -20,33 +20,67 @@ pub enum CursorPurpose {
     Mark,
 }
 
+/// How many rows a cursor will be asked for: every row it holds, walked, or at most this many,
+/// each sought.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RowsAsked {
+    Every,
+    AtMost(u64),
+}
+
+impl RowsAsked {
+    fn at_most(self, rows: u64) -> RowsAsked {
+        match self {
+            RowsAsked::Every => RowsAsked::AtMost(rows),
+            RowsAsked::AtMost(asked) => RowsAsked::AtMost(asked.min(rows)),
+        }
+    }
+}
+
 /// Opens `phrase`'s cursor in `segment`, or `None` when no row of the segment can match it.
 pub fn open_phrase_cursor(
     segment: &SegmentReader,
     fields: &IndexFields,
     phrase: &Phrase,
     purpose: CursorPurpose,
+    asked: RowsAsked,
 ) -> tantivy::Result<Option<PhraseCursor>> {
     if let [part] = phrase.parts.as_slice() {
         let token = match (purpose, phrase.single_term(fields)) {
             (CursorPurpose::Score, Some(term)) => {
                 term_cursor(segment, &term, IndexRecordOption::WithFreqs)?
             }
-            (CursorPurpose::Score, None) => summed_cursor(segment, fields.text, part)?,
-            (CursorPurpose::Mark, _) => text_cursor(
+            (CursorPurpose::Score, None) => prefix_cursor(
                 segment,
-                fields,
+                fields.text,
                 part,
-                phrase.ends_in_prefix,
-                IndexRecordOption::WithFreqsAndPositions,
+                IndexRecordOption::WithFreqs,
+                asked,
             )?,
+            (CursorPurpose::Mark, _) => {
+                text_cursor(segment, fields, part, phrase.ends_in_prefix, asked)?
+            }
         };
         return Ok(token.map(PhraseCursor::Token));
     }
+    // The phrase's rows are at most its rarest whole token's, so a prefix part that does not lead
+    // is sought at no more rows than those.
+    let mut whole_rows = u64::MAX;
+    for index in (0..phrase.parts.len()).filter(|index| !phrase.is_prefix_part(*index)) {
+        let term = Term::from_field_text(fields.text, &phrase.parts[index]);
+        whole_rows = whole_rows.min(u64::from(
+            segment.inverted_index(fields.text)?.doc_freq(&term)?,
+        ));
+    }
     let mut parts = Vec::with_capacity(phrase.parts.len());
     for (index, part) in phrase.parts.iter().enumerate() {
-        let record = IndexRecordOption::WithFreqsAndPositions;
-        match text_cursor(segment, fields, part, phrase.is_prefix_part(index), record)? {
+        let is_prefix = phrase.is_prefix_part(index);
+        let part_asked = if is_prefix {
+            asked.at_most(whole_rows)
+        } else {
+            asked
+        };
+        match text_cursor(segment, fields, part, is_prefix, part_asked)? {
             Some(cursor) => parts.push(cursor),
             None => return Ok(None),
         }
@@ -61,10 +95,11 @@ pub fn open_cursors(
     fields: &IndexFields,
     phrases: &[Phrase],
     purpose: CursorPurpose,
+    asked: RowsAsked,
 ) -> tantivy::Result<Option<Vec<PhraseCursor>>> {
     let mut cursors = Vec::with_capacity(phrases.len());
     for phrase in phrases {
-        match open_phrase_cursor(segment, fields, phrase, purpose)? {
+        match open_phrase_cursor(segment, fields, phrase, purpose, asked)? {
             Some(cursor) => cursors.push(cursor),
             None => return Ok(None),
         }
@@ -84,79 +119,85 @@ pub fn term_cursor(
         .map(|postings| TokenCursor::Term(Box::new(postings))))
 }
 
-// A whole word's text term, or every text term a prefix begins, merged.
+// A token's rows with its positions: a whole word's text term, or the text terms a prefix begins.
 fn text_cursor(
     segment: &SegmentReader,
     fields: &IndexFields,
     token: &str,
     is_prefix: bool,
-    record: IndexRecordOption,
+    asked: RowsAsked,
 ) -> tantivy::Result<Option<TokenCursor>> {
+    let record = IndexRecordOption::WithFreqsAndPositions;
     if !is_prefix {
         return term_cursor(segment, &Term::from_field_text(fields.text, token), record);
     }
-    let inverted = segment.inverted_index(fields.text)?;
-    let mut postings = Vec::new();
-    for term_info in prefix_term_infos(segment, fields.text, token)? {
-        postings.push(inverted.read_postings_from_terminfo(&term_info, record)?);
-    }
-    Ok(match postings.len() {
-        0 => None,
-        1 => postings
-            .pop()
-            .map(|postings| TokenCursor::Term(Box::new(postings))),
-        _ => Some(TokenCursor::Union(UnionCursor::new(postings))),
-    })
+    prefix_cursor(segment, fields.text, token, record, asked)
 }
 
-/// Below one posting in this many rows of a segment, a long prefix's postings are sorted rather
-/// than summed into an array as long as the segment.
+/// Below one posting in this many rows of a segment, a prefix's summed postings are sorted rather
+/// than added into an array as long as the segment.
 const SPARSE_POSTINGS_PER_ROW: u64 = 128;
 
-// A prefix longer than every prefix field, for scoring: each word it begins read whole, a block of
-// rows at a time, its counts summed per row, so the prefix's count in a row is a lookup. Every
-// word's rows are read once, where merging them a row at a time costs a heap step or a refilled
-// window per row asked.
-fn summed_cursor(
+// Every text term `prefix` begins, as one token, its counts in a row summed over its words, read
+// the cheaper of two ways for the rows `asked`. Sought at few rows, each word's postings are sought
+// to each row, merged. Walked, or sought at more rows than seeking every word there costs against
+// reading them whole, each word is read whole, a block of rows at a time, and its counts summed
+// per row, so the prefix's count in a row is a lookup: every word's rows are read once, where
+// merging them costs a heap step per row. When `record` asks for positions, each summed row also
+// keeps which words it holds, and a row's positions are read from those words only when asked.
+fn prefix_cursor(
     segment: &SegmentReader,
     text: Field,
     prefix: &str,
+    record: IndexRecordOption,
+    asked: RowsAsked,
 ) -> tantivy::Result<Option<TokenCursor>> {
     let term_infos = prefix_term_infos(segment, text, prefix)?;
-    if term_infos.is_empty() {
-        return Ok(None);
-    }
     let inverted = segment.inverted_index(text)?;
     let postings: u64 = term_infos
         .iter()
         .map(|term_info| u64::from(term_info.doc_freq))
         .sum();
-    let summed = if postings * SPARSE_POSTINGS_PER_ROW < u64::from(segment.max_doc()) {
-        let mut pairs = Vec::with_capacity(postings as usize);
-        for_each_posting(&inverted, &term_infos, |doc, frequency| {
-            pairs.push((doc, frequency));
+    let words = term_infos.len() as u64;
+    let is_sought = match asked {
+        RowsAsked::Every => false,
+        RowsAsked::AtMost(rows) => rows.saturating_mul(words) < postings,
+    };
+    if words <= 1 || is_sought {
+        let mut word_postings = Vec::with_capacity(term_infos.len());
+        for term_info in &term_infos {
+            word_postings.push(inverted.read_postings_from_terminfo(term_info, record)?);
+        }
+        return Ok(match word_postings.len() {
+            0 => None,
+            1 => word_postings
+                .pop()
+                .map(|postings| TokenCursor::Term(Box::new(postings))),
+            _ => Some(TokenCursor::Union(UnionCursor::new(word_postings))),
+        });
+    }
+    let summed = if record.has_positions()
+        || postings * SPARSE_POSTINGS_PER_ROW < u64::from(segment.max_doc())
+    {
+        let mut entries = Vec::with_capacity(postings as usize);
+        for_each_posting(&inverted, &term_infos, |word, doc, frequency| {
+            entries.push((doc, word, frequency));
         })?;
-        pairs.sort_unstable_by_key(|(doc, _)| *doc);
-        let mut rows: Vec<DocId> = Vec::with_capacity(pairs.len());
-        let mut counts: Vec<u32> = Vec::with_capacity(pairs.len());
-        for (doc, frequency) in pairs {
-            match (rows.last(), counts.last_mut()) {
-                (Some(last), Some(count)) if *last == doc => *count += frequency,
-                _ => {
-                    rows.push(doc);
-                    counts.push(frequency);
-                }
+        entries.sort_unstable();
+        let words = if record.has_positions() {
+            let mut postings = Vec::with_capacity(term_infos.len());
+            for term_info in &term_infos {
+                postings.push(inverted.read_postings_from_terminfo(term_info, record)?);
             }
-        }
-        SummedRows::Sparse {
-            rows,
-            counts,
-            place: 0,
-        }
+            Some(postings)
+        } else {
+            None
+        };
+        SummedRows::listed(entries, words)
     } else {
         let mut counts = vec![0u32; segment.max_doc() as usize];
         let mut rows = BitSet::with_max_value(segment.max_doc());
-        for_each_posting(&inverted, &term_infos, |doc, frequency| {
+        for_each_posting(&inverted, &term_infos, |_, doc, frequency| {
             counts[doc as usize] += frequency;
             rows.insert(doc);
         })?;
@@ -168,12 +209,12 @@ fn summed_cursor(
     Ok(Some(TokenCursor::Summed(Box::new(summed))))
 }
 
-// Hands `visit` each row and count of every term in `term_infos`, a term at a time, through one
-// block reader reset to each term in turn.
+// Hands `visit` each word's place in `term_infos`, and each of its rows with its count, a term at a
+// time, through one block reader reset to each term in turn.
 fn for_each_posting(
     inverted: &InvertedIndexReader,
     term_infos: &[TermInfo],
-    mut visit: impl FnMut(DocId, u32),
+    mut visit: impl FnMut(u32, DocId, u32),
 ) -> tantivy::Result<()> {
     let Some((first, rest)) = term_infos.split_first() else {
         return Ok(());
@@ -181,16 +222,18 @@ fn for_each_posting(
     let mut block =
         inverted.read_block_postings_from_terminfo(first, IndexRecordOption::WithFreqs)?;
     let mut terms = rest.iter();
+    let mut word = 0u32;
     loop {
         while !block.docs().is_empty() {
             for (doc, frequency) in block.docs().iter().zip(block.freqs()) {
-                visit(*doc, *frequency);
+                visit(word, *doc, *frequency);
             }
             block.advance();
         }
         let Some(term_info) = terms.next() else {
             return Ok(());
         };
+        word += 1;
         inverted.reset_block_postings_from_terminfo(term_info, &mut block)?;
     }
 }
@@ -215,40 +258,125 @@ fn prefix_term_infos(
     Ok(term_infos)
 }
 
-/// The four-character prefix field's postings of each phrase that is a prefix longer than every
-/// prefix field. They hold every row the prefix's words hold, so a row they lack is turned away
-/// before the phrases' cursors are opened or sought to it: a long prefix's cursor reads every word
-/// it begins. Rows are asked in increasing order.
-pub struct RowFilters(Vec<TokenCursor>);
+/// Whether every cursor sits on `doc`, each moved there or past it.
+pub fn all_on(cursors: &mut [PhraseCursor], doc: DocId) -> bool {
+    cursors.iter_mut().all(|cursor| cursor.seek(doc) == doc)
+}
 
-impl RowFilters {
-    /// The filters of `phrases` in `segment`; a phrase with none, or one the segment lacks, filters
-    /// nothing, and its own cursor finds no row there.
-    pub fn open(
-        segment: &SegmentReader,
-        fields: &IndexFields,
-        phrases: &[Phrase],
-    ) -> tantivy::Result<RowFilters> {
+/// A segment's phrase cursors for rows asked in increasing order, opened only at the first row
+/// that can match: a long prefix's cursor reads every word it begins, so a row the four-character
+/// prefix field's term lacks is turned away first, and a segment where no row asked can match
+/// reads none of the words.
+pub struct GatedCursors<'a> {
+    segment: &'a SegmentReader,
+    fields: &'a IndexFields,
+    phrases: &'a [Phrase],
+    purpose: CursorPurpose,
+    asked: RowsAsked,
+    // The four-character field's postings of each phrase that is a longer prefix: they hold every
+    // row the prefix's words hold.
+    filters: Vec<TokenCursor>,
+    cursors: GatedState,
+}
+
+enum GatedState {
+    Closed,
+    Open(Vec<PhraseCursor>),
+    NoRowMatches,
+}
+
+/// How a row asked of `GatedCursors` stands.
+pub enum RowMatch<'c> {
+    /// Every phrase matches the row; the cursors sit on it.
+    Matches(&'c mut [PhraseCursor]),
+    /// The row misses a phrase.
+    Misses,
+    /// No row of the segment matches every phrase.
+    NoRowMatches,
+}
+
+impl<'a> GatedCursors<'a> {
+    /// The gate of `phrases` in `segment`, its cursors not yet opened, for at most `asked` rows.
+    pub fn new(
+        segment: &'a SegmentReader,
+        fields: &'a IndexFields,
+        phrases: &'a [Phrase],
+        purpose: CursorPurpose,
+        asked: u64,
+    ) -> tantivy::Result<GatedCursors<'a>> {
+        let asked = RowsAsked::AtMost(asked);
         let mut filters = Vec::new();
         for phrase in phrases {
             let Some(term) = phrase.long_prefix_field_term(fields) else {
                 continue;
             };
-            if let Some(filter) = term_cursor(segment, &term, IndexRecordOption::Basic)? {
-                filters.push(filter);
+            match term_cursor(segment, &term, IndexRecordOption::Basic)? {
+                Some(filter) => filters.push(filter),
+                None => {
+                    return Ok(GatedCursors {
+                        segment,
+                        fields,
+                        phrases,
+                        purpose,
+                        asked,
+                        filters,
+                        cursors: GatedState::NoRowMatches,
+                    });
+                }
             }
         }
-        Ok(RowFilters(filters))
+        Ok(GatedCursors {
+            segment,
+            fields,
+            phrases,
+            purpose,
+            asked,
+            filters,
+            cursors: GatedState::Closed,
+        })
     }
 
-    /// Whether row `doc` can match every phrase: false when a filter lacks it.
-    pub fn admit(&mut self, doc: DocId) -> bool {
-        self.0.iter_mut().all(|filter| filter.seek(doc) == doc)
+    /// Whether row `doc` matches every phrase, opening the cursors at the first row the filters
+    /// admit.
+    pub fn at(&mut self, doc: DocId) -> tantivy::Result<RowMatch<'_>> {
+        if matches!(self.cursors, GatedState::NoRowMatches) {
+            return Ok(RowMatch::NoRowMatches);
+        }
+        if !self
+            .filters
+            .iter_mut()
+            .all(|filter| filter.seek(doc) == doc)
+        {
+            return Ok(RowMatch::Misses);
+        }
+        if matches!(self.cursors, GatedState::Closed) {
+            self.cursors = match open_cursors(
+                self.segment,
+                self.fields,
+                self.phrases,
+                self.purpose,
+                self.asked,
+            )? {
+                Some(cursors) => GatedState::Open(cursors),
+                None => GatedState::NoRowMatches,
+            };
+        }
+        Ok(match &mut self.cursors {
+            GatedState::Open(cursors) => {
+                if all_on(cursors, doc) {
+                    RowMatch::Matches(cursors)
+                } else {
+                    RowMatch::Misses
+                }
+            }
+            _ => RowMatch::NoRowMatches,
+        })
     }
 }
 
-/// One token's rows: a single term's postings, the postings of every term a prefix begins with
-/// their positions, or for scoring alone those terms' counts summed per row.
+/// One token's rows: a single term's postings, the postings of every term a prefix up to four
+/// characters long begins merged with their positions, or the terms a longer prefix begins summed
+/// per row.
 pub enum TokenCursor {
     // Boxed: a term's postings hold a decoded block inline, many times a union's size.
     Term(Box<SegmentPostings>),
@@ -264,19 +392,70 @@ pub enum SummedRows {
         rows: BitSetDocSet,
         counts: Vec<u32>,
     },
-    /// The rows ascending with their counts, and the place of the current one.
-    Sparse {
+    /// The rows ascending, each row's count ending at its place in the running total, the place of
+    /// the current row, and for reading positions the words each row holds.
+    Listed {
         rows: Vec<DocId>,
-        counts: Vec<u32>,
+        ends: Vec<u32>,
         place: usize,
+        words: Option<RowWords>,
     },
 }
 
+/// The words each listed row holds, as places in the prefix's word list ending at each row's
+/// place in the running total, and every word's postings, sought forward to the rows asked.
+pub struct RowWords {
+    ends: Vec<u32>,
+    words: Vec<u32>,
+    postings: Vec<SegmentPostings>,
+}
+
 impl SummedRows {
+    // From `entries` sorted by row and word, each a row, a word and its count there; `postings`
+    // given when positions are to be read.
+    fn listed(
+        entries: Vec<(DocId, u32, u32)>,
+        postings: Option<Vec<SegmentPostings>>,
+    ) -> SummedRows {
+        let mut rows: Vec<DocId> = Vec::new();
+        let mut ends: Vec<u32> = Vec::new();
+        let mut word_ends: Vec<u32> = Vec::new();
+        let mut words = Vec::with_capacity(if postings.is_some() { entries.len() } else { 0 });
+        let mut end = 0u32;
+        for (doc, word, frequency) in entries {
+            end += frequency;
+            if postings.is_some() {
+                words.push(word);
+            }
+            if rows.last() == Some(&doc) {
+                if let Some(last) = ends.last_mut() {
+                    *last = end;
+                }
+                if let Some(last) = word_ends.last_mut() {
+                    *last = words.len() as u32;
+                }
+            } else {
+                rows.push(doc);
+                ends.push(end);
+                word_ends.push(words.len() as u32);
+            }
+        }
+        SummedRows::Listed {
+            rows,
+            ends,
+            place: 0,
+            words: postings.map(|postings| RowWords {
+                ends: word_ends,
+                words,
+                postings,
+            }),
+        }
+    }
+
     fn doc(&self) -> DocId {
         match self {
             SummedRows::Dense { rows, .. } => rows.doc(),
-            SummedRows::Sparse { rows, place, .. } => {
+            SummedRows::Listed { rows, place, .. } => {
                 rows.get(*place).copied().unwrap_or(TERMINATED)
             }
         }
@@ -285,7 +464,7 @@ impl SummedRows {
     fn advance(&mut self) -> DocId {
         match self {
             SummedRows::Dense { rows, .. } => rows.advance(),
-            SummedRows::Sparse { place, .. } => {
+            SummedRows::Listed { place, .. } => {
                 *place += 1;
                 self.doc()
             }
@@ -295,24 +474,56 @@ impl SummedRows {
     fn seek(&mut self, target: DocId) -> DocId {
         match self {
             SummedRows::Dense { rows, .. } => rows.seek(target),
-            SummedRows::Sparse { rows, place, .. } => {
+            SummedRows::Listed { rows, place, .. } => {
                 *place += rows[(*place).min(rows.len())..].partition_point(|doc| *doc < target);
                 self.doc()
             }
         }
     }
 
+    // Where the current row's share of a running total starts and ends.
+    fn span(ends: &[u32], place: usize) -> (usize, usize) {
+        let start = if place == 0 { 0 } else { ends[place - 1] };
+        (start as usize, ends[place] as usize)
+    }
+
     fn frequency(&self) -> u32 {
         match self {
             SummedRows::Dense { rows, counts } => counts[rows.doc() as usize],
-            SummedRows::Sparse { counts, place, .. } => counts[*place],
+            SummedRows::Listed { ends, place, .. } => {
+                let (start, end) = SummedRows::span(ends, *place);
+                (end - start) as u32
+            }
+        }
+    }
+
+    // The current row's positions, ascending, read from the words it holds; only a cursor opened
+    // with positions is asked.
+    fn positions(&mut self, output: &mut Vec<u32>) {
+        if let SummedRows::Listed {
+            rows,
+            place,
+            words: Some(words),
+            ..
+        } = self
+        {
+            let doc = rows[*place];
+            let (start, end) = SummedRows::span(&words.ends, *place);
+            for word in &words.words[start..end] {
+                let postings = &mut words.postings[*word as usize];
+                postings.seek(doc);
+                postings.append_positions_with_offset(0, output);
+            }
+            if end - start > 1 {
+                output.sort_unstable();
+            }
         }
     }
 
     fn rows(&self) -> u64 {
         match self {
             SummedRows::Dense { rows, .. } => u64::from(rows.size_hint()),
-            SummedRows::Sparse { rows, .. } => rows.len() as u64,
+            SummedRows::Listed { rows, .. } => rows.len() as u64,
         }
     }
 }
@@ -370,8 +581,7 @@ impl TokenCursor {
                 }
                 positions.sort_unstable();
             }
-            // Opened for scoring, so no position is read.
-            TokenCursor::Summed(_) => {}
+            TokenCursor::Summed(summed) => summed.positions(positions),
         }
     }
 

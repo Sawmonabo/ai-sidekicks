@@ -70,17 +70,29 @@ impl Phrase {
         let [part] = self.parts.as_slice() else {
             return None;
         };
-        let start: String = part.chars().take(PREFIX_FIELD_COUNT).collect();
-        (self.ends_in_prefix && start.len() < part.len())
-            .then(|| Term::from_field_text(fields.prefixes[PREFIX_FIELD_COUNT - 1], &start))
+        (self.ends_in_prefix && part.chars().count() > PREFIX_FIELD_COUNT)
+            .then(|| prefix_field_term(fields, part))
     }
 
-    /// The whole-word text terms of a several-token phrase: each one holds every row the phrase
-    /// matches, at least as many times.
-    pub fn whole_part_terms(&self, fields: &IndexFields) -> Vec<Term> {
+    /// Terms that each hold every row the phrase matches, at least as many times: its own term, the
+    /// longest prefix field's term for a longer prefix, or for several tokens each whole one's and
+    /// a prefix field's term for the last when it is a prefix.
+    pub fn covering_terms(&self, fields: &IndexFields) -> Vec<Term> {
+        if let Some(term) = self
+            .single_term(fields)
+            .or_else(|| self.long_prefix_field_term(fields))
+        {
+            return vec![term];
+        }
         (0..self.parts.len())
-            .filter(|index| !self.is_prefix_part(*index))
-            .map(|index| Term::from_field_text(fields.text, &self.parts[index]))
+            .map(|index| {
+                let part = &self.parts[index];
+                if self.is_prefix_part(index) {
+                    prefix_field_term(fields, part)
+                } else {
+                    Term::from_field_text(fields.text, part)
+                }
+            })
             .collect()
     }
 
@@ -97,4 +109,11 @@ impl Phrase {
             (true, true) => mine.starts_with(theirs.as_str()) || theirs.starts_with(mine.as_str()),
         }
     }
+}
+
+// The prefix field's term for `part`'s first characters, as many as the longest field holds.
+fn prefix_field_term(fields: &IndexFields, part: &str) -> Term {
+    let length = part.chars().count().min(PREFIX_FIELD_COUNT);
+    let start: String = part.chars().take(length).collect();
+    Term::from_field_text(fields.prefixes[length - 1], &start)
 }

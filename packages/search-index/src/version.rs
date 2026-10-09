@@ -8,7 +8,7 @@ use tantivy::columnar::ColumnValues;
 use tantivy::index::SegmentId;
 use tantivy::{DocId, Opstamp, Searcher, SegmentReader, TERMINATED};
 
-use crate::cursor::{CursorPurpose, open_phrase_cursor};
+use crate::cursor::{CursorPurpose, RowsAsked, open_phrase_cursor};
 use crate::membership::GroupMembership;
 use crate::phrase::Phrase;
 use crate::schema::IndexFields;
@@ -206,6 +206,22 @@ impl IndexVersion {
         Ok(rows)
     }
 
+    /// How many rows of segment `ordinal` `phrase` matches, deleted rows included: Tantivy's count
+    /// for a one-term phrase, and any other phrase's walked once and kept with the segment.
+    pub fn phrase_matches_in(&self, ordinal: usize, phrase: &Phrase) -> tantivy::Result<u64> {
+        let segment = &self.searcher.segment_readers()[ordinal];
+        let facts = &self.segments[ordinal];
+        if let Some(term) = phrase.single_term(&self.fields) {
+            return Ok(u64::from(
+                segment.inverted_index(term.field())?.doc_freq(&term)?,
+            ));
+        }
+        match facts.matches.get(phrase) {
+            Some(matches) => Ok(matches),
+            None => Ok(self.walk_matches(segment, facts, phrase)?.matches),
+        }
+    }
+
     // The rows the phrase matches, deleted rows included, less the deleted rows it matches, found
     // by seeking its cursor to each one. A one-term phrase's count is Tantivy's; any other phrase's
     // is walked the first time the segment is asked, counting its live rows on the way.
@@ -215,32 +231,25 @@ impl IndexVersion {
         facts: &SegmentFacts,
         phrase: &Phrase,
     ) -> tantivy::Result<u64> {
-        let cursor = open_phrase_cursor(segment, &self.fields, phrase, CursorPurpose::Score)?;
-        let Some(mut cursor) = cursor else {
-            return Ok(0);
-        };
         let matches = match phrase.single_term(&self.fields) {
             Some(term) => u64::from(segment.inverted_index(term.field())?.doc_freq(&term)?),
             None => match facts.matches.get(phrase) {
                 Some(matches) => matches,
-                None => {
-                    let alive = segment.alive_bitset();
-                    let (mut matches, mut rows) = (0u64, 0u64);
-                    let mut doc = cursor.doc();
-                    while doc != TERMINATED {
-                        matches += 1;
-                        if alive.is_none_or(|alive| alive.is_alive(doc)) {
-                            rows += 1;
-                        }
-                        doc = cursor.advance();
-                    }
-                    facts.matches.insert(phrase, matches);
-                    return Ok(rows);
-                }
+                None => return Ok(self.walk_matches(segment, facts, phrase)?.live_rows),
             },
         };
+        let deleted = &facts.deletions.docs;
+        if deleted.is_empty() {
+            return Ok(matches);
+        }
+        let asked = RowsAsked::AtMost(deleted.len() as u64);
+        let cursor =
+            open_phrase_cursor(segment, &self.fields, phrase, CursorPurpose::Score, asked)?;
+        let Some(mut cursor) = cursor else {
+            return Ok(0);
+        };
         let mut deleted_matches = 0u64;
-        for deleted in &facts.deletions.docs {
+        for deleted in deleted {
             let doc = cursor.seek(*deleted);
             if doc == TERMINATED {
                 break;
@@ -251,4 +260,39 @@ impl IndexVersion {
         }
         Ok(matches - deleted_matches)
     }
+
+    // Walks every row the phrase matches in the segment, keeping the count with the segment.
+    fn walk_matches(
+        &self,
+        segment: &SegmentReader,
+        facts: &SegmentFacts,
+        phrase: &Phrase,
+    ) -> tantivy::Result<WalkedMatches> {
+        let mut walked = WalkedMatches {
+            matches: 0,
+            live_rows: 0,
+        };
+        let every = RowsAsked::Every;
+        let cursor =
+            open_phrase_cursor(segment, &self.fields, phrase, CursorPurpose::Score, every)?;
+        if let Some(mut cursor) = cursor {
+            let alive = segment.alive_bitset();
+            let mut doc = cursor.doc();
+            while doc != TERMINATED {
+                walked.matches += 1;
+                if alive.is_none_or(|alive| alive.is_alive(doc)) {
+                    walked.live_rows += 1;
+                }
+                doc = cursor.advance();
+            }
+        }
+        facts.matches.insert(phrase, walked.matches);
+        Ok(walked)
+    }
+}
+
+// A phrase's rows in one segment, deleted rows included, and those of them alive.
+struct WalkedMatches {
+    matches: u64,
+    live_rows: u64,
 }

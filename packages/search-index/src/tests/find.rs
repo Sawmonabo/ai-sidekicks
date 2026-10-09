@@ -78,6 +78,22 @@ fn find_counts_equal_the_marks_on_every_row() {
             })
         })
         .expect("a row holds two words one long prefix begins");
+    // A word of the session followed by one a long prefix begins, the two joined into one phrase.
+    let joined_long_prefix = session_rows
+        .iter()
+        .find_map(|(_, text)| {
+            let words: Vec<String> = tokenize(text)
+                .into_iter()
+                .map(|token| token.folded)
+                .collect();
+            words.windows(2).find_map(|pair| {
+                (pair[1].chars().count() > PREFIX_FIELD_COUNT).then(|| {
+                    let prefix: String = pair[1].chars().take(PREFIX_FIELD_COUNT + 1).collect();
+                    format!("{}-{prefix}", pair[0])
+                })
+            })
+        })
+        .expect("a row holds a word before a long one");
     let queries = vec![
         query(&[first], false),
         query(&[first_letter], true),
@@ -86,6 +102,10 @@ fn find_counts_equal_the_marks_on_every_row() {
         query(&[joined.as_str()], false),
         query(&[joined_prefix.as_str()], true),
         query(&[long_prefix.as_str()], true),
+        // The word and the prefix can mark one token, so their positions are read: the prefix's
+        // from both its words in the row.
+        query(&[format!("{RARE_PREFIX}a").as_str(), RARE_PREFIX], true),
+        query(&[joined_long_prefix.as_str()], true),
         query(&[RARE_PREFIX], true),
     ];
 

@@ -152,6 +152,10 @@ pub fn queries_over(rows: &[IndexRow]) -> Vec<SearchQuery> {
         .expect("the set has words of three syllables")
         .clone();
     let (first, second) = (&events[5][0], &events[5][1]);
+    let before_long_word = events
+        .iter()
+        .find(|tokens| tokens.len() > 1 && tokens[1].chars().count() >= 6)
+        .expect("a row holds a word of three syllables after another");
     let prefix = |token: &str, length: usize| token.chars().take(length).collect::<String>();
     let search = |words: Vec<String>, last_word_is_prefix: bool| SearchQuery {
         words,
@@ -167,6 +171,14 @@ pub fn queries_over(rows: &[IndexRow]) -> Vec<SearchQuery> {
         search(vec![format!("{}-{}", events[50][0], events[50][1])], false),
         search(
             vec![format!("{}-{}", events[50][0], prefix(&events[50][1], 1))],
+            true,
+        ),
+        search(
+            vec![format!(
+                "{}-{}",
+                before_long_word[0],
+                prefix(&before_long_word[1], 5)
+            )],
             true,
         ),
     ]

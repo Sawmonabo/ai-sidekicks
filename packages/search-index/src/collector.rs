@@ -8,7 +8,9 @@ use tantivy::query::{Bm25StatisticsProvider, EnableScoring, Query, TermQuery};
 use tantivy::schema::{Field, IndexRecordOption};
 use tantivy::{DocId, DocSet, Score, SegmentReader, TERMINATED, Term};
 
-use crate::cursor::{CursorPurpose, PhraseCursor, open_cursors};
+use crate::cursor::{
+    CursorPurpose, GatedCursors, PhraseCursor, RowMatch, RowsAsked, all_on, open_cursors,
+};
 use crate::membership::GroupMembership;
 use crate::phrase::Phrase;
 use crate::schema::{IndexFields, Owner, owner_of, owner_value};
@@ -83,8 +85,8 @@ impl PreparedQuery {
     }
 }
 
-// `phrases` is never empty, and every phrase has a term to drive: a phrase of several tokens has a
-// whole first token, since only its last can be a prefix.
+// `phrases` is never empty, and every phrase has a covering term to drive: a phrase of several
+// tokens has a whole first token, since only its last can be a prefix.
 fn choose_driver(
     version: &IndexVersion,
     phrases: &[Phrase],
@@ -96,20 +98,15 @@ fn choose_driver(
             phrase = index;
         }
     }
-    let fields = &version.fields;
-    let chosen = &phrases[phrase];
-    if let Some(term) = chosen
-        .single_term(fields)
-        .or_else(|| chosen.long_prefix_field_term(fields))
-    {
-        return Ok(Driver { phrase, term });
-    }
-    let mut term = Term::from_field_text(fields.text, &chosen.parts[0]);
-    let mut fewest = version.searcher.doc_freq(&term)?;
-    for other in chosen.whole_part_terms(fields).into_iter().skip(1) {
-        let rows = version.searcher.doc_freq(&other)?;
-        if rows < fewest {
-            (term, fewest) = (other, rows);
+    let mut terms = phrases[phrase].covering_terms(&version.fields).into_iter();
+    let mut term = terms.next().expect("every phrase has a covering term");
+    if terms.len() > 0 {
+        let mut fewest = version.searcher.doc_freq(&term)?;
+        for other in terms {
+            let rows = version.searcher.doc_freq(&other)?;
+            if rows < fewest {
+                (term, fewest) = (other, rows);
+            }
         }
     }
     Ok(Driver { phrase, term })
@@ -220,11 +217,6 @@ fn credit_sessions(membership: &GroupMembership, owner: u64, mut credit: impl Fn
     }
 }
 
-/// Whether every cursor sits on `doc`, each moved there or past it.
-pub fn all_on(cursors: &mut [PhraseCursor], doc: DocId) -> bool {
-    cursors.iter_mut().all(|cursor| cursor.seek(doc) == doc)
-}
-
 fn frequencies_into(cursors: &mut [PhraseCursor], frequencies: &mut [u32]) {
     for (frequency, cursor) in frequencies.iter_mut().zip(cursors) {
         *frequency = cursor.frequency();
@@ -278,38 +270,58 @@ fn visit_matches_in(
 ) -> tantivy::Result<()> {
     let segment = &version.searcher.segment_readers()[ordinal];
     let columns = &version.segments[ordinal].columns;
+    let alive = segment.alive_bitset();
+    let is_alive = |doc: DocId| alive.is_none_or(|alive| alive.is_alive(doc));
+    let mut frequencies = vec![0u32; query.phrases.len()];
+    // The rarest phrase's rows, counted without opening a cursor, so the walk is chosen before any
+    // long prefix's words are read.
+    let mut lead_rows = u64::MAX;
+    for phrase in &query.phrases {
+        lead_rows = lead_rows.min(version.phrase_matches_in(ordinal, phrase)?);
+    }
+    if let Some(set) = within
+        && set.estimated_rows_in(segment, &version.fields)? < lead_rows
+        && let Some(docs) = owner_docs_below(segment, &version.fields, &set.owners, lead_rows)?
+    {
+        let mut gated = GatedCursors::new(
+            segment,
+            &version.fields,
+            &query.phrases,
+            CursorPurpose::Score,
+            docs.len() as u64,
+        )?;
+        for doc in docs {
+            if !is_alive(doc) {
+                continue;
+            }
+            match gated.at(doc)? {
+                RowMatch::Matches(cursors) => {
+                    frequencies_into(cursors, &mut frequencies);
+                    visit(
+                        columns,
+                        doc,
+                        query.score(&frequencies, columns.length.get_val(doc)),
+                    );
+                }
+                RowMatch::Misses => {}
+                RowMatch::NoRowMatches => break,
+            }
+        }
+        return Ok(());
+    }
     let cursors = open_cursors(
         segment,
         &version.fields,
         &query.phrases,
         CursorPurpose::Score,
+        RowsAsked::Every,
     )?;
     let Some(mut cursors) = cursors else {
         return Ok(());
     };
-    let alive = segment.alive_bitset();
-    let is_alive = |doc: DocId| alive.is_none_or(|alive| alive.is_alive(doc));
-    let mut frequencies = vec![0u32; cursors.len()];
     let lead = (0..cursors.len())
         .min_by_key(|index| cursors[*index].cost())
         .unwrap_or(0);
-    let lead_cost = cursors[lead].cost();
-    if let Some(set) = within
-        && set.estimated_rows_in(segment, &version.fields)? < lead_cost
-        && let Some(docs) = owner_docs_below(segment, &version.fields, &set.owners, lead_cost)?
-    {
-        for doc in docs {
-            if is_alive(doc) && all_on(&mut cursors, doc) {
-                frequencies_into(&mut cursors, &mut frequencies);
-                visit(
-                    columns,
-                    doc,
-                    query.score(&frequencies, columns.length.get_val(doc)),
-                );
-            }
-        }
-        return Ok(());
-    }
     let mut doc = cursors[lead].doc();
     'rows: while doc != TERMINATED {
         let owner_allowed = within.is_none_or(|set| set.holds_owner(columns.owner.get_val(doc)));
@@ -504,11 +516,16 @@ pub fn top_sessions(
         .sum();
     let mut top = TopSessions::new(k);
     for (ordinal, segment) in version.searcher.segment_readers().iter().enumerate() {
+        // Each cursor is sought at most at the rows of the driver's term.
+        let driver_rows = segment
+            .inverted_index(driver.term.field())?
+            .doc_freq(&driver.term)?;
         let cursors = open_cursors(
             segment,
             &version.fields,
             &query.phrases,
             CursorPurpose::Score,
+            RowsAsked::AtMost(u64::from(driver_rows)),
         )?;
         let Some(mut cursors) = cursors else {
             continue;
