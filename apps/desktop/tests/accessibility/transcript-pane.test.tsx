@@ -21,7 +21,7 @@
 // entries, which scroll inside the row, are a tab stop a real Tab press reaches and the arrows
 // scroll.
 
-import { START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/id";
+import { START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/event-cursor";
 import { act } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { userEvent } from "vitest/browser";

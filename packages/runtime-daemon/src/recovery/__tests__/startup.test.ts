@@ -13,6 +13,7 @@ import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
+import { AgentIdSchema } from "@ai-sidekicks/contracts/agent/definition";
 import {
   DAEMON_SCOPE_SENTINEL_SESSION_ID,
   EventEnvelopeVersionSchema,
@@ -41,7 +42,7 @@ import { RecoveryWriteGate } from "../write-gate.js";
 
 const OCCURRED_AT = "2026-10-07T12:00:00.000Z";
 // The agent every queued run is created for.
-const QUEUED_AGENT_ID = randomUUID();
+const QUEUED_AGENT_ID = AgentIdSchema.parse(randomUUID());
 
 describe("the recovery pass at a restart", () => {
   let fixture: RunEngineFixture;
@@ -281,7 +282,13 @@ describe("the recovery pass at a restart", () => {
     sessionId: SessionId,
   ): Promise<RunId> {
     const runId = RunIdSchema.parse(randomUUID());
-    const payload = { sessionId, runId, runVersion: 0, newState: "queued" as const };
+    const payload = {
+      sessionId,
+      runId,
+      runVersion: 0,
+      newState: "queued" as const,
+      agentId: QUEUED_AGENT_ID,
+    };
     await new SessionEventAppender(
       { sessionEvents },
       EventEnvelopeVersionSchema.parse("1.0"),

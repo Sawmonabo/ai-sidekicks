@@ -3,7 +3,7 @@
 // the shortest row is estimated, they would fill the height still owed, so one page can finish a
 // stretch; and never past the contract's ceiling.
 
-import { TRANSCRIPT_READ_LIMIT_MAX } from "@ai-sidekicks/contracts/transcript/operations";
+import { TRANSCRIPT_READ_LIMIT_MAX } from "@ai-sidekicks/contracts/transcript/limits";
 
 import { TRANSCRIPT_APPROACH_SCREEN_HEIGHTS } from "../viewport/caps.js";
 import { RowMeasurementTable } from "../viewport/row-measurement-table.js";

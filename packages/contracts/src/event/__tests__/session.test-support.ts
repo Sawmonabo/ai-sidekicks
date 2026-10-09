@@ -424,7 +424,7 @@ export const SESSION_EVENT_PAYLOAD_SAMPLES: ReadonlyMap<
     "workflow.started",
     { ...WORKFLOW, mode: "manual", startedBy: { kind: "user", deviceId: "desktop-1" } },
   ],
-  ["workflow.resumed", WORKFLOW],
+  ["workflow.resumed", { ...WORKFLOW, resumptionPoint: { activeSteps: [], pendingGates: [] } }],
   ["workflow.canceled", WORKFLOW],
   ["workflow.run_deleted", WORKFLOW],
   ["workflow.results_posted", { sessionId: SESSION_ID, workflowRunId: WORKFLOW_RUN_ID }],

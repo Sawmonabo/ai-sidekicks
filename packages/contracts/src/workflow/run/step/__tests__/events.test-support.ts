@@ -16,6 +16,7 @@ export const WORKFLOW_GATE_RESOLVED_PAYLOAD: Readonly<Record<string, unknown>> =
   workflowRunId: RUN_ID,
   definitionId: "wfd-1",
   workflowVersionId: "wfv-3",
+  nodeId: "approve",
   outcome: "approved",
   gateResolutionId: "gr-1",
   deviceId: "desktop-1",

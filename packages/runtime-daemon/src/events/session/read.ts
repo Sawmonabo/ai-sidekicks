@@ -99,6 +99,21 @@ const SELECTED_COLUMNS = `id, session_id, sequence, occurred_at, category, type,
 const NO_SEQUENCE_BOUND = Number.MAX_SAFE_INTEGER;
 
 /**
+ * The sequence a read of `sessionId` stops before: the earlier of the read's own `beforeSequence`
+ * and the session's last good point while its history is damaged, else past every sequence.
+ */
+export function sessionReadBound(
+  readDamagedFromSequence: DamagedFromSequenceReader,
+  sessionId: SessionId,
+  beforeSequence?: number,
+): number {
+  return Math.min(
+    beforeSequence ?? NO_SEQUENCE_BOUND,
+    readDamagedFromSequence(sessionId) ?? NO_SEQUENCE_BOUND,
+  );
+}
+
+/**
  * Prepares the reads on `reader`; `readDamagedFromSequence` says where a damaged session's reads
  * stop, and every session reads whole when it is absent.
  */
@@ -149,24 +164,17 @@ export function prepareSessionEventReads(
         AND ${outsideSkippedRangesSql("event")}
       ORDER BY sequence ASC`,
   );
-  // The earlier of a read's own bound and the session's last good point.
-  const readBound = (sessionId: SessionId, beforeSequence: number | undefined): number =>
-    Math.min(
-      beforeSequence ?? NO_SEQUENCE_BOUND,
-      readDamagedFromSequence(sessionId) ?? NO_SEQUENCE_BOUND,
-    );
-
   return {
     readHead: (sessionId) => {
       const head = (headStatement.get(sessionId) as HeadRow).sequence;
       if (head === null) {
         return undefined;
       }
-      const readTo = Math.min(head, readBound(sessionId, undefined) - 1);
+      const readTo = Math.min(head, sessionReadBound(readDamagedFromSequence, sessionId) - 1);
       return readTo < 0 ? undefined : readTo;
     },
     readAfter: (sessionId, afterPosition, limit, filter) => {
-      const before = readBound(sessionId, filter?.beforeSequence);
+      const before = sessionReadBound(readDamagedFromSequence, sessionId, filter?.beforeSequence);
       const rows =
         filter?.eventTypes === undefined
           ? afterStatement.all(sessionId, afterPosition, before, limit)
@@ -184,7 +192,7 @@ export function prepareSessionEventReads(
         beforeStatement.all(
           sessionId,
           beforePosition,
-          readBound(sessionId, undefined),
+          sessionReadBound(readDamagedFromSequence, sessionId),
           limit,
         ) as StoredEventRow[]
       )
@@ -196,7 +204,7 @@ export function prepareSessionEventReads(
           sessionId,
           fromSequence,
           toSequence,
-          readBound(sessionId, undefined),
+          sessionReadBound(readDamagedFromSequence, sessionId),
         ) as StoredEventRow[]
       ).map(readEnvelope),
     readAtSequences: (sessionId, sequences) =>
@@ -204,7 +212,7 @@ export function prepareSessionEventReads(
         atSequencesStatement.all(
           sessionId,
           JSON.stringify(sequences),
-          readBound(sessionId, undefined),
+          sessionReadBound(readDamagedFromSequence, sessionId),
         ) as StoredEventRow[]
       ).map(readEnvelope),
   };

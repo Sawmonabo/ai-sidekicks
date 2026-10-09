@@ -232,7 +232,10 @@ export function registerSessionMethods(
     workingTrees: resolver,
   });
   const draftStore = new SessionDraftStore(database);
-  const transcriptProjector = new TranscriptProjector(database.reader);
+  const transcriptProjector = new TranscriptProjector(
+    database.reader,
+    deps.readDamagedFromSequence,
+  );
   const relatedRanking = new SessionRelatedRanking({
     reader: database.reader,
     writer: database.writer,
@@ -262,6 +265,9 @@ export function registerSessionMethods(
         onChange: (change) => {
           const runStamp = stampRun(change.event);
           listener.onChange(runStamp === undefined ? change : { ...change, runStamp });
+        },
+        onCaughtUp: () => {
+          listener.onCaughtUp();
         },
         onFailure: (error) => {
           listener.onFailure(error);

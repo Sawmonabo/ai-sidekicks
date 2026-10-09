@@ -1,6 +1,6 @@
-// How a reader's selection inside one row survives that row's own remounts. A settled block
-// becomes a memoized static subtree, which replaces the nodes the selection was anchored in, and
-// the browser drops the selection. A selection inside a row survives; elsewhere it is never touched.
+// How a reader's selection inside one row survives that row's own remounts. A settled block becomes
+// a memoized static subtree, which replaces the nodes the selection was anchored in, and the
+// browser drops the selection. A selection inside a row survives; elsewhere it is never touched.
 //   - Endpoints are character offsets into the row, not nodes, which a remount invalidates. This
 //     also preserves a selection spanning the migrated block's boundary whole.
 //   - Endpoints are read from the range and written forwards, because a same-node selection's

@@ -12,10 +12,10 @@ import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
 import { countEntriesFittingOneFrame } from "@ai-sidekicks/contracts/jsonrpc/page";
 import { encodeEventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
-import {
-  TRANSCRIPT_READ_LIMIT_MAX,
-  type TranscriptReadRequest,
-  type TranscriptReadResponse,
+import { TRANSCRIPT_READ_LIMIT_MAX } from "@ai-sidekicks/contracts/transcript/limits";
+import type {
+  TranscriptReadRequest,
+  TranscriptReadResponse,
 } from "@ai-sidekicks/contracts/transcript/operations";
 
 import {
@@ -32,6 +32,7 @@ export class TranscriptWindowReader {
   readonly #reader: Database;
   readonly #reads: SessionEventReads;
   readonly #projector: Pick<TranscriptProjector, "projectWindow">;
+  readonly #readDamagedFromSequence: DamagedFromSequenceReader;
 
   // `readDamagedFromSequence` stops every read at a damaged session's last good point.
   constructor(
@@ -42,11 +43,13 @@ export class TranscriptWindowReader {
     this.#reader = reader;
     this.#reads = prepareSessionEventReads(reader, readDamagedFromSequence);
     this.#projector = projector;
+    this.#readDamagedFromSequence = readDamagedFromSequence;
   }
 
   /**
-   * Reads one window, its head, events and projection in one snapshot. Throws
-   * `SessionNotFoundError` for a session this daemon holds no events for, and
+   * Reads one window, its head, events and projection in one snapshot; a session whose history is
+   * damaged before its first readable event reads as an empty log. Throws `SessionNotFoundError`
+   * for a session this daemon holds no events for, and
    * `EventCursorUnresolvableError` for a cursor that names no position or one past the session's
    * newest event. A page whose one row alone is over the page budget is returned as that row, for
    * the response schema to refuse.
@@ -58,7 +61,7 @@ export class TranscriptWindowReader {
   #readInSnapshot(request: TranscriptReadRequest): TranscriptReadResponse {
     const { sessionId } = request;
     const head = this.#reads.readHead(sessionId);
-    if (head === undefined) {
+    if (head === undefined && this.#readDamagedFromSequence(sessionId) === undefined) {
       throw new SessionNotFoundError("This daemon holds no such session.", { sessionId });
     }
     const afterPosition = resolveEventCursor(request.afterCursor, head);

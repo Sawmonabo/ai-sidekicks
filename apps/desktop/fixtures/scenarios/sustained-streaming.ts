@@ -11,7 +11,10 @@
 // The turns run until the stream has covered half an hour of scenario time, so a run that walks
 // the clock over the whole script has watched the session stream for that long.
 
-import { encodeEventCursor, START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/id";
+import {
+  encodeEventCursor,
+  START_OF_LOG_POSITION,
+} from "@ai-sidekicks/contracts/session/event-cursor";
 
 import {
   composeScriptBeats,

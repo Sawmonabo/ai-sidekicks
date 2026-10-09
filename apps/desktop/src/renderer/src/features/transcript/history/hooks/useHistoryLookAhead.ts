@@ -8,7 +8,7 @@
 
 import { useEffect, useRef } from "react";
 
-import type { EventCursor } from "@ai-sidekicks/contracts/session/id";
+import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 
 import { useSessionStore } from "#renderer/store/session/hooks/useOpenSessionStore.js";
 import { type SessionStoreState } from "#renderer/store/session/state.js";

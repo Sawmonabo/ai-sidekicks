@@ -31,6 +31,8 @@ import {
   type SupersededTurns,
 } from "@ai-sidekicks/contracts/transcript/turn-attribution";
 
+import { sessionReadBound, type DamagedFromSequenceReader } from "../events/session/read.js";
+import { outsideSkippedRangesSql } from "../events/session/skipped-ranges.js";
 import { RUN_TERMINAL_EVENT_TYPES } from "../session/run/transitions.js";
 import { parseStoredRollback, prepareSupersededTurns } from "../session/run/superseded.js";
 
@@ -56,6 +58,7 @@ interface RunEventParameters {
   readonly type: string;
   readonly runId: RunId;
   readonly beforeSequence: number;
+  readonly readBound: number;
 }
 
 interface SequencedPayloadRow {
@@ -64,29 +67,33 @@ interface SequencedPayloadRow {
 }
 
 // Each read seeks the run's rows of one type through the event log's run-and-type index, bounded
-// strictly before the event being seeded.
-const SELECT_ROLLBACKS_BEFORE_SQL = `SELECT sequence, payload FROM session_events
+// strictly before the event being seeded, and reads only rows the log can read: none past a
+// damaged session's last good point or in a range it skipped.
+const READABLE_ROW_SQL = `sequence < @readBound AND ${outsideSkippedRangesSql("event")}`;
+
+const SELECT_ROLLBACKS_BEFORE_SQL = `SELECT sequence, payload FROM session_events AS event
   WHERE session_id = @sessionId AND type = @type AND sequence < @beforeSequence
-    AND run_id = @runId
+    AND run_id = @runId AND ${READABLE_ROW_SQL}
   ORDER BY sequence`;
 
-const SELECT_TURNS_BETWEEN_SQL = `SELECT payload FROM session_events
+const SELECT_TURNS_BETWEEN_SQL = `SELECT payload FROM session_events AS event
   WHERE session_id = @sessionId AND type = @type
     AND sequence > @afterSequence AND sequence < @beforeSequence
-    AND run_id = @runId
+    AND run_id = @runId AND ${READABLE_ROW_SQL}
   ORDER BY sequence`;
 
 // The latest opening wins: a provider may reuse a call's key after a cut.
-const SELECT_TOOL_CALL_OPENING_SQL = `SELECT sequence, payload FROM session_events
+const SELECT_TOOL_CALL_OPENING_SQL = `SELECT sequence, payload FROM session_events AS event
   WHERE session_id = @sessionId AND type = @type AND sequence < @beforeSequence
-    AND run_id = @runId
+    AND run_id = @runId AND ${READABLE_ROW_SQL}
     AND json_extract(payload, '$.toolCallId') = @toolCallId
   ORDER BY sequence DESC
   LIMIT 1`;
 
 /**
- * The log reads that seed a run's fold, prepared once on the daemon's read-only connection. Each
- * throws when a stored rollback does not match its contract.
+ * The log reads that seed a run's fold, prepared once on the daemon's read-only connection, none
+ * reading past a damaged session's last good point or in a range it skipped. Each throws when a
+ * stored rollback does not match its contract.
  */
 export class RunTurnReads {
   /** Reads a run's superseded turns from every rollback of it in the log. */
@@ -101,8 +108,15 @@ export class RunTurnReads {
     SequencedPayloadRow
   >;
 
-  constructor(reader: Database) {
-    this.readSupersededTurns = prepareSupersededTurns(reader);
+  readonly #readDamagedFromSequence: DamagedFromSequenceReader;
+
+  /** `readDamagedFromSequence` says where a damaged session's reads stop; none stop when absent. */
+  constructor(
+    reader: Database,
+    readDamagedFromSequence: DamagedFromSequenceReader = () => undefined,
+  ) {
+    this.#readDamagedFromSequence = readDamagedFromSequence;
+    this.readSupersededTurns = prepareSupersededTurns(reader, readDamagedFromSequence);
     this.#selectRollbacksBefore = reader.prepare(SELECT_ROLLBACKS_BEFORE_SQL);
     this.#selectTurnsBetween = reader.prepare(SELECT_TURNS_BETWEEN_SQL);
     this.#selectToolCallOpening = reader.prepare(SELECT_TOOL_CALL_OPENING_SQL);
@@ -117,6 +131,7 @@ export class RunTurnReads {
       type: TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE,
       runId,
       beforeSequence,
+      readBound: sessionReadBound(this.#readDamagedFromSequence, sessionId),
     });
     for (const row of rollbackRows) {
       const rollback = parseStoredRollback(JSON.parse(row.payload), sessionId, row.sequence);
@@ -130,6 +145,7 @@ export class RunTurnReads {
       runId,
       afterSequence: lastRollbackSequence,
       beforeSequence,
+      readBound: sessionReadBound(this.#readDamagedFromSequence, sessionId),
     });
     for (const row of turnRows) {
       standing = standingAfterTurnStarted(standing, JSON.parse(row.payload));
@@ -153,6 +169,7 @@ export class RunTurnReads {
       runId,
       toolCallId,
       beforeSequence,
+      readBound: sessionReadBound(this.#readDamagedFromSequence, sessionId),
     });
     if (opening === undefined) {
       return undefined;

@@ -22,10 +22,8 @@ import {
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/session";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 import { countEntriesFittingOneFrame } from "@ai-sidekicks/contracts/jsonrpc/page";
-import {
-  TRANSCRIPT_READ_LIMIT_MAX,
-  TranscriptReadRequestSchema,
-} from "@ai-sidekicks/contracts/transcript/operations";
+import { TRANSCRIPT_READ_LIMIT_MAX } from "@ai-sidekicks/contracts/transcript/limits";
+import { TranscriptReadRequestSchema } from "@ai-sidekicks/contracts/transcript/operations";
 import {
   TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE,
   TRANSCRIPT_RUN_LIFECYCLE_CATEGORY,

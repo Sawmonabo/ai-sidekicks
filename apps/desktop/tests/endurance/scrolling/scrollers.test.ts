@@ -15,10 +15,10 @@
 // find it, as it does under a rounded clip.
 //
 // The two timed readings are hardware-dependent, so they gate on the pinned runner class
-// (`../pinned-runner-class.ts`) and are printed everywhere else; where a scroll is hit-tested is not a
-// timing and holds on every machine. The controls hold on every machine too: draw heavier than a
-// refresh misses frames, a wheel handler that holds each turn crosses the input ceiling, and a pane
-// that clips its rounded corners hands each scroll's hit test to the main thread.
+// (`../pinned-runner-class.ts`) and are printed everywhere else; where a scroll is hit-tested is
+// not a timing and holds on every machine. The controls hold on every machine too: draw heavier
+// than a refresh misses frames, a wheel handler that holds each turn crosses the input ceiling, and
+// a pane that clips its rounded corners hands each scroll's hit test to the main thread.
 //
 // Every run is a fresh launch, because the scenario's frozen clock does not rewind. The frame-time
 // sampler (`../frame-sampling.ts`) drives the script one step per frame, and each gesture starts

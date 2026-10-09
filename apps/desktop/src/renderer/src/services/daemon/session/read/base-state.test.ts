@@ -2,7 +2,10 @@
 // at the position the opening picks, passing over a refused one; or for a repair the record alone,
 // the stream reopened where the repair says; or refused.
 
-import { encodeEventCursor, START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/event-cursor";
+import {
+  encodeEventCursor,
+  START_OF_LOG_POSITION,
+} from "@ai-sidekicks/contracts/session/event-cursor";
 import type { SessionReadResponse } from "@ai-sidekicks/contracts/session/methods";
 import { describe, expect, it } from "vitest";
 
@@ -24,7 +27,7 @@ const PAGE_LIMIT = 5;
 /** A window opening with no refused position. */
 const RESUME: SessionWindowOpening = {
   opensAt: "resume",
-  refusedCursor: undefined,
+  refusedCursors: new Set(),
   pageLimit: PAGE_LIMIT,
 };
 
@@ -91,9 +94,13 @@ describe("sessionReadThroughDaemon — the base state a store opens on", () => {
 
   it("passes a refused acknowledged position over for the newest row, as a snapshot", async () => {
     const { cursors } = await readAt(TRANSCRIPT_STATES_SCENARIO, RESUME);
+    const { acknowledged } = cursors;
+    if (acknowledged === undefined) {
+      throw new Error("The scenario acknowledges a position.");
+    }
     const pastAcknowledged = await readAt(TRANSCRIPT_STATES_SCENARIO, {
       ...RESUME,
-      refusedCursor: cursors.acknowledged,
+      refusedCursors: new Set([acknowledged]),
     });
     const snapshot = await readAt(TRANSCRIPT_STATES_SCENARIO, { ...RESUME, opensAt: "latest" });
 
@@ -109,16 +116,16 @@ describe("sessionReadThroughDaemon — the base state a store opens on", () => {
 
     // A refused newest row, and an empty window whose floor was refused.
     await expect(
-      readAt(CONCURRENT_STREAMING_SCENARIO, { ...RESUME, refusedCursor: latestCursor }),
+      readAt(CONCURRENT_STREAMING_SCENARIO, { ...RESUME, refusedCursors: new Set([latestCursor]) }),
     ).rejects.toBeInstanceOf(RefusalError);
     await expect(
-      readAt(CONCURRENT_STREAMING_SCENARIO, { ...RESUME, refusedCursor: FLOOR }, false),
+      readAt(CONCURRENT_STREAMING_SCENARIO, { ...RESUME, refusedCursors: new Set([FLOOR]) }, false),
     ).rejects.toBeInstanceOf(RefusalError);
     await expect(
       readAt(TRANSCRIPT_STATES_SCENARIO, {
         opensAt: "repair",
         reopening: { from: "head", headCursor: undefined },
-        refusedCursor: FLOOR,
+        refusedCursors: new Set([FLOOR]),
       }),
     ).rejects.toBeInstanceOf(RefusalError);
   });
@@ -130,7 +137,7 @@ describe("sessionReadThroughDaemon — the base state a store opens on", () => {
       readAt(TRANSCRIPT_STATES_SCENARIO, {
         opensAt: "repair",
         reopening,
-        refusedCursor: undefined,
+        refusedCursors: new Set(),
       });
     const afterRow = await repairFrom({ from: "row", rowCursor: lastWholeRow });
     const atHead = await repairFrom({ from: "head", headCursor: head });

@@ -22,7 +22,10 @@
 // Determinism is the contract: every identifier, instant, block and length is a function of the
 // turn, agent and reply indices alone, so a reading is comparable across runs and machines.
 
-import { encodeEventCursor, START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/event-cursor";
+import {
+  encodeEventCursor,
+  START_OF_LOG_POSITION,
+} from "@ai-sidekicks/contracts/session/event-cursor";
 
 import {
   composeScenarioInstant,

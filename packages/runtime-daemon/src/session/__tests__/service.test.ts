@@ -317,6 +317,37 @@ describe("SessionService — readSession", () => {
     );
   });
 
+  it("stands on an agent's newest readable switch when a newer one lies past the damaged point", async () => {
+    const events = openSessionEventLog();
+    await appendSessionCreated(events);
+    for (const switchId of ["switch-1", "switch-2"]) {
+      await events.append({
+        id: randomUUID(),
+        sessionId: SESSION_ID,
+        occurredAt: "2026-04-27T12:01:00.000Z",
+        category: "session_lifecycle",
+        type: "agent.provider_binding_changed",
+        actor: null,
+        payload: bindingChangedPayload(LEAD_AGENT_ID, switchId),
+        version: EVENT_VERSION,
+      });
+    }
+    // The second switch, at sequence 2, is where the session's history is damaged.
+    const damagedFromSecondSwitch = new SessionService(ctx.connections.reader, () => 2);
+
+    expect(
+      damagedFromSecondSwitch.readSession({ sessionId: SESSION_ID }).standingEvents,
+    ).toStrictEqual([
+      expect.objectContaining({ cursor: encodeEventCursor(0) }),
+      {
+        cursor: encodeEventCursor(1),
+        event: expect.objectContaining({
+          payload: expect.objectContaining({ switchId: "switch-1" }),
+        }),
+      },
+    ]);
+  });
+
   it("names each live run's agent as its creation names it", async () => {
     const events = openSessionEventLog();
     await appendSessionCreated(events);

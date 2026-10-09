@@ -39,7 +39,7 @@ const SESSION_READ_ORIGIN = "session-read";
  * The read that gives a session store its base state, through one bridge: the record, then the
  * window at the position `opening` names, or for a repair the record alone, the stream then opened
  * where the base state says. A refusal of either call, or a read whose stream could open only at
- * the position the stream refused, is raised so the store's refresh scheduler marks the session
+ * a position the stream refused, is raised so the store's refresh scheduler marks the session
  * degraded instead of reading nothing.
  */
 export function sessionReadThroughDaemon(bridge: PlatformBridge): SessionBaseStateReader {
@@ -54,7 +54,7 @@ export function sessionReadThroughDaemon(bridge: PlatformBridge): SessionBaseSta
       await callDaemon(bridge, "session.read", { sessionId: wireSessionId }),
     );
     if (opening.opensAt === "repair") {
-      return repairBaseStateOf(record, opening.reopening, opening.refusedCursor);
+      return repairBaseStateOf(record, opening.reopening, opening.refusedCursors);
     }
     const page = readTranscriptPage(
       unwrapDaemonReply(
@@ -65,13 +65,14 @@ export function sessionReadThroughDaemon(bridge: PlatformBridge): SessionBaseSta
         }),
       ),
     );
-    return windowBaseStateOf(record, page, opening.refusedCursor);
+    return windowBaseStateOf(record, page, opening.refusedCursors);
   };
 }
 
 /**
  * The position the window ends at: the acknowledged one when a window opens and one was
- * acknowledged, else the log's newest. A refused position is passed over for the newest.
+ * acknowledged, else the log's newest. A refused acknowledged position is passed over for the
+ * newest.
  */
 function openingCursorOf(
   cursors: SessionReadResponse["transcriptCursors"],
@@ -80,7 +81,7 @@ function openingCursorOf(
   const { acknowledged } = cursors;
   return opening.opensAt === "resume" &&
     acknowledged !== undefined &&
-    acknowledged !== opening.refusedCursor
+    !opening.refusedCursors.has(acknowledged)
     ? acknowledged
     : cursors.latest;
 }
@@ -93,12 +94,12 @@ function openingCursorOf(
 function windowBaseStateOf(
   record: SessionReadResponse,
   page: TranscriptPage,
-  refusedCursor: EventCursor | undefined,
+  refusedCursors: ReadonlySet<EventCursor>,
 ): SessionBaseState {
   const newest = page.events.at(-1);
   const streamAfterCursor = openableCursor(
     newest === undefined ? record.transcriptCursors.earliest : heldRowCursor(newest),
-    refusedCursor,
+    refusedCursors,
   );
   return {
     ...(newest === undefined ? {} : { cursor: newest.sequence }),
@@ -118,7 +119,7 @@ function windowBaseStateOf(
 function repairBaseStateOf(
   record: SessionReadResponse,
   reopening: RepairReopening,
-  refusedCursor: EventCursor | undefined,
+  refusedCursors: ReadonlySet<EventCursor>,
 ): SessionBaseState {
   const position =
     reopening.from === "row"
@@ -127,7 +128,7 @@ function repairBaseStateOf(
   return {
     entities: record.liveRuns.map(projectLiveRun),
     standingEvents: standingEventsOf(record),
-    streamAfterCursor: openableCursor(position, refusedCursor),
+    streamAfterCursor: openableCursor(position, refusedCursors),
   };
 }
 
@@ -142,9 +143,12 @@ function standingEventsOf(record: SessionReadResponse): ProjectedSessionEvent[] 
   });
 }
 
-/** `cursor`, unless it is the position the stream refused, which no read opens it at again. */
-function openableCursor(cursor: EventCursor, refusedCursor: EventCursor | undefined): EventCursor {
-  if (cursor === refusedCursor) {
+/** `cursor`, unless the stream refused it, so no read opens the stream there again. */
+function openableCursor(
+  cursor: EventCursor,
+  refusedCursors: ReadonlySet<EventCursor>,
+): EventCursor {
+  if (refusedCursors.has(cursor)) {
     throw new RefusalError(
       refuse(SESSION_READ_ORIGIN, "session-unreadable", "Could not load this session."),
     );

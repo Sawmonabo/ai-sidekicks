@@ -50,7 +50,7 @@ import {
 import { readTranscriptWindow } from "./transcript/window-read.js";
 import { expectPreciseHeapInstrument, RendererHeapProbe } from "./heap/instrument.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
-// The viewport's own overscan, so the bound below is not a figure kept in step by hand.
+// The viewport's own drawn band, so the bound below is not a figure kept in step by hand.
 import { TRANSCRIPT_DRAWN_BAND_SCREEN_HEIGHTS } from "#renderer/features/transcript/viewport/caps.js";
 import { BudgetRegistry } from "../helpers/budget/registry.js";
 import { evaluateBudget } from "../helpers/budget/evaluation.js";

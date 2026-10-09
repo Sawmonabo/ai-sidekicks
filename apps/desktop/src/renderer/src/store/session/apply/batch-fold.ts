@@ -18,7 +18,7 @@
 // the stream up again: the newest row folded whole before it, with the partitions as they stood
 // there. An admitted rollback marks the held rows it supersedes.
 
-import type { EventCursor } from "@ai-sidekicks/contracts/session/id";
+import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 
 import { AgentHueAllocator } from "#renderer/styles/agent-hue.js";
 import { worstDegradedCause } from "../degradation.js";

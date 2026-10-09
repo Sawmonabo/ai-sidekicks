@@ -1,9 +1,9 @@
 // The rows the feed draws anything for. After the run group fold, a row the registered renderer has
 // no body for, and that is no system message, leaves the viewport's list, so it takes no slot and
 // no estimated height; a run group header always stays. Unlike the fold it reports nothing it took:
-// no count or walk names a row the feed never draws. It runs on every admitted event, so a pass over
-// the same row objects in the same order as the last one applies that pass's decision again instead
-// of asking every row.
+// no count or walk names a row the feed never draws. It runs on every admitted event, so a pass
+// over the same row objects in the same order as the last one applies that pass's decision again
+// instead of asking every row.
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 

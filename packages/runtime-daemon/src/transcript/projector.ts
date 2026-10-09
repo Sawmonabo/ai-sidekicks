@@ -15,15 +15,19 @@ import {
   type TranscriptRunStamp,
 } from "@ai-sidekicks/contracts/transcript/row";
 
+import type { DamagedFromSequenceReader } from "../events/session/read.js";
 import { RunTurnReads, SessionTurnAttribution } from "./turn-attribution.js";
 
 /** Projects the session log into transcript rows and stamps each event of a run. */
 export class TranscriptProjector {
   readonly #reads: RunTurnReads;
 
-  /** Prepares the log reads on `reader`, the daemon's read-only connection. */
-  constructor(reader: Database) {
-    this.#reads = new RunTurnReads(reader);
+  /**
+   * Prepares the log reads on `reader`, the daemon's read-only connection;
+   * `readDamagedFromSequence` says where a damaged session's reads stop, none stop when absent.
+   */
+  constructor(reader: Database, readDamagedFromSequence?: DamagedFromSequenceReader) {
+    this.#reads = new RunTurnReads(reader, readDamagedFromSequence);
   }
 
   /**

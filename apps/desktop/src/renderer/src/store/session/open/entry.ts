@@ -29,8 +29,9 @@
 //
 // The subscriber reports when the stream cannot be followed: a hole too wide to fill, or a
 // position the stream refused. The window is then marked degraded and its one repair read asked
-// for; a refused position is never handed out again. A failed read is told to the subscriber
-// too, which asks again for one its stream waits on.
+// for; no read opens the stream at a position among the newest refused, so a read never cycles
+// between refused ones. A failed read is told to the subscriber too, which asks again for one its
+// stream waits on.
 //
 // It reads no wire; the composition root supplies `read`, keeping `store/` below `services/`.
 
@@ -59,8 +60,8 @@ import {
 import { SessionStore } from "../store.js";
 
 /**
- * What a read does with the window, never opening the stream at the one position it refused. A
- * union, so where a repair reopens the stream travels only with a repair.
+ * What a read does with the window, never opening the stream at a position it refused. A union,
+ * so where a repair reopens the stream travels only with a repair.
  */
 export type SessionWindowOpening =
   | {
@@ -70,8 +71,8 @@ export type SessionWindowOpening =
        * newest rows.
        */
       readonly opensAt: "resume" | "latest";
-      /** The one position the stream refused, which the read never opens at again. */
-      readonly refusedCursor: EventCursor | undefined;
+      /** The positions the stream refused, which the read never opens at again. */
+      readonly refusedCursors: ReadonlySet<EventCursor>;
       /** The row count the window's read asks for. */
       readonly pageLimit: number;
     }
@@ -80,8 +81,8 @@ export type SessionWindowOpening =
       readonly opensAt: "repair";
       /** Where the stream reopens. */
       readonly reopening: RepairReopening;
-      /** The one position the stream refused, which the read never opens at again. */
-      readonly refusedCursor: EventCursor | undefined;
+      /** The positions the stream refused, which the read never opens at again. */
+      readonly refusedCursors: ReadonlySet<EventCursor>;
     };
 
 /**
@@ -136,12 +137,8 @@ export class OpenSessionEntry {
   public readonly store: SessionStore;
   public readonly applyQueue: ApplyQueue;
   public readonly refreshScheduler: RefreshScheduler;
-  /**
-   * The one position the stream refused, so no read opens the window there again. One value, not
-   * a set: a read hands out one position, so only the last could be handed out again, and a set
-   * would grow without bound in a long session.
-   */
-  #refusedCursor: EventCursor | undefined = undefined;
+  /** The positions the stream refused, oldest first, so no read opens the stream at one again. */
+  readonly #refusedCursors = new Set<EventCursor>();
   /** Whether the stream was lost past a hole too wide to fill, so the next read is a snapshot. */
   #isSnapshotOwed = false;
   #streamPosition: SessionStreamPosition | undefined = undefined;
@@ -284,10 +281,17 @@ export class OpenSessionEntry {
 
   /**
    * The stream refused the position it was opened after, so the log no longer resolves it: the
-   * stream is lost, and no read opens it there again.
+   * stream is lost, and no read opens it there again while it is among the newest refused.
    */
   public refuseStreamCursor(cursor: EventCursor): void {
-    this.#refusedCursor = cursor;
+    this.#refusedCursors.delete(cursor);
+    this.#refusedCursors.add(cursor);
+    for (const oldest of this.#refusedCursors) {
+      if (this.#refusedCursors.size <= REFUSED_CURSOR_LIMIT) {
+        break;
+      }
+      this.#refusedCursors.delete(oldest);
+    }
     this.#forgetStream();
   }
 
@@ -334,9 +338,9 @@ export class OpenSessionEntry {
    * leaves nothing to reopen at, so that repair is a snapshot too.
    */
   #nextOpening(options: OpenSessionEntryOptions): SessionWindowOpening {
-    const refusedCursor = this.#refusedCursor;
+    const refusedCursors: ReadonlySet<EventCursor> = new Set(this.#refusedCursors);
     const state = this.store.snapshot();
-    const windowRead = { refusedCursor, pageLimit: options.openingPageLimit() };
+    const windowRead = { refusedCursors, pageLimit: options.openingPageLimit() };
     if (!state.initialized) {
       return { opensAt: "resume", ...windowRead };
     }
@@ -344,15 +348,15 @@ export class OpenSessionEntry {
       return { opensAt: "latest", ...windowRead };
     }
     const rowCursor = this.store.repairResumeRowCursor;
-    if (rowCursor !== undefined && rowCursor !== refusedCursor) {
-      return { opensAt: "repair", reopening: { from: "row", rowCursor }, refusedCursor };
+    if (rowCursor !== undefined && !refusedCursors.has(rowCursor)) {
+      return { opensAt: "repair", reopening: { from: "row", rowCursor }, refusedCursors };
     }
     const head = state.transcriptHead;
     const headCursor = head.hasMore ? head.cursor : undefined;
-    if (headCursor !== undefined && headCursor === refusedCursor) {
+    if (headCursor !== undefined && refusedCursors.has(headCursor)) {
       return { opensAt: "latest", ...windowRead };
     }
-    return { opensAt: "repair", reopening: { from: "head", headCursor }, refusedCursor };
+    return { opensAt: "repair", reopening: { from: "head", headCursor }, refusedCursors };
   }
 
   /**
@@ -399,6 +403,11 @@ export class OpenSessionEntry {
     this.#streamPositions.emit(position);
   }
 }
+
+// The most refused positions an entry remembers: as many as one read chooses between, the last
+// whole row, the head, the acknowledged position and the window's newest row or the floor. Once
+// each is refused the read is refused, so a read never cycles between refused ones.
+const REFUSED_CURSOR_LIMIT = 4;
 
 /**
  * Whether one `applyBatch` lost rows the stream still holds, so an authoritative re-read is owed:
