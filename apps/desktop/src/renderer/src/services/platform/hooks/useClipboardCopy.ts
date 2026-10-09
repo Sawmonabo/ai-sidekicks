@@ -13,12 +13,11 @@ import { usePlatformBridge } from "./usePlatformBridge.js";
 /**
  * Put `content` on the system clipboard through main, in one write of its flavors, and hold the
  * outcome for one transient-status duration. A function is called only when the copy is asked
- * for, for content that costs to build, and may answer later, as a picture's encoding does. A
- * refused copy, or content that could not be built, ends as `failed`, which the control says in
+ * for, for content that costs to build. A refused copy ends as `failed`, which the control says in
  * place; `onSettled` hears each outcome of a copy whose control is still mounted.
  */
 export function useClipboardCopy(
-  content: ClipboardContent | (() => ClipboardContent | Promise<ClipboardContent>),
+  content: ClipboardContent | (() => ClipboardContent),
   onSettled?: (outcome: Exclude<ClipboardCopyStatus, "rest">) => void,
 ): ClipboardCopy {
   const bridge = usePlatformBridge();
@@ -56,13 +55,7 @@ export function useClipboardCopy(
   };
 
   const copy = (): void => {
-    const built = typeof content === "function" ? content() : content;
-    // Content ready now is written at once; content still being built is written once it is.
-    const written =
-      built instanceof Promise
-        ? built.then((ready) => bridge.native.copyToClipboard(ready))
-        : bridge.native.copyToClipboard(built);
-    written.then(
+    bridge.native.copyToClipboard(typeof content === "function" ? content() : content).then(
       () => {
         settle("copied");
       },

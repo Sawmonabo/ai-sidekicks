@@ -126,6 +126,8 @@
       "ignoreDependencies": [
         // The app updating itself to a new release.
         "electron-updater",
+        // A diagram block in a reply drawn as a picture.
+        "mermaid",
         // The strokes a person draws to mark up the Preview page.
         "perfect-freehand",
         // A Codex voice hold played into the call faster with its pitch kept.

@@ -2,7 +2,7 @@ import { useMemo } from "react";
 
 import { type MarkdownRenderContext } from "#renderer/components/Markdown/MarkdownNodes.js";
 import { useCodeSpanReader } from "#renderer/services/highlight/hooks/useCodeSpanReader.js";
-import { renderBlockCopy } from "../BlockCopy.js";
+import { renderCodeBlockCopy } from "../CodeBlockCopy.js";
 
 /** The two contexts a body's blocks are drawn in. */
 export interface MarkdownRenderContexts {
@@ -19,17 +19,17 @@ export interface MarkdownRenderContexts {
 export function useMarkdownRenderContexts(
   definedFootnoteIdentifiers: ReadonlySet<string>,
   isComplete: boolean,
-  offersBlockCopy: boolean,
+  offersCodeCopy: boolean,
 ): MarkdownRenderContexts {
   const codeSpanReader = useCodeSpanReader();
-  const renderCopy = offersBlockCopy ? renderBlockCopy : undefined;
+  const renderCodeCopy = offersCodeCopy ? renderCodeBlockCopy : undefined;
   const settled = useMemo<MarkdownRenderContext>(
-    () => ({ isSettled: true, definedFootnoteIdentifiers, codeSpanReader, renderCopy }),
-    [definedFootnoteIdentifiers, codeSpanReader, renderCopy],
+    () => ({ isSettled: true, definedFootnoteIdentifiers, codeSpanReader, renderCodeCopy }),
+    [definedFootnoteIdentifiers, codeSpanReader, renderCodeCopy],
   );
   const volatile = useMemo<MarkdownRenderContext>(
-    () => ({ isSettled: isComplete, definedFootnoteIdentifiers, codeSpanReader, renderCopy }),
-    [isComplete, definedFootnoteIdentifiers, codeSpanReader, renderCopy],
+    () => ({ isSettled: isComplete, definedFootnoteIdentifiers, codeSpanReader, renderCodeCopy }),
+    [isComplete, definedFootnoteIdentifiers, codeSpanReader, renderCodeCopy],
   );
   return useMemo(() => ({ settled, volatile }), [settled, volatile]);
 }

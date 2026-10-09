@@ -1,5 +1,5 @@
-import { cleanup, render } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { render } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
 
 import type { CodeSpanReader } from "./highlight/code-span-reader.js";
 import { MarkdownNodes } from "./MarkdownNodes.js";
@@ -15,15 +15,15 @@ const NO_CODE_SPANS: CodeSpanReader = {
   },
 };
 
-function renderMarkdown(source: string, isSettled = true): HTMLElement {
+function renderMarkdown(source: string, definedFootnotes: readonly string[] = []): HTMLElement {
   const { container } = render(
     <MarkdownNodes
       nodes={parseSettledBlock(source).children}
       context={{
-        isSettled,
-        definedFootnoteIdentifiers: new Set(),
+        isSettled: true,
+        definedFootnoteIdentifiers: new Set(definedFootnotes),
         codeSpanReader: NO_CODE_SPANS,
-        renderCopy: undefined,
+        renderCodeCopy: undefined,
       }}
     />,
   );
@@ -76,35 +76,5 @@ describe("structure", () => {
   it("renders a footnote DEFINITION nowhere, so its text is not on screen twice", () => {
     const container = renderMarkdown("[^1]: the note body\n");
     expect(container.textContent).not.toContain("the note body");
-  });
-});
-
-describe("a mermaid fence", () => {
-  const idleRequests: IdleRequestCallback[] = [];
-  const { requestIdleCallback, cancelIdleCallback } = window;
-
-  afterEach(() => {
-    // Unmounting withdraws the held request from the queue every diagram block shares.
-    cleanup();
-    idleRequests.length = 0;
-    window.requestIdleCallback = requestIdleCallback;
-    window.cancelIdleCallback = cancelIdleCallback;
-  });
-
-  it("is a diagram block that asks for its picture once settled, and only then", () => {
-    // Held, never run: the library is not loaded and nothing is drawn.
-    window.requestIdleCallback = (callback) => idleRequests.push(callback);
-    window.cancelIdleCallback = () => undefined;
-    const source = "flowchart LR\n  streamed --> settled";
-    const fence = `\`\`\`mermaid\n${source}\n\`\`\`\n`;
-
-    const streaming = renderMarkdown(fence, false);
-    expect(streaming.querySelector(".meridian-diagram__source")?.textContent).toBe(source);
-    expect(idleRequests).toHaveLength(0);
-
-    const settled = renderMarkdown(fence);
-    expect(settled.querySelector("figure.meridian-diagram")).not.toBeNull();
-    expect(settled.querySelector(".meridian-code-block")).toBeNull();
-    expect(idleRequests).toHaveLength(1);
   });
 });

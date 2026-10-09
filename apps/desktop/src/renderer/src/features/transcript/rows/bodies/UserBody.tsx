@@ -30,7 +30,7 @@ export function UserBody(props: UserBodyProps): React.JSX.Element | null {
       sourceId={props.row.id}
       footnotes={props.footnotes}
       isComplete
-      offersBlockCopy={false}
+      offersCodeCopy={false}
     />
   );
 }

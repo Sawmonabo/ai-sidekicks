@@ -20,20 +20,4 @@ describe("the clipboard copy", () => {
       [{ "text/plain": "a person's own line" }],
     ]);
   });
-
-  it("writes a picture as its PNG bytes alone, and refuses bytes that are not a PNG", async () => {
-    const clipboard = recordingClipboard();
-    const png = Uint8Array.of(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x2a);
-
-    await copyToClipboard(clipboard, { png });
-    await expect(
-      copyToClipboard(clipboard, { png: Uint8Array.of(0x47, 0x49, 0x46) }),
-    ).rejects.toThrow("The picture is not a PNG.");
-
-    expect(clipboard.write).toHaveBeenCalledTimes(1);
-    const [[flavors]] = clipboard.write.mock.calls as [[Record<string, Blob>]];
-    expect(Object.keys(flavors)).toStrictEqual(["image/png"]);
-    expect(flavors["image/png"]?.type).toBe("image/png");
-    expect(new Uint8Array(await flavors["image/png"]!.arrayBuffer())).toStrictEqual(png);
-  });
 });

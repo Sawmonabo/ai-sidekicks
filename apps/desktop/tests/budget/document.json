@@ -153,25 +153,6 @@
       "scope": "product"
     },
     {
-      "id": "scrolling-conversation-cached-diagram-insert",
-      "label": "Scrolling the conversation, cached diagram insert",
-      "subject": "How long a diagram block whose picture is cached takes to insert when it scrolls back into the long conversation after its block unmounted.",
-      "specTarget": "a fling at 8,000 px/s through a long conversation, idle and with four lanes streaming, on the reference machine: a diagram whose picture is cached inserts in ≤ 1 ms",
-      "limit": {
-        "comparison": "<=",
-        "value": 1,
-        "unit": "ms",
-        "canonicalValue": 1,
-        "canonicalUnit": "ms"
-      },
-      "status": "n/a",
-      "measuredBy": null,
-      "subjectSymbol": null,
-      "notMeasurableReason": "No harness measures it: a launched app's conversation draws no reply body, because the renderer reads no stored body (`transcript.bodyRead` is bound by no client) and the fixture reveals no live text, so no diagram reaches the conversation to scroll out and back. It is measurable once a reply's body reaches the conversation in a launched app.",
-      "notes": "Hardware-dependent, so it gates on the pinned CI runner class like the other conversation rows. The picture is the one the diagram block's shared cache keeps (`src/renderer/src/components/Markdown/diagram/pictures.ts`); the reading scrolls a drawn diagram out of the conversation until its block unmounts, back in, and times the insert. Measured: TBD by the lead.",
-      "scope": "product"
-    },
-    {
       "id": "renderer-heap-at-rest",
       "label": "Renderer heap, one session open at rest",
       "subject": "Retained JavaScript heap with one session open and nothing streaming — the app's stores, projections, and persistence layer settled, after a forced garbage collection.",

@@ -48,7 +48,7 @@ export function parseMarkdownDocument(
       definedFootnoteIdentifiers: footnotes.definedIdentifiers,
       codeSpanReader,
       // Step output draws no per-block Copy.
-      renderCopy: undefined,
+      renderCodeCopy: undefined,
     },
     holdsMarkdown: nodes.some(
       (node) => node.type !== "paragraph" || node.children.some((child) => child.type !== "text"),

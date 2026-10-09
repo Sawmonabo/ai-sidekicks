@@ -122,19 +122,13 @@ export interface EditorEntry {
 }
 
 /**
- * What a copy of text puts on the clipboard: the plain text, and a formatted flavor beside it that
- * a paste target which reads formatting takes instead.
+ * What one copy puts on the clipboard: the plain text, and a formatted flavor beside it that a
+ * paste target which reads formatting takes instead.
  */
-export interface TextClipboardContent {
+export interface ClipboardContent {
   readonly text: string;
   readonly html?: string;
 }
-
-/**
- * What one copy puts on the clipboard: text with its formatted flavor, or a picture alone as PNG
- * bytes. A picture carries no text flavor, so a paste target that reads both never prefers text.
- */
-export type ClipboardContent = TextClipboardContent | { readonly png: Uint8Array<ArrayBuffer> };
 
 /**
  * An install that cannot update itself, and what can: a package manager's own update
@@ -413,8 +407,7 @@ export interface PreloadApi {
     /** The operating system's notification permission for this app. */
     getNotificationPermission(): Promise<NotificationPermission>;
     /**
-     * Put the text, with its formatted flavor where one is given, or the PNG picture on the
-     * clipboard in one write.
+     * Put the text, with its formatted flavor where one is given, on the clipboard in one write.
      */
     copyToClipboard(content: ClipboardContent): Promise<void>;
     /** Show a file or folder selected in the platform's file manager. */

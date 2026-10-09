@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createStubBridge, type ClipboardContent } from "#shared/preload-api.js";
@@ -22,19 +22,14 @@ function bridgeCopyingWith(
   };
 }
 
-function MessageCopy(props: {
-  readonly content: Parameters<typeof useClipboardCopy>[0];
-}): React.JSX.Element {
-  return <CopyButton label="Copy" clipboardCopy={useClipboardCopy(props.content)} />;
+function MessageCopy(): React.JSX.Element {
+  return <CopyButton label="Copy" clipboardCopy={useClipboardCopy({ text: MESSAGE_TEXT })} />;
 }
 
-async function pressCopy(
-  bridge: PlatformBridge,
-  content: Parameters<typeof useClipboardCopy>[0] = { text: MESSAGE_TEXT },
-): Promise<void> {
+async function pressCopy(bridge: PlatformBridge): Promise<void> {
   render(
     <PlatformBridgeProvider bridge={bridge}>
-      <MessageCopy content={content} />
+      <MessageCopy />
     </PlatformBridgeProvider>,
   );
   await act(async () => {
@@ -76,32 +71,6 @@ describe("a message's Copy control", () => {
   it("reads Could not copy when the host rejects", async () => {
     await pressCopy(bridgeCopyingWith(() => Promise.reject(new Error("clipboard refused"))));
 
-    expect(screen.getByRole("button").textContent).toBe("Could not copy");
-  });
-});
-
-describe("a Copy control whose content is built after the press", () => {
-  it("writes content once built, and reads Could not copy when it cannot be built", async () => {
-    const copied: ClipboardContent[] = [];
-    const bridge = bridgeCopyingWith(async (content) => {
-      copied.push(content);
-    });
-    const png = Uint8Array.of(0x89, 0x50, 0x4e, 0x47);
-    await pressCopy(bridge, async () => ({ png }));
-    await act(async () => {
-      await Promise.resolve();
-    });
-
-    expect(copied).toStrictEqual([{ png }]);
-    expect(screen.getByRole("button").textContent).toBe("Copied");
-
-    cleanup();
-    await pressCopy(bridge, () => Promise.reject(new Error("the picture did not decode")));
-    await act(async () => {
-      await Promise.resolve();
-    });
-
-    expect(copied).toHaveLength(1);
     expect(screen.getByRole("button").textContent).toBe("Could not copy");
   });
 });

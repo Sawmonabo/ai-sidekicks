@@ -6,7 +6,7 @@
 import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import type { TextClipboardContent } from "#shared/preload-api.js";
+import type { ClipboardContent } from "#shared/preload-api.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { WindowedListRow } from "#renderer/components/WindowedListRow/WindowedListRow.js";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
@@ -55,13 +55,13 @@ function Conversation(): React.JSX.Element {
 
 /** The session's conversation and message box, and every clipboard write main was asked for. */
 function renderSession(): {
-  readonly copied: TextClipboardContent[];
+  readonly copied: ClipboardContent[];
   readonly box: HTMLTextAreaElement;
 } {
   const fixture = createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO });
-  const copied: TextClipboardContent[] = [];
+  const copied: ClipboardContent[] = [];
   vi.spyOn(fixture.bridge.native, "copyToClipboard").mockImplementation(async (content) => {
-    copied.push("text" in content ? content : expect.fail("the conversation copies text"));
+    copied.push(content);
   });
   const { container } = render(
     <FixtureBridgeProvider fixture={fixture}>

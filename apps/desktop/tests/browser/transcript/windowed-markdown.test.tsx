@@ -110,7 +110,7 @@ async function mountBodies(
                   sourceId="reply"
                   footnotes={new FootnoteRegistry()}
                   isComplete={options.isComplete}
-                  offersBlockCopy
+                  offersCodeCopy
                 />
               </MarkdownWindowViewportContext>
             </div>
@@ -122,7 +122,7 @@ async function mountBodies(
                 sourceId="reply-whole"
                 footnotes={new FootnoteRegistry()}
                 isComplete={options.isComplete}
-                offersBlockCopy
+                offersCodeCopy
               />
             </div>
           ) : null}

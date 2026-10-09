@@ -37,11 +37,8 @@ export interface StreamingMarkdownProps {
    * character can change what it means.
    */
   readonly isComplete: boolean;
-  /**
-   * Whether code and diagram blocks carry their own copies: an agent's reply does, a person's does
-   * not.
-   */
-  readonly offersBlockCopy: boolean;
+  /** Whether each code block carries its own Copy: an agent's reply does, a person's does not. */
+  readonly offersCodeCopy: boolean;
 }
 
 /**
@@ -60,7 +57,7 @@ export function StreamingMarkdown(props: StreamingMarkdownProps): React.JSX.Elem
   const contexts = useMarkdownRenderContexts(
     blocks.definedFootnoteIdentifiers,
     props.isComplete,
-    props.offersBlockCopy,
+    props.offersCodeCopy,
   );
   const viewport = useContext(MarkdownWindowViewportContext);
 

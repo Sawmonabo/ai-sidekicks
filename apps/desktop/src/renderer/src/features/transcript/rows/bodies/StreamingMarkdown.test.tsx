@@ -32,7 +32,7 @@ describe("a streaming body", () => {
         sourceId="event-01"
         footnotes={new FootnoteRegistry()}
         isComplete={false}
-        offersBlockCopy={false}
+        offersCodeCopy={false}
       />,
     );
     expect(container.textContent).toContain("the first sentence");
@@ -51,7 +51,7 @@ describe("a streaming body", () => {
           sourceId="event-11"
           footnotes={new FootnoteRegistry()}
           isComplete={false}
-          offersBlockCopy={false}
+          offersCodeCopy={false}
         />,
       ),
     );
@@ -71,7 +71,7 @@ describe("a streaming body", () => {
         sourceId="event-12"
         footnotes={new FootnoteRegistry()}
         isComplete={false}
-        offersBlockCopy={false}
+        offersCodeCopy={false}
       />,
     );
     const firstSettled = container.querySelector(PARAGRAPH_SELECTOR);
@@ -85,7 +85,7 @@ describe("a streaming body", () => {
         sourceId="event-12"
         footnotes={new FootnoteRegistry()}
         isComplete={false}
-        offersBlockCopy={false}
+        offersCodeCopy={false}
       />,
     );
 
@@ -101,7 +101,7 @@ describe("a streaming body", () => {
         sourceId="event-13"
         footnotes={footnotes}
         isComplete={false}
-        offersBlockCopy={false}
+        offersCodeCopy={false}
       />,
     );
     const firstSettled = container.querySelector(PARAGRAPH_SELECTOR);
@@ -112,7 +112,7 @@ describe("a streaming body", () => {
         sourceId="event-13"
         footnotes={footnotes}
         isComplete={false}
-        offersBlockCopy={false}
+        offersCodeCopy={false}
       />,
     );
 
@@ -134,7 +134,7 @@ describe("a body the sender has finished", () => {
         sourceId="event-33"
         footnotes={new FootnoteRegistry()}
         isComplete
-        offersBlockCopy={false}
+        offersCodeCopy={false}
       />,
     );
     expect(container.querySelector("strong")).toBeNull();
@@ -159,7 +159,7 @@ describe("a footnote whose definition settles in another block", () => {
         sourceId="event-30"
         footnotes={new FootnoteRegistry()}
         isComplete
-        offersBlockCopy={false}
+        offersCodeCopy={false}
       />,
     );
 
