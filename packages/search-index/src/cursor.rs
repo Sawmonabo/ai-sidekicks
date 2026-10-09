@@ -4,9 +4,10 @@ use std::cmp::Reverse;
 use std::collections::BinaryHeap;
 
 use tantivy::postings::{Postings, SegmentPostings, TermInfo};
-use tantivy::query::{BooleanWeight, Explanation, Occur, Scorer, SumCombiner, Weight};
+use tantivy::query::BitSetDocSet;
 use tantivy::schema::{Field, IndexRecordOption};
-use tantivy::{DocId, DocSet, Score, SegmentReader, TERMINATED, TantivyError, Term};
+use tantivy::{DocId, DocSet, SegmentReader, TERMINATED, Term};
+use tantivy_common::BitSet;
 
 use crate::phrase::Phrase;
 use crate::schema::IndexFields;
@@ -31,7 +32,7 @@ pub fn open_phrase_cursor(
             (CursorPurpose::Score, Some(term)) => {
                 term_cursor(segment, &term, IndexRecordOption::WithFreqs)?
             }
-            (CursorPurpose::Score, None) => occurrences_cursor(segment, fields.text, part)?,
+            (CursorPurpose::Score, None) => summed_cursor(segment, fields.text, part)?,
             (CursorPurpose::Mark, _) => text_cursor(
                 segment,
                 fields,
@@ -51,6 +52,24 @@ pub fn open_phrase_cursor(
         }
     }
     Ok(Some(PhraseCursor::Sequence(SequenceCursor::new(parts))))
+}
+
+/// Every phrase's cursor in `segment`, in phrase order, or `None` when no row of the segment can
+/// match one of them.
+pub fn open_cursors(
+    segment: &SegmentReader,
+    fields: &IndexFields,
+    phrases: &[Phrase],
+    purpose: CursorPurpose,
+) -> tantivy::Result<Option<Vec<PhraseCursor>>> {
+    let mut cursors = Vec::with_capacity(phrases.len());
+    for phrase in phrases {
+        match open_phrase_cursor(segment, fields, phrase, purpose)? {
+            Some(cursor) => cursors.push(cursor),
+            None => return Ok(None),
+        }
+    }
+    Ok(Some(cursors))
 }
 
 /// The postings of one term in `segment`, or `None` when the segment lacks the term.
@@ -90,32 +109,43 @@ fn text_cursor(
     })
 }
 
-// A prefix longer than every prefix field, for scoring: Tantivy's buffered union of every word it
-// begins, merging them a window of rows at a time rather than seeking each word's postings to every
-// row asked for, each word scored by its count in the row so the union's score is the prefix's.
-fn occurrences_cursor(
+// A prefix longer than every prefix field, for scoring: each word it begins read whole, a block of
+// rows at a time, its counts added into its rows' slots, so the prefix's count in a row is one
+// lookup. Every word's rows are read once, where merging them a row at a time costs a heap step or
+// a refilled window per row asked.
+fn summed_cursor(
     segment: &SegmentReader,
     text: Field,
     prefix: &str,
 ) -> tantivy::Result<Option<TokenCursor>> {
     let term_infos = prefix_term_infos(segment, text, prefix)?;
-    let cost = term_infos
-        .iter()
-        .map(|term_info| u64::from(term_info.doc_freq))
-        .sum();
-    let words: Vec<(Occur, Box<dyn Weight>)> = term_infos
-        .into_iter()
-        .map(|term_info| {
-            let word = OccurrenceWeight { text, term_info };
-            (Occur::Should, Box::new(word) as Box<dyn Weight>)
-        })
-        .collect();
-    if words.is_empty() {
+    let Some((first, rest)) = term_infos.split_first() else {
         return Ok(None);
+    };
+    let inverted = segment.inverted_index(text)?;
+    let mut counts = vec![0u32; segment.max_doc() as usize];
+    let mut rows = BitSet::with_max_value(segment.max_doc());
+    // One block reader, reset to each word in turn.
+    let mut block =
+        inverted.read_block_postings_from_terminfo(first, IndexRecordOption::WithFreqs)?;
+    let mut words = rest.iter();
+    loop {
+        while !block.docs().is_empty() {
+            for (doc, frequency) in block.docs().iter().zip(block.freqs()) {
+                counts[*doc as usize] += frequency;
+                rows.insert(*doc);
+            }
+            block.advance();
+        }
+        let Some(term_info) = words.next() else {
+            break;
+        };
+        inverted.reset_block_postings_from_terminfo(term_info, &mut block)?;
     }
-    let union = BooleanWeight::new(words, true, Box::new(SumCombiner::default));
-    let words = union.scorer(segment, 1.0)?;
-    Ok(Some(TokenCursor::Occurrences { words, cost }))
+    Ok(Some(TokenCursor::Summed(Box::new(SummedRows {
+        rows: BitSetDocSet::from(rows),
+        counts,
+    }))))
 }
 
 // Where every term of `field` that `prefix` begins sits in `segment`'s term dictionary, in term
@@ -138,61 +168,10 @@ fn prefix_term_infos(
     Ok(term_infos)
 }
 
-// One word's postings, scored by how often the word occurs in each row.
-struct OccurrenceWeight {
-    text: Field,
-    term_info: TermInfo,
-}
-
-impl Weight for OccurrenceWeight {
-    fn scorer(&self, segment: &SegmentReader, _: Score) -> tantivy::Result<Box<dyn Scorer>> {
-        let postings = segment
-            .inverted_index(self.text)?
-            .read_postings_from_terminfo(&self.term_info, IndexRecordOption::WithFreqs)?;
-        Ok(Box::new(OccurrenceScorer(postings)))
-    }
-
-    fn explain(&self, segment: &SegmentReader, doc: DocId) -> tantivy::Result<Explanation> {
-        let mut scorer = self.scorer(segment, 1.0)?;
-        if scorer.seek(doc) != doc {
-            return Err(TantivyError::InvalidArgument(format!(
-                "row {doc} does not hold the word"
-            )));
-        }
-        Ok(Explanation::new("occurrences in the row", scorer.score()))
-    }
-}
-
-struct OccurrenceScorer(SegmentPostings);
-
-impl DocSet for OccurrenceScorer {
-    fn advance(&mut self) -> DocId {
-        self.0.advance()
-    }
-
-    fn seek(&mut self, target: DocId) -> DocId {
-        self.0.seek(target)
-    }
-
-    fn doc(&self) -> DocId {
-        self.0.doc()
-    }
-
-    fn size_hint(&self) -> u32 {
-        self.0.size_hint()
-    }
-}
-
-impl Scorer for OccurrenceScorer {
-    fn score(&mut self) -> Score {
-        self.0.term_freq() as Score
-    }
-}
-
 /// The four-character prefix field's postings of each phrase that is a prefix longer than every
 /// prefix field. They hold every row the prefix's words hold, so a row they lack is turned away
-/// before the words' merged postings are sought to it, a seek that refills a window of rows. Rows
-/// are asked in increasing order.
+/// before the phrases' cursors are opened or sought to it: a long prefix's cursor reads every word
+/// it begins. Rows are asked in increasing order.
 pub struct RowFilters(Vec<TokenCursor>);
 
 impl RowFilters {
@@ -222,14 +201,20 @@ impl RowFilters {
 }
 
 /// One token's rows: a single term's postings, the postings of every term a prefix begins with
-/// their positions, or for scoring alone those terms' union scored by their counts.
+/// their positions, or for scoring alone those terms' counts summed per row.
 pub enum TokenCursor {
     // Boxed: a term's postings hold a decoded block inline, many times a union's size.
     Term(Box<SegmentPostings>),
     Union(UnionCursor),
-    // Tantivy's union leaves a word out of its own cost once it has passed the word's last row, so
-    // the words' rows are counted when it opens.
-    Occurrences { words: Box<dyn Scorer>, cost: u64 },
+    Summed(Box<SummedRows>),
+}
+
+/// Every row a prefix's words hold in one segment, deleted rows included, with the words' counts
+/// summed per row.
+pub struct SummedRows {
+    rows: BitSetDocSet,
+    /// Indexed by row; zero for a row no word holds.
+    counts: Vec<u32>,
 }
 
 impl TokenCursor {
@@ -238,7 +223,7 @@ impl TokenCursor {
         match self {
             TokenCursor::Term(postings) => postings.doc(),
             TokenCursor::Union(union) => union.doc,
-            TokenCursor::Occurrences { words, .. } => words.doc(),
+            TokenCursor::Summed(summed) => summed.rows.doc(),
         }
     }
 
@@ -247,7 +232,7 @@ impl TokenCursor {
         match self {
             TokenCursor::Term(postings) => postings.advance(),
             TokenCursor::Union(union) => union.advance(),
-            TokenCursor::Occurrences { words, .. } => words.advance(),
+            TokenCursor::Summed(summed) => summed.rows.advance(),
         }
     }
 
@@ -257,8 +242,7 @@ impl TokenCursor {
             TokenCursor::Term(postings) if postings.doc() >= target => postings.doc(),
             TokenCursor::Term(postings) => postings.seek(target),
             TokenCursor::Union(union) => union.seek(target),
-            TokenCursor::Occurrences { words, .. } if words.doc() >= target => words.doc(),
-            TokenCursor::Occurrences { words, .. } => words.seek(target),
+            TokenCursor::Summed(summed) => summed.rows.seek(target),
         }
     }
 
@@ -271,8 +255,7 @@ impl TokenCursor {
                 .iter()
                 .map(|index| union.postings[*index].term_freq())
                 .sum(),
-            // Each word's count summed as a float, exact for any count a row can hold.
-            TokenCursor::Occurrences { words, .. } => words.score() as u32,
+            TokenCursor::Summed(summed) => summed.counts[summed.rows.doc() as usize],
         }
     }
 
@@ -288,7 +271,7 @@ impl TokenCursor {
                 positions.sort_unstable();
             }
             // Opened for scoring, so no position is read.
-            TokenCursor::Occurrences { .. } => {}
+            TokenCursor::Summed(_) => {}
         }
     }
 
@@ -301,7 +284,7 @@ impl TokenCursor {
                 .iter()
                 .map(|postings| u64::from(postings.doc_freq()))
                 .sum(),
-            TokenCursor::Occurrences { cost, .. } => *cost,
+            TokenCursor::Summed(summed) => u64::from(summed.rows.size_hint()),
         }
     }
 }

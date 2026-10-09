@@ -3,6 +3,7 @@
 //! phrase of the query occurs in.
 
 use crate::find::{find_in_session, mark_matches};
+use crate::schema::PREFIX_FIELD_COUNT;
 use crate::tokenizer::tokenize;
 use crate::{IndexRow, IndexRowKind, SearchQuery};
 
@@ -49,6 +50,24 @@ fn find_counts_equal_the_marks_on_every_row() {
     let first_letter = first_letter.as_str();
     let joined = format!("{first}-{}", tokens[1]);
     let joined_prefix = format!("{first}-{}", &tokens[1][..1]);
+    // A prefix longer than every prefix field that two different words begin in one row, so a
+    // row's count is its words' counts summed.
+    let long_prefix = session_rows
+        .iter()
+        .find_map(|(_, text)| {
+            let words: Vec<String> = tokenize(text)
+                .into_iter()
+                .map(|token| token.folded)
+                .collect();
+            words.iter().find_map(|word| {
+                let prefix: String = word.chars().take(PREFIX_FIELD_COUNT + 1).collect();
+                let begun = |other: &&String| other.starts_with(&prefix) && *other != word;
+                (prefix.chars().count() > PREFIX_FIELD_COUNT
+                    && words.iter().any(|other| begun(&other)))
+                .then_some(prefix)
+            })
+        })
+        .expect("a row holds two words one long prefix begins");
     let queries = vec![
         query(&[first], false),
         query(&[first_letter], true),
@@ -56,6 +75,7 @@ fn find_counts_equal_the_marks_on_every_row() {
         query(&[first, first], false),
         query(&[joined.as_str()], false),
         query(&[joined_prefix.as_str()], true),
+        query(&[long_prefix.as_str()], true),
     ];
 
     let folder = ScratchFolder::new("find");

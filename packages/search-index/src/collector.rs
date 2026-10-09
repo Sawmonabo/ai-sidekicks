@@ -8,7 +8,7 @@ use tantivy::query::{Bm25StatisticsProvider, EnableScoring, Query, TermQuery};
 use tantivy::schema::{Field, IndexRecordOption};
 use tantivy::{DocId, DocSet, Score, SegmentReader, TERMINATED, Term};
 
-use crate::cursor::{CursorPurpose, PhraseCursor, RowFilters, open_phrase_cursor};
+use crate::cursor::{CursorPurpose, PhraseCursor, open_cursors};
 use crate::membership::GroupMembership;
 use crate::phrase::Phrase;
 use crate::schema::{IndexFields, Owner, owner_of, owner_value};
@@ -220,21 +220,6 @@ fn credit_sessions(membership: &GroupMembership, owner: u64, mut credit: impl Fn
     }
 }
 
-fn open_cursors(
-    segment: &SegmentReader,
-    fields: &IndexFields,
-    phrases: &[Phrase],
-) -> tantivy::Result<Option<Vec<PhraseCursor>>> {
-    let mut cursors = Vec::with_capacity(phrases.len());
-    for phrase in phrases {
-        match open_phrase_cursor(segment, fields, phrase, CursorPurpose::Score)? {
-            Some(cursor) => cursors.push(cursor),
-            None => return Ok(None),
-        }
-    }
-    Ok(Some(cursors))
-}
-
 /// Whether every cursor sits on `doc`, each moved there or past it.
 pub fn all_on(cursors: &mut [PhraseCursor], doc: DocId) -> bool {
     cursors.iter_mut().all(|cursor| cursor.seek(doc) == doc)
@@ -283,8 +268,7 @@ fn owner_docs_below(
 
 // Visits every live row of segment `ordinal` that matches every phrase, with its exact score. With
 // `within`, a row's owner is checked before the row is scored, and the walk starts from the set's
-// own rows when they are fewer than the rarest phrase's, a row the phrases' filters lack turned
-// away before the phrases are sought to it.
+// own rows when they are fewer than the rarest phrase's.
 fn visit_matches_in(
     version: &IndexVersion,
     ordinal: usize,
@@ -294,7 +278,13 @@ fn visit_matches_in(
 ) -> tantivy::Result<()> {
     let segment = &version.searcher.segment_readers()[ordinal];
     let columns = &version.segments[ordinal].columns;
-    let Some(mut cursors) = open_cursors(segment, &version.fields, &query.phrases)? else {
+    let cursors = open_cursors(
+        segment,
+        &version.fields,
+        &query.phrases,
+        CursorPurpose::Score,
+    )?;
+    let Some(mut cursors) = cursors else {
         return Ok(());
     };
     let alive = segment.alive_bitset();
@@ -308,9 +298,8 @@ fn visit_matches_in(
         && set.estimated_rows_in(segment, &version.fields)? < lead_cost
         && let Some(docs) = owner_docs_below(segment, &version.fields, &set.owners, lead_cost)?
     {
-        let mut filters = RowFilters::open(segment, &version.fields, &query.phrases)?;
         for doc in docs {
-            if is_alive(doc) && filters.admit(doc) && all_on(&mut cursors, doc) {
+            if is_alive(doc) && all_on(&mut cursors, doc) {
                 frequencies_into(&mut cursors, &mut frequencies);
                 visit(
                     columns,
@@ -515,7 +504,13 @@ pub fn top_sessions(
         .sum();
     let mut top = TopSessions::new(k);
     for (ordinal, segment) in version.searcher.segment_readers().iter().enumerate() {
-        let Some(mut cursors) = open_cursors(segment, &version.fields, &query.phrases)? else {
+        let cursors = open_cursors(
+            segment,
+            &version.fields,
+            &query.phrases,
+            CursorPurpose::Score,
+        )?;
+        let Some(mut cursors) = cursors else {
             continue;
         };
         let columns = &version.segments[ordinal].columns;

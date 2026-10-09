@@ -6,7 +6,7 @@ use tantivy::TERMINATED;
 use tantivy::schema::IndexRecordOption;
 
 use crate::collector::all_on;
-use crate::cursor::{CursorPurpose, PhraseCursor, RowFilters, open_phrase_cursor, term_cursor};
+use crate::cursor::{CursorPurpose, PhraseCursor, RowFilters, open_cursors, term_cursor};
 use crate::phrase::{Phrase, query_phrases};
 use crate::schema::{EVENT_KIND, Owner, owner_term};
 use crate::tokenizer::tokenize;
@@ -35,29 +35,31 @@ pub fn find_in_session(
             let Some(mut rows) = term_cursor(segment, &owner, IndexRecordOption::Basic)? else {
                 continue;
             };
-            let mut cursors = Vec::with_capacity(phrases.len());
-            for phrase in &phrases {
-                match open_phrase_cursor(segment, &version.fields, phrase, purpose)? {
-                    Some(cursor) => cursors.push(cursor),
-                    None => break,
-                }
-            }
-            if cursors.len() < phrases.len() {
-                continue;
-            }
             let mut filters = RowFilters::open(segment, &version.fields, &phrases)?;
             let columns = &version.segments[ordinal].columns;
             let alive = segment.alive_bitset();
             let mut marked = Vec::new();
+            // Opened at the first row the filters admit, so a segment where none of the session's
+            // rows can match never reads a long prefix's words.
+            let mut opened: Option<Vec<PhraseCursor>> = None;
             let mut doc = rows.doc();
             while doc != TERMINATED {
-                if alive.is_none_or(|alive| alive.is_alive(doc))
-                    && columns.kind.get_val(doc) == EVENT_KIND
-                    && filters.admit(doc)
-                    && all_on(&mut cursors, doc)
-                {
-                    let count = row_match_count(&mut cursors, purpose, &mut marked);
-                    found.push((columns.key.get_val(doc), count));
+                if filters.admit(doc) {
+                    let cursors = match &mut opened {
+                        Some(cursors) => cursors,
+                        None => match open_cursors(segment, &version.fields, &phrases, purpose)? {
+                            Some(cursors) => opened.insert(cursors),
+                            None => break,
+                        },
+                    };
+                    // The phrases before the columns: most of a session's rows miss a typed word.
+                    if all_on(cursors, doc)
+                        && alive.is_none_or(|alive| alive.is_alive(doc))
+                        && columns.kind.get_val(doc) == EVENT_KIND
+                    {
+                        let count = row_match_count(cursors, purpose, &mut marked);
+                        found.push((columns.key.get_val(doc), count));
+                    }
                 }
                 doc = rows.advance();
             }
