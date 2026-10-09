@@ -380,3 +380,52 @@ describe("the standing events stand whatever rows the window holds", () => {
     ]);
   });
 });
+
+describe("the hue wheel follows the order agents joined", () => {
+  it("draws the same hues for a session opened at its tail and at its head", () => {
+    const actedBy = (event: ProjectedSessionEvent, actorId: string): ProjectedSessionEvent => ({
+      ...event,
+      actorId,
+    });
+    // The person opens the session with the lead, then brings in a helper from its definition.
+    const joins = [
+      actedBy(
+        eventOfKind("session-1", "session.created", 1, {
+          sessionId: "session-1",
+          mainAgent: { agentId: "agent-lead" },
+        }),
+        "person-1",
+      ),
+      actedBy(
+        eventOfKind("session-1", "run.queued", 2, {
+          runId: "run-helper",
+          resolvedAgent: { agentId: "agent-helper" },
+        }),
+        "person-1",
+      ),
+    ];
+    const atHead = new SessionStore({ sessionId: "session-1" });
+    atHead.initialize({
+      cursor: 4,
+      entities: [],
+      standingEvents: joins,
+      transcript: [...joins, actedBy(eventAt(3), "agent-lead"), actedBy(eventAt(4), "agent-lead")],
+    });
+    // The tail holds only the helper's rows, the lead's lying above the window.
+    const atTail = new SessionStore({ sessionId: "session-1" });
+    atTail.initialize({
+      cursor: 91,
+      entities: [],
+      standingEvents: joins,
+      transcript: [actedBy(eventAt(90), "agent-helper"), actedBy(eventAt(91), "agent-helper")],
+    });
+
+    for (const store of [atHead, atTail]) {
+      const stepOf = (actorId: string): number | undefined =>
+        store.hueAllocator.assignmentFor(actorId)?.step;
+      expect([stepOf("person-1"), stepOf("agent-lead"), stepOf("agent-helper")]).toStrictEqual([
+        0, 1, 2,
+      ]);
+    }
+  });
+});

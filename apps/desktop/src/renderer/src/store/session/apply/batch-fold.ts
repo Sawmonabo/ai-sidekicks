@@ -29,6 +29,7 @@ import { markSupersededByRollback } from "../events/run/superseded.js";
 import { WaitingOnPersonRegister } from "../waiting-on-person/register.js";
 import { PreInitializationBuffer } from "../pre-initialization-buffer.js";
 import { mergeStandingEvents } from "../standing-events.js";
+import { admitToHueWheel } from "../hue-admission.js";
 import {
   SequenceReconciler,
   isReconcilableSequence,
@@ -156,9 +157,7 @@ export function foldAppliedBatch(
     }
     streamAfterCursor = heldRowCursor(event);
 
-    if (event.actorId !== undefined) {
-      dependencies.hueAllocator.admit(event.actorId);
-    }
+    admitToHueWheel(dependencies.hueAllocator, event);
     // The register advances on the admitted row, not the transcript it joins: what is outstanding
     // outlives the window, and a release or the next read can drop this row.
     dependencies.waitingOnPersonRegister.admit([event]);

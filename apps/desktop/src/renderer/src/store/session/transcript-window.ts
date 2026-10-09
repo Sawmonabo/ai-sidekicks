@@ -25,6 +25,7 @@ import { AgentHueAllocator } from "#renderer/styles/agent-hue.js";
 import type { ProjectedSessionEvent } from "./entities/vocabulary.js";
 import { WaitingOnPersonRegister } from "./waiting-on-person/register.js";
 import { mergeStandingEvents } from "./standing-events.js";
+import { admitToHueWheel } from "./hue-admission.js";
 import { isReconcilableSequence, orderBatchBySequence } from "./sequence-reconciler.js";
 import {
   heldRowCursor,
@@ -295,9 +296,7 @@ function recoverRows(
   dependencies: TranscriptPageDependencies,
 ): void {
   for (const event of rows) {
-    if (event.actorId !== undefined) {
-      dependencies.hueAllocator.admit(event.actorId);
-    }
+    admitToHueWheel(dependencies.hueAllocator, event);
   }
   dependencies.waitingOnPersonRegister.admit(rows);
 }
