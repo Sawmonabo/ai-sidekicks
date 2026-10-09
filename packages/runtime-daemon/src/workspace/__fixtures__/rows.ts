@@ -1,6 +1,74 @@
-// Raw-SQL reading of the mount, workspace and event rows the workspace tests assert on.
+// Raw-SQL seeding of attached mounts with their project rows, and raw-SQL reading of the mount,
+// workspace and event rows the workspace tests assert on.
 
 import type { Database } from "better-sqlite3";
+
+import { ProjectIdSchema, type ProjectId } from "@ai-sidekicks/contracts/project";
+
+import type { WriteStatement } from "../../database/statement.js";
+import { mintUuidV7 } from "../../uuid-v7.js";
+import { COMMON_DIR_METADATA_PATH } from "../row-guards.js";
+
+const SEEDED_AT = "2026-08-04T00:00:00.000Z";
+
+// A setup the project list can read: nothing to copy or run, a minute's limit.
+const EMPTY_SETUP = JSON.stringify({ filesToCopy: [], commands: [], timeLimitSeconds: 60 });
+
+/** An attached mount to seed; every member but `id` and `canonicalRoot` has a default. */
+export interface AttachedMountSeed {
+  readonly id: string;
+  readonly canonicalRoot: string;
+  /** Defaults to the canonical root. */
+  readonly localPath?: string;
+  /** The identity anchor; absent seeds a mount without one, which skips the identity check. */
+  readonly commonDir?: string;
+  readonly nodeId?: string;
+  /** Defaults to a fresh project, whose row the statements insert first. */
+  readonly projectId?: ProjectId;
+}
+
+/** The statement that inserts an `active` project row with an empty setup. */
+export function projectRowStatement(projectId: ProjectId): WriteStatement {
+  return {
+    sql: `INSERT INTO projects (id, name, slug, folder_path, state, setup, created_at, updated_at)
+          VALUES (@id, @id, @id, @id, 'active', @setup, @now, @now)`,
+    bindings: { id: projectId, setup: EMPTY_SETUP, now: SEEDED_AT },
+  };
+}
+
+/** A fresh project id. */
+export function mintProjectId(): ProjectId {
+  return ProjectIdSchema.parse(mintUuidV7());
+}
+
+/**
+ * The statements that insert an attached mount and, unless the seed names one, its own project
+ * row first; run them through a writer or one by one on a raw connection.
+ */
+export function attachedMountRowStatements(seed: AttachedMountSeed): readonly WriteStatement[] {
+  const projectId = seed.projectId ?? mintProjectId();
+  const mountRow: WriteStatement = {
+    sql: `INSERT INTO repo_mounts (
+            id, node_id, local_path, canonical_root, vcs_type, origin, project_id, state,
+            attached_at, updated_at, metadata
+          ) VALUES (
+            @id, @node_id, @local_path, @canonical_root, 'git', 'attached', @project_id,
+            'attached', @now, @now,
+            CASE WHEN @common_dir IS NULL THEN '{}'
+                 ELSE json_set('{}', '${COMMON_DIR_METADATA_PATH}', @common_dir) END
+          )`,
+    bindings: {
+      id: seed.id,
+      node_id: seed.nodeId ?? "node-local",
+      local_path: seed.localPath ?? seed.canonicalRoot,
+      canonical_root: seed.canonicalRoot,
+      project_id: projectId,
+      common_dir: seed.commonDir ?? null,
+      now: SEEDED_AT,
+    },
+  };
+  return seed.projectId === undefined ? [projectRowStatement(projectId), mountRow] : [mountRow];
+}
 
 // Row and event readers use raw SQL, not a service call: durability is a claim about what is on
 // disk, and reading back through the writing service would prove only that it agrees with itself.

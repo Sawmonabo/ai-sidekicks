@@ -182,7 +182,7 @@ describe("the sessions list counts the chats and keeps every session the log hol
       chatCount: 1,
     });
 
-    const repoMountId = await log.bindToProject(CHAT);
+    const { projectId, repoMountId } = await log.bindToProject(CHAT);
     await log.append(CHAT, "session.converted", "session_lifecycle", {
       sessionId: CHAT,
       repoMountId,
@@ -193,7 +193,7 @@ describe("the sessions list counts the chats and keeps every session the log hol
 
     expect(listener.changes.at(-1)).toMatchObject({
       kind: "upsert",
-      entry: { sessionId: CHAT, shape: "project", repoMountId },
+      entry: { sessionId: CHAT, shape: "project", projectId },
       chatCount: 0,
     });
   });
@@ -203,7 +203,7 @@ describe("the sessions list counts the chats and keeps every session the log hol
     await log.createSession(CHAT, "chat");
     await log.createSession(archivedChat, "chat");
     await log.createSession(PROJECT, "project");
-    const repoMountId = await log.bindToProject(PROJECT);
+    const { projectId } = await log.bindToProject(PROJECT);
     const listener = recordingListener();
     expect((await feed.open(listener)).chatCount).toBe(2);
 
@@ -221,7 +221,7 @@ describe("the sessions list counts the chats and keeps every session the log hol
 
     expect(listener.changes).toMatchObject([
       { kind: "upsert", entry: { sessionId: archivedChat, state: "archived" }, chatCount: 1 },
-      { kind: "upsert", entry: { sessionId: PROJECT, state: "closed", repoMountId }, chatCount: 1 },
+      { kind: "upsert", entry: { sessionId: PROJECT, state: "closed", projectId }, chatCount: 1 },
     ]);
     const reopened = await feed.open(recordingListener());
     expect(reopened.chatCount).toBe(1);
@@ -282,8 +282,8 @@ describe("the sessions list names each session's group", () => {
     const second = randomUUID() as SessionId;
     await log.createSession(PROJECT, "project");
     await log.createSession(second, "project");
-    const repoMountId = await log.bindToProject(PROJECT);
-    await log.bindToProject(second, repoMountId);
+    const binding = await log.bindToProject(PROJECT);
+    await log.bindToProject(second, binding);
     const { groupId } = await groups.create({ sessionId: PROJECT, name: "auth work" });
     await groups.move({ sessionId: second, groupId });
     const listener = recordingListener();

@@ -68,6 +68,8 @@ import {
   RepoMountListResponseSchema,
   RepoMountReadRequestSchema,
   RepoMountReadResponseSchema,
+  RepoMountReattachRequestSchema,
+  RepoMountReattachResponseSchema,
   type RepoAttachRequest,
   type RepoAttachResponse,
   type RepoDetachRequest,
@@ -78,6 +80,8 @@ import {
   type RepoMountListResponse,
   type RepoMountReadRequest,
   type RepoMountReadResponse,
+  type RepoMountReattachRequest,
+  type RepoMountReattachResponse,
 } from "./folders.js";
 import {
   RepoBranchListRequestSchema,
@@ -120,6 +124,14 @@ import {
   type WorktreeStatusReadResponse,
 } from "../worktree/lifecycle.js";
 import {
+  WorktreeCopyProgressSchema,
+  WorktreeCopySubscribeRequestSchema,
+  WorktreeCopySubscribeResponseSchema,
+  type WorktreeCopyProgress,
+  type WorktreeCopySubscribeRequest,
+  type WorktreeCopySubscribeResponse,
+} from "../worktree/copy-progress.js";
+import {
   WorktreeSetupRequestSchema,
   WorktreeSetupStatusSchema,
   WorktreeSetupSubscribeResponseSchema,
@@ -145,6 +157,11 @@ export interface RepoMethodDescriptors {
     RepoMountListResponse
   >;
   readonly "repo.detach": MethodDescriptor<"repo.detach", RepoDetachRequest, RepoDetachResponse>;
+  readonly "repo.mountReattach": MethodDescriptor<
+    "repo.mountReattach",
+    RepoMountReattachRequest,
+    RepoMountReattachResponse
+  >;
   readonly "repo.folderList": MethodDescriptor<
     "repo.folderList",
     RepoFolderListRequest,
@@ -265,6 +282,12 @@ export interface RepoMethodDescriptors {
     WorktreeSetupRequest,
     EmptyPayload
   >;
+  readonly "repo.worktreeCopySubscribe": SubscriptionMethodDescriptor<
+    "repo.worktreeCopySubscribe",
+    WorktreeCopySubscribeRequest,
+    WorktreeCopySubscribeResponse,
+    WorktreeCopyProgress
+  >;
   readonly "repo.removedWorktreeList": MethodDescriptor<
     "repo.removedWorktreeList",
     RemovedWorktreeListRequest,
@@ -282,11 +305,7 @@ export interface RepoMethodDescriptors {
   >;
 }
 
-/**
- * Every `repo.*` method's contract.
- *
- * @consumedBy the daemon's `repo.*` handlers
- */
+/** Every `repo.*` method's contract. */
 export const REPO_METHOD_DESCRIPTORS: RepoMethodDescriptors = defineMethodDescriptors({
   "repo.attach": {
     method: "repo.attach",
@@ -315,6 +334,13 @@ export const REPO_METHOD_DESCRIPTORS: RepoMethodDescriptors = defineMethodDescri
     mutating: true,
     requestSchema: RepoDetachRequestSchema,
     responseSchema: RepoDetachResponseSchema,
+  },
+  "repo.mountReattach": {
+    method: "repo.mountReattach",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: RepoMountReattachRequestSchema,
+    responseSchema: RepoMountReattachResponseSchema,
   },
   "repo.folderList": {
     method: "repo.folderList",
@@ -487,6 +513,14 @@ export const REPO_METHOD_DESCRIPTORS: RepoMethodDescriptors = defineMethodDescri
     mutating: true,
     requestSchema: WorktreeSetupRequestSchema,
     responseSchema: EmptyPayloadSchema,
+  },
+  "repo.worktreeCopySubscribe": {
+    method: "repo.worktreeCopySubscribe",
+    procedureType: "subscription",
+    mutating: false,
+    requestSchema: WorktreeCopySubscribeRequestSchema,
+    responseSchema: WorktreeCopySubscribeResponseSchema,
+    emissionSchema: WorktreeCopyProgressSchema,
   },
   "repo.removedWorktreeList": {
     method: "repo.removedWorktreeList",

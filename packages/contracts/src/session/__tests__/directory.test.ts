@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { SessionCreateRequestSchema, sessionActivityAsOf } from "../directory.js";
 
-const MOUNT_ID = "770e8400-e29b-41d4-a716-446655440002";
+const PROJECT_ID = "770e8400-e29b-41d4-a716-446655440002";
 const GROUP_ID = "aa0e8400-e29b-41d4-a716-446655440005";
 const ACCOUNT_ID = "bb0e8400-e29b-41d4-a716-446655440006";
 const IDEMPOTENCY_KEY = "0f2b4d5e-9999-4999-8999-999999999999";
@@ -43,7 +43,7 @@ describe("session.create", () => {
     expect(
       SessionCreateRequestSchema.safeParse({
         clientIdempotencyKey: IDEMPOTENCY_KEY,
-        binding: { kind: "project", repoMountId: MOUNT_ID, executionMode: "bound-root" },
+        binding: { kind: "project", projectId: PROJECT_ID, executionMode: "bound-root" },
         lead,
       }).success,
     ).toBe(true);
@@ -63,7 +63,7 @@ describe("session.create", () => {
     expect(
       SessionCreateRequestSchema.safeParse({
         clientIdempotencyKey: IDEMPOTENCY_KEY,
-        binding: { kind: "project", repoMountId: MOUNT_ID, executionMode: "bound-root" },
+        binding: { kind: "project", projectId: PROJECT_ID, executionMode: "bound-root" },
         lead,
         groupId: GROUP_ID,
       }).success,

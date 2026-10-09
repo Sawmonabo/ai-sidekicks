@@ -87,9 +87,8 @@ type ContainsForbidden<K extends string> = K extends string
  * Names the daemon's results and values carry that match a forbidden substring and hold no
  * credential: counts of model tokens and the run's token limit, a workflow secret's id and its
  * list (never a value), the path of the service's secrets file, the name of the environment
- * variable a tool server's bearer token is read from, the handle the service mints for a folder
- * it listed, a screencast frame's acknowledgment id, and the dates a webhook token was made and
- * last used.
+ * variable a tool server's bearer token is read from, a screencast frame's acknowledgment id, and
+ * the dates a webhook token was made and last used.
  */
 type CredentialFreeKeys =
   | "tokens"
@@ -106,7 +105,6 @@ type CredentialFreeKeys =
   | "secrets"
   | "secretsFile"
   | "bearerTokenEnvVar"
-  | "folderToken"
   | "ackToken"
   | "webhookTokenCreatedAt"
   | "webhookTokenLastUsedAt";

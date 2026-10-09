@@ -10,7 +10,7 @@ import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { Emitter } from "#renderer/lib/emitter.js";
 import type { FirstTurnQueueCall } from "./control-contract.js";
-import { sendNewSessionDraft, type DraftRepoMount } from "./send.js";
+import { sendNewSessionDraft, type DraftProject } from "./send.js";
 import {
   refuseAmbiguousCreate,
   refuseNewSessionDraft,
@@ -19,7 +19,7 @@ import {
 
 /** What the draft control renders. A fresh object per mutation, so `Object.is` decides. */
 export interface NewSessionDraftState {
-  readonly repoMount: DraftRepoMount | undefined;
+  readonly project: DraftProject | undefined;
   /** The session's first message, verbatim. Never trimmed; only tested for blankness. */
   readonly firstTurn: string;
   /** True while nothing has been chosen — the arm that reverts to nothing. */
@@ -53,7 +53,7 @@ export class NewSessionDraft {
     hasQueuedFirstTurn: false,
   };
   #state: NewSessionDraftState = {
-    repoMount: undefined,
+    project: undefined,
     firstTurn: "",
     isEmpty: true,
     revision: 0,
@@ -81,8 +81,8 @@ export class NewSessionDraft {
   }
 
   /** The project the session works in; `undefined` makes it a chat. */
-  public setRepoMount(repoMount: DraftRepoMount | undefined): void {
-    this.#commit({ repoMount });
+  public setProject(project: DraftProject | undefined): void {
+    this.#commit({ project });
   }
 
   /**
@@ -95,7 +95,7 @@ export class NewSessionDraft {
 
   /** Throw the draft away. Local only: a draft has no daemon row, so nothing is deleted. */
   public discard(): void {
-    this.#commit({ repoMount: undefined, firstTurn: "" });
+    this.#commit({ project: undefined, firstTurn: "" });
   }
 
   /**
@@ -138,7 +138,7 @@ export class NewSessionDraft {
       // The session this draft already created is the one it sends to; the create is skipped.
       sessionId: this.#landed.hasCreatedSession ? this.#landed.sessionId : undefined,
       firstTurnAlreadyQueued: this.#landed.hasQueuedFirstTurn,
-      repoMount: this.#state.repoMount,
+      project: this.#state.project,
       lead: this.#lead,
       clientIdempotencyKey: this.#clientIdempotencyKey,
       firstTurn: this.#state.firstTurn,
@@ -164,7 +164,7 @@ export class NewSessionDraft {
     const next = { ...this.#state, ...change };
     this.#state = {
       ...next,
-      isEmpty: next.repoMount === undefined && next.firstTurn.trim().length === 0,
+      isEmpty: next.project === undefined && next.firstTurn.trim().length === 0,
       revision: this.#state.revision + 1,
     };
     this.#changes.emit(this.#state);

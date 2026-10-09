@@ -1,6 +1,7 @@
-// Proves the repo-root resolver returns only the canonical toplevel real git reports for the
-// supplied path, and otherwise refuses with a typed reason: never a root guessed from the daemon's
-// working directory, a root widened by a redirect, or "not a repository" for a git that failed.
+// Proves the repo-root resolver returns only roots real git reports and verifies for the supplied
+// path, and otherwise refuses with a typed reason: never a root guessed from the daemon's working
+// directory, a root widened by a redirect, a planted `.git` pointer taken for the repository it
+// names, or "not a repository" for a git that failed.
 
 import { chmod, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -34,6 +35,10 @@ interface Fixtures {
   readonly submoduleRoot: string;
   readonly submoduleNestedDirectory: string;
   readonly separateGitDirRoot: string;
+  /** A linked worktree of `repo`, which git lists. */
+  readonly linkedWorktreeRoot: string;
+  /** A folder whose `.git` file names `repo`'s git directory; git does not list it. */
+  readonly plantedPointerHolder: string;
   readonly damagedMetadataUnreadable: string;
   readonly damagedMetadataEmpty: string;
   readonly damagedMetadataDanglingGitfile: string;
@@ -118,6 +123,20 @@ beforeAll(async () => {
     ],
     environment,
     fixtureRoot,
+  );
+
+  const linkedWorktreeRoot = join(fixtureRoot, "linked-worktree");
+  await runFixtureGit(
+    ["-C", repositoryRoot, "worktree", "add", "-q", "-b", "linked", linkedWorktreeRoot],
+    environment,
+    fixtureRoot,
+  );
+  const plantedPointerHolder = join(fixtureRoot, "planted-pointer-holder");
+  await mkdir(plantedPointerHolder);
+  await writeFile(
+    join(plantedPointerHolder, ".git"),
+    `gitdir: ${join(repositoryRoot, ".git")}\n`,
+    "utf8",
   );
 
   // Damaged metadata that git reports with the same not-a-repository stderr as an honest
@@ -208,6 +227,8 @@ beforeAll(async () => {
     submoduleRoot,
     submoduleNestedDirectory,
     separateGitDirRoot,
+    linkedWorktreeRoot,
+    plantedPointerHolder,
     damagedMetadataUnreadable,
     damagedMetadataEmpty,
     damagedMetadataDanglingGitfile,
@@ -299,7 +320,44 @@ it.each([
   },
 ] as const)("resolves $shape to its own canonical toplevel", async ({ input, root }) => {
   const resolution = await new RepoRootResolver().resolveCanonicalRoot(fixtures[input]);
-  expect(resolution).toEqual({ canonicalRoot: fixtures[root], vcsType: "git" });
+  expect(resolution).toMatchObject({
+    canonicalRoot: fixtures[root],
+    workingTreeRoot: fixtures[root],
+    vcsType: "git",
+  });
+});
+
+describe("a `.git` pointer is believed only for a working tree git lists", () => {
+  it("refuses a planted pointer as root_mismatch, while a listed worktree resolves", async () => {
+    // Git answers the holder as its own top level, in the pointed-at repository; only the list
+    // tells it from the linked worktree beside it.
+    await expectResolutionFailure(
+      new RepoRootResolver().resolveCanonicalRoot(fixtures.plantedPointerHolder),
+      "root_mismatch",
+    );
+    expect(await new RepoRootResolver().resolveCanonicalRoot(fixtures.linkedWorktreeRoot)).toEqual({
+      canonicalRoot: fixtures.repositoryRoot,
+      workingTreeRoot: fixtures.linkedWorktreeRoot,
+      commonDir: await realpath(join(fixtures.repositoryRoot, ".git")),
+      vcsType: "git",
+    });
+  });
+});
+
+it("refuses a nonexistent path as path_not_found before git runs", async () => {
+  // Git would answer for whatever repository holds the path's parent.
+  const spawned: (readonly string[])[] = [];
+  const resolver = new RepoRootResolver({
+    git: (args) => {
+      spawned.push(args);
+      return Promise.reject(new Error("git must not run for a nonexistent path"));
+    },
+  });
+  await expectResolutionFailure(
+    resolver.resolveCanonicalRoot(join(fixtures.repositoryRoot, "no-such-directory")),
+    "path_not_found",
+  );
+  expect(spawned).toHaveLength(0);
 });
 
 describe("an incomplete path is refused before anything resolves it", () => {
@@ -346,12 +404,6 @@ describe("an incomplete path is refused before anything resolves it", () => {
 const unusablePathCases: readonly (RefusalCase & { readonly reason: RepoRootResolutionReason })[] =
   [
     {
-      refusal: "a nonexistent path",
-      resolver: defaultResolver,
-      input: () => join(fixtures.fixtureRoot, "no-such-directory"),
-      reason: "path_not_found",
-    },
-    {
       refusal: "a regular file",
       resolver: defaultResolver,
       input: () => fixtures.regularFile,
@@ -383,7 +435,7 @@ it.each(unusablePathCases)("refuses $refusal as $reason", async ({ resolver, inp
   await expectResolutionFailure(resolver().resolveCanonicalRoot(input()), reason);
 });
 
-describe("not_a_git_repository is git's own verdict on absent metadata, and nothing else", () => {
+describe("not_a_repository is git's own verdict on absent metadata, and nothing else", () => {
   it.each([
     { absence: "a plain directory", input: "plainDirectory", ambientGitDir: false },
     {
@@ -397,13 +449,13 @@ describe("not_a_git_repository is git's own verdict on absent metadata, and noth
       input: "plainDirectory",
       ambientGitDir: true,
     },
-  ] as const)("reads $absence as not_a_git_repository", async ({ input, ambientGitDir }) => {
+  ] as const)("reads $absence as not_a_repository", async ({ input, ambientGitDir }) => {
     if (ambientGitDir) {
       vi.stubEnv("GIT_DIR", join(fixtures.repositoryRoot, ".git"));
     }
     await expectResolutionFailure(
       new RepoRootResolver().resolveCanonicalRoot(fixtures[input]),
-      "not_a_git_repository",
+      "not_a_repository",
     );
   });
 

@@ -39,6 +39,7 @@ import type {
 } from "../../../session/directory/list-feed.js";
 import { cancelAfterDetachedFailure, type StreamingPrimitive } from "../../streaming-primitive.js";
 import { createSubscriptionAckBarrier } from "../../subscription-ack-barrier.js";
+import { registerDescribedSubscription } from "../register-described-method.js";
 import type { OutboundQueue } from "./subscribe.js";
 
 /** What `session.list`'s handler needs. */
@@ -118,13 +119,7 @@ export function registerSessionList(registry: MethodRegistry, deps: SessionListD
       isComplete,
     };
   };
-  registry.register(
-    descriptor.method,
-    descriptor.requestSchema,
-    descriptor.responseSchema,
-    handler as Handler<unknown, unknown>,
-    { mutating: descriptor.mutating },
-  );
+  registerDescribedSubscription(registry, descriptor, handler);
 }
 
 /** Where a pacer sends changes and how it reads its connection's queue. */

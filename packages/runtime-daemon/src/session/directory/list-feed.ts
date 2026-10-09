@@ -14,8 +14,7 @@
 //   sessions, every listed session's row is read again.
 // - A session with no row has no entry: only `session.created` writes one, so a session the person
 //   runs in their own terminal never has one, and a purge, which deletes the row, removes the
-//   entry. A project session whose project is not known yet (its workspace is not bound) shows
-//   no entry until it is.
+//   entry. A project session with no project (its project was forgotten) shows no entry.
 // - While a session's activity is `running` or `waiting` its entry is published again every
 //   renewal interval, by one timer for the whole list that runs only while such a session and a
 //   subscriber exist, so a reader can tell a live reading from one a stopped daemon left behind.
@@ -30,7 +29,7 @@ import {
   DAEMON_SCOPE_SENTINEL_SESSION_ID,
   type EventEnvelope,
 } from "@ai-sidekicks/contracts/event/envelope";
-import type { RepoMountId } from "@ai-sidekicks/contracts/repo/mount";
+import type { ProjectId } from "@ai-sidekicks/contracts/project";
 import {
   SESSION_ACTIVITY_RENEW_INTERVAL_MS,
   type SessionActivity,
@@ -95,7 +94,7 @@ const SESSION_LIST_ROW_SQL = `SELECT s.rowid AS row_position, s.id, s.shape, s.s
        s.first_message_preview,
        s.branch, s.pinned_at, s.muted_at, s.last_activity_at,
        g.id AS group_id, g.name AS group_name,
-       ${sessionProjectSql("s.id")} AS repo_mount_id,
+       ${sessionProjectSql("s.id")} AS project_id,
        ${sessionActivitySql("s.id", "s.last_run_outcome")} AS activity
   FROM sessions s LEFT JOIN session_groups g ON g.id = s.group_id`;
 
@@ -111,7 +110,7 @@ type SessionListRow = {
   readonly pinned_at: string | null;
   readonly muted_at: string | null;
   readonly last_activity_at: string;
-  readonly repo_mount_id: string | null;
+  readonly project_id: string | null;
   readonly activity: SessionActivity;
 } & (
   | { readonly group_id: null; readonly group_name: null }
@@ -351,7 +350,7 @@ export class SessionListFeed {
         continue;
       }
       const entry = entryOf(row, renewedAt);
-      // A project whose workspace is not bound yet keeps what it showed: only a purge removes.
+      // A project session whose project was forgotten keeps what it showed: only a purge removes.
       if (entry !== undefined && !isSameEntry(held, entry)) this.#upsert(entries, held, entry);
     }
     this.#syncRenewTimer();
@@ -427,7 +426,7 @@ export class SessionListFeed {
   }
 }
 
-// The row as an entry, or `undefined` for a project session whose project is not known yet.
+// The row as an entry, or `undefined` for a project session with no project.
 function entryOf(row: SessionListRow, renewedAt: string): SessionListEntry | undefined {
   const common = {
     sessionId: row.id as SessionId,
@@ -445,11 +444,11 @@ function entryOf(row: SessionListRow, renewedAt: string): SessionListEntry | und
   if (row.shape === "chat") {
     return { ...common, shape: "chat" };
   }
-  if (row.repo_mount_id === null) return undefined;
+  if (row.project_id === null) return undefined;
   return {
     ...common,
     shape: "project",
-    repoMountId: row.repo_mount_id as RepoMountId,
+    projectId: row.project_id as ProjectId,
     ...(row.branch === null ? {} : { branch: row.branch }),
     ...(row.group_id === null
       ? {}

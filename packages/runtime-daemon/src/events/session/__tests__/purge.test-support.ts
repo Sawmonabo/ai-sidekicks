@@ -178,7 +178,6 @@ export class PurgeFixture {
           }),
         }),
         nodeId: NODE,
-        archiveUnfinishedCreates: () => Promise.resolve(),
       }),
     });
     this.relatedRanking = new SessionRelatedRanking({
@@ -344,9 +343,9 @@ export class PurgeFixture {
       },
       {
         sql: `INSERT INTO run_execution_contexts (run_id, session_id, workspace_id, execution_mode,
-                                                  execution_root, git_common_dir, branch_context_id,
-                                                  created_at)
-              VALUES (?, ?, ?, 'bound-root', '/root', '/root/.git', ?, ?)`,
+                                                  execution_root, checkout_root, git_common_dir,
+                                                  branch_context_id, created_at)
+              VALUES (?, ?, ?, 'bound-root', '/root', '/root', '/root/.git', ?, ?)`,
         bindings: [names.runId, names.sessionId, names.workspaceId, branchContextId, PURGE_INSTANT],
       },
     ]);
@@ -364,15 +363,20 @@ export class PurgeFixture {
       },
       {
         sql: `INSERT INTO session_create_requests
-                (client_idempotency_key, session_id, repo_mount_id, execution_mode)
-              VALUES (?, ?, ?, 'bound-root')`,
-        bindings: [`create-${sessionId}`, sessionId, `managed-mount-${sessionId}`],
+                (client_idempotency_key, session_id, execution_mode)
+              VALUES (?, ?, 'bound-root')`,
+        bindings: [`create-${sessionId}`, sessionId],
       },
       {
         sql: `INSERT INTO session_convert_requests
-                (client_idempotency_key, session_id, repo_mount_id)
-              VALUES (?, ?, ?)`,
-        bindings: [`convert-${sessionId}`, sessionId, `project-mount-${sessionId}`],
+                (client_idempotency_key, session_id, repo_mount_id, working_tree)
+              VALUES (?, ?, ?, ?)`,
+        bindings: [
+          `convert-${sessionId}`,
+          sessionId,
+          `project-mount-${sessionId}`,
+          `/repos/${sessionId}`,
+        ],
       },
       {
         sql: `INSERT INTO session_convert_files (session_id, path, outcome)

@@ -20,7 +20,10 @@ import type { SessionLinkService } from "../../../session/links/service.js";
 import type { SessionRelatedRanking } from "../../../session/related/ranking.js";
 import type { StreamingPrimitive } from "../../streaming-primitive.js";
 import { createSubscriptionAckBarrier } from "../../subscription-ack-barrier.js";
-import { registerDescribedMethod } from "../register-described-method.js";
+import {
+  registerDescribedMethod,
+  registerDescribedSubscription,
+} from "../register-described-method.js";
 
 /** What the link verbs call. */
 export interface SessionLinkMethodsDeps {
@@ -82,11 +85,5 @@ export function registerSessionLinkMethods(
     return { subscriptionId: subscription.subscriptionId };
   };
   const descriptor = SESSION_LINK_METHOD_DESCRIPTORS["session.relatedList"];
-  registry.register(
-    descriptor.method,
-    descriptor.requestSchema,
-    descriptor.responseSchema,
-    followRelatedList,
-    { mutating: descriptor.mutating },
-  );
+  registerDescribedSubscription(registry, descriptor, followRelatedList);
 }

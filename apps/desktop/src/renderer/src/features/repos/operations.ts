@@ -2,6 +2,7 @@
 // an abort signal and the acts do not: a view may go away before a read lands, but an act that
 // reached the daemon has happened, and abandoning it would leave the view saying it did not.
 
+import type { ProjectId } from "@ai-sidekicks/contracts/project";
 import type { RepoMountId } from "@ai-sidekicks/contracts/repo/mount";
 import type {
   ExecutionRootPrepareRequest,
@@ -33,12 +34,12 @@ export interface RepoOperations {
     sessionId: string,
     signal: AbortSignal,
   ) => Promise<WorkspaceListResponse>;
-  /** The worktrees of the project whose folder this is, in one read. */
+  /** Every worktree git lists for one project's repository, in one read. */
   readonly readWorktreeStatus: (
-    repoMountId: RepoMountId,
+    projectId: ProjectId,
     signal: AbortSignal,
   ) => Promise<WorktreeStatusReadResponse>;
-  /** Attach one folder to this machine, by its path or by another device's folder token. */
+  /** Attach one folder to this machine, by its path. */
   readonly attachRepository: (request: RepoAttachRequest) => Promise<RepoAttachResponse>;
   /** Bind a workspace on one mount, in one explicit execution mode. */
   readonly bindWorkspace: (request: WorkspaceBindRequest) => Promise<WorkspaceBindResponse>;

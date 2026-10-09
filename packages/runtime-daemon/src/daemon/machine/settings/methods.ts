@@ -2,28 +2,20 @@
 // the main process and every other device go through, and the live read every
 // console window listens on.
 import {
-  DAEMON_BRANCH_PATTERN_REFUSED_CODE,
-  DAEMON_ENVIRONMENT_NAME_REFUSED_CODE,
   MACHINE_SETTINGS_METHOD_DESCRIPTORS,
-  environmentNameRefusal,
   type BranchPatternRefusalReason,
-  type DaemonBranchPatternRefusedDetails,
-  type DaemonEnvironmentNameRefusedDetails,
-  type EnvironmentNameRefusalReason,
-  type MachineSettingsChange,
   type MachineSettingsReading,
   type MachineSettingsSubscribeRequest,
 } from "@ai-sidekicks/contracts/machine-settings";
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import type { Handler, MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import type { SubscribeAckResponse } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 
-import { DaemonDomainError } from "../../../ipc/domain-error.js";
 import { registerDescribedMethod } from "../../../ipc/handlers/register-described-method.js";
 import type { StreamingPrimitive } from "../../../ipc/streaming-primitive.js";
 import { createSubscriptionAckBarrier } from "../../../ipc/subscription-ack-barrier.js";
 
 import type { MachineSettingsFile } from "./file.js";
+import { refuseBranchPattern, refuseEnvironmentRows } from "./refusals.js";
 
 /**
  * What the machine-settings verbs need: the settings file, the shared streaming primitive and the
@@ -37,57 +29,6 @@ export interface MachineSettingsMethodsDeps {
   readonly findBranchPatternRefusal: (
     pattern: string,
   ) => Promise<BranchPatternRefusalReason | null>;
-}
-
-// What the page says under a refused row, for each reason.
-const ENVIRONMENT_NAME_REFUSAL_WORDS: Readonly<Record<EnvironmentNameRefusalReason, string>> =
-  Object.freeze({
-    not_a_name: "A name is letters, digits and underscores, and never starts with a digit.",
-    credential_shaped:
-      "Credentials are not set here. Sign in to a provider on Providers, or add a workflow " +
-      "step's token in its Credential field.",
-    set_by_app: "The app sets this.",
-  });
-
-// What the page says under a refused pattern, for each reason.
-const BRANCH_PATTERN_REFUSAL_WORDS: Readonly<Record<BranchPatternRefusalReason, string>> =
-  Object.freeze({
-    title_not_once: "Put {title} in the name once.",
-    not_a_branch_name: "Git does not accept this as a branch name.",
-  });
-
-// A row whose name the app sets, that looks like a credential, or that is not a
-// name at all is refused before anything is written, naming the row.
-function refuseEnvironmentNames(change: MachineSettingsChange): void {
-  for (const row of change.environmentRows ?? []) {
-    const reason = environmentNameRefusal(row.name);
-    if (reason !== null) {
-      const detail: DaemonEnvironmentNameRefusedDetails = { name: row.name, reason };
-      throw new DaemonDomainError(ENVIRONMENT_NAME_REFUSAL_WORDS[reason], {
-        code: DAEMON_ENVIRONMENT_NAME_REFUSED_CODE,
-        jsonRpcCode: JsonRpcErrorCode.InvalidParams,
-        detail: { ...detail },
-      });
-    }
-  }
-}
-
-async function refuseBranchPattern(
-  change: MachineSettingsChange,
-  deps: MachineSettingsMethodsDeps,
-): Promise<void> {
-  if (change.branchNamePattern === undefined) {
-    return;
-  }
-  const reason = await deps.findBranchPatternRefusal(change.branchNamePattern);
-  if (reason !== null) {
-    const detail: DaemonBranchPatternRefusedDetails = { reason };
-    throw new DaemonDomainError(BRANCH_PATTERN_REFUSAL_WORDS[reason], {
-      code: DAEMON_BRANCH_PATTERN_REFUSED_CODE,
-      jsonRpcCode: JsonRpcErrorCode.InvalidParams,
-      detail: { ...detail },
-    });
-  }
 }
 
 /**
@@ -109,8 +50,10 @@ export function registerMachineSettingsMethods(
     registry,
     MACHINE_SETTINGS_METHOD_DESCRIPTORS["daemon.machineSettingsUpdate"],
     async ({ change }) => {
-      refuseEnvironmentNames(change);
-      await refuseBranchPattern(change, deps);
+      refuseEnvironmentRows(change.environmentRows ?? []);
+      if (change.branchNamePattern !== undefined) {
+        refuseBranchPattern(await deps.findBranchPatternRefusal(change.branchNamePattern));
+      }
       return { settings: await deps.settingsFile.update(change) };
     },
   );

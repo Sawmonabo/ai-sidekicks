@@ -9,7 +9,9 @@ import { execFile, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { promisify } from "node:util";
 
+import { endProcessTree } from "../process-tree.js";
 import type { SpawnEnvPair } from "../provider/spawn-env.js";
+import { describeRejection } from "../rejection.js";
 
 /** How long the login shell may take before the start goes on without it. */
 export const LOGIN_SHELL_DEADLINE_MS = 5_000;
@@ -185,7 +187,15 @@ function runLoginShell(
       options.signal.removeEventListener("abort", abandon);
       child.stdout.destroy();
       if (shouldEndGroup && child.pid !== undefined) {
-        endProcessGroup(child.pid, options.writeServiceLog);
+        const processGroupId = child.pid;
+        // Logged, not thrown: it runs from a timer or an abort, where a throw would end the daemon
+        // over a cleanup.
+        endProcessTree(processGroupId, "SIGKILL").catch((error: unknown) => {
+          options.writeServiceLog(
+            `The login shell's process group ${String(processGroupId)} could not be ended: ` +
+              describeRejection(error),
+          );
+        });
       }
       resolve(outcome);
     };
@@ -294,21 +304,4 @@ function toPairs(environment: NodeJS.ProcessEnv): readonly SpawnEnvPair[] {
     }
   }
   return pairs;
-}
-
-// A failure to end the group is logged, not thrown: it runs from a timer or an abort, where a
-// throw would end the daemon over a cleanup.
-function endProcessGroup(processGroupId: number, writeServiceLog: (line: string) => void): void {
-  try {
-    process.kill(-processGroupId, "SIGKILL");
-  } catch (error) {
-    // The group can be gone already: the shell exited between the check and the kill.
-    if (error instanceof Error && "code" in error && error.code === "ESRCH") {
-      return;
-    }
-    writeServiceLog(
-      `The login shell's process group ${String(processGroupId)} could not be ended: ` +
-        `${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
 }

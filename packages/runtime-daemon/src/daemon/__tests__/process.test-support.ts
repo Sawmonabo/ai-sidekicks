@@ -113,6 +113,7 @@ export async function startDaemon(
     createPtyHost: () => ptyHost,
     readMachineName: () => Promise.resolve("Test machine"),
     captureProviderBaseEnvironment: () => Promise.resolve([]),
+    commandShell: null,
     serviceVersion: SERVICE_VERSION,
     processIdentity: PROCESS_IDENTITY,
     readProcessTreeUsage: () => readProcessTreeUsage(process.pid),

@@ -1,6 +1,6 @@
 // A rebuild through the directory projection writes back the `sessions` row the live writes
-// wrote, over the same row, so its rowid and its group stay, and writes a row the database lost
-// again from the session's log.
+// wrote, over the same row, so its rowid, its group and its pending working-folder move stay, and
+// writes a row the database lost again from the session's log.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -75,8 +75,8 @@ describe("the session directory projection", () => {
         bindings: [groupId, mintUuidV7()],
       },
       {
-        sql: "UPDATE sessions SET group_id = ? WHERE id = ?",
-        bindings: [groupId, kept],
+        sql: "UPDATE sessions SET group_id = ?, pending_working_folder = ? WHERE id = ?",
+        bindings: [groupId, "/work/login-fix", kept],
         expectedRowCount: 1,
       },
     ]);
@@ -96,6 +96,7 @@ describe("the session directory projection", () => {
     await rebuild.rebuild({ sessionId: lost, force: true });
 
     expect(readRow(kept)).toStrictEqual(keptRow);
+    expect(readRow(kept)?.["pending_working_folder"]).toBe("/work/login-fix");
     expect(readRowid(kept)).toBe(keptRowid);
     expect(readRow(lost)).toStrictEqual(lostRow);
   });

@@ -21,13 +21,11 @@ import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.
 
 /**
  * The tone each lifecycle position wears. Total over `WorkspaceState`, so a new wire member
- * fails to compile here. Only `stale` (blocks writable runs until repair) and `busy` (a run
- * holds the workspace) earn a tone.
+ * fails to compile here. Only `stale` (blocks writable runs until repair) earns a tone.
  */
 const STATE_TONES: Readonly<Record<WorkspaceState, ChipTone>> = {
   preparing: "neutral",
   ready: "neutral",
-  busy: "attention",
   stale: "failure",
   archived: "neutral",
 };

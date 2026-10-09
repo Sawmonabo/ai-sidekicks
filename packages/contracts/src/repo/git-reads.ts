@@ -38,13 +38,15 @@ export const RepoBranchListRequestSchema: z.ZodType<RepoBranchListRequest, RepoB
 /**
  * One branch in a base list. `ahead` and `behind` count commits against the
  * branch's upstream and are absent when it has none. `heldBy` names the worktree
- * that has the branch checked out, which the create form's list grays.
+ * that has the branch checked out, which the create form's list grays; its
+ * `worktreeId` is present only for a tree the app made, so the main checkout and
+ * a tree the person made carry a name alone.
  */
 export interface RepoBranchListEntry {
   name: string;
   ahead?: number | undefined;
   behind?: number | undefined;
-  heldBy?: { worktreeId: WorktreeId; name: string } | undefined;
+  heldBy?: { worktreeId?: WorktreeId | undefined; name: string } | undefined;
 }
 
 /**
@@ -70,7 +72,7 @@ export const RepoBranchListResponseSchema: z.ZodType<RepoBranchListResponse> = z
           behind: countSchema.optional(),
           heldBy: z
             .object({
-              worktreeId: WorktreeIdSchema,
+              worktreeId: WorktreeIdSchema.optional(),
               name: wireFreeFormString(
                 FILE_PATH_MAX_LEN,
                 "RepoBranchListResponse.branches[].heldBy.name",

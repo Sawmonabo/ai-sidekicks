@@ -13,6 +13,7 @@ import {
   openScratchDatabase,
   type ScratchDatabase,
 } from "../../../database/__fixtures__/scratch.js";
+import { attachedMountRowStatements } from "../../../workspace/__fixtures__/rows.js";
 import { runGitWithExecFile, type GitRunner } from "../../process.js";
 import type { TurnSnapshotService } from "../service.js";
 import {
@@ -46,13 +47,12 @@ beforeEach(async () => {
   scratch = await openScratchDatabase();
   database = new Database(scratch.databasePath);
   database.pragma("foreign_keys = ON");
-  database
-    .prepare(
-      `INSERT INTO repo_mounts (
-         id, node_id, local_path, canonical_root, state, attached_at, updated_at
-       ) VALUES (@id, 'node-1', @root, @root, 'attached', @now, @now)`,
-    )
-    .run({ id: MOUNT_ID, root: fixture.repository.root, now: SEEDED_AT });
+  for (const statement of attachedMountRowStatements({
+    id: MOUNT_ID,
+    canonicalRoot: fixture.repository.root,
+  })) {
+    database.prepare(statement.sql).run(statement.bindings);
+  }
   database
     .prepare(
       `INSERT INTO workspaces (
@@ -90,8 +90,10 @@ function insertRunExecutionContext(seed: {
     .prepare(
       `INSERT INTO worktrees (
          id, repo_mount_id, created_by_session_id, created_by_run_id,
-         branch_name, fs_root, state, created_at, updated_at
-       ) VALUES (@id, @mount_id, @session_id, @run_id, @branch, @root, 'ready', @now, @now)`,
+         branch_name, base_ref, fs_root, state, created_at, updated_at
+       ) VALUES (
+         @id, @mount_id, @session_id, @run_id, @branch, 'main', @root, 'ready', @now, @now
+       )`,
     )
     .run({
       id: worktreeId,
@@ -118,11 +120,11 @@ function insertRunExecutionContext(seed: {
   database
     .prepare(
       `INSERT INTO run_execution_contexts (
-         run_id, session_id, workspace_id, execution_mode, execution_root, git_common_dir,
-         worktree_id, branch_context_id, created_at
+         run_id, session_id, workspace_id, execution_mode, execution_root, checkout_root,
+         git_common_dir, worktree_id, branch_context_id, created_at
        ) VALUES (
          @run_id, @session_id, @workspace_id, 'provisioned-worktree', @execution_root,
-         @git_common_dir, @worktree_id, @branch_context_id, @now
+         @execution_root, @git_common_dir, @worktree_id, @branch_context_id, @now
        )`,
     )
     .run({

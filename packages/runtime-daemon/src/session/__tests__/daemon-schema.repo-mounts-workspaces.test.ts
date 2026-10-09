@@ -1,6 +1,7 @@
 // Proves the `repo_mounts` and `workspaces` constraints: each CHECK admits exactly its contract
 // union, a managed mount names its one chat, a workspace needs a real mount, and the active-root
-// key is per node.
+// key is per node. Each attached mount serves a project of its own, so the one-mount-per-project
+// key never refuses a row these tests mean to admit.
 
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -30,7 +31,6 @@ const REPO_MOUNT_STATES: Record<RepoMountState, true> = {
 const WORKSPACE_STATES: Record<WorkspaceState, true> = {
   preparing: true,
   ready: true,
-  busy: true,
   stale: true,
   archived: true,
 };
@@ -55,6 +55,14 @@ describe("repo_mounts and workspaces constraints", () => {
   // Helpers insert fully populated valid rows; tests override one constraint-relevant field at a
   // time. Parent rows are created first, so a rejection is never a dangling FK.
 
+  function insertProjectRow(id: string): void {
+    db.prepare(
+      `INSERT INTO projects
+         (id, name, slug, folder_path, state, setup, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'active', '{}', ?, ?)`,
+    ).run(id, id, id, `/repos/${id}`, FIXTURE_TIMESTAMP, FIXTURE_TIMESTAMP);
+  }
+
   function insertRepoMountRow(overrides: {
     id: string;
     nodeId?: string;
@@ -64,11 +72,16 @@ describe("repo_mounts and workspaces constraints", () => {
     managedSessionId?: string | null;
     state?: string;
   }): void {
+    const origin = overrides.origin ?? "attached";
+    const projectId = origin === "attached" ? `project-of-${overrides.id}` : null;
+    if (projectId !== null) {
+      insertProjectRow(projectId);
+    }
     db.prepare(
       `INSERT INTO repo_mounts
-         (id, node_id, local_path, canonical_root, vcs_type, origin, managed_session_id, state,
-          attached_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, node_id, local_path, canonical_root, vcs_type, origin, managed_session_id,
+          project_id, state, attached_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       overrides.id,
       overrides.nodeId ?? "node-alpha",
@@ -76,8 +89,9 @@ describe("repo_mounts and workspaces constraints", () => {
       `${overrides.canonicalRoot ?? FIXTURE_CANONICAL_ROOT}/src/services`,
       overrides.canonicalRoot ?? FIXTURE_CANONICAL_ROOT,
       overrides.vcsType ?? "git",
-      overrides.origin ?? "attached",
+      origin,
       overrides.managedSessionId ?? null,
+      projectId,
       overrides.state ?? "attached",
       FIXTURE_TIMESTAMP,
       FIXTURE_TIMESTAMP,

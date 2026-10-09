@@ -7,6 +7,7 @@ import type { Database } from "better-sqlite3";
 
 import { foldName } from "@ai-sidekicks/contracts/name-fold";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import { BranchContextIdSchema } from "@ai-sidekicks/contracts/worktree/lifecycle";
 import type { WorkflowNodeId } from "@ai-sidekicks/contracts/workflow/definition/document";
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
 import type {
@@ -75,7 +76,7 @@ export async function insertExecutionContextCheckout(
 ): Promise<WorkflowRunExecutionContext> {
   const repoMountId = mintUuidV7();
   const workspaceId = mintUuidV7();
-  const branchContextId = mintUuidV7();
+  const branchContextId = BranchContextIdSchema.parse(mintUuidV7());
   const at = "2026-10-01T00:00:00.000Z";
   await writer.write([
     {

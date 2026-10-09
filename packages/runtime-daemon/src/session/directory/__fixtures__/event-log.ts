@@ -7,6 +7,8 @@ import {
   EventEnvelopeVersionSchema,
   type EventCategory,
 } from "@ai-sidekicks/contracts/event/envelope";
+import type { ProjectId } from "@ai-sidekicks/contracts/project";
+import type { RepoMountId } from "@ai-sidekicks/contracts/repo/mount";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { type SessionShape } from "@ai-sidekicks/contracts/session/methods";
 import { SESSION_NAME_MAX_LEN } from "@ai-sidekicks/contracts/session/name";
@@ -22,11 +24,22 @@ import {
   holdReceiptOfAppend,
 } from "../../../events/session/__fixtures__/log-faults.js";
 import { mintUuidV7 } from "../../../uuid-v7.js";
+import {
+  attachedMountRowStatements,
+  mintProjectId,
+  projectRowStatement,
+} from "../../../workspace/__fixtures__/rows.js";
 import { directoryStatementsFor } from "../row.js";
-import { mintSessionId, seedProjectMount, seedWorkspace } from "./directory-rows.js";
+import { mintSessionId, seedWorkspace } from "./directory-rows.js";
 
 const ENVELOPE_VERSION = EventEnvelopeVersionSchema.parse("1.0");
 const OCCURRED_AT = "2026-10-06T12:00:00.000Z";
+
+/** A seeded project and the attached mount of its folder. */
+interface ProjectBinding {
+  readonly projectId: ProjectId;
+  readonly repoMountId: RepoMountId;
+}
 
 /** The scratch database, its event log, and the appends a list test makes. */
 export interface SessionLog {
@@ -51,10 +64,10 @@ export interface SessionLog {
   /** Creates a session of `shape` and activates it. */
   createSession(sessionId: SessionId, shape: SessionShape): Promise<void>;
   /**
-   * Binds `sessionId` to the project `repoMountId` names, attaching a new project folder when it
-   * names none; returns the mount's id.
+   * Binds `sessionId` to the project `binding` names, attaching a new project with its folder when
+   * it names none; returns the project and its mount.
    */
-  bindToProject(sessionId: SessionId, repoMountId?: string): Promise<string>;
+  bindToProject(sessionId: SessionId, binding?: ProjectBinding): Promise<ProjectBinding>;
   /**
    * Writes `count` chats' rows straight to the table, each named and previewed at the wire's
    * bound in three-byte characters, so a few thousand outgrow one message; returns their ids.
@@ -166,10 +179,23 @@ export async function openSessionLog(): Promise<SessionLog> {
         newState: "active",
       });
     },
-    bindToProject: async (sessionId, knownRepoMountId) => {
-      const repoMountId = knownRepoMountId ?? (await seedProjectMount(scratch.writer));
-      await seedWorkspace(scratch.writer, sessionId, repoMountId);
-      return repoMountId;
+    bindToProject: async (sessionId, knownBinding) => {
+      const binding = knownBinding ?? {
+        projectId: mintProjectId(),
+        repoMountId: mintUuidV7() as RepoMountId,
+      };
+      if (knownBinding === undefined) {
+        await scratch.writer.write([
+          projectRowStatement(binding.projectId),
+          ...attachedMountRowStatements({
+            id: binding.repoMountId,
+            canonicalRoot: `/work/${binding.repoMountId}`,
+            projectId: binding.projectId,
+          }),
+        ]);
+      }
+      await seedWorkspace(scratch.writer, sessionId, binding.repoMountId);
+      return binding;
     },
     seedWideChats: async (count) => {
       const sessionIds = Array.from({ length: count }, mintSessionId);

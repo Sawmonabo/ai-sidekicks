@@ -8,9 +8,10 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 // Branded IDs introduced by Plan-007 (canonical origin: packages/contracts/src/worktree/lifecycle.ts;
 // declared in-block rather than under api-payload-contracts.md §Branded ID Types / api-payload-contracts.md §Shared Enums for cite stability)
 type BranchContextId = string & { readonly __brand: "BranchContextId" };
-// A worktree removed with `Discard and remove` and kept whole until the person deletes the copy: a
-// record apart from the retired worktree row, because the copy outlives the tree and a put-back makes
-// a new worktree.
+// A worktree removed with `Discard and remove`, or a removed one the cleanup sweep found holding
+// something its removal did not show, kept whole until the person deletes the copy: a record apart
+// from the retired worktree row, because the copy outlives the tree and a put-back makes a new
+// worktree.
 type RemovedWorktreeId = string & { readonly __brand: "RemovedWorktreeId" };
 
 // ExecutionRootPrepare — materializes (or binds) the execution root for the workspace's selected mode.
@@ -29,7 +30,8 @@ interface ExecutionRootPrepareResponse {
   branchContextId: BranchContextId; // every prepare writes or refreshes a branch context (Spec-008 §State And Data Implications)
 }
 
-// WorktreeRetire — records retirement before any disk work; disk cleanup is asynchronous. `discard:
+// WorktreeRetire — records retirement before any disk work; disk cleanup is asynchronous, and a folder
+// holding anything the removal did not show is kept aside and listed rather than deleted. `discard:
 // false` is the ordinary removal, refused when the tree has something to lose the confirm did not show;
 // `discard: true` is sent only after the discard confirm, and the daemon keeps what it discards
 // (repo-payloads.md §Repo Method-Name Registry).
@@ -43,11 +45,10 @@ interface WorktreeRetireResponse {
   kept?: { removedWorktreeId: RemovedWorktreeId }; // present when a discard kept a copy: the kept copy `Put back` restores
 }
 
-// WorktreeStatusRead — the project's folder whose worktrees are listed, and the session asking, when
-// one is. A session's switcher names itself, so the read also answers the new-worktree form's
-// suggestion for it.
+// WorktreeStatusRead — the project whose worktrees are listed, and the session asking, when one is. A
+// session's switcher names itself, so the read also answers the new-worktree form's suggestion for it.
 interface WorktreeStatusReadRequest {
-  repoMountId: RepoMountId;
+  projectId: ProjectId;
   sessionId?: SessionId;
 }
 // ONE read supplies every figure a switcher row draws, on this existing repo surface rather than a
@@ -58,21 +59,32 @@ interface WorktreeStatusReadRequest {
 // `repo.removedWorktreeList`.
 interface WorktreeStatusReadResponse {
   repoRoot: { path: string; branchName: string }; // the project's own checkout and the branch it is on
-  worktrees: WorktreeStatusRecord[]; // the project's standing trees, empty when it has none
+  worktrees: WorktreeStatusRecord[]; // every standing tree git lists for the repository, empty when it has none
   // Present when the LAST background fetch failed, and says when `ahead` and `behind` were last true,
   // so a row can say `as of <time>` instead of silently reading stale numbers as current.
   countsAsOf?: string;
   newWorktree?: NewWorktreeSuggestion; // present when the request named the asking session
 }
-// One listed worktree, as its switcher row draws it.
-interface WorktreeStatusRecord {
-  worktreeId: WorktreeId;
-  repoMountId: RepoMountId;
+// One worktree git lists for the repository, as its switcher row draws it; `path` is the folder
+// `session.setWorkingFolder` takes. A tree the app made carries its record (`madeBy: "app"`); one the
+// person made with git carries none, and has no removal of its own.
+type WorktreeStatusRecord = (
+  | {
+      madeBy: "app";
+      worktreeId: WorktreeId;
+      repoMountId: RepoMountId;
+      baseBranchName: string; // the branch it was cut from (`off <base>`)
+      state: Exclude<WorktreeState, "retired">;
+      createdBySessionId: SessionId;
+      createdByRunId?: RunId; // absent for a tree prepared before any run
+      createdAt: string;
+      updatedAt: string;
+    }
+  | { madeBy: "person" }
+) & {
+  path: string; // the tree's folder: under the daemon's worktrees folder for one the app made
   name: string; // the tree's own name
   branchName: string;
-  baseBranchName: string; // the branch it was cut from (`off <base>`)
-  fsRoot: string; // a root under the daemon's worktrees folder, never a path inside the attached checkout
-  state: Exclude<WorktreeState, "retired">;
   // Commits against the branch's upstream, read against the daemon's latest background fetch; absent
   // when the branch has none.
   ahead?: number;
@@ -83,14 +95,10 @@ interface WorktreeStatusRecord {
   unpushedCommitCount: number;
   // The sessions standing in this directory. Occupancy is why a removal is refused and why the trash
   // names its occupant, and it is the daemon's answer rather than a renderer-side tally: two sessions
-  // may share a worktree, exclusivity applying at the run step and not at attach.
+  // may share a worktree, and their runs may work in it at once.
   occupyingSessionIds: SessionId[];
   runningSessionId: SessionId | null; // the session whose agent is running in the tree, which locks the trash
-  createdBySessionId: SessionId;
-  createdByRunId?: RunId; // absent for a tree prepared before any run
-  createdAt: string;
-  updatedAt: string;
-}
+};
 // What the new-worktree form opens with, from the same daemon function that creates the tree and
 // names its folder: the fixed leading part of the name (the project's branch pattern filled in up to
 // `{title}`), the suggested tail derived from the session's title, and the folder the tree will get

@@ -152,10 +152,25 @@ export class SessionChanges {
    * session still `provisioning` is refused with `session.change_refused`.
    */
   async archive(sessionId: SessionId): Promise<void> {
+    await this.#archive(sessionId, { isProvisioningArchived: false });
+  }
+
+  /**
+   * Archives a session of a project being forgotten: an active one as {@link archive} does, and one
+   * still `provisioning`, whose bind can never come now. A closed or purging session is refused.
+   */
+  async archiveOfForgottenProject(sessionId: SessionId): Promise<void> {
+    await this.#archive(sessionId, { isProvisioningArchived: true });
+  }
+
+  async #archive(
+    sessionId: SessionId,
+    options: { readonly isProvisioningArchived: boolean },
+  ): Promise<void> {
     await this.lock.run(sessionId, async () => {
       await this.#change(sessionId, (facts) => {
         refuseUnchangeableSession(sessionId, facts.state);
-        refuseProvisioningSession(sessionId, facts.state);
+        if (!options.isProvisioningArchived) refuseProvisioningSession(sessionId, facts.state);
         return facts.state === "archived"
           ? undefined
           : lifecycleEvent("session.archived", sessionId, facts.state, "archived");

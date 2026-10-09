@@ -19,7 +19,7 @@ import { isAbsolute, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { GitObjectIdSchema } from "@ai-sidekicks/contracts/repo/git-reads";
 import { readGitExitStatus, type GitCommand } from "../process.js";
-import { describeRejection } from "./diagnostics.js";
+import { describeRejection } from "../../rejection.js";
 import { USE_REPLACE_REFS_PIN } from "./refs.js";
 import {
   CORE_SPARSE_CHECKOUT_KEY,
@@ -41,8 +41,7 @@ import {
 } from "./capture.js";
 
 /**
- * What the capture steps take from the service: its hook-neutralized git entry point and its
- * clock.
+ * What the capture steps take from the service: its git entry point and its clock.
  */
 export interface TurnSnapshotCaptureStepsDependencies {
   readonly runGit: GitCommand;

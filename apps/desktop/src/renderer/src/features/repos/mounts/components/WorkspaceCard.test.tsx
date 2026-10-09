@@ -55,12 +55,12 @@ describe("WorkspaceCard — the stale row", () => {
 describe("WorkspaceCard — the row wears what the list gave it", () => {
   it("wears exactly the binding and the lifecycle position", () => {
     const { container } = renderRow(
-      workspace({ state: "busy", executionMode: "provisioned-worktree" }),
+      workspace({ state: "preparing", executionMode: "provisioned-worktree" }),
     );
     const chips = container.querySelectorAll(".meridian-chip__label");
     expect([...chips].map((chip) => chip.textContent)).toStrictEqual([
       "Provisioned worktree",
-      "Busy",
+      "Preparing",
     ]);
   });
 });

@@ -41,6 +41,10 @@ import {
 } from "../database/connection/lifecycle.js";
 import { findBranchPatternRefusal } from "../git/branch-name-pattern.js";
 import { createGitRunner, findGitExecutable, type GitRunner } from "../git/process.js";
+import {
+  createStreamedGitRunner,
+  type StreamedGitRunner,
+} from "../workspace/clone/streamed-git.js";
 import { InFlightMutations } from "../ipc/in-flight-mutations.js";
 import { LocalIpcGateway } from "../ipc/local-gateway.js";
 import { ProtocolNegotiator } from "../ipc/protocol-negotiation.js";
@@ -68,6 +72,7 @@ import { RunEngine } from "../session/run/engine.js";
 import { RUNS_PROJECTION } from "../session/run/projection.js";
 import { RunStateReader } from "../session/run/read.js";
 import { SearchThread } from "../session/search/thread/handle.js";
+import { readFolderPlace, type FolderPlace } from "../workspace/folder/place.js";
 import { DaemonAlreadyRunningError } from "./already-running-error.js";
 import { takeDataFolderLock, type DataFolderLock } from "./data-folder-lock.js";
 import { registerLifecycleMethods } from "./lifecycle-methods.js";
@@ -117,6 +122,8 @@ export interface DaemonProcessOptions {
   readonly captureProviderBaseEnvironment: (
     signal: AbortSignal,
   ) => Promise<readonly SpawnEnvPair[]>;
+  /** The login shell a project's setup commands run in; `null` runs the system's default one. */
+  readonly commandShell: string | null;
   /** The service's own release version, which the status read reports. */
   readonly serviceVersion: string;
   /** The daemon's own process as the system knows it, which the status read reports. */
@@ -179,6 +186,9 @@ export class DaemonProcess {
     providerBaseEnvironment: readonly SpawnEnvPair[];
     /** The runner for the `git` found along the login shell's `PATH`. */
     git: GitRunner;
+    /** The same `git`, run streamed for a clone or a fetch. */
+    streamedGit: StreamedGitRunner;
+    folderPlace: FolderPlace;
     sessionToken: string;
     registerSessionMethods: typeof registerSessionMethods;
   }) {
@@ -238,6 +248,8 @@ export class DaemonProcess {
       homeDirectory: options.homeDirectory,
       nodeId: parts.localMachine.nodeId,
       git: parts.git,
+      streamedGit: parts.streamedGit,
+      folderPlace: parts.folderPlace,
       settingsFile: parts.settingsFile,
       providers: this.#providers,
       streamingPrimitive,
@@ -247,6 +259,8 @@ export class DaemonProcess {
         onceDrained: (transportId, listener) => this.#gateway.onceDrained(transportId, listener),
       },
       searchThread: parts.searchThread,
+      commandShell: options.commandShell,
+      providerBaseEnvironment: parts.providerBaseEnvironment,
       refuseSessionWrite: (sessionId, eventType) => {
         refuseEventOfDamagedSession(this.#recoveryStatus, sessionId, eventType);
       },
@@ -261,6 +275,8 @@ export class DaemonProcess {
     // which stop at a damaged session's last good point.
     const { reader, writer } = parts.database;
     const runEngine = new RunEngine({ reader, sessionEvents: sessionServices.eventLog });
+    // A run the restart settles releases what its execution root held, as any run's end does.
+    runEngine.registerSetupGate(sessionServices.setupGate);
     const runs = new RunStateReader(reader);
     const projectionRebuild = new ProjectionRebuildService({
       reader,
@@ -446,7 +462,10 @@ export class DaemonProcess {
         }
         const providerBaseEnvironment = capture.value;
         // Found once, along the login shell's PATH; a missing git fails where git is first used.
-        const git = createGitRunner(await findGitExecutable(providerBaseEnvironment));
+        const gitExecutable = await findGitExecutable(providerBaseEnvironment);
+        const git = createGitRunner(gitExecutable);
+        const streamedGit = createStreamedGitRunner(gitExecutable);
+        const folderPlace = await readFolderPlace();
 
         await prepareRunFolder(options.runFolder);
         // A new token at every start, so the previous start's token no longer opens a connection.
@@ -463,6 +482,8 @@ export class DaemonProcess {
           localMachine,
           providerBaseEnvironment,
           git,
+          streamedGit,
+          folderPlace,
           sessionToken,
           registerSessionMethods: sessionMethods.value.registerSessionMethods,
         });

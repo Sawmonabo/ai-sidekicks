@@ -12,7 +12,7 @@ import {
   countedDraftOverUnreadableCreate,
   draftFor,
   CREATED_SESSION_ID,
-  PROJECT_REPO_MOUNT,
+  DRAFT_PROJECT,
 } from "./draft.test-support.js";
 // The method the send names, taken from the module that sends it, so the count is asserted
 // against the string that reached the wire.
@@ -21,7 +21,7 @@ import { SESSION_CREATE_METHOD } from "./settlement.js";
 describe("NewSessionDraft — one draft object, at most one session", () => {
   it("coalesces two synchronous presses into one create and one result", async () => {
     const { draft, calls } = countedDraftFor({ scriptsCreate: true });
-    draft.setRepoMount(PROJECT_REPO_MOUNT);
+    draft.setProject(DRAFT_PROJECT);
 
     // Not awaited between the two: the double-click, where the second press lands while the
     // first send is in flight.
@@ -36,7 +36,7 @@ describe("NewSessionDraft — one draft object, at most one session", () => {
 
   it("re-reports the existing session when the partial is retried", async () => {
     const { draft, calls } = countedDraftFor({ scriptsCreate: true });
-    draft.setRepoMount(PROJECT_REPO_MOUNT);
+    draft.setProject(DRAFT_PROJECT);
 
     const first = await draft.send();
     // A person reads the partial, changes nothing and presses again: a retry, not a second
@@ -53,11 +53,11 @@ describe("NewSessionDraft — one draft object, at most one session", () => {
     // The invariant is scoped to the object, so the next "+ New" builds a new draft that must
     // still be able to make a session.
     const first = countedDraftFor({ scriptsCreate: true });
-    first.draft.setRepoMount(PROJECT_REPO_MOUNT);
+    first.draft.setProject(DRAFT_PROJECT);
     await first.draft.send();
 
     const second = countedDraftFor({ scriptsCreate: true });
-    second.draft.setRepoMount(PROJECT_REPO_MOUNT);
+    second.draft.setProject(DRAFT_PROJECT);
     await second.draft.send();
 
     expect(second.calls.map((call) => call.method)).toStrictEqual([SESSION_CREATE_METHOD]);
@@ -66,7 +66,7 @@ describe("NewSessionDraft — one draft object, at most one session", () => {
   it("resumes at the first unmade call rather than repeating the ones that landed", async () => {
     // The per-leg memory: a retry that re-queued would send the person's words twice.
     const draft = draftFor({ scriptsCreate: true, scriptsFirstTurn: true });
-    draft.setRepoMount(PROJECT_REPO_MOUNT);
+    draft.setProject(DRAFT_PROJECT);
     const stopped = await draft.send();
     expect(stopped.refusal?.code).toBe("first-turn-missing");
     expect(stopped.completedCalls).toStrictEqual(["session.create"]);
@@ -85,7 +85,7 @@ describe("NewSessionDraft — one draft object, at most one session", () => {
     // Without this the case above would pass over a build that re-issued the create, since
     // the fixture answers a second create identically.
     const counted = countedDraftFor({ scriptsCreate: true, scriptsFirstTurn: true });
-    counted.draft.setRepoMount(PROJECT_REPO_MOUNT);
+    counted.draft.setProject(DRAFT_PROJECT);
     await counted.draft.send();
     counted.draft.setFirstTurn("Start on the parser.");
     await counted.draft.send();
@@ -98,7 +98,7 @@ describe("NewSessionDraft — one draft object, at most one session", () => {
     // A failed create left no session, so nothing is remembered; the memory keys on the call
     // having landed, not on the send having been pressed.
     const { draft, calls } = countedDraftFor({ scriptsCreate: false });
-    draft.setRepoMount(PROJECT_REPO_MOUNT);
+    draft.setProject(DRAFT_PROJECT);
 
     const first = await draft.send();
     const retried = await draft.send();

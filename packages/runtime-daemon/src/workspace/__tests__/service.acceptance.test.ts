@@ -1,8 +1,9 @@
 // Proves the repo and workspace claims a user sees, through the public entry points with production
 // seams: a durable attach, binds across mounts, one event per transition, an in-place mode switch,
-// and a vanished root that stales its workspace and blocks writes.
+// a vanished root that stales its workspace and blocks writes, and a mount whose folder holds
+// another repository refusing binds and runs.
 
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { mkdtemp, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,6 +21,7 @@ import {
   type DatabaseConnections,
 } from "../../database/connection/lifecycle.js";
 import { EventLogService } from "../../events/log-service.js";
+import { RepoRootResolutionError } from "../repo/errors.js";
 import { RepoMountService } from "../repo/mount-service.js";
 import { WorkspaceEventEmitter } from "../event-emitter.js";
 import { WorkspaceService } from "../service.js";
@@ -28,6 +30,8 @@ import { WorkspaceStaleError } from "../errors.js";
 import { bindReadyWorkspace } from "../__fixtures__/bound-root.js";
 import { makeAdvancingClock } from "../../__fixtures__/advancing-clock.js";
 import {
+  mintProjectId,
+  projectRowStatement,
   readLifecycleEnvelopes,
   readLifecycleEventTypes,
   requireMountRow,
@@ -43,8 +47,6 @@ const SESSION_ID: SessionId = "0190fa10-0000-7000-8000-000000000001" as SessionI
 // A second session that binds nothing: the control that shows `list` is scoped to a session.
 const OTHER_SESSION_ID: SessionId = "0190fa10-0000-7000-8000-000000000002" as SessionId;
 const NODE_ID: NodeId = "node-local" as NodeId;
-
-const RUN_ID: string = "0190fa16-0000-7000-8000-000000000001";
 
 /**
  * The mount-root-relative subdirectory one bind names. It is checked at bind time; the execution
@@ -132,7 +134,6 @@ function buildDaemonStack(database: DatabaseConnections, now: () => string): Dae
       events: emitter,
       nodeId: NODE_ID,
       now,
-      archiveUnfinishedCreates: () => Promise.resolve(),
     }),
   };
 }
@@ -231,6 +232,15 @@ async function initRepository(directory: string): Promise<void> {
   await runFixtureGit(["init", "-q", directory], fixtures.environment, fixtures.fixtureRoot);
 }
 
+/** Attach a folder as a new project's mount, the project row and the mount in one write. */
+async function attachFolder(localPath: string): Promise<RepoAttachResponse> {
+  const target = await harness.stack.mounts.resolveAttachTarget({ localPath });
+  const projectId = mintProjectId();
+  return harness.stack.mounts.insertAttachedMount(target, projectId, [
+    projectRowStatement(projectId),
+  ]);
+}
+
 // The shared setup
 
 interface AttachedMounts {
@@ -245,8 +255,8 @@ interface AttachedMounts {
  * `idx_repo_mounts_active_root` is unique over `(node_id, canonical_root)` for `attached` rows.
  */
 async function attachAcceptanceMounts(): Promise<AttachedMounts> {
-  const alpha = await harness.stack.mounts.attach({ localPath: fixtures.nestedDirectory });
-  const beta = await harness.stack.mounts.attach({ localPath: fixtures.secondRepositoryRoot });
+  const alpha = await attachFolder(fixtures.nestedDirectory);
+  const beta = await attachFolder(fixtures.secondRepositoryRoot);
   return { alpha, beta };
 }
 
@@ -396,10 +406,10 @@ describe("one session binds workspaces across multiple repo mounts", () => {
 
 describe("the full-lifecycle event sequence", () => {
   it("emits exactly one event per transition, and one archival per dependent", async () => {
-    const alpha = await harness.stack.mounts.attach({ localPath: fixtures.nestedDirectory });
+    const alpha = await attachFolder(fixtures.nestedDirectory);
     // A second mount the detach must not touch; a cascade over every mount would pass a
     // single-mount arm.
-    const beta = await harness.stack.mounts.attach({ localPath: fixtures.secondRepositoryRoot });
+    const beta = await attachFolder(fixtures.secondRepositoryRoot);
 
     const alphaWorkspace = await harness.stack.workspaces.bind({
       sessionId: SESSION_ID,
@@ -412,6 +422,7 @@ describe("the full-lifecycle event sequence", () => {
     await harness.stack.workspaces.completeRootPreparation(
       alphaWorkspace.workspaceId,
       harness.provisionedWorktreeRoot,
+      { checkoutRoot: harness.provisionedWorktreeRoot },
     );
     expect(requireWorkspaceRow(harness.database.reader, alphaWorkspace.workspaceId).fs_root).toBe(
       harness.provisionedWorktreeRoot,
@@ -514,7 +525,7 @@ describe("the full-lifecycle event sequence", () => {
 
 describe("a mode switch prepares the root IN PLACE", () => {
   it("keeps the id and the row through two full cycles, updating mode and root", async () => {
-    const alpha = await harness.stack.mounts.attach({ localPath: fixtures.repositoryRoot });
+    const alpha = await attachFolder(fixtures.repositoryRoot);
     const workspaceId = await bindReadyWorkspace(
       harness.stack.workspaces,
       SESSION_ID,
@@ -537,12 +548,15 @@ describe("a mode switch prepares the root IN PLACE", () => {
     await harness.stack.workspaces.completeRootPreparation(
       workspaceId,
       harness.provisionedWorktreeRoot,
+      { checkoutRoot: harness.provisionedWorktreeRoot },
     );
 
     // A second switch, to another mode and root: one cycle cannot tell a stable id from an id
     // that is stable once.
     await harness.stack.workspaces.beginRootPreparation(workspaceId, "bound-root");
-    await harness.stack.workspaces.completeRootPreparation(workspaceId, harness.boundRootCheckout);
+    await harness.stack.workspaces.completeRootPreparation(workspaceId, harness.boundRootCheckout, {
+      checkoutRoot: harness.boundRootCheckout,
+    });
 
     const afterCycles = requireWorkspaceRow(harness.database.reader, workspaceId);
     expect(afterCycles.id).toBe(workspaceId);
@@ -575,7 +589,7 @@ describe("a root that vanishes makes its workspace stale", () => {
   it("persists the transition, refuses writes, and never auto-heals", async () => {
     // A healthy sibling on a root that stays put, so "the write gate refuses" differs from "the
     // write gate refuses everything".
-    const sibling = await harness.stack.mounts.attach({ localPath: fixtures.repositoryRoot });
+    const sibling = await attachFolder(fixtures.repositoryRoot);
     const siblingWorkspaceId = await bindReadyWorkspace(
       harness.stack.workspaces,
       SESSION_ID,
@@ -584,7 +598,7 @@ describe("a root that vanishes makes its workspace stale", () => {
     );
     // The victim: a mount rooted at a directory this arm owns and deletes.
     await initRepository(harness.disposableMountRoot);
-    const victim = await harness.stack.mounts.attach({ localPath: harness.disposableMountRoot });
+    const victim = await attachFolder(harness.disposableMountRoot);
     const victimWorkspaceId = await bindReadyWorkspace(
       harness.stack.workspaces,
       SESSION_ID,
@@ -625,10 +639,11 @@ describe("a root that vanishes makes its workspace stale", () => {
       harness.stack.workspaces.assertWritable(siblingWorkspaceId),
     ).resolves.toBeUndefined();
 
-    // The directory comes back. Mount health recovers because it is derived per read; the
-    // workspace stays stale, because a run resumed on a re-created empty directory would lose
+    // The repository comes back at the same place. Mount health recovers because it is derived
+    // per read; the workspace stays stale, because a run resumed on a re-created tree would lose
     // data silently.
     mkdirSync(harness.disposableMountRoot, { recursive: true });
+    await initRepository(harness.disposableMountRoot);
     const listedAfterRepair = await harness.stack.workspaces.list({ sessionId: SESSION_ID });
     expect(
       listedAfterRepair.workspaces.find((workspace) => String(workspace.id) === victimWorkspaceId)
@@ -644,14 +659,63 @@ describe("a root that vanishes makes its workspace stale", () => {
       "workspace.ready",
       "workspace.stale",
     ]);
+  });
+});
 
-    // The run hold has no registered event type: `ready -> busy -> ready` moves the row and
-    // appends nothing.
-    const eventsBeforeHold = readLifecycleEventTypes(harness.database.reader, SESSION_ID);
-    await harness.stack.workspaces.markBusy(siblingWorkspaceId, RUN_ID);
-    expect(requireWorkspaceRow(harness.database.reader, siblingWorkspaceId).state).toBe("busy");
-    expect(await harness.stack.workspaces.releaseBusy(siblingWorkspaceId)).toBe(true);
-    expect(requireWorkspaceRow(harness.database.reader, siblingWorkspaceId).state).toBe("ready");
-    expect(readLifecycleEventTypes(harness.database.reader, SESSION_ID)).toEqual(eventsBeforeHold);
+describe("a mount whose folder holds another repository now", () => {
+  it("refuses a bind and a run on it, while an untouched mount still binds", async () => {
+    await initRepository(harness.disposableMountRoot);
+    const retargeted = await attachFolder(harness.disposableMountRoot);
+    const untouched = await attachFolder(fixtures.secondRepositoryRoot);
+    const workspaceId = await bindReadyWorkspace(
+      harness.stack.workspaces,
+      SESSION_ID,
+      retargeted.repoMountId,
+      harness.disposableMountRoot,
+    );
+
+    // The folder's `.git` now names another repository's git directory.
+    const otherRepositoryRoot = join(harness.tmpDir, "other-repository");
+    await initRepository(otherRepositoryRoot);
+    rmSync(join(harness.disposableMountRoot, ".git"), { recursive: true, force: true });
+    writeFileSync(
+      join(harness.disposableMountRoot, ".git"),
+      `gitdir: ${join(otherRepositoryRoot, ".git")}\n`,
+    );
+
+    // A bind never follows the new target, and writes nothing.
+    const bindRefusal = await captureRejection(() =>
+      harness.stack.workspaces.bind({
+        sessionId: OTHER_SESSION_ID,
+        repoMountId: retargeted.repoMountId,
+        executionMode: "bound-root",
+      }),
+    );
+    expect(bindRefusal).toBeInstanceOf(RepoRootResolutionError);
+    expect((bindRefusal as RepoRootResolutionError).reason).toBe("root_mismatch");
+    expect(readLifecycleEventTypes(harness.database.reader, OTHER_SESSION_ID)).toEqual([]);
+
+    // A run is refused and the workspace turns `stale` with the reason recorded.
+    const runRefusal = await captureRejection(() =>
+      harness.stack.workspaces.assertWritable(workspaceId),
+    );
+    expect(runRefusal).toBeInstanceOf(WorkspaceStaleError);
+    const staleRow = requireWorkspaceRow(harness.database.reader, workspaceId);
+    expect(staleRow.state).toBe("stale");
+    expect((JSON.parse(staleRow.metadata) as Record<string, unknown>)["lastError"]).toBe(
+      new RepoRootResolutionError("root_mismatch").message,
+    );
+    expect((await harness.stack.mounts.read(retargeted.repoMountId)).health).toMatchObject({
+      status: "identity_mismatch",
+      isRepository: true,
+    });
+
+    // The refusal is the mount's, not every mount's.
+    const untouchedBind = await harness.stack.workspaces.bind({
+      sessionId: OTHER_SESSION_ID,
+      repoMountId: untouched.repoMountId,
+      executionMode: "bound-root",
+    });
+    expect(untouchedBind.state).toBe("preparing");
   });
 });

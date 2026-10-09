@@ -9,7 +9,8 @@
 // (`callDaemon` never throws and the first-turn rejection is caught), so a failed leg becomes
 // a refusal instead of an unhandled rejection a shipped window does not report.
 
-import type { ExecutionMode, RepoMountId } from "@ai-sidekicks/contracts/repo/mount";
+import type { ProjectId } from "@ai-sidekicks/contracts/project";
+import type { ExecutionMode } from "@ai-sidekicks/contracts/repo/mount";
 import type { SessionBinding, SessionLead } from "@ai-sidekicks/contracts/session/directory";
 import { callDaemon, type DaemonReplyRefusalCode } from "#renderer/services/daemon/reply.js";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
@@ -26,8 +27,8 @@ import {
 } from "./settlement.js";
 
 /** The project a new session works in, and whether in a worktree of its own or the checkout. */
-export interface DraftRepoMount {
-  readonly repoMountId: RepoMountId;
+export interface DraftProject {
+  readonly projectId: ProjectId;
   readonly executionMode: ExecutionMode;
 }
 
@@ -43,7 +44,7 @@ export interface NewSessionSendRequest {
   readonly sessionId: string | undefined;
   readonly firstTurnAlreadyQueued: boolean;
   /** The project the session works in; absent, the session is a chat. */
-  readonly repoMount: DraftRepoMount | undefined;
+  readonly project: DraftProject | undefined;
   /** The lead's provider, model and effort the session starts on; the daemon picks the account. */
   readonly lead: SessionLead;
   /** The draft's one key for its create, so a create sent again names the session already made. */
@@ -141,7 +142,7 @@ async function resolveSession(
   // Through `callDaemon`, which parses the request and the reply and never throws.
   const reply = await callDaemon(request.bridge, SESSION_CREATE_METHOD, {
     clientIdempotencyKey: request.clientIdempotencyKey,
-    binding: sessionBinding(request.repoMount),
+    binding: sessionBinding(request.project),
     lead: request.lead,
   });
   if (reply.status === "refused") {
@@ -169,14 +170,10 @@ async function resolveSession(
 }
 
 /** Where the session works: the chosen project, or a chat when none was chosen. */
-function sessionBinding(repoMount: DraftRepoMount | undefined): SessionBinding {
-  return repoMount === undefined
+function sessionBinding(project: DraftProject | undefined): SessionBinding {
+  return project === undefined
     ? { kind: "chat" }
-    : {
-        kind: "project",
-        repoMountId: repoMount.repoMountId,
-        executionMode: repoMount.executionMode,
-      };
+    : { kind: "project", projectId: project.projectId, executionMode: project.executionMode };
 }
 
 /** The first-turn leg, which is the only one whose absence is the person's choice. */

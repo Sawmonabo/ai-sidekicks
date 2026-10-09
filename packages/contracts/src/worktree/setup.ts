@@ -24,7 +24,7 @@ export const WORKTREE_SETUP_OUTPUT_MAX_LEN = 32768;
 
 const WORKTREE_SETUP_STAGES = ["make_tree", "project_steps", "warm_caches"] as const;
 const WORKTREE_SETUP_STEP_STATES = ["pending", "running", "succeeded", "failed"] as const;
-const WORKTREE_SETUP_CARD_STATES = ["running", "succeeded", "failed"] as const;
+const WORKTREE_SETUP_CARD_STATES = ["running", "succeeded", "failed", "not_run"] as const;
 
 /** The stages of setting a tree up, in the order they run. */
 export type WorktreeSetupStage = (typeof WORKTREE_SETUP_STAGES)[number];
@@ -45,7 +45,11 @@ export interface WorktreeSetupStep {
   output?: string | undefined;
 }
 
-/** One `repo.worktreeSetupSubscribe` emission: the whole card for one tree. */
+/**
+ * One `repo.worktreeSetupSubscribe` emission: the whole card for one tree. `not_run`, with no
+ * steps, is a tree with no card to show: its setup did not run since the daemon started, or it
+ * has none.
+ */
 export interface WorktreeSetupStatus {
   worktreeId: WorktreeId;
   state: (typeof WORKTREE_SETUP_CARD_STATES)[number];

@@ -9,30 +9,17 @@
 import * as nativeFs from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join, relative } from "node:path";
-import { setTimeout as wait } from "node:timers/promises";
 
 import { fdir } from "fdir";
 import ignore, { type Ignore } from "ignore";
 
 import type { ServiceLogWriter } from "../../../daemon/service-log.js";
+import { isRetryableReadFailure, readWithOneRetry } from "../../../read-retry.js";
 import type {
   GitCommand,
   GitInvocationFailure,
   GitInvocationResult,
 } from "../../../git/process.js";
-
-// Errors a moment's wait clears: a busy or interrupted call, or a process or system short of file
-// handles. Any other failure is the answer.
-const RETRYABLE_ERROR_CODES: ReadonlySet<string> = new Set([
-  "EAGAIN",
-  "EBUSY",
-  "EINTR",
-  "EMFILE",
-  "ENFILE",
-]);
-
-// The moment a retried read waits, long enough for a busy call or a handle to clear.
-const RETRY_WAIT_MS = 100;
 
 // What git prints, in the C locale the runner sets, for a folder outside any working tree.
 const OUTSIDE_WORKING_TREE_STDERR = "not a git repository";
@@ -59,15 +46,7 @@ export async function listWorkingFolder(
   git: GitCommand,
   writeServiceLog: ServiceLogWriter,
 ): Promise<string[]> {
-  try {
-    return await readWorkingFolder(folder, git, writeServiceLog);
-  } catch (error) {
-    if (!isRetryable(error)) {
-      throw error;
-    }
-    await wait(RETRY_WAIT_MS);
-    return readWorkingFolder(folder, git, writeServiceLog);
-  }
+  return readWithOneRetry(() => readWorkingFolder(folder, git, writeServiceLog));
 }
 
 async function readWorkingFolder(
@@ -118,7 +97,7 @@ async function walkFolder(folder: string, writeServiceLog: ServiceLogWriter): Pr
     nativeFs.readdir(directoryPath, options, (readError, entries) => {
       if (readError !== null) {
         // Git lists past a folder below the working folder that it cannot open, and warns.
-        if (isRetryable(readError) || relativePathOf(folder, directoryPath) === "") {
+        if (isRetryableReadFailure(readError) || relativePathOf(folder, directoryPath) === "") {
           callback(readError, []);
           return;
         }
@@ -150,7 +129,7 @@ async function walkFolder(folder: string, writeServiceLog: ServiceLogWriter): Pr
             callback(null, entries);
           },
           (error: unknown) => {
-            if (isRetryable(error)) {
+            if (isRetryableReadFailure(error)) {
               callback(error as NodeJS.ErrnoException, []);
               return;
             }
@@ -205,9 +184,4 @@ function isIgnored(rulesByFolder: ReadonlyMap<string, Ignore>, path: string): bo
     folderEnd = path.indexOf("/", folderEnd + 1);
   } while (folderEnd !== -1 && folderEnd < path.length - 1);
   return isPathIgnored;
-}
-
-function isRetryable(error: unknown): boolean {
-  const code = (error as { readonly code?: unknown } | null)?.code;
-  return typeof code === "string" && RETRYABLE_ERROR_CODES.has(code);
 }

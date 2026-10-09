@@ -1,7 +1,8 @@
 // Proves the trust-envelope validator never returns an execution root outside the attached mount a
-// bind names: traversal, symlink escapes, prefix collisions, another mount and drive-less win32
-// shapes are refused, an accepted root comes back symlink-resolved, and win32 and case-insensitive
-// filesystems compare paths case-folded.
+// bind names: traversal, symlink escapes, prefix collisions, another mount, another repository,
+// working trees git does not list now and drive-less win32 shapes are refused, an accepted root
+// comes back symlink-resolved with its checkout, and win32 and case-insensitive filesystems compare
+// paths case-folded. Real git answers which working tree a folder sits in.
 
 import { mkdirSync, mkdtempSync, rmSync, statSync } from "node:fs";
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
@@ -10,7 +11,9 @@ import { join, posix as posixPath, win32 as win32Path } from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { buildFixtureEnvironment, runFixtureGit } from "../../git/__fixtures__/command.js";
 import { TrustEnvelopeViolationError } from "../repo/errors.js";
+import { RepoRootResolver, type WorkingTreeReader } from "../repo/root-resolver.js";
 import {
   TrustEnvelopeValidator,
   type DirectoryReadabilityProbe,
@@ -43,10 +46,12 @@ const itOnCaseInsensitiveFilesystem = it.skipIf(!filesystemIsCaseInsensitive);
 
 /**
  * One temp tree holding a mount, what a bind may legitimately reach inside it, and every shape
- * that tries to leave it. The mount is `repo` and its prefix-colliding sibling `repo-evil`.
+ * that tries to leave it. The mount is the repository `repo` and its prefix-colliding sibling
+ * `repo-evil`; `other-mount` is another repository.
  */
 interface Fixtures {
   readonly fixtureRoot: string;
+  readonly environment: NodeJS.ProcessEnv;
   readonly mountRoot: string;
   readonly realSubdirectory: string;
   readonly symlinkInsideMount: string;
@@ -55,6 +60,13 @@ interface Fixtures {
   readonly prefixCollisionRoot: string;
   readonly secondMountRoot: string;
   readonly secondMountChild: string;
+  /** A linked worktree of `repo` beside it, holding `child` and a symlink out. */
+  readonly linkedWorktreeRoot: string;
+  readonly linkedWorktreeChild: string;
+  /** A linked worktree of `repo` nested beneath it, which git lists. */
+  readonly nestedListedWorktreeRoot: string;
+  /** A folder beneath `repo` whose `.git` file names `repo`'s git directory; git lists it not. */
+  readonly nestedUnlistedWorktreeRoot: string;
 }
 
 let fixtures: Fixtures;
@@ -86,8 +98,32 @@ beforeAll(async () => {
   await symlink(realSubdirectory, symlinkInsideMount);
   await symlink(outsideDirectory, join(mountRoot, "link-outside"));
 
+  const environment = buildFixtureEnvironment(fixtureRoot);
+  const git = (args: readonly string[]): Promise<string> =>
+    runFixtureGit(args, environment, fixtureRoot);
+  await git(["init", "-q", mountRoot]);
+  await git(["-C", mountRoot, "commit", "-q", "--allow-empty", "-m", "seed"]);
+  await git(["init", "-q", secondMountRoot]);
+
+  const linkedWorktreeRoot = join(fixtureRoot, "linked-worktree");
+  const linkedWorktreeChild = join(linkedWorktreeRoot, "child");
+  await git(["-C", mountRoot, "worktree", "add", "-q", "-b", "linked", linkedWorktreeRoot]);
+  await mkdir(linkedWorktreeChild);
+  await symlink(outsideDirectory, join(linkedWorktreeRoot, "link-outside"));
+
+  const nestedListedWorktreeRoot = join(mountRoot, "nested-listed");
+  await git(["-C", mountRoot, "worktree", "add", "-q", "-b", "nested", nestedListedWorktreeRoot]);
+  const nestedUnlistedWorktreeRoot = join(mountRoot, "nested-unlisted");
+  await mkdir(nestedUnlistedWorktreeRoot);
+  await writeFile(
+    join(nestedUnlistedWorktreeRoot, ".git"),
+    `gitdir: ${join(mountRoot, ".git")}\n`,
+    "utf8",
+  );
+
   fixtures = {
     fixtureRoot,
+    environment,
     mountRoot,
     realSubdirectory,
     symlinkInsideMount,
@@ -96,8 +132,12 @@ beforeAll(async () => {
     prefixCollisionRoot,
     secondMountRoot,
     secondMountChild,
+    linkedWorktreeRoot,
+    linkedWorktreeChild,
+    nestedListedWorktreeRoot,
+    nestedUnlistedWorktreeRoot,
   };
-});
+}, 120_000);
 
 afterAll(async () => {
   if (fixtures !== undefined) {
@@ -106,6 +146,26 @@ afterAll(async () => {
 });
 
 // Helpers
+
+/** A validator over real git and the real filesystem, as the daemon builds it. */
+function realValidator(): TrustEnvelopeValidator {
+  return new TrustEnvelopeValidator({ workingTrees: new RepoRootResolver() });
+}
+
+/**
+ * Git's answers over a synthetic filesystem: the working tree each spelled path sits in, and the
+ * repository's list. An unmapped path sits in no working tree.
+ */
+function syntheticWorkingTrees(
+  workingTreeByPath: Record<string, string>,
+  listedWorkingTrees: readonly string[] = [],
+): WorkingTreeReader {
+  return {
+    readWorkingTreeRoot: (directory: string) =>
+      Promise.resolve(workingTreeByPath[directory] ?? null),
+    listWorkingTrees: () => Promise.resolve(listedWorkingTrees),
+  };
+}
 
 /** A bind against the fixture mount, with that mount as the whole envelope. */
 function candidateInMount(directory?: string): WorkspaceExecutionRootCandidate {
@@ -159,7 +219,7 @@ describe("envelope admission", () => {
     // A real mount root that is not attached, such as one detached mid-bind. Containment within
     // it would succeed, so only admission can refuse it.
     await expectEnvelopeRefusal(
-      new TrustEnvelopeValidator().validateExecutionRoot({
+      realValidator().validateExecutionRoot({
         mountCanonicalRoot: fixtures.secondMountRoot,
         directory: "sub",
         attachedMountRoots: [fixtures.mountRoot],
@@ -170,18 +230,20 @@ describe("envelope admission", () => {
 
 describe("accepted execution roots", () => {
   it("accepts the mount root itself when no directory is supplied", async () => {
-    const validated = await new TrustEnvelopeValidator().validateExecutionRoot(candidateInMount());
-    expect(validated).toBe(fixtures.mountRoot);
+    const validated = await realValidator().validateExecutionRoot(candidateInMount());
+    expect(validated).toEqual({
+      executionRoot: fixtures.mountRoot,
+      checkoutRoot: fixtures.mountRoot,
+    });
   });
 
   it("returns a subdirectory reached through an inside symlink SYMLINK-RESOLVED", async () => {
     // A validator that skipped `realpath` would return the alias spelling, which is also
     // contained, so only this assertion proves resolution ran.
-    const validated = await new TrustEnvelopeValidator().validateExecutionRoot(
-      candidateInMount("link-inside"),
-    );
-    expect(validated).toBe(fixtures.realSubdirectory);
-    expect(validated).not.toBe(fixtures.symlinkInsideMount);
+    const validated = await realValidator().validateExecutionRoot(candidateInMount("link-inside"));
+    expect(validated.executionRoot).toBe(fixtures.realSubdirectory);
+    expect(validated.executionRoot).not.toBe(fixtures.symlinkInsideMount);
+    expect(validated.checkoutRoot).toBe(fixtures.mountRoot);
   });
 
   itOnCaseInsensitiveFilesystem(
@@ -190,10 +252,8 @@ describe("accepted execution roots", () => {
       // Containment compares components case-sensitively off win32, so this binds only because
       // `realpath` first rewrites the candidate to the on-disk spelling. A JS-walk realpath
       // would keep `REAL-SUB` and refuse a directory that is inside the mount.
-      const validated = await new TrustEnvelopeValidator().validateExecutionRoot(
-        candidateInMount("REAL-SUB"),
-      );
-      expect(validated).toBe(fixtures.realSubdirectory);
+      const validated = await realValidator().validateExecutionRoot(candidateInMount("REAL-SUB"));
+      expect(validated.executionRoot).toBe(fixtures.realSubdirectory);
     },
   );
 });
@@ -202,7 +262,7 @@ describe("an unusable execution root is refused", () => {
   it("refuses a regular file inside the mount root", async () => {
     // The result is stored as the root a process later runs inside, and nothing else checks it.
     await expectEnvelopeRefusal(
-      new TrustEnvelopeValidator().validateExecutionRoot(candidateInMount("README.md")),
+      realValidator().validateExecutionRoot(candidateInMount("README.md")),
     );
   });
 });
@@ -212,15 +272,17 @@ describe("escapes from the mount root are refused", () => {
     // A bind is scoped to its own mount, so a result inside the envelope but outside that mount
     // is still refused.
     const envelope = [fixtures.mountRoot, fixtures.secondMountRoot];
-    const validator = new TrustEnvelopeValidator();
+    const validator = realValidator();
 
     // Positive control: the same target anchored on its own mount is accepted.
     expect(
-      await validator.validateExecutionRoot({
-        mountCanonicalRoot: fixtures.secondMountRoot,
-        directory: "sub",
-        attachedMountRoots: envelope,
-      }),
+      (
+        await validator.validateExecutionRoot({
+          mountCanonicalRoot: fixtures.secondMountRoot,
+          directory: "sub",
+          attachedMountRoots: envelope,
+        })
+      ).executionRoot,
     ).toBe(fixtures.secondMountChild);
 
     await expectEnvelopeRefusal(
@@ -235,7 +297,7 @@ describe("escapes from the mount root are refused", () => {
   it("refuses a candidate the filesystem will not resolve", async () => {
     // Fail closed: containment cannot be proven for a path that does not resolve.
     await expectEnvelopeRefusal(
-      new TrustEnvelopeValidator().validateExecutionRoot(candidateInMount("does-not-exist")),
+      realValidator().validateExecutionRoot(candidateInMount("does-not-exist")),
     );
   });
 
@@ -254,12 +316,12 @@ describe("escapes from the mount root are refused", () => {
       fixtures.prefixCollisionRoot,
       "nested/../../outside",
     ];
-    const validator = new TrustEnvelopeValidator();
+    const validator = realValidator();
     for (const directory of adversarialDirectories) {
       const outcome: unknown = await validator
         .validateExecutionRoot(candidateInMount(directory))
         .then(
-          (value: string) => value,
+          (value) => value,
           (error: unknown) => error,
         );
       expect(outcome, `directory ${directory} was not refused`).toBeInstanceOf(
@@ -269,14 +331,14 @@ describe("escapes from the mount root are refused", () => {
   });
 
   it("leaks no path into the message or the wire detail", async () => {
-    // The error must not echo the attempted path, including in `fields`. The carrier takes no
-    // arguments, so this checks the validator found no other way to attach one.
+    // The error must not echo the attempted path, including in `fields`. The carrier takes only a
+    // closed reason, so this checks the validator found no other way to attach one.
     const violation = await expectEnvelopeRefusal(
-      new TrustEnvelopeValidator().validateExecutionRoot(candidateInMount("link-outside")),
+      realValidator().validateExecutionRoot(candidateInMount("link-outside")),
     );
     expect(violation.message).not.toContain(fixtures.fixtureRoot);
     expect(violation.message).not.toContain("link-outside");
-    expect(violation.detail).toBeUndefined();
+    expect(violation.detail).toEqual({ reason: "outside_project" });
     // Positive control: the spread carries the own properties, so the negative check cannot pass
     // vacuously if they moved onto the prototype.
     expect(JSON.stringify({ ...violation })).toContain("repo.outside_trust_envelope");
@@ -292,11 +354,13 @@ describe("win32 path shapes", () => {
   function windowsValidator(
     physicalPathBySpelling: Record<string, string>,
     recorded?: string[],
+    workingTreeByPath: Record<string, string> = {},
   ): TrustEnvelopeValidator {
     return new TrustEnvelopeValidator({
       platformPath: win32Path,
       realpath: syntheticRealpath(physicalPathBySpelling, recorded),
       probeDirectoryReadable: alwaysReadableProbe,
+      workingTrees: syntheticWorkingTrees(workingTreeByPath),
     });
   }
 
@@ -337,25 +401,27 @@ describe("win32 path shapes", () => {
   });
 
   it("accepts a candidate whose physical spelling differs only in case", async () => {
-    const validated = await windowsValidator({
-      "C:\\repos\\app\\Src": "C:\\Repos\\App\\Src",
-    }).validateExecutionRoot({
+    const validated = await windowsValidator(
+      { "C:\\repos\\app\\Src": "C:\\Repos\\App\\Src" },
+      undefined,
+      { "C:\\Repos\\App\\Src": "C:\\Repos\\App" },
+    ).validateExecutionRoot({
       mountCanonicalRoot: WINDOWS_MOUNT_ROOT,
       directory: "Src",
       attachedMountRoots: [WINDOWS_MOUNT_ROOT],
     });
     // Folding applies to the comparison only; the returned root keeps the filesystem's spelling.
-    expect(validated).toBe("C:\\Repos\\App\\Src");
+    expect(validated.executionRoot).toBe("C:\\Repos\\App\\Src");
   });
 
   it("admits an anchor whose envelope entry differs only in case", async () => {
-    const validated = await windowsValidator({
+    const validated = await windowsValidator({ "C:\\repos\\app": "C:\\repos\\app" }, undefined, {
       "C:\\repos\\app": "C:\\repos\\app",
     }).validateExecutionRoot({
       mountCanonicalRoot: WINDOWS_MOUNT_ROOT,
       attachedMountRoots: ["C:\\REPOS\\APP"],
     });
-    expect(validated).toBe(WINDOWS_MOUNT_ROOT);
+    expect(validated.executionRoot).toBe(WINDOWS_MOUNT_ROOT);
   });
 });
 
@@ -369,6 +435,9 @@ describe("case folding stays win32-scoped", () => {
       platformPath: posixPath,
       realpath: syntheticRealpath(physicalPathBySpelling),
       probeDirectoryReadable: alwaysReadableProbe,
+      // The folder sits in a working tree spelled like the mount in another case, which git lists
+      // under the mount's own spelling.
+      workingTrees: syntheticWorkingTrees({ "/Repos/App/Src": "/Repos/App" }, [POSIX_MOUNT_ROOT]),
     });
   }
 
@@ -380,5 +449,76 @@ describe("case folding stays win32-scoped", () => {
         attachedMountRoots: [POSIX_MOUNT_ROOT],
       }),
     );
+  });
+});
+
+describe("working trees git lists for the mount's repository", () => {
+  it("admits a listed worktree and a folder inside it, with the worktree as checkout", async () => {
+    const validator = realValidator();
+    for (const directory of [fixtures.linkedWorktreeRoot, fixtures.linkedWorktreeChild]) {
+      expect(await validator.validateExecutionRoot(candidateInMount(directory))).toEqual({
+        executionRoot: directory,
+        checkoutRoot: fixtures.linkedWorktreeRoot,
+      });
+    }
+  });
+
+  it("refuses traversal and symlink escapes from inside a listed worktree", async () => {
+    const validator = realValidator();
+    for (const directory of [
+      // Spelled, not joined: `path.join` would collapse the `..` before the filesystem saw it.
+      `${fixtures.linkedWorktreeRoot}/..`,
+      `${fixtures.linkedWorktreeRoot}/child/../../outside`,
+      join(fixtures.linkedWorktreeRoot, "link-outside"),
+      join(fixtures.linkedWorktreeRoot, "link-outside", "child"),
+    ]) {
+      await expectEnvelopeRefusal(validator.validateExecutionRoot(candidateInMount(directory)));
+    }
+  });
+
+  it("refuses an unlisted sibling folder and a working tree of another repository", async () => {
+    const validator = realValidator();
+    for (const directory of [
+      fixtures.outsideDirectory,
+      fixtures.secondMountRoot,
+      fixtures.secondMountChild,
+    ]) {
+      await expectEnvelopeRefusal(validator.validateExecutionRoot(candidateInMount(directory)));
+    }
+  });
+
+  it("refuses a nested working tree git does not list, while its listed twin admits", async () => {
+    // Both sit beneath the mount root, so containment alone would admit both.
+    const validator = realValidator();
+    await expectEnvelopeRefusal(
+      validator.validateExecutionRoot(candidateInMount("nested-unlisted")),
+    );
+    expect(await validator.validateExecutionRoot(candidateInMount("nested-listed"))).toEqual({
+      executionRoot: fixtures.nestedListedWorktreeRoot,
+      checkoutRoot: fixtures.nestedListedWorktreeRoot,
+    });
+  });
+
+  it("reads git's list at every pick, never a remembered one", async () => {
+    const worktreeRoot = join(fixtures.fixtureRoot, "listed-then-dropped");
+    await runFixtureGit(
+      ["-C", fixtures.mountRoot, "worktree", "add", "-q", "-b", "dropped", worktreeRoot],
+      fixtures.environment,
+      fixtures.fixtureRoot,
+    );
+    const validator = realValidator();
+    expect(
+      (await validator.validateExecutionRoot(candidateInMount(worktreeRoot))).checkoutRoot,
+    ).toBe(worktreeRoot);
+
+    // Git stops listing the worktree; its folder still answers as a working tree of the
+    // repository, so only a fresh read of the list refuses it.
+    await rm(join(fixtures.mountRoot, ".git", "worktrees", "listed-then-dropped"), {
+      recursive: true,
+      force: true,
+    });
+    await writeFile(join(worktreeRoot, ".git"), `gitdir: ${join(fixtures.mountRoot, ".git")}\n`);
+
+    await expectEnvelopeRefusal(validator.validateExecutionRoot(candidateInMount(worktreeRoot)));
   });
 });

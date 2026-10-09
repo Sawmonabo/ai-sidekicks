@@ -86,9 +86,15 @@ describe("SessionPurge — the session's directory rows and managed workspace", 
     // The purged session is a converted chat: its managed workspace and its project's checkout.
     await fixture.scratch.writer.write([
       {
-        sql: `INSERT INTO repo_mounts (id, node_id, local_path, canonical_root, attached_at,
-                                       updated_at)
-              VALUES ('project-1', 'node-1', '/repos/project', '/repos/project', ?, ?)`,
+        sql: `INSERT INTO projects (id, name, slug, folder_path, state, setup, created_at,
+                                    updated_at)
+              VALUES ('project-1', 'Project', 'project', '/repos/project', 'active', '{}', ?, ?)`,
+        bindings: [PURGE_INSTANT, PURGE_INSTANT],
+      },
+      {
+        sql: `INSERT INTO repo_mounts (id, node_id, local_path, canonical_root, project_id,
+                                       attached_at, updated_at)
+              VALUES ('project-1', 'node-1', '/repos/project', '/repos/project', 'project-1', ?, ?)`,
         bindings: [PURGE_INSTANT, PURGE_INSTANT],
       },
       {
@@ -339,9 +345,15 @@ describe("SessionPurge — the worktrees the session made", () => {
   it("deletes the rows of those gone that nothing names, and touches no folder", async () => {
     await fixture.scratch.writer.write([
       {
-        sql: `INSERT INTO repo_mounts (id, node_id, local_path, canonical_root, attached_at,
-                                       updated_at)
-              VALUES ('project-1', 'node-1', '/repos/project', '/repos/project', ?, ?)`,
+        sql: `INSERT INTO projects (id, name, slug, folder_path, state, setup, created_at,
+                                    updated_at)
+              VALUES ('project-1', 'Project', 'project', '/repos/project', 'active', '{}', ?, ?)`,
+        bindings: [PURGE_INSTANT, PURGE_INSTANT],
+      },
+      {
+        sql: `INSERT INTO repo_mounts (id, node_id, local_path, canonical_root, project_id,
+                                       attached_at, updated_at)
+              VALUES ('project-1', 'node-1', '/repos/project', '/repos/project', 'project-1', ?, ?)`,
         bindings: [PURGE_INSTANT, PURGE_INSTANT],
       },
     ]);
@@ -353,24 +365,31 @@ describe("SessionPurge — the worktrees the session made", () => {
       readonly createdBy: SessionId;
       readonly state: "ready" | "retired" | "failed";
       readonly isCleaned?: boolean;
+      // A failed attempt's folder is gone unless said; every other folder is on disk.
+      readonly isOnDisk?: boolean;
     }> = [
       { id: "wt-cleaned", createdBy: SESSION, state: "retired", isCleaned: true },
       { id: "wt-failed", createdBy: SESSION, state: "failed" },
+      { id: "wt-failed-on-disk", createdBy: SESSION, state: "failed", isOnDisk: true },
       { id: "wt-on-disk", createdBy: SESSION, state: "ready" },
       { id: "wt-awaiting-cleanup", createdBy: SESSION, state: "retired" },
       { id: "wt-in-use", createdBy: SESSION, state: "retired", isCleaned: true },
       { id: "wt-run-root", createdBy: SESSION, state: "failed" },
       { id: "wt-other", createdBy: SECOND_SESSION, state: "retired", isCleaned: true },
     ];
+    const isOnDisk = (worktree: (typeof worktrees)[number]): boolean =>
+      worktree.state !== "failed" || worktree.isOnDisk === true;
     for (const worktree of worktrees) {
-      // Every folder is on disk, so a purge that removed any would show.
+      // A purge that removed a folder on disk would show.
       const folder = join(fixture.homeDirectory, "execution-roots", worktree.id);
-      mkdirSync(folder, { recursive: true });
+      if (isOnDisk(worktree)) {
+        mkdirSync(folder, { recursive: true });
+      }
       await fixture.scratch.writer.write([
         {
           sql: `INSERT INTO worktrees (id, repo_mount_id, created_by_session_id, branch_name,
-                                       fs_root, state, created_at, updated_at, cleaned_at)
-                VALUES (?, 'project-1', ?, ?, ?, ?, ?, ?, ?)`,
+                                       base_ref, fs_root, state, created_at, updated_at, cleaned_at)
+                VALUES (?, 'project-1', ?, ?, 'main', ?, ?, ?, ?, ?)`,
           bindings: [
             worktree.id,
             worktree.createdBy,
@@ -400,11 +419,19 @@ describe("SessionPurge — the worktrees the session made", () => {
       },
       {
         sql: `INSERT INTO run_execution_contexts (run_id, session_id, workspace_id, execution_mode,
-                                                  execution_root, git_common_dir, worktree_id,
-                                                  branch_context_id, created_at)
-              VALUES ('run-other', ?, 'workspace-other', 'provisioned-worktree', '/root',
+                                                  execution_root, checkout_root, git_common_dir,
+                                                  worktree_id, branch_context_id, created_at)
+              VALUES ('run-other', ?, 'workspace-other', 'provisioned-worktree', '/root', '/root',
                       '/root/.git', 'wt-run-root', 'branch-other', ?)`,
         bindings: [SECOND_SESSION, PURGE_INSTANT],
+      },
+      {
+        // Spelled with a trailing separator, so only a resolved comparison matches it.
+        sql: `UPDATE sessions SET pending_working_folder = ? WHERE id = ?`,
+        bindings: [
+          `${join(fixture.homeDirectory, "execution-roots", "wt-pending-move")}/`,
+          SECOND_SESSION,
+        ],
       },
     ]);
 
@@ -412,9 +439,17 @@ describe("SessionPurge — the worktrees the session made", () => {
 
     expect(outcome.refusedReason).toBeUndefined();
     expect(fixture.readDirectoryRows().worktrees).toEqual(
-      ["wt-awaiting-cleanup", "wt-in-use", "wt-on-disk", "wt-other", "wt-run-root"].sort(),
+      [
+        "wt-awaiting-cleanup",
+        "wt-failed-on-disk",
+        "wt-in-use",
+        "wt-on-disk",
+        "wt-other",
+        "wt-pending-move",
+        "wt-run-root",
+      ].sort(),
     );
-    for (const worktree of worktrees) {
+    for (const worktree of worktrees.filter(isOnDisk)) {
       expect(existsSync(join(fixture.homeDirectory, "execution-roots", worktree.id))).toBe(true);
     }
   });

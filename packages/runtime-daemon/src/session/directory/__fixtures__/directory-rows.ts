@@ -1,5 +1,6 @@
 // Raw-SQL seeding of the directory rows a session test starts from: a session's `sessions` row,
-// and for a project or chat session the mount and workspace it binds.
+// and for a project or chat session the mount and workspace it binds, a project's mount with its
+// project row.
 
 import type { RepoMountId } from "@ai-sidekicks/contracts/repo/mount";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
@@ -7,6 +8,7 @@ import type { SessionShape } from "@ai-sidekicks/contracts/session/methods";
 
 import type { DatabaseWriter } from "../../../database/writer.js";
 import { mintUuidV7 } from "../../../uuid-v7.js";
+import { attachedMountRowStatements } from "../../../workspace/__fixtures__/rows.js";
 
 const SEEDED_AT = "2026-10-06T12:00:00.000Z";
 
@@ -30,24 +32,14 @@ export async function seedSessionRow(
   ]);
 }
 
-/** Seeds an attached project mount and answers its id. */
+/** Seeds a project with its attached mount and answers the mount's id. */
 export async function seedProjectMount(
   writer: Pick<DatabaseWriter, "write">,
 ): Promise<RepoMountId> {
   const repoMountId = mintUuidV7() as RepoMountId;
-  await writer.write([
-    {
-      sql: `INSERT INTO repo_mounts (id, node_id, local_path, canonical_root, attached_at, updated_at)
-            VALUES (?, 'node-1', ?, ?, ?, ?)`,
-      bindings: [
-        repoMountId,
-        `/repos/${repoMountId}`,
-        `/repos/${repoMountId}`,
-        SEEDED_AT,
-        SEEDED_AT,
-      ],
-    },
-  ]);
+  await writer.write(
+    attachedMountRowStatements({ id: repoMountId, canonicalRoot: `/repos/${repoMountId}` }),
+  );
   return repoMountId;
 }
 

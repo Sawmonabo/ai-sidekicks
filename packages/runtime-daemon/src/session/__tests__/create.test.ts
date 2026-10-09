@@ -18,6 +18,7 @@ import {
   MACHINE_SETTINGS_DEFAULTS,
   type MachineSettings,
 } from "@ai-sidekicks/contracts/machine-settings";
+import type { ProjectId } from "@ai-sidekicks/contracts/project";
 import type { RepoMountId } from "@ai-sidekicks/contracts/repo/mount";
 import type { NodeId } from "@ai-sidekicks/contracts/runtime-node/id";
 import type {
@@ -27,6 +28,7 @@ import type {
 import type { SessionCreatedPayload } from "@ai-sidekicks/contracts/session/events";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
+import { captureRejection } from "../../__fixtures__/capture-failure.js";
 import { MachineSettingsFile } from "../../daemon/machine/settings/file.js";
 import type { EventLogService } from "../../events/log-service.js";
 import { DaemonDomainError } from "../../ipc/domain-error.js";
@@ -37,6 +39,7 @@ import {
   managedWorkspacesDirectoryOf,
   ManagedWorkspaceService,
 } from "../../workspace/managed/service.js";
+import { buildTestProjectService } from "../../workspace/project/service.test-support.js";
 import { RepoMountService } from "../../workspace/repo/mount-service.js";
 import { WorkspaceService } from "../../workspace/service.js";
 import { SessionCreation } from "../create.js";
@@ -81,7 +84,6 @@ beforeEach(async () => {
     database: log.scratch,
     events: emitter,
     nodeId: mintUuidV7() as NodeId,
-    archiveUnfinishedCreates: () => creation.archiveUnfinishedCreates(),
   });
   serviceLogLines = [];
   workspacesMade = 0;
@@ -271,54 +273,61 @@ describe("SessionCreation", () => {
     });
   });
 
-  it("finishes at start each session left provisioning, and logs one it cannot finish", async () => {
+  it("finishes at start each session left provisioning, and throws for one it cannot finish", async () => {
     const leftBinding = creationWith({ bind: failingBind });
     await expect(leftBinding.create(chatRequest())).rejects.toThrow("the bind failed");
     const chatId = onlySessionId();
+    const { projectId, repoMountId } = await attachProject();
+    await expect(leftBinding.create(projectRequest(projectId))).rejects.toThrow("the bind failed");
+    const projectSessionId = (
+      log.scratch.reader.prepare("SELECT id FROM sessions WHERE shape = 'project'").get() as {
+        id: SessionId;
+      }
+    ).id;
+    // The project's folder is detached before the start, so its session has nowhere left to bind.
+    await mounts.detach({ repoMountId });
 
-    await leftBinding.finishStoppedCreates();
-    expect(stateOf(chatId)).toBe("provisioning");
-    expect(serviceLogLines).toHaveLength(1);
-    expect(serviceLogLines[0]).toContain(chatId);
+    const failure = await captureRejection(creation.finishProvisioningSessions());
 
-    await creation.finishStoppedCreates();
+    expect(failure).toBeInstanceOf(AggregateError);
+    expect((failure as AggregateError).errors).toHaveLength(1);
+    expect((failure as AggregateError).message).toContain(projectSessionId);
     expect(stateOf(chatId)).toBe("active");
-  });
-
-  it("archives a session whose project is detached while it provisions, never to finish it", async () => {
-    const repoMountId = await attachProject();
-    await expect(
-      creationWith({ bind: failingBind }).create(projectRequest(repoMountId)),
-    ).rejects.toThrow("the bind failed");
-    const sessionId = onlySessionId();
-
-    await mounts.detach({ repoMountId: repoMountId as RepoMountId });
-    expect(stateOf(sessionId)).toBe("archived");
-
-    await creation.finishStoppedCreates();
-    expect(eventTypesOf(sessionId)).toStrictEqual(["session.created", "session.archived"]);
+    expect(stateOf(projectSessionId)).toBe("provisioning");
     expect(serviceLogLines).toStrictEqual([]);
   });
 
-  it("archives at start a session whose project's detach stopped before archiving it", async () => {
-    const repoMountId = await attachProject();
-    await expect(
-      creationWith({ bind: failingBind }).create(projectRequest(repoMountId)),
-    ).rejects.toThrow("the bind failed");
-    const sessionId = onlySessionId();
-    // A daemon stopped after the detach's write and before its cascade reached the session.
-    await new RepoMountService({
+  it("keeps a session of a project still cloning provisioning until the clone attaches", async () => {
+    const repository = path.join(home, "beacon");
+    const { projects } = buildTestProjectService({
       database: log.scratch,
-      events: emitter,
-      nodeId: mintUuidV7() as NodeId,
-      archiveUnfinishedCreates: () => Promise.resolve(),
-    }).detach({ repoMountId: repoMountId as RepoMountId });
-    expect(stateOf(sessionId)).toBe("provisioning");
+      mounts,
+      worktreesDirectory: path.join(home, "worktrees"),
+    });
+    const projectId = await projects.createCloningProject({
+      url: "https://example.invalid/acme/beacon.git",
+      folderPath: repository,
+      name: "beacon",
+    });
 
-    await creation.finishStoppedCreates();
-    await creation.finishStoppedCreates();
-    expect(eventTypesOf(sessionId)).toStrictEqual(["session.created", "session.archived"]);
+    const { sessionId, state } = await creation.create(projectRequest(projectId));
+    await creation.finishProvisioningSessions();
+
+    expect(state).toBe("provisioning");
+    expect(stateOf(sessionId)).toBe("provisioning");
     expect(serviceLogLines).toStrictEqual([]);
+
+    await mkdir(repository);
+    execFileSync("git", ["init", "--quiet", repository]);
+    await projects.attachClonedProject(projectId, repository);
+    await creation.finishProvisioningSessions(projectId);
+
+    expect(stateOf(sessionId)).toBe("active");
+    expect(eventTypesOf(sessionId)).toStrictEqual([
+      "session.created",
+      "workspace.preparing",
+      "session.activated",
+    ]);
   });
 
   it("removes at start the workspace of a chat never born, keeping one still being created", async () => {
@@ -352,23 +361,12 @@ describe("SessionCreation", () => {
     expect(stateOf(sessionId)).toBe("active");
   });
 
-  it("refuses a project whose mount is detached or a chat's workspace, with nothing written", async () => {
-    const repoMountId = await attachProject();
-    await mounts.detach({ repoMountId: repoMountId as RepoMountId });
-    await createChat();
-    const chatMountId = (
-      log.scratch.reader.prepare("SELECT id FROM repo_mounts WHERE origin = 'managed'").get() as {
-        id: string;
-      }
-    ).id;
-
-    await expect(creation.create(projectRequest(repoMountId))).rejects.toMatchObject({
-      code: "repo.not_found",
-    });
-    await expect(creation.create(projectRequest(chatMountId))).rejects.toMatchObject({
-      code: "repo.mount_managed",
-    });
-    expect(countRows("SELECT COUNT(*) AS count FROM sessions")).toBe(1);
+  it("refuses a project that does not exist, with nothing written", async () => {
+    await expect(
+      creation.create(projectRequest(mintUuidV7() as ProjectId)),
+    ).rejects.toMatchObject({ code: "repo.not_found" });
+    expect(countRows("SELECT COUNT(*) AS count FROM sessions")).toBe(0);
+    expect(countRows("SELECT COUNT(*) AS count FROM session_events")).toBe(0);
   });
 
   it("runs the lead on the account made current while its session.created was on its way", async () => {
@@ -430,10 +428,10 @@ describe("SessionCreation", () => {
   });
 
   it("refuses a group of another project with nothing written", async () => {
-    const repoMountId = await attachProject();
+    const { projectId } = await attachProject();
     const groupId = await insertGroup(mintUuidV7());
 
-    const refusal = creation.create(projectRequest(repoMountId, groupId));
+    const refusal = creation.create(projectRequest(projectId, groupId));
 
     await expect(refusal).rejects.toBeInstanceOf(DaemonDomainError);
     await expect(refusal).rejects.toMatchObject({ code: "session.group_refused" });
@@ -442,8 +440,8 @@ describe("SessionCreation", () => {
   });
 
   it("activates a session outside a group ungrouped while it was being created", async () => {
-    const repoMountId = await attachProject();
-    const groupId = await insertGroup(repoMountId);
+    const { projectId } = await attachProject();
+    const groupId = await insertGroup(projectId);
     // The ungroup lands after the session.created write held the group, before the activation.
     const ungroupingEvents: Pick<EventLogService, "append"> = {
       append: async (envelope, options) => {
@@ -457,7 +455,7 @@ describe("SessionCreation", () => {
     };
 
     const { sessionId, state } = await creationWith({ events: ungroupingEvents }).create(
-      projectRequest(repoMountId, groupId),
+      projectRequest(projectId, groupId),
     );
 
     expect(state).toBe("active");
@@ -469,11 +467,16 @@ describe("SessionCreation", () => {
   });
 });
 
-async function attachProject(): Promise<string> {
+async function attachProject(): Promise<{ projectId: ProjectId; repoMountId: RepoMountId }> {
   const repository = path.join(home, "project");
   await mkdir(repository);
   execFileSync("git", ["init", "--quiet", repository]);
-  return (await mounts.attach({ localPath: repository })).repoMountId;
+  const { projects } = buildTestProjectService({
+    database: log.scratch,
+    mounts,
+    worktreesDirectory: path.join(home, "worktrees"),
+  });
+  return projects.attachOrFind({ localPath: repository });
 }
 
 // A group of the project `projectId` names; answers its id.
@@ -489,12 +492,12 @@ async function insertGroup(projectId: string): Promise<string> {
   return groupId;
 }
 
-function projectRequest(repoMountId: string, groupId?: string): SessionCreateRequest {
+function projectRequest(projectId: ProjectId, groupId?: string): SessionCreateRequest {
   return {
     clientIdempotencyKey: mintUuidV7(),
     binding: {
       kind: "project",
-      repoMountId: repoMountId as RepoMountId,
+      projectId,
       executionMode: "bound-root",
     },
     lead: SENT_LEAD,

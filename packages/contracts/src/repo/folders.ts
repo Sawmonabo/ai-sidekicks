@@ -1,12 +1,14 @@
 // Folder contracts: the folders the service can reach and where each came from (`repo.mountList`),
-// browsing the machine's folders from another device by token (`repo.folderList`), one folder's
-// attach, read and detach (`repo.attach`, `repo.mountRead`, `repo.detach`), and the refusal for a
-// folder the service cannot reach.
+// browsing the machine's folders from another device (`repo.folderList`), one folder's attach,
+// read, detach and re-attach (`repo.attach`, `repo.mountRead`, `repo.detach`,
+// `repo.mountReattach`), and the refusals for a folder the service cannot reach and for a
+// re-attach.
 //
 // This module imports nothing from `../event/session.js` and nothing whose imports reach it,
 // which would close an eager module cycle.
 import { z } from "zod";
 
+import { AgentIdSchema, type AgentId } from "../agent/definition.js";
 import { NodeIdSchema, type NodeId } from "../runtime-node/id.js";
 import { PROJECT_NAME_MAX_LEN, ProjectIdSchema, type ProjectId } from "../project.js";
 import {
@@ -101,28 +103,12 @@ export const RepoMountListResponseSchema: z.ZodType<RepoMountListResponse> = z
   .object({ mounts: z.array(RepoMountListEntrySchema) })
   .strict();
 
-/** The longest folder token the daemon mints. */
-export const FOLDER_TOKEN_MAX_LEN = 256;
-
 /**
- * A folder the service listed, as another device names it. The service mints one per folder it
- * lists and keeps it in memory for ten minutes, so a device acts only on what the service showed
- * it and no path string comes from another device.
- */
-export type FolderToken = string & { readonly __brand: "FolderToken" };
-/** Parses a {@link FolderToken}. Opaque to every client. */
-export const FolderTokenSchema: z.ZodType<FolderToken, FolderToken> = z
-  .string()
-  .min(1)
-  .max(FOLDER_TOKEN_MAX_LEN)
-  .brand<"FolderToken">() as unknown as z.ZodType<FolderToken, FolderToken>;
-
-/**
- * `repo.folderList`: the folder to show (the service account's home folder when absent), the text
- * that narrows its folders, and whether hidden folders are listed.
+ * `repo.folderList`: the path of the folder to show (the service account's home folder when
+ * absent), the text that narrows its folders, and whether hidden folders are listed.
  */
 export interface RepoFolderListRequest {
-  folderToken?: FolderToken | undefined;
+  path?: string | undefined;
   filter?: string | undefined;
   showHidden?: boolean | undefined;
 }
@@ -130,22 +116,22 @@ export interface RepoFolderListRequest {
 export const RepoFolderListRequestSchema: z.ZodType<RepoFolderListRequest, RepoFolderListRequest> =
   z
     .object({
-      folderToken: FolderTokenSchema.optional(),
+      path: wireFreeFormString(FILE_PATH_MAX_LEN, "RepoFolderListRequest.path").optional(),
       filter: wireFreeFormString(FILE_PATH_MAX_LEN, "RepoFolderListRequest.filter").optional(),
       showHidden: z.boolean().optional(),
     })
     .strict();
 
-/** One folder in a listing: its name, its token, and whether it is a git repository. */
+/** One folder in a listing: its name, its path, and whether it is a git repository. */
 export interface RepoFolderListEntry {
   name: string;
-  folderToken: FolderToken;
+  path: string;
   isRepository: boolean;
 }
 /** One step of the path to the folder in view, pressable to go back to it. */
 export interface RepoFolderPathSegment {
   name: string;
-  folderToken: FolderToken;
+  path: string;
 }
 
 /**
@@ -168,7 +154,7 @@ export const RepoFolderListResponseSchema: z.ZodType<RepoFolderListResponse> = z
         z
           .object({
             name: wireFreeFormString(FILE_PATH_MAX_LEN, "RepoFolderListResponse.segments[].name"),
-            folderToken: FolderTokenSchema,
+            path: wireFreeFormString(FILE_PATH_MAX_LEN, "RepoFolderListResponse.segments[].path"),
           })
           .strict(),
       )
@@ -177,7 +163,7 @@ export const RepoFolderListResponseSchema: z.ZodType<RepoFolderListResponse> = z
       z
         .object({
           name: wireFreeFormString(FILE_PATH_MAX_LEN, "RepoFolderListResponse.entries[].name"),
-          folderToken: FolderTokenSchema,
+          path: wireFreeFormString(FILE_PATH_MAX_LEN, "RepoFolderListResponse.entries[].path"),
           isRepository: z.boolean(),
         })
         .strict(),
@@ -191,28 +177,25 @@ export const RepoFolderListResponseSchema: z.ZodType<RepoFolderListResponse> = z
 // the mount by binding a workspace to it. A path that is not a git repository is refused.
 
 /**
- * The `repo.attach` input, one of two arms:
- * - `{localPath}`: a path on the machine the service runs on, from a client on that machine.
- * - `{folderToken}`: from another device, a token `repo.folderList` minted for a folder it listed,
- *   so no path string comes from another device.
+ * The `repo.attach` input: a path on the machine the service runs on, the folder the platform's
+ * chooser returned or, from another device, a folder `repo.folderList` showed, resolved alike.
  */
-export type RepoAttachRequest = { localPath: string } | { folderToken: FolderToken };
-/** Wire schema for {@link RepoAttachRequest}: exactly one of the two arms. */
-export const RepoAttachRequestSchema: z.ZodType<RepoAttachRequest, RepoAttachRequest> = z.union([
-  z
-    .object({
-      // The path as entered, kept as provenance; the trust envelope keys off the resolved canonical
-      // root. Absoluteness, traversal and existence are deliberately not checked here: an
-      // absoluteness test would refuse some Windows spellings, so the resolver applies the
-      // platform's rule and refuses a relative, `~`-prefixed or driveless path; a traversal test
-      // would refuse the lawful `/home/me/../me/repo`, and containment is checked at bind; a
-      // missing path is the resolver's typed refusal. The NUL guard in `wireFreeFormString` is the
-      // one that matters, since an embedded NUL truncates a path.
-      localPath: wireFreeFormString(FILE_PATH_MAX_LEN, "RepoAttachRequest.localPath"),
-    })
-    .strict(),
-  z.object({ folderToken: FolderTokenSchema }).strict(),
-]);
+export interface RepoAttachRequest {
+  localPath: string;
+}
+/** Wire schema for {@link RepoAttachRequest}. */
+export const RepoAttachRequestSchema: z.ZodType<RepoAttachRequest, RepoAttachRequest> = z
+  .object({
+    // The path as entered, kept as provenance; the trust envelope keys off the resolved canonical
+    // root. Absoluteness, traversal and existence are deliberately not checked here: an
+    // absoluteness test would refuse some Windows spellings, so the resolver applies the
+    // platform's rule and refuses a relative, `~`-prefixed or driveless path; a traversal test
+    // would refuse the lawful `/home/me/../me/repo`, and containment is checked at bind; a
+    // missing path is the resolver's typed refusal. The NUL guard in `wireFreeFormString` is the
+    // one that matters, since an embedded NUL truncates a path.
+    localPath: wireFreeFormString(FILE_PATH_MAX_LEN, "RepoAttachRequest.localPath"),
+  })
+  .strict();
 
 /** The `repo.attach` result: the new mount and the root its path resolved to. */
 export interface RepoAttachResponse {
@@ -301,7 +284,7 @@ export const RepoDetachRequestSchema: z.ZodType<RepoDetachRequest, RepoDetachReq
  *
  * `forgottenProjectId` names the project this call forgot, and is null when the mount was already
  * detached. The call is refused with `repo.detach_conflict`, whose `runningSessionId` names the
- * session running there, while a dependent workspace is busy.
+ * session running there, while an agent runs anywhere in the project.
  */
 export interface RepoDetachResponse {
   repoMountId: RepoMountId;
@@ -326,9 +309,108 @@ export const RepoDetachResponseSchema: z.ZodType<RepoDetachResponse> = z
  * folder in another WSL distribution than the one the service runs in.
  */
 export const REPO_FOLDER_UNREACHABLE_CODE = "repo.folder_unreachable" as const;
+
 /**
- * The type of {@link REPO_FOLDER_UNREACHABLE_CODE}.
- *
- * @consumedBy the handler that returns the `repo.folder_unreachable` error
+ * Why a folder was refused `repo.outside_trust_envelope`: `worktree_removed` for a tree whose
+ * removal is committed while its folder still waits for deletion, and `outside_project` for any
+ * other folder that is no admitted root of the project.
  */
-export type RepoFolderUnreachableCode = typeof REPO_FOLDER_UNREACHABLE_CODE;
+export type RepoOutsideTrustEnvelopeReason = "outside_project" | "worktree_removed";
+/** Every {@link RepoOutsideTrustEnvelopeReason}. */
+export const REPO_OUTSIDE_TRUST_ENVELOPE_REASONS: readonly RepoOutsideTrustEnvelopeReason[] =
+  Object.freeze(["outside_project", "worktree_removed"]);
+
+/**
+ * The details a `repo.outside_trust_envelope` refusal carries: its reason and no path, since the
+ * caller already holds the folder it sent.
+ */
+export interface RepoOutsideTrustEnvelopeDetails {
+  reason: RepoOutsideTrustEnvelopeReason;
+}
+/** Wire schema for {@link RepoOutsideTrustEnvelopeDetails}. */
+export const RepoOutsideTrustEnvelopeDetailsSchema: z.ZodType<RepoOutsideTrustEnvelopeDetails> = z
+  .object({ reason: z.enum(REPO_OUTSIDE_TRUST_ENVELOPE_REASONS) })
+  .strict();
+
+/**
+ * The details a `repo.already_attached` refusal carries: the mount that holds the repository and
+ * its project, null when the holder is a chat's own workspace, which has no project. No path.
+ */
+export interface RepoAlreadyAttachedDetails {
+  conflictingRepoMountId: RepoMountId;
+  conflictingProjectId: ProjectId | null;
+}
+/**
+ * Wire schema for {@link RepoAlreadyAttachedDetails}.
+ */
+export const RepoAlreadyAttachedDetailsSchema: z.ZodType<RepoAlreadyAttachedDetails> = z
+  .object({
+    conflictingRepoMountId: RepoMountIdSchema,
+    conflictingProjectId: ProjectIdSchema.nullable(),
+  })
+  .strict();
+
+/**
+ * `repo.mountReattach`: a mount reading `identity_mismatch` whose folder is still a git repository.
+ * The old mount turns `detached` and the folder is attached fresh under the same project record,
+ * keeping the project's sessions and their workspaces.
+ */
+export interface RepoMountReattachRequest {
+  repoMountId: RepoMountId;
+}
+/** Wire schema for {@link RepoMountReattachRequest}. */
+export const RepoMountReattachRequestSchema: z.ZodType<
+  RepoMountReattachRequest,
+  RepoMountReattachRequest
+> = z.object({ repoMountId: RepoMountIdSchema }).strict();
+
+/** The `repo.mountReattach` result: the new mount. */
+export interface RepoMountReattachResponse {
+  repoMountId: RepoMountId;
+}
+/** Wire schema for {@link RepoMountReattachResponse}. */
+export const RepoMountReattachResponseSchema: z.ZodType<RepoMountReattachResponse> = z
+  .object({ repoMountId: RepoMountIdSchema })
+  .strict();
+
+/**
+ * The refusal `repo.mountReattach` answers when the mount does not read `identity_mismatch` at the
+ * call. Nothing is written.
+ */
+export const REPO_REATTACH_REFUSED_CODE = "repo.reattach_refused" as const;
+
+/** Why a re-attach was refused. */
+export type RepoReattachRefusedReason = "identity_matches";
+/** Every {@link RepoReattachRefusedReason}. */
+export const REPO_REATTACH_REFUSED_REASONS: readonly RepoReattachRefusedReason[] = Object.freeze([
+  "identity_matches",
+]);
+
+/** The details a `repo.reattach_refused` refusal carries. */
+export interface RepoReattachRefusedDetails {
+  reason: RepoReattachRefusedReason;
+}
+/**
+ * Wire schema for {@link RepoReattachRefusedDetails}.
+ */
+export const RepoReattachRefusedDetailsSchema: z.ZodType<RepoReattachRefusedDetails> = z
+  .object({ reason: z.enum(REPO_REATTACH_REFUSED_REASONS) })
+  .strict();
+
+/**
+ * The refusal `repo.mountReattach` answers while an agent runs anywhere in the project. Nothing is
+ * written.
+ */
+export const REPO_REATTACH_CONFLICT_CODE = "repo.reattach_conflict" as const;
+
+/** The details a `repo.reattach_conflict` refusal carries: the running agent and its session. */
+export interface RepoReattachConflictDetails {
+  runningSessionId: SessionId;
+  runningAgentId: AgentId;
+}
+/**
+ * Wire schema for {@link RepoReattachConflictDetails}.
+ */
+export const RepoReattachConflictDetailsSchema: z.ZodType<RepoReattachConflictDetails> = z
+  .object({ runningSessionId: SessionIdSchema, runningAgentId: AgentIdSchema })
+  .strict();

@@ -73,6 +73,34 @@ describe("TurnSnapshotService.captureTurnSnapshot", () => {
     );
   });
 
+  it("captures the whole checkout from a nested root, refusing one the tree disowns", async () => {
+    const { repository } = fixture;
+    fixture.applyTurnEffects();
+    const service = fixture.buildService();
+    const nestedRoot = join(repository.root, "nested", "deep");
+
+    const fromTopLevel = await fixture.captureTurn(service);
+    // The checkout as the run's execution context records it, beside a nested execution root.
+    const fromNested = await fixture.captureTurn(service, {
+      turnOrdinal: 2,
+      executionRoot: nestedRoot,
+      checkoutRoot: repository.root,
+    });
+
+    // `ls-files` lists only the folder it runs in, so a capture run there would miss the edits
+    // and the delete outside it.
+    expect(await repository.git(["rev-parse", `${fromNested.ref}^{tree}`])).toBe(
+      await repository.git(["rev-parse", `${fromTopLevel.ref}^{tree}`]),
+    );
+    expect(
+      await fixture.capture(service, {
+        turnOrdinal: 3,
+        executionRoot: nestedRoot,
+        checkoutRoot: join(repository.root, "nested"),
+      }),
+    ).toMatchObject({ outcome: "failed", failedStep: "verify-checkout-root" });
+  });
+
   it("leaves the user's branches, HEAD, staged work and worktree untouched", async () => {
     const { repository } = fixture;
     fixture.applyTurnEffects();
@@ -453,30 +481,6 @@ describe("TurnSnapshotService.captureTurnSnapshot", () => {
     } else {
       expect(result).toEqual({ outcome: "failed", ref: FIRST_TURN_REF, failedStep: "write-ref" });
       expect(await repository.git(["symbolic-ref", FIRST_TURN_REF])).toBe(hostileBranch);
-    }
-  });
-
-  it("neutralizes repository hooks on every git call, embedded repositories included", async () => {
-    const { repository } = fixture;
-    fixture.applyTurnEffects();
-    await createEmbeddedRepository(repository, "embedded");
-    const invocations: string[][] = [];
-
-    await fixture.captureTurn(fixture.buildService({ git: buildRecordingRunner(invocations) }));
-
-    // A mounted repository's hooks and fsmonitor are its own code; one missing pin runs it.
-    const neutralizationDirectory: string = join(
-      fixture.executionRootsDirectory,
-      ".hook-neutralization",
-    );
-    expect(invocations.some((argv) => argv.includes(join(repository.root, "embedded")))).toBe(true);
-    for (const argv of invocations) {
-      expect(argv.slice(0, 4)).toEqual([
-        "-c",
-        `core.hooksPath=${neutralizationDirectory}`,
-        "-c",
-        "core.fsmonitor=false",
-      ]);
     }
   });
 

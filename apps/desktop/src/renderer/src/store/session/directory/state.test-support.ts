@@ -1,11 +1,11 @@
 // One session as the service's session list sends it, for suites that hand a view the list.
 
 import type { SessionListEntry } from "@ai-sidekicks/contracts/session/directory";
-import type { RepoMountId } from "@ai-sidekicks/contracts/repo/mount";
+import type { ProjectId } from "@ai-sidekicks/contracts/project";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
-/** A project's mount every built entry names; no suite reads it. */
-const REPO_MOUNT_ID = "019b7892-1a00-7c31-8110-cca0117a07ff" as RepoMountId;
+/** The project every built project entry names; no suite reads it. */
+const PROJECT_ID = "019b7892-1a00-7c31-8110-cca0117a07ff" as ProjectId;
 
 /** When every built entry was last active and last renewed its activity. */
 const LAST_ACTIVE_AT = "2026-01-01T09:00:00.000Z";
@@ -34,5 +34,5 @@ export function sessionListEntry(entry: {
   } as const;
   return entry.shape === "chat"
     ? { ...common, shape: "chat" }
-    : { ...common, shape: "project", repoMountId: REPO_MOUNT_ID };
+    : { ...common, shape: "project", projectId: PROJECT_ID };
 }

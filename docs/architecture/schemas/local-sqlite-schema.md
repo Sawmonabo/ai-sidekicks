@@ -122,6 +122,7 @@ The daemon keeps one row per session it hosts in `sessions`, the directory that 
 - `shape TEXT NOT NULL CHECK (shape IN ('chat', 'project'))` — whether the session is a chat, bound to its own managed workspace, or a session in an attached project. It is set when the session is created and changes only when a chat is converted to a project. The sessions list groups by it, and it reaches clients as `shape` on `session.read` and `session.list`.
 - `muted_at TEXT` — RFC 3339 UTC; NULL while the session is not muted. `session.muted` sets it and `session.unmuted` clears it, and a rebuild restores it from those events; it reaches clients as `muted` on `session.read` and `session.list`. While it is set, the session's `Finished` and `Failed` moments reach no channel and no device; `Waiting on you` and a workflow's Notify step are never silenced by it. The attention service reads it when it writes an entry.
 - `group_id TEXT REFERENCES session_groups(id)` — the one group of its project the session sits in; NULL for a session in no group and for every chat. Indexed (`idx_sessions_group`), because the sessions list and search read a group's sessions by it. An archived session keeps it.
+- `pending_working_folder TEXT` — the folder a `session.setWorkingFolder` move goes to, applied at the active run's next boundary; NULL while no move waits. Written by the session service with no event of its own, so a rebuild, which rewrites only the row's event-derived columns, keeps it; it reaches clients as `pendingWorkingFolder` on `session.read`, and a purge keeps every worktree a pending move names.
 
 A session's groups, links and tags are the three layers of [Spec-001 §Groups, Links And Tags](../../specs/001-session-core.md#groups-links-and-tags): one place in the list, any number of relationships, any number of categories. All three are row-canonical daemon state written by the session service and the session tools, not rebuilt from the event log, and removed with their session.
 
@@ -186,25 +187,28 @@ CREATE INDEX idx_session_related_score ON session_related(session_id, score DESC
 CREATE INDEX idx_session_related_related ON session_related(related_session_id);
 
 -- Each session.create's idempotency key, the session it made and where that session works: its
--- mount, its execution mode and the group it asked for (NULL for none, and for every chat). Written
--- in the session.created write, so a retry with the key, or the daemon's start, finishes a session
--- left provisioning.
+-- project (NULL for a chat, which works in its own managed mount), its execution mode and the group
+-- it asked for (NULL for none, and for every chat). Written in the session.created write, so a
+-- retry with the key, or the daemon's start, finishes a session left provisioning; a session made
+-- in a project still cloning is finished once the clone attaches it.
 CREATE TABLE session_create_requests (
   client_idempotency_key  TEXT NOT NULL PRIMARY KEY,
   session_id              TEXT NOT NULL UNIQUE,
-  repo_mount_id           TEXT NOT NULL,
+  project_id              TEXT,
   execution_mode          TEXT NOT NULL
     CHECK (execution_mode IN ('bound-root', 'provisioned-worktree')),
   group_id                TEXT
 ) STRICT;
 
 -- A chat's conversion: the session.convert key it runs under, which the latest request that
--- resumed it takes over, and the project mount it attached. Written as soon as the mount is, so a
--- retry resumes onto that mount, and answered from session.converted once that lands. One per chat.
+-- resumed it takes over, the project mount it attached and the working tree it copies into.
+-- Written as soon as the mount is, so a retry resumes onto that mount and into that working tree,
+-- and answered from session.converted once that lands. One per chat.
 CREATE TABLE session_convert_requests (
   client_idempotency_key  TEXT NOT NULL PRIMARY KEY,
   session_id              TEXT NOT NULL UNIQUE,
-  repo_mount_id           TEXT NOT NULL
+  repo_mount_id           TEXT NOT NULL,
+  working_tree            TEXT NOT NULL
 ) STRICT;
 
 -- Each workspace file a conversion has dealt with, recorded as its copy lands: copied, or not

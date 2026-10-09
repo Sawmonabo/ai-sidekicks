@@ -36,12 +36,16 @@ import { FILE_PATH_MAX_LEN } from "@ai-sidekicks/contracts/free-form-string";
 
 import type { DatabaseWriter } from "../../database/writer.js";
 import type { EventLogService } from "../../events/log-service.js";
+import { buildFixtureEnvironment, runFixtureGit } from "../../git/__fixtures__/command.js";
 import { SessionNotFoundError } from "../../ipc/session-errors.js";
 import { KeyedLock } from "../../keyed-lock.js";
 import { mintUuidV7 } from "../../uuid-v7.js";
 import { WorkspaceEventEmitter } from "../../workspace/event-emitter.js";
 import { ManagedWorkspaceService } from "../../workspace/managed/service.js";
+import type { ProjectService } from "../../workspace/project/service.js";
+import { buildTestProjectService } from "../../workspace/project/service.test-support.js";
 import { RepoMountService } from "../../workspace/repo/mount-service.js";
+import { RepoRootResolver } from "../../workspace/repo/root-resolver.js";
 import { WorkspaceService } from "../../workspace/service.js";
 import { SessionConversion } from "../convert.js";
 import { openSessionLog, type SessionLog } from "../directory/__fixtures__/event-log.js";
@@ -53,6 +57,7 @@ const MAX_PAGES_READ = 50;
 let log: SessionLog;
 let scratch: string;
 let mounts: RepoMountService;
+let projects: ProjectService;
 let workspaces: WorkspaceService;
 let managedWorkspaces: ManagedWorkspaceService;
 let conversion: SessionConversion;
@@ -65,8 +70,12 @@ beforeEach(async () => {
     database: log.scratch,
     events: emitter,
     nodeId: mintUuidV7() as NodeId,
-    archiveUnfinishedCreates: () => Promise.resolve(),
   });
+  ({ projects } = buildTestProjectService({
+    database: log.scratch,
+    mounts,
+    worktreesDirectory: path.join(scratch, "worktrees"),
+  }));
   workspaces = new WorkspaceService({ database: log.scratch, events: emitter });
   managedWorkspaces = new ManagedWorkspaceService({
     homeDirectory: path.join(scratch, "home"),
@@ -87,8 +96,10 @@ function conversionWith(swap: {
     events: swap.events ?? log.eventLog,
     lock: new KeyedLock<SessionId>(),
     repoMounts: mounts,
+    projects,
     workspaces: { bind: swap.bind ?? ((input) => workspaces.bind(input)) },
     writeServiceLog: () => undefined,
+    workingTrees: new RepoRootResolver(),
   });
 }
 
@@ -308,7 +319,7 @@ describe("SessionConversion", () => {
     // The repository's own `docs` is a link out of it, so nothing is written through it.
     await symlink(outside, path.join(repository, "docs"));
     // The folder is already this machine's project, so its mount is reused.
-    const existing = await mounts.attach({ localPath: repository });
+    const existing = await projects.attachOrFind({ localPath: repository });
 
     const response = await convert(sessionId, repository);
 
@@ -540,6 +551,40 @@ describe("SessionConversion", () => {
     expect(await readdir(notes)).toStrictEqual(["plan.md"]);
     expect(await readFile(path.join(notes, "plan.md"), "utf8")).toBe("the plan");
     expect((await readdir(repository)).sort()).toStrictEqual([".git", "README.md", "notes"]);
+  });
+
+  it("copies into the linked working tree typed, where the start removes a copy cut short", async () => {
+    const sessionId = mintUuidV7() as SessionId;
+    await startChat(sessionId, { "notes/plan.md": "the plan" });
+    const repository = await makeRepository("project", {});
+    const environment = buildFixtureEnvironment(scratch);
+    await runFixtureGit(
+      ["-C", repository, "commit", "-q", "--allow-empty", "-m", "seed"],
+      environment,
+      scratch,
+    );
+    const linked = path.join(scratch, "linked");
+    await runFixtureGit(
+      ["-C", repository, "worktree", "add", "-q", "-b", "linked", linked],
+      environment,
+      scratch,
+    );
+    const failingRecords: Pick<DatabaseWriter, "write"> = {
+      write: (statements) =>
+        statements[0]?.sql.includes("session_convert_files") === true
+          ? Promise.reject(new Error("the disk is full"))
+          : log.scratch.writer.write(statements),
+    };
+    await expect(
+      convert(sessionId, linked, conversionWith({ writer: failingRecords })),
+    ).rejects.toMatchObject({ code: "session.convert_incomplete" });
+    const notes = path.join(linked, "notes");
+    await writeFile(path.join(notes, `.ai-sidekicks-copy-${sessionId}`), "the pl");
+
+    await conversion.removeStoppedCopies();
+
+    expect(await readdir(notes)).toStrictEqual(["plan.md"]);
+    expect(await readdir(repository)).toStrictEqual([".git"]);
   });
 
   it("keeps copying while file records commit, with a bounded number waiting", async () => {

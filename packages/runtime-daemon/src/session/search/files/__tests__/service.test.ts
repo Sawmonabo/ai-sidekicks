@@ -53,8 +53,15 @@ describe("session.fileSearch", () => {
     insertSession(database, sessionId);
     database
       .prepare(
-        `INSERT INTO repo_mounts (id, node_id, local_path, canonical_root, attached_at, updated_at)
-         VALUES ('mount-1', 'node-1', ?, ?, ?, ?)`,
+        `INSERT INTO projects (id, name, slug, folder_path, state, setup, created_at, updated_at)
+         VALUES ('project-1', 'repo', 'repo', ?, 'active', '{}', ?, ?)`,
+      )
+      .run(workingFolder, TIMESTAMP, TIMESTAMP);
+    database
+      .prepare(
+        `INSERT INTO repo_mounts
+           (id, node_id, local_path, canonical_root, project_id, attached_at, updated_at)
+         VALUES ('mount-1', 'node-1', ?, ?, 'project-1', ?, ?)`,
       )
       .run(workingFolder, workingFolder, TIMESTAMP, TIMESTAMP);
     database

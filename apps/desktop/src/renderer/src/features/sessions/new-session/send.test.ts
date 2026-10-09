@@ -10,7 +10,7 @@ import {
   draftFor,
   CREATED_SESSION_ID,
   NEW_SESSION_LEAD,
-  PROJECT_REPO_MOUNT,
+  DRAFT_PROJECT,
 } from "./draft.test-support.js";
 
 describe("NewSessionDraft — the send", () => {
@@ -48,13 +48,13 @@ describe("NewSessionDraft — the send", () => {
     });
 
     const project = countedDraftFor({ scriptsCreate: true });
-    project.draft.setRepoMount(PROJECT_REPO_MOUNT);
+    project.draft.setProject(DRAFT_PROJECT);
     await project.draft.send();
     expect(project.calls[0]?.params).toMatchObject({
       binding: {
         kind: "project",
-        repoMountId: PROJECT_REPO_MOUNT.repoMountId,
-        executionMode: PROJECT_REPO_MOUNT.executionMode,
+        projectId: DRAFT_PROJECT.projectId,
+        executionMode: DRAFT_PROJECT.executionMode,
       },
       lead: NEW_SESSION_LEAD,
     });
@@ -78,7 +78,7 @@ describe("NewSessionDraft — the send", () => {
     expect((await onlyBlank.send()).refusal?.code).toBe("draft-empty");
 
     const draft = draftFor({ scriptsCreate: true, scriptsFirstTurn: true });
-    draft.setRepoMount(PROJECT_REPO_MOUNT);
+    draft.setProject(DRAFT_PROJECT);
     draft.setFirstTurn("   \n  ");
     const blank = await draft.send();
     expect(blank.refusal?.code).toBe("first-turn-missing");
@@ -94,7 +94,7 @@ describe("NewSessionDraft — the send", () => {
 
   it("keeps the draft when the create itself fails, and names no completed call", async () => {
     const draft = draftFor({ scriptsCreate: false });
-    draft.setRepoMount(PROJECT_REPO_MOUNT);
+    draft.setProject(DRAFT_PROJECT);
     const result = await draft.send();
 
     expect(result.outcome).toBe("refused");
@@ -108,7 +108,7 @@ describe("NewSessionDraft — the send", () => {
   it("negative control: the daemon's own message never reaches the person", async () => {
     // Without this, the case above would pass over a refusal that pasted an IPC stack.
     const draft = draftFor({ scriptsCreate: false });
-    draft.setRepoMount(PROJECT_REPO_MOUNT);
+    draft.setProject(DRAFT_PROJECT);
     const result = await draft.send();
     expect(result.refusal?.detail).not.toContain("scenario");
     expect(result.refusal?.detail).not.toContain("reply-unscripted");

@@ -38,8 +38,9 @@ export const RepoCloneRequestSchema: z.ZodType<RepoCloneRequest, RepoCloneReques
   .strict();
 
 /**
- * The refusal `repo.clone` answers before any clone starts: the destination folder is not empty.
- * Nothing is made. The address goes to git as typed, and git's own transport rules decide it.
+ * The refusal `repo.clone` answers before any clone starts: the destination folder is not empty,
+ * or the address leaves git no folder name to clone into. Nothing is made. The address goes to git
+ * as typed, and git's own transport rules decide it.
  */
 export const REPO_CLONE_REFUSED_CODE = "repo.clone_refused" as const;
 /**
@@ -49,25 +50,37 @@ export const REPO_CLONE_REFUSED_CODE = "repo.clone_refused" as const;
  */
 export type RepoCloneRefusedCode = typeof REPO_CLONE_REFUSED_CODE;
 
-/** Why a clone was refused before it started. */
-export type RepoCloneRefusedReason = "destination_not_empty";
-/** Every {@link RepoCloneRefusedReason}. */
-export const REPO_CLONE_REFUSED_REASONS: readonly RepoCloneRefusedReason[] = Object.freeze([
-  "destination_not_empty",
-]);
-
-/** The details a `repo.clone_refused` refusal carries. */
-export interface RepoCloneRefusedDetails {
-  reason: RepoCloneRefusedReason;
-}
+/**
+ * The details a `repo.clone_refused` refusal carries, by why the clone was refused before it
+ * started: `destination_not_empty` when the destination holds something, and `no_directory_name`
+ * when git can name no folder from the address (`host:`, `team/..`), with git's own line, which the
+ * clone card shows as it shows any clone's failure.
+ */
+export type RepoCloneRefusedDetails =
+  | { reason: "destination_not_empty" }
+  | { reason: "no_directory_name"; line: string };
 /**
  * Wire schema for {@link RepoCloneRefusedDetails}.
  *
  * @consumedBy the handler that returns the `repo.clone_refused` error
  */
-export const RepoCloneRefusedDetailsSchema: z.ZodType<RepoCloneRefusedDetails> = z
-  .object({ reason: z.enum(REPO_CLONE_REFUSED_REASONS) })
-  .strict();
+export const RepoCloneRefusedDetailsSchema: z.ZodType<RepoCloneRefusedDetails> =
+  z.discriminatedUnion("reason", [
+    z.object({ reason: z.literal("destination_not_empty") }).strict(),
+    z
+      .object({
+        reason: z.literal("no_directory_name"),
+        line: wireFreeFormString(REPO_CLONE_LINE_MAX_LEN, "RepoCloneRefusedDetails.line"),
+      })
+      .strict(),
+  ]);
+
+/**
+ * The error `repo.clone` and the other clone verbs answer while the clone service is not running:
+ * its start failed, the message carrying the failure's own text, or it was never started, the
+ * message empty.
+ */
+export const REPO_CLONE_UNAVAILABLE_CODE = "repo.clone_unavailable" as const;
 
 /** The `repo.clone` result: the project the clone fills. */
 export interface RepoCloneResponse {
@@ -125,8 +138,9 @@ export interface RepoCloneQuestion {
  *   on, if any.
  * - `large_files_missing`: the clone finished, but the repository keeps large files in Git LFS,
  *   which is not installed, so they arrived as placeholders.
- * - `failed` names the step that failed and git's last error line; the line is null only when the
- *   service restarted during the clone and git left none.
+ * - `failed` names the step that failed and its last error line: `clone` or `large_files` with
+ *   git's own line, null only when the service restarted during the clone and git left none, or
+ *   `sessions` when the sessions that waited on the clone could not be started after it attached.
  * - `canceled` and `done` end the card.
  */
 export type RepoCloneStatus =
@@ -139,7 +153,7 @@ export type RepoCloneStatus =
   | {
       projectId: ProjectId;
       state: "failed";
-      step: "clone" | "large_files";
+      step: "clone" | "large_files" | "sessions";
       failureLine: string | null;
     }
   | { projectId: ProjectId; state: "large_files_missing" | "canceled" | "done" };
@@ -170,7 +184,7 @@ export const RepoCloneStatusSchema: z.ZodType<RepoCloneStatus> = z.discriminated
     .object({
       projectId: ProjectIdSchema,
       state: z.literal("failed"),
-      step: z.enum(["clone", "large_files"]),
+      step: z.enum(["clone", "large_files", "sessions"]),
       failureLine: wireFreeFormString(
         REPO_CLONE_LINE_MAX_LEN,
         "RepoCloneStatus.failureLine",

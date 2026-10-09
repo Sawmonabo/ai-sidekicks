@@ -8,7 +8,9 @@
 // does not flag. Check a new import's closure before adding it.
 import { z } from "zod";
 
+import { AgentIdSchema, type AgentId } from "../agent/definition.js";
 import { brandedUuidIdSchema } from "../internal/branded.js";
+import { ProjectIdSchema, type ProjectId } from "../project.js";
 import { RunIdSchema, type RunId } from "../run/id.js";
 import {
   buildRepoWorkspaceLifecyclePayloadSchema,
@@ -187,9 +189,34 @@ export const WORKTREE_RETIRE_CONFLICT_CODE = "worktree.retire_conflict" as const
 export type WorktreeRetireConflictCode = typeof WORKTREE_RETIRE_CONFLICT_CODE;
 
 /**
- * Why a removal was refused: `root_busy` (an agent runs in the tree, naming the workspace that
- * holds it) or `has_changes` (the tree has something to lose, ignored files included, and the
- * details carry the current risks so the confirm redraws them).
+ * The code `repo.worktreeRetire` with `discard: true` refuses with when the system refuses to move
+ * the tree aside because a program outside the app holds a file in it open. Nothing is removed.
+ */
+export const WORKTREE_RETIRE_FOLDER_HELD_CODE = "worktree.retire_folder_held" as const;
+/** The type of {@link WORKTREE_RETIRE_FOLDER_HELD_CODE}. */
+export type WorktreeRetireFolderHeldCode = typeof WORKTREE_RETIRE_FOLDER_HELD_CODE;
+
+/**
+ * The code `repo.worktreeRetire` with `discard: true` refuses with when the move across volumes
+ * copied the tree whole to its kept place but could not remove the original completely. The kept
+ * copy is listed and the tree stays live, so the person can remove it again.
+ */
+export const WORKTREE_RETIRE_INCOMPLETE_CODE = "worktree.retire_incomplete" as const;
+/** The type of {@link WORKTREE_RETIRE_INCOMPLETE_CODE}. */
+export type WorktreeRetireIncompleteCode = typeof WORKTREE_RETIRE_INCOMPLETE_CODE;
+
+/**
+ * The code `repo.worktreeRestore` and `repo.removedWorktreeDelete` refuse with when no kept copy
+ * has the id, such as one a put-back or deletion already removed.
+ */
+export const WORKTREE_REMOVED_NOT_FOUND_CODE = "worktree.removed_not_found" as const;
+/** The type of {@link WORKTREE_REMOVED_NOT_FOUND_CODE}. */
+export type WorktreeRemovedNotFoundCode = typeof WORKTREE_REMOVED_NOT_FOUND_CODE;
+
+/**
+ * Why a removal was refused: `root_busy` (an agent runs in the tree, naming the session it runs
+ * in) or `has_changes` (the tree has something to lose, ignored files included, and the details
+ * carry the current risks so the confirm redraws them).
  */
 export const WORKTREE_RETIRE_CONFLICT_REASONS = ["root_busy", "has_changes"] as const;
 /**
@@ -222,7 +249,7 @@ export const WorktreeRemovalRisksSchema: z.ZodType<WorktreeRemovalRisks> = z
 
 /** The details a `worktree.retire_conflict` refusal carries, by its reason. */
 export type WorktreeRetireConflictDetails =
-  | { worktreeId: WorktreeId; reason: "root_busy"; holdingWorkspaceId: WorkspaceId }
+  | { worktreeId: WorktreeId; reason: "root_busy"; runningSessionId: SessionId }
   | { worktreeId: WorktreeId; reason: "has_changes"; risks: WorktreeRemovalRisks };
 /**
  * Wire schema for {@link WorktreeRetireConflictDetails}.
@@ -235,7 +262,7 @@ export const WorktreeRetireConflictDetailsSchema: z.ZodType<WorktreeRetireConfli
       .object({
         worktreeId: WorktreeIdSchema,
         reason: z.literal("root_busy"),
-        holdingWorkspaceId: WorkspaceIdSchema,
+        runningSessionId: SessionIdSchema,
       })
       .strict(),
     z
@@ -247,68 +274,121 @@ export const WorktreeRetireConflictDetailsSchema: z.ZodType<WorktreeRetireConfli
       .strict(),
   ]);
 
+/**
+ * The details a `worktree.retire_incomplete` refusal carries: the tree, still live, and the kept
+ * copy listed for it. No folder is named; the screen finds both from the lists.
+ */
+export interface WorktreeRetireIncompleteDetails {
+  worktreeId: WorktreeId;
+  removedWorktreeId: RemovedWorktreeId;
+}
+/**
+ * Wire schema for {@link WorktreeRetireIncompleteDetails}.
+ */
+export const WorktreeRetireIncompleteDetailsSchema: z.ZodType<WorktreeRetireIncompleteDetails> = z
+  .object({ worktreeId: WorktreeIdSchema, removedWorktreeId: RemovedWorktreeIdSchema })
+  .strict();
+
+/**
+ * The details a `worktree.create_failed` refusal with reason `carry_checkout_running` carries: the
+ * session whose run is live in the checkout the work would be carried from, and that run's agent.
+ */
+export interface WorktreeCarryCheckoutRunningDetails {
+  reason: "carry_checkout_running";
+  runningSessionId: SessionId;
+  runningAgentId: AgentId;
+}
+/**
+ * Wire schema for {@link WorktreeCarryCheckoutRunningDetails}.
+ */
+export const WorktreeCarryCheckoutRunningDetailsSchema: z.ZodType<WorktreeCarryCheckoutRunningDetails> =
+  z
+    .object({
+      reason: z.literal("carry_checkout_running"),
+      runningSessionId: SessionIdSchema,
+      runningAgentId: AgentIdSchema,
+    })
+    .strict();
+
 /** The state of a listed worktree: every state but `retired`. */
 export type ListedWorktreeState = Exclude<WorktreeState, "retired">;
 
 /**
- * One listed worktree, with every figure its switcher row draws. `ahead` and `behind` count
- * commits against the branch's upstream as of the daemon's last fetch, absent when it has none;
- * `runningSessionId` names the session whose agent runs in the tree, which locks its removal.
+ * One worktree git lists for the repository, with every figure its switcher row draws; `path` is
+ * the folder `session.setWorkingFolder` takes. A tree the app made carries its record (`madeBy:
+ * "app"`), and one the person made carries none and has no removal of its own.
  */
-export interface WorktreeStatusRecord {
-  worktreeId: WorktreeId;
-  repoMountId: RepoMountId;
+export type WorktreeStatusRecord = (
+  | {
+      madeBy: "app";
+      worktreeId: WorktreeId;
+      repoMountId: RepoMountId;
+      baseBranchName: string;
+      state: ListedWorktreeState;
+      createdBySessionId: SessionId;
+      createdByRunId?: RunId | undefined;
+      createdAt: string;
+      updatedAt: string;
+    }
+  | { madeBy: "person" }
+) & {
+  path: string;
   name: string;
   branchName: string;
-  baseBranchName: string;
-  fsRoot: string;
-  state: ListedWorktreeState;
   ahead?: number | undefined;
   behind?: number | undefined;
   uncommittedFileCount: number;
   unpushedCommitCount: number;
   occupyingSessionIds: SessionId[];
   runningSessionId: SessionId | null;
-  createdBySessionId: SessionId;
-  createdByRunId?: RunId | undefined;
-  createdAt: string;
-  updatedAt: string;
-}
-const worktreeStatusRecordSchema: z.ZodType<WorktreeStatusRecord> = z
-  .object({
-    worktreeId: WorktreeIdSchema,
-    repoMountId: RepoMountIdSchema,
-    name: wireFreeFormString(FILE_PATH_MAX_LEN, "WorktreeStatusRecord.name"),
-    branchName: wireUncappedFreeFormString("WorktreeStatusRecord.branchName"),
-    baseBranchName: wireUncappedFreeFormString("WorktreeStatusRecord.baseBranchName"),
-    // A root under the daemon's worktrees folder, never a path inside the
-    // attached checkout.
-    fsRoot: wireFreeFormString(FILE_PATH_MAX_LEN, "WorktreeStatusRecord.fsRoot"),
-    state: WorktreeStateSchema.refine(
-      (state): state is ListedWorktreeState => state !== "retired",
-      "A retired worktree is not listed",
-    ),
-    ahead: countSchema.optional(),
-    behind: countSchema.optional(),
-    uncommittedFileCount: countSchema,
-    unpushedCommitCount: countSchema,
-    occupyingSessionIds: z.array(SessionIdSchema),
-    runningSessionId: SessionIdSchema.nullable(),
-    createdBySessionId: SessionIdSchema,
-    // Absent for a tree prepared before any run, which has no run to attribute.
-    createdByRunId: RunIdSchema.optional(),
-    createdAt: isoDateTimeSchema,
-    updatedAt: isoDateTimeSchema,
-  })
-  .strict();
+};
+const worktreeStatusRecordCommonFields = {
+  path: wireFreeFormString(FILE_PATH_MAX_LEN, "WorktreeStatusRecord.path"),
+  name: wireFreeFormString(FILE_PATH_MAX_LEN, "WorktreeStatusRecord.name"),
+  branchName: wireUncappedFreeFormString("WorktreeStatusRecord.branchName"),
+  // Commits against the branch's upstream as of the daemon's last fetch; absent with no upstream.
+  ahead: countSchema.optional(),
+  behind: countSchema.optional(),
+  uncommittedFileCount: countSchema,
+  unpushedCommitCount: countSchema,
+  occupyingSessionIds: z.array(SessionIdSchema),
+  // The session whose agent runs in the tree, which locks its removal.
+  runningSessionId: SessionIdSchema.nullable(),
+};
+const worktreeStatusRecordSchema: z.ZodType<WorktreeStatusRecord> = z.discriminatedUnion("madeBy", [
+  z
+    .object({
+      ...worktreeStatusRecordCommonFields,
+      madeBy: z.literal("app"),
+      worktreeId: WorktreeIdSchema,
+      repoMountId: RepoMountIdSchema,
+      baseBranchName: wireUncappedFreeFormString("WorktreeStatusRecord.baseBranchName"),
+      state: WorktreeStateSchema.refine(
+        (state): state is ListedWorktreeState => state !== "retired",
+        "A retired worktree is not listed",
+      ),
+      createdBySessionId: SessionIdSchema,
+      // Absent for a tree prepared before any run, which has no run to attribute.
+      createdByRunId: RunIdSchema.optional(),
+      createdAt: isoDateTimeSchema,
+      updatedAt: isoDateTimeSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ...worktreeStatusRecordCommonFields,
+      madeBy: z.literal("person"),
+    })
+    .strict(),
+]);
 
 /**
- * `repo.worktreeStatusRead`: the project's folder whose worktrees are listed, and
- * the session asking, when one is. A session's switcher names itself, so the read
- * also answers the new-worktree form's suggestion for it.
+ * `repo.worktreeStatusRead`: the project whose worktrees are listed, and the session asking, when
+ * one is. A session's switcher names itself, so the read also answers the new-worktree form's
+ * suggestion for it.
  */
 export interface WorktreeStatusReadRequest {
-  repoMountId: RepoMountId;
+  projectId: ProjectId;
   sessionId?: SessionId | undefined;
 }
 /** Wire schema for {@link WorktreeStatusReadRequest}. */
@@ -317,7 +397,7 @@ export const WorktreeStatusReadRequestSchema: z.ZodType<
   WorktreeStatusReadRequest
 > = z
   .object({
-    repoMountId: RepoMountIdSchema,
+    projectId: ProjectIdSchema,
     sessionId: SessionIdSchema.optional(),
   })
   .strict();

@@ -12,7 +12,7 @@ export function MountedFolderRow(props: { readonly mount: RepoMountReadResponse 
   const clockLocale = useClockLocale();
   const { mount } = props;
   const lifecycle = mountLifecycleReading(mount.state);
-  const health = mountHealthReading(mount.health);
+  const health = mountHealthReading(mount);
   return (
     <div className="meridian-mount-list__row">
       <span className="meridian-mount-list__path">

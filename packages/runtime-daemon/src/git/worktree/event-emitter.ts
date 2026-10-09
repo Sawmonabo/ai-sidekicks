@@ -1,9 +1,11 @@
 // Worktree lifecycle event emission: the one seam every worktree state transition appends its
 // event through. It owns five event types (`worktree.created`, `.ready`, `.dirty`, `.merged`,
-// `.retired`) over a six-state `worktrees` row vocabulary.
+// `.retired`) over a six-state `worktrees` row vocabulary, and the two session records a tree's
+// life writes: a session swept back to the repository root, and a session's branch changed.
 //
 //   * A transition emits its event in the same transaction as the row write, which rides down as
-//     `transactionalPrelude`.
+//     `transactionalPrelude`. A tree recorded ready at once, a put-back's, emits `worktree.created`
+//     and `worktree.ready` together in that one write.
 //   * The `failed` transition emits no event; it surfaces through the owning workspace's
 //     `workspace.stale`. No `emitFailed` exists.
 //   * No caller-supplied `state`: each type names one post-transition state, so a
@@ -14,10 +16,21 @@ import {
   type EventEnvelopeVersion,
 } from "@ai-sidekicks/contracts/event/envelope";
 import {
+  RemovedWorktreeIdSchema,
   WorktreeIdSchema,
   WorktreeLifecyclePayloadSchema,
+  type WorktreeLifecyclePayload,
   type WorktreeState,
 } from "@ai-sidekicks/contracts/worktree/lifecycle";
+import {
+  SessionBranchChangedPayloadSchema,
+  SessionSweptToRepoRootPayloadSchema,
+  WorktreeCreatedPayloadSchema,
+  WorktreeRetiredPayloadSchema,
+  type SessionBranchChangedPayload,
+  type SessionSweptToRepoRootPayload,
+  type WorktreeCreatedPayload,
+} from "@ai-sidekicks/contracts/worktree/events";
 import type {
   WorktreeCreatedEvent,
   WorktreeDirtyEvent,
@@ -83,9 +96,25 @@ export interface EmitWorktreeEventInput extends SessionEventLinkage {
   readonly actor?: string | null;
 }
 
+/** `worktree.created`'s input: on a put-back, the kept copy the tree came from. */
+export interface EmitWorktreeCreatedInput extends EmitWorktreeEventInput {
+  readonly restoredFrom?: string;
+}
+
+/** `worktree.retired`'s input: on a discard, the kept copy it made. */
+export interface EmitWorktreeRetiredInput extends EmitWorktreeEventInput {
+  readonly removedWorktreeId?: string;
+}
+
+/** A session record's input: its payload whole, and the write it commits with. */
+export interface EmitSessionRecordInput<Payload> extends SessionEventLinkage {
+  readonly payload: Payload;
+}
+
 /**
- * Appends the five worktree lifecycle events through the injected append seam. Each method
- * resolves to the receipt carrying the `sequence` the append path assigned.
+ * Appends the five worktree lifecycle events and the two session records through the injected
+ * append seam. Each method resolves to the receipt carrying the `sequence` the append path
+ * assigned.
  */
 export class WorktreeEventEmitter {
   readonly #appender: SessionEventAppender;
@@ -95,8 +124,19 @@ export class WorktreeEventEmitter {
   }
 
   /** Emit `worktree.created`: a `worktrees` row was written in state `creating`. */
-  async emitWorktreeCreated(input: EmitWorktreeEventInput): Promise<EventLogAppendReceipt> {
-    return this.#appendWorktreeEvent("worktree.created", input);
+  async emitWorktreeCreated(input: EmitWorktreeCreatedInput): Promise<EventLogAppendReceipt> {
+    return this.#appender.append("worktree.created", this.#createdPayload(input), input);
+  }
+
+  /**
+   * Emit `worktree.created` then `worktree.ready` in one write, for a row the prelude writes and
+   * moves to `ready` together: neither event commits without the other.
+   */
+  async emitWorktreeCreatedAndReady(input: EmitWorktreeCreatedInput): Promise<EventLogAppendReceipt> {
+    return this.#appender.append("worktree.ready", this.#lifecyclePayload("worktree.ready", input), {
+      ...input,
+      precedingEvents: [{ type: "worktree.created", payload: this.#createdPayload(input) }],
+    });
   }
 
   /** Emit `worktree.ready`: the checkout is materialized and bindable as an execution root. */
@@ -118,15 +158,59 @@ export class WorktreeEventEmitter {
    * Emit `worktree.retired`: the terminal state. It is evented before any disk mutation (cleanup
    * stamps `cleaned_at` later), so it does not mean the root is gone.
    */
-  async emitWorktreeRetired(input: EmitWorktreeEventInput): Promise<EventLogAppendReceipt> {
-    return this.#appendWorktreeEvent("worktree.retired", input);
+  async emitWorktreeRetired(input: EmitWorktreeRetiredInput): Promise<EventLogAppendReceipt> {
+    const payload = WorktreeRetiredPayloadSchema.parse({
+      ...this.#lifecyclePayload("worktree.retired", input),
+      ...(input.removedWorktreeId !== undefined
+        ? { removedWorktreeId: RemovedWorktreeIdSchema.parse(input.removedWorktreeId) }
+        : {}),
+    });
+    return this.#appender.append("worktree.retired", payload, input);
+  }
+
+  /**
+   * Emit `session.swept_to_repo_root`: a removal moved the session back to the repository root,
+   * or cleared its pending move into the removed tree.
+   */
+  async emitSessionSweptToRepoRoot(
+    input: EmitSessionRecordInput<SessionSweptToRepoRootPayload>,
+  ): Promise<EventLogAppendReceipt> {
+    const payload = SessionSweptToRepoRootPayloadSchema.parse(input.payload);
+    return this.#appender.append("session.swept_to_repo_root", payload, input);
+  }
+
+  /**
+   * Emit `session.branch_changed`: the branch the session's folder is on changed outside the app,
+   * written back to the session's record.
+   */
+  async emitBranchChanged(
+    input: EmitSessionRecordInput<SessionBranchChangedPayload>,
+  ): Promise<EventLogAppendReceipt> {
+    const payload = SessionBranchChangedPayloadSchema.parse(input.payload);
+    return this.#appender.append("session.branch_changed", payload, input);
+  }
+
+  #createdPayload(input: EmitWorktreeCreatedInput): WorktreeCreatedPayload {
+    return WorktreeCreatedPayloadSchema.parse({
+      ...this.#lifecyclePayload("worktree.created", input),
+      ...(input.restoredFrom !== undefined
+        ? { restoredFrom: RemovedWorktreeIdSchema.parse(input.restoredFrom) }
+        : {}),
+    });
   }
 
   async #appendWorktreeEvent(
     type: WorktreeEventName,
     input: EmitWorktreeEventInput,
   ): Promise<EventLogAppendReceipt> {
-    const payload = WorktreeLifecyclePayloadSchema.parse({
+    return this.#appender.append(type, this.#lifecyclePayload(type, input), input);
+  }
+
+  #lifecyclePayload(
+    type: WorktreeEventName,
+    input: EmitWorktreeEventInput,
+  ): WorktreeLifecyclePayload {
+    return WorktreeLifecyclePayloadSchema.parse({
       sessionId: input.sessionId,
       // The lifecycle payload schema types `worktreeId` optional; this guarantees a subject.
       worktreeId: WorktreeIdSchema.parse(input.worktreeId),
@@ -136,6 +220,5 @@ export class WorktreeEventEmitter {
       state: WORKTREE_STATE_BY_EVENT_NAME[type],
       actor: input.actor ?? null,
     });
-    return this.#appender.append(type, payload, input);
   }
 }

@@ -5,7 +5,7 @@
 
 import type { AgentProviderBinding } from "@ai-sidekicks/contracts/agent/definition";
 import type { ProviderAccountId } from "@ai-sidekicks/contracts/provider/account/record";
-import type { RepoMountId } from "@ai-sidekicks/contracts/repo/mount";
+import type { ProjectId } from "@ai-sidekicks/contracts/project";
 import type { SessionLead } from "@ai-sidekicks/contracts/session/directory";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
@@ -13,7 +13,7 @@ import { withDaemonCall, type RecordedDaemonCall } from "#test/helpers/fixture/b
 import type { Scenario } from "#fixtures/scenario.js";
 import type { FirstTurnQueueCall } from "./control-contract.js";
 import { NewSessionDraft } from "./draft.js";
-import { type DraftRepoMount } from "./send.js";
+import { type DraftProject } from "./send.js";
 // The method the send names, taken from the module that sends it, so a script never keys on a
 // stale copy of a wire string.
 import { SESSION_CREATE_METHOD } from "./settlement.js";
@@ -32,8 +32,8 @@ export const NEW_SESSION_LEAD: SessionLead = {
  * A project a draft can be pointed at, which makes the draft non-empty without a first
  * message: the path a person takes who picks a project and presses Send before typing.
  */
-export const PROJECT_REPO_MOUNT: DraftRepoMount = {
-  repoMountId: "770e8400-e29b-41d4-a716-446655440002" as RepoMountId,
+export const DRAFT_PROJECT: DraftProject = {
+  projectId: "770e8400-e29b-41d4-a716-446655440002" as ProjectId,
   executionMode: "provisioned-worktree",
 };
 

@@ -6,8 +6,12 @@
  *   refuses the write, event and all.
  * - `fs_root` is an approval-scope boundary: a bind and `beginRootPreparation` write NULL, and only
  *   `completeRootPreparation` writes a path.
- * - The four `workspace.*` domain errors follow the carrier pattern of `./repo/errors.js`; every
- *   code comes from the error registry, and this module mints none.
+ * - A bind records the folder it admitted (`metadata.boundRoot`, never cleared, rewritten by a move
+ *   into another tree) and that folder's checkout (`metadata.checkoutRoot`, rewritten by every
+ *   completed preparation).
+ * - No workspace is held for a run: two sessions' runs may work in one folder at once.
+ * - The `workspace.*` domain errors follow the carrier pattern of `./repo/errors.js`; every code
+ *   comes from the error registry, and this module mints none.
  */
 
 import type { Statement } from "better-sqlite3";
@@ -17,7 +21,6 @@ import {
   WorkspaceIdSchema,
   WorkspaceStateSchema,
   type ExecutionMode,
-  type VcsType,
   type WorkspaceState,
 } from "@ai-sidekicks/contracts/repo/mount";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
@@ -29,16 +32,22 @@ import type {
 } from "@ai-sidekicks/contracts/repo/workspace";
 import type { DatabaseConnections } from "../database/connection/lifecycle.js";
 import type { WriteStatement } from "../database/statement.js";
-import { WriteRefusedError, type DatabaseWriter } from "../database/writer.js";
+import { WriteRefusedError } from "../database/writer.js";
+import { LIVE_WORKTREE_STATE_PREDICATE } from "../git/worktree/rows.js";
 import { SessionNotFoundError } from "../ipc/session-errors.js";
 import { sessionExistsStatement } from "../session/directory/lookups.js";
-import { RepoMountManagedError, RepoMountNotFoundError } from "./repo/errors.js";
-import { TrustEnvelopeValidator } from "./trust-envelope.js";
+import {
+  RepoMountManagedError,
+  RepoMountNotFoundError,
+  RepoRootResolutionError,
+} from "./repo/errors.js";
+import { probeRepoMountHealth, type RepoMountHealthSeams } from "./repo/mount-health.js";
+import { RepoRootResolver } from "./repo/root-resolver.js";
+import { TrustEnvelopeValidator, type AdmittedExecutionRoot } from "./trust-envelope.js";
 import type { WorkspaceEventEmitter } from "./event-emitter.js";
+import type { CompletedRootPreparation } from "./execution-root-service.js";
 import { mintUuidV7 } from "../uuid-v7.js";
 import {
-  computeExecutionModeCapabilities,
-  computeRepoMountHealth,
   computeWorkspaceHealth,
   PROBE_BEARING_WORKSPACE_STATES,
   type FilesystemPathProbe,
@@ -46,20 +55,20 @@ import {
 } from "./projector.js";
 import {
   assertAbsoluteExecutionRoot,
+  assertModeOffered,
+  BOUND_ROOT_METADATA_PATH,
+  CHECKOUT_ROOT_METADATA_PATH,
+  COMMON_DIR_METADATA_PATH,
   createDefaultPathProbe,
   expectSingleRowChanged,
   type FilesystemPathProbeFn,
-  HOLDING_RUN_ID_METADATA_PATH,
   LAST_ERROR_METADATA_PATH,
   type MountRow,
-  readHoldingRunId,
   readLastError,
   type WorkspaceRow,
   wrapRowFailure,
 } from "./row-guards.js";
 import {
-  WorkspaceBusyError,
-  WorkspaceModeUnsupportedError,
   WorkspaceNotFoundError,
   WorkspaceServiceInvariantError,
   WorkspaceStaleError,
@@ -81,7 +90,9 @@ const BIND_WORKSPACE_SQL = `INSERT INTO workspaces (
      id, session_id, repo_mount_id, execution_mode, fs_root, state, metadata,
      created_at, updated_at
    )
-   SELECT @id, @session_id, @repo_mount_id, @execution_mode, NULL, 'preparing', '{}',
+   SELECT @id, @session_id, @repo_mount_id, @execution_mode, NULL, 'preparing',
+          json_set('{}', '${BOUND_ROOT_METADATA_PATH}', @bound_root,
+                         '${CHECKOUT_ROOT_METADATA_PATH}', @checkout_root),
           @now, @now
      FROM repo_mounts
     WHERE id = @repo_mount_id AND state = 'attached'
@@ -98,11 +109,22 @@ const BEGIN_ROOT_PREPARATION_SQL = `UPDATE workspaces
           updated_at = @now
     WHERE id = @workspace_id AND state IN ('ready', 'stale')`;
 
-// A cycle can complete without re-entering through `beginRootPreparation`; clear it here too.
+// A cycle can complete without re-entering through `beginRootPreparation` (a bind's own first
+// preparation), so the mode the preparation made is written here too, and `lastError` cleared.
+// The checkout is rewritten, so it names the tree the workspace works in from now on; the bound
+// folder only when a move changed it.
 const COMPLETE_ROOT_PREPARATION_SQL = `UPDATE workspaces
       SET fs_root = @fs_root,
+          execution_mode = COALESCE(@execution_mode, execution_mode),
           state = 'ready',
-          metadata = json_remove(metadata, '${LAST_ERROR_METADATA_PATH}'),
+          metadata = CASE
+            WHEN @bound_root IS NULL
+              THEN json_set(json_remove(metadata, '${LAST_ERROR_METADATA_PATH}'),
+                            '${CHECKOUT_ROOT_METADATA_PATH}', @checkout_root)
+            ELSE json_set(json_remove(metadata, '${LAST_ERROR_METADATA_PATH}'),
+                          '${CHECKOUT_ROOT_METADATA_PATH}', @checkout_root,
+                          '${BOUND_ROOT_METADATA_PATH}', @bound_root)
+          END,
           updated_at = @now
     WHERE id = @workspace_id AND state = 'preparing'`;
 
@@ -119,38 +141,35 @@ const FAIL_ROOT_PREPARATION_WITHOUT_DETAIL_SQL = `UPDATE workspaces
           updated_at = @now
     WHERE id = @workspace_id AND state = 'preparing'`;
 
-// `stale` is absent (re-staling is a no-op) and so is terminal `archived`. So is `busy`: a run
-// keeps its hold to the end, and the first read after the release stales the row.
+// `stale` is absent (re-staling is a no-op) and so is terminal `archived`.
 const MARK_STALE_SQL = `UPDATE workspaces
       SET state = 'stale',
           updated_at = @now
     WHERE id = @workspace_id AND state IN ('preparing', 'ready')`;
 
-// The compare-and-swap is the mutual exclusion: of concurrent runs reading `ready`, exactly one
-// changes the row.
-const MARK_BUSY_SQL = `UPDATE workspaces
-      SET state = 'busy',
-          metadata = json_set(metadata, '${HOLDING_RUN_ID_METADATA_PATH}', @run_id),
+// The same transition with the reason recorded, for a refusal the person repairs (a mount whose
+// folder holds another repository now).
+const MARK_STALE_WITH_DETAIL_SQL = `UPDATE workspaces
+      SET state = 'stale',
+          metadata = json_set(metadata, '${LAST_ERROR_METADATA_PATH}', @last_error),
           updated_at = @now
-    WHERE id = @workspace_id AND state = 'ready'`;
-
-// Only a held row is released; the release is no health verdict, so the next read probes it.
-const RELEASE_BUSY_SQL = `UPDATE workspaces
-      SET state = 'ready',
-          metadata = json_remove(metadata, '${HOLDING_RUN_ID_METADATA_PATH}'),
-          updated_at = @now
-    WHERE id = @workspace_id AND state = 'busy'`;
+    WHERE id = @workspace_id AND state IN ('preparing', 'ready')`;
 
 /** Constructor dependencies. Every optional member defaults to the real one. */
 export interface WorkspaceServiceDeps {
   /**
-   * The daemon database: reads prepared on its reader in the constructor, writes through its
-   * writer, the one the event log appends through.
+   * The daemon database: reads prepared on its reader in the constructor; every write rides an
+   * event append through {@link events}.
    */
   readonly database: DatabaseConnections;
   /** The single seam through which workspace lifecycle events are appended. */
   readonly events: WorkspaceEventEmitter;
-  /** Containment validator. Defaults to a stock `TrustEnvelopeValidator`. */
+  /**
+   * Runs git for the mount identity and the trust envelope. Defaults to a stock resolver, which
+   * runs bare `git`.
+   */
+  readonly resolver?: RepoRootResolver;
+  /** Containment validator. Defaults to a stock `TrustEnvelopeValidator` over the resolver. */
   readonly trustEnvelope?: TrustEnvelopeValidator;
   /**
    * Reachability probe. Defaults to the readability probe, reading the clock first so `checkedAt`
@@ -173,15 +192,17 @@ export interface BindWorkspaceInput extends WorkspaceBindRequest {
 }
 
 /**
- * Owns every workspace lifecycle transition and write to `workspaces`, except the deletes and the
- * archive that share another row's write: the detach cascade's archive and a managed mount's
- * deletion in `./repo/mount-service.js`, and the session purge's delete of the session's rows.
- * Legal predecessor states live in each `UPDATE`'s `WHERE` clause.
+ * Owns every workspace lifecycle transition and write to `workspaces`, except the writes that
+ * share another row's write: the detach cascade's archive and a managed mount's deletion in
+ * `./repo/mount-service.js`, a re-attach's move to the new mount in `./repo/reattach.js`, and the
+ * session purge's delete of the session's rows. Legal predecessor states live in each `UPDATE`'s
+ * `WHERE` clause.
  */
 export class WorkspaceService {
   readonly #events: WorkspaceEventEmitter;
   readonly #trustEnvelope: TrustEnvelopeValidator;
   readonly #probePath: FilesystemPathProbeFn;
+  readonly #mountHealthSeams: RepoMountHealthSeams;
   readonly #now: () => string;
   readonly #newWorkspaceId: () => string;
 
@@ -189,20 +210,22 @@ export class WorkspaceService {
   readonly #selectLiveWorkspaceStmt: Statement;
   readonly #selectAttachedMountStmt: Statement;
   readonly #selectAttachedMountRootsStmt: Statement;
+  readonly #selectDaemonWorktreeRootsStmt: Statement;
   readonly #selectWorkspaceStmt: Statement;
   readonly #listWorkspacesStmt: Statement;
   readonly #listWorkspacesByMountStmt: Statement;
-  readonly #writer: Pick<DatabaseWriter, "write">;
 
   constructor(deps: WorkspaceServiceDeps) {
     this.#events = deps.events;
-    this.#trustEnvelope = deps.trustEnvelope ?? new TrustEnvelopeValidator();
+    const resolver = deps.resolver ?? new RepoRootResolver();
+    this.#trustEnvelope =
+      deps.trustEnvelope ?? new TrustEnvelopeValidator({ workingTrees: resolver });
     this.#probePath = deps.probePath ?? createDefaultPathProbe();
+    this.#mountHealthSeams = { probePath: this.#probePath, resolver };
     this.#now = deps.now ?? ((): string => new Date().toISOString());
     this.#newWorkspaceId = deps.newWorkspaceId ?? mintUuidV7;
 
     const database = deps.database.reader;
-    this.#writer = deps.database.writer;
 
     this.#selectSessionStmt = database.prepare("SELECT 1 FROM sessions WHERE id = @session_id");
 
@@ -214,7 +237,8 @@ export class WorkspaceService {
 
     // Attached only: a detached mount is not a bind target, and `repo.not_found` is more honest.
     this.#selectAttachedMountStmt = database.prepare(
-      `SELECT id, canonical_root, vcs_type, managed_session_id
+      `SELECT id, local_path, canonical_root, managed_session_id,
+              json_extract(metadata, '${COMMON_DIR_METADATA_PATH}') AS common_dir
          FROM repo_mounts
         WHERE id = @repo_mount_id AND state = 'attached'`,
     );
@@ -225,6 +249,14 @@ export class WorkspaceService {
          FROM repo_mounts
         WHERE state = 'attached'
         ORDER BY canonical_root ASC`,
+    );
+
+    // The worktrees the daemon made for a mount and still keeps on disk, admitted by provenance.
+    this.#selectDaemonWorktreeRootsStmt = database.prepare(
+      `SELECT fs_root
+         FROM worktrees
+        WHERE repo_mount_id = @repo_mount_id AND ${LIVE_WORKTREE_STATE_PREDICATE}
+        ORDER BY fs_root ASC`,
     );
 
     this.#selectWorkspaceStmt = database.prepare(
@@ -251,11 +283,13 @@ export class WorkspaceService {
 
   /**
    * Bind a workspace to an attached mount (`repo.workspaceBind`); it lands `preparing` with a NULL
-   * `fs_root` that {@link completeRootPreparation} fills. A session that already has a live
-   * workspace on the mount is answered that workspace as it stands, its mode and state whatever
-   * the request asked, and nothing is probed or written. Throws `SessionNotFoundError`, before any
-   * probe or write, when `sessionId` names no session, `RepoMountNotFoundError` for a mount that
-   * is not attached, and `RepoMountManagedError` for another chat's managed workspace.
+   * `fs_root` that {@link completeRootPreparation} fills, recording the admitted folder and its
+   * checkout. A session that already has a live workspace on the mount is answered that workspace
+   * as it stands, its mode and state whatever the request asked, and nothing is probed or written.
+   * Throws `SessionNotFoundError`, before any probe or write, when `sessionId` names no session,
+   * `RepoMountNotFoundError` for a mount that is not attached, `RepoMountManagedError` for another
+   * chat's managed workspace, and `RepoRootResolutionError` (`root_mismatch`) for a mount whose
+   * folder holds another repository than the one attached there.
    */
   async bind(input: BindWorkspaceInput): Promise<WorkspaceBindResponse> {
     if (this.#selectSessionStmt.get({ session_id: input.sessionId }) === undefined) {
@@ -277,42 +311,18 @@ export class WorkspaceService {
       throw new RepoMountManagedError(input.repoMountId);
     }
 
-    // Mode capability before any filesystem work.
-    const capabilities = computeExecutionModeCapabilities({
-      vcsType: mountRow.vcs_type as VcsType,
-      isManaged: mountRow.managed_session_id !== null,
-    });
-    if (!capabilities.availableModes.includes(input.executionMode)) {
-      throw new WorkspaceModeUnsupportedError(
-        input.executionMode,
-        capabilities.availableModes,
-        capabilities.restrictions?.[input.executionMode] ??
-          "the mount's capability matrix does not offer this mode",
-      );
-    }
+    // The mode before any filesystem work.
+    assertModeOffered(input.executionMode, mountRow.managed_session_id !== null);
 
-    // Reachability before containment: `validateExecutionRoot` `realpath`s its candidate, which
-    // fails on a vanished root and would report `repo.outside_trust_envelope` (403) instead of
-    // `workspace.stale` (409).
-    const mountRootProbe = await this.#probePath(mountRow.canonical_root);
-    const mountHealth = computeRepoMountHealth(
-      { canonicalRoot: mountRow.canonical_root },
-      mountRootProbe,
+    // A bind that names no folder roots at the working tree the person attached, never at the
+    // repository's main checkout.
+    const namesFolder = input.directory !== undefined && input.directory.length > 0;
+    const admitted = await this.#admitOnHealthyMount(
+      mountRow,
+      namesFolder ? input.directory : mountRow.local_path,
+      null,
     );
-    if (mountHealth.status !== "healthy") {
-      throw new WorkspaceStaleError(null);
-    }
-
-    // Containment against every attached mount. The resolved root is discarded: neither mode
-    // executes in the requested directory.
-    const attachedMountRootRows = this.#selectAttachedMountRootsStmt.all() as ReadonlyArray<{
-      readonly canonical_root: string;
-    }>;
-    await this.#trustEnvelope.validateExecutionRoot({
-      mountCanonicalRoot: mountRow.canonical_root,
-      directory: input.directory,
-      attachedMountRoots: attachedMountRootRows.map((mountRootRow) => mountRootRow.canonical_root),
-    });
+    const boundRoot = namesFolder ? admitted.executionRoot : admitted.checkoutRoot;
 
     const workspaceId = this.#newWorkspaceId();
     const createdAt = this.#now();
@@ -327,6 +337,8 @@ export class WorkspaceService {
         session_id: input.sessionId,
         repo_mount_id: mountRow.id,
         execution_mode: input.executionMode,
+        bound_root: boundRoot,
+        checkout_root: admitted.checkoutRoot,
         now: createdAt,
       },
       expectedRowCount: 1,
@@ -373,6 +385,27 @@ export class WorkspaceService {
   }
 
   /**
+   * Admits `folder` for a move of the workspace into another tree, as a bind admits its pick.
+   * Throws `RepoMountNotFoundError` for a mount not attached, `WorkspaceStaleError` when the mount
+   * folder is unreachable, `RepoRootResolutionError` (`root_mismatch`) when it holds another
+   * repository, and `TrustEnvelopeViolationError` for a folder outside the mount's trees.
+   */
+  async admitFolder(workspaceId: string, folder: string): Promise<AdmittedExecutionRoot> {
+    const row = this.#requireWorkspaceRow(workspaceId);
+    return this.#admitOnHealthyMount(this.#requireMountRowFor(row), folder, workspaceId);
+  }
+
+  /**
+   * Refuses, writing nothing, a workspace whose mount is not attached (`RepoMountNotFoundError`),
+   * whose mount folder is gone (`WorkspaceStaleError`), or whose mount folder holds another
+   * repository than the one attached there (`RepoRootResolutionError`, `root_mismatch`).
+   */
+  async assertMountHealthy(workspaceId: string): Promise<void> {
+    const row = this.#requireWorkspaceRow(workspaceId);
+    await this.#refuseUnhealthyMount(this.#requireMountRowFor(row), workspaceId);
+  }
+
+  /**
    * List a session's workspaces through the health projection (`repo.workspaceList`), persisting
    * any derived stale transition. A per-row failure fails the whole response: dropping the row
    * would shorten the list the person uses to decide what to detach.
@@ -397,9 +430,11 @@ export class WorkspaceService {
   }
 
   /**
-   * The write gate: probes first (persisting a derived stale transition), then refuses `stale` with
-   * `workspace.stale` and `preparing`/`archived` with an invariant error. `busy` passes; the
-   * `workspace.busy` refusal belongs to {@link markBusy}, the call that contends for the hold.
+   * The write gate before a run: probes first (persisting a derived stale transition), then
+   * refuses `stale` with `workspace.stale` and `preparing`/`archived` with an invariant error. A
+   * `ready` workspace whose mount folder now holds another repository turns `stale` with the
+   * reason recorded; one whose mount folder is gone is refused without a write, and so is one whose
+   * git could not answer (`RepoRootResolutionError`, `vcs_error`). Holds nothing.
    */
   async assertWritable(workspaceId: string): Promise<void> {
     const row = this.#requireWorkspaceRow(workspaceId);
@@ -407,7 +442,7 @@ export class WorkspaceService {
 
     switch (observedState) {
       case "ready":
-      case "busy":
+        await this.#assertMountIdentity(row);
         return;
       case "stale":
         throw new WorkspaceStaleError(workspaceId);
@@ -429,7 +464,7 @@ export class WorkspaceService {
 
   /**
    * Enter the preparation cycle, `ready | stale -> preparing`, in `targetMode`. The mode is checked
-   * against the mount's matrix first, since completion takes none. Does not call
+   * against the mount first, since completion takes none. Does not call
    * {@link assertWritable}, which refuses `stale`, a legal predecessor here.
    */
   async beginRootPreparation(
@@ -440,18 +475,7 @@ export class WorkspaceService {
     const row = this.#requireWorkspaceRow(workspaceId);
     const mountRow = this.#requireMountRowFor(row);
 
-    const capabilities = computeExecutionModeCapabilities({
-      vcsType: mountRow.vcs_type as VcsType,
-      isManaged: mountRow.managed_session_id !== null,
-    });
-    if (!capabilities.availableModes.includes(targetMode)) {
-      throw new WorkspaceModeUnsupportedError(
-        targetMode,
-        capabilities.availableModes,
-        capabilities.restrictions?.[targetMode] ??
-          "the mount's capability matrix does not offer this mode",
-      );
-    }
+    assertModeOffered(targetMode, mountRow.managed_session_id !== null);
 
     // Precise refusal before the compare-and-swap, which can only say the predecessor was illegal.
     this.#refuseIllegalPredecessor(row, ["ready", "stale"], "begin preparing");
@@ -475,16 +499,22 @@ export class WorkspaceService {
   }
 
   /**
-   * Finish the cycle, `preparing -> ready`, adopting the execution root the preparation made and
-   * clearing any recorded failure. `fsRoot` is not checked for containment (the preparation made it
-   * under daemon control) but must be absolute, since it becomes an approval scope root.
+   * Finish the cycle, `preparing -> ready`, adopting the execution root the preparation made, the
+   * checkout it sits in, the mode it made it in and, after a move, the folder now bound, and
+   * clearing any recorded failure. No path is checked for containment (the preparation made or
+   * admitted them) but each must be absolute: `fsRoot` becomes an approval scope root and
+   * `checkoutRoot` the tree every turn snapshot captures.
    */
   async completeRootPreparation(
     workspaceId: string,
     fsRoot: string,
-    options: { readonly actor?: string | null } = {},
+    options: CompletedRootPreparation & { readonly actor?: string | null },
   ): Promise<void> {
     assertAbsoluteExecutionRoot(fsRoot, workspaceId);
+    assertAbsoluteExecutionRoot(options.checkoutRoot, workspaceId);
+    if (options.boundRoot !== undefined) {
+      assertAbsoluteExecutionRoot(options.boundRoot, workspaceId);
+    }
     const row = this.#requireWorkspaceRow(workspaceId);
     this.#refuseIllegalPredecessor(row, ["preparing"], "finish preparing");
 
@@ -496,7 +526,14 @@ export class WorkspaceService {
         transactionalPrelude: [
           {
             sql: COMPLETE_ROOT_PREPARATION_SQL,
-            bindings: { workspace_id: workspaceId, fs_root: fsRoot, now: this.#now() },
+            bindings: {
+              workspace_id: workspaceId,
+              fs_root: fsRoot,
+              execution_mode: options.executionMode ?? null,
+              checkout_root: options.checkoutRoot,
+              bound_root: options.boundRoot ?? null,
+              now: this.#now(),
+            },
             expectedRowCount: 1,
           },
         ],
@@ -546,40 +583,48 @@ export class WorkspaceService {
   }
 
   /**
-   * Persist the stale transition the health projection derives, and announce it. Returns `false`
-   * when the row is already `stale` or `archived`, vanished, was staled by a concurrent reader
-   * (every read path calls this, so it is idempotent), or is `busy`: a held workspace keeps its
-   * run's hold until the run releases it, and the read after the release stales it.
+   * Persist a stale transition, and announce it; `lastError` records why, through
+   * {@link normalizeWorkspaceLastError}. Returns `false` when the row is already `stale` or
+   * `archived`, vanished, or was staled by a concurrent reader (every read path calls this, so it
+   * is idempotent).
    */
   async markStale(
     workspaceId: string,
-    options: { readonly actor?: string | null } = {},
+    options: { readonly actor?: string | null; readonly lastError?: string } = {},
   ): Promise<boolean> {
     const row = this.#findWorkspaceRow(workspaceId);
     if (
       row === undefined ||
       row.state === ("stale" satisfies WorkspaceState) ||
-      row.state === ("archived" satisfies WorkspaceState) ||
-      row.state === ("busy" satisfies WorkspaceState)
+      row.state === ("archived" satisfies WorkspaceState)
     ) {
       return false;
     }
 
+    const lastError =
+      options.lastError === undefined ? null : normalizeWorkspaceLastError(options.lastError);
+    const now = this.#now();
+    const recordStale: WriteStatement =
+      lastError === null
+        ? {
+            sql: MARK_STALE_SQL,
+            bindings: { workspace_id: workspaceId, now },
+            expectedRowCount: 1,
+          }
+        : {
+            sql: MARK_STALE_WITH_DETAIL_SQL,
+            bindings: { workspace_id: workspaceId, last_error: lastError, now },
+            expectedRowCount: 1,
+          };
     try {
       await this.#events.emitWorkspaceStale({
         sessionId: row.session_id,
         workspaceId,
         actor: options.actor ?? null,
         // A refusal is the only way to decline the event: the append path inserts the event row
-        // after the prelude regardless. A concurrent reader staling the row, or a run taking its
-        // hold, since the read is an expected race.
-        transactionalPrelude: [
-          {
-            sql: MARK_STALE_SQL,
-            bindings: { workspace_id: workspaceId, now: this.#now() },
-            expectedRowCount: 1,
-          },
-        ],
+        // after the prelude regardless. A concurrent reader staling the row since the read is an
+        // expected race.
+        transactionalPrelude: [recordStale],
       });
     } catch (error) {
       // Only the refusal; anything else is a durability failure `#observeState` attributes.
@@ -592,76 +637,9 @@ export class WorkspaceService {
   }
 
   /**
-   * Take the run hold, `ready -> busy`, persisting `runId` to `metadata.holdingRunId` (not on the
-   * wire) so {@link WorkspaceBusyError} can name the holder. Emits no event, as workspace events
-   * have no `busy` type. Probes first, so a vanished root is refused now rather than mid-run.
-   */
-  async markBusy(
-    workspaceId: string,
-    runId: string,
-    options: { readonly actor?: string | null } = {},
-  ): Promise<void> {
-    const row = this.#requireWorkspaceRow(workspaceId);
-
-    // Contention is answered before the probe: the loser needs to know who won, not a filesystem
-    // verdict.
-    if (row.state === ("busy" satisfies WorkspaceState)) {
-      throw new WorkspaceBusyError(workspaceId, readHoldingRunId(row));
-    }
-
-    const observedState = await this.#observeState(row, options);
-    if (observedState === "stale") {
-      throw new WorkspaceStaleError(workspaceId);
-    }
-    if (observedState !== "ready") {
-      throw new WorkspaceServiceInvariantError(
-        `workspace "${workspaceId}" cannot be held in state "${observedState}"`,
-        { kind: "illegal_state_transition", workspaceId },
-      );
-    }
-
-    const [taken] = await this.#writer.write([
-      {
-        sql: MARK_BUSY_SQL,
-        bindings: { workspace_id: workspaceId, run_id: runId, now: this.#now() },
-      },
-    ]);
-    if (taken?.rowCount !== 1) {
-      // The compare-and-swap lost; re-read to answer with the reason, not the mechanism.
-      const currentRow = this.#findWorkspaceRow(workspaceId);
-      if (currentRow === undefined) {
-        throw new WorkspaceNotFoundError(workspaceId);
-      }
-      if (currentRow.state === ("busy" satisfies WorkspaceState)) {
-        throw new WorkspaceBusyError(workspaceId, readHoldingRunId(currentRow));
-      }
-      if (currentRow.state === ("stale" satisfies WorkspaceState)) {
-        throw new WorkspaceStaleError(workspaceId);
-      }
-      throw new WorkspaceServiceInvariantError(
-        `workspace "${workspaceId}" left state "ready" before the hold could be taken ` +
-          `(now "${currentRow.state}")`,
-        { kind: "illegal_state_transition", workspaceId },
-      );
-    }
-  }
-
-  /**
-   * Release the run hold, `busy -> ready`, emitting no event; returns `true` when a hold was
-   * released. A non-`busy` row is a no-op: this runs in a `finally` where a throw would mask the
-   * run's real failure. A root that vanished mid-run is staled by the next read's probe.
-   */
-  async releaseBusy(workspaceId: string): Promise<boolean> {
-    const [released] = await this.#writer.write([
-      { sql: RELEASE_BUSY_SQL, bindings: { workspace_id: workspaceId, now: this.#now() } },
-    ]);
-    return released?.rowCount === 1;
-  }
-
-  /**
    * Probe a row if its state owes one, persist any derived stale transition, and return the state
-   * to report. The one place the on-read floor is implemented, so `list`, `assertWritable` and
-   * `markBusy` agree on the current state.
+   * to report. The one place the on-read floor is implemented, so `list` and `assertWritable`
+   * agree on the current state.
    */
   async #observeState(
     row: WorkspaceRow,
@@ -722,6 +700,77 @@ export class WorkspaceService {
     }
   }
 
+  // Refuses a run on a mount whose folder is gone (not persisted: it may come back) or holds
+  // another repository than the one attached (persisted: only a re-attach repairs it).
+  async #assertMountIdentity(row: WorkspaceRow): Promise<void> {
+    const mountRow = this.#requireMountRowFor(row);
+    const mountHealth = await this.#probeMountHealth(mountRow);
+    if (mountHealth.status === "unreachable") {
+      throw new WorkspaceStaleError(row.id);
+    }
+    if (mountHealth.status === "identity_mismatch") {
+      try {
+        await this.markStale(row.id, {
+          lastError: new RepoRootResolutionError("root_mismatch").message,
+        });
+      } catch (error) {
+        throw wrapRowFailure(error, row.id, "stale_transition_durability_failure");
+      }
+      throw new WorkspaceStaleError(row.id);
+    }
+  }
+
+  /**
+   * The picked folder admitted on a mount that is reachable and still holds its repository.
+   * Reachability comes before containment: `validateExecutionRoot` `realpath`s its candidate, which
+   * fails on a vanished root and would report `repo.outside_trust_envelope` (422) instead of
+   * `workspace.stale` (409). A pick never follows a retargeted `.git`.
+   */
+  async #admitOnHealthyMount(
+    mountRow: MountRow,
+    directory: string | undefined,
+    workspaceId: string | null,
+  ): Promise<AdmittedExecutionRoot> {
+    await this.#refuseUnhealthyMount(mountRow, workspaceId);
+    const attachedMountRootRows = this.#selectAttachedMountRootsStmt.all() as ReadonlyArray<{
+      readonly canonical_root: string;
+    }>;
+    return this.#trustEnvelope.validateExecutionRoot({
+      mountCanonicalRoot: mountRow.canonical_root,
+      directory,
+      attachedMountRoots: attachedMountRootRows.map((mountRootRow) => mountRootRow.canonical_root),
+      provenanceRoots: this.#readProvenanceRoots(mountRow),
+    });
+  }
+
+  async #refuseUnhealthyMount(mountRow: MountRow, workspaceId: string | null): Promise<void> {
+    const mountHealth = await this.#probeMountHealth(mountRow);
+    if (mountHealth.status === "unreachable") {
+      throw new WorkspaceStaleError(workspaceId);
+    }
+    if (mountHealth.status === "identity_mismatch") {
+      throw new RepoRootResolutionError("root_mismatch");
+    }
+  }
+
+  #probeMountHealth(mountRow: MountRow): ReturnType<typeof probeRepoMountHealth> {
+    return probeRepoMountHealth(
+      { canonicalRoot: mountRow.canonical_root, commonDirAnchor: mountRow.common_dir },
+      this.#mountHealthSeams,
+    );
+  }
+
+  // A managed mount's folder is the daemon's own; a project's admits the worktrees the daemon made.
+  #readProvenanceRoots(mountRow: MountRow): readonly string[] {
+    if (mountRow.managed_session_id !== null) {
+      return [mountRow.canonical_root];
+    }
+    const rows = this.#selectDaemonWorktreeRootsStmt.all({
+      repo_mount_id: mountRow.id,
+    }) as ReadonlyArray<{ readonly fs_root: string }>;
+    return rows.map((worktreeRow) => worktreeRow.fs_root);
+  }
+
   // The session's live workspace on the mount as stored, or `undefined` when it has none.
   #readLiveWorkspace(input: BindWorkspaceInput): WorkspaceBindResponse | undefined {
     const row = this.#selectLiveWorkspaceStmt.get({
@@ -770,9 +819,6 @@ export class WorkspaceService {
   ): void {
     if (legalPredecessors.includes(row.state as WorkspaceState)) {
       return;
-    }
-    if (row.state === ("busy" satisfies WorkspaceState)) {
-      throw new WorkspaceBusyError(row.id, readHoldingRunId(row));
     }
     throw new WorkspaceServiceInvariantError(
       `cannot ${attemptedAction} workspace "${row.id}" in state "${row.state}"`,

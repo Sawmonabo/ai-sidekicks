@@ -123,6 +123,7 @@ const daemon = await DaemonProcess.start({
       writeServiceLog,
       signal: AbortSignal.any([stopRequest.signal, startAbort]),
     }),
+  commandShell: account.shell,
   serviceVersion: readServiceVersion(),
   processIdentity,
   readProcessTreeUsage: () => readProcessTreeUsage(process.pid),

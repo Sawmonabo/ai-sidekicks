@@ -320,6 +320,14 @@ export class EventLogService {
   }
 
   /**
+   * Whether this log appends through `writer`. A row written with an event commits in the event's
+   * own write only when both go through one writer, so a service that relies on that checks it.
+   */
+  writesThrough(writer: object): boolean {
+    return this.#writer === writer;
+  }
+
+  /**
    * Delivers every session's events as they commit, each session's in sequence order, until the
    * returned detach runs. `onGap` hears of a session whose events before a receipt could not be
    * read, just before that receipt, so a follower that keeps state built from events rebuilds that
