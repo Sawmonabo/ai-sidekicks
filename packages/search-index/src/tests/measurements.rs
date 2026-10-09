@@ -14,7 +14,7 @@
 //!   percentile and the largest of their sum, the search's working set.
 //! - `visibility` times a one-row `apply` until a search opened afterward finds the row, then
 //!   reads every probe's two pages on the version the write made: their working sets' 95th
-//!   percentile and largest.
+//!   percentile and largest, and the two pages' time.
 //! - `held_searches` holds 16 searches at once, each after its two pages: two words typed a letter
 //!   at a time, then the other probes with the largest working sets. It reports what their read
 //!   caches hold in all and the footprint before, while and after they are held.
@@ -494,6 +494,7 @@ fn visibility() {
     let probes = probes();
     let mut times = Vec::new();
     let mut read_working_sets = Vec::new();
+    let mut pages_after_write = Vec::new();
     for run in 0..settings.runs as u64 {
         let word = format!("visible{run}x{}", std::process::id());
         let row = event(first_key + run * 4, 1, &word);
@@ -509,9 +510,10 @@ fn visibility() {
         times.push(elapsed_milliseconds(started));
         assert_eq!(sessions, vec![1], "the new row is found");
         for probe in &probes {
-            let (view, ..) = time_pages(&engine, probe);
+            let (view, first_page, next_page, _) = time_pages(&engine, probe);
             let (held, refused) = read_cache_mebibytes(&view);
             read_working_sets.push(held + refused);
+            pages_after_write.push(first_page + next_page);
         }
     }
     report(format!(
@@ -519,8 +521,10 @@ fn visibility() {
         percentiles(times)
     ));
     report(format!(
-        "a search's read cache after its two pages, opened after a write, held and kept out: {}",
-        working_sets(read_working_sets)
+        "a search's read cache after its two pages, opened after a write, held and kept out: {}; \
+         the two pages: {}",
+        working_sets(read_working_sets),
+        percentiles(pages_after_write)
     ));
     let removed = IndexBatch {
         removed_keys: (0..settings.runs as u64)

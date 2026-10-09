@@ -1,14 +1,15 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
   "extends": "../../tsconfig.node.json",
-  // Writes the declarations only: rolldown writes the daemon's JavaScript, bundled.
+  // Writes the declarations only, to `types/`: rolldown writes the daemon's JavaScript, bundled, to
+  // `dist/`, which it empties first.
   "compilerOptions": {
     "emitDeclarationOnly": true,
-    "outDir": "./dist",
+    "outDir": "./types",
     "rootDir": "./src",
     "tsBuildInfoFile": "./.tsbuildinfo"
   },
   "references": [{ "path": "../contracts" }, { "path": "../search-ranking" }],
   "include": ["src/**/*"],
-  "exclude": ["dist", "node_modules", "src/**/__tests__/**", "src/**/__fixtures__/**"]
+  "exclude": ["types", "node_modules", "src/**/__tests__/**", "src/**/__fixtures__/**"]
 }

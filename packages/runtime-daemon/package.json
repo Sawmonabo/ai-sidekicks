@@ -12,7 +12,7 @@
     "./typescript-source-loader": "./tests/helpers/typescript-source-loader.mjs",
     "./main": {
       "@ai-sidekicks/source": "./src/main.ts",
-      "types": "./dist/main.d.ts",
+      "types": "./types/main.d.ts",
       "import": "./dist/main.js"
     }
   },
@@ -21,6 +21,7 @@
   },
   "files": [
     "dist",
+    "types",
     "tests/helpers/typescript-source-loader.mjs"
   ],
   "scripts": {

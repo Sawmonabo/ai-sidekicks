@@ -1,0 +1,2 @@
+# Written by `tsc`: the daemon's declarations, beside the bundle in `dist/`.
+types/
