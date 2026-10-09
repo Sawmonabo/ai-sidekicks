@@ -19,7 +19,7 @@ export const CANCEL_STOP_GRACE_MS = 5_000;
 export const SHUTDOWN_STOP_GRACE_MS: number = DAEMON_STOP_TERMINAL_DRAIN_MS;
 
 /** What one streamed git run takes. */
-export interface StreamedGitOptions {
+interface StreamedGitOptions {
   /** Layered over the git environment, per run. */
   readonly environmentOverrides?: Readonly<Record<string, string>> | undefined;
   /** Receives git's stderr as it arrives. */
@@ -102,7 +102,7 @@ function runStreamedGit(
   });
 }
 
-/** Runs one streamed git through the `git` the daemon found, as {@link createStreamedGitRunner} binds it. */
+/** Runs one streamed git through the `git` the daemon found at start. */
 export type StreamedGitRunner = (
   argv: readonly string[],
   options: StreamedGitOptions,

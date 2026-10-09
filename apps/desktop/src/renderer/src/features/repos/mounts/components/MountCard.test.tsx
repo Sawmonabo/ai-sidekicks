@@ -10,11 +10,7 @@ import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { scriptedRepoOperations } from "../../operations.test-support.js";
 import { MountCard } from "./MountCard.js";
 import type { RepoWorkspaceRow } from "../reading.js";
-import {
-  CANONICAL_ROOT,
-  buildMount,
-  workspaceRow,
-} from "../repo-mounts.test-support.js";
+import { CANONICAL_ROOT, buildMount, workspaceRow } from "../repo-mounts.test-support.js";
 import { HOVER_LABEL_TEXT_ATTRIBUTE } from "#renderer/components/HoverLabel/HoverLabel.js";
 
 /** The card's own state sentence; each prepare form repeats a held reason in its disclosure. */

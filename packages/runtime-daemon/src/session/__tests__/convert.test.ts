@@ -49,7 +49,6 @@ import { RepoRootResolver } from "../../workspace/repo/root-resolver.js";
 import { WorkspaceService } from "../../workspace/service.js";
 import { SessionConversion } from "../convert.js";
 import { openSessionLog, type SessionLog } from "../directory/__fixtures__/event-log.js";
-import { sessionProjectSql } from "../directory/lookups.js";
 
 // More pages than any list here takes, so a cursor that never moves fails instead of hanging.
 const MAX_PAGES_READ = 50;
@@ -200,13 +199,17 @@ function sessionShape(sessionId: SessionId): string {
   ).shape;
 }
 
-// The project a session belongs to, as the sessions list reads it.
+// The project a session belongs to: the attached mount its newest workspace binds.
 function projectOf(sessionId: SessionId): string | undefined {
-  const repoMountId = log.scratch.reader
-    .prepare(`SELECT ${sessionProjectSql("?")}`)
-    .pluck()
-    .get(sessionId) as string | null;
-  return repoMountId ?? undefined;
+  const row = log.scratch.reader
+    .prepare(
+      `SELECT w.repo_mount_id AS repoMountId
+         FROM workspaces w JOIN repo_mounts m ON m.id = w.repo_mount_id
+        WHERE w.session_id = ? AND m.origin = 'attached'
+        ORDER BY w.created_at DESC, w.id DESC LIMIT 1`,
+    )
+    .get(sessionId) as { repoMountId: string } | undefined;
+  return row?.repoMountId;
 }
 
 function eventsOf(sessionId: SessionId): { id: string; type: string; payload: string }[] {

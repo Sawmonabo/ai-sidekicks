@@ -14,7 +14,11 @@ import {
   type ScratchDatabase,
 } from "../../../database/__fixtures__/scratch.js";
 import { createStreamedGitRunner } from "../../../workspace/clone/streamed-git.js";
-import { createGitCommand, createGitRunner, DEFAULT_GIT_COMMAND_TIMEOUT_MS } from "../../process.js";
+import {
+  createGitCommand,
+  createGitRunner,
+  DEFAULT_GIT_COMMAND_TIMEOUT_MS,
+} from "../../process.js";
 import { BackgroundFetch } from "../fetch.js";
 
 let folder: string;

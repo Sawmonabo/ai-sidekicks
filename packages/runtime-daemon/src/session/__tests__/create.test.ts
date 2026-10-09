@@ -362,9 +362,9 @@ describe("SessionCreation", () => {
   });
 
   it("refuses a project that does not exist, with nothing written", async () => {
-    await expect(
-      creation.create(projectRequest(mintUuidV7() as ProjectId)),
-    ).rejects.toMatchObject({ code: "repo.not_found" });
+    await expect(creation.create(projectRequest(mintUuidV7() as ProjectId))).rejects.toMatchObject({
+      code: "repo.not_found",
+    });
     expect(countRows("SELECT COUNT(*) AS count FROM sessions")).toBe(0);
     expect(countRows("SELECT COUNT(*) AS count FROM session_events")).toBe(0);
   });

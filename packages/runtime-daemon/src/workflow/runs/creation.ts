@@ -44,6 +44,8 @@ export type WorkflowRunExecutionContext = Pick<
   PreparedExecutionRoot,
   "workspaceId" | "executionMode" | "executionRoot" | "worktreeId" | "branchContextId"
 > & {
+  /** The top level of the working tree the run works in, so a snapshot captures the whole tree. */
+  readonly checkoutRoot: string;
   /** `git rev-parse --git-common-dir`, absolute, read when the context was prepared. */
   readonly gitCommonDir: string;
 };
@@ -77,11 +79,11 @@ const COUNT_CHAIN_RUN_SQL = `UPDATE workflow_runs SET chain_run_count = chain_ru
   WHERE id = ? AND chain_run_count IS NOT NULL`;
 
 const INSERT_EXECUTION_CONTEXT_SQL = `INSERT INTO run_execution_contexts (
-    run_id, session_id, workspace_id, execution_mode, execution_root, git_common_dir,
-    worktree_id, branch_context_id, created_at
+    run_id, session_id, workspace_id, execution_mode, execution_root, checkout_root,
+    git_common_dir, worktree_id, branch_context_id, created_at
   ) VALUES (
-    @runId, @sessionId, @workspaceId, @executionMode, @executionRoot, @gitCommonDir,
-    @worktreeId, @branchContextId, @startedAt
+    @runId, @sessionId, @workspaceId, @executionMode, @executionRoot, @checkoutRoot,
+    @gitCommonDir, @worktreeId, @branchContextId, @startedAt
   )`;
 
 /**
@@ -129,6 +131,7 @@ export function workflowRunCreationStatements(creation: WorkflowRunCreation): Wr
         workspaceId: context.workspaceId,
         executionMode: context.executionMode,
         executionRoot: context.executionRoot,
+        checkoutRoot: context.checkoutRoot,
         gitCommonDir: context.gitCommonDir,
         worktreeId: context.worktreeId ?? null,
         branchContextId: context.branchContextId,

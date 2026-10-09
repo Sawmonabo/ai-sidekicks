@@ -132,11 +132,17 @@ export class WorktreeEventEmitter {
    * Emit `worktree.created` then `worktree.ready` in one write, for a row the prelude writes and
    * moves to `ready` together: neither event commits without the other.
    */
-  async emitWorktreeCreatedAndReady(input: EmitWorktreeCreatedInput): Promise<EventLogAppendReceipt> {
-    return this.#appender.append("worktree.ready", this.#lifecyclePayload("worktree.ready", input), {
-      ...input,
-      precedingEvents: [{ type: "worktree.created", payload: this.#createdPayload(input) }],
-    });
+  async emitWorktreeCreatedAndReady(
+    input: EmitWorktreeCreatedInput,
+  ): Promise<EventLogAppendReceipt> {
+    return this.#appender.append(
+      "worktree.ready",
+      this.#lifecyclePayload("worktree.ready", input),
+      {
+        ...input,
+        precedingEvents: [{ type: "worktree.created", payload: this.#createdPayload(input) }],
+      },
+    );
   }
 
   /** Emit `worktree.ready`: the checkout is materialized and bindable as an execution root. */

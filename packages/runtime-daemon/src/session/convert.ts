@@ -16,7 +16,6 @@ import type { Database, Statement } from "better-sqlite3";
 
 import { countEntriesFittingOneFrame } from "@ai-sidekicks/contracts/jsonrpc/page";
 
-
 import type { RepoMountId } from "@ai-sidekicks/contracts/repo/mount";
 import {
   SESSION_CONVERT_INCOMPLETE_CODE,

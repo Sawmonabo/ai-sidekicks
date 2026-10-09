@@ -375,6 +375,7 @@ describe("SessionPurge — the worktrees the session made", () => {
       { id: "wt-awaiting-cleanup", createdBy: SESSION, state: "retired" },
       { id: "wt-in-use", createdBy: SESSION, state: "retired", isCleaned: true },
       { id: "wt-run-root", createdBy: SESSION, state: "failed" },
+      { id: "wt-pending-move", createdBy: SESSION, state: "failed" },
       { id: "wt-other", createdBy: SECOND_SESSION, state: "retired", isCleaned: true },
     ];
     const isOnDisk = (worktree: (typeof worktrees)[number]): boolean =>
@@ -403,7 +404,7 @@ describe("SessionPurge — the worktrees the session made", () => {
         },
       ]);
     }
-    // Another session's branch context and run name two of them.
+    // Another session's branch context and run name two of them, and its pending move a third.
     await fixture.scratch.writer.write([
       {
         sql: `INSERT INTO workspaces (id, session_id, repo_mount_id, execution_mode, state,
