@@ -26,10 +26,13 @@ export function sessionProjectSql(sessionIdSql: string): string {
         WHERE request.session_id = ${sessionIdSql})))`;
 }
 
+/** Reads a row only while the session the `@sessionId` parameter names has a directory row. */
+export const SESSION_EXISTS_SQL = "SELECT 1 FROM sessions WHERE id = @sessionId";
+
 /** Holds only while the session has a directory row. */
 export function sessionExistsStatement(sessionId: SessionId): WriteStatement {
   return {
-    sql: "SELECT 1 FROM sessions WHERE id = @sessionId",
+    sql: SESSION_EXISTS_SQL,
     bindings: { sessionId },
     expectedRowCount: 1,
   };

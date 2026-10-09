@@ -2,6 +2,7 @@
 // the log read back by run.
 
 import { randomUUID } from "node:crypto";
+import { tmpdir } from "node:os";
 
 import { AgentIdSchema } from "@ai-sidekicks/contracts/agent/definition";
 import { EventEnvelopeVersionSchema } from "@ai-sidekicks/contracts/event/envelope";
@@ -17,6 +18,10 @@ import {
 } from "../../../database/__fixtures__/scratch.js";
 import { EventLogService } from "../../../events/log-service.js";
 import { SessionEventAppender } from "../../../events/session/appender.js";
+import {
+  CURATED_CREDENTIAL_POLICY_REF,
+  ExecutionPostureService,
+} from "../../../policy/execution-posture-service.js";
 import type { ProviderDriver, StartRunParams } from "../../../provider/driver/contract.js";
 import { RunEngine, type RunTransitionRequest } from "../engine.js";
 import { insertQueuedRunStatement } from "../projection.js";
@@ -46,6 +51,8 @@ export interface RecordingDriver extends Pick<ProviderDriver, "startRun"> {
 export interface RunEngineFixture {
   readonly database: ScratchDatabase;
   readonly engine: RunEngine;
+  /** The posture gate `engine` registered first; it keeps each started run's resolved posture. */
+  readonly executionPostures: ExecutionPostureService;
   /** The run reads every consumer of the engine takes beside it. */
   readonly runs: RunStateReader;
   readonly sessionEvents: EventLogService;
@@ -61,11 +68,11 @@ export interface RunEngineFixture {
   close(): Promise<void>;
 }
 
-/** A posture the driver is handed and `run.running` is stamped with. */
+/** A posture the posture gate passes unchanged, so the driver is handed and stamps an equal one. */
 export const TEST_EXECUTION_POSTURE: ExecutionPosture = {
   mode: "sandboxed",
-  writableRoots: ["/work/session-root"],
-  credentialPolicyRef: "policy-default",
+  writableRoots: [],
+  credentialPolicyRef: CURATED_CREDENTIAL_POLICY_REF,
 };
 
 /** A driver that records every start and starts nothing. */
@@ -110,8 +117,12 @@ export async function openRunEngineFixture(): Promise<RunEngineFixture> {
     { sessionEvents },
     EventEnvelopeVersionSchema.parse("1.0"),
   );
-  const buildEngine = () => new RunEngine({ reader: database.reader, sessionEvents });
-  const engine = buildEngine();
+  // The home only places the curated credential paths, which no engine test reads.
+  const buildEngine = (
+    executionPostures = new ExecutionPostureService({ homeDirectory: tmpdir() }),
+  ) => new RunEngine({ reader: database.reader, sessionEvents, executionPostures });
+  const executionPostures = new ExecutionPostureService({ homeDirectory: tmpdir() });
+  const engine = buildEngine(executionPostures);
 
   async function queueRun(child?: ChildLink): Promise<RunId> {
     const runId = RunIdSchema.parse(randomUUID());
@@ -132,6 +143,7 @@ export async function openRunEngineFixture(): Promise<RunEngineFixture> {
   return {
     database,
     engine,
+    executionPostures,
     runs: new RunStateReader(database.reader),
     sessionEvents,
     sessionId,
@@ -155,7 +167,7 @@ export async function openRunEngineFixture(): Promise<RunEngineFixture> {
           type: row.type,
           payload: JSON.parse(row.payload) as Record<string, unknown>,
         })),
-    restartEngine: buildEngine,
+    restartEngine: () => buildEngine(),
     close: () => database.close(),
   };
 }

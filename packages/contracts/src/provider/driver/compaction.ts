@@ -9,11 +9,11 @@ export type DriverCompactionResult =
   // `boundaryPosition` is `null` where the provider's frame carried none.
   | { status: "applied"; boundaryPosition: number | null }
   // `command_absent`: the provider's own list for this binding lacks the command.
-  // `not_permitted`: the daemon's permission check denied the caller; never a driver's.
-  | { status: "refused"; reason: "command_absent" | "not_permitted" }
-  // `wait_expired`: no compaction frame within the binding's bound. `binding_lost`: the binding
-  // ended first. `provider_error`: the provider's mechanism errored.
-  | { status: "failed"; reason: "wait_expired" | "binding_lost" | "provider_error" };
+  | { status: "refused"; reason: "command_absent" }
+  // `binding_lost`: the binding ended before the frame came. `provider_error`: the provider's
+  // mechanism errored. `not_compacted`: the provider ended the compaction's turn without
+  // compacting, as when there is too little to compact or the compaction itself failed.
+  | { status: "failed"; reason: "binding_lost" | "provider_error" | "not_compacted" };
 
 /** Validates a {@link DriverCompactionResult}; `applied` needs a `boundaryPosition` key. */
 export const DriverCompactionResultSchema: z.ZodType<
@@ -31,13 +31,13 @@ export const DriverCompactionResultSchema: z.ZodType<
   z
     .object({
       status: z.literal("refused"),
-      reason: z.enum(["command_absent", "not_permitted"]),
+      reason: z.literal("command_absent"),
     })
     .strict(),
   z
     .object({
       status: z.literal("failed"),
-      reason: z.enum(["wait_expired", "binding_lost", "provider_error"]),
+      reason: z.enum(["binding_lost", "provider_error", "not_compacted"]),
     })
     .strict(),
 ]);

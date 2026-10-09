@@ -43,9 +43,11 @@ import {
 import {
   AgentBindingSwitchDispositionSchema,
   AgentBindingSwitchPendingSchema,
+  refineModelMoveNamesWindow,
   type AgentBindingSwitchDisposition,
   type AgentBindingSwitchPending,
 } from "./provider-binding.js";
+import { AgentTreeMemberSchema, type AgentTreeMember } from "./tree.js";
 import {
   SubscribeAckResponseSchema,
   SubscriptionIdSchema,
@@ -58,8 +60,6 @@ import {
 } from "../method-descriptor.js";
 import { ProviderNameSchema, type ProviderName } from "../provider/name.js";
 import { DRIVER_TOOL_NAME_MAX_LEN } from "../provider/driver/length-limits.js";
-import { RunIdSchema, type RunId } from "../run/id.js";
-import { DRIVER_WIRE_HANDLE_MAX_LEN } from "../provider/driver/methods.js";
 import {
   ProviderOutputSpeedStateSchema,
   type ProviderOutputSpeedState,
@@ -67,41 +67,6 @@ import {
 import { wireFreeFormString } from "../free-form-string.js";
 import { SessionIdSchema, type SessionId } from "../session/id.js";
 import { isoDateTimeSchema } from "../internal/wire-scalars.js";
-
-// The session's agent tree
-
-/**
- * The daemon-minted handle of a provider's own helper inside its parent's run.
- * Opaque, and resolved only by the daemon, whose parent-to-child index minted it.
- */
-export type ChildHandle = string & { readonly __brand: "ChildHandle" };
-/** Parses a {@link ChildHandle}: a non-empty string up to the wire's handle bound. */
-export const ChildHandleSchema: z.ZodType<ChildHandle, ChildHandle> = z
-  .string()
-  .min(1)
-  .max(DRIVER_WIRE_HANDLE_MAX_LEN)
-  .brand<"ChildHandle">() as unknown as z.ZodType<ChildHandle, ChildHandle>;
-
-/**
- * One agent in the session's tree as the daemon's index names it: an agent with an
- * id (the lead, or an agent a bridge `run` started), or a provider's own helper by
- * the run it runs in and its handle. Per-agent spend and a tree position both key
- * on it.
- */
-export type AgentTreeMember =
-  | { kind: "agent"; agentId: AgentId }
-  | { kind: "providerChild"; runId: RunId; childHandle: ChildHandle };
-/** Parses an {@link AgentTreeMember}. */
-export const AgentTreeMemberSchema: z.ZodType<AgentTreeMember> = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("agent"), agentId: AgentIdSchema }).strict(),
-  z
-    .object({
-      kind: z.literal("providerChild"),
-      runId: RunIdSchema,
-      childHandle: ChildHandleSchema,
-    })
-    .strict(),
-]);
 
 // agent.list
 
@@ -162,9 +127,12 @@ export const AgentListAckSchema: z.ZodType<AgentListAck> = z
 // agent.configUpdate
 
 /**
- * Move a running agent's model, effort, speed or provider: an omitted member is unchanged and at
- * least one moves, settled by the binding events. A provider switch applies at the end of the run
- * in flight. The account is not a member: it follows the provider's current account.
+ * Move a running agent's model, window, effort, speed or provider: an omitted member is unchanged
+ * and at least one moves, settled by the binding events. A provider switch applies at the end of
+ * the run in flight. The account is not a member: it follows the provider's current account.
+ * `largerWindow` as a number moves to that larger window in tokens and `null` back to the model's
+ * default; a `modelId` move names one of the two, so an omitted `largerWindow` always leaves the
+ * window unchanged.
  */
 export interface AgentConfigUpdateRequest {
   agentId: AgentId;
@@ -172,6 +140,7 @@ export interface AgentConfigUpdateRequest {
   modelId?: string | undefined;
   effort?: string | undefined;
   outputSpeed?: string | undefined;
+  largerWindow?: number | null | undefined;
   /** Interrupt the run first and hold the request open until the switch settles. */
   interruptAndSwitch?: boolean | undefined;
 }
@@ -186,6 +155,7 @@ export const AgentConfigUpdateRequestSchema: z.ZodType<
     modelId: providerTokenSchema("modelId").optional(),
     effort: providerTokenSchema("effort").optional(),
     outputSpeed: providerTokenSchema("outputSpeed").optional(),
+    largerWindow: z.number().int().positive().nullable().optional(),
     interruptAndSwitch: z.boolean().optional(),
   })
   .strict()
@@ -194,13 +164,16 @@ export const AgentConfigUpdateRequestSchema: z.ZodType<
       request.driverName !== undefined ||
       request.modelId !== undefined ||
       request.effort !== undefined ||
-      request.outputSpeed !== undefined;
+      request.outputSpeed !== undefined ||
+      request.largerWindow !== undefined;
     if (!movesAMember) {
       context.addIssue({
         code: "custom",
-        message: "An update moves at least one of driverName, modelId, effort or outputSpeed.",
+        message:
+          "An update moves at least one of driverName, modelId, largerWindow, effort or outputSpeed.",
       });
     }
+    refineModelMoveNamesWindow(request, context);
   });
 
 /** The switch the update became, and when the agent row recorded it. */

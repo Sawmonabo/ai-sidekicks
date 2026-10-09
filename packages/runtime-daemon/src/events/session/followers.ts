@@ -29,6 +29,7 @@ import { canonicalizeUuid } from "@ai-sidekicks/contracts/uuid-canonical";
 
 import type { ServiceLogWriter } from "../../daemon/service-log.js";
 import type { SessionEventReads } from "./read.js";
+import { describeRejection } from "../../rejection.js";
 
 // One change a session follower receives: the committed event and the cursor that resumes after it.
 type SessionEventChange = SessionStreamChange<EventEnvelope>;
@@ -284,9 +285,7 @@ export class SessionEventFollowers {
   }
 
   #report(what: string, error: unknown): void {
-    this.#writeServiceLog(
-      `event log: ${what} failed: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    this.#writeServiceLog(`event log: ${what} failed: ${describeRejection(error)}`);
   }
 
   // Reads one page and delivers it while the receiver has room, then waits for room or the next

@@ -24,16 +24,21 @@ export interface RequestedIntervention {
 
 /**
  * One move of an intervention's row. Each leaves exactly the state its `from` names; only a
- * `rejected` or `failed` row carries a reason and only a `degraded` one a fallback. A request
- * expires only before dispatch: once dispatched, the driver's verdict stands. Only a restart that
- * ends the run for a stop still pending moves a `requested` row to `applied`.
+ * `rejected` or `failed` row carries a reason, only a `degraded` one a fallback, and only an
+ * `applied` one the run its message went to when that is not its target. A request expires only
+ * before dispatch: once dispatched, the driver's verdict stands. Only a restart that ends the run
+ * for a stop still pending moves a `requested` row to `applied`.
  */
 export type InterventionTransition =
   | { readonly from: "requested"; readonly to: "accepted" }
   | { readonly from: "requested" | "accepted"; readonly to: "expired" }
   | { readonly from: "requested" | "accepted"; readonly to: "rejected"; readonly reason: string }
   | { readonly from: "accepted"; readonly to: "failed"; readonly reason: string }
-  | { readonly from: "requested" | "accepted"; readonly to: "applied" }
+  | {
+      readonly from: "requested" | "accepted";
+      readonly to: "applied";
+      readonly deliveredRunId?: RunId | undefined;
+    }
   | {
       readonly from: "accepted";
       readonly to: "degraded";
@@ -64,6 +69,7 @@ const MOVE_SQL = `UPDATE interventions
         rejection_reason = @rejection_reason,
         failure_reason = @failure_reason,
         fallback_action = @fallback_action,
+        delivered_run_id = @delivered_run_id,
         resolved_at = CASE WHEN @to = 'accepted' THEN NULL ELSE ${DATABASE_NOW_SQL} END
   WHERE id = @id
     AND state = @from`;
@@ -112,6 +118,7 @@ export function moveInterventionStatement(
       rejection_reason: transition.to === "rejected" ? transition.reason : null,
       failure_reason: transition.to === "failed" ? transition.reason : null,
       fallback_action: transition.to === "degraded" ? (transition.fallbackAction ?? null) : null,
+      delivered_run_id: transition.to === "applied" ? (transition.deliveredRunId ?? null) : null,
     },
     expectedRowCount: 1,
   };

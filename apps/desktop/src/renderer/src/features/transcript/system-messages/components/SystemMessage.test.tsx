@@ -57,14 +57,16 @@ describe("the system message — the switch outcomes", () => {
         actor: "user-ada",
         payload: failedSwitch(attempted),
       });
-    const container = renderSystemMessage(failedRow({ driverName: "codex", modelId: "gpt-5.5" }));
+    const container = renderSystemMessage(
+      failedRow({ driverName: "codex", modelId: "gpt-5.5", largerWindow: null }),
+    );
     const line = container.querySelector(".meridian-system-message");
     expect(line?.textContent).toBe("Switch to Codex failed");
     expect(line?.classList.contains("meridian-system-message--caution")).toBe(true);
     // A switch that tried another model only names the provider it stayed on.
-    expect(renderSystemMessage(failedRow({ modelId: "sonnet" })).textContent).toContain(
-      "Switch to Claude Code failed",
-    );
+    expect(
+      renderSystemMessage(failedRow({ modelId: "sonnet", largerWindow: null })).textContent,
+    ).toContain("Switch to Claude Code failed");
     expect(container.textContent).not.toContain("user-ada");
     expect(container.textContent).not.toContain(AGENT_PROVIDER_BINDING_CHANGE_FAILED_EVENT);
     expect(container.textContent).not.toContain("output_speed_unavailable");

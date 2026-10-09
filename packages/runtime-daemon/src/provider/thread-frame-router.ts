@@ -12,9 +12,10 @@
 //   initialization frames) routes without a thread identity, because its shape has none.
 // - An unrecognized family is quarantined; an unlisted shape is never presumed connection-scoped.
 //
-// A thread identity is recognized by registration: the session's own thread at establishment, or
-// a child announced with a provider-declared parent (each driver reads the parent linkage off its
-// own child-start frame). It is never inferred from arrival order.
+// A thread identity is recognized by registration: the session's own thread at establishment, a
+// thread the session moved off that is held while a command of it still runs, or a child
+// announced with a provider-declared parent (each driver reads the parent linkage off its own
+// child-start frame). It is never inferred from arrival order.
 //
 // Two bounded held states differ in meaning:
 // - Pending-registration hold: a frame naming a thread that is present but unregistered (child
@@ -120,10 +121,8 @@ export interface SubagentLifecycleEmission {
   readonly eventType: "subagent.started" | "subagent.completed";
   /** The provider-attributed subagent identity, verbatim off the wire. */
   readonly subagentId: string;
-  /**
-   * The provider's own parent linkage, verbatim, or `null` where the announcement named none.
-   */
-  readonly parentReference: string | null;
+  /** The tool call the provider opened the subagent under, verbatim, where it names one. */
+  readonly parentToolCallId?: string | undefined;
 }
 
 /** The single routing decision for one frame, consumed unchanged by the emission gate. */
@@ -143,8 +142,8 @@ export type ThreadFrameRoute =
       readonly decision: "carve-out-interactive-request";
       readonly childThreadId: string;
     }
-  /** A registered child's content or lifecycle frame: transcript-suppressed. */
-  | { readonly decision: "suppress-child-transcript"; readonly childThreadId: string }
+  /** A registered child's content or lifecycle frame: the driver writes it on the child's run. */
+  | { readonly decision: "child-transcript"; readonly childThreadId: string }
   /** Present-but-unregistered identity: held awaiting its announcement. */
   | { readonly decision: "held-pending-registration" }
   /** Absent or unrecognized identity, or unrecognized family: refused. */
@@ -164,8 +163,8 @@ export class ThreadFrameRouter<TFrame extends RoutableProviderFrame = RoutablePr
   readonly #config: ThreadFrameRouterConfig;
 
   #sessionThreadId: string | null = null;
+  readonly #heldThreadIds = new Set<string>();
   readonly #childAttributionsByThreadId = new Map<string, ChildSpendAttribution>();
-  readonly #suppressionDiagnosedChildThreadIds = new Set<string>();
   readonly #pendingHolds: {
     readonly frame: TFrame;
     readonly heldAtMs: number;
@@ -191,6 +190,19 @@ export class ThreadFrameRouter<TFrame extends RoutableProviderFrame = RoutablePr
   registerSessionThread(threadId: string): readonly TFrame[] {
     this.#sessionThreadId = threadId;
     return this.#takePendingHoldsFor(threadId);
+  }
+
+  /**
+   * Admits a thread the session moved off while a command of it still runs, so that command's
+   * frames project as the session's own until {@link releaseHeldThread}.
+   */
+  admitHeldThread(threadId: string): void {
+    this.#heldThreadIds.add(threadId);
+  }
+
+  /** Stops admitting a held thread once the session let it go. */
+  releaseHeldThread(threadId: string): void {
+    this.#heldThreadIds.delete(threadId);
   }
 
   /**
@@ -241,14 +253,13 @@ export class ThreadFrameRouter<TFrame extends RoutableProviderFrame = RoutablePr
   }
 
   /**
-   * Releases a completed child thread's state so the attribution map and the
-   * suppression-diagnosed set do not grow with every child a long session spawns. Call it from the
+   * Releases a completed child thread's state so the attribution map does not grow with every
+   * child a long session spawns. Call it from the
    * driver's child-terminal path. Completion is terminal for the identity: a later frame naming it
    * is pending-unregistered again and ends in the timeout shed.
    */
   completeChildThread(childThreadId: string): ChildCompletionResult<TFrame> {
     const wasRegistered = this.#childAttributionsByThreadId.delete(childThreadId);
-    this.#suppressionDiagnosedChildThreadIds.delete(childThreadId);
 
     const abandonedPendingFrames = this.#takePendingHoldsFor(childThreadId);
     for (const abandonedFrame of abandonedPendingFrames) {
@@ -305,7 +316,7 @@ export class ThreadFrameRouter<TFrame extends RoutableProviderFrame = RoutablePr
       );
     }
 
-    if (frame.threadId === this.#sessionThreadId) {
+    if (frame.threadId === this.#sessionThreadId || this.#heldThreadIds.has(frame.threadId)) {
       return { decision: "project" };
     }
 
@@ -321,21 +332,7 @@ export class ThreadFrameRouter<TFrame extends RoutableProviderFrame = RoutablePr
       if (frame.familyClass.capability === "interactive-request") {
         return { decision: "carve-out-interactive-request", childThreadId: frame.threadId };
       }
-      // Content and lifecycle frames are suppressed; diagnose once per child so deltas do not
-      // flood the channel.
-      if (!this.#suppressionDiagnosedChildThreadIds.has(frame.threadId)) {
-        this.#suppressionDiagnosedChildThreadIds.add(frame.threadId);
-        this.#diagnostics.emit({
-          provider: this.#provider,
-          kind: "thread_child_transcript_suppressed",
-          rawWireType: frame.rawWireType,
-          dispositionReason:
-            "registered child thread's transcript projection suppressed; child lifecycle " +
-            "reaches the transcript only as subagent.started / subagent.completed",
-          details: { childThreadId: frame.threadId },
-        });
-      }
-      return { decision: "suppress-child-transcript", childThreadId: frame.threadId };
+      return { decision: "child-transcript", childThreadId: frame.threadId };
     }
 
     // Present-but-unregistered: child traffic racing its own announcement.

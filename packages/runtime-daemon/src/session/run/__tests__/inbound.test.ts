@@ -1,5 +1,6 @@
 // The inbound dispatch over a real database: what a provider delivers after an undo's cut, on a
-// binding the cut kept and on one a fork and restart froze, and after its run has ended.
+// binding the cut kept and on one a fork and restart froze, after its run has ended, and the child
+// run a provider's subagent starts.
 
 import { randomUUID } from "node:crypto";
 
@@ -9,6 +10,8 @@ import type { RunId } from "@ai-sidekicks/contracts/run/id";
 
 import { makeSilentDriverDiagnostics } from "../../../provider/__fixtures__/silent-driver-diagnostics.js";
 import type { DriverDiagnosticsEmitter } from "../../../provider/driver/diagnostics.js";
+import { PortRegistration } from "../../../provider/port/registration.js";
+import type { RunStatePublisher } from "../../../provider/port/run-state-publisher.js";
 import type { RunEngine, RunTransitionRequest } from "../engine.js";
 import { ExecutionEpochs, type DeliveryOperation, type EpochBinding } from "../epochs.js";
 import {
@@ -43,17 +46,24 @@ describe("run inbound dispatch", () => {
       diagnostics,
       ...(maxAssociationsPerBinding === undefined ? {} : { maxAssociationsPerBinding }),
     });
-    const engine: Pick<RunEngine, "applyProviderStateChange"> = {
+    const engine: Pick<
+      RunEngine,
+      "applyProviderStateChange" | "startProviderSubagentRun" | "appendRunMarker"
+    > = {
       applyProviderStateChange: (change) => {
         changesReachingEngine.push(change);
         return fixture.engine.applyProviderStateChange(change);
       },
+      startProviderSubagentRun: (parentRunId) =>
+        fixture.engine.startProviderSubagentRun(parentRunId),
+      appendRunMarker: (marker) => fixture.engine.appendRunMarker(marker),
     };
     const inbound = new RunInboundDispatch({
       engine,
       epochs,
       diagnostics,
       sessionEvents: fixture.sessionEvents,
+      runStatePublisher: new PortRegistration<RunStatePublisher>("run state publisher"),
     });
     return { dispatch: (delivery) => inbound.dispatch(delivery), epochs };
   }
@@ -233,6 +243,44 @@ describe("run inbound dispatch", () => {
     },
   );
 
+  it("starts a subagent's child run under its live parent, and absorbs one whose parent has ended", async () => {
+    const parentRunId = await fixture.runThrough(["starting", "running"]);
+    const { dispatch, epochs } = openDispatch();
+    const binding = makeBinding(parentRunId);
+    epochs.openBinding(binding, { epoch: 0, position: 0 });
+
+    const started = await dispatch({ kind: "child_run", bindingId: binding.id, parentRunId });
+
+    if (started.disposition !== "child_run_started") {
+      throw new Error(`Expected a started child run, got ${started.disposition}`);
+    }
+    const childRunId = started.runId;
+    expect(fixture.runs.getRun(childRunId)?.state).toBe("running");
+    // The crash cascade ends the child with its parent only through this link.
+    expect(fixture.runs.listLiveProviderSubagents(parentRunId)).toEqual([childRunId]);
+    expect(fixture.readRunEvents(childRunId).map((row) => row.type)).toEqual([
+      "run.queued",
+      "run.starting",
+      "run.running",
+    ]);
+    expect(fixture.readRunEvents(childRunId)[0]?.payload).toMatchObject({
+      parentRunId,
+      reachedBy: "provider_subagent",
+    });
+
+    await fixture.engine.transition({
+      runId: parentRunId,
+      newState: "failed",
+      failureCategory: "provider failure",
+    });
+    const eventsBefore = countSessionEvents();
+
+    const late = await dispatch({ kind: "child_run", bindingId: binding.id, parentRunId });
+
+    expect(late).toEqual({ disposition: "absorbed", reason: "run_ended" });
+    expect(countSessionEvents()).toBe(eventsBefore);
+  });
+
   it("absorbs a straggler that meets the run's terminal still queued, refused inside its own write", async () => {
     const runId = await fixture.runThrough(["starting", "running"]);
     const { dispatch, epochs } = openDispatch();
@@ -287,8 +335,16 @@ describe("run inbound dispatch", () => {
       row: usageRow(runId, "late-for-turn-4"),
     });
 
-    expect(kept).toEqual({ disposition: "appended_stamped", source: { epoch: 0, position: 2 } });
-    expect(cutAway).toEqual({ disposition: "appended_stamped", source: { epoch: 0, position: 4 } });
+    expect(kept).toEqual({
+      disposition: "appended_stamped",
+      eventId: expect.any(String),
+      source: { epoch: 0, position: 2 },
+    });
+    expect(cutAway).toEqual({
+      disposition: "appended_stamped",
+      eventId: expect.any(String),
+      source: { epoch: 0, position: 4 },
+    });
     const rows = readUsageRows();
     expect(rows.get("late-for-turn-2")).toMatchObject({ runId, sourceEpoch: 0, sourcePosition: 2 });
     expect(rows.get("late-for-turn-4")).toMatchObject({ runId, sourceEpoch: 0, sourcePosition: 4 });
@@ -314,7 +370,12 @@ describe("run inbound dispatch", () => {
       operation: continuing("message-2"),
       row: {
         type: "assistant.message",
-        payload: { sessionId: fixture.sessionId, runId, contentType: "text/markdown" },
+        payload: {
+          sessionId: fixture.sessionId,
+          runId,
+          providerMessageId: "msg_retry",
+          contentType: "text/markdown",
+        },
       },
       content: { body: "The retry is in place." },
     });
@@ -363,8 +424,12 @@ describe("run inbound dispatch", () => {
       row: usageRow(runId, "first-try-late"),
     });
 
-    expect(reExecuted).toEqual({ disposition: "appended" });
-    expect(twin).toEqual({ disposition: "appended_stamped", source: { epoch: 0, position: 4 } });
+    expect(reExecuted).toEqual({ disposition: "appended", eventId: expect.any(String) });
+    expect(twin).toEqual({
+      disposition: "appended_stamped",
+      eventId: expect.any(String),
+      source: { epoch: 0, position: 4 },
+    });
     const rows = readUsageRows();
     for (const current of ["second-try-opened", "second-try-late"]) {
       expect(rows.get(current)).not.toHaveProperty("sourceEpoch");
@@ -412,12 +477,12 @@ describe("run inbound dispatch", () => {
 
     expect(onOld).toEqual([
       { disposition: "absorbed", reason: "before_cut" },
-      { disposition: "appended_stamped", source: retained },
-      { disposition: "appended_stamped", source: retained },
+      { disposition: "appended_stamped", eventId: expect.any(String), source: retained },
+      { disposition: "appended_stamped", eventId: expect.any(String), source: retained },
       { disposition: "absorbed", reason: "before_cut" },
     ]);
     expect(changesReachingEngine).toEqual([]);
-    expect(onNew).toEqual({ disposition: "appended" });
+    expect(onNew).toEqual({ disposition: "appended", eventId: expect.any(String) });
     const rows = readUsageRows();
     expect(rows.get("old-without-operation")).toMatchObject({ sourceEpoch: 0, sourcePosition: 6 });
     expect(rows.get("new-opening")).not.toHaveProperty("sourceEpoch");
@@ -460,13 +525,14 @@ describe("run inbound dispatch", () => {
     // The retained pair sits above the cut's point, so the row is superseded with its epoch.
     expect(evictedLate).toEqual({
       disposition: "appended_stamped",
+      eventId: expect.any(String),
       source: { epoch: 0, position: 5 },
     });
     expect(readUsageRows().get("evicted-late")).toMatchObject({
       sourceEpoch: 0,
       sourcePosition: 5,
     });
-    expect(afterFence).toEqual({ disposition: "appended" });
+    expect(afterFence).toEqual({ disposition: "appended", eventId: expect.any(String) });
     expect(diagnostics.recentRecordsOfKind("epoch_association_evicted")).toHaveLength(1);
 
     // A live terminal or ask absorbed here would leave the provider waiting, so both are current.
@@ -532,7 +598,7 @@ describe("run inbound dispatch", () => {
 
     expect(reusedAsk).toEqual({ disposition: "ask_admitted" });
     expect(lifecycle).toMatchObject({ disposition: "transitioned" });
-    expect(row).toEqual({ disposition: "appended" });
+    expect(row).toEqual({ disposition: "appended", eventId: expect.any(String) });
     expect(readUsageRows().get("reused-late")).not.toHaveProperty("sourceEpoch");
     expect(absorbedRecords()).toEqual([]);
     expect(

@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { UNRECOGNIZED_TURN_EVIDENCE } from "../../../outbound-frame.js";
+import { UNRECOGNIZED_TURN_EVIDENCE } from "../../../turn-evidence.js";
 import { classifyClaudeTurnEvidence } from "../turn-evidence.js";
 import {
   CLAUDE_API_ERRORED_TURN_RESULT_FRAME,

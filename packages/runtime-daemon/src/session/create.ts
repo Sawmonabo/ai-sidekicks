@@ -49,6 +49,7 @@ import { mintUuidV7 } from "../uuid-v7.js";
 import type { ManagedWorkspaceService } from "../workspace/managed/service.js";
 import { ProjectNotFoundError } from "../workspace/repo/errors.js";
 import type { WorkspaceService } from "../workspace/service.js";
+import { INSERT_CONSOLE_STATE_SQL } from "./console-state.js";
 import { sessionGroupPlacementStatement } from "./groups/store.js";
 import { sessionLifecycleEvent } from "./lifecycle-event.js";
 
@@ -105,9 +106,6 @@ const CURRENT_ACCOUNT_SQL = `SELECT 1 FROM provider_accounts
 // Holds only while the group belongs to the project the session is being made in.
 const GROUP_OF_PROJECT_SQL = `SELECT 1 FROM session_groups
   WHERE id = @groupId AND project_id = @projectId`;
-
-const INSERT_CONSOLE_STATE_SQL = `INSERT INTO session_console_state
-  (session_id, advisor_model, updated_at) VALUES (?, ?, ?)`;
 
 // The position of the account guard in the `session.created` write, after the request's record;
 // a project session's project guard and then its group guard follow it.
@@ -322,7 +320,7 @@ export class SessionCreation {
       } catch (error) {
         this.#writeServiceLog(
           `Removing the managed workspace of chat ${sessionId}, whose create stopped before the ` +
-            `chat was born, failed: ${error instanceof Error ? error.message : String(error)}`,
+            `chat was born, failed: ${describeRejection(error)}`,
         );
       }
     }

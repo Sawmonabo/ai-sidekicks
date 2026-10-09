@@ -133,7 +133,7 @@ async function readUserTempDirectoryOrLog(
     }
     reason = "it printed nothing";
   } catch (error) {
-    reason = error instanceof Error ? error.message : String(error);
+    reason = describeRejection(error);
   }
   options.writeServiceLog(
     `The account's temporary folder could not be read (${reason}), so providers start with no ` +

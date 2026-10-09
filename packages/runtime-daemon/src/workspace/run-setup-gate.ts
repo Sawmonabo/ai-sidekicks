@@ -247,7 +247,7 @@ export class ExecutionRootSetupGate implements RunSetupGate {
         name: title?.name ?? null,
         firstMessagePreview: title?.first_message_preview ?? null,
       },
-      context.queueItem.content,
+      context.queueItem?.content ?? null,
     );
     return deriveRunTail(titleTail, context.runId);
   }

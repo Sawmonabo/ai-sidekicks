@@ -192,12 +192,14 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
   lane.output(RUN_IMPLEMENTER, {
     atMs: 520,
     kind: "assistant.thinking_update",
+    providerMessageId: "msg_implementer_1",
     contentType: "text/plain",
     body: blockAt(PROSE_BLOCKS, 0),
   }),
   lane.output(RUN_IMPLEMENTER, {
     atMs: 640,
     kind: "assistant.message",
+    providerMessageId: "msg_implementer_1",
     contentType: "text/markdown",
     body: bodyOf([blockAt(PROSE_BLOCKS, 1), blockAt(BODY_BLOCKS, 3)]),
   }),
@@ -243,6 +245,7 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
   lane.output(RUN_REVIEWER, {
     atMs: 1_180,
     kind: "assistant.message",
+    providerMessageId: "item-reviewer-message-1",
     contentType: "text/markdown",
     body: bodyOf([blockAt(PROSE_BLOCKS, 3), blockAt(BODY_BLOCKS, 9)]),
   }),
@@ -334,6 +337,7 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
   lane.output(RUN_ARCHITECT, {
     atMs: 2_540,
     kind: "assistant.thinking_update",
+    providerMessageId: "msg_architect_1",
     contentType: "text/plain",
     body: blockAt(PROSE_BLOCKS, 5),
   }),
@@ -377,12 +381,14 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
   lane.output(RUN_IMPLEMENTER, {
     atMs: 2_700,
     kind: "assistant.message",
+    providerMessageId: "msg_implementer_2",
     contentType: "text/markdown",
     body: bodyOf([blockAt(PROSE_BLOCKS, 6), blockAt(BODY_BLOCKS, 18)]),
   }),
   lane.output(RUN_ARCHITECT_CHILD, {
     atMs: 2_740,
     kind: "assistant.thinking_update",
+    providerMessageId: "msg_architect_child_1",
     contentType: "text/plain",
     body: blockAt(PROSE_BLOCKS, 7),
   }),
@@ -424,6 +430,7 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
   lane.output(RUN_ARCHITECT, {
     atMs: 3_060,
     kind: "assistant.message",
+    providerMessageId: "msg_architect_2",
     contentType: "text/markdown",
     body: bodyOf([blockAt(PROSE_BLOCKS, 9), blockAt(BODY_BLOCKS, 27)]),
   }),

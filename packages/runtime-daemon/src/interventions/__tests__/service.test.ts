@@ -29,9 +29,9 @@ import { DaemonDomainError } from "../../ipc/domain-error.js";
 import { STEER_FALLBACK_ACTION } from "../../provider/driver/contract.js";
 import { insertQueuedRunStatement, swapRunStateStatement } from "../../session/run/projection.js";
 import { RunStateReader } from "../../session/run/read.js";
+import type { FasterModelRetryOutcome } from "../../provider/driver/run-control.js";
 import {
   InterventionService,
-  type FasterModelRetryOutcome,
   type FasterModelRetryRequest,
   type InterventionOrigin,
 } from "../service.js";
@@ -336,6 +336,17 @@ describe("InterventionService", () => {
         "intervention.accepted",
         "intervention.failed",
       ]);
+      // The failed event says what the answer and the row say.
+      expect(
+        database.reader
+          .prepare<[string], { failure_reason: string }>(
+            `SELECT json_extract(payload, '$.failureReason') AS failure_reason
+               FROM session_events
+              WHERE type = 'intervention.failed'
+                AND json_extract(payload, '$.interventionId') = ?`,
+          )
+          .get(retried.interventionId),
+      ).toEqual({ failure_reason: failureReason });
       expect(driverCalls).toHaveLength(1);
     },
   );

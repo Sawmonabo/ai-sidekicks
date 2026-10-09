@@ -67,7 +67,7 @@ export const CODEX_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, boole
     // Fork at an inclusive turn boundary; not probeable at the parameter level, so it resolves from
     // the matrix (a build that refuses the boundary field fails at fork dispatch).
     rollback: true,
-    // `forkConversation`: a new provider conversation, the source untouched.
+    // `moveSessionToFork`: the session moves onto a conversation forked from its own.
     session_fork: true,
     // Durable per-thread goal set/clear operations exist on the wire.
     session_goals: true,
@@ -182,12 +182,6 @@ export async function refreshCodexCapabilities(
 // The name the catalog gives the tier that speeds output up; its id is free-form.
 const CODEX_FAST_TIER_NAME = "Fast";
 
-/**
- * One `model/list` request on the driver's existing connection, returning `unknown` because the
- * reply is untrusted. It starts no turn, so a billed turn is unrepresentable.
- */
-export type CodexModelCatalogExchange = () => Promise<unknown>;
-
 function codexCatalogUnreadable(detail: string): ModelCatalogUnreadableError {
   return new ModelCatalogUnreadableError("Codex model/list", detail);
 }
@@ -261,6 +255,8 @@ export function normalizeCodexModelCatalog(payload: unknown): ProviderModel[] {
       capabilities: [],
       // A tier list alone is not fast output: a model could list only a slower tier.
       fast: hasFastTier,
+      // A larger window is read from the catalog dump, which adds its own row for it.
+      largerWindow: false,
     };
     // Absent, not empty, when the model publishes no tier: it has no speed selection. Standard
     // leads, so a person can ask for it back; a tier the provider itself names so is not doubled.
@@ -292,14 +288,4 @@ export function normalizeCodexModelCatalog(payload: unknown): ProviderModel[] {
     models.push(model);
   }
   return models;
-}
-
-/**
- * Answers `listModels()` from the live `model/list` read. A failed read propagates: no stored list
- * stands in for the provider's.
- */
-export async function resolveCodexModelCatalog(
-  exchange: CodexModelCatalogExchange,
-): Promise<ProviderModel[]> {
-  return normalizeCodexModelCatalog(await exchange());
 }

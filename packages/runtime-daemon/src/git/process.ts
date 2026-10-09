@@ -228,6 +228,21 @@ export function readGitExitStatus(rejection: unknown): number | null {
   return typeof rejection.code === "number" ? rejection.code : null;
 }
 
+/**
+ * The absolute git folder of the repository `folder` sits in: the common one for a linked worktree,
+ * which every worktree of the repository shares. Rejects when `folder` is in no repository.
+ */
+export async function readGitCommonFolder(runGit: GitCommand, folder: string): Promise<string> {
+  const result = await runGit([
+    "-C",
+    folder,
+    "rev-parse",
+    "--path-format=absolute",
+    "--git-common-dir",
+  ]);
+  return result.stdout.toString("utf8").trim();
+}
+
 /** What {@link createGitCommand} binds: the runner and the service's per-call bound. */
 export interface GitCommandDependencies {
   readonly git: GitRunner;

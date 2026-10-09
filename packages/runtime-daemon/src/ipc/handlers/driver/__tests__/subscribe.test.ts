@@ -47,7 +47,11 @@ describe("driver.subscribeEvents", () => {
       type: "assistant.message",
       actor: TEST_ACTOR_ID,
       version: "1.0" as SessionEvent["version"],
-      payload: { sessionId: TEST_SESSION_ID, runId: TEST_RUN_ID },
+      payload: {
+        sessionId: TEST_SESSION_ID,
+        runId: TEST_RUN_ID,
+        providerMessageId: `msg_reply_${sequence}`,
+      },
     };
   }
 

@@ -3,7 +3,8 @@
 // `childHandle` to reach a child's queue, whose messages arrive through `run.childSteer`.
 import { z } from "zod";
 
-import { ChildHandleSchema, type ChildHandle } from "../agent/methods.js";
+import { providerTokenSchema } from "../agent/definition.js";
+import { ChildHandleSchema, type ChildHandle } from "../agent/tree.js";
 import { EVENT_FIELD_MAX_LEN } from "../event/version.js";
 import { brandedUuidIdSchema } from "../internal/branded.js";
 import { ArtifactIdSchema, type ArtifactId } from "../artifacts/id.js";
@@ -75,6 +76,12 @@ export interface QueueItemCreateRequest {
    * onto the `user.message` row it writes, which marks the question answered.
    */
   answersQuestionId?: QuestionId | undefined;
+  /**
+   * The output-speed level this send's turn alone runs at, the agent's own level staying as it is:
+   * `Use standard` on a turn that failed for want of flex capacity sends the same words again with
+   * the provider's standard level here.
+   */
+  outputSpeedForTurn?: string | undefined;
 }
 
 /**
@@ -108,6 +115,7 @@ export const QueueItemCreateRequestSchema: z.ZodType<
     skills: z.array(QueuedSkillPickSchema).optional(),
     replacesQueueItemId: QueueItemIdSchema.optional(),
     answersQuestionId: QuestionIdSchema.optional(),
+    outputSpeedForTurn: providerTokenSchema("QueueItemCreateRequest.outputSpeedForTurn").optional(),
   })
   .strict();
 

@@ -28,6 +28,7 @@ import type {
   SpawnResponse,
 } from "../host/protocol.js";
 import type { DrainResult, PtyHost } from "../host/contract.js";
+import { describeRejection } from "../../rejection.js";
 
 /** Effectful primitives `RustSidecarPtyHost` reaches through; tests inject a double for each. */
 export interface RustSidecarPtyHostDeps {
@@ -351,7 +352,7 @@ export class RustSidecarPtyHost implements PtyHost {
         try {
           this.fireExit(sessionId, 1, undefined);
         } catch (err: unknown) {
-          const message: string = err instanceof Error ? err.message : String(err);
+          const message: string = describeRejection(err);
           console.warn(
             `RustSidecarPtyHost: synthetic forced-kill onExit listener threw for session ` +
               `${sessionId}: ${message}; continuing drain.`,
@@ -720,7 +721,7 @@ export class RustSidecarPtyHost implements PtyHost {
         try {
           this.fireExit(sessionId, -1, undefined);
         } catch (err: unknown) {
-          const message: string = err instanceof Error ? err.message : String(err);
+          const message: string = describeRejection(err);
           console.warn(
             `RustSidecarPtyHost: crash-time onExit listener threw for session ${sessionId}: ` +
               `${message}; continuing teardown.`,

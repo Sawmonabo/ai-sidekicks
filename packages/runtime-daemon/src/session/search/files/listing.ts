@@ -20,6 +20,7 @@ import type {
   GitInvocationFailure,
   GitInvocationResult,
 } from "../../../git/process.js";
+import { describeRejection } from "../../../rejection.js";
 
 // What git prints, in the C locale the runner sets, for a folder outside any working tree.
 const OUTSIDE_WORKING_TREE_STDERR = "not a git repository";
@@ -135,7 +136,7 @@ async function walkFolder(folder: string, writeServiceLog: ServiceLogWriter): Pr
             }
             writeServiceLog(
               `The file search listed ${folder} past ${rulesPath}, which it could not read, ` +
-                `its rules unread: ${error instanceof Error ? error.message : String(error)}`,
+                `its rules unread: ${describeRejection(error)}`,
             );
             callback(null, entries);
           },

@@ -43,6 +43,19 @@ const QuestionOptionSchema: z.ZodType<QuestionOption> = z
   })
   .strict();
 
+/**
+ * The answer a form field starts from, as the form declared it: the label of the option it
+ * preselects (several labels on a field of several picks), or a typed field's value in its own
+ * type.
+ */
+export type QuestionDefault = string | number | boolean | string[];
+const QuestionDefaultSchema: z.ZodType<QuestionDefault, QuestionDefault> = z.union([
+  z.string(),
+  z.number().finite(),
+  z.boolean(),
+  z.array(z.string().min(1)),
+]);
+
 /** One question of the record, one page of the card. */
 export interface QuestionPrompt {
   /** The agent's own short header, a tool server's name, or a workflow's name. */
@@ -55,6 +68,17 @@ export interface QuestionPrompt {
   /** The provider's own reading of whether several picks go back together. */
   severalAnswers: boolean;
   secret: boolean;
+  /**
+   * Whether the form must have this field answered; present only on a tool server's form field,
+   * absent where the provider says nothing either way.
+   */
+  required?: boolean | undefined;
+  /** The answer the form field starts from, present only where the form declared one. */
+  default?: QuestionDefault | undefined;
+  /** The smallest number a numeric form field takes, where the form bounds it. */
+  minimum?: number | undefined;
+  /** The largest number a numeric form field takes, where the form bounds it. */
+  maximum?: number | undefined;
 }
 const QuestionPromptSchema: z.ZodType<QuestionPrompt> = z
   .object({
@@ -64,6 +88,10 @@ const QuestionPromptSchema: z.ZodType<QuestionPrompt> = z
     options: z.array(QuestionOptionSchema),
     severalAnswers: z.boolean(),
     secret: z.boolean(),
+    required: z.boolean().optional(),
+    default: QuestionDefaultSchema.optional(),
+    minimum: z.number().finite().optional(),
+    maximum: z.number().finite().optional(),
   })
   .strict()
   .superRefine((prompt, context) => {
@@ -72,6 +100,31 @@ const QuestionPromptSchema: z.ZodType<QuestionPrompt> = z
         code: "custom",
         path: ["options"],
         message: "a secret question draws a masked field and no option rows",
+      });
+    }
+    if (
+      prompt.minimum !== undefined &&
+      prompt.maximum !== undefined &&
+      prompt.minimum > prompt.maximum
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["maximum"],
+        message: "a field's largest number is below its smallest",
+      });
+    }
+    const defaultLabels =
+      typeof prompt.default === "string"
+        ? [prompt.default]
+        : Array.isArray(prompt.default)
+          ? prompt.default
+          : [];
+    const labels = new Set(prompt.options.map((option) => option.label));
+    if (prompt.options.length > 0 && defaultLabels.some((label) => !labels.has(label))) {
+      context.addIssue({
+        code: "custom",
+        path: ["default"],
+        message: "a question with option rows starts from one of its own options",
       });
     }
   });

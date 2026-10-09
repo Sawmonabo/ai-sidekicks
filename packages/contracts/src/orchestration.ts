@@ -20,7 +20,7 @@ import {
   ChildHandleSchema,
   type AgentTreeMember,
   type ChildHandle,
-} from "./agent/methods.js";
+} from "./agent/tree.js";
 import { wireFreeFormString } from "./free-form-string.js";
 import { countSchema, isoDateTimeSchema } from "./internal/wire-scalars.js";
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";

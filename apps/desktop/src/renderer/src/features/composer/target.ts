@@ -38,11 +38,6 @@ export interface ComposerRunTarget {
    * fails closed without it, so `undefined` refuses dispatch and is never sent as `0`.
    */
   readonly expectedRunVersion: number | undefined;
-  /**
-   * The run terminal's `providerFailureDetail`, wire-verbatim. Carried, not interpreted here:
-   * `draft-line/text-neutralization.ts` reads it.
-   */
-  readonly providerFailureDetail: string | undefined;
 }
 
 /** Where a composed message goes: the session or a bound agent's run. */
@@ -76,7 +71,6 @@ export function resolveComposerTarget(input: ComposerTargetInput): ComposerTarge
       driverName: readWireString(agent?.body?.["driverName"]),
       targetRunId: run.id,
       expectedRunVersion: readWireNumber(run.body?.["runVersion"]),
-      providerFailureDetail: readWireString(run.body?.["providerFailureDetail"]),
     };
   }
   return { path: "session-message", sessionId: input.sessionId };

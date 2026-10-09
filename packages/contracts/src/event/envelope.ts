@@ -201,10 +201,11 @@ export const EventEnvelopeSchema: z.ZodType<EventEnvelope> = z
 
 // The epoch stamp: `sourceEpoch` + `sourcePosition`, carried in the payload by a non-lifecycle row
 // appended late for a superseded execution epoch (after a rollback); a current-epoch row carries
-// neither, so the stamp is never fabricated. Only a variant whose payload always carries `runId`
-// takes it (the assistant, tool, `command.ended` and `usage.model_rerouted` events): a lifecycle
-// row, an ask or a question from a superseded epoch is absorbed at the epoch check instead. A
-// variant is wrapped with {@link withEpochStamp} when it is registered.
+// neither, so the stamp is never fabricated. Only a row a provider delivery produces outside its
+// run's lifecycle takes it (the assistant, tool, subagent, `command.ended`, `usage.model_rerouted`
+// and `session.provider_status` events), and only one that names its run: a lifecycle row, an
+// ask, a choice, a reviewer's flag or a question from a superseded epoch is absorbed at the epoch
+// check instead. A variant's payload schema is wrapped with {@link withEpochStamp}.
 
 /**
  * The execution epoch a late-appended non-lifecycle row is attributed to: `0` before any rollback,

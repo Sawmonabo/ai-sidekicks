@@ -30,7 +30,6 @@ import {
   ProviderCommandEntrySchema,
   type ProviderCommandEntry,
 } from "../../provider/driver/commands.js";
-import { DRIVER_PROVIDER_COMMAND_ENTRIES_MAX } from "../../provider/driver/length-limits.js";
 import { ProviderNameSchema, type ProviderName } from "../../provider/name.js";
 import {
   OrchestrationBudgetStateSchema,
@@ -122,8 +121,8 @@ export const SessionModeUpdateResponseSchema: z.ZodType<SessionModeUpdateRespons
   .object({ sessionId: SessionIdSchema, mode: SessionModeSchema })
   .strict();
 
-// A share of the context window, in percent; a bound of nothing is no bound.
-const autoCompactPercentSchema = z.number().gt(0).max(100);
+/** Parses an auto-compact bound: a share of the context window, in percent, above zero. */
+export const AutoCompactPercentSchema: z.ZodType<number, number> = z.number().gt(0).max(100);
 
 /**
  * Sets this session's own auto-compact bound from its next turn, as a percent of the window;
@@ -139,7 +138,7 @@ export interface SessionAutoCompactUpdateRequest {
 export const SessionAutoCompactUpdateRequestSchema: z.ZodType<
   SessionAutoCompactUpdateRequest,
   SessionAutoCompactUpdateRequest
-> = z.object({ sessionId: SessionIdSchema, percent: autoCompactPercentSchema.nullable() }).strict();
+> = z.object({ sessionId: SessionIdSchema, percent: AutoCompactPercentSchema.nullable() }).strict();
 
 /** The bound the session compacts at from its next turn, and whether it is its own. */
 export interface SessionAutoCompactUpdateResponse {
@@ -151,7 +150,7 @@ export interface SessionAutoCompactUpdateResponse {
 export const SessionAutoCompactUpdateResponseSchema: z.ZodType<SessionAutoCompactUpdateResponse> = z
   .object({
     sessionId: SessionIdSchema,
-    percent: autoCompactPercentSchema,
+    percent: AutoCompactPercentSchema,
     sessionOverride: z.boolean(),
   })
   .strict();
@@ -275,33 +274,28 @@ export interface SessionServerPrompt {
 /**
  * The live `/` list's provider half: the running process's slash commands, as its provider
  * publishes them, and each working server's prompts. It is sent whole on every change: a new
- * process, the provider's own list-changed push, a server coming up or going down. `complete` is
- * false when the process published more commands than one list carries.
+ * process, the provider's own list-changed push, a server coming up or going down.
  */
 export interface SessionProviderCommandList {
   sessionId: SessionId;
   commands: ProviderCommandEntry[];
   serverPrompts: SessionServerPrompt[];
-  complete: boolean;
 }
 /** Parses a {@link SessionProviderCommandList}. */
 export const SessionProviderCommandListSchema: z.ZodType<SessionProviderCommandList> = z
   .object({
     sessionId: SessionIdSchema,
-    commands: z.array(ProviderCommandEntrySchema).max(DRIVER_PROVIDER_COMMAND_ENTRIES_MAX),
-    serverPrompts: z
-      .array(
-        z
-          .object({
-            serverName: McpServerNameSchema,
-            name: composedTextSchema,
-            title: composedTextSchema.optional(),
-            description: composedTextSchema.optional(),
-          })
-          .strict(),
-      )
-      .max(DRIVER_PROVIDER_COMMAND_ENTRIES_MAX),
-    complete: z.boolean(),
+    commands: z.array(ProviderCommandEntrySchema),
+    serverPrompts: z.array(
+      z
+        .object({
+          serverName: McpServerNameSchema,
+          name: composedTextSchema,
+          title: composedTextSchema.optional(),
+          description: composedTextSchema.optional(),
+        })
+        .strict(),
+    ),
   })
   .strict();
 
@@ -528,8 +522,6 @@ export interface SessionControlMethodDescriptors {
 
 /**
  * The session-control methods' wire contract: name, procedure type and schemas.
- *
- * @consumedBy the daemon's session control handlers
  */
 export const SESSION_CONTROL_METHOD_DESCRIPTORS: SessionControlMethodDescriptors =
   defineMethodDescriptors({

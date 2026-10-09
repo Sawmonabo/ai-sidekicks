@@ -64,6 +64,13 @@ export const providerTokenSchema = (label: string): z.ZodString =>
  *   because the vocabulary belongs to the model the run binds.
  * - `outputSpeed` is set on a running agent by `agent.configUpdate`; a saved definition leaves it
  *   absent, because the editor authors no speed.
+ * - `largerWindow` is the larger window chosen, in tokens, recorded when it was picked: the
+ *   `contextWindow` of the larger row picked. Absent means the model's default window. A figure is
+ *   recorded only for a larger row that shares its default row's id (Codex); a Claude larger row is
+ *   chosen by its own id, which carries Claude Code's `[1m]` mark, so a Claude binding never
+ *   carries one. Every resume and turn sends the recorded figure, whatever the catalog says later.
+ *   It is set on a running agent by `agent.configUpdate`; a saved definition leaves it absent,
+ *   because the editor authors no window.
  */
 export interface AgentProviderBinding {
   driverName: ProviderName;
@@ -71,6 +78,7 @@ export interface AgentProviderBinding {
   providerAccountId: ProviderAccountId | null;
   effort: string | null;
   outputSpeed?: string | undefined;
+  largerWindow?: number | undefined;
 }
 /**
  * Parses an {@link AgentProviderBinding}. Typed as the binding and as its object schema, so the
@@ -94,6 +102,7 @@ export const AgentProviderBindingSchema: z.ZodType<AgentProviderBinding, AgentPr
     providerAccountId: ProviderAccountIdSchema.nullable(),
     effort: providerTokenSchema("AgentProviderBinding.effort").nullable(),
     outputSpeed: providerTokenSchema("AgentProviderBinding.outputSpeed").optional(),
+    largerWindow: z.number().int().positive().optional(),
   })
   .strict();
 
@@ -182,6 +191,7 @@ export const AgentListedProviderBindingSchema: z.ZodType<AgentListedProviderBind
     providerAccountId: ProviderAccountIdSchema.nullable(),
     effort: providerTokenSchema("AgentListedProviderBinding.effort").nullable(),
     outputSpeed: providerTokenSchema("AgentListedProviderBinding.outputSpeed").optional(),
+    largerWindow: z.number().int().positive().optional(),
   })
   .strict()
   .refine(

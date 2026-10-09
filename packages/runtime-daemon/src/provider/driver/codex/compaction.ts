@@ -3,7 +3,10 @@
 
 import type { DriverCompactionResult } from "@ai-sidekicks/contracts/provider/driver/compaction";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
-import { COMPACTION_WAIT_MS, type PendingCompactionRegistry } from "../../compaction-wait.js";
+import {
+  COMPACTION_WAIT_FAILURE_DETAIL,
+  type PendingCompactionRegistry,
+} from "../../compaction-wait.js";
 import { CODEX_DRIVER_NAME } from "./capabilities.js";
 import {
   codexCompactionWaitKey,
@@ -53,12 +56,9 @@ export class CodexCompactionDispatch {
     sessionId: SessionId,
     record: CodexSessionRecord,
   ): Promise<DriverCompactionResult> {
-    const wait = this.#pendingCompactions.arm(
-      codexCompactionWaitKey(sessionId, record.threadId),
-      COMPACTION_WAIT_MS,
-    );
+    const wait = this.#pendingCompactions.arm(codexCompactionWaitKey(sessionId, record.threadId));
     try {
-      await record.connection.request(CODEX_THREAD_COMPACT_START_METHOD, {
+      await record.service.request(CODEX_THREAD_COMPACT_START_METHOD, {
         threadId: record.threadId,
       });
     } catch (cause) {
@@ -80,16 +80,8 @@ export class CodexCompactionDispatch {
       provider: CODEX_DRIVER_NAME,
       kind: "compaction_wait_terminal",
       rawWireType: CODEX_THREAD_COMPACT_START_METHOD,
-      dispositionReason:
-        settlement.terminal === "wait_expired"
-          ? "the declared compaction bound elapsed with no typed compaction frame; a later " +
-            "frame still normalizes into its boundary row"
-          : "the binding stopped being live before a typed compaction frame arrived",
-      details: {
-        sessionId,
-        terminal: settlement.terminal,
-        declaredBoundMs: COMPACTION_WAIT_MS,
-      },
+      dispositionReason: COMPACTION_WAIT_FAILURE_DETAIL[settlement.terminal],
+      details: { sessionId, terminal: settlement.terminal },
     });
     return { status: "failed", reason: settlement.terminal };
   }

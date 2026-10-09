@@ -16,6 +16,8 @@ interface SessionCreateRequest {
   // The lead spelled out: its driver, model and effort, and its output speed where one was picked, as the
   // app chose them for a new session. A create names this, `leadDefinitionId`, or both; beside a
   // definition, it is the binding the definition runs on. It names no account: the daemon resolves it.
+  // A `largerWindow` the catalog does not offer for that model at that figure refuses
+  // `driver.larger_window_unavailable`: the picker offers only current rows, so it is a stale request.
   lead?: SessionLead;
   // The saved definition this session's LEAD runs under: a request that spells its axes out in full
   // names none, and one naming a definition need not respell the axes the definition supplies. It is how
@@ -469,6 +471,19 @@ interface SessionMarkChangePayload {
 interface SessionAdvisorChangedPayload {
   sessionId: SessionId;
   advisorModel: string | null; // the advisor's model; null when the advisor is off
+  // The advisor Claude Code says it attaches after the change; null when none attaches, absent
+  // where the build does not report it. The chip shows this one; a launch reads advisorModel.
+  attachedAdvisorModel?: string | null;
+  at: string; // ISO 8601
+}
+
+// session.output_style_changed payload. A Claude Code session's output style is its own, kept like
+// its advisor: it runs on Claude Code's own style until `/output-style <style>` in that session
+// changes it, each change one event. Every Claude Code process started for the session reads the
+// newest at launch.
+interface SessionOutputStyleChangedPayload {
+  sessionId: SessionId;
+  outputStyle: string; // the style's name, as Claude Code lists it
   at: string; // ISO 8601
 }
 

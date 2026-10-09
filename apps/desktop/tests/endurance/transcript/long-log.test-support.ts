@@ -222,6 +222,8 @@ function enduranceRunId(runIndex: number): string {
 /** One body beat, chosen from the cycle by its position within the run. */
 function enduranceBodyEntry(atMs: number, runId: string, bodyIndex: number): ScriptEntry {
   const callId = `call-endurance-${String(bodyIndex)}`;
+  // Each output beat is a message of its own.
+  const providerMessageId = `msg_${runId}_${String(bodyIndex)}`;
   switch (bodyIndex % ENDURANCE_BODY_CYCLE_LENGTH) {
     case 0:
       return assistantOutputEntry({
@@ -229,6 +231,7 @@ function enduranceBodyEntry(atMs: number, runId: string, bodyIndex: number): Scr
         sessionId: SESSION_ID,
         runId,
         kind: "assistant.thinking_update",
+        providerMessageId,
         contentType: "text/plain",
         body: enduranceBody(256 + (bodyIndex % 64)),
       });
@@ -239,6 +242,7 @@ function enduranceBodyEntry(atMs: number, runId: string, bodyIndex: number): Scr
         sessionId: SESSION_ID,
         runId,
         kind: "assistant.message",
+        providerMessageId,
         contentType: "text/markdown",
         body: enduranceBody(512 + (bodyIndex % 512)),
       });

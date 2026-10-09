@@ -11,9 +11,9 @@ export const DRIVER_TOOL_NAME_MAX_LEN = 128;
  * parameter-schema docs beyond 8 KiB and an overlong value is rejected, not truncated.
  */
 export const DRIVER_TOOL_DESCRIPTION_MAX_LEN = 16384;
-/** Max length of `fallbackAction` on `DriverInterventionResult` and `ForkConversationResult`. */
+/** Max length of `fallbackAction` on `DriverInterventionResult` and `MoveSessionToForkResult`. */
 export const DRIVER_FALLBACK_ACTION_MAX_LEN = 128;
-/** Max length of the store-minted `bindingId` on the resume and fork results. */
+/** Max length of a store-minted `bindingId`, such as the one on the resume result. */
 export const DRIVER_BINDING_ID_MAX_LEN = 256;
 /**
  * Max length of a resume `providerFailureDetail`; generous because it may wrap an upstream stack
@@ -36,10 +36,3 @@ export const DRIVER_PROVIDER_COMMAND_DESCRIPTION_MAX_LEN = 16384;
 export const DRIVER_PROVIDER_DECLARED_TOKEN_MAX_LEN = 128;
 /** Max length of `ProviderOutputSpeedState.reason`; a rejection loses only the explanation. */
 export const DRIVER_OUTPUT_SPEED_REASON_MAX_LEN = 512;
-
-/**
- * Max entries in one provider-command list sent to a client. Truncation is never silent (the list
- * carries `complete: false`) and bounds only the wire: the driver's own list is uncapped, so a
- * command the provider publishes is never refused as absent.
- */
-export const DRIVER_PROVIDER_COMMAND_ENTRIES_MAX = 512;

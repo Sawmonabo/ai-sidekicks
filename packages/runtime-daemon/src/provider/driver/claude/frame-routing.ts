@@ -1,6 +1,7 @@
 // Routing each inbound Claude frame through its session's routing band: the thread router decides
-// whether it projects, and the usage accountant meters it. Subagent starts and stops register and
-// complete child threads, and the session's own handshake and compaction boundaries are tapped.
+// whether it projects, and the usage accountant meters it. A helper's `task_started` and
+// `task_notification` register and complete its child thread, and the session's own handshake and
+// compaction boundaries are tapped.
 
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { PendingCompactionRegistry } from "../../compaction-wait.js";
@@ -25,12 +26,10 @@ import type { ClaudeHandshakeRegister } from "./handshake-register.js";
 /** The consumers routing feeds, and the registers its session-thread taps write into. */
 export interface ClaudeFrameRoutingDependencies extends Pick<
   ClaudeSessionLifecycleDependencies,
-  | "diagnostics"
-  | "readPriorEmittedUsage"
-  | "onMeteredUsage"
-  | "onSubagentLifecycle"
-  | "onReleasedFrameRoute"
+  "diagnostics" | "readPriorEmittedUsage" | "onMeteredUsage" | "onReleasedFrameRoute"
 > {
+  /** Receives each helper's start and end, read off the lead's stream. */
+  readonly onSubagentLifecycle: (sessionId: SessionId, emission: SubagentLifecycleEmission) => void;
   readonly pendingCompactions: PendingCompactionRegistry;
   readonly handshakes: ClaudeHandshakeRegister;
 }
@@ -42,9 +41,10 @@ export class ClaudeFrameRouting {
     | ((sessionId: SessionId, threadId: string) => CumulativeAxisReadings | undefined)
     | undefined;
   readonly #onMeteredUsage: ((sessionId: SessionId, delta: MeteredUsageDelta) => void) | undefined;
-  readonly #onSubagentLifecycle:
-    | ((sessionId: SessionId, emission: SubagentLifecycleEmission) => void)
-    | undefined;
+  readonly #onSubagentLifecycle: (
+    sessionId: SessionId,
+    emission: SubagentLifecycleEmission,
+  ) => void;
   readonly #onReleasedFrameRoute:
     | ((
         sessionId: SessionId,
@@ -213,10 +213,12 @@ export class ClaudeFrameRouting {
             // A new provider thread starts at zero. Establishing now, not lazily, keeps the usage
             // carve-out reachable: the accountant refuses an unestablished thread.
             band.accountant.establishThread(registration.childThreadId, { mode: "fresh" });
-            this.#onSubagentLifecycle?.(sessionId, {
+            this.#onSubagentLifecycle(sessionId, {
               eventType: "subagent.started",
               subagentId: normalized.subagentId,
-              parentReference: normalized.parentToolUseId,
+              ...(normalized.parentToolUseId === null
+                ? {}
+                : { parentToolCallId: normalized.parentToolUseId }),
             });
           }
           // Released on both arms: a hold exists only for an unseen identity, and a conditional
@@ -254,7 +256,7 @@ export class ClaudeFrameRouting {
         this.#meterObservedUsage(band, sessionId, frame);
         this.#completeChildOnStopSignal(band, sessionId, frame);
         return;
-      case "suppress-child-transcript":
+      case "child-transcript":
         this.#completeChildOnStopSignal(band, sessionId, frame);
         return;
       case "carve-out-interactive-request":
@@ -304,10 +306,12 @@ export class ClaudeFrameRouting {
     }
     band.accountant.releaseThread(lifecycleSignal.subagentId);
     if (attribution?.kind === "subagent") {
-      this.#onSubagentLifecycle?.(sessionId, {
+      this.#onSubagentLifecycle(sessionId, {
         eventType: "subagent.completed",
         subagentId: attribution.subagentId,
-        parentReference: lifecycleSignal.parentToolUseId,
+        ...(lifecycleSignal.parentToolUseId === null
+          ? {}
+          : { parentToolCallId: lifecycleSignal.parentToolUseId }),
       });
     }
   }

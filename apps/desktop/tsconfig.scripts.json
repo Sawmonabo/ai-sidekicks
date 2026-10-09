@@ -25,7 +25,10 @@
     // given and maps no `.js` specifier to a `.ts` source, so their imports name the real file;
     // this option permits that (the documented posture for a `noEmit` project whose runtime loads
     // TypeScript directly).
-    "allowImportingTsExtensions": true
+    "allowImportingTsExtensions": true,
+    // Stripped TypeScript refuses syntax that emits code: parameter properties, enums, namespaces
+    // with values.
+    "erasableSyntaxOnly": true
   },
   "include": ["scripts/**/*"],
   // A test beside a script, and its support, import shared test helpers from `tests/helpers/`, so

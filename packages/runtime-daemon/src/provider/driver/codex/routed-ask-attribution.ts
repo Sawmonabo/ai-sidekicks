@@ -1,52 +1,66 @@
-// Attributing each routed ask (an approval or callback-tool request) on the Codex leg to the run
-// that raised it, before the daemon's responder adjudicates it.
+// Attributing each routed ask on the Codex leg (an approval, a question or a callback tool call) to
+// the run that raised it, then handing it on: an approval or a question is held for its card, a
+// callback tool call goes to the daemon's callback-tool host.
 
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { CODEX_DRIVER_NAME } from "./capabilities.js";
+import type { CodexSessionSlots } from "./session/slots.js";
 import {
   type CodexLifecycleOptions,
-  type CodexSessionRecord,
+  readCodexFrameThreadId,
   soleActiveRunIdIn,
 } from "./session/state.js";
 import {
+  type CodexAskOwner,
   type CodexInboundServerRequest,
   type CodexRoutedAskAttribution,
   type CodexRoutedAskTurnIdReading,
   type CodexServerRequestDecision,
   type CodexServerRequestResponder,
-  type CodexSessionServerRequestResponder,
+  type CodexAskKind,
   composeRoutedAskRefusalReason,
   readRoutedAskTurnId,
 } from "./server-requests.js";
-import { CODEX_ASK_OPTION_SET_MAX, readCodexAskOptionSet } from "./ask-option-sets.js";
+import { readCodexAskOptionSet } from "./ask-option-sets.js";
+import type { CodexAskHandOff } from "./delivery/asks.js";
 import { reportDiagnosticFromDetachedFrame } from "./transport/diagnostics.js";
 
-/** Attributes each routed ask to a run by the turn it names, then hands it to the responder. */
-export class CodexRoutedAskAttributor {
-  readonly #options: Pick<CodexLifecycleOptions, "diagnostics" | "reportDiagnostic">;
-  readonly #sessions: ReadonlyMap<SessionId, CodexSessionRecord>;
+/** What the attributor reads and hands asks to. */
+export interface CodexRoutedAskAttributorDependencies {
+  readonly options: Pick<
+    CodexLifecycleOptions,
+    "diagnostics" | "reportDiagnostic" | "answerCallbackToolCall"
+  >;
+  readonly slots: Pick<CodexSessionSlots, "recordFor">;
+  readonly askHandOff: CodexAskHandOff;
+  readonly bindingIdFor: (runId: RunId) => string | undefined;
+}
 
-  constructor(
-    options: Pick<CodexLifecycleOptions, "diagnostics" | "reportDiagnostic">,
-    sessions: ReadonlyMap<SessionId, CodexSessionRecord>,
-  ) {
-    this.#options = options;
-    this.#sessions = sessions;
+/** Attributes each routed ask to a run by the turn it names, then hands it on. */
+export class CodexRoutedAskAttributor {
+  readonly #options: CodexRoutedAskAttributorDependencies["options"];
+  readonly #slots: Pick<CodexSessionSlots, "recordFor">;
+  readonly #askHandOff: CodexAskHandOff;
+  readonly #bindingIdFor: (runId: RunId) => string | undefined;
+
+  constructor(dependencies: CodexRoutedAskAttributorDependencies) {
+    this.#options = dependencies.options;
+    this.#slots = dependencies.slots;
+    this.#askHandOff = dependencies.askHandOff;
+    this.#bindingIdFor = dependencies.bindingIdFor;
   }
 
   /**
-   * One session's transport responder: attributes each ask, refuses one that cannot be attributed,
-   * and forwards the rest with the session, run and option set. The run id is resolved at answer
-   * time, since one captured at connection build could name a retired turn.
+   * One session's responder: attributes each ask, refuses one that cannot be attributed, holds an
+   * approval or a question for its card, and hands a callback tool call to the host with the
+   * session, run and option set. The run id is resolved at answer time, since one captured
+   * earlier could name a retired turn.
    */
-  composeServerRequestResponder(
-    sessionId: SessionId,
-    answerServerRequest: CodexSessionServerRequestResponder,
-  ): CodexServerRequestResponder {
+  composeServerRequestResponder(sessionId: SessionId): CodexServerRequestResponder {
     return {
       answer: async (request: CodexInboundServerRequest): Promise<CodexServerRequestDecision> => {
-        const attribution = this.#attributeRoutedAsk(sessionId, request);
+        const attribution = await this.#attributeRoutedAsk(sessionId, request);
         if (attribution.outcome === "refused") {
           // Refused before adjudication and before the option-set read: an ask that
           // cannot be attributed is not decided.
@@ -63,17 +77,23 @@ export class CodexRoutedAskAttributor {
             kind: "interactive_request_option_set_dropped",
             rawWireType: request.method,
             dispositionReason: optionSet.reason,
-            details: {
-              sessionId,
-              declaredOptionCount: optionSet.declaredCount,
-              optionSetMax: CODEX_ASK_OPTION_SET_MAX,
-            },
+            details: { sessionId, declaredOptionCount: optionSet.declaredCount },
           });
         }
-        return await answerServerRequest.answer({
+        if (request.askKind !== "callback-tool") {
+          return await this.#askHandOff.hold(sessionId, attribution.owner, request);
+        }
+        const answerCallbackToolCall = this.#options.answerCallbackToolCall;
+        if (answerCallbackToolCall === undefined) {
+          return {
+            decision: "refuse",
+            reason: `The daemon has no callback-tool host for "${request.method}".`,
+          };
+        }
+        return await answerCallbackToolCall.answer({
           ...request,
           sessionId,
-          runId: attribution.runId,
+          runId: attribution.owner?.runId ?? null,
           // Conditionally spread: under `exactOptionalPropertyTypes` an absent key
           // differs from undefined.
           ...(optionSet.kind === "read" ? { options: optionSet.options } : {}),
@@ -83,27 +103,56 @@ export class CodexRoutedAskAttributor {
   }
 
   /**
-   * Attributes one routed ask to the run that raised it, by the turn the ask names, before the
-   * daemon's responder sees it. A named turn that cannot be resolved is refused, never attributed
-   * to the sole active run.
+   * Attributes one routed ask to the run that raised it before the daemon's responder sees it: a
+   * helper's ask to the helper's child run, else by the turn the ask names, once the run of a turn
+   * Codex started by itself has opened. A named turn that cannot be resolved is refused, never
+   * attributed to the sole active run.
    */
-  #attributeRoutedAsk(
+  async #attributeRoutedAsk(
     sessionId: SessionId,
     request: CodexInboundServerRequest,
-  ): CodexRoutedAskAttribution {
+  ): Promise<CodexRoutedAskAttribution> {
+    // The ask may belong to the turn whose run is opening; its route stands once that settles.
+    await this.#slots.recordFor(sessionId)?.delivery.selfStartedTurnOpening?.opened;
+    const record = this.#slots.recordFor(sessionId);
+    const threadId = readCodexFrameThreadId(request.method, request.params);
+    const child =
+      threadId === null || threadId === record?.threadId
+        ? undefined
+        : record?.delivery.childRunByThreadId.get(threadId);
+    if (child !== undefined) {
+      const started = await child.started;
+      if (started === undefined) {
+        return {
+          outcome: "refused",
+          reason:
+            `The provider's "${request.method}" request came from a helper whose run did not ` +
+            `start, so no one can answer it.`,
+        };
+      }
+      return {
+        outcome: "attributed",
+        owner: { runId: started.childRunId, bindingId: child.bindingId },
+      };
+    }
     const turnIdReading = readRoutedAskTurnId(request.params);
     const resolvableTurnId = turnIdReading.resolvableTurnId;
     if (resolvableTurnId !== null) {
-      const routedRunId = this.#sessions.get(sessionId)?.runIdByActiveTurnId.get(resolvableTurnId);
-      if (routedRunId !== undefined) {
-        return { outcome: "attributed", runId: routedRunId };
+      const routedRunId = record?.runIdByActiveTurnId.get(resolvableTurnId);
+      const owner = routedRunId === undefined ? null : this.#ownerOf(routedRunId);
+      if (owner !== null) {
+        return { outcome: "attributed", owner };
       }
     }
     if (turnIdReading.recordedTurnId === null && request.askKind !== "callback-tool") {
       // No turn claim on a shape whose params need none (a legacy approval, an elicitation with a
       // `null` turn id): the sole-active fallback applies. `callback-tool` requires a turn, so
       // its absence is itself the fault and refuses.
-      return { outcome: "unattributed", runId: this.#activeRunIdFor(sessionId) };
+      const activeRunId = record === undefined ? null : soleActiveRunIdIn(record);
+      return {
+        outcome: "unattributed",
+        owner: activeRunId === null ? null : this.#ownerOf(activeRunId),
+      };
     }
     this.#reportRoutedAskTurnUnresolved(sessionId, request.method, turnIdReading, request.askKind);
     return {
@@ -125,7 +174,7 @@ export class CodexRoutedAskAttributor {
     sessionId: SessionId,
     method: string,
     turnIdReading: CodexRoutedAskTurnIdReading,
-    askKind: "callback-tool" | "approval",
+    askKind: CodexAskKind,
   ): void {
     const turnId = turnIdReading.recordedTurnId;
     const turnIdTruncated = turnIdReading.recordedTurnIdTruncated;
@@ -152,16 +201,9 @@ export class CodexRoutedAskAttributor {
     });
   }
 
-  /**
-   * The run that owns every live turn on a session, or `null` when none does or two runs are
-   * live. The id-keyed form of {@link soleActiveRunIdIn}; a caller holding the record calls that
-   * directly, since re-resolving by id after an await can answer about a successor record.
-   */
-  #activeRunIdFor(sessionId: SessionId): RunId | null {
-    const record = this.#sessions.get(sessionId);
-    if (record === undefined) {
-      return null;
-    }
-    return soleActiveRunIdIn(record);
+  // A run and its binding; `null` for a run whose binding is gone.
+  #ownerOf(runId: RunId): CodexAskOwner | null {
+    const bindingId = this.#bindingIdFor(runId);
+    return bindingId === undefined ? null : { runId, bindingId };
   }
 }

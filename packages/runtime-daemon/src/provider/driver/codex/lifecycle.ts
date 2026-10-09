@@ -1,80 +1,97 @@
 /**
- * The Codex session lifecycle (`CodexLifecycleManager`): one `CodexAppServerConnection` per
- * session, with no port between them, so tests drive the real framing through a fake `PtyHost`.
- * - The establishment legs, spawn posture, text-neutralization tripwire, steer dispatch, routing
- *   band, routed-ask attribution, command cache and compaction dispatch are dependencies this
- *   class builds once; it keeps the session slots, the run and turn entry points and teardown.
- * - Every spawn or dispose runs inside `#claimSessionSlot` (`establishing`, `live`, `closing`),
- *   held until fully settled, so no owned process exists without a held slot; a `startRun` that
- *   only installs a route re-reads the slot after its await.
- * - Errors use registered codes only: `driver.unavailable` (503), `driver.timeout` (504).
+ * The Codex session lifecycle's operation entry points (`CodexLifecycleManager`). It builds the
+ * services, slots, establishment, recovery and run control once, routes each service's frames to
+ * the session they belong to, and answers each driver operation through them.
+ * - Every establishment, close, rewind and disposal runs inside a claimed session slot.
+ * - One service serves every session on one credential home; a session's own fault ends only its
+ *   conversation, never the service.
  */
 
+import { isDeepStrictEqual } from "node:util";
+
+import type { ProviderModel } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import type { DriverCompactionResult } from "@ai-sidekicks/contracts/provider/driver/compaction";
 import type { ProviderCommandListResult } from "@ai-sidekicks/contracts/provider/driver/commands";
-import type { ProviderOutputSpeedState } from "@ai-sidekicks/contracts/provider/driver/output-speed";
 import type { InterruptRunParams } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { ProviderOutputSpeedState } from "@ai-sidekicks/contracts/provider/driver/output-speed";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+
 import { PendingCompactionRegistry } from "../../compaction-wait.js";
-import { ThreadFrameRouter } from "../../thread-frame-router.js";
-import { UsageDeltaAccountant } from "../../usage-delta-accountant.js";
-import { CODEX_SKILLS_CHANGED_METHOD } from "./event-normalizer.js";
-import { TerminalEmissionGate } from "../../terminal-emission-gate.js";
-import {
-  OutboundFrameTripwire,
-  OutboundTextFrameWriter,
-  RuntimeBindingQuarantine,
-  type OutboundTextFrame,
-} from "../../outbound-frame.js";
-import type { CodexSteerAcknowledgement, CodexSteerRunRequest } from "./intervention.js";
 import { mintUuidV7 } from "../../../uuid-v7.js";
-import {
-  CODEX_THREAD_FRAME_ROUTER_CONFIG,
-  codexCompactionWaitKey,
-  type CodexLifecycleOptions,
-  type CodexRoutableFrame,
-  type CodexSessionRecord,
-  type CodexSessionTransition,
-  type CodexSessionTransitionKind,
-  newestActiveTurnForRun,
-  rememberInterruptedRun,
-} from "./session/state.js";
-import {
-  CodexAppServerConnection,
-  type CodexConnectionOptions,
-  defaultScheduleTimeout,
-} from "./app-server-connection.js";
-import {
-  assertRealizedTurnPostureMembers,
-  type CodexRunConfig,
-  parseCodexRunConfig,
-} from "./session/config.js";
-import {
-  CodexProviderRequestError,
-  CodexSessionAlreadyLiveError,
-  type CodexSessionSlotState,
-  CodexTransportError,
-  normalizeProviderFailureDetail,
-} from "./session/errors.js";
-import { readTurnId } from "./thread-view.js";
-import { CODEX_DRIVER_NAME } from "./capabilities.js";
+import type { CapabilityProbeRequest } from "../../capability/probe.js";
 import {
   classifyCodexAuthStatus,
   CODEX_AUTH_PROBE_TIMEOUT_MS,
   requestCodexAuthStatus,
 } from "./auth-status.js";
-import { reportDiagnosticFromDetachedFrame } from "./transport/diagnostics.js";
-import { CodexRunRoutes } from "./run-routes.js";
-import { CodexTextNeutralization } from "./text-neutralization.js";
-import { CodexNotificationRouting } from "./notification-routing.js";
+import { getCodexCapabilities, readCodexCapabilityDetection } from "./capabilities.js";
 import { CodexProviderCommandCache } from "./commands.js";
-import { CodexSpawnPosture } from "./spawn-posture.js";
-import { CodexOutputSpeed, composeCodexServiceTier } from "./output-speed.js";
-import { CodexRoutedAskAttributor } from "./routed-ask-attribution.js";
-import { CodexSteerDispatch } from "./steer.js";
 import { CodexCompactionDispatch } from "./compaction.js";
-import { CodexSessionEstablishment, releaseAbandonedConnection } from "./session/establishment.js";
+import { CodexAskHandOff } from "./delivery/asks.js";
+import { CodexDeliveryDispatch } from "./delivery/dispatch.js";
+import { CodexFrameDelivery } from "./delivery/frames.js";
+import {
+  CODEX_ITEM_COMPLETED_METHOD,
+  CODEX_SKILLS_CHANGED_METHOD,
+  CODEX_TURN_COMPLETED_METHOD,
+} from "./event-normalizer.js";
+import { clearCodexSessionGoal, setCodexSessionGoal } from "./goals.js";
+import { CodexRunPauses } from "./hooks/pause.js";
+import { CodexHookServer } from "./hooks/server.js";
+import type { CodexSteerAcknowledgement, CodexSteerRunRequest } from "./intervention.js";
+import { joinCodexModelWindows, readCodexServiceModelWindows } from "./model-windows.js";
+import { CodexNotificationRouting } from "./notification-routing.js";
+import { CodexOutputSpeed } from "./output-speed.js";
+import { composeCodexLevelSettings } from "./permission-level.js";
+import {
+  correctCodexPermissionProfileDrift,
+  noteCodexPermissionProfileAsked,
+} from "./thread/permission-profiles.js";
+import { CodexRoutedAskAttributor } from "./routed-ask-attribution.js";
+import { CodexRunControl } from "./run/control.js";
+import { retryCodexTurnOnFasterModel } from "./run/faster-model-retry.js";
+import { CodexRunRoutes } from "./run/routes.js";
+import { CodexSelfStartedTurns } from "./run/self-started-turns.js";
+import { CodexRunStart } from "./run/start.js";
+import { CodexTurnEndWaiters } from "./run/turn-end-waiters.js";
+import { readCodexServerRequestAnswer } from "./server-requests.js";
+import { launchCodexServiceProcess, runCodexCommand } from "./service/process.js";
+import type { CodexServiceEvents } from "./service/dependencies.js";
+import { CodexServiceRegistry } from "./service/registry.js";
+import { CODEX_CONFIG_WARNING_METHOD, type CodexService } from "./service/supervisor.js";
+import {
+  CodexProviderRequestError,
+  CodexTransportError,
+  normalizeProviderFailureDetail,
+} from "./session/errors.js";
+import {
+  observeCodexReasoningEffort,
+  overrideCodexReviewerDenial,
+  startCodexReview,
+  updateCodexSessionMode,
+} from "./session/controls.js";
+import { CodexConfigForks } from "./session/config-fork.js";
+import { CodexConversationRelease } from "./session/conversation-release.js";
+import { CodexSessionEstablishment } from "./session/establishment.js";
+import { CodexConversationForks } from "./session/fork.js";
+import { purgeCodexConversations } from "./session/purge.js";
+import { CodexServiceRecovery } from "./session/recovery.js";
+import { CodexConversationRewind } from "./session/rewind.js";
+import { CodexSideQuestions } from "./session/side-questions.js";
+import { CodexSessionSlots } from "./session/slots.js";
+import {
+  type CodexLifecycleOptions,
+  readCodexTerminalTurnId,
+  rememberSettledTurn,
+} from "./session/state.js";
+import {
+  CODEX_DEFAULT_REQUEST_TIMEOUT_MS,
+  defaultScheduleTimeout,
+} from "./transport/connection.js";
+import { composeCodexLevelConfig } from "./thread/settings.js";
+import { reportDiagnosticFromDetachedFrame } from "./transport/diagnostics.js";
+import { connectCodexServiceSocket } from "./transport/socket.js";
 import {
   buildAuthProbeResult,
   type ClearSessionGoalParams,
@@ -82,373 +99,445 @@ import {
   type CompactContextParams,
   type CreateSessionParams,
   type DriverAuthProbeResult,
-  type ListProviderCommandsParams,
-  type DriverResumeResult,
-  type ForkConversationResult,
-  type ProviderSessionHandle,
-  type ResumeSessionParams,
-  type ForkConversationParams,
-  type SetSessionGoalParams,
   type DriverGoalResult,
+  type DriverResumeResult,
+  type MoveSessionToForkParams,
+  type MoveSessionToForkResult,
+  type GetCapabilitiesResult,
+  type ListProviderCommandsParams,
+  type ProviderSessionHandle,
+  type RespondToRequestParams,
+  type ResumeSessionParams,
+  type SetSessionGoalParams,
   type StartRunParams,
 } from "../contract.js";
+import type { RewindConversationParams, RewindConversationResult } from "../rewind.js";
+import type {
+  FasterModelRetryOutcome,
+  FasterModelRetryParams,
+  OverrideDenialParams,
+  PauseRunParams,
+  ResumeRunParams,
+} from "../run-control.js";
+import type {
+  AskSideQuestionParams,
+  ProviderBuildChange,
+  ProviderCommandsListener,
+  PurgeSessionParams,
+  StartReviewParams,
+  SubscribeProviderCommandsParams,
+  UpdatePermissionLevelParams,
+  UpdateSessionModeParams,
+} from "../session-control.js";
 
-// `turn/start` is believed to answer once the turn is accepted, so this matches the ordinary
-// request deadline. Separate so a wrong reading is a configuration change, not a code change.
-const DEFAULT_TURN_START_TIMEOUT_MS = 60_000;
+// The method family of a conversation's item frames: a command's start, output and end.
+const CODEX_ITEM_METHOD_PREFIX = "item/";
 
-/**
- * Deadline for the courtesy `thread/unsubscribe`; short so a wedged provider cannot hold close.
- */
-const UNSUBSCRIBE_TIMEOUT_MS = 5_000;
-
-/** Lifecycle operations as Codex `app-server` calls, one connection per session. */
+/** Lifecycle operations as Codex service calls, one service per credential home. */
 export class CodexLifecycleManager {
   readonly #options: CodexLifecycleOptions;
-  readonly #turnStartTimeoutMs: number;
-  readonly #outboundFrameTripwire: OutboundFrameTripwire;
-  readonly #runtimeBindingQuarantine = new RuntimeBindingQuarantine();
-  readonly #sessions = new Map<SessionId, CodexSessionRecord>();
-  // The intended-close producer: one gate per session, latched at the top of `closeSession`; the
-  // gate stamps it on the terminal payload. Keyed beside the record map because a close during
-  // establishment holds no installed record.
-  readonly #terminalEmissionGates = new Map<SessionId, TerminalEmissionGate>();
-  // One router and one usage accountant per provider session, keyed beside the record map: a frame
-  // can arrive while the slot is establishing, before a record exists.
-  readonly #frameRouters = new Map<SessionId, ThreadFrameRouter<CodexRoutableFrame>>();
-  readonly #usageAccountants = new Map<SessionId, UsageDeltaAccountant>();
-  // Manager-scoped so disposal settles a compaction wait armed against a torn-down session.
-  readonly #pendingCompactions: PendingCompactionRegistry;
   readonly #runRoutes = new CodexRunRoutes();
-  /** In-flight create, resume, fork or close per session, held until it fully settles. */
-  readonly #sessionTransitions = new Map<SessionId, CodexSessionTransition>();
+  readonly #pendingCompactions: PendingCompactionRegistry;
+  readonly #dispatch: CodexDeliveryDispatch;
   readonly #providerCommands: CodexProviderCommandCache;
-  readonly #spawnPosture: CodexSpawnPosture;
+  readonly #slots: CodexSessionSlots;
+  readonly #pauses: CodexRunPauses;
+  readonly #services: CodexServiceRegistry;
+  readonly #hooks: CodexHookServer | undefined;
   readonly #outputSpeed: CodexOutputSpeed;
-  readonly #textNeutralization: CodexTextNeutralization;
+  readonly #frames: CodexFrameDelivery;
   readonly #notificationRouting: CodexNotificationRouting;
   readonly #routedAsks: CodexRoutedAskAttributor;
   readonly #compactionDispatch: CodexCompactionDispatch;
+  readonly #release: CodexConversationRelease;
+  readonly #forks: CodexConversationForks;
+  readonly #configForks: CodexConfigForks;
   readonly #establishment: CodexSessionEstablishment;
-  readonly #steerDispatch: CodexSteerDispatch;
+  readonly #recovery: CodexServiceRecovery;
+  readonly #runStart: CodexRunStart;
+  readonly #runControl: CodexRunControl;
+  readonly #turnEnds: CodexTurnEndWaiters;
+  readonly #sideQuestions: CodexSideQuestions;
+  readonly #selfStartedTurns: CodexSelfStartedTurns;
+  readonly #askHandOff: CodexAskHandOff;
+  readonly #rewind: CodexConversationRewind;
 
   constructor(options: CodexLifecycleOptions) {
     this.#options = options;
-    this.#turnStartTimeoutMs = options.turnStartTimeoutMs ?? DEFAULT_TURN_START_TIMEOUT_MS;
-    // The same injected scheduler as the transport's deadlines.
-    this.#pendingCompactions = new PendingCompactionRegistry(
-      options.scheduleTimeout ?? defaultScheduleTimeout,
-    );
-    // The only composer of provider-bound text on this leg: `turn/start` and `turn/steer` take
-    // their input from a frame it minted.
-    const outboundTextFrameWriter = new OutboundTextFrameWriter({
-      mechanismGrade: options.textNeutralityMechanismGrade ?? "emulated",
-      mintCorrelationId: options.mintOutboundFrameCorrelationId,
+    const scheduleTimeout = options.scheduleTimeout ?? defaultScheduleTimeout;
+    const now = options.now ?? Date.now;
+    const reportDiagnostic = options.reportDiagnostic;
+    this.#pendingCompactions = new PendingCompactionRegistry();
+    this.#dispatch = new CodexDeliveryDispatch(options.inbound, reportDiagnostic);
+    this.#providerCommands = new CodexProviderCommandCache({
+      diagnostics: options.diagnostics,
+      reportDiagnostic,
+      serverPrompts: options.serverPrompts,
+      recordFor: (sessionId) => this.#slots.recordFor(sessionId),
     });
-    // Built here because the predicate reads later-declared fields. A retired session's pending
-    // frames are pure occupancy, reclaimed only when a write would otherwise be refused.
-    this.#outboundFrameTripwire = new OutboundFrameTripwire({
-      isScopeRetired: (scopeKey: string): boolean =>
-        !this.#sessions.has(scopeKey as SessionId) ||
-        this.#runtimeBindingQuarantine.isSessionDisposed(scopeKey),
+    this.#pauses = new CodexRunPauses({
+      onTookEffect: (pause) => {
+        this.#runControl.deliverPaused(pause);
+      },
+      isRunLive: (runId) => this.#runRoutes.bindingFor(runId) !== undefined,
     });
-    this.#providerCommands = new CodexProviderCommandCache(options);
-    this.#spawnPosture = new CodexSpawnPosture(options);
-    this.#outputSpeed = new CodexOutputSpeed(options);
-    this.#textNeutralization = new CodexTextNeutralization({
-      options,
-      outboundTextFrameWriter,
-      outboundFrameTripwire: this.#outboundFrameTripwire,
-      runtimeBindingQuarantine: this.#runtimeBindingQuarantine,
-      sessions: this.#sessions,
-      runRoutes: this.#runRoutes,
-      disposeQuarantinedSession: (record: CodexSessionRecord): void => {
-        this.#disposeQuarantinedSession(record);
+    this.#release = new CodexConversationRelease({
+      reportDiagnostic,
+      routing: {
+        admitHeldThread: (sessionId, threadId) => {
+          this.#slots.admitHeldThread(sessionId, threadId);
+        },
+        releaseHeldThread: (sessionId, threadId) => {
+          this.#slots.releaseHeldThread(sessionId, threadId);
+        },
       },
     });
-    this.#steerDispatch = new CodexSteerDispatch({
-      outboundTextFrameWriter,
-      outboundFrameTripwire: this.#outboundFrameTripwire,
-      textNeutralization: this.#textNeutralization,
+    this.#slots = new CodexSessionSlots({
+      options,
+      runRoutes: this.#runRoutes,
+      pendingCompactions: this.#pendingCompactions,
+      providerCommands: this.#providerCommands,
+      pauses: this.#pauses,
+      release: this.#release,
+      // A turn waiting on the record's running turn would otherwise wait for good.
+      onRecordLeft: (record) => {
+        this.#configForks.stopWaiting(record);
+      },
+    });
+    this.#hooks =
+      options.hookSocketPath === undefined
+        ? undefined
+        : new CodexHookServer({
+            socketPath: options.hookSocketPath,
+            answerers: [this.#pauses.answer],
+            reportDiagnostic,
+            scheduleTimeout,
+            now,
+          });
+    this.#services = new CodexServiceRegistry({
+      homes: options.homes,
+      providerCommand: options.providerCommand,
+      providerBaseEnvironment: options.providerBaseEnvironment,
+      environmentNameMatch: options.operatingSystem.environmentNameMatch,
+      executableResolver: options.executableResolver,
+      launchProcess: options.launchProcess ?? launchCodexServiceProcess,
+      runCommand: options.runCommand ?? runCodexCommand,
+      connectSocket: options.connectSocket ?? connectCodexServiceSocket,
+      hooks: this.#hooks,
+      additionalConfigOverrides: options.additionalConfigOverrides ?? [],
+      reportDiagnostic,
+      diagnostics: options.diagnostics,
+      scheduleTimeout: options.scheduleTimeout,
+      now: options.now,
+      startupTimeoutMs: options.startupTimeoutMs,
+      requestTimeoutMs: options.requestTimeoutMs,
+      events: this.#composeServiceEvents(),
+    });
+    this.#outputSpeed = new CodexOutputSpeed({
+      diagnostics: options.diagnostics,
+      onRunOutputSpeedSettled: (sessionId, runId, state) => {
+        options.runEngine
+          .recordSettledOutputSpeed(sessionId, runId, state)
+          .catch((cause: unknown) => {
+            reportDiagnosticFromDetachedFrame(reportDiagnostic, {
+              kind: "port-delivery-failed",
+              port: "output-speed",
+              sessionId,
+              detail: normalizeProviderFailureDetail(cause),
+            });
+          });
+      },
+      readModelCatalog: async (service: CodexService): Promise<ProviderModel[]> =>
+        await this.#recovery.readModelCatalog(service),
+    });
+    this.#askHandOff = new CodexAskHandOff({
+      dispatch: this.#dispatch,
+      owners: { permissionAsks: options.permissionAsks, questions: options.questions },
+      reportDiagnostic,
+    });
+    this.#frames = new CodexFrameDelivery({
+      recordFor: (sessionId) => this.#slots.recordFor(sessionId),
+      terminalGateFor: (sessionId) => this.#slots.terminalEmissionGateFor(sessionId),
+      runRoutes: this.#runRoutes,
+      dispatch: this.#dispatch,
+      reviewerDenials: options.reviewerDenials,
+      commandOutput: options.commandOutput,
+      withdrawAsk: (sessionId, requestId, askKind) => {
+        this.#askHandOff.withdraw(sessionId, requestId, askKind);
+      },
+      reportDiagnostic,
+      diagnostics: options.diagnostics,
+      cutOversizedTurn: (record, turnId) => {
+        void this.#rewind.cutOversizedTurn(record, turnId);
+      },
+      pendingCompactions: this.#pendingCompactions,
+      now,
     });
     this.#notificationRouting = new CodexNotificationRouting({
       options,
+      delivery: {
+        deliver: (sessionId, frame, route) => {
+          this.#frames.deliver(sessionId, frame, route);
+        },
+        startChild: (sessionId, childThreadId, parentThreadId, subagentId) => {
+          this.#frames.startChild(sessionId, childThreadId, parentThreadId, subagentId);
+        },
+        completeChild: (sessionId, childThreadId, turnParams) => {
+          // A helper that ended has no call left to hold and no next call to steer.
+          this.#pauses.forgetThread(childThreadId);
+          this.#frames.completeChild(sessionId, childThreadId, turnParams);
+        },
+      },
       pendingCompactions: this.#pendingCompactions,
-      frameRouterFor: (sessionId: SessionId): ThreadFrameRouter<CodexRoutableFrame> =>
-        this.frameRouterFor(sessionId),
-      usageAccountantFor: (sessionId: SessionId): UsageDeltaAccountant =>
-        this.usageAccountantFor(sessionId),
+      frameRouterFor: (sessionId) => this.#slots.frameRouterFor(sessionId),
+      usageAccountantFor: (sessionId) => this.#slots.usageAccountantFor(sessionId),
     });
-    this.#routedAsks = new CodexRoutedAskAttributor(options, this.#sessions);
+    this.#routedAsks = new CodexRoutedAskAttributor({
+      options,
+      slots: this.#slots,
+      askHandOff: this.#askHandOff,
+      bindingIdFor: (runId) => this.#runRoutes.bindingIdFor(runId),
+    });
     this.#compactionDispatch = new CodexCompactionDispatch(options, this.#pendingCompactions);
+    const newBindingId = options.newBindingId ?? mintUuidV7;
+    this.#forks = new CodexConversationForks({
+      options,
+      slots: this.#slots,
+      pendingCompactions: this.#pendingCompactions,
+      outputSpeed: this.#outputSpeed,
+      notificationRouting: this.#notificationRouting,
+      release: this.#release,
+    });
+    this.#configForks = new CodexConfigForks({
+      options,
+      slots: this.#slots,
+      forks: this.#forks,
+    });
     this.#establishment = new CodexSessionEstablishment({
       options,
-      sessions: this.#sessions,
-      newBindingId: options.newBindingId ?? mintUuidV7,
-      runtimeBindingQuarantine: this.#runtimeBindingQuarantine,
+      newBindingId,
+      slots: this.#slots,
+      services: this.#services,
       pendingCompactions: this.#pendingCompactions,
-      spawnPosture: this.#spawnPosture,
       outputSpeed: this.#outputSpeed,
       notificationRouting: this.#notificationRouting,
       providerCommands: this.#providerCommands,
-      textNeutralization: this.#textNeutralization,
       runRoutes: this.#runRoutes,
-      connectionOptionsFor: (sessionId: SessionId): CodexConnectionOptions =>
-        this.#connectionOptionsFor(sessionId),
-      usageAccountantFor: (sessionId: SessionId): UsageDeltaAccountant =>
-        this.usageAccountantFor(sessionId),
+      forks: this.#forks,
+      release: this.#release,
+    });
+    const requestTimeoutMs = options.requestTimeoutMs ?? CODEX_DEFAULT_REQUEST_TIMEOUT_MS;
+    this.#turnEnds = new CodexTurnEndWaiters(scheduleTimeout, requestTimeoutMs);
+    this.#recovery = new CodexServiceRecovery({
+      options,
+      slots: this.#slots,
+      establishment: this.#establishment,
+      services: this.#services,
+      runRoutes: this.#runRoutes,
+      pendingCompactions: this.#pendingCompactions,
+      dispatch: this.#dispatch,
+      turnEnds: this.#turnEnds,
+      release: this.#release,
+      configForks: this.#configForks,
+      scheduleTimeout,
+      unloadTimeoutMs: requestTimeoutMs,
+      deliverTurnEnd: (sessionId, params) => {
+        this.#ingestFrame(sessionId, CODEX_TURN_COMPLETED_METHOD, params);
+      },
+    });
+    this.#runStart = new CodexRunStart({
+      slots: this.#slots,
+      configForks: this.#configForks,
+      forks: this.#forks,
+      runRoutes: this.#runRoutes,
+      outputSpeed: this.#outputSpeed,
+      providerCommands: this.#providerCommands,
+      runEngine: options.runEngine,
+      daemonTurnBindings: options.daemonTurnBindings,
+      reportDiagnostic,
+      scheduleTimeout,
+      turnStartTimeoutMs: options.turnStartTimeoutMs,
+    });
+    this.#runControl = new CodexRunControl({
+      options,
+      slots: this.#slots,
+      configForks: this.#configForks,
+      runRoutes: this.#runRoutes,
+      runStart: this.#runStart,
+      pauses: this.#pauses,
+      dispatch: this.#dispatch,
+    });
+    this.#rewind = new CodexConversationRewind({
+      slots: this.#slots,
+      configForks: this.#configForks,
+      runControl: this.#runControl,
+      turnEnds: this.#turnEnds,
+      reportDiagnostic,
+    });
+    this.#sideQuestions = new CodexSideQuestions({
+      dispatch: this.#dispatch,
+      reportDiagnostic,
+    });
+    this.#selfStartedTurns = new CodexSelfStartedTurns({
+      recordFor: (sessionId) => this.#slots.recordFor(sessionId),
+      runStart: this.#runStart,
+      ingest: (sessionId, method, params) => {
+        this.#ingestFrame(sessionId, method, params);
+      },
+      reportDiagnostic,
+      scheduleTimeout,
     });
   }
 
-  /** Spawns a process and starts a fresh Codex thread. */
+  /** Starts a fresh conversation for the session on its account's service. */
   async createSession(params: CreateSessionParams): Promise<ProviderSessionHandle> {
-    // Refused before anything is spawned, reading every view of the slot with no `await` before
-    // the claim: overlapping creates would orphan a process. A `closing` holder refuses too.
-    const holderState = this.#describeSlotHolder(params.sessionId);
-    if (holderState !== undefined) {
-      throw new CodexSessionAlreadyLiveError(params.sessionId, holderState);
-    }
-    return await this.#claimSessionSlot(
+    // Refused before anything is asked, with no `await` before the claim: overlapping creates
+    // would start two conversations for one session.
+    this.#slots.assertFree(params.sessionId);
+    const handle = await this.#slots.claim(
       params.sessionId,
       "establishing",
       async () => await this.#establishment.establishCreatedSession(params),
     );
+    this.#replayConfigWarnings(params.sessionId);
+    return handle;
   }
 
   /**
-   * Resumes an existing Codex thread from its provider-owned handle. Every failure tears its
-   * process down and returns the typed `failed` result; it never falls back to a fresh thread.
+   * Resumes a conversation from its handle. Every failure returns the typed `failed` result; it
+   * never falls back to a fresh conversation.
    */
   async resumeSession(params: ResumeSessionParams): Promise<DriverResumeResult> {
-    // Claims the slot rather than refusing a held one (unlike the Claude leg): this driver
-    // supersedes a live leg on resume, which serializing behind the holder makes reachable.
-    return await this.#claimSessionSlot(
+    // Claims rather than refusing a held slot: a resume supersedes a live record.
+    const result = await this.#slots.claim(
       params.sessionId,
       "establishing",
       async () => await this.#establishment.establishResumedSession(params),
+    );
+    this.#replayConfigWarnings(params.sessionId);
+    return result;
+  }
+
+  /**
+   * Restarts the service a session's conversation ran on after it stayed down, resumes every
+   * other conversation it held, then this one.
+   */
+  async restartSession(params: ResumeSessionParams): Promise<DriverResumeResult> {
+    const service = await this.#services.serviceFor(params.providerAccountId);
+    return await this.#recovery.restart(
+      service,
+      params.sessionId,
+      async () => await this.resumeSession(params),
     );
   }
 
   /** Starts one provider turn for a run. */
   async startRun(params: StartRunParams): Promise<void> {
-    const runConfig = parseCodexRunConfig(params.agentConfig);
-    const record = this.#requireSession(runConfig.sessionId);
-    // Before the opening frame exists, so a refused run leaves nothing to drop.
-    this.#spawnPosture.assertRunSandboxModeMatchesSession(record, params);
-    // The run's level wins and the thread's request is the fallback, as with the posture. Each
-    // turn resolves it against the model's tier list afresh, since the catalog can change; a turn
-    // at standard or with no level needs no read and never yields.
-    const turnModel = runConfig.model ?? record.model;
-    const turnOutputSpeedRequest = params.outputSpeed ?? record.outputSpeedRequest;
-    const turnOutputSpeed = this.#outputSpeed.needsCatalogRead(turnOutputSpeedRequest)
-      ? await this.#resolveTurnOutputSpeed(record, turnModel, turnOutputSpeedRequest)
-      : turnOutputSpeedRequest;
-    const openingFrame = this.#textNeutralization.composeRunOpeningFrame(params, runConfig);
-    let turnId: string;
-    // Raised until the answer is in hand: a terminal ingested by the synchronous read drain may
-    // belong to the turn about to be named, so `bufferTurnEvidence` must not evict. Lowered in
-    // a `finally` so a failed start cannot leak the count.
-    record.inFlightTurnStarts += 1;
-    try {
-      turnId = readTurnId(
-        await this.#requestTurnStart(record, runConfig, params, openingFrame, turnOutputSpeed),
-        "turn/start",
-      );
-    } catch (cause) {
-      // Dropped by frame, not key: nothing serializes two starts for one run, and a key-wide drop
-      // would strand a concurrent attempt's frame so its turn passes uncorrelated. Safe here: a
-      // refusal means the turn never started, and any other failure kills the child below (a
-      // steer's turn runs on).
-      this.#outboundFrameTripwire.forgetFrame(openingFrame);
-      // A clean JSON-RPC refusal leaves the session usable. Anything else (a deadline, transport
-      // death, no usable turn id) may hide an accepted turn that would run on with no route to
-      // it, so the child is killed; nothing is sent again.
-      if (!(cause instanceof CodexProviderRequestError)) {
-        await this.#disposeAmbiguousSession(record);
-      }
-      throw cause;
-    } finally {
-      record.inFlightTurnStarts -= 1;
-    }
-    // Frame-scoped like the drop above: the frame moves onto the key the terminal will carry, and
-    // a key-wide re-key would drag a concurrent attempt's unnamed frame onto this turn.
-    this.#outboundFrameTripwire.recorrelateFrame(openingFrame, turnId);
-    // One synchronous run from here, so one slot check covers the install and the consume.
-    if (!this.#stillHoldsSlot(record)) {
-      // Reached only via a transition begun after dispatch. A failed supersede-resume leaves the
-      // predecessor live, so the accepted turn would run with no route to interrupt it: dispose
-      // unconditionally (idempotent) and refuse the run, which would strand a route no sweep
-      // reaches.
-      await this.#disposeAmbiguousSession(record);
-      throw new CodexTransportError(
-        `Codex session "${record.sessionId}" stopped holding its slot while a turn was starting.`,
-        { sessionId: record.sessionId, method: "turn/start" },
-      );
-    }
-    // The provider applies a turn's model and tier from that turn on, so the thread now holds them.
-    record.model = turnModel;
-    record.outputSpeedRequest = turnOutputSpeedRequest;
-    this.#outputSpeed.armRunSettlement(record, turnId, params.runId, turnOutputSpeed);
-    // A second accepted start on this run adds a route; the turn axis is never overwritten.
-    record.runIdByActiveTurnId.set(turnId, params.runId);
-    this.#runRoutes.bindRun(params.runId, record.sessionId);
-    // Appended at acceptance, not completion: a completion-time ledger would omit interrupted and
-    // failed turns and misname later positions.
-    record.turnBoundaries.push(turnId);
-    this.#textNeutralization.correlateBufferedTurnEvidence(record, params.runId, turnId);
+    await this.#runStart.startRun(params);
   }
 
-  /**
-   * The level a turn carries, resolved before the opening frame exists; never refused (see
-   * `CodexOutputSpeed.resolveLevel`). Throws `CodexTransportError` when the session was
-   * re-established meanwhile.
-   */
-  async #resolveTurnOutputSpeed(
-    record: CodexSessionRecord,
-    turnModel: string,
-    request: string | undefined,
-  ): Promise<string | undefined> {
-    const resolved = await this.#outputSpeed.resolveLevel(turnModel, request);
-    // Re-read after the catalog read: a resume or close in that window replaced or retired this
-    // record, and a turn on it would reach a connection being released.
-    if (this.#requireSession(record.sessionId) !== record) {
-      throw new CodexTransportError(
-        `Codex session "${record.sessionId}" was re-established while its turn's output speed ` +
-          `was being checked.`,
-        { sessionId: record.sessionId, method: "turn/start" },
-      );
-    }
-    return resolved;
-  }
-
-  /** The `turn/start` request itself, split out so `startRun` reads as its policy. */
-  async #requestTurnStart(
-    record: CodexSessionRecord,
-    runConfig: CodexRunConfig,
-    params: StartRunParams,
-    openingFrame: OutboundTextFrame,
-    turnOutputSpeed: string | undefined,
-  ): Promise<unknown> {
-    const turnStartParams: Record<string, unknown> = {
-      threadId: record.threadId,
-      // The bytes come off a frame this method cannot construct, so neutralization is on the
-      // path; `runConfig.input` is unread on purpose: the author's text stays on the frame.
-      input: [{ type: "text", text: openingFrame.wireText, text_elements: [] }],
-      // The run's posture wins within the session's sandbox mode and the session's is the floor, so
-      // a turn never goes out with no policy; both send the roots the thread-level mode cannot. The
-      // turn's `approvalsReviewer` routes it and every later turn, so it rides here from the level;
-      // `turn/steer` creates no turn and needs none.
-      ...this.#spawnPosture.composeTurnPostureParams(record, params),
-      ...(runConfig.model === undefined ? {} : { model: runConfig.model }),
-      ...(runConfig.clientUserMessageId === undefined
-        ? {}
-        : { clientUserMessageId: runConfig.clientUserMessageId }),
-      ...(params.outputSchema === undefined ? {} : { outputSchema: params.outputSchema }),
-      ...composeCodexServiceTier(turnOutputSpeed),
-    };
-    assertRealizedTurnPostureMembers(turnStartParams);
-    return await record.connection.request("turn/start", turnStartParams, this.#turnStartTimeoutMs);
-  }
-
-  /**
-   * Kills the child first, then releases the session, when a turn may be live with no route to it.
-   * Scoped to the record, not the session id, so a resume that already superseded it is untouched.
-   * There is no `thread/unsubscribe`: this connection's answers cannot be trusted.
-   */
-  async #disposeAmbiguousSession(record: CodexSessionRecord): Promise<void> {
-    await this.#claimSessionSlot(record.sessionId, "closing", async () => {
-      if (this.#sessions.get(record.sessionId) === record) {
-        this.#sessions.delete(record.sessionId);
-        // Rule before the sweeps, while the routes still exist: with the record dropped no
-        // terminal is ingested, so pending frames become unrulable.
-        this.#textNeutralization.ruleAbandonedFramesFailClosed(record);
-        this.#runRoutes.forgetRunRoutes(record.sessionId);
-        // Covers the quarantine path too: `#disposeQuarantinedSession` delegates here.
-        this.#pendingCompactions.releaseBinding(
-          codexCompactionWaitKey(record.sessionId, record.threadId),
-        );
-        this.#providerCommands.discardProviderCommandEnumeration(record.sessionId);
-        this.#textNeutralization.releaseOutboundFrameBudget(record.sessionId);
-      }
-      // Contained: the caller is already throwing the typed cause, which a teardown fault must
-      // not displace.
-      await releaseAbandonedConnection(
-        record.connection,
-        this.#options.reportDiagnostic,
-        "kill-and-close",
-      );
-    });
-  }
-
-  /**
-   * Zero-turn authentication probe on its own child; claims no session slot. Never throws: any
-   * unresolvable outcome becomes `indeterminate`, fail-closed for admission yet distinct from
-   * `unauthenticated`.
-   */
-  async probeAuth(): Promise<DriverAuthProbeResult> {
-    const connection = new CodexAppServerConnection(this.#probeConnectionOptions());
-    try {
-      await connection.open(this.#options.resumeSpawnConfig);
-      return classifyCodexAuthStatus(
-        await requestCodexAuthStatus(connection, CODEX_AUTH_PROBE_TIMEOUT_MS),
-      );
-    } catch (cause) {
-      return buildAuthProbeResult("indeterminate", normalizeProviderFailureDetail(cause));
-    } finally {
-      // Contained so a teardown fault cannot displace the answer; `close()` is idempotent.
-      await releaseAbandonedConnection(connection, this.#options.reportDiagnostic);
-    }
-  }
-
-  // Not `#connectionOptionsFor`: a probe's notifications must never enter a session's stream.
-  #probeConnectionOptions(): CodexConnectionOptions {
-    const reportDiagnostic = this.#options.reportDiagnostic;
-    return {
-      ...this.#options,
-      onServerNotification: (method: string): void => {
-        reportDiagnosticFromDetachedFrame(reportDiagnostic, {
-          kind: "unconsumed-server-notification",
-          method,
-        });
-      },
-    };
-  }
-
-  /**
-   * Interrupts the provider turn bound to a run and retires its route, so a later steer or second
-   * interrupt is refused. The turn correlation is retained for the `turn/completed` that follows.
-   */
+  /** Interrupts the run's live turn and ends the commands it left running. */
   async interruptRun(params: InterruptRunParams): Promise<void> {
-    const { record, turnId } = this.#requireActiveTurn(params.runId);
-    await record.connection.request("turn/interrupt", {
-      threadId: record.threadId,
-      turnId,
-    });
-    // A settled turn's terminal was already ruled; retaining it would leave an entry nothing
-    // releases.
-    if (!record.settledTurnIds.has(turnId)) {
-      if (!rememberInterruptedRun(record, turnId, params.runId)) {
-        // The interrupt succeeded, so this resolves; quarantining rules the pending frame
-        // fail-closed and the run hears `run.failed`.
-        this.#textNeutralization.refuseUnretainableInterruptedRoute(record);
-        return;
-      }
-    }
-    // Retires this turn's route only; a run holding a second live turn keeps that route.
-    this.#runRoutes.retireTurnRoute(record, turnId);
+    await this.#runControl.interruptRun(params);
+  }
+
+  /** Steers the run's live turn; the intervention dispatcher routes steers here. */
+  async steerRun(request: CodexSteerRunRequest): Promise<CodexSteerAcknowledgement> {
+    return await this.#runControl.steerRun(request);
   }
 
   /**
-   * Forks the thread at a recorded turn boundary, re-points the session at the fork and returns a
-   * fresh `bindingId`; files on disk are not restored. Degrades on a live turn or an unknown
-   * position, and refuses when the build lacks the boundary member
-   * ({@link CodexRewindBoundaryUnsupportedError}).
+   * Allows once a call Codex's reviewer blocked, on the conversation it was made in; with no turn
+   * running there, as the session's own run.
    */
-  async forkConversation(params: ForkConversationParams): Promise<ForkConversationResult> {
-    // Read before the claim: `#requireSession` refuses while the slot is `establishing`.
-    const record = this.#requireSession(params.sessionId);
+  async overrideDenial(params: OverrideDenialParams): Promise<void> {
+    await overrideCodexReviewerDenial(
+      await this.#configForks.requireAfterForks(params.sessionId),
+      params.providerDenial,
+      this.#runStart,
+    );
+  }
+
+  /** Sends a held turn's message again on a faster model; see the retry's own docs. */
+  async retryTurnOnFasterModel(params: FasterModelRetryParams): Promise<FasterModelRetryOutcome> {
+    return await retryCodexTurnOnFasterModel(
+      {
+        slots: this.#slots,
+        runRoutes: this.#runRoutes,
+        runStart: this.#runStart,
+        forks: this.#forks,
+        turnEnds: this.#turnEnds,
+        dispatch: this.#dispatch,
+      },
+      params,
+    );
+  }
+
+  /** Pauses the run from its next tool call; see {@link CodexRunControl.pauseRun}. */
+  pauseRun(params: PauseRunParams): void {
+    this.#runControl.pauseRun(params);
+  }
+
+  /** Continues a paused or pausing run; see {@link CodexRunControl.resumeRun}. */
+  async resumeRun(params: ResumeRunParams): Promise<void> {
+    await this.#runControl.resumeRun(params);
+  }
+
+  /**
+   * Answers an ask a run is held on, on the service that holds it. Throws `CodexTransportError`
+   * when no service holds it, and `TypeError` for an answer that is neither allow nor refuse.
+   */
+  async respondToRequest(params: RespondToRequestParams): Promise<void> {
+    const answer = readCodexServerRequestAnswer(params.response);
+    const sessionId = this.#runRoutes.sessionIdFor(params.runId);
+    const routed = sessionId === undefined ? undefined : this.#slots.recordFor(sessionId);
+    // Request ids are unique per service only, so the run's own service is asked first.
+    const service =
+      routed?.service.holdsRequest(params.requestId) === true
+        ? routed.service
+        : this.#services.services().find((candidate) => candidate.holdsRequest(params.requestId));
+    if (service === undefined) {
+      throw new CodexTransportError(`No Codex service holds request "${params.requestId}".`, {
+        runId: params.runId,
+        requestId: params.requestId,
+      });
+    }
+    await service.answerHeldRequest(params.requestId, answer);
+  }
+
+  /**
+   * Moves the session's conversation to another level from its next turn. A move that changes
+   * config `thread/settings/update` cannot carry forks the conversation onto it: an idle one at
+   * once, a busy one when its running turn settles.
+   */
+  async updatePermissionLevel(params: UpdatePermissionLevelParams): Promise<void> {
+    // A move made while a fork runs lands on the fork, and owes the next fork if it needs one.
+    const record = await this.#configForks.requireAfterForks(params.sessionId);
+    const { profileFolders } = record.threadSettings;
+    const posture = composeCodexLevelSettings(params.level, profileFolders);
+    noteCodexPermissionProfileAsked(record.permissionProfiles, posture.permissions);
+    await record.service.request("thread/settings/update", {
+      threadId: record.threadId,
+      ...posture,
+    });
+    const configBefore = composeCodexLevelConfig(record.threadSettings.level, profileFolders);
+    // A resume after a crash sends the level it runs at now, and a turn the daemon starts runs
+    // at it.
+    record.threadSettings = { ...record.threadSettings, level: params.level };
+    record.executionPosture = { ...record.executionPosture, mode: params.level };
+    if (!isDeepStrictEqual(configBefore, composeCodexLevelConfig(params.level, profileFolders))) {
+      this.#configForks.owe(record);
+    }
+  }
+
+  /**
+   * Forks the thread at a recorded turn boundary and re-points the session, and the run's binding,
+   * at the fork. Degrades on a live turn or an unknown position.
+   */
+  async moveSessionToFork(params: MoveSessionToForkParams): Promise<MoveSessionToForkResult> {
+    // Read before the claim: `require` refuses while the slot is `establishing`.
+    const record = await this.#configForks.requireAfterForks(params.sessionId);
     if (record.runIdByActiveTurnId.size > 0) {
-      // The provider refuses to fork through a live turn; answer locally with a typed result.
       return { status: "degraded", fallbackAction: "rewind-deferred-turn-in-progress" };
     }
     // Position 0 must not become an omitted `lastTurnId`, which forks the whole thread.
@@ -457,386 +546,316 @@ export class CodexLifecycleManager {
     if (boundaryTurnId === undefined) {
       return { status: "degraded", fallbackAction: "rewind-target-not-a-recorded-boundary" };
     }
-    // Held across the fork: a `startRun` meanwhile would register on the pre-fork thread and its
-    // frames would be shed, and two rewinds would both report `applied`. `establishing` because a
-    // fork mints the thread the session continues on; the entrance refuses turns in that state.
-    return await this.#claimSessionSlot(
+    // Held across the fork, so no turn starts on the thread the fork leaves behind.
+    return await this.#slots.claim(
       params.sessionId,
       "establishing",
-      async () => await this.#establishment.establishRewoundSession(params, record, boundaryTurnId),
+      async () => await this.#forks.establishRewoundSession(params, record, boundaryTurnId),
     );
   }
 
   /**
-   * Binds the session's goal on the provider natively. Only `objective` is sent; `status` and
-   * `tokenBudget` are provider-side state the daemon does not own. The goal is the person's own
-   * `/goal`, so it is sent as `origin: "user"`: Codex records only such a goal in the model's
-   * history as the person's instruction, which its automatic reviewer reads as authorization.
+   * Cuts the conversation in place back to before one of the person's messages with
+   * `thread/revert`; a running turn is stopped and its end awaited first, up to the request
+   * deadline. A message the daemon has no turn for is looked up in the conversation's history.
+   * Degrades for a message not in the conversation and for a turn that did not stop; throws
+   * `CodexTransportError` when the session was re-established meanwhile.
    */
-  async setSessionGoal(params: SetSessionGoalParams): Promise<DriverGoalResult> {
-    const record = this.#requireSession(params.sessionId);
-    await record.connection.request("thread/goal/set", {
-      threadId: record.threadId,
-      origin: "user",
-      objective: params.goalText,
-    });
-    return { status: "applied" };
+  async rewindConversation(params: RewindConversationParams): Promise<RewindConversationResult> {
+    return await this.#rewind.rewind(params);
   }
 
-  /**
-   * Clears the session's goal natively, as the person's own act (`origin: "user"`); a
-   * `cleared: false` answer is still `applied`.
-   */
+  /** Moves every conversation onto a service started on the new build; see recovery. */
+  async moveToProviderBuild(change: ProviderBuildChange): Promise<void> {
+    await this.#recovery.moveToProviderBuild(change);
+  }
+
+  /** Deletes Codex's own copy of every conversation the session opened, and its role files. */
+  async purgeSession(params: PurgeSessionParams): Promise<void> {
+    await purgeCodexConversations(this.#services, this.#options.helperRolesFolder, params);
+  }
+
+  /** Binds the session's goal on Codex's own thread goal; a turn Codex starts on it is a run. */
+  async setSessionGoal(params: SetSessionGoalParams): Promise<DriverGoalResult> {
+    return await setCodexSessionGoal(
+      await this.#configForks.requireAfterForks(params.sessionId),
+      params.goalText,
+    );
+  }
+
+  /** Clears the session's goal on Codex's own thread goal. */
   async clearSessionGoal(params: ClearSessionGoalParams): Promise<DriverGoalResult> {
-    const record = this.#requireSession(params.sessionId);
-    await record.connection.request("thread/goal/clear", {
-      threadId: record.threadId,
-      origin: "user",
-    });
-    return { status: "applied" };
+    return await clearCodexSessionGoal(await this.#configForks.requireAfterForks(params.sessionId));
   }
 
   /**
    * Triggers a native context compaction and settles on the `thread/compacted` frame, not on the
-   * request's empty acknowledgement. The wait is armed before dispatch so an early frame is seen.
-   * Never returns `refused`; the daemon's gates answer that before any driver is called.
+   * request's empty acknowledgement.
    */
   async compactContext(params: CompactContextParams): Promise<DriverCompactionResult> {
-    const record = this.#requireSession(params.sessionId);
+    const record = await this.#configForks.requireAfterForks(params.sessionId);
     return await this.#compactionDispatch.dispatchCompaction(params.sessionId, record);
   }
 
-  /**
-   * Enumerates the provider's command and skill surface, held for the session's life until
-   * `skills/changed` discards it. The entry cap trims the reply, not the held list
-   * (`complete: false` marks a trimmed tail); `runId` is the sole live run or `null`.
-   */
+  /** Moves the session between Build and Plan from its next turn; a resume keeps the mode. */
+  async updateSessionMode(params: UpdateSessionModeParams): Promise<void> {
+    const record = await this.#configForks.requireAfterForks(params.sessionId);
+    await updateCodexSessionMode(record, params.mode);
+    record.sessionMode = params.mode;
+  }
+
+  /** Asks a side question on a read-only copy of the conversation; resolves once it is asked. */
+  async askSideQuestion(params: AskSideQuestionParams): Promise<void> {
+    await this.#sideQuestions.ask(
+      await this.#configForks.requireAfterForks(params.sessionId),
+      params,
+    );
+  }
+
+  /** Starts Codex's own review of a set of changes in the session's conversation, as its run. */
+  async startReview(params: StartReviewParams): Promise<void> {
+    await startCodexReview(
+      await this.#configForks.requireAfterForks(params.sessionId),
+      params.target,
+      this.#dispatch,
+      this.#runStart,
+    );
+  }
+
+  /** Follows the session's live command list until the returned function is called. */
+  subscribeProviderCommands(
+    params: SubscribeProviderCommandsParams,
+    listener: ProviderCommandsListener,
+  ): () => void {
+    return this.#providerCommands.subscribe(params.sessionId, listener);
+  }
+
+  /** The provider's commands and skills for the session, held until `skills/changed`. */
   async listProviderCommands(
     params: ListProviderCommandsParams,
   ): Promise<ProviderCommandListResult> {
-    const record = this.#requireSession(params.sessionId);
+    const record = await this.#configForks.requireAfterForks(params.sessionId);
     return await this.#providerCommands.composeProviderCommandList(params.sessionId, record);
   }
 
-  /** Unsubscribes and tears down the process. Idempotent: an unknown session resolves. */
+  /**
+   * Closes the session's conversation: its running commands end, then it unsubscribes; the
+   * service stays. Idempotent: an unknown session resolves.
+   */
   async closeSession(params: CloseSessionParams): Promise<void> {
-    // Claiming a free slot would refuse a concurrent create, hence the early return. A close during
-    // establishment chains behind it; the wait cannot deadlock, as no establishment path calls
-    // `closeSession` and each closes its own connection directly. The latch comes first so every
-    // later terminal counts as clean.
-    this.#intendedCloseGateFor(params.sessionId).signalIntendedClose();
-    if (this.#describeSlotHolder(params.sessionId) === undefined) {
-      // No session: drop the latch just set rather than accumulate one per redundant close.
-      this.#terminalEmissionGates.delete(params.sessionId);
-      this.#frameRouters.delete(params.sessionId);
-      this.#usageAccountants.delete(params.sessionId);
-      this.#providerCommands.discardProviderCommandEnumeration(params.sessionId);
-      return;
+    this.#providerCommands.forgetSubscribers(params.sessionId);
+    await this.#sideQuestions.forgetSession(params.sessionId);
+    await this.#slots.close(params.sessionId);
+    await this.#release.forgetSession(params.sessionId);
+    this.#recovery.forgetSession(params.sessionId);
+    for (const service of this.#services.services()) {
+      service.configWarnings.forgetSession(params.sessionId);
     }
-    await this.#claimSessionSlot(params.sessionId, "closing", async () => {
-      await this.#tearDownSession(params.sessionId);
+  }
+
+  /**
+   * Stops every service the daemon started, as a deliberate stop that no crash restart follows,
+   * disconnects from the person's own, then closes the hook socket. Idempotent; throws the stops
+   * that failed once everything was tried.
+   */
+  async shutdown(): Promise<void> {
+    const failures: unknown[] = [];
+    await this.#services.shutdown().catch((cause: unknown) => {
+      failures.push(cause);
     });
-    // After teardown: a terminal it provokes must still find the latch set.
-    this.#terminalEmissionGates.delete(params.sessionId);
-    this.#frameRouters.delete(params.sessionId);
-    this.#usageAccountants.delete(params.sessionId);
-    this.#providerCommands.discardProviderCommandEnumeration(params.sessionId);
+    // After the services, so no hook a stopping service runs finds the daemon away.
+    await this.#hooks?.close().catch((cause: unknown) => {
+      failures.push(cause);
+    });
+    if (failures.length > 0) {
+      throw new AggregateError(failures, "The Codex driver did not shut down cleanly.");
+    }
   }
 
   /**
    * The tier the session's thread declared, from its establishment reply and then each
-   * `thread/settings/updated` for that thread, or `undefined` with no live session or no reading.
-   * A null tier reads as `default`; a tier no catalog lists is carried as declared.
+   * `thread/settings/updated`, or `undefined` with no live session or no reading.
    */
   observedOutputSpeedFor(sessionId: SessionId): ProviderOutputSpeedState | undefined {
-    return this.#sessions.get(sessionId)?.declaredOutputSpeed;
+    return this.#slots.recordFor(sessionId)?.declaredOutputSpeed;
   }
 
   /**
-   * The terminal-emission gate, which stamps `intendedClose` and suppresses a duplicate terminal
-   * per `(runId, runVersion)`. Read live at each terminal, never captured.
+   * The default account's live model catalog, restarting the service where Codex asks to, each
+   * row carrying the window Codex's own catalog gives it.
    */
-  terminalEmissionGateFor(sessionId: SessionId): TerminalEmissionGate {
-    return this.#intendedCloseGateFor(sessionId);
-  }
-
-  /** The thread-frame router for one session; read live so a widened thread set is seen. */
-  frameRouterFor(sessionId: SessionId): ThreadFrameRouter<CodexRoutableFrame> {
-    const existing = this.#frameRouters.get(sessionId);
-    if (existing !== undefined) {
-      return existing;
-    }
-    const router = new ThreadFrameRouter<CodexRoutableFrame>({
-      provider: CODEX_DRIVER_NAME,
-      diagnostics: this.#options.diagnostics,
-      config: CODEX_THREAD_FRAME_ROUTER_CONFIG,
-    });
-    this.#frameRouters.set(sessionId, router);
-    return router;
-  }
-
-  /** The usage-delta accountant for one session. */
-  usageAccountantFor(sessionId: SessionId): UsageDeltaAccountant {
-    const existing = this.#usageAccountants.get(sessionId);
-    if (existing !== undefined) {
-      return existing;
-    }
-    const accountant = new UsageDeltaAccountant({
-      provider: CODEX_DRIVER_NAME,
-      diagnostics: this.#options.diagnostics,
-    });
-    this.#usageAccountants.set(sessionId, accountant);
-    return accountant;
-  }
-
-  // Get-or-create, so the latch survives whichever of close and establishment comes first.
-  #intendedCloseGateFor(sessionId: SessionId): TerminalEmissionGate {
-    const existing = this.#terminalEmissionGates.get(sessionId);
-    if (existing !== undefined) {
-      return existing;
-    }
-    const gate = new TerminalEmissionGate();
-    this.#terminalEmissionGates.set(sessionId, gate);
-    return gate;
+  async listModels(): Promise<ProviderModel[]> {
+    const service = await this.#services.serviceFor(undefined);
+    const [models, windows] = await Promise.all([
+      this.#recovery.readModelCatalog(service),
+      readCodexServiceModelWindows(service, this.#options.diagnostics),
+    ]);
+    return joinCodexModelWindows(models, windows);
   }
 
   /**
-   * Graceful teardown inside a claimed slot. The record is deleted in a `finally`: deleting first
-   * would let a create spawn into the slot, and only on success would leave it permanently stuck.
+   * Whether the default account is signed in, asked of its service; claims no session slot.
+   * Never throws: any unresolvable outcome becomes `indeterminate`.
    */
-  async #tearDownSession(sessionId: SessionId): Promise<void> {
-    const record = this.#sessions.get(sessionId);
-    if (record === undefined) {
-      // The establishment this close chained behind failed and released its connection.
-      return;
-    }
-    // Dropped up front so `hasActiveTurn` stops reporting a live run once teardown begins.
-    this.#runRoutes.forgetRunRoutes(sessionId);
+  async probeAuth(): Promise<DriverAuthProbeResult> {
     try {
-      if (!record.connection.isClosed) {
-        try {
-          // Best effort and bounded: a refusal or a wedged provider must not block teardown.
-          await record.connection.request(
-            "thread/unsubscribe",
-            { threadId: record.threadId },
-            UNSUBSCRIBE_TIMEOUT_MS,
-          );
-        } catch (cause) {
-          reportDiagnosticFromDetachedFrame(this.#options.reportDiagnostic, {
-            kind: "teardown-step-failed",
-            step: "thread-unsubscribe",
-            detail: normalizeProviderFailureDetail(cause),
-          });
-        }
-      }
-      await record.connection.close();
-    } finally {
-      this.#sessions.delete(sessionId);
-      // In the `finally` so a teardown that threw still releases the compaction waiters.
-      this.#pendingCompactions.releaseBinding(codexCompactionWaitKey(sessionId, record.threadId));
-      this.#providerCommands.discardProviderCommandEnumeration(sessionId);
-      // After the record delete: a turn terminating mid-teardown must still be ingested and ruled.
-      this.#textNeutralization.releaseOutboundFrameBudget(sessionId);
+      const service = await this.#services.serviceFor(undefined);
+      await service.ensureStarted();
+      return classifyCodexAuthStatus(
+        await requestCodexAuthStatus(service, CODEX_AUTH_PROBE_TIMEOUT_MS),
+      );
+    } catch (cause) {
+      return buildAuthProbeResult("indeterminate", normalizeProviderFailureDetail(cause));
     }
-  }
-
-  /** Steers the run's active turn; the intervention dispatcher routes steers here. */
-  async steerRun(request: CodexSteerRunRequest): Promise<CodexSteerAcknowledgement> {
-    const { record, turnId } = this.#requireActiveTurn(request.runId);
-    return await this.#steerDispatch.steerActiveTurn(record, turnId, request);
-  }
-
-  /** True when the run has at least one live provider turn (scans the turn-keyed routes). */
-  hasActiveTurn(runId: RunId): boolean {
-    const sessionId = this.#runRoutes.sessionIdFor(runId);
-    if (sessionId === undefined) {
-      return false;
-    }
-    const record = this.#sessions.get(sessionId);
-    if (record === undefined) {
-      return false;
-    }
-    for (const routedRunId of record.runIdByActiveTurnId.values()) {
-      if (routedRunId === runId) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  /** Names the current holder of a session slot, or `undefined` when it is free. */
-  #describeSlotHolder(sessionId: SessionId): CodexSessionSlotState | undefined {
-    // Transition first: during a supersede-resume both views are occupied and a dying record
-    // stays installed, so the in-flight kind is the more specific truth.
-    const transition = this.#sessionTransitions.get(sessionId);
-    if (transition !== undefined) {
-      return transition.kind;
-    }
-    return this.#sessions.has(sessionId) ? "live" : undefined;
   }
 
   /**
-   * True when `record` is still the session's settled, live holder; identity on `#sessions` alone
-   * would call a record mid-teardown usable.
+   * The capabilities of the build the default account's service runs, probed on a connection of
+   * its own that starts no conversation. Throws when the service cannot start.
    */
-  #stillHoldsSlot(record: CodexSessionRecord): boolean {
-    return (
-      this.#describeSlotHolder(record.sessionId) === "live" &&
-      this.#sessions.get(record.sessionId) === record
-    );
-  }
-
-  /**
-   * Claims the session slot in one state and runs the transition behind any predecessor. The only
-   * way a slot is taken. Reads the predecessor and publishes the claim in one synchronous run: an
-   * `await` between them lets two same-tick callers both see an empty slot and run their
-   * transitions concurrently.
-   */
-  async #claimSessionSlot<TSettled>(
-    sessionId: SessionId,
-    kind: CodexSessionTransitionKind,
-    runTransition: () => Promise<TSettled>,
-  ): Promise<TSettled> {
-    const predecessor = this.#sessionTransitions.get(sessionId)?.settled ?? Promise.resolve();
-    const transition = predecessor.then(runTransition);
-    const claim: CodexSessionTransition = {
-      kind,
-      settled: transition.then(
-        () => undefined,
-        () => undefined,
-      ),
-    };
-    this.#sessionTransitions.set(sessionId, claim);
+  async getCapabilities(): Promise<GetCapabilitiesResult> {
+    const service = await this.#services.serviceFor(undefined);
+    await service.ensureStarted();
+    const reading = service.versionReading;
+    if (reading === undefined) {
+      throw new CodexTransportError("The Codex service reported no build at its start.", {
+        codexHome: service.home.codexHome,
+      });
+    }
+    const connection = await service.openDetachedConnection();
     try {
-      return await transition;
+      const detection = await readCodexCapabilityDetection(
+        reading,
+        async (request: CapabilityProbeRequest): Promise<unknown> => {
+          // The reply's own shape, as the probe classifier reads it.
+          try {
+            return { result: await connection.request(request.probeName, {}) };
+          } catch (cause) {
+            if (cause instanceof CodexProviderRequestError) {
+              return { error: { code: cause.providerErrorCode, message: cause.providerMessage } };
+            }
+            throw cause;
+          }
+        },
+        this.#options.diagnostics,
+      );
+      return getCodexCapabilities(reading, detection);
     } finally {
-      // Identity-checked: a later caller chains onto this claim and publishes its own, so
-      // clearing unconditionally would free an occupied slot.
-      if (this.#sessionTransitions.get(sessionId) === claim) {
-        this.#sessionTransitions.delete(sessionId);
-      }
+      connection.close();
     }
   }
 
-  /**
-   * Per-session connection options, with the manager interposed on the server notification
-   * stream: frames reach the delegate unchanged and in order. Which stream a frame belongs to is
-   * decided only in `provider/thread-frame-router.ts`; a second decision here would disagree with
-   * it.
-   */
-  #connectionOptionsFor(sessionId: SessionId): CodexConnectionOptions {
-    const reportDiagnostic = this.#options.reportDiagnostic;
-    const answerServerRequest = this.#options.answerServerRequest;
+  /** What every service tells the lifecycle about its conversations. */
+  #composeServiceEvents(): CodexServiceEvents {
     return {
-      ...this.#options,
-      // Overridden rather than spread: the transport port carries no session or run identity.
-      serverRequestResponder:
-        answerServerRequest === undefined
-          ? undefined
-          : this.#routedAsks.composeServerRequestResponder(sessionId, answerServerRequest),
-      onServerNotification: (method: string, params: unknown): void => {
-        this.#observeServerNotification(sessionId, method, params);
-        // Every inbound frame goes through the router before any projection; the delegate is
-        // reached only from inside the routing band's normalize hand-off.
-        try {
-          this.#notificationRouting.routeInboundNotification(sessionId, method, params);
-        } catch (cause) {
-          // The routing band is total, so this is a backstop: an escaping throw would unwind the
-          // `#ingest` read-chunk drain and take unrelated frames down with it.
-          reportDiagnosticFromDetachedFrame(reportDiagnostic, {
-            kind: "notification-consumer-failed",
-            method,
-            detail: normalizeProviderFailureDetail(cause),
-          });
+      onSessionFrame: (service, sessionId, method, params) => {
+        // A conversation the session moved off reaches it only through the rows of the commands
+        // it still runs, which stay live until each ends.
+        if (
+          this.#release.observeFrame(service, method, params) &&
+          !method.startsWith(CODEX_ITEM_METHOD_PREFIX)
+        ) {
+          return;
+        }
+        this.#ingestFrame(sessionId, method, params);
+      },
+      onProcessExited: (service, exit) => {
+        this.#release.forgetService(service);
+        this.#recovery.onProcessExited(service, exit);
+      },
+      onRecovered: (service, cause) => {
+        this.#recovery.onRecovered(service, cause);
+      },
+      onServiceLost: (service, detail) => {
+        this.#release.forgetService(service);
+        this.#recovery.onServiceLost(service, detail);
+      },
+      onCrashLoop: (service, exit) => {
+        this.#recovery.onCrashLoop(service, exit);
+      },
+      onHeldRequestsDropped: (sessionId, dropped) => {
+        for (const request of dropped) {
+          this.#askHandOff.withdraw(sessionId, request.requestId, request.askKind);
         }
       },
+      responderFor: (sessionId) => this.#routedAsks.composeServerRequestResponder(sessionId),
     };
   }
 
   /**
-   * Observes every inbound server notification ahead of routing: invalidates the held command
-   * list on `skills/changed`, accrues turn evidence, on a terminal `turn/completed` rules the
-   * tripwire and retires the turn's route, and re-reads the declared tier and settles each run's
-   * output speed on the notices that carry it.
+   * One frame for one session. A side question's copy takes its own frames, and the session's wait
+   * while the run of a turn Codex started by itself opens; every other frame is routed and
+   * delivered while its turn's route still stands, then the turn bookkeeping retires a route its
+   * own terminal ended, and run control acts on the step or turn that ended.
    */
-  #observeServerNotification(sessionId: SessionId, method: string, params: unknown): void {
-    // The provider's skill-file invalidation signal (empty payload): discarding the held list
-    // forces a full re-read. Observed ahead of the router so it lands even for a frame the router
-    // disposes.
+  #ingestFrame(sessionId: SessionId, method: string, params: unknown): void {
+    if (this.#sideQuestions.divert(method, params)) {
+      return;
+    }
+    // A frame that outlives its session's close would bring back the session's frame router,
+    // usage accountant and terminal gate, which the close let go.
+    if (!this.#slots.isOccupied(sessionId)) {
+      return;
+    }
+    if (this.#selfStartedTurns.holds(sessionId, method, params)) {
+      return;
+    }
+    // Codex's skill-file invalidation signal: the held list is read again in full.
     if (method === CODEX_SKILLS_CHANGED_METHOD) {
       this.#providerCommands.discardProviderCommandEnumeration(sessionId);
+      this.#providerCommands.refreshSubscribers(sessionId);
     }
-    this.#textNeutralization.observeTurnNotification(sessionId, method, params);
-    this.#outputSpeed.observeServerNotification(this.#sessions.get(sessionId), method, params);
-  }
-
-  /**
-   * Tears down a session a tripwire trip condemned, reusing the ambiguous-turn disposal.
-   * Detached: callers are inside the synchronous read-chunk drain or a settlement path that must
-   * not wait on or be unwound by a child's death.
-   */
-  #disposeQuarantinedSession(record: CodexSessionRecord): void {
-    // The disposal contains its own teardown fault; anything else is reported, because an
-    // unhandled rejection out of the read-chunk drain would be a second failure.
-    void this.#disposeAmbiguousSession(record).catch((cause: unknown) => {
+    const record = this.#slots.recordFor(sessionId);
+    const endedTurnId =
+      record !== undefined && method === CODEX_TURN_COMPLETED_METHOD
+        ? readCodexTerminalTurnId(params)
+        : null;
+    let endedRunId: RunId | undefined;
+    if (record !== undefined && endedTurnId !== null) {
+      rememberSettledTurn(record, endedTurnId);
+      endedRunId = record.runIdByActiveTurnId.get(endedTurnId);
+    }
+    this.#outputSpeed.observeServerNotification(record, method, params);
+    if (record !== undefined) {
+      observeCodexReasoningEffort(record, method, params);
+      correctCodexPermissionProfileDrift(record, method, params, this.#options.reportDiagnostic);
+    }
+    try {
+      this.#notificationRouting.routeInboundNotification(sessionId, method, params);
+    } catch (cause) {
+      // The band is total, so this is a backstop: an escaping throw would unwind the
+      // connection's message handler and take unrelated frames down with it.
       reportDiagnosticFromDetachedFrame(this.#options.reportDiagnostic, {
-        kind: "teardown-step-failed",
-        step: "session-disposal",
+        kind: "notification-consumer-failed",
+        method,
         detail: normalizeProviderFailureDetail(cause),
       });
-    });
-  }
-
-  /**
-   * The retained tripwire decision for a turn, read by the intervention dispatcher so a steer
-   * whose turn was already ruled settles `degraded` with the refusal code. Asked once; never
-   * waits.
-   */
-  textNeutralizationDecisionForTurn(turnId: string): { readonly refused: boolean } {
-    return { refused: this.#outboundFrameTripwire.decisionFor(turnId)?.tripped === true };
-  }
-
-  #requireSession(sessionId: SessionId): CodexSessionRecord {
-    // Quarantine first: otherwise a new run would resolve the surviving record by session id and
-    // dispatch into the process that swallowed the user's words. A fresh spawn lifts it.
-    this.#runtimeBindingQuarantine.assertSessionAttachable(sessionId);
-    // Both transition states refuse, not only `closing`: a record stays installed across its
-    // whole transition, so a turn could reach a connection a supersede-resume is about to
-    // release.
-    const holderState = this.#describeSlotHolder(sessionId);
-    if (holderState === "closing") {
-      throw new CodexTransportError(`Codex session "${sessionId}" is being torn down.`, {
-        sessionId,
-        holderState,
-      });
     }
-    if (holderState === "establishing") {
-      throw new CodexTransportError(
-        `Codex session "${sessionId}" is being re-established; the leg it runs on is about ` +
-          `to change.`,
-        { sessionId, holderState },
-      );
-    }
-    const record = this.#sessions.get(sessionId);
     if (record === undefined) {
-      throw new CodexTransportError(`No live Codex session for "${sessionId}".`, { sessionId });
+      return;
     }
-    return record;
+    if (endedTurnId !== null) {
+      // Retired by turn id, never run id, so a stale terminal cannot retire a newer turn.
+      this.#runRoutes.retireTurnRoute(record, endedTurnId);
+      record.interruptedRunIdByTurnId.delete(endedTurnId);
+    }
+    if (method === CODEX_ITEM_COMPLETED_METHOD) {
+      void this.#runControl.observeItemCompleted(record, params);
+    }
+    if (endedTurnId !== null) {
+      // Before run control acts on the end, so a fork owed meanwhile runs ahead of the next turn.
+      this.#configForks.noteTurnSettled(record);
+      void this.#runControl.observeTurnEnded(record, endedTurnId, endedRunId);
+      this.#recovery.noteTurnSettled(record);
+      this.#turnEnds.settle();
+    }
   }
 
-  /**
-   * Resolves the live turn a steer or an interrupt acts on. The quarantine is checked first: a
-   * trip retires the route, so the next steer would fail with a plausible wrong "no active turn"
-   * and invite a retry into the process that swallowed the user's words.
-   */
-  #requireActiveTurn(runId: RunId): { record: CodexSessionRecord; turnId: string } {
-    this.#runtimeBindingQuarantine.assertRunAttachable(runId);
-    const sessionId = this.#runRoutes.sessionIdFor(runId);
-    const record = sessionId === undefined ? undefined : this.#sessions.get(sessionId);
-    const turnId = record === undefined ? undefined : newestActiveTurnForRun(record, runId);
-    if (record === undefined || turnId === undefined) {
-      throw new CodexTransportError(`No active Codex turn for run "${runId}".`, { runId });
+  /** Sends a session that just attached the config warnings its service sent it has not heard. */
+  #replayConfigWarnings(sessionId: SessionId): void {
+    const record = this.#slots.recordFor(sessionId);
+    for (const warning of record?.service.configWarnings.takeOwed(sessionId) ?? []) {
+      this.#ingestFrame(sessionId, CODEX_CONFIG_WARNING_METHOD, warning);
     }
-    return { record, turnId };
   }
 }

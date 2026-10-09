@@ -29,6 +29,7 @@ import {
   type SearchThreadRequest,
   type SearchThreadWorkerData,
 } from "./messages.js";
+import { describeRejection } from "../../../rejection.js";
 
 const WORKER_URL = moduleUrlBeside(import.meta.url, "worker");
 
@@ -297,7 +298,7 @@ export class SearchThread {
           await deleteAppliedOutbox(this.#writer, applied);
         } catch (error) {
           // The rows stay, and the next commit's delete takes them with its own.
-          const reason = error instanceof Error ? error.message : String(error);
+          const reason = describeRejection(error);
           this.#writeServiceLog(`search_outbox_delete_failed: ${reason}`);
         }
       }

@@ -92,6 +92,14 @@ function recordingEventLog(appended: UnsequencedEventEnvelope[]): SessionEventLo
       }
       return Promise.resolve(record(envelope));
     },
+    appendThinkingUpdate: (envelope) => {
+      appended.push(envelope);
+      return Promise.resolve({
+        isStored: true,
+        id: envelope.id,
+        sequence: appended.length - 1,
+      });
+    },
   };
 }
 

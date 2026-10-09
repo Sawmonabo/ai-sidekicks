@@ -66,7 +66,14 @@ import type {
 } from "../run/provider-choice.js";
 import type { UserMessagePayload } from "../run/queue.js";
 import type { RunQueuedPayload } from "../run/queued.js";
-import type { InterventionEventPayload, RunStateChangePayload } from "../run/events.js";
+import type {
+  InterventionEventPayload,
+  RunProviderInitializedPayload,
+  RunStateChangePayload,
+  RunTurnStartedPayload,
+  RunWorkerShutdownPayload,
+} from "../run/events.js";
+import type { SubagentLifecyclePayload } from "../run/subagent.js";
 import type {
   ModerationReviewFlaggedPayload,
   RunStepLimitReachedPayload,
@@ -83,6 +90,8 @@ import type {
   SessionAdvisorChangedPayload,
   SessionLifecycleChangePayload,
   SessionMarkChangePayload,
+  SessionOutputStyleChangedPayload,
+  SessionProviderStatusPayload,
   SessionRenamedPayload,
 } from "../session/events.js";
 import type {
@@ -109,8 +118,9 @@ import type {
 // Each payload below is declared beside the method or record that produces it and imported here:
 // the emitter's contract authors the payload.
 //
-// Only `command.ended` takes the epoch stamp: it is the run-scoped member here, with a required
-// `runId`. The approval, session-lifecycle, interactive-request, security and mcp-governance
+// Only `command.ended` takes the epoch stamp here, with a required `runId`; `subagent.*` and
+// `session.provider_status` declare it in their own payloads, which a provider delivery produces.
+// The approval, other session-lifecycle, interactive-request, security and mcp-governance
 // variants sit outside the late-append window, and `git.settled` names a run on only some causes.
 
 /**
@@ -358,6 +368,42 @@ export type ApprovalDenialOverriddenEvent = SessionEventVariant<
 >;
 /** Emitted when a run is queued. */
 export type RunQueuedEvent = SessionEventVariant<"run.queued", "run_lifecycle", RunQueuedPayload>;
+/** Emitted when the provider process reports its start for a run; it moves no state. */
+export type RunProviderInitializedEvent = SessionEventVariant<
+  "run.provider_initialized",
+  "run_lifecycle",
+  RunProviderInitializedPayload
+>;
+/** Emitted when a turn opens within a run; it moves no state. */
+export type RunTurnStartedEvent = SessionEventVariant<
+  "run.turn_started",
+  "run_lifecycle",
+  RunTurnStartedPayload
+>;
+/** Emitted when the provider says its worker is shutting down mid-run; never the run's end. */
+export type RunWorkerShutdownEvent = SessionEventVariant<
+  "run.worker_shutdown",
+  "run_lifecycle",
+  RunWorkerShutdownPayload
+>;
+/** Emitted when a provider's own subagent starts under a run. */
+export type SubagentStartedEvent = SessionEventVariant<
+  "subagent.started",
+  "tool_activity",
+  SubagentLifecyclePayload
+>;
+/** Emitted when a provider's own subagent finishes, paired to its start. */
+export type SubagentCompletedEvent = SessionEventVariant<
+  "subagent.completed",
+  "tool_activity",
+  SubagentLifecyclePayload
+>;
+/** Emitted when the provider reports a coarse status for its session. */
+export type SessionProviderStatusEvent = SessionEventVariant<
+  "session.provider_status",
+  "session_lifecycle",
+  SessionProviderStatusPayload
+>;
 /** Emitted when a turn reaches the step bound and ends there. */
 export type RunStepLimitReachedEvent = SessionEventVariant<
   "run.step_limit_reached",
@@ -390,6 +436,12 @@ export type SessionAdvisorChangedEvent = SessionEventVariant<
   "session.advisor_changed",
   "session_lifecycle",
   SessionAdvisorChangedPayload
+>;
+/** Emitted when `/output-style` changes a Claude Code session's own output style. */
+export type SessionOutputStyleChangedEvent = SessionEventVariant<
+  "session.output_style_changed",
+  "session_lifecycle",
+  SessionOutputStyleChangedPayload
 >;
 /** Emitted on every session on a mount when the daemon's re-probe changes the mount's health. */
 export type RepoMountHealthChangedEvent = SessionEventVariant<
@@ -741,11 +793,18 @@ export type SessionEvent =
   | ApprovalReviewerDeniedEvent
   | ApprovalDenialOverriddenEvent
   | RunQueuedEvent
+  | RunProviderInitializedEvent
+  | RunTurnStartedEvent
+  | RunWorkerShutdownEvent
+  | SubagentStartedEvent
+  | SubagentCompletedEvent
+  | SessionProviderStatusEvent
   | RunStepLimitReachedEvent
   | RunTokenLimitReachedEvent
   | RunRecoveryResolvedEvent
   | RunRecoveryStepsAddedEvent
   | SessionAdvisorChangedEvent
+  | SessionOutputStyleChangedEvent
   | RepoMountHealthChangedEvent
   | OrchestrationRejectedEvent
   | ArtifactPublishedEvent

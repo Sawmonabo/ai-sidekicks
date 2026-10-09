@@ -19,11 +19,7 @@ import type { SpawnedVersionBindingCarriers } from "./runtime-binding-store.js";
 import type { DriverCliVersionReport } from "./driver/contract.js";
 import { PROVIDER_DRIVER_DESCRIPTORS } from "./driver/descriptor.js";
 import { assertValidCliVersionReport } from "./output-validation.js";
-import {
-  buildProviderSpawnEnv,
-  hostEnvNameMatchForPlatform,
-  type SpawnEnvPair,
-} from "./spawn-env.js";
+import { buildProviderSpawnEnv, type SpawnEnvNameMatch, type SpawnEnvPair } from "./spawn-env.js";
 
 /**
  * Thrown when the configured provider command names no runnable executable, or one whose real
@@ -150,6 +146,8 @@ export interface SpawnedProviderVersionReadRequest {
    * the opt-out is applied over it, and a bare command is searched along its `PATH`.
    */
   readonly baseEnv: readonly SpawnEnvPair[];
+  /** How this system compares environment variable names. */
+  readonly environmentNameMatch: SpawnEnvNameMatch;
   /** Defaults to {@link DEFAULT_PROVIDER_VERSION_CLIENT_NAME}. */
   readonly clientName?: string;
   readonly resolver?: Partial<ProviderExecutableResolverDependencies>;
@@ -165,7 +163,7 @@ export async function readSpawnedProviderVersion(
   const spawnEnvironment = buildProviderSpawnEnv({
     driverName,
     baseEnv: request.baseEnv,
-    hostEnvNameMatch: hostEnvNameMatchForPlatform(request.resolver?.platform ?? process.platform),
+    hostEnvNameMatch: request.environmentNameMatch,
   });
   // Searched along the child's own environment, so the version read and the spawn find one build.
   const resolved = await resolveProviderExecutable(

@@ -1,13 +1,12 @@
 /**
- * Delivers a rendered brief to a target once, and settles the outcome: the outbound frame, the
- * target gateway, and the coordinator that keeps a target to one brief send.
+ * Delivers a rendered brief to a target once, and settles the outcome: the brief turn, the target
+ * gateway, and the coordinator that keeps a target to one brief send.
  */
 
 import type { DeclaredLossKind } from "@ai-sidekicks/contracts/provider/driver/declared-loss";
-import type { OutboundTextFrame } from "../../outbound-frame.js";
-import { OutboundTextFrameWriter } from "../../outbound-frame.js";
+import type { OutboundText } from "../../outbound-text.js";
 import { type BriefBudgetPolicy, BriefProjection, type BriefRendering } from "./projection.js";
-import type { CanonicalTranscriptProjection } from "../../driver/contract.js";
+import type { CanonicalTranscriptProjection } from "../canonical-transcript.js";
 
 /**
  * The target session a brief is delivered into, named by its provider session id alone: a resume
@@ -50,18 +49,18 @@ export class UnownedBriefTargetError extends Error {
 }
 
 /**
- * The frame handed to the gateway, minted `system_narration`; the driver owns encoding. A frame,
- * not a string, so a gateway cannot send bytes that skipped neutralization and correlation minting.
+ * The brief turn handed to the gateway: its text marked `system_narration`, text the daemon
+ * composed, so a driver sends it marked as such; the driver owns encoding.
  */
-export interface BriefOutboundFrame {
+export interface BriefTurn {
   readonly targetProviderSessionId: string;
-  readonly frame: OutboundTextFrame;
+  readonly brief: OutboundText;
 }
 
 /** The target as this floor sees it: the one send. */
 export interface BriefTargetGateway {
-  /** Delivers the brief turn. A rejection is uncertain: the frame may have been applied. */
-  sendBriefTurn(frame: BriefOutboundFrame): Promise<void>;
+  /** Delivers the brief turn. A rejection is uncertain: the turn may have been applied. */
+  sendBriefTurn(turn: BriefTurn): Promise<void>;
 }
 
 /** One delivery: the projection, the established target and the budget. */
@@ -98,7 +97,6 @@ export interface BriefDeliverySettlement {
 export class BriefDeliveryCoordinator {
   readonly #gateway: BriefTargetGateway;
   readonly #projection: BriefProjection;
-  readonly #frameWriter: OutboundTextFrameWriter;
   /** Targets by provider session id; a foreign handle or a bare `new` is refused by identity. */
   readonly #establishedTargets: Map<string, EstablishedBriefTarget> = new Map<
     string,
@@ -110,20 +108,9 @@ export class BriefDeliveryCoordinator {
     Promise<BriefDeliverySettlement>
   >();
 
-  /**
-   * The frame writer defaults to `emulated`, which neutralizes; a `native` caller supplies its own
-   * writer, so an undeclared caller cannot opt out of the boundary.
-   */
-  constructor(
-    gateway: BriefTargetGateway,
-    projection: BriefProjection = new BriefProjection(),
-    frameWriter: OutboundTextFrameWriter = new OutboundTextFrameWriter({
-      mechanismGrade: "emulated",
-    }),
-  ) {
+  constructor(gateway: BriefTargetGateway, projection: BriefProjection = new BriefProjection()) {
     this.#gateway = gateway;
     this.#projection = projection;
-    this.#frameWriter = frameWriter;
   }
 
   /**
@@ -170,26 +157,18 @@ export class BriefDeliveryCoordinator {
       projection: request.projection,
       budget: request.budget,
     });
-    // Composed before the send, so a composing failure is thrown with nothing sent, never settled
-    // as a send that may have landed.
-    const frame: OutboundTextFrame = this.#frameWriter.compose({
-      text: rendering.text,
-      origin: "system_narration",
-    });
+    const brief: OutboundText = { text: rendering.text, origin: "system_narration" };
     const delivery: Promise<BriefDeliverySettlement> = this.#send(
-      { targetProviderSessionId, frame },
+      { targetProviderSessionId, brief },
       rendering,
     );
     this.#deliveries.set(targetProviderSessionId, delivery);
     return await delivery;
   }
 
-  async #send(
-    outboundFrame: BriefOutboundFrame,
-    rendering: BriefRendering,
-  ): Promise<BriefDeliverySettlement> {
+  async #send(turn: BriefTurn, rendering: BriefRendering): Promise<BriefDeliverySettlement> {
     try {
-      await this.#gateway.sendBriefTurn(outboundFrame);
+      await this.#gateway.sendBriefTurn(turn);
       return settle(rendering, "delivered");
     } catch (sendFailure) {
       return settle(rendering, "unconfirmed", sendFailure);

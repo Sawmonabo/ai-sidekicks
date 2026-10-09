@@ -28,6 +28,7 @@ import { recordCleanStop } from "./last-run.js";
 import { findNewestBackupDatabase } from "./newest-backup.js";
 import type { DatabaseFileOperatingSystem } from "./operating-system.js";
 import { countDamagedFileEvents, recoverIntoFreshFile } from "./sqlite-shell.js";
+import { describeRejection } from "../../rejection.js";
 
 // The rollback journal each step that readies the fresh file keeps beside it while it writes.
 const FRESH_FILE_JOURNAL_SUFFIX = "-journal";
@@ -146,7 +147,7 @@ async function repairDamagedFile(
       return logStoppedRepair(options);
     }
     await removeFreshFile(freshPath);
-    const reason = error instanceof Error ? error.message : String(error);
+    const reason = describeRejection(error);
     options.writeServiceLog(`The database file could not be repaired: ${reason}`);
     return { outcome: "unrepaired", asideFolder, reason };
   }
@@ -213,7 +214,7 @@ async function recoverCountingEvents(
       }
       options.writeServiceLog(
         "The repair gives no count of its progress, as the damaged file's events could not be " +
-          `counted: ${error instanceof Error ? error.message : String(error)}`,
+          `counted: ${describeRejection(error)}`,
       );
     },
   );
@@ -263,7 +264,7 @@ async function prepareWithNewestBackup(
     }
     options.writeServiceLog(
       "The newest backup could not be read and was passed over: " +
-        (error instanceof Error ? error.message : String(error)),
+        describeRejection(error),
     );
   }
   try {

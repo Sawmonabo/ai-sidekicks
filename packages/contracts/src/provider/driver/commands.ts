@@ -109,16 +109,12 @@ export const ProviderCommandEntrySchema: z.ZodType<ProviderCommandEntry, Provide
     path: ["server"],
   });
 
-/**
- * One live binding's command list, with where it came from. `complete: false` means the provider
- * listed more entries than the per-group cap and the tail was dropped.
- */
+/** One live binding's command list, whole as the provider published it, with where it came from. */
 export interface ProviderCommandBindingGroup {
   // The one live run on the binding; `null` when none or several are live.
   runId: RunId | null;
   binding: ProviderCommandBinding;
   entries: ProviderCommandEntry[];
-  complete: boolean;
 }
 
 /**

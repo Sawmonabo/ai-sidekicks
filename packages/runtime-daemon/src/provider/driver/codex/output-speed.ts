@@ -2,6 +2,10 @@
 // against the model's catalog row so a level the model does not list runs at standard; the tier
 // the thread declares back; and the per-run report of the tier each turn settled at.
 
+import {
+  findProviderModelRow,
+  type ProviderModel,
+} from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { ProviderOutputSpeedState } from "@ai-sidekicks/contracts/provider/driver/output-speed";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
@@ -11,17 +15,14 @@ import {
 } from "../../declared-output-speed.js";
 import type { DriverDiagnosticsEmitter } from "../diagnostics.js";
 import { isPlainObject } from "../../record-readers.js";
-import {
-  CODEX_DRIVER_NAME,
-  resolveCodexModelCatalog,
-  type CodexModelCatalogExchange,
-} from "./capabilities.js";
+import { CODEX_DRIVER_NAME } from "./capabilities.js";
 import { CODEX_STANDARD_OUTPUT_SPEED } from "./descriptor.js";
 import {
   CODEX_ITEM_STARTED_METHOD,
   CODEX_THREAD_SETTINGS_UPDATED_METHOD,
   CODEX_TURN_COMPLETED_METHOD,
 } from "./event-normalizer.js";
+import type { CodexService } from "./service/supervisor.js";
 import type { CodexLifecycleOptions, CodexSessionRecord } from "./session/state.js";
 
 /**
@@ -39,22 +40,24 @@ export function composeCodexServiceTier(level: string | undefined): {
 }
 
 /** What the Codex output-speed leg reads through and reports to. */
-export type CodexOutputSpeedDependencies = Pick<
-  CodexLifecycleOptions,
-  "modelCatalogExchange" | "diagnostics" | "onRunOutputSpeedSettled"
->;
+export type CodexOutputSpeedDependencies = Pick<CodexLifecycleOptions, "diagnostics"> & {
+  /** Receives the tier each run settled at, which the run engine compares with its request. */
+  readonly onRunOutputSpeedSettled: RunOutputSpeedSettledListener;
+  /** The live catalog of the service a conversation runs on. */
+  readonly readModelCatalog: (service: CodexService) => Promise<ProviderModel[]>;
+};
 
 /**
  * Resolves the level a carrier sends, reads the tier a thread declares back, and reports the tier
  * each run settled at.
  */
 export class CodexOutputSpeed {
-  readonly #modelCatalogExchange: CodexModelCatalogExchange;
+  readonly #readModelCatalog: (service: CodexService) => Promise<ProviderModel[]>;
   readonly #diagnostics: DriverDiagnosticsEmitter;
-  readonly #onRunOutputSpeedSettled: RunOutputSpeedSettledListener | undefined;
+  readonly #onRunOutputSpeedSettled: RunOutputSpeedSettledListener;
 
   constructor(dependencies: CodexOutputSpeedDependencies) {
-    this.#modelCatalogExchange = dependencies.modelCatalogExchange;
+    this.#readModelCatalog = dependencies.readModelCatalog;
     this.#diagnostics = dependencies.diagnostics;
     this.#onRunOutputSpeedSettled = dependencies.onRunOutputSpeedSettled;
   }
@@ -65,17 +68,22 @@ export class CodexOutputSpeed {
   }
 
   /**
-   * The level a carried `level` runs at on `model`: itself where a fresh catalog read lists it for
-   * that model, else standard, so no carried level is refused and none the model lacks is sent.
-   * Standard and an absent level need no read. A failed catalog read propagates.
+   * The level a carried `level` runs at on `model`: itself where a fresh read of `service`'s
+   * catalog lists it for that model, else standard, so no carried level is refused and none the
+   * model lacks is sent. Standard and an absent level need no read. A failed read propagates.
    */
-  async resolveLevel(model: string, level: string | undefined): Promise<string | undefined> {
+  async resolveLevel(
+    service: CodexService,
+    model: string,
+    level: string | undefined,
+  ): Promise<string | undefined> {
     // The `undefined` test narrows the type; `needsCatalogRead` already says no for it.
     if (level === undefined || !this.needsCatalogRead(level)) {
       return level;
     }
-    const catalog = await resolveCodexModelCatalog(this.#modelCatalogExchange);
-    const levels = catalog.find((entry) => entry.id === model)?.outputSpeedLevels ?? [];
+    const catalog = await this.#readModelCatalog(service);
+    // `model/list` lists each model once, on its default row; its tiers hold on either window.
+    const levels = findProviderModelRow(catalog, model, false)?.outputSpeedLevels ?? [];
     return levels.includes(level) ? level : CODEX_STANDARD_OUTPUT_SPEED;
   }
 
@@ -168,7 +176,7 @@ export class CodexOutputSpeed {
   // Nothing is reported for a thread that never declared a tier.
   #reportSettled(record: CodexSessionRecord, runId: RunId): void {
     if (record.declaredOutputSpeed !== undefined) {
-      this.#onRunOutputSpeedSettled?.(record.sessionId, runId, record.declaredOutputSpeed);
+      this.#onRunOutputSpeedSettled(record.sessionId, runId, record.declaredOutputSpeed);
     }
   }
 

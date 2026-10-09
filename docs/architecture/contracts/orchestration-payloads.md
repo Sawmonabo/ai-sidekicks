@@ -171,8 +171,8 @@ type SessionGoalClearResponse = { sessionId: SessionId }; // clearing with no go
 // it in the composer, so there is no step that binds a saved agent to a running session and none to
 // undo. The verbs here mutate and read what the session already holds.
 // wire: agent.configUpdate / agent.list
-// The running agent's model, effort, output speed and provider, each moved by the person from the
-// composer's controls. Every member is optional and an omitted member is UNCHANGED, never reset.
+// The running agent's model, window, effort, output speed and provider, each moved by the person from
+// the composer's controls. Every member is optional and an omitted member is UNCHANGED, never reset.
 // Every accepted update is a switch of the agent's provider binding (`AgentProviderBinding`,
 // agent-definition-payloads.md §Plan-024) and settles with `agent.provider_binding_changed` or
 // `agent.provider_binding_change_failed`; no other event records it. A change of model, effort or
@@ -180,6 +180,10 @@ type SessionGoalClearResponse = { sessionId: SessionId }; // clearing with no go
 interface AgentConfigUpdateRequest {
   agentId: AgentId;
   modelId?: string;
+  // A number moves to that larger window, in tokens: the `contextWindow` of the model's larger row
+  // (`ProviderModel.largerWindow`). `null` moves back to the model's default window; omitted does not
+  // move it. A `modelId` move must carry it, a figure or `null`, so omitted always means unchanged.
+  largerWindow?: number | null;
   // D-013-17 — the provider axis ([Spec-014 §Same-Agent Provider Switch](../../specs/014-multi-agent-orchestration.md#same-agent-provider-switch)).
   // Moving this is the PROVIDER SWITCH, picked from the composer's model control, which lists both
   // providers' models under two headings; it applies at the end of the run in flight. Continuity is a
@@ -341,8 +345,8 @@ type AgentBindingSwitchAccountState =
 // switch. One shape serves three surfaces — the wire acknowledgment above, the durable `agents.pending_switch`
 // slot, and `agent.list`'s `pendingSwitch` member — so a client, a projector, and a restarted daemon
 // all read the same record of the same intent.
-// The record deliberately has no reset: no operation clears a binding member back to a driver
-// default, so an omitted key is a member not moving and there is nothing else to encode.
+// An omitted key is a member not moving. The one reset is `largerWindow: null`, the move back to the
+// model's default window, which is a model choice of its own rather than a cleared member.
 // `driverName`, `modelId` and the account cannot be cleared at all (an agent always runs on one of
 // each), and clearing `effort` or `outputSpeed` is not an operation `agent.configUpdate` offers,
 // whose omitted members are uniformly "unchanged, never reset". `outputSpeed` is carried in this
@@ -352,6 +356,9 @@ type AgentBindingSwitchAccountState =
 interface AgentBindingSwitchTarget {
   driverName?: string;
   modelId?: string;
+  // A number moves to that larger window in tokens, `null` back to the model's default window; a
+  // `modelId` move must carry it, a figure or `null`, so omitted always means unchanged.
+  largerWindow?: number | null;
   effort?: string;
   outputSpeed?: string;
 }
@@ -450,9 +457,10 @@ interface AgentListEntry {
   // D-013-17: the agent's EFFECTIVE binding — the one it runs under now, never the pending one.
   // `providerAccountId` null = the agent follows the provider's current account (the one marked
   // `Default`); `effort` null = the driver's own default for the model; absent `outputSpeed` = never
-  // set, so the provider's own default stands. Each member is served from its own column on the agent
-  // row, the columns an applying switch commits into, so every member a switch can move is read back
-  // here once it applies; a run-bound member readable only as a PENDING intent would go dark then.
+  // set, so the provider's own default stands; absent `largerWindow` = the model's default window.
+  // Each member is served from its own column on the agent row, the columns an applying switch
+  // commits into, so every member a switch can move is read back here once it applies; a run-bound
+  // member readable only as a PENDING intent would go dark then.
   binding: AgentProviderBinding;
   // What the PROVIDER declared, as against `binding.outputSpeed`, which is what was REQUESTED
   // (Spec-004 §The output-speed axis). Projected at response-build time from the
@@ -568,7 +576,7 @@ interface OrchestrationRunLinkCarrier {
 | `orchestration.costReceiptRead` | RPC | `SessionCostReceiptRequest` → `SessionCostReceiptResponse` | Read-only decomposition of the committed-spend fold (D-013-16 — shapes below); served from the same accountant accessor as `orchestration.budgetRead`, so the two can never disagree |
 | `session.goalUpdate` | RPC | `SessionGoalUpdateRequest` → `SessionGoalUpdateResponse` | [Spec-014 §Session Goals](../../specs/014-multi-agent-orchestration.md#session-goals); an accepted update emits `session.goal_updated` carrying the same canonical `goal` |
 | `session.goalClear` | RPC | `SessionGoalClearRequest` → `SessionGoalClearResponse` | An accepted clear emits `session.goal_cleared` (clearing is the distinct operation — an update without a goal is malformed) |
-| `agent.configUpdate` | RPC | `AgentConfigUpdateRequest` → `AgentConfigUpdateResponse` | The running agent's model, effort, speed and provider; never the account, which is `providerAccount.setCurrent` (provider-account-payloads.md §Plan-023). Settles with `agent.provider_binding_changed` or `agent.provider_binding_change_failed` |
+| `agent.configUpdate` | RPC | `AgentConfigUpdateRequest` → `AgentConfigUpdateResponse` | The running agent's model, window, effort, speed and provider; never the account, which is `providerAccount.setCurrent` (provider-account-payloads.md §Plan-023). Settles with `agent.provider_binding_changed` or `agent.provider_binding_change_failed` |
 | `agent.list` | subscription | `AgentListRequest` → `AgentListResponse` | Agents-table projection, live: the list, then each change |
 | `session.terminalProviderSessionList` | RPC | `SessionTerminalProviderSessionListParams` → `SessionTerminalProviderSessionListResult` | The provider sessions typed in a terminal, each a `TerminalProviderSession` with its `provider`; shapes in local-ipc-payloads.md §Plan-005; empty while `Reach Codex sessions started in a terminal` is off |
 

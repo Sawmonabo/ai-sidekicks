@@ -52,6 +52,14 @@ interface AgentProviderBinding {
   providerAccountId: ProviderAccountId | null; // null = follow the provider's current account — the one marked `Default`, which `providerAccount.setCurrent` moves — resolved AT THE MOMENT THE RUN STARTS and followed when the mark moves. Deliberately not a foreign key: a definition may name an account that is later removed, and that must surface as a typed resolution refusal the person can act on, not as a delete-time cascade that silently rewrites the definition
   effort: string | null; // null = the driver's default. Validated at RESOLUTION against the target model's driver-reported `effortLevels` — never against a hardcoded list, and never at save, because the vocabulary belongs to the model a run actually binds
   outputSpeed?: string; // set on a running agent's binding through agent.configUpdate; a saved definition's bindings leave it absent, because the editor authors no speed
+  // The larger window chosen, in tokens, recorded when it was picked: the `contextWindow` of the
+  // larger row picked (`ProviderModel.largerWindow`). Absent means the model's default window. A
+  // figure is recorded only for a larger row that shares its default row's id (Codex); a Claude
+  // larger row is chosen by its own id, which carries Claude Code's `[1m]` mark, so a Claude
+  // binding never carries one. Every resume and fork sends the recorded figure, whatever the
+  // catalog says later. Set on a running agent's binding through agent.configUpdate; a saved
+  // definition's bindings leave it absent, because the editor authors no window.
+  largerWindow?: number;
 }
 
 interface AgentDefinition {

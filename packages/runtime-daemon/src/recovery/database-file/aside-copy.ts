@@ -17,6 +17,7 @@ import { syncFolder, writeFileAtomically } from "../../file/atomic-write.js";
 import { isMissingFileError } from "../../file/missing-error.js";
 import { pathExists } from "../../git/filesystem.js";
 import type { DatabaseFileOperatingSystem } from "./operating-system.js";
+import { describeRejection } from "../../rejection.js";
 
 /** The two files SQLite keeps beside a database in write-ahead-log mode. */
 export const DATABASE_COMPANION_FILE_SUFFIXES = ["-wal", "-shm"] as const;
@@ -226,7 +227,7 @@ async function readAsideCopies(
     } catch (error) {
       options.writeServiceLog(
         `The copy aside in ${folder} has no record that reads and is not reused: ` +
-          (error instanceof Error ? error.message : String(error)),
+          describeRejection(error),
       );
     }
   }

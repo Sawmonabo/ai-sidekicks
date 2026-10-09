@@ -184,12 +184,22 @@ const EVENT_DISPOSITION_RECORD = {
   },
   // Run-failure envelope.
   error: { disposition: "adopt", category: "run_lifecycle", eventType: "run.failed" },
-  // Todo-snapshot projection (TodoWrite-family result row).
-  todo_update: { disposition: "adopt", category: "tool_activity", eventType: "tool.result" },
-  // Task mirror: per-task create and update fold into the per-thread mirror and `todo_update`
-  // snapshots.
-  task_create: { disposition: "adopt", category: "tool_activity", eventType: "tool.result" },
-  task_update: { disposition: "adopt", category: "tool_activity", eventType: "tool.result" },
+  // The turn's task list: a todo snapshot and each task's create and update feed `turn.tasks`
+  // while the turn runs, and the list is never a row in the transcript.
+  todo_update: {
+    disposition: "discard",
+    reason:
+      "feeds the turn's live task list, turn.tasks, served while the turn runs; never stored " +
+      "and never a tool row, because the task list is never a row in the transcript",
+  },
+  task_create: {
+    disposition: "discard",
+    reason: "feeds turn.tasks with todo_update; never stored and never a tool row",
+  },
+  task_update: {
+    disposition: "discard",
+    reason: "feeds turn.tasks with todo_update; never stored and never a tool row",
+  },
   // Generic user-facing notice. A provider's own system-channel notice that repeats one is
   // discarded in its normalizer and is not a key here.
   notification: {

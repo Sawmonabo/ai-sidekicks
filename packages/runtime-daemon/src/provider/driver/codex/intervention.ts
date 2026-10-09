@@ -11,6 +11,7 @@
  * - `clientIdempotencyKey` rides the wire unchanged where a field exists (`turn/steer` carries
  *   it as `clientUserMessageId`); `turn/interrupt` has none, and a minted key would defeat the
  *   `UNIQUE (target_run_id, client_idempotency_key)` dedupe on retry.
+ * - A steer carrying attachments throws `DriverCapabilityUnsupportedError`.
  * - `turn/steer` answers `{ turnId }`, so `applied` requires the targeted turn; `turn/interrupt`
  *   answers an empty object, so no JSON-RPC error is the only evidence. No shape check: the wire is
  *   additive, and a new member must not degrade every interrupt.
@@ -26,11 +27,9 @@ import type {
   InterruptRunParams,
 } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
-import {
-  TEXT_NEUTRALIZATION_REFUSAL_CODE,
-  type CallerDeclaredFrameOrigin,
-} from "../../outbound-frame.js";
+import { CODEX_DRIVER_NAME } from "./capabilities.js";
 import { STEER_FALLBACK_ACTION } from "../contract.js";
+import { DriverCapabilityUnsupportedError } from "../registry.js";
 
 /** Capability flag governing each intervention type; `null` means no flag gates it. */
 const CODEX_INTERVENTION_CAPABILITY_FLAGS: Readonly<
@@ -48,11 +47,6 @@ export interface CodexSteerRunRequest {
   readonly expectedTurnId?: string | undefined;
   /** The requester's key, placed on the wire unchanged. */
   readonly clientIdempotencyKey: string;
-  /**
-   * Why this text is written. Typed as the caller-declarable subset, so the tripwire-exempt origin
-   * (which would skip the swallow check) cannot be named here.
-   */
-  readonly frameOrigin?: CallerDeclaredFrameOrigin | undefined;
 }
 
 /** What `turn/steer` acknowledged; both turn ids travel so a different turn can be told apart. */
@@ -67,11 +61,6 @@ export interface CodexSteerAcknowledgement {
 export interface CodexInterventionRuntime {
   steerRun(request: CodexSteerRunRequest): Promise<CodexSteerAcknowledgement>;
   interruptRun(params: InterruptRunParams): Promise<void>;
-  /**
-   * Whether the runtime has already ruled the turn's text swallowed. A read, never a wait, so
-   * `refusalCode` is best-effort and the run's `run.failed` terminal remains the guarantee.
-   */
-  textNeutralizationDecisionForTurn(turnId: string): { readonly refused: boolean };
 }
 
 /** Reads the live capability snapshot; injected so a refreshed record is honored. */
@@ -93,13 +82,7 @@ function degradeUnroutedInterventionType(params: never): DriverInterventionResul
 // A mismatched or missing acknowledged turn degrades: neither shows the targeted turn was steered.
 function normalizeSteerAcknowledgement(
   acknowledgement: CodexSteerAcknowledgement,
-  textNeutralizationRefused: boolean,
 ): DriverInterventionResult {
-  // Checked first: a swallowed steer can still get a matching ack. No `fallbackAction`, since
-  // re-queueing the same text fails the same way.
-  if (textNeutralizationRefused) {
-    return { status: "degraded", refusalCode: TEXT_NEUTRALIZATION_REFUSAL_CODE };
-  }
   if (acknowledgement.acknowledgedTurnId === acknowledgement.targetedTurnId) {
     return { status: "applied" };
   }
@@ -128,18 +111,18 @@ export class CodexInterventionDispatcher {
 
     switch (params.type) {
       case "steer": {
+        // Staged files are not handed to Codex yet, so a steer carrying them is refused whole
+        // rather than sent without them.
+        if ((params.payload.attachments ?? []).length > 0) {
+          throw new DriverCapabilityUnsupportedError(CODEX_DRIVER_NAME, "steer");
+        }
         const acknowledgement = await this.#runtime.steerRun({
           runId: params.targetRunId,
           content: params.payload.content,
           expectedTurnId: params.payload.expectedTurnId,
           clientIdempotencyKey: params.clientIdempotencyKey,
-          frameOrigin: "human_text",
         });
-        // Asked about the turn that went on the wire, not the caller's hint.
-        return normalizeSteerAcknowledgement(
-          acknowledgement,
-          this.#runtime.textNeutralizationDecisionForTurn(acknowledgement.targetedTurnId).refused,
-        );
+        return normalizeSteerAcknowledgement(acknowledgement);
       }
       case "interrupt": {
         await this.#runtime.interruptRun({

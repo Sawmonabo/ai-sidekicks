@@ -25,7 +25,12 @@ export type ClaudeSessionUnavailableReason =
   | "output_schema_unbound"
   | "output_schema_mismatch"
   | "provider_account_unusable"
-  | "provider_account_ambiguous";
+  | "provider_account_ambiguous"
+  | "process_exited"
+  | "execution_posture_absent"
+  | "permission_level_unavailable"
+  | "review_skill_absent"
+  | "larger_window_figure_unsupported";
 
 const SESSION_UNAVAILABLE_MESSAGES: Readonly<Record<ClaudeSessionUnavailableReason, string>> = {
   session_already_live:
@@ -34,10 +39,9 @@ const SESSION_UNAVAILABLE_MESSAGES: Readonly<Record<ClaudeSessionUnavailableReas
     "The spawned Claude process announced a session id other than the pinned one.",
   no_live_session: "No live Claude session is bound to this session.",
   no_live_run: "No live Claude session is bound to this run.",
-  run_already_dispatched:
-    "This run's opening frame is already on the wire and its turn has not settled.",
+  run_already_dispatched: "This run's turn is already dispatched and has not settled.",
   session_turn_in_flight:
-    "Another run's frame is still pending on this Claude session; its turn has not settled.",
+    "Another run's turn is still in flight on this Claude session; it has not settled.",
   run_dispatch_unresolved: "The daemon resolved no Claude dispatch for this run.",
   execution_posture_mismatch:
     "The run's execution posture does not match the posture the Claude session was spawned with.",
@@ -52,6 +56,14 @@ const SESSION_UNAVAILABLE_MESSAGES: Readonly<Record<ClaudeSessionUnavailableReas
     "be bound and none was.",
   provider_account_ambiguous:
     "Two resolvers name different provider accounts for this Claude session.",
+  process_exited: "The Claude Code process exited before it answered.",
+  execution_posture_absent:
+    "The Claude session holds no execution posture, so a turn the daemon starts has no level to " +
+    "run at.",
+  permission_level_unavailable: "Claude Code cannot run this session at that permission level.",
+  review_skill_absent: "The installed Claude Code lists no code-review skill for this session.",
+  larger_window_figure_unsupported:
+    "Claude Code's model id names its window, so a Claude session takes no larger-window figure.",
 };
 
 /** The structured fields of a `ClaudeSessionUnavailableError`. */

@@ -43,7 +43,7 @@ export const BINDING_CHANGE_FAILED_PAYLOAD: Readonly<Record<string, unknown>> = 
   switchId: "switch-2",
   actor: DEVICE_ID,
   from: CLAUDE_BINDING,
-  attempted: { driverName: "codex", modelId: "gpt-5.5" },
+  attempted: { driverName: "codex", modelId: "gpt-5.5", largerWindow: null },
   reason: "account_unavailable",
   accountState: "reauth_required",
 };

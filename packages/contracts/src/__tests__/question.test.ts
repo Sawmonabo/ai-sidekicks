@@ -1,5 +1,5 @@
 // The question card's cross-field rules: a question held by both a run and a wait or by neither,
-// and a secret question with option rows.
+// a secret question with option rows, and a form field's start or range that cannot be drawn.
 import { describe, expect, it } from "vitest";
 
 import { QuestionAskedPayloadSchema, QuestionResolveRequestSchema } from "../question.js";
@@ -35,6 +35,20 @@ describe("QuestionAskedPayloadSchema", () => {
         questions: [{ ...PICK_ONE, secret: true }],
       }).success,
     ).toBe(false);
+  });
+
+  it("refuses a form start that is no option, and a range whose bounds cross", () => {
+    const parses = (question: Record<string, unknown>): boolean =>
+      QuestionAskedPayloadSchema.safeParse({ ...base, runId: RUN_ID, questions: [question] })
+        .success;
+    expect(parses({ ...PICK_ONE, required: true, default: "OAuth" })).toBe(true);
+    expect(parses({ ...PICK_ONE, default: "Password" })).toBe(false);
+    expect(parses({ ...PICK_ONE, severalAnswers: true, default: ["OAuth", "Password"] })).toBe(
+      false,
+    );
+    const count = { text: "How many retries?", options: [], severalAnswers: false, secret: false };
+    expect(parses({ ...count, default: 3, minimum: 1, maximum: 5 })).toBe(true);
+    expect(parses({ ...count, minimum: 5, maximum: 1 })).toBe(false);
   });
 });
 

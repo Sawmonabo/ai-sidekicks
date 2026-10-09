@@ -53,7 +53,6 @@ describe("resolveComposerTarget — never guesses, and never sends with no targe
       driverName: "claude",
       targetRunId: RUN.id,
       expectedRunVersion: 4,
-      providerFailureDetail: undefined,
     });
   });
 

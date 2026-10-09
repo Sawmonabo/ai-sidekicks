@@ -40,6 +40,7 @@ import { SessionEventAppender, type SessionEventLog } from "../events/session/ap
 import { DaemonDomainError } from "../ipc/domain-error.js";
 import { KeyedLock } from "../keyed-lock.js";
 import { boundFailureDetail, type ProviderDriver } from "../provider/driver/contract.js";
+import type { FasterModelRetryOutcome } from "../provider/driver/run-control.js";
 import type { InterruptRoute } from "../session/run/engine.js";
 import { advanceRunVersionStatement } from "../session/run/projection.js";
 import type { RunStateReader } from "../session/run/read.js";
@@ -56,6 +57,7 @@ import {
   type InterventionTransition,
   type SavedIntervention,
 } from "./store.js";
+import { describeRejection } from "../rejection.js";
 
 /**
  * Where a request came from: the device of the connection it arrived on, or the daemon's actor
@@ -70,14 +72,6 @@ export type FasterModelRetryRequest = Extract<
   InterventionRequestPayload,
   { type: "faster_model_retry" }
 >;
-
-/**
- * How a faster-model retry ended: sent again, or refused with its reason because the turn is no
- * longer the run's latest or its reply has started.
- */
-export type FasterModelRetryOutcome =
-  | { readonly state: "applied" }
-  | { readonly state: "rejected"; readonly rejectionReason: string };
 
 /** The run engine as the intervention service uses it. */
 interface InterventionRunEngine {
@@ -127,9 +121,14 @@ interface InterventionTarget {
   readonly actor: InterventionActor;
 }
 
-// What dispatch produced, as the row's next move from `accepted`.
+// What dispatch produced, as the row's next move from `accepted`; an applied steer whose message
+// started another run names it.
 type DispatchOutcome =
-  | { readonly from: "accepted"; readonly to: "applied" }
+  | {
+      readonly from: "accepted";
+      readonly to: "applied";
+      readonly deliveredRunId?: RunId | undefined;
+    }
   | {
       readonly from: "accepted";
       readonly to: "degraded";
@@ -244,32 +243,30 @@ export class InterventionService {
       return this.#resolve(target, outcome);
     }
     const move = moveInterventionStatement(target.interventionId, outcome);
+    const verdict = verdictEventOf(target, outcome);
     // An interrupt ends its run in the verdict's own write; a run that ended first keeps its end.
     const hasEndedRun =
       target.type === "interrupt" &&
       (await this.#deps.runEngine.endRunForInterrupt(target.targetRunId, {
         statements: [move],
-        precedingEvents: [
-          { type: `intervention.${outcome.to}`, payload: interventionEventOf(target, outcome.to) },
-        ],
+        precedingEvents: [{ type: `intervention.${outcome.to}`, payload: verdict }],
       }));
     if (!hasEndedRun) {
       // An interrupt's verdict never advances the version; it found its run already ended. Any
       // other verdict stands whatever the run did since the accept, so its advance holds no
       // comparand.
-      await this.#appendIntervention(
-        target,
-        outcome.to,
-        target.type === "interrupt"
-          ? [move]
-          : [
-              advanceRunVersionStatement({
-                sessionId: target.sessionId,
-                runId: target.targetRunId,
-              }),
-              move,
-            ],
-      );
+      await this.#appender.append(`intervention.${outcome.to}`, verdict, {
+        transactionalPrelude:
+          target.type === "interrupt"
+            ? [move]
+            : [
+                advanceRunVersionStatement({
+                  sessionId: target.sessionId,
+                  runId: target.targetRunId,
+                }),
+                move,
+              ],
+      });
     }
     return this.#answer(target, outcome.to, undefined);
   }
@@ -298,9 +295,12 @@ export class InterventionService {
     const result = await this.#deps
       .resolveDriver(request.targetRunId)
       .applyIntervention(driverParamsOf(request));
-    return result.status === "applied"
+    if (result.status === "degraded") {
+      return { from: "accepted", to: "degraded", fallbackAction: result.fallbackAction };
+    }
+    return result.deliveredRunId === undefined
       ? { from: "accepted", to: "applied" }
-      : { from: "accepted", to: "degraded", fallbackAction: result.fallbackAction };
+      : { from: "accepted", to: "applied", deliveredRunId: result.deliveredRunId };
   }
 
   // Ends the intervention in an outcome that applies nothing, with its event.
@@ -324,14 +324,22 @@ export class InterventionService {
     dispatchError: unknown,
   ): Promise<InterventionRequestResponse> {
     const reason = boundFailureDetail(failureTextOf(dispatchError), UNDESCRIBED_DISPATCH_FAILURE);
+    // The event, the stored row and the answer carry the same reason.
+    const failed: InterventionEventPayload<"failed"> = {
+      ...target,
+      state: "failed",
+      failureReason: reason,
+    };
     try {
-      await this.#appendIntervention(target, "failed", [
-        moveInterventionStatement(target.interventionId, {
-          from: "accepted",
-          to: "failed",
-          reason,
-        }),
-      ]);
+      await this.#appender.append("intervention.failed", failed, {
+        transactionalPrelude: [
+          moveInterventionStatement(target.interventionId, {
+            from: "accepted",
+            to: "failed",
+            reason,
+          }),
+        ],
+      });
     } catch (recordError) {
       throw new AggregateError(
         [dispatchError, recordError],
@@ -401,9 +409,10 @@ export class InterventionService {
       : { ...base, state, failureReason: reason };
   }
 
-  async #appendIntervention<TState extends InterventionState>(
+  // Every outcome but `failed`, whose event carries its reason and is written by `#fail`.
+  async #appendIntervention(
     target: InterventionTarget,
-    state: TState,
+    state: ReasonlessInterventionState,
     transactionalPrelude: readonly WriteStatement[],
   ): Promise<void> {
     await this.#appender.append(`intervention.${state}`, interventionEventOf(target, state), {
@@ -412,11 +421,25 @@ export class InterventionService {
   }
 }
 
-function interventionEventOf<TState extends InterventionState>(
+// The states whose event carries nothing beyond the intervention itself.
+type ReasonlessInterventionState = Exclude<InterventionState, "failed">;
+
+function interventionEventOf(
   target: InterventionTarget,
-  state: TState,
-): InterventionEventPayload<TState> {
+  state: ReasonlessInterventionState,
+): InterventionEventPayload<ReasonlessInterventionState> {
   return { ...target, state };
+}
+
+// The verdict's event, naming the run an applied steer's message went to as its row does.
+function verdictEventOf(
+  target: InterventionTarget,
+  outcome: Extract<DispatchOutcome, { to: "applied" | "degraded" }>,
+): InterventionEventPayload<"applied"> | InterventionEventPayload<"degraded"> {
+  if (outcome.to === "degraded" || outcome.deliveredRunId === undefined) {
+    return { ...target, state: outcome.to };
+  }
+  return { ...target, state: "applied", deliveredRunId: outcome.deliveredRunId };
 }
 
 // What a dispatch throw records: a domain error's code, else its message.
@@ -424,7 +447,7 @@ function failureTextOf(error: unknown): string {
   if (error instanceof DaemonDomainError) {
     return error.code;
   }
-  return error instanceof Error ? error.message : String(error);
+  return describeRejection(error);
 }
 
 // The type's own fields, in one fixed order, so a retry under the same key compares equal as
@@ -467,5 +490,9 @@ function driverParamsOf(
       },
     };
   }
-  return { ...guards, type: "interrupt", payload: { reason: request.reason } };
+  return {
+    ...guards,
+    type: "interrupt",
+    payload: { pending: request.pending, reason: request.reason },
+  };
 }

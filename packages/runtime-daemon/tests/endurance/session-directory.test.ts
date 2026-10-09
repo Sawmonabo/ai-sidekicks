@@ -573,13 +573,15 @@ describe("the session directory's budgets on the seeded set", () => {
   it("answers a search right after the largest session's purge, then merges its rows away", async () => {
     const { largeSessionId } = seeded;
     // The daemon's own purge deletes the session's rows. The seeded sessions are projects, with no
-    // managed folder to remove; no list is on screen and no re-score is measured here; and the log
-    // gets one try, so a search's open read holds the purge no longer.
+    // managed folder to remove and no provider conversation; no list is on screen and no re-score
+    // is measured here; and the log gets one try, so a search's open read holds the purge no
+    // longer.
     const purge = new SessionPurge({
       writer: database.writer,
       nodeId: NodeIdSchema.parse("node-endurance"),
       eventLog: { append: (envelope) => Promise.resolve({ id: envelope.id, sequence: 0 }) },
       managedWorkspaces: { deleteFolder: () => Promise.resolve() },
+      providerConversations: { deleteConversations: () => Promise.resolve() },
       sessionLock: new KeyedLock<SessionId>(),
       sessionList: { refresh: () => undefined },
       relatedRanking: { rescoreAround: () => undefined },

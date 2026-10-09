@@ -215,9 +215,12 @@ export const TranscriptPatchReadRequestSchema: z.ZodType<
   })
   .strict();
 
-/** One file's patch, or why it cannot be read. */
+/**
+ * One file's patch with the lines it adds and removes, or why it cannot be read. The counts come
+ * from the provider's own report where it sends them, else from the patch's lines.
+ */
 export type TranscriptPatchFile =
-  | { path: string; patch: string }
+  | { path: string; patch: string; additions: number; deletions: number }
   | { path: string; unavailable: HydratedContentUnavailableReason };
 
 /**
@@ -236,7 +239,12 @@ export const TranscriptPatchReadResponseSchema: z.ZodType<TranscriptPatchReadRes
     files: z.array(
       z.union([
         z
-          .object({ path: patchPathSchema, patch: z.string().max(CONTENT_PAYLOAD_PLAINTEXT_MAX) })
+          .object({
+            path: patchPathSchema,
+            patch: z.string().max(CONTENT_PAYLOAD_PLAINTEXT_MAX),
+            additions: countSchema,
+            deletions: countSchema,
+          })
           .strict(),
         z
           .object({ path: patchPathSchema, unavailable: HydratedContentUnavailableReasonSchema })

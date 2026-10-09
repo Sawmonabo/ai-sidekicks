@@ -1,4 +1,5 @@
-// The whole-session purge removes a chat's managed workspace folder and then deletes every row
+// The whole-session purge deletes each provider's own copy of the session's conversations, removes
+// a chat's managed workspace folder and then deletes every row
 // naming the session outright, in foreign-key order, re-scores the related lists it leaves behind,
 // tells the live list whatever happens to the receipt, refuses a session whose range the receipt
 // could not name, can be run again after any failure to finish, leaves no copy of the content in
@@ -339,6 +340,88 @@ describe("SessionPurge — the session's directory rows and managed workspace", 
     expect(onlyOutcome(await purging).refusedReason).toBeUndefined();
     expect(existsSync(workspace.path)).toBe(false);
     expect(fixture.rowExists("session_events", message.id)).toBe(false);
+  });
+});
+
+describe("SessionPurge — the provider's own conversations", () => {
+  it("deletes each through its driver, newest first, before any row; a refusal keeps them", async () => {
+    await fixture.seedSessionRow(SESSION);
+    await fixture.seed({
+      category: "run_lifecycle",
+      type: "run.running",
+      payload: { runId: "run-1" },
+    });
+    const later = "2026-10-09T13:00:00.000Z";
+    await fixture.scratch.writer.write([
+      {
+        sql: `INSERT INTO runtime_bindings (id, run_id, driver_name, contract_version, resume_handle,
+                                            spawn_config, created_at, updated_at)
+              VALUES ('binding-claude', 'run-1', 'claude', '1.0', 'claude-conversation',
+                      '{"providerAccountId":"account-claude"}', ?, ?),
+                     ('binding-codex', 'run-1', 'codex', '1.0', 'thread-fork', '{}', ?, ?)`,
+        bindings: [PURGE_INSTANT, PURGE_INSTANT, PURGE_INSTANT, later],
+      },
+      {
+        sql: `INSERT INTO left_conversations (session_id, driver_name, provider_account_id,
+                                              conversation_id, left_at)
+              VALUES (?, 'codex', NULL, 'thread-base', ?), (?, 'codex', NULL, 'thread-middle', ?)`,
+        bindings: [SESSION, PURGE_INSTANT, SESSION, later],
+      },
+    ]);
+    const purged: { driverName: string; params: unknown }[] = [];
+    let isCodexRefusing = true;
+    fixture.providerDrivers.set("claude", {
+      purgeSession: async (params) => {
+        purged.push({ driverName: "claude", params });
+      },
+    });
+    fixture.providerDrivers.set("codex", {
+      purgeSession: async (params) => {
+        if (isCodexRefusing) {
+          throw new Error("thread/delete refused");
+        }
+        purged.push({ driverName: "codex", params });
+      },
+    });
+    const leftConversationCount = (): number =>
+      fixture.scratch.reader.prepare("SELECT 1 FROM left_conversations").all().length;
+
+    const refused = onlyOutcome(await fixture.buildPurge().purge([SESSION]));
+
+    expect(refused.refusedReason).toContain("thread/delete refused");
+    expect(fixture.readDirectoryRows().sessions).toEqual([SESSION]);
+    expect(fixture.readDirectoryRows().runtimeBindings).toEqual(["run-1", "run-1"]);
+    expect(leftConversationCount()).toBe(2);
+
+    isCodexRefusing = false;
+    purged.length = 0;
+    const retried = onlyOutcome(await fixture.buildPurge().purge([SESSION]));
+
+    expect(retried.refusedReason).toBeUndefined();
+    expect(purged).toEqual([
+      {
+        driverName: "codex",
+        params: {
+          sessionId: SESSION,
+          conversations: [
+            { resumeHandle: "thread-fork", providerAccountId: undefined },
+            { resumeHandle: "thread-middle", providerAccountId: undefined },
+            { resumeHandle: "thread-base", providerAccountId: undefined },
+          ],
+        },
+      },
+      {
+        driverName: "claude",
+        params: {
+          sessionId: SESSION,
+          conversations: [
+            { resumeHandle: "claude-conversation", providerAccountId: "account-claude" },
+          ],
+        },
+      },
+    ]);
+    expect(fixture.readDirectoryRows().runtimeBindings).toEqual([]);
+    expect(leftConversationCount()).toBe(0);
   });
 });
 

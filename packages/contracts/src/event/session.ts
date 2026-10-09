@@ -76,7 +76,11 @@ import { RunQueuedPayloadSchema } from "../run/queued.js";
 import {
   INTERVENTION_EVENT_PAYLOAD_SCHEMAS,
   RUN_STATE_CHANGE_PAYLOAD_SCHEMAS,
+  RunProviderInitializedPayloadSchema,
+  RunTurnStartedPayloadSchema,
+  RunWorkerShutdownPayloadSchema,
 } from "../run/events.js";
+import { SubagentLifecyclePayloadSchema } from "../run/subagent.js";
 import {
   ModerationReviewFlaggedPayloadSchema,
   RunStepLimitReachedPayloadSchema,
@@ -91,6 +95,8 @@ import {
   SessionLifecycleChangePayloadSchema,
   SessionAdvisorChangedPayloadSchema,
   SessionMarkChangePayloadSchema,
+  SessionOutputStyleChangedPayloadSchema,
+  SessionProviderStatusPayloadSchema,
   SessionRenamedPayloadSchema,
 } from "../session/events.js";
 import {
@@ -235,6 +241,32 @@ const SESSION_EVENT_VARIANT_REGISTRATIONS = [
   registerSessionEventVariant("tool.invoked", "tool_activity", toolActivityPayloadSchema),
   registerSessionEventVariant("tool.result", "tool_activity", toolActivityPayloadSchema),
   registerSessionEventVariant("tool.error", "tool_activity", toolActivityPayloadSchema),
+  registerSessionEventVariant(
+    "subagent.started",
+    "tool_activity",
+    SubagentLifecyclePayloadSchema,
+  ),
+  registerSessionEventVariant(
+    "subagent.completed",
+    "tool_activity",
+    SubagentLifecyclePayloadSchema,
+  ),
+  registerSessionEventVariant(
+    "run.provider_initialized",
+    "run_lifecycle",
+    RunProviderInitializedPayloadSchema,
+  ),
+  registerSessionEventVariant("run.turn_started", "run_lifecycle", RunTurnStartedPayloadSchema),
+  registerSessionEventVariant(
+    "run.worker_shutdown",
+    "run_lifecycle",
+    RunWorkerShutdownPayloadSchema,
+  ),
+  registerSessionEventVariant(
+    "session.provider_status",
+    "session_lifecycle",
+    SessionProviderStatusPayloadSchema,
+  ),
   registerSessionEventVariant("approval.rejected", "approval_flow", ApprovalResolvedPayloadSchema),
   registerSessionEventVariant("approval.canceled", "approval_flow", ApprovalCanceledPayloadSchema),
   registerSessionEventVariant(
@@ -398,6 +430,11 @@ const SESSION_EVENT_VARIANT_REGISTRATIONS = [
     "session.advisor_changed",
     "session_lifecycle",
     SessionAdvisorChangedPayloadSchema,
+  ),
+  registerSessionEventVariant(
+    "session.output_style_changed",
+    "session_lifecycle",
+    SessionOutputStyleChangedPayloadSchema,
   ),
   registerSessionEventVariant(
     "repo.mount_health_changed",

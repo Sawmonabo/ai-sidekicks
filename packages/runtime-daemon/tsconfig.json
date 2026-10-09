@@ -6,6 +6,9 @@
   // `tsc -b`.
   "compilerOptions": {
     "noEmit": true,
+    // Node runs this source as stripped TypeScript (the `@ai-sidekicks/source` condition), which
+    // refuses syntax that emits code: parameter properties, enums, namespaces with values.
+    "erasableSyntaxOnly": true,
     "rootDir": "./src",
     "tsBuildInfoFile": "./.tsbuildinfo"
   },

@@ -71,7 +71,7 @@ describe("TerminalEmissionGate", () => {
     const gate = new TerminalEmissionGate();
 
     const decision = gate.admitTerminalFrame(
-      terminalFrame({ route: { decision: "suppress-child-transcript", childThreadId: "child-1" } }),
+      terminalFrame({ route: { decision: "child-transcript", childThreadId: "child-1" } }),
     );
 
     expect(decision).toStrictEqual({ emit: false, suppressionReason: "not-the-session-thread" });

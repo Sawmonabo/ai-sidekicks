@@ -24,11 +24,11 @@ import {
 } from "./capabilities.js";
 import {
   DriverInterventionResultSchema,
+  InterruptPendingChoiceSchema,
   type ApplyInterventionParams,
   type DriverInterventionResult,
   type InterruptRunParams,
 } from "./intervention.js";
-import { DRIVER_PROVIDER_COMMAND_ENTRIES_MAX } from "./length-limits.js";
 import { ArtifactIdSchema } from "../../artifacts/id.js";
 import { RunIdSchema, type RunId } from "../../run/id.js";
 import { wireFreeFormString, wireUncappedFreeFormString } from "../../free-form-string.js";
@@ -61,12 +61,6 @@ export const DRIVER_WIRE_TOKEN_MAX_LEN = 128;
 export const DRIVER_WIRE_HANDLE_MAX_LEN = 256;
 /** Max length of the person's `reason` on an interrupt or a cancel. */
 export const DRIVER_WIRE_REASON_MAX_LEN = 512;
-/**
- * Max entries in a per-driver model or mode list and in the token arrays inside a model. It
- * refuses rather than truncates, because these replies carry no `complete` flag and a silently
- * short catalog would read as the provider's own.
- */
-export const DRIVER_WIRE_CATALOG_ENTRIES_MAX = 256;
 /**
  * Max length of a driver's `contractVersion`, on the capability reply and where the daemon stores
  * it. The daemon's SQL CHECK constraints repeat the value and change with it.
@@ -143,11 +137,10 @@ export const DriverCapabilityReportSchema: z.ZodType<
       .array(
         wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, "DriverCapabilityReport.outputSpeedLevels"),
       )
-      .max(DRIVER_WIRE_CATALOG_ENTRIES_MAX)
       .optional(),
-    builtInTools: z
-      .array(wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, "DriverCapabilityReport.builtInTools"))
-      .max(DRIVER_WIRE_CATALOG_ENTRIES_MAX),
+    builtInTools: z.array(
+      wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, "DriverCapabilityReport.builtInTools"),
+    ),
   })
   .strict();
 
@@ -162,20 +155,19 @@ export const ProviderModelSchema: z.ZodType<ProviderModel, ProviderModel> = z
   .object({
     id: wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, "ProviderModel.id"),
     name: wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, "ProviderModel.name"),
-    capabilities: z
-      .array(wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, "ProviderModel.capabilities"))
-      .max(DRIVER_WIRE_CATALOG_ENTRIES_MAX),
+    capabilities: z.array(
+      wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, "ProviderModel.capabilities"),
+    ),
     // No `.default([])`: absent means the model has no effort axis, which an empty list would deny.
     effortLevels: z
       .array(wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, "ProviderModel.effortLevels"))
-      .max(DRIVER_WIRE_CATALOG_ENTRIES_MAX)
       .optional(),
     // No `.default([])` either: absent means the model has no speed selection.
     outputSpeedLevels: z
       .array(wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, "ProviderModel.outputSpeedLevels"))
-      .max(DRIVER_WIRE_CATALOG_ENTRIES_MAX)
       .optional(),
     fast: z.boolean(),
+    largerWindow: z.boolean(),
     contextWindow: z.number().int().positive().optional(),
   })
   .strict();
@@ -203,7 +195,7 @@ export interface ListModelsResult {
 export const DriverModelReportSchema: z.ZodType<DriverModelReport, DriverModelReport> = z
   .object({
     driverName: ProviderNameSchema,
-    models: z.array(ProviderModelSchema).max(DRIVER_WIRE_CATALOG_ENTRIES_MAX),
+    models: z.array(ProviderModelSchema),
   })
   .strict();
 
@@ -227,7 +219,7 @@ export interface ListModesResult {
 export const DriverModeReportSchema: z.ZodType<DriverModeReport, DriverModeReport> = z
   .object({
     driverName: ProviderNameSchema,
-    modes: z.array(ProviderModeSchema).max(DRIVER_WIRE_CATALOG_ENTRIES_MAX),
+    modes: z.array(ProviderModeSchema),
   })
   .strict();
 
@@ -283,6 +275,7 @@ export const ApplyInterventionParamsSchema: z.ZodType<
       clientIdempotencyKey: z.uuid(),
       payload: z
         .object({
+          pending: InterruptPendingChoiceSchema,
           reason: wireFreeFormString(
             DRIVER_WIRE_REASON_MAX_LEN,
             "InterruptPayload.reason",
@@ -360,10 +353,7 @@ export const ProviderCommandBindingGroupSchema: z.ZodType<
     // `null`, never absent, when the binding has no live run or more than one.
     runId: RunIdSchema.nullable(),
     binding: ProviderCommandBindingSchema,
-    // The provider-side cap, not `DRIVER_WIRE_CATALOG_ENTRIES_MAX`: a list the driver already
-    // truncated to it must still parse.
-    entries: z.array(ProviderCommandEntrySchema).max(DRIVER_PROVIDER_COMMAND_ENTRIES_MAX),
-    complete: z.boolean(),
+    entries: z.array(ProviderCommandEntrySchema),
   })
   .strict();
 

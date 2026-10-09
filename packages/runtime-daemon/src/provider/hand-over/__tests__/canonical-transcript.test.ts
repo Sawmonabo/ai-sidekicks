@@ -5,6 +5,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   boundProjectionToPosition,
+  type CanonicalTranscriptProjection,
+  type CanonicalTranscriptSegment,
+  type CanonicalTranscriptTurn,
   type TranscriptReasoningBlock,
 } from "../canonical-transcript.js";
 import {
@@ -20,11 +23,6 @@ import {
   makeFixture,
   storedEvent,
 } from "./canonical-transcript.test-support.js";
-import type {
-  CanonicalTranscriptProjection,
-  CanonicalTranscriptSegment,
-  CanonicalTranscriptTurn,
-} from "../../driver/contract.js";
 
 // Fixtures
 
@@ -53,6 +51,7 @@ function foldLog(rows: readonly LogRow[], boundary?: number): CanonicalTranscrip
   rows.forEach((row, index) => {
     const sequence = index + 1;
     const ownRun = { runId: RUN_ID };
+    const ownMessage = { ...ownRun, providerMessageId: `msg_${String(sequence)}` };
     switch (row.kind) {
       case "user":
         fixture.log.append(
@@ -64,13 +63,13 @@ function foldLog(rows: readonly LogRow[], boundary?: number): CanonicalTranscrip
         );
         return;
       case "assistant":
-        fixture.log.append(storedEvent(sequence, "assistant.message", ownRun));
+        fixture.log.append(storedEvent(sequence, "assistant.message", ownMessage));
         if (row.text !== undefined) {
           fixture.contentSource.assistantTextBySequence.set(sequence, row.text);
         }
         return;
       case "reasoning":
-        fixture.log.append(storedEvent(sequence, "assistant.thinking_update", ownRun));
+        fixture.log.append(storedEvent(sequence, "assistant.thinking_update", ownMessage));
         if (row.blocks !== undefined) {
           fixture.contentSource.reasoningBlocksBySequence.set(sequence, row.blocks);
         }

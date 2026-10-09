@@ -16,10 +16,16 @@ import {
   type SubscriptionMethodDescriptor,
 } from "../method-descriptor.js";
 import { type ExecutionPosture } from "../provider/driver/capabilities.js";
-import { InterventionTypeSchema, type InterventionType } from "../provider/driver/intervention.js";
+import {
+  InterruptPendingChoiceSchema,
+  InterventionTypeSchema,
+  type InterruptPendingChoice,
+  type InterventionType,
+} from "../provider/driver/intervention.js";
 import { DRIVER_FAILURE_DETAIL_MAX_LEN } from "../provider/driver/length-limits.js";
 import { ArtifactIdSchema, type ArtifactId } from "../artifacts/id.js";
 import { RunIdSchema, type RunId } from "./id.js";
+import { RunFailureCauseSchema, type RunFailureCause } from "./failure-cause.js";
 import {
   DRIVER_WIRE_HANDLE_MAX_LEN,
   DRIVER_WIRE_REASON_MAX_LEN,
@@ -27,12 +33,6 @@ import {
 } from "../provider/driver/methods.js";
 import { RecoveryConditionSchema, type RecoveryCondition } from "../provider/driver/recovery.js";
 import { ProviderNameSchema, type ProviderName } from "../provider/name.js";
-import {
-  ProviderUsageLimitCauseSchema,
-  ProviderUsageLimitResetBoundarySchema,
-  type ProviderSpentRetriesSignal,
-  type ProviderUsageLimitSignal,
-} from "../provider/driver/usage-limit.js";
 import {
   ChildInterruptRequestSchema,
   ChildInterruptResponseSchema,
@@ -168,7 +168,7 @@ export type InterventionRequestPayload =
       targetRunId: RunId;
       expectedRunVersion: number;
       clientIdempotencyKey: string;
-      pending: "nextTurn" | "returnToDraft";
+      pending: InterruptPendingChoice;
       deliverFirst?: QueueItemId | undefined;
       reason?: string | undefined;
     }
@@ -207,7 +207,7 @@ export const InterventionRequestPayloadSchema: z.ZodType<
         targetRunId: RunIdSchema,
         expectedRunVersion: countSchema,
         clientIdempotencyKey: z.uuid(),
-        pending: z.enum(["nextTurn", "returnToDraft"]),
+        pending: InterruptPendingChoiceSchema,
         deliverFirst: QueueItemIdSchema.optional(),
         reason: wireFreeFormString(
           DRIVER_WIRE_REASON_MAX_LEN,
@@ -328,83 +328,6 @@ export const ExecutionPostureSchema: z.ZodType<ExecutionPosture> = z
   .strict();
 
 /**
- * A turn the provider's safety check refused with no other model to take it, on
- * `run.failed`: the refusing model, and the provider's own sentence, explanation
- * and check category when it sends them. `origin` is `provider` where the driver normalized the
- * provider's own cause and `daemon` where the app's own refusal ended the run.
- */
-export interface RunRefusedCause {
-  cause: "refused";
-  origin: "provider" | "daemon";
-  model: string;
-  sentence?: string | undefined;
-  explanation?: string | undefined;
-  safetyCategory?: string | undefined;
-}
-const RunRefusedCauseSchema: z.ZodType<RunRefusedCause> = z
-  .object({
-    cause: z.literal("refused"),
-    origin: z.enum(["provider", "daemon"]),
-    model: wireFreeFormString(DRIVER_WIRE_HANDLE_MAX_LEN, "RunRefusedCause.model"),
-    sentence: wireFreeFormString(
-      DRIVER_FAILURE_DETAIL_MAX_LEN,
-      "RunRefusedCause.sentence",
-    ).optional(),
-    explanation: wireFreeFormString(
-      DRIVER_FAILURE_DETAIL_MAX_LEN,
-      "RunRefusedCause.explanation",
-    ).optional(),
-    safetyCategory: wireFreeFormString(
-      DRIVER_WIRE_HANDLE_MAX_LEN,
-      "RunRefusedCause.safetyCategory",
-    ).optional(),
-  })
-  .strict();
-
-/**
- * A setup gate's throw before the provider started the run, which ends it `starting -> failed`:
- * the error's code when the gate threw a coded daemon error, and its own words.
- */
-export interface RunSetupFailedCause {
-  cause: "setup-failed";
-  origin: "daemon";
-  code?: string | undefined;
-  message: string;
-}
-const RunSetupFailedCauseSchema: z.ZodType<RunSetupFailedCause> = z
-  .object({
-    cause: z.literal("setup-failed"),
-    origin: z.literal("daemon"),
-    code: wireFreeFormString(DRIVER_WIRE_HANDLE_MAX_LEN, "RunSetupFailedCause.code").optional(),
-    message: wireFreeFormString(DRIVER_FAILURE_DETAIL_MAX_LEN, "RunSetupFailedCause.message"),
-  })
-  .strict();
-
-/**
- * Why a run failed, on `run.failed`: the refusal, the provider's usage limit with the reset
- * boundary its driver held when the turn failed, the provider's spent retries, or a setup gate's
- * failure. A reload redraws the run's last row from this cause alone.
- */
-export type RunFailureCause =
-  | RunRefusedCause
-  | (ProviderUsageLimitSignal & { origin: "provider" })
-  | (ProviderSpentRetriesSignal & { origin: "provider" })
-  | RunSetupFailedCause;
-/** Parses a {@link RunFailureCause}. */
-export const RunFailureCauseSchema: z.ZodType<RunFailureCause> = z.union([
-  RunRefusedCauseSchema,
-  z
-    .object({
-      cause: ProviderUsageLimitCauseSchema,
-      origin: z.literal("provider"),
-      resetBoundary: ProviderUsageLimitResetBoundarySchema.optional(),
-    })
-    .strict(),
-  z.object({ cause: z.literal("retries-exhausted"), origin: z.literal("provider") }).strict(),
-  RunSetupFailedCauseSchema,
-]);
-
-/**
  * How a process that ended on its own exited: exactly one of its exit code and the signal that
  * ended it, and the last lines it printed. `run.failed` carries a provider process's under the
  * turn, and a failed workflow step the process it ran. A process the daemon closed itself, or a
@@ -450,9 +373,8 @@ export interface RunStateChangeEvent {
   failureCategory?: RunFailureCategory | undefined;
   failureCause?: RunFailureCause | undefined;
   recoveryCondition?: RecoveryCondition | undefined;
-  // Two producers, one field: free-form prose on a failed resume, and a fixed
-  // `<registered code> origin=<arm>` form from the outbound-frame neutralization tripwire. Read
-  // the cause as the substring before the first space; the whole value is not always prose.
+  // Free-form prose saying why the provider failed the run (a failed start or resume, a turn a
+  // rewind or resume superseded); shown whole, never parsed.
   providerFailureDetail?: string | undefined;
   processExit?: ProcessExit | undefined;
   completionKind?: RunCompletionKind | undefined;
@@ -669,6 +591,12 @@ export const RUN_INVALID_TRANSITION_CODE = "run.invalid_transition" as const;
  * @consumedBy the handler that returns the `run.invalid_transition` error
  */
 export type RunInvalidTransitionCode = typeof RUN_INVALID_TRANSITION_CODE;
+
+/**
+ * The code of a `run.pause` or `run.resume` whose `expectedRunVersion` is not the run's current
+ * version, older or newer; nothing is written and the run is left as it was.
+ */
+export const RUN_VERSION_STALE_CODE = "run.version_stale" as const;
 
 /** The run-control methods, keyed by method name. */
 export interface RunControlMethodDescriptors {

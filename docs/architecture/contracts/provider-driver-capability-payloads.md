@@ -59,6 +59,11 @@ interface ProviderModel {
   // `supportsFastMode`, the Codex tier its catalog names `Fast`). Required so a missing reading
   // never looks like "no fast mode".
   fast: boolean;
+  // Whether this row is the model's larger window, offered beside its default row; the driver fills
+  // it from the provider (Codex's catalog `max_context_window`, Claude Code's `[1m]` mark on the
+  // model id). On Codex the row's `contextWindow` is the figure a pick of it records; a Claude
+  // larger row is picked by its own id.
+  largerWindow: boolean;
   // The window in tokens as the provider reports it; absent until a reading arrives, never filled
   // from a table or a default.
   contextWindow?: number;

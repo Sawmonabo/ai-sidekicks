@@ -267,15 +267,17 @@
       ]
     },
     "packages/runtime-daemon": {
-      // The database writer's and the search's worker threads, the database file's copy process,
-      // the search index's build process, and the askpass program git runs: each started by its
-      // file's URL, which knip cannot follow.
+      // Files started by path, which knip cannot follow: the database writer's and the search's
+      // worker threads, the database file's copy process and the search index's build process,
+      // each by its file's URL, the askpass program git runs, and the program Codex runs as the
+      // daemon's pre-tool and post-tool hooks.
       "entry": [
         "src/database/worker.ts",
         "src/recovery/database-file/child.ts",
         "src/session/search/thread/worker.ts",
         "src/session/search/index/child.ts",
-        "src/workspace/clone/askpass/program.ts"
+        "src/workspace/clone/askpass/program.ts",
+        "src/provider/driver/codex/hooks/program.ts"
       ],
       // `scutil` is the macOS utility the daemon runs to read the computer name it reports, and its
       // test runs to check it; `mkfifo` makes the named pipe the stop tests hold a write on; both
@@ -294,8 +296,6 @@
         "@cedar-policy/cedar-wasm",
         // Laying out a workflow an agent wrote with no layout of its own.
         "@dagrejs/dagre",
-        // Adding a tool server to a project's Codex config while keeping its comments and layout.
-        "@decimalturn/toml-patch",
         // Sealing a push notice to a linked device's push key.
         "@hpke/core",
         "@hpke/hybridkem-x-wing",

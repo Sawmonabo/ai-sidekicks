@@ -3,18 +3,17 @@
 // same model and session shape, differing only in the message body (a command-shaped first
 // word, the same body with one prepended newline, ordinary prose). Every number is a reading.
 //
-// The zero-turn frame is the instance every driver's turn-evidence classifier must trip on: a
-// client-composed reply with no model-turn attribution and no token usage, inside a
-// well-formed success envelope. The other two are negative controls. The API-errored one is
-// the sharper: a real, billed turn that ended in a provider-side refusal reports
-// `is_error: true` and renders its assistant message with the same synthetic model marker
-// the swallowed reply wears, so a classifier keyed on either field passes the swallow and
-// fails the real turn.
+// The zero-turn frame is a command Claude Code answered itself: a client-composed reply with no
+// model-turn attribution and no token usage, inside a well-formed success envelope. The other
+// two are negative controls. The API-errored one is the sharper: a real, billed turn that ended
+// in a provider-side refusal reports `is_error: true` and renders its assistant message with the
+// same synthetic model marker the zero-turn reply wears, so a classifier keyed on either field
+// reads the zero-turn reply as a turn and the real turn as none.
 //
 // The frames are frozen: they are shared module-level singletons, and a consumer mutating
 // one would re-point every other consumer's control.
 
-/** The recorded zero-turn synthetic reply: the swallowed turn a classifier must trip on. */
+/** The recorded zero-turn synthetic reply: a command answered with no model turn. */
 export const CLAUDE_ZERO_TURN_RESULT_FRAME: Readonly<Record<string, unknown>> = Object.freeze({
   type: "result",
   subtype: "success",

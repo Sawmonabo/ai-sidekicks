@@ -100,9 +100,9 @@ function LineAndSend(props: {
   );
 }
 
-/** The first agent in `storeWithTwoTrippedAgents`. */
+/** The first agent in `storeWithTwoSteerableAgents`. */
 export const FIRST_AGENT_ID = "agent-ada";
-/** The second agent in `storeWithTwoTrippedAgents`. */
+/** The second agent in `storeWithTwoSteerableAgents`. */
 export const SECOND_AGENT_ID = "agent-grace";
 
 /** An answering arm that serves a steer and nothing else. */
@@ -114,11 +114,6 @@ export async function answerSteer(call: RecordedDaemonCall): Promise<unknown> {
 const FIRST_RUN_ID = "2c3d4e5f-6071-4182-8293-a4b5c6d7e8f0";
 /** The second agent's steerable run. */
 export const SECOND_RUN_ID = "3d4e5f60-7182-4293-83a4-b5c6d7e8f001";
-/**
- * The fixed form `text-neutralization.ts` reads, which puts the card on screen. Both agents
- * carry it, so re-addressing moves between two tripped targets.
- */
-export const TRIPWIRE_DETAIL = "driver.text_neutralization_failed origin=human_text";
 
 /** One mounted bar and the things a case does to it. */
 export interface AddressableDraftLine {
@@ -132,8 +127,8 @@ export interface AddressableDraftLine {
   readonly frameStore: WindowStore;
 }
 
-/** A store holding two agents, each with a steerable run that has tripped. */
-export function storeWithTwoTrippedAgents(): SessionStore {
+/** A store holding two agents, each with a steerable run. */
+export function storeWithTwoSteerableAgents(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
   sessionStore.initialize({
     cursor: 0,
@@ -144,21 +139,13 @@ export function storeWithTwoTrippedAgents(): SessionStore {
         kind: "run",
         id: FIRST_RUN_ID,
         state: "paused",
-        body: {
-          agentId: FIRST_AGENT_ID,
-          runVersion: 3,
-          providerFailureDetail: TRIPWIRE_DETAIL,
-        },
+        body: { agentId: FIRST_AGENT_ID, runVersion: 3 },
       },
       {
         kind: "run",
         id: SECOND_RUN_ID,
         state: "paused",
-        body: {
-          agentId: SECOND_AGENT_ID,
-          runVersion: 5,
-          providerFailureDetail: TRIPWIRE_DETAIL,
-        },
+        body: { agentId: SECOND_AGENT_ID, runVersion: 5 },
       },
     ],
   });
@@ -170,7 +157,7 @@ export function mountAddressable(calls: ComposerSendCalls): AddressableDraftLine
   const draftStore = new DraftStore({
     maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,
   });
-  const sessionStore = storeWithTwoTrippedAgents();
+  const sessionStore = storeWithTwoSteerableAgents();
   const frameStore = new WindowStore();
   const bridge = inertBridge();
   const workflowStartOperations = fixtureWorkflowStartOperations();

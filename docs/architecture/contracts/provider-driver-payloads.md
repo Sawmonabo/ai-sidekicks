@@ -19,7 +19,7 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 // at the Plan-003 Phase-2 write seam (semver / non-empty + length + NUL), not here.
 // Zod validates ONLY the surfaces that parse UNTRUSTED
 // provider output (the trust boundary): the result envelopes `DriverInterventionResult`,
-// `DriverResumeResult`, `ForkConversationResult`, `DriverGoalResult`, and `DriverAuthProbeResult`,
+// `DriverResumeResult`, `MoveSessionToForkResult`, `DriverGoalResult`, and `DriverAuthProbeResult`,
 // provider-declared `ProviderToolMetadata`, and the driver-normalized `CallbackToolInvocation` /
 // `McpServerStatusEmission` (each built from provider wire output before the daemon-injected
 // seam sees it).
@@ -34,7 +34,7 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 // while the result envelopes reject unknown keys (`.strict()`);
 // and every untrusted provider-output free-form string (`ProviderToolMetadata.name`/`.description`,
 // `DriverInterventionResult.fallbackAction`, `DriverResumeResult.bindingId`/`.providerFailureDetail`,
-// `ForkConversationResult.fallbackAction`/`.bindingId`, `DriverGoalResult.fallbackAction`,
+// `MoveSessionToForkResult.fallbackAction`, `DriverGoalResult.fallbackAction`,
 // `DriverAuthProbeResult.detail`, `CallbackToolInvocation.toolName`/`.toolCallId`,
 // `McpServerStatusEmission.serverName`
 // and `ProviderCommandEntry.name`/`.description`/`.scope`/`.argumentHint`/`.server` plus
@@ -58,11 +58,11 @@ interface ProviderDriver {
   startRun(params: StartRunParams): Promise<void>;
   interruptRun(params: InterruptRunParams): Promise<void>;
   applyIntervention(params: ApplyInterventionParams): Promise<DriverInterventionResult>;
-  // Fork the bound conversation at a message into a NEW provider conversation, leaving the source
-  // untouched: the provider leg of `session.fork`. Never a rollback (see `ForkConversationParams`).
-  forkConversation(params: ForkConversationParams): Promise<ForkConversationResult>;
+  // Move the session itself onto a NEW provider conversation forked from the bound one at a
+  // message. Never a rollback (see `MoveSessionToForkParams`).
+  moveSessionToFork(params: MoveSessionToForkParams): Promise<MoveSessionToForkResult>;
   // Cut the bound conversation IN PLACE back to a message: undo's conversation leg (see the note
-  // beside `ForkConversationParams`). Mechanics and shapes: Spec-004 §Interfaces And Contracts.
+  // beside `MoveSessionToForkParams`). Mechanics and shapes: Spec-004 §Interfaces And Contracts.
   rewindConversation(params: RewindConversationParams): Promise<RewindConversationResult>;
   respondToRequest(params: RespondToRequestParams): Promise<void>;
   // `Allow once` on a block by the provider's own reviewer at the `reviewed` level: the driver half of
@@ -96,8 +96,9 @@ interface ProviderDriver {
   // nothing else. There is deliberately NO prompt-injected emulation arm; a driver that cannot
   // compact declares the flag false and the call refuses as driver.capability_unsupported.
   // The driver keeps no wait limit of its own: the call settles on the provider's own frame, or
-  // `failed` with `binding_lost` when the run's runtime binding stops being live (a provider that
-  // exits mid-compaction) or `provider_error`; never `applied` without the frame. A compaction
+  // `failed` with `not_compacted` when the provider ends the compaction's own turn without the
+  // frame, `binding_lost` when the run's runtime binding stops being live (a provider that exits
+  // mid-compaction) or `provider_error`; never `applied` without the frame. A compaction
   // frame the call did not ask for normalizes into usage.context_compacted exactly as an
   // unsolicited provider-initiated compaction does, so no boundary escapes Spec-003's rewind
   // classifier.
@@ -199,8 +200,10 @@ type DriverCompactionResult =
   | { status: "refused"; reason: "command_absent" }
   // `binding_lost`: the run's runtime binding stopped being live (process exit or disposal) before
   // the provider's compaction frame arrived. `provider_error`: the mechanism itself errored.
+  // `not_compacted`: the provider ended the compaction's own turn with no compaction frame, as
+  // Claude Code does with `Not enough messages to compact.` and Codex with a compaction that failed.
   // Every arm records a diagnostic; none is silent, and none can settle `applied`.
-  | { status: "failed"; reason: "binding_lost" | "provider_error" };
+  | { status: "failed"; reason: "binding_lost" | "provider_error" | "not_compacted" };
 
 interface ListProviderCommandsParams {
   sessionId: SessionId;
@@ -305,6 +308,15 @@ interface CanonicalTranscriptProjection {
 interface CreateSessionParams {
   sessionId: SessionId;
   config: Record<string, unknown>;
+  model: string; // the session's model; a provider that takes it at process start applies it to this session alone, one that takes it per turn reads it there
+  // The larger window the session chose for its model, in tokens, recorded when it was picked;
+  // `undefined` runs the model's default window (Spec-004 §Required Behavior). Required as a key so
+  // no constructor can drop it. Codex sends it as the conversation's `model_context_window`, after
+  // checking that the catalog still offers that figure for the model: a create whose figure the
+  // catalog no longer offers is refused `driver.larger_window_unavailable`, since the picker row it
+  // came from was read before the catalog changed. Claude Code's model id carries the window
+  // (`[1m]`), so its driver refuses a defined figure.
+  largerWindow: number | undefined;
   executionPosture?: ExecutionPosture; // spawn-time posture — provider legs that bind posture at process spawn (Claude `--settings` sandbox) realize it here; the per-run effective posture rides StartRunParams (Spec-004 §Required Behavior)
   // The agent's ACCEPTED accelerated-output mode (Spec-004 §The output-speed axis). Gated on the
   // `output_speed` flag, which both providers declare. The person's request was validated where it
@@ -353,6 +365,12 @@ interface CreateSessionParams {
 interface ResumeSessionParams {
   sessionId: SessionId;
   resumeHandle: string; // opaque provider-owned handle
+  model: string; // the session's current model, supplied by the caller: a model switch after the spawn moves the session, so the spawn-time value would be stale
+  // The session's recorded larger window, sent as recorded whatever the catalog offers now: the
+  // session keeps the window it chose, and a figure the provider refuses fails the resume like any
+  // other provider failure rather than resuming on the default. The Claude Code driver refuses a
+  // defined figure, as on create.
+  largerWindow: number | undefined;
   // Resume is a FRESH process spawn (the C-12 posture-relaunch precedent), so every spawn-bound
   // surface CreateSessionParams binds must re-realize here or the resumed leg silently sheds it —
   // a posture-less resume relaunches UNSANDBOXED, a schema-less one unconstrained. The DATA legs below are
@@ -403,6 +421,8 @@ interface StartRunParams {
   conversationHistory?: unknown[];
   executionPosture?: ExecutionPosture; // per-run effective posture — the same object the daemon stamps on run.running (Spec-005 §Run Lifecycle). Codex realizes per-turn (turn/start sandbox params); a provider that binds posture at spawn realizes it at session boundaries, and a mid-session posture change on such a leg resolves via session relaunch, never silent partial application (Spec-004 §Required Behavior)
   outputSchema?: Record<string, unknown>; // per-turn schema-constrained final output (Codex turn/start.outputSchema); the Claude leg binds it at spawn via CreateSessionParams.outputSchema (--json-schema). Gated on structured_output (Spec-004 §Per-Driver Capability Matrix)
+  outputSpeed?: string; // the agent's accepted output-speed level, carried on each run; Codex sends it as the turn's serviceTier, Claude Code applies it before the turn only when it differs from the level the process holds
+  outputSpeedForTurn?: string; // a level for this run's turn alone, such as standard for `Use standard` after a flex-capacity failure; Codex sends it as turn/start.serviceTierForTurn ("default" for standard), and the next run carries the agent's own level again
 }
 
 interface InterruptRunParams {
@@ -470,26 +490,23 @@ interface DriverInterventionResult {
   fallbackAction?: string; // names the fallback the orchestration layer took, present only on `degraded`
 }
 
-// The conversation FORK: the provider leg of `session.fork`, which mints a new session of the same
-// shape carrying history up to and including a message while the source keeps running untouched
-// ([§Plan-001 — Session Core](./session-payloads.md#plan-001--session-core)). The driver starts a new provider
-// conversation from the source's history at that message and never writes to the source; each
-// provider's mechanism is Spec-004's. It is never a rollback: undo cuts the conversation IN PLACE
-// through `rewindConversation`.
-interface ForkConversationParams {
+// The MOVE ONTO A FORK: the driver starts a new provider conversation from the bound one's history
+// at a message, never writing to the conversation it forked, and moves the session itself onto it;
+// each provider's mechanism is Spec-004's. It is not `session.fork`, which mints a new session and
+// leaves the source running untouched
+// ([§Plan-001 — Session Core](./session-payloads.md#plan-001--session-core)). It is never a
+// rollback: undo cuts the conversation IN PLACE through `rewindConversation`.
+interface MoveSessionToForkParams {
   sessionId: SessionId;
   position: number; // the normalized session position of the message the fork carries history up to and including (the vocabulary `DriverResumeResult.sessionPosition` reports); the driver maps it to its provider's own anchor
-  bindingId: string; // the SOURCE leg — the run's live runtime binding, daemon-resolved at dispatch (run→bindings is 1:many, so `sessionId` alone cannot name it); no client payload carries it
+  bindingId: string; // the session's leg — the run's live runtime binding, daemon-resolved at dispatch (run→bindings is 1:many, so `sessionId` alone cannot name it); no client payload carries it
 }
 
-type ForkConversationResult =
-  // `sessionPosition`: the driver-confirmed position the forked conversation ends at. `bindingId`:
-  // the binding the forked conversation runs on — the store-minted surrogate of a binding row
-  // registered through the relaunch pattern's write seam before the result returned, never itself a
-  // resume handle; runtime-bounded (length + non-whitespace + NUL-rejection) like
-  // `DriverResumeResult.bindingId`, per the trust-boundary enumeration above.
-  | { status: "applied"; sessionPosition: number; bindingId?: string }
-  | { status: "degraded"; fallbackAction?: string };
+type MoveSessionToForkResult =
+  // `sessionPosition`: the driver-confirmed position the forked conversation ends at. Before the
+  // result returns, the driver has pointed that binding at the forked conversation and
+  // recorded the conversation it left, in one write; the result carries no binding of its own.
+  { status: "applied"; sessionPosition: number } | { status: "degraded"; fallbackAction?: string };
 
 // The conversation CUT is `rewindConversation`: undo's conversation leg, in place on the run's own
 // live runtime binding, reached through `session.restore` with a scope that includes the
@@ -559,6 +576,11 @@ type DriverResumeResult =
       status: "resumed";
       bindingId: string;
       sessionPosition: number;
+      // The conversation the session runs on now, which the daemon records on the binding: the
+      // handle it was given, or a new one where the provider continues the conversation in a new
+      // thread, as Codex does, reopening a conversation by forking it with the session's whole
+      // config, since a resume of one another client holds applies none of it.
+      resumeHandle: string;
     }
   | {
       status: "failed";

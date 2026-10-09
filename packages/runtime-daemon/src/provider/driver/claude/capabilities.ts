@@ -28,6 +28,7 @@ import type {
 } from "../capabilities-writer.js";
 import type { DriverDiagnosticsEmitter } from "../diagnostics.js";
 import type { SpawnedProviderVersionReading } from "../../spawned-version.js";
+import type { SpawnEnvPair } from "../../spawn-env.js";
 
 import { composeStaticOutputSpeedLevels } from "../descriptor.js";
 import { getClaudeToolMetadata } from "./tools.js";
@@ -37,12 +38,14 @@ import {
   ModelCatalogUnreadableError,
 } from "../contract.js";
 import { readNonEmptyString } from "../../record-readers.js";
+import type { ClaudeModelFigures } from "./session/model-figures.js";
+import type { ClaudeModelCatalogReading } from "./session/transport.js";
 
 /** The registry and capability-table key: daemon-controlled identity, never provider output. */
 export const CLAUDE_DRIVER_NAME = "claude" as const;
 
 /** The semver the writer compares to detect change; bump it when the declared shape changes. */
-const CLAUDE_CAPABILITY_CONTRACT_VERSION: string = "3.0.0";
+const CLAUDE_CAPABILITY_CONTRACT_VERSION: string = "4.0.0";
 
 /**
  * Claude's capability declaration, total over `DRIVER_CAPABILITY_FLAGS` so a new flag breaks
@@ -51,9 +54,9 @@ const CLAUDE_CAPABILITY_CONTRACT_VERSION: string = "3.0.0";
 const CLAUDE_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, boolean>> = Object.freeze({
   // `--resume` / `--resume-session-at`.
   resume: true,
-  // The driver sends no steer, so steer degrades to queue plus interrupt, a reported
-  // degradation; declaring `true` would turn it into a lost message.
-  steer: false,
+  // A steer is a user message written into the running turn, which Claude Code reads at its next
+  // step; one it has not read yet is taken back with `cancel_async_message`.
+  steer: true,
   // Control-request registry: tool-permission and clarification requests.
   interactive_requests: true,
   // `--mcp-config`. The provider can invoke MCP tools, but the daemon has no census of them: an
@@ -66,11 +69,13 @@ const CLAUDE_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, boolean>> =
   structured_output: true,
   // Composed from resume-at plus `--fork-session`.
   rollback: true,
-  // `forkConversation`: a new provider conversation, the source untouched.
+  // `moveSessionToFork`: the session moves onto a conversation forked from its own.
   session_fork: true,
-  session_goals: false,
+  // Claude Code's own `/goal <condition>` and `/goal clear`, sent as command messages.
+  session_goals: true,
   callback_tools: true,
-  // AgentDefinitions in the `initialize` request's `agents` map (provider-native subagents).
+  // Claude Code's own helpers through its helper tool, the session's helper definitions declared
+  // as `initialize.agents`, held to `Helpers at once` by a hook.
   subagents: true,
   // Emulated: dispatches the provider's own compaction command as a `driver_command` frame,
   // checked against the command enumeration before and typed evidence after.
@@ -149,22 +154,30 @@ export class ClaudeCapabilityReporter {
 }
 
 /**
- * One `list_models` control request against the spawned build. Returns `unknown`: the reply is
- * untrusted provider output that this module validates.
+ * One read of the catalog from a short control-only process: its `initialize` reply and its
+ * `get_context_usage` reply. The replies are untrusted provider output that this module validates.
  */
-export type ClaudeModelCatalogExchange = () => Promise<unknown>;
+type ClaudeModelCatalogExchange = () => Promise<ClaudeModelCatalogReading>;
 
 function claudeCatalogUnreadable(detail: string): ModelCatalogUnreadableError {
-  return new ModelCatalogUnreadableError("Claude list_models", detail);
+  return new ModelCatalogUnreadableError("Claude initialize", detail);
 }
 
 /** The reserved `value` that points at whichever model is currently default. */
 const CLAUDE_DEFAULT_MODEL_POINTER = "default";
 
+/** The suffix Claude Code puts on a model id for that model's 1M-token window. */
+const CLAUDE_LARGER_WINDOW_MARK = "[1m]";
+
+// Whether the model id carries Claude Code's documented `[1m]` mark for the model's 1M window.
+function hasClaudeLargerWindowMark(modelId: string): boolean {
+  return modelId.endsWith(CLAUDE_LARGER_WINDOW_MARK);
+}
+
 /**
- * Normalizes one `list_models` reply into the contract's model shape. Strict: anything but the
- * pinned `{ models: [...] }` shape throws {@link ModelCatalogUnreadableError}, so a dropped
- * model stays distinguishable from a parser failure.
+ * Normalizes the `models` of one `initialize` reply into the contract's model shape. Strict:
+ * anything but the pinned `{ models: [...] }` shape throws {@link ModelCatalogUnreadableError}, so
+ * a dropped model stays distinguishable from a parser failure.
  */
 export function normalizeClaudeModelCatalog(payload: unknown): ProviderModel[] {
   if (typeof payload !== "object" || payload === null) {
@@ -208,6 +221,8 @@ export function normalizeClaudeModelCatalog(payload: unknown): ProviderModel[] {
       name: displayName,
       capabilities: [],
       fast: supportsFastMode === true,
+      // Read from the id alone, never the label, which is display text.
+      largerWindow: hasClaudeLargerWindowMark(resolvedModel),
     };
     // Effort levels are copied, never defaulted; absent means the model has no effort selection.
     const effortLevels = entry["supportedEffortLevels"];
@@ -228,11 +243,23 @@ export function normalizeClaudeModelCatalog(payload: unknown): ProviderModel[] {
 }
 
 /**
- * Answers `listModels()` from the live `list_models` read. A failed read propagates: no stored list
- * stands in for the provider's.
+ * Answers `listModels()` from one live read in `spawnEnvironment`: the catalog, each row with the
+ * context window held for its model id at that environment's endpoint, the one this read's
+ * `get_context_usage` reported among them; a row whose model no read has reached carries none. A
+ * failed read propagates: no stored list stands in for the provider's.
  */
 export async function resolveClaudeModelCatalog(
   exchange: ClaudeModelCatalogExchange,
+  figures: Pick<ClaudeModelFigures, "recordContextReads" | "contextWindowOf">,
+  spawnEnvironment: readonly SpawnEnvPair[],
 ): Promise<ProviderModel[]> {
-  return normalizeClaudeModelCatalog(await exchange());
+  const reading = await exchange();
+  const models = normalizeClaudeModelCatalog(reading.initialize);
+  figures.recordContextReads(spawnEnvironment, [
+    { requestedModel: undefined, usage: reading.contextUsage },
+  ]);
+  return models.map((model) => {
+    const contextWindow = figures.contextWindowOf(spawnEnvironment, model.id);
+    return contextWindow === undefined ? model : { ...model, contextWindow };
+  });
 }

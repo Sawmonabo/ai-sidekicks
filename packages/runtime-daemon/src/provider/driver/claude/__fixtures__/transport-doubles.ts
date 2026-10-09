@@ -2,38 +2,58 @@
 // `session/transport.ts`, so a drifted signature fails the typecheck. Nothing here spawns a
 // process, touches the filesystem or reads an environment variable.
 
-import type { ApplyInterventionParams } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { AgentId } from "@ai-sidekicks/contracts/agent/definition";
+import type {
+  ApplyInterventionParams,
+  InterruptPendingChoice,
+} from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { ProcessExit } from "@ai-sidekicks/contracts/run/control";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
-import type { OutboundTextFrame } from "../../../outbound-frame.js";
+import type { OutboundText } from "../../../outbound-text.js";
 import type { SpawnEnvPair } from "../../../spawn-env.js";
 import { CLAUDE_DRIVER_DESCRIPTOR } from "../descriptor.js";
 import type { ThreadFrameRoute } from "../../../thread-frame-router.js";
-import type {
-  ClaudeAuthProbeReading,
-  ClaudeAuthProbeRequest,
-  ClaudeChannelDisposalReason,
-  ClaudeControlRequest,
-  ClaudeControlResponse,
-  ClaudeFastModeDeclaration,
-  ClaudeInboundFrameObservation,
-  ClaudeResumedSessionAttachment,
-  ClaudeRunDispatch,
-  ClaudeRunDispatchResolver,
-  ClaudeSessionAttachment,
-  ClaudeProviderProcess,
-  ClaudeSessionResumeRequest,
-  ClaudeSessionRewindRequest,
-  ClaudeSessionSpawnRequest,
-  ClaudeSessionTransport,
-  ClaudeUserTextDelivery,
-  ClaudeUserTextWriteAttempt,
+import {
+  composeClaudeUserFrame,
+  type ClaudeAuthProbeReading,
+  type ClaudeAuthProbeRequest,
+  type ClaudeChannelDisposalReason,
+  type ClaudeCreationFiguresReading,
+  type ClaudeCreationFiguresRequest,
+  type ClaudeReplyReserveReads,
+  type ClaudeSessionFolderReadRequest,
+  type ClaudeControlRequest,
+  type ClaudeControlResponse,
+  type ClaudeFastModeDeclaration,
+  type ClaudeInboundFrameObservation,
+  type ClaudeInboundRequestEvent,
+  type ClaudeInitializeDeclaration,
+  type ClaudeModelCatalogReading,
+  type ClaudeOfferedModel,
+  type ClaudeOneTurnReply,
+  type ClaudeOneTurnRequest,
+  type ClaudeResumedSessionAttachment,
+  type ClaudeRunDispatch,
+  type ClaudeRunDispatchResolver,
+  type ClaudeSessionAttachment,
+  type ClaudeProviderProcess,
+  type ClaudeSessionResumeRequest,
+  type ClaudeSessionRewindRequest,
+  type ClaudeSessionSpawnRequest,
+  type ClaudeSessionTransport,
+  type ClaudeUserTextDelivery,
+  type ClaudeUserFrame,
+  type ClaudeUserTextWriteAttempt,
 } from "../session/transport.js";
 import type { CreateSessionParams, StartRunParams } from "../../contract.js";
+import type { DaemonTurnBinding } from "../../run-control.js";
 
 /** The session id every test session uses. */
 export const TEST_SESSION_ID: SessionId = "session-1" as SessionId;
+/** The agent every test session runs. */
+const TEST_AGENT_ID: AgentId = "agent-1" as AgentId;
 /** The test session's model. */
 export const TEST_MODEL = "claude-sonnet-4-5";
 /** The run id of the first run in a test session. */
@@ -59,10 +79,20 @@ const DELIVERED_ROUTE_DECISIONS: ReadonlySet<ThreadFrameRoute["decision"]> = new
 /** In-memory channel that records every write and control request and lets a test drive frames. */
 export class FakeClaudeProviderProcess implements ClaudeProviderProcess {
   readonly providerSessionId: string;
-  readonly sentTextFrames: OutboundTextFrame[] = [];
+  /** Each written text as the user frame a real transport puts on stdin. */
+  readonly sentUserFrames: ClaudeUserFrame[] = [];
   readonly controlRequests: ClaudeControlRequest[] = [];
   readonly disposals: ClaudeChannelDisposalReason[] = [];
   controlResponse: ClaudeControlResponse = { subtype: "success" };
+  /** An answer for one subtype, over `controlResponse`. */
+  readonly controlResponseBySubtype: Map<ClaudeControlRequest["subtype"], ClaudeControlResponse> =
+    new Map();
+  /** A rejection every control request settles with, as on an expired deadline. */
+  controlRequestFailure: Error | undefined = undefined;
+  /** Every answer the daemon gave a request this process sent it, in order. */
+  readonly answeredRequests: { requestId: string; response: Record<string, unknown> }[] = [];
+  /** How many times the process was stopped with SIGTERM. */
+  terminations = 0;
   /** A write failure the double reports, as the port obliges a transport to. */
   sendUserTextFailure: Error | undefined = undefined;
   /**
@@ -75,7 +105,7 @@ export class FakeClaudeProviderProcess implements ClaudeProviderProcess {
   /** Whether a turn terminal can still arrive, as the port defines it. */
   isClosed = false;
   disposeFailure: Error | undefined = undefined;
-  /** Every `sendUserText` call, failures included; `sentTextFrames` holds only written frames. */
+  /** Every `sendUserText` call, failures included; `sentUserFrames` holds only written frames. */
   sendUserTextAttempts = 0;
 
   constructor(providerSessionId: string) {
@@ -83,26 +113,24 @@ export class FakeClaudeProviderProcess implements ClaudeProviderProcess {
   }
 
   get outboundCallCount(): number {
-    return this.sentTextFrames.length + this.controlRequests.length;
+    return this.sentUserFrames.length + this.controlRequests.length;
   }
 
-  /** The bytes each written frame put on the wire, in order (`wireText`, not the author's text). */
-  get sentWireTexts(): string[] {
-    return this.sentTextFrames.map((frame) => frame.wireText);
+  /** The text each written frame carried, in order. */
+  get sentTexts(): string[] {
+    return this.sentUserFrames.map((frame) => frame.message.content);
   }
 
-  /** The author's bytes behind each written frame; neutralization must never change them. */
-  get sentAuthoredTexts(): string[] {
-    return this.sentTextFrames.map((frame) => frame.authoredText);
-  }
-
-  async sendUserText(frame: OutboundTextFrame): Promise<ClaudeUserTextWriteAttempt> {
+  async sendUserText(
+    outboundText: OutboundText,
+    messageUuid: string,
+  ): Promise<ClaudeUserTextWriteAttempt> {
     this.sendUserTextAttempts += 1;
     if (this.sendUserTextRejection !== undefined) {
       throw this.sendUserTextRejection;
     }
     if (this.sendUserTextFailure !== undefined) {
-      // A failed frame is not recorded, so `sentWireTexts` means "written", not "offered".
+      // A failed frame is not recorded, so `sentUserFrames` means "written", not "offered".
       await Promise.resolve();
       return {
         settled: "failed",
@@ -110,7 +138,7 @@ export class FakeClaudeProviderProcess implements ClaudeProviderProcess {
         cause: this.sendUserTextFailure,
       };
     }
-    this.sentTextFrames.push(frame);
+    this.sentUserFrames.push(composeClaudeUserFrame(outboundText, messageUuid));
     await Promise.resolve();
     return { settled: "written" };
   }
@@ -123,7 +151,54 @@ export class FakeClaudeProviderProcess implements ClaudeProviderProcess {
     this.controlRequests.push(request);
     await this.controlResponseGate;
     await Promise.resolve();
-    return this.controlResponse;
+    if (this.controlRequestFailure !== undefined) {
+      throw this.controlRequestFailure;
+    }
+    return this.controlResponseBySubtype.get(request.subtype) ?? this.controlResponse;
+  }
+
+  inboundRequestObserver: ((event: ClaudeInboundRequestEvent) => void) | undefined = undefined;
+
+  onInboundRequest(observer: (event: ClaudeInboundRequestEvent) => void): void {
+    this.inboundRequestObserver = observer;
+  }
+
+  /** Sends the daemon one request, as Claude Code does on its stdout. */
+  emitInboundRequest(event: ClaudeInboundRequestEvent): void {
+    this.inboundRequestObserver?.(event);
+  }
+
+  async answerInboundRequest(requestId: string, response: Record<string, unknown>): Promise<void> {
+    this.answeredRequests.push({ requestId, response });
+    await Promise.resolve();
+  }
+
+  exitObserver: ((exit: ProcessExit) => void) | undefined = undefined;
+
+  onExit(observer: (exit: ProcessExit) => void): void {
+    this.exitObserver = observer;
+  }
+
+  /** Ends the process with `exit`, as one that died on its own does. */
+  emitExit(exit: ProcessExit): void {
+    this.isClosed = true;
+    this.exitObserver?.(exit);
+  }
+
+  async terminate(): Promise<void> {
+    this.terminations += 1;
+    await Promise.resolve();
+    this.emitExit({ signal: "SIGTERM", outputTail: "(no output)" });
+  }
+
+  deliveredFrameConsumer:
+    | ((frame: Readonly<Record<string, unknown>>, route: ThreadFrameRoute) => void)
+    | undefined = undefined;
+
+  onDeliveredFrame(
+    consumer: (frame: Readonly<Record<string, unknown>>, route: ThreadFrameRoute) => void,
+  ): void {
+    this.deliveredFrameConsumer = consumer;
   }
 
   // Makes a transport refuse `onTurnTerminal` registration, the last step of the adoption window.
@@ -139,13 +214,6 @@ export class FakeClaudeProviderProcess implements ClaudeProviderProcess {
 
   turnTerminalListener: ((terminalFrame: unknown) => void) | undefined = undefined;
 
-  /**
-   * The terminal `result` body handed to the turn-terminal hook. When unset, a body with positive
-   * turn evidence is used so an ordinary terminal does not trip the text-neutralization tripwire;
-   * a tripwire test overrides it with a zero-turn or unrecognized body.
-   */
-  terminalFrameBody: unknown = undefined;
-
   onInboundFrame(observer: (observation: ClaudeInboundFrameObservation) => ThreadFrameRoute): void {
     this.inboundFrameObserver = observer;
   }
@@ -159,8 +227,9 @@ export class FakeClaudeProviderProcess implements ClaudeProviderProcess {
 
   /**
    * Drives one inbound stream frame as a real transport would: observe first, deliver only the
-   * decisions in the DELIVER column of {@link ClaudeProviderProcess.onInboundFrame}, and call the
-   * turn-terminal hook with the frame body for a `result/*` frame.
+   * decisions in the DELIVER column of {@link ClaudeProviderProcess.onInboundFrame} with the frame
+   * body, and then call the turn-terminal hook for a `result/*` frame. `frame` is the body; by
+   * default it carries only the type and subtype `frameKind` names.
    */
   emitStreamFrame(
     frameKind: string,
@@ -171,6 +240,7 @@ export class FakeClaudeProviderProcess implements ClaudeProviderProcess {
       readonly handshake?: ClaudeInboundFrameObservation["handshake"];
       readonly compactionBoundary?: ClaudeInboundFrameObservation["compactionBoundary"];
     },
+    frame?: Readonly<Record<string, unknown>>,
   ): ThreadFrameRoute {
     // Absent parts default to `null`: the observation is a closed shape under
     // `exactOptionalPropertyTypes`, so a key cannot be omitted.
@@ -189,10 +259,12 @@ export class FakeClaudeProviderProcess implements ClaudeProviderProcess {
       return route;
     }
     this.deliveredFrameKinds.push(frameKind);
-    if (frameKind.startsWith("result/")) {
-      this.turnTerminalListener?.(
-        this.terminalFrameBody ?? synthesizeTurnEvidenceResult(frameKind),
-      );
+    const [type, subtype] = frameKind.split("/");
+    const body = frame ?? { type, ...(subtype === undefined ? {} : { subtype }) };
+    this.deliveredFrameConsumer?.(body, route);
+    // A helper's `result` ends the helper's work, never the session's turn.
+    if (type === "result" && (observationParts?.subagentId ?? null) === null) {
+      this.turnTerminalListener?.(body);
     }
     return route;
   }
@@ -235,6 +307,41 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
     fastModeState: null,
     fastModeDisabledReason: null,
   };
+  initializeAutoModeModels: ReadonlySet<string> = new Set();
+  initializeOutputStyles: readonly string[] = [];
+  initializeOutputStyle: string | undefined = undefined;
+  initializeModels: readonly ClaudeOfferedModel[] = [];
+  // What the control-only catalog process reports.
+  modelCatalogReading: ClaudeModelCatalogReading = {
+    initialize: undefined,
+    contextUsage: undefined,
+  };
+  readonly modelCatalogRequests: ClaudeAuthProbeRequest[] = [];
+  // Each creation-time read the driver asked for, and the failure every one ends on when set.
+  readonly creationFiguresRequests: ClaudeCreationFiguresRequest[] = [];
+  creationFiguresFailure: Error | undefined = undefined;
+  // What the control-only process a session's creation runs reports: Claude Code's three
+  // advisors, and context reads that refuse, so no reply reserve or window is derived.
+  creationFiguresReading: ClaudeCreationFiguresReading = {
+    outputStyleNames: [],
+    outputStyle: { isListed: true, text: "Available styles:", outcome: undefined },
+    advisor: {
+      isListed: true,
+      text: "Advisor: off\nUsage: /advisor <fable|opus|sonnet|off>",
+      outcome: undefined,
+    },
+    replyReserveReads: { kind: "refused", detail: "get_context_usage: not in this double" },
+    contextReads: [],
+  };
+  // Every one-turn process the driver ran, and the reply each answers with or the failure it ends
+  // on.
+  readonly oneTurnRequests: ClaudeOneTurnRequest[] = [];
+  oneTurnReply: ClaudeOneTurnReply = {
+    text: "",
+    providerMessageId: undefined,
+    refusal: undefined,
+  };
+  oneTurnFailure: Error | undefined = undefined;
   // Rewind defaults to the happy path: the fork announces a new provider session id, which the
   // driver's fork check requires.
   readonly rewindRequests: ClaudeSessionRewindRequest[] = [];
@@ -247,16 +354,16 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
   readonly probeAuthRequests: ClaudeAuthProbeRequest[] = [];
 
   /**
-   * Refuses to start a child without the daemon's mandated environment pairs. A refusal rather
-   * than a recording, because a spawn path that dropped the pairs would still return a working
-   * channel and every other assertion would keep passing. Keyed on the canonical opt-out table so
-   * the guard follows it.
+   * Refuses to start a child whose environment lacks the update opt-outs. A refusal rather than a
+   * recording, because a spawn path that skipped the environment builder would still return a
+   * working channel and every other assertion would keep passing. Keyed on the canonical opt-out
+   * table so the guard follows it.
    */
-  #requireMandatedEnvironment(mandatedEnvironment: readonly SpawnEnvPair[]): void {
+  #requireMandatedEnvironment(spawnEnvironment: readonly SpawnEnvPair[]): void {
     for (const [name, value] of Object.entries(
       CLAUDE_DRIVER_DESCRIPTOR.autoUpdateOptOutEnvironment,
     )) {
-      if (mandatedEnvironment.find((pair) => pair[0] === name)?.[1] !== value) {
+      if (spawnEnvironment.find((pair) => pair[0] === name)?.[1] !== value) {
         throw new Error(
           `A Claude child was started without the mandated ${name}=${value}, which the ` +
             `transport obligations forbid.`,
@@ -267,7 +374,7 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
 
   async spawnSession(request: ClaudeSessionSpawnRequest): Promise<ClaudeSessionAttachment> {
     this.spawnRequests.push(request);
-    this.#requireMandatedEnvironment(request.mandatedEnvironment);
+    this.#requireMandatedEnvironment(request.spawnEnvironment);
     await this.establishmentGate;
     await Promise.resolve();
     const announced = this.announcedProviderSessionId ?? request.providerSessionId;
@@ -275,14 +382,19 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
     channel.onTurnTerminalFailure = this.onTurnTerminalFailure;
     channel.controlResponse = this.controlResponse;
     this.spawnedChannels.push(channel);
-    return { providerSessionId: announced, channel, initializeFastMode: this.initializeFastMode };
+    return {
+      providerSessionId: announced,
+      channel,
+      initialize: this.#initializeDeclaration(),
+      settingsReadback: { cleanupPeriodDays: null, attachedAdvisor: { kind: "unreported" } },
+    };
   }
 
   async resumeSession(
     request: ClaudeSessionResumeRequest,
   ): Promise<ClaudeResumedSessionAttachment> {
     this.resumeRequests.push(request);
-    this.#requireMandatedEnvironment(request.mandatedEnvironment);
+    this.#requireMandatedEnvironment(request.spawnEnvironment);
     await this.establishmentGate;
     if (this.resumeFailure !== undefined) {
       throw this.resumeFailure;
@@ -296,7 +408,8 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
     return {
       providerSessionId: announced,
       channel,
-      initializeFastMode: this.initializeFastMode,
+      initialize: this.#initializeDeclaration(),
+      settingsReadback: { cleanupPeriodDays: null, attachedAdvisor: { kind: "unreported" } },
       sessionPosition: this.resumedSessionPosition,
     };
   }
@@ -305,7 +418,7 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
     request: ClaudeSessionRewindRequest,
   ): Promise<ClaudeResumedSessionAttachment> {
     this.rewindRequests.push(request);
-    this.#requireMandatedEnvironment(request.mandatedEnvironment);
+    this.#requireMandatedEnvironment(request.spawnEnvironment);
     await this.establishmentGate;
     if (this.rewindFailure !== undefined) {
       throw this.rewindFailure;
@@ -320,21 +433,74 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
     return {
       providerSessionId: announced,
       channel,
-      initializeFastMode: this.initializeFastMode,
+      initialize: this.#initializeDeclaration(),
+      settingsReadback: { cleanupPeriodDays: null, attachedAdvisor: { kind: "unreported" } },
       sessionPosition: request.targetPosition,
+    };
+  }
+
+  #initializeDeclaration(): ClaudeInitializeDeclaration {
+    return {
+      fastMode: this.initializeFastMode,
+      models: this.initializeModels,
+      autoModeModels: this.initializeAutoModeModels,
+      outputStyles: this.initializeOutputStyles,
+      outputStyle: this.initializeOutputStyle,
     };
   }
 
   async probeAuth(request: ClaudeAuthProbeRequest): Promise<ClaudeAuthProbeReading> {
     this.probeAuthRequests.push(request);
     // Checked before the failure arms: a probe that could not be taken still started a child.
-    this.#requireMandatedEnvironment(request.mandatedEnvironment);
+    this.#requireMandatedEnvironment(request.spawnEnvironment);
     await Promise.resolve();
     if (this.probeAuthFailure !== undefined) {
       throw this.probeAuthFailure;
     }
     // Mints no channel: a probe that established a session would not be zero-turn.
     return {};
+  }
+
+  async readModelCatalog(request: ClaudeAuthProbeRequest): Promise<ClaudeModelCatalogReading> {
+    this.modelCatalogRequests.push(request);
+    this.#requireMandatedEnvironment(request.spawnEnvironment);
+    await Promise.resolve();
+    return this.modelCatalogReading;
+  }
+
+  async readCreationFigures(
+    request: ClaudeCreationFiguresRequest,
+  ): Promise<ClaudeCreationFiguresReading> {
+    this.creationFiguresRequests.push(request);
+    this.#requireMandatedEnvironment(request.spawnEnvironment);
+    await Promise.resolve();
+    if (this.creationFiguresFailure !== undefined) {
+      throw this.creationFiguresFailure;
+    }
+    return this.creationFiguresReading;
+  }
+
+  async readReplyReserve(
+    request: ClaudeSessionFolderReadRequest,
+  ): Promise<ClaudeReplyReserveReads> {
+    this.#requireMandatedEnvironment(request.spawnEnvironment);
+    await Promise.resolve();
+    return this.creationFiguresReading.replyReserveReads;
+  }
+
+  async runOneTurn(request: ClaudeOneTurnRequest): Promise<ClaudeOneTurnReply> {
+    this.oneTurnRequests.push(request);
+    this.#requireMandatedEnvironment(request.spawnEnvironment);
+    await Promise.resolve();
+    if (this.oneTurnFailure !== undefined) {
+      throw this.oneTurnFailure;
+    }
+    return this.oneTurnReply;
+  }
+
+  // Starts no process of its own: every channel it minted is closed through the lifecycle.
+  async stopEveryProcess(): Promise<void> {
+    await Promise.resolve();
   }
 }
 
@@ -346,11 +512,22 @@ export class FakeClaudeRunDispatchResolver implements ClaudeRunDispatchResolver 
     await Promise.resolve();
     return this.dispatchByRunId.get(params.runId);
   }
+
+  /** Opens `daemon-binding-<runId>` on the test agent for a run the daemon started itself. */
+  async openDaemonTurnBinding(runId: RunId): Promise<DaemonTurnBinding> {
+    await Promise.resolve();
+    return { bindingId: `daemon-binding-${runId}`, agentId: TEST_AGENT_ID };
+  }
 }
 
 /** Minimal `createSession` params for the test session. */
 export function buildCreateSessionParams(): CreateSessionParams {
-  return { sessionId: TEST_SESSION_ID, model: TEST_MODEL, config: { model: TEST_MODEL } };
+  return {
+    sessionId: TEST_SESSION_ID,
+    model: TEST_MODEL,
+    largerWindow: undefined,
+    config: { model: TEST_MODEL },
+  };
 }
 
 /** Minimal `startRun` params for the first test run. */
@@ -369,29 +546,15 @@ export function buildSteerParams(content: string): ApplyInterventionParams {
   };
 }
 
-/** An interrupt intervention on the first test run. */
-export function buildInterruptParams(): ApplyInterventionParams {
+/** An interrupt intervention on the first test run, its waiting messages going as `pending`. */
+export function buildInterruptParams(
+  pending: InterruptPendingChoice = "nextTurn",
+): ApplyInterventionParams {
   return {
     type: "interrupt",
     targetRunId: TEST_RUN_ID,
     expectedRunVersion: 3,
     clientIdempotencyKey: "3f1d2b4c-0000-4000-8000-000000000002",
-    payload: { reason: "user pressed stop" },
-  };
-}
-
-/**
- * A `result` frame body with positive turn evidence: a real turn reports a non-zero turn count,
- * API duration and cost, and a populated per-model usage map, all together.
- */
-function synthesizeTurnEvidenceResult(frameKind: string): Record<string, unknown> {
-  return {
-    type: "result",
-    subtype: frameKind.slice("result/".length),
-    is_error: frameKind !== "result/success",
-    num_turns: 1,
-    duration_api_ms: 2972,
-    total_cost_usd: 0.67144,
-    modelUsage: { "claude-fable-5": { inputTokens: 2, outputTokens: 98 } },
+    payload: { pending, reason: "user pressed stop" },
   };
 }

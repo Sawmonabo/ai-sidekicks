@@ -1,13 +1,18 @@
 // The payloads of a session's own events: its creation, its lifecycle moves, its renames, its
-// marks and its advisor. The event contract composes them into the event union and imports this
-// file at load, so none may import that contract.
+// marks, its advisor, its output style and its provider's status. The event contract composes
+// them into the event union and imports this file at load, so none may import that contract.
 import { z } from "zod";
 
 import { AgentDefinitionIdSchema, type AgentDefinitionId } from "../agent/definition.js";
 import { AgentListEntrySchema, type AgentListEntry } from "../agent/methods.js";
+import { withEpochStamp, type SourceEpoch, type SourcePosition } from "../event/envelope.js";
 import { wireFreeFormString } from "../free-form-string.js";
 import { isoDateTimeSchema } from "../internal/wire-scalars.js";
 import { MACHINE_SETTINGS_NAME_MAX_LEN } from "../machine-settings.js";
+import { DRIVER_FAILURE_DETAIL_MAX_LEN } from "../provider/driver/length-limits.js";
+import { DRIVER_WIRE_TOKEN_MAX_LEN } from "../provider/driver/methods.js";
+import { ProviderNameSchema, type ProviderName } from "../provider/name.js";
+import { RunIdSchema, type RunId } from "../run/id.js";
 import {
   EventCursorSchema,
   SessionIdSchema,
@@ -132,12 +137,15 @@ export const SessionMarkChangePayloadSchema: z.ZodType<SessionMarkChangePayload>
 
 /**
  * The `session.advisor_changed` payload: a Claude Code session's own advisor, changed by
- * `/advisor` in that session, with the time it happened. `advisorModel` is `null` when the advisor
- * is off.
+ * `/advisor` in that session, with the time it happened. `advisorModel` is the session's own
+ * setting, which every later process starts with, `null` when the advisor is off;
+ * `attachedAdvisorModel` is the advisor Claude Code says it attaches after the change, `null` when
+ * none attaches, absent where the build does not report it. The chip shows the attached one.
  */
 export interface SessionAdvisorChangedPayload {
   sessionId: SessionId;
   advisorModel: string | null;
+  attachedAdvisorModel?: string | null | undefined;
   at: string;
 }
 /** Parses a {@link SessionAdvisorChangedPayload}. */
@@ -151,6 +159,70 @@ export const SessionAdvisorChangedPayloadSchema: z.ZodType<
       MACHINE_SETTINGS_NAME_MAX_LEN,
       "SessionAdvisorChangedPayload.advisorModel",
     ).nullable(),
+    attachedAdvisorModel: wireFreeFormString(
+      MACHINE_SETTINGS_NAME_MAX_LEN,
+      "SessionAdvisorChangedPayload.attachedAdvisorModel",
+    )
+      .nullable()
+      .optional(),
     at: isoDateTimeSchema,
   })
   .strict();
+
+/**
+ * The `session.output_style_changed` payload: a Claude Code session's own output style, changed by
+ * `/output-style` in that session, with the time it happened.
+ */
+export interface SessionOutputStyleChangedPayload {
+  sessionId: SessionId;
+  outputStyle: string;
+  at: string;
+}
+/** Parses a {@link SessionOutputStyleChangedPayload}. */
+export const SessionOutputStyleChangedPayloadSchema: z.ZodType<
+  SessionOutputStyleChangedPayload,
+  SessionOutputStyleChangedPayload
+> = z
+  .object({
+    sessionId: SessionIdSchema,
+    outputStyle: wireFreeFormString(
+      MACHINE_SETTINGS_NAME_MAX_LEN,
+      "SessionOutputStyleChangedPayload.outputStyle",
+    ),
+    at: isoDateTimeSchema,
+  })
+  .strict();
+
+/**
+ * The `session.provider_status` payload: a coarse status the provider reported for its session,
+ * normalized, with display text where it sent some. It records what the provider said and never
+ * moves the session's own state. It takes the epoch stamp, which needs `runId`.
+ */
+export interface SessionProviderStatusPayload {
+  sessionId: SessionId;
+  runId?: RunId | undefined;
+  provider: ProviderName;
+  status: string;
+  detail?: string | undefined;
+  sourceEpoch?: SourceEpoch | undefined;
+  sourcePosition?: SourcePosition | undefined;
+}
+/** Parses a {@link SessionProviderStatusPayload}. */
+export const SessionProviderStatusPayloadSchema: z.ZodType<SessionProviderStatusPayload> =
+  withEpochStamp(
+    z
+      .object({
+        sessionId: SessionIdSchema,
+        runId: RunIdSchema.optional(),
+        provider: ProviderNameSchema,
+        status: wireFreeFormString(
+          DRIVER_WIRE_TOKEN_MAX_LEN,
+          "SessionProviderStatusPayload.status",
+        ),
+        detail: wireFreeFormString(
+          DRIVER_FAILURE_DETAIL_MAX_LEN,
+          "SessionProviderStatusPayload.detail",
+        ).optional(),
+      })
+      .strict(),
+  );

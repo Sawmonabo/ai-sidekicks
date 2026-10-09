@@ -1,17 +1,17 @@
 // `lifecycle.ts` threads: inbound frames routed to the right thread and metered once as per-turn
-// deltas, child subagents kept off the parent's transcript, and subagent admission per process.
+// deltas, child subagents kept off the parent's transcript, a reply stored as it streams, and text
+// naming no message recorded.
 
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import type { SubagentLifecycleEmission, ThreadFrameRoute } from "../../../thread-frame-router.js";
+import type { ThreadFrameRoute } from "../../../thread-frame-router.js";
 import type { MeteredUsageDelta } from "../../../usage-delta-accountant.js";
-import { ClaudeSessionUnavailableError } from "../session/errors.js";
 import type { ClaudeSessionLifecycleDependencies } from "../session/state.js";
-import { CLAUDE_SUBAGENT_MAX_DEPTH_CEILING } from "../subagent-policy.js";
 import {
   type FakeClaudeProviderProcess,
   TEST_PINNED_PROVIDER_SESSION_ID,
+  TEST_RUN_ID,
   TEST_SESSION_ID,
 } from "../__fixtures__/transport-doubles.js";
 import {
@@ -22,6 +22,7 @@ import {
   rewindTestSession,
   SANDBOXED_POSTURE,
   spawnedChannel,
+  startLiveRun,
   type LifecycleHarness,
 } from "./lifecycle.test-support.js";
 
@@ -29,7 +30,6 @@ const CHILD_SUBAGENT_ID = "subagent-7";
 
 interface RoutingHarness extends LifecycleHarness {
   readonly meteredUsage: { sessionId: SessionId; delta: MeteredUsageDelta }[];
-  readonly subagentLifecycle: { sessionId: SessionId; emission: SubagentLifecycleEmission }[];
   readonly releasedRoutes: ThreadFrameRoute[];
 }
 
@@ -37,15 +37,22 @@ function buildRoutingHarness(
   overrides: Partial<ClaudeSessionLifecycleDependencies> = {},
 ): RoutingHarness {
   const meteredUsage: RoutingHarness["meteredUsage"] = [];
-  const subagentLifecycle: RoutingHarness["subagentLifecycle"] = [];
   const releasedRoutes: ThreadFrameRoute[] = [];
   const harness = buildHarness({
     onMeteredUsage: (sessionId, delta) => meteredUsage.push({ sessionId, delta }),
-    onSubagentLifecycle: (sessionId, emission) => subagentLifecycle.push({ sessionId, emission }),
     onReleasedFrameRoute: (_sessionId, _observation, route) => releasedRoutes.push(route),
     ...overrides,
   });
-  return { ...harness, meteredUsage, subagentLifecycle, releasedRoutes };
+  return Object.assign(harness, { meteredUsage, releasedRoutes });
+}
+
+// The helper rows the lifecycle delivered on the lead run, by type.
+function subagentRowTypes(harness: RoutingHarness): string[] {
+  return harness.deliveries.flatMap((delivery) =>
+    delivery.kind === "session_row" && delivery.row.type.startsWith("subagent.")
+      ? [delivery.row.type]
+      : [],
+  );
 }
 
 function meteredInput(harness: RoutingHarness): (number | undefined)[] {
@@ -64,7 +71,7 @@ function usageObservation(
 }
 
 function announceChild(channel: FakeClaudeProviderProcess): void {
-  channel.emitStreamFrame("control_request/hook_callback", {
+  channel.emitStreamFrame("system/task_started", {
     subagentLifecycle: {
       signal: "SubagentStart",
       subagentId: CHILD_SUBAGENT_ID,
@@ -74,8 +81,8 @@ function announceChild(channel: FakeClaudeProviderProcess): void {
 }
 
 function announceChildStop(channel: FakeClaudeProviderProcess): void {
-  channel.emitStreamFrame("control_request/hook_callback", {
-    subagentId: CHILD_SUBAGENT_ID,
+  // The helper's end arrives on the lead's own thread, which names no helper.
+  channel.emitStreamFrame("system/task_notification", {
     subagentLifecycle: {
       signal: "SubagentStop",
       subagentId: CHILD_SUBAGENT_ID,
@@ -111,7 +118,7 @@ describe("ClaudeSessionLifecycle thread routing and usage metering", () => {
 
   it("keeps a child's content off the parent's transcript while metering its spend", async () => {
     const harness = buildRoutingHarness();
-    const channel = await createLiveSession(harness);
+    const channel = await startLiveRun(harness);
 
     announceChild(channel);
     const contentRoute = channel.emitStreamFrame("system/task_progress", {
@@ -120,26 +127,23 @@ describe("ClaudeSessionLifecycle thread routing and usage metering", () => {
     channel.emitStreamFrame("system/task_progress", usageObservation(40, CHILD_SUBAGENT_ID));
     announceChildStop(channel);
 
-    expect(contentRoute.decision).toBe("suppress-child-transcript");
-    // Only the start and stop announcements on the control channel reach the consumer.
+    expect(contentRoute.decision).toBe("child-transcript");
+    // Only the start and stop announcements on the lead's thread reach the consumer.
     expect(channel.deliveredFrameKinds).toStrictEqual([
-      "control_request/hook_callback",
-      "control_request/hook_callback",
+      "system/task_started",
+      "system/task_notification",
     ]);
     expect(harness.meteredUsage).toMatchObject([
       { delta: { threadId: CHILD_SUBAGENT_ID, axisDeltas: { input: 40 } } },
     ]);
     // The started/completed pair is the suppressed child's whole presence.
-    expect(harness.subagentLifecycle.map((entry) => entry.emission.eventType)).toEqual([
-      "subagent.started",
-      "subagent.completed",
-    ]);
+    expect(subagentRowTypes(harness)).toEqual(["subagent.started", "subagent.completed"]);
   });
 
   it("keeps a child's usage base across a duplicate announcement", async () => {
     // Re-basing on the repeat would meter 150 instead of the 50 the child spent since.
     const harness = buildRoutingHarness();
-    const channel = await createLiveSession(harness);
+    const channel = await startLiveRun(harness);
 
     announceChild(channel);
     channel.emitStreamFrame("system/task_progress", usageObservation(100, CHILD_SUBAGENT_ID));
@@ -147,7 +151,7 @@ describe("ClaudeSessionLifecycle thread routing and usage metering", () => {
     channel.emitStreamFrame("system/task_progress", usageObservation(150, CHILD_SUBAGENT_ID));
 
     expect(meteredInput(harness)).toEqual([100, 50]);
-    expect(harness.subagentLifecycle).toHaveLength(1);
+    expect(subagentRowTypes(harness)).toEqual(["subagent.started"]);
   });
 
   it("meters and delivers a child's frame that raced its announcement", async () => {
@@ -294,56 +298,87 @@ describe("ClaudeSessionLifecycle thread routing and usage metering", () => {
   });
 });
 
-describe("ClaudeSessionLifecycle subagent admission", () => {
-  it(
-    "installs a fresh gate on a rewind and fails " +
-      "the old and current gates as their processes go",
-    async () => {
-      // A rewind relaunches the process, so its subagents died with it; carrying the old gate
-      // forward would hold a permanently reduced cap.
-      const harness = buildHarness();
-      await createLiveSession(harness, {
-        subagentPolicy: { enabled: true, maxConcurrent: 2, maxDepth: 1, definitions: [] },
-      });
-      const predecessorGate = harness.transport.spawnRequests[0]?.subagentAdmission;
-      await predecessorGate?.admit("held-across-the-rewind");
-      await rewindTestSession(harness);
-      const rewoundGate = harness.transport.rewindRequests[0]?.subagentAdmission;
-      expect(rewoundGate).toBeDefined();
-      expect(rewoundGate).not.toBe(predecessorGate);
-      await expect(predecessorGate?.admit("orphan")).rejects.toBeInstanceOf(
-        ClaudeSessionUnavailableError,
-      );
-
-      await harness.lifecycle.closeSession({ sessionId: TEST_SESSION_ID });
-      await expect(rewoundGate?.admit("after-close")).rejects.toBeInstanceOf(
-        ClaudeSessionUnavailableError,
-      );
-    },
-  );
-
-  it("realizes only a subagent policy the daemon can hold to its cap and depth", async () => {
+describe("ClaudeSessionLifecycle assistant text", () => {
+  it("stores a reply's streamed pieces before its assistant frame, which adds only the rest", async () => {
     const harness = buildHarness();
-
-    await createLiveSession(harness, {
-      subagentPolicy: {
-        enabled: true,
-        maxConcurrent: 1,
-        maxDepth: 99,
-        definitions: [
-          // `bypassPermissions` skips the daemon's interception point, so this definition's
-          // calls could not be held at the cap.
-          { name: "unmediated", permissionMode: "bypassPermissions" },
-          { name: "mediated", permissionMode: "default" },
-        ],
-      },
+    const channel = await startLiveRun(harness);
+    channel.emitStreamFrame("system/status");
+    const streamEvent = (event: Record<string, unknown>): void => {
+      channel.emitStreamFrame("stream_event", undefined, {
+        type: "stream_event",
+        api_message_id: "msg-streamed",
+        parent_tool_use_id: null,
+        event,
+      });
+    };
+    const replyRows = () =>
+      harness.deliveries.flatMap((delivery) =>
+        delivery.kind === "session_row" && delivery.row.type === "assistant.message"
+          ? [{ payload: delivery.row.payload, body: delivery.content?.body }]
+          : [],
+      );
+    const textDelta = (text: string) => ({
+      type: "content_block_delta",
+      index: 0,
+      delta: { type: "text_delta", text },
     });
 
-    const realizedPolicy = harness.transport.spawnRequests[0]?.subagentPolicy;
-    expect(realizedPolicy).toMatchObject({
-      enabled: true,
-      maxDepth: CLAUDE_SUBAGENT_MAX_DEPTH_CEILING,
-      definitions: [{ name: "mediated" }],
+    streamEvent({ type: "message_start", message: { id: "msg-streamed" } });
+    streamEvent({ type: "content_block_start", index: 0, content_block: { type: "text" } });
+    streamEvent(textDelta("Streamed "));
+    streamEvent(textDelta("first"));
+    // In the event log while the block is still being written.
+    await vi.waitFor(() => {
+      expect(replyRows().map((row) => row.body)).toStrictEqual(["Streamed first"]);
+    });
+
+    channel.emitStreamFrame("assistant", undefined, {
+      type: "assistant",
+      uuid: "wire-streamed",
+      message: {
+        id: "msg-streamed",
+        content: [{ type: "text", text: "Streamed first, then the rest." }],
+      },
+    });
+    streamEvent({ type: "content_block_stop", index: 0 });
+
+    await vi.waitFor(() => {
+      expect(replyRows().map((row) => row.body)).toStrictEqual([
+        "Streamed first",
+        ", then the rest.",
+      ]);
+    });
+    expect(replyRows().map((row) => row.payload.providerMessageId)).toStrictEqual([
+      "msg-streamed",
+      "msg-streamed",
+    ]);
+  });
+
+  // Text the provider sent is never lost: Claude Code keys a message with no id by the frame.
+  it("writes text naming no message under the frame's own id", async () => {
+    const harness = buildHarness();
+    const channel = await startLiveRun(harness);
+    channel.emitStreamFrame("system/status");
+
+    channel.emitStreamFrame("assistant", undefined, {
+      type: "assistant",
+      uuid: "wire-unnamed",
+      message: { content: [{ type: "text", text: "no message names this" }] },
+    });
+
+    await vi.waitFor(() => {
+      expect(
+        harness.deliveries.flatMap((delivery) =>
+          delivery.kind === "session_row" && delivery.row.type === "assistant.message"
+            ? [{ payload: delivery.row.payload, content: delivery.content }]
+            : [],
+        ),
+      ).toMatchObject([
+        {
+          payload: { runId: TEST_RUN_ID, providerMessageId: "wire-unnamed" },
+          content: { body: "no message names this" },
+        },
+      ]);
     });
   });
 });

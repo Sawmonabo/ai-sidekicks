@@ -41,6 +41,7 @@ import { assertLoadedForBind } from "../bootstrap/index.js";
 import { assertSocketPathFits, SecureDefaults } from "../bootstrap/secure-defaults.js";
 import { mapJsonRpcError } from "./jsonrpc-error-mapping.js";
 import { readSocketPathLimit } from "./socket-path-limit.js";
+import { describeRejection } from "../rejection.js";
 
 // --------------------------------------------------------------------------
 // Constants
@@ -374,10 +375,7 @@ export class LocalIpcGateway {
     try {
       parsed = JSON.parse(UTF8_DECODER.decode(body)) as unknown;
     } catch (err) {
-      const wrapped = new FramingError(
-        "invalid_json",
-        err instanceof Error ? err.message : String(err),
-      );
+      const wrapped = new FramingError("invalid_json", describeRejection(err));
       this.#sendEnvelope(state, mapJsonRpcError(wrapped, null));
       return;
     }

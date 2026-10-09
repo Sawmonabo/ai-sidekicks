@@ -11,6 +11,7 @@ import {
   PTY_BACKEND_UNAVAILABLE_CODE,
   type PtyBackendUnavailableDetails,
 } from "@ai-sidekicks/contracts/error";
+import { describeRejection } from "../../rejection.js";
 
 import { executableFileName } from "../../executable/file-name.js";
 
@@ -122,7 +123,7 @@ export function resolveSidecarBinaryPath(opts?: ResolveSidecarBinaryPathOptions)
     attempts.push({
       step: 2,
       description: `require.resolve(${JSON.stringify(publishedId)})`,
-      outcome: `threw: ${err instanceof Error ? err.message : String(err)}`,
+      outcome: `threw: ${describeRejection(err)}`,
     });
   }
 

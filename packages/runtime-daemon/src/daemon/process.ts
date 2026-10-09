@@ -9,11 +9,11 @@
 // the search thread, which opens its own read-only connection and the search index, building the
 // index again when it cannot serve, while the start goes on, kills the terminal children a
 // previous run left running and knows this machine. It builds the terminal host over this run's
-// orphan guard, listens on its socket and writes this start's session token once the bind has
-// succeeded, then runs its recovery pass, refusing every write until the pass has listed the
-// sessions it rebuilds, then a listed session's and one naming no session until the pass ends,
-// and after it only the writes of a session whose history is damaged; the session services'
-// background work starts once the pass has ended.
+// orphan guard and its provider side, listens on its socket and writes this start's session token
+// once the bind has succeeded, starts registering each driver, then runs its recovery pass,
+// refusing every write until the pass has listed the sessions it rebuilds, then a listed session's
+// and one naming no session until the pass ends, and after it only the writes of a session whose
+// history is damaged; the session services' background work starts once the pass has ended.
 // A client that reads the previous token in the moment between the bind and the write is refused
 // once, and its next read finds this start's token. Its stop, asked for over the socket or by a
 // terminate signal, ends it cleanly at any point of the start or after it, and records the clean
@@ -41,6 +41,7 @@ import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import { bootstrap } from "../bootstrap/index.js";
 import { waitWithin } from "../bounded-wait.js";
 import { withCleanupFailures } from "../cleanup-failures.js";
+import { describeRejection } from "../rejection.js";
 import {
   closeDatabaseConnections,
   type DatabaseConnections,
@@ -56,7 +57,9 @@ import { LocalIpcGateway } from "../ipc/local-gateway.js";
 import { ProtocolNegotiator } from "../ipc/protocol-negotiation.js";
 import { DelegatingRegistry, MethodRegistryImpl } from "../ipc/registry.js";
 import { StreamingPrimitive } from "../ipc/streaming-primitive.js";
+import { ExecutionPostureService } from "../policy/execution-posture-service.js";
 import { ProviderRegistry } from "../provider/driver/registry.js";
+import type { ProviderOperatingSystem } from "../provider/operating-system/contract.js";
 import type { SpawnEnvPair } from "../provider/spawn-env.js";
 import type { DrainResult, PtyHost } from "../pty/host/contract.js";
 import type { OrphanGuard } from "../pty/orphan/guard.js";
@@ -87,6 +90,7 @@ import { readOrMintLocalMachine, type LocalMachine } from "./machine/local.js";
 import { MachineSettingsFile } from "./machine/settings/file.js";
 import { registerMachineSettingsMethods } from "./machine/settings/methods.js";
 import type { ProcessTreeUsage } from "./process-tree-usage.js";
+import { DaemonProviders, type ProviderPorts } from "./providers.js";
 import { bindSocket, mintSessionToken, prepareRunFolder } from "./run-folder.js";
 import type { registerSessionMethods } from "./session-methods.js";
 import { registerStatusMethods } from "./status-methods.js";
@@ -130,6 +134,8 @@ export interface DaemonProcessOptions {
   readonly databaseFileOperatingSystem: DatabaseFileOperatingSystem;
   /** The login shell a project's setup commands run in; `null` runs the system's default one. */
   readonly commandShell: string | null;
+  /** The operating system the daemon runs on, chosen once at its start. */
+  readonly providerOperatingSystem: ProviderOperatingSystem;
   /** The service's own release version, which the status read reports. */
   readonly serviceVersion: string;
   /** The daemon's own process as the system knows it, which the status read reports. */
@@ -165,6 +171,12 @@ export class DaemonProcess {
    * from.
    */
   readonly providerBaseEnvironment: readonly SpawnEnvPair[];
+  /**
+   * The ports later parts of the daemon register on its provider side.
+   * @consumedBy the approval pipeline, the questions card, the run queue, the session directory,
+   * the agent tree, the tool-server front and the provider accounts, each registering its own port
+   */
+  readonly providerPorts: ProviderPorts;
 
   readonly #dataFolderLock: DataFolderLock;
   readonly #database: DatabaseConnections;
@@ -179,9 +191,10 @@ export class DaemonProcess {
   readonly #stopRequest = new AbortController();
   readonly #ptyHost: Pick<PtyHost, "shutdown">;
   readonly #orphanGuard: OrphanGuard;
+  // The provider side: the drivers, which a session's close ends its provider leg through, the
+  // run engine and the provider methods.
+  readonly #providers: DaemonProviders;
   readonly #writeServiceLog: (line: string) => void;
-  // The provider drivers the daemon holds, which a session's close ends its provider leg through.
-  readonly #providers = new ProviderRegistry();
   readonly #startSessionServices: () => Promise<void>;
   readonly #stopSessionServices: () => Promise<void>;
   readonly #stopOutcome = Promise.withResolvers<DaemonStopOutcome>();
@@ -264,6 +277,9 @@ export class DaemonProcess {
       streamingPrimitive,
       findBranchPatternRefusal: (pattern) => findBranchPatternRefusal(pattern, parts.git),
     });
+    // The drivers the provider side registers, which a session's close ends its provider leg
+    // through.
+    const providerRegistry = new ProviderRegistry();
     const sessionServices = parts.registerSessionMethods(registry, {
       database: this.#database,
       homeDirectory: options.homeDirectory,
@@ -272,7 +288,7 @@ export class DaemonProcess {
       streamedGit: parts.streamedGit,
       folderPlace: parts.folderPlace,
       settingsFile: parts.settingsFile,
-      providers: this.#providers,
+      providers: providerRegistry,
       streamingPrimitive,
       // The gateway is built just below; a stream reads its queues only once it listens.
       outboundQueue: {
@@ -282,6 +298,7 @@ export class DaemonProcess {
       searchThread: parts.searchThread,
       whenFileCheckEnds: parts.databaseFile.checkOutcome,
       commandShell: options.commandShell,
+      environmentNameMatch: options.providerOperatingSystem.environmentNameMatch,
       providerBaseEnvironment: parts.providerBaseEnvironment,
       refuseSessionWrite: (sessionId, eventType) => {
         refuseSessionEvent(this.#recoveryStatus, sessionId, eventType);
@@ -296,7 +313,12 @@ export class DaemonProcess {
     // write reaches the sessions list like any other event, and read through its session reads,
     // which stop at a damaged session's last good point.
     const { reader, writer } = this.#database;
-    const runEngine = new RunEngine({ reader, sessionEvents: sessionServices.eventLog });
+    const executionPostures = new ExecutionPostureService({ homeDirectory: options.homeDirectory });
+    const runEngine = new RunEngine({
+      reader,
+      sessionEvents: sessionServices.eventLog,
+      executionPostures,
+    });
     // A run the restart settles releases what its execution root held, as any run's end does.
     runEngine.registerSetupGate(sessionServices.setupGate);
     const runs = new RunStateReader(reader);
@@ -349,6 +371,25 @@ export class DaemonProcess {
       now: options.now,
       writeServiceLog: options.writeServiceLog,
     });
+    this.#providers = new DaemonProviders({
+      database: this.#database,
+      runtimeBindings: sessionServices.runtimeBindings,
+      git: parts.git,
+      methods: registry,
+      streamingPrimitive,
+      providerRegistry,
+      eventLog: sessionServices.eventLog,
+      runEngine,
+      executionPostures,
+      homeDirectory: options.homeDirectory,
+      runFolder: options.runFolder,
+      dataFolder: parts.dataFolder,
+      providerBaseEnvironment: parts.providerBaseEnvironment,
+      operatingSystem: options.providerOperatingSystem,
+      writeServiceLog: options.writeServiceLog,
+    });
+    this.providerPorts = this.#providers.ports;
+    this.providerPorts.sessionDirectory.register(sessionServices.providerPort);
 
     this.#gateway = new LocalIpcGateway({
       registry,
@@ -361,13 +402,13 @@ export class DaemonProcess {
         },
         onError: (transport, error) => {
           options.writeServiceLog(
-            `Connection ${String(transport.id)} failed: ${describeError(error)}`,
+            `Connection ${String(transport.id)} failed: ${describeRejection(error)}`,
           );
         },
         // The service reads as degraded from a listener failure until it stops.
         onListenerError: (error) => {
           this.#markDegraded();
-          options.writeServiceLog(`The socket's listener failed: ${describeError(error)}`);
+          options.writeServiceLog(`The socket's listener failed: ${describeRejection(error)}`);
         },
       },
     });
@@ -376,14 +417,14 @@ export class DaemonProcess {
     void this.#database.writer.whenWorkerFailed.then((error) => {
       this.#markDegraded();
       this.#recoveryStatus.markStoreFailed();
-      options.writeServiceLog(`The database writer failed: ${describeError(error)}`);
+      options.writeServiceLog(`The database writer failed: ${describeRejection(error)}`);
     });
     // A search thread whose index failed to open, rebuild or apply, or that died, fails every
     // search from then on, so the service reads as degraded too, while every other service goes on.
     void this.#searchThread.whenWorkerFailed.then((error) => {
       damageWatch.report(error);
       this.#markDegraded();
-      options.writeServiceLog(`The search thread failed: ${describeError(error)}`);
+      options.writeServiceLog(`The search thread failed: ${describeRejection(error)}`);
     });
     // A file the start could not check takes writes unchecked, so the service reads as degraded;
     // the check has already said why in the service log.
@@ -524,6 +565,10 @@ export class DaemonProcess {
           void daemon.stop();
         } else {
           options.stopSignal.addEventListener("abort", () => void listening.stop(), { once: true });
+          // Not awaited: a provider's read, bounded as it is, never holds the daemon's ready
+          // answer back, and a call before a driver registers is refused `driver.unavailable`.
+          // Each driver that fails to register says why in the service log; none rejects.
+          void daemon.#providers.start();
           daemon.#recoveryPass = daemon.#startupRecovery.run();
           await daemon.#recoveryPass;
         }
@@ -593,11 +638,13 @@ export class DaemonProcess {
   /**
    * Stops the daemon: ends the start's recovery pass before its next page, closes the socket and
    * every connection, then, side by side and each within the drain bound, waits for the calls
-   * already under way, the recovery pass and the session services' background work, lets the
-   * searches under way finish and ends the search thread, and drains every terminal (each gets its
-   * graceful signal, then a kill); then stops watching terminal children's exits and, in what is
-   * left of the bound, waits for every write taken to commit, failing any still unfinished, closes
-   * the database and lets the data folder go. Repeated calls share the first stop.
+   * already under way, the recovery pass and the session services' background work, ends the
+   * capability refresh and the drivers' registration and has every driver end the provider
+   * processes it started (never the person's own Codex service), lets the searches under way
+   * finish and ends the search thread, and drains every terminal (each gets its graceful signal,
+   * then a kill); then stops watching terminal children's exits and, in what is left of the bound,
+   * waits for every write taken to commit, failing any still unfinished, closes the database and
+   * lets the data folder go. Repeated calls share the first stop.
    */
   stop(): Promise<void> {
     if (this.#stopping === undefined) {
@@ -675,25 +722,36 @@ export class DaemonProcess {
     } catch (error) {
       failures.push(error);
     }
-    // The calls under way, the recovery pass, the session services' background work, the searches
-    // and the terminals are independent, so all finish inside one drain bound. A call, a pass or a
-    // background write still running at the bound fails once the database closes under it, and its
-    // batch rolls back.
-    const [stillWriting, hasPassEnded, drain, haveSessionServicesEnded, haveSearchesEnded] =
-      await Promise.allSettled([
-        this.#inFlightMutations.waitForPendingWithin(DAEMON_STOP_DRAIN_BOUND_MS),
-        waitWithin(this.#recoveryPass, DAEMON_STOP_DRAIN_BOUND_MS),
-        this.#ptyHost.shutdown({
-          perSessionTimeoutMs: DAEMON_STOP_TERMINAL_DRAIN_MS,
-          hostTimeoutMs: DAEMON_STOP_TERMINAL_HOST_DRAIN_MS,
-        }),
-        endWithinDrainBound(this.#stopSessionServices(), failures),
-        endWithinDrainBound(this.#searchThread.close(), failures),
-      ]);
+    // The calls under way, the recovery pass, the session services' background work, the provider
+    // processes, the searches and the terminals are independent, so all finish inside one drain
+    // bound, before the database closes, since a provider's last frames are written. A call, a pass
+    // or a background write still running at the bound fails once the database closes under it,
+    // and its batch rolls back.
+    const [
+      stillWriting,
+      hasPassEnded,
+      drain,
+      haveSessionServicesEnded,
+      haveProvidersEnded,
+      haveSearchesEnded,
+    ] = await Promise.allSettled([
+      this.#inFlightMutations.waitForPendingWithin(DAEMON_STOP_DRAIN_BOUND_MS),
+      waitWithin(this.#recoveryPass, DAEMON_STOP_DRAIN_BOUND_MS),
+      this.#ptyHost.shutdown({
+        perSessionTimeoutMs: DAEMON_STOP_TERMINAL_DRAIN_MS,
+        hostTimeoutMs: DAEMON_STOP_TERMINAL_HOST_DRAIN_MS,
+      }),
+      endWithinDrainBound(this.#stopSessionServices(), failures),
+      endWithinDrainBound(this.#providers.stop(), failures),
+      endWithinDrainBound(this.#searchThread.close(), failures),
+    ]);
     if (haveSessionServicesEnded.status === "fulfilled" && !haveSessionServicesEnded.value) {
       this.#writeServiceLog(
         "The stop's drain bound passed; the session services' background work is still running.",
       );
+    }
+    if (haveProvidersEnded.status === "fulfilled" && !haveProvidersEnded.value) {
+      this.#writeServiceLog("The stop's drain bound passed; a provider process is still ending.");
     }
     if (haveSearchesEnded.status === "fulfilled" && !haveSearchesEnded.value) {
       this.#writeServiceLog("The stop's drain bound passed; a search is still running.");
@@ -801,8 +859,4 @@ async function endWithinDrainBound(work: Promise<unknown>, failures: unknown[]):
     failures.push(ended.error);
   }
   return true;
-}
-
-function describeError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

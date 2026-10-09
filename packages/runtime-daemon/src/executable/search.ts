@@ -5,7 +5,8 @@ import { constants as filesystemConstants } from "node:fs";
 import { access, stat } from "node:fs/promises";
 import { delimiter as pathDelimiter, extname, isAbsolute, join, resolve } from "node:path";
 
-import { hostEnvNameMatchForPlatform, type SpawnEnvPair } from "../provider/spawn-env.js";
+import { selectProviderOperatingSystem } from "../provider/operating-system/selection.js";
+import type { SpawnEnvPair } from "../provider/spawn-env.js";
 
 /** "Is this path a file this process may execute?" — never rejects. */
 type ExecutableFileProbe = (candidate: string) => Promise<boolean>;
@@ -49,7 +50,8 @@ function readSpawnEnvValue(
   name: string,
   platform: NodeJS.Platform,
 ): string | undefined {
-  const caseInsensitive = hostEnvNameMatchForPlatform(platform) === "case-insensitive";
+  const caseInsensitive =
+    selectProviderOperatingSystem(platform).environmentNameMatch === "case-insensitive";
   const entry = environment.find(([entryName]) =>
     caseInsensitive ? entryName.toUpperCase() === name : entryName === name,
   );

@@ -31,7 +31,6 @@ function runTarget(axes: TargetAxes = {}): ComposerRunTarget {
     driverName: "claude",
     targetRunId: axes.targetRunId ?? "run-01",
     expectedRunVersion: 4,
-    providerFailureDetail: undefined,
   };
 }
 

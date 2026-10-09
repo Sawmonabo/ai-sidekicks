@@ -64,6 +64,7 @@ export function buildAssistantMessageEvent(): WireSessionEvent {
     payload: {
       sessionId: SESSION_ID,
       runId: RUN_ID,
+      providerMessageId: "msg_reply_1",
       contentType: "text/markdown",
       contentLength: 4096,
     },
@@ -104,6 +105,7 @@ export function buildAssistantThinkingUpdateEvent(): WireSessionEvent {
     payload: {
       sessionId: SESSION_ID,
       runId: RUN_ID,
+      providerMessageId: "msg_reply_1",
       contentLength: 128,
     },
   };

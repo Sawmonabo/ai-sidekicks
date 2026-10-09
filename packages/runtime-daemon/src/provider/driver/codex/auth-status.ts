@@ -5,7 +5,7 @@
 
 import type { RecoveryCondition } from "@ai-sidekicks/contracts/provider/driver/recovery";
 import { isPlainObject } from "../../record-readers.js";
-import type { CodexAppServerConnection } from "./app-server-connection.js";
+import type { CodexService } from "./service/supervisor.js";
 import { CodexProviderRequestError, normalizeProviderFailureDetail } from "./session/errors.js";
 import {
   type CodexDiagnosticSink,
@@ -60,16 +60,16 @@ export function classifyCodexAuthStatus(response: unknown): DriverAuthProbeResul
 }
 
 /**
- * Asks one connection the auth question without token material (`includeToken: false`) and
+ * Asks one service the auth question without token material (`includeToken: false`) and
  * without a refresh (`refreshToken: false`): the pinned providers rotate refresh tokens
  * single-use, so a refresh would end the login being checked. Both are sent because
  * `GetAuthStatusParams` types them required-but-nullable.
  */
 export async function requestCodexAuthStatus(
-  connection: CodexAppServerConnection,
+  service: Pick<CodexService, "request">,
   timeoutMs: number,
 ): Promise<unknown> {
-  return await connection.request(
+  return await service.request(
     CODEX_AUTH_STATUS_METHOD,
     { includeToken: false, refreshToken: false },
     timeoutMs,
@@ -77,24 +77,23 @@ export async function requestCodexAuthStatus(
 }
 
 /**
- * Classifies a failed resume as `reauth-required` or `recovery-needed`. The still-open
- * connection is asked the credential question directly (the provider has no typed auth error),
- * and only after a `CodexProviderRequestError`, which proves the child is alive; asking a
- * wedged connection would wait out a second deadline. Anything short of a determinate
- * logged-out reading, an `indeterminate` or failed probe included, is `recovery-needed`; a failed
- * probe is reported to `reportDiagnostic`.
+ * Classifies a failed resume as `reauth-required` or `recovery-needed`. The running service is
+ * asked the credential question directly (the provider has no typed auth error), and only after
+ * a `CodexProviderRequestError`, which proves it answers; asking a wedged service would wait out
+ * a second deadline. Anything short of a determinate logged-out reading, an `indeterminate` or
+ * failed probe included, is `recovery-needed`; a failed probe is reported to `reportDiagnostic`.
  */
 export async function classifyResumeRecoveryCondition(
-  connection: CodexAppServerConnection,
+  service: Pick<CodexService, "request" | "isRunning">,
   cause: unknown,
   reportDiagnostic: CodexDiagnosticSink,
 ): Promise<RecoveryCondition> {
-  if (!(cause instanceof CodexProviderRequestError) || connection.isClosed) {
+  if (!(cause instanceof CodexProviderRequestError) || !service.isRunning) {
     return "recovery-needed";
   }
   try {
     const reading = classifyCodexAuthStatus(
-      await requestCodexAuthStatus(connection, CODEX_RESUME_AUTH_CLASSIFICATION_TIMEOUT_MS),
+      await requestCodexAuthStatus(service, CODEX_RESUME_AUTH_CLASSIFICATION_TIMEOUT_MS),
     );
     return reading.status === "unauthenticated" ? "reauth-required" : "recovery-needed";
   } catch (probeFault) {

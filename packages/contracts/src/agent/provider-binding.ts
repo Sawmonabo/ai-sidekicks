@@ -101,9 +101,29 @@ export type AgentBindingSwitchStatus = (typeof AGENT_BINDING_SWITCH_STATUSES)[nu
 // The switch's intent and its settlement
 
 /**
+ * Refuses a `modelId` move that leaves `largerWindow` out, so an omitted `largerWindow` always
+ * means the window does not move.
+ */
+export function refineModelMoveNamesWindow(
+  move: { modelId?: string | undefined; largerWindow?: number | null | undefined },
+  context: z.RefinementCtx,
+): void {
+  if (move.modelId !== undefined && move.largerWindow === undefined) {
+    context.addIssue({
+      code: "custom",
+      path: ["largerWindow"],
+      message:
+        "A model move names its window too: a larger window in tokens, or null for the default.",
+    });
+  }
+}
+
+/**
  * The binding members a switch moves and the value each moves to; an omitted key is a member this
  * switch does not move. `agent.configUpdate` never sets the account, and an account move sets only
- * the account.
+ * the account. `largerWindow` as a number moves to that larger window in tokens and `null` moves
+ * back to the model's default window; a `modelId` move names one of the two, so an omitted
+ * `largerWindow` always leaves the window unchanged.
  */
 export interface AgentBindingSwitchTarget {
   driverName?: ProviderName | undefined;
@@ -111,6 +131,7 @@ export interface AgentBindingSwitchTarget {
   providerAccountId?: ProviderAccountId | undefined;
   effort?: string | undefined;
   outputSpeed?: string | undefined;
+  largerWindow?: number | null | undefined;
 }
 /** Parses an {@link AgentBindingSwitchTarget}. */
 export const AgentBindingSwitchTargetSchema: z.ZodType<AgentBindingSwitchTarget> = z
@@ -120,8 +141,10 @@ export const AgentBindingSwitchTargetSchema: z.ZodType<AgentBindingSwitchTarget>
     providerAccountId: ProviderAccountIdSchema.optional(),
     effort: bindingTokenSchema("effort").optional(),
     outputSpeed: bindingTokenSchema("outputSpeed").optional(),
+    largerWindow: z.number().int().positive().nullable().optional(),
   })
-  .strict();
+  .strict()
+  .superRefine(refineModelMoveNamesWindow);
 
 /**
  * A switch the daemon accepted and has not applied: at most one per agent, a later one replacing

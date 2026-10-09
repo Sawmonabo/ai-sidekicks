@@ -1,6 +1,6 @@
 // A session's notices and flow rows: the rows its controls write, the notices about its provider
-// (its build, its warnings, a level an account lacks), Codex's reviewer flag, and the live frame
-// of Codex's safety hold on a turn.
+// (its build, its restarts, its warnings, a level an account lacks), Codex's reviewer flag, and
+// the live frame of Codex's safety hold on a turn.
 //
 // Must not import `../../event/session.js`: it registers the payloads below as event
 // variants, so an import back closes a module-scope cycle that throws at load time.
@@ -125,18 +125,24 @@ export const RunSafetyBufferingUpdatedPayloadSchema: z.ZodType<RunSafetyBufferin
  * The `session.notice` payload. Its kinds are a closed set, each drawn as one plain sentence:
  *
  * - `settings_ignored`: the provider started without part of its settings. Codex names the file
- *   and the line; Claude Code's `doctor` names the file and, for one bad value, the key, and
- *   never a line.
+ *   and the line; on Claude Code the file is the one `doctor` names, with the key for one bad
+ *   value, or the managed settings file that holds a key lower, and is absent where no file the
+ *   daemon can read sets it.
  * - `conversation_reloaded`: the conversation was reopened to take new definitions.
  * - `review_started` and `review_finished`: the two ends of a review.
  * - `goal_not_met` and `goal_check_unfinished`: Claude Code ended the turn at its cap on unmet
  *   checks, or a goal check ran past its limit; the goal stays active.
- * - `provider_warning`: a warning or a deprecation notice from Codex, in Codex's own words.
+ * - `provider_warning`: a warning or a deprecation notice from the provider, in its own words.
  * - `level_unavailable`: an account switch moved the session onto an account that cannot run the
  *   level it left, so it runs at `ask`; `level` is the level it left.
  * - `provider_updated`: the session moved to the provider's new build, both versions as the
  *   provider reports them; drawn as a faint line above the composer until the next message is
  *   sent, never a row.
+ * - `provider_restarted`: a provider process that ended on its own runs again, restarted by the
+ *   daemon or by the person's restart; drawn as one row.
+ * - `provider_crash_loop`: the provider process ended on its own too many times in a short window
+ *   and the daemon stopped restarting it, with the exit code or the signal it ended on; drawn as a
+ *   banner, never a row.
  * - `fast_output_unavailable`: the provider says fast output is not on for the run `runId`, which
  *   asked for it, with its own reason when it sent one.
  * - `provider_missing`: the session's provider is not installed where the background service
@@ -155,7 +161,7 @@ export type SessionNoticePayload =
       sessionId: SessionId;
       kind: "settings_ignored";
       provider: "claude";
-      file: string;
+      file?: string | undefined;
       key?: string | undefined;
     }
   | { sessionId: SessionId; kind: "conversation_reloaded" }
@@ -178,6 +184,14 @@ export type SessionNoticePayload =
       fromVersion: string;
       toVersion: string;
     }
+  | { sessionId: SessionId; kind: "provider_restarted"; provider: ProviderName }
+  | {
+      sessionId: SessionId;
+      kind: "provider_crash_loop";
+      provider: ProviderName;
+      exitCode?: number | undefined;
+      signal?: string | undefined;
+    }
   | {
       sessionId: SessionId;
       kind: "fast_output_unavailable";
@@ -193,7 +207,7 @@ export type SessionNoticePayload =
 
 const PROVIDER_WARNING_SOURCE_VALUES = ["warning", "deprecation"] as const;
 
-/** Which Codex notice a provider warning came from: its warning or its deprecation notice. */
+/** Which kind of notice a provider warning came from: a warning or a deprecation notice. */
 export type ProviderWarningSource = (typeof PROVIDER_WARNING_SOURCE_VALUES)[number];
 
 /**
@@ -222,7 +236,7 @@ export const SessionNoticePayloadSchema: z.ZodType<SessionNoticePayload> = z.dis
           sessionId: SessionIdSchema,
           kind: z.literal("settings_ignored"),
           provider: z.literal("claude"),
-          file: composedTextSchema,
+          file: composedTextSchema.optional(),
           key: composedTextSchema.optional(),
         })
         .strict(),
@@ -279,6 +293,25 @@ export const SessionNoticePayloadSchema: z.ZodType<SessionNoticePayload> = z.dis
           "SessionNoticePayload.fromVersion",
         ),
         toVersion: wireFreeFormString(PROVIDER_VERSION_MAX_LEN, "SessionNoticePayload.toVersion"),
+      })
+      .strict(),
+    z
+      .object({
+        sessionId: SessionIdSchema,
+        kind: z.literal("provider_restarted"),
+        provider: ProviderNameSchema,
+      })
+      .strict(),
+    z
+      .object({
+        sessionId: SessionIdSchema,
+        kind: z.literal("provider_crash_loop"),
+        provider: ProviderNameSchema,
+        exitCode: z.number().int().optional(),
+        signal: wireFreeFormString(
+          DRIVER_WIRE_HANDLE_MAX_LEN,
+          "SessionNoticePayload.signal",
+        ).optional(),
       })
       .strict(),
     z

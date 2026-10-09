@@ -30,7 +30,9 @@ export class TemporaryDirectoryTrail {
   /** Remove every planted tree, and forget them. */
   removeAll(): void {
     for (const directory of this.#plantedDirectories) {
-      rmSync(directory, { recursive: true, force: true });
+      // A process a case killed can still be closing files in its tree, so a removal that finds
+      // the directory refilled (ENOTEMPTY) tries again, as Node's own retry does.
+      rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
     this.#plantedDirectories.length = 0;
   }

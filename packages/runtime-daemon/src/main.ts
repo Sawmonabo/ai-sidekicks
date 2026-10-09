@@ -24,10 +24,12 @@ import { DaemonStartStoppedError } from "./daemon/start-stopped-error.js";
 import { openServiceLog } from "./daemon/service-log.js";
 import { readServiceVersion } from "./daemon/service-version.js";
 import { readWindowsDriveMounts } from "./daemon/windows-drive-mounts.js";
+import { describeRejection } from "./rejection.js";
 import { selectPtyHost } from "./pty/host/selector.js";
 import { openOrphanGuard } from "./pty/orphan/guard.js";
 import { openOrphanOperatingSystem } from "./pty/orphan/operating-system.js";
 import { chooseDatabaseFileOperatingSystem } from "./recovery/database-file/operating-system.js";
+import { selectProviderOperatingSystem } from "./provider/operating-system/selection.js";
 
 // First, so every service-log line from here on is kept in the file too.
 const homeDirectory = os.homedir();
@@ -110,6 +112,7 @@ const daemon = await DaemonProcess.start({
       signal: AbortSignal.any([stopRequest.signal, startAbort]),
     }),
   commandShell: account.shell,
+  providerOperatingSystem: selectProviderOperatingSystem(process.platform),
   serviceVersion: readServiceVersion(),
   processIdentity,
   readProcessTreeUsage: () => readProcessTreeUsage(process.pid),
@@ -130,9 +133,7 @@ isStarted = true;
 void daemon.whenStopped().then((outcome) => {
   if (!outcome.isClean) {
     const { failure } = outcome;
-    writeServiceLog(
-      `The daemon's stop failed: ${failure instanceof Error ? failure.message : String(failure)}`,
-    );
+    writeServiceLog(`The daemon's stop failed: ${describeRejection(failure)}`);
   }
   // A stop for a damaged file exits as a failure, so whoever started the daemon starts it again
   // and the start repairs the file.

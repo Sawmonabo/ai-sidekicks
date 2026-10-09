@@ -11,7 +11,7 @@ import type {
   CanonicalTranscriptProjection,
   CanonicalTranscriptSegment,
   CanonicalTranscriptTurn,
-} from "../../../driver/contract.js";
+} from "../../canonical-transcript.js";
 
 /** A budget wide enough that the whole fixture fits, so eviction is opt-in per case. */
 const ROOMY_BUDGET: BriefBudgetPolicy = defaultBriefBudgetPolicy(1_000_000);

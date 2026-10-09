@@ -1,7 +1,4 @@
-/**
- * Reads the options a Codex ask offers (a request for user input or an elicitation) into one
- * bounded option set.
- */
+/** Reads the options a Codex ask offers (a request for user input or an elicitation) into one set. */
 
 import {
   DRIVER_PROVIDER_COMMAND_DESCRIPTION_MAX_LEN,
@@ -12,8 +9,8 @@ import { isPlainObject } from "../../record-readers.js";
 
 // Ask choice sets: providers publish an ask's choices in provider-specific shapes, so they are
 // normalized here, where session and run identity is stamped, for the input-ask card. The reading
-// is derived (`params` still travels verbatim); an unreadable or over-large set is dropped because
-// the free-text arm still answers.
+// is derived (`params` still travels verbatim); an unreadable set is dropped because the free-text
+// arm still answers.
 
 /**
  * One selectable answer of a provider ask: `value` is what a chooser sends back, `label` what a
@@ -23,9 +20,6 @@ export interface ProviderAskOption {
   readonly value: string;
   readonly label: string;
 }
-
-/** The most options one ask may carry; string-length bounds do not limit how many a set holds. */
-export const CODEX_ASK_OPTION_SET_MAX = 64;
 
 /** Option string bounds; the label gets the wider width because a titled MCP `title` is prose. */
 const CODEX_ASK_OPTION_VALUE_MAX_LEN = DRIVER_PROVIDER_DECLARED_TOKEN_MAX_LEN;
@@ -106,7 +100,7 @@ function readCodexRequestUserInputOptionSet(params: unknown): CodexAskOptionSetR
   if (!Array.isArray(declared)) {
     return ABSENT_ASK_OPTION_SET;
   }
-  return boundCodexAskOptionSet(
+  return readCodexAskOptionCandidates(
     declared.map((option) => {
       const label = isPlainObject(option) ? option["label"] : undefined;
       return { value: label, label };
@@ -150,7 +144,20 @@ function readCodexElicitationOptionSet(params: unknown): CodexAskOptionSetReadin
     };
   }
   const candidates = declaredSets[0] ?? [];
-  return boundCodexAskOptionSet(candidates);
+  return readCodexAskOptionCandidates(candidates);
+}
+
+/**
+ * The choices one elicitation form field offers, read and bounded as a set: its own titled or
+ * plain enum, or, for a field that takes several answers, its `items`' one.
+ */
+export function readCodexElicitationFieldOptionSet(
+  property: unknown,
+  takesSeveralAnswers: boolean,
+): CodexAskOptionSetReading {
+  const source = takesSeveralAnswers && isPlainObject(property) ? property["items"] : property;
+  const candidates = readCodexElicitationEnumArm(source);
+  return candidates === null ? ABSENT_ASK_OPTION_SET : readCodexAskOptionCandidates(candidates);
 }
 
 /** The `{ value, label }` candidates one elicitation property declares, or `null`. */
@@ -158,7 +165,8 @@ function readCodexElicitationEnumArm(property: unknown): readonly unknown[] | nu
   if (!isPlainObject(property)) {
     return null;
   }
-  const titled = property["oneOf"];
+  // A single pick titles its values in `oneOf`, a field of several picks in its items' `anyOf`.
+  const titled = property["oneOf"] ?? property["anyOf"];
   if (Array.isArray(titled) && titled.length > 0) {
     return titled.map((option) => {
       if (!isPlainObject(option)) {
@@ -181,21 +189,12 @@ function readCodexElicitationEnumArm(property: unknown): readonly unknown[] | nu
 }
 
 /**
- * Bounds one candidate set, or says why it was refused. All-or-nothing: a partial set would hide a
- * choice the provider offered, whereas the free-text arm can express any answer.
+ * Reads one candidate set whole, or says why it was refused. All-or-nothing: a partial set would
+ * hide a choice the provider offered, whereas the free-text arm can express any answer.
  */
-function boundCodexAskOptionSet(candidates: readonly unknown[]): CodexAskOptionSetReading {
+function readCodexAskOptionCandidates(candidates: readonly unknown[]): CodexAskOptionSetReading {
   if (candidates.length === 0) {
     return ABSENT_ASK_OPTION_SET;
-  }
-  if (candidates.length > CODEX_ASK_OPTION_SET_MAX) {
-    return {
-      kind: "dropped",
-      reason:
-        `the ask declares more options than the ${CODEX_ASK_OPTION_SET_MAX}-entry cardinality ` +
-        `bound admits`,
-      declaredCount: candidates.length,
-    };
   }
   const options: ProviderAskOption[] = [];
   for (const candidate of candidates) {

@@ -9,6 +9,7 @@ import type { ChildProcessWithoutNullStreams, SpawnOptions } from "node:child_pr
 
 import { FrameAccumulator, FramingError } from "@ai-sidekicks/contracts/content-length-framing";
 
+import { CrashWindow } from "../../crash-window.js";
 import type { TaskkillResult } from "../taskkill-windows.js";
 import { PtyBackendUnavailableError } from "./binary-path.js";
 import { MAX_FRAME_BODY_BYTES, SidecarFrameDecodeError } from "./frame-codec.js";
@@ -38,6 +39,13 @@ export const CRASH_BUDGET_WINDOW_MS = 60_000;
 /** Number of crashes inside `CRASH_BUDGET_WINDOW_MS` that exhaust the crash budget. */
 export const CRASH_BUDGET_LIMIT = 5;
 
+// The sidecar respawns at once after each crash the budget allows; the one that fills it ends the
+// respawns.
+const SIDECAR_RESPAWN_WAITS_MS: readonly number[] = Array.from(
+  { length: CRASH_BUDGET_LIMIT - 1 },
+  () => 0,
+);
+
 /** Loads `spawn` lazily so a test that injects its own never pays for the import. */
 async function loadDefaultSpawn(): Promise<SidecarSpawnFn> {
   const cp: typeof import("node:child_process") = await import("node:child_process");
@@ -62,37 +70,6 @@ export interface SidecarChildSupervisorEvents {
     signal: string | null,
   ) => void;
   readonly onChildError: (child: SidecarChildProcess, err: Error) => void;
-}
-
-/** Sliding window of recent sidecar crash timestamps; exhausting it disables the host. */
-class CrashBudget {
-  private readonly timestamps: number[] = [];
-
-  public constructor(
-    private readonly nowMs: () => number,
-    private readonly windowMs: number = CRASH_BUDGET_WINDOW_MS,
-    private readonly limit: number = CRASH_BUDGET_LIMIT,
-  ) {}
-
-  /** Records a crash and returns whether the budget is now exhausted. */
-  public recordAndIsExhausted(): boolean {
-    const now: number = this.nowMs();
-    const cutoff: number = now - this.windowMs;
-    // Timestamps are pushed in ascending order, so the stale entries are a prefix.
-    let staleCount = 0;
-    for (const ts of this.timestamps) {
-      if (ts <= cutoff) {
-        staleCount += 1;
-      } else {
-        break;
-      }
-    }
-    if (staleCount > 0) {
-      this.timestamps.splice(0, staleCount);
-    }
-    this.timestamps.push(now);
-    return this.timestamps.length >= this.limit;
-  }
 }
 
 /**
@@ -121,7 +98,10 @@ export class SidecarChildSupervisor {
    */
   private childStdoutListener: ((chunk: Buffer) => void) | null = null;
 
-  private readonly crashBudget: CrashBudget;
+  private readonly crashWindow: CrashWindow = new CrashWindow({
+    windowMs: CRASH_BUDGET_WINDOW_MS,
+    restartWaitsMs: SIDECAR_RESPAWN_WAITS_MS,
+  });
 
   /** Set when the crash budget is exhausted; every later call rejects instead of spawning. */
   private permanentlyUnavailable = false;
@@ -164,7 +144,6 @@ export class SidecarChildSupervisor {
   ) {
     this.deps = deps;
     this.events = events;
-    this.crashBudget = new CrashBudget(this.deps.nowMs);
   }
 
   /** The live child, or `null` before the first spawn and between a crash and the respawn. */
@@ -241,7 +220,7 @@ export class SidecarChildSupervisor {
           });
         } catch (err: unknown) {
           // A synchronous spawn failure (ENOENT, EACCES) counts as a crash.
-          if (this.crashBudget.recordAndIsExhausted()) {
+          if (this.recordCrash()) {
             this.permanentlyUnavailable = true;
           }
           throw new PtyBackendUnavailableError(
@@ -418,6 +397,11 @@ export class SidecarChildSupervisor {
     }
   }
 
+  // Records one crash and answers whether it filled the window, which spends the restart budget.
+  private recordCrash(): boolean {
+    return "crashLoop" in this.crashWindow.recordCrash(this.deps.nowMs());
+  }
+
   /**
    * Charges the crash budget once for `child`. Marks `permanentlyUnavailable` when the budget is
    * exhausted, so the next `ensureChild` throws.
@@ -432,7 +416,7 @@ export class SidecarChildSupervisor {
     if (shuttingDown) {
       return;
     }
-    if (this.crashBudget.recordAndIsExhausted()) {
+    if (this.recordCrash()) {
       this.permanentlyUnavailable = true;
     }
   }

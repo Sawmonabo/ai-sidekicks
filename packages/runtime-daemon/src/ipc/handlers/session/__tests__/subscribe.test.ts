@@ -562,7 +562,7 @@ describe("session.subscribe carries an event the wire has no payload variant for
 
   // An event of a type with no payload variant yet, which the log stores as it stores any.
   function appendEventWithoutVariant(): Promise<void> {
-    return log.append(TEST_SESSION_ID, "run.turn_started", "run_lifecycle", {
+    return log.append(TEST_SESSION_ID, "run.rolled_back", "run_lifecycle", {
       sessionId: TEST_SESSION_ID,
     });
   }
@@ -593,8 +593,8 @@ describe("session.subscribe carries an event the wire has no payload variant for
     const types = sentFrames(send).flatMap((frame) =>
       frame.changes.map((change) => change.event.type),
     );
-    expect(types.filter((type) => type === "run.turn_started")).toHaveLength(2);
-    expect(types.at(-1)).toBe("run.turn_started");
+    expect(types.filter((type) => type === "run.rolled_back")).toHaveLength(2);
+    expect(types.at(-1)).toBe("run.rolled_back");
     expect(primitive.cancelSubscription(subscriptionId)).toBe(true);
   });
 });

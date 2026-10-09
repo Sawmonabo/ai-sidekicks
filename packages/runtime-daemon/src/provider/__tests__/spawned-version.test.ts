@@ -81,6 +81,7 @@ describe("auto-update suppression in the spawned child", () => {
       driverName: "claude",
       requestedCommand: executable,
       handshake: handshake.run,
+      environmentNameMatch: "case-sensitive",
       baseEnv: [
         ["PATH", "/usr/bin"],
         ["DISABLE_AUTOUPDATER", "0"],
@@ -110,6 +111,7 @@ describe("auto-update suppression in the spawned child", () => {
         driverName: "claude",
         requestedCommand: executable,
         handshake: handshake.run,
+        environmentNameMatch: "case-sensitive",
         baseEnv: [["PATH", "/usr/bin"]],
         resolver: {
           isExecutableFile: () => Promise.resolve(true),
@@ -121,6 +123,9 @@ describe("auto-update suppression in the spawned child", () => {
       expect(handshake.requests[0]?.environment).toStrictEqual({
         PATH: "/usr/bin",
         ...PROVIDER_DRIVER_DESCRIPTORS.claude.autoUpdateOptOutEnvironment,
+        CLAUDE_AUTO_BACKGROUND_TASKS: "1",
+        CLAUDE_CODE_USER_DIALOG_TIMEOUT_MS: "0",
+        BASH_MAX_TIMEOUT_MS: "2147483647",
       });
     } finally {
       vi.unstubAllEnvs();
@@ -187,6 +192,7 @@ describe("provider executable resolution", () => {
         driverName: "claude",
         requestedCommand: "claude",
         handshake: handshake.run,
+        environmentNameMatch: "case-sensitive",
         baseEnv: [["PATH", binDirectory]],
       });
 
@@ -210,6 +216,7 @@ describe("provider executable resolution", () => {
         driverName: "claude",
         requestedCommand: launcherPath,
         handshake: handshake.run,
+        environmentNameMatch: "case-sensitive",
         baseEnv: [],
       });
 
@@ -384,6 +391,7 @@ describe("the version read at the spawn", () => {
       driverName: CODEX_DRIVER_NAME,
       requestedCommand: CODEX_EXECUTABLE,
       handshake: handshake.run,
+      environmentNameMatch: "case-sensitive",
       baseEnv: [],
       resolver: passthroughResolver(),
     });
@@ -414,6 +422,7 @@ describe("the version read at the spawn", () => {
       driverName: CODEX_DRIVER_NAME,
       requestedCommand: CODEX_EXECUTABLE,
       handshake: handshake.run,
+      environmentNameMatch: "case-sensitive",
       baseEnv: [],
       resolver: passthroughResolver(),
     });

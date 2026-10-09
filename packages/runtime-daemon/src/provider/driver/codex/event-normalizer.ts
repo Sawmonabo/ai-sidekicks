@@ -1,501 +1,336 @@
-// Codex event normalizer: answers "which normalized event category does this native frame belong
-// to". It parses no payload, builds no envelope and touches no session state.
+// Codex event normalizer: every method the Codex service sends a client, with how the thread-frame
+// router scopes it and what the driver does with it. A row that emits names the session event it
+// becomes; a row that reads states what reads it; a notification nothing reads is opted out at
+// `initialize`, so the service never sends it. It parses no payload and touches no session state.
 //
-// The table covers the server-originated JSON-RPC methods of the `codex-cli 0.150.1` app-server
-// protocol, as recorded at that build and named as its generated schema names them.
-//
-// - Not mapped: the eleven `thread/realtime/*` notifications (opted out by name at `initialize`),
-//   the experimental `mcpServer/event/stream/notification`, which this driver's `experimentalApi`
-//   connection receives and which takes the unmapped diagnostic below, and replies to
-//   daemon-issued requests such as `account/rateLimits/read`.
-// - `artifact_publication` has no row: no Codex frame maps to it. `turn/diff/updated` is a
-//   `tool.result` row.
-// - An unmapped method gets an `unmapped_wire_kind` diagnostic from
-//   `resolveCodexFrameEmissionRoute`; the frame is never dropped silently.
+// The table holds the 84 server notifications and the 10 server requests of the Codex app-server
+// protocol at `codex-cli 0.161.0`, as its generated schema names them. A notification outside it
+// gets an `unmapped_wire_kind` diagnostic from `reportCodexFrameOutsideTable` as it arrives, never
+// a silent drop; a request outside it is refused at the connection.
 
 import { SESSION_EVENT_TYPES } from "@ai-sidekicks/contracts/event/session";
 import type { EventCategory } from "@ai-sidekicks/contracts/event/envelope";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
-import { CODEX_DRIVER_NAME } from "./capabilities.js";
+
 import { isPlainObject } from "../../record-readers.js";
-import type { DriverDiagnosticRecord, DriverDiagnosticsEmitter } from "../diagnostics.js";
+import { CODEX_DRIVER_NAME } from "./capabilities.js";
+import type { DriverDiagnosticsEmitter } from "../diagnostics.js";
 import type { ChildThreadAnnouncement, ThreadFrameFamilyClass } from "../../thread-frame-router.js";
 import { resolveAdoptedEventTarget, type NormalizedEventKind } from "../../event-disposition.js";
 
-/**
- * Which server-originated JSON-RPC root a frame arrives on: a `server-request` must be answered, a
- * `server-notification` is fire-and-forget.
- */
+/** Which root a frame arrives on: a request must be answered, a notification is not. */
 type CodexInboundFrameTransport = "server-request" | "server-notification";
 
 /**
- * Every server-originated method of the pinned Codex protocol that has a normalized disposition;
- * the backing record's `satisfies` check makes a missing or extra row a build error.
+ * What the driver does with one method: `emits` a session event, named by its normalized kind or
+ * by its target where it has no kind; `reads` it for the driver's own state or the daemon's log;
+ * or `optOut`, a notification nothing reads, which the service is asked never to send.
  */
-type CodexInboundFrameMethod =
-  | "item/tool/call"
-  | "item/tool/requestUserInput"
-  | "mcpServer/elicitation/request"
-  | "item/commandExecution/requestApproval"
-  | "item/fileChange/requestApproval"
-  | "item/permissions/requestApproval"
-  | "execCommandApproval"
-  | "applyPatchApproval"
-  | "attestation/generate"
-  | "account/chatgptAuthTokens/refresh"
-  | "error"
-  | "warning"
-  | "configWarning"
-  | "deprecationNotice"
-  | "guardianWarning"
-  | "thread/goal/updated"
-  | "thread/goal/cleared"
-  | "account/rateLimits/updated"
-  | "thread/compacted"
-  // Not experimental-gated, so delivered to any connection.
-  | "skills/changed"
-  | "thread/reverted"
-  | "item/autoApprovalReview/started"
-  | "item/autoApprovalReview/completed"
-  | "model/safetyBuffering/updated"
-  // Experimental-gated, so delivered only because this driver negotiates `experimentalApi`; see
-  // {@link CODEX_NEGOTIATION_GATED_METHODS}.
-  | "process/outputDelta"
-  | "process/exited"
-  | "turn/moderationMetadata"
-  | "autoApprovalReview/strictReviewRequired"
-  | "thread/queue/changed"
-  | "project/changed"
-  | "thread/project/updated"
-  | "thread/environment/connected"
-  | "thread/environment/disconnected"
-  | "thread/settings/updated"
-  // The generated schema names these `turn/diff/updated` and `turn/plan/updated`, not `turn/diff`.
-  | "turn/diff/updated"
-  | "turn/plan/updated";
+type CodexFrameReading =
+  | { readonly emits: NormalizedEventKind }
+  | {
+      readonly emitsEvent: {
+        readonly category: EventCategory;
+        readonly eventType: SessionEventType;
+      };
+    }
+  | { readonly reads: string }
+  | { readonly optOut: string };
+
+/** One row of the table: the frame's root, its routing family and its reading. */
+type CodexFrameRow = {
+  readonly transport: CodexInboundFrameTransport;
+  readonly family: ThreadFrameFamilyClass;
+} & CodexFrameReading;
+
+const CONNECTION: ThreadFrameFamilyClass = { scope: "connection" };
+const LIFECYCLE: ThreadFrameFamilyClass = { scope: "thread", capability: "lifecycle" };
+const CONTENT: ThreadFrameFamilyClass = { scope: "thread", capability: "content" };
+const USAGE: ThreadFrameFamilyClass = { scope: "thread", capability: "usage" };
+const ASK: ThreadFrameFamilyClass = { scope: "thread", capability: "interactive-request" };
+
+function request(family: ThreadFrameFamilyClass, reading: CodexFrameReading): CodexFrameRow {
+  return { transport: "server-request", family, ...reading };
+}
+
+function notification(family: ThreadFrameFamilyClass, reading: CodexFrameReading): CodexFrameRow {
+  return { transport: "server-notification", family, ...reading };
+}
+
+const VOICE_CALL_READING = "a voice call's frames, routed by thread to that session's call";
+const STREAMED_PROSE_READING = "the item's prose, streamed as stored pieces of its message";
+
+// Keyed by method; a `Map` below, because the key is untrusted and an object lookup would resolve
+// `__proto__`.
+const CODEX_FRAME_ROWS: Readonly<Record<string, CodexFrameRow>> = {
+  // Server requests. The three approval methods, the legacy pair and Codex's own approval of a
+  // tool-server call are the approval card; a question and a tool server's question are the
+  // questions card; `item/tool/call` is a daemon tool's call.
+  "item/tool/call": request(ASK, { emits: "tool_start" }),
+  "item/tool/requestUserInput": request(ASK, { emits: "user_input_request" }),
+  "mcpServer/elicitation/request": request(ASK, { emits: "user_input_request" }),
+  "item/commandExecution/requestApproval": request(ASK, { emits: "approval_request" }),
+  "item/fileChange/requestApproval": request(ASK, { emits: "approval_request" }),
+  "item/permissions/requestApproval": request(ASK, { emits: "approval_request" }),
+  execCommandApproval: request(ASK, { emits: "approval_request" }),
+  applyPatchApproval: request(ASK, { emits: "approval_request" }),
+  "attestation/generate": request(CONNECTION, {
+    reads: "declined at negotiation, so it is refused on the transport",
+  }),
+  "account/chatgptAuthTokens/refresh": request(CONNECTION, {
+    reads: "credential brokering the driver does not do, so it is refused on the transport",
+  }),
+
+  // A turn's life and its items.
+  "thread/started": notification(LIFECYCLE, { emits: "subagent_status" }),
+  "turn/started": notification(LIFECYCLE, { emits: "turn_start" }),
+  "turn/completed": notification(LIFECYCLE, { emits: "turn_complete" }),
+  error: notification(LIFECYCLE, { emits: "error" }),
+  "item/started": notification(CONTENT, { emits: "tool_start" }),
+  "item/completed": notification(CONTENT, { emits: "tool_complete" }),
+  "model/rerouted": notification(CONTENT, { emits: "model_rerouted" }),
+  "model/safetyBuffering/updated": notification(LIFECYCLE, {
+    reads: "Codex's safety hold on a turn, shown live on the run's state stream, never stored",
+  }),
+  "turn/plan/updated": notification(CONTENT, { reads: "the turn's live task list" }),
+  "thread/settings/updated": notification(CONTENT, {
+    reads: "the thread's declared output speed and each run's settled one",
+  }),
+  "thread/tokenUsage/updated": notification(USAGE, { reads: "metered by the usage accountant" }),
+  "thread/compacted": notification(USAGE, { reads: "settles a compaction the person asked for" }),
+  "thread/closed": notification(LIFECYCLE, {
+    reads: "the service unloaded the conversation, which a move to another service waits for",
+  }),
+  "serverRequest/resolved": notification(ASK, {
+    reads: "Codex settled a request itself, so its held answer is let go",
+  }),
+  "skills/changed": notification(CONNECTION, { reads: "the held command list is read again" }),
+  "thread/goal/updated": notification(CONTENT, {
+    emitsEvent: { category: "session_lifecycle", eventType: "session.goal_updated" },
+  }),
+  "thread/goal/cleared": notification(CONTENT, {
+    emitsEvent: { category: "session_lifecycle", eventType: "session.goal_cleared" },
+  }),
+  "account/rateLimits/updated": notification(CONNECTION, {
+    reads: "the account's latest usage-limit reading, read when a turn fails",
+  }),
+
+  // Codex's own reviewer at Reviewed.
+  guardianWarning: notification(CONTENT, {
+    emitsEvent: { category: "approval_flow", eventType: "moderation.review_flagged" },
+  }),
+  "autoApprovalReview/strictReviewRequired": notification(CONTENT, {
+    emitsEvent: { category: "approval_flow", eventType: "moderation.review_flagged" },
+  }),
+  "item/autoApprovalReview/completed": notification(CONTENT, {
+    emitsEvent: { category: "approval_flow", eventType: "approval.reviewer_denied" },
+  }),
+  "item/autoApprovalReview/started": notification(CONTENT, {
+    optOut: "only a review's end records anything",
+  }),
+
+  // Notices: a warning and a deprecation are the provider's own warning, a config warning is a
+  // setting Codex ignored.
+  warning: notification(CONNECTION, { emits: "notification" }),
+  deprecationNotice: notification(CONNECTION, { emits: "notification" }),
+  configWarning: notification(CONNECTION, { emits: "notification" }),
+  "turn/moderationMetadata": notification(CONTENT, {
+    reads: "a moderation hint with no words, written to the daemon's log only",
+  }),
+  "model/verification": notification(CONTENT, {
+    reads: "a notice no screen draws, written to the daemon's log",
+  }),
+  "modelProvider/authRecoveryStarted": notification(CONNECTION, {
+    reads: "Codex recovering its own sign-in, written to the daemon's log",
+  }),
+  "modelProvider/authRecoveryCompleted": notification(CONNECTION, {
+    reads: "Codex recovering its own sign-in, written to the daemon's log",
+  }),
+  "windows/worldWritableWarning": notification(CONNECTION, {
+    reads: "a Windows folder warning, written to the daemon's log",
+  }),
+
+  // A voice call.
+  "thread/realtime/started": notification(CONTENT, { reads: VOICE_CALL_READING }),
+  "thread/realtime/itemAdded": notification(CONTENT, { reads: VOICE_CALL_READING }),
+  "thread/realtime/item/started": notification(CONTENT, { reads: VOICE_CALL_READING }),
+  "thread/realtime/item/transcript/delta": notification(CONTENT, { reads: VOICE_CALL_READING }),
+  "thread/realtime/item/completed": notification(CONTENT, { reads: VOICE_CALL_READING }),
+  "thread/realtime/transcript/delta": notification(CONTENT, { reads: VOICE_CALL_READING }),
+  "thread/realtime/transcript/done": notification(CONTENT, { reads: VOICE_CALL_READING }),
+  "thread/realtime/outputAudio/delta": notification(CONTENT, { reads: VOICE_CALL_READING }),
+  "thread/realtime/sdp": notification(CONTENT, { reads: VOICE_CALL_READING }),
+  "thread/realtime/error": notification(CONTENT, { reads: VOICE_CALL_READING }),
+  "thread/realtime/closed": notification(CONTENT, { reads: VOICE_CALL_READING }),
+
+  // Streamed pieces of what a completed item carries whole: the reply, its reasoning and a plan
+  // stream as stored pieces of their message, a command's output to the running-commands stream.
+  "item/agentMessage/delta": notification(CONTENT, { reads: STREAMED_PROSE_READING }),
+  "item/plan/delta": notification(CONTENT, { reads: STREAMED_PROSE_READING }),
+  "item/reasoning/summaryTextDelta": notification(CONTENT, { reads: STREAMED_PROSE_READING }),
+  "item/reasoning/summaryPartAdded": notification(CONTENT, { reads: STREAMED_PROSE_READING }),
+  "item/reasoning/textDelta": notification(CONTENT, { reads: STREAMED_PROSE_READING }),
+  "item/commandExecution/outputDelta": notification(CONTENT, {
+    reads: "a running command's live output, published to the running-commands stream",
+  }),
+  "item/commandExecution/terminalInteraction": notification(CONTENT, {
+    optOut: "what Codex types into a running command adds nothing its completed item lacks",
+  }),
+  "item/fileChange/outputDelta": notification(CONTENT, {
+    optOut: "Codex no longer sends it; a file change's patches arrive on its own items",
+  }),
+  "item/fileChange/patchUpdated": notification(CONTENT, {
+    optOut:
+      "sent only under Codex's `apply_patch_streaming_events` feature, still under development " +
+      "and off; a file change's patches arrive on its own items",
+  }),
+  "item/mcpToolCall/progress": notification(CONTENT, {
+    optOut: "a tool call's result arrives whole on its completed item",
+  }),
+  "turn/diff/updated": notification(CONTENT, {
+    optOut: "each file change lands as its own patch, and a turn's changes are read from git",
+  }),
+
+  // State the daemon owns, or requests it never makes.
+  "thread/status/changed": notification(LIFECYCLE, {
+    optOut: "a thread's activity restates what its turn and ask frames say",
+  }),
+  "thread/archived": notification(LIFECYCLE, { optOut: "the daemon archives sessions itself" }),
+  "thread/unarchived": notification(LIFECYCLE, { optOut: "the daemon archives sessions itself" }),
+  "thread/deleted": notification(LIFECYCLE, { optOut: "a purge reads its delete's own answer" }),
+  "thread/reverted": notification(CONTENT, { optOut: "a cut reads its revert's own answer" }),
+  "thread/name/updated": notification(CONTENT, { optOut: "a session's title is the daemon's" }),
+  "thread/attachment/updated": notification(CONTENT, {
+    optOut: "the daemon attaches nothing through Codex",
+  }),
+  "thread/queue/changed": notification(CONTENT, { optOut: "the daemon's own queue is the record" }),
+  "project/changed": notification(CONNECTION, {
+    optOut: "repository and workspace bindings are the daemon's",
+  }),
+  "thread/project/updated": notification(CONTENT, {
+    optOut: "repository and workspace bindings are the daemon's",
+  }),
+  "thread/environment/connected": notification(CONTENT, {
+    optOut: "the daemon sees the service's liveness itself",
+  }),
+  "thread/environment/disconnected": notification(CONTENT, {
+    optOut: "the daemon sees the service's liveness itself",
+  }),
+  "thread/prediction/updated": notification(CONTENT, {
+    optOut: "the daemon offers no predicted next message",
+  }),
+  "hook/started": notification(CONTENT, {
+    optOut: "the daemon's own hook program reports to the daemon",
+  }),
+  "hook/completed": notification(CONTENT, {
+    optOut: "the daemon's own hook program reports to the daemon",
+  }),
+  "command/exec/outputDelta": notification(CONNECTION, {
+    optOut: "the daemon runs no command through the service",
+  }),
+  "process/outputDelta": notification(CONTENT, {
+    optOut: "the daemon starts no process through the service",
+  }),
+  "process/exited": notification(CONTENT, {
+    optOut: "the daemon starts no process through the service",
+  }),
+  "mcpServer/oauthLogin/completed": notification(CONNECTION, {
+    optOut: "the daemon signs in to no tool server through Codex",
+  }),
+  "mcpServer/startupStatus/updated": notification(CONNECTION, {
+    optOut: "every tool server is served by the daemon, which knows its state",
+  }),
+  "mcpServer/event/stream/notification": notification(CONNECTION, {
+    optOut: "every tool server is served by the daemon, which reads its events itself",
+  }),
+  "account/updated": notification(CONNECTION, {
+    optOut: "the sign-in check reads the account when it asks",
+  }),
+  "account/gatewayOAuth/changed": notification(CONNECTION, {
+    optOut: "the daemon runs no gateway sign-in",
+  }),
+  "account/login/completed": notification(CONNECTION, {
+    optOut: "the daemon runs no sign-in through the service",
+  }),
+  "app/list/updated": notification(CONNECTION, { optOut: "the daemon lists no Codex apps" }),
+  "remoteControl/status/changed": notification(CONNECTION, {
+    optOut: "Codex's own remote control is not used",
+  }),
+  "externalAgentConfig/import/progress": notification(CONNECTION, {
+    optOut: "the daemon imports no outside configuration",
+  }),
+  "externalAgentConfig/import/completed": notification(CONNECTION, {
+    optOut: "the daemon imports no outside configuration",
+  }),
+  "fs/changed": notification(CONNECTION, { optOut: "the daemon watches no folder through Codex" }),
+  "fuzzyFileSearch/sessionUpdated": notification(CONNECTION, {
+    optOut: "the daemon's own matcher searches files",
+  }),
+  "fuzzyFileSearch/sessionCompleted": notification(CONNECTION, {
+    optOut: "the daemon's own matcher searches files",
+  }),
+  "windowsSandbox/setupCompleted": notification(CONNECTION, {
+    optOut: "the daemon never asks Codex to set up its Windows sandbox",
+  }),
+};
+
+const CODEX_FRAME_ROW_BY_METHOD: ReadonlyMap<string, CodexFrameRow> = new Map(
+  Object.entries(CODEX_FRAME_ROWS),
+);
 
 /**
- * Mapped methods that arrive only on a connection that negotiates `experimentalApi`, as this
- * driver's does: without it the provider's transport silently drops the ten notifications, and
- * `item/tool/requestUserInput` is the one experimental request arm. Declared, not derived, since
- * the schema carries no notification-side marker at the pin.
- *
- * @consumedBy the Codex driver's experimental-API negotiation
+ * Every notification the service is asked never to send, sent as `optOutNotificationMethods` at
+ * `initialize`: the table's notifications less every one the driver reads.
  */
-export const CODEX_NEGOTIATION_GATED_METHODS: readonly CodexInboundFrameMethod[] = Object.freeze([
-  "item/tool/requestUserInput",
-  "process/outputDelta",
-  "process/exited",
-  "turn/moderationMetadata",
-  "autoApprovalReview/strictReviewRequired",
-  "thread/queue/changed",
-  "project/changed",
-  "thread/project/updated",
-  "thread/environment/connected",
-  "thread/environment/disconnected",
-  "thread/settings/updated",
-]);
-
-/**
- * Whether a row's target event type has a payload variant registered in `SessionEventSchema`;
- * `payload-variant-pending` rows go to diagnostics, never to an envelope builder.
- */
-type CodexEmissionReadiness = "envelope-constructible" | "payload-variant-pending";
+export const CODEX_OPT_OUT_NOTIFICATION_METHODS: readonly string[] = Object.freeze(
+  [...CODEX_FRAME_ROW_BY_METHOD]
+    .filter(([, row]) => row.transport === "server-notification" && "optOut" in row)
+    .map(([method]) => method),
+);
 
 // Derived from the contracts roster, so it widens by itself when a variant lands.
-const REGISTERED_PAYLOAD_VARIANT_EVENT_TYPES: ReadonlySet<SessionEventType> = new Set(
-  SESSION_EVENT_TYPES,
-);
-
-/** Says whether `eventType` may be built into a `SessionEvent` envelope. */
-function resolveCodexEmissionReadiness(eventType: SessionEventType): CodexEmissionReadiness {
-  return REGISTERED_PAYLOAD_VARIANT_EVENT_TYPES.has(eventType)
-    ? "envelope-constructible"
-    : "payload-variant-pending";
-}
+const REGISTERED_EVENT_TYPES: ReadonlySet<SessionEventType> = new Set(SESSION_EVENT_TYPES);
 
 /**
- * A frame that normalizes into one category and names the event type it emits. `normalizedKind` is
- * `null` for a member with no census kind (such as `thread/goal/updated`), whose row states its
- * own target; a row naming a kind takes its target from the disposition table. Both, and
- * `emissionReadiness`, are put on the row when the map is built.
+ * Reports a notification the table cannot carry as it arrives: a method outside the table, an
+ * opted-out notification that arrived anyway, or one whose event has no registered payload
+ * variant. Each gets a `DriverDiagnosticRecord`; a method the table carries reports nothing.
  */
-interface CodexNormalizedCategoryEmission {
-  readonly disposition: "normalized";
-  readonly nativeMethod: CodexInboundFrameMethod;
-  readonly transport: CodexInboundFrameTransport;
-  readonly category: EventCategory;
-  readonly eventType: SessionEventType;
-  readonly normalizedKind: NormalizedEventKind | null;
-  readonly emissionReadiness: CodexEmissionReadiness;
-}
-
-/**
- * A known frame with no session-transcript capability, so no category. The `reason` is required so
- * a non-emission is always justified; an unknown method throws instead.
- */
-interface CodexNotEventedFrameDisposition {
-  readonly disposition: "not-evented";
-  readonly nativeMethod: CodexInboundFrameMethod;
-  readonly transport: CodexInboundFrameTransport;
-  readonly reason: string;
-  readonly category?: never;
-  readonly eventType?: never;
-  readonly normalizedKind?: never;
-  readonly emissionReadiness?: never;
-}
-
-/** The total result of normalizing one pinned Codex inbound frame method. */
-type CodexFrameNormalization = CodexNormalizedCategoryEmission | CodexNotEventedFrameDisposition;
-
-// A row before its derived members are put on it. Stating one by hand is a compile error (TS2353),
-// but only for fresh object literals, which every row here is.
-type CodexFrameNormalizationTableRow =
-  | (Omit<CodexNormalizedCategoryEmission, "emissionReadiness" | "category" | "eventType"> & {
-      readonly normalizedKind: NormalizedEventKind;
-      readonly category?: never;
-      readonly eventType?: never;
-    })
-  | (Omit<CodexNormalizedCategoryEmission, "emissionReadiness"> & { readonly normalizedKind: null })
-  | CodexNotEventedFrameDisposition;
-
-function composeCodexFrameNormalization(
-  row: CodexFrameNormalizationTableRow,
-): CodexFrameNormalization {
-  if (row.disposition === "not-evented") {
-    return row;
+export function reportCodexFrameOutsideTable(
+  nativeMethod: string,
+  diagnostics: DriverDiagnosticsEmitter,
+): void {
+  const row = CODEX_FRAME_ROW_BY_METHOD.get(nativeMethod);
+  if (row === undefined || "optOut" in row) {
+    diagnostics.emit({
+      provider: CODEX_DRIVER_NAME,
+      kind: "unmapped_wire_kind",
+      rawWireType: nativeMethod,
+      dispositionReason:
+        row === undefined
+          ? "wire method outside the Codex inbound table; routed to the diagnostic branch, " +
+            "never silently dropped"
+          : "a notification the connection opted out of arrived anyway; routed to the " +
+            "diagnostic branch, never silently dropped",
+      details: {},
+    });
+    return;
   }
-  const target =
-    row.normalizedKind === null
-      ? { category: row.category, eventType: row.eventType }
-      : resolveAdoptedEventTarget(row.normalizedKind);
-  return {
-    ...row,
-    ...target,
-    emissionReadiness: resolveCodexEmissionReadiness(target.eventType),
-  };
+  if ("reads" in row) {
+    return;
+  }
+  const { eventType } = "emits" in row ? resolveAdoptedEventTarget(row.emits) : row.emitsEvent;
+  if (!REGISTERED_EVENT_TYPES.has(eventType)) {
+    diagnostics.emit({
+      provider: CODEX_DRIVER_NAME,
+      kind: "payload_variant_pending",
+      rawWireType: nativeMethod,
+      dispositionReason:
+        "the event this frame becomes has no registered payload variant, so nothing is built",
+      details: { eventType },
+    });
+  }
 }
-
-// Keyed by the closed union, so a missing or extra method is a compile error.
-const CODEX_FRAME_NORMALIZATION_RECORD = {
-  "item/tool/call": {
-    disposition: "normalized",
-    nativeMethod: "item/tool/call",
-    transport: "server-request",
-    normalizedKind: "tool_start",
-  },
-  // Experimental-gated, and delivered on this driver's `experimentalApi` connection.
-  "item/tool/requestUserInput": {
-    disposition: "normalized",
-    nativeMethod: "item/tool/requestUserInput",
-    transport: "server-request",
-    normalizedKind: "user_input_request",
-  },
-  // A tool server's own question (an MCP elicitation) becomes the same question record. Codex's own
-  // approval of a tool-server call arrives on this method too, and is told apart by its marker in
-  // `normalizeCodexElicitationRequest`.
-  "mcpServer/elicitation/request": {
-    disposition: "normalized",
-    nativeMethod: "mcpServer/elicitation/request",
-    transport: "server-request",
-    normalizedKind: "user_input_request",
-  },
-  // Each permission ask is recorded once as `approval.requested`; the provider's request id only
-  // routes the answer back, and the daemon mints the resolution from its own adjudication.
-  "item/commandExecution/requestApproval": {
-    disposition: "normalized",
-    nativeMethod: "item/commandExecution/requestApproval",
-    transport: "server-request",
-    normalizedKind: "approval_request",
-  },
-  "item/fileChange/requestApproval": {
-    disposition: "normalized",
-    nativeMethod: "item/fileChange/requestApproval",
-    transport: "server-request",
-    normalizedKind: "approval_request",
-  },
-  "item/permissions/requestApproval": {
-    disposition: "normalized",
-    nativeMethod: "item/permissions/requestApproval",
-    transport: "server-request",
-    normalizedKind: "approval_request",
-  },
-  execCommandApproval: {
-    disposition: "normalized",
-    nativeMethod: "execCommandApproval",
-    transport: "server-request",
-    normalizedKind: "approval_request",
-  },
-  applyPatchApproval: {
-    disposition: "normalized",
-    nativeMethod: "applyPatchApproval",
-    transport: "server-request",
-    normalizedKind: "approval_request",
-  },
-  // Control-plane requests answered on the transport; adopting either would put a handshake on the
-  // transcript.
-  "attestation/generate": {
-    disposition: "not-evented",
-    nativeMethod: "attestation/generate",
-    transport: "server-request",
-    reason:
-      "control-plane request answered on the transport (the initialize-declared " +
-      "requestAttestation capability); it asks the daemon to mint an attestation and carries " +
-      "no session observation, so it has no transcript capability to lose",
-  },
-  "account/chatgptAuthTokens/refresh": {
-    disposition: "not-evented",
-    nativeMethod: "account/chatgptAuthTokens/refresh",
-    transport: "server-request",
-    reason:
-      "credential-refresh brokering answered on the transport (provider-account plane, which " +
-      "stores no credential material); routing a credential frame onto the session " +
-      "transcript would put an auth-plane event in the audit log and is exactly what that " +
-      "plane's un-evented posture forbids",
-  },
-  error: {
-    disposition: "normalized",
-    nativeMethod: "error",
-    transport: "server-notification",
-    normalizedKind: "error",
-  },
-  // Notices that drive no state transition (kind `notification`). `warning` and `deprecationNotice`
-  // are notice kind `provider_warning`; `configWarning` is `settings_ignored`.
-  warning: {
-    disposition: "normalized",
-    nativeMethod: "warning",
-    transport: "server-notification",
-    normalizedKind: "notification",
-  },
-  configWarning: {
-    disposition: "normalized",
-    nativeMethod: "configWarning",
-    transport: "server-notification",
-    normalizedKind: "notification",
-  },
-  deprecationNotice: {
-    disposition: "normalized",
-    nativeMethod: "deprecationNotice",
-    transport: "server-notification",
-    normalizedKind: "notification",
-  },
-  // Codex's own reviewer: `guardianWarning` and `autoApprovalReview/strictReviewRequired` are one
-  // system message in Codex's words. A review that blocked an action is `approval.reviewer_denied`.
-  // None records a daemon adjudication, so none bypasses the approval pipeline.
-  guardianWarning: {
-    disposition: "normalized",
-    nativeMethod: "guardianWarning",
-    transport: "server-notification",
-    category: "approval_flow",
-    eventType: "moderation.review_flagged",
-    normalizedKind: null,
-  },
-  "thread/goal/updated": {
-    disposition: "normalized",
-    nativeMethod: "thread/goal/updated",
-    transport: "server-notification",
-    category: "session_lifecycle",
-    eventType: "session.goal_updated",
-    normalizedKind: null,
-  },
-  "thread/goal/cleared": {
-    disposition: "normalized",
-    nativeMethod: "thread/goal/cleared",
-    transport: "server-notification",
-    category: "session_lifecycle",
-    eventType: "session.goal_cleared",
-    normalizedKind: null,
-  },
-  // Account-quota utilization, kept apart from context-window telemetry.
-  "account/rateLimits/updated": {
-    disposition: "normalized",
-    nativeMethod: "account/rateLimits/updated",
-    transport: "server-notification",
-    normalizedKind: "rate_limits",
-  },
-  // Provider context-window compaction, not the daemon's `event.compacted` retention pass.
-  "thread/compacted": {
-    disposition: "normalized",
-    nativeMethod: "thread/compacted",
-    transport: "server-notification",
-    normalizedKind: "compact_boundary",
-  },
-  // Not evented: an empty invalidation signal to re-run `skills/list`; the one consequence the
-  // daemon owns, discarding the held enumeration, is state it already has.
-  "skills/changed": {
-    disposition: "not-evented",
-    nativeMethod: "skills/changed",
-    transport: "server-notification",
-    reason:
-      "empty-payload invalidation signal for the provider's local skill-file watch; it " +
-      "carries no session observation to lose, and its only consequence — discarding the " +
-      "driver-held command enumeration so the next read re-reads in full — is daemon-side " +
-      "state the provider is telling the client to refresh",
-  },
-  // Only the review's completion is evented, not its start.
-  "item/autoApprovalReview/started": {
-    disposition: "not-evented",
-    nativeMethod: "item/autoApprovalReview/started",
-    transport: "server-notification",
-    reason:
-      "the start of Codex's own auto-approval review; only the review's completion records " +
-      "anything (a denied or timed-out review is the reviewer's block), so the start goes to " +
-      "the daemon's log only",
-  },
-  // A denied or timed-out review is the reviewer's block; the daemon seals Codex's review with the
-  // row so `Allow once` can send it back.
-  "item/autoApprovalReview/completed": {
-    disposition: "normalized",
-    nativeMethod: "item/autoApprovalReview/completed",
-    transport: "server-notification",
-    category: "approval_flow",
-    eventType: "approval.reviewer_denied",
-    normalizedKind: null,
-  },
-  // Codex holding a turn for a safety check: the frame belongs to that turn's run and reaches the
-  // screen on the run's state stream, not as a session row.
-  "model/safetyBuffering/updated": {
-    disposition: "not-evented",
-    nativeMethod: "model/safetyBuffering/updated",
-    transport: "server-notification",
-    reason:
-      "Codex's safety hold on a running turn is a live detail of the run's working status: " +
-      "it is relayed on the run's state stream as the hold frame and never written to the " +
-      "session's history, so a re-opened session does not show it again",
-  },
-  // `process/*` frames land in `tool.result`; output and exit differ only in kind.
-  "process/outputDelta": {
-    disposition: "normalized",
-    nativeMethod: "process/outputDelta",
-    transport: "server-notification",
-    normalizedKind: "command_output",
-  },
-  "process/exited": {
-    disposition: "normalized",
-    nativeMethod: "process/exited",
-    transport: "server-notification",
-    normalizedKind: "command_exit",
-  },
-  "turn/moderationMetadata": {
-    disposition: "not-evented",
-    nativeMethod: "turn/moderationMetadata",
-    transport: "server-notification",
-    reason:
-      "a moderation display hint with no words, which Codex's own app does not draw; it goes " +
-      "to the daemon's log only",
-  },
-  "autoApprovalReview/strictReviewRequired": {
-    disposition: "normalized",
-    nativeMethod: "autoApprovalReview/strictReviewRequired",
-    transport: "server-notification",
-    category: "approval_flow",
-    eventType: "moderation.review_flagged",
-    normalizedKind: null,
-  },
-
-  // Not-evented: each echoes a record the daemon already owns, and adopting it would record the
-  // same fact twice. All but `thread/reverted` are experimental-gated.
-  "thread/reverted": {
-    disposition: "not-evented",
-    nativeMethod: "thread/reverted",
-    transport: "server-notification",
-    reason:
-      "correlation-only wire echo, not an empty frame — it is the notification counterpart " +
-      "of `thread/revert`, the Codex conversation cut, and it correlates a revert the daemon " +
-      "requested. The rewind-confirmation consumer is the lifecycle leg, not the transcript: " +
-      "the durable rollback record is daemon-emitted (`run.rolled_back`) when the daemon " +
-      "settles the intervention, so adopting this echo would mint a second record of a " +
-      "boundary the daemon already owns and could report a rollback the daemon refused",
-  },
-  "thread/queue/changed": {
-    disposition: "not-evented",
-    nativeMethod: "thread/queue/changed",
-    transport: "server-notification",
-    reason:
-      "provider-side queue-depth notice; the daemon's own queue is the authority and already " +
-      "emits the `queue_item.*` interactive_request rows, so this frame carries no " +
-      "capability the transcript lacks",
-  },
-  "project/changed": {
-    disposition: "not-evented",
-    nativeMethod: "project/changed",
-    transport: "server-notification",
-    reason:
-      "Codex project-scope bookkeeping; repo and workspace binding is daemon-owned (`repo.*` " +
-      "/ `workspace.*` session_lifecycle rows sourced from the daemon's own mount state), so " +
-      "a provider-authored project notice would be a second source of truth for a binding " +
-      "the daemon set",
-  },
-  "thread/project/updated": {
-    disposition: "not-evented",
-    nativeMethod: "thread/project/updated",
-    transport: "server-notification",
-    reason:
-      "per-thread projection of the same Codex project-scope bookkeeping as " +
-      "`project/changed`; same daemon-owned-binding reason",
-  },
-  "thread/environment/connected": {
-    disposition: "not-evented",
-    nativeMethod: "thread/environment/connected",
-    transport: "server-notification",
-    reason:
-      "Codex environment-connection bookkeeping; machine liveness is daemon-owned and is " +
-      "observed by the daemon that spawned the process, so a provider-reported connection " +
-      "would report liveness the daemon can see directly",
-  },
-  "thread/environment/disconnected": {
-    disposition: "not-evented",
-    nativeMethod: "thread/environment/disconnected",
-    transport: "server-notification",
-    reason:
-      "the paired disconnect of `thread/environment/connected`; same daemon-owned-liveness " +
-      "reason, and the run-terminal consequence of a real disconnect reaches the transcript " +
-      "through the lifecycle module's terminal emission rather than through this notice",
-  },
-  "thread/settings/updated": {
-    disposition: "not-evented",
-    nativeMethod: "thread/settings/updated",
-    transport: "server-notification",
-    reason:
-      "the thread's settings as the provider declares them; the driver reads the service tier " +
-      "from it as the binding's declared output speed and each run's settled one, which reach " +
-      "no transcript row, while the agent's own configuration settles as " +
-      "`agent.provider_binding_changed` when the daemon applies it",
-  },
-  // The diff is a `tool.result` row (kind `diff`), not `artifact_publication`.
-  "turn/diff/updated": {
-    disposition: "normalized",
-    nativeMethod: "turn/diff/updated",
-    transport: "server-notification",
-    normalizedKind: "diff",
-  },
-  // A proposed plan is an `assistant.message` row (kind `proposed_plan`).
-  "turn/plan/updated": {
-    disposition: "normalized",
-    nativeMethod: "turn/plan/updated",
-    transport: "server-notification",
-    normalizedKind: "proposed_plan",
-  },
-} as const satisfies Record<CodexInboundFrameMethod, CodexFrameNormalizationTableRow>;
-
-/**
- * The mapping from native method to normalized category. A `Map` because the key is an untrusted
- * string and an object lookup would resolve `__proto__`; entries are frozen singletons.
- */
-const CODEX_FRAME_NORMALIZATION_BY_METHOD: ReadonlyMap<
-  CodexInboundFrameMethod,
-  CodexFrameNormalization
-> = new Map(
-  // Sound: the record's keys are exactly the `CodexInboundFrameMethod` literals.
-  (
-    Object.entries(CODEX_FRAME_NORMALIZATION_RECORD) as ReadonlyArray<
-      [CodexInboundFrameMethod, CodexFrameNormalizationTableRow]
-    >
-  ).map(([nativeMethod, row]) => [
-    nativeMethod,
-    Object.freeze(composeCodexFrameNormalization(row)),
-  ]),
-);
 
 /**
  * The value Codex puts in an elicitation's `_meta.codex_approval_kind` when the elicitation is its
@@ -503,8 +338,8 @@ const CODEX_FRAME_NORMALIZATION_BY_METHOD: ReadonlyMap<
  */
 const CODEX_TOOL_CALL_APPROVAL_KIND = "mcp_tool_call";
 
-function isCodexToolCallApprovalElicitation(params: unknown): boolean {
-  // `params` is the provider's, so its shape is checked before the marker is read.
+/** Whether an elicitation is Codex's own approval of a tool-server call; `params` is untrusted. */
+export function isCodexToolCallApprovalElicitation(params: unknown): boolean {
   if (!isPlainObject(params)) {
     return false;
   }
@@ -512,107 +347,43 @@ function isCodexToolCallApprovalElicitation(params: unknown): boolean {
   return isPlainObject(meta) && meta["codex_approval_kind"] === CODEX_TOOL_CALL_APPROVAL_KIND;
 }
 
-const CODEX_ELICITATION_QUESTION_NORMALIZATION: CodexFrameNormalization = Object.freeze(
-  composeCodexFrameNormalization(CODEX_FRAME_NORMALIZATION_RECORD["mcpServer/elicitation/request"]),
-);
-
-const CODEX_TOOL_CALL_APPROVAL_NORMALIZATION: CodexFrameNormalization = Object.freeze(
-  composeCodexFrameNormalization({
-    disposition: "normalized",
-    nativeMethod: "mcpServer/elicitation/request",
-    transport: "server-request",
-    normalizedKind: "approval_request",
-  }),
-);
-
 /**
- * Normalizes an `mcpServer/elicitation/request` by its params: Codex's own approval of a
- * tool-server call is the approval record, a card the person answers, and any other elicitation
- * is the server's question record. `params` is untrusted.
+ * The method's routing family for the thread-frame router: connection-scoped families need no
+ * thread identity, thread-scoped ones demand one, and a method outside the table is `unknown`.
  */
-export function normalizeCodexElicitationRequest(params: unknown): CodexFrameNormalization {
-  return isCodexToolCallApprovalElicitation(params)
-    ? CODEX_TOOL_CALL_APPROVAL_NORMALIZATION
-    : CODEX_ELICITATION_QUESTION_NORMALIZATION;
+export function classifyCodexFrameFamilyForRouting(nativeMethod: string): ThreadFrameFamilyClass {
+  return CODEX_FRAME_ROW_BY_METHOD.get(nativeMethod)?.family ?? { scope: "unknown" };
 }
 
-/** The census-mapped emission answer, or the frame's routed diagnostic. */
-export type CodexFrameEmissionRoute =
-  | { readonly route: "emit"; readonly normalization: CodexNormalizedCategoryEmission }
-  | { readonly route: "not-evented"; readonly normalization: CodexNotEventedFrameDisposition }
-  | { readonly route: "diagnostic"; readonly record: DriverDiagnosticRecord };
+/** The `thread/started` method: the thread-frame router's registration input. */
+export const CODEX_THREAD_STARTED_METHOD = "thread/started";
+
+/** The `thread/tokenUsage/updated` method, metered by the usage accountant. */
+export const CODEX_THREAD_TOKEN_USAGE_METHOD = "thread/tokenUsage/updated";
+
+/** The `turn/started` method, which opens a turn's boundary. */
+export const CODEX_TURN_STARTED_METHOD = "turn/started";
 
 /**
- * The driver core's entry point; never throws. A method outside the census or a target without a
- * registered payload variant emits a `DriverDiagnosticRecord` and routes to `diagnostic`, never to
- * an envelope.
+ * The `turn/completed` method, the terminal signal for a session and its children (there is no
+ * `thread/ended` frame).
  */
-export function resolveCodexFrameEmissionRoute(
-  nativeMethod: string,
-  diagnostics: DriverDiagnosticsEmitter,
-): CodexFrameEmissionRoute {
-  const normalization = CODEX_FRAME_NORMALIZATION_BY_METHOD.get(
-    nativeMethod as CodexInboundFrameMethod,
-  );
-  if (normalization === undefined) {
-    const record: DriverDiagnosticRecord = {
-      provider: CODEX_DRIVER_NAME,
-      kind: "unmapped_wire_kind",
-      rawWireType: nativeMethod,
-      dispositionReason:
-        "wire method outside the pinned Codex inbound census; routed to the daemon " +
-        "diagnostic default branch, never silently dropped and never forced into an envelope",
-      details: {},
-    };
-    diagnostics.emit(record);
-    return { route: "diagnostic", record };
-  }
-  if (normalization.disposition === "not-evented") {
-    return { route: "not-evented", normalization };
-  }
-  if (normalization.emissionReadiness === "payload-variant-pending") {
-    const record: DriverDiagnosticRecord = {
-      provider: CODEX_DRIVER_NAME,
-      kind: "payload_variant_pending",
-      rawWireType: nativeMethod,
-      dispositionReason:
-        "normalized kind whose target SessionEventType has no registered SessionEventSchema " +
-        "payload variant; envelope construction is forbidden without one, so the frame " +
-        "routes to the diagnostic branch",
-      details: { eventType: normalization.eventType },
-    };
-    diagnostics.emit(record);
-    return { route: "diagnostic", record };
-  }
-  return { route: "emit", normalization };
-}
-
-/** The `thread/started` method: the thread-frame router's registration input, not a table row. */
-export const CODEX_THREAD_STARTED_METHOD = "thread/started" as const;
-
-/** The `thread/tokenUsage/updated` method, metered by the usage accountant; not a table row. */
-export const CODEX_THREAD_TOKEN_USAGE_METHOD = "thread/tokenUsage/updated" as const;
-
-/** The `turn/started` method, classified for routing but not a table row. */
-const CODEX_TURN_STARTED_METHOD = "turn/started" as const;
-
-/**
- * The `turn/completed` method, the terminal signal for a session and its children (the pin has no
- * `thread/ended` frame). Not a table row.
- */
-export const CODEX_TURN_COMPLETED_METHOD = "turn/completed" as const;
+export const CODEX_TURN_COMPLETED_METHOD = "turn/completed";
 
 /** The `item/started` method, which names its turn; a run's output speed settles on the first. */
-export const CODEX_ITEM_STARTED_METHOD = "item/started" as const;
+export const CODEX_ITEM_STARTED_METHOD = "item/started";
 
-/** The `thread/compacted` method; `./lifecycle.ts` compares against this symbol. */
-export const CODEX_THREAD_COMPACTED_METHOD = "thread/compacted" as const;
+/** The `item/completed` method: the end of one step of a turn. */
+export const CODEX_ITEM_COMPLETED_METHOD = "item/completed";
 
-/** The `skills/changed` method; `./lifecycle.ts` compares against this symbol. */
-export const CODEX_SKILLS_CHANGED_METHOD = "skills/changed" as const;
+/** The `thread/compacted` method, which settles a compaction the person asked for. */
+export const CODEX_THREAD_COMPACTED_METHOD = "thread/compacted";
 
-/** The `thread/settings/updated` method; `./output-speed.ts` compares against this symbol. */
-export const CODEX_THREAD_SETTINGS_UPDATED_METHOD = "thread/settings/updated" as const;
+/** The `skills/changed` method, on which the held command list is read again. */
+export const CODEX_SKILLS_CHANGED_METHOD = "skills/changed";
+
+/** The `thread/settings/updated` method, which declares the thread's output speed. */
+export const CODEX_THREAD_SETTINGS_UPDATED_METHOD = "thread/settings/updated";
 
 /**
  * The `ThreadSourceKind` arms that mark a provider-attributed subagent child, whose spend is
@@ -644,66 +415,4 @@ export function deriveCodexChildThreadAnnouncement(threadStarted: {
     declaredParentThreadId: threadStarted.parentThreadId,
     subagentId: subagentAttributed ? threadStarted.threadId : null,
   };
-}
-
-/**
- * Classifies a method's family for the thread-frame router: connection-scoped families need no
- * thread identity, thread-scoped ones demand one, and an unlisted method is `unknown`.
- */
-export function classifyCodexFrameFamilyForRouting(nativeMethod: string): ThreadFrameFamilyClass {
-  switch (nativeMethod) {
-    // `skills/changed` is listed because an unlisted method is quarantined, which would emit a
-    // `thread_frame_quarantined` diagnostic on every save of a watched skill file.
-    case "error":
-    case "warning":
-    case "configWarning":
-    case "deprecationNotice":
-    case "guardianWarning":
-    case "account/rateLimits/updated":
-    case "account/chatgptAuthTokens/refresh":
-    case "attestation/generate":
-    case CODEX_SKILLS_CHANGED_METHOD:
-      return { scope: "connection" };
-    case CODEX_THREAD_TOKEN_USAGE_METHOD:
-    case CODEX_THREAD_COMPACTED_METHOD:
-      return { scope: "thread", capability: "usage" };
-    // `turn/completed` must be classified here, or it would be quarantined instead of reaching the
-    // emission gate, which admits only a `project` route.
-    case CODEX_THREAD_STARTED_METHOD:
-    case CODEX_TURN_STARTED_METHOD:
-    case CODEX_TURN_COMPLETED_METHOD:
-    case "model/safetyBuffering/updated":
-      return { scope: "thread", capability: "lifecycle" };
-    case "item/tool/call":
-    case "item/tool/requestUserInput":
-    case "mcpServer/elicitation/request":
-    case "item/commandExecution/requestApproval":
-    case "item/fileChange/requestApproval":
-    case "item/permissions/requestApproval":
-    case "execCommandApproval":
-    case "applyPatchApproval":
-      return { scope: "thread", capability: "interactive-request" };
-    case "thread/goal/updated":
-    case "thread/goal/cleared":
-    case "item/autoApprovalReview/started":
-    case "item/autoApprovalReview/completed":
-    case "process/outputDelta":
-    case "process/exited":
-    case "turn/moderationMetadata":
-    case "autoApprovalReview/strictReviewRequired":
-    case "thread/reverted":
-    case "thread/queue/changed":
-    case "thread/project/updated":
-    case "thread/environment/connected":
-    case "thread/environment/disconnected":
-    case "thread/settings/updated":
-    case "turn/diff/updated":
-    case "turn/plan/updated":
-      return { scope: "thread", capability: "content" };
-    // Project-level bookkeeping rides the connection, not a thread.
-    case "project/changed":
-      return { scope: "connection" };
-    default:
-      return { scope: "unknown" };
-  }
 }

@@ -1,49 +1,83 @@
-// The Claude driver's session and run lifecycle: `createSession`, `resumeSession`, `startRun`,
-// `interruptRun` and `closeSession`, over one slot per session. The establishment legs, the
-// text-neutralization tripwire, frame routing, the handshake register, the spawn legs and
-// compaction dispatch are dependencies this class builds once; the other driver operations live
-// in sibling modules.
+// The Claude driver's operations on sessions and runs, each an entry point over the owners that
+// hold their state: the session slots, the run routes, the messages sent, the turn settlement, the
+// conversation cuts, the handshakes, the frame routing, the establishment legs, the daemon's own
+// hooks, the restart path, the delivery stream that hands every frame to the run engine, the
+// requests and choices Claude Code holds a run on, and the session controls.
 //
-// Provider-process concerns sit behind the injected `ClaudeSessionTransport` and
-// `ClaudeProviderProcess` ports: this module spawns nothing and reads no environment variable, so
-// it cannot leak a `CLAUDE_CODE_OAUTH_TOKEN`. Errors here carry a registered `driver.*` code.
+// Provider-process concerns sit behind the injected `ClaudeSessionTransport`: this module spawns
+// nothing and reads no environment variable. Errors here carry a registered `driver.*` code.
 
 import type { DriverCompactionResult } from "@ai-sidekicks/contracts/provider/driver/compaction";
 import type { ProviderCommandListResult } from "@ai-sidekicks/contracts/provider/driver/commands";
-import type { ProviderOutputSpeedState } from "@ai-sidekicks/contracts/provider/driver/output-speed";
 import type { InterruptRunParams } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { ProviderOutputSpeedState } from "@ai-sidekicks/contracts/provider/driver/output-speed";
+import type { ProviderMode } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+
 import { PendingCompactionRegistry } from "../../compaction-wait.js";
-import type { DriverDiagnosticsEmitter } from "../diagnostics.js";
-import type { SpawnEnvPair } from "../../spawn-env.js";
-import { ThreadFrameRouter, type ThreadFrameRoute } from "../../thread-frame-router.js";
-import { UsageDeltaAccountant } from "../../usage-delta-accountant.js";
-import {
-  OutboundFrameTripwire,
-  OutboundTextFrameWriter,
-  RuntimeBindingQuarantine,
-} from "../../outbound-frame.js";
-import { TerminalEmissionGate } from "../../terminal-emission-gate.js";
+import type { SubagentLifecycleEmission } from "../../thread-frame-router.js";
 import { mintUuidV7 } from "../../../uuid-v7.js";
+import type { RewindConversationParams, RewindConversationResult } from "../rewind.js";
+import type {
+  AnswerProviderChoiceParams,
+  AnswerProviderChoiceResult,
+  OverrideDenialParams,
+  PauseRunParams,
+  ResumeRunParams,
+  WithdrawQueuedMessageParams,
+  WithdrawQueuedMessageResult,
+} from "../run-control.js";
+import type {
+  AnswerSessionCommandParams,
+  AskSideQuestionParams,
+  ProviderBuildChange,
+  ProviderCommandsListener,
+  PurgeSessionParams,
+  SessionCommandAnswer,
+  StartReviewParams,
+  SubscribeProviderCommandsParams,
+  UpdatePermissionLevelParams,
+  UpdateSessionModeParams,
+} from "../session-control.js";
 import {
-  CLAUDE_COMPACTION_COMMAND_NAME,
-  ClaudeControlRequestRefusedError,
-  type ClaudeFastModeDeclaration,
-  type ClaudeRunProcessLookup,
-  type ClaudeRunDispatchResolver,
-  type ClaudeProviderProcess,
-  type ClaudeSessionTransport,
-  composeClaudeMandatedEnvironment,
-} from "./session/transport.js";
-import {
-  CLAUDE_THREAD_FRAME_ROUTER_CONFIG,
-  type ClaudeRoutableFrame,
-  type ClaudeSessionLifecycleDependencies,
-  type ClaudeSessionRoutingBand,
-  type ClaudeSessionSlot,
-  type LiveClaudeSession,
-} from "./session/state.js";
+  buildAuthProbeResult,
+  type ClearSessionGoalParams,
+  type CloseSessionParams,
+  type CompactContextParams,
+  type CreateSessionParams,
+  type DriverAuthProbeResult,
+  type DriverGoalResult,
+  type DriverResumeResult,
+  type MoveSessionToForkParams,
+  type MoveSessionToForkResult,
+  type ListProviderCommandsParams,
+  type ProviderSessionHandle,
+  type RespondToRequestParams,
+  type ResumeSessionParams,
+  type SetSessionGoalParams,
+  type StartRunParams,
+} from "../contract.js";
+import { ClaudeCompactionDispatch } from "./compaction.js";
+import { ClaudeProviderDialogs } from "./delivery/dialogs.js";
+import { ClaudeDeliveryDispatch } from "./delivery/dispatch.js";
+import { ClaudeInboundRequests } from "./delivery/requests.js";
+import { ClaudeReviewerCapture } from "./delivery/reviewer.js";
+import { ClaudeDeliveryStream } from "./delivery/stream.js";
+import { ClaudeFrameRouting } from "./frame-routing.js";
+import { ClaudeGoalCommands } from "./goals.js";
+import { ClaudeHandshakeRegister } from "./handshake-register.js";
+import { ClaudeHookCallbacks } from "./hooks/callbacks.js";
+import { ClaudeHelperLimit } from "./hooks/helper-limit.js";
+import { ClaudeRunPauses } from "./hooks/pause.js";
+import { limitsHelpersAtOnce } from "./hooks/registration.js";
+import type { ClaudeInterventionSettlement } from "./intervention.js";
+import { ClaudeRunControls } from "./run/controls.js";
+import { ClaudeSentPrompts } from "./run/prompts.js";
+import { ClaudeConversationCuts } from "./run/rewind.js";
+import { ClaudeRunRoutes, type ClaudeBoundRun } from "./run/routes.js";
+import { ClaudeTurnSettlement } from "./run/settlement.js";
+import { ClaudeRunStart } from "./run/start.js";
 import {
   CLAUDE_AUTH_PROBE_REACHED_DETAIL,
   ClaudeAuthenticationRequiredError,
@@ -51,126 +85,299 @@ import {
   describeFailure,
   sanitizeFailureDetail,
 } from "./session/errors.js";
-import { assertClaudeSpawnBoundRealization, ClaudeSpawnLegComposer } from "./spawn/legs.js";
-import { ClaudeRunRoutes } from "./run-routes.js";
-import { ClaudeHandshakeRegister } from "./handshake-register.js";
-import { ClaudeFrameRouting } from "./frame-routing.js";
-import { attemptClaudeFrameWrite, ClaudeTextNeutralization } from "./text-neutralization.js";
 import { buildClaudeResumeFailure, ClaudeSessionEstablishment } from "./session/establishment.js";
-import { ClaudeCompactionDispatch } from "./compaction.js";
-import { applyClaudeOutputSpeed, resolveClaudeOutputSpeed } from "./output-speed.js";
+import { findIgnoredSettingNotice } from "./session/ignored-settings.js";
+import { ClaudeModelFigures } from "./session/model-figures.js";
+import { listClaudeModes, moveClaudePermissionLevel } from "./session/permission-level.js";
+import { purgeClaudeConversations } from "./session/purge.js";
+import { scheduleUnrefTimer } from "./session/control-requests.js";
+import { ClaudeSessionControls } from "./session/controls.js";
+import { ClaudeSessionRestarts } from "./session/restart.js";
+import { ClaudeSessionSlots } from "./session/slots.js";
+import type { ClaudeSessionLifecycleDependencies, LiveClaudeSession } from "./session/state.js";
 import {
-  buildAuthProbeResult,
-  type CloseSessionParams,
-  type CompactContextParams,
-  type CreateSessionParams,
-  type DriverAuthProbeResult,
-  type DriverResumeResult,
-  type ForkConversationResult,
-  type ListProviderCommandsParams,
-  type ProviderSessionHandle,
-  type ResumeSessionParams,
-  type ForkConversationParams,
-  type StartRunParams,
-} from "../contract.js";
+  CLAUDE_COMPACTION_COMMAND_NAME,
+  type ClaudeProviderProcess,
+  type ClaudeRunProcessLookup,
+} from "./session/transport.js";
+import { composeClaudeSpawnEnvironment } from "./spawn/environment.js";
+import { ClaudeSpawnLegComposer } from "./spawn/legs.js";
 
-/** Drives Claude sessions over a `ClaudeSessionTransport`, with per-session slot and metering. */
+/** Drives Claude sessions over a `ClaudeSessionTransport`, one slot and process per session. */
 export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
-  readonly #transport: ClaudeSessionTransport;
-  readonly #providerBaseEnvironment: readonly SpawnEnvPair[];
-  readonly #runDispatchResolver: ClaudeRunDispatchResolver;
-  // Every session's slot. Create and resume refuse on a non-EMPTY slot instead of chaining, since
-  // a session realized under another posture is what `assertClaudeSpawnBoundRealization`
-  // prevents; close chains. Claims read and write with no await between, so check-then-act is
-  // atomic.
-  readonly #sessionSlots: Map<SessionId, ClaudeSessionSlot> = new Map();
+  readonly #dependencies: ClaudeSessionLifecycleDependencies;
   readonly #runRoutes: ClaudeRunRoutes = new ClaudeRunRoutes();
-  // The producer half of the intended-close signal, signaled at the top of `closeSession` before
-  // the channel is disposed, so the `result/*` it provokes reads as a clean shutdown. Keyed beside
-  // the slot map because the intent must be recordable while the slot holds no live session.
-  readonly #terminalEmissionGates: Map<SessionId, TerminalEmissionGate> = new Map();
-  // A session's router and accountant, in one map so they are created and released together.
-  readonly #routingBands: Map<SessionId, ClaudeSessionRoutingBand> = new Map();
-  // The tripwire correlates each frame with the turn that settles it; the quarantine holds
-  // bindings a trip disposed.
-  readonly #outboundFrameTripwire: OutboundFrameTripwire;
-  readonly #runtimeBindingQuarantine: RuntimeBindingQuarantine = new RuntimeBindingQuarantine();
+  readonly #pauses: ClaudeRunPauses = new ClaudeRunPauses();
+  readonly #helpers: ClaudeHelperLimit = new ClaudeHelperLimit();
+  readonly #goals: ClaudeGoalCommands = new ClaudeGoalCommands(async (live, opening) => {
+    await this.#runStart.startDaemonTurn(live, opening);
+  });
+  readonly #prompts: ClaudeSentPrompts = new ClaudeSentPrompts();
+  // The stored figures of the installed build; replaced when the daemon reads another build.
+  #modelFigures: ClaudeModelFigures = new ClaudeModelFigures(undefined);
+  readonly #dispatch: ClaudeDeliveryDispatch;
   readonly #handshakes: ClaudeHandshakeRegister;
   readonly #pendingCompactions: PendingCompactionRegistry;
-  readonly #diagnostics: DriverDiagnosticsEmitter;
+  readonly #reviewer: ClaudeReviewerCapture;
+  readonly #dialogs: ClaudeProviderDialogs;
+  readonly #stream: ClaudeDeliveryStream;
+  readonly #requests: ClaudeInboundRequests;
+  readonly #controls: ClaudeSessionControls;
   readonly #frameRouting: ClaudeFrameRouting;
-  readonly #textNeutralization: ClaudeTextNeutralization;
+  readonly #slots: ClaudeSessionSlots;
   readonly #establishment: ClaudeSessionEstablishment;
   readonly #compactionDispatch: ClaudeCompactionDispatch;
+  readonly #runStart: ClaudeRunStart;
+  readonly #hookCallbacks: ClaudeHookCallbacks;
+  readonly #runControls: ClaudeRunControls;
+  readonly #restarts: ClaudeSessionRestarts;
+  readonly #cuts: ClaudeConversationCuts;
+  readonly #settlement: ClaudeTurnSettlement;
 
   constructor(dependencies: ClaudeSessionLifecycleDependencies) {
-    this.#transport = dependencies.transport;
-    this.#providerBaseEnvironment = dependencies.providerBaseEnvironment;
-    this.#runDispatchResolver = dependencies.runDispatchResolver;
-    this.#diagnostics = dependencies.diagnostics;
-    this.#handshakes = new ClaudeHandshakeRegister(dependencies);
-    this.#pendingCompactions = new PendingCompactionRegistry(
-      dependencies.compactionWaitScheduler ??
-        ((callback: () => void, delayMs: number): (() => void) => {
-          const timer = setTimeout(callback, delayMs);
-          // Unref'd so a pending wait never keeps the daemon alive; shutdown is a binding loss.
-          timer.unref();
-          return (): void => {
-            clearTimeout(timer);
-          };
-        }),
-    );
-    // Composes all provider-bound text; handed to the dependencies that write it.
-    const outboundTextFrameWriter = new OutboundTextFrameWriter({
-      // `emulated` at the pinned build: its input intercepts command-shaped text (measured).
-      mechanismGrade: dependencies.textNeutralityMechanismGrade ?? "emulated",
-      mintCorrelationId: dependencies.mintOutboundFrameCorrelationId,
+    this.#dependencies = dependencies;
+    const diagnostics = dependencies.diagnostics;
+    const now = dependencies.now ?? Date.now;
+    const dispatch = new ClaudeDeliveryDispatch({ inbound: dependencies.inbound, diagnostics });
+    this.#dispatch = dispatch;
+    this.#handshakes = new ClaudeHandshakeRegister({
+      diagnostics,
+      readBoundProviderAccountId: dependencies.readBoundProviderAccountId,
+      onRunOutputSpeedSettled: (sessionId, runId, state) => {
+        dependencies.runEngine
+          .recordSettledOutputSpeed(sessionId, runId, state)
+          .catch((error: unknown) => {
+            this.#restarts.recordReportFailure(sessionId, "the settled output speed", error);
+          });
+      },
     });
-    // Built here because the predicate reads a field declared later. A session is retired when it
-    // holds no slot or a trip quarantined it; the slot map is checked, not `#findLiveSession`,
-    // since a session mid-establishment or mid-close may still have frames to rule.
-    this.#outboundFrameTripwire = new OutboundFrameTripwire({
-      isScopeRetired: (scopeKey: string): boolean =>
-        !this.#sessionSlots.has(scopeKey as SessionId) ||
-        this.#runtimeBindingQuarantine.isSessionDisposed(scopeKey),
+    this.#pendingCompactions = new PendingCompactionRegistry();
+    this.#reviewer = new ClaudeReviewerCapture({
+      reviewerDenials: dependencies.reviewerDenials,
+      diagnostics,
+    });
+    this.#dialogs = new ClaudeProviderDialogs({
+      dispatch,
+      diagnostics,
+      eventIdsForMessages: async (sessionId, messageUuids) =>
+        await this.#stream.eventIdsForMessages(sessionId, messageUuids),
+      daemonEnds: {
+        markDaemonEnded: (runId, confirmed) => {
+          this.#stream.markDaemonEnded(runId, confirmed);
+        },
+        confirmDaemonEnd: (runId) => {
+          this.#stream.confirmDaemonEnd(runId);
+        },
+        releaseDaemonEnd: (runId) => {
+          this.#stream.releaseDaemonEnd(runId);
+        },
+      },
+    });
+    this.#stream = new ClaudeDeliveryStream({
+      dispatch,
+      diagnostics,
+      runRoutes: this.#runRoutes,
+      prompts: this.#prompts,
+      dialogs: this.#dialogs,
+      reviewer: this.#reviewer,
+      gateFor: (sessionId) => this.#slots.intendedCloseGateFor(sessionId),
+      takeLeadPauseEffect: (sessionId) => this.#pauses.takeLeadPauseEffect(sessionId),
+      onTooLongTurn: (live) => {
+        this.#cuts.cutTooLongTurn(live);
+      },
+      onRunningModelMoved: (live) => {
+        this.#establishment.readReplyReserveForRunningModel(live);
+      },
+      observeLeadFrame: (sessionId, frameKind, frame) => {
+        this.#goals.observeLeadFrame(sessionId, frameKind, frame);
+        this.#controls.observeLeadFrame(sessionId, frameKind, frame);
+      },
+      now,
+    });
+    this.#requests = new ClaudeInboundRequests({
+      dispatch,
+      permissionAsks: dependencies.permissionAsks,
+      questions: dependencies.questions,
+      dialogs: this.#dialogs,
+      reviewer: this.#reviewer,
+      diagnostics,
+      runFor: (live, agentId) => this.#runFor(live.sessionId, agentId),
+      permissionModeFor: (sessionId) => this.#stream.permissionModeFor(sessionId),
+      childRunStarting: (sessionId, agentId) => this.#stream.childRunStarting(sessionId, agentId),
+    });
+    this.#controls = new ClaudeSessionControls({
+      transport: dependencies.transport,
+      handshakes: this.#handshakes,
+      dispatch,
+      diagnostics,
+      stagedChanges: dependencies.stagedChanges,
+      runRoutes: this.#runRoutes,
+      startDaemonTurn: async (live, opening) => {
+        await this.#runStart.startDaemonTurn(live, opening);
+      },
+      readCommands: (sessionId) => {
+        const live = this.#slots.findLiveSession(sessionId);
+        return live === undefined ? undefined : this.#composeCommands(live);
+      },
+      now,
     });
     this.#frameRouting = new ClaudeFrameRouting({
       ...dependencies,
+      onSubagentLifecycle: (sessionId, emission) => {
+        this.#observeHelperLifecycle(sessionId, emission);
+        this.#stream.observeHelperLifecycle(sessionId, emission);
+      },
       pendingCompactions: this.#pendingCompactions,
       handshakes: this.#handshakes,
     });
-    this.#textNeutralization = new ClaudeTextNeutralization({
-      ...dependencies,
-      outboundTextFrameWriter,
-      outboundFrameTripwire: this.#outboundFrameTripwire,
-      runtimeBindingQuarantine: this.#runtimeBindingQuarantine,
-      runRoutes: this.#runRoutes,
-      disposeQuarantinedSession: (sessionId: SessionId): void => {
-        this.#disposeQuarantinedSession(sessionId);
+    this.#hookCallbacks = new ClaudeHookCallbacks({
+      pauses: this.#pauses,
+      helpers: this.#helpers,
+      onHelperHeld: (sessionId, agentId) => {
+        this.#reportHelperPaused(sessionId, agentId);
       },
+      forward: (live, event) => {
+        this.#requests.handle(live, event);
+      },
+      diagnostics,
+    });
+    this.#slots = new ClaudeSessionSlots({
+      diagnostics,
+      runRoutes: this.#runRoutes,
+      handshakes: this.#handshakes,
+      pendingCompactions: this.#pendingCompactions,
+      dispatch,
+      bindSessionThread: (band, live) => {
+        this.#frameRouting.bindSessionThread(
+          band,
+          live.sessionId,
+          live.providerSessionId,
+          live.establishment,
+        );
+      },
+      listeners: {
+        onTurnTerminal: (live) => {
+          this.#settlement.settleTurn(live);
+        },
+        onInboundFrame: (band, live, observation) =>
+          this.#frameRouting.observeInboundFrame(
+            band,
+            live.sessionId,
+            live.providerSessionId,
+            observation,
+          ),
+        onDeliveredFrame: (live, frame, route) => {
+          this.#stream.deliverFrame(live, frame, route);
+        },
+        onInboundRequest: (live, event) => {
+          this.#hookCallbacks.handle(live, event);
+        },
+        onUnrequestedExit: (live, exit) => {
+          this.#prompts.forgetSession(live.sessionId);
+          this.#restarts.handleUnrequestedExit(live, exit).catch((error: unknown) => {
+            this.#restarts.recordReportFailure(live.sessionId, "a process exit", error);
+          });
+        },
+      },
+    });
+    this.#restarts = new ClaudeSessionRestarts({
+      slots: this.#slots,
+      runRoutes: this.#runRoutes,
+      runEngine: dependencies.runEngine,
+      dispatch,
+      diagnostics,
+      resume: async (params) => await this.resumeSession(params),
+      onSessionRelaunched: dependencies.onSessionRelaunched,
+      forgetProcessState: (sessionId) => {
+        this.#forgetProcessState(sessionId);
+      },
+      scheduler: dependencies.restartScheduler ?? scheduleUnrefTimer,
+      now,
     });
     this.#compactionDispatch = new ClaudeCompactionDispatch({
       pendingCompactions: this.#pendingCompactions,
-      outboundTextFrameWriter,
-      diagnostics: dependencies.diagnostics,
+      runRoutes: this.#runRoutes,
+      diagnostics,
     });
     this.#establishment = new ClaudeSessionEstablishment({
       transport: dependencies.transport,
       mintProviderSessionId: dependencies.mintProviderSessionId ?? mintUuidV7,
       mintBindingId: dependencies.mintBindingId ?? mintUuidV7,
       spawnLegs: new ClaudeSpawnLegComposer(dependencies),
-      diagnostics: dependencies.diagnostics,
-      registerLiveSession: (
-        live: LiveClaudeSession,
-        initializeFastMode: ClaudeFastModeDeclaration,
-      ): void => {
-        this.#registerLiveSession(live, initializeFastMode);
+      operatingSystem: dependencies.operatingSystem,
+      diagnostics,
+      modelFigures: () => this.#modelFigures,
+      rebindRuntimeBinding: dependencies.rebindRuntimeBinding,
+      registerLiveSession: (live) => {
+        // What the daemon held for the process this one replaces goes first, so nothing the new
+        // process sets up from here is lost with it.
+        this.#forgetProcessState(live.sessionId);
+        this.#slots.registerLiveSession(live);
+        const policy = live.spawnBoundLegs.subagentPolicy;
+        if (limitsHelpersAtOnce(policy)) {
+          this.#helpers.limitSession(live.sessionId, policy.helpersAtOnce);
+        }
       },
-      releaseSupersededPredecessor: (
-        sessionId: SessionId,
-        predecessor: LiveClaudeSession,
-      ): void => {
-        this.#releaseSupersededPredecessor(sessionId, predecessor);
+      reportSettingsReadback: async (sessionId, attachment) => {
+        // The process is adopted either way, so a failed check is recorded, not thrown.
+        await findIgnoredSettingNotice(
+          sessionId,
+          attachment.settingsReadback,
+          dependencies.operatingSystem.claudeManagedSettingsFolder,
+          (error) => {
+            this.#restarts.recordReportFailure(sessionId, "a managed settings read", error);
+          },
+        )
+          .then(async (notice) => {
+            if (notice !== undefined) {
+              await dispatch.send({ kind: "session_notice", notice }, null);
+            }
+          })
+          .catch((error: unknown) => {
+            this.#restarts.recordReportFailure(sessionId, "the settings readback", error);
+          });
+      },
+      releaseSupersededPredecessor: (sessionId) => {
+        this.#slots.releaseSupersededPredecessor(sessionId);
+      },
+    });
+    this.#runStart = new ClaudeRunStart({
+      runDispatchResolver: dependencies.runDispatchResolver,
+      runEngine: dependencies.runEngine,
+      slots: this.#slots,
+      runRoutes: this.#runRoutes,
+      handshakes: this.#handshakes,
+      diagnostics,
+      prompts: this.#prompts,
+    });
+    this.#runControls = new ClaudeRunControls({
+      slots: this.#slots,
+      runRoutes: this.#runRoutes,
+      pauses: this.#pauses,
+      hookCallbacks: this.#hookCallbacks,
+      dialogs: this.#dialogs,
+      requests: this.#requests,
+      stream: this.#stream,
+      startDaemonTurn: async (live, opening) => await this.#runStart.startDaemonTurn(live, opening),
+      prompts: this.#prompts,
+    });
+    this.#cuts = new ClaudeConversationCuts({
+      runRoutes: this.#runRoutes,
+      slots: this.#slots,
+      prompts: this.#prompts,
+      dialogs: this.#dialogs,
+      recordReportFailure: (sessionId, step, error) => {
+        this.#restarts.recordReportFailure(sessionId, step, error);
+      },
+    });
+    this.#settlement = new ClaudeTurnSettlement({
+      handshakes: this.#handshakes,
+      runRoutes: this.#runRoutes,
+      helpers: this.#helpers,
+      hookCallbacks: this.#hookCallbacks,
+      pendingCompactions: this.#pendingCompactions,
+      moveAfterTurn: (live) => {
+        this.#restarts.moveAfterTurn(live);
       },
     });
   }
@@ -182,15 +389,14 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
    */
   async createSession(params: CreateSessionParams): Promise<ProviderSessionHandle> {
     // Fail closed, not replace: an existing channel has its own posture, cap and schema.
-    const slotHolder = this.#describeSlotHolder(params.sessionId);
+    const slotHolder = this.#slots.describeSlotHolder(params.sessionId);
     if (slotHolder !== undefined) {
       throw new ClaudeSessionUnavailableError("session_already_live", {
         sessionId: params.sessionId,
         detail: slotHolder,
       });
     }
-
-    return await this.#withSessionSlotClaimed(
+    return await this.#slots.withSessionSlotClaimed(
       params.sessionId,
       async () => await this.#establishment.establishCreatedSession(params),
     );
@@ -200,125 +406,36 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
   async resumeSession(params: ResumeSessionParams): Promise<DriverResumeResult> {
     // Resuming beside a live channel would leave two processes for one canonical session, and an
     // in-flight establishment belongs to a caller with different spawn-bound legs.
-    const slotHolder = this.#describeSlotHolder(params.sessionId);
+    const slotHolder = this.#slots.describeSlotHolder(params.sessionId);
     if (slotHolder !== undefined) {
       return buildClaudeResumeFailure(
         "recovery-needed",
         `${slotHolder} Resuming beside it would replace it silently.`,
       );
     }
-
-    return await this.#withSessionSlotClaimed(
+    return await this.#slots.withSessionSlotClaimed(
       params.sessionId,
       async () => await this.#establishment.establishResumedSession(params),
     );
   }
 
   /**
-   * Writes the run's opening text to its session's live channel, re-sending only a write that
-   * provably never left. Throws when the run cannot be dispatched, and rethrows the failed write's
-   * cause once the text may not be sent again.
+   * Starts a session whose process ended and stayed down, counting its crashes from the first
+   * again, and tells the person it runs again. Every failure returns through the `failed` arm.
    */
+  async restartSession(params: ResumeSessionParams): Promise<DriverResumeResult> {
+    this.#restarts.cancelPendingRestart(params.sessionId);
+    this.#restarts.clearCrashWindow(params.sessionId);
+    const result = await this.resumeSession(params);
+    if (result.status === "resumed") {
+      await this.#restarts.reportRestarted(params.sessionId);
+    }
+    return result;
+  }
+
+  /** Writes a run's opening text; see {@link ClaudeRunStart.startRun}. */
   async startRun(params: StartRunParams): Promise<void> {
-    const dispatch = await this.#runDispatchResolver.resolveRunDispatch(params);
-    if (dispatch === undefined) {
-      throw new ClaudeSessionUnavailableError("run_dispatch_unresolved", { runId: params.runId });
-    }
-
-    // Before the live-session lookup so the cause survives: a trip disposes the channel, and the
-    // lookup would then report `no_live_session`, which invites a retry into the process that
-    // swallowed the user's words. A fresh spawn releases the quarantine.
-    this.#runtimeBindingQuarantine.assertSessionAttachable(dispatch.sessionId);
-
-    const live = this.#findLiveSession(dispatch.sessionId);
-    if (live === undefined) {
-      throw new ClaudeSessionUnavailableError("no_live_session", {
-        sessionId: dispatch.sessionId,
-        runId: params.runId,
-      });
-    }
-
-    assertClaudeSpawnBoundRealization(params, live);
-
-    // One pending opening frame per run key: a second would be ruled `UNRECOGNIZED_TURN_EVIDENCE`
-    // and trip the session. Not keyed on the run route, which a dead-channel ruling keeps while
-    // the run may re-dispatch.
-    if (this.#outboundFrameTripwire.hasPendingFrame(params.runId)) {
-      throw new ClaudeSessionUnavailableError("run_already_dispatched", {
-        sessionId: dispatch.sessionId,
-        runId: params.runId,
-      });
-    }
-
-    // Claude's settling envelope carries no run id, so a terminal's classification can be credited
-    // to only one run per session. Refused before anything is composed, so the caller may
-    // re-dispatch once the turn settles.
-    if (this.#outboundFrameTripwire.hasPendingFrameInScope(dispatch.sessionId)) {
-      throw new ClaudeSessionUnavailableError("session_turn_in_flight", {
-        sessionId: dispatch.sessionId,
-        runId: params.runId,
-      });
-    }
-
-    const frame = this.#textNeutralization.registerOpeningDispatch(dispatch, params);
-    // Sent once, before the turn it governs, and only when the run's level differs from the one
-    // the process accepted. After the registration, which holds the session's one turn while the
-    // request is in flight. A refusal runs the turn on the level the process holds.
-    const outputSpeed = params.outputSpeed;
-    if (
-      outputSpeed !== undefined &&
-      resolveClaudeOutputSpeed(outputSpeed) !== live.appliedOutputSpeed
-    ) {
-      try {
-        live.appliedOutputSpeed =
-          (await applyClaudeOutputSpeed(
-            live.channel,
-            dispatch.sessionId,
-            outputSpeed,
-            this.#diagnostics,
-          )) ?? live.appliedOutputSpeed;
-      } catch (cause) {
-        this.#textNeutralization.ruleFailedOpeningFrame({
-          sessionId: dispatch.sessionId,
-          runId: params.runId,
-          channel: live.channel,
-          frame,
-          delivery: "unsent",
-        });
-        throw cause;
-      }
-      // Re-read after the request: a close or rewind in that window retired this channel and
-      // already answered for the frame, so nothing is armed or written on it.
-      if (this.#findLiveSession(dispatch.sessionId)?.channel !== live.channel) {
-        this.#textNeutralization.ruleFailedOpeningFrame({
-          sessionId: dispatch.sessionId,
-          runId: params.runId,
-          channel: live.channel,
-          frame,
-          delivery: "unsent",
-        });
-        throw new ClaudeSessionUnavailableError("no_live_session", {
-          sessionId: dispatch.sessionId,
-          runId: params.runId,
-        });
-      }
-    }
-    // Armed before the write, so the turn's handshake cannot outrun it.
-    this.#handshakes.armRunOutputSpeed(dispatch.sessionId, live.providerSessionId, params.runId);
-    // One write; the daemon never re-sends a failed one.
-    const attempt = await attemptClaudeFrameWrite(live.channel, frame);
-    if (attempt.settled === "written") {
-      return;
-    }
-    this.#handshakes.disarmRunOutputSpeed(dispatch.sessionId);
-    this.#textNeutralization.ruleFailedOpeningFrame({
-      sessionId: dispatch.sessionId,
-      runId: params.runId,
-      channel: live.channel,
-      frame,
-      delivery: attempt.delivery,
-    });
-    throw attempt.cause;
+    await this.#runStart.startRun(params);
   }
 
   /**
@@ -327,11 +444,15 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
    */
   async probeAuth(): Promise<DriverAuthProbeResult> {
     try {
-      // Built like every other spawn, on the captured base with the mandated environment, so the
-      // probe cannot update the installation underneath the readings.
-      const reading = await this.#transport.probeAuth({
-        providerBaseEnvironment: this.#providerBaseEnvironment,
-        mandatedEnvironment: composeClaudeMandatedEnvironment(),
+      // Built like every other spawn, on the captured base, so the probe cannot update the build
+      // underneath the readings.
+      const reading = await this.#dependencies.transport.probeAuth({
+        spawnEnvironment: composeClaudeSpawnEnvironment({
+          providerBaseEnvironment: this.#dependencies.providerBaseEnvironment,
+          environmentNameMatch: this.#dependencies.operatingSystem.environmentNameMatch,
+          environmentRows: undefined,
+          accountFolders: undefined,
+        }),
       });
       return buildAuthProbeResult(
         "authenticated",
@@ -347,59 +468,173 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
   }
 
   /**
-   * Sends the CLI's `interrupt` control request for the run's channel. Throws
-   * `ClaudeSessionUnavailableError` when the run has no live channel and
-   * `ClaudeControlRequestRefusedError` when the CLI refuses.
+   * The settlement an intervention's interrupt and steer make before and after they go; see
+   * {@link ClaudeRunControls}.
    */
-  async interruptRun(params: InterruptRunParams): Promise<void> {
-    const channel = this.findProcessForRun(params.runId);
-    if (channel === undefined) {
-      throw new ClaudeSessionUnavailableError("no_live_run", { runId: params.runId });
-    }
-    // `params.reason` is not forwarded: the pinned CLI's `interrupt` request has no reason member.
-    // A refusal throws, since returning would claim an interrupt that did not happen.
-    const response = await channel.sendControlRequest({
-      subtype: "interrupt",
-      cancelQueued: false,
-    });
-    if (response.subtype === "error") {
-      throw new ClaudeControlRequestRefusedError("interrupt", response.error);
+  get interventionSettlement(): ClaudeInterventionSettlement {
+    return this.#runControls;
+  }
+
+  /** The figures held for the installed build; the model list reads its windows. */
+  get modelFigures(): ClaudeModelFigures {
+    return this.#modelFigures;
+  }
+
+  /** Starts an empty figure store when the daemon reads a build other than the one held. */
+  noteProviderBuild(version: string): void {
+    if (version !== this.#modelFigures.buildVersion) {
+      this.#modelFigures = new ClaudeModelFigures(version);
     }
   }
 
+  /** Stops a run's turn; see {@link ClaudeRunControls.interruptRun}. */
+  async interruptRun(params: InterruptRunParams): Promise<void> {
+    await this.#runControls.interruptRun(params);
+  }
+
+  /** Pauses a lead or helper run from its next step; see {@link ClaudeRunControls.pauseRun}. */
+  pauseRun(params: PauseRunParams): void {
+    this.#runControls.pauseRun(params);
+  }
+
+  /** Continues a paused run; see {@link ClaudeRunControls.resumeRun}. */
+  async resumeRun(params: ResumeRunParams): Promise<void> {
+    await this.#runControls.resumeRun(params);
+  }
+
+  /** Takes back an unread message; see {@link ClaudeRunControls.withdrawQueuedMessage}. */
+  async withdrawQueuedMessage(
+    params: WithdrawQueuedMessageParams,
+  ): Promise<WithdrawQueuedMessageResult> {
+    return await this.#runControls.withdrawQueuedMessage(params);
+  }
+
+  /** Answers a request a run is held on; see {@link ClaudeRunControls.respondToRequest}. */
+  async respondToRequest(params: RespondToRequestParams): Promise<void> {
+    await this.#runControls.respondToRequest(params);
+  }
+
+  /** Answers a choice a run is held on; see {@link ClaudeRunControls.answerProviderChoice}. */
+  async answerProviderChoice(
+    params: AnswerProviderChoiceParams,
+  ): Promise<AnswerProviderChoiceResult> {
+    return await this.#runControls.answerProviderChoice(params);
+  }
+
+  /** Overrules a reviewer's block; see {@link ClaudeRunControls.overrideDenial}. */
+  async overrideDenial(params: OverrideDenialParams): Promise<void> {
+    await this.#runControls.overrideDenial(params);
+  }
+
   /**
-   * Forks the provider conversation at a recorded message, leaving the original and the files on
-   * disk untouched (`--rewind-files` covers only Write/Edit). An `applied` result carries a fresh
-   * `bindingId` for the new provider session; a failed rewind restores the predecessor.
+   * Moves a live session to another permission level from its next request; see
+   * {@link moveClaudePermissionLevel}. Throws with no live session.
    */
-  async forkConversation(params: ForkConversationParams): Promise<ForkConversationResult> {
-    const live = this.#findLiveSession(params.sessionId);
-    if (live === undefined) {
-      // Thrown, not degraded: `degraded` is for a driver that could act and reported a fallback.
-      throw new ClaudeSessionUnavailableError("no_live_session", {
-        sessionId: params.sessionId,
-      });
-    }
-    return await this.#withRewindSlotClaimed(
+  async updatePermissionLevel(params: UpdatePermissionLevelParams): Promise<void> {
+    await moveClaudePermissionLevel(
+      this.#requireLive(params.sessionId),
+      params.level,
+      this.#dependencies.operatingSystem,
+    );
+  }
+
+  /** The permission levels a Claude Code session can run at on this machine. */
+  listModes(): ProviderMode[] {
+    return listClaudeModes(this.#dependencies.operatingSystem);
+  }
+
+  /** Moves a session between Build and Plan; see {@link ClaudeSessionControls}. */
+  async updateSessionMode(params: UpdateSessionModeParams): Promise<void> {
+    await this.#controls.updateSessionMode(this.#requireLive(params.sessionId), params.mode);
+  }
+
+  /** Answers a command typed into the message box itself; see {@link ClaudeSessionControls}. */
+  async answerSessionCommand(params: AnswerSessionCommandParams): Promise<SessionCommandAnswer> {
+    return await this.#controls.answerSessionCommand(
+      this.#requireLive(params.sessionId),
+      params.text,
+    );
+  }
+
+  /** Asks a side question; see {@link ClaudeSessionControls.askSideQuestion}. */
+  async askSideQuestion(params: AskSideQuestionParams): Promise<void> {
+    const live = this.#requireLive(params.sessionId);
+    this.#controls.askSideQuestion(live, params.sideQuestionId, params.question);
+  }
+
+  /** Starts Claude Code's own review; see {@link ClaudeSessionControls.startReview}. */
+  async startReview(params: StartReviewParams): Promise<void> {
+    await this.#controls.startReview(this.#requireLive(params.sessionId), params.target);
+  }
+
+  /** Follows a session's command list; see {@link ClaudeSessionControls}. */
+  subscribeProviderCommands(
+    params: SubscribeProviderCommandsParams,
+    listener: ProviderCommandsListener,
+  ): () => void {
+    return this.#controls.subscribeProviderCommands(params.sessionId, listener);
+  }
+
+  /**
+   * Cuts the live conversation in place to before one of the person's messages; see
+   * {@link ClaudeConversationCuts.rewind}. Throws with no live session.
+   */
+  async rewindConversation(params: RewindConversationParams): Promise<RewindConversationResult> {
+    return await this.#cuts.rewind(this.#requireLive(params.sessionId), params.targetMessageId);
+  }
+
+  /**
+   * Moves the session onto a fork of its provider conversation at a recorded message; the
+   * conversation it left and the files on disk stay untouched. An `applied` move has rewritten
+   * `params.bindingId` to the new provider session; a failed one restores the predecessor.
+   */
+  async moveSessionToFork(params: MoveSessionToForkParams): Promise<MoveSessionToForkResult> {
+    // Thrown, not degraded: `degraded` is for a driver that could act and reported a fallback.
+    const live = this.#requireLive(params.sessionId);
+    return await this.#slots.withRewindSlotClaimed(
       params.sessionId,
       live,
       async () => await this.#establishment.establishRewoundSession(params, live),
     );
   }
 
+  /** Sets or replaces the session's goal; see {@link ClaudeGoalCommands.send}. */
+  async setSessionGoal(params: SetSessionGoalParams): Promise<DriverGoalResult> {
+    const live = this.#requireLive(params.sessionId);
+    return await this.#goals.send(live, this.#handshakes, params.goalText);
+  }
+
+  /** Clears the session's goal; see {@link ClaudeGoalCommands.send}. */
+  async clearSessionGoal(params: ClearSessionGoalParams): Promise<DriverGoalResult> {
+    return await this.#goals.send(this.#requireLive(params.sessionId), this.#handshakes, undefined);
+  }
+
+  /** Moves sessions onto a new build; see {@link ClaudeSessionRestarts.moveToProviderBuild}. */
+  async moveToProviderBuild(change: ProviderBuildChange): Promise<void> {
+    await this.#restarts.moveToProviderBuild(change);
+  }
+
   /**
-   * Triggers a context compaction by sending the provider's `/compact` as a `driver_command`
-   * frame. Refuses `command_absent` unless the binding lists the command, since that origin skips
-   * the tripwire; `applied` needs the typed compaction frame. Throws with no live session.
+   * Deletes Claude Code's own copy of each conversation the session opened, from the home each ran
+   * in; see {@link purgeClaudeConversations}.
+   */
+  async purgeSession(params: PurgeSessionParams): Promise<void> {
+    await purgeClaudeConversations(
+      params,
+      this.#dependencies.spawnContext,
+      this.#dependencies.providerBaseEnvironment,
+      this.#dependencies.operatingSystem.environmentNameMatch,
+    );
+  }
+
+  /**
+   * Triggers a context compaction by sending the provider's `/compact` for Claude Code to run.
+   * Refuses `command_absent` unless the binding lists the command; `applied` needs the typed
+   * compaction frame. Throws with no live session, and `session_turn_in_flight` while a turn holds
+   * the session, since the command runs as a turn of its own.
    */
   async compactContext(params: CompactContextParams): Promise<DriverCompactionResult> {
-    const live = this.#findLiveSession(params.sessionId);
-    if (live === undefined) {
-      throw new ClaudeSessionUnavailableError("no_live_session", {
-        sessionId: params.sessionId,
-      });
-    }
-
+    const live = this.#requireLive(params.sessionId);
     // The held enumeration, matched by stamp: stricter than the composed entries'
     // `(driverName, providerAccountId)` pair, which would refuse every accountless session.
     const held = this.#handshakes.heldHandshakeFor(params.sessionId, live.providerSessionId);
@@ -407,28 +642,18 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
       // No prompt-based fallback: a model summary spends a turn and produces no boundary.
       return { status: "refused", reason: "command_absent" };
     }
-
     return await this.#compactionDispatch.dispatchCompaction(params.sessionId, live.channel);
   }
 
   /**
    * Enumerates the provider's command and skill surface for one binding from the held handshake,
-   * with terminal slash commands carried as `scope: "terminal"`. The cap trims this reply only
-   * (`complete: false` plus a diagnostic); before the handshake it answers empty and complete.
+   * with terminal slash commands carried as `scope: "terminal"`; before the handshake it answers
+   * empty.
    */
   async listProviderCommands(
     params: ListProviderCommandsParams,
   ): Promise<ProviderCommandListResult> {
-    const live = this.#findLiveSession(params.sessionId);
-    if (live === undefined) {
-      throw new ClaudeSessionUnavailableError("no_live_session", {
-        sessionId: params.sessionId,
-      });
-    }
-    const enumeration = this.#handshakes.enumerateProviderCommands(params.sessionId, live);
-    return {
-      bindings: [{ runId: this.#runRoutes.soleLiveRunOn(params.sessionId), ...enumeration }],
-    };
+    return this.#composeCommands(this.#requireLive(params.sessionId));
   }
 
   /**
@@ -438,7 +663,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
    * with a diagnostic; `cooldown` is carried as declared.
    */
   observedOutputSpeedFor(sessionId: SessionId): ProviderOutputSpeedState | undefined {
-    const live = this.#findLiveSession(sessionId);
+    const live = this.#slots.findLiveSession(sessionId);
     if (live === undefined) {
       return undefined;
     }
@@ -452,16 +677,19 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
   async closeSession(params: CloseSessionParams): Promise<void> {
     // Latch first, so every terminal from here, including an in-flight establishment's, is a clean
     // shutdown.
-    this.#intendedCloseGateFor(params.sessionId).signalIntendedClose();
-
+    this.#slots.intendedCloseGateFor(params.sessionId).signalIntendedClose();
+    // A closed session is not brought back by a restart that was waiting.
+    this.#restarts.forgetSession(params.sessionId);
+    this.#controls.forgetSession(params.sessionId);
+    this.#reviewer.forgetSession(params.sessionId);
     // Chains on any in-flight transition and re-reads: the slot may settle as live, empty or
     // quarantined.
     for (;;) {
-      const slot = this.#sessionSlots.get(params.sessionId);
+      const slot = this.#slots.slotFor(params.sessionId);
       // Idempotent: a double close is normal teardown; the latch set above goes so gates do not
       // pile up.
       if (slot === undefined) {
-        this.#terminalEmissionGates.delete(params.sessionId);
+        this.#slots.forgetIntendedCloseGate(params.sessionId);
         return;
       }
       // Exhaustive: a new slot state must decide whether close chains on it or acts on it.
@@ -471,370 +699,136 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
           await slot.settled;
           continue;
         case "live":
-          // Settled and occupied, so this call acts; everything up to the CLOSING write in
-          // `#disposeHeldChannel` is synchronous, so no second closer sees this state.
           // Routes first: a route into a dying process would aim a later interrupt at a dead run.
           this.#runRoutes.retireRunRoutes(params.sessionId);
-          // Not in `retireRunRoutes`: its terminal-path caller has just ruled the tripwire.
-          this.#outboundFrameTripwire.forgetScope(params.sessionId);
-          // Before the await, like the routes: a subagent would wait on a slot in a dying process.
-          slot.session.spawnBoundLegs.subagentAdmission?.dispose();
-          await this.#disposeHeldChannel(params.sessionId, slot.session.channel);
+          this.#runRoutes.forgetSessionBindings(params.sessionId);
+          this.#forgetProcessState(params.sessionId);
+          this.#prompts.forgetSession(params.sessionId);
+          await this.#slots.disposeHeldChannel(params.sessionId, slot.session.channel);
           return;
         case "quarantined":
           // Retry the retained channel, the only handle on a process that would not exit.
-          await this.#disposeHeldChannel(params.sessionId, slot.channel);
+          await this.#slots.disposeHeldChannel(params.sessionId, slot.channel);
           return;
       }
     }
   }
 
-  // Holds the slot as CLOSING for the whole await, so it never reads EMPTY while a process is dying
-  // and a concurrent create cannot spawn a replacement beside it.
-  async #disposeHeldChannel(sessionId: SessionId, channel: ClaudeProviderProcess): Promise<void> {
-    let markSettled = (): void => undefined;
-    const settled = new Promise<void>((resolve) => {
-      markSettled = resolve;
-    });
-    this.#sessionSlots.set(sessionId, { state: "closing", settled });
-    // Pushed at the CLOSING write, before the await, so a waiting caller learns now; every close
-    // path funnels through here.
-    this.#pendingCompactions.releaseBinding(sessionId);
-    try {
-      await channel.dispose("session_closed");
-      // CLOSING -> EMPTY.
-      this.#sessionSlots.delete(sessionId);
-      // The gate dies with its session; a later terminal names a run no slot can settle.
-      this.#terminalEmissionGates.delete(sessionId);
-      // Per-session routing state; a surviving router would answer the next session with a stale
-      // thread registry.
-      this.#routingBands.delete(sessionId);
-      // A live read of a process that has exited; keeping it would be a stale registry.
-      this.#handshakes.forgetHandshake(sessionId);
-    } catch (error) {
-      // CLOSING -> QUARANTINED: nothing else references the still-running process, so keep the
-      // channel.
-      this.#sessionSlots.set(sessionId, { state: "quarantined", channel });
-      throw error;
-    } finally {
-      // After the state write on both paths, so a chainer resuming here sees the settled state.
-      markSettled();
+  /**
+   * Ends every Claude Code process as a deliberate stop while the daemon stops: no restart starts
+   * from here, every session closes as `closeSession` closes it, and the transport ends every
+   * process still running after its bounded wait. Rejects with what failed once all have ended.
+   */
+  async shutdown(): Promise<void> {
+    this.#restarts.stop();
+    const closes = this.#slots
+      .sessionIds()
+      .map(async (sessionId) => await this.closeSession({ sessionId }));
+    await this.#dependencies.transport.stopEveryProcess();
+    const failures = (await Promise.allSettled(closes)).flatMap((outcome) =>
+      outcome.status === "rejected" ? [outcome.reason] : [],
+    );
+    if (failures.length > 0) {
+      throw new AggregateError(failures, "Closing the Claude Code sessions at the stop failed");
     }
   }
 
-  /**
-   * The live channel a run is bound to, or `undefined` when no channel is bound to it. Throws if a
-   * tripwire trip disposed the run's binding.
-   */
+  /** The live channel a run's turn is bound to, or `undefined` when no channel is bound to it. */
   findProcessForRun(runId: RunId): ClaudeProviderProcess | undefined {
-    // Refused, not `undefined`, which would read as "no channel bound" and invite a retry into the
-    // same swallow; the refusal carries the run terminal's code.
-    this.#runtimeBindingQuarantine.assertRunAttachable(runId);
     const sessionId = this.#runRoutes.sessionIdFor(runId);
-    if (sessionId === undefined) {
-      return undefined;
+    return sessionId === undefined ? undefined : this.#slots.findLiveSession(sessionId)?.channel;
+  }
+
+  /** The capabilities the process of a run's session advertised on its newest `system/init`. */
+  advertisedCapabilitiesForRun(runId: RunId): ReadonlySet<string> {
+    const sessionId = this.#runRoutes.sessionIdFor(runId);
+    const live = sessionId === undefined ? undefined : this.#slots.findLiveSession(sessionId);
+    if (sessionId === undefined || live === undefined) {
+      return new Set();
     }
-    return this.#findLiveSession(sessionId)?.channel;
+    const held = this.#handshakes.heldHandshakeFor(sessionId, live.providerSessionId);
+    return new Set(held?.declaration.capabilities ?? []);
   }
 
-  /**
-   * The terminal-emission gate for one session, read live at each terminal because a gate captured
-   * before a close would miss the latch the close sets.
-   */
-  terminalEmissionGateFor(sessionId: SessionId): TerminalEmissionGate {
-    return this.#intendedCloseGateFor(sessionId);
-  }
-
-  /**
-   * The thread-frame router for one session, or `undefined` when it holds no routing band.
-   * Non-creating: a get-or-create accessor would let a call after close resurrect a band.
-   */
-  frameRouterFor(sessionId: SessionId): ThreadFrameRouter<ClaudeRoutableFrame> | undefined {
-    return this.#routingBands.get(sessionId)?.router;
-  }
-
-  /** The usage-delta accountant for one session, or `undefined` when it holds no routing band. */
-  usageAccountantFor(sessionId: SessionId): UsageDeltaAccountant | undefined {
-    return this.#routingBands.get(sessionId)?.accountant;
-  }
-
-  // Builds the session's routing band if it holds none; reached only from `#registerLiveSession`.
-  #ensureRoutingBand(sessionId: SessionId): ClaudeSessionRoutingBand {
-    const existing = this.#routingBands.get(sessionId);
-    if (existing !== undefined) {
-      return existing;
-    }
-    const band: ClaudeSessionRoutingBand = {
-      router: new ThreadFrameRouter<ClaudeRoutableFrame>({
-        provider: "claude",
-        diagnostics: this.#diagnostics,
-        config: CLAUDE_THREAD_FRAME_ROUTER_CONFIG,
-      }),
-      accountant: new UsageDeltaAccountant({
-        provider: "claude",
-        diagnostics: this.#diagnostics,
-      }),
-    };
-    this.#routingBands.set(sessionId, band);
-    return band;
-  }
-
-  // Get-or-create, so the intent latch survives whichever of close and establishment reaches the
-  // session first.
-  #intendedCloseGateFor(sessionId: SessionId): TerminalEmissionGate {
-    const existing = this.#terminalEmissionGates.get(sessionId);
-    if (existing !== undefined) {
-      return existing;
-    }
-    const gate = new TerminalEmissionGate();
-    this.#terminalEmissionGates.set(sessionId, gate);
-    return gate;
-  }
-
-  // Only a live slot yields a session: no run may start in a process that is coming up, going down
-  // or refusing to die.
-  #findLiveSession(sessionId: SessionId): LiveClaudeSession | undefined {
-    const slot = this.#sessionSlots.get(sessionId);
-    return slot?.state === "live" ? slot.session : undefined;
-  }
-
-  #registerLiveSession(
-    live: LiveClaudeSession,
-    initializeFastMode: ClaudeFastModeDeclaration,
-  ): void {
-    // Band, then slot, then listeners: listener registration can deliver a frame re-entrantly,
-    // which needs a band to hold it and a slot for the identity gate to accept the adopted channel.
-    // The previous slot is restored if a listener registration throws.
-    const previousSlot = this.#sessionSlots.get(live.sessionId);
-    const bandExistedBefore = this.#routingBands.has(live.sessionId);
-    const band = this.#ensureRoutingBand(live.sessionId);
-    this.#sessionSlots.set(live.sessionId, { state: "live", session: live });
-    // Discarded where all establishment paths converge, before listeners register: a resume reuses
-    // its predecessor's `providerSessionId`, so a surviving record would match. Not restored on
-    // rollback, since a failed adoption already disposed its source.
-    this.#handshakes.forgetHandshake(live.sessionId);
-    // Before the hooks, so a `system/init` delivered during registration replaces it.
-    this.#handshakes.holdFastMode(live.sessionId, live.providerSessionId, initializeFastMode);
-    try {
-      this.#registerLiveSessionHooks(band, live);
-    } catch (error) {
-      // Restores rather than deletes: the previous value is the caller's `establishing` claim, and
-      // deleting it would publish an EMPTY slot a rewind could not recognize.
-      if (previousSlot === undefined) {
-        this.#sessionSlots.delete(live.sessionId);
-      } else {
-        this.#sessionSlots.set(live.sessionId, previousSlot);
-      }
-      // Only a band this call created is released: a rewind's successor joins the predecessor's
-      // band, and dropping it would zero registers about to be restored.
-      if (!bandExistedBefore) {
-        this.#routingBands.delete(live.sessionId);
-      }
-      throw error;
-    }
-    // Only after a successful registration, so a failed adoption cannot lift a refusal it never
-    // replaced (the quarantine names a binding; a fresh channel now answers for this id).
-    this.#runtimeBindingQuarantine.releaseSession(live.sessionId);
-  }
-
-  // The listener half of registration, separated so the slot rollback has one thing to guard.
-  #registerLiveSessionHooks(band: ClaudeSessionRoutingBand, live: LiveClaudeSession): void {
-    // Claude serializes turns per session, so the route pointing at this session is the run that
-    // just ended. Only routes retire, never the slot.
-    const retireOnTurnTerminal = (terminalFrame: unknown): void => {
-      // Identity-gated: a disposed, quarantined or replaced channel can still fire (the driver
-      // holds no kill), and an ungated listener would retire the routes of the slot's current
-      // session. This also makes the listener a no-op during CLOSING.
-      if (this.#findLiveSession(live.sessionId)?.channel !== live.channel) {
-        return;
-      }
-      // Ruled before retirement: the tripwire is keyed by run id, and retirement empties the map
-      // those ids come from.
-      this.#textNeutralization.ruleTextNeutralizationTripwire(live.sessionId, terminalFrame);
-      // A turn that ended before its handshake reported settles on the state the process holds.
-      this.#handshakes.settleRunOutputSpeed(live.sessionId, live.providerSessionId);
-      this.#runRoutes.retireRunRoutes(live.sessionId);
-    };
-    live.channel.onTurnTerminal(retireOnTurnTerminal);
-    // Identity-gated the same way, and fail-closed: a frame from a channel the daemon has released
-    // must not project.
-    live.channel.onInboundFrame((observation): ThreadFrameRoute => {
-      if (!this.#isChannelCurrentlyBound(live.sessionId, live.channel)) {
-        return {
-          decision: "quarantined",
-          reason:
-            "frame arrived on a channel this session no longer holds; refused rather than " +
-            "projected into whichever session occupies the slot now",
-        };
-      }
-      // The band this registration joined: while the channel is bound, the session's band is this
-      // one, since only a close or a failed registration releases it and both unbind the channel.
-      return this.#frameRouting.observeInboundFrame(
-        band,
-        live.sessionId,
-        live.providerSessionId,
-        observation,
-      );
-    });
-    // Base registers and the session's own thread identity, before any frame can be metered.
-    this.#frameRouting.bindSessionThread(
-      band,
-      live.sessionId,
-      live.providerSessionId,
-      live.establishment,
-    );
-    // Through the accessor `closeSession` uses, so a close signaled during establishment finds its
-    // latch.
-    this.#intendedCloseGateFor(live.sessionId);
-  }
-
-  /**
-   * Whether this channel is bound to this session in any state the session can continue from.
-   * Wider than `#findLiveSession`, for frame routing only: a rewind holds an `establishing` slot
-   * while the predecessor keeps emitting, and refusing those frames would leave a transcript hole.
-   */
-  #isChannelCurrentlyBound(sessionId: SessionId, channel: ClaudeProviderProcess): boolean {
-    const slot = this.#sessionSlots.get(sessionId);
-    if (slot === undefined) {
-      return false;
-    }
-    // Exhaustive: a new state forces a routing decision instead of defaulting to refused.
-    switch (slot.state) {
-      case "live":
-        return slot.session.channel === channel;
-      case "establishing":
-        return slot.channel === channel;
-      case "closing":
-      case "quarantined":
-        return false;
+  /** Records a steer written into a run's turn as its session's newest message. */
+  recordSteerSent(runId: RunId, messageUuid: string): void {
+    const sessionId = this.#runRoutes.sessionIdFor(runId);
+    if (sessionId !== undefined) {
+      this.#prompts.recordSent(sessionId, messageUuid);
     }
   }
 
-  // Names the current holder of a session slot for a refusal detail, or `undefined` when the slot
-  // is free. One predicate, so the two entry points agree on what "taken" means.
-  #describeSlotHolder(sessionId: SessionId): string | undefined {
-    const slot = this.#sessionSlots.get(sessionId);
-    if (slot === undefined) {
-      return undefined;
-    }
-    // Exhaustive over the union: a new state must decide what a racing create sees.
-    switch (slot.state) {
-      case "live":
-        return `A live Claude session is already bound to session ${sessionId};`;
-      case "establishing":
-        return `A create or resume for session ${sessionId} is already in flight;`;
-      case "closing":
-        return `A close for session ${sessionId} is still disposing its Claude process;`;
-      case "quarantined":
-        return (
-          `The Claude process for session ${sessionId} refused to exit and is quarantined ` +
-          `pending a successful close;`
-        );
-    }
-  }
-
-  // Claims the slot synchronously, before `establish` is awaited, so no caller sees a free slot
-  // while it spawns; releases the claim however it settles.
-  async #withSessionSlotClaimed<TEstablished>(
-    sessionId: SessionId,
-    establish: () => Promise<TEstablished>,
-  ): Promise<TEstablished> {
-    const establishment = establish();
-    // Rejection-swallowed: chainers await it only to sequence, and a stored rejecting promise would
-    // go unhandled.
-    const settled = establishment.then(
-      () => undefined,
-      () => undefined,
-    );
-    // No channel: a create or resume starts from EMPTY.
-    this.#sessionSlots.set(sessionId, { state: "establishing", settled, channel: undefined });
-    try {
-      return await establishment;
-    } finally {
-      // A successful establishment has already overwritten the slot; only a failed one is cleared,
-      // and only if the claim is ours.
-      const slot = this.#sessionSlots.get(sessionId);
-      if (slot?.state === "establishing" && slot.settled === settled) {
-        this.#sessionSlots.delete(sessionId);
-      }
-    }
-  }
-
-  /**
-   * Claims a live slot for a rewind and restores the predecessor if it installs no successor.
-   * Unlike `#withSessionSlotClaimed` it must not clear on failure: a rewind starts from live, and
-   * an EMPTY slot for a running process would let the next create spawn a second one.
-   */
-  async #withRewindSlotClaimed(
-    sessionId: SessionId,
-    predecessor: LiveClaudeSession,
-    rewind: () => Promise<ForkConversationResult>,
-  ): Promise<ForkConversationResult> {
-    const rewinding = rewind();
-    const settled = rewinding.then(
-      () => undefined,
-      () => undefined,
-    );
-    // The predecessor's channel stays bound: its process is still up and emitting frames that
-    // belong to this session's transcript.
-    this.#sessionSlots.set(sessionId, {
-      state: "establishing",
-      settled,
-      channel: predecessor.channel,
-    });
-    try {
-      return await rewinding;
-    } finally {
-      // Identity-checked, so a successful rewind or a concurrent close is left alone.
-      const slot = this.#sessionSlots.get(sessionId);
-      if (slot?.state === "establishing" && slot.settled === settled) {
-        this.#sessionSlots.set(sessionId, { state: "live", session: predecessor });
-      }
-    }
-  }
-
-  /**
-   * Tears down the channel a tripwire trip condemned, through `#disposeHeldChannel`. Detached: the
-   * only caller is a channel's synchronous terminal listener, which must not wait on a child's
-   * death; the refusal still holds, since the quarantine entry is installed first.
-   */
-  #disposeQuarantinedSession(sessionId: SessionId): void {
-    // Outside the liveness read: the frames are owed an answer whether or not a channel is left.
-    this.#textNeutralization.ruleAbandonedFramesFailClosed(sessionId);
-    const live = this.#findLiveSession(sessionId);
+  #requireLive(sessionId: SessionId): LiveClaudeSession {
+    const live = this.#slots.findLiveSession(sessionId);
     if (live === undefined) {
+      throw new ClaudeSessionUnavailableError("no_live_session", { sessionId });
+    }
+    return live;
+  }
+
+  #composeCommands(live: LiveClaudeSession): ProviderCommandListResult {
+    const enumeration = this.#handshakes.enumerateProviderCommands(live.sessionId, live);
+    return {
+      bindings: [{ runId: this.#runRoutes.soleLiveRunOn(live.sessionId), ...enumeration }],
+    };
+  }
+
+  // The run a request belongs to: a helper's child run by its id, else the lead run.
+  #runFor(sessionId: SessionId, agentId: string | undefined): ClaudeBoundRun | undefined {
+    if (agentId === undefined) {
+      return this.#runRoutes.leadRunOn(sessionId);
+    }
+    const childRunId = this.#runRoutes.childRunFor(sessionId, agentId);
+    const route = childRunId === undefined ? undefined : this.#runRoutes.childRouteFor(childRunId);
+    return childRunId === undefined || route === undefined
+      ? undefined
+      : { runId: childRunId, bindingId: route.bindingId };
+  }
+
+  // A paused helper's next call is held: its child run is paused.
+  #reportHelperPaused(sessionId: SessionId, agentId: string): void {
+    const childRunId = this.#runRoutes.childRunFor(sessionId, agentId);
+    const route = childRunId === undefined ? undefined : this.#runRoutes.childRouteFor(childRunId);
+    if (childRunId === undefined || route === undefined) {
       return;
     }
-    // A rejected dispose has already moved the slot to `quarantined` with the channel kept for a
-    // later close; rethrowing would be an unhandled rejection out of a terminal listener.
-    void this.#disposeHeldChannel(sessionId, live.channel).catch((cause: unknown) => {
-      this.#diagnostics.emit({
-        provider: "claude",
-        kind: "quarantined_session_dispose_failed",
-        rawWireType: null,
-        dispositionReason: describeFailure(cause),
-        details: { sessionId },
-      });
-    });
+    void this.#dispatch.send(
+      {
+        kind: "run_lifecycle",
+        bindingId: route.bindingId,
+        change: { runId: childRunId, expectedState: "pausing", newState: "paused" },
+      },
+      null,
+    );
   }
 
-  /**
-   * Releases a rewound predecessor once its successor is adopted, before its channel is disposed.
-   * The sweep runs before route retirement, which empties the run routes. Frames fail rather than
-   * drop, so an undelivered run never looks delivered.
-   */
-  #releaseSupersededPredecessor(sessionId: SessionId, predecessor: LiveClaudeSession): void {
-    this.#textNeutralization.failSupersededDeliveries(sessionId);
-    this.#runRoutes.retireRunRoutes(sessionId);
-    // Usually a no-op (the sweep consumed the registrations); the only budget release here.
-    this.#outboundFrameTripwire.forgetScope(sessionId);
+  // Feeds the helper limit from each helper's announcement and end, answering the starts it frees.
+  #observeHelperLifecycle(sessionId: SessionId, emission: SubagentLifecycleEmission): void {
+    if (emission.eventType === "subagent.started") {
+      this.#helpers.helperStarted(
+        sessionId,
+        emission.subagentId,
+        emission.parentToolCallId ?? null,
+      );
+      return;
+    }
+    const live = this.#slots.findLiveSession(sessionId);
+    const released = this.#helpers.helperFinished(sessionId, emission.subagentId);
+    if (live !== undefined) {
+      this.#hookCallbacks.admitHelperStarts(live, released);
+    }
+  }
 
-    // Released after the successor is installed, so every earlier failure path is non-destructive.
-    // A disposal failure does not fail the fork.
-    predecessor.spawnBoundLegs.subagentAdmission?.dispose();
-    // The predecessor is going away, so its armed compaction waits can never see their evidence.
-    // None exist for the successor: this method holds the rewind slot claim, and `compactContext`
-    // needs a settled live slot.
-    this.#pendingCompactions.releaseBinding(sessionId);
+  // What the daemon held for a process that is gone: its pauses, helper holds and helper routes,
+  // the stream's readings, the requests and choices it held and the command waiting on it.
+  #forgetProcessState(sessionId: SessionId): void {
+    this.#pauses.forgetSession(sessionId);
+    this.#helpers.forgetSession(sessionId);
+    this.#runRoutes.retireChildRoutes(sessionId);
+    this.#stream.forgetSession(sessionId);
+    this.#dialogs.forgetSession(sessionId);
+    this.#requests.forgetSession(sessionId);
+    this.#goals.forgetSession(sessionId);
+    this.#controls.forgetProcess(sessionId);
   }
 }

@@ -7,7 +7,7 @@
 // the two cannot disagree.
 import { z } from "zod";
 
-import { AgentTreeMemberSchema, type AgentTreeMember } from "../agent/methods.js";
+import { AgentTreeMemberSchema, type AgentTreeMember } from "../agent/tree.js";
 import {
   BillingModeSchema,
   ProviderAccountIdSchema,

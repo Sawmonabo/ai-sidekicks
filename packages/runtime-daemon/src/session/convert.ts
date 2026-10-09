@@ -52,6 +52,7 @@ import {
 } from "./changes.js";
 import { sessionLifecycleEvent } from "./lifecycle-event.js";
 import { sessionNotFound } from "./not-found.js";
+import { describeRejection } from "../rejection.js";
 
 // The workspace's own repository is the daemon's record of the chat, never one of its files.
 const GIT_METADATA_ENTRY_NAME = ".git";
@@ -428,7 +429,7 @@ export class SessionConversion {
       } catch (error) {
         this.#writeServiceLog(
           `Removing the copy session ${sessionId}'s stopped conversion left failed: ` +
-            `${error instanceof Error ? error.message : String(error)}`,
+            `${describeRejection(error)}`,
         );
       }
     }
