@@ -8,5 +8,6 @@ mod merge_policy;
 mod opening;
 mod pruning;
 mod purge;
+mod read_caches;
 mod seeded_set;
 mod support;

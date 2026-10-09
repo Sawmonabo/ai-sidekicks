@@ -8,16 +8,21 @@
 //!   idle until no merge remains: the rebuild's time and peak footprint, each merge's time.
 //! - `steady_batches` applies small batches of new messages: each commit's time and the peak.
 //! - `searches` times the probe queries' first and next pages, prefixes of five or more
-//!   characters, tag searches with and without words and the find box on the largest session,
-//!   with the footprint before and after the run, and with positioned reads the bytes each
-//!   search's read cache holds after its two pages and the bytes its cap kept out, with the 95th
-//!   percentile and the largest of their sum, the search's working set.
+//!   characters and tag searches with and without words, with the footprint before and after the
+//!   run, and with positioned reads the bytes each search's read cache holds after its two pages
+//!   and the bytes its cap kept out, with the 95th percentile and the largest of their sum, the
+//!   search's working set.
+//! - `finds` times the find box on the largest session, the add-on's own share of a transcript
+//!   search, for a typed letter, a typed word, a mid word and two words, with the rows and the
+//!   matches each finds.
 //! - `visibility` times a one-row `apply` until a search opened afterward finds the row, then
 //!   reads every probe's two pages on the version the write made: their working sets' 95th
 //!   percentile and largest, and the two pages' time.
 //! - `held_searches` holds 16 searches at once, each after its two pages: two words typed a letter
 //!   at a time, then the other probes with the largest working sets. It reports what their read
-//!   caches hold in all and the footprint before, while and after they are held.
+//!   caches hold in all and the footprint before, while and after they are held, and times each
+//!   search's two pages again, least recently paged first, whether its read cache was emptied to
+//!   keep the caches within their bound or kept, then once more with it filled.
 //! - `purge_and_merge` purges the largest session, times the counts a search reads after it, and
 //!   merges until the purge is expunged. It changes the index, so it runs last.
 //!
@@ -402,8 +407,7 @@ fn probes() -> Vec<Probe> {
 // them, the two pages' times and how many sessions they showed.
 fn time_pages(engine: &IndexEngine, probe: &Probe) -> (SearchView, f64, f64, usize) {
     let started = Instant::now();
-    let version = engine.current_version();
-    let mut view = SearchView::open(version, probe.query.as_ref(), probe.tag_folds.clone())
+    let mut view = SearchView::open(engine, probe.query.as_ref(), probe.tag_folds.clone())
         .expect("the search opens");
     let first = view
         .sessions_at(0, PAGE_SESSIONS)
@@ -417,6 +421,18 @@ fn time_pages(engine: &IndexEngine, probe: &Probe) -> (SearchView, f64, f64, usi
     view.hits_of(&next).expect("the next page's hits read");
     let next_page = elapsed_milliseconds(started);
     (view, first_page, next_page, first.len() + next.len())
+}
+
+// A held view's first two pages again, their hits read through its read cache.
+fn time_pages_again(view: &mut SearchView) -> f64 {
+    let started = Instant::now();
+    for from in [0, PAGE_SESSIONS] {
+        let sessions = view
+            .sessions_at(from, PAGE_SESSIONS)
+            .expect("the page ranks");
+        view.hits_of(&sessions).expect("the page's hits read");
+    }
+    elapsed_milliseconds(started)
 }
 
 #[test]
@@ -458,30 +474,41 @@ fn searches() {
         "a search's read cache after its two pages, held and kept out: {}",
         working_sets(read_working_sets)
     ));
-    let lo = query(&["lo"], false);
-    let version = engine.current_version();
-    let mut times = Vec::new();
-    let mut matches = 0;
-    for _ in 0..=settings.runs {
-        let started = Instant::now();
-        let found = find_in_session(&version, LARGEST_SESSION, &lo).expect("the session finds");
-        times.push(elapsed_milliseconds(started));
-        matches = found
-            .match_counts
-            .iter()
-            .map(|count| u64::from(*count))
-            .sum();
-    }
-    times.remove(0);
-    let find_times = percentiles(times);
-    report(format!(
-        "find \"lo\" in the largest session: {find_times}, {matches} matches"
-    ));
-    drop(version);
     report(format!(
         "after the searches, every view released: {}",
         footprint()
     ));
+}
+
+#[test]
+#[ignore = "a measurement, run on demand"]
+fn finds() {
+    let settings = Settings::from_environment();
+    let engine = settings.open();
+    let version = engine.current_version();
+    for words in [&["l"][..], &["lopek"], &["blemi"], &["lo", "kalo"]] {
+        let search = query(words, true);
+        let mut times = Vec::new();
+        let mut rows = 0;
+        let mut matches = 0;
+        for _ in 0..=settings.runs {
+            let started = Instant::now();
+            let found = find_in_session(&version, LARGEST_SESSION, &search).expect("finds");
+            times.push(elapsed_milliseconds(started));
+            rows = found.row_keys.len();
+            matches = found
+                .match_counts
+                .iter()
+                .map(|count| u64::from(*count))
+                .sum::<u64>();
+        }
+        times.remove(0);
+        report(format!(
+            "find {:?} in the largest session: {}, {rows} rows, {matches} matches",
+            words.join(" "),
+            percentiles(times)
+        ));
+    }
 }
 
 #[test]
@@ -504,8 +531,8 @@ fn visibility() {
             .apply(&batch(outbox_id, vec![row]))
             .expect("the row applies");
         let search = query(&[word.as_str()], false);
-        let mut view = SearchView::open(engine.current_version(), Some(&search), Vec::new())
-            .expect("the search opens");
+        let mut view =
+            SearchView::open(&engine, Some(&search), Vec::new()).expect("the search opens");
         let sessions = view.sessions_at(0, 1).expect("the search ranks");
         times.push(elapsed_milliseconds(started));
         assert_eq!(sessions, vec![1], "the new row is found");
@@ -565,22 +592,64 @@ fn held_searches() {
         footprint()
     ));
     let mut views = Vec::new();
-    let (mut held_in_all, mut refused_in_all) = (0.0, 0.0);
-    for probe in &held_probes {
-        let (view, ..) = time_pages(&engine, probe);
-        let (held, refused) = read_cache_mebibytes(&view);
-        report(format!(
-            "held \"{}\": read cache {held:.1} MiB held, {refused:.1} MiB kept out",
-            probe.name
-        ));
-        held_in_all += held;
-        refused_in_all += refused;
-        views.push(view);
-    }
+    let mut held_after_pages = Vec::new();
+    let refused_in_all: f64 = held_probes
+        .iter()
+        .map(|probe| {
+            let (view, ..) = time_pages(&engine, probe);
+            let (held, refused) = read_cache_mebibytes(&view);
+            report(format!(
+                "held \"{}\": read cache {held:.1} MiB held after its pages, {refused:.1} MiB \
+                 kept out",
+                probe.name
+            ));
+            views.push(view);
+            held_after_pages.push(held);
+            refused
+        })
+        .sum();
     report(format!(
-        "{} searches held: read caches hold {held_in_all:.1} MiB in all, {refused_in_all:.1} MiB \
-         kept out, {}",
+        "{} searches held: read caches hold {:.1} MiB in all, {:.1} MiB when each was paged, \
+         {refused_in_all:.1} MiB kept out, {}",
         views.len(),
+        engine.read_caches().held_bytes() as f64 / MEBIBYTE,
+        held_after_pages.iter().sum::<f64>(),
+        footprint()
+    ));
+    // Each held search's two pages again, least recently paged first: a search whose cache was
+    // emptied reads its ranges from the files again, then pages once more with its cache filled.
+    let (mut emptied, mut kept, mut filled) = (Vec::new(), Vec::new(), Vec::new());
+    for ((probe, view), held_after) in held_probes.iter().zip(&mut views).zip(held_after_pages) {
+        let was_emptied = held_after > 0.0 && read_cache_mebibytes(view).0 == 0.0;
+        let again = time_pages_again(view);
+        let once_more = time_pages_again(view);
+        filled.push(once_more);
+        report(format!(
+            "\"{}\" paged again, its read cache {}: {again:.2} ms; once more, filled: \
+             {once_more:.2} ms",
+            probe.name,
+            if was_emptied { "emptied" } else { "kept" }
+        ));
+        if was_emptied {
+            emptied.push(again);
+        } else {
+            kept.push(again);
+        }
+    }
+    let spread = |times: Vec<f64>| {
+        if times.is_empty() {
+            "none".to_string()
+        } else {
+            percentiles(times)
+        }
+    };
+    report(format!(
+        "paged again: with the read cache emptied {}; kept {}; once more, filled {}; read caches \
+         hold {:.1} MiB in all, {}",
+        spread(emptied),
+        spread(kept),
+        spread(filled),
+        engine.read_caches().held_bytes() as f64 / MEBIBYTE,
         footprint()
     ));
     drop(views);
@@ -598,8 +667,7 @@ fn purge_and_merge() {
     let lo = typed("lo", &["lo"]);
     let time_counts = |when: &str| {
         let started = Instant::now();
-        SearchView::open(engine.current_version(), lo.query.as_ref(), Vec::new())
-            .expect("the search opens");
+        SearchView::open(&engine, lo.query.as_ref(), Vec::new()).expect("the search opens");
         let counting = elapsed_milliseconds(started);
         let (_, first_page, ..) = time_pages(&engine, &lo);
         report(format!(

@@ -93,12 +93,12 @@ export class TranscriptSearchService {
     const firstReadablePlace = placeBefore(damagedFromSequence);
     const firstPlace = Math.max(firstReadablePlace, placeBefore(beforeSequence));
     const matchCount = matchCounts
-      .slice(firstReadablePlace)
+      .subarray(firstReadablePlace)
       .reduce((total, rowMatchCount) => total + rowMatchCount, 0);
     const limit = request.limit ?? TRANSCRIPT_READ_LIMIT_MAX;
     // One candidate past the limit shows whether more remain.
     const candidates = this.#hitLines
-      .readLines(rowKeys.slice(firstPlace), searchQuery, limit + 1)
+      .readLines(rowKeys.subarray(firstPlace), searchQuery, limit + 1)
       .flatMap(({ row, marked }): TranscriptSearchHit[] =>
         row.logRow === undefined
           ? []
@@ -128,14 +128,20 @@ export class TranscriptSearchService {
     if (isHeldRow === undefined) {
       return found;
     }
-    const held: SessionFind = { rowKeys: [], matchCounts: [] };
+    const rowKeys = new Float64Array(found.rowKeys.length);
+    const matchCounts = new Uint32Array(found.matchCounts.length);
+    let heldCount = 0;
     found.rowKeys.forEach((key, place) => {
       if (isHeldRow(key)) {
-        held.rowKeys.push(key);
-        held.matchCounts.push(found.matchCounts[place] ?? 0);
+        rowKeys[heldCount] = key;
+        matchCounts[heldCount] = found.matchCounts[place] ?? 0;
+        heldCount += 1;
       }
     });
-    return held;
+    return {
+      rowKeys: rowKeys.subarray(0, heldCount),
+      matchCounts: matchCounts.subarray(0, heldCount),
+    };
   }
 
   // The highest key a row of the session before `beforeSequence` can have; -1 when it has none.
@@ -146,7 +152,7 @@ export class TranscriptSearchService {
 }
 
 // The first place in `rowKeys`, highest first, whose key is at most `highestKey`.
-function firstPlaceAtOrBelow(rowKeys: readonly number[], highestKey: number): number {
+function firstPlaceAtOrBelow(rowKeys: Float64Array, highestKey: number): number {
   let low = 0;
   let high = rowKeys.length;
   while (low < high) {

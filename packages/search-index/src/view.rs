@@ -7,7 +7,8 @@ use crate::SearchQuery;
 use crate::collector::{
     FULL_PASS_BELOW, PreparedQuery, ScoredSessions, SessionSet, score_every_session, top_sessions,
 };
-use crate::directory::ReadCache;
+use crate::directory::{ReadCache, ReadCaches};
+use crate::engine::IndexEngine;
 use crate::phrase::query_phrases;
 use crate::tags::TaggedSessions;
 use crate::version::IndexVersion;
@@ -50,15 +51,16 @@ enum SessionOrder {
 }
 
 impl SearchView {
-    /// Prepares the search against `version`, its phrase counts and tagged sessions read now. With
-    /// `tag_folds`, only the sessions carrying each tag or one nested under it count: ranked by
-    /// `query` when it is given, most recently active first when it is not.
+    /// Prepares the search against `engine`'s current version, its phrase counts and tagged
+    /// sessions read now. With `tag_folds`, only the sessions carrying each tag or one nested under
+    /// it count: ranked by `query` when it is given, most recently active first when it is not.
     pub fn open(
-        version: Arc<IndexVersion>,
+        engine: &IndexEngine,
         query: Option<&SearchQuery>,
         tag_folds: Vec<String>,
     ) -> tantivy::Result<SearchView> {
-        let read_cache = Arc::new(ReadCache::default());
+        let version = engine.current_version();
+        let read_cache = Arc::new(ReadCaches::open_cache(engine.read_caches()));
         let _reading = ReadCache::enter(&read_cache);
         let tags = if tag_folds.is_empty() {
             None

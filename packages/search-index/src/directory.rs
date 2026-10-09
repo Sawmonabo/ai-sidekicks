@@ -8,7 +8,9 @@ use std::io::{self, BufWriter, Write};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+
+use lru::LruCache;
 
 #[cfg(target_os = "macos")]
 use tantivy::directory::MmapDirectory;
@@ -273,26 +275,116 @@ fn read_exactly_at(file: &File, mut buffer: &mut [u8], mut offset: u64) -> io::R
 type RangeKey = (u64, usize, usize);
 
 // The most bytes one search's read cache holds; a range read past it is read again when asked.
-const READ_CACHE_BYTES_MAX: usize = 16 * 1024 * 1024;
+const SEARCH_READ_CACHE_BYTES_MAX: usize = 16 * 1024 * 1024;
+// The most bytes the read caches of every held search hold together.
+const READ_CACHES_BYTES_MAX: usize = 32 * 1024 * 1024;
 
-/// The byte ranges one search has read with positioned reads, so a posting list it reads again
-/// (counting, ranking, then a page's hits) is copied out of its file once, up to a byte cap.
-/// Freed with the search.
+/// The read caches of one index's held searches: the byte ranges each search has read with
+/// positioned reads, so a posting list it reads again (counting, ranking, then a page's hits) is
+/// copied out of its file once. A search's cache holds at most 16 MiB and every search's together
+/// 32 MiB; past that, the cache of the search paged least recently is emptied first, and it fills
+/// again as that search pages.
 #[derive(Debug, Default)]
-pub struct ReadCache {
-    ranges: Mutex<CachedRanges>,
+pub struct ReadCaches {
+    held: Mutex<HeldRanges>,
+}
+
+#[derive(Debug)]
+struct HeldRanges {
+    // Each search's ranges, by the search's id, least recently paged first.
+    by_search: LruCache<u64, CachedRanges>,
+    bytes: usize,
+    next_search: u64,
+}
+
+impl Default for HeldRanges {
+    fn default() -> HeldRanges {
+        HeldRanges {
+            by_search: LruCache::unbounded(),
+            bytes: 0,
+            next_search: 0,
+        }
+    }
 }
 
 #[derive(Debug, Default)]
 struct CachedRanges {
     by_key: HashMap<RangeKey, OwnedBytes>,
     bytes: usize,
-    // The ranges the cap kept out, each counted once, so a measurement reads the search's whole
-    // working set.
+    // The ranges the search's cap kept out, each counted once, so a measurement reads the search's
+    // whole working set.
     #[cfg(all(test, feature = "measurements"))]
     refused: std::collections::HashSet<RangeKey>,
     #[cfg(all(test, feature = "measurements"))]
     refused_bytes: usize,
+}
+
+impl ReadCaches {
+    /// A new search's read cache, empty; its ranges leave the caches when it drops.
+    pub fn open_cache(caches: &Arc<ReadCaches>) -> ReadCache {
+        let mut held = caches.held.lock().unwrap_or_else(PoisonError::into_inner);
+        held.next_search += 1;
+        ReadCache {
+            search: held.next_search,
+            caches: caches.clone(),
+        }
+    }
+
+    fn lock(&self) -> MutexGuard<'_, HeldRanges> {
+        self.held.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    // Keeps `bytes` in `search`'s cache unless that passes its cap, emptying the caches of the
+    // searches paged least recently until every cache's bytes fit; returns the emptied caches, to
+    // be freed once the lock is let go.
+    fn store(&self, search: u64, key: RangeKey, bytes: &OwnedBytes) -> Vec<CachedRanges> {
+        let mut held = self.lock();
+        let held = &mut *held;
+        let search_bytes = match held.by_search.peek(&search) {
+            Some(ranges) if ranges.by_key.contains_key(&key) => return Vec::new(),
+            Some(ranges) => ranges.bytes,
+            None => 0,
+        };
+        if search_bytes + bytes.len() > SEARCH_READ_CACHE_BYTES_MAX {
+            #[cfg(all(test, feature = "measurements"))]
+            {
+                let ranges = held
+                    .by_search
+                    .get_or_insert_mut(search, CachedRanges::default);
+                if ranges.refused.insert(key) {
+                    ranges.refused_bytes += bytes.len();
+                }
+            }
+            return Vec::new();
+        }
+        let mut emptied = Vec::new();
+        while held.bytes + bytes.len() > READ_CACHES_BYTES_MAX
+            && let Some((_, ranges)) = held.by_search.pop_lru()
+        {
+            held.bytes -= ranges.bytes;
+            emptied.push(ranges);
+        }
+        let ranges = held
+            .by_search
+            .get_or_insert_mut(search, CachedRanges::default);
+        ranges.by_key.insert(key, bytes.clone());
+        ranges.bytes += bytes.len();
+        held.bytes += bytes.len();
+        emptied
+    }
+
+    /// The bytes every search's read cache holds.
+    #[cfg(all(test, feature = "measurements"))]
+    pub(crate) fn held_bytes(&self) -> usize {
+        self.lock().bytes
+    }
+}
+
+/// One search's read cache in its index's `ReadCaches`, emptied when the search drops it.
+#[derive(Debug)]
+pub struct ReadCache {
+    search: u64,
+    caches: Arc<ReadCaches>,
 }
 
 thread_local! {
@@ -300,8 +392,14 @@ thread_local! {
 }
 
 impl ReadCache {
-    /// Routes this thread's positioned reads through `cache` until the returned guard drops.
+    /// Routes this thread's positioned reads through `cache` until the returned guard drops, the
+    /// search's cache now the one paged most recently.
     pub fn enter(cache: &Arc<ReadCache>) -> ReadCacheGuard {
+        cache
+            .caches
+            .lock()
+            .by_search
+            .get_or_insert_mut(cache.search, CachedRanges::default);
         let previous = CURRENT_READ_CACHE.with(|current| current.replace(Some(cache.clone())));
         ReadCacheGuard { previous }
     }
@@ -309,36 +407,48 @@ impl ReadCache {
     fn lookup(key: RangeKey) -> Option<OwnedBytes> {
         CURRENT_READ_CACHE.with(|current| {
             let current = current.borrow();
-            let ranges = current
-                .as_ref()?
-                .ranges
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner);
-            ranges.by_key.get(&key).cloned()
+            let cache = current.as_ref()?;
+            let held = cache.caches.lock();
+            held.by_search
+                .peek(&cache.search)?
+                .by_key
+                .get(&key)
+                .cloned()
         })
     }
 
     fn store(key: RangeKey, bytes: &OwnedBytes) {
-        CURRENT_READ_CACHE.with(|current| {
-            if let Some(cache) = current.borrow().as_ref() {
-                let mut ranges = cache.ranges.lock().unwrap_or_else(PoisonError::into_inner);
-                if ranges.bytes + bytes.len() > READ_CACHE_BYTES_MAX {
-                    #[cfg(all(test, feature = "measurements"))]
-                    if ranges.refused.insert(key) {
-                        ranges.refused_bytes += bytes.len();
-                    }
-                } else if ranges.by_key.insert(key, bytes.clone()).is_none() {
-                    ranges.bytes += bytes.len();
-                }
-            }
+        let emptied = CURRENT_READ_CACHE.with(|current| {
+            current
+                .borrow()
+                .as_ref()
+                .map(|cache| cache.caches.store(cache.search, key, bytes))
         });
+        drop(emptied);
     }
 
-    /// The bytes the cache holds, and the bytes of the ranges its cap kept out.
+    /// The bytes this search's cache holds, and the bytes of the ranges its cap kept out.
     #[cfg(all(test, feature = "measurements"))]
     pub(crate) fn held_and_refused_bytes(&self) -> (usize, usize) {
-        let ranges = self.ranges.lock().unwrap_or_else(PoisonError::into_inner);
-        (ranges.bytes, ranges.refused_bytes)
+        self.caches
+            .lock()
+            .by_search
+            .peek(&self.search)
+            .map_or((0, 0), |ranges| (ranges.bytes, ranges.refused_bytes))
+    }
+}
+
+impl Drop for ReadCache {
+    fn drop(&mut self) {
+        let emptied = {
+            let mut held = self.caches.lock();
+            let ranges = held.by_search.pop(&self.search);
+            if let Some(ranges) = &ranges {
+                held.bytes -= ranges.bytes;
+            }
+            ranges
+        };
+        drop(emptied);
     }
 }
 

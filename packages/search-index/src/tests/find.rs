@@ -77,7 +77,7 @@ fn find_counts_equal_the_marks_on_every_row() {
         let counted: Vec<(u64, u32)> = found
             .row_keys
             .iter()
-            .zip(&found.match_counts)
+            .zip(found.match_counts.iter())
             .map(|(key, count)| (*key as u64, *count))
             .collect();
         assert_eq!(counted, expected, "{:?}", query.words);

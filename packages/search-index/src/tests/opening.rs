@@ -21,8 +21,7 @@ fn the_memory_mapped_index_answers_before_and_after_a_reopen() {
     };
     let sessions = |engine: &IndexEngine| -> Vec<u64> {
         let words = query(&["mapped"], false);
-        let mut view =
-            SearchView::open(engine.current_version(), Some(&words), Vec::new()).expect("opens");
+        let mut view = SearchView::open(engine, Some(&words), Vec::new()).expect("opens");
         view.sessions_at(0, 10).expect("ranks")
     };
     {

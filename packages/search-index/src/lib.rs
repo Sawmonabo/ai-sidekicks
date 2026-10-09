@@ -21,7 +21,9 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::Path;
 use std::sync::Arc;
 
-use napi::bindgen_prelude::{AsyncTask, Env, Error, Result, Status, Task, panic_to_error};
+use napi::bindgen_prelude::{
+    AsyncTask, Env, Error, Float64Array, Result, Status, Task, Uint32Array, panic_to_error,
+};
 use napi_derive::napi;
 use tantivy::TantivyError;
 
@@ -131,13 +133,16 @@ pub struct SearchIndexOptions {
     pub writer_memory_bytes: i64,
 }
 
-/// One session's matching log rows, for the find box.
+/// One session's matching log rows, for the find box. Both lists are typed arrays over the
+/// add-on's own memory, handed over without a copy, since a short prefix can match most of a
+/// session's hundreds of thousands of rows.
 #[napi(object, object_from_js = false)]
 pub struct SessionFind {
-    /// The session's matching `event` rows' keys, newest (highest key) first.
-    pub row_keys: Vec<i64>,
+    /// The session's matching `event` rows' keys, newest (highest key) first; every key is below
+    /// 2^53, so each is exact.
+    pub row_keys: Float64Array,
     /// Each row's match count, in `rowKeys` order, counted as `markMatches` marks the row.
-    pub match_counts: Vec<u32>,
+    pub match_counts: Uint32Array,
 }
 
 fn failure(error: TantivyError) -> Error {
@@ -305,8 +310,7 @@ impl SearchIndex {
         tag_folds: Vec<String>,
         query: Option<SearchQuery>,
     ) -> Result<HeldSearch> {
-        let version = self.engine()?.current_version();
-        let view = SearchView::open(version, query.as_ref(), tag_folds).map_err(failure)?;
+        let view = SearchView::open(self.engine()?, query.as_ref(), tag_folds).map_err(failure)?;
         Ok(HeldSearch { view: Some(view) })
     }
 

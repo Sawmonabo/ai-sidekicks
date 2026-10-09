@@ -16,6 +16,9 @@ export interface HitLine {
   readonly marked: MarkedLine;
 }
 
+// Hits' keys in the order they show: a list, or the typed array a session's find returns.
+type HitKeys = readonly number[] | Float64Array;
+
 // Where a search matches a row's current text, in order; none once the text holds no match.
 type MatchMarker = (row: SourceRow) => readonly SearchMatchRange[];
 
@@ -41,7 +44,7 @@ export class HitLineReader {
    * words, marked as the index marks them, in the keys' order. Rows are read only as far as that
    * takes.
    */
-  readLines(keys: readonly number[], query: SearchQuery, count: number): HitLine[] {
+  readLines(keys: HitKeys, query: SearchQuery, count: number): HitLine[] {
     return this.#readMarkedLines(keys, (row) => this.#index.markMatches(row.text, query), count);
   }
 
@@ -50,11 +53,11 @@ export class HitLineReader {
    * still matches, in the keys' order: each tag marked through as many levels as the longest
    * queried tag it is or is nested under has.
    */
-  readTagLines(keys: readonly number[], tagFolds: readonly string[], count: number): HitLine[] {
+  readTagLines(keys: HitKeys, tagFolds: readonly string[], count: number): HitLine[] {
     return this.#readMarkedLines(keys, (row) => tagMatchRanges(row, tagFolds), count);
   }
 
-  #readMarkedLines(keys: readonly number[], marker: MatchMarker, count: number): HitLine[] {
+  #readMarkedLines(keys: HitKeys, marker: MatchMarker, count: number): HitLine[] {
     const lines: HitLine[] = [];
     let next = 0;
     while (lines.length < count && next < keys.length) {

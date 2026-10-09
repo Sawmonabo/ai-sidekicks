@@ -180,7 +180,7 @@ export class IndexRowReader {
    * The rows at these keys as the database holds them now, by key. A key whose row is gone, or no
    * longer holds text, has none.
    */
-  readRows(keys: readonly number[]): Map<number, SourceRow> {
+  readRows(keys: Iterable<number>): Map<number, SourceRow> {
     const rowidsByKind = new Map<IndexRowKind, number[]>();
     for (const key of keys) {
       const kind = indexRowKindOf(key);

@@ -1,6 +1,7 @@
 //! One session's matching log rows with every match counted, and the matched stretches of one
 //! text, both by the index's own tokens so a row's count is the number of stretches marked in it.
 
+use napi::bindgen_prelude::{Float64Array, Uint32Array};
 use tantivy::TERMINATED;
 use tantivy::schema::IndexRecordOption;
 
@@ -63,9 +64,10 @@ pub fn find_in_session(
         }
     }
     found.sort_unstable_by_key(|(key, _)| std::cmp::Reverse(*key));
+    // Keys are held below 2^53 (`MAX_KEY`), so each converts to an f64 exactly.
     Ok(SessionFind {
-        row_keys: found.iter().map(|(key, _)| *key as i64).collect(),
-        match_counts: found.iter().map(|(_, count)| *count).collect(),
+        row_keys: Float64Array::new(found.iter().map(|(key, _)| *key as f64).collect()),
+        match_counts: Uint32Array::new(found.iter().map(|(_, count)| *count).collect()),
     })
 }
 

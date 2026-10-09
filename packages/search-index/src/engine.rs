@@ -16,7 +16,7 @@ use tantivy::{
     SegmentMeta, TantivyError,
 };
 
-use crate::directory::{FolderDirectory, ReadMode};
+use crate::directory::{FolderDirectory, ReadCaches, ReadMode};
 use crate::membership::GroupMembership;
 use crate::merge_policy::{CappedMergePolicy, SEGMENT_ROW_CAP};
 use crate::schema::{
@@ -89,6 +89,7 @@ pub struct IndexEngine {
     // order with the members of their own commit; `None` once closed.
     writing: Mutex<Option<Writing>>,
     version: RwLock<Arc<IndexVersion>>,
+    read_caches: Arc<ReadCaches>,
 }
 
 impl IndexEngine {
@@ -169,6 +170,7 @@ impl IndexEngine {
                 running_merges: 0,
             })),
             version: RwLock::new(Arc::new(version)),
+            read_caches: Arc::default(),
         })
     }
 
@@ -178,6 +180,11 @@ impl IndexEngine {
             .read()
             .unwrap_or_else(PoisonError::into_inner)
             .clone()
+    }
+
+    /// The read caches of the searches held on this index, bounded together.
+    pub fn read_caches(&self) -> &Arc<ReadCaches> {
+        &self.read_caches
     }
 
     fn publish(&self, version: IndexVersion) {
