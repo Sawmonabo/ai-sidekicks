@@ -3,7 +3,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import type { TranscriptReadResponse } from "@ai-sidekicks/contracts/transcript/operations";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 import { TranscriptReadResponseSchema } from "@ai-sidekicks/contracts/transcript/operations";

@@ -1,9 +1,15 @@
-// The event cursor's codec: a position in a session's event log written as an `EventCursor` and
-// read back, and the error for a cursor that names no position. The cursor's brand and schema sit
-// with the session's ids; this module builds no schema, so code that only reads and writes
-// cursors loads no schema library.
+// The event cursor: its type and bound, the codec that writes a position in a session's event log
+// as a cursor and reads it back, and the error for a cursor that names no position. Its schema sits
+// with the session's ids; this module builds none, so code that only reads and writes cursors
+// loads no schema library.
 
-import type { EventCursor } from "./id.js";
+/** The longest event cursor accepted; a guard against pathological lengths. */
+export const EVENT_CURSOR_MAX_LEN = 256;
+/**
+ * An opaque position in a session's event log, passed through unchanged. Its format belongs to
+ * the daemon, which writes it with {@link encodeEventCursor}.
+ */
+export type EventCursor = string & { readonly __brand: "EventCursor" };
 
 /** Type of {@link EVENT_CURSOR_UNRESOLVABLE_CODE}. */
 export type EventCursorUnresolvableCode = "event.cursor_unresolvable";

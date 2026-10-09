@@ -2,7 +2,8 @@
 // with no socket or external state. Covers ascending catch-up with `afterCursor` resume, restore
 // from the daemon's state rather than a client cache, and the abort-signal races.
 
-import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import type { SessionEvent } from "@ai-sidekicks/contracts/event/variant-types";
 import { SUBSCRIPTION_CANCEL_METHOD } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 import { describe, expect, it, vi } from "vitest";

@@ -74,11 +74,17 @@ const keptPathNames = new Set<string>();
 const config: RolldownOptions = {
   input: Object.fromEntries(ENTRY_PATHS.map((entry) => [buildNameOf(entry), entry])),
   platform: "node",
+  // With a group that leaves a module's imports out of its chunk, an entry must be free to gain
+  // exports and modules must run in source order, or rolldown can write invalid chunks.
+  preserveEntrySignatures: "allow-extension",
   external: (id) => INSTALLED_PACKAGES.some((name) => id === name || id.startsWith(`${name}/`)),
   output: {
     dir: path.join(import.meta.dirname, "dist"),
     format: "esm",
     sourcemap: true,
+    // Each module's body runs in source order whichever chunk holds it, so a module whose chunk
+    // leaves its imports out still runs after them.
+    strictExecutionOrder: true,
     entryFileNames: "[name].js",
     chunkFileNames: (chunk) =>
       keptPathNames.has(chunk.name) ? "[name].js" : "chunks/[name]-[hash].js",

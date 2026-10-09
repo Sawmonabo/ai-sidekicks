@@ -25,7 +25,7 @@ import {
   closeDatabaseConnections,
   openDatabaseConnections,
   type DatabaseConnections,
-} from "../../database/connections.js";
+} from "../../database/connection/lifecycle.js";
 import { EventLogService } from "../../events/log-service.js";
 import { SessionNotFoundError } from "../../ipc/session-errors.js";
 import { directoryStatementsFor } from "../directory/row.js";

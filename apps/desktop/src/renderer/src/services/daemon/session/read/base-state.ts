@@ -4,7 +4,7 @@
 // is relayed as the daemon issued it and never read for a sequence: the store learns that from
 // the first event the stream delivers after it.
 
-import type { EventCursor } from "@ai-sidekicks/contracts/session/id";
+import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import type { SessionReadResponse } from "@ai-sidekicks/contracts/session/methods";
 
 import { callDaemon, unwrapDaemonReply } from "../../reply.js";

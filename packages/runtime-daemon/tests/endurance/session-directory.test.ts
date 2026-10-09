@@ -30,7 +30,7 @@ import {
   closeDatabaseConnections,
   openDatabaseConnections,
   type DatabaseConnections,
-} from "../../src/database/connections.js";
+} from "../../src/database/connection/lifecycle.js";
 import {
   DATABASE_FILE_NAME,
   resolveDataFolder,

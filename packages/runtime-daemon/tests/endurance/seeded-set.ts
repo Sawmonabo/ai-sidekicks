@@ -8,7 +8,7 @@
 import { foldName } from "@ai-sidekicks/contracts/name-fold";
 
 import { mintUuidV7 } from "../../src/uuid-v7.js";
-import type { DatabaseConnections } from "../../src/database/connections.js";
+import type { DatabaseConnections } from "../../src/database/connection/lifecycle.js";
 
 /** How many of each row the seeded set holds. */
 export interface SeededSetSize {

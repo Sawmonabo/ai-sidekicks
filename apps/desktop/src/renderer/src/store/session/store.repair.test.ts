@@ -3,7 +3,7 @@
 // the rows and the partitions the window ends with, since a repair that reads whole over a missing
 // row, a lost page or a lost projection is the failure guarded here.
 
-import type { EventCursor } from "@ai-sidekicks/contracts/session/id";
+import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import { describe, expect, it } from "vitest";
 
 import { eventOfKind } from "#test/helpers/session/events.js";

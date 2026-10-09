@@ -10,7 +10,8 @@ import type {
 } from "@ai-sidekicks/contracts/transcript/operations";
 import type { HandlerContext } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
-import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 import {
   TRANSCRIPT_CHILD_RUN_EXPAND_METHOD,

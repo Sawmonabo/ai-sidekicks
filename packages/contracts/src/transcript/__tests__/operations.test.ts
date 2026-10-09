@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { refusesAt } from "../../__tests__/safe-parse.test-support.js";
 import { EVENT_FIELD_MAX_LEN } from "../../event/envelope.js";
-import { EVENT_CURSOR_MAX_LEN } from "../../session/id.js";
+import { EVENT_CURSOR_MAX_LEN } from "../../session/event-cursor.js";
 import { MAX_MESSAGE_BYTES } from "../../jsonrpc/message.js";
 import { jsonUtf8ByteLength } from "../../jsonrpc/byte-length.js";
 import { ChildRunSummarySchema } from "../child-run-summary.js";

@@ -10,7 +10,7 @@ import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import type { NodeId } from "@ai-sidekicks/contracts/runtime-node/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
-import type { DatabaseConnections } from "../database/connections.js";
+import type { DatabaseConnections } from "../database/connection/lifecycle.js";
 import { EventLogService } from "../events/log-service.js";
 import type { DamagedFromSequenceReader } from "../events/session/read.js";
 import { SessionPurge } from "../events/session/purge.js";

@@ -24,7 +24,7 @@ import {
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import type { Statement, Transaction } from "better-sqlite3";
 
-import type { DatabaseConnections } from "../../database/connections.js";
+import type { DatabaseConnections } from "../../database/connection/lifecycle.js";
 import type { WriteStatement } from "../../database/statement.js";
 import type { DatabaseWriter } from "../../database/writer.js";
 import { KeyedLock } from "../../keyed-lock.js";

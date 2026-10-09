@@ -47,7 +47,6 @@ import {
   DEFAULT_SEARCH_SNAPSHOT_LIMITS,
   SearchSnapshots,
   type SearchSnapshot,
-  type SearchSnapshotLimits,
 } from "./snapshots.js";
 
 // The sessions the directory holds among these keys; a session since purged has no row.
@@ -86,10 +85,13 @@ const READ_BATCH_GROWTH = 4;
 // start.
 const SESSION_START_CURSOR = encodeEventCursor(START_OF_LOG_POSITION);
 
-/** What `session.search` reads: the daemon's read connection and the search index. */
-export interface SessionSearchServiceDeps {
+/**
+ * What `session.search` and `transcript.search` read: the daemon's read connection, the search
+ * index, its rows in the database and the rowid floor log.
+ */
+export interface SearchServiceDeps {
   readonly reader: Database;
-  readonly index: Pick<SearchIndex, "openSearch" | "markMatches">;
+  readonly index: Pick<SearchIndex, "openSearch" | "findInSession" | "markMatches">;
   readonly rows: IndexRowReader;
   readonly floorLog: RowidFloorLog;
   /**
@@ -97,7 +99,6 @@ export interface SessionSearchServiceDeps {
    * checks its rows from there.
    */
   readonly appliedFloorPosition: () => number;
-  readonly limits?: SearchSnapshotLimits;
 }
 
 /** Answers `session.search` from the search index and the daemon's read connection. */
@@ -110,14 +111,14 @@ export class SessionSearchService {
   readonly #sessionsByKey: Statement<[string], SessionRow>;
   readonly #snapshots: SearchSnapshots;
 
-  constructor(deps: SessionSearchServiceDeps) {
+  constructor(deps: SearchServiceDeps) {
     this.#reader = deps.reader;
     this.#index = deps.index;
     this.#floorLog = deps.floorLog;
     this.#appliedFloorPosition = deps.appliedFloorPosition;
     this.#hitLines = new HitLineReader(deps.rows, deps.index, SESSION_SEARCH_HIT_LINE_MAX_LEN);
     this.#sessionsByKey = deps.reader.prepare(SESSIONS_BY_KEY_SQL);
-    this.#snapshots = new SearchSnapshots(deps.limits ?? DEFAULT_SEARCH_SNAPSHOT_LIMITS);
+    this.#snapshots = new SearchSnapshots(DEFAULT_SEARCH_SNAPSHOT_LIMITS);
   }
 
   /**
@@ -210,7 +211,7 @@ export class SessionSearchService {
   // hit is none of its session's hits.
   *#candidates(
     snapshot: SearchSnapshot,
-    isHeldRow: HeldRowCheck,
+    isHeldRow: HeldRowCheck | undefined,
     resume: PageResume | undefined,
     limit: number,
   ): Generator<PageCandidate<ShownHit>> {
@@ -225,7 +226,9 @@ export class SessionSearchService {
         return;
       }
       const sessions = this.#readSessions(
-        sessionKeys.filter((sessionKey) => isHeldRow(indexKeyOf(sessionKey, "title"))),
+        isHeldRow === undefined
+          ? sessionKeys
+          : sessionKeys.filter((sessionKey) => isHeldRow(indexKeyOf(sessionKey, "title"))),
       );
       const heldKeys = sessionKeys.filter((sessionKey) => sessions.has(sessionKey));
       const hitKeysOfHeld = heldKeys.length === 0 ? [] : snapshot.view.hitsOf(heldKeys);
@@ -249,7 +252,7 @@ export class SessionSearchService {
           hitKeys = hitKeys.slice(shownThrough + 1);
         }
         const { searchQuery, tagFolds } = snapshot.query;
-        const heldHitKeys = hitKeys.filter(isHeldRow);
+        const heldHitKeys = isHeldRow === undefined ? hitKeys : hitKeys.filter(isHeldRow);
         const hits = (
           searchQuery === undefined
             ? this.#hitLines.readTagLines(heldHitKeys, tagFolds, limit + 1)

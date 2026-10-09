@@ -4,7 +4,7 @@
 
 import type { Statement } from "better-sqlite3";
 
-import type { DatabaseConnections } from "./database/connections.js";
+import type { DatabaseConnections } from "./database/connection/lifecycle.js";
 import type { DatabaseWriter } from "./database/writer.js";
 
 /** A `node_trust_state` row: one registration of a machine for its owning user. */

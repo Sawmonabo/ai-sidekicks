@@ -4,7 +4,7 @@
 // The cursors are relayed verbatim, so nothing here orders two of them: the only comparison is
 // whether two strings the daemon issued are the same one.
 
-import type { EventCursor } from "@ai-sidekicks/contracts/session/id";
+import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 
 /** What a read's cursor block says about where the window opens. */
 export type TranscriptResumeDecision =

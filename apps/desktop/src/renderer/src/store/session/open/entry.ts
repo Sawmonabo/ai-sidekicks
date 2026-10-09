@@ -25,7 +25,7 @@
 //
 // It reads no wire; the composition root supplies `read`, keeping `store/` below `services/`.
 
-import type { EventCursor } from "@ai-sidekicks/contracts/session/id";
+import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 
 import { RealClock, type Clock } from "#renderer/lib/clock.js";
 import { describeFailure } from "#shared/failure-message.js";

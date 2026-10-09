@@ -7,7 +7,7 @@
 // would each hold half the stream. It reads no wire; the composition root supplies `read`, which
 // keeps `store/` below `services/` in the import direction.
 
-import type { EventCursor } from "@ai-sidekicks/contracts/session/id";
+import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 
 import { RefusalError, refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 import type { Unsubscribe } from "#shared/preload-api.js";

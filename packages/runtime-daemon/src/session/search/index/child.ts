@@ -7,7 +7,7 @@
 import type { Database as DatabaseType } from "better-sqlite3";
 
 import { withCleanupFailures } from "../../../cleanup-failures.js";
-import { openDatabaseReader } from "../../../database/handle.js";
+import { openDatabaseReader } from "../../../database/connection/setup.js";
 import { carryError } from "../../../worker/carried-error.js";
 import { buildSearchIndex, type SearchIndexBuildFailure } from "./rebuild.js";
 import { IndexRowReader } from "./rows.js";

@@ -3,8 +3,8 @@
 
 import type { Database as DatabaseType } from "better-sqlite3";
 
-import { openDatabaseReader } from "./handle.js";
-import { DatabaseWriter, type DatabaseWriterOptions } from "./writer.js";
+import { DatabaseWriter, type DatabaseWriterOptions } from "../writer.js";
+import { openDatabaseReader } from "./setup.js";
 
 /** The daemon's database: reads on `reader`, every write through `writer`. */
 export interface DatabaseConnections {

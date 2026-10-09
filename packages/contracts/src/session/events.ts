@@ -12,10 +12,10 @@ import {
   EventCursorSchema,
   SessionIdSchema,
   UserIdSchema,
-  type EventCursor,
   type SessionId,
   type UserId,
 } from "./id.js";
+import { type EventCursor } from "./event-cursor.js";
 import {
   SessionShapeSchema,
   SessionStateSchema,

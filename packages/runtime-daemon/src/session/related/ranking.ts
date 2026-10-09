@@ -16,7 +16,7 @@ import type {
   SessionRelatedListUpdate,
 } from "@ai-sidekicks/contracts/session/links";
 
-import type { DatabaseConnections } from "../../database/connections.js";
+import type { DatabaseConnections } from "../../database/connection/lifecycle.js";
 import type { WriteStatement } from "../../database/statement.js";
 import type { DatabaseWriter } from "../../database/writer.js";
 import type { ServiceLogWriter } from "../../daemon/service-log.js";

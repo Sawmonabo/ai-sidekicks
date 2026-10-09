@@ -11,7 +11,8 @@ import {
   type TranscriptReadResponse,
 } from "@ai-sidekicks/contracts/transcript/operations";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
-import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 
 import { SessionStore } from "#renderer/store/session/store.js";
 import { type EarlierPageRead } from "../../history/earlier-reader.js";

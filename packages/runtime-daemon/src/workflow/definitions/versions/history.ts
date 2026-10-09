@@ -18,7 +18,7 @@ import type {
   WorkflowVersionReadResponse,
 } from "@ai-sidekicks/contracts/workflow/definition/methods";
 
-import type { DatabaseConnections } from "../../../database/connections.js";
+import type { DatabaseConnections } from "../../../database/connection/lifecycle.js";
 import { DaemonDomainError } from "../../../ipc/domain-error.js";
 import type { RegistryDispatchCode } from "../../../ipc/registry.js";
 import { WorkflowNotFoundError } from "../../not-found.js";

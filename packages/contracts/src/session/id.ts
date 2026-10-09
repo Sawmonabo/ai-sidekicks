@@ -1,5 +1,5 @@
-// The ids a session's contracts carry: the session, the person, and the event cursor, whose codec
-// is `event-cursor.ts`.
+// The ids a session's contracts carry: the session, the person, and the schema of the event cursor,
+// whose type, bound and codec are `event-cursor.ts`.
 //
 // Id format: `brandedUuidIdSchema` accepts any RFC 9562 UUID, case-insensitively. Daemon-assigned
 // ids are UUID v7, but control-plane rows take PostgreSQL's `gen_random_uuid()`, which emits v4,
@@ -7,6 +7,7 @@
 import { z } from "zod";
 
 import { brandedUuidIdSchema } from "../internal/branded.js";
+import { EVENT_CURSOR_MAX_LEN, type EventCursor } from "./event-cursor.js";
 
 /** Identifies one session. */
 export type SessionId = string & { readonly __brand: "SessionId" };
@@ -19,15 +20,10 @@ export type UserId = string & { readonly __brand: "UserId" };
 /** Parses a {@link UserId}. */
 export const UserIdSchema: z.ZodType<UserId, UserId> = brandedUuidIdSchema<UserId>("UserId");
 
-/** The longest event cursor accepted; a guard against pathological lengths. */
-export const EVENT_CURSOR_MAX_LEN = 256;
 /**
- * An opaque position in a session's event log, passed through unchanged. Its format belongs to
- * the daemon, which writes it with `encodeEventCursor`, so any non-empty bounded string is
- * accepted here.
+ * Parses an {@link EventCursor}: any non-empty string within the bound, since its format belongs to
+ * the daemon. Not a UUID, so it brands the string itself.
  */
-export type EventCursor = string & { readonly __brand: "EventCursor" };
-/** Parses an {@link EventCursor}; not a UUID, so it brands the string itself. */
 export const EventCursorSchema: z.ZodType<EventCursor, EventCursor> = z
   .string()
   .min(1)

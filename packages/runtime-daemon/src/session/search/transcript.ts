@@ -10,8 +10,8 @@ import type { Database, Statement } from "better-sqlite3";
 import { countEntriesFittingOneFrame } from "@ai-sidekicks/contracts/jsonrpc/page";
 import { decodeEventCursor, encodeEventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import {
+  TRANSCRIPT_EVENT_ROW_SUMMARY_MAX_LEN,
   TRANSCRIPT_READ_LIMIT_MAX,
-  TRANSCRIPT_SEARCH_TEXT_MAX_LEN,
 } from "@ai-sidekicks/contracts/transcript/limits";
 import type {
   TranscriptSearchHit,
@@ -23,9 +23,9 @@ import type { SearchIndex, SearchQuery, SessionFind } from "@ai-sidekicks/search
 import { sessionNotFound } from "../not-found.js";
 import { HitLineReader } from "./hits.js";
 import { indexKeyOf } from "./index/columns.js";
-import type { IndexRowReader } from "./index/rows.js";
 import { parseFindQuery } from "./query.js";
 import type { RowidFloorLog } from "./rowid-floors.js";
+import type { SearchServiceDeps } from "./service.js";
 
 const SESSION_KEY_SQL = "SELECT rowid FROM sessions WHERE id = ?";
 
@@ -37,19 +37,6 @@ const LAST_ROWID_BEFORE_SQL = `
   SELECT rowid FROM session_events WHERE session_id = ? AND sequence < ?
    ORDER BY sequence DESC LIMIT 1`;
 
-/** What `transcript.search` reads: the daemon's read connection and the search index. */
-export interface TranscriptSearchServiceDeps {
-  readonly reader: Database;
-  readonly index: Pick<SearchIndex, "findInSession" | "markMatches">;
-  readonly rows: IndexRowReader;
-  readonly floorLog: RowidFloorLog;
-  /**
-   * Where the rowid floor log stood when the index last matched the database; a search checks its
-   * rows from there.
-   */
-  readonly appliedFloorPosition: () => number;
-}
-
 /** Answers `transcript.search` from the search index and the daemon's read connection. */
 export class TranscriptSearchService {
   readonly #reader: Database;
@@ -60,12 +47,12 @@ export class TranscriptSearchService {
   readonly #sessionKey: Statement<[string], number>;
   readonly #lastRowidBefore: Statement<[string, number], number>;
 
-  constructor(deps: TranscriptSearchServiceDeps) {
+  constructor(deps: SearchServiceDeps) {
     this.#reader = deps.reader;
     this.#index = deps.index;
     this.#floorLog = deps.floorLog;
     this.#appliedFloorPosition = deps.appliedFloorPosition;
-    this.#hitLines = new HitLineReader(deps.rows, deps.index, TRANSCRIPT_SEARCH_TEXT_MAX_LEN);
+    this.#hitLines = new HitLineReader(deps.rows, deps.index, TRANSCRIPT_EVENT_ROW_SUMMARY_MAX_LEN);
     this.#sessionKey = deps.reader.prepare<[string], number>(SESSION_KEY_SQL).pluck();
     this.#lastRowidBefore = deps.reader
       .prepare<[string, number], number>(LAST_ROWID_BEFORE_SQL)
@@ -138,6 +125,9 @@ export class TranscriptSearchService {
   #heldMatches(sessionKey: number, searchQuery: SearchQuery): SessionFind {
     const isHeldRow = this.#floorLog.heldRowCheck(this.#appliedFloorPosition());
     const found = this.#index.findInSession(sessionKey, searchQuery);
+    if (isHeldRow === undefined) {
+      return found;
+    }
     const held: SessionFind = { rowKeys: [], matchCounts: [] };
     found.rowKeys.forEach((key, place) => {
       if (isHeldRow(key)) {

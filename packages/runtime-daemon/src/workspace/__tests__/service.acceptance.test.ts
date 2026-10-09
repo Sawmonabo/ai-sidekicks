@@ -18,7 +18,7 @@ import {
   closeDatabaseConnections,
   openDatabaseConnections,
   type DatabaseConnections,
-} from "../../database/connections.js";
+} from "../../database/connection/lifecycle.js";
 import { EventLogService } from "../../events/log-service.js";
 import { RepoMountService } from "../repo/mount-service.js";
 import { WorkspaceEventEmitter } from "../event-emitter.js";

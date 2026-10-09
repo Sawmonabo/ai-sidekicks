@@ -10,7 +10,7 @@ import {
   closeDatabaseConnections,
   openDatabaseConnections,
   type DatabaseConnections,
-} from "../connections.js";
+} from "../connection/lifecycle.js";
 
 /** An open scratch database; `close` closes both connections and removes the folder. */
 export interface ScratchDatabase extends DatabaseConnections {

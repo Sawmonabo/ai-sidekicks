@@ -2,7 +2,7 @@ import type { Statement } from "better-sqlite3";
 
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
-import type { DatabaseConnections } from "../database/connections.js";
+import type { DatabaseConnections } from "../database/connection/lifecycle.js";
 import type { WriteStatement } from "../database/statement.js";
 import { WriteRefusedError, type DatabaseWriter } from "../database/writer.js";
 import { sessionNotFound } from "./not-found.js";

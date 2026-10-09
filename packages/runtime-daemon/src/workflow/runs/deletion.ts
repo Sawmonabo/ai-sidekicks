@@ -29,7 +29,7 @@ import {
   type WorkflowRunsDeletePreviewResponse,
 } from "@ai-sidekicks/contracts/workflow/run/records";
 
-import type { DatabaseConnections } from "../../database/connections.js";
+import type { DatabaseConnections } from "../../database/connection/lifecycle.js";
 import type { WriteStatement } from "../../database/statement.js";
 import { WriteRefusedError } from "../../database/writer.js";
 import { SessionEventAppender, type SessionEventLog } from "../../events/session/appender.js";

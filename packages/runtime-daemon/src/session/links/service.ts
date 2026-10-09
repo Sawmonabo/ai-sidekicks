@@ -8,7 +8,7 @@ import {
   type SessionLinkRequest,
 } from "@ai-sidekicks/contracts/session/links";
 
-import type { DatabaseConnections } from "../../database/connections.js";
+import type { DatabaseConnections } from "../../database/connection/lifecycle.js";
 import { WriteRefusedError, type DatabaseWriter } from "../../database/writer.js";
 import { DaemonDomainError } from "../../ipc/domain-error.js";
 import { sessionExistsStatement } from "../directory/lookups.js";

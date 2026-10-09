@@ -1,6 +1,6 @@
-// A handle on the daemon's database: the page cache every handle holds, a read-only handle opened,
-// and a handle closed when its setup throws. It holds nothing of the writer, so a thread or process
-// that only reads loads none of it.
+// A connection's setup: the page cache every connection to the daemon's database holds, a read-only
+// connection opened with it, and a connection closed when its setup throws. It holds nothing of the
+// writer, so a thread or process that only reads loads none of it.
 
 import Database from "better-sqlite3";
 import type { Database as DatabaseType } from "better-sqlite3";

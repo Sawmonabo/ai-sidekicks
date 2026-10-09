@@ -11,7 +11,8 @@ import { z } from "zod";
 import { defineMethodDescriptors, type MethodDescriptor } from "../method-descriptor.js";
 import { ArtifactIdSchema, type ArtifactId } from "../artifacts/id.js";
 import { FILE_PATH_MAX_LEN, wireUncappedFreeFormString } from "../free-form-string.js";
-import { EventCursorSchema, SessionIdSchema, type EventCursor, type SessionId } from "./id.js";
+import { EventCursorSchema, SessionIdSchema, type SessionId } from "./id.js";
+import { type EventCursor } from "./event-cursor.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 
 /** The longest snapshot id the daemon accepts. */

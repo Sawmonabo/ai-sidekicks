@@ -36,7 +36,7 @@ import {
   type GitInvocationResult,
   type GitRunner,
 } from "../git/process.js";
-import type { DatabaseConnections } from "../database/connections.js";
+import type { DatabaseConnections } from "../database/connection/lifecycle.js";
 import type { DatabaseWriter } from "../database/writer.js";
 import { DaemonDomainError } from "../ipc/domain-error.js";
 

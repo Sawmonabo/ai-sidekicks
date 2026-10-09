@@ -19,7 +19,7 @@ import {
 } from "../index/rebuild.js";
 import { IndexRowReader } from "../index/rows.js";
 import { RowidFloorLog } from "../rowid-floors.js";
-import { SessionSearchService } from "../service.js";
+import { SessionSearchService, type SearchServiceDeps } from "../service.js";
 import { TranscriptSearchService } from "../transcript.js";
 
 /** What the search thread's services are opened with. */
@@ -70,13 +70,14 @@ export async function openSearchServices(options: SearchServicesOptions): Promis
   const rebuildReason = typeof opened === "string" ? opened : undefined;
   const index = typeof opened === "string" ? await openBuiltAgain(options, outbox) : opened;
   try {
-    const sessionSearch = new SessionSearchService({
+    const searchDeps: SearchServiceDeps = {
       reader,
       index,
       rows,
       floorLog,
       appliedFloorPosition: () => applier.floorPosition(),
-    });
+    };
+    const sessionSearch = new SessionSearchService(searchDeps);
     // A floor log entry goes once neither the applier's caught-up read nor a held search reads it.
     const applier = new SearchIndexApplier(index, outbox, (lastOutboxId) => {
       onApplied({
@@ -95,13 +96,7 @@ export async function openSearchServices(options: SearchServicesOptions): Promis
     index.setGroupMembers(outbox.readEveryGroupMembers());
     return {
       sessionSearch,
-      transcriptSearch: new TranscriptSearchService({
-        reader,
-        index,
-        rows,
-        floorLog,
-        appliedFloorPosition: () => applier.floorPosition(),
-      }),
+      transcriptSearch: new TranscriptSearchService(searchDeps),
       rebuildReason,
       applyWaiting: () => applier.applyWaiting(),
       mergeSegments: () => index.mergeSegments(),

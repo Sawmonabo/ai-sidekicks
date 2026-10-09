@@ -59,11 +59,17 @@ export class RowidFloorLog {
     return this.#newestEntry.get() ?? 0;
   }
 
-  /** The check of the rows a view of the database at `position` indexed. */
-  heldRowCheck(position: number): HeldRowCheck {
+  /**
+   * The check of the rows a view of the database at `position` indexed; none when no floor was
+   * logged since, as every row the view indexed is then still that row.
+   */
+  heldRowCheck(position: number): HeldRowCheck | undefined {
     const floors = new Map<IndexRowKind, number>();
     for (const row of this.#floorsSince.all(position)) {
       floors.set(row.kind, row.highest_rowid);
+    }
+    if (floors.size === 0) {
+      return undefined;
     }
     return (key) => {
       const floor = floors.get(indexRowKindOf(key));

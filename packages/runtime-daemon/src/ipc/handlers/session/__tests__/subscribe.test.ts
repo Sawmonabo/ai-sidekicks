@@ -12,7 +12,8 @@ import type {
   SessionSubscribeRequest,
   SessionSubscribeResponse,
 } from "@ai-sidekicks/contracts/session/methods";
-import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import type { JsonRpcNotification } from "@ai-sidekicks/contracts/jsonrpc/message";
 import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
 import type { SessionEvent } from "@ai-sidekicks/contracts/event/variant-types";

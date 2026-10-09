@@ -38,7 +38,7 @@ import {
   closeDatabaseConnections,
   openDatabaseConnections,
   type DatabaseConnections,
-} from "../database/connections.js";
+} from "../database/connection/lifecycle.js";
 import { findBranchPatternRefusal } from "../git/branch-name-pattern.js";
 import { createGitRunner, findGitExecutable, type GitRunner } from "../git/process.js";
 import { InFlightMutations } from "../ipc/in-flight-mutations.js";

@@ -32,7 +32,8 @@ import {
   type SessionConvertResponse,
 } from "./convert.js";
 import { SessionGroupIdSchema, type SessionGroupId } from "./groups.js";
-import { EventCursorSchema, SessionIdSchema, type EventCursor, type SessionId } from "./id.js";
+import { EventCursorSchema, SessionIdSchema, type SessionId } from "./id.js";
+import { type EventCursor } from "./event-cursor.js";
 import {
   SessionShapeSchema,
   SessionStateSchema,

@@ -9,7 +9,7 @@ import type {
   SessionTagRequest,
 } from "@ai-sidekicks/contracts/session/tags";
 
-import type { DatabaseConnections } from "../../database/connections.js";
+import type { DatabaseConnections } from "../../database/connection/lifecycle.js";
 import type { WriteStatement } from "../../database/statement.js";
 import { WriteRefusedError, type DatabaseWriter } from "../../database/writer.js";
 import { sessionExistsStatement } from "../directory/lookups.js";

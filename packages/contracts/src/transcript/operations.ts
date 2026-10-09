@@ -7,12 +7,8 @@ import { requireMemberToRideOneFrame } from "../jsonrpc/page.js";
 import { RunIdSchema, type RunId } from "../run/id.js";
 import { RunStateSchema, type RunState } from "../run/state.js";
 import { wireFreeFormString } from "../free-form-string.js";
-import {
-  EventCursorSchema,
-  SessionIdSchema,
-  type EventCursor,
-  type SessionId,
-} from "../session/id.js";
+import { EventCursorSchema, SessionIdSchema, type SessionId } from "../session/id.js";
+import { type EventCursor } from "../session/event-cursor.js";
 
 import { refuseSelfParentingRun } from "./child-run-summary.js";
 import { TRANSCRIPT_READ_LIMIT_MAX } from "./limits.js";

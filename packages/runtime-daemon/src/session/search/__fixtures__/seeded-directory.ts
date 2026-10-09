@@ -6,8 +6,9 @@
 
 import type { Database } from "better-sqlite3";
 
-import { type EventCursor, type SessionId } from "@ai-sidekicks/contracts/session/id";
+import { type SessionId } from "@ai-sidekicks/contracts/session/id";
 import {
+  type EventCursor,
   START_OF_LOG_POSITION,
   encodeEventCursor,
 } from "@ai-sidekicks/contracts/session/event-cursor";

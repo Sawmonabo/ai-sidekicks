@@ -19,7 +19,8 @@ import {
   type SessionReadResponse,
   type SessionStreamFrame,
 } from "@ai-sidekicks/contracts/session/methods";
-import type { EventCursor, SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import {
   SESSION_DIRECTORY_METHOD_DESCRIPTORS,
   type SessionCreateRequest,

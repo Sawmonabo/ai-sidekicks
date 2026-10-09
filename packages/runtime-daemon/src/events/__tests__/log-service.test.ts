@@ -14,13 +14,13 @@ import {
 import {
   EventCursorUnresolvableError,
   encodeEventCursor,
+  type EventCursor,
 } from "@ai-sidekicks/contracts/session/event-cursor";
 import { EventEnvelopeVersionSchema } from "@ai-sidekicks/contracts/event/envelope";
 import { RunIdSchema, type RunId } from "@ai-sidekicks/contracts/run/id";
 import {
   EventCursorSchema,
   SessionIdSchema,
-  type EventCursor,
   type SessionId,
 } from "@ai-sidekicks/contracts/session/id";
 

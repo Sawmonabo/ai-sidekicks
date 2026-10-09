@@ -16,7 +16,7 @@ import {
   type WorktreeRetireResponse,
   type WorktreeState,
 } from "@ai-sidekicks/contracts/worktree/lifecycle";
-import type { DatabaseConnections } from "../../database/connections.js";
+import type { DatabaseConnections } from "../../database/connection/lifecycle.js";
 import type { WriteStatement } from "../../database/statement.js";
 import { WriteRefusedError, type DatabaseWriter } from "../../database/writer.js";
 import { RepoMountNotFoundError } from "../../workspace/repo/errors.js";

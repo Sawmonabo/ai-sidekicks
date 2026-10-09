@@ -9,7 +9,7 @@ import {
   encodeEventCursor,
   START_OF_LOG_POSITION,
 } from "../event-cursor.js";
-import type { EventCursor } from "../id.js";
+import type { EventCursor } from "../event-cursor.js";
 
 describe("the event cursor codec — a log position of at least -1, one spelling each", () => {
   it.each([

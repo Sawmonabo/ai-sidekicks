@@ -21,7 +21,8 @@ import {
   type SessionConvertSkippedFileListRequest,
   type SessionConvertSkippedFileListResponse,
 } from "./convert.js";
-import { EventCursorSchema, SessionIdSchema, type EventCursor, type SessionId } from "./id.js";
+import { EventCursorSchema, SessionIdSchema, type SessionId } from "./id.js";
+import { type EventCursor } from "./event-cursor.js";
 import { SESSION_NAME_MAX_LEN } from "./name.js";
 import {
   SESSION_SEARCH_HIT_LINE_MAX_LEN,

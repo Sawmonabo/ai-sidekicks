@@ -2,7 +2,7 @@
 // cap then cuts. A backward page is only worth reading if the cap keeps it, so each case asserts
 // the merge and the retention together.
 
-import type { EventCursor } from "@ai-sidekicks/contracts/session/id";
+import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import { describe, expect, it } from "vitest";
 
 import { SessionStore } from "./store.js";
