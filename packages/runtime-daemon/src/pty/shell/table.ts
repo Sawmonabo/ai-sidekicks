@@ -121,6 +121,8 @@ interface ShellRecord {
   // The write frames awaiting their lease check, one after another in arrival order.
   admissions: Promise<void>;
   readonly streams: Map<SubscriptionId, ShellOutputStream>;
+  // Whether a device typed into the shell since its last prompt mark.
+  hasInputSincePrompt: boolean;
 }
 
 // One session's shells, in tab order, and who follows its list.
@@ -379,6 +381,7 @@ export class ShellTable {
     let delivered: Promise<void> = Promise.resolve();
     const admitted = shell.admissions.then(() =>
       shell.lease.admitWrite({ kind: "device", ...caller }, () => {
+        shell.hasInputSincePrompt = true;
         delivered = shell.writeQueue.enqueue(
           request.kind === "keys"
             ? Buffer.from(request.data, "utf8")
@@ -580,6 +583,7 @@ export class ShellTable {
       ),
       admissions: Promise.resolve(),
       streams: new Map(),
+      hasInputSincePrompt: false,
     };
     return shell;
   }
@@ -590,7 +594,11 @@ export class ShellTable {
       return;
     }
     const { output, marks } = shell.markReader.read(chunk);
-    if (!shell.isReportingMarks && marks.some((mark) => mark.kind === "prompt")) {
+    const hasPromptMark = marks.some((mark) => mark.kind === "prompt");
+    if (hasPromptMark) {
+      shell.hasInputSincePrompt = false;
+    }
+    if (!shell.isReportingMarks && hasPromptMark) {
       shell.isReportingMarks = true;
       // The shell has read its nonce once it marks a prompt with it.
       this.#discardMarkNonce(shell);
