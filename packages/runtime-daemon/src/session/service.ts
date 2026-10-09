@@ -64,6 +64,7 @@ interface SessionReadRow {
   readonly shape: SessionShape;
   readonly name: string | null;
   readonly muted_at: string | null;
+  readonly pending_working_folder: string | null;
   readonly created_at: string;
   readonly updated_at: string;
 }
@@ -83,7 +84,8 @@ export class SessionService {
     this.#reader = reader;
     this.#eventReads = prepareSessionEventReads(reader, readDamagedFromSequence);
     this.#selectRow = reader.prepare(
-      `SELECT state, shape, name, muted_at, created_at, updated_at
+      `SELECT state, shape, name, muted_at, pending_working_folder,
+              created_at, updated_at
          FROM sessions
         WHERE id = ?`,
     );
@@ -115,6 +117,8 @@ export class SessionService {
         shape: row.shape,
         ...(row.name === null ? {} : { name: row.name }),
         muted: row.muted_at !== null,
+        pendingWorkingFolder:
+          row.pending_working_folder === null ? null : { path: row.pending_working_folder },
         createdAt: row.created_at,
         updatedAt: row.updated_at,
         tags,

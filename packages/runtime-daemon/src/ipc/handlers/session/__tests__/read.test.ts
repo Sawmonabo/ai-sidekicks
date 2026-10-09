@@ -41,6 +41,7 @@ function buildSessionLogRead(): SessionLogRead {
       state: "active",
       shape: "chat",
       muted: false,
+      pendingWorkingFolder: null,
       createdAt: "2026-01-22T19:14:35.000Z",
       updatedAt: "2026-01-22T19:14:35.000Z",
       tags: [],

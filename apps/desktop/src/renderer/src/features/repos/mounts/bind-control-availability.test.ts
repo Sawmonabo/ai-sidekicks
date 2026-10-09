@@ -7,7 +7,7 @@ import { readBindControlAvailability } from "./bind-control-availability.js";
 import { buildMount } from "./repo-mounts.test-support.js";
 
 describe("bind-control availability — a drifted mount", () => {
-  it("withholds the bind controls, saying the drift is permanent", () => {
+  it("withholds the bind controls on a different repository, and says so", () => {
     const availability = readBindControlAvailability(
       buildMount({
         health: {
@@ -19,7 +19,7 @@ describe("bind-control availability — a drifted mount", () => {
     );
     expect(availability.available).toBe(false);
     expect(availability.available === false && availability.unavailableBecause).toContain(
-      "permanently",
+      "is a different repository now · new runs are stopped",
     );
   });
 });

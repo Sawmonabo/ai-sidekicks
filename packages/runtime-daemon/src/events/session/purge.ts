@@ -63,6 +63,8 @@ import { removeEmptyGroupsOfSessionProjectStatement } from "../../session/groups
 import type { SessionRelatedRanking } from "../../session/related/ranking.js";
 import { SESSION_RUN_IDS_SQL } from "../../session/run/ids.js";
 import { mintUuidV7 } from "../../uuid-v7.js";
+import { pathExists } from "../../git/filesystem.js";
+import { canonicalFolderPath } from "../../workspace/folder/canonical-path.js";
 import type { ManagedWorkspaceService } from "../../workspace/managed/service.js";
 import { managedMountDeletionStatements } from "../../workspace/repo/mount-service.js";
 
@@ -162,6 +164,16 @@ export interface SessionPurgeDeps {
 interface PurgeRangeRow {
   readonly fromSequence: number;
   readonly toSequence: number;
+}
+
+interface GoneWorktreeCandidateRow {
+  readonly id: string;
+  readonly state: string;
+  readonly fs_root: string;
+}
+
+interface PendingWorkingFolderRow {
+  readonly pending_working_folder: string;
 }
 
 // One session's outcome, and the sessions it was linked to when its rows were deleted.
@@ -314,8 +326,9 @@ export class SessionPurge {
   // One write: the range read, the linked sessions' read and every delete commit or roll back
   // together.
   async #deleteSessionRows(sessionId: SessionId): Promise<SessionRowsDeletion> {
+    const goneWorktreeIds = await this.#readGoneWorktreeIds(sessionId);
     const results = await this.#writer
-      .write(deleteSessionRowsStatements(sessionId))
+      .write(deleteSessionRowsStatements(sessionId, goneWorktreeIds))
       .catch((error: unknown) => {
         throw error instanceof WriteRefusedError
           ? new SessionPurgeRefusal(
@@ -341,6 +354,28 @@ export class SessionPurge {
       },
       linkedSessionIds,
     };
+  }
+
+  // The session's worktrees whose rows may go: a worktree still on disk is the project's file and
+  // keeps its row, which its removal needs, a failed one's attempt included, and so does one a
+  // pending move names, the folders compared resolved.
+  async #readGoneWorktreeIds(sessionId: SessionId): Promise<string[]> {
+    const [candidateResult, pendingResult] = await this.#writer.write([
+      { sql: SELECT_GONE_WORKTREE_CANDIDATES_SQL, bindings: { session_id: sessionId } },
+      { sql: SELECT_PENDING_WORKING_FOLDERS_SQL },
+    ]);
+    const candidates = (candidateResult?.rows ?? []) as readonly GoneWorktreeCandidateRow[];
+    const pendingRows = (pendingResult?.rows ?? []) as readonly PendingWorkingFolderRow[];
+    const pendingKeys = new Set(
+      await Promise.all(pendingRows.map((row) => canonicalFolderPath(row.pending_working_folder))),
+    );
+    const goneIds: string[] = [];
+    for (const candidate of candidates) {
+      if (pendingKeys.has(await canonicalFolderPath(candidate.fs_root))) continue;
+      if (candidate.state === "failed" && (await pathExists(candidate.fs_root))) continue;
+      goneIds.push(candidate.id);
+    }
+    return goneIds;
   }
 
   /**
@@ -409,14 +444,23 @@ export class SessionPurge {
 // The session's workspaces, on its project's mount and on its own managed one.
 const SESSION_WORKSPACE_IDS_SQL = "SELECT id FROM workspaces WHERE session_id = ?";
 
-// The worktrees the session made whose folder is gone: retired and cleaned off disk, or failed at
-// creation, whose recovery removed the attempt. A worktree still on disk is the project's file and
-// keeps its row, which its removal needs; a row another session still names stays too.
-const DELETE_GONE_SESSION_WORKTREES_SQL = `DELETE FROM worktrees
-     WHERE created_by_session_id = ?
+// The session's worktrees that may go once their folders are checked: retired and cleaned off
+// disk, or failed at creation, while no branch context or run names them.
+const GONE_WORKTREE_CANDIDATE_PREDICATE = `created_by_session_id = @session_id
        AND ((state = 'retired' AND cleaned_at IS NOT NULL) OR state = 'failed')
        AND NOT EXISTS (SELECT 1 FROM branch_contexts WHERE worktree_id = worktrees.id)
        AND NOT EXISTS (SELECT 1 FROM run_execution_contexts WHERE worktree_id = worktrees.id)`;
+
+const SELECT_GONE_WORKTREE_CANDIDATES_SQL = `SELECT id, state, fs_root FROM worktrees
+     WHERE ${GONE_WORKTREE_CANDIDATE_PREDICATE}`;
+
+const SELECT_PENDING_WORKING_FOLDERS_SQL = `SELECT pending_working_folder FROM sessions
+     WHERE pending_working_folder IS NOT NULL`;
+
+// The candidates the folder checks let go, the predicate tested again inside the write.
+const DELETE_GONE_SESSION_WORKTREES_SQL = `DELETE FROM worktrees
+     WHERE id IN (SELECT value FROM json_each(@worktree_ids))
+       AND ${GONE_WORKTREE_CANDIDATE_PREDICATE}`;
 
 // The rows keyed by one of the session's runs, each up to the run id it is matched on.
 const DELETE_BY_SESSION_RUN_SQL: readonly string[] = [
@@ -443,7 +487,10 @@ const EVENTS_DELETE_INDEX: number = 2 + DELETE_BY_SESSION_RUN_SQL.length + 1;
  * keeps at least one session in it. Every row naming a workspace goes before the workspace, and
  * the workspaces before the chat's managed mount, because foreign keys hold on DELETE too.
  */
-function deleteSessionRowsStatements(sessionId: SessionId): readonly WriteStatement[] {
+function deleteSessionRowsStatements(
+  sessionId: SessionId,
+  goneWorktreeIds: readonly string[],
+): readonly WriteStatement[] {
   return [
     {
       sql: `SELECT MIN(sequence) AS fromSequence, MAX(sequence) AS toSequence
@@ -496,7 +543,10 @@ function deleteSessionRowsStatements(sessionId: SessionId): readonly WriteStatem
       sql: `DELETE FROM branch_contexts WHERE workspace_id IN (${SESSION_WORKSPACE_IDS_SQL})`,
       bindings: [sessionId],
     },
-    { sql: DELETE_GONE_SESSION_WORKTREES_SQL, bindings: [sessionId] },
+    {
+      sql: DELETE_GONE_SESSION_WORKTREES_SQL,
+      bindings: { session_id: sessionId, worktree_ids: JSON.stringify(goneWorktreeIds) },
+    },
     { sql: "DELETE FROM workspaces WHERE session_id = ?", bindings: [sessionId] },
     ...managedMountDeletionStatements(sessionId),
   ];

@@ -18,8 +18,8 @@ export interface RepoMountsBinding {
   readonly reading: RepoMountsReading;
   /**
    * Read the section again because a user's own act changed what it holds. Sent as
-   * `user-request`: an attach or re-attach mints a mount no lifecycle frame announces, and the
-   * request coalesces with the reader's other reasons into one read.
+   * `user-request`: an attach mints a mount no lifecycle frame announces, and the request
+   * coalesces with the reader's other reasons into one read.
    */
   readonly requestRead: () => void;
 }

@@ -120,9 +120,12 @@ export class SessionAutoTitle {
   }
 }
 
-// The message's whole words, separated by single spaces, up to the title's length; a first word
-// longer than that is cut at it, never inside a surrogate pair.
-function firstWordsOf(message: string): string {
+/**
+ * The title a session takes from its first message: the message's whole words, separated by
+ * single spaces, up to the title's length; a first word longer than that is cut at it, never inside
+ * a surrogate pair. Empty when the message has no words.
+ */
+export function firstWordsOf(message: string): string {
   const words = message.split(/\s+/u).filter((word) => word.length > 0);
   let title = "";
   for (const word of words) {

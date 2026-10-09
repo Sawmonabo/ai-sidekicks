@@ -1,21 +1,31 @@
-// Typed carriers for the `worktree.*` error codes and the three `workspace.*` codes that
+// Typed carriers for the `worktree.*` error codes and the two `workspace.*` codes that
 // execution-root preparation raises. Every class extends `DaemonDomainError`: `code` becomes the
 // envelope's `data.type` and `detail` becomes `data.fields`.
 //
 // - A caller-supplied branch name that collides with a live checkout is refused, never adapted.
 // - Prepare-time unavailability is `worktree.create_failed`; a mode the mount does not offer, at
 //   bind or prepare, is `workspace.mode_unsupported`, so no `worktree.unsupported` code exists.
-// - Only `WorktreeNotFoundError` sets `jsonRpcCode` (`-32602`); the rest default to `-32603`.
-// - No filesystem path reaches a message: reasons are closed enums looked up in a table, and the
-//   other carriers interpolate only opaque ids and git ref names. The one git line a message
-//   carries is git's refusal of a branch name, which names nothing but that branch.
-// - `workspace.busy` and `repo.not_found` stay with `WorkspaceBusyError` and
-//   `RepoMountNotFoundError`, so `instanceof` never depends on which module a throw site imported.
+// - Only `WorktreeNotFoundError` and `RemovedWorktreeNotFoundError` set `jsonRpcCode` (`-32602`),
+//   since each answers an id that did not resolve; the rest default to `-32603`.
+// - No filesystem path reaches a message: reasons are closed sets looked up in a table, and the
+//   other carriers interpolate only opaque ids, git ref names and commit ids. The git line a
+//   message carries is git's refusal of a branch name, which names only branches.
+// - `repo.not_found` stays with `RepoMountNotFoundError`, so `instanceof` never depends on which
+//   module a throw site imported.
 
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import {
+  WORKTREE_REMOVED_NOT_FOUND_CODE,
   WORKTREE_RETIRE_CONFLICT_CODE,
+  WORKTREE_RETIRE_FOLDER_HELD_CODE,
+  WORKTREE_RETIRE_INCOMPLETE_CODE,
+  type WorktreeCarryCheckoutRunningDetails,
+  type WorktreeRemovedNotFoundCode,
   type WorktreeRetireConflictCode,
+  type WorktreeRetireConflictDetails,
+  type WorktreeRetireFolderHeldCode,
+  type WorktreeRetireIncompleteCode,
+  type WorktreeRetireIncompleteDetails,
 } from "@ai-sidekicks/contracts/worktree/lifecycle";
 
 import { DaemonDomainError } from "../../ipc/domain-error.js";
@@ -27,62 +37,65 @@ import { DaemonDomainError } from "../../ipc/domain-error.js";
 /** The `worktree.*` error codes, in registry order. */
 type WorktreeErrorCode =
   | "worktree.not_found"
+  | WorktreeRemovedNotFoundCode
   | "worktree.create_failed"
   | "worktree.branch_collision"
-  | WorktreeRetireConflictCode;
+  | WorktreeRetireConflictCode
+  | WorktreeRetireFolderHeldCode
+  | WorktreeRetireIncompleteCode;
 
 /**
  * The `workspace.*` codes this module carries; the others have carriers in
  * `../../workspace/errors.js`.
  */
-type WorkspaceErrorCode =
-  | "workspace.branch_mismatch"
-  | "workspace.execution_root_unresolved"
-  | "workspace.branch_name_required";
+type WorkspaceErrorCode = "workspace.execution_root_unresolved" | "workspace.branch_name_required";
 
 /**
- * Why worktree creation failed; closed and path-free, so it is safe on the wire. The last reason,
- * `branch_name_underivable`, belongs to `deriveWorktreeBranchName` alone: `create` requires a
- * `branchName`, so it cannot reach it.
+ * Why worktree creation failed; closed and path-free, so it is safe on the wire. The two
+ * `branch_name_*` reasons carry git's own line refusing the name; `carry_failed` carries the
+ * command that recovers the stashed work; `carry_checkout_running` names the run in the way.
  */
 export type WorktreeCreateFailureReason =
   | WorktreeCreateFailureTableReason
   | "branch_name_invalid"
-  | "branch_name_underivable";
+  | "branch_name_taken"
+  | "carry_failed";
 
-/** The reasons whose message comes from the table; `branch_name_invalid` carries git's line. */
+/** The reasons whose message comes from the table. */
 type WorktreeCreateFailureTableReason =
   | "base_ref_option_like"
   | "base_ref_unresolved"
-  | "branch_name_unavailable"
+  | "branch_name_underivable"
+  | "carry_base_mismatch"
+  | "carry_checkout_running"
   | "execution_root_unavailable"
-  | "git_invocation_failed";
+  | "git_invocation_failed"
+  | "worktree_folder_taken";
 
-const WORKTREE_CREATE_FAILURE_MESSAGES: Record<
-  WorktreeCreateFailureTableReason | "branch_name_underivable",
-  string
-> = {
+const WORKTREE_CREATE_FAILURE_MESSAGES: Record<WorktreeCreateFailureTableReason, string> = {
   base_ref_option_like:
     "worktree creation failed: the supplied base ref begins with '-' and would be read as a " +
     "git option rather than as a commit-ish",
   base_ref_unresolved:
     "worktree creation failed: no base ref was supplied and the repo mount's HEAD does not " +
     "resolve to a branch",
-  branch_name_unavailable:
-    "worktree creation failed: no usable branch name was available under the request's " +
-    "collision policy and the ref-length cap",
-  execution_root_unavailable:
-    "worktree creation failed: the daemon execution root could not be prepared",
-  git_invocation_failed: "worktree creation failed: the git worktree invocation did not complete",
   branch_name_underivable:
-    "worktree creation failed: no branch name could be derived, since neither a slugifiable " +
-    "summary nor a run id was available",
+    "worktree creation failed: no branch name could be derived, since neither the session's " +
+    "title nor a run id gave a tail",
+  carry_base_mismatch:
+    "worktree creation refused: uncommitted work is carried only onto a tree cut from the branch " +
+    "the session is on",
+  carry_checkout_running:
+    "worktree creation refused: another session's run is live in the checkout the uncommitted " +
+    "work would be carried from, and stashing it would take the work from under that run",
+  execution_root_unavailable:
+    "worktree creation failed: the daemon's worktrees folder could not be prepared",
+  git_invocation_failed: "worktree creation failed: the git worktree invocation did not complete",
+  worktree_folder_taken:
+    "worktree creation failed: the folder the worktree would be made in already exists",
 };
 
-/**
- * `worktree.not_found`: the worktree id did not resolve. The only class in its namespace that sets
- * `jsonRpcCode`.
- */
+/** `worktree.not_found`: the worktree id did not resolve. */
 export class WorktreeNotFoundError extends DaemonDomainError {
   readonly worktreeId: string;
 
@@ -97,33 +110,61 @@ export class WorktreeNotFoundError extends DaemonDomainError {
 }
 
 /**
+ * `worktree.removed_not_found`: no kept copy has the id, such as one a put-back or deletion queued
+ * before it already removed.
+ */
+export class RemovedWorktreeNotFoundError extends DaemonDomainError {
+  readonly removedWorktreeId: string;
+
+  constructor(removedWorktreeId: string) {
+    super(`kept worktree ${removedWorktreeId} does not exist`, {
+      code: WORKTREE_REMOVED_NOT_FOUND_CODE,
+      jsonRpcCode: JsonRpcErrorCode.InvalidParams,
+      detail: { removedWorktreeId },
+    });
+    this.removedWorktreeId = removedWorktreeId;
+  }
+}
+
+/**
  * `worktree.create_failed`; the workspace goes `stale` via `failRootPreparation`. The message is
- * the closed reason's, except `branch_name_invalid`, whose message is git's own `fatal:` line
- * refusing the name, shown as git prints it. A `cause` (git's rejection, which can name a path)
- * stays on the error for local logs and never reaches the wire.
+ * the closed reason's, except the reasons that carry a line of their own: git's `fatal:` line
+ * refusing the name as git printed it, with none of its `hint:` lines, or the carry's recovery
+ * command. `carry_checkout_running` carries the running session and agent in its detail. A
+ * `cause` (git's rejection, which can name a path) stays on the error for local logs and never
+ * reaches the wire.
  */
 export class WorktreeCreateFailedError extends DaemonDomainError {
   readonly reason: WorktreeCreateFailureReason;
 
-  constructor(reason: "branch_name_invalid", gitRefusalLine: string, cause: unknown);
-  constructor(reason: Exclude<WorktreeCreateFailureReason, "branch_name_invalid">, cause?: unknown);
   constructor(
-    reason: WorktreeCreateFailureReason,
-    gitRefusalLineOrCause?: unknown,
-    branchNameRefusalCause?: unknown,
-  ) {
-    super(
-      reason === "branch_name_invalid"
-        ? String(gitRefusalLineOrCause)
-        : WORKTREE_CREATE_FAILURE_MESSAGES[reason],
-      {
-        code: "worktree.create_failed" satisfies WorktreeErrorCode,
-        detail: { reason },
-      },
-    );
+    reason: "branch_name_invalid" | "branch_name_taken" | "carry_failed",
+    message: string,
+    cause: unknown,
+  );
+  constructor(
+    reason: "carry_checkout_running",
+    running: Omit<WorktreeCarryCheckoutRunningDetails, "reason">,
+  );
+  constructor(
+    reason: Exclude<WorktreeCreateFailureTableReason, "carry_checkout_running">,
+    cause?: unknown,
+  );
+  constructor(reason: WorktreeCreateFailureReason, second?: unknown, lineCause?: unknown) {
+    const carriesLine =
+      reason === "branch_name_invalid" ||
+      reason === "branch_name_taken" ||
+      reason === "carry_failed";
+    const isCarryRunning = reason === "carry_checkout_running";
+    const detail: Record<string, unknown> = isCarryRunning
+      ? { reason, ...(second as Omit<WorktreeCarryCheckoutRunningDetails, "reason">) }
+      : { reason };
+    super(carriesLine ? String(second) : WORKTREE_CREATE_FAILURE_MESSAGES[reason], {
+      code: "worktree.create_failed" satisfies WorktreeErrorCode,
+      detail,
+    });
     this.reason = reason;
-    const cause: unknown =
-      reason === "branch_name_invalid" ? branchNameRefusalCause : gitRefusalLineOrCause;
+    const cause: unknown = carriesLine ? lineCause : isCarryRunning ? undefined : second;
     if (cause !== undefined) {
       this.cause = cause;
     }
@@ -131,8 +172,9 @@ export class WorktreeCreateFailedError extends DaemonDomainError {
 }
 
 /**
- * `worktree.branch_collision`: a caller-supplied branch name collides with a live checkout on the
- * same mount. Raised only on the `onCollision: 'refuse'` arm; `suffix` never does.
+ * `worktree.branch_collision`: a caller-supplied branch name collides with a live checkout the
+ * daemon made on the same mount. Raised only on the `onCollision: 'refuse'` arm; `suffix` never
+ * does.
  */
 export class WorktreeBranchCollisionError extends DaemonDomainError {
   readonly repoMountId: string;
@@ -153,65 +195,74 @@ export class WorktreeBranchCollisionError extends DaemonDomainError {
 }
 
 /**
- * `worktree.retire_conflict`: retire refused while a `busy` workspace holds the worktree as its
- * execution root for an active run; it clears when the run releases it.
+ * `worktree.retire_conflict`: a removal refused because an agent runs in the tree (naming the
+ * session it runs in), or because a plain removal would lose what the tree now holds (carrying the
+ * current risks, so the confirm redraws them).
  */
 export class WorktreeRetireConflictError extends DaemonDomainError {
-  readonly worktreeId: string;
-  readonly holdingWorkspaceId: string;
+  readonly details: WorktreeRetireConflictDetails;
 
-  constructor(worktreeId: string, holdingWorkspaceId: string) {
+  constructor(details: WorktreeRetireConflictDetails) {
     super(
-      `worktree ${worktreeId} cannot be retired: workspace ${holdingWorkspaceId} is holding ` +
-        `it for an active run`,
-      {
-        code: WORKTREE_RETIRE_CONFLICT_CODE,
-        detail: { worktreeId, holdingWorkspaceId },
-      },
+      details.reason === "root_busy"
+        ? `worktree ${details.worktreeId} cannot be removed: session ${details.runningSessionId} ` +
+            "is running in it"
+        : `worktree ${details.worktreeId} cannot be removed without discarding: it holds ` +
+            "uncommitted, ignored or unpushed work",
+      { code: WORKTREE_RETIRE_CONFLICT_CODE, detail: { ...details } },
     );
-    this.worktreeId = worktreeId;
-    this.holdingWorkspaceId = holdingWorkspaceId;
+    this.details = details;
   }
 }
 
 /**
- * `workspace.branch_mismatch`: `bound-root` bind-only verification found the main checkout on a
- * different branch than requested; the daemon never switches branches there.
+ * `worktree.retire_folder_held`: a discard refused because the system would not move the tree
+ * aside while a program outside the app holds a file in it open. Nothing was removed.
  */
-export class WorkspaceBranchMismatchError extends DaemonDomainError {
-  readonly workspaceId: string;
-  readonly requestedBranchName: string;
-  readonly currentBranchName: string;
+export class WorktreeRetireFolderHeldError extends DaemonDomainError {
+  readonly worktreeId: string;
 
-  constructor(workspaceId: string, requestedBranchName: string, currentBranchName: string) {
+  constructor(worktreeId: string, cause: unknown) {
+    super(`worktree ${worktreeId} cannot be moved aside: a program outside the app holds a file`, {
+      code: WORKTREE_RETIRE_FOLDER_HELD_CODE,
+      detail: { worktreeId },
+    });
+    this.worktreeId = worktreeId;
+    this.cause = cause;
+  }
+}
+
+/**
+ * `worktree.retire_incomplete`: a discard whose move across volumes copied the tree whole to its
+ * kept place but could not remove the original completely. The kept copy is listed and the tree
+ * stays live; `cause` holds the removal's failure, which can name a path, for local logs only.
+ */
+export class WorktreeRetireIncompleteError extends DaemonDomainError {
+  readonly details: WorktreeRetireIncompleteDetails;
+
+  constructor(details: WorktreeRetireIncompleteDetails, cause: unknown) {
     super(
-      `bound-root bind refused for workspace ${workspaceId}: the checkout is on ` +
-        `${currentBranchName}, not the requested ${requestedBranchName}; the daemon never ` +
-        "switches branches in the main checkout",
-      {
-        code: "workspace.branch_mismatch" satisfies WorkspaceErrorCode,
-        detail: { workspaceId, requestedBranchName, currentBranchName },
-      },
+      `worktree ${details.worktreeId} was copied to kept copy ${details.removedWorktreeId}, but ` +
+        "its original folder could not be removed completely",
+      { code: WORKTREE_RETIRE_INCOMPLETE_CODE, detail: { ...details } },
     );
-    this.workspaceId = workspaceId;
-    this.requestedBranchName = requestedBranchName;
-    this.currentBranchName = currentBranchName;
+    this.details = details;
+    this.cause = cause;
   }
 }
 
 /**
  * `workspace.execution_root_unresolved`: root preparation failed at the setup gate, which ends
- * the run `failed` with this error as its cause. Carries the cause's dotted code, not the cause
- * object, whose message would reopen the prose channel.
- *
- * @consumedBy the run setup gate, which fails a run whose execution root cannot be made
+ * the run `failed` with this error as its cause. Carries the cause's dotted code in its detail and
+ * the cause itself on `cause`, whose message never reaches the wire.
  */
 export class WorkspaceExecutionRootUnresolvedError extends DaemonDomainError {
   readonly workspaceId: string;
   /** The wrapped cause's dotted code, or `null` when it carried none. */
   readonly causeCode: string | null;
 
-  constructor(workspaceId: string, causeCode: string | null) {
+  constructor(workspaceId: string, cause: unknown) {
+    const causeCode = cause instanceof DaemonDomainError ? cause.code : null;
     super(
       causeCode === null
         ? `workspace ${workspaceId} has no resolved execution root: root preparation failed ` +
@@ -225,13 +276,13 @@ export class WorkspaceExecutionRootUnresolvedError extends DaemonDomainError {
     );
     this.workspaceId = workspaceId;
     this.causeCode = causeCode;
+    this.cause = cause;
   }
 }
 
 /**
  * `workspace.branch_name_required`: a wire `repo.executionRootPrepare` omitted `branchName`; the
- * daemon derives one only from a run id, which exists only on the run-setup gate path. Raised
- * before any git call.
+ * daemon derives one only on the run-setup gate's path. Raised before any git call.
  */
 export class WorkspaceBranchNameRequiredError extends DaemonDomainError {
   readonly workspaceId: string;
@@ -239,8 +290,7 @@ export class WorkspaceBranchNameRequiredError extends DaemonDomainError {
   constructor(workspaceId: string) {
     super(
       `execution root prepare refused for workspace ${workspaceId}: a wire prepare must ` +
-        "carry a branch name, because the daemon's derivation inputs exist only on the " +
-        "run-setup gate path",
+        "carry a branch name, because the daemon derives one only when a run is set up",
       {
         code: "workspace.branch_name_required" satisfies WorkspaceErrorCode,
         detail: { workspaceId },

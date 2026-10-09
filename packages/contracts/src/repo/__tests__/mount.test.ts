@@ -34,7 +34,6 @@ describe("WorkspaceStateSchema", () => {
   it.each([
     ["preparing", true],
     ["ready", true],
-    ["busy", true],
     ["stale", true],
     ["archived", true],
     // `detached` is a mount state and `unreachable` a mount-health status; neither may leak in.

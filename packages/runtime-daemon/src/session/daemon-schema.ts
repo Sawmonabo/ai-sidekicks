@@ -5,13 +5,16 @@
 //
 // Every table is STRICT: a column refuses a value of the wrong storage class
 // (text into INTEGER, a fractional REAL into INTEGER) instead of storing it.
-// JSON columns are TEXT. A table is added here, with its test, except the
-// workflow tables, which live in `workflow/schema.ts` and are appended below;
-// there are no numbered migrations.
+// JSON columns are TEXT. A table is added here with its test, or in its owner's
+// schema file this script includes: the repository and workspace tables in
+// `workspace/schema.ts`, the worktree tables in `git/worktree/schema.ts`, the
+// search index's in `session/search/index/schema.ts` and the workflow tables in
+// `workflow/schema.ts`. There are no numbered migrations.
 
 import { DAMAGED_EVENTS_SKIPPED_TYPE } from "../events/session/skipped-ranges.js";
 import { WORKFLOW_SCHEMA_SQL } from "../workflow/schema.js";
-
+import { WORKTREE_SCHEMA_SQL } from "../git/worktree/schema.js";
+import { WORKSPACE_SCHEMA_SQL } from "../workspace/schema.js";
 import { SEARCH_INDEX_SCHEMA_SQL } from "./search/index/schema.js";
 
 /**
@@ -164,7 +167,10 @@ CREATE TABLE sessions (
   updated_at                 TEXT NOT NULL,
   last_activity_at           TEXT NOT NULL,
   -- The one group of its project the session sits in; NULL for none and for every chat.
-  group_id                   TEXT REFERENCES session_groups(id)
+  group_id                   TEXT REFERENCES session_groups(id),
+  -- The folder a requested working-folder move goes to, applied at the active
+  -- run's next boundary; NULL while no move waits.
+  pending_working_folder     TEXT
 ) STRICT;
 
 CREATE INDEX idx_sessions_group ON sessions(group_id);
@@ -174,25 +180,29 @@ CREATE INDEX idx_sessions_shape_state ON sessions(shape, state);
 CREATE INDEX idx_sessions_activity ON sessions(id, last_activity_at);
 
 -- Each session.create's idempotency key, the session it made and where that session works: its
--- mount, its execution mode and the group it asked for (NULL for none, and for every chat). Written
--- in the session.created write, so a retry with the key, or the daemon's start, finishes a session
--- left provisioning.
+-- project (NULL for a chat, which works in its own managed mount), its execution mode and the group
+-- it asked for (NULL for none, and for every chat). Written in the session.created write, so a
+-- retry with the key, or the daemon's start, finishes a session left provisioning; a session made
+-- in a project still cloning is finished once the clone attaches it. Forgetting a project archives
+-- its sessions left provisioning.
 CREATE TABLE session_create_requests (
   client_idempotency_key  TEXT NOT NULL PRIMARY KEY,
   session_id              TEXT NOT NULL UNIQUE,
-  repo_mount_id           TEXT NOT NULL,
+  project_id              TEXT,
   execution_mode          TEXT NOT NULL
     CHECK(execution_mode IN ('bound-root', 'provisioned-worktree')),
   group_id                TEXT
 ) STRICT;
 
 -- A chat's conversion: the session.convert key it runs under, which the latest request that
--- resumed it takes over, and the project mount it attached. Written as soon as the mount is, so a
--- retry resumes onto that mount, and answered from session.converted once that lands. One per chat.
+-- resumed it takes over, the project mount it attached and the working tree it copies into.
+-- Written as soon as the mount is, so a retry resumes onto that mount and into that working tree,
+-- and answered from session.converted once that lands. One per chat.
 CREATE TABLE session_convert_requests (
   client_idempotency_key  TEXT NOT NULL PRIMARY KEY,
   session_id              TEXT NOT NULL UNIQUE,
-  repo_mount_id           TEXT NOT NULL
+  repo_mount_id           TEXT NOT NULL,
+  working_tree            TEXT NOT NULL
 ) STRICT;
 
 -- Each workspace file a conversion has dealt with, recorded as its copy lands: copied, or not
@@ -365,126 +375,9 @@ CREATE TABLE driver_contract_meta (
   refreshed_at        TEXT NOT NULL
 ) STRICT;
 
--- ---------------------------------------------------------------------------
--- Repositories, workspaces, worktrees and run execution roots.
--- ---------------------------------------------------------------------------
--- A mount belongs to the machine, not to a session. local_path is what the
--- user entered; canonical_root is the resolver's absolute, symlink-resolved
--- path, and every trust check keys on it.
-CREATE TABLE repo_mounts (
-  id              TEXT PRIMARY KEY,
-  node_id         TEXT NOT NULL,                -- the daemon's own node, stamped at attach
-  local_path      TEXT NOT NULL,
-  canonical_root  TEXT NOT NULL,
-  vcs_type        TEXT NOT NULL DEFAULT 'git'
-                  CHECK(vcs_type IN ('git')),
-  -- 'attached' is a project's folder the person attached or cloned; 'managed'
-  -- is a chat's git-initialized workspace the daemon owns.
-  origin          TEXT NOT NULL DEFAULT 'attached'
-                  CHECK(origin IN ('attached', 'managed')),
-  -- The one chat a managed mount belongs to; event-sourced, so no foreign key.
-  managed_session_id TEXT,
-  state           TEXT NOT NULL DEFAULT 'attached'
-                  CHECK(state IN ('attached', 'detached', 'archived')),
-  attached_at     TEXT NOT NULL,
-  updated_at      TEXT NOT NULL,
-  metadata        TEXT NOT NULL DEFAULT '{}',   -- JSON
-  CHECK ((origin = 'managed') = (managed_session_id IS NOT NULL))
-) STRICT;
+${WORKSPACE_SCHEMA_SQL}
 
--- Two aliases of one root on one machine are one mount; the same path on two
--- machines is two filesystems; a detached row does not block a re-attach.
-CREATE UNIQUE INDEX idx_repo_mounts_active_root
-  ON repo_mounts(node_id, canonical_root) WHERE state = 'attached';
-CREATE UNIQUE INDEX idx_repo_mounts_managed_session
-  ON repo_mounts(managed_session_id) WHERE managed_session_id IS NOT NULL;
-
-CREATE TABLE workspaces (
-  id              TEXT PRIMARY KEY,
-  session_id      TEXT NOT NULL,
-  repo_mount_id   TEXT NOT NULL REFERENCES repo_mounts(id),
-  execution_mode  TEXT NOT NULL
-                  CHECK(execution_mode IN ('bound-root', 'provisioned-worktree')),
-  fs_root         TEXT,                         -- NULL while the root is being prepared
-  state           TEXT NOT NULL DEFAULT 'preparing'
-                  CHECK(state IN ('preparing', 'ready', 'busy', 'stale', 'archived')),
-  metadata        TEXT NOT NULL DEFAULT '{}',   -- JSON; lastError after a failed mode switch
-  created_at      TEXT NOT NULL,
-  updated_at      TEXT NOT NULL
-) STRICT;
-
-CREATE INDEX idx_workspaces_session ON workspaces(session_id);
-CREATE INDEX idx_workspaces_repo ON workspaces(repo_mount_id);
--- A session has one live workspace on a mount, so binding it again answers that one; an archived
--- row is history and does not count.
-CREATE UNIQUE INDEX idx_workspaces_live_session_mount
-  ON workspaces(session_id, repo_mount_id) WHERE state <> 'archived';
-
--- Session and run ids are event-sourced, so they carry no foreign key.
-CREATE TABLE worktrees (
-  id                    TEXT PRIMARY KEY,
-  repo_mount_id         TEXT NOT NULL REFERENCES repo_mounts(id),
-  created_by_session_id TEXT NOT NULL,
-  created_by_run_id     TEXT,                   -- NULL for a prepare before any run
-  branch_name           TEXT NOT NULL,
-  fs_root               TEXT NOT NULL,          -- under the daemon's execution-roots directory
-  state                 TEXT NOT NULL DEFAULT 'creating'
-    CHECK(state IN ('creating', 'ready', 'dirty', 'merged', 'retired', 'failed')),
-  created_at            TEXT NOT NULL,
-  updated_at            TEXT NOT NULL,
-  -- stamped by the disk-cleanup sweep after retirement
-  cleaned_at            TEXT
-) STRICT;
-
-CREATE INDEX idx_worktrees_repo ON worktrees(repo_mount_id);
--- Git's own rule: a checkout on disk (any state but retired or failed, merged
--- included) holds its branch. This index arbitrates a creation race.
-CREATE UNIQUE INDEX idx_worktrees_active_branch ON worktrees(repo_mount_id, branch_name)
-  WHERE state NOT IN ('retired', 'failed');
-
--- A provisioned-worktree row names its worktree; a bound-root row names none
--- (the mount's own checkout has no root row).
-CREATE TABLE branch_contexts (
-  id            TEXT PRIMARY KEY,
-  workspace_id  TEXT NOT NULL REFERENCES workspaces(id),
-  worktree_id   TEXT REFERENCES worktrees(id),
-  base_branch   TEXT NOT NULL,
-  head_branch   TEXT NOT NULL,
-  upstream_ref  TEXT,
-  created_at    TEXT NOT NULL,
-  updated_at    TEXT NOT NULL
-) STRICT;
-
-CREATE INDEX idx_branch_contexts_workspace ON branch_contexts(workspace_id);
--- One binding row per (worktree, workspace): the upsert key.
-CREATE UNIQUE INDEX idx_branch_contexts_worktree_workspace
-  ON branch_contexts(worktree_id, workspace_id) WHERE worktree_id IS NOT NULL;
-
--- released_at stamps the run-terminal release of the root.
-CREATE TABLE run_execution_contexts (
-  run_id             TEXT PRIMARY KEY,
-  session_id         TEXT NOT NULL,
-  workspace_id       TEXT NOT NULL REFERENCES workspaces(id),
-  execution_mode     TEXT NOT NULL
-                     CHECK(execution_mode IN ('bound-root', 'provisioned-worktree')),
-  execution_root     TEXT NOT NULL,
-  -- git rev-parse --git-common-dir (absolute) at creation: the git dir that
-  -- outlives a retired worktree, so snapshot refs can still be pruned.
-  git_common_dir     TEXT NOT NULL,
-  worktree_id        TEXT REFERENCES worktrees(id),
-  branch_context_id  TEXT REFERENCES branch_contexts(id),
-  created_at         TEXT NOT NULL,
-  released_at        TEXT,
-  -- The mode names which root id is present; both modes carry their branch
-  -- context.
-  CHECK(
-    (execution_mode = 'bound-root' AND worktree_id IS NULL AND branch_context_id IS NOT NULL)
-    OR (execution_mode = 'provisioned-worktree'
-        AND worktree_id IS NOT NULL AND branch_context_id IS NOT NULL)
-  )
-) STRICT;
-
-CREATE INDEX idx_run_execution_contexts_workspace ON run_execution_contexts(workspace_id);
+${WORKTREE_SCHEMA_SQL}
 
 -- ---------------------------------------------------------------------------
 -- The admission queue, interventions and command receipts.

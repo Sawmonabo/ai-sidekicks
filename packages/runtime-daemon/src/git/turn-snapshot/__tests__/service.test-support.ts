@@ -155,7 +155,7 @@ export class FixtureRepository {
 /** Seams a case replaces; everything unset stays at the production default. */
 export interface ServiceOverrides {
   readonly git?: GitRunner;
-  readonly filesystem?: GitFilesystem;
+  readonly filesystem?: Pick<GitFilesystem, "createDirectory" | "removePath">;
   readonly now?: () => string;
   readonly emitDiagnostic?: (diagnostic: TurnSnapshotDiagnostic) => void;
   /** The prune only; the capture cases construct without one. */
@@ -167,6 +167,8 @@ interface CaptureOverrides {
   readonly epoch?: number;
   readonly turnOrdinal?: number;
   readonly executionRoot?: string;
+  /** Defaults to the execution root, its own checkout's top level. */
+  readonly checkoutRoot?: string;
 }
 
 /**
@@ -254,12 +256,14 @@ export class TurnSnapshotFixture {
     service: TurnSnapshotService,
     overrides: CaptureOverrides = {},
   ): Promise<TurnSnapshotCaptureResult> {
+    const executionRoot = overrides.executionRoot ?? this.repository.root;
     return service.captureTurnSnapshot({
       runId: RUN_ID,
       epoch: 0,
       turnOrdinal: 1,
-      executionRoot: this.repository.root,
+      checkoutRoot: executionRoot,
       ...overrides,
+      executionRoot,
     });
   }
 

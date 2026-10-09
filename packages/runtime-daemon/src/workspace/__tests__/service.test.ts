@@ -1,7 +1,7 @@
 // Proves WorkspaceService never persists a workspace outside its mount, on another chat's managed
 // mount, for a missing session or twice for one session on one mount, scrubs credentials from a
-// recorded failure, turns a vanished root into a persisted `stale`, and grants a run hold to
-// exactly one run. Real SQLite, event log and directories.
+// recorded failure, and turns a vanished root into a persisted `stale`. Real SQLite, event log,
+// directories and git.
 
 import { mkdirSync, rmSync } from "node:fs";
 import { mkdtemp, realpath } from "node:fs/promises";
@@ -27,14 +27,12 @@ import {
 } from "../repo/errors.js";
 import { TrustEnvelopeValidator } from "../trust-envelope.js";
 import { WorkspaceEventEmitter } from "../event-emitter.js";
-import type { FilesystemPathProbe } from "../projector.js";
 import {
   normalizeWorkspaceLastError,
   scrubCredentials,
   WORKSPACE_LAST_ERROR_TRUNCATION_MARKER,
 } from "../last-error.js";
 import {
-  WorkspaceBusyError,
   WorkspaceModeUnsupportedError,
   WorkspaceServiceInvariantError,
   WorkspaceStaleError,
@@ -43,9 +41,15 @@ import { WorkspaceService, type WorkspaceServiceDeps } from "../service.js";
 import { type FilesystemPathProbeFn } from "../row-guards.js";
 
 import { bindReadyWorkspace } from "../__fixtures__/bound-root.js";
-import { readWorkspaceRow, requireWorkspaceRow } from "../__fixtures__/rows.js";
+import {
+  attachedMountRowStatements,
+  readWorkspaceRow,
+  requireWorkspaceRow,
+} from "../__fixtures__/rows.js";
 import { seedSessionRow } from "../../session/directory/__fixtures__/directory-rows.js";
 import { captureRejection } from "../../__fixtures__/capture-failure.js";
+import { buildFixtureEnvironment, runFixtureGit } from "../../git/__fixtures__/command.js";
+import { RepoRootResolver } from "../repo/root-resolver.js";
 
 // ----------------------------------------------------------------------------
 // Fixtures
@@ -57,8 +61,6 @@ const SESSION_ID: SessionId = "0190f8b0-0000-7000-8000-000000000001" as SessionI
 const OTHER_SESSION_ID: SessionId = "0190f8b0-0000-7000-8000-000000000002" as SessionId;
 const GIT_MOUNT_ID: RepoMountId = "0190f8b1-0000-7000-8000-000000000001" as RepoMountId;
 const MANAGED_MOUNT_ID: RepoMountId = "0190f8b1-0000-7000-8000-000000000002" as RepoMountId;
-const RUN_ID: string = "0190f8b3-0000-7000-8000-000000000001";
-const OTHER_RUN_ID: string = "0190f8b3-0000-7000-8000-000000000002";
 
 // Real UUIDs for the injected id source; a counter would fail `WorkspaceIdSchema.parse`.
 const WORKSPACE_ID_POOL: readonly string[] = [
@@ -114,24 +116,12 @@ interface MountFixture {
 }
 
 async function insertMount(fixture: MountFixture): Promise<void> {
-  const now = new Date().toISOString();
-  await harness.database.writer.write([
-    {
-      sql: `INSERT INTO repo_mounts (
-              id, node_id, local_path, canonical_root, vcs_type, state, attached_at, updated_at,
-              metadata
-            ) VALUES (
-              @id, @node_id, @local_path, @canonical_root, 'git', 'attached', @now, @now, '{}'
-            )`,
-      bindings: {
-        id: fixture.id,
-        node_id: "node-local",
-        local_path: fixture.canonicalRoot,
-        canonical_root: fixture.canonicalRoot,
-        now,
-      },
-    },
-  ]);
+  await harness.database.writer.write(attachedMountRowStatements(fixture));
+}
+
+/** A validator over the real git, as the service builds by default. */
+function realValidator(): TrustEnvelopeValidator {
+  return new TrustEnvelopeValidator({ workingTrees: new RepoRootResolver() });
 }
 
 /** Runs one raw statement through the writer, as another writer would. */
@@ -159,29 +149,6 @@ function readWorkspaceMetadata(workspaceId: string): Record<string, unknown> {
   >;
 }
 
-/**
- * A probe seam that runs `interfere()` once before answering truthfully. `#observeState`
- * awaits this probe, so the write lands after the service read the row and before it acts on
- * that read. Later calls answer normally.
- */
-function interferingProbe(
-  interfere: () => Promise<void>,
-  reachable: boolean,
-): FilesystemPathProbeFn {
-  let fired = false;
-  return async (path: string) => {
-    if (!fired) {
-      fired = true;
-      await interfere();
-    }
-    return {
-      probedPath: path,
-      reachable,
-      checkedAt: "2026-08-04T00:00:00.000Z",
-    } satisfies FilesystemPathProbe;
-  };
-}
-
 // ----------------------------------------------------------------------------
 // Per-test lifecycle
 // ----------------------------------------------------------------------------
@@ -204,12 +171,14 @@ beforeEach(async () => {
     }),
   });
 
-  // `siblingRoot` exists so the traversal arm fails on containment rather than on absence.
+  // `siblingRoot` exists so the traversal arm fails on containment rather than on absence; the
+  // mount root is a real repository, since a bind asks git which working tree a folder is in.
   const gitMountRoot: string = join(tmpDir, "repos", "git-mount");
   const siblingRoot: string = join(tmpDir, "repos", "sibling");
   for (const directory of [gitMountRoot, siblingRoot]) {
     mkdirSync(directory, { recursive: true });
   }
+  await runFixtureGit(["init", "-q", gitMountRoot], buildFixtureEnvironment(tmpDir), tmpDir);
 
   harness = {
     database,
@@ -291,7 +260,7 @@ describe("bind", () => {
     // validator. A detach landing there moves the mount's `state` without deleting the row, so
     // the foreign key does not help. Without the insert's attachment predicate this commits a
     // workspace on a detached mount that the detach cascade never archives.
-    const validator = new TrustEnvelopeValidator();
+    const validator = realValidator();
     const validateExecutionRootOriginal = validator.validateExecutionRoot.bind(validator);
     vi.spyOn(validator, "validateExecutionRoot").mockImplementationOnce(async (candidate) => {
       const resolved = await validateExecutionRootOriginal(candidate);
@@ -314,7 +283,7 @@ describe("bind", () => {
 
   it("refuses a bind whose session row is deleted DURING the containment await", async () => {
     // A purge landing between the session read and the write: the write re-tests the row.
-    const validator = new TrustEnvelopeValidator();
+    const validator = realValidator();
     const validateExecutionRootOriginal = validator.validateExecutionRoot.bind(validator);
     vi.spyOn(validator, "validateExecutionRoot").mockImplementationOnce(async (candidate) => {
       const resolved = await validateExecutionRootOriginal(candidate);
@@ -446,7 +415,7 @@ describe("bind", () => {
   it("answers a bind that another bind of the session to the mount beat to the write", async () => {
     // The other bind lands between this one's reads and its write.
     let boundMeanwhile: string | undefined;
-    const validator = new TrustEnvelopeValidator();
+    const validator = realValidator();
     const validateExecutionRootOriginal = validator.validateExecutionRoot.bind(validator);
     vi.spyOn(validator, "validateExecutionRoot").mockImplementationOnce(async (candidate) => {
       const resolved = await validateExecutionRootOriginal(candidate);
@@ -499,7 +468,9 @@ describe("root preparation cycle", () => {
     // working directory, a home directory, a drive).
     for (const incompleteRoot of ["worktrees/relative", "~/worktrees", "\\worktrees\\app"]) {
       const refusal = await captureRejection(() =>
-        harness.service.completeRootPreparation(workspaceId, incompleteRoot),
+        harness.service.completeRootPreparation(workspaceId, incompleteRoot, {
+          checkoutRoot: harness.gitMountRoot,
+        }),
       );
       expect(refusal).toBeInstanceOf(WorkspaceServiceInvariantError);
       expect((refusal as WorkspaceServiceInvariantError).kind).toBe("non_absolute_execution_root");
@@ -514,7 +485,9 @@ describe("root preparation cycle", () => {
     // reads path shape only, so the Windows forms pass on a POSIX host too.
     const completeRoots = ["/repos/app", "C:\\repos\\app", "C:/repos/app", "\\\\server\\share"];
     for (const completeRoot of completeRoots) {
-      await harness.service.completeRootPreparation(workspaceId, completeRoot);
+      await harness.service.completeRootPreparation(workspaceId, completeRoot, {
+        checkoutRoot: completeRoot,
+      });
       expect(readWorkspaceRow(harness.database.reader, workspaceId)?.fs_root).toBe(completeRoot);
       await harness.service.beginRootPreparation(workspaceId, "provisioned-worktree");
     }
@@ -566,27 +539,15 @@ describe("root preparation cycle", () => {
     expect(midRetry.workspaces[0]?.state).toBe("preparing" satisfies WorkspaceState);
     expect(midRetry.workspaces[0]?.lastError).toBeUndefined();
 
-    await harness.service.completeRootPreparation(workspaceId, worktreeRoot);
+    await harness.service.completeRootPreparation(workspaceId, worktreeRoot, {
+      checkoutRoot: worktreeRoot,
+    });
 
     expect(readWorkspaceRow(harness.database.reader, workspaceId)?.state).toBe(
       "ready" satisfies WorkspaceState,
     );
     // A `ready` workspace must not keep advertising a failure that was fixed.
     expect(readWorkspaceMetadata(workspaceId)["lastError"]).toBeUndefined();
-  });
-
-  it("refuses to prepare a held workspace with `workspace.busy`", async () => {
-    await harness.service.markBusy(workspaceId, RUN_ID);
-
-    const refusal = await captureRejection(() =>
-      harness.service.beginRootPreparation(workspaceId, "provisioned-worktree"),
-    );
-
-    expect(refusal).toBeInstanceOf(WorkspaceBusyError);
-    expect((refusal as WorkspaceBusyError).holdingRunId).toBe(RUN_ID);
-    expect(readWorkspaceRow(harness.database.reader, workspaceId)?.state).toBe(
-      "busy" satisfies WorkspaceState,
-    );
   });
 });
 
@@ -742,10 +703,10 @@ describe("assertWritable", () => {
 });
 
 // ----------------------------------------------------------------------------
-// markBusy / releaseBusy / markStale — and a held workspace that keeps its hold
+// markStale
 // ----------------------------------------------------------------------------
 
-describe("run holds", () => {
+describe("markStale", () => {
   let workspaceId: string;
 
   beforeEach(async () => {
@@ -756,46 +717,6 @@ describe("run holds", () => {
       GIT_MOUNT_ID,
       harness.gitMountRoot,
     );
-  });
-
-  it("refuses a second holder with `workspace.busy`, naming the incumbent", async () => {
-    await harness.service.markBusy(workspaceId, RUN_ID);
-
-    const refusal = await captureRejection(() =>
-      harness.service.markBusy(workspaceId, OTHER_RUN_ID),
-    );
-
-    expect(refusal).toBeInstanceOf(WorkspaceBusyError);
-    expect((refusal as WorkspaceBusyError).code).toBe("workspace.busy");
-    // The loser's only repair affordance: `repo.detach_conflict` names the running session, not
-    // its run, so only this refusal names the run that holds the workspace.
-    expect((refusal as WorkspaceBusyError).holdingRunId).toBe(RUN_ID);
-    expect(readWorkspaceMetadata(workspaceId)["holdingRunId"]).toBe(RUN_ID);
-  });
-
-  it("keeps a run's hold while its root is gone; the row goes stale once released", async () => {
-    await harness.service.markBusy(workspaceId, RUN_ID);
-    rmSync(harness.gitMountRoot, { recursive: true, force: true });
-
-    const whileHeld = await harness.service.list({ sessionId: SESSION_ID });
-
-    // The read reports the vanished root, and the run keeps the workspace it holds: no other run
-    // can take it, and the hold still names the run that has it.
-    expect(whileHeld.workspaces[0]?.state).toBe("stale" satisfies WorkspaceState);
-    expect(readWorkspaceRow(harness.database.reader, workspaceId)?.state).toBe(
-      "busy" satisfies WorkspaceState,
-    );
-    expect(readWorkspaceMetadata(workspaceId)["holdingRunId"]).toBe(RUN_ID);
-    expect(readEventTypes()).toEqual(READY_BIND_EVENTS);
-
-    expect(await harness.service.releaseBusy(workspaceId)).toBe(true);
-    await harness.service.list({ sessionId: SESSION_ID });
-
-    // The first read after the release stales it, so no new run starts on the missing root.
-    expect(readWorkspaceRow(harness.database.reader, workspaceId)?.state).toBe(
-      "stale" satisfies WorkspaceState,
-    );
-    expect(readEventTypes()).toEqual([...READY_BIND_EVENTS, "workspace.stale"]);
   });
 
   it("appends exactly ONE workspace.stale when a second reader wins the race", async () => {
@@ -822,33 +743,5 @@ describe("run holds", () => {
       "stale" satisfies WorkspaceState,
     );
     expect(readEventTypes()).toEqual([...READY_BIND_EVENTS, "workspace.stale"]);
-  });
-
-  it("answers a lost hold race with the REASON, not the mechanism", async () => {
-    // Window: `markBusy` observes `ready` through the probe, then runs its compare-and-swap.
-    // Interference inside the probe lands between the two, so the swap matches nothing and the
-    // re-read decides what to report. These branches are unreachable from a single-threaded
-    // suite otherwise.
-    const takenByAnother = createService({
-      probePath: interferingProbe(
-        () =>
-          writeRaw(
-            `UPDATE workspaces
-                SET state = 'busy', metadata = json_set(metadata, '$.holdingRunId', ?)
-              WHERE id = ?`,
-            OTHER_RUN_ID,
-            workspaceId,
-          ),
-        true,
-      ),
-    });
-
-    const refusal = await captureRejection(() => takenByAnother.markBusy(workspaceId, RUN_ID));
-
-    expect(refusal).toBeInstanceOf(WorkspaceBusyError);
-    // The re-read makes the answer actionable; "the swap changed zero rows" names nothing a
-    // caller can chase.
-    expect((refusal as WorkspaceBusyError).holdingRunId).toBe(OTHER_RUN_ID);
-    expect(readWorkspaceMetadata(workspaceId)["holdingRunId"]).toBe(OTHER_RUN_ID);
   });
 });

@@ -59,6 +59,7 @@ export class ProviderSpawnEnvConflictError extends Error {
 
   constructor(conflictingName: string, message: string) {
     super(message);
+    this.conflictingName = conflictingName;
     this.name = "ProviderSpawnEnvConflictError";
     this.conflictingName = conflictingName;
   }
@@ -122,15 +123,28 @@ export function buildProviderSpawnEnv(request: ProviderSpawnEnvRequest): readonl
     (request.credentialEnvPolicy?.denyEnvVars ?? []).map((name) => toMatchKey(name, nameMatch)),
   );
 
-  // A row replaces the base pair of its name under the host's matching, so the child receives one
-  // value per name and the spawn surface never chooses between two.
-  const layeredByKey = new Map<string, SpawnEnvPair>();
-  for (const pair of [...request.baseEnv, ...(request.environmentRows ?? [])]) {
-    const key = toMatchKey(pair[0], nameMatch);
-    if (!deniedKeys.has(key) && !mandatedByKey.has(key)) {
-      layeredByKey.set(key, [pair[0], pair[1]]);
-    }
-  }
+  const layered = layerSpawnEnvironment(
+    [...request.baseEnv, ...(request.environmentRows ?? [])],
+    nameMatch,
+  ).filter(([name]) => {
+    const key = toMatchKey(name, nameMatch);
+    return !deniedKeys.has(key) && !mandatedByKey.has(key);
+  });
 
-  return [...layeredByKey.values(), ...mandatedByKey.values()];
+  return [...layered, ...mandatedByKey.values()];
+}
+
+/**
+ * The pairs folded to one per name under the host's matching, a later pair replacing an earlier
+ * one's name and value in its place, so a child receives one value per name.
+ */
+export function layerSpawnEnvironment(
+  pairs: readonly SpawnEnvPair[],
+  nameMatch: SpawnEnvNameMatch,
+): SpawnEnvPair[] {
+  const layeredByKey = new Map<string, SpawnEnvPair>();
+  for (const [name, value] of pairs) {
+    layeredByKey.set(toMatchKey(name, nameMatch), [name, value]);
+  }
+  return [...layeredByKey.values()];
 }

@@ -29,7 +29,7 @@ export function readBindControlAvailability(mount: RepoMountReadResponse): BindC
   if (mount.health.status !== "healthy") {
     return {
       available: false,
-      unavailableBecause: mountHealthReading(mount.health).sentence,
+      unavailableBecause: mountHealthReading(mount).sentence,
     };
   }
   return BIND_CONTROLS_AVAILABLE;

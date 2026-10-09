@@ -3,13 +3,15 @@
 // subscribe, window focus, reconnect and the terminal events this class names, never on an
 // interval. The order is forced by the wire: there is no mount list call, so mounts are learned
 // from the listed workspaces, then read once per distinct mount (the only read carrying
-// `health`), then worktree status once per mount. A rejected call ends the pass: its cause goes
-// to the window's diagnostic capture, the reading returns to where it stood before the pass, and
-// the session's failed dependent reads hold this reader until a pass succeeds, so the line under
-// the session header says the window could not catch up.
+// `health`), then worktree status once per distinct project those mounts belong to; a chat's
+// managed mount belongs to no project and has no worktrees. A rejected call ends the pass: its
+// cause goes to the window's diagnostic capture, the reading returns to where it stood before the
+// pass, and the session's failed dependent reads hold this reader until a pass succeeds, so the
+// line under the session header says the window could not catch up.
 // The state is not in the session store because a mount read is a probe, not an event
 // projection.
 
+import type { ProjectId } from "@ai-sidekicks/contracts/project";
 import type { RepoMountReadResponse } from "@ai-sidekicks/contracts/repo/folders";
 import type { WorktreeStatusRecord } from "@ai-sidekicks/contracts/worktree/lifecycle";
 import type { Unsubscribe } from "#shared/preload-api.js";
@@ -195,7 +197,7 @@ export class RepoMountsReader implements ReadTriggerTarget {
 
   /**
    * The section's whole reading: the listed workspaces, one mount read per distinct mount and one
-   * worktree read per mount. The round's signal reaches
+   * worktree read per distinct project. The round's signal reaches
    * each read, so an abandoned pass costs only the pre-send check per remaining call.
    */
   async #readSection(round: ReadRound): Promise<void> {
@@ -219,8 +221,13 @@ export class RepoMountsReader implements ReadTriggerTarget {
     }
 
     const worktrees: WorktreeStatusRecord[] = [];
+    const seenProjectIds = new Set<ProjectId>();
     for (const mount of mounts) {
-      const roots = await this.#operations.readWorktreeStatus(mount.id, round.signal);
+      if (mount.origin.kind === "managed" || seenProjectIds.has(mount.origin.projectId)) {
+        continue;
+      }
+      seenProjectIds.add(mount.origin.projectId);
+      const roots = await this.#operations.readWorktreeStatus(mount.origin.projectId, round.signal);
       if (this.#isAbandoned(round)) {
         return;
       }

@@ -7,6 +7,7 @@ import type { Database } from "better-sqlite3";
 
 import { foldName } from "@ai-sidekicks/contracts/name-fold";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import { BranchContextIdSchema } from "@ai-sidekicks/contracts/worktree/lifecycle";
 import type { WorkflowNodeId } from "@ai-sidekicks/contracts/workflow/definition/document";
 import type { WorkflowRunId } from "@ai-sidekicks/contracts/workflow/run/id";
 import type {
@@ -16,6 +17,7 @@ import type {
 
 import type { DatabaseWriter } from "../../../database/writer.js";
 import { mintUuidV7 } from "../../../uuid-v7.js";
+import { attachedMountRowStatements } from "../../../workspace/__fixtures__/rows.js";
 import {
   workflowRunCreationStatements,
   type WorkflowRunChainPlace,
@@ -75,15 +77,10 @@ export async function insertExecutionContextCheckout(
 ): Promise<WorkflowRunExecutionContext> {
   const repoMountId = mintUuidV7();
   const workspaceId = mintUuidV7();
-  const branchContextId = mintUuidV7();
+  const branchContextId = BranchContextIdSchema.parse(mintUuidV7());
   const at = "2026-10-01T00:00:00.000Z";
   await writer.write([
-    {
-      sql: `INSERT INTO repo_mounts (
-          id, node_id, local_path, canonical_root, attached_at, updated_at
-        ) VALUES (?, 'node', '/repo', '/repo', ?, ?)`,
-      bindings: [repoMountId, at, at],
-    },
+    ...attachedMountRowStatements({ id: repoMountId, canonicalRoot: "/repo" }),
     {
       sql: `INSERT INTO workspaces (
           id, session_id, repo_mount_id, execution_mode, fs_root, state, created_at, updated_at
@@ -101,6 +98,7 @@ export async function insertExecutionContextCheckout(
     workspaceId,
     executionMode: "bound-root",
     executionRoot: "/repo",
+    checkoutRoot: "/repo",
     branchContextId,
     gitCommonDir: "/repo/.git",
   };

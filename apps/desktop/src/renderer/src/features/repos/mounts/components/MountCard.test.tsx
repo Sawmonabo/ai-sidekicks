@@ -1,22 +1,16 @@
-// The mount card: the resolved root in its head, an unreachable mount withholding its bind
-// controls, and a drifted one offering the re-attach.
+// The mount card: the resolved root in its head, and an unreachable mount withholding its bind
+// controls.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
-import { SessionStore } from "#renderer/store/session/store.js";
 import { bridgeOnClock } from "#test/helpers/fixture/bridge.js";
 import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { scriptedRepoOperations } from "../../operations.test-support.js";
 import { MountCard } from "./MountCard.js";
 import type { RepoWorkspaceRow } from "../reading.js";
-import {
-  CANONICAL_ROOT,
-  ENTERED_PATH,
-  buildMount,
-  workspaceRow,
-} from "../repo-mounts.test-support.js";
+import { CANONICAL_ROOT, buildMount, workspaceRow } from "../repo-mounts.test-support.js";
 import { HOVER_LABEL_TEXT_ATTRIBUTE } from "#renderer/components/HoverLabel/HoverLabel.js";
 
 /** The card's own state sentence; each prepare form repeats a held reason in its disclosure. */
@@ -39,7 +33,6 @@ function renderCard(
         workspaces={[WORKSPACE]}
         bridge={bridge}
         operations={scriptedRepoOperations()}
-        sessionStore={new SessionStore({ sessionId: "session-repos" })}
         onCopyCanonicalRoot={() => undefined}
         onRequestRead={() => undefined}
         onOpenDiff={() => undefined}
@@ -71,42 +64,5 @@ describe("MountCard — an unreachable mount", () => {
     });
     expect(container.querySelector(".meridian-mount-card--withheld")).not.toBeNull();
     expect(withheldLine(container)).toMatch(/could not be probed/u);
-  });
-});
-
-describe("MountCard — the drifted mount and its one control", () => {
-  it("offers the re-attach on a mount whose identity no longer matches", () => {
-    // `unreachable` may resolve on its own, so a re-attach there would mint a second mount for
-    // a path about to answer again.
-    const { getByLabelText } = renderCard({
-      mount: buildMount({
-        health: {
-          status: "identity_mismatch",
-          isRepository: true,
-          checkedAt: "2026-01-01T00:00:00Z",
-        },
-      }),
-    });
-    expect(getByLabelText(`Re-attach ${ENTERED_PATH}`)).toBeDefined();
-  });
-
-  it("offers no re-attach once the drifted root is no longer a git repository", () => {
-    const { queryByLabelText } = renderCard({
-      mount: buildMount({
-        health: {
-          status: "identity_mismatch",
-          isRepository: false,
-          checkedAt: "2026-01-01T00:00:00Z",
-        },
-      }),
-    });
-    expect(queryByLabelText(`Re-attach ${ENTERED_PATH}`)).toBeNull();
-  });
-
-  it("offers no re-attach on an unreachable mount, which may answer again", () => {
-    const { queryByText } = renderCard({
-      mount: buildMount({ health: { status: "unreachable", checkedAt: "2026-01-01T00:00:00Z" } }),
-    });
-    expect(queryByText("Re-attach this path")).toBeNull();
   });
 });

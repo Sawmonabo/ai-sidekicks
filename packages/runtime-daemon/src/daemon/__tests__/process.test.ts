@@ -6,17 +6,21 @@
 // alone; of two starts racing for one socket, the loser is refused and the token file holds the
 // winner's token; a start that fails at the bind stops the session services it built and closes
 // the search thread and the database, and one whose session services fail to load fails with what
-// the load threw, never leaving it unhandled, and frees the data folder. A start that fails while
-// its login shell runs ends the shell and fails at once.
+// the load threw, never leaving it unhandled, and frees the data folder. A start releases the
+// execution root of each run its recovery settles. A start that fails while its login shell runs
+// ends the shell and fails at once.
 
+import { randomUUID } from "node:crypto";
 import { access, chmod, lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 
+import Database from "better-sqlite3";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 
 import { DAEMON_DATA_FOLDER_NAME } from "@ai-sidekicks/contracts/daemon/data";
+import { EventEnvelopeVersionSchema } from "@ai-sidekicks/contracts/event/envelope";
 import {
   DAEMON_STOP_TERMINAL_DRAIN_MS,
   DAEMON_STOP_TERMINAL_HOST_DRAIN_MS,
@@ -27,13 +31,27 @@ import {
 } from "@ai-sidekicks/contracts/daemon/run-folder";
 import { JSONRPC_VERSION } from "@ai-sidekicks/contracts/jsonrpc/message";
 import { CURRENT_PROTOCOL_VERSION } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
+import { RunIdSchema } from "@ai-sidekicks/contracts/run/id";
 
 import { SecureDefaultsValidationError } from "../../bootstrap/secure-defaults.js";
+import {
+  closeDatabaseConnections,
+  openDatabaseConnections,
+} from "../../database/connection/lifecycle.js";
+import { EventLogService } from "../../events/log-service.js";
+import { SessionEventAppender } from "../../events/session/appender.js";
 import { connect } from "../../ipc/__fixtures__/local-socket-client.js";
 import { readSocketPathLimit } from "../../ipc/socket-path-limit.js";
+import { seedSessionRow } from "../../session/directory/__fixtures__/directory-rows.js";
+import { RunEngine } from "../../session/run/engine.js";
+import { insertQueuedRunStatement } from "../../session/run/projection.js";
+import {
+  FIXTURE_SESSION_ID,
+  insertExecutionContextCheckout,
+} from "../../workflow/runs/__fixtures__/rows.js";
 import { DaemonAlreadyRunningError } from "../already-running-error.js";
 import { captureLoginShellEnvironment } from "../login-shell-environment.js";
-import { DaemonProcess, type DaemonProcessOptions } from "../process.js";
+import { DATABASE_FILE_NAME, DaemonProcess, type DaemonProcessOptions } from "../process.js";
 import {
   DRAIN_NOTHING,
   EMPTY_DRAIN,
@@ -41,6 +59,7 @@ import {
   isSocketAnswering,
   runFolder,
   scratch,
+  STARTED_AT,
   started,
   startDaemon,
   startSearchThread,
@@ -239,6 +258,59 @@ describe("DaemonProcess.start", () => {
 
     await startDaemon(DRAIN_NOTHING);
     expect((await lstat(dataFolder)).mode & 0o777).toBe(0o700);
+  });
+
+  it("releases the execution root of each run its recovery settles", async () => {
+    // A run left running by the last daemon, bound to a checkout its context still holds.
+    const dataFolder = path.join(homeDirectory, DAEMON_DATA_FOLDER_NAME);
+    await mkdir(dataFolder, { mode: 0o700 });
+    const databasePath = path.join(dataFolder, DATABASE_FILE_NAME);
+    const database = await openDatabaseConnections({ databasePath, writeServiceLog: () => {} });
+    const sessionEvents = new EventLogService({ ...database, writeServiceLog: () => {} });
+    await seedSessionRow(database.writer, FIXTURE_SESSION_ID);
+    const runId = RunIdSchema.parse(randomUUID());
+    const queued = {
+      sessionId: FIXTURE_SESSION_ID,
+      runId,
+      runVersion: 0,
+      newState: "queued" as const,
+    };
+    await new SessionEventAppender(
+      { sessionEvents },
+      EventEnvelopeVersionSchema.parse("1.0"),
+    ).append("run.queued", queued, { transactionalPrelude: [insertQueuedRunStatement(queued)] });
+    const lastEngine = new RunEngine({ reader: database.reader, sessionEvents });
+    await lastEngine.transition({ runId, newState: "starting" });
+    await lastEngine.transition({ runId, newState: "running" });
+    const checkout = await insertExecutionContextCheckout(database.writer);
+    await database.writer.write([
+      {
+        sql: `INSERT INTO run_execution_contexts (run_id, session_id, workspace_id, execution_mode,
+            execution_root, checkout_root, git_common_dir, branch_context_id, created_at)
+          VALUES (?, ?, ?, 'bound-root', ?, ?, ?, ?, ?)`,
+        bindings: [
+          runId,
+          FIXTURE_SESSION_ID,
+          checkout.workspaceId,
+          checkout.executionRoot,
+          checkout.checkoutRoot,
+          checkout.gitCommonDir,
+          checkout.branchContextId,
+          STARTED_AT,
+        ],
+      },
+    ]);
+    await closeDatabaseConnections(database);
+
+    await startDaemon(DRAIN_NOTHING);
+
+    const reader = new Database(databasePath, { readonly: true });
+    onTestFinished(() => {
+      reader.close();
+    });
+    expect(
+      reader.prepare("SELECT released_at FROM run_execution_contexts WHERE run_id = ?").get(runId),
+    ).toStrictEqual({ released_at: expect.any(String) });
   });
 });
 

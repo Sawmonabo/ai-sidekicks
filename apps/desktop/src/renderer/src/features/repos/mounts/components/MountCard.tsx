@@ -1,8 +1,6 @@
 // One repo mount, with lifecycle and health as separate chips. `canonicalRoot` is shown
 // verbatim (the stylesheet truncates it; the hover label and copy control recover it) and never
 // resolved or compared here, because containment and symlink rules belong to the daemon.
-// Re-attach shows only on `identity_mismatch`, the permanent verdict, and only while git still
-// answers for the root; `unreachable` is transient.
 
 import "./MountCard.css";
 
@@ -18,10 +16,8 @@ import {
   formatZonedDateTime,
 } from "#renderer/lib/wire/figures.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
-import type { SessionStore } from "#renderer/store/session/store.js";
 import { mountHealthReading, mountLifecycleReading } from "#renderer/store/mount-axis-readings.js";
 import { readBindControlAvailability } from "../bind-control-availability.js";
-import { ReattachControl } from "../attach/ReattachControl.js";
 import type { RepoOperations } from "../../operations.js";
 import type { RepoWorkspaceRow } from "../reading.js";
 import { OpenDiffControl, type OpenDiffSubject } from "./OpenDiffControl.js";
@@ -38,11 +34,9 @@ export interface MountCardProps {
   readonly bridge: PlatformBridge;
   /** The calls each control on this card makes. */
   readonly operations: RepoOperations;
-  /** The session a re-attach is sent for. */
-  readonly sessionStore: SessionStore;
   /** Put the resolved root on the clipboard. */
   readonly onCopyCanonicalRoot: (canonicalRoot: string) => void;
-  /** Read the section again, because a user's act minted a mount it has not seen. */
+  /** Read the section again, because a prepare put a root on disk the list has not seen. */
   readonly onRequestRead: () => void;
   /** Open a change set over one of this card's rows; takes the subject, not a workspace. */
   readonly onOpenDiff: (subject: OpenDiffSubject) => void;
@@ -54,7 +48,7 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
   const { mount } = props;
   // The lifecycle sentence reaches the screen through the withheld line.
   const lifecycle = mountLifecycleReading(mount.state);
-  const health = mountHealthReading(mount.health);
+  const health = mountHealthReading(mount);
   const availability = readBindControlAvailability(mount);
 
   return (
@@ -107,15 +101,6 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
           politeness="polite"
         />
       )}
-      {mount.health.status === "identity_mismatch" && mount.health.isRepository ? (
-        <ReattachControl
-          bridge={props.bridge}
-          sessionId={props.sessionStore.sessionId}
-          operations={props.operations}
-          localPath={mount.localPath}
-          onAttached={props.onRequestRead}
-        />
-      ) : null}
 
       <details>
         <summary className="meridian-mount-card__provenance-summary">Provenance</summary>

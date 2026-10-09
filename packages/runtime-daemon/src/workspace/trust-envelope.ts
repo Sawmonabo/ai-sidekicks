@@ -1,12 +1,16 @@
-// Trust-envelope containment validator: proves a `WorkspaceBind` execution root sits inside the
-// local trust envelope (the canonical roots of the repo mounts attached on this machine).
+// Trust-envelope validator: proves a picked folder belongs to the repo mount a session binds, at
+// the pick and never again. A mount's admitted roots are its canonical root, the working trees git
+// lists for its repository (read at every pick, never cached), and the roots the daemon created,
+// which are admitted by provenance whatever git's list says.
 //
-// Every returned path was resolved by the filesystem, then proven component-contained in the
-// mount's own root, which must itself be an attached root. Every refusal throws the argument-free
-// `TrustEnvelopeViolationError` (fail closed; no path can reach the wire). Attach is not checked.
+// Every returned path was resolved by the filesystem, then proven component-contained in an
+// admitted root. Every refusal throws `TrustEnvelopeViolationError` with reason `outside_project`
+// (fail closed; it takes no path, so none can reach the wire). Attach is not checked.
 // - Resolve, then contain: the join skips `path.resolve`, which collapses `..` before symlinks.
 // - The anchor is never re-resolved; comparing it as admitted can only refuse more.
 // - Comparison is per path component, so `/repo-evil` is not inside `/repo`.
+// - Containment is working-tree-boundary-aware: a folder counts by the working tree git says it
+//   sits in, so a worktree nested beneath the canonical root admits only while git lists it.
 // - A vanished or detached mount also arrives as that error; callers check mount state first.
 // - The guarantee is point-in-time; TOCTOU hardening belongs to the execution boundary.
 
@@ -14,18 +18,30 @@ import { opendir, realpath as realpathFromFilesystem } from "node:fs/promises";
 import * as nodePath from "node:path";
 
 import { TrustEnvelopeViolationError } from "./repo/errors.js";
+import type { WorkingTreeReader } from "./repo/root-resolver.js";
 
-/** One `WorkspaceBind` execution-root candidate; the caller supplies every root, so no lookups. */
+/** One picked folder; the caller supplies every root, so the validator looks nothing up. */
 export interface WorkspaceExecutionRootCandidate {
   /** Canonical root of the bind's repo mount: absolute, `realpath`-ed, used as given. */
   readonly mountCanonicalRoot: string;
   /**
-   * `WorkspaceBindRequest.directory`, relative to the mount root; absent or empty binds the root.
-   * A win32 driveless rooted form (`\evil`) is refused up front; `..` is left to the filesystem.
+   * A path relative to the mount root, or an absolute one naming a listed working tree or a folder
+   * inside one; absent or empty picks the root. A win32 driveless rooted form (`\evil`) is refused
+   * up front; `..` is left to the filesystem.
    */
   readonly directory?: string | undefined;
   /** The trust envelope: canonical roots of every attached repo mount; empty admits nothing. */
   readonly attachedMountRoots: readonly string[];
+  /** Roots the daemon created for this mount, admitted whatever git lists; absent admits none. */
+  readonly provenanceRoots?: readonly string[] | undefined;
+}
+
+/** A folder the envelope admitted, both paths symlink-resolved. */
+export interface AdmittedExecutionRoot {
+  /** The picked folder itself. */
+  readonly executionRoot: string;
+  /** The top level of the working tree the folder sits in. */
+  readonly checkoutRoot: string;
 }
 
 /** `fs.promises.realpath` seam. Rejects with a Node `ErrnoException`. */
@@ -48,7 +64,7 @@ export interface PlatformPathModule {
   parse(path: string): { readonly root: string };
 }
 
-/** Constructor-injectable primitives; every member defaults to the real one. */
+/** Constructor-injectable primitives; every member but `workingTrees` defaults to the real one. */
 export interface TrustEnvelopeValidatorDeps {
   /**
    * Defaults to `node:fs/promises.realpath`, which returns on-disk spelling. The callback form
@@ -66,6 +82,8 @@ export interface TrustEnvelopeValidatorDeps {
    * real-`node:path` backstop: a seam mismatch fails containment rather than loosening it.
    */
   readonly platformPath: PlatformPathModule;
+  /** Asks git which working tree a folder sits in and which working trees a repository has. */
+  readonly workingTrees: WorkingTreeReader;
 }
 
 /** `path.win32.sep`. The discriminator for case-folded comparison and win32 path rules. */
@@ -85,11 +103,18 @@ export const DEFAULT_DIRECTORY_READABILITY_PROBE: DirectoryReadabilityProbe = as
   await directoryHandle.close();
 };
 
-function resolveDeps(partial: Partial<TrustEnvelopeValidatorDeps>): TrustEnvelopeValidatorDeps {
+/** The validator's seams: the git reader is required, every other one defaults to the real one. */
+export type TrustEnvelopeValidatorOptions = Partial<
+  Omit<TrustEnvelopeValidatorDeps, "workingTrees">
+> &
+  Pick<TrustEnvelopeValidatorDeps, "workingTrees">;
+
+function resolveDeps(options: TrustEnvelopeValidatorOptions): TrustEnvelopeValidatorDeps {
   return {
-    realpath: partial.realpath ?? DEFAULT_REALPATH,
-    probeDirectoryReadable: partial.probeDirectoryReadable ?? DEFAULT_DIRECTORY_READABILITY_PROBE,
-    platformPath: partial.platformPath ?? nodePath,
+    realpath: options.realpath ?? DEFAULT_REALPATH,
+    probeDirectoryReadable: options.probeDirectoryReadable ?? DEFAULT_DIRECTORY_READABILITY_PROBE,
+    platformPath: options.platformPath ?? nodePath,
+    workingTrees: options.workingTrees,
   };
 }
 
@@ -162,23 +187,26 @@ export function componentsEqual(left: readonly string[], right: readonly string[
 }
 
 /**
- * Proves a `WorkspaceBind` execution root is inside the local trust envelope, or refuses the bind.
- * Stateless and uncached: a remembered verdict would outlive the symlink arrangement behind it.
+ * Proves a picked folder is inside its mount's admitted roots, or refuses the pick. Stateless and
+ * uncached: a remembered verdict would outlive the symlink arrangement or worktree list behind it.
  */
 export class TrustEnvelopeValidator {
   private readonly deps: TrustEnvelopeValidatorDeps;
 
-  public constructor(deps: Partial<TrustEnvelopeValidatorDeps> = {}) {
-    this.deps = resolveDeps(deps);
+  public constructor(options: TrustEnvelopeValidatorOptions) {
+    this.deps = resolveDeps(options);
   }
 
   /**
-   * Resolves and validates one bind candidate, returning the resolved root, the only path safe to
-   * persist or run in (never a rejoin of the request's `directory`).
+   * Resolves and validates one picked folder, returning it and its working tree's top level, the
+   * only paths safe to persist or run in (never a rejoin of the request's `directory`).
    *
-   * @throws {TrustEnvelopeViolationError} on every refusal.
+   * @throws {TrustEnvelopeViolationError} on every refusal; `RepoRootResolutionError` with
+   * `vcs_error` when git cannot answer.
    */
-  public async validateExecutionRoot(candidate: WorkspaceExecutionRootCandidate): Promise<string> {
+  public async validateExecutionRoot(
+    candidate: WorkspaceExecutionRootCandidate,
+  ): Promise<AdmittedExecutionRoot> {
     const { platformPath } = this.deps;
     const anchor = candidate.mountCanonicalRoot;
 
@@ -209,17 +237,18 @@ export class TrustEnvelopeValidator {
       throw new TrustEnvelopeViolationError();
     }
 
-    if (!isContainedWithin(toComparableComponents(resolvedRoot, platformPath), anchorComponents)) {
-      throw new TrustEnvelopeViolationError();
-    }
-
     // A bare-root anchor (`C:\`, `/`) is one component that a degenerate resolved value (`C:`, ``)
     // also matches; only a broken seam produces one. The injected module keeps win32 tests valid.
     if (!platformPath.isAbsolute(resolvedRoot)) {
       throw new TrustEnvelopeViolationError();
     }
 
-    // The root becomes `workspaces.fs_root` and nothing downstream re-asks, so a regular file
+    const workingTree = await this.deps.workingTrees.readWorkingTreeRoot(resolvedRoot);
+    const checkoutRoot =
+      (await this.admitByProvenance(resolvedRoot, workingTree, candidate.provenanceRoots ?? [])) ??
+      (await this.admitByWorkingTree(resolvedRoot, workingTree, anchorComponents, anchor));
+
+    // The root becomes a workspace's bound root and nothing downstream re-asks, so a regular file
     // (`ENOTDIR`) or a `0111` directory (`EACCES`) must be refused here, after the other checks.
     try {
       await this.deps.probeDirectoryReadable(resolvedRoot);
@@ -227,7 +256,82 @@ export class TrustEnvelopeValidator {
       throw new TrustEnvelopeViolationError();
     }
 
-    return resolvedRoot;
+    return { executionRoot: resolvedRoot, checkoutRoot };
+  }
+
+  /**
+   * The folder's own working tree when a daemon-created root holds the folder, or that root when
+   * git names no tree inside it; `null` when no such root holds the folder. Such a root stays
+   * admitted after git stops listing it. A root that no longer resolves admits nothing.
+   */
+  private async admitByProvenance(
+    resolvedRoot: string,
+    workingTree: string | null,
+    provenanceRoots: readonly string[],
+  ): Promise<string | null> {
+    const { platformPath } = this.deps;
+    const resolvedComponents = toComparableComponents(resolvedRoot, platformPath);
+    for (const provenanceRoot of provenanceRoots) {
+      let resolvedProvenanceRoot: string;
+      try {
+        resolvedProvenanceRoot = await this.deps.realpath(provenanceRoot);
+      } catch (error: unknown) {
+        // A daemon root that is gone holds no folder; the next may hold this one. Any other
+        // failure leaves the root unprovable, so the pick is refused.
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+          continue;
+        }
+        throw new TrustEnvelopeViolationError();
+      }
+      const provenanceComponents = toComparableComponents(resolvedProvenanceRoot, platformPath);
+      if (!isContainedWithin(resolvedComponents, provenanceComponents)) {
+        continue;
+      }
+      // A tree of its own inside the daemon root (a submodule, say) is the folder's checkout.
+      if (workingTree !== null) {
+        const treeComponents = toComparableComponents(workingTree, platformPath);
+        if (
+          isContainedWithin(resolvedComponents, treeComponents) &&
+          isContainedWithin(treeComponents, provenanceComponents)
+        ) {
+          return workingTree;
+        }
+      }
+      return resolvedProvenanceRoot;
+    }
+    return null;
+  }
+
+  /**
+   * The working tree the folder sits in, when it is the mount's canonical root or a working tree
+   * git lists for the mount's repository now; refuses otherwise.
+   */
+  private async admitByWorkingTree(
+    resolvedRoot: string,
+    checkoutRoot: string | null,
+    anchorComponents: readonly string[],
+    anchor: string,
+  ): Promise<string> {
+    const { platformPath, workingTrees } = this.deps;
+    if (checkoutRoot === null) {
+      throw new TrustEnvelopeViolationError();
+    }
+    const checkoutComponents = toComparableComponents(checkoutRoot, platformPath);
+    const resolvedComponents = toComparableComponents(resolvedRoot, platformPath);
+    if (!isContainedWithin(resolvedComponents, checkoutComponents)) {
+      throw new TrustEnvelopeViolationError();
+    }
+    if (componentsEqual(checkoutComponents, anchorComponents)) {
+      return checkoutRoot;
+    }
+    const listedWorkingTrees = await workingTrees.listWorkingTrees(anchor);
+    const isListed = listedWorkingTrees.some((listedRoot) =>
+      componentsEqual(toComparableComponents(listedRoot, platformPath), checkoutComponents),
+    );
+    if (!isListed) {
+      throw new TrustEnvelopeViolationError();
+    }
+    return checkoutRoot;
   }
 
   /**

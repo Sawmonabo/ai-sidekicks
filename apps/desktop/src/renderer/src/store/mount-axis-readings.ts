@@ -1,9 +1,11 @@
-// The two axes a mount reads on, lifecycle and health: one table each, total over its wire union,
-// and never collapsed into one chip (a `detached` mount is finished, an `unreachable` one cannot
-// be asked). Health is the daemon's status read as words: the console never probes a path or
-// ranks failing verdicts. Only a failed health verdict is colored; a detached or archived mount
-// needs no one, so its lifecycle stays neutral.
+// The two axes a mount reads on, lifecycle and health: one table each, total over its wire union
+// but for a folder that is a different repository now, which reads with its folder, and never
+// collapsed into one chip (a `detached` mount is finished, an `unreachable` one cannot be asked).
+// Health is the daemon's status read as words: the console never probes a path or ranks failing
+// verdicts. Only a failed health verdict is colored; a detached or archived mount needs no one, so
+// its lifecycle stays neutral.
 
+import type { RepoMountReadResponse } from "@ai-sidekicks/contracts/repo/folders";
 import type { RepoMountHealth, RepoMountState } from "@ai-sidekicks/contracts/repo/mount";
 import type { ChipTone } from "#renderer/components/Chip/Chip.js";
 import { codeWords } from "#renderer/lib/code-words.js";
@@ -21,8 +23,10 @@ export interface MountAxisReading {
 /** What the console writes for one wire word: everything but the word. */
 type MountAxisPresentation = Omit<MountAxisReading, "label">;
 
-/** The health axis, keyed off the contract's own union. */
-const HEALTH_READINGS: Readonly<Record<RepoMountHealth["status"], MountAxisPresentation>> = {
+/** Every health verdict but a different repository, keyed off the contract's own union. */
+const HEALTH_READINGS: Readonly<
+  Record<Exclude<RepoMountHealth["status"], "identity_mismatch">, MountAxisPresentation>
+> = {
   healthy: {
     tone: "neutral",
     sentence: "The root was reachable when it was last probed.",
@@ -35,17 +39,6 @@ const HEALTH_READINGS: Readonly<Record<RepoMountHealth["status"], MountAxisPrese
       "The root could not be probed, so nothing further can be asked " +
       "of it. Binds and runs on this mount refuse until it is " +
       "reachable again.",
-  },
-  identity_mismatch: {
-    tone: "failure",
-    // Waiting is the wrong move here: `unreachable` can resolve on its own, but this path holds
-    // a different repository. The sentence says the refusal is permanent for this row and names
-    // the recovery, since a user reads the card before pressing anything.
-    sentence:
-      "The root is reachable but is no longer the repository this " +
-      "mount was attached as. Binds and runs on this mount refuse " +
-      "permanently; re-attaching the path mints a new mount and leaves " +
-      "this row as history.",
   },
 };
 
@@ -68,9 +61,19 @@ const LIFECYCLE_READINGS: Readonly<Record<RepoMountState, MountAxisPresentation>
   },
 };
 
-/** How a mount's health reads. */
-export function mountHealthReading(health: RepoMountHealth): MountAxisReading {
-  return { ...HEALTH_READINGS[health.status], label: codeWords(health.status) };
+/** How a mount's health reads; a folder that is a different repository now is named. */
+export function mountHealthReading(
+  mount: Pick<RepoMountReadResponse, "health" | "canonicalRoot">,
+): MountAxisReading {
+  const { status } = mount.health;
+  if (status === "identity_mismatch") {
+    return {
+      tone: "failure",
+      label: "A different repository now",
+      sentence: `${mount.canonicalRoot} is a different repository now · new runs are stopped`,
+    };
+  }
+  return { ...HEALTH_READINGS[status], label: codeWords(status) };
 }
 
 /** How a mount's lifecycle position reads. */

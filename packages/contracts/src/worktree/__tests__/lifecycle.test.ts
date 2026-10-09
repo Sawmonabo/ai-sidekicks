@@ -23,11 +23,12 @@ import {
 // so lookalike strings would not parse.
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
 const REPO_MOUNT_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f10";
+const PROJECT_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f13";
 const WORKSPACE_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f11";
 const WORKTREE_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f12";
 const BRANCH_CONTEXT_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f14";
 const RUN_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f15";
-const EXECUTION_ROOT = "/Users/dev/.ai-sidekicks/execution-roots/mount-0190f8a0/worktrees/wt-01";
+const EXECUTION_ROOT = "/Users/dev/.ai-sidekicks/worktrees/beacon/1a2b3c4d-fix-login-bug";
 const BRANCH_NAME = "sidekicks/550e8400/add-worktree-wire-pairs";
 const USER_ID = "660e8400-e29b-41d4-a716-446655440001";
 const CREATED_AT = "2026-07-26T09:30:00.000Z";
@@ -186,12 +187,13 @@ describe("WorktreeRetire", () => {
 
 // A live, run-created checkout, with the figures its switcher row draws.
 const buildWorktreeStatusRecord = () => ({
+  madeBy: "app",
   worktreeId: WORKTREE_ID,
   repoMountId: REPO_MOUNT_ID,
   name: "1a2b3c4d-fix-login-bug",
   branchName: BRANCH_NAME,
   baseBranchName: "main",
-  fsRoot: EXECUTION_ROOT,
+  path: EXECUTION_ROOT,
   state: "ready",
   ahead: 2,
   behind: 1,
@@ -214,22 +216,25 @@ const buildWorktreeStatusReadResponse = () => ({
     folderBefore: "~/.ai-sidekicks/worktrees/beacon/1a2b3c4d-",
   },
 });
-const parseStatusReadWithWorktree = (overrides: Record<string, unknown> = {}) =>
+const parseStatusReadWithRow = (row: Record<string, unknown>) =>
   WorktreeStatusReadResponseSchema.safeParse({
     ...buildWorktreeStatusReadResponse(),
-    worktrees: [{ ...buildWorktreeStatusRecord(), ...overrides }],
+    worktrees: [row],
   });
+const parseStatusReadWithWorktree = (overrides: Record<string, unknown> = {}) =>
+  parseStatusReadWithRow({ ...buildWorktreeStatusRecord(), ...overrides });
 
-describe("WorktreeStatusRead (the switcher's one read, keyed by the project's folder)", () => {
-  it("is keyed by the project's folder, with the asking session optional", () => {
+describe("WorktreeStatusRead (the switcher's one read, keyed by the project)", () => {
+  it("is keyed by the project, with the asking session optional", () => {
     expect(
       WorktreeStatusReadRequestSchema.safeParse({
-        repoMountId: REPO_MOUNT_ID,
+        projectId: PROJECT_ID,
         sessionId: SESSION_ID,
       }).success,
     ).toBe(true);
+    expect(WorktreeStatusReadRequestSchema.safeParse({ projectId: PROJECT_ID }).success).toBe(true);
     expect(WorktreeStatusReadRequestSchema.safeParse({ repoMountId: REPO_MOUNT_ID }).success).toBe(
-      true,
+      false,
     );
   });
 
@@ -244,13 +249,20 @@ describe("WorktreeStatusRead (the switcher's one read, keyed by the project's fo
     expect(parseStatusReadWithWorktree({ state: "failed" }).success).toBe(true);
   });
 
-  it("requires the session that created each tree", () => {
+  it("requires the creator of a tree the app made, and no record on one the person made", () => {
     const { createdBySessionId: _createdBy, ...withoutCreator } = buildWorktreeStatusRecord();
-    expect(
-      WorktreeStatusReadResponseSchema.safeParse({
-        ...buildWorktreeStatusReadResponse(),
-        worktrees: [withoutCreator],
-      }).success,
-    ).toBe(false);
+    expect(parseStatusReadWithRow(withoutCreator).success).toBe(false);
+    const personMade = {
+      madeBy: "person",
+      path: "/Users/dev/code/beacon-hotfix",
+      name: "beacon-hotfix",
+      branchName: "hotfix",
+      uncommittedFileCount: 0,
+      unpushedCommitCount: 0,
+      occupyingSessionIds: [],
+      runningSessionId: null,
+    };
+    expect(parseStatusReadWithRow(personMade).success).toBe(true);
+    expect(parseStatusReadWithRow({ ...personMade, worktreeId: WORKTREE_ID }).success).toBe(false);
   });
 });

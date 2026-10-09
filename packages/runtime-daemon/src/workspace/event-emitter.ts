@@ -1,20 +1,24 @@
-// Workspace lifecycle event emission: the one seam every workspace state transition appends its
+// Workspace and mount event emission: the one seam every workspace state transition appends its
 // event through. It owns `workspace.preparing`, `workspace.ready`, `workspace.stale` and
-// `workspace.archived` (which also carries the repo mount whose detach caused it). A mount's
-// attach and detach are project changes, not session events, so nothing here records them.
+// `workspace.archived` (which also carries the repo mount whose detach caused it), and the
+// `repo.mount_health_changed` a session on a mount hears when the mount's health changes. A
+// mount's attach and detach are project changes, not session events, so nothing here records them.
 //
-// Workspace `busy` has no emit method. No caller-supplied `state`: each type names exactly one
-// post-transition state, so a `workspace.ready` carrying `state: "archived"` (which parses clean)
-// cannot be written.
+// No caller-supplied `state`: each type names exactly one post-transition state, so a
+// `workspace.ready` carrying `state: "archived"` (which parses clean) cannot be written.
 
 import {
   EventEnvelopeVersionSchema,
   type EventEnvelopeVersion,
 } from "@ai-sidekicks/contracts/event/envelope";
 import {
+  RepoMountHealthChangedPayloadSchema,
   RepoWorkspaceLifecyclePayloadSchema,
+  type RepoMountHealth,
+  type RepoMountId,
   type WorkspaceState,
 } from "@ai-sidekicks/contracts/repo/mount";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type {
   WorkspaceArchivedEvent,
   WorkspacePreparingEvent,
@@ -63,9 +67,18 @@ export interface EmitWorkspaceEventInput extends SessionEventLinkage {
   readonly actor?: string | null;
 }
 
+/** Input for {@link WorkspaceEventEmitter.emitMountHealthChanged}. */
+export interface EmitMountHealthChangedInput {
+  /** The session on the mount whose stream carries the change. */
+  readonly sessionId: SessionId;
+  readonly repoMountId: RepoMountId;
+  /** The verdict the re-probe now reads. */
+  readonly health: RepoMountHealth;
+}
+
 /**
- * Appends workspace lifecycle events, one envelope per call. Each method resolves to the append
- * receipt, so a producer reads the `sequence` the append path assigned.
+ * Appends workspace lifecycle and mount health events, one envelope per call. Each method resolves
+ * to the append receipt, so a producer reads the `sequence` the append path assigned.
  */
 export class WorkspaceEventEmitter {
   readonly #appender: SessionEventAppender;
@@ -98,6 +111,23 @@ export class WorkspaceEventEmitter {
    */
   async emitWorkspaceArchived(input: EmitWorkspaceEventInput): Promise<EventLogAppendReceipt> {
     return this.#appendWorkspaceEvent("workspace.archived", input);
+  }
+
+  /**
+   * Emit `repo.mount_health_changed` on one session's stream. The payload names only the mount and
+   * its health, so the session is given beside it.
+   */
+  async emitMountHealthChanged(input: EmitMountHealthChangedInput): Promise<EventLogAppendReceipt> {
+    const payload = RepoMountHealthChangedPayloadSchema.parse({
+      repoMountId: input.repoMountId,
+      health: input.health,
+    });
+    return this.#appender.appendToSession(
+      "repo.mount_health_changed",
+      input.sessionId,
+      payload,
+      {},
+    );
   }
 
   async #appendWorkspaceEvent(

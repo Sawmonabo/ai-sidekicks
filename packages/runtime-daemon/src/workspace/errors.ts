@@ -14,8 +14,7 @@ import { DaemonDomainError } from "../ipc/domain-error.js";
 type WorkspaceServiceErrorCode =
   | "workspace.not_found"
   | "workspace.mode_unsupported"
-  | "workspace.stale"
-  | "workspace.busy";
+  | "workspace.stale";
 
 /**
  * `workspace.not_found` — the named workspace does not exist. The only carrier here that sets
@@ -37,34 +36,30 @@ export class WorkspaceNotFoundError extends DaemonDomainError {
 }
 
 /**
- * `workspace.mode_unsupported` — the execution mode is unavailable on this mount. Carries the
- * capability matrix's own bounded reason. `availableModes` is copied so a caller that keeps
- * mutating its array cannot rewrite an error already thrown.
+ * `workspace.mode_unsupported` — a worktree was asked of a chat's managed workspace, which offers
+ * only its own root.
  */
 export class WorkspaceModeUnsupportedError extends DaemonDomainError {
   /** The refused mode. Projects to `data.fields.executionMode`. */
   readonly executionMode: ExecutionMode;
-  /** The modes that ARE available on the mount. Projects to `data.fields.availableModes`. */
-  readonly availableModes: readonly ExecutionMode[];
 
-  constructor(
-    executionMode: ExecutionMode,
-    availableModes: readonly ExecutionMode[],
-    reason: string,
-  ) {
-    super(`execution mode ${executionMode} is unavailable on this repo mount: ${reason}`, {
-      code: "workspace.mode_unsupported" satisfies WorkspaceServiceErrorCode,
-      detail: { executionMode, availableModes: [...availableModes], reason },
-    });
+  constructor(executionMode: ExecutionMode) {
+    super(
+      `execution mode ${executionMode} is unavailable on this repo mount: a chat's managed ` +
+        "workspace offers only its own root",
+      {
+        code: "workspace.mode_unsupported" satisfies WorkspaceServiceErrorCode,
+        detail: { executionMode },
+      },
+    );
     this.executionMode = executionMode;
-    this.availableModes = [...availableModes];
   }
 }
 
 /**
- * `workspace.stale` — the execution root is gone. Also raised by {@link WorkspaceService.bind}
- * with a `null` subject when the mount root is unreachable. No path is echoed, since a daemon
- * error can reach a remote caller.
+ * `workspace.stale` — the execution root is gone, or its mount's folder is unreachable or holds
+ * another repository now. Also raised by {@link WorkspaceService.bind} with a `null` subject when
+ * the mount root is unreachable. No path is echoed, since a daemon error can reach a remote caller.
  */
 export class WorkspaceStaleError extends DaemonDomainError {
   /** The stale workspace, or `null` when the subject is a not-yet-created bind. */
@@ -74,38 +69,13 @@ export class WorkspaceStaleError extends DaemonDomainError {
     super(
       workspaceId === null
         ? "workspace binding refused: the repo mount's execution root is no longer reachable"
-        : `workspace ${workspaceId} is stale: its execution root is no longer reachable`,
+        : `workspace ${workspaceId} is stale: new runs are blocked until it is repaired`,
       {
         code: "workspace.stale" satisfies WorkspaceServiceErrorCode,
         detail: workspaceId === null ? {} : { workspaceId },
       },
     );
     this.workspaceId = workspaceId;
-  }
-}
-
-/**
- * `workspace.busy` — the workspace is held by a run. Names the holding run, the caller's only
- * repair affordance, or `null` when the row carries no attribution.
- */
-export class WorkspaceBusyError extends DaemonDomainError {
-  /** The busy workspace. Projects to `data.fields.workspaceId`. */
-  readonly workspaceId: string;
-  /** The run holding it, or `null` when the row carries no attribution. */
-  readonly holdingRunId: string | null;
-
-  constructor(workspaceId: string, holdingRunId: string | null) {
-    super(
-      holdingRunId === null
-        ? `workspace ${workspaceId} is busy`
-        : `workspace ${workspaceId} is busy: held by run ${holdingRunId}`,
-      {
-        code: "workspace.busy" satisfies WorkspaceServiceErrorCode,
-        detail: holdingRunId === null ? { workspaceId } : { workspaceId, holdingRunId },
-      },
-    );
-    this.workspaceId = workspaceId;
-    this.holdingRunId = holdingRunId;
   }
 }
 
@@ -131,7 +101,9 @@ export type WorkspaceServiceInvariantKind =
    * A caller offered an execution root that is not one complete location (see
    * {@link assertAbsoluteExecutionRoot}); completing it would widen the approval scope.
    */
-  | "non_absolute_execution_root";
+  | "non_absolute_execution_root"
+  /** A run's root has no branch context recorded, so its run context cannot be written. */
+  | "branch_context_missing";
 
 /**
  * A daemon-internal failure with no registered wire code, so not a `DaemonDomainError`: borrowing

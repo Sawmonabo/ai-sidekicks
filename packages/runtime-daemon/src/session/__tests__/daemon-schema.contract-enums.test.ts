@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { DRIVER_CAPABILITY_FLAGS } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import { type InterventionType } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { ProjectState } from "@ai-sidekicks/contracts/project";
 import { type IdempotencyClass } from "@ai-sidekicks/contracts/provider/driver/tools";
 import type { ExecutionMode } from "@ai-sidekicks/contracts/repo/mount";
 import type { InterventionState } from "@ai-sidekicks/contracts/run/control";
@@ -21,6 +22,7 @@ import type { SessionShape, SessionState } from "@ai-sidekicks/contracts/session
 import type { WorktreeState } from "@ai-sidekicks/contracts/worktree/lifecycle";
 
 import type { ProjectionCursorState } from "../../recovery/projection-rebuild.js";
+import { CloneOutcome } from "../../workspace/schema.js";
 import { applyMigrations, applyPragmas } from "../migration-runner.js";
 import type { SessionRunOutcome } from "../records.js";
 
@@ -36,6 +38,8 @@ const WORKTREE_STATES: Record<WorktreeState, true> = {
   retired: true,
   failed: true,
 };
+
+const PROJECT_STATES: Record<ProjectState, true> = { cloning: true, active: true, archived: true };
 
 const QUEUE_ITEM_STATES: Record<QueueItemState, true> = {
   queued: true,
@@ -136,8 +140,8 @@ describe("contract enums against the daemon schema", () => {
   let nextId = 0;
   const newId = (prefix: string): string => `${prefix}-${(nextId += 1)}`;
 
-  // Parent rows the foreign keys need: one mount, one workspace, one worktree,
-  // and one branch context bound to that worktree.
+  // Parent rows the foreign keys need: one project and its mount, one workspace,
+  // one worktree, and one branch context bound to that worktree.
   const MOUNT_ID = "mount-1";
   const WORKSPACE_ID = "workspace-1";
   const WORKTREE_ID = "worktree-parent";
@@ -148,9 +152,14 @@ describe("contract enums against the daemon schema", () => {
     applyPragmas(db);
     applyMigrations(db);
     db.prepare(
+      `INSERT INTO projects
+         (id, name, slug, folder_path, state, setup, created_at, updated_at)
+       VALUES ('project-1', 'repo', 'repo', '/repo', 'active', '{}', ?, ?)`,
+    ).run(TIMESTAMP, TIMESTAMP);
+    db.prepare(
       `INSERT INTO repo_mounts
-         (id, node_id, local_path, canonical_root, attached_at, updated_at)
-       VALUES (?, 'node-1', '/repo', '/repo', ?, ?)`,
+         (id, node_id, local_path, canonical_root, project_id, attached_at, updated_at)
+       VALUES (?, 'node-1', '/repo', '/repo', 'project-1', ?, ?)`,
     ).run(MOUNT_ID, TIMESTAMP, TIMESTAMP);
     db.prepare(
       `INSERT INTO workspaces
@@ -174,9 +183,9 @@ describe("contract enums against the daemon schema", () => {
   function insertWorktree(id: string, state: string): void {
     db.prepare(
       `INSERT INTO worktrees
-         (id, repo_mount_id, created_by_session_id, branch_name, fs_root, state, created_at,
-          updated_at)
-       VALUES (?, ?, 'session-1', ?, ?, ?, ?, ?)`,
+         (id, repo_mount_id, created_by_session_id, branch_name, base_ref, fs_root, state,
+          created_at, updated_at)
+       VALUES (?, ?, 'session-1', ?, 'main', ?, ?, ?, ?)`,
     ).run(id, MOUNT_ID, `branch-${id}`, `/roots/${id}`, state, TIMESTAMP, TIMESTAMP);
   }
 
@@ -187,9 +196,9 @@ describe("contract enums against the daemon schema", () => {
   ): void {
     db.prepare(
       `INSERT INTO run_execution_contexts
-         (run_id, session_id, workspace_id, execution_mode, execution_root, git_common_dir,
-          worktree_id, branch_context_id, created_at)
-       VALUES (?, 'session-1', ?, ?, '/roots/one', '/repo/.git', ?, ?, ?)`,
+         (run_id, session_id, workspace_id, execution_mode, execution_root, checkout_root,
+          git_common_dir, worktree_id, branch_context_id, created_at)
+       VALUES (?, 'session-1', ?, ?, '/roots/one', '/roots/one', '/repo/.git', ?, ?, ?)`,
     ).run(newId("run"), WORKSPACE_ID, mode, worktreeId, branchContextId, TIMESTAMP);
   }
 
@@ -234,6 +243,36 @@ describe("contract enums against the daemon schema", () => {
        VALUES (?, 'session-1', ?, ?, 0)`,
     ).run(newId("run"), reachedBy, state);
   }
+
+  // A cloning project carries the address it clones and where its clone stands; the other states
+  // carry neither.
+  function insertProject(state: string): void {
+    const id = newId("project-state");
+    const isCloning = state === "cloning";
+    db.prepare(
+      `INSERT INTO projects
+         (id, name, slug, folder_path, state, clone_url, clone_outcome, setup, created_at,
+          updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, '{}', ?, ?)`,
+    ).run(
+      id,
+      id,
+      id,
+      `/${id}`,
+      state,
+      isCloning ? "https://example.com/r.git" : null,
+      isCloning ? CloneOutcome.Running : null,
+      TIMESTAMP,
+      TIMESTAMP,
+    );
+  }
+
+  it("admits every project state and refuses any other", () => {
+    for (const state of membersOf(PROJECT_STATES)) {
+      expect(() => insertProject(state)).not.toThrow();
+    }
+    expect(() => insertProject(NON_MEMBER)).toThrow(CHECK_FAILURE);
+  });
 
   it("admits every worktree state and refuses any other", () => {
     for (const state of membersOf(WORKTREE_STATES)) {
@@ -347,17 +386,17 @@ describe("contract enums against the daemon schema", () => {
   it("admits every execution mode a session's create records, and refuses any other", () => {
     const insertCreateRequest = db.prepare(
       `INSERT INTO session_create_requests
-         (client_idempotency_key, session_id, repo_mount_id, execution_mode)
-       VALUES (?, ?, ?, ?)`,
+         (client_idempotency_key, session_id, execution_mode)
+       VALUES (?, ?, ?)`,
     );
     for (const executionMode of membersOf(EXECUTION_MODES)) {
       expect(() =>
-        insertCreateRequest.run(newId("key"), newId("session"), MOUNT_ID, executionMode),
+        insertCreateRequest.run(newId("key"), newId("session"), executionMode),
       ).not.toThrow();
     }
-    expect(() =>
-      insertCreateRequest.run(newId("key"), newId("session"), MOUNT_ID, NON_MEMBER),
-    ).toThrow(CHECK_FAILURE);
+    expect(() => insertCreateRequest.run(newId("key"), newId("session"), NON_MEMBER)).toThrow(
+      CHECK_FAILURE,
+    );
   });
 
   it("admits every outcome a conversion records for a file, and refuses any other", () => {

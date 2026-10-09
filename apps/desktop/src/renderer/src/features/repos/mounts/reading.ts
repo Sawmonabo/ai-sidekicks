@@ -19,7 +19,7 @@ export interface RepoMountsReading {
   readonly status: "not-read" | "reading" | "read";
   readonly mounts: readonly RepoMountReadResponse[];
   readonly workspaces: readonly RepoWorkspaceRow[];
-  /** The worktrees of every mount this session has bound, mount by mount, in read order. */
+  /** The worktrees of every project this session's mounts belong to, project by project. */
   readonly worktrees: readonly WorktreeStatusRecord[];
   /** The instant this reading was taken, on the reader's own clock; zero before the first read. */
   readonly readAtMilliseconds: number;

@@ -1,8 +1,9 @@
 // Repo-mount contracts: the branded `RepoMountId` and `WorkspaceId`, the repo and workspace enums,
 // the derived `RepoMountHealth` projection and the payload of its change, and the repo, workspace
 // and worktree lifecycle event payload with its factories. The mount methods (`repo.attach`,
-// `repo.mountRead`, `repo.detach`) are in `repo/folders.ts`. The other `repo.*` contract files
-// import these definitions and never redefine them; this module imports none of them.
+// `repo.mountRead`, `repo.detach`, `repo.mountReattach`) are in `repo/folders.ts`. The other
+// `repo.*` contract files import these definitions and never redefine them; this module imports
+// none of them.
 //
 // This module imports nothing that reaches `../event/session.js`: `event/session.ts`
 // imports the lifecycle payload schema from here, and a cycle among module-scope Zod initializers
@@ -40,15 +41,13 @@ export const ExecutionModeSchema: z.ZodType<ExecutionMode, ExecutionMode> = z.en
 
 /**
  * A workspace's lifecycle state. `stale` means its path became unavailable and write runs are
- * blocked until repair; `busy` means a run holds it. Matches the `workspaces.state` CHECK
- * constraint.
+ * blocked until repair. Matches the `workspaces.state` CHECK constraint.
  */
-export type WorkspaceState = "preparing" | "ready" | "busy" | "stale" | "archived";
+export type WorkspaceState = "preparing" | "ready" | "stale" | "archived";
 /** Wire schema for {@link WorkspaceState}. */
 export const WorkspaceStateSchema: z.ZodType<WorkspaceState> = z.enum([
   "preparing",
   "ready",
-  "busy",
   "stale",
   "archived",
 ]);

@@ -1,20 +1,26 @@
-// Which columns a worktree row has, what each is called, and what a card draws where the wire sent
-// nothing. Every cell is the wire's own string or absent, never derived. The copy for a missing
-// value is total over exactly the optional columns (`OptionalColumnKey`), so a column that becomes
-// optional or stops being optional fails to compile until its sentence is written or removed.
+// Which columns a worktree the app made has, what each is called, and what a card draws where the
+// wire sent nothing. Every cell is the wire's own string or absent, never derived. The copy for a
+// missing value is total over exactly the optional columns (`OptionalColumnKey`), so a column that
+// becomes optional or stops being optional fails to compile until its sentence is written or
+// removed. A worktree the person made carries no record, so it has none of these columns but its
+// folder.
 
 import type { WorktreeStatusRecord } from "@ai-sidekicks/contracts/worktree/lifecycle";
 
+/** A listed worktree the app made, which carries its record. */
+export type AppMadeWorktree = Extract<WorktreeStatusRecord, { madeBy: "app" }>;
+
 /**
- * Every text column of a worktree row, as the wire names it: the members whose value is
- * a string, optional ones included. The figures and the occupancy lists are not columns
- * this card tabulates.
+ * Every text column of a worktree the app made, as the wire names it: the members whose value
+ * is a string, optional ones included. The figures, the occupancy lists and the `madeBy` marker
+ * are not columns this card tabulates.
  */
-export type WorktreeColumnKey = {
-  [Key in keyof WorktreeStatusRecord]-?: WorktreeStatusRecord[Key] extends string | undefined
-    ? Key
-    : never;
-}[keyof WorktreeStatusRecord];
+export type WorktreeColumnKey = Exclude<
+  {
+    [Key in keyof AppMadeWorktree]-?: AppMadeWorktree[Key] extends string | undefined ? Key : never;
+  }[keyof AppMadeWorktree],
+  "madeBy"
+>;
 
 /** The keys a record may legally omit, derived so the missing-value copy stays total over them. */
 type OptionalColumnKey<TRecord> = {
@@ -28,7 +34,7 @@ export const WORKTREE_COLUMN_LABELS: Readonly<Record<WorktreeColumnKey, string>>
   name: "Name",
   branchName: "Branch",
   baseBranchName: "Base",
-  fsRoot: "Checkout root",
+  path: "Checkout root",
   state: "State",
   createdBySessionId: "Created by session",
   createdByRunId: "Created by run",
@@ -37,17 +43,14 @@ export const WORKTREE_COLUMN_LABELS: Readonly<Record<WorktreeColumnKey, string>>
 };
 
 /** A column the card lists as a summary row; the branch and the state head the card instead. */
-export type WorktreeSummaryColumnKey = Extract<WorktreeColumnKey, "fsRoot" | "createdAt">;
+export type WorktreeSummaryColumnKey = Extract<WorktreeColumnKey, "path" | "createdAt">;
 
 /**
  * The rows the card lists under its heading without being asked: the root, and the age, which
  * is `createdAt` read relatively by the card. The branch names the card and the state is its
  * chip, so neither is a row here.
  */
-export const WORKTREE_SUMMARY_COLUMNS: readonly WorktreeSummaryColumnKey[] = [
-  "fsRoot",
-  "createdAt",
-];
+export const WORKTREE_SUMMARY_COLUMNS: readonly WorktreeSummaryColumnKey[] = ["path", "createdAt"];
 
 /** The rest, behind the row disclosure: the tree's name, its base and its provenance. */
 export const WORKTREE_DETAIL_COLUMNS: readonly WorktreeColumnKey[] = [
@@ -66,7 +69,7 @@ export const WORKTREE_DETAIL_COLUMNS: readonly WorktreeColumnKey[] = [
  * not "unknown".
  */
 export const WORKTREE_ABSENT_COLUMN_COPY: Readonly<
-  Record<OptionalColumnKey<Pick<WorktreeStatusRecord, WorktreeColumnKey>>, string>
+  Record<OptionalColumnKey<Pick<AppMadeWorktree, WorktreeColumnKey>>, string>
 > = {
   createdByRunId: "No run — this root was prepared explicitly.",
 };
@@ -94,10 +97,7 @@ const WORKTREE_ABSENT_COPY_BY_COLUMN: Readonly<Partial<Record<WorktreeColumnKey,
  * One worktree column as a cell. Every column is a string on the wire, so the accessor needs no
  * per-column branch and a card can iterate a column list.
  */
-export function worktreeColumnCell(
-  record: WorktreeStatusRecord,
-  column: WorktreeColumnKey,
-): ColumnCell {
+export function worktreeColumnCell(record: AppMadeWorktree, column: WorktreeColumnKey): ColumnCell {
   const value = record[column];
   if (value !== undefined) {
     return { kind: "value", value };

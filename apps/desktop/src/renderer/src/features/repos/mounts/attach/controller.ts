@@ -12,7 +12,11 @@ export interface AttachSettlement {
   readonly response: RepoAttachResponse;
 }
 
-/** Where the attach stands. What a dialog renders. */
+/**
+ * Where the attach stands. What a dialog renders.
+ *
+ * @consumedBy the attach dialog for `Attach a repo` and `Open folder…`
+ */
 export type AttachRequestReading = ActSettlementReading<AttachSettlement>;
 
 /** What one attach controller sends through. */

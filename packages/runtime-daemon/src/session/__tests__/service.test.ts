@@ -174,6 +174,7 @@ describe("SessionService — readSession", () => {
         state: "provisioning",
         shape: "chat",
         muted: true,
+        pendingWorkingFolder: null,
         createdAt: created.occurredAt,
         updatedAt: "2026-04-27T12:05:00.000Z",
         tags: ["Alpha/Refunds", "billing"],

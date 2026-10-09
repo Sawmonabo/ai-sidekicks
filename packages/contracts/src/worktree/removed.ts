@@ -23,7 +23,10 @@ import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 // `Discard and remove` moves the tree whole into its project's kept folder, so nothing it held is
 // lost. The copy stays until the person presses `Delete now`; nothing deletes it on its own.
 
-/** `repo.removedWorktreeList`: one project's kept worktrees, or every project's. */
+/**
+ * `repo.removedWorktreeList`: one project's kept worktrees, or every project's, plus what is left
+ * of a copy put back while it is the one source to rebuild a live tree put back git cannot read.
+ */
 export interface RemovedWorktreeListRequest {
   projectId?: ProjectId | undefined;
 }
@@ -35,8 +38,9 @@ export const RemovedWorktreeListRequestSchema: z.ZodType<
 
 /**
  * One kept worktree: the tree's name and branch, the commit it stood on, when it was removed, and
- * its size. The size is read once after the discard, so `sizeBytes` and `sizeReadAt` are null until
- * that read has run.
+ * its size, read once after the discard, so `sizeBytes` and `sizeReadAt` are null until that read
+ * has run. `unreadablePutBackFolder` names the folder of the live tree put back from this copy
+ * that git cannot read, the one case a copy put back is listed, and is null otherwise.
  */
 export interface RemovedWorktree {
   removedWorktreeId: RemovedWorktreeId;
@@ -47,6 +51,7 @@ export interface RemovedWorktree {
   removedAt: string;
   sizeBytes: number | null;
   sizeReadAt: string | null;
+  unreadablePutBackFolder: string | null;
 }
 
 /** The `repo.removedWorktreeList` result. */
@@ -67,6 +72,10 @@ export const RemovedWorktreeListResponseSchema: z.ZodType<RemovedWorktreeListRes
           removedAt: isoDateTimeSchema,
           sizeBytes: countSchema.nullable(),
           sizeReadAt: isoDateTimeSchema.nullable(),
+          unreadablePutBackFolder: wireFreeFormString(
+            FILE_PATH_MAX_LEN,
+            "RemovedWorktree.unreadablePutBackFolder",
+          ).nullable(),
         })
         .strict(),
     ),
@@ -85,17 +94,18 @@ export const RemovedWorktreeRequestSchema: z.ZodType<
 
 /**
  * Why a put-back was refused: the project is no longer attached; the repository is no longer
- * at `path`; or a worktree named `name` (the tree's `<name>-restored`) already exists.
+ * at `path`; or the kept folder no longer holds the tree, so only `Delete now` is left for it.
  */
 export type WorktreeRestoreRefusal =
   | { reason: "project_not_attached" }
   | { reason: "repository_missing"; path: string }
-  | { reason: "name_taken"; name: string };
+  | { reason: "kept_tree_missing" };
 
 /**
- * The `repo.worktreeRestore` result: the tree made again at `path`, on its own branch, or on
- * `<branch>-restored` when its branch has moved since or another worktree holds it (`onNewBranch`);
- * or the refusal. The kept copy stays until it is deleted, whether or not the put-back was refused.
+ * The `repo.worktreeRestore` result: the tree made again at `path`, its own folder or the first
+ * free numbered `<name>-restored` (`-restored-2` and on), on its own branch, or on the new
+ * `<branch>-restored` of the same number, named in `branch`, when its branch has moved since or
+ * another worktree holds it (`onNewBranch`); or the refusal. A refused put-back keeps the copy.
  */
 export type WorktreeRestoreResponse =
   | {
@@ -129,12 +139,7 @@ export const WorktreeRestoreResponseSchema: z.ZodType<WorktreeRestoreResponse> =
               path: wireFreeFormString(FILE_PATH_MAX_LEN, "WorktreeRestoreRefusal.path"),
             })
             .strict(),
-          z
-            .object({
-              reason: z.literal("name_taken"),
-              name: wireUncappedFreeFormString("WorktreeRestoreRefusal.name"),
-            })
-            .strict(),
+          z.object({ reason: z.literal("kept_tree_missing") }).strict(),
         ]),
       })
       .strict(),

@@ -93,9 +93,42 @@ export class SessionEventAppender {
   ): Promise<EventLogAppendReceipt> {
     // Built in write order, so the ids minted for them rise with their sequences.
     const precedingEvents = (linkage.precedingEvents ?? []).map((preceding) =>
-      this.#envelopeOf(preceding.type, preceding.payload, {}),
+      this.#envelopeOf(
+        preceding.type,
+        preceding.payload.sessionId,
+        preceding.payload.actor ?? null,
+        preceding.payload,
+        {},
+      ),
     );
-    const envelope = this.#envelopeOf(type, payload, linkage);
+    const envelope = this.#envelopeOf(
+      type,
+      payload.sessionId,
+      payload.actor ?? null,
+      payload,
+      linkage,
+    );
+    return this.#append(envelope, linkage, precedingEvents);
+  }
+
+  /**
+   * Appends `type` on `sessionId`'s stream with a payload that names no session, stored as given,
+   * with the system as its actor. Throws when the type has no registered category.
+   */
+  async appendToSession(
+    type: SessionEventType,
+    sessionId: SessionId,
+    payload: object,
+    linkage: SessionEventLinkage,
+  ): Promise<EventLogAppendReceipt> {
+    return this.#append(this.#envelopeOf(type, sessionId, null, payload, linkage), linkage, []);
+  }
+
+  async #append(
+    envelope: UnsequencedEventEnvelope,
+    linkage: SessionEventLinkage,
+    precedingEvents: readonly UnsequencedEventEnvelope[],
+  ): Promise<EventLogAppendReceipt> {
     return this.#sessionEvents.append(envelope, {
       monotonicNs: this.#monotonicNow(),
       // Spread, because `exactOptionalPropertyTypes` rejects an explicit `undefined`.
@@ -109,7 +142,9 @@ export class SessionEventAppender {
 
   #envelopeOf(
     type: SessionEventType,
-    payload: AppendedPayload,
+    sessionId: SessionId,
+    actor: string | null,
+    payload: object,
     linkage: Pick<SessionEventLinkage, "correlationId" | "causationId">,
   ): UnsequencedEventEnvelope {
     // Looked up from the registry: the strict layer refuses an envelope whose category disagrees
@@ -123,11 +158,11 @@ export class SessionEventAppender {
     }
     return {
       id: this.#newEventId(),
-      sessionId: payload.sessionId,
+      sessionId,
       occurredAt: this.#now(),
       category,
       type,
-      actor: payload.actor ?? null,
+      actor,
       payload: { ...payload },
       // Absent, not null: the correlation pair is optional and not nullable on the envelope.
       ...(linkage.correlationId != null ? { correlationId: linkage.correlationId } : {}),

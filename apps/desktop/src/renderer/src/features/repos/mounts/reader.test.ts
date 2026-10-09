@@ -13,9 +13,12 @@ import { initializedStore } from "#test/helpers/session/store/fixtures.js";
 import {
   CANONICAL_ROOT,
   DRIFTED_MOUNT_ID,
+  DRIFTED_PROJECT_ID,
   HEALTHY_MOUNT_ID,
+  HEALTHY_PROJECT_ID,
   SESSION_ID,
   UNREACHABLE_MOUNT_ID,
+  UNREACHABLE_PROJECT_ID,
   WORKSPACES,
   disposeTrackedReaders,
   openReader,
@@ -107,20 +110,16 @@ describe("RepoMountsReader — the read", () => {
     );
   });
 
-  it("reads the worktrees of every bound mount, mount by mount", async () => {
-    // The status read is keyed by one project's folder, so three mounts mean three calls.
+  it("reads the worktrees of every bound project, project by project", async () => {
+    // The status read is keyed by one project, and each mount here is its own project's, so three
+    // mounts mean three calls.
     const clock = new ManualClock();
     const reader = openReader(
       sessionOperations({
-        readWorktreeStatus: (repoMountId) =>
+        readWorktreeStatus: (projectId) =>
           Promise.resolve({
             repoRoot: { path: CANONICAL_ROOT, branchName: "main" },
-            worktrees: [
-              worktreeRecord({
-                worktreeId: `worktree-on-${repoMountId}`,
-                repoMountId,
-              }),
-            ],
+            worktrees: [worktreeRecord({ name: `worktree-of-${projectId}` })],
           }),
       }),
       clock,
@@ -128,10 +127,10 @@ describe("RepoMountsReader — the read", () => {
     reader.start();
     await settle(clock, reader);
 
-    expect(reader.snapshot.worktrees.map((record) => record.worktreeId)).toStrictEqual([
-      `worktree-on-${HEALTHY_MOUNT_ID}`,
-      `worktree-on-${UNREACHABLE_MOUNT_ID}`,
-      `worktree-on-${DRIFTED_MOUNT_ID}`,
+    expect(reader.snapshot.worktrees.map((record) => record.name)).toStrictEqual([
+      `worktree-of-${HEALTHY_PROJECT_ID}`,
+      `worktree-of-${UNREACHABLE_PROJECT_ID}`,
+      `worktree-of-${DRIFTED_PROJECT_ID}`,
     ]);
   });
 });

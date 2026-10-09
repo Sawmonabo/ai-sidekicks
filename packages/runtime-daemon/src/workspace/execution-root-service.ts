@@ -1,17 +1,25 @@
 /**
- * Mode-dispatched orchestrator behind `repo.executionRootPrepare`, and the sole writer of
- * `branch_contexts`. Worktrees come from the worktree service; `workspaces` changes go through
- * the lifecycle primitives.
+ * Place-dispatched orchestrator behind `repo.executionRootPrepare` and a session's move between
+ * trees, and the sole writer of `branch_contexts`. Worktrees come from the worktree creator;
+ * `workspaces` changes go through the lifecycle primitives.
  *
- * - The workspace's stored mode decides; an unreadable mode is a defect, never a default.
+ * - A prepare that names a branch makes a worktree; any other prepare works in the workspace's
+ *   stored place. An unreadable place is a defect, never a default.
  * - Every refusal a caller could avoid fires before `beginRootPreparation` and outside the
  *   try/catch, because `failRootPreparation` is legal only from `preparing`.
  * - The gate is skipped inside an open bracket: `assertWritable` refuses `preparing`, and every
- *   first bind is born `preparing`.
- * - `bound-root` inserts one row per prepare (no index arbitrates it) and anchors `base_branch`
- *   to the head branch, since it cuts nothing. Rows accumulate because refreshing one in place
- *   would destroy the previous binding's base and head branches, which no other row records.
+ *   first bind is born `preparing`. A gated prepare into an open bracket checks the mount alone,
+ *   so nothing is made in a mount folder that is gone or holds another repository now.
+ * - Every preparation of one workspace holds `workspacePreparationLock` on its id, so a bracket
+ *   another caller opened is never taken for this call's own.
+ * - `bound-root` binds the folder the bind admitted on whatever branch it is on, and never runs a
+ *   command that changes a checkout. It inserts one branch-context row per prepare, anchoring
+ *   `base_branch` to the head branch since it cuts nothing; rows accumulate because refreshing one
+ *   in place would destroy the previous binding's branches, which no other row records.
  */
+
+import { realpath } from "node:fs/promises";
+import * as nodePath from "node:path";
 
 import type { Statement } from "better-sqlite3";
 
@@ -21,58 +29,104 @@ import {
   type WorkspaceState,
 } from "@ai-sidekicks/contracts/repo/mount";
 import {
-  WorkspaceBranchMismatchError,
-  WorkspaceBranchNameRequiredError,
-} from "../git/worktree/errors.js";
-import { deriveWorktreeBranchName } from "../git/worktree/branch-name.js";
-import { type CreateWorktreeInput, type CreatedWorktree } from "../git/worktree/service.js";
-import { DEFAULT_GIT_FILESYSTEM, type GitFilesystem } from "../git/filesystem.js";
-import {
-  createHookNeutralizedGitCommand,
-  DEFAULT_GIT_COMMAND_TIMEOUT_MS,
-  readGitExitStatus,
-  runGitWithExecFile,
-  type GitCommand,
-  type GitInvocationResult,
-  type GitRunner,
-} from "../git/process.js";
+  BranchContextIdSchema,
+  type BranchContextId,
+  type WorktreeId,
+} from "@ai-sidekicks/contracts/worktree/lifecycle";
+
+import { withCleanupFailures } from "../cleanup-failures.js";
 import type { DatabaseConnections } from "../database/connection/lifecycle.js";
 import type { DatabaseWriter } from "../database/writer.js";
+import {
+  createGitCommand,
+  DEFAULT_GIT_COMMAND_TIMEOUT_MS,
+  runGitWithExecFile,
+  type GitCommand,
+  type GitRunner,
+} from "../git/process.js";
+import { keptStashError, type CarriedStash } from "../git/worktree/carry.js";
+import type {
+  CreatedWorktree,
+  CreateWorktreeInput,
+  WorktreeCreator,
+} from "../git/worktree/creation.js";
+import { WorkspaceBranchNameRequiredError } from "../git/worktree/errors.js";
+import { readCurrentBranch } from "../git/worktree/reads.js";
+import { canonicalFolderPath } from "./folder/canonical-path.js";
+import type { WorktreeService } from "../git/worktree/service.js";
 import { DaemonDomainError } from "../ipc/domain-error.js";
-
-import { RepoMountNotFoundError } from "./repo/errors.js";
-import { HOLDING_RUN_ID_METADATA_PATH } from "./row-guards.js";
-import { WorkspaceBusyError, WorkspaceNotFoundError } from "./errors.js";
+import { KeyedLock } from "../keyed-lock.js";
 import { mintUuidV7 } from "../uuid-v7.js";
-import { withCleanupFailures } from "../cleanup-failures.js";
 
-/** A space is illegal in a git ref, so this cannot be mistaken for a real branch name. */
-const DETACHED_HEAD_BRANCH_LABEL = "(detached HEAD)";
+import { WorkspaceNotFoundError } from "./errors.js";
+import { RepoMountNotFoundError, TrustEnvelopeViolationError } from "./repo/errors.js";
+import { stripSingleLineTerminator } from "./repo/root-resolver.js";
+import {
+  assertModeOffered,
+  BOUND_ROOT_METADATA_PATH,
+  CHECKOUT_ROOT_METADATA_PATH,
+} from "./row-guards.js";
+import {
+  componentsEqual,
+  toComparableComponents,
+  type AdmittedExecutionRoot,
+} from "./trust-envelope.js";
 
-/** Exit status of `symbolic-ref --quiet` on a detached HEAD; any other non-zero one is a fault. */
-const DETACHED_HEAD_EXIT_CODE = 1;
+// What `branch_contexts.head_branch` records while the bound checkout's HEAD is detached: git's own
+// name for it, which no branch can take.
+const DETACHED_HEAD_NAME = "HEAD";
 
-/** The worktree service narrowed to the calls this module makes; data types stay shared. */
-export interface ExecutionRootWorktreeProvisioner {
+/**
+ * Serializes the preparations of one workspace, keyed by its id: a prepare, a move, the run-setup
+ * gate's binding and a re-attach's preparation again each run inside it.
+ */
+export const workspacePreparationLock: KeyedLock<string> = new KeyedLock<string>();
+
+/**
+ * The worktree calls a prepare makes: the creator's `create`, its drop of a carry's stash once the
+ * tree is adopted, and the service's undo.
+ */
+export interface ExecutionRootWorktrees {
   create(input: CreateWorktreeInput): Promise<CreatedWorktree>;
-  /**
-   * Compensation only: records the retirement and removes nothing from disk. `Promise<unknown>`
-   * because the response is ignored and the real one is not `void`.
-   */
-  retire(worktreeId: string): Promise<unknown>;
+  dropCarriedStash: WorktreeCreator["dropCarriedStash"];
+  retireUnadopted: WorktreeService["retireUnadopted"];
+}
+
+/** What a completed preparation adopts beside its execution root. */
+export interface CompletedRootPreparation {
+  /** The top level of the working tree the root sits in. */
+  readonly checkoutRoot: string;
+  /** The place the root was made in; absent keeps the stored one. */
+  readonly executionMode?: ExecutionMode;
+  /** The folder a `bound-root` workspace now binds, when a move changed it. */
+  readonly boundRoot?: string;
 }
 
 /**
- * The four workspace primitives as one object, so the gate's verdict and the compare-and-swap
- * read and write the same rows. `WorkspaceService` satisfies it structurally.
+ * The workspace primitives as one object, so the gate's verdict, the admission and the
+ * compare-and-swap read and write the same rows. `WorkspaceService` satisfies it structurally.
  */
 export interface WorkspaceLifecyclePrimitives {
-  /** The gate: passes `ready` and `busy`, refuses `stale`, and is a defect otherwise. */
+  /**
+   * Admits a folder to move the workspace into, on a mount still reachable and holding its
+   * repository, through the trust envelope.
+   */
+  admitFolder(workspaceId: string, folder: string): Promise<AdmittedExecutionRoot>;
+  /**
+   * Refuses, writing nothing, a workspace whose mount is gone or holds another repository than the
+   * one attached there.
+   */
+  assertMountHealthy(workspaceId: string): Promise<void>;
+  /** The gate: passes `ready`, refuses `stale`, and is a defect otherwise. */
   assertWritable(workspaceId: string): Promise<void>;
-  /** `ready` | `stale` -> `preparing`, releasing the old root. */
+  /** `ready` | `stale` -> `preparing` in `targetMode`, releasing the old root. */
   beginRootPreparation(workspaceId: string, targetMode: ExecutionMode): Promise<void>;
-  /** `preparing` -> `ready`, adopting `fsRoot`. */
-  completeRootPreparation(workspaceId: string, fsRoot: string): Promise<void>;
+  /** `preparing` -> `ready`, adopting `fsRoot` and the checkout around it. */
+  completeRootPreparation(
+    workspaceId: string,
+    fsRoot: string,
+    options: CompletedRootPreparation,
+  ): Promise<void>;
   /** `preparing` -> `stale`, recording `failureDetail` as `metadata.lastError`. */
   failRootPreparation(workspaceId: string, failureDetail: string): Promise<void>;
 }
@@ -83,17 +137,9 @@ export interface ExecutionRootServiceDeps {
   readonly database: DatabaseConnections;
   /** The workspace lifecycle primitives, the only `workspaces` write channel. */
   readonly workspaces: WorkspaceLifecyclePrimitives;
-  /** The worktree service, narrowed to the calls the `provisioned-worktree` arm makes. */
-  readonly worktrees: ExecutionRootWorktreeProvisioner;
-  /**
-   * The execution-roots directory; only its hook-neutralization child is used, and it must match
-   * the one the worktree services resolve.
-   */
-  readonly executionRootsDirectory: string;
+  readonly worktrees: ExecutionRootWorktrees;
   /** Git process seam; defaults to `execFile` against `git`. */
   readonly git?: GitRunner;
-  /** Filesystem seam, for the hook-neutralizing folder; defaults to `node:fs/promises`. */
-  readonly filesystem?: Pick<GitFilesystem, "createDirectory">;
   /** Per-invocation git timeout; defaults to two minutes. */
   readonly gitCommandTimeoutMs?: number;
   /** Wall clock for `created_at` / `updated_at`. Injectable for tests. */
@@ -103,49 +149,57 @@ export interface ExecutionRootServiceDeps {
 }
 
 /**
- * `repo.executionRootPrepare`'s daemon-side input: ids are plain strings, and `runId` is
- * gate-only, so a wire caller cannot reach the branch-name fallback.
+ * `repo.executionRootPrepare`'s daemon-side input. `tail` and `runId` are gate-only, so a wire
+ * caller cannot reach the derived name.
  */
 export interface PrepareExecutionRootInput {
   readonly workspaceId: string;
-  /** Required unless {@link runId} is given; neither refuses `workspace.branch_name_required`. */
+  /** The whole branch a wire prepare names; a prepare with one makes a worktree. */
   readonly branchName?: string;
-  /**
-   * The worktree base. Worktree-scoped, so `bound-root` mode ignores it; reusing it there would
-   * give one field two meanings depending on a mode the caller may not know.
-   */
+  /** Gate-only: the tail the branch pattern fills in when no branch is named. */
+  readonly tail?: string;
+  /** The worktree base; a `bound-root` prepare cuts nothing and ignores it. */
   readonly baseRef?: string;
-  /** Gate-only. Present iff a run is being set up; unlocks the branch fallback. */
+  /** Gate-only provenance for the tree a run's setup makes. */
   readonly runId?: string;
-  /** Branch-collision disposition for a worktree CREATE. Defaults to `refuse`. */
+  /** Branch-collision disposition for a named branch. Defaults to `refuse`. */
   readonly onCollision?: "refuse" | "suffix";
+  /** Carries the uncommitted work of the folder the workspace works in onto the new tree. */
+  readonly carryUncommitted?: boolean;
+}
+
+/** A session's move into a tree its repository already has. */
+export interface MoveToFolderInput {
+  readonly workspaceId: string;
+  /** Any tree git lists for the repository, the repository's own checkout included. */
+  readonly folder: string;
 }
 
 /** A resolved execution root, a superset of `ExecutionRootPrepareResponse` for the gate. */
 export interface PreparedExecutionRoot {
   readonly workspaceId: string;
-  /** The mode that was dispatched. Never substituted. */
+  /** The place the root was prepared in. Never substituted. */
   readonly executionMode: ExecutionMode;
   /** Absolute. The directory the run executes in. */
   readonly executionRoot: string;
   /** The workspace's position AFTER the bracket: `ready` on success. */
   readonly state: WorkspaceState;
-  /** The bound head branch. */
+  /** The bound head branch; `HEAD` while the bound checkout is detached. */
   readonly branchName: string;
   /** Present for `provisioned-worktree` mode only. */
-  readonly worktreeId?: string;
+  readonly worktreeId?: WorktreeId;
   /** The `branch_contexts` row this prepare wrote or refreshed. */
-  readonly branchContextId: string;
+  readonly branchContextId: BranchContextId;
 }
 
 /** What {@link ExecutionRootServiceInvariantError} reports. */
 type ExecutionRootInvariantKind =
-  /** A `workspaces` row carries a mode outside the execution-mode vocabulary. */
+  /** A `workspaces` row carries a mode outside the vocabulary, or no bound folder. */
   | "unreadable_workspace_row"
   /** A `branch_contexts` upsert returned no row id. */
   | "branch_context_write_lost"
-  /** `symbolic-ref` could not be run, or answered with a status this module cannot read. */
-  | "branch_verification_failed";
+  /** Git could not say which branch or working tree the bound folder is in. */
+  | "bound_root_unreadable";
 
 /**
  * A defect, not a refusal, so not a `DaemonDomainError`: no retry or different arguments fixes it.
@@ -184,18 +238,31 @@ interface WorkspaceRootRow {
   readonly session_id: string;
   readonly repo_mount_id: string;
   readonly execution_mode: string;
-  readonly fs_root: string | null;
   readonly state: string;
-  readonly holding_run_id: string | null;
+  readonly bound_root: string | null;
+  readonly checkout_root: string | null;
 }
 
 interface AttachedMountRow {
   readonly id: string;
   readonly canonical_root: string;
+  /** The chat a managed mount belongs to; `null` on a project's mount. */
+  readonly managed_session_id: string | null;
 }
 
 interface BranchContextIdRow {
-  readonly id: string;
+  readonly id: BranchContextId;
+}
+
+interface WorktreeRootRow {
+  readonly fs_root: string;
+}
+
+interface LiveWorktreeRow {
+  readonly id: WorktreeId;
+  readonly fs_root: string;
+  readonly base_branch: string;
+  readonly head_branch: string;
 }
 
 // The conflict target repeats the partial index's WHERE clause, as SQLite requires. `@id` is
@@ -227,43 +294,48 @@ const INSERT_BRANCH_CONTEXT_SQL = `INSERT INTO branch_contexts (
 const DELETE_BRANCH_CONTEXT_SQL = `DELETE FROM branch_contexts WHERE id = @id`;
 
 /**
- * How a root came to be. Only `created` is compensated: a `bound` root is the user's own checkout.
+ * How a root came to be. Only `created` is compensated: a `bound` root is the user's own checkout,
+ * and a tree moved into already had its owner.
  */
 type ExecutionRootProvenance = "created" | "bound";
 
-/** What one mode arm produced, before the branch context and the bracket close. */
+/** What one place arm produced, before the branch context and the bracket close. */
 interface MaterializedRoot {
+  readonly executionMode: ExecutionMode;
   readonly executionRoot: string;
+  readonly checkoutRoot: string;
   readonly branchName: string;
   readonly baseBranch: string;
-  readonly worktreeId: string | null;
+  readonly worktreeId: WorktreeId | null;
   readonly provenance: ExecutionRootProvenance;
+  /** The folder a `bound-root` move binds from now on. */
+  readonly boundRoot?: string;
+  /** The stash holding work carried onto a created tree, dropped once the tree is adopted. */
+  readonly carriedStash?: CarriedStash;
 }
 
 /**
- * Prepares the execution root for a repo-bound workspace in the mode `repo.workspaceBind` already
- * selected. The mode is read, never chosen.
+ * Prepares the execution root for a repo-bound workspace, and moves a workspace into a tree its
+ * repository already has.
  */
 export class ExecutionRootService {
   readonly #workspaces: WorkspaceLifecyclePrimitives;
-  readonly #worktrees: ExecutionRootWorktreeProvisioner;
+  readonly #worktrees: ExecutionRootWorktrees;
   readonly #runGit: GitCommand;
   readonly #now: () => string;
   readonly #newBranchContextId: () => string;
 
   readonly #selectWorkspaceStmt: Statement<WorkspaceLookupParams, WorkspaceRootRow>;
   readonly #selectAttachedMountStmt: Statement<MountLookupParams, AttachedMountRow>;
+  readonly #selectLiveWorktreesStmt: Statement<MountLookupParams, LiveWorktreeRow>;
+  readonly #selectUnsweptRetiredRootsStmt: Statement<MountLookupParams, WorktreeRootRow>;
   readonly #writer: Pick<DatabaseWriter, "write">;
 
   constructor(deps: ExecutionRootServiceDeps) {
     this.#workspaces = deps.workspaces;
     this.#worktrees = deps.worktrees;
-    // `-c core.fsmonitor=false` is inert here (`symbolic-ref` never reaches the fsmonitor hook);
-    // the shared entry point keeps every service's argv the same.
-    this.#runGit = createHookNeutralizedGitCommand({
+    this.#runGit = createGitCommand({
       git: deps.git ?? runGitWithExecFile,
-      filesystem: deps.filesystem ?? DEFAULT_GIT_FILESYSTEM,
-      executionRootsDirectory: deps.executionRootsDirectory,
       timeoutMs: deps.gitCommandTimeoutMs ?? DEFAULT_GIT_COMMAND_TIMEOUT_MS,
     });
     this.#now = deps.now ?? ((): string => new Date().toISOString());
@@ -278,101 +350,222 @@ export class ExecutionRootService {
               session_id,
               repo_mount_id,
               execution_mode,
-              fs_root,
               state,
-              json_extract(metadata, '${HOLDING_RUN_ID_METADATA_PATH}') AS holding_run_id
+              json_extract(metadata, '${BOUND_ROOT_METADATA_PATH}') AS bound_root,
+              json_extract(metadata, '${CHECKOUT_ROOT_METADATA_PATH}') AS checkout_root
          FROM workspaces
         WHERE id = @workspace_id`,
     );
 
     // Scoped to `attached`: a detached mount is not a preparation target.
     this.#selectAttachedMountStmt = database.prepare(
-      `SELECT id, canonical_root
+      `SELECT id, canonical_root, managed_session_id
          FROM repo_mounts
         WHERE id = @repo_mount_id AND state = 'attached'`,
+    );
+
+    // The daemon's own live trees on the mount, each with the branches its newest context
+    // recorded, which a workspace moving in carries over; the tree's base stands in before any.
+    this.#selectLiveWorktreesStmt = database.prepare(
+      `SELECT wt.id, wt.fs_root,
+              COALESCE(newest.base_branch, wt.base_ref) AS base_branch,
+              COALESCE(newest.head_branch, wt.branch_name) AS head_branch
+         FROM worktrees AS wt
+         LEFT JOIN branch_contexts AS newest
+           ON newest.id = (SELECT bc.id FROM branch_contexts AS bc
+                            WHERE bc.worktree_id = wt.id
+                            ORDER BY bc.updated_at DESC, bc.id DESC
+                            LIMIT 1)
+        WHERE wt.repo_mount_id = @repo_mount_id
+          AND wt.state IN ('ready', 'dirty', 'merged')`,
+    );
+
+    // The daemon's retired trees on the mount whose folders the sweep has not yet dealt with.
+    this.#selectUnsweptRetiredRootsStmt = database.prepare(
+      `SELECT fs_root
+         FROM worktrees
+        WHERE repo_mount_id = @repo_mount_id
+          AND state = 'retired'
+          AND cleaned_at IS NULL`,
     );
   }
 
   /**
-   * Materializes the workspace's root in its selected mode. Refusals (not found, stale, busy,
-   * branch name required, branch mismatch, mount not attached) fire before the bracket opens.
+   * Materializes the workspace's root: a new worktree when the prepare names a branch or a tail,
+   * otherwise the workspace's stored place. Refusals (not found, stale, branch name required,
+   * mount not attached, a worktree on a chat's managed mount) fire before the bracket opens.
    */
   async prepare(input: PrepareExecutionRootInput): Promise<PreparedExecutionRoot> {
-    const workspace = this.#requireWorkspace(input.workspaceId);
-    const executionMode = this.#requireKnownMode(workspace);
+    return workspacePreparationLock.run(input.workspaceId, async () => {
+      const workspace = this.#requireWorkspace(input.workspaceId);
+      const storedMode = this.#requireKnownMode(workspace);
+      const name = readWorktreeName(input);
+      const executionMode: ExecutionMode = name === null ? storedMode : "provisioned-worktree";
+      if (executionMode === "provisioned-worktree" && name === null) {
+        throw new WorkspaceBranchNameRequiredError(workspace.id);
+      }
+      const mount = this.#requireAttachedMount(workspace.repo_mount_id);
 
+      return this.#runBracket(workspace, mount, executionMode, { isGated: true }, async () =>
+        name === null
+          ? this.#bindBoundRoot(workspace, this.#requireBoundRoot(workspace))
+          : this.#prepareWorktreeRoot(input, workspace, mount, name),
+      );
+    });
+  }
+
+  /**
+   * Moves the workspace into `folder`, any tree git lists for its repository: a tree this daemon
+   * made becomes its `provisioned-worktree` root and keeps the tree's branch context; any other,
+   * the repository's own checkout and a tree the person made included, binds `bound-root` as an
+   * existing checkout with no record of the daemon's. Throws what
+   * {@link requireListedTree} throws.
+   */
+  async moveToFolder(input: MoveToFolderInput): Promise<PreparedExecutionRoot> {
+    return workspacePreparationLock.run(input.workspaceId, async () => {
+      const workspace = this.#requireWorkspace(input.workspaceId);
+      this.#requireKnownMode(workspace);
+      const mount = this.#requireAttachedMount(workspace.repo_mount_id);
+      const treeRoot = await this.#requireListedTree(workspace, input.folder);
+      const daemonTree = await this.#findLiveWorktreeAt(mount.id, treeRoot);
+      const executionMode: ExecutionMode =
+        daemonTree === undefined ? "bound-root" : "provisioned-worktree";
+
+      // Ungated: a move is how a stale workspace leaves a folder that went away.
+      return this.#runBracket(workspace, mount, executionMode, { isGated: false }, async () =>
+        daemonTree === undefined
+          ? { ...(await this.#bindBoundRoot(workspace, treeRoot)), boundRoot: treeRoot }
+          : {
+              executionMode,
+              executionRoot: daemonTree.fs_root,
+              checkoutRoot: daemonTree.fs_root,
+              branchName: daemonTree.head_branch,
+              baseBranch: daemonTree.base_branch,
+              worktreeId: daemonTree.id,
+              provenance: "bound",
+            },
+      );
+    });
+  }
+
+  // The daemon's live tree at `folder`, or `undefined` when the daemon made none there.
+  async #findLiveWorktreeAt(
+    repoMountId: string,
+    folder: string,
+  ): Promise<LiveWorktreeRow | undefined> {
+    const target = await canonicalFolderPath(folder);
+    for (const tree of this.#selectLiveWorktreesStmt.all({ repo_mount_id: repoMountId })) {
+      if ((await canonicalFolderPath(tree.fs_root)) === target) {
+        return tree;
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Admits `folder` as a move target, so a move held for a run boundary names a folder the move
+   * will accept: the top level of a tree of the workspace's repository, admitted as a bind admits
+   * its pick. Throws `workspace.stale` when the mount folder is unreachable, `root_mismatch` when
+   * it holds another repository, and `repo.outside_trust_envelope` for any other folder, reason
+   * `worktree_removed` for a retired tree whose folder the sweep has not yet removed.
+   */
+  async requireListedTree(input: MoveToFolderInput): Promise<void> {
+    await this.#requireListedTree(this.#requireWorkspace(input.workspaceId), input.folder);
+  }
+
+  // The tree's top level, symlink-resolved, which the workspace then roots at.
+  async #requireListedTree(workspace: WorkspaceRootRow, folder: string): Promise<string> {
+    const admitted = await this.#workspaces.admitFolder(workspace.id, folder);
+    // A move names a whole tree; a folder inside one is a bind's pick, not a move.
+    if (
+      !componentsEqual(
+        toComparableComponents(admitted.executionRoot, nodePath),
+        toComparableComponents(admitted.checkoutRoot, nodePath),
+      )
+    ) {
+      throw new TrustEnvelopeViolationError();
+    }
+    // A retired tree git still lists is the sweep's to delete, so edits made there would be lost.
+    const target = await canonicalFolderPath(admitted.executionRoot);
+    for (const retired of this.#selectUnsweptRetiredRootsStmt.all({
+      repo_mount_id: workspace.repo_mount_id,
+    })) {
+      if ((await canonicalFolderPath(retired.fs_root)) === target) {
+        throw new TrustEnvelopeViolationError("worktree_removed");
+      }
+    }
+    return admitted.executionRoot;
+  }
+
+  /**
+   * Opens the preparation bracket unless it is open already, behind the write gate when `isGated`
+   * (behind the mount check alone when it is open), materializes the root, writes its branch
+   * context and completes the bracket; a failure fails the bracket and undoes a root this call
+   * created.
+   */
+  async #runBracket(
+    workspace: WorkspaceRootRow,
+    mount: AttachedMountRow,
+    executionMode: ExecutionMode,
+    options: { readonly isGated: boolean },
+    materialize: () => Promise<MaterializedRoot>,
+  ): Promise<PreparedExecutionRoot> {
+    // Before the bracket, open or not: an open bracket skips `beginRootPreparation`'s own check.
+    assertModeOffered(executionMode, mount.managed_session_id !== null);
     // Open when this prepare is the bind's own preparation (`repo.workspaceBind` creates
-    // workspaces `preparing`) or a prior `failRootPreparation` failed (`#failRootPreparation`).
-    // `assertWritable` refuses `preparing`, so this one predicate drives the gate and the bracket.
+    // workspaces `preparing`) or a prior `failRootPreparation` failed. `assertWritable` refuses
+    // `preparing`, so this one predicate drives the gate and the bracket.
     const bracketAlreadyOpen = workspace.state === "preparing";
-
-    // Empty means absent: a whitespace run id derives no branch and never reaches
-    // `created_by_run_id`.
-    const runId = input.runId?.trim() ?? "";
-
-    // Before any git call, so a stale workspace costs no spawn; skipped inside an open bracket.
-    if (!bracketAlreadyOpen) {
-      await this.#workspaces.assertWritable(workspace.id);
-    }
-
-    const branchName = this.#resolveBranchName(input, workspace, runId);
-
-    // `assertWritable` passes `busy`; a second run is refused here so a busy bound-root prepare
-    // never spawns git. A workspace that turns busy after this read is refused by
-    // `beginRootPreparation` with the same error.
-    if (workspace.state === "busy") {
-      throw new WorkspaceBusyError(workspace.id, workspace.holding_run_id);
-    }
-
-    const mount = this.#requireAttachedMount(workspace.repo_mount_id);
-
-    // Before the bracket: a mismatch is a caller disagreement, and `stale` is reserved for faults.
-    if (executionMode === "bound-root") {
-      await this.#verifyBoundRootBranch(workspace.id, mount.canonical_root, branchName);
-    }
-
-    // From here the workspace is `preparing` (an open bracket already is), which makes
-    // `failRootPreparation` legal in the catch.
-    if (!bracketAlreadyOpen) {
+    if (bracketAlreadyOpen) {
+      if (options.isGated) {
+        // The write gate's mount check, which `assertWritable` would run for a ready workspace.
+        await this.#workspaces.assertMountHealthy(workspace.id);
+      }
+    } else {
+      if (options.isGated) {
+        // Before any git call, so a stale workspace costs no spawn.
+        await this.#workspaces.assertWritable(workspace.id);
+      }
       await this.#workspaces.beginRootPreparation(workspace.id, executionMode);
     }
 
     let materialized: MaterializedRoot | undefined;
-    let branchContextId: string;
+    let branchContextId: BranchContextId;
     try {
-      materialized = await this.#materialize(
-        input,
-        workspace,
-        executionMode,
-        mount,
-        branchName,
-        runId,
-      );
+      materialized = await materialize();
       branchContextId = await this.#writeBranchContext(workspace.id, materialized);
     } catch (preparationFailure) {
       // A failed context write leaves a root nothing will adopt, invisible to the sweep; an unset
       // `materialized` means materialization itself failed and its own service recorded that.
       const cleanupFailures: unknown[] =
         materialized === undefined ? [] : await this.#compensateOrphanedRoot(materialized, null);
-      cleanupFailures.push(...(await this.#failRootPreparation(workspace.id, preparationFailure)));
-      // Rethrow the cause itself where it can carry the cleanup failures: the run-setup gate wraps
-      // by code.
-      throw withCleanupFailures(preparationFailure, cleanupFailures, "execution root preparation");
+      const failure = namingCarriedStash(materialized, preparationFailure);
+      cleanupFailures.push(...(await this.#failRootPreparation(workspace.id, failure)));
+      // The cause itself carries the cleanup failures: the run-setup gate wraps by code.
+      throw withCleanupFailures(failure, cleanupFailures, "execution root preparation");
     }
 
     try {
-      await this.#workspaces.completeRootPreparation(workspace.id, materialized.executionRoot);
+      await this.#workspaces.completeRootPreparation(workspace.id, materialized.executionRoot, {
+        checkoutRoot: materialized.checkoutRoot,
+        executionMode: materialized.executionMode,
+        ...(materialized.boundRoot === undefined ? {} : { boundRoot: materialized.boundRoot }),
+      });
     } catch (completionFailure) {
       throw withCleanupFailures(
-        completionFailure,
+        namingCarriedStash(materialized, completionFailure),
         await this.#compensateOrphanedRoot(materialized, branchContextId),
         "execution root preparation",
       );
     }
+    // Only now does the adopted tree stand as the one copy of the carried work.
+    if (materialized.carriedStash !== undefined && materialized.worktreeId !== null) {
+      await this.#worktrees.dropCarriedStash(materialized.carriedStash, materialized.worktreeId);
+    }
 
     return {
       workspaceId: workspace.id,
-      executionMode,
+      executionMode: materialized.executionMode,
       executionRoot: materialized.executionRoot,
       // What completing the bracket produced; a re-read could show a concurrent writer's state.
       state: "ready",
@@ -383,91 +576,80 @@ export class ExecutionRootService {
   }
 
   /**
-   * The supplied name wins, else a name derived from `runId`, else a refusal. `runId` arrives
-   * trimmed and empty means absent, or a caller error would become `branch_name_underivable`.
+   * `bound-root`: binds `folder` on the branch it is on, read and never changed, inside the working
+   * tree git names for it.
    */
-  #resolveBranchName(
-    input: PrepareExecutionRootInput,
-    workspace: WorkspaceRootRow,
-    runId: string,
-  ): string {
-    const supplied = input.branchName?.trim() ?? "";
-    if (supplied.length > 0) {
-      return supplied;
+  async #bindBoundRoot(workspace: WorkspaceRootRow, folder: string): Promise<MaterializedRoot> {
+    let branchName: string | null;
+    let checkoutRoot: string;
+    try {
+      branchName = await readCurrentBranch(this.#runGit, folder);
+      const topLevel = await this.#runGit(["-C", folder, "rev-parse", "--show-toplevel"]);
+      checkoutRoot = await realpath(
+        stripSingleLineTerminator(topLevel.stdout.toString("utf8"), nodePath),
+      );
+    } catch (gitFailure) {
+      throw new ExecutionRootServiceInvariantError(
+        `the bound folder of workspace ${workspace.id} gave git no branch or working tree`,
+        { kind: "bound_root_unreadable", workspaceId: workspace.id, cause: gitFailure },
+      );
     }
-
-    if (runId.length === 0) {
-      throw new WorkspaceBranchNameRequiredError(workspace.id);
-    }
-
-    return deriveWorktreeBranchName({ sessionId: workspace.session_id, runId });
-  }
-
-  /** Exhaustive over the execution modes; no default arm. */
-  async #materialize(
-    input: PrepareExecutionRootInput,
-    workspace: WorkspaceRootRow,
-    executionMode: ExecutionMode,
-    mount: AttachedMountRow,
-    branchName: string,
-    runId: string,
-  ): Promise<MaterializedRoot> {
-    switch (executionMode) {
-      case "bound-root":
-        return this.#bindBoundRoot(mount, branchName);
-      case "provisioned-worktree":
-        return this.#prepareWorktreeRoot(input, workspace, mount, branchName, runId);
-    }
-  }
-
-  /**
-   * `bound-root` mode: bind only. The root comes from the mount because `beginRootPreparation`
-   * releases `workspaces.fs_root`.
-   */
-  #bindBoundRoot(mount: AttachedMountRow, branchName: string): MaterializedRoot {
+    const headBranch = branchName ?? DETACHED_HEAD_NAME;
     return {
-      executionRoot: mount.canonical_root,
-      branchName,
-      baseBranch: branchName,
+      executionMode: "bound-root",
+      executionRoot: folder,
+      checkoutRoot,
+      branchName: headBranch,
+      baseBranch: headBranch,
       worktreeId: null,
       provenance: "bound",
     };
   }
 
-  /** `provisioned-worktree` mode: a new worktree, cut for this workspace. */
+  /** `provisioned-worktree`: a new worktree, cut for this workspace. */
   async #prepareWorktreeRoot(
     input: PrepareExecutionRootInput,
     workspace: WorkspaceRootRow,
     mount: AttachedMountRow,
-    branchName: string,
-    runId: string,
+    name: WorktreeNameChoice,
   ): Promise<MaterializedRoot> {
+    const carryFrom = input.carryUncommitted === true ? workspace.checkout_root : null;
+    if (input.carryUncommitted === true && carryFrom === null) {
+      throw this.#unreadableRow(workspace.id, "records no folder to carry uncommitted work from");
+    }
     const created = await this.#worktrees.create({
       repoMountId: mount.id,
       sessionId: workspace.session_id,
-      branchName,
-      // `refuse` by default: a suffix silently changes the branch a run publishes from.
-      onCollision: input.onCollision ?? "refuse",
+      name: name.request,
+      onCollision: name.onCollision,
       ...(input.baseRef === undefined ? {} : { baseRef: input.baseRef }),
       // Omitted when absent: `created_by_run_id` is provenance.
-      ...(runId.length === 0 ? {} : { runId }),
+      ...(input.runId === undefined ? {} : { runId: input.runId }),
+      ...(carryFrom === null ? {} : { carryUncommittedFrom: carryFrom }),
     });
     return {
+      executionMode: "provisioned-worktree",
       executionRoot: created.fsRoot,
+      checkoutRoot: created.fsRoot,
       // The created name, not the requested one: `onCollision: 'suffix'` may have changed it.
       branchName: created.branchName,
       baseBranch: created.baseRef,
       worktreeId: created.worktreeId,
       provenance: "created",
+      ...(created.carriedStash === null ? {} : { carriedStash: created.carriedStash }),
     };
   }
 
   /**
    * Writes or refreshes the workspace's branch context: an upsert on the `(worktree_id,
-   * workspace_id)` pair for a worktree root, a plain insert for `bound-root`. The upsert is one
-   * statement, so a concurrent prepare refreshes the same row instead of adding a duplicate.
+   * workspace_id)` pair for a worktree root, so a workspace re-binding a tree refreshes its own row
+   * and a first binding inserts one beside the tree's earlier rows; a plain insert for
+   * `bound-root`.
    */
-  async #writeBranchContext(workspaceId: string, materialized: MaterializedRoot): Promise<string> {
+  async #writeBranchContext(
+    workspaceId: string,
+    materialized: MaterializedRoot,
+  ): Promise<BranchContextId> {
     const now = this.#now();
 
     if (materialized.worktreeId !== null) {
@@ -496,7 +678,7 @@ export class ExecutionRootService {
     }
 
     // `bound-root`: rows accumulate, so this cannot conflict with an existing one.
-    const branchContextId = this.#newBranchContextId();
+    const branchContextId = BranchContextIdSchema.parse(this.#newBranchContextId());
     await this.#writer.write([
       {
         sql: INSERT_BRANCH_CONTEXT_SQL,
@@ -530,6 +712,13 @@ export class ExecutionRootService {
     return row;
   }
 
+  #requireBoundRoot(workspace: WorkspaceRootRow): string {
+    if (workspace.bound_root === null) {
+      throw this.#unreadableRow(workspace.id, "records no bound folder");
+    }
+    return workspace.bound_root;
+  }
+
   /**
    * The workspace's mode, validated rather than cast: a value outside the vocabulary means the
    * database disagrees with the schema. Re-raised typed, because a `ZodError` names no domain
@@ -540,14 +729,17 @@ export class ExecutionRootService {
     if (!parsed.success) {
       throw new ExecutionRootServiceInvariantError(
         `workspace ${workspace.id} carries an execution mode outside the ExecutionMode vocabulary`,
-        {
-          kind: "unreadable_workspace_row",
-          workspaceId: workspace.id,
-          cause: parsed.error,
-        },
+        { kind: "unreadable_workspace_row", workspaceId: workspace.id, cause: parsed.error },
       );
     }
     return parsed.data;
+  }
+
+  #unreadableRow(workspaceId: string, what: string): ExecutionRootServiceInvariantError {
+    return new ExecutionRootServiceInvariantError(`workspace ${workspaceId} ${what}`, {
+      kind: "unreadable_workspace_row",
+      workspaceId,
+    });
   }
 
   /**
@@ -574,8 +766,7 @@ export class ExecutionRootService {
     materialized: MaterializedRoot,
     branchContextId: string | null,
   ): Promise<unknown[]> {
-    // Only `created`: a `bound` root is the user's own checkout.
-    if (materialized.provenance !== "created") {
+    if (materialized.provenance !== "created" || materialized.worktreeId === null) {
       return [];
     }
 
@@ -591,74 +782,45 @@ export class ExecutionRootService {
       }
     }
 
-    // Records the retirement only; the sweep reclaims the root. Its busy probe joins on `fs_root`,
-    // and this workspace is `preparing` with none, so it does not refuse.
+    // Records the retirement only; the sweep reclaims the folder once nothing stands in it.
     try {
-      if (materialized.worktreeId !== null) {
-        await this.#worktrees.retire(materialized.worktreeId);
-      }
+      await this.#worktrees.retireUnadopted(materialized.worktreeId);
     } catch (retireFailure) {
       failures.push(retireFailure);
     }
     return failures;
   }
-
-  /**
-   * The main checkout must already be on the requested branch; the daemon never switches a shared
-   * checkout, and `WorkspaceBranchMismatchError` carries both names.
-   */
-  async #verifyBoundRootBranch(
-    workspaceId: string,
-    canonicalRoot: string,
-    requestedBranchName: string,
-  ): Promise<void> {
-    // Exit 1 with empty output is a detached HEAD, an answer refused as a mismatch. Any other
-    // status (git's 128) or none at all is infrastructure, and reporting it as detached would
-    // suggest an impossible repair. Status only in the message: git's diagnostics name the
-    // repository.
-    let currentBranchName: string;
-    try {
-      const result: GitInvocationResult = await this.#runGit([
-        "-C",
-        canonicalRoot,
-        "symbolic-ref",
-        "--quiet",
-        "--short",
-        "HEAD",
-      ]);
-      currentBranchName = result.stdout.toString("utf8").trim();
-    } catch (invocationFailure) {
-      const exitStatus: number | null = readGitExitStatus(invocationFailure);
-      if (exitStatus !== DETACHED_HEAD_EXIT_CODE || !printedNothing(invocationFailure)) {
-        throw new ExecutionRootServiceInvariantError(
-          exitStatus === null
-            ? `branch verification for workspace ${workspaceId} could not run git`
-            : `branch verification for workspace ${workspaceId} exited with status ${exitStatus}`,
-          // For local logs; nothing puts it on the wire.
-          { kind: "branch_verification_failed", workspaceId, cause: invocationFailure },
-        );
-      }
-      currentBranchName = "";
-    }
-
-    // An empty name (detached) never equals a requested one, which is never empty.
-    if (currentBranchName !== requestedBranchName) {
-      throw new WorkspaceBranchMismatchError(
-        workspaceId,
-        requestedBranchName,
-        currentBranchName.length === 0 ? DETACHED_HEAD_BRANCH_LABEL : currentBranchName,
-      );
-    }
-  }
 }
 
-/** Whether a rejected git invocation printed nothing on stdout. */
-function printedNothing(rejection: unknown): boolean {
-  if (typeof rejection !== "object" || rejection === null || !("stdout" in rejection)) {
-    return true;
+// A failure after a carry: the tree that took the work is undone, so the kept stash is the only
+// copy and the failure names it.
+function namingCarriedStash(materialized: MaterializedRoot | undefined, failure: unknown): unknown {
+  return materialized?.carriedStash === undefined
+    ? failure
+    : keptStashError(materialized.carriedStash, failure);
+}
+
+/** The name a worktree prepare asks for, and what a taken one does. */
+interface WorktreeNameChoice {
+  readonly request: CreateWorktreeInput["name"];
+  readonly onCollision: "refuse" | "suffix";
+}
+
+// A named branch is the caller's and refuses a collision unless told otherwise; the gate's tail
+// takes the first free ordinal. Blank names count as none.
+function readWorktreeName(input: PrepareExecutionRootInput): WorktreeNameChoice | null {
+  const branchName = input.branchName?.trim() ?? "";
+  if (branchName.length > 0) {
+    return {
+      request: { kind: "branch", branchName },
+      onCollision: input.onCollision ?? "refuse",
+    };
   }
-  const stdout: unknown = rejection.stdout;
-  return !Buffer.isBuffer(stdout) || stdout.toString("utf8").trim().length === 0;
+  const tail = input.tail?.trim() ?? "";
+  if (tail.length > 0) {
+    return { request: { kind: "tail", tail }, onCollision: "suffix" };
+  }
+  return null;
 }
 
 /**

@@ -1,11 +1,12 @@
-// Converting a chat to a project in place. The typed folder is attached, or the machine's mount for
-// it reused, and the conversion recorded under the request's idempotency key; the chat's files are
-// copied in without replacing anything the repository holds, each outcome recorded as it lands; the
-// session binds to the project's checkout; and `session.converted` moves its shape. Each file is
-// written under a name of the daemon's own and published under its real name once whole, so a stop
-// part way never leaves half a file under a name the repository's files use. A conversion that
-// stopped part way resumes from its records, and the files not copied are read page by page. The
-// session keeps its id and transcript, and its managed workspace stays with its history.
+// Converting a chat to a project in place. The typed folder is attached as a project, or the
+// project already holding it found, and the conversion recorded under the request's idempotency
+// key; the chat's files are copied into the working tree the typed folder sits in without
+// replacing anything the repository holds, each outcome recorded as it lands; the session binds
+// to that working tree; and `session.converted` moves its shape. Each file is written under a name
+// of the daemon's own and published under its real name once whole, so a stop part way never
+// leaves half a file under a name the repository's files use. A conversion that stopped part way
+// resumes from its records, and the files not copied are read page by page. The session keeps its
+// id and transcript, and its managed workspace stays with its history.
 
 import { constants as fsConstants, type Dirent } from "node:fs";
 import { mkdir, open, readdir, unlink, type FileHandle } from "node:fs/promises";
@@ -15,7 +16,6 @@ import type { Database, Statement } from "better-sqlite3";
 
 import { countEntriesFittingOneFrame } from "@ai-sidekicks/contracts/jsonrpc/page";
 
-import type { RepoAttachResponse } from "@ai-sidekicks/contracts/repo/folders";
 import type { RepoMountId } from "@ai-sidekicks/contracts/repo/mount";
 import {
   SESSION_CONVERT_INCOMPLETE_CODE,
@@ -40,7 +40,10 @@ import type { EventLogService } from "../events/log-service.js";
 import { publishWithoutReplacing } from "../file/publish-without-replacing.js";
 import { DaemonDomainError } from "../ipc/domain-error.js";
 import { KeyedLock } from "../keyed-lock.js";
+import type { ProjectAttachment, ProjectService } from "../workspace/project/service.js";
+import { RepoRootResolutionError } from "../workspace/repo/errors.js";
 import type { RepoMountService } from "../workspace/repo/mount-service.js";
+import type { WorkingTreeReader } from "../workspace/repo/root-resolver.js";
 import type { WorkspaceService } from "../workspace/service.js";
 import {
   refuseProvisioningSession,
@@ -66,7 +69,7 @@ const OPEN_CHAT_SQL = `SELECT 1 FROM sessions
   WHERE id = ? AND shape = 'chat' AND state NOT IN ('closed', 'purge_requested')`;
 
 const RECORD_CONVERSION_SQL = `INSERT INTO session_convert_requests
-  (client_idempotency_key, session_id, repo_mount_id) VALUES (?, ?, ?)`;
+  (client_idempotency_key, session_id, repo_mount_id, working_tree) VALUES (?, ?, ?, ?)`;
 
 // The request resuming a conversion takes it over: its key answers the conversion from here on, on
 // the mount the folder is attached as now.
@@ -83,22 +86,20 @@ const CONVERSION_BY_KEY_SQL = `SELECT request.session_id AS sessionId, event.pay
     ON event.session_id = request.session_id AND event.type = 'session.converted'
  WHERE request.client_idempotency_key = ?`;
 
-// Every chat's conversion that has not landed its `session.converted`, with the folder it copies
-// into.
+// Every chat's conversion that has not landed its `session.converted`, with the working tree it
+// copies into.
 const UNFINISHED_CONVERSIONS_SQL = `SELECT request.session_id AS sessionId,
-       mount.canonical_root AS canonicalRoot
+       request.working_tree AS workingTree
   FROM session_convert_requests AS request
-  JOIN repo_mounts AS mount ON mount.id = request.repo_mount_id
  WHERE NOT EXISTS (SELECT 1 FROM session_events AS event
                     WHERE event.session_id = request.session_id
                       AND event.type = 'session.converted')`;
 
-// A chat's conversion that stopped part way, with the folder it copies into.
-const UNFINISHED_CONVERSION_SQL = `SELECT request.client_idempotency_key AS clientIdempotencyKey,
-       request.repo_mount_id AS repoMountId, mount.canonical_root AS canonicalRoot
-  FROM session_convert_requests AS request
-  JOIN repo_mounts AS mount ON mount.id = request.repo_mount_id
- WHERE request.session_id = ?`;
+// A chat's conversion that stopped part way, with the working tree it copies into.
+const UNFINISHED_CONVERSION_SQL = `SELECT client_idempotency_key AS clientIdempotencyKey,
+       repo_mount_id AS repoMountId, working_tree AS workingTree
+  FROM session_convert_requests
+ WHERE session_id = ?`;
 
 const FILES_DEALT_WITH_SQL = "SELECT path FROM session_convert_files WHERE session_id = ?";
 
@@ -153,14 +154,14 @@ interface ConversionProgress extends SessionConvertResponse {
 interface ConversionFolders {
   readonly sessionId: SessionId;
   readonly workspaceRoot: string;
-  readonly projectRoot: string;
+  readonly workingTree: string;
 }
 
 // A chat's conversion that stopped part way.
 interface UnfinishedConversion {
   readonly clientIdempotencyKey: string;
   readonly repoMountId: RepoMountId;
-  readonly canonicalRoot: string;
+  readonly workingTree: string;
 }
 
 /** What converting a chat reads, locks, attaches, binds and appends through. */
@@ -173,15 +174,16 @@ export interface SessionConversionDeps {
   readonly events: Pick<EventLogService, "append">;
   /** The session lock every session-wide transition holds for its whole run. */
   readonly lock: Pick<SessionChanges["lock"], "run">;
-  /** Resolves and attaches the typed folder, and knows where the chat's managed workspace is. */
-  readonly repoMounts: Pick<
-    RepoMountService,
-    "attachOrReuse" | "readManagedRoot" | "resolveFolder"
-  >;
-  /** Binds the session to the project's checkout. */
+  /** Resolves the typed folder, and knows where the chat's managed workspace is. */
+  readonly repoMounts: Pick<RepoMountService, "readManagedRoot" | "resolveFolder">;
+  /** Attaches the typed folder as a project, or finds the project already holding it. */
+  readonly projects: Pick<ProjectService, "attachOrFind">;
+  /** Binds the session to the working tree its files were copied into. */
   readonly workspaces: Pick<WorkspaceService, "bind">;
   /** Writes one line to the service log. */
   readonly writeServiceLog: (line: string) => void;
+  /** Reads the working tree the typed path sits in, as git resolves it. */
+  readonly workingTrees: Pick<WorkingTreeReader, "readWorkingTreeRoot">;
   /** The clock that stamps the event. Defaults to the system clock. */
   readonly now?: () => Date;
 }
@@ -231,12 +233,11 @@ export class SessionConversion {
   // Serializes converts that carry one key across sessions, so a second session sees the first's
   // conversion and is refused before it attaches anything. Always taken before the session lock.
   readonly #keyLock = new KeyedLock<string>();
-  readonly #repoMounts: Pick<
-    RepoMountService,
-    "attachOrReuse" | "readManagedRoot" | "resolveFolder"
-  >;
+  readonly #repoMounts: Pick<RepoMountService, "readManagedRoot" | "resolveFolder">;
+  readonly #projects: Pick<ProjectService, "attachOrFind">;
   readonly #workspaces: Pick<WorkspaceService, "bind">;
   readonly #writeServiceLog: (line: string) => void;
+  readonly #workingTrees: SessionConversionDeps["workingTrees"];
   readonly #now: () => Date;
   readonly #selectFacts: Statement<[string], SessionFacts>;
   readonly #selectConversionByKey: Statement<
@@ -246,7 +247,7 @@ export class SessionConversion {
   readonly #selectUnfinishedConversion: Statement<[string], UnfinishedConversion>;
   readonly #selectUnfinishedConversions: Statement<
     [],
-    { readonly sessionId: SessionId; readonly canonicalRoot: string }
+    { readonly sessionId: SessionId; readonly workingTree: string }
   >;
   readonly #selectFilesDealtWith: Statement<[string], { readonly path: string }>;
   readonly #selectFileCounts: Statement<[string], SessionConvertResponse>;
@@ -262,8 +263,10 @@ export class SessionConversion {
     this.#events = deps.events;
     this.#lock = deps.lock;
     this.#repoMounts = deps.repoMounts;
+    this.#projects = deps.projects;
     this.#workspaces = deps.workspaces;
     this.#writeServiceLog = deps.writeServiceLog;
+    this.#workingTrees = deps.workingTrees;
     this.#now = deps.now ?? (() => new Date());
     this.#selectFacts = deps.reader.prepare(SESSION_FACTS_SQL);
     this.#selectConversionByKey = deps.reader.prepare(CONVERSION_BY_KEY_SQL);
@@ -325,9 +328,12 @@ export class SessionConversion {
     const { project, record } = await this.#attachProject(request);
     let isBound = false;
     try {
-      await this.#writer.write([record]);
+      // The files go into the working tree of the path typed, and the session binds there, never
+      // into another checkout of the repository.
+      const workingTree = await this.#workingTreeOf(request.path);
+      await this.#writer.write([record(workingTree)]);
       await copyWorkspaceFiles(
-        { sessionId, workspaceRoot, projectRoot: project.canonicalRoot },
+        { sessionId, workspaceRoot, workingTree },
         this.#filesDealtWith(sessionId),
         (path, outcome) =>
           this.#writer.write([{ sql: RECORD_FILE_SQL, bindings: [sessionId, path, outcome] }]),
@@ -336,6 +342,7 @@ export class SessionConversion {
         sessionId,
         repoMountId: project.repoMountId,
         executionMode: "bound-root",
+        directory: workingTree,
       });
       isBound = true;
       const outcome = this.#fileCountsOf(sessionId);
@@ -352,40 +359,51 @@ export class SessionConversion {
   }
 
   // The project the conversion copies into, and the statement recording the conversion under the
-  // request's key. A conversion that stopped part way goes on only into its own folder, taken over
-  // by this request's key on the mount that folder is attached as now, attached again if a detach
-  // let it go since.
-  async #attachProject(
-    request: SessionConvertRequest,
-  ): Promise<{ readonly project: RepoAttachResponse; readonly record: WriteStatement }> {
+  // request's key with the working tree it copies into. A conversion that stopped part way goes on
+  // only into its own working tree, taken over by this request's key on the mount its repository is
+  // attached as now, attached again if a detach let it go since.
+  async #attachProject(request: SessionConvertRequest): Promise<{
+    readonly project: ProjectAttachment;
+    readonly record: (workingTree: string) => WriteStatement;
+  }> {
     const { sessionId, clientIdempotencyKey } = request;
     const unfinished = this.#selectUnfinishedConversion.get(sessionId);
     if (unfinished === undefined) {
-      const project = await this.#repoMounts.attachOrReuse({ localPath: request.path });
+      const project = await this.#projects.attachOrFind({ localPath: request.path });
       return {
         project,
-        record: {
+        record: (workingTree) => ({
           sql: RECORD_CONVERSION_SQL,
-          bindings: [clientIdempotencyKey, sessionId, project.repoMountId],
-        },
+          bindings: [clientIdempotencyKey, sessionId, project.repoMountId, workingTree],
+        }),
       };
     }
-    const folder = await this.#repoMounts.resolveFolder({ localPath: request.path });
-    if (folder.canonicalRoot !== unfinished.canonicalRoot) {
+    // Resolved as attach resolves it first, so a path that is no repository is refused as attach
+    // refuses it.
+    await this.#repoMounts.resolveFolder({ localPath: request.path });
+    if ((await this.#workingTreeOf(request.path)) !== unfinished.workingTree) {
       throw new DaemonDomainError("The chat's conversion into another folder stopped part way.", {
         code: SESSION_CONVERT_REFUSED_CODE,
         detail: { sessionId, reason: "conversion_unfinished", repoMountId: unfinished.repoMountId },
       });
     }
-    const project = await this.#repoMounts.attachOrReuse({ localPath: request.path });
+    const project = await this.#projects.attachOrFind({ localPath: request.path });
     return {
       project,
-      record: {
+      record: () => ({
         sql: TAKE_OVER_CONVERSION_SQL,
         bindings: [clientIdempotencyKey, project.repoMountId, sessionId],
         expectedRowCount: 1,
-      },
+      }),
     };
+  }
+
+  async #workingTreeOf(folderPath: string): Promise<string> {
+    const workingTree = await this.#workingTrees.readWorkingTreeRoot(folderPath);
+    if (workingTree === null) {
+      throw new RepoRootResolutionError("not_a_repository");
+    }
+    return workingTree;
   }
 
   /**
@@ -395,12 +413,12 @@ export class SessionConversion {
    * whose removal fails is named in the service log, the others' removals going on.
    */
   async removeStoppedCopies(): Promise<void> {
-    for (const { sessionId, canonicalRoot } of this.#selectUnfinishedConversions.all()) {
+    for (const { sessionId, workingTree } of this.#selectUnfinishedConversions.all()) {
       try {
         await this.#lock.run(sessionId, async () => {
           const workspaceRoot = this.#repoMounts.readManagedRoot(sessionId);
           if (workspaceRoot !== undefined) {
-            const folders = { sessionId, workspaceRoot, projectRoot: canonicalRoot };
+            const folders = { sessionId, workspaceRoot, workingTree };
             await removeStoppedCopy(
               folders,
               await listPendingEntries(folders, this.#filesDealtWith(sessionId)),
@@ -567,7 +585,7 @@ async function listPendingEntries(
   folders: ConversionFolders,
   dealtWith: ReadonlySet<string>,
 ): Promise<string[]> {
-  return (await listWorkspaceEntries(folders.workspaceRoot, folders.projectRoot)).filter(
+  return (await listWorkspaceEntries(folders.workspaceRoot, folders.workingTree)).filter(
     (relativePath) => !dealtWith.has(relativePath),
   );
 }
@@ -581,7 +599,7 @@ async function removeStoppedCopy(
   const copyName = copyNameOf(folders.sessionId);
   for (const folder of new Set(pending.map((relativePath) => path.posix.dirname(relativePath)))) {
     try {
-      await unlink(path.join(folders.projectRoot, folder, copyName));
+      await unlink(path.join(folders.workingTree, folder, copyName));
     } catch (error) {
       const code = errnoOf(error);
       // Nothing was left there, or the repository holds no folder there to have held it.
@@ -599,10 +617,10 @@ function copyNameOf(sessionId: SessionId): string {
 // Every entry of the workspace but its folders, `/`-separated, in name order: files, links and
 // special files alike, each left to the copy to tell apart on the opened entry. The walk never
 // descends through a link, so nothing outside the workspace is listed, and it leaves out the
-// workspace's own repository at its root and the project's folder when that sits inside the
+// workspace's own repository at its root and the working tree when that sits inside the
 // workspace, so the repository is never copied into itself; a repository in a subfolder is the
 // chat's files like any other. A folder removed while the walk runs holds nothing.
-async function listWorkspaceEntries(workspaceRoot: string, projectRoot: string): Promise<string[]> {
+async function listWorkspaceEntries(workspaceRoot: string, workingTree: string): Promise<string[]> {
   const entries: string[] = [];
   const pendingFolders: string[] = [""];
   for (let folder = pendingFolders.pop(); folder !== undefined; folder = pendingFolders.pop()) {
@@ -612,7 +630,7 @@ async function listWorkspaceEntries(workspaceRoot: string, projectRoot: string):
       }
       const relativePath = folder === "" ? dirent.name : `${folder}/${dirent.name}`;
       if (dirent.isDirectory()) {
-        if (path.join(workspaceRoot, relativePath) !== projectRoot) {
+        if (path.join(workspaceRoot, relativePath) !== workingTree) {
           pendingFolders.push(relativePath);
         }
       } else {
@@ -649,7 +667,7 @@ async function copyWorkspaceEntry(
     return opened;
   }
   try {
-    let folder = folders.projectRoot;
+    let folder = folders.workingTree;
     for (const segment of relativePath.split("/").slice(0, -1)) {
       folder = path.join(folder, segment);
       if (!(await holdsOwnFolder(folder))) {
@@ -658,7 +676,7 @@ async function copyWorkspaceEntry(
     }
     return await copyOpenedFile(
       opened.handle,
-      path.join(folders.projectRoot, relativePath),
+      path.join(folders.workingTree, relativePath),
       path.join(folder, copyName),
     );
   } finally {

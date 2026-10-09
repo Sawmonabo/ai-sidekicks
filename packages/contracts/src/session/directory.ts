@@ -7,7 +7,11 @@ import { z } from "zod";
 
 import { AgentProviderBindingSchema, type AgentProviderBinding } from "../agent/definition.js";
 import { EventEnvelopeSchema, type EventEnvelope } from "../event/envelope.js";
-import { wireFreeFormString, wireUncappedFreeFormString } from "../free-form-string.js";
+import {
+  FILE_PATH_MAX_LEN,
+  wireFreeFormString,
+  wireUncappedFreeFormString,
+} from "../free-form-string.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 import { requireMemberToRideOneFrame } from "../jsonrpc/page.js";
 import { SubscriptionIdSchema, type SubscribeAckResponse } from "../jsonrpc/streaming.js";
@@ -16,14 +20,10 @@ import {
   type MethodDescriptor,
   type SubscriptionMethodDescriptor,
 } from "../method-descriptor.js";
+import { ProjectIdSchema, type ProjectId } from "../project.js";
 import { DRIVER_TOOL_NAME_MAX_LEN } from "../provider/driver/length-limits.js";
 import { ProviderNameSchema, type ProviderName } from "../provider/name.js";
-import {
-  ExecutionModeSchema,
-  RepoMountIdSchema,
-  type ExecutionMode,
-  type RepoMountId,
-} from "../repo/mount.js";
+import { ExecutionModeSchema, type ExecutionMode } from "../repo/mount.js";
 import { WorktreeIdSchema, type WorktreeId } from "../worktree/lifecycle.js";
 import {
   SessionConvertRequestSchema,
@@ -121,13 +121,13 @@ const SessionListGroupSchema: z.ZodType<SessionListGroup> = z
   .strict();
 
 /**
- * What a list entry carries for its shape: a project's key, branch and group, or a chat's
- * document count, absent until the chat's artifact store counts them. A chat sits in no group.
+ * What a list entry carries for its shape: its project, branch and group, or a chat's document
+ * count, absent until the chat's artifact store counts them. A chat sits in no group.
  */
 export type SessionListEntryPlace =
   | {
       shape: "project";
-      repoMountId: RepoMountId;
+      projectId: ProjectId;
       branch?: string | undefined;
       group?: SessionListGroup | undefined;
     }
@@ -182,7 +182,7 @@ export const SessionListEntrySchema: z.ZodType<SessionListEntry> = z.discriminat
     .object({
       ...sessionListEntryCommonFields,
       shape: z.literal("project"),
-      repoMountId: RepoMountIdSchema,
+      projectId: ProjectIdSchema,
       branch: wireUncappedFreeFormString("SessionListEntry.branch").optional(),
       group: SessionListGroupSchema.optional(),
     })
@@ -270,7 +270,7 @@ export const SessionListChangeSchema: z.ZodType<SessionListChange> = z.discrimin
  */
 export type SessionBinding =
   | { kind: "chat" }
-  | { kind: "project"; repoMountId: RepoMountId; executionMode: ExecutionMode };
+  | { kind: "project"; projectId: ProjectId; executionMode: ExecutionMode };
 /** Parses a {@link SessionBinding}. */
 export const SessionBindingSchema: z.ZodType<SessionBinding, SessionBinding> = z.discriminatedUnion(
   "kind",
@@ -279,7 +279,7 @@ export const SessionBindingSchema: z.ZodType<SessionBinding, SessionBinding> = z
     z
       .object({
         kind: z.literal("project"),
-        repoMountId: RepoMountIdSchema,
+        projectId: ProjectIdSchema,
         executionMode: ExecutionModeSchema,
       })
       .strict(),
@@ -391,35 +391,41 @@ export const SessionForkResponseSchema: z.ZodType<SessionForkResponse> = z.discr
 );
 
 /**
- * Move a project session's working folder to another of its project's worktrees, or with
- * `null` to the project's checkout. Asking for the folder the session is already in cancels a
- * pending move, and a later request replaces a pending one.
+ * Move a project session's working folder to `path`: the folder of any worktree git lists for the
+ * project's repository, one the person made included, or the repository's own checkout. Asking
+ * for the folder the session is already in cancels a pending move, and a later request replaces a
+ * pending one.
  */
 export interface SessionSetWorkingFolderRequest {
   sessionId: SessionId;
-  worktreeId: WorktreeId | null;
+  path: string;
 }
 /** Parses a {@link SessionSetWorkingFolderRequest}. */
 export const SessionSetWorkingFolderRequestSchema: z.ZodType<
   SessionSetWorkingFolderRequest,
   SessionSetWorkingFolderRequest
-> = z.object({ sessionId: SessionIdSchema, worktreeId: WorktreeIdSchema.nullable() }).strict();
+> = z
+  .object({
+    sessionId: SessionIdSchema,
+    path: wireFreeFormString(FILE_PATH_MAX_LEN, "SessionSetWorkingFolderRequest.path"),
+  })
+  .strict();
 
 /**
  * `applied` when the session moved now, or the request cleared a pending move; `pending` when a
- * run was live and the move waits on the session row for the run to end.
+ * run was live and the move to `path` waits on the session row for the run to end.
  */
 export interface SessionSetWorkingFolderResponse {
   sessionId: SessionId;
   disposition: "applied" | "pending";
-  worktreeId: WorktreeId | null;
+  path: string;
 }
 /** Parses a {@link SessionSetWorkingFolderResponse}. */
 export const SessionSetWorkingFolderResponseSchema: z.ZodType<SessionSetWorkingFolderResponse> = z
   .object({
     sessionId: SessionIdSchema,
     disposition: z.enum(["applied", "pending"]),
-    worktreeId: WorktreeIdSchema.nullable(),
+    path: wireFreeFormString(FILE_PATH_MAX_LEN, "SessionSetWorkingFolderResponse.path"),
   })
   .strict();
 

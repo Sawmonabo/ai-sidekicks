@@ -145,7 +145,6 @@ function ReadMountList(props: {
     <MountList
       reading={reading}
       bridge={props.bridge}
-      sessionStore={props.sessionStore}
       operations={props.operations}
       onCopy={() => undefined}
       onRequestRead={requestRead}

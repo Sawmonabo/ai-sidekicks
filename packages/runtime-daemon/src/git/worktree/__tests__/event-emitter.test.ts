@@ -14,7 +14,10 @@ import {
   type ScratchDatabase,
 } from "../../../database/__fixtures__/scratch.js";
 import { EventLogService } from "../../../events/log-service.js";
-import type { UnsequencedEventEnvelope } from "../../../events/log-service.js";
+import type {
+  EventLogAppendReceipt,
+  UnsequencedEventEnvelope,
+} from "../../../events/log-service.js";
 import { WorktreeEventEmitter } from "../event-emitter.js";
 import type { EmitWorktreeEventInput } from "../event-emitter.js";
 import type { SessionEventLog } from "../../../events/session/appender.js";
@@ -78,13 +81,16 @@ function payloadState(envelope: UnsequencedEventEnvelope): unknown {
  * no concrete storage class and shows envelope facts SQL cannot (the correlation pair's absence).
  */
 function recordingEventLog(appended: UnsequencedEventEnvelope[]): SessionEventLog {
+  const record = (envelope: UnsequencedEventEnvelope): EventLogAppendReceipt => {
+    appended.push(envelope);
+    return { id: envelope.id, sequence: appended.length - 1 };
+  };
   return {
-    append: (envelope) => {
-      appended.push(envelope);
-      return Promise.resolve({
-        id: envelope.id,
-        sequence: appended.length - 1,
-      });
+    append: (envelope, options) => {
+      for (const preceding of options?.precedingEvents ?? []) {
+        record(preceding);
+      }
+      return Promise.resolve(record(envelope));
     },
   };
 }

@@ -19,6 +19,7 @@ import {
 
 const BRANCH_NAME_SESSION_PLACEHOLDER = "{session}";
 
+// What a branch-name pattern's placeholders are filled with.
 interface BranchNamePatternValues {
   /** The tail derived from the session's title. */
   readonly title: string;
@@ -26,7 +27,8 @@ interface BranchNamePatternValues {
   readonly session: string;
 }
 
-function fillBranchNamePattern(pattern: string, values: BranchNamePatternValues): string {
+/** The branch name `pattern` makes: `{title}` and every `{session}` replaced by their values. */
+export function fillBranchNamePattern(pattern: string, values: BranchNamePatternValues): string {
   return pattern
     .replaceAll(BRANCH_NAME_TITLE_PLACEHOLDER, values.title)
     .replaceAll(BRANCH_NAME_SESSION_PLACEHOLDER, values.session);

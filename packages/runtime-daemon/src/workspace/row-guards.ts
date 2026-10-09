@@ -1,6 +1,6 @@
 /**
- * The row shapes and metadata keys the workspace service stores under, and the checks it runs
- * against them: single-row writes, absolute roots, and the metadata readers.
+ * The row shapes and metadata keys the workspace and repo-mount services store under, and the
+ * checks they run against them: single-row writes, absolute roots, and the metadata readers.
  */
 
 import {
@@ -9,7 +9,13 @@ import {
 } from "./trust-envelope.js";
 import { type FilesystemPathProbe } from "./projector.js";
 import { WriteRefusedError } from "../database/writer.js";
-import { WorkspaceServiceInvariantError, type WorkspaceServiceInvariantKind } from "./errors.js";
+import type { ExecutionMode } from "@ai-sidekicks/contracts/repo/mount";
+
+import {
+  WorkspaceModeUnsupportedError,
+  WorkspaceServiceInvariantError,
+  type WorkspaceServiceInvariantKind,
+} from "./errors.js";
 
 /**
  * Measure a path's reachability. The seam is at probe granularity so a test can return a
@@ -18,14 +24,23 @@ import { WorkspaceServiceInvariantError, type WorkspaceServiceInvariantKind } fr
  */
 export type FilesystemPathProbeFn = (path: string) => Promise<FilesystemPathProbe>;
 
-/** The `repo_mounts` columns this service reads. */
+/** The `repo_mounts` columns the workspace service reads. */
 export interface MountRow {
   readonly id: string;
+  /** The path as attached, whose working tree a bind that names no folder roots at. */
+  readonly local_path: string;
   readonly canonical_root: string;
-  readonly vcs_type: string;
   /** The chat a managed mount belongs to; `null` on a project's mount. */
   readonly managed_session_id: string | null;
+  /** `metadata.commonDir`, the identity anchor; `null` on a mount that carries none. */
+  readonly common_dir: string | null;
 }
+
+/**
+ * The JSON path in `repo_mounts.metadata` of the mount's identity anchor: the canonicalized git
+ * common directory its attach derived.
+ */
+export const COMMON_DIR_METADATA_PATH: string = "$.commonDir";
 
 /** The `workspaces` columns this service reads. */
 export interface WorkspaceRow {
@@ -38,17 +53,28 @@ export interface WorkspaceRow {
   readonly metadata: string;
 }
 
-// `lastError` crosses the wire on the list response; `holdingRunId` is daemon-internal and never
-// does.
+// `lastError` crosses the wire on the list response; the bound and checkout roots are
+// daemon-internal and never do.
 const LAST_ERROR_METADATA_KEY = "lastError";
 
 /** The JSON path in `workspaces.metadata` of a stale workspace's `lastError`. */
 export const LAST_ERROR_METADATA_PATH: string = `$.${LAST_ERROR_METADATA_KEY}`;
 
-const HOLDING_RUN_ID_METADATA_KEY = "holdingRunId";
+const BOUND_ROOT_METADATA_KEY = "boundRoot";
 
-/** The JSON path in `workspaces.metadata` of the run holding a `busy` workspace. */
-export const HOLDING_RUN_ID_METADATA_PATH: string = `$.${HOLDING_RUN_ID_METADATA_KEY}`;
+/**
+ * The JSON path in `workspaces.metadata` of the folder the bind admitted, where a `bound-root` run
+ * works. Written by the bind and never cleared.
+ */
+export const BOUND_ROOT_METADATA_PATH: string = `$.${BOUND_ROOT_METADATA_KEY}`;
+
+const CHECKOUT_ROOT_METADATA_KEY = "checkoutRoot";
+
+/**
+ * The JSON path in `workspaces.metadata` of the top level of the working tree the workspace works
+ * in now: the bound checkout's, or the worktree's once one is its execution root.
+ */
+export const CHECKOUT_ROOT_METADATA_PATH: string = `$.${CHECKOUT_ROOT_METADATA_KEY}`;
 
 /**
  * The production probe. Clock first so `checkedAt` is never newer than the observation it stamps
@@ -119,6 +145,16 @@ export function assertAbsoluteExecutionRoot(candidate: string, workspaceId: stri
   );
 }
 
+/**
+ * Refuse a worktree on a chat's managed mount, the one mode rule: a chat works only in its own
+ * folder. Throws `WorkspaceModeUnsupportedError`.
+ */
+export function assertModeOffered(executionMode: ExecutionMode, isManagedMount: boolean): void {
+  if (isManagedMount && executionMode === "provisioned-worktree") {
+    throw new WorkspaceModeUnsupportedError(executionMode);
+  }
+}
+
 // The complete forms: POSIX absolute, Windows drive-absolute (`C:\repos\app`, `C:/repos/app`) and
 // UNC; a lone leading backslash is the driveless root refused above. Not `node:path`'s
 // platform-dependent `isAbsolute`: a root stored on one machine must be recognized on another.
@@ -169,9 +205,4 @@ function readMetadataString(row: WorkspaceRow, key: string): string | null {
 /** The stored `lastError` of a workspace row, or `null` when it holds none. */
 export function readLastError(row: WorkspaceRow): string | null {
   return readMetadataString(row, LAST_ERROR_METADATA_KEY);
-}
-
-/** The run holding a `busy` workspace, or `null` when none is recorded. */
-export function readHoldingRunId(row: WorkspaceRow): string | null {
-  return readMetadataString(row, HOLDING_RUN_ID_METADATA_KEY);
 }

@@ -1,18 +1,11 @@
-// Pure projection of repo-mount health, workspace health and execution-mode capabilities. Nothing
-// here touches the filesystem, a clock or a database: the service layer probes and hands in the
-// `{row, probe}` pair.
-//
-// - An unavailable execution root reads as `stale` on every read surface, detected on read only;
-//   `markStale` and `assertWritable` belong to the workspace service.
-// - Capability projection never silently substitutes a mode: every mode missing from
-//   `availableModes` appears in `restrictions` with a reason, including any narrowing for a
-//   `stale` workspace.
+// Pure projection of repo-mount health and workspace health. Nothing here touches the filesystem,
+// git, a clock or a database: the service layer probes and hands in the row with what it observed.
+// An unavailable execution root reads as `stale` on every read surface, detected on read only;
+// `markStale` and `assertWritable` belong to the workspace service.
 
 import {
   RepoMountHealthSchema,
-  type ExecutionMode,
   type RepoMountHealth,
-  type VcsType,
   type WorkspaceState,
 } from "@ai-sidekicks/contracts/repo/mount";
 
@@ -23,30 +16,68 @@ import {
  */
 export interface FilesystemPathProbe {
   readonly probedPath: string;
-  // Reachability only: `identity_mismatch` and its `isRepository` need the root's git common
-  // directory compared with the attach-time anchor, which this probe does not read.
+  // Reachability only; a mount's identity is observed separately, from git.
   readonly reachable: boolean;
   readonly checkedAt: string;
 }
 
 /**
- * The `repo_mounts` field the health projection reads. Lifecycle `state` is absent on purpose:
- * health is root reachability alone, so a `detached` mount whose root is on disk is `healthy`.
+ * The `repo_mounts` facts the health projection reads. Lifecycle `state` is absent on purpose:
+ * health is the root's reachability and identity, so a `detached` mount whose root is on disk and
+ * still holds its repository is `healthy`.
  */
 export interface RepoMountHealthRow {
   readonly canonicalRoot: string;
+  /** The git common directory recorded at attach; `null` on a mount that carries none. */
+  readonly commonDirAnchor: string | null;
 }
 
-/** Projects a mount's health from the probe of its canonical root; throws on a path mismatch. */
+/**
+ * The repository git found at a reachable, anchored root: the anchored one, another one, or none
+ * when git does not answer the root as a repository's working tree.
+ */
+export interface RepoMountIdentityObservation {
+  readonly repository: "anchored" | "other" | "none";
+}
+
+/**
+ * Projects a mount's health. `unreachable` comes first, since nothing more can be asked of a root
+ * that cannot be probed; then `identity_mismatch` when the observed repository is not the anchored
+ * one. An identity observation is required exactly when the root is reachable and anchored, and a
+ * mismatch of probe and row throws.
+ */
 export function computeRepoMountHealth(
   mountRow: RepoMountHealthRow,
   probe: FilesystemPathProbe,
+  identity: RepoMountIdentityObservation | null,
 ): RepoMountHealth {
   assertProbeTargets(probe, mountRow.canonicalRoot, "repo mount's canonical root");
-  return RepoMountHealthSchema.parse({
-    status: probe.reachable ? "healthy" : "unreachable",
-    checkedAt: probe.checkedAt,
-  });
+  const owesIdentity = probe.reachable && mountRow.commonDirAnchor !== null;
+  if (owesIdentity !== (identity !== null)) {
+    throw new Error(
+      "computeRepoMountHealth: an identity observation is owed exactly when the root is " +
+        "reachable and the mount carries an anchor; answering from a mispaired observation " +
+        "would report a verdict nothing measured.",
+    );
+  }
+  if (!probe.reachable) {
+    return RepoMountHealthSchema.parse({ status: "unreachable", checkedAt: probe.checkedAt });
+  }
+  if (identity === null || mountRow.commonDirAnchor === null) {
+    return RepoMountHealthSchema.parse({ status: "healthy", checkedAt: probe.checkedAt });
+  }
+  if (identity.repository === "none") {
+    return RepoMountHealthSchema.parse({
+      status: "identity_mismatch",
+      isRepository: false,
+      checkedAt: probe.checkedAt,
+    });
+  }
+  return RepoMountHealthSchema.parse(
+    identity.repository === "anchored"
+      ? { status: "healthy", checkedAt: probe.checkedAt }
+      : { status: "identity_mismatch", isRepository: true, checkedAt: probe.checkedAt },
+  );
 }
 
 // Compile-time assignability pin; the `_` prefix exempts it from `no-unused-vars`.
@@ -54,7 +85,7 @@ type _AssertExtends<A extends B, B> = A;
 
 // The probe-owed and no-probe states, pinned total over `WorkspaceState` and disjoint below, so a
 // new workspace state fails a compile instead of landing on one side.
-const PROBE_BEARING_STATE_ROSTER = ["ready", "busy"] as const satisfies readonly WorkspaceState[];
+const PROBE_BEARING_STATE_ROSTER = ["ready"] as const satisfies readonly WorkspaceState[];
 const NON_PROBE_BEARING_STATE_ROSTER = [
   "preparing",
   "stale",
@@ -159,124 +190,7 @@ export function computeWorkspaceHealth(
   return {
     observedState,
     checkedAt: probe.checkedAt,
-    // Whether to persist it (a held `busy` row is not staled) is the workspace service's call.
     staleTransitionRequired: observedState !== workspaceRow.state,
-  };
-}
-
-// The matrix is keyed by the mount's origin and `vcs_type`: worktree availability is not probed at
-// read time, and a mode that cannot be prepared fails at preparation.
-
-/**
- * The modes a mount's workspace may take, its default, and a reason for each mode it may not take.
- * `restrictions` is omitted when nothing is restricted.
- */
-interface ExecutionModeCapabilities {
-  readonly availableModes: ExecutionMode[];
-  readonly defaultMode: ExecutionMode;
-  readonly restrictions?: Partial<Record<ExecutionMode, string>>;
-}
-
-/** One mode's standing for one kind of mount; the unavailable arm requires a reason. */
-type ExecutionModeVerdict =
-  | { readonly available: true }
-  | { readonly available: false; readonly reason: string };
-
-/**
- * The capability answer for one kind of mount. The `Record<ExecutionMode, ...>` makes the verdict
- * table total, so a mode added in contracts fails this compile.
- */
-interface MountCapabilityProfile {
-  readonly defaultMode: ExecutionMode;
-  readonly modeVerdicts: Readonly<Record<ExecutionMode, ExecutionModeVerdict>>;
-}
-
-// A git mount: both modes, nothing restricted.
-const GIT_CAPABILITY_PROFILE = {
-  // Coding runs default to a worktree rather than mutating the main checkout.
-  defaultMode: "provisioned-worktree",
-  modeVerdicts: {
-    "bound-root": { available: true },
-    "provisioned-worktree": { available: true },
-  },
-} as const satisfies MountCapabilityProfile;
-
-// A chat's managed workspace: its own root only, so a run never leaves the chat's folder.
-const MANAGED_CAPABILITY_PROFILE = {
-  defaultMode: "bound-root",
-  modeVerdicts: {
-    "bound-root": { available: true },
-    "provisioned-worktree": {
-      available: false,
-      reason: "a chat's managed workspace offers only its own root",
-    },
-  },
-} as const satisfies MountCapabilityProfile;
-
-// The taxonomy order in which `availableModes` and `restrictions` are emitted, pinned total below.
-const EXECUTION_MODES_IN_TAXONOMY_ORDER = [
-  "bound-root",
-  "provisioned-worktree",
-] as const satisfies readonly ExecutionMode[];
-
-type _AssertTaxonomyOrderIsExhaustive = _AssertExtends<
-  ExecutionMode,
-  (typeof EXECUTION_MODES_IN_TAXONOMY_ORDER)[number]
->;
-
-/** The `repo_mounts` facts the capability projection reads. */
-export interface ExecutionModeCapabilityRow {
-  readonly vcsType: VcsType;
-  /** Whether the mount is a chat's managed workspace rather than a project's folder. */
-  readonly isManaged: boolean;
-}
-
-/** Projects a mount's allowed execution modes, with a reason for each mode it does not allow. */
-export function computeExecutionModeCapabilities(
-  mountRow: ExecutionModeCapabilityRow,
-): ExecutionModeCapabilities {
-  return projectCapabilityProfile(
-    mountRow.isManaged ? MANAGED_CAPABILITY_PROFILE : capabilityProfileFor(mountRow.vcsType),
-  );
-}
-
-/**
- * Resolves the profile for one `vcs_type`. The `never` binding fails the compile for a new member,
- * and the throw fails closed for a raw database value instead of answering with git modes.
- */
-function capabilityProfileFor(vcsType: VcsType): MountCapabilityProfile {
-  switch (vcsType) {
-    case "git":
-      return GIT_CAPABILITY_PROFILE;
-    default: {
-      const unregisteredVcsType: never = vcsType;
-      throw new Error(
-        "computeExecutionModeCapabilities: no capability profile is registered for vcs_type " +
-          `"${String(unregisteredVcsType)}". Every value of the closed VcsType union needs a ` +
-          "profile — a mount whose capabilities cannot be projected must fail the read, never " +
-          "receive another vcs_type's answer.",
-      );
-    }
-  }
-}
-
-function projectCapabilityProfile(profile: MountCapabilityProfile): ExecutionModeCapabilities {
-  // Built fresh per call: a shared array is one caller's `.push` from corrupting later responses.
-  const availableModes: ExecutionMode[] = [];
-  const restrictions: Partial<Record<ExecutionMode, string>> = {};
-  for (const executionMode of EXECUTION_MODES_IN_TAXONOMY_ORDER) {
-    const verdict: ExecutionModeVerdict = profile.modeVerdicts[executionMode];
-    if (verdict.available) {
-      availableModes.push(executionMode);
-    } else {
-      restrictions[executionMode] = verdict.reason;
-    }
-  }
-  return {
-    availableModes,
-    defaultMode: profile.defaultMode,
-    // Omitted, not `{}`, when nothing is restricted; the spread stops an explicit `undefined` key.
-    ...(Object.keys(restrictions).length > 0 ? { restrictions } : {}),
   };
 }
 

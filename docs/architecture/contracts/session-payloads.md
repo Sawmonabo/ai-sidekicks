@@ -34,14 +34,15 @@ interface SessionCreateRequest {
 }
 
 // A chat names nothing more: the daemon makes the chat's managed workspace inside the create and registers
-// it as a mount whose managed origin names this one chat. A project names the project's mount and where the
+// it as a mount whose managed origin names this one chat. A project names the project and where the
 // session works in it — the project's own checkout (`bound-root`) or a worktree of its own
-// (`provisioned-worktree`) — and the daemon checks, in the same step, that the picked root belongs to the
-// project, the check `repo.workspaceBind` makes when a chat converts. A mount belongs to the machine,
-// not to one session, so every project session names the project's one mount.
+// (`provisioned-worktree`) — and the daemon binds the session to the project's attached mount and checks,
+// in the same step, that the picked root belongs to the project, the check `repo.workspaceBind` makes when
+// a chat converts. A mount belongs to the machine, not to one session, so every project session binds to
+// the project's one mount.
 type SessionBinding =
   | { kind: "chat" }
-  | { kind: "project"; repoMountId: RepoMountId; executionMode: ExecutionMode };
+  | { kind: "project"; projectId: ProjectId; executionMode: ExecutionMode };
 type SessionLead = Omit<AgentProviderBinding, "providerAccountId">;
 interface SessionCreateResponse {
   sessionId: SessionId;
@@ -141,9 +142,9 @@ interface SessionRecord {
   muted: boolean;
   // The session's own tags, ordered ignoring case: the chips on the inspector's Identity `Tags` line.
   tags: string[];
-  // The working-folder move a run boundary will apply, or null when none is pending
-  // (`session.setWorkingFolder` below); `worktreeId: null` targets the project's repo root.
-  pendingWorkingFolder: { worktreeId: WorktreeId | null } | null;
+  // The working-folder move a run boundary will apply, the folder it moves to, or null when none is
+  // pending (`session.setWorkingFolder` below).
+  pendingWorkingFolder: { path: string } | null;
   // The daemon-held composer store below: the whole unsent draft (empty when there is none) and the whole
   // staged set, so every device opens the same half-written message.
   draft: string;
@@ -240,16 +241,17 @@ type SessionForkResponse =
   | { sessionId: SessionId; shape: "chat" };
 
 // SessionSetWorkingFolder — session.setWorkingFolder. ONE call requesting the move of a session's
-// working folder to another of its project's worktrees, or back to the repo root. An idle session
-// moves at once — same session, same history, new directory, and the live provider process
-// reconnects there. A request made mid-run never refuses: the pending intent is recorded ON THE
-// SESSION ROW rather than queued, and applies at the run boundary. Re-targeting to the current
+// working folder to `path`: the folder of any worktree git lists for the project's repository, one the
+// person made with git included, or the repository's own checkout. An idle session moves at once —
+// same session, same history, new directory, and the live provider process reconnects there. A
+// request made mid-run never refuses: the pending intent is recorded ON THE SESSION ROW rather than
+// queued, and applies at the run boundary. Re-targeting to the current
 // directory IS the cancel, and a later request SUPERSEDES the pending one rather than queuing behind
 // it, so a session holds at most one pending move. Removing a worktree clears every pending move
 // pointing at it and sweeps the sessions standing in it back to the repo root.
 interface SessionSetWorkingFolderRequest {
   sessionId: SessionId;
-  worktreeId: WorktreeId | null; // null targets the project's repo root
+  path: string; // a folder `repo.worktreeStatusRead` lists, or its `repoRoot.path`; at most FILE_PATH_MAX_LEN
 }
 interface SessionSetWorkingFolderResponse {
   sessionId: SessionId;
@@ -258,7 +260,7 @@ interface SessionSetWorkingFolderResponse {
   // live and the intent is recorded for the boundary. These two arms are what the composer strip
   // reads to draw either the new tree or `<current> → <target> when this run ends`.
   disposition: "applied" | "pending";
-  worktreeId: WorktreeId | null;
+  path: string;
 }
 
 // The daemon-held, SESSION-SCOPED composer store: the draft, its staged files, and the held review
@@ -516,12 +518,12 @@ type SessionListChange =
   | { kind: "page"; sessions: SessionListEntry[]; chatCount: number; isComplete: boolean } // at least one entry
   | { kind: "upsert"; entry: SessionListEntry; chatCount: number }
   | { kind: "remove"; sessionId: SessionId; chatCount: number }; // only a purge removes one
-// A project entry names its project's mount, its branch and the group it sits in; a chat entry counts
-// its documents, absent until the chat's artifact store counts them.
+// A project entry names its project, its branch and the group it sits in; a chat entry counts its
+// documents, absent until the chat's artifact store counts them.
 type SessionListEntry = (
   | {
       shape: "project";
-      repoMountId: RepoMountId;
+      projectId: ProjectId;
       branch?: string;
       group?: { groupId: SessionGroupId; name: string };
     }

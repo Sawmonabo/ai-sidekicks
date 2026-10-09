@@ -1,591 +1,203 @@
-// Proves ExecutionRootService prepares a root only on a writable workspace and the requested
-// branch, never rewrites another workspace's or an earlier run's branch context, runs git with
-// hooks neutralized, and retires a worktree it created but could not hand over.
+// The execution-root service on real git: a bound checkout is bound as it stands and never
+// changed, a wire prepare without a branch is refused before git runs, a move into a tree the
+// person made binds it without the daemon's record, a move into the daemon's tree keeps one
+// branch context per workspace, and a failed preparation parks the workspace with its cause.
 
 import { join } from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { ExecutionMode, WorkspaceState } from "@ai-sidekicks/contracts/repo/mount";
-
-import { openScratchDatabase, type ScratchDatabase } from "../../database/__fixtures__/scratch.js";
-import { EventLogService } from "../../events/log-service.js";
-import {
-  WorkspaceBranchMismatchError,
-  WorkspaceBranchNameRequiredError,
-  WorktreeCreateFailedError,
-} from "../../git/worktree/errors.js";
-import type { CreateWorktreeInput, CreatedWorktree } from "../../git/worktree/service.js";
-import { ExecutionRootService } from "../execution-root-service.js";
-import type { GitRunner } from "../../git/process.js";
-import type {
-  ExecutionRootServiceDeps,
-  ExecutionRootWorktreeProvisioner,
-  WorkspaceLifecyclePrimitives,
-} from "../execution-root-service.js";
-import { WorkspaceEventEmitter } from "../event-emitter.js";
-import type { FilesystemPathProbeFn } from "../row-guards.js";
-import { WorkspaceStaleError } from "../errors.js";
-import { WorkspaceService } from "../service.js";
-
-import { requireWorkspaceRow } from "../__fixtures__/rows.js";
 import { captureRejection } from "../../__fixtures__/capture-failure.js";
+import { WorkspaceBranchNameRequiredError } from "../../git/worktree/errors.js";
+import {
+  openWorktreeFixture,
+  type WorktreeFixture,
+} from "../../git/worktree/__fixtures__/services.js";
+import { snapshotCheckout } from "../../git/worktree/__fixtures__/repository.js";
+import type { GitRunner } from "../../git/process.js";
+import { ExecutionRootService } from "../execution-root-service.js";
+import { requireWorkspaceRow } from "../__fixtures__/rows.js";
 
-// Real UUIDs: `deriveWorktreeBranchName` slices the last eight hex digits of the session and run
-// ids, so the derived-name assertion is only exact with real ones.
-const SESSION_ID: string = "0190fb10-1c2d-7e3f-8a4b-5c6d7e8f9a01";
-const REPO_MOUNT_ID: string = "0190fb11-2d3e-7f40-9b5c-6d7e8f9a0b12";
-const WORKSPACE_ID: string = "0190fb12-3e4f-7051-8c6d-7e8f9a0b1c23";
-const RUN_ID: string = "0190fb14-5061-7273-8e8f-9a0b1c2d3e45";
+vi.setConfig({ testTimeout: 60_000 });
 
-const CANONICAL_ROOT: string = "/tmp/ai-sidekicks-fixture-exec-mount";
-// A workspace's previous root, the one `beginRootPreparation` releases.
-const PRIOR_ROOT: string = "/tmp/ai-sidekicks-fixture-exec-prior-root";
-const EXECUTION_ROOTS_DIRECTORY: string = "/tmp/ai-sidekicks-fixture-exec-roots";
-
-const MAIN_BRANCH: string = "main";
-const FEATURE_BRANCH: string = "sidekicks/0190fb10/fix-login";
-// `sidekicks/<session-short-8>/run-<run-short-8>`: hyphens are stripped before slicing, so these
-// are the last eight hex digits of the UUIDs above.
-const DERIVED_RUN_BRANCH: string = "sidekicks/7e8f9a01/run-1c2d3e45";
-
-const EPOCH: string = "2026-08-07T00:00:00.000Z";
-
-let mintedIdCount = 0;
-
-/**
- * A deterministic, real-shaped UUID per call. The version nibble is `7` because
- * `branch_contexts.id` values are compared for identity across a refresh, and an id `mintUuidV7`
- * could not have produced would make that comparison about the fixture, not the upsert.
- */
-function mintUuid(): string {
-  mintedIdCount += 1;
-  return `0190fc00-0000-7000-8000-${mintedIdCount.toString(16).padStart(12, "0")}`;
-}
-
-interface RecordedGitInvocation {
-  readonly argv: readonly string[];
-}
-
-/**
- * The verb of a recorded invocation, found by skipping leading `-c` and `-C` option pairs, so a
- * change to the option prefix cannot make a fixed index read a directory as the verb.
- */
-function gitVerb(argv: readonly string[]): string | undefined {
-  let index = 0;
-  while (index < argv.length) {
-    const token: string | undefined = argv[index];
-    if (token === "-c" || token === "-C") {
-      index += 2;
-      continue;
-    }
-    return token;
-  }
-  return undefined;
-}
-
-class FakeGit {
-  readonly invocations: RecordedGitInvocation[] = [];
-  /** The branch the main checkout is on. */
-  headBranch: string = MAIN_BRANCH;
-
-  readonly run: GitRunner = (argv) => {
-    this.invocations.push({ argv: [...argv] });
-    const verb: string | undefined = gitVerb(argv);
-
-    if (verb === "symbolic-ref") {
-      return Promise.resolve({ stdout: Buffer.from(`${this.headBranch}\n`, "utf8"), stderr: "" });
-    }
-
-    return Promise.reject(new Error(`unexpected git verb in fixture: ${String(verb)}`));
-  };
-
-  verbs(): readonly (string | undefined)[] {
-    return this.invocations.map((invocation) => gitVerb(invocation.argv));
-  }
-}
-
-/** Records the directories the service asks to exist. */
-class RecordingFilesystem {
-  readonly createdDirectories: string[] = [];
-
-  createDirectory(path: string): Promise<void> {
-    this.createdDirectories.push(path);
-    return Promise.resolve();
-  }
-}
-
-/**
- * Stands in for the worktree service and writes the `worktrees` row a real create would write,
- * because `branch_contexts.worktree_id` references that row.
- */
-class FakeWorktreeProvisioner implements ExecutionRootWorktreeProvisioner {
-  readonly createInputs: CreateWorktreeInput[] = [];
-  /** The ids this fake minted, so compensation can be held to the one it created. */
-  readonly createdWorktreeIds: string[] = [];
-  /** Worktree ids compensation retired. */
-  readonly retiredWorktreeIds: string[] = [];
-  /** When set, `create` rejects with it. */
-  createFailure: Error | null = null;
-  /** When set, `retire` rejects with it. */
-  retireFailure: Error | null = null;
-
-  async create(input: CreateWorktreeInput): Promise<CreatedWorktree> {
-    this.createInputs.push(input);
-    if (this.createFailure !== null) {
-      throw this.createFailure;
-    }
-    const worktreeId = mintUuid();
-    const fsRoot = `${EXECUTION_ROOTS_DIRECTORY}/${input.repoMountId}/worktrees/${worktreeId}`;
-    await insertWorktreeRow({ worktreeId, branchName: input.branchName, fsRoot });
-    this.createdWorktreeIds.push(worktreeId);
-    return {
-      worktreeId,
-      repoMountId: input.repoMountId,
-      branchName: input.branchName,
-      fsRoot,
-      baseRef: input.baseRef ?? MAIN_BRANCH,
-      state: "ready",
-    };
-  }
-
-  retire(worktreeId: string): Promise<unknown> {
-    if (this.retireFailure !== null) {
-      return Promise.reject(this.retireFailure);
-    }
-    this.retiredWorktreeIds.push(worktreeId);
-    return Promise.resolve({ worktreeId, state: "retired" });
-  }
-}
-
-interface TestContext {
-  database: ScratchDatabase;
-  workspaces: WorkspaceService;
-  worktrees: FakeWorktreeProvisioner;
-  git: FakeGit;
-  /** Paths the injected probe reports unreachable, which stales the workspace. */
-  unreachablePaths: Set<string>;
-}
-
-let ctx: TestContext;
-
-function clock(): string {
-  return EPOCH;
-}
-
-/**
- * The reachability probe, injected so no `ready` fixture needs a directory on disk:
- * `assertWritable` probes `workspaces.fs_root` and stales the row when it does not answer.
- */
-const probePath: FilesystemPathProbeFn = (path) =>
-  Promise.resolve({
-    probedPath: path,
-    reachable: !ctx.unreachablePaths.has(path),
-    checkedAt: EPOCH,
-  });
+let fixture: WorktreeFixture;
 
 beforeEach(async () => {
-  mintedIdCount = 0;
-  const database = await openScratchDatabase();
-  ctx = {
-    database,
-    workspaces: new WorkspaceService({
-      database,
-      events: new WorkspaceEventEmitter({
-        sessionEvents: new EventLogService({
-          writer: database.writer,
-          reader: database.reader,
-          writeServiceLog: (line) => {
-            throw new Error(`unexpected service log line: ${line}`);
-          },
-        }),
-      }),
-      probePath,
-      now: clock,
-    }),
-    worktrees: new FakeWorktreeProvisioner(),
-    git: new FakeGit(),
-    unreachablePaths: new Set<string>(),
-  };
-  await insertAttachedMount();
+  fixture = await openWorktreeFixture();
 });
 
 afterEach(async () => {
-  await ctx.database.close();
+  await fixture.close();
 });
 
-/** The real primitives, wired as a composition root would. */
-function realPrimitives(): WorkspaceLifecyclePrimitives {
-  return {
-    assertWritable: (workspaceId) => ctx.workspaces.assertWritable(workspaceId),
-    beginRootPreparation: (workspaceId, targetMode) =>
-      ctx.workspaces.beginRootPreparation(workspaceId, targetMode),
-    completeRootPreparation: (workspaceId, fsRoot) =>
-      ctx.workspaces.completeRootPreparation(workspaceId, fsRoot),
-    failRootPreparation: (workspaceId, detail) =>
-      ctx.workspaces.failRootPreparation(workspaceId, detail),
-  };
+// A tree the person made with `git worktree add`, which no row of the daemon's records.
+async function addPersonTree(): Promise<string> {
+  const folder = join(fixture.repository.fixtureRoot, "person-tree");
+  await fixture.repository.git(["worktree", "add", "-q", "-b", "person/tree", folder]);
+  return folder;
 }
 
-function makeService(overrides: Partial<ExecutionRootServiceDeps> = {}): ExecutionRootService {
-  return new ExecutionRootService({
-    database: ctx.database,
-    workspaces: realPrimitives(),
-    worktrees: ctx.worktrees,
-    executionRootsDirectory: EXECUTION_ROOTS_DIRECTORY,
-    git: ctx.git.run,
-    filesystem: { createDirectory: () => Promise.resolve() },
-    now: clock,
-    newBranchContextId: mintUuid,
-    ...overrides,
+function seedReadyWorkspace(
+  executionMode: "bound-root" | "provisioned-worktree",
+  folder: string = fixture.repository.root,
+): { sessionId: string; workspaceId: string } {
+  const sessionId = fixture.seedSession();
+  const workspaceId = fixture.seedWorkspace({
+    sessionId,
+    executionMode,
+    state: "ready",
+    fsRoot: folder,
+    boundRoot: folder,
+    checkoutRoot: folder,
   });
+  return { sessionId, workspaceId };
 }
 
-/** The suite's single attached git mount. `vcs_type` takes its `'git'` default. */
-async function insertAttachedMount(): Promise<void> {
-  await ctx.database.writer.write([
-    {
-      sql: `INSERT INTO repo_mounts (
-              id, node_id, local_path, canonical_root, state, attached_at, updated_at
-            ) VALUES (?, 'node-1', ?, ?, 'attached', ?, ?)`,
-      bindings: [REPO_MOUNT_ID, CANONICAL_ROOT, CANONICAL_ROOT, EPOCH, EPOCH],
-    },
-  ]);
-}
-
-/**
- * Seed a workspace with a raw INSERT: `WorkspaceService.bind` resolves a real directory through
- * the trust envelope, which would put a filesystem dependency on every case.
- */
-async function insertWorkspace(options: {
-  readonly workspaceId?: string;
-  readonly executionMode: ExecutionMode;
-  readonly state: WorkspaceState;
-  readonly fsRoot?: string | null;
-}): Promise<void> {
-  await ctx.database.writer.write([
-    {
-      sql: `INSERT INTO workspaces (
-              id, session_id, repo_mount_id, execution_mode, fs_root, state,
-              metadata, created_at, updated_at
-            ) VALUES (
-              @id, @session_id, @repo_mount_id, @execution_mode, @fs_root, @state,
-              '{}', @now, @now
-            )`,
-      bindings: {
-        id: options.workspaceId ?? WORKSPACE_ID,
-        session_id: SESSION_ID,
-        repo_mount_id: REPO_MOUNT_ID,
-        execution_mode: options.executionMode,
-        fs_root: options.fsRoot ?? null,
-        state: options.state,
-        now: EPOCH,
-      },
-    },
-  ]);
-}
-
-async function insertWorktreeRow(options: {
-  readonly worktreeId: string;
-  readonly branchName: string;
-  readonly fsRoot: string;
-}): Promise<void> {
-  await ctx.database.writer.write([
-    {
-      sql: `INSERT INTO worktrees (
-              id, repo_mount_id, created_by_session_id, created_by_run_id,
-              branch_name, fs_root, state, created_at, updated_at
-            ) VALUES (
-              @id, @repo_mount_id, @session_id, NULL, @branch_name, @fs_root, 'ready', @now, @now
-            )`,
-      bindings: {
-        id: options.worktreeId,
-        repo_mount_id: REPO_MOUNT_ID,
-        session_id: SESSION_ID,
-        branch_name: options.branchName,
-        fs_root: options.fsRoot,
-        now: EPOCH,
-      },
-    },
-  ]);
-}
-
-function readWorktreeRow(worktreeId: string): { readonly fs_root: string } {
-  const row = ctx.database.reader
-    .prepare<[string], { fs_root: string }>(`SELECT fs_root FROM worktrees WHERE id = ?`)
-    .get(worktreeId);
-  if (row === undefined) {
-    throw new Error(`expected a worktrees row for ${worktreeId}`);
-  }
-  return row;
-}
-
-interface BranchContextTestRow {
-  readonly id: string;
-  readonly workspace_id: string;
-  readonly worktree_id: string | null;
-  readonly base_branch: string;
-  readonly head_branch: string;
-  readonly created_at: string;
-  readonly updated_at: string;
-}
-
-function readBranchContexts(): readonly BranchContextTestRow[] {
-  return ctx.database.reader
-    .prepare<[], BranchContextTestRow>(
-      `SELECT id, workspace_id, worktree_id,
-              base_branch, head_branch, created_at, updated_at
-         FROM branch_contexts ORDER BY id ASC`,
-    )
-    .all();
-}
-
-function readBranchContext(branchContextId: string): BranchContextTestRow {
-  const found = readBranchContexts().find((row) => row.id === branchContextId);
-  if (found === undefined) {
-    throw new Error(`expected a branch_contexts row for ${branchContextId}`);
-  }
-  return found;
-}
-
-function readWorkspaceLastError(workspaceId: string = WORKSPACE_ID): string | null {
-  const row = ctx.database.reader
+function readContexts(workspaceId: string): readonly { worktree_id: string | null }[] {
+  return fixture.db
     .prepare<
       [string],
-      { readonly last_error: string | null }
-    >(`SELECT json_extract(metadata, '$.lastError') AS last_error FROM workspaces WHERE id = ?`)
-    .get(workspaceId);
-  return row?.last_error ?? null;
+      { worktree_id: string | null }
+    >("SELECT worktree_id FROM branch_contexts WHERE workspace_id = ? ORDER BY created_at, id")
+    .all(workspaceId);
 }
 
-function readEventTypes(): readonly string[] {
-  return ctx.database.reader
-    .prepare<[string], { readonly type: string }>(
-      `SELECT type FROM session_events WHERE session_id = ? ORDER BY sequence ASC`,
-    )
-    .all(SESSION_ID)
-    .map((row) => row.type);
+function countWorktreeRows(): number {
+  return fixture.db.prepare("SELECT count(*) FROM worktrees").pluck().get() as number;
 }
 
-describe("prepare", () => {
-  it("provisions a worktree on the derived run branch and adopts it", async () => {
-    await insertWorkspace({
-      executionMode: "provisioned-worktree",
-      state: "ready",
-      fsRoot: PRIOR_ROOT,
+describe("a bound-root prepare", () => {
+  it("binds a linked worktree on its own branch and changes neither it nor the main checkout", async () => {
+    const personTree = await addPersonTree();
+    const sessionId = fixture.seedSession();
+    const workspaceId = fixture.seedWorkspace({
+      sessionId,
+      executionMode: "bound-root",
+      state: "preparing",
+      fsRoot: null,
+      boundRoot: personTree,
+      checkoutRoot: personTree,
     });
-
-    const prepared = await makeService().prepare({ workspaceId: WORKSPACE_ID, runId: RUN_ID });
-
-    // A create that clobbered an existing branch would destroy someone's work.
-    expect(ctx.worktrees.createInputs).toEqual([
-      expect.objectContaining({
-        repoMountId: REPO_MOUNT_ID,
-        sessionId: SESSION_ID,
-        runId: RUN_ID,
-        branchName: DERIVED_RUN_BRANCH,
-        onCollision: "refuse",
-      }),
-    ]);
-    expect(prepared.branchName).toBe(DERIVED_RUN_BRANCH);
-    expect(prepared.executionRoot).toBe(readWorktreeRow(prepared.worktreeId ?? "").fs_root);
-
-    const row = requireWorkspaceRow(ctx.database.reader, WORKSPACE_ID);
-    expect(row.state).toBe("ready");
-    expect(row.fs_root).toBe(prepared.executionRoot);
-    // The bracket rides the primitives, which is what puts these in the session's event log.
-    expect(readEventTypes()).toEqual(["workspace.preparing", "workspace.ready"]);
-
-    const context = readBranchContext(prepared.branchContextId);
-    expect(context.worktree_id).toBe(prepared.worktreeId);
-    expect(context.head_branch).toBe(DERIVED_RUN_BRANCH);
-  });
-
-  it("binds the main checkout and keeps every earlier binding's branches", async () => {
-    await insertWorkspace({ executionMode: "bound-root", state: "ready", fsRoot: PRIOR_ROOT });
-    ctx.git.headBranch = FEATURE_BRANCH;
-    const service = makeService();
-
-    const first = await service.prepare({ workspaceId: WORKSPACE_ID, branchName: FEATURE_BRANCH });
-    expect(first.executionRoot).toBe(CANONICAL_ROOT);
-    expect(first.worktreeId).toBeUndefined();
-    expect(ctx.worktrees.createInputs).toHaveLength(0);
-    // The main checkout has no root row, so the context references no worktree.
-    expect(readBranchContext(first.branchContextId).worktree_id).toBeNull();
-
-    // A run reaches its row through `run_execution_contexts.branch_context_id`, so refreshing in
-    // place would rewrite the branches an earlier run recorded once the user moves the checkout.
-    ctx.git.headBranch = MAIN_BRANCH;
-    const second = await service.prepare({ workspaceId: WORKSPACE_ID, branchName: MAIN_BRANCH });
-
-    expect(readBranchContexts()).toHaveLength(2);
-    expect(readBranchContext(first.branchContextId).head_branch).toBe(FEATURE_BRANCH);
-    expect(readBranchContext(second.branchContextId).head_branch).toBe(MAIN_BRANCH);
-  });
-});
-
-describe("refusals before the workspace is committed", () => {
-  it.each([
-    {
-      refusal: "a stale workspace",
-      branchName: FEATURE_BRANCH as string | undefined,
-      unreachable: true,
-      error: WorkspaceStaleError,
-      stateAfter: "stale",
-    },
-    {
-      // Only the run-setup gate supplies a run id, so a prepare from the wire must name a branch.
-      refusal: "a prepare naming neither a branch nor a run",
-      branchName: undefined,
-      unreachable: false,
-      error: WorkspaceBranchNameRequiredError,
-      stateAfter: "ready",
-    },
-  ])("refuses $refusal before any git call", async (refusalCase) => {
-    await insertWorkspace({ executionMode: "bound-root", state: "ready", fsRoot: PRIOR_ROOT });
-    if (refusalCase.unreachable) {
-      ctx.unreachablePaths.add(PRIOR_ROOT);
-    }
-
-    const rejection = await captureRejection(() =>
-      makeService().prepare({
-        workspaceId: WORKSPACE_ID,
-        ...(refusalCase.branchName === undefined ? {} : { branchName: refusalCase.branchName }),
-      }),
-    );
-
-    expect(rejection).toBeInstanceOf(refusalCase.error);
-    expect(ctx.git.invocations).toHaveLength(0);
-    expect(ctx.worktrees.createInputs).toHaveLength(0);
-    expect(readBranchContexts()).toHaveLength(0);
-    expect(requireWorkspaceRow(ctx.database.reader, WORKSPACE_ID).state).toBe(
-      refusalCase.stateAfter,
-    );
-  });
-
-  it("refuses a bound-root branch mismatch without mutating the checkout", async () => {
-    await insertWorkspace({ executionMode: "bound-root", state: "ready", fsRoot: PRIOR_ROOT });
-    ctx.git.headBranch = MAIN_BRANCH;
-
-    const rejection = await captureRejection(() =>
-      makeService().prepare({ workspaceId: WORKSPACE_ID, branchName: FEATURE_BRANCH }),
-    );
-
-    expect(rejection).toBeInstanceOf(WorkspaceBranchMismatchError);
-    // Both names, because a caller told only that the branches disagree cannot tell which side
-    // to move.
-    expect(rejection).toMatchObject({
-      workspaceId: WORKSPACE_ID,
-      requestedBranchName: FEATURE_BRANCH,
-      currentBranchName: MAIN_BRANCH,
-    });
-    // The only invocation was the read; a `switch` or `checkout` here would be the mutation.
-    expect(ctx.git.verbs()).toEqual(["symbolic-ref"]);
-
-    const row = requireWorkspaceRow(ctx.database.reader, WORKSPACE_ID);
-    expect(row.state).toBe("ready");
-    expect(row.fs_root).toBe(PRIOR_ROOT);
-    expect(readEventTypes()).toEqual([]);
-    expect(readBranchContexts()).toHaveLength(0);
-  });
-});
-
-const HOOK_NEUTRALIZATION_DIRECTORY: string = join(
-  EXECUTION_ROOTS_DIRECTORY,
-  ".hook-neutralization",
-);
-
-describe("git invocation", () => {
-  it("neutralizes hooks on its one invocation, and creates that directory first", async () => {
-    await insertWorkspace({ executionMode: "bound-root", state: "ready", fsRoot: PRIOR_ROOT });
-    ctx.git.headBranch = FEATURE_BRANCH;
-    const filesystem = new RecordingFilesystem();
-
-    await makeService({ filesystem }).prepare({
-      workspaceId: WORKSPACE_ID,
-      branchName: FEATURE_BRANCH,
-    });
-
-    const invocation = ctx.git.invocations[0];
-    expect(ctx.git.invocations).toHaveLength(1);
-    // First in the argv, so it wins: a command-line `-c` outranks repository, global and system
-    // config, so a repo-local `core.hooksPath` or `core.fsmonitor` cannot take either back.
-    expect(invocation?.argv.slice(0, 4)).toEqual([
-      "-c",
-      `core.hooksPath=${HOOK_NEUTRALIZATION_DIRECTORY}`,
-      "-c",
-      "core.fsmonitor=false",
-    ]);
-    // The directory must exist: git ignores a `core.hooksPath` that does not resolve, which would
-    // silently restore the hooks this flag disables.
-    expect(filesystem.createdDirectories).toEqual([HOOK_NEUTRALIZATION_DIRECTORY]);
-  });
-});
-
-describe("a failed preparation", () => {
-  /** The real primitives, except that closing the bracket fails. */
-  function primitivesFailingCompletion(failure: Error): WorkspaceLifecyclePrimitives {
-    return {
-      ...realPrimitives(),
-      completeRootPreparation: (): Promise<void> => Promise.reject(failure),
+    const branches = () =>
+      fixture.repository.git(["for-each-ref", "--format=%(refname) %(objectname)"]);
+    const before = {
+      main: await snapshotCheckout(fixture.repository, fixture.repository.root),
+      linked: await snapshotCheckout(fixture.repository, personTree),
+      branches: await branches(),
     };
-  }
 
-  it("parks the workspace stale with the detail when materialization fails", async () => {
-    await insertWorkspace({
-      executionMode: "provisioned-worktree",
-      state: "ready",
-      fsRoot: PRIOR_ROOT,
+    const prepared = await fixture.executionRoots.prepare({ workspaceId });
+
+    expect(prepared).toMatchObject({
+      executionMode: "bound-root",
+      executionRoot: personTree,
+      branchName: "person/tree",
     });
-    const failure = new WorktreeCreateFailedError("base_ref_unresolved");
-    ctx.worktrees.createFailure = failure;
+    expect({
+      main: await snapshotCheckout(fixture.repository, fixture.repository.root),
+      linked: await snapshotCheckout(fixture.repository, personTree),
+      branches: await branches(),
+    }).toEqual(before);
+    expect(countWorktreeRows()).toBe(0);
+  });
+});
 
-    const rejection = await captureRejection(() =>
-      makeService().prepare({ workspaceId: WORKSPACE_ID, branchName: FEATURE_BRANCH }),
-    );
+describe("a provisioned-worktree prepare", () => {
+  it("refuses branch_name_required before any git call when no branch is named", async () => {
+    const { workspaceId } = seedReadyWorkspace("provisioned-worktree");
+    const gitCalls: (readonly string[])[] = [];
+    const countingGit: GitRunner = (argv, options) => {
+      gitCalls.push(argv);
+      return fixture.repository.runner(argv, options);
+    };
+    const executionRoots = new ExecutionRootService({
+      database: fixture.scratch,
+      workspaces: fixture.workspaces,
+      worktrees: {
+        create: (input) => fixture.creator.create(input),
+        dropCarriedStash: (stash, worktreeId) =>
+          fixture.creator.dropCarriedStash(stash, worktreeId),
+        retireUnadopted: (worktreeId) => fixture.worktrees.retireUnadopted(worktreeId),
+      },
+      git: countingGit,
+    });
 
-    // The original typed cause reaches the caller; the run-setup gate wraps it by code.
-    expect(rejection).toBe(failure);
-    // The run blocks in setup rather than degrading.
-    const row = requireWorkspaceRow(ctx.database.reader, WORKSPACE_ID);
-    expect(row.state).toBe("stale");
-    expect(row.fs_root).toBeNull();
-    expect(readWorkspaceLastError()).toContain("worktree.create_failed");
-    expect(readEventTypes()).toEqual(["workspace.preparing", "workspace.stale"]);
-    expect(readBranchContexts()).toHaveLength(0);
+    const refusal = await captureRejection(() => executionRoots.prepare({ workspaceId }));
+
+    expect(refusal).toBeInstanceOf(WorkspaceBranchNameRequiredError);
+    expect(gitCalls).toEqual([]);
+    expect(requireWorkspaceRow(fixture.db, workspaceId).state).toBe("ready");
   });
 
-  it.each([
-    { retire: "succeeds", retireFailure: null },
-    { retire: "fails", retireFailure: new Error("retire could not reach the database") },
-  ])(
-    "retires a worktree it created but could not hand over, when the retire $retire",
-    async ({ retireFailure }) => {
-      // Without compensation the orphan leaks: the sweep only retires worktrees whose mount
-      // detached and cleans rows already `retired`.
-      await insertWorkspace({ executionMode: "provisioned-worktree", state: "preparing" });
-      const failure = new Error("completeRootPreparation could not reach the database");
-      ctx.worktrees.retireFailure = retireFailure;
+  it("parks the workspace stale with the cause when git refuses the branch", async () => {
+    const { workspaceId } = seedReadyWorkspace("provisioned-worktree");
+    await fixture.repository.git(["branch", "taken"]);
 
-      const rejection = await captureRejection(() =>
-        makeService({ workspaces: primitivesFailingCompletion(failure) }).prepare({
-          workspaceId: WORKSPACE_ID,
-          branchName: FEATURE_BRANCH,
-        }),
-      );
+    const refusal = await captureRejection(() =>
+      fixture.executionRoots.prepare({ workspaceId, branchName: "taken" }),
+    );
 
-      // The completion failure is what is thrown, so its code reaches the caller.
-      expect(rejection).toBe(failure);
-      // The row records a handover that never happened.
-      expect(readBranchContexts()).toHaveLength(0);
-      expect(ctx.worktrees.createdWorktreeIds).toHaveLength(1);
-      if (retireFailure === null) {
-        // Compared with the id this call minted, so retiring someone else's root would fail.
-        expect(ctx.worktrees.retiredWorktreeIds).toEqual(ctx.worktrees.createdWorktreeIds);
-      } else {
-        // A dropped retire failure would hide a live worktree that nothing reclaims.
-        expect(failure.cause).toBe(retireFailure);
-      }
-    },
-  );
+    expect(refusal).toMatchObject({ reason: "branch_name_taken" });
+    const workspace = requireWorkspaceRow(fixture.db, workspaceId);
+    expect(workspace.state).toBe("stale");
+    expect(JSON.parse(workspace.metadata)).toMatchObject({
+      lastError: expect.stringContaining("worktree.create_failed"),
+    });
+    expect(countWorktreeRows()).toBe(0);
+  });
+});
+
+describe("a move into a tree", () => {
+  it("binds a tree the person made as an existing checkout, never as one the daemon made", async () => {
+    const personTree = await addPersonTree();
+    const { workspaceId } = seedReadyWorkspace("bound-root");
+
+    const moved = await fixture.executionRoots.moveToFolder({ workspaceId, folder: personTree });
+
+    expect(moved).toMatchObject({ executionMode: "bound-root", executionRoot: personTree });
+    expect(moved.worktreeId).toBeUndefined();
+    expect(requireWorkspaceRow(fixture.db, workspaceId).fs_root).toBe(personTree);
+    expect(countWorktreeRows()).toBe(0);
+    expect(readContexts(workspaceId).at(-1)).toEqual({ worktree_id: null });
+  });
+
+  it("keeps one branch context per workspace and tree, leaving the tree's own row as it was", async () => {
+    const owner = seedReadyWorkspace("provisioned-worktree");
+    const tree = await fixture.executionRoots.prepare({
+      workspaceId: owner.workspaceId,
+      branchName: "feature/shared",
+    });
+    const ownerContextsBefore = fixture.db
+      .prepare("SELECT * FROM branch_contexts WHERE workspace_id = ?")
+      .all(owner.workspaceId);
+    const mover = seedReadyWorkspace("bound-root");
+
+    await fixture.executionRoots.moveToFolder({
+      workspaceId: mover.workspaceId,
+      folder: tree.executionRoot,
+    });
+    await fixture.executionRoots.moveToFolder({
+      workspaceId: mover.workspaceId,
+      folder: fixture.repository.root,
+    });
+    const movedBack = await fixture.executionRoots.moveToFolder({
+      workspaceId: mover.workspaceId,
+      folder: tree.executionRoot,
+    });
+
+    expect(movedBack).toMatchObject({
+      executionMode: "provisioned-worktree",
+      worktreeId: tree.worktreeId,
+      branchName: "feature/shared",
+    });
+    expect(
+      readContexts(mover.workspaceId).filter((context) => context.worktree_id === tree.worktreeId),
+    ).toHaveLength(1);
+    expect(
+      fixture.db
+        .prepare("SELECT * FROM branch_contexts WHERE workspace_id = ?")
+        .all(owner.workspaceId),
+    ).toEqual(ownerContextsBefore);
+    expect(countWorktreeRows()).toBe(1);
+  });
 });

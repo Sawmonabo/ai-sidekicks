@@ -68,6 +68,8 @@ export const SESSION_ALREADY_CLOSED_CODE = "session.already_closed" as const;
  *
  * - `name` is absent while the session is untitled; a surface then shows its first message.
  * - `muted` is whether the person muted the session's notifications.
+ * - `pendingWorkingFolder` is the working-folder move the session's next run boundary applies,
+ *   the folder it moves to, or `null` when none waits.
  * - `draft` is the unsent composer draft the daemon holds, the whole text, and the empty string
  *   when none is held: Send clears it, and a half-typed message reaches the person's other
  *   devices through this read.
@@ -79,6 +81,7 @@ export interface SessionRecord {
   shape: SessionShape;
   name?: string | undefined;
   muted: boolean;
+  pendingWorkingFolder: { path: string } | null;
   createdAt: string;
   updatedAt: string;
   draft: string;
@@ -92,6 +95,12 @@ export const SessionRecordSchema: z.ZodType<SessionRecord> = z
     shape: SessionShapeSchema,
     name: wireFreeFormString(SESSION_NAME_MAX_LEN, "SessionRecord.name").optional(),
     muted: z.boolean(),
+    pendingWorkingFolder: z
+      .object({
+        path: wireFreeFormString(FILE_PATH_MAX_LEN, "SessionRecord.pendingWorkingFolder.path"),
+      })
+      .strict()
+      .nullable(),
     createdAt: isoDateTimeSchema,
     updatedAt: isoDateTimeSchema,
     draft: z.string(),
@@ -389,8 +398,9 @@ export const SessionFileSearchRequestSchema: z.ZodType<
   .strict();
 
 /**
- * A `session.fileSearch` whose session has no working folder in place, yet or any more; nothing is
- * listed. `data.fields`: `sessionId`.
+ * A `session.fileSearch` whose session has no working folder in place, yet or any more, or a
+ * `session.setWorkingFolder` whose session works in no folder any more; nothing is listed or moved.
+ * `data.fields`: `sessionId`.
  */
 export const SESSION_WORKING_FOLDER_UNAVAILABLE_CODE =
   "session.working_folder_unavailable" as const;

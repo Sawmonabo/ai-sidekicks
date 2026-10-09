@@ -7,6 +7,8 @@
  */
 export type TurnSnapshotCaptureStep =
   | "validate-inputs"
+  /** The supplied checkout is not the top level of the working tree holding the execution root. */
+  | "verify-checkout-root"
   | "prepare-scratch-index"
   | "resolve-base"
   | "detect-sparse-root"
@@ -86,12 +88,4 @@ export function warnDiagnostic(diagnostic: TurnSnapshotDiagnostic): void {
       `epoch=${String(diagnostic.epoch)} turn=${String(diagnostic.turnOrdinal)}`,
     diagnostic,
   );
-}
-
-/** The message of a rejected value, or its string form when it is not an Error. */
-export function describeRejection(reason: unknown): string {
-  if (reason instanceof Error) {
-    return reason.message;
-  }
-  return String(reason);
 }

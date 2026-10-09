@@ -7,12 +7,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { ManualClock } from "#renderer/lib/clock.js";
-import { SessionStore } from "#renderer/store/session/store.js";
 import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { bridgeOnClock } from "#test/helpers/fixture/bridge.js";
 import {
   HEALTHY_WORKSPACE_ID,
-  SESSION_ID,
   disposeTrackedReaders,
   openReader,
   sessionOperations,
@@ -40,7 +38,6 @@ async function renderReadList(
       <MountList
         reading={reader.snapshot}
         bridge={bridge}
-        sessionStore={new SessionStore({ sessionId: SESSION_ID })}
         operations={operations}
         onCopy={() => undefined}
         onRequestRead={() => undefined}
@@ -61,7 +58,7 @@ describe("MountList — the mounts the read found", () => {
     expect(container.querySelectorAll(MOUNT_CARD_SELECTOR)).toHaveLength(3);
     expect(within(healthy as HTMLElement).getByText("Healthy")).toBeDefined();
     expect(within(unreachable as HTMLElement).getByText("Unreachable")).toBeDefined();
-    expect(within(drifted as HTMLElement).getByText("Identity mismatch")).toBeDefined();
+    expect(within(drifted as HTMLElement).getByText("A different repository now")).toBeDefined();
     // Each card names its root, so the three are three mounts rather than one drawn thrice.
     const labels = [healthy, unreachable, drifted].map((card) => card?.getAttribute("aria-label"));
     expect(new Set(labels).size).toBe(3);

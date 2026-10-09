@@ -54,21 +54,23 @@ export const ProjectStateSchema: z.ZodType<ProjectState> = z.enum([
 
 /**
  * What runs after a worktree is made in the project: files copied into the new
- * tree, then commands run in order, each given up on after the time limit. The
- * steps run with the repository's own git config, its hooks included, and never
+ * tree, then commands run in order, each given up on after the time limit when
+ * one is set. The steps run with the repository's own git config, its hooks included, and never
  * raise an approval, so only the person writes them.
  */
 export interface ProjectSetup {
   filesToCopy: string[];
   commands: string[];
-  timeLimitSeconds: number;
+  /** Seconds each command is given up on after; absent means no limit. */
+  timeLimitSeconds?: number | undefined;
 }
 /** Parses a {@link ProjectSetup}; each file is a path inside the repository. */
 export const ProjectSetupSchema: z.ZodType<ProjectSetup, ProjectSetup> = z
   .object({
     filesToCopy: z.array(wireFreeFormString(FILE_PATH_MAX_LEN, "ProjectSetup.filesToCopy[]")),
     commands: z.array(wireFreeFormString(PROJECT_SETUP_COMMAND_MAX_LEN, "ProjectSetup.commands[]")),
-    timeLimitSeconds: z.number().int().positive(),
+    // At most 2^31 - 1 ms in whole seconds, the longest delay Node's setTimeout keeps.
+    timeLimitSeconds: z.number().int().positive().max(2147483).optional(),
   })
   .strict();
 
@@ -83,6 +85,8 @@ export interface ProjectListEntry {
   sessionCount: number;
   /** A session with an agent running anywhere in the project, or `null`. */
   runningSessionId: SessionId | null;
+  /** How many of the project's sessions are running, waiting on the person and done. */
+  sessionTally: { running: number; waiting: number; done: number };
   setup: ProjectSetup;
   /** The project's own rows, each winning over the `Every project` row of the same name. */
   environmentRows: EnvironmentRow[];
@@ -101,6 +105,9 @@ export const ProjectListEntrySchema: z.ZodType<ProjectListEntry> = z
     state: ProjectStateSchema,
     sessionCount: countSchema,
     runningSessionId: SessionIdSchema.nullable(),
+    sessionTally: z
+      .object({ running: countSchema, waiting: countSchema, done: countSchema })
+      .strict(),
     setup: ProjectSetupSchema,
     environmentRows: z.array(EnvironmentRowSchema),
     branchPattern: BranchNamePatternSchema.nullable(),

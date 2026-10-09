@@ -1,18 +1,15 @@
 /**
  * How the daemon runs git: the `git` it finds along the login shell's `PATH` at start, one
- * `execFile` runner, one environment, the shared stdio and time bounds, and the hook-neutralized
- * entry point the worktree, execution-root and snapshot services share. Each caller adds its own
- * argv flags.
+ * `execFile` runner, one environment, the shared stdio and time bounds, and the entry point the
+ * worktree, execution-root and snapshot services share. Git runs with the repository's own config,
+ * so its hooks and fsmonitor run as they do for the person. Each caller adds its own argv flags.
  */
 
 import { execFile } from "node:child_process";
-import { isAbsolute, join } from "node:path";
-
-import { DAEMON_DATA_FOLDER_NAME } from "@ai-sidekicks/contracts/daemon/data";
+import { isAbsolute } from "node:path";
 
 import { findExecutables, type ExecutableSearchDependencies } from "../executable-search.js";
 import type { SpawnEnvPair } from "../provider/spawn-env.js";
-import type { GitFilesystem } from "./filesystem.js";
 
 // The bare name, found by the platform's search, for a runner given no path. On Windows libuv
 // looks in the daemon's working folder before `PATH`, so the daemon runs the absolute path it
@@ -31,13 +28,6 @@ const GIT_STDIO_MAX_BUFFER_BYTES: number = 64 * 1024 * 1024;
  * whole worktree, so a shorter bound would kill healthy work on a large repository.
  */
 export const DEFAULT_GIT_COMMAND_TIMEOUT_MS: number = 120_000;
-
-/**
- * A dotted sibling of the per-mount root directories under the execution-roots directory, so it
- * never collides with a mount id. Every service shares this one empty hooks directory, so a temp
- * reaper in one cannot remove a hooks path from under another.
- */
-const HOOK_NEUTRALIZATION_SEGMENT = ".hook-neutralization";
 
 /**
  * `GIT_*` variables that bend repository discovery (git 2.50.1). `GIT_CONFIG_GLOBAL`,
@@ -121,10 +111,10 @@ export type GitRunner = (
   options: GitInvocationOptions,
 ) => Promise<GitInvocationResult>;
 
-/** Per-call options of a hook-neutralized command; the bound is the service's. */
+/** Per-call options of a service's git command; the bound is the service's. */
 type GitCommandOptions = Omit<GitInvocationOptions, "timeoutMs">;
 
-/** One git command through a service's hook-neutralized entry point. */
+/** One git command through a service's entry point. */
 export type GitCommand = (
   argv: readonly string[],
   options?: GitCommandOptions,
@@ -132,10 +122,10 @@ export type GitCommand = (
 
 /**
  * The environment for every git call, read at call time so a mutated environment is followed: the
- * daemon's minus the strip list, `C` locale (refusals are read off stderr), prompts off, then the
- * caller's overlay.
+ * daemon's minus the strip list, `C` locale (refusals are read off stderr), terminal prompts off,
+ * then the caller's overlay. A caller that spawns git itself, to stream its output, passes this.
  */
-function buildGitEnvironment(
+export function buildGitEnvironment(
   overrides: Readonly<Record<string, string>> | undefined,
 ): NodeJS.ProcessEnv {
   const environment: NodeJS.ProcessEnv = {};
@@ -218,14 +208,16 @@ export async function findGitExecutable(
  */
 export function createGitRunner(executablePath: string | undefined): GitRunner {
   if (executablePath === undefined) {
-    return () =>
-      Promise.reject(
-        Object.assign(new Error("No git was found along the login shell's PATH"), {
-          code: "ENOENT",
-        }),
-      );
+    return () => Promise.reject(gitNotFoundError());
   }
   return (argv, options) => runGitWithExecFile(argv, { ...options, executable: executablePath });
+}
+
+/** What every run of a `git` that was never found rejects with, as a spawn of a missing program. */
+export function gitNotFoundError(): Error {
+  return Object.assign(new Error("No git was found along the login shell's PATH"), {
+    code: "ENOENT",
+  });
 }
 
 /** The exit status a rejected invocation carries, or `null` when git did not run to an exit. */
@@ -236,54 +228,17 @@ export function readGitExitStatus(rejection: unknown): number | null {
   return typeof rejection.code === "number" ? rejection.code : null;
 }
 
-const EXECUTION_ROOTS_FOLDER_NAME = "execution-roots";
-
-/**
- * The execution-roots folder in the data folder inside `homeDirectory`: every worktree root and the
- * empty hooks folder the git runner points git at sit under it.
- */
-export function executionRootsDirectoryOf(homeDirectory: string): string {
-  return join(homeDirectory, DAEMON_DATA_FOLDER_NAME, EXECUTION_ROOTS_FOLDER_NAME);
-}
-
-/** What {@link createHookNeutralizedGitCommand} needs from its service. */
-export interface HookNeutralizedGitDependencies {
+/** What {@link createGitCommand} binds: the runner and the service's per-call bound. */
+export interface GitCommandDependencies {
   readonly git: GitRunner;
-  /** Creates the empty hooks folder before every call. */
-  readonly filesystem: Pick<GitFilesystem, "createDirectory">;
-  readonly executionRootsDirectory: string;
   readonly timeoutMs: number;
 }
 
 /**
- * A service's single git entry point. It prepends `-c core.hooksPath=<empty dir>` and
- * `-c core.fsmonitor=false`, so no call can run a repository hook: a command-line `-c` outranks all
- * config, and the fsmonitor hook is named by config value, so `hooksPath` never governs it.
- *
- * The directory is created per call: a temp-file reaper that removed it would silently restore the
- * repository's hooks. Checkout filter drivers are not neutralized: their commands come from git
- * config, and disabling smudge would corrupt LFS. Probed, no flag needed:
- * `uploadpack.packObjectsHook` is honored only from protected config, and
- * `core.alternateRefsCommand` fires only on receive-pack, which no daemon verb engages.
+ * A service's single git entry point: the runner with the service's time bound. It adds no config
+ * of its own, so the repository's hooks, fsmonitor and filters run as the repository's config says.
  */
-export function createHookNeutralizedGitCommand(
-  dependencies: HookNeutralizedGitDependencies,
-): GitCommand {
-  const hookNeutralizationDirectory: string = join(
-    dependencies.executionRootsDirectory,
-    HOOK_NEUTRALIZATION_SEGMENT,
-  );
-  return async (argv, options = {}) => {
-    await dependencies.filesystem.createDirectory(hookNeutralizationDirectory);
-    return dependencies.git(
-      [
-        "-c",
-        `core.hooksPath=${hookNeutralizationDirectory}`,
-        "-c",
-        "core.fsmonitor=false",
-        ...argv,
-      ],
-      { ...options, timeoutMs: dependencies.timeoutMs },
-    );
-  };
+export function createGitCommand(dependencies: GitCommandDependencies): GitCommand {
+  return (argv, options = {}) =>
+    dependencies.git(argv, { ...options, timeoutMs: dependencies.timeoutMs });
 }

@@ -1,21 +1,26 @@
-// Turn-snapshot service: at each turn boundary, commits the project state of a run's execution
-// root under `refs/sidekicks/runs/<runId>/epoch-<E>/turn-<N>`, and deletes one run's refs when the
-// run is deleted. Nothing prunes by age. Capture reads no database (the caller supplies the epoch).
+// Turn-snapshot service: at each turn boundary, commits the project state of the checkout a run
+// works in under `refs/sidekicks/runs/<runId>/epoch-<E>/turn-<N>`, and deletes one run's refs when
+// the run is deleted. Nothing prunes by age. Capture reads no database (the caller supplies the
+// epoch and the checkout).
 //
 // - Ref names are built from a validated `runId` before any git call: git's own refusal of
 //   `../../heads/main` (2.50.1) would arrive as a swallowed capture failure.
+// - Capture covers the whole checkout, never only a nested execution root: `ls-files` lists only
+//   the folder it runs in. The supplied checkout is verified against the live tree first.
+// - Captures of one checkout run one at a time, whichever session's run asks; runs never wait.
 // - The capture's git steps live in `TurnSnapshotCaptureSteps`; this class orders them.
 
 import { randomUUID } from "node:crypto";
+import { realpath } from "node:fs/promises";
 import { join } from "node:path";
 import type { Database, Statement } from "better-sqlite3";
 import {
-  describeRejection,
   type TurnSnapshotCaptureStep,
   type TurnSnapshotDiagnostic,
   type TurnSnapshotRetentionSkipReason,
   warnDiagnostic,
 } from "./diagnostics.js";
+import { describeRejection } from "../../rejection.js";
 import { DEFAULT_GIT_FILESYSTEM, type GitFilesystem } from "../filesystem.js";
 import {
   isPathProvablyAbsent,
@@ -32,7 +37,7 @@ import {
   USE_REPLACE_REFS_PIN,
 } from "./refs.js";
 import {
-  createHookNeutralizedGitCommand,
+  createGitCommand,
   DEFAULT_GIT_COMMAND_TIMEOUT_MS,
   runGitWithExecFile,
   type GitCommand,
@@ -45,10 +50,11 @@ import {
   type SparseListingPartition,
 } from "./capture.js";
 import { requireObjectId, TurnSnapshotCaptureSteps } from "./capture-steps.js";
+import { KeyedLock } from "../../keyed-lock.js";
 
 /** Constructor dependencies of {@link TurnSnapshotService}. */
 export interface TurnSnapshotServiceDeps {
-  /** Absolute; holds the hook-neutralization and scratch-index directories. */
+  /** Absolute; holds the scratch-index directory. */
   readonly executionRootsDirectory: string;
   /**
    * Needed by the prune only. Without it `pruneSnapshotsForRun` throws `TypeError`, not "nothing
@@ -60,8 +66,8 @@ export interface TurnSnapshotServiceDeps {
    * `update-index` prints `Ignoring path nested/` and exits 0.
    */
   readonly git?: GitRunner;
-  /** Filesystem seam; defaults to `node:fs/promises`. */
-  readonly filesystem?: GitFilesystem;
+  /** Filesystem seam for the scratch index's folder; defaults to `node:fs/promises`. */
+  readonly filesystem?: Pick<GitFilesystem, "createDirectory" | "removePath">;
   /** Per-invocation git timeout; defaults to two minutes. */
   readonly gitCommandTimeoutMs?: number;
   /**
@@ -75,8 +81,14 @@ export interface TurnSnapshotServiceDeps {
 
 /** Inputs for {@link TurnSnapshotService.captureTurnSnapshot}; every field is caller-resolved. */
 export interface CaptureTurnSnapshotInput {
-  /** The worktree, or the main checkout in `bound-root` mode. */
+  /** Where the run works: the worktree, or the bound folder in `bound-root` mode. */
   readonly executionRoot: string;
+  /**
+   * The top level of the working tree holding `executionRoot`, as the run's
+   * `run_execution_contexts.checkout_root` records it. A value the live tree disagrees with fails
+   * the capture.
+   */
+  readonly checkoutRoot: string;
   /** Validated as a ref component before any git call. */
   readonly runId: string;
   /** 0 before any rollback, advanced per accepted `run.rolled_back`; the caller supplies it. */
@@ -142,27 +154,27 @@ export interface TurnSnapshotRetentionPruneResult {
 }
 
 /**
- * Owns the `refs/sidekicks/runs/...` namespace and every git invocation that writes into it.
- * Stateless between calls: captures share only the (empty) hook-neutralization directory.
+ * Owns the `refs/sidekicks/runs/...` namespace and every git invocation that writes into it. Keeps
+ * nothing between calls but the lock that runs one capture of a checkout at a time.
  */
 export class TurnSnapshotService {
   readonly #snapshotIndexDirectory: string;
   readonly #runGit: GitCommand;
-  readonly #filesystem: GitFilesystem;
+  readonly #filesystem: Pick<GitFilesystem, "createDirectory" | "removePath">;
   readonly #now: () => string;
   readonly #emitDiagnostic: (diagnostic: TurnSnapshotDiagnostic) => void;
   // `null` without a `database` (capture-only wiring); prepared here so a schema mismatch fails
   // at construction.
   readonly #selectRunContextStmt: Statement<RunContextLookupParams, RunContextRow> | null;
   readonly #captureSteps: TurnSnapshotCaptureSteps;
+  // Keyed by the symlink-resolved checkout, so every spelling of one tree takes one lock.
+  readonly #checkoutLock = new KeyedLock<string>();
 
   constructor(deps: TurnSnapshotServiceDeps) {
     this.#snapshotIndexDirectory = join(deps.executionRootsDirectory, SNAPSHOT_INDEX_SEGMENT);
     this.#filesystem = deps.filesystem ?? DEFAULT_GIT_FILESYSTEM;
-    this.#runGit = createHookNeutralizedGitCommand({
+    this.#runGit = createGitCommand({
       git: deps.git ?? runGitWithExecFile,
-      filesystem: this.#filesystem,
-      executionRootsDirectory: deps.executionRootsDirectory,
       timeoutMs: deps.gitCommandTimeoutMs ?? DEFAULT_GIT_COMMAND_TIMEOUT_MS,
     });
     this.#now = deps.now ?? ((): string => new Date().toISOString());
@@ -181,9 +193,9 @@ export class TurnSnapshotService {
   }
 
   /**
-   * Records the execution root's project state (tracked plus non-ignored untracked files) as a
-   * snapshot commit at `refs/sidekicks/runs/<runId>/epoch-<E>/turn-<N>`. Never throws: every
-   * failure becomes a typed `failed` result, because snapshots never gate a turn.
+   * Records the checkout's project state (tracked plus non-ignored untracked files) as a snapshot
+   * commit at `refs/sidekicks/runs/<runId>/epoch-<E>/turn-<N>`. Never throws: every failure
+   * becomes a typed `failed` result, because snapshots never gate a turn.
    */
   async captureTurnSnapshot(input: CaptureTurnSnapshotInput): Promise<TurnSnapshotCaptureResult> {
     if (
@@ -195,6 +207,40 @@ export class TurnSnapshotService {
     }
 
     const ref: string = buildTurnSnapshotRef(input.runId, input.epoch, input.turnOrdinal);
+    let checkoutRoot: string;
+    try {
+      checkoutRoot = await this.#verifyCheckoutRoot(input);
+    } catch (reason: unknown) {
+      return this.#failCapture(input, ref, "verify-checkout-root", describeRejection(reason));
+    }
+    return this.#checkoutLock.run(checkoutRoot, () =>
+      this.#captureCheckout(input, checkoutRoot, ref),
+    );
+  }
+
+  /**
+   * The supplied checkout, symlink-resolved, once the live tree agrees: git names it as the top
+   * level of the working tree holding the execution root. Throws when it does not.
+   */
+  async #verifyCheckoutRoot(input: CaptureTurnSnapshotInput): Promise<string> {
+    const [suppliedCheckout, liveTopLevel] = await Promise.all([
+      realpath(input.checkoutRoot),
+      this.#runGit(["-C", input.executionRoot, "rev-parse", "--show-toplevel"]).then((result) =>
+        realpath(result.stdout.toString("utf8").replace(/\n$/u, "")),
+      ),
+    ]);
+    if (suppliedCheckout !== liveTopLevel) {
+      throw new Error("the supplied checkout is not the working tree holding the execution root");
+    }
+    return suppliedCheckout;
+  }
+
+  // The capture's git legs, every one run at the top level of the verified checkout.
+  async #captureCheckout(
+    input: CaptureTurnSnapshotInput,
+    checkoutRoot: string,
+    ref: string,
+  ): Promise<TurnSnapshotCaptureResult> {
     // A collision-free scratch filename, unlinked in the same call; not an id.
     const scratchIndexPath: string = join(this.#snapshotIndexDirectory, `${randomUUID()}.index`);
     // Advanced before each leg. It starts on the first `try` statement so an EACCES on the
@@ -205,29 +251,23 @@ export class TurnSnapshotService {
       await this.#filesystem.createDirectory(this.#snapshotIndexDirectory);
 
       step = "resolve-base";
-      const baseCommit: string = await this.#captureSteps.resolveBaseCommit(input.executionRoot);
+      const baseCommit: string = await this.#captureSteps.resolveBaseCommit(checkoutRoot);
 
       step = "detect-sparse-root";
-      const isSparseRoot: boolean = await this.#captureSteps.detectSparseRoot(input.executionRoot);
+      const isSparseRoot: boolean = await this.#captureSteps.detectSparseRoot(checkoutRoot);
 
       step = "seed-index";
       if (isSparseRoot) {
         // Copy the live index, not `read-tree <base>`: a read-tree index lacks skip-worktree bits,
         // so staging would re-stat each out-of-cone path, find it absent and drop it. The live
         // index also carries legitimate differences from `HEAD` (`git add --sparse`).
-        await this.#captureSteps.seedScratchIndexFromLiveIndex(
-          input.executionRoot,
-          scratchIndexPath,
-        );
+        await this.#captureSteps.seedScratchIndexFromLiveIndex(checkoutRoot, scratchIndexPath);
       } else {
         // Pinned: a replace ref on the base commit would seed from the replacement's tree and drop
         // a path that is both index-tracked and rule-ignored (measured against `add -A`).
-        await this.#runGit(
-          ["-C", input.executionRoot, ...USE_REPLACE_REFS_PIN, "read-tree", baseCommit],
-          {
-            environmentOverrides: { GIT_INDEX_FILE: scratchIndexPath },
-          },
-        );
+        await this.#runGit(["-C", checkoutRoot, ...USE_REPLACE_REFS_PIN, "read-tree", baseCommit], {
+          environmentOverrides: { GIT_INDEX_FILE: scratchIndexPath },
+        });
       }
 
       step = "list-paths";
@@ -235,7 +275,7 @@ export class TurnSnapshotService {
       // untracked files under in-tree `.gitignore` rules only.
       const fullListing: Buffer = (
         await this.#runGit(
-          ["-C", input.executionRoot, "ls-files", "-co", EXCLUDE_PER_DIRECTORY_GITIGNORE, "-z"],
+          ["-C", checkoutRoot, "ls-files", "-co", EXCLUDE_PER_DIRECTORY_GITIGNORE, "-z"],
           { environmentOverrides: { GIT_INDEX_FILE: scratchIndexPath } },
         )
       ).stdout;
@@ -243,7 +283,7 @@ export class TurnSnapshotService {
       step = "check-sparse-rules";
       // The identity partition (no git spawned) unless sparse, where git's own matcher decides.
       const partition: SparseListingPartition = isSparseRoot
-        ? await this.#captureSteps.partitionListingByCone(input.executionRoot, fullListing)
+        ? await this.#captureSteps.partitionListingByCone(checkoutRoot, fullListing)
         : { inConeListing: fullListing, outOfConeEntries: [] };
       const listing: Buffer = partition.inConeListing;
 
@@ -251,7 +291,7 @@ export class TurnSnapshotService {
       await this.#runGit(
         [
           "-C",
-          input.executionRoot,
+          checkoutRoot,
           // Pins for the one leg that hashes worktree bytes: a host `core.autocrlf` changes blob
           // ids, a host `core.safecrlf=true` fails staging on CRLF bytes under `*.txt text` (git
           // 2.50.1), and user/system attribute files must not steer conversion (in-tree
@@ -282,7 +322,7 @@ export class TurnSnapshotService {
       step = "normalize-embedded-repositories";
       const skippedEmbeddedRepositories: readonly string[] =
         await this.#captureSteps.normalizeEmbeddedRepositories(
-          input.executionRoot,
+          checkoutRoot,
           scratchIndexPath,
           listing,
         );
@@ -290,7 +330,7 @@ export class TurnSnapshotService {
       step = "write-tree";
       const treeObjectId: string = requireObjectId(
         (
-          await this.#runGit(["-C", input.executionRoot, "write-tree"], {
+          await this.#runGit(["-C", checkoutRoot, "write-tree"], {
             environmentOverrides: { GIT_INDEX_FILE: scratchIndexPath },
           })
         ).stdout,
@@ -301,7 +341,7 @@ export class TurnSnapshotService {
       // `write-tree` omits: untracked and intent-to-add ones (git 2.50.1).
       const sparseBoundaryPaths: readonly string[] | null = isSparseRoot
         ? await this.#captureSteps.deriveSparseBoundaryPaths(
-            input.executionRoot,
+            checkoutRoot,
             treeObjectId,
             partition.outOfConeEntries,
           )
@@ -309,7 +349,7 @@ export class TurnSnapshotService {
 
       step = "commit-tree";
       const snapshotCommit: string = await this.#captureSteps.commitSnapshotTree(
-        input.executionRoot,
+        checkoutRoot,
         treeObjectId,
         baseCommit,
         skippedEmbeddedRepositories,
@@ -318,7 +358,7 @@ export class TurnSnapshotService {
 
       step = "write-ref";
       const recordedCommit: string | null = await this.#captureSteps.writeCreateOnlyRef(
-        input.executionRoot,
+        checkoutRoot,
         ref,
         snapshotCommit,
       );

@@ -69,7 +69,6 @@ beforeEach(async () => {
       }),
     }),
     nodeId: NODE_ID,
-    archiveUnfinishedCreates: () => Promise.resolve(),
   });
   fixtureGit = gitUnder();
 });
@@ -114,10 +113,17 @@ async function seedRunExecutionContext(workspaceId: string, executionRoot: strin
     },
     {
       sql: `INSERT INTO run_execution_contexts (run_id, session_id, workspace_id, execution_mode,
-                                                execution_root, git_common_dir, branch_context_id,
-                                                created_at)
-            VALUES ('run-1', ?, ?, 'bound-root', ?, ?, 'branch-context-1', ?)`,
-      bindings: [SESSION_ID, workspaceId, executionRoot, join(executionRoot, ".git"), at],
+                                                execution_root, checkout_root, git_common_dir,
+                                                branch_context_id, created_at)
+            VALUES ('run-1', ?, ?, 'bound-root', ?, ?, ?, 'branch-context-1', ?)`,
+      bindings: [
+        SESSION_ID,
+        workspaceId,
+        executionRoot,
+        executionRoot,
+        join(executionRoot, ".git"),
+        at,
+      ],
     },
   ]);
 }

@@ -4,7 +4,6 @@ import { MountCard } from "./MountCard.js";
 import { type OpenDiffSubject } from "./OpenDiffControl.js";
 import { type RepoMountsReading } from "../reading.js";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
-import { type SessionStore } from "#renderer/store/session/store.js";
 import { type RepoOperations } from "../../operations.js";
 
 /** What the mount list reads and the handlers it passes through to each card. */
@@ -12,8 +11,6 @@ export interface MountListProps {
   readonly reading: RepoMountsReading;
   /** Passed down to each card's controls, which take their clock from it. */
   readonly bridge: PlatformBridge;
-  /** Passed down to each card's re-attach, which names the session it is sent for. */
-  readonly sessionStore: SessionStore;
   /** The calls each card's controls make. */
   readonly operations: RepoOperations;
   readonly onCopy: (canonicalRoot: string) => void;
@@ -46,7 +43,6 @@ function renderMounts(props: MountListProps): React.JSX.Element {
             mount={mount}
             workspaces={reading.workspaces.filter((row) => row.repoMountId === mount.id)}
             bridge={props.bridge}
-            sessionStore={props.sessionStore}
             operations={props.operations}
             onCopyCanonicalRoot={props.onCopy}
             onRequestRead={props.onRequestRead}

@@ -1,10 +1,11 @@
 // Builds the daemon's session services on its one database and binds every `session.*` verb they
-// answer, plus `transcript.search`. The daemon's one event log is built here with the session
-// directory's statements, so each event's `sessions` row change commits in the event's own write,
-// and the sessions list follows that log from the start, before any append; the daemon's recovery
-// pass and its damaged history append through the same log, which refuses a damaged session's
-// writes, and every session read and search stops at a damaged session's last good point. The
-// services' background work starts only once the recovery pass has ended.
+// answer, plus `transcript.search`, then the repository services over the same database. The
+// daemon's one event log is built here with the session directory's statements, so each event's
+// `sessions` row change commits in the event's own write, and the sessions list follows that log
+// from the start, before any append; the daemon's recovery pass and its damaged history append
+// through the same log, which refuses a damaged session's writes, and every session read and
+// search stops at a damaged session's last good point. The services' background work starts only
+// once the recovery pass has ended.
 
 import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import type { NodeId } from "@ai-sidekicks/contracts/runtime-node/id";
@@ -14,13 +15,13 @@ import type { DatabaseConnections } from "../database/connection/lifecycle.js";
 import { EventLogService } from "../events/log-service.js";
 import type { DamagedFromSequenceReader } from "../events/session/read.js";
 import { SessionPurge } from "../events/session/purge.js";
-import { DEFAULT_GIT_FILESYSTEM } from "../git/filesystem.js";
+import { findBranchPatternRefusal } from "../git/branch-name-pattern.js";
 import {
-  createHookNeutralizedGitCommand,
+  createGitCommand,
   DEFAULT_GIT_COMMAND_TIMEOUT_MS,
-  executionRootsDirectoryOf,
   type GitRunner,
 } from "../git/process.js";
+import { worktreesDirectoryOf } from "../git/worktree/naming.js";
 import { registerSessionConvert } from "../ipc/handlers/session/convert.js";
 import { registerSessionCreate } from "../ipc/handlers/session/create.js";
 import { registerSessionDraftUpdate } from "../ipc/handlers/session/draft-update.js";
@@ -40,7 +41,9 @@ import { registerSessionTagMethods } from "../ipc/handlers/session/tags.js";
 import { registerTranscriptSearch } from "../ipc/handlers/transcript-methods.js";
 import type { StreamingPrimitive } from "../ipc/streaming-primitive.js";
 import type { ProviderRegistry } from "../provider/driver/registry.js";
+import type { SpawnEnvPair } from "../provider/spawn-env.js";
 import { RuntimeBindingStore } from "../provider/runtime-binding-store.js";
+import type { RunSetupGate } from "../session/run/setup-gates.js";
 import { SessionAutoTitle } from "../session/auto-title.js";
 import { SessionChanges } from "../session/changes.js";
 import { SessionConversion } from "../session/convert.js";
@@ -57,12 +60,18 @@ import type { SearchThread } from "../session/search/thread/handle.js";
 import { SessionService } from "../session/service.js";
 import { SessionTagService } from "../session/tags/service.js";
 import { WorkspaceEventEmitter } from "../workspace/event-emitter.js";
+import type { StreamedGitRunner } from "../workspace/clone/streamed-git.js";
+import type { FolderPlace } from "../workspace/folder/place.js";
 import { ManagedWorkspaceService } from "../workspace/managed/service.js";
 import { ManagedWorkspaceWriteWatcher } from "../workspace/managed/write-watcher.js";
+import { ProjectListFeed } from "../workspace/project/list-feed.js";
+import { ProjectRecords } from "../workspace/project/records.js";
+import { ProjectService } from "../workspace/project/service.js";
 import { RepoMountService } from "../workspace/repo/mount-service.js";
 import { RepoRootResolver } from "../workspace/repo/root-resolver.js";
 import { WorkspaceService } from "../workspace/service.js";
 import type { MachineSettingsFile } from "./machine/settings/file.js";
+import { registerRepoMethods } from "./repo-methods.js";
 
 /** What the session services are built from. */
 export interface SessionMethodsDeps {
@@ -73,6 +82,10 @@ export interface SessionMethodsDeps {
   readonly nodeId: NodeId;
   /** The runner for the `git` the daemon found along the login shell's `PATH` at start. */
   readonly git: GitRunner;
+  /** The same `git`, run streamed for a clone or a fetch. */
+  readonly streamedGit: StreamedGitRunner;
+  /** Where a folder sits on a Windows computer with WSL. */
+  readonly folderPlace: FolderPlace;
   /** The machine settings file, which a create reads and writes the last lead model to. */
   readonly settingsFile: MachineSettingsFile;
   /** The provider drivers, whose close ends a closed session's provider leg. */
@@ -87,11 +100,15 @@ export interface SessionMethodsDeps {
   readonly refuseSessionWrite: (sessionId: SessionId, eventType: string) => void;
   /** Where a damaged session's reads stop. */
   readonly readDamagedFromSequence: DamagedFromSequenceReader;
+  /** The login shell a project's setup commands run in; `null` runs the system's default one. */
+  readonly commandShell: string | null;
+  /** The login shell's environment captured at the start, which setup commands are built from. */
+  readonly providerBaseEnvironment: readonly SpawnEnvPair[];
   /** Writes one line to the service log. */
   readonly writeServiceLog: (line: string) => void;
 }
 
-/** What the daemon goes on to use of the session services it registered. */
+/** What the daemon goes on to use of the session and repository services it registered. */
 export interface RegisteredSessionServices {
   /** The daemon's one event log, every append carrying the session directory's statements. */
   readonly eventLog: EventLogService;
@@ -105,21 +122,27 @@ export interface RegisteredSessionServices {
    */
   readonly managedWorkspaceWrites: Pick<ManagedWorkspaceWriteWatcher, "whenFailed">;
   /**
+   * The gate that makes a run's execution root ready before it starts and releases what the run
+   * held once it ends, for the run engine to register.
+   */
+  readonly setupGate: RunSetupGate;
+  /**
    * Starts the background work, once the recovery pass has ended: the self-naming, the related
    * lists' rename follow, the index's merging, the passes finishing the creates and removing the
-   * conversions' copies the daemon stopped part way, and the managed workspaces' write watch. Does
-   * nothing once `stop` has been called.
+   * conversions' copies the daemon stopped part way, the managed workspaces' write watch and the
+   * repository services' work. Does nothing once `stop` has been called.
    */
   readonly start: () => Promise<void>;
   /**
-   * Ends the sessions list and the background work `start` began, after a start under way. It
-   * settles once each of them has finished what it had under way: the titles on their way, the
-   * merge step at the writer, the related-list round and the two stopped-work passes.
+   * Ends the sessions and projects lists, the background work `start` began, after a start under
+   * way, and the repository services. It settles once each of them has finished what it had under
+   * way: the titles on their way, the merge step at the writer, the related-list round, the two
+   * stopped-work passes and the repository services' own.
    */
   readonly stop: () => Promise<void>;
 }
 
-/** Builds the session services and registers their verbs on `registry`. */
+/** Builds the session and repository services and registers their verbs on `registry`. */
 export function registerSessionMethods(
   registry: MethodRegistry,
   deps: SessionMethodsDeps,
@@ -139,21 +162,19 @@ export function registerSessionMethods(
     writeServiceLog: deps.writeServiceLog,
   });
   const sessions = new SessionService(database.reader, deps.readDamagedFromSequence);
-  const git = createHookNeutralizedGitCommand({
+  const git = createGitCommand({
     git: deps.git,
-    filesystem: DEFAULT_GIT_FILESYSTEM,
-    executionRootsDirectory: executionRootsDirectoryOf(deps.homeDirectory),
     timeoutMs: DEFAULT_GIT_COMMAND_TIMEOUT_MS,
   });
   const workspaceEvents = new WorkspaceEventEmitter({ sessionEvents: eventLog });
-  const workspaces = new WorkspaceService({ database, events: workspaceEvents });
+  // One resolver for every service that reads a repository's root and identity.
+  const resolver = new RepoRootResolver({ git: deps.git });
+  const workspaces = new WorkspaceService({ database, events: workspaceEvents, resolver });
   const repoMounts = new RepoMountService({
     database,
     events: workspaceEvents,
     nodeId: deps.nodeId,
-    resolver: new RepoRootResolver({ git: deps.git }),
-    // The create service is built from the mounts below, and a detach comes only through a call.
-    archiveUnfinishedCreates: () => creation.archiveUnfinishedCreates(),
+    resolver,
   });
   const managedWorkspaces = new ManagedWorkspaceService({
     homeDirectory: deps.homeDirectory,
@@ -165,6 +186,25 @@ export function registerSessionMethods(
     events: eventLog,
     providers: deps.providers,
     runtimeBindings: new RuntimeBindingStore(database),
+  });
+  const projectRecords = new ProjectRecords(database.reader, deps.folderPlace);
+  const projectListFeed = new ProjectListFeed({
+    records: projectRecords,
+    eventLog,
+    writeServiceLog: deps.writeServiceLog,
+  });
+  const projects = new ProjectService({
+    writer: database.writer,
+    records: projectRecords,
+    mounts: repoMounts,
+    sessions: changes,
+    findBranchPatternRefusal: (pattern) => findBranchPatternRefusal(pattern, deps.git),
+    folderPlace: deps.folderPlace,
+    worktreesDirectory: worktreesDirectoryOf(deps.homeDirectory),
+    onProjectsChanged: () => {
+      projectListFeed.refresh();
+    },
+    writeServiceLog: deps.writeServiceLog,
   });
   const creation = new SessionCreation({
     reader: database.reader,
@@ -180,8 +220,10 @@ export function registerSessionMethods(
     events: eventLog,
     lock: changes.lock,
     repoMounts,
+    projects,
     workspaces,
     writeServiceLog: deps.writeServiceLog,
+    workingTrees: resolver,
   });
   const draftStore = new SessionDraftStore(database);
   const relatedRanking = new SessionRelatedRanking({
@@ -246,6 +288,29 @@ export function registerSessionMethods(
     },
   });
 
+  const repo = registerRepoMethods(registry, {
+    database,
+    eventLog,
+    workspaceEvents,
+    workspaces,
+    repoMounts,
+    projects,
+    projectRecords,
+    projectListFeed,
+    creation,
+    resolver,
+    git,
+    streamedGit: deps.streamedGit,
+    settingsFile: deps.settingsFile,
+    homeDirectory: deps.homeDirectory,
+    folderPlace: deps.folderPlace,
+    commandShell: deps.commandShell,
+    baseEnvironment: deps.providerBaseEnvironment,
+    streamingPrimitive: deps.streamingPrimitive,
+    outboundQueue: deps.outboundQueue,
+    writeServiceLog: deps.writeServiceLog,
+  });
+
   const autoTitle = new SessionAutoTitle({
     reader: database.reader,
     events: eventLog,
@@ -279,6 +344,7 @@ export function registerSessionMethods(
     sessions,
     purge,
     managedWorkspaceWrites: writeWatcher,
+    setupGate: repo.setupGate,
     start: () => {
       if (isStopped) {
         return Promise.resolve();
@@ -290,6 +356,7 @@ export function registerSessionMethods(
       // each conversion it stopped part way left.
       const finishingStoppedCreates = creation.finishStoppedCreates();
       const removingStoppedCopies = conversion.removeStoppedCopies();
+      repo.start();
       stopBackgroundWork = async () => {
         const mergeStopped = indexMerging.stop();
         const titlesStopped = stopAutoTitle();
@@ -308,8 +375,9 @@ export function registerSessionMethods(
     stop: async () => {
       isStopped = true;
       listFeed.close();
+      projectListFeed.close();
       await watchStarting;
-      await stopBackgroundWork?.();
+      await Promise.all([stopBackgroundWork?.(), repo.stop()]);
     },
   };
 }

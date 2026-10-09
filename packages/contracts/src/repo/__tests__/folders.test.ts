@@ -1,6 +1,6 @@
-// `repo/folders.ts`: browsing the machine's folders by token, and one folder's attach, read and
-// detach. A listing names the folder in view; attach takes exactly one of a path or a token and
-// answers the resolved root or nothing.
+// `repo/folders.ts`: browsing the machine's folders by path, and one folder's attach, read and
+// detach. A listing names the folder in view; attach takes a path and nothing else, and answers
+// the resolved root or nothing.
 import { describe, expect, it } from "vitest";
 
 import {
@@ -24,10 +24,10 @@ const CANONICAL_ROOT = "/Users/dev/projects/ai-sidekicks";
 describe("repo.folderList (another device's Open folder…)", () => {
   const listing = (entryCount: number) => ({
     path: "/Users/dev",
-    segments: [{ name: "dev", folderToken: "token-dev" }],
+    segments: [{ name: "dev", path: "/Users/dev" }],
     entries: Array.from({ length: entryCount }, (_, index) => ({
       name: `folder-${String(index)}`,
-      folderToken: `token-${String(index)}`,
+      path: `/Users/dev/folder-${String(index)}`,
       isRepository: index === 0,
     })),
     more: false,
@@ -41,14 +41,10 @@ describe("repo.folderList (another device's Open folder…)", () => {
   });
 });
 
-describe("repo.attach (a path on this machine, or a token from another device)", () => {
-  it("takes a path or a folder token, never both and never neither", () => {
+describe("repo.attach (a path, from this machine or from another device's folder list)", () => {
+  it("takes a path and nothing else", () => {
     expect(RepoAttachRequestSchema.safeParse({ localPath: LOCAL_PATH }).success).toBe(true);
-    expect(RepoAttachRequestSchema.safeParse({ folderToken: "token-beacon" }).success).toBe(true);
-    expect(
-      RepoAttachRequestSchema.safeParse({ localPath: LOCAL_PATH, folderToken: "token-beacon" })
-        .success,
-    ).toBe(false);
+    expect(RepoAttachRequestSchema.safeParse({ folderToken: "token-beacon" }).success).toBe(false);
     expect(RepoAttachRequestSchema.safeParse({}).success).toBe(false);
   });
 

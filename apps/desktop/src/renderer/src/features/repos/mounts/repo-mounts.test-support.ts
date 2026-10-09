@@ -3,11 +3,10 @@
 // keeps its own `afterEach(disposeTrackedReaders)`, since registering one here would bind this
 // module's import to a suite lifecycle its importer cannot see.
 
-import type {
-  BranchContextId,
-  WorktreeStatusRecord,
-} from "@ai-sidekicks/contracts/worktree/lifecycle";
+import type { ProjectId } from "@ai-sidekicks/contracts/project";
+import type { BranchContextId } from "@ai-sidekicks/contracts/worktree/lifecycle";
 import type { RepoMountReadResponse } from "@ai-sidekicks/contracts/repo/folders";
+import type { RepoMountId } from "@ai-sidekicks/contracts/repo/mount";
 
 import { act, screen } from "@testing-library/react";
 
@@ -17,6 +16,7 @@ import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { SessionStore } from "#renderer/store/session/store.js";
 import type { RepoOperations } from "../operations.js";
 import { scriptedRepoOperations } from "../operations.test-support.js";
+import type { AppMadeWorktree } from "./execution-roots/columns.js";
 import type { PrepareOperations } from "./execution-roots/prepare/controller.js";
 import { RepoMountsReader } from "./reader.js";
 import type { RepoWorkspaceRow } from "./reading.js";
@@ -117,7 +117,7 @@ export const SESSION_ID = "session-repos";
 export const CANONICAL_ROOT = "/Users/dev/code/ai-sidekicks";
 
 /** The deeper path a user entered, which resolves to the canonical root. */
-export const ENTERED_PATH = "/Users/dev/code/ai-sidekicks/packages/contracts";
+const ENTERED_PATH = "/Users/dev/code/ai-sidekicks/packages/contracts";
 
 /** One mount as the wire reads it, healthy and attached unless a case says otherwise. */
 export function buildMount(
@@ -132,7 +132,7 @@ export function buildMount(
     state: "attached",
     health: { status: "healthy", checkedAt: "2026-01-01T09:05:01.000Z" },
     attachedAt: "2026-01-01T09:05:00.200Z",
-    origin: { kind: "attached", repoMountId: "mount-sidekicks", projectId: "project-sidekicks" },
+    origin: attachedOrigin("mount-sidekicks", HEALTHY_PROJECT_ID),
     displayName: "ai-sidekicks",
     usedBy: [{ sessionId: SESSION_ID }],
     ...overrides,
@@ -151,17 +151,16 @@ export function workspaceRow(overrides: WireOverrides<RepoWorkspaceRow> = {}): R
   } as RepoWorkspaceRow;
 }
 
-/** One worktree root as the wire reads it. */
-export function worktreeRecord(
-  overrides: WireOverrides<WorktreeStatusRecord> = {},
-): WorktreeStatusRecord {
+/** One worktree the app made, as the wire reads it. */
+export function worktreeRecord(overrides: WireOverrides<AppMadeWorktree> = {}): AppMadeWorktree {
   return {
+    madeBy: "app",
     worktreeId: "worktree-01",
     repoMountId: "mount-sidekicks",
     name: "abc123-rate-limit-wiring",
     branchName: "sidekicks/abc123/rate-limit-wiring",
     baseBranchName: "main",
-    fsRoot: "/Users/dev/.desktopBridge/roots/worktree-01",
+    path: "/Users/dev/.desktopBridge/roots/worktree-01",
     state: "ready",
     uncommittedFileCount: 0,
     unpushedCommitCount: 0,
@@ -172,7 +171,7 @@ export function worktreeRecord(
     createdAt: "2026-01-01T09:00:00.000Z",
     updatedAt: "2026-01-01T09:04:00.000Z",
     ...overrides,
-  } as WorktreeStatusRecord;
+  } as AppMadeWorktree;
 }
 
 /** The healthy mount's id. */
@@ -187,7 +186,19 @@ export const DRIFTED_MOUNT_ID = "mount-drifted";
 /** The healthy mount's workspace. */
 export const HEALTHY_WORKSPACE_ID = "workspace-sidekicks";
 
-/** The three mounts a session holds: healthy, unreachable, and no longer the repository. */
+/** The project the healthy mount belongs to. */
+export const HEALTHY_PROJECT_ID = "project-sidekicks";
+
+/** The project the unreachable mount belongs to. */
+export const UNREACHABLE_PROJECT_ID = "project-notes";
+
+/** The project the drifted mount belongs to. */
+export const DRIFTED_PROJECT_ID = "project-moved";
+
+/**
+ * The three mounts a session holds, each of its own project: healthy, unreachable, and no longer
+ * the repository.
+ */
 export const MOUNTS: readonly RepoMountReadResponse[] = [
   buildMount({ id: HEALTHY_MOUNT_ID }),
   buildMount({
@@ -195,11 +206,13 @@ export const MOUNTS: readonly RepoMountReadResponse[] = [
     canonicalRoot: "/Users/dev/code/notes",
     localPath: "/Users/dev/code/notes",
     health: { status: "unreachable", checkedAt: "2026-01-01T09:05:01.000Z" },
+    origin: attachedOrigin(UNREACHABLE_MOUNT_ID, UNREACHABLE_PROJECT_ID),
   }),
   buildMount({
     id: DRIFTED_MOUNT_ID,
     canonicalRoot: "/Users/dev/code/moved",
     localPath: "/Users/dev/code/moved",
+    origin: attachedOrigin(DRIFTED_MOUNT_ID, DRIFTED_PROJECT_ID),
     health: {
       status: "identity_mismatch",
       isRepository: true,
@@ -229,11 +242,11 @@ export function sessionOperations(script: Partial<RepoOperations> = {}): RepoOpe
       }
       return Promise.resolve(found);
     },
-    readWorktreeStatus: (repoMountId) =>
+    readWorktreeStatus: (projectId) =>
       Promise.resolve({
         repoRoot: { path: CANONICAL_ROOT, branchName: "main" },
         worktrees:
-          repoMountId === HEALTHY_MOUNT_ID
+          projectId === HEALTHY_PROJECT_ID
             ? [worktreeRecord(), worktreeRecord({ worktreeId: "worktree-02" })]
             : [],
       }),
@@ -250,5 +263,14 @@ export function preparingDaemon(): PrepareOperations {
         state: "ready",
         branchContextId: "branch-context-fresh" as BranchContextId,
       }),
+  };
+}
+
+/** An attached mount's origin, naming the project it belongs to. */
+function attachedOrigin(repoMountId: string, projectId: string): RepoMountReadResponse["origin"] {
+  return {
+    kind: "attached",
+    repoMountId: repoMountId as RepoMountId,
+    projectId: projectId as ProjectId,
   };
 }
