@@ -1,9 +1,9 @@
 // The line at the top of the loaded history: `Load earlier` while the daemon holds rows before the
-// head, `Couldn't load earlier messages · Try again` after a read of them failed, and nothing once
-// the head is where the session's history starts. Nearing the top and a pull at the very top read
-// the stretch on their own; the line is for the case they cannot see. Like `JumpToLatest.tsx` it
-// sits outside the scroll container, so it never changes the height the reading position is
-// measured against.
+// head, `Loading…` while they are read, `Couldn't load earlier messages · Try again` after a read
+// of them failed, and nothing once the head is where the session's history starts. Nearing the top
+// and a pull at the very top read the stretch on their own; the line is for the case they cannot
+// see. Like `JumpToLatest.tsx` it sits outside the scroll container, so it never changes the
+// height the reading position is measured against.
 
 import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
@@ -50,13 +50,13 @@ export function LoadEarlier(props: LoadEarlierProps): React.JSX.Element | null {
     <div className="meridian-transcript-viewport__head">
       <button
         type="button"
-        className="meridian-transcript-viewport__load-earlier"
+        className="meridian-transcript-viewport__load-earlier meridian-clickable-word"
         onClick={readEarlier}
-        // Disabled while a stretch is read rather than hidden, so the line does not vanish under
-        // the pointer that pressed it.
+        // While a stretch is read the line says so in its own place, disabled rather than hidden,
+        // so it does not vanish under the pointer that pressed it.
         disabled={isReading}
       >
-        Load earlier
+        {isReading ? "Loading…" : "Load earlier"}
       </button>
     </div>
   );

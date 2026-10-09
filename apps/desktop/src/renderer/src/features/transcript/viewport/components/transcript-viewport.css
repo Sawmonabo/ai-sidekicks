@@ -77,33 +77,16 @@
   pointer-events: none;
 }
 
+/* The history line: a clickable word (`styles/action-buttons.css`) at the smallest text step. */
 .meridian-transcript-viewport__load-earlier {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--meridian-space-2);
-  padding: var(--meridian-space-1) var(--meridian-space-3);
-  border: 1px solid var(--meridian-edge-strong);
-  border-radius: var(--meridian-radius-lg);
-  background: var(--meridian-surface-raised);
-  color: var(--meridian-text-muted);
   font-size: var(--meridian-text-xs);
-  cursor: pointer;
   pointer-events: auto;
 }
 
-.meridian-transcript-viewport__load-earlier:disabled {
-  cursor: default;
-  color: var(--meridian-text-faint);
-}
-
-/* The failed read's line, framed as the control it replaces and pressable at its `Try again`. */
+/* The failed read's line, in the history line's look and pressable at its `Try again`. */
 .meridian-transcript-viewport__load-earlier-failed {
   margin: 0;
-  padding: var(--meridian-space-1) var(--meridian-space-3);
-  border: 1px solid var(--meridian-edge-strong);
-  border-radius: var(--meridian-radius-lg);
-  background: var(--meridian-surface-raised);
-  color: var(--meridian-text-muted);
+  color: var(--meridian-text-faint);
   font-size: var(--meridian-text-xs);
   pointer-events: auto;
 }
