@@ -80,6 +80,20 @@ export function readWorkingRows(
 }
 
 /**
+ * The check the transcript window asks of each row it would let go: one of `workingRows`, or a
+ * live run's newest reply while `isRevealing` says it still streams. Built outside any render,
+ * since a closure made in one shares that render's scope, and the window keeps its last check.
+ */
+export function bindWorkingRowCheck(
+  workingRows: WorkingRows,
+  isRevealing: (rowId: string) => boolean,
+): (rowKey: string) => boolean {
+  return (rowKey) =>
+    workingRows.rowIds.has(rowKey) ||
+    (workingRows.newestReplyRowIds.has(rowKey) && isRevealing(rowKey));
+}
+
+/**
  * One run's tool calls still running, by call id, since two runs may reuse a provider's call id,
  * and its newest tool row when that row named no call.
  */

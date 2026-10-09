@@ -21,7 +21,7 @@ import {
 import { useDuplicateRowKeyCapture } from "../../viewport/hooks/useDuplicateRowKeyCapture.js";
 import { useTranscriptFirstReadSettled } from "../../window/hooks/useTranscriptFirstReadSettled.js";
 import { useTranscriptProjection } from "../../window/hooks/useTranscriptProjection.js";
-import { readWorkingRows } from "../../window/working-rows.js";
+import { bindWorkingRowCheck, readWorkingRows } from "../../window/working-rows.js";
 import {
   type TranscriptPipelineStage,
   type TranscriptWindowModel,
@@ -155,10 +155,8 @@ export function useTranscriptFeedWindows(
     [unfurledWindow, waitingOnPerson],
   );
   const isRevealing = reveal.isRevealing;
-  const isWorkingRow = useCallback(
-    (rowKey: string) =>
-      workingRows.rowIds.has(rowKey) ||
-      (workingRows.newestReplyRowIds.has(rowKey) && isRevealing(rowKey)),
+  const isWorkingRow = useMemo(
+    () => bindWorkingRowCheck(workingRows, isRevealing),
     [workingRows, isRevealing],
   );
   const viewport = useTranscriptViewport({
