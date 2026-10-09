@@ -315,7 +315,10 @@ const PtyOutputChangeSchema: z.ZodType<PtyOutputChange> = z.discriminatedUnion("
  * One notify of a shell's output stream. The first frame opens with the `scrollback` change, and
  * the frames that continue the window follow it. A watcher that fell behind stops receiving
  * output, and once it has caught up its next frame carries the drop mark and a fresh `scrollback`
- * change, so it redraws from the scrollback window and no byte reaches it twice.
+ * change, so it redraws from the scrollback window and no byte reaches it twice; one still behind
+ * when the shell exits gets the drop mark, a fresh `scrollback` change and the `exited` change.
+ * A cursor counts only the bytes sent: a character the output ends inside is held back for the
+ * output that completes it.
  */
 export type PtyOutputFrame = StreamFrame<PtyOutputChange, number>;
 /** Parses a {@link PtyOutputFrame}. */
@@ -340,7 +343,10 @@ const ptyWriteShape = {
  * `paste` is pasted text sent in one or more parts, each under the wire's message cap, all naming
  * the client-minted `pasteId` and the last one `isLastPart`; when the program in the shell asked
  * for pasted text to be marked as pasted, the daemon marks the whole paste once around all its
- * parts, so several lines sit at the prompt instead of running themselves.
+ * parts, so several lines sit at the prompt instead of running themselves. Each pane has one
+ * paste open at a time: a part naming a new `pasteId` closes the pane's earlier paste first. The
+ * daemon answers a write once its bytes reach the shell's terminal, so a client that sends a
+ * paste's next part after the answer to the last pastes no faster than the program reads.
  */
 export type PtyWriteRequest =
   | {

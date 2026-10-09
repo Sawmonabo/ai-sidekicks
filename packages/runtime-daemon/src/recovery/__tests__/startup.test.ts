@@ -245,6 +245,7 @@ describe("the recovery pass at a restart", () => {
         sessionList: { refresh: () => {} },
         relatedRanking: { rescoreAround: () => {} },
         whenFileCheckEnds: Promise.resolve(),
+        shellTable: { closeSessionShells: async () => undefined },
       }),
       runs: fixture.runs,
       runEngine,

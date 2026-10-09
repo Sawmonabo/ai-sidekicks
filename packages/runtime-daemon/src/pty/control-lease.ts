@@ -1,28 +1,29 @@
 // One shell's control lease: who may write to it, size it and close it.
 //
 // The lease is held by one of the person's devices, or by an agent's run on this machine, and lives
-// only in this daemon's memory. Beside that holder it keeps bindings: for a device, each pane output
-// subscription it was taken or written through, with the connection that subscription belongs to;
-// for a run, the command it last took it for and the device hold it took it from. Only a bound
-// connection writes to or sizes a device's shell, and each further pane it takes or writes through
-// is bound too; another connection of that device binds by taking it. A device takes a shell nobody
-// holds by taking it or by writing to it. No verb gives a shell back: a connection or pane
-// subscription closing ends its bindings, and a device's hold ends with the last of them or when
-// another device takes it; a run's hold ends when the command it holds the shell for ends or the run
-// leaves its running state, whichever comes first. A run's hold is never taken by a device, forced
-// or not. A run may take a shell a device holds; the lease keeps that hold aside, with those of its
-// bindings still open, and hands it back when the run's hold ends.
+// only in this daemon's memory. Beside that holder it keeps bindings: for a device, each pane
+// output subscription it was taken or written through, with the connection that subscription
+// belongs to; for a run, the command it last took it for and the device hold it took it from. Only
+// a bound connection writes to or sizes a device's shell, and each further pane it takes or writes
+// through is bound too; another connection of that device binds by taking it. A device takes a
+// shell nobody holds by taking it or by writing to it. No verb gives a shell back: a connection or
+// pane subscription closing ends its bindings, and a device's hold ends with the last of them or
+// when another device takes it; a run's hold ends when the command it holds the shell for ends or
+// the run leaves its running state, whichever comes first. A run's hold is never taken by a device,
+// forced or not. A run may take a shell a device holds; the lease keeps that hold aside, with those
+// of its bindings still open, and hands it back when the run's hold ends.
 //
 // Every change of holder raises the lease version by one, so a reader of the holder keeps whichever
 // reading is newest.
 //
-// Every decision reads and replaces the holder with no `await` in between, so two takes in one
-// tick cannot both win. Changes of holder run one at a time: while one is being broadcast, the
-// next waits for it to settle and then decides on the holder it left, and every check and reading
-// waits the same way, so none sees a holder no broadcast has confirmed. A take whose broadcast fails
-// is undone, and a hand-back whose broadcast fails leaves nobody holding, so no holder stands
+// Every decision reads and replaces the holder with no `await` in between, so two takes in one tick
+// cannot both win. Changes of holder run one at a time: while one is being broadcast, the next
+// waits for it to settle and then decides on the holder it left, and every check and reading waits
+// the same way, so none sees a holder no broadcast has confirmed. A take whose broadcast fails is
+// undone, and a hand-back whose broadcast fails leaves nobody holding, so no holder stands
 // unannounced; a release to nobody whose broadcast fails still stands, because the holder it ended
 // is gone. Either failure reaches the caller.
+
 import type { CommandId } from "@ai-sidekicks/contracts/command";
 import {
   PTY_CONTROL_HELD_BY_OTHER_CODE,
@@ -335,12 +336,13 @@ export class ShellControlLease {
   }
 
   /**
-   * Drops the binding a closed pane output subscription carried, giving the shell back once none
-   * remains; the shell keeps running. A hold kept aside under a run loses it too.
+   * Drops the bindings closed pane output subscriptions carried, giving the shell back once none
+   * remains, in one change of holder. A hold kept aside under a run loses them too. With no change
+   * in flight, the holder changes in the tick of the call.
    */
-  async releaseSubscription(outputSubscriptionId: SubscriptionId): Promise<void> {
+  async releaseSubscriptions(outputSubscriptionIds: readonly SubscriptionId[]): Promise<void> {
     await this.#dropBindings(
-      (boundSubscriptionId) => boundSubscriptionId === outputSubscriptionId,
+      (boundSubscriptionId) => outputSubscriptionIds.includes(boundSubscriptionId),
       "auto_released_pane_closed",
     );
   }

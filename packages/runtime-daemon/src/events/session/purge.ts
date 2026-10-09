@@ -26,7 +26,9 @@
 //   - Each session is purged under its session lock, so no conversion copies out of a folder being
 //     removed, and its rows under one hold of its append lock. The receipt is appended after every
 //     session, outside every hold, because the append takes its own lock.
-//   - The provider's conversations go first, while the rows naming them and the folder they ran in
+//   - The session's shells end first, so none keeps running in a folder about to go; a shell that
+//     cannot be let go refuses the session with its folder and every row kept.
+//   - The provider's conversations go next, while the rows naming them and the folder they ran in
 //     are still there, then the folder, then the rows: a deletion that fails refuses the session
 //     with every row kept, and a row write that fails after it keeps the rows naming files already
 //     gone, so either way purging the session again finishes it.
@@ -61,6 +63,7 @@ import { sessionAppendLock } from "./append-lock.js";
 import type { KeyedLock } from "../../keyed-lock.js";
 import type { ProviderConversationPurge } from "../../provider/conversation-purge.js";
 import { RETRY_WAITS_MS } from "../../retry-waits.js";
+import type { ShellTable } from "../../pty/shell/table.js";
 import type { SessionListFeed } from "../../session/directory/list-feed.js";
 import { removeEmptyGroupsOfSessionProjectStatement } from "../../session/groups/store.js";
 import type { SessionRelatedRanking } from "../../session/related/ranking.js";
@@ -151,6 +154,8 @@ export interface SessionPurgeDeps {
   readonly sessionList: Pick<SessionListFeed, "refresh">;
   /** Re-scores, in the background, the related lists of the sessions a purged one was linked to. */
   readonly relatedRanking: Pick<SessionRelatedRanking, "rescoreAround">;
+  /** Ends a session's shells, whoever holds them. */
+  readonly shellTable: Pick<ShellTable, "closeSessionShells">;
   /** The clock for the receipt's timestamps. */
   readonly now?: () => Date;
   /** Mints the receipt's `operationId`. Defaults to `mintUuidV7`. */
@@ -208,6 +213,7 @@ export class SessionPurge {
   readonly #sessionLock: Pick<KeyedLock<SessionId>, "run">;
   readonly #sessionList: Pick<SessionListFeed, "refresh">;
   readonly #relatedRanking: Pick<SessionRelatedRanking, "rescoreAround">;
+  readonly #shellTable: Pick<ShellTable, "closeSessionShells">;
   readonly #now: () => Date;
   readonly #operationIdFactory: () => string;
   readonly #newEventId: () => string;
@@ -223,6 +229,7 @@ export class SessionPurge {
     this.#sessionLock = deps.sessionLock;
     this.#sessionList = deps.sessionList;
     this.#relatedRanking = deps.relatedRanking;
+    this.#shellTable = deps.shellTable;
     this.#now = deps.now ?? ((): Date => new Date());
     this.#operationIdFactory = deps.operationIdFactory ?? mintUuidV7;
     this.#newEventId = deps.newEventId ?? mintUuidV7;
@@ -312,6 +319,12 @@ export class SessionPurge {
   async #purgeSession(sessionId: SessionId): Promise<SessionRowsDeletion> {
     try {
       return await this.#sessionLock.run(sessionId, async () => {
+        await this.#shellTable.closeSessionShells(sessionId).catch((error: unknown) => {
+          throw new SessionPurgeRefusal(
+            "the session's shells could not all be ended, so no row was deleted: " +
+              describeRejection(error),
+          );
+        });
         await this.#providerConversations.deleteConversations(sessionId).catch((error: unknown) => {
           throw new SessionPurgeRefusal(
             "the provider's copy of a conversation could not be deleted, so no row was " +

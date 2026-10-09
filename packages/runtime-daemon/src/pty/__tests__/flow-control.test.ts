@@ -21,7 +21,7 @@ function bindHandler(
 ): (transportId: number, paused: boolean) => Promise<unknown> {
   const registry = new MethodRegistryImpl();
   registerSessionSetTerminalFlowControl(registry, {
-    terminalSessions: {
+    shellTable: {
       declareFlowControl: (request, transportId) =>
         flowControl.declare(transportId, request.paused),
     },

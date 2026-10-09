@@ -551,9 +551,24 @@ describe("NodePtyHost — spawn, resize and write", () => {
     await ctx.host.resize(session_id, 40, 120);
     expect(ctx.child.resize).toHaveBeenCalledWith(120, 40); // (cols, rows)
 
+    // A write answers once the terminal has taken every byte, and fails with the terminal.
+    const callbacks: ((error?: Error) => void)[] = [];
+    vi.mocked(ctx.child.write).mockImplementation((_data, callback) => {
+      callbacks.push(callback);
+    });
     const payload = new Uint8Array([0x68, 0x69]); // "hi"
-    await ctx.host.write(session_id, payload);
-    expect(ctx.child.write).toHaveBeenCalledWith(payload);
+    let isWritten = false;
+    const writing = ctx.host.write(session_id, payload).then(() => {
+      isWritten = true;
+    });
+    await Promise.resolve();
+    expect(ctx.child.write).toHaveBeenCalledWith(payload, expect.any(Function));
+    expect(isWritten).toBe(false);
+    callbacks[0]?.();
+    await writing;
+    const failing = ctx.host.write(session_id, payload);
+    callbacks[1]?.(new Error("the terminal closed"));
+    await expect(failing).rejects.toThrow("the terminal closed");
 
     await expect(ctx.host.resize("nope", 1, 1)).rejects.toThrow(/unknown sessionId/);
     await expect(ctx.host.write("nope", new Uint8Array())).rejects.toThrow(/unknown sessionId/);

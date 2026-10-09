@@ -243,14 +243,14 @@ describe("ShellControlLease", () => {
     const { lease, changes } = openLease();
     const laptopPane = paneOn(LAPTOP, 1);
     await lease.takeForRun({ runId: RUN_A, commandId: COMMAND_A }, IDLE);
-    await lease.releaseSubscription(laptopPane.outputSubscriptionId);
+    await lease.releaseSubscriptions([laptopPane.outputSubscriptionId]);
     expect(await holderOf(lease)).toMatchObject({ holderRunId: RUN_A });
     await lease.releaseCommand({ runId: RUN_A, commandId: COMMAND_A });
 
     // The pane the lent hold was taken through closes under the run, its connection still open.
     await lease.take(laptopPane, false);
     await lease.takeForRun({ runId: RUN_A, commandId: COMMAND_B }, IDLE);
-    await lease.releaseSubscription(laptopPane.outputSubscriptionId);
+    await lease.releaseSubscriptions([laptopPane.outputSubscriptionId]);
     await lease.releaseCommand({ runId: RUN_A, commandId: COMMAND_B });
     expect(await holderOf(lease)).toBeNull();
     expect(changes.map((change) => [change.reason, change.holderDeviceId])).toEqual([

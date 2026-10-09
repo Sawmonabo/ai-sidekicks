@@ -1,9 +1,12 @@
 // Each shell's marks: the reader takes only marks carrying this shell's nonce out of its output,
 // and real zsh, bash and fish login shells, loaded beside a fixture home's own startup files and
 // another tool's hooks, report the prompt, the command's start and its end with its exit code, a
-// failing command's included. A shell this machine does not have is skipped.
+// failing command's and a traced one's included, with the nonce in no environment and its file
+// gone. bash is a true login shell both where it reads the script through `ENV` and as macOS's own
+// bash, which loads it from its first prompt command. A shell this machine does not have is
+// skipped.
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -12,7 +15,7 @@ import { describe, expect, it, vi } from "vitest";
 import { makeOrphanGuardDouble } from "../../../__fixtures__/child-doubles.js";
 import { findInstalledShell } from "../../../__fixtures__/installed-shell.js";
 import { NodePtyHost } from "../../../host/node-pty.js";
-import { prepareShellLaunch } from "../injection.js";
+import { discardMarkNonceFile, prepareShellLaunch } from "../injection.js";
 import { type ShellMark, ShellMarkReader } from "../marks.js";
 
 const encoder = new TextEncoder();
@@ -108,13 +111,22 @@ interface ShellCase {
   readonly expectedCheckOutput: (home: string) => string;
   /** The marks the fixture's own hooks print, each of which must pass through. */
   readonly passedThrough: readonly string[];
+  /** Turns the shell's command tracing on. */
+  readonly traceCommand: string;
+  /** Ends the shell; a bash login shell ends on `logout`, which any other bash refuses. */
+  readonly exitCommand: string;
 }
 
-// macOS's own bash 3.2, and elsewhere the system's bash 5.
-const BASH_PATH = process.platform === "darwin" ? "/bin/bash" : findInstalledShell("bash");
+// macOS's own bash 3.2, which loads the script from its first prompt command.
+const APPLE_BASH_PATH = process.platform === "darwin" ? "/bin/bash" : undefined;
+// A bash that reads the script through `ENV`: any other on the path.
+const ENV_BASH_PATH = ((installed) => (installed === APPLE_BASH_PATH ? undefined : installed))(
+  findInstalledShell("bash"),
+);
 
-// The smallest stand-in for bash-preexec: it runs `precmd_functions` from PROMPT_COMMAND, each
-// with the command's exit code, and `preexec_functions` from its DEBUG trap once per line.
+// The smallest stand-in for bash-preexec: it runs `precmd_functions` first in PROMPT_COMMAND, each
+// with the command's exit code, keeps the prompt commands already there, and from its DEBUG trap
+// runs `preexec_functions` once per line, only for a line typed after its last prompt command.
 const BASH_PREEXEC_STAND_IN = [
   "bash_preexec_imported=defined",
   "precmd_functions=()",
@@ -124,17 +136,69 @@ const BASH_PREEXEC_STAND_IN = [
   "__fixture_precmd() {",
   "  local exit_code=$? hook",
   '  for hook in "${precmd_functions[@]}"; do __fixture_return "$exit_code"; "$hook"; done',
-  "  __fixture_at_prompt=1",
   "}",
+  "__fixture_await_line() { __fixture_at_prompt=1; }",
   "__fixture_preexec() {",
   '  [ -n "$__fixture_at_prompt" ] && [ "$BASH_COMMAND" != __fixture_precmd ] || return 0',
   "  __fixture_at_prompt=",
   "  local hook",
   '  for hook in "${preexec_functions[@]}"; do "$hook" "$BASH_COMMAND"; done',
   "}",
-  "PROMPT_COMMAND=__fixture_precmd",
   "trap __fixture_preexec DEBUG",
+  `PROMPT_COMMAND=__fixture_precmd$'\\n'"\${PROMPT_COMMAND-}"$'\\n'__fixture_await_line`,
 ].join("\n");
+
+// The bash cases, for one bash. The person's own prompt command goes in as `promptCommandLine`
+// sets it: macOS's own bash loads the script from its prompt command, so there it is kept.
+function bashCases(
+  bashName: string,
+  shellPath: string | undefined,
+  promptCommandLine: (command: string) => string,
+): ShellCase[] {
+  const login = "$(shopt -q login_shell && echo login)";
+  return [
+    {
+      name: `${bashName} beside the person's PROMPT_COMMAND and DEBUG trap, as a login shell`,
+      shellPath,
+      files: {
+        ".bash_profile": "export FIXTURE_BASH_PROFILE=loaded-bash-profile\n. ~/.bashrc",
+        ".bashrc": [
+          "export FIXTURE_BASHRC=loaded-bashrc",
+          promptCommandLine(`printf "\\033]133;A;aid=person\\007"`),
+          "trap 'FIXTURE_DEBUG_TRAP=ran' DEBUG",
+        ].join("\n"),
+        ".profile": "export FIXTURE_PROFILE=read-though-bash-profile-exists",
+      },
+      checkCommand:
+        `echo "$FIXTURE_BASH_PROFILE,$FIXTURE_BASHRC,$FIXTURE_DEBUG_TRAP,$FIXTURE_PROFILE,` +
+        `${login},\${ENV-unset}"`,
+      expectedCheckOutput: () => "loaded-bash-profile,loaded-bashrc,ran,,login,unset",
+      passedThrough: [PERSON_PROMPT_MARK],
+      traceCommand: "set -x",
+      exitCommand: "logout",
+    },
+    {
+      name: `${bashName} beside bash-preexec`,
+      shellPath,
+      files: {
+        ".bash_profile": [
+          "export FIXTURE_BASH_PROFILE=loaded-bash-profile",
+          ". ~/bash-preexec.sh",
+          "fixture_precmd() { printf '\\033]133;A;aid=person\\007'; }",
+          "fixture_preexec() { FIXTURE_PREEXEC=ran; }",
+          "precmd_functions+=(fixture_precmd)",
+          "preexec_functions+=(fixture_preexec)",
+        ].join("\n"),
+        "bash-preexec.sh": BASH_PREEXEC_STAND_IN,
+      },
+      checkCommand: `echo "$FIXTURE_BASH_PROFILE,$FIXTURE_PREEXEC,${login}"`,
+      expectedCheckOutput: () => "loaded-bash-profile,ran,login",
+      passedThrough: [PERSON_PROMPT_MARK],
+      traceCommand: "set -x",
+      exitCommand: "logout",
+    },
+  ];
+}
 
 const SHELL_CASES: readonly ShellCase[] = [
   {
@@ -159,42 +223,15 @@ const SHELL_CASES: readonly ShellCase[] = [
     expectedCheckOutput: (home) =>
       `loaded-zshenv,loaded-zprofile,loaded-zshrc,loaded-zlogin,ran,${home}`,
     passedThrough: [PERSON_PROMPT_MARK, UNMARKED_END_MARK, FORGED_COMMAND_MARK],
+    traceCommand: "set -x",
+    exitCommand: "exit",
   },
-  {
-    name: "bash beside the person's PROMPT_COMMAND and DEBUG trap",
-    shellPath: BASH_PATH,
-    files: {
-      ".bash_profile": "export FIXTURE_BASH_PROFILE=loaded-bash-profile\n. ~/.bashrc",
-      ".bashrc": [
-        "export FIXTURE_BASHRC=loaded-bashrc",
-        "PROMPT_COMMAND='printf \"\\033]133;A;aid=person\\007\"'",
-        "trap 'FIXTURE_DEBUG_TRAP=ran' DEBUG",
-      ].join("\n"),
-      ".profile": "export FIXTURE_PROFILE=read-though-bash-profile-exists",
-    },
-    checkCommand:
-      'echo "$FIXTURE_BASH_PROFILE,$FIXTURE_BASHRC,$FIXTURE_DEBUG_TRAP,$FIXTURE_PROFILE"',
-    expectedCheckOutput: () => "loaded-bash-profile,loaded-bashrc,ran,",
-    passedThrough: [PERSON_PROMPT_MARK],
-  },
-  {
-    name: "bash beside bash-preexec",
-    shellPath: BASH_PATH,
-    files: {
-      ".bash_profile": [
-        "export FIXTURE_BASH_PROFILE=loaded-bash-profile",
-        ". ~/bash-preexec.sh",
-        "fixture_precmd() { printf '\\033]133;A;aid=person\\007'; }",
-        "fixture_preexec() { FIXTURE_PREEXEC=ran; }",
-        "precmd_functions+=(fixture_precmd)",
-        "preexec_functions+=(fixture_preexec)",
-      ].join("\n"),
-      "bash-preexec.sh": BASH_PREEXEC_STAND_IN,
-    },
-    checkCommand: 'echo "$FIXTURE_BASH_PROFILE,$FIXTURE_PREEXEC"',
-    expectedCheckOutput: () => "loaded-bash-profile,ran",
-    passedThrough: [PERSON_PROMPT_MARK],
-  },
+  ...bashCases("bash", ENV_BASH_PATH, (command) => `PROMPT_COMMAND='${command}'`),
+  ...bashCases(
+    "macOS's own bash",
+    APPLE_BASH_PATH,
+    (command) => `PROMPT_COMMAND='${command}'$'\\n'"$PROMPT_COMMAND"`,
+  ),
   {
     name: "fish beside another handler of its prompt event",
     shellPath: findInstalledShell("fish"),
@@ -209,6 +246,8 @@ const SHELL_CASES: readonly ShellCase[] = [
     checkCommand: 'echo "$FIXTURE_FISH"',
     expectedCheckOutput: () => "loaded-fish",
     passedThrough: [PERSON_PROMPT_MARK],
+    traceCommand: "set -g fish_trace 1",
+    exitCommand: "exit",
   },
 ];
 
@@ -244,19 +283,23 @@ describe.skipIf(process.platform === "win32")("each shell's marks in a real logi
         }
         const home = writeFixtureHome(shellCase.files);
         const host = new NodePtyHost(makeOrphanGuardDouble());
+        const launch = await prepareShellLaunch({
+          shellPath,
+          environment: [
+            ["HOME", home],
+            ["PATH", process.env["PATH"] ?? "/usr/bin:/bin"],
+            ["TERM", "xterm-256color"],
+          ],
+        });
         try {
-          const launch = prepareShellLaunch({
-            shellPath,
-            environment: [
-              ["HOME", home],
-              ["PATH", process.env["PATH"] ?? "/usr/bin:/bin"],
-              ["TERM", "xterm-256color"],
-            ],
-          });
-          if (launch.nonce === null) {
+          const { markNonce } = launch;
+          if (markNonce === null) {
             throw new Error(`${shellPath} was given no script`);
           }
-          const reader = new ShellMarkReader(launch.nonce);
+          const { nonce, nonceFile } = markNonce;
+          // The nonce reaches the shell only through its file.
+          expect(launch.environment.some(([, value]) => value.includes(nonce))).toBe(false);
+          const reader = new ShellMarkReader(nonce);
           const marks: ShellMark[] = [];
           let output = "";
           let sessionId = "";
@@ -314,14 +357,20 @@ describe.skipIf(process.platform === "win32")("each shell's marks in a real logi
             { timeout: PROMPT_TIMEOUT_MS, interval: 20 },
           );
 
-          // No variable a command inherits holds the nonce, whichever way the shell was given it.
+          // The script deleted the nonce's file, and no variable a command inherits names it.
+          expect(existsSync(nonceFile)).toBe(false);
           const inherited = await run("env");
           expect(markKinds(inherited.marks)).toEqual(ranWith(0));
           expect(inherited.output).toContain(`HOME=${home}`);
-          expect(inherited.output).not.toContain(launch.nonce);
+          expect(inherited.output).not.toContain(nonce);
+          expect(inherited.output).not.toContain(nonceFile);
 
           // A failing command's end mark carries its own exit code, not the hooks' own.
           expect(markKinds((await run("false")).marks)).toEqual(ranWith(1));
+
+          // With tracing on, the marks still come and the trace never prints the nonce.
+          await run(shellCase.traceCommand);
+          expect(markKinds((await run("true")).marks)).toEqual(ranWith(0));
 
           const check = await run(shellCase.checkCommand);
           expect(markKinds(check.marks)).toEqual(ranWith(0));
@@ -330,10 +379,10 @@ describe.skipIf(process.platform === "win32")("each shell's marks in a real logi
           for (const passed of shellCase.passedThrough) {
             expect(output).toContain(passed);
           }
-          expect(output).not.toContain(launch.nonce);
+          expect(output).not.toContain(nonce);
           // The shell exits by itself rather than being left to the drain's signals: fish dies on
           // the drain's SIGTERM, and a write still on its way would then reach a closed terminal.
-          await host.write(sessionId, encoder.encode("exit\r"));
+          await host.write(sessionId, encoder.encode(`${shellCase.exitCommand}\r`));
           await vi.waitFor(
             () => {
               expect(hasExited).toBe(true);
@@ -342,6 +391,9 @@ describe.skipIf(process.platform === "win32")("each shell's marks in a real logi
           );
         } finally {
           await host.shutdown({ perSessionTimeoutMs: 2_000, hostTimeoutMs: 2_000 });
+          if (launch.markNonce !== null) {
+            await discardMarkNonceFile(launch.markNonce);
+          }
           rmSync(home, { recursive: true, force: true });
         }
       },

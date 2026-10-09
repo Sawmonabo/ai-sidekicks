@@ -4,9 +4,10 @@
 // and cut only between characters, all sent before any output. A watcher whose connection cannot
 // take more, or that declared itself behind on this shell, stops receiving output; once it has
 // caught up, if any output passed it by, its next frame carries the drop mark and a fresh
-// scrollback, so it redraws from the window instead of the daemon holding output for it. Each
-// stream decodes the shell's bytes with its own streaming decoder, so a character split across
-// reads arrives whole.
+// scrollback, so it redraws from the window instead of the daemon holding output for it; one
+// still behind when the shell exits gets the drop mark and a fresh scrollback with the exit. Each
+// stream holds back the bytes that begin a character until the output that completes it, so a
+// character split across reads arrives whole, and every cursor counts only the bytes sent.
 
 import { jsonUtf8ByteLength } from "@ai-sidekicks/contracts/jsonrpc/byte-length";
 import { JSONRPC_VERSION, MAX_MESSAGE_BYTES } from "@ai-sidekicks/contracts/jsonrpc/message";
@@ -23,8 +24,8 @@ import type {
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import type { OutboundQueue } from "../../../ipc/handlers/session/subscribe.js";
-import type { ShellSize } from "../resize-queue.js";
-import { isContinuationByte } from "../scrollback.js";
+import type { ShellSize } from "../queue/resize.js";
+import { incompleteTailLength, isContinuationByte } from "../utf8-boundary.js";
 
 /** Where one subscription's frames go: its connection, and the producer behind its ack barrier. */
 export interface ShellOutputOutlet {
@@ -53,6 +54,9 @@ type ShellEnd = { exitCode: number; cursor: number } | null;
 
 type StreamState = "opening" | "live" | "behind" | "reseeding" | "closed";
 
+const NO_BYTES = new Uint8Array(0);
+const DECODER = new TextDecoder();
+
 // The start of the character at or before `index`, past `floor`; a run of bytes that continue no
 // character is cut where it stands.
 function characterStartAtOrBefore(bytes: Uint8Array, index: number, floor: number): number {
@@ -69,7 +73,8 @@ export class ShellOutputStream {
   readonly #source: ShellOutputSource;
   readonly #outboundQueue: OutboundQueue;
   #state: StreamState = "opening";
-  #decoder = new TextDecoder();
+  // The bytes that begin a character the next output completes, held back from the last frame.
+  #heldBytes: Uint8Array = NO_BYTES;
   #detachDrained: (() => void) | undefined;
   // The exit that came while the scrollback was being read, sent after it.
   #pendingExit: { exitCode: number; cursor: number } | undefined;
@@ -121,9 +126,11 @@ export class ShellOutputStream {
       this.#fallBehind();
       return;
     }
-    const data = this.#decoder.decode(output, { stream: true });
+    const { data, heldByteCount } = this.#decode(output);
     if (data.length > 0) {
-      this.#outlet.send({ changes: [{ ...this.#shell(), kind: "output", data, cursor }] });
+      this.#outlet.send({
+        changes: [{ ...this.#shell(), kind: "output", data, cursor: cursor - heldByteCount }],
+      });
     }
   }
 
@@ -140,25 +147,29 @@ export class ShellOutputStream {
   }
 
   /**
-   * Sends the shell's exit and ends the subscription. A watcher that missed output gets the drop
-   * mark with it, and a new subscription reads the scrollback; one whose scrollback is still being
-   * read gets the exit after it.
+   * Sends the shell's exit and ends the subscription: a live watcher gets what was held back and
+   * the exit, one behind gets the drop mark, a fresh scrollback and the exit, and one whose
+   * scrollback is still being read gets the exit after it.
    */
   exit(end: { exitCode: number; cursor: number }): void {
-    if (this.#state === "opening" || this.#state === "reseeding") {
+    if (this.#state === "closed") {
+      return;
+    }
+    if (this.#state !== "live") {
       this.#pendingExit = end;
+      if (this.#state === "behind") {
+        void this.#seed(true);
+      }
       return;
     }
     const changes: PtyOutputChange[] = [];
-    const isLive = this.#state === "live";
-    if (isLive) {
-      const rest = this.#decoder.decode();
-      if (rest.length > 0) {
-        changes.push({ ...this.#shell(), kind: "output", data: rest, cursor: end.cursor });
-      }
+    const rest = DECODER.decode(this.#heldBytes);
+    this.#heldBytes = NO_BYTES;
+    if (rest.length > 0) {
+      changes.push({ ...this.#shell(), kind: "output", data: rest, cursor: end.cursor });
     }
     changes.push(this.#exitedChange(end));
-    this.#outlet.send(isLive ? { changes } : { changes, dropped: true });
+    this.#outlet.send({ changes });
     this.end();
   }
 
@@ -186,7 +197,7 @@ export class ShellOutputStream {
     if (this.#isClosed()) {
       return;
     }
-    this.#decoder = new TextDecoder();
+    this.#heldBytes = NO_BYTES;
     const pendingExit = this.#pendingExit;
     if (pendingExit !== undefined) {
       // The shell is gone, so the stream ends with its scrollback and its exit even while its
@@ -237,24 +248,19 @@ export class ShellOutputStream {
     const frames: PtyOutputFrame[] = [];
     let start = 0;
     do {
-      // The rest of the window, cut shorter by measure until its frame fits.
+      // The rest of the window, cut shorter by measure until its frame fits. The last piece holds
+      // back a character the window ends inside, for the output that completes it.
       let end = bytes.byteLength;
-      let frame = pieceFrame(start, end, new TextDecoder().decode(bytes.subarray(start, end)));
+      let frame = this.#lastScrollbackFrame(bytes, start, pieceFrame);
       let measured = this.#messageByteLength(frame);
       while (measured > MAX_MESSAGE_BYTES) {
         const fitting = Math.floor(((end - start) * MAX_MESSAGE_BYTES) / measured) - 1;
         end = characterStartAtOrBefore(bytes, start + Math.max(1, fitting), start);
-        frame = pieceFrame(start, end, new TextDecoder().decode(bytes.subarray(start, end)));
+        frame = pieceFrame(start, end, DECODER.decode(bytes.subarray(start, end)));
         measured = this.#messageByteLength(frame);
       }
-      // The last piece goes through the stream's own decoder, which holds a character the window
-      // ends inside for the output that completes it, so it is never longer than measured.
-      if (end === bytes.byteLength) {
-        frame = pieceFrame(
-          start,
-          end,
-          this.#decoder.decode(bytes.subarray(start), { stream: true }),
-        );
+      if (end !== bytes.byteLength) {
+        this.#heldBytes = NO_BYTES;
       }
       frames.push(frame);
       start = end;
@@ -271,6 +277,29 @@ export class ShellOutputStream {
     for (const frame of frames) {
       this.#outlet.send(frame);
     }
+  }
+
+  // The frame of the window's bytes from `start` to its end, holding back a character it ends
+  // inside; its cursor counts only the bytes sent.
+  #lastScrollbackFrame(
+    bytes: Uint8Array,
+    start: number,
+    pieceFrame: (start: number, end: number, data: string) => PtyOutputFrame,
+  ): PtyOutputFrame {
+    this.#heldBytes = NO_BYTES;
+    const { data, heldByteCount } = this.#decode(bytes.subarray(start));
+    return pieceFrame(start, bytes.byteLength - heldByteCount, data);
+  }
+
+  // Decodes the bytes held back and `output` after them, holding back the bytes that begin a
+  // character the next output completes.
+  #decode(output: Uint8Array): { data: string; heldByteCount: number } {
+    const bytes =
+      this.#heldBytes.byteLength === 0 ? output : Buffer.concat([this.#heldBytes, output]);
+    const heldByteCount = incompleteTailLength(bytes);
+    const sentByteCount = bytes.byteLength - heldByteCount;
+    this.#heldBytes = Uint8Array.from(bytes.subarray(sentByteCount));
+    return { data: DECODER.decode(bytes.subarray(0, sentByteCount)), heldByteCount };
   }
 
   // One piece of the scrollback, `start` to `end` of its bytes, as the frame it rides: the first

@@ -432,20 +432,37 @@ describe("LocalIpcGateway outbound queue", () => {
       client.socket.pause();
       sendAll();
       expect(gateway.isFull(transportId)).toBe(true);
-      const drained = vi.fn();
-      gateway.onceDrained(transportId, drained);
+      // Waiters past a socket's listener limit share the connection's one drain listener, and a
+      // detached one is not called.
+      const warnings: string[] = [];
+      const recordWarning = (warning: Error): void => {
+        warnings.push(warning.name);
+      };
+      process.on("warning", recordWarning);
+      const drained = Array.from({ length: 20 }, () => vi.fn());
+      for (const waiter of drained) {
+        gateway.onceDrained(transportId, waiter);
+      }
+      const detached = vi.fn();
+      gateway.onceDrained(transportId, detached)();
 
       for (let turn = 0; turn < 3; turn += 1) {
         await new Promise<void>((resolve) => setImmediate(resolve));
       }
       expect(gateway.isFull(transportId)).toBe(true);
-      expect(drained).not.toHaveBeenCalled();
+      expect(drained[0]).not.toHaveBeenCalled();
 
       client.socket.resume();
       await client.replies(notificationCount);
       await vi.waitFor(() => {
-        expect(drained).toHaveBeenCalledTimes(1);
+        for (const waiter of drained) {
+          expect(waiter).toHaveBeenCalledTimes(1);
+        }
       });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      process.off("warning", recordWarning);
+      expect(detached).not.toHaveBeenCalled();
+      expect(warnings).not.toContain("MaxListenersExceededWarning");
       expect(gateway.isFull(transportId)).toBe(false);
 
       // A connection that closes while full reads as not full, so no stream waits on it.

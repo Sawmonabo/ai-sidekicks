@@ -47,8 +47,8 @@ export interface NodePtyChild {
   kill(signal?: string): void;
   /** Resize the PTY window. */
   resize(cols: number, rows: number): void;
-  /** Write a chunk to the PTY's master FD. */
-  write(data: string | Uint8Array): void;
+  /** Write a chunk to the PTY's master FD; `callback` follows once it is written, or fails. */
+  write(data: string | Uint8Array, callback: (error?: Error) => void): void;
   /** Stop reading the PTY's master FD. */
   pause(): void;
   /** Read the PTY's master FD again. */
@@ -78,10 +78,6 @@ export type NodePtySpawnFn = (
   args: ReadonlyArray<string>,
   options: NodePtySpawnOptions,
 ) => NodePtyChild;
-
-// --------------------------------------------------------------------------
-// Injectable dependency seam
-// --------------------------------------------------------------------------
 
 /** Windows console-control event codes per Win32 `GenerateConsoleCtrlEvent`. */
 export type ConsoleCtrlEvent = 0 | 1; // CTRL_C_EVENT | CTRL_BREAK_EVENT
@@ -119,10 +115,6 @@ interface ResolvedNodePtyHostDeps {
   readonly signalProcessGroup: (leaderId: number, signal: NodeJS.Signals) => void;
 }
 
-// --------------------------------------------------------------------------
-// Internal session table
-// --------------------------------------------------------------------------
-
 interface PtySessionRecord {
   /** Underlying `node-pty` child. */
   readonly child: NodePtyChild;
@@ -151,12 +143,8 @@ interface PtySessionRecord {
   escalated: boolean;
 }
 
-// --------------------------------------------------------------------------
-// Lazy resolution of real `node-pty` / `koffi` bindings
-// --------------------------------------------------------------------------
-//
-// Both modules load through dynamic `import(...)`, so nothing couples the file to them at module
-// load.
+// The real `node-pty` and `koffi` bindings load through dynamic `import(...)`, so nothing couples
+// the file to them at module load.
 
 /** Lazily resolve `node-pty.spawn`. Called on the first `spawn()` call. */
 async function loadNodePtySpawn(): Promise<NodePtySpawnFn> {
@@ -199,10 +187,6 @@ async function loadGenerateConsoleCtrlEvent(): Promise<
     binding(event, pid);
   };
 }
-
-// --------------------------------------------------------------------------
-// `NodePtyHost` class
-// --------------------------------------------------------------------------
 
 /**
  * In-process `node-pty` implementation of `PtyHost`. After `shutdown()` the instance is terminal:
@@ -382,13 +366,24 @@ export class NodePtyHost implements PtyHost {
     record.child.resize(cols, rows);
   }
 
-  /** Writes bytes to the PTY. Throws for an unknown session id. */
+  /**
+   * Writes bytes to the PTY, resolving once all of them are written, so a program that is not
+   * reading holds its writer back. Rejects for an unknown session id and a terminal that closed.
+   */
   public async write(sessionId: string, bytes: Uint8Array): Promise<void> {
     const record: PtySessionRecord | undefined = this.sessions.get(sessionId);
     if (record === undefined) {
       throw new Error(`NodePtyHost.write: unknown sessionId '${sessionId}'`);
     }
-    record.child.write(bytes);
+    const written = Promise.withResolvers<void>();
+    record.child.write(bytes, (error) => {
+      if (error === undefined) {
+        written.resolve();
+      } else {
+        written.reject(error);
+      }
+    });
+    await written.promise;
   }
 
   /** Stops reading the PTY. Throws for an unknown session id; an exited child gets nothing. */
@@ -847,10 +842,6 @@ export class NodePtyHost implements PtyHost {
     }
   }
 }
-
-// --------------------------------------------------------------------------
-// Helpers
-// --------------------------------------------------------------------------
 
 /** Converts wire env tuples to the record `node-pty.spawn` takes; the last duplicate key wins. */
 function envTuplesToRecord(

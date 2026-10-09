@@ -6,10 +6,11 @@
 // write naming an output subscription that is not the calling connection's own open subscription
 // to that shell is refused `pty.output_subscription_not_found` before the lease reads it. A
 // connection's end releases its bindings on every shell before its subscriptions end, so a hold
-// that ends with it is released as a disconnect. A shell keeps running until it is closed or its
-// program exits; an exited shell keeps its record, its scrollback and its holds.
-
-import { stat } from "node:fs/promises";
+// that ends with it is released as a disconnect. A shell keeps running until it is closed, its
+// program exits or its session is deleted. Whenever the daemon ends a shell's subscriptions — at
+// its exit, its close or its session's deletion — the hold bindings they carried are released as
+// closed panes, a close starting that release before the shell leaves its session; a run's hold
+// stays until its command or run ends. An exited shell keeps its record and its scrollback.
 
 import type { SubscriptionId } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
@@ -33,25 +34,30 @@ import {
   type TerminalId,
 } from "@ai-sidekicks/contracts/pty";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
-import { SESSION_WORKING_FOLDER_UNAVAILABLE_CODE } from "@ai-sidekicks/contracts/session/methods";
 import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 
-import { DaemonDomainError } from "../ipc/domain-error.js";
-import type { OutboundQueue } from "../ipc/handlers/session/subscribe.js";
-import type { SpawnEnvPair } from "../provider/spawn-env.js";
-import type { SessionWorkingFolder } from "../session/working-folder/read.js";
-import { mintUuidV7 } from "../uuid-v7.js";
-import { ShellControlLease, type ShellConnection, type ShellLeaseCaller } from "./control-lease.js";
-import { ShellFlowControl } from "./flow-control.js";
-import type { PtyHost } from "./host/contract.js";
-import type { FollowPtySession } from "./host/session-events.js";
-import { ShellMarkReader } from "./shell/integration/marks.js";
-import { ShellOutputScanner } from "./shell/output/scanner.js";
-import { ShellOutputStream, type ShellOutputOutlet } from "./shell/output/stream.js";
-import { ShellResizeQueue, type ShellSize } from "./shell/resize-queue.js";
-import { ScrollbackWindow } from "./shell/scrollback.js";
-import { prepareShellStart } from "./shell/start.js";
-import { ShellPaste, ShellWriteQueue } from "./shell/write-queue.js";
+import { DaemonDomainError } from "../../ipc/domain-error.js";
+import type { OutboundQueue } from "../../ipc/handlers/session/subscribe.js";
+import type { SpawnEnvPair } from "../../provider/spawn-env.js";
+import type { SessionWorkingFolder } from "../../session/working-folder/read.js";
+import { mintUuidV7 } from "../../uuid-v7.js";
+import {
+  ShellControlLease,
+  type ShellConnection,
+  type ShellLeaseCaller,
+} from "../control-lease.js";
+import { ShellFlowControl } from "../flow-control.js";
+import type { PtyHost } from "../host/contract.js";
+import type { FollowPtySession } from "../host/session-events.js";
+import { discardMarkNonceFile, type ShellMarkNonce } from "./integration/injection.js";
+import { ShellMarkReader } from "./integration/marks.js";
+import { ShellOutputScanner } from "./output/scanner.js";
+import { ShellOutputStream, type ShellOutputOutlet } from "./output/stream.js";
+import { ShellPastes } from "./paste.js";
+import { ShellResizeQueue, type ShellSize } from "./queue/resize.js";
+import { ShellWriteQueue } from "./queue/write.js";
+import { ScrollbackWindow } from "./scrollback.js";
+import { checkWorkingFolder, prepareShellStart } from "./start.js";
 
 /** The size a shell starts at before any pane sizes it: the conventional terminal's. */
 const INITIAL_SHELL_SIZE: ShellSize = { columns: 80, rows: 24 };
@@ -60,7 +66,7 @@ const INITIAL_SHELL_SIZE: ShellSize = { columns: 80, rows: 24 };
 const SHELL_TERMINAL_NAME = "xterm-256color";
 
 /** What the shell table is built from. */
-interface TerminalSessionsDeps {
+interface ShellTableDeps {
   /** The terminal host every shell runs in. */
   readonly host: PtyHost;
   /** Follows one host session's output and exit until the returned call. */
@@ -99,7 +105,10 @@ interface ShellRecord {
   readonly flowControl: ShellFlowControl;
   readonly scanner: ShellOutputScanner;
   readonly markReader: ShellMarkReader | null;
-  // Whether a prompt mark carrying the shell's nonce has arrived; one that never comes reports none.
+  // The file the shell reads its nonce from, until the shell has read it or never will.
+  markNonce: ShellMarkNonce | null;
+  // Whether a prompt mark carrying the shell's nonce has arrived; a shell without one reports
+  // none.
   isReportingMarks: boolean;
   readonly scrollback: ScrollbackWindow;
   // Bytes of output, its marks taken out, since the shell started.
@@ -107,14 +116,11 @@ interface ShellRecord {
   // The size the shell was last drawn at, which stays while nobody holds it.
   size: ShellSize;
   readonly writeQueue: ShellWriteQueue;
-  // The pastes whose last part has not come yet, by their paste id.
-  readonly pastes: Map<string, ShellPaste>;
+  readonly pastes: ShellPastes;
   readonly resizeQueue: ShellResizeQueue;
   // The write frames awaiting their lease check, one after another in arrival order.
   admissions: Promise<void>;
   readonly streams: Map<SubscriptionId, ShellOutputStream>;
-  // Whether a device typed into the shell since its last prompt mark.
-  hasInputSincePrompt: boolean;
 }
 
 // One session's shells, in tab order, and who follows its list.
@@ -172,41 +178,16 @@ function describeError(error: unknown): string {
   return error instanceof Error && error.message.length > 0 ? error.message : String(error);
 }
 
-// Refuses a shell start where the session's working folder is not in place, with why.
-async function checkWorkingFolder(
-  sessionId: SessionId,
-  workingFolder: string | null,
-): Promise<string> {
-  const refuse = (cause: string): DaemonDomainError =>
-    new DaemonDomainError(cause, {
-      code: SESSION_WORKING_FOLDER_UNAVAILABLE_CODE,
-      detail: { sessionId },
-    });
-  if (workingFolder === null) {
-    throw refuse("The session's working folder is not ready yet, so no shell can start in it.");
-  }
-  try {
-    if ((await stat(workingFolder)).isDirectory()) {
-      return workingFolder;
-    }
-  } catch (error) {
-    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
-      throw error;
-    }
-  }
-  throw refuse("The session's working folder is gone from disk, so no shell can start in it.");
-}
-
 /**
  * Every session's shells in this daemon. Each running shell follows its own host session's output
  * and exit through the daemon's one hand-off of the terminal host's events.
  */
-export class TerminalSessions {
-  readonly #deps: TerminalSessionsDeps;
+export class ShellTable {
+  readonly #deps: ShellTableDeps;
   readonly #sessions = new Map<SessionId, SessionShells>();
   readonly #outputSubscriptions = new Map<SubscriptionId, OutputSubscription>();
 
-  constructor(deps: TerminalSessionsDeps) {
+  constructor(deps: ShellTableDeps) {
     this.#deps = deps;
   }
 
@@ -231,9 +212,9 @@ export class TerminalSessions {
   /**
    * Starts a shell for the session, or answers the shell a retry with the same key already
    * started. Refuses a chat session `pty.chat_unsupported` and a session whose working folder is
-   * not in place `session.working_folder_unavailable`; a login shell the check before the start
-   * finds cannot start gives way to the platform's default shell, and a shell that fails to start
-   * keeps its record as `did_not_start` with the system's words for why.
+   * not in place `session.working_folder_unavailable`; a login shell the system will not start
+   * gives way to the platform's default shell, and a shell that fails to start keeps its record as
+   * `did_not_start` with the system's words for why.
    */
   open(request: PtyOpenRequest): Promise<PtyOpenResponse> {
     const session = this.#sessionShellsOf(request.sessionId);
@@ -255,18 +236,33 @@ export class TerminalSessions {
   }
 
   /**
-   * Ends a shell and removes it, ending its subscriptions; refused while a run holds it, and while
-   * another device holds it unless `force` is true. Of two closes of one shell, the second is
-   * refused `pty.not_found`.
+   * Ends a shell and removes it, ending its subscriptions and releasing the holds they carried;
+   * refused while a run holds it, and while another device holds it unless `force` is true. Of two
+   * closes of one shell, the second is refused `pty.not_found`. Resolves once the release is
+   * appended and the host has let the shell go, and rejects with either's failure.
    */
   async close(request: PtyCloseRequest, deviceId: DeviceId): Promise<void> {
     const shell = this.#findShell(request.sessionId, request.terminalId);
-    let hostClosed: Promise<void> = Promise.resolve();
+    let ended: Promise<void> = Promise.resolve();
     await shell.lease.admitClose(deviceId, request.force === true, () => {
       // Another close may have removed the shell while this one waited on its lease.
-      hostClosed = this.#removeShell(this.#sessionHolding(shell));
+      ended = this.#endShell(this.#sessionHolding(shell));
     });
-    await hostClosed;
+    await ended;
+  }
+
+  /**
+   * Ends every shell of a session being deleted, whoever holds it, so none keeps running in a
+   * folder about to go. Resolves once every one is let go, and rejects with the first failure.
+   */
+  async closeSessionShells(sessionId: SessionId): Promise<void> {
+    const session = this.#sessions.get(sessionId);
+    if (session === undefined) {
+      return;
+    }
+    await Promise.all(
+      [...session.shells.values()].map((shell) => this.#endShell({ session, shell })),
+    );
   }
 
   /** Puts the named shells first in the given order; any it does not name keep theirs after. */
@@ -332,18 +328,18 @@ export class TerminalSessions {
     const { shell, stream } = subscription;
     stream.detach();
     this.#forgetOutputSubscription(subscriptionId, shell);
-    const transportId = stream.transportId;
-    const isConnectionStillWatching = [...shell.streams.values()].some(
-      (other) => other.transportId === transportId,
+    this.#endWatch(shell, stream.transportId);
+    this.#reportFailure(
+      shell.lease.releaseSubscriptions([subscriptionId]),
+      `Shell ${shell.terminalId}'s hold could not be released as a pane closed`,
     );
-    if (!isConnectionStillWatching) {
-      this.#reportFailure(
-        shell.flowControl.removeWatcher(transportId),
-        `Shell ${shell.terminalId} could not read again after a watcher left`,
-      );
+    const closing = shell.pastes.closeFor(subscriptionId);
+    if (closing.byteLength > 0) {
+      // After the frames already waiting their turn, so the program is never left inside a paste.
+      shell.admissions = shell.admissions.then(() => {
+        this.#writeInput(shell, closing, "could not close a paste its pane left unfinished");
+      });
     }
-    this.#releaseSubscription(shell, subscriptionId);
-    this.#closePastes(shell, subscriptionId);
   }
 
   /**
@@ -373,29 +369,32 @@ export class TerminalSessions {
 
   /**
    * Writes one frame of input once the shell's lease admits it, in arrival order, after the frames
-   * before it; a paste's parts are marked as one paste. Resolves once the host has every byte of
-   * it; refuses as the take does for the shell and the subscription, also when either ended while
-   * the frame waited, and as the lease does for the writer.
+   * before it; a paste's parts are marked as one paste. Resolves once the host has written every
+   * byte of it to the shell's terminal; refuses as the take does for the shell and the
+   * subscription, also when either ended while the frame waited, and as the lease does for the
+   * writer, and rejects when the shell stopped running before its bytes were written.
    */
   async write(request: PtyWriteRequest, caller: ShellLeaseCaller): Promise<void> {
     const shell = this.#shellForOutputSubscription(request.sessionId, request.terminalId, caller);
     let delivered: Promise<void> = Promise.resolve();
     const admitted = shell.admissions.then(() =>
       shell.lease.admitWrite({ kind: "device", ...caller }, () => {
-        shell.hasInputSincePrompt = true;
-        delivered = shell.writeQueue.enqueue(this.#encodeInput(shell, request));
+        delivered = shell.writeQueue.enqueue(
+          request.kind === "keys"
+            ? Buffer.from(request.data, "utf8")
+            : shell.pastes.encodePart(request, () => shell.scanner.isBracketedPasteRequested),
+        );
       }),
     );
     // The chain only orders the next frame's check after this one; this frame's outcome reaches
     // its caller below. A refused part ends its paste, so the program is not left inside it.
     shell.admissions = admitted.catch(() => {
-      if (request.kind !== "paste") {
-        return;
-      }
-      const paste = shell.pastes.get(request.pasteId);
-      if (paste !== undefined) {
-        shell.pastes.delete(request.pasteId);
-        this.#writePasteEnd(shell, paste);
+      if (request.kind === "paste") {
+        this.#writeInput(
+          shell,
+          shell.pastes.closePaste(request.pasteId),
+          "could not close a paste a refused part left unfinished",
+        );
       }
     });
     await admitted;
@@ -404,7 +403,8 @@ export class TerminalSessions {
 
   /**
    * Sizes a shell from a connection its hold is bound to. Resolves once the host has this size or
-   * a newer one.
+   * a newer one; a shell that stopped running meanwhile keeps the size as the one it was last
+   * drawn at.
    */
   async resize(request: PtyResizeRequest, caller: ShellConnection): Promise<void> {
     const shell = this.#findShell(request.sessionId, request.terminalId);
@@ -455,48 +455,9 @@ export class TerminalSessions {
     }
   }
 
-  // The bytes one write frame puts on the shell's input; a paste's first part decides, once for
-  // all its parts, whether it is marked as pasted.
-  #encodeInput(shell: ShellRecord, request: PtyWriteRequest): Uint8Array {
-    if (request.kind === "keys") {
-      return Buffer.from(request.data, "utf8");
-    }
-    let paste = shell.pastes.get(request.pasteId);
-    if (paste === undefined) {
-      paste = new ShellPaste(shell.scanner.isBracketedPasteRequested, request.outputSubscriptionId);
-      shell.pastes.set(request.pasteId, paste);
-    }
-    if (request.isLastPart) {
-      shell.pastes.delete(request.pasteId);
-    }
-    return paste.encodePart(request.data, request.isLastPart);
-  }
-
-  // Closes every paste written through an ended subscription with its end mark, after the frames
-  // already waiting their turn, so the program in the shell is never left inside a paste.
-  #closePastes(shell: ShellRecord, subscriptionId: SubscriptionId): void {
-    const unfinished = [...shell.pastes].filter(
-      ([, paste]) => paste.outputSubscriptionId === subscriptionId,
-    );
-    if (unfinished.length === 0) {
-      return;
-    }
-    for (const [pasteId] of unfinished) {
-      shell.pastes.delete(pasteId);
-    }
-    shell.admissions = shell.admissions.then(() => {
-      for (const [, paste] of unfinished) {
-        this.#writePasteEnd(shell, paste);
-      }
-    });
-  }
-
-  // Writes what a paste left unfinished still holds, and its end mark, behind the admitted input.
-  #writePasteEnd(shell: ShellRecord, paste: ShellPaste): void {
-    this.#reportFailure(
-      shell.writeQueue.enqueue(paste.close()),
-      `Shell ${shell.terminalId} could not close a paste left unfinished`,
-    );
+  // Queues bytes no caller waits on behind the shell's admitted input, reporting a failure.
+  #writeInput(shell: ShellRecord, bytes: Uint8Array, failure: string): void {
+    this.#reportFailure(shell.writeQueue.enqueue(bytes), `Shell ${shell.terminalId} ${failure}`);
   }
 
   async #startShell(request: PtyOpenRequest, session: SessionShells): Promise<PtyOpenResponse> {
@@ -528,10 +489,18 @@ export class TerminalSessions {
     } catch (error) {
       status = { state: "did_not_start", cause: describeError(error) };
     }
-    const shell = this.#createShell(request, start.programName, status, hostSessionId, start.nonce);
+    const shell = this.#createShell(
+      request,
+      start.programName,
+      status,
+      hostSessionId,
+      start.markNonce,
+    );
     session.shells.set(shell.terminalId, shell);
     session.order.push(shell.terminalId);
-    if (hostSessionId !== null) {
+    if (hostSessionId === null) {
+      this.#discardMarkNonce(shell);
+    } else {
       shell.unfollowHost = this.#deps.followHostSession(hostSessionId, {
         onData: (chunk) => {
           this.#takeOutput(shell, chunk);
@@ -553,15 +522,17 @@ export class TerminalSessions {
     programName: string,
     status: PtyShellStatus,
     hostSessionId: string | null,
-    nonce: string | null,
+    markNonce: ShellMarkNonce | null,
   ): ShellRecord {
     const { sessionId } = request;
     const terminalId = TerminalIdSchema.parse(mintUuidV7());
-    const runningHostSession = (): string => {
-      if (shell.hostSessionId === null) {
-        throw new Error(`Shell ${terminalId} no longer runs`);
+    const { host } = this.#deps;
+    // Each host call is async, so a shell that stopped running fails the call that named it
+    // rather than the queue that made it. A read or a size has nothing to do once it stopped.
+    const ifRunning = async (call: (hostSession: string) => Promise<void>): Promise<void> => {
+      if (shell.hostSessionId !== null) {
+        await call(shell.hostSessionId);
       }
-      return shell.hostSessionId;
     };
     const shell: ShellRecord = {
       sessionId,
@@ -587,25 +558,28 @@ export class TerminalSessions {
         },
       }),
       flowControl: new ShellFlowControl({
-        pause: () => this.#deps.host.pause(runningHostSession()),
-        resume: () => this.#deps.host.resume(runningHostSession()),
+        pause: () => ifRunning((hostSession) => host.pause(hostSession)),
+        resume: () => ifRunning((hostSession) => host.resume(hostSession)),
       }),
       scanner: new ShellOutputScanner(),
-      markReader: nonce === null ? null : new ShellMarkReader(nonce),
+      markReader: markNonce === null ? null : new ShellMarkReader(markNonce.nonce),
+      markNonce,
       isReportingMarks: false,
       scrollback: new ScrollbackWindow(),
       outputOffset: 0,
       size: INITIAL_SHELL_SIZE,
-      writeQueue: new ShellWriteQueue((bytes) =>
-        this.#deps.host.write(runningHostSession(), bytes),
-      ),
-      pastes: new Map(),
+      writeQueue: new ShellWriteQueue(async (bytes) => {
+        if (shell.hostSessionId === null) {
+          throw new Error(`Shell ${terminalId} stopped running before its input was written`);
+        }
+        await host.write(shell.hostSessionId, bytes);
+      }),
+      pastes: new ShellPastes(),
       resizeQueue: new ShellResizeQueue((size) =>
-        this.#deps.host.resize(runningHostSession(), size.rows, size.columns),
+        ifRunning((hostSession) => host.resize(hostSession, size.rows, size.columns)),
       ),
       admissions: Promise.resolve(),
       streams: new Map(),
-      hasInputSincePrompt: false,
     };
     return shell;
   }
@@ -616,9 +590,10 @@ export class TerminalSessions {
       return;
     }
     const { output, marks } = shell.markReader.read(chunk);
-    if (marks.some((mark) => mark.kind === "prompt")) {
-      shell.hasInputSincePrompt = false;
+    if (!shell.isReportingMarks && marks.some((mark) => mark.kind === "prompt")) {
       shell.isReportingMarks = true;
+      // The shell has read its nonce once it marks a prompt with it.
+      this.#discardMarkNonce(shell);
     }
     this.#appendOutput(shell, output);
   }
@@ -637,9 +612,8 @@ export class TerminalSessions {
     }
   }
 
-  // An exited shell keeps its record and its holds, which end with their connections or its
-  // close; a prefix its mark reader held is output, its subscriptions get the exit and end, and
-  // the host lets the session go.
+  // An exited shell keeps its record; a prefix its mark reader held is output, its subscriptions
+  // get the exit and end with the holds they carried, and the host lets the session go.
   #takeExit(shell: ShellRecord, exitCode: number): void {
     // The host reports an exit only while the shell is followed, so it still has its session.
     const { hostSessionId } = shell;
@@ -654,10 +628,14 @@ export class TerminalSessions {
     shell.status = { state: "exited", exitCode };
     // An exited shell takes no input, so a paste left open has nothing to close.
     shell.pastes.clear();
-    for (const [subscriptionId, stream] of [...shell.streams]) {
-      stream.exit({ exitCode, cursor: shell.outputOffset });
-      this.#forgetOutputSubscription(subscriptionId, shell);
-    }
+    this.#discardMarkNonce(shell);
+    const end = { exitCode, cursor: shell.outputOffset };
+    this.#reportFailure(
+      this.#endSubscriptions(shell, (stream) => {
+        stream.exit(end);
+      }),
+      `Shell ${shell.terminalId}'s hold could not be released as its program exited`,
+    );
     this.#reportFailure(
       this.#deps.host.close(hostSessionId),
       `The terminal host could not let exited shell ${shell.terminalId} go`,
@@ -665,37 +643,79 @@ export class TerminalSessions {
     this.#refreshList(shell.sessionId);
   }
 
-  // Takes the shell out of its session at once and ends its subscriptions; answers the host's
-  // close of a shell that still runs.
-  #removeShell({ session, shell }: { session: SessionShells; shell: ShellRecord }): Promise<void> {
+  // Ends a shell's subscriptions and releases the holds they carried, announcing that before the
+  // shell leaves its session, then lets the host's session go.
+  async #endShell({
+    session,
+    shell,
+  }: {
+    session: SessionShells;
+    shell: ShellRecord;
+  }): Promise<void> {
+    shell.pastes.clear();
+    const released = this.#endSubscriptions(shell, (stream) => {
+      stream.end();
+    });
     session.shells.delete(shell.terminalId);
     session.order.splice(session.order.indexOf(shell.terminalId), 1);
-    for (const [subscriptionId, stream] of [...shell.streams]) {
-      stream.end();
-      this.#forgetOutputSubscription(subscriptionId, shell);
-    }
+    this.#discardMarkNonce(shell);
     this.#refreshList(shell.sessionId);
     this.#forgetIfIdle(shell.sessionId);
     const { hostSessionId } = shell;
-    if (hostSessionId === null) {
-      return Promise.resolve();
+    let hostClosed: Promise<void> = Promise.resolve();
+    if (hostSessionId !== null) {
+      shell.unfollowHost?.();
+      shell.unfollowHost = null;
+      shell.hostSessionId = null;
+      hostClosed = this.#deps.host.close(hostSessionId);
     }
-    shell.unfollowHost?.();
-    shell.unfollowHost = null;
-    shell.hostSessionId = null;
-    return this.#deps.host.close(hostSessionId);
+    await Promise.all([released, hostClosed]);
+  }
+
+  // Ends every output subscription of a shell from the daemon's side, `endStream` sending each its
+  // last frames, ends their watches, and releases the hold bindings they carried as closed panes;
+  // with no change of holder in flight, the release starts in this tick.
+  #endSubscriptions(
+    shell: ShellRecord,
+    endStream: (stream: ShellOutputStream) => void,
+  ): Promise<void> {
+    const ended = [...shell.streams];
+    for (const [subscriptionId, stream] of ended) {
+      endStream(stream);
+      this.#forgetOutputSubscription(subscriptionId, shell);
+    }
+    for (const transportId of new Set(ended.map(([, stream]) => stream.transportId))) {
+      this.#endWatch(shell, transportId);
+    }
+    return shell.lease.releaseSubscriptions(ended.map(([subscriptionId]) => subscriptionId));
+  }
+
+  // Stops counting a connection as the shell's watcher once none of its subscriptions is left.
+  #endWatch(shell: ShellRecord, transportId: number): void {
+    if ([...shell.streams.values()].some((stream) => stream.transportId === transportId)) {
+      return;
+    }
+    this.#reportFailure(
+      shell.flowControl.removeWatcher(transportId),
+      `Shell ${shell.terminalId} could not read again after a watcher left`,
+    );
+  }
+
+  #discardMarkNonce(shell: ShellRecord): void {
+    const { markNonce } = shell;
+    if (markNonce === null) {
+      return;
+    }
+    shell.markNonce = null;
+    this.#reportFailure(
+      discardMarkNonceFile(markNonce),
+      `Shell ${shell.terminalId}'s nonce file could not be removed`,
+    );
   }
 
   #forgetOutputSubscription(subscriptionId: SubscriptionId, shell: ShellRecord): void {
     this.#outputSubscriptions.delete(subscriptionId);
     shell.streams.delete(subscriptionId);
-  }
-
-  #releaseSubscription(shell: ShellRecord, subscriptionId: SubscriptionId): void {
-    this.#reportFailure(
-      shell.lease.releaseSubscription(subscriptionId),
-      `Shell ${shell.terminalId}'s hold could not be released as a pane closed`,
-    );
   }
 
   // The shell's session while the shell is still in it; throws `pty.not_found` once it is not.

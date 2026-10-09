@@ -1,19 +1,65 @@
-# Loaded through --init-file, which a login bash ignores, so this loads what a login shell would
-# and then adds the hooks that write the shell's marks. Runs in bash 3.2 as well as bash 5.
+# Loaded one of two ways, and either way the shell is a login shell. A bash started in posix mode
+# reads only the file `ENV` names, this one: it turns posix mode off and loads the login profile
+# itself. macOS's own bash, which skips `ENV`, reads its login profile as usual and loads this
+# file from its first prompt command, which this file then takes back out. Then it adds the hooks
+# that write the shell's marks. Runs in bash 3.2 as well as bash 5.
 
-# The nonce goes into an unexported variable before anything else runs, so no program inherits it.
-__sidekicks_nonce=$SIDEKICKS_SHELL_MARK_NONCE
-builtin unset SIDEKICKS_SHELL_MARK_NONCE
-
-if [ -r /etc/profile ]; then
-  builtin . /etc/profile
+if builtin shopt -oq posix; then
+  __sidekicks_from_prompt=
+  builtin set +o posix
+  # Posix mode turns this on, and turning posix mode off leaves it on.
+  if ((BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 4))); then
+    builtin shopt -u inherit_errexit
+  fi
+  # Posix mode names its own history file where the person named none.
+  if [ "${HISTFILE-}" = "$HOME/.sh_history" ]; then
+    HISTFILE=$HOME/.bash_history
+  fi
+  if [ -n "${SIDEKICKS_ORIGINAL_ENV+set}" ]; then
+    builtin export ENV="$SIDEKICKS_ORIGINAL_ENV"
+    builtin unset SIDEKICKS_ORIGINAL_ENV
+  else
+    builtin unset ENV
+  fi
+else
+  __sidekicks_from_prompt=1
 fi
-if [ -r ~/.bash_profile ]; then
-  builtin . ~/.bash_profile
-elif [ -r ~/.bash_login ]; then
-  builtin . ~/.bash_login
-elif [ -r ~/.profile ]; then
-  builtin . ~/.profile
+
+# The nonce goes from its file into an unexported variable, and the file goes at once, so no
+# program the shell starts can read it.
+__sidekicks_nonce=
+if [ -r "${SIDEKICKS_SHELL_MARK_NONCE_FILE-}" ]; then
+  builtin read -r __sidekicks_nonce <"$SIDEKICKS_SHELL_MARK_NONCE_FILE"
+  command rm -f -- "$SIDEKICKS_SHELL_MARK_NONCE_FILE"
+fi
+builtin unset SIDEKICKS_SHELL_MARK_NONCE_FILE
+
+if [ -z "$__sidekicks_from_prompt" ]; then
+  if [ -r /etc/profile ]; then
+    builtin . /etc/profile
+  fi
+  if [ -r ~/.bash_profile ]; then
+    builtin . ~/.bash_profile
+  elif [ -r ~/.bash_login ]; then
+    builtin . ~/.bash_login
+  elif [ -r ~/.profile ]; then
+    builtin . ~/.profile
+  fi
+else
+  # The loader goes for a call that hands on the exit code it was given, so the prompt commands
+  # around it read what they would have. A first line typed after it is the first command only
+  # where no prompt command of the person's follows the loader.
+  __sidekicks_pass_status() {
+    builtin return "$?"
+  }
+  __sidekicks_loader='builtin eval "$(<"$SIDEKICKS_BASH_SCRIPT")"'
+  case $PROMPT_COMMAND in
+    *"$__sidekicks_loader") __sidekicks_is_loader_last=1 ;;
+    *) __sidekicks_is_loader_last= ;;
+  esac
+  PROMPT_COMMAND=${PROMPT_COMMAND//"$__sidekicks_loader"/__sidekicks_pass_status}
+  builtin export -n PROMPT_COMMAND
+  builtin unset SIDEKICKS_BASH_SCRIPT __sidekicks_loader
 fi
 
 __sidekicks_command_started=
@@ -93,4 +139,11 @@ else
   else
     PROMPT_COMMAND=$'__sidekicks_prompt_hook\n'"${PROMPT_COMMAND-}"$'\n__sidekicks_await_command'
   fi
+fi
+
+# Loaded from the first prompt command, so that prompt's marks are written here. Waiting for the
+# first command is the last thing done, so no command of this file writes its start mark.
+if [ -n "$__sidekicks_from_prompt" ]; then
+  __sidekicks_prompt_hook
+  __sidekicks_at_prompt=$__sidekicks_is_loader_last
 fi

@@ -1,238 +1,60 @@
-// A session's shells over the in-process terminal host driving a fake PTY child: a shell drawn
-// again gets its scrollback at its last size and never a byte twice, a watcher that fell behind
-// catches up from the scrollback, the scrollback window keeps its newest whole lines, input
-// reaches the shell in order and whole, a paste sent in parts marked once around them all, a
-// request never reaches another session's shell or binds another connection's pane, and a login
-// shell that cannot start gives way to the platform's default with a line that says so. Over a
-// real zsh, the shell's nonce and its marks reach neither the scrollback nor any output frame.
+// A session's shells' output and input over the in-process terminal host driving a fake PTY
+// child: a shell drawn again gets its scrollback at its last size and never a byte twice, a
+// watcher that fell behind catches up from the scrollback, the scrollback window keeps its newest
+// whole lines, a window too large for one message goes on in continuation frames, a character
+// split across reads arrives whole with every cursor counting only the bytes sent, input reaches
+// the shell in order and whole, a paste sent in parts marked once around them all, and a request
+// never reaches another session's shell or binds another connection's pane. Over a real zsh, the
+// shell's nonce and its marks reach neither the scrollback nor any output frame.
 
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { setImmediate as nextTurn } from "node:timers/promises";
 
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  SubscriptionIdSchema,
-  type SubscriptionId,
-} from "@ai-sidekicks/contracts/jsonrpc/streaming";
-import { SHELL_MARK_NONCE_ENVIRONMENT_NAME } from "@ai-sidekicks/contracts/machine-settings";
+import { jsonUtf8ByteLength } from "@ai-sidekicks/contracts/jsonrpc/byte-length";
+import { JSONRPC_VERSION, MAX_MESSAGE_BYTES } from "@ai-sidekicks/contracts/jsonrpc/message";
+import { SUBSCRIPTION_NOTIFY_METHOD } from "@ai-sidekicks/contracts/jsonrpc/streaming";
+import { SHELL_MARK_NONCE_FILE_ENVIRONMENT_NAME } from "@ai-sidekicks/contracts/machine-settings";
 import {
   PTY_CHAT_UNSUPPORTED_CODE,
-  PTY_NOT_FOUND_CODE,
-  PTY_OUTPUT_SUBSCRIPTION_NOT_FOUND_CODE,
-  PtyControlChangedPayloadSchema,
-  PtyOutputFrameSchema,
   TerminalIdSchema,
-  type PtyControlChangedPayload,
   type PtyOutputChange,
   type PtyOutputFrame,
-  type PtyWriteRequest,
   type TerminalControlHolder,
   type TerminalId,
 } from "@ai-sidekicks/contracts/pty";
-import { SessionIdSchema, type SessionId } from "@ai-sidekicks/contracts/session/id";
-import type { SessionShape } from "@ai-sidekicks/contracts/session/methods";
-import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 
-import { makeFakeChild, makeOrphanGuardDouble } from "../__fixtures__/child-doubles.js";
-import { findInstalledShell } from "../__fixtures__/installed-shell.js";
-import type { PtyHost } from "../host/contract.js";
-import { NodePtyHost } from "../host/node-pty.js";
-import { PtySessionEvents } from "../host/session-events.js";
-import { SCROLLBACK_WINDOW_BYTES } from "../shell/scrollback.js";
-import { SHELL_WRITE_BOUND_BYTES } from "../shell/write-queue.js";
-import { TerminalSessions } from "../terminal-sessions.js";
-import { LAPTOP, MACHINE, PHONE, SESSION_ID } from "./control-lease.test-support.js";
+import { findInstalledShell } from "../../__fixtures__/installed-shell.js";
+import { makeOrphanGuardDouble } from "../../__fixtures__/child-doubles.js";
+import { LAPTOP, PHONE, SESSION_ID } from "../../__tests__/control-lease.test-support.js";
+import { NodePtyHost } from "../../host/node-pty.js";
+import { SHELL_WRITE_BOUND_BYTES } from "../queue/write.js";
+import { SCROLLBACK_WINDOW_BYTES } from "../scrollback.js";
+import {
+  CHAT_SESSION_ID,
+  OTHER_SESSION_ID,
+  notFound,
+  openTable,
+  paneOutlet,
+  pasteThrough,
+  holdHostCalls,
+  refusalOf,
+  subscriptionNotFound,
+  textOf,
+  writeThrough,
+} from "./table.test-support.js";
 
-const OTHER_SESSION_ID: SessionId = SessionIdSchema.parse("0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c9d1f");
-const CHAT_SESSION_ID: SessionId = SessionIdSchema.parse("0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c9d2a");
 const UNKNOWN_TERMINAL_ID: TerminalId = TerminalIdSchema.parse("no-such-terminal");
 
 // Where this machine's zsh is, for the case that starts a real one.
 const ZSH_PATH = findInstalledShell("zsh");
 const REAL_SHELL_TIMEOUT_MS = 15_000;
 
-const SESSION_SHAPES: ReadonlyMap<SessionId, SessionShape> = new Map([
-  [SESSION_ID, "project"],
-  [OTHER_SESSION_ID, "project"],
-  [CHAT_SESSION_ID, "chat"],
-]);
-
-// One host call a case finishes when it chooses.
-interface HeldHostCall<Request> {
-  readonly request: Request;
-  readonly finish: () => void;
-}
-
-// The table over a terminal host whose children are fakes, unless a case brings its own host,
-// with every program it started, every lease change it appended, the connections whose outbound
-// queue a case has filled, and what it wrote to the service log. The account's login shell is
-// `loginShell`, and every shell starts from `baseEnvironment`.
-function openTable(
-  options: {
-    loginShell?: string;
-    host?: PtyHost;
-    baseEnvironment?: readonly (readonly [string, string])[];
-  } = {},
-) {
-  const children: ReturnType<typeof makeFakeChild>[] = [];
-  const startedPrograms: string[] = [];
-  const host =
-    options.host ??
-    new NodePtyHost(makeOrphanGuardDouble(), {
-      platform: "darwin",
-      ptySpawn: (_command, args) => {
-        // Every program starts behind the parent check, `/bin/sh -c <check> <program> …`.
-        const program = args[2];
-        if (program === undefined) {
-          throw new Error("the parent check names no program");
-        }
-        const fake = makeFakeChild();
-        children.push(fake);
-        startedPrograms.push(program);
-        return fake.child;
-      },
-    });
-  const changes: PtyControlChangedPayload[] = [];
-  const fullTransports = new Set<number>();
-  const drainListeners = new Map<number, Set<() => void>>();
-  const serviceLog: string[] = [];
-  const hostSessionEvents = new PtySessionEvents(host);
-  const table = new TerminalSessions({
-    host,
-    followHostSession: (hostSessionId, listeners) =>
-      hostSessionEvents.follow(hostSessionId, listeners),
-    machineDeviceId: MACHINE,
-    readWorkingFolder: (sessionId) => {
-      const shape = SESSION_SHAPES.get(sessionId);
-      if (shape === undefined) {
-        throw new Error(`no session ${sessionId}`);
-      }
-      return { shape, workingFolder: tmpdir() };
-    },
-    appendControlChange: async (change) => {
-      changes.push(PtyControlChangedPayloadSchema.parse(change));
-    },
-    readScreenReaderMode: async () => false,
-    readLoginShell: () => options.loginShell ?? "/bin/sh",
-    baseEnvironment: options.baseEnvironment ?? [],
-    outboundQueue: {
-      isFull: (transportId) => fullTransports.has(transportId),
-      onceDrained: (transportId, listener) => {
-        const listeners = drainListeners.get(transportId) ?? new Set();
-        listeners.add(listener);
-        drainListeners.set(transportId, listeners);
-        return () => listeners.delete(listener);
-      },
-    },
-    writeServiceLog: (line) => {
-      serviceLog.push(line);
-    },
-  });
-  const openShell = async (sessionId: SessionId = SESSION_ID) => {
-    const { terminalId } = await table.open({ sessionId, clientIdempotencyKey: randomUUID() });
-    const child = children.at(-1);
-    if (child === undefined) {
-      throw new Error("the shell started no child");
-    }
-    return { terminalId, child };
-  };
-  return {
-    table,
-    host,
-    changes,
-    serviceLog,
-    openShell,
-    startedPrograms,
-    spawnCount: () => children.length,
-    fillQueue: (transportId: number) => {
-      fullTransports.add(transportId);
-    },
-    drainQueue: (transportId: number) => {
-      fullTransports.delete(transportId);
-      const listeners = [...(drainListeners.get(transportId) ?? [])];
-      drainListeners.delete(transportId);
-      for (const listener of listeners) {
-        listener();
-      }
-    },
-  };
-}
-
-// One pane's output subscription on one connection, and every frame it was sent.
-function paneOutlet(deviceId: DeviceId, transportId: number) {
-  const frames: PtyOutputFrame[] = [];
-  const subscriptionId: SubscriptionId = SubscriptionIdSchema.parse(randomUUID());
-  let isCompleted = false;
-  return {
-    caller: { deviceId, transportId, outputSubscriptionId: subscriptionId },
-    connection: { deviceId, transportId },
-    outlet: {
-      subscriptionId,
-      transportId,
-      send: (frame: PtyOutputFrame) => {
-        frames.push(PtyOutputFrameSchema.parse(frame));
-      },
-      complete: () => {
-        isCompleted = true;
-      },
-    },
-    frames,
-    isCompleted: () => isCompleted,
-  };
-}
-
-// The refusal an act threw, or a failure when it was not refused.
-async function refusalOf(act: () => unknown): Promise<unknown> {
-  try {
-    await act();
-  } catch (error) {
-    return error;
-  }
-  throw new Error("the act was not refused");
-}
-
-// Typed `data` through a pane's output subscription.
-function writeThrough(
-  shell: { sessionId: SessionId; terminalId: TerminalId },
-  outputSubscriptionId: SubscriptionId,
-  data: string,
-): PtyWriteRequest {
-  return { ...shell, outputSubscriptionId, data, kind: "keys" };
-}
-
-// One part of the paste `pasteId` through a pane's output subscription.
-function pasteThrough(
-  shell: { sessionId: SessionId; terminalId: TerminalId },
-  outputSubscriptionId: SubscriptionId,
-  part: { pasteId: string; data: string; isLastPart: boolean },
-): PtyWriteRequest {
-  return { ...shell, outputSubscriptionId, kind: "paste", ...part };
-}
-
-// Every piece of text the frames carried, in order.
-function textOf(frames: readonly PtyOutputFrame[]): string {
-  return frames
-    .flatMap((frame) => frame.changes)
-    .map((change) => ("data" in change ? change.data : ""))
-    .join("");
-}
-
-function notFound(terminalId: TerminalId): object {
-  return { code: PTY_NOT_FOUND_CODE, detail: { terminalId } };
-}
-
-function subscriptionNotFound(terminalId: TerminalId, outputSubscriptionId: SubscriptionId) {
-  return {
-    code: PTY_OUTPUT_SUBSCRIPTION_NOT_FOUND_CODE,
-    detail: { terminalId, outputSubscriptionId },
-  };
-}
-
-describe("TerminalSessions", () => {
+describe("ShellTable", () => {
   it("draws a shell again at its last size from its scrollback, sending no byte twice", async () => {
     const { table, openShell, fillQueue, drainQueue, serviceLog } = openTable();
     const { terminalId, child } = await openShell();
@@ -344,40 +166,92 @@ describe("TerminalSessions", () => {
     );
   });
 
+  it("continues a window too large for one message, and sends a split character whole", async () => {
+    const { table, openShell } = openTable();
+    const { terminalId, child } = await openShell();
+    const shell = { sessionId: SESSION_ID, terminalId };
+    const messageByteLength = (subscriptionId: string, frame: PtyOutputFrame): number =>
+      jsonUtf8ByteLength({
+        jsonrpc: JSONRPC_VERSION,
+        method: SUBSCRIPTION_NOTIFY_METHOD,
+        params: { subscriptionId, value: frame },
+      });
+
+    // Control bytes take six bytes each once escaped, so this window passes the message cap; it
+    // ends inside "é", whose first byte waits for the read that completes it.
+    const line = `${"\x01".repeat(60)}é\n`;
+    const window = Buffer.concat([
+      Buffer.from(line.repeat(15_000)),
+      Buffer.from("a"),
+      Buffer.from("é").subarray(0, 1),
+    ]);
+    child.emitData(window);
+    const laptop = paneOutlet(LAPTOP, 1);
+    await table.subscribeOutput(shell, laptop.outlet);
+    const accented = Buffer.from("é");
+    child.emitData(Buffer.concat([accented.subarray(1), Buffer.from("b")]));
+    // And a character split across two reads of live output.
+    child.emitData(Buffer.concat([Buffer.from("c"), accented.subarray(0, 1)]));
+    child.emitData(accented.subarray(1));
+
+    const changes = laptop.frames.flatMap((frame) => frame.changes);
+    expect(changes.map((change) => change.kind)).toEqual([
+      "scrollback",
+      ...Array.from({ length: changes.length - 4 }, () => "scrollback_continuation"),
+      "output",
+      "output",
+      "output",
+    ]);
+    expect(changes.length).toBeGreaterThan(4);
+    for (const frame of laptop.frames) {
+      expect(frame.changes).toHaveLength(1);
+      expect(messageByteLength(laptop.outlet.subscriptionId, frame)).toBeLessThanOrEqual(
+        MAX_MESSAGE_BYTES,
+      );
+    }
+    // Each piece is cut between characters, and each cursor counts the bytes sent up to it.
+    let sent = 0;
+    for (const change of changes) {
+      if (!("data" in change)) {
+        throw new Error("a frame carried no text");
+      }
+      expect(change.data).not.toContain("\uFFFD");
+      sent += Buffer.byteLength(change.data);
+      expect(change.cursor).toBe(sent);
+    }
+    expect(textOf(laptop.frames)).toBe(`${line.repeat(15_000)}aébcé`);
+    expect(changes.slice(-3).map((change) => ("data" in change ? change.data : ""))).toEqual([
+      "éb",
+      "c",
+      "é",
+    ]);
+  });
+
   it("writes input in order with one write in flight, sizes to the newest, and pastes in parts whole", async () => {
     const { table, host, openShell } = openTable();
     const { terminalId, child } = await openShell();
     const shell = { sessionId: SESSION_ID, terminalId };
-    const writes: HeldHostCall<Buffer>[] = [];
-    let isWriteHeld = true;
-    vi.spyOn(host, "write").mockImplementation((_hostSessionId, bytes) => {
-      const written = Promise.withResolvers<void>();
-      writes.push({ request: Buffer.from(bytes), finish: () => written.resolve() });
-      if (!isWriteHeld) {
-        written.resolve();
-      }
-      return written.promise;
-    });
-    const resizes: HeldHostCall<string>[] = [];
-    vi.spyOn(host, "resize").mockImplementation((_hostSessionId, rows, columns) => {
-      const resized = Promise.withResolvers<void>();
-      resizes.push({
-        request: `${String(columns)}x${String(rows)}`,
-        finish: () => resized.resolve(),
-      });
-      return resized.promise;
-    });
+    const { writes, resizes, letWritesThrough } = holdHostCalls(host);
     const laptop = paneOutlet(LAPTOP, 1);
     await table.subscribeOutput(shell, laptop.outlet);
     const typeKeys = (data: string): Promise<void> =>
       table.write(writeThrough(shell, laptop.caller.outputSubscriptionId, data), laptop.caller);
 
-    const typed = [typeKeys("a"), typeKeys("b"), typeKeys("c")];
+    // A write answers once its bytes are written, so a client pacing on the answers is paced.
+    let isFirstAnswered = false;
+    const typed = [
+      typeKeys("a").then(() => {
+        isFirstAnswered = true;
+      }),
+      typeKeys("b"),
+      typeKeys("c"),
+    ];
     await vi.waitFor(() => {
       expect(writes.map((write) => write.request.toString())).toEqual(["a"]);
     });
     await nextTurn();
     expect(writes).toHaveLength(1);
+    expect(isFirstAnswered).toBe(false);
     writes[0]?.finish();
     await vi.waitFor(() => {
       expect(writes.map((write) => write.request.toString())).toEqual(["a", "bc"]);
@@ -421,7 +295,7 @@ describe("TerminalSessions", () => {
       expect(writes.map((write) => write.request.toString())).toEqual(["a", "bc", "\x1b[200~a"]);
     });
     await nextTurn();
-    isWriteHeld = false;
+    letWritesThrough();
     writes[2]?.finish();
     await Promise.all(pasted);
     const whole = `\x1b[200~a${partText}${partText}y\x1b[201~`;
@@ -433,22 +307,35 @@ describe("TerminalSessions", () => {
     ]);
     expect(Buffer.concat(pieces).toString()).toBe(whole);
 
-    // A paste its pane leaves unfinished is closed with its end mark, after what it still held.
-    const unfinished = randomUUID();
-    await table.write(
-      pasteThrough(shell, laptop.caller.outputSubscriptionId, {
-        pasteId: unfinished,
-        data: "z\x1b[2",
-        isLastPart: false,
-      }),
-      laptop.caller,
-    );
+    // A paste belongs to the pane its newest part came through, and a pane's next paste closes
+    // its earlier one first; a paste its pane leaves unfinished is closed with its end mark,
+    // after what it still held.
+    const otherPane = paneOutlet(LAPTOP, 1);
+    await table.subscribeOutput(shell, otherPane.outlet);
+    const pastePart = (
+      pane: typeof laptop,
+      part: { pasteId: string; data: string; isLastPart: boolean },
+    ): Promise<void> =>
+      table.write(pasteThrough(shell, pane.caller.outputSubscriptionId, part), pane.caller);
+    const moved = randomUUID();
+    const displaced = randomUUID();
+    await pastePart(laptop, { pasteId: moved, data: "m", isLastPart: false });
+    await pastePart(otherPane, { pasteId: moved, data: "n", isLastPart: false });
+    await pastePart(laptop, { pasteId: displaced, data: "d", isLastPart: false });
+    await pastePart(laptop, { pasteId: randomUUID(), data: "z\x1b[2", isLastPart: false });
+    const writtenBefore = writes.length;
+    expect(writes.slice(-4).map((write) => write.request.toString())).toEqual([
+      "\x1b[200~m",
+      "n",
+      "\x1b[200~d",
+      "\x1b[201~\x1b[200~z",
+    ]);
     table.endOutputSubscription(laptop.outlet.subscriptionId);
+    table.endOutputSubscription(otherPane.outlet.subscriptionId);
+    const closings = (): string =>
+      Buffer.concat(writes.slice(writtenBefore).map((write) => write.request)).toString();
     await vi.waitFor(() => {
-      expect(writes.slice(-2).map((write) => write.request.toString())).toEqual([
-        "\x1b[200~z",
-        "\x1b[2\x1b[201~",
-      ]);
+      expect(closings()).toBe("\x1b[2\x1b[201~\x1b[201~");
     });
   });
 
@@ -532,30 +419,6 @@ describe("TerminalSessions", () => {
     expect(spawnCount()).toBe(spawnsBefore);
   });
 
-  it.skipIf(process.platform === "win32")(
-    "starts the platform's default shell, saying so first, where the login shell is missing",
-    async () => {
-      const missingShell = path.join(tmpdir(), `no-such-shell-${randomUUID()}`);
-      const platformDefaultShell = process.platform === "darwin" ? "/bin/zsh" : "/bin/sh";
-      const { table, openShell, startedPrograms } = openTable({ loginShell: missingShell });
-      const { terminalId, child } = await openShell();
-      const shell = { sessionId: SESSION_ID, terminalId };
-
-      const laptop = paneOutlet(LAPTOP, 1);
-      await table.subscribeOutput(shell, laptop.outlet);
-      child.emitData("$ ");
-
-      expect(startedPrograms).toEqual([platformDefaultShell]);
-      const notice =
-        `Could not start ${missingShell} (no such file), ` +
-        `so this tab runs ${platformDefaultShell}.\r\n`;
-      expect(laptop.frames.flatMap((frame) => frame.changes)).toEqual([
-        expect.objectContaining({ kind: "scrollback", data: notice }),
-        expect.objectContaining({ kind: "output", data: "$ " }),
-      ]);
-    },
-  );
-
   it.skipIf(process.platform === "win32" || ZSH_PATH === undefined)(
     "keeps a real zsh's nonce and marks out of its scrollback and every output frame",
     async () => {
@@ -565,10 +428,16 @@ describe("TerminalSessions", () => {
       const home = mkdtempSync(path.join(tmpdir(), "shell-table-"));
       writeFileSync(path.join(home, ".zshrc"), "PS1='$ '\n");
       const host = new NodePtyHost(makeOrphanGuardDouble());
-      const spawnEnvironments: (readonly (readonly [string, string])[])[] = [];
+      // The nonce, read from the file the shell is handed before the shell reads and deletes it.
+      const nonces: string[] = [];
       const spawn = host.spawn.bind(host);
       vi.spyOn(host, "spawn").mockImplementation((request) => {
-        spawnEnvironments.push(request.env);
+        const nonceFile = request.env.find(
+          ([name]) => name === SHELL_MARK_NONCE_FILE_ENVIRONMENT_NAME,
+        )?.[1];
+        if (nonceFile !== undefined) {
+          nonces.push(readFileSync(nonceFile, "utf8").trim());
+        }
         return spawn(request);
       });
       try {
@@ -586,9 +455,7 @@ describe("TerminalSessions", () => {
           clientIdempotencyKey: randomUUID(),
         });
         const shell = { sessionId: SESSION_ID, terminalId };
-        const nonce = spawnEnvironments[0]?.find(
-          ([name]) => name === SHELL_MARK_NONCE_ENVIRONMENT_NAME,
-        )?.[1];
+        const nonce = nonces[0];
         if (nonce === undefined) {
           throw new Error("zsh was started with no nonce");
         }

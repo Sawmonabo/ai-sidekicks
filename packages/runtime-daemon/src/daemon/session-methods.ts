@@ -8,6 +8,8 @@
 // point. One transcript projector serves both the read windows and the run stamp on each streamed
 // change. The services' background work starts only once the recovery pass has ended.
 
+import { userInfo } from "node:os";
+
 import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import type { NodeId } from "@ai-sidekicks/contracts/runtime-node/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
@@ -56,7 +58,7 @@ import { RuntimeBindingStore } from "../provider/runtime-binding-store.js";
 import type { RunSetupGate } from "../session/run/setup-gates.js";
 import type { PtyHost } from "../pty/host/contract.js";
 import type { PtySessionEvents } from "../pty/host/session-events.js";
-import { TerminalSessions } from "../pty/terminal-sessions.js";
+import { ShellTable } from "../pty/shell/table.js";
 import { SessionAutoTitle } from "../session/auto-title.js";
 import { SessionChanges } from "../session/changes.js";
 import { SessionConversion } from "../session/convert.js";
@@ -385,7 +387,7 @@ export function registerSessionMethods(
     outboundQueue: deps.outboundQueue,
     writeServiceLog: deps.writeServiceLog,
   });
-  const terminalSessions = new TerminalSessions({
+  const shellTable = new ShellTable({
     host: deps.ptyHost,
     followHostSession: (hostSessionId, listeners) =>
       deps.ptySessionEvents.follow(hostSessionId, listeners),
@@ -402,21 +404,23 @@ export function registerSessionMethods(
       );
     },
     readScreenReaderMode: async () => (await deps.settingsFile.read()).settings.screenReaderMode,
-    readLoginShell: () => deps.commandShell,
+    // Read from the account's record at each open, so a shell changed with `chsh` opens next.
+    readLoginShell: () => userInfo().shell,
     baseEnvironment: deps.providerBaseEnvironment,
     outboundQueue: deps.outboundQueue,
     writeServiceLog: deps.writeServiceLog,
   });
   registerPtyShellMethods(registry, {
-    terminalSessions,
+    shellTable,
     streamingPrimitive: deps.streamingPrimitive,
+    outboundQueue: deps.outboundQueue,
   });
   registerPtyInputOutputMethods(registry, {
-    terminalSessions,
+    shellTable,
     streamingPrimitive: deps.streamingPrimitive,
   });
-  registerSessionTakeControl(registry, { terminalSessions });
-  registerSessionSetTerminalFlowControl(registry, { terminalSessions });
+  registerSessionTakeControl(registry, { shellTable });
+  registerSessionSetTerminalFlowControl(registry, { shellTable });
 
   const autoTitle = new SessionAutoTitle({
     reader: database.reader,
@@ -447,6 +451,7 @@ export function registerSessionMethods(
     sessionList: listFeed,
     relatedRanking,
     whenFileCheckEnds: deps.whenFileCheckEnds,
+    shellTable,
   });
   // A stop can come while the recovery pass runs, before any start, or while a start is under way.
   let isStopped = false;
@@ -502,7 +507,7 @@ export function registerSessionMethods(
       await Promise.all([stopBackgroundWork?.(), repo.stop()]);
     },
     releaseConnection: (transportId) => {
-      terminalSessions.releaseConnection(transportId);
+      shellTable.releaseConnection(transportId);
     },
   };
 }

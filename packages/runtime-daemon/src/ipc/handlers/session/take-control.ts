@@ -9,13 +9,13 @@
 import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import { TERMINAL_CONTROL_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/pty";
 
-import type { TerminalSessions } from "../../../pty/terminal-sessions.js";
+import type { ShellTable } from "../../../pty/shell/table.js";
 import { shellConnectionOf } from "../pty/caller.js";
 import { registerDescribedMethod } from "../register-described-method.js";
 
 /** What `session.takeControl`'s handler calls. */
 export interface SessionTakeControlDeps {
-  readonly terminalSessions: Pick<TerminalSessions, "leaseForOutputSubscription">;
+  readonly shellTable: Pick<ShellTable, "leaseForOutputSubscription">;
 }
 
 /**
@@ -36,7 +36,7 @@ export function registerSessionTakeControl(
         ...shellConnectionOf(ctx, "session.takeControl"),
         outputSubscriptionId: request.outputSubscriptionId,
       };
-      return deps.terminalSessions
+      return deps.shellTable
         .leaseForOutputSubscription(request.sessionId, request.terminalId, caller)
         .take(caller, request.force === true);
     },

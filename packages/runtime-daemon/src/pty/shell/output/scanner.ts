@@ -1,11 +1,10 @@
 // Reads two things a shell's program asks of its terminal out of the shell's output: the title it
 // sets for itself (OSC 0 or OSC 2) and whether it wants pasted text marked as pasted (DEC private
 // mode 2004, set with `CSI ? 2004 h` and reset with `CSI ? 2004 l`). The sequences stay in the
-// output; the scanner only reads them, and one split across reads is read whole.
+// output; the scanner only reads them, and one split across reads is read whole. Plain text, most
+// of any output, is passed over in one search for the next escape.
 
 import { SHELL_TITLE_MAX_LEN } from "@ai-sidekicks/contracts/pty";
-
-import { SCROLLBACK_WINDOW_BYTES } from "../scrollback.js";
 
 const ESCAPE = 0x1b;
 const BELL = 0x07;
@@ -22,8 +21,10 @@ const LOWERCASE_H = 0x68;
 const LOWERCASE_L = 0x6c;
 
 const BRACKETED_PASTE_MODE = 2004;
-// A title's first buffer, which doubles as a longer title arrives.
-const TITLE_BUFFER_INITIAL_BYTES = 256;
+// The most of a title kept: every UTF-16 unit the bound keeps is at most three UTF-8 bytes, and
+// one character more, at most four, tells whether the last one kept ends its grapheme. A longer
+// title is read to its end and cut.
+const TITLE_MAX_BYTES = SHELL_TITLE_MAX_LEN * 3 + 4;
 // OSC 0 sets the icon name and the title, OSC 2 the title alone.
 const TITLE_COMMANDS: ReadonlySet<number> = new Set([0, 2]);
 const GRAPHEME_SEGMENTER = new Intl.Segmenter(undefined, { granularity: "grapheme" });
@@ -70,11 +71,11 @@ export class ShellOutputScanner {
   #namesBracketedPaste = false;
   #hasIntermediate = false;
   // The operating system command being read: its number until the first `;`, then, for a title,
-  // the title's bytes, kept until it is known to be no title, or a title too long to keep.
+  // the title's first bytes, kept until it is known to be no title.
   #command = 0;
   #isCommandRead = false;
   #isTitleKept = false;
-  #titleBuffer = new Uint8Array(TITLE_BUFFER_INITIAL_BYTES);
+  readonly #titleBuffer = new Uint8Array(TITLE_MAX_BYTES);
   #titleByteCount = 0;
 
   /**
@@ -93,23 +94,31 @@ export class ShellOutputScanner {
   /** Reads the next output; answers whether the title changed. */
   scan(output: Uint8Array): boolean {
     const titleBefore = this.#title;
-    for (const byte of output) {
-      this.#step(byte);
+    let index = 0;
+    while (index < output.byteLength) {
+      if (this.#state === "ground") {
+        // Only an escape leaves the ground state; cancel and substitute keep it.
+        const escape = output.indexOf(ESCAPE, index);
+        if (escape === -1) {
+          break;
+        }
+        this.#state = "escape";
+        index = escape + 1;
+        continue;
+      }
+      this.#step(output[index] ?? 0);
+      index += 1;
     }
     return this.#title !== titleBefore;
   }
 
+  // One byte read outside the ground state, which `scan` passes over itself.
   #step(byte: number): void {
     if (byte === CANCEL || byte === SUBSTITUTE) {
       this.#state = "ground";
       return;
     }
     switch (this.#state) {
-      case "ground":
-        if (byte === ESCAPE) {
-          this.#state = "escape";
-        }
-        return;
       case "escape":
         this.#stepEscape(byte);
         return;
@@ -207,20 +216,8 @@ export class ShellOutputScanner {
       }
       return;
     }
-    if (!this.#isTitleKept) {
+    if (!this.#isTitleKept || this.#titleByteCount === TITLE_MAX_BYTES) {
       return;
-    }
-    // A title longer than the scrollback window is not kept, which bounds what one command holds.
-    if (this.#titleByteCount >= SCROLLBACK_WINDOW_BYTES) {
-      this.#isTitleKept = false;
-      return;
-    }
-    if (this.#titleByteCount === this.#titleBuffer.byteLength) {
-      const grown = new Uint8Array(
-        Math.min(this.#titleBuffer.byteLength * 2, SCROLLBACK_WINDOW_BYTES),
-      );
-      grown.set(this.#titleBuffer);
-      this.#titleBuffer = grown;
     }
     this.#titleBuffer[this.#titleByteCount] = byte;
     this.#titleByteCount += 1;
@@ -234,9 +231,5 @@ export class ShellOutputScanner {
       this.#title = title.length === 0 ? null : title;
     }
     this.#isTitleKept = false;
-    // A long title's buffer is let go once it has been read.
-    if (this.#titleBuffer.byteLength > TITLE_BUFFER_INITIAL_BYTES) {
-      this.#titleBuffer = new Uint8Array(TITLE_BUFFER_INITIAL_BYTES);
-    }
   }
 }

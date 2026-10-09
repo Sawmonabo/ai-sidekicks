@@ -76,8 +76,17 @@ export const CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME: string = "CODEX_APP_SERVER_B
 /** Set to `1` on a Terminal pane's shell alone while `Simplify for a screen reader` is on. */
 export const CLAUDE_SCREEN_READER_ENVIRONMENT_NAME: string = "CLAUDE_AX_SCREEN_READER";
 
-/** Carries a Terminal pane's shell its mark nonce, which the shell's script reads and unsets. */
-export const SHELL_MARK_NONCE_ENVIRONMENT_NAME: string = "SIDEKICKS_SHELL_MARK_NONCE";
+/**
+ * Names the file a Terminal pane's shell reads its mark nonce from; the shell's script deletes the
+ * file and unsets the name, so the nonce never sits in an environment another program can read.
+ */
+export const SHELL_MARK_NONCE_FILE_ENVIRONMENT_NAME: string = "SIDEKICKS_SHELL_MARK_NONCE_FILE";
+
+/** Carries bash's own `ENV` past the posix-mode start that loads a Terminal pane's shell script. */
+export const SHELL_ORIGINAL_ENV_ENVIRONMENT_NAME: string = "SIDEKICKS_ORIGINAL_ENV";
+
+/** Names a Terminal pane's shell script for a bash that loads it from its first prompt command. */
+export const SHELL_BASH_SCRIPT_ENVIRONMENT_NAME: string = "SIDEKICKS_BASH_SCRIPT";
 
 /** Carries zsh's own `ZDOTDIR` past the folder that loads a Terminal pane's shell script. */
 export const SHELL_ORIGINAL_ZDOTDIR_ENVIRONMENT_NAME: string = "SIDEKICKS_ORIGINAL_ZDOTDIR";
@@ -94,7 +103,9 @@ export const APP_SET_ENVIRONMENT_NAMES: readonly string[] = Object.freeze([
   ...CLAUDE_UPDATE_SWITCH_NAMES,
   CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME,
   CLAUDE_SCREEN_READER_ENVIRONMENT_NAME,
-  SHELL_MARK_NONCE_ENVIRONMENT_NAME,
+  SHELL_MARK_NONCE_FILE_ENVIRONMENT_NAME,
+  SHELL_ORIGINAL_ENV_ENVIRONMENT_NAME,
+  SHELL_BASH_SCRIPT_ENVIRONMENT_NAME,
   SHELL_ORIGINAL_ZDOTDIR_ENVIRONMENT_NAME,
   SHELL_ORIGINAL_XDG_DATA_DIRS_ENVIRONMENT_NAME,
 ]);

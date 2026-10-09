@@ -2,9 +2,14 @@
 # with its vendor configuration, before the person's config.fish, to add the handlers that write
 # the shell's marks.
 
-# The nonce goes into an unexported variable at once, so no program the shell starts inherits it.
-set -g __sidekicks_nonce $SIDEKICKS_SHELL_MARK_NONCE
-set -eg SIDEKICKS_SHELL_MARK_NONCE
+# The nonce goes from its file into an unexported variable at once, and the file goes, so no
+# program the shell starts can read it.
+set -g __sidekicks_nonce
+if test -r "$SIDEKICKS_SHELL_MARK_NONCE_FILE"
+    read -g __sidekicks_nonce <$SIDEKICKS_SHELL_MARK_NONCE_FILE
+    command rm -f -- $SIDEKICKS_SHELL_MARK_NONCE_FILE
+end
+set -eg SIDEKICKS_SHELL_MARK_NONCE_FILE
 
 # The person's own XDG_DATA_DIRS comes back, or none where they had none.
 if set -q SIDEKICKS_ORIGINAL_XDG_DATA_DIRS
@@ -17,7 +22,9 @@ end
 set -g __sidekicks_command_started 0
 set -g __sidekicks_exit_code 0
 
+# Tracing is off inside, so a person's `fish_trace` never writes the nonce into the output.
 function __sidekicks_print_mark --argument-names body
+    set -l fish_trace
     builtin printf '\e]133;%s;nonce=%s\a' $body $__sidekicks_nonce
 end
 

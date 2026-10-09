@@ -1,11 +1,11 @@
 // One shell's input on its way to the terminal host: bytes reach the shell in the order they were
 // admitted, one host write in flight at a time, and whatever arrives meanwhile rides the next
 // write, each write no larger than the daemon's write bound. A paste of any size, sent in parts,
-// goes in pieces one after another and nothing is refused or dropped.
+// goes in pieces one after another and nothing is refused or dropped. A write is done once the
+// terminal host has written its bytes to the terminal, so a caller that waits for each pastes no
+// faster than the program in the shell reads.
 
-import type { SubscriptionId } from "@ai-sidekicks/contracts/jsonrpc/streaming";
-
-import { MAX_FRAME_BODY_BYTES } from "../sidecar/frame-codec.js";
+import { MAX_FRAME_BODY_BYTES } from "../../sidecar/frame-codec.js";
 
 // The longest session id the sidecar mints: `s-` and its 64-bit counter.
 const LONGEST_SIDECAR_SESSION_ID = `s-${String(2n ** 64n - 1n)}`;
@@ -24,71 +24,6 @@ const WRITE_FRAME_ENVELOPE_BYTES = JSON.stringify({
  */
 export const SHELL_WRITE_BOUND_BYTES: number =
   Math.floor((MAX_FRAME_BODY_BYTES - WRITE_FRAME_ENVELOPE_BYTES) / 4) * 3;
-
-// The marks around a bracketed paste.
-const PASTE_START = "\x1b[200~";
-const PASTE_END = "\x1b[201~";
-
-// The longest end of a part that may begin an end mark the next part completes.
-function heldEndMarkPrefixLength(text: string): number {
-  for (let length = Math.min(PASTE_END.length - 1, text.length); length > 0; length -= 1) {
-    if (text.endsWith(PASTE_END.slice(0, length))) {
-      return length;
-    }
-  }
-  return 0;
-}
-
-/**
- * One paste on its way to a shell across the parts it was sent in. Whether it is marked as pasted
- * is fixed at its first part, by whether the program in the shell asked for bracketed paste then:
- * a marked paste is opened once before its first part and closed once after its last, with every
- * end mark inside it removed first, even one split across two parts or one that removing another
- * would form, so the pasted text cannot close the marks early.
- */
-export class ShellPaste {
-  /** The pane output subscription the paste is written through. */
-  readonly outputSubscriptionId: SubscriptionId;
-  readonly #isBracketed: boolean;
-  #hasStarted = false;
-  // The end of the last part that may begin an end mark, held until the next part shows.
-  #heldText = "";
-
-  constructor(isBracketed: boolean, outputSubscriptionId: SubscriptionId) {
-    this.#isBracketed = isBracketed;
-    this.outputSubscriptionId = outputSubscriptionId;
-  }
-
-  /** The bytes one part puts on the shell's input, the marks included where they fall. */
-  encodePart(data: string, isLastPart: boolean): Uint8Array {
-    if (!this.#isBracketed) {
-      return Buffer.from(data, "utf8");
-    }
-    const opening = this.#hasStarted ? "" : PASTE_START;
-    this.#hasStarted = true;
-    let pasted = `${this.#heldText}${data}`;
-    while (pasted.includes(PASTE_END)) {
-      pasted = pasted.replaceAll(PASTE_END, "");
-    }
-    if (isLastPart) {
-      this.#heldText = "";
-      return Buffer.from(`${opening}${pasted}${PASTE_END}`, "utf8");
-    }
-    const keptLength = pasted.length - heldEndMarkPrefixLength(pasted);
-    this.#heldText = pasted.slice(keptLength);
-    return Buffer.from(`${opening}${pasted.slice(0, keptLength)}`, "utf8");
-  }
-
-  /** The bytes that close a paste whose last part never came: what it held, and its end mark. */
-  close(): Uint8Array {
-    if (!this.#isBracketed) {
-      return new Uint8Array(0);
-    }
-    const closing = `${this.#heldText}${PASTE_END}`;
-    this.#heldText = "";
-    return Buffer.from(closing, "utf8");
-  }
-}
 
 // Bytes admitted to the shell and how far the host writes have taken them.
 interface QueuedInput {

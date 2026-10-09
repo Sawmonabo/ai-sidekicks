@@ -1,5 +1,38 @@
+diff --git a/lib/terminal.js b/lib/terminal.js
+index 5b6aa1b08cbaefa9705faab36b9b16ad0e9aee05..690b8e462d9c31dc7e3f07b5d1f695d766c1b965 100644
+--- a/lib/terminal.js
++++ b/lib/terminal.js
+@@ -72,20 +72,26 @@ var Terminal = /** @class */ (function () {
+         enumerable: false,
+         configurable: true
+     });
+-    Terminal.prototype.write = function (data) {
++    Terminal.prototype.write = function (data, callback) {
+         if (this.handleFlowControl) {
+             // PAUSE/RESUME messages are not forwarded to the pty
+             if (data === this._flowControlPause) {
+                 this.pause();
++                if (callback) {
++                    callback();
++                }
+                 return;
+             }
+             if (data === this._flowControlResume) {
+                 this.resume();
++                if (callback) {
++                    callback();
++                }
+                 return;
+             }
+         }
+         // everything else goes to the real pty
+-        this._write(data);
++        this._write(data, callback);
+     };
+     Terminal.prototype._forwardEvents = function () {
+         var _this = this;
 diff --git a/lib/unixTerminal.js b/lib/unixTerminal.js
-index af2d24c39deb60e77ad16e6b864f37a7ef58881c..ee03cb96fed88cb07a8808d9be901ac9d6f3a8ae 100644
+index af2d24c39deb60e77ad16e6b864f37a7ef58881c..6c37df90d9ece5f64ad85aac51f176f8088ad593 100644
 --- a/lib/unixTerminal.js
 +++ b/lib/unixTerminal.js
 @@ -97,6 +97,13 @@ var UnixTerminal = /** @class */ (function (_super) {
@@ -16,16 +49,39 @@ index af2d24c39deb60e77ad16e6b864f37a7ef58881c..ee03cb96fed88cb07a8808d9be901ac9
          // setup
          _this._socket.on('error', function (err) {
              // NOTE: fs.ReadStream gets EAGAIN twice at first:
-@@ -293,7 +300,24 @@ var CustomWriteStream = /** @class */ (function () {
+@@ -154,8 +161,8 @@ var UnixTerminal = /** @class */ (function (_super) {
+         enumerable: false,
+         configurable: true
+     });
+-    UnixTerminal.prototype._write = function (data) {
+-        this._writeStream.write(data);
++    UnixTerminal.prototype._write = function (data, callback) {
++        this._writeStream.write(data, callback);
+     };
+     Object.defineProperty(UnixTerminal.prototype, "fd", {
+         /* Accessors */
+@@ -293,18 +300,56 @@ var CustomWriteStream = /** @class */ (function () {
          clearImmediate(this._writeImmediate);
          this._writeImmediate = undefined;
      };
+-    CustomWriteStream.prototype.write = function (data) {
 +    /**
-+     * Stops writing for good: drops the queued writes and calls `onIdle` once no write is in flight.
++     * Fails every queued write's callback with `err` and empties the queue.
++     */
++    CustomWriteStream.prototype._failQueue = function (err) {
++        var tasks = this._writeQueue.splice(0);
++        for (var i = 0; i < tasks.length; i++) {
++            if (tasks[i].callback) {
++                tasks[i].callback(err);
++            }
++        }
++    };
++    /**
++     * Stops writing for good: fails the queued writes and calls `onIdle` once no write is in flight.
 +     */
 +    CustomWriteStream.prototype.close = function (onIdle) {
 +        this.dispose();
-+        this._writeQueue.length = 0;
++        this._failQueue(new Error('The terminal closed before this write'));
 +        this._isStopped = true;
 +        if (this._isWriting) {
 +            this._onIdle = onIdle;
@@ -34,14 +90,36 @@ index af2d24c39deb60e77ad16e6b864f37a7ef58881c..ee03cb96fed88cb07a8808d9be901ac9
 +            onIdle();
 +        }
 +    };
-     CustomWriteStream.prototype.write = function (data) {
++    /**
++     * Queues `data`; `callback`, when given, is called once every byte of it is written, or with
++     * the error that stopped it.
++     */
++    CustomWriteStream.prototype.write = function (data, callback) {
 +        if (this._isStopped) {
++            if (callback) {
++                callback(new Error('The terminal closed before this write'));
++            }
 +            return;
 +        }
          // Writes are put in a queue and processed asynchronously in order to handle
          // backpressure from the kernel buffer.
          var buffer = typeof data === 'string'
-@@ -316,7 +340,14 @@ var CustomWriteStream = /** @class */ (function () {
+             ? Buffer.from(data, this._encoding)
+             : Buffer.from(data);
+         if (buffer.byteLength !== 0) {
+-            this._writeQueue.push({ buffer: buffer, offset: 0 });
++            this._writeQueue.push({ buffer: buffer, offset: 0, callback: callback });
+             if (this._writeQueue.length === 1) {
+                 this._processWriteQueue();
+             }
+         }
++        else if (callback) {
++            callback();
++        }
+     };
+     CustomWriteStream.prototype._processWriteQueue = function () {
+         var _this = this;
+@@ -316,7 +361,14 @@ var CustomWriteStream = /** @class */ (function () {
          // Write to the underlying file descriptor and handle it directly, rather
          // than using the `net.Socket`/`tty.WriteStream` wrappers which swallow and
          // mask errors like EAGAIN and can cause the thread to block indefinitely.
@@ -56,11 +134,13 @@ index af2d24c39deb60e77ad16e6b864f37a7ef58881c..ee03cb96fed88cb07a8808d9be901ac9
              if (err) {
                  if ('code' in err && err.code === 'EAGAIN') {
                      // `setImmediate` is used to yield to the event loop and re-attempt
-@@ -326,7 +357,13 @@ var CustomWriteStream = /** @class */ (function () {
+@@ -325,14 +377,23 @@ var CustomWriteStream = /** @class */ (function () {
+                 }
                  else {
                      // Stop processing immediately on unexpected error and log
-                     _this._writeQueue.length = 0;
+-                    _this._writeQueue.length = 0;
 -                    console.error('Unhandled pty write error', err);
++                    _this._failQueue(err);
 +                    // EIO is the other side of the terminal hanging up: the terminal has ended.
 +                    if (err.code === 'EIO') {
 +                        _this._isStopped = true;
@@ -71,3 +151,48 @@ index af2d24c39deb60e77ad16e6b864f37a7ef58881c..ee03cb96fed88cb07a8808d9be901ac9
                  }
                  return;
              }
+             task.offset += written;
+             if (task.offset >= task.buffer.byteLength) {
+                 _this._writeQueue.shift();
++                if (task.callback) {
++                    task.callback();
++                }
+             }
+             // Since there is more room in the kernel buffer, we can continue to write
+             // until we hit EAGAIN or exhaust the queue.
+diff --git a/lib/windowsTerminal.js b/lib/windowsTerminal.js
+index cd658d0737b2b96e2f41fcd0715a5807caa91307..3262d80062ba495bd5c67d2c4892efe71609721d 100644
+--- a/lib/windowsTerminal.js
++++ b/lib/windowsTerminal.js
+@@ -116,11 +116,11 @@ var WindowsTerminal = /** @class */ (function (_super) {
+         _this._forwardEvents();
+         return _this;
+     }
+-    WindowsTerminal.prototype._write = function (data) {
+-        this._defer(this._doWrite, data);
++    WindowsTerminal.prototype._write = function (data, callback) {
++        this._defer(this._doWrite, { data: data, callback: callback });
+     };
+-    WindowsTerminal.prototype._doWrite = function (data) {
+-        this._agent.inSocket.write(data);
++    WindowsTerminal.prototype._doWrite = function (write) {
++        this._agent.inSocket.write(write.data, write.callback);
+     };
+     /**
+      * openpty
+diff --git a/typings/node-pty.d.ts b/typings/node-pty.d.ts
+index a6fc5dd0b03af67da9c4bb1de30a8c01c72485d0..51adcedcd499688b7fc85834d49530b012dbf62f 100644
+--- a/typings/node-pty.d.ts
++++ b/typings/node-pty.d.ts
+@@ -176,8 +176,10 @@ declare module 'node-pty' {
+     /**
+      * Writes data to the pty.
+      * @param data The data to write.
++     * @param callback Called once every byte of `data` is written, or with the error that
++     * stopped it.
+      */
+-    write(data: string | Buffer): void;
++    write(data: string | Buffer, callback?: (error?: Error) => void): void;
+ 
+     /**
+      * Kills the pty.

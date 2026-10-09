@@ -2,6 +2,8 @@
 // full it drops its oldest whole lines, so it always starts at the first whole line it holds and a
 // redraw never begins mid-line. Output nobody watches is held here the same way.
 
+import { isContinuationByte } from "./utf8-boundary.js";
+
 /** The most output one shell's scrollback window holds, in bytes. */
 export const SCROLLBACK_WINDOW_BYTES: number = 1024 * 1024;
 
@@ -16,11 +18,6 @@ interface ScrollbackChunk {
 
 function chunkOf(bytes: Uint8Array): ScrollbackChunk {
   return { bytes, firstLineFeed: bytes.indexOf(LINE_FEED) };
-}
-
-/** Whether `byte` continues a UTF-8 character rather than starting one. */
-export function isContinuationByte(byte: number): boolean {
-  return (byte & 0xc0) === 0x80;
 }
 
 /**

@@ -278,6 +278,38 @@ describe("SessionPurge — the session's directory rows and managed workspace", 
     expect(fixture.readDirectoryRows().mounts).toEqual([]);
   });
 
+  it("ends the session's shells before its folder goes, keeping every row while one will not", async () => {
+    await fixture.seedSessionRow(SESSION);
+    const message = await fixture.seedMessage("kept while a shell runs");
+    const workspace = await fixture.managedWorkspaces.create({ sessionId: SESSION });
+    const shellsThatWillNotEnd = {
+      closeSessionShells: async () => {
+        throw new Error("the terminal host did not answer");
+      },
+    };
+
+    const refused = onlyOutcome(
+      await fixture.buildPurge({ shellTable: shellsThatWillNotEnd }).purge([SESSION]),
+    );
+
+    expect(refused.refusedReason).toContain("the session's shells could not all be ended");
+    expect(existsSync(workspace.path)).toBe(true);
+    expect(fixture.rowExists("session_events", message.id)).toBe(true);
+
+    // Each shell ends while the folder it runs in is still there.
+    const folderStoodAtShellEnd: [string, boolean][] = [];
+    const shellTable = {
+      closeSessionShells: async (sessionId: string) => {
+        folderStoodAtShellEnd.push([sessionId, existsSync(workspace.path)]);
+      },
+    };
+    const retried = onlyOutcome(await fixture.buildPurge({ shellTable }).purge([SESSION]));
+
+    expect(retried.refusedReason).toBeUndefined();
+    expect(folderStoodAtShellEnd).toEqual([[SESSION, true]]);
+    expect(existsSync(workspace.path)).toBe(false);
+  });
+
   it("keeps the rows a refused write named after the folder went; a retry finishes", async () => {
     await fixture.seedSessionRow(SESSION);
     await fixture.seedMessage("a");

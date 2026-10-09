@@ -13,7 +13,7 @@ import {
   type PtyOutputSubscribeRequest,
 } from "@ai-sidekicks/contracts/pty";
 
-import type { TerminalSessions } from "../../../pty/terminal-sessions.js";
+import type { ShellTable } from "../../../pty/shell/table.js";
 import type { StreamingPrimitive } from "../../streaming-primitive.js";
 import { createSubscriptionAckBarrier } from "../../subscription-ack-barrier.js";
 import { registerDescribedMethod } from "../register-described-method.js";
@@ -21,8 +21,8 @@ import { shellConnectionOf } from "./caller.js";
 
 /** What a shell's stream verbs call. */
 interface PtyInputOutputMethodsDeps {
-  readonly terminalSessions: Pick<
-    TerminalSessions,
+  readonly shellTable: Pick<
+    ShellTable,
     "subscribeOutput" | "endOutputSubscription" | "write" | "resize"
   >;
   /** The streaming primitive every streaming handler shares, so disconnect cleanup is one map. */
@@ -50,10 +50,10 @@ export function registerPtyInputOutputMethods(
     );
     const barrier = createSubscriptionAckBarrier(subscription, subscribeDescriptor.method);
     subscription.onCancel(() => {
-      deps.terminalSessions.endOutputSubscription(subscription.subscriptionId);
+      deps.shellTable.endOutputSubscription(subscription.subscriptionId);
     });
     try {
-      await deps.terminalSessions.subscribeOutput(params, {
+      await deps.shellTable.subscribeOutput(params, {
         subscriptionId: subscription.subscriptionId,
         transportId,
         send: (frame) => {
@@ -82,14 +82,14 @@ export function registerPtyInputOutputMethods(
   );
 
   registerDescribedMethod(registry, PTY_METHOD_DESCRIPTORS["pty.write"], async (request, ctx) => {
-    await deps.terminalSessions.write(request, {
+    await deps.shellTable.write(request, {
       ...shellConnectionOf(ctx, "pty.write"),
       outputSubscriptionId: request.outputSubscriptionId,
     });
     return null;
   });
   registerDescribedMethod(registry, PTY_METHOD_DESCRIPTORS["pty.resize"], async (request, ctx) => {
-    await deps.terminalSessions.resize(request, shellConnectionOf(ctx, "pty.resize"));
+    await deps.shellTable.resize(request, shellConnectionOf(ctx, "pty.resize"));
     return null;
   });
 }

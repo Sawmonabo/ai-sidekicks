@@ -7,12 +7,12 @@
 import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import { TERMINAL_CONTROL_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/pty";
 
-import type { TerminalSessions } from "../../../pty/terminal-sessions.js";
+import type { ShellTable } from "../../../pty/shell/table.js";
 import { registerDescribedMethod } from "../register-described-method.js";
 
 /** What `session.setTerminalFlowControl`'s handler calls. */
 export interface SessionSetTerminalFlowControlDeps {
-  readonly terminalSessions: Pick<TerminalSessions, "declareFlowControl">;
+  readonly shellTable: Pick<ShellTable, "declareFlowControl">;
 }
 
 /**
@@ -30,7 +30,7 @@ export function registerSessionSetTerminalFlowControl(
       if (ctx.transportId === undefined) {
         throw new Error("session.setTerminalFlowControl needs the calling connection");
       }
-      await deps.terminalSessions.declareFlowControl(request, ctx.transportId);
+      await deps.shellTable.declareFlowControl(request, ctx.transportId);
       return { accepted: true as const };
     },
   );
