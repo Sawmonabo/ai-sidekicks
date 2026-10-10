@@ -30,7 +30,7 @@ import { readOverlayScrollbars } from "./overlay-scrollbar/instances.js";
 import { fixtureBundleExists } from "../helpers/fixture/bundle.js";
 import { percentileByNearestRank } from "../helpers/sample-statistics.js";
 import { ENDURANCE_LAUNCH_OPTIONS, openConcurrentStreamingSessionRoute } from "./workload.js";
-import { RUNNER_CLASS_DESCRIPTION, isPinnedRunnerClass } from "./pinned-runner-class.js";
+import { RUNNER_CLASS_DESCRIPTION, gateOnPinnedRunner } from "./pinned-runner-class.js";
 import {
   MEASURED_RUN_COUNT,
   expectFourLaneWorkloadInsideWindow,
@@ -139,16 +139,11 @@ describe.skipIf(!bundleIsBuilt)(
           `${describeRunLoad(firstLaunch)} — ${RUNNER_CLASS_DESCRIPTION}\n`,
       );
 
-      if (!isPinnedRunnerClass) {
-        // Not a skip: the instrument ran and the figure is printed. Only the comparison is
-        // withheld, because frame cost off the pinned class describes that machine.
-        return;
-      }
-      expect(
-        verdict.withinBudget,
+      gateOnPinnedRunner(
+        verdict,
         `${budget.label}: ${measuredP95.toFixed(3)} refreshes against a ` +
           `${String(budget.limit.canonicalValue)} refresh ceiling`,
-      ).toBe(true);
+      );
     });
 
     it("negative control: a planted frame stall crosses the same ceiling", async () => {

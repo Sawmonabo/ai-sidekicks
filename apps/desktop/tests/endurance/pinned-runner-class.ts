@@ -15,6 +15,10 @@
 
 import process from "node:process";
 
+import { expect } from "vitest";
+
+import { type BudgetVerdict } from "../helpers/budget/evaluation.js";
+
 /**
  * The runner class `.github/workflows/ci.yml` names for the desktop tiers.
  *
@@ -44,3 +48,15 @@ export const RUNNER_CLASS_DESCRIPTION: string = isPinnedRunnerClass
     `RUNNER_OS=${process.env["RUNNER_OS"] ?? "unset"}, ` +
     `RUNNER_ARCH=${process.env["RUNNER_ARCH"] ?? "unset"}` +
     `), so this reading is reported and gates nothing`;
+
+/**
+ * Compares a timed reading on the pinned runner class only. Not a skip elsewhere: the instrument
+ * ran and the figure is printed; only the comparison is withheld, since a timing off the pinned
+ * class describes that machine.
+ */
+export function gateOnPinnedRunner(verdict: BudgetVerdict, failure: string): void {
+  if (!isPinnedRunnerClass) {
+    return;
+  }
+  expect(verdict.withinBudget, failure).toBe(true);
+}
