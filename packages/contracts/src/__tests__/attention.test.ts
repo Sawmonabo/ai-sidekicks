@@ -71,15 +71,22 @@ describe("attention.deliveryRead", () => {
   });
 
   it("carries a host only when an address is saved, and none for a saved text", () => {
+    // A saved text with no scheme and host has no host, and its test sends nothing.
+    const notAnAddress = { at: "2026-09-24T14:14:00Z", result: "notAnAddress", undelivered: 0 };
     const savedWithoutHost = {
-      webAddress: { saved: true, host: null, lastOutcome: null },
+      webAddress: { saved: true, lastOutcome: notAnAddress },
       emailDigest: digest,
     };
     const hostWithoutSave = {
       webAddress: { saved: false, host: "ntfy.sh", lastOutcome: null },
       emailDigest: digest,
     };
+    const nullHost = {
+      ...savedWithoutHost,
+      webAddress: { saved: true, host: null, lastOutcome: null },
+    };
     expect(AttentionDeliveryReadResponseSchema.safeParse(savedWithoutHost).success).toBe(true);
     expect(AttentionDeliveryReadResponseSchema.safeParse(hostWithoutSave).success).toBe(false);
+    expect(AttentionDeliveryReadResponseSchema.safeParse(nullHost).success).toBe(false);
   });
 });
