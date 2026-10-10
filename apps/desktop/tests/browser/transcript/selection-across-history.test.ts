@@ -77,7 +77,8 @@ function drawnPartOf(row: Element, from: "row-start" | Text, to: "row-end" | Tex
   if (to !== "row-end") {
     range.setEnd(to, END_OFFSET);
   }
-  return readSelectedPart(range, row, () => expect.fail("a message row draws no table")).text;
+  const part = readSelectedPart(range, row, () => expect.fail("a message row draws no table"));
+  return part instanceof Promise ? expect.fail("a message row is read at once") : part.text;
 }
 
 describe("a selection the store lets go in a session read from its history", () => {

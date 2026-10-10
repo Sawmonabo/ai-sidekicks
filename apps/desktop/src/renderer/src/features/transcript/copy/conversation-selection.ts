@@ -4,7 +4,8 @@
 // part selected in it as it was drawn, and every row between gives its whole text from the source
 // it is drawn from (`row-text.ts`). A long table's rows the window has not drawn inside an end
 // row's part are read from the text of the row's body, from that same source, through the text
-// range each spacer row names, so a copy never waits for rows to draw. A part inside one table is
+// range each spacer row names, so a copy never waits for rows to draw; a long run of them is parsed
+// by the markdown worker, so its part comes once the worker answers. A part inside one table is
 // copied as a table of what was selected. A message row gives only its body, never its author line,
 // stamp or controls: a reply's part as the markdown rebuilt from what was selected, and the
 // person's own message or a reasoning aside as plain text. Any other row gives the text selected in
@@ -62,30 +63,41 @@ export const LARGE_BODY_ATTRIBUTE = "data-large-body";
 export const PART_SEPARATOR = "\n\n";
 
 /**
- * The part of a drawn row that `range` selects. `readBodyText` reads the text of the row's body,
- * which a long table's undrawn rows and a large body drawn as its control are read from; it is
- * read only when the part holds one. Throws when the part holds one and the body has no text.
+ * The part of a drawn row that `range` selects: at once, or once the markdown worker has made a
+ * long table's undrawn rows, rejecting with the worker's `Error`; the row is read before anything
+ * is waited on. `readBodyText` reads the text of the row's body, which a long table's undrawn rows
+ * and a large body drawn as its control are read from; it is read only when the part holds one.
+ * Throws when the part holds one and the body has no text.
  */
 export function readSelectedPart(
   range: Range,
   row: Element,
   readBodyText: () => string | undefined,
-): SelectedPart {
+): SelectedPart | Promise<SelectedPart> {
   const body = row.querySelector(`[${COPY_FLAVOR_ATTRIBUTE}]`);
   // A selection holding only the row's author line or controls clamps to nothing in its body.
   const part = clampedTo(range, body ?? row);
-  return body?.getAttribute(COPY_FLAVOR_ATTRIBUTE) === "markdown"
-    ? { flavor: "markdown", text: rebuildMarkdown(selectedTreeOf(part, "markdown", readBodyText)) }
-    : { flavor: "text", text: toText(selectedTreeOf(part, "text", readBodyText)) };
+  const flavor = body?.getAttribute(COPY_FLAVOR_ATTRIBUTE) === "markdown" ? "markdown" : "text";
+  const tree = withUndrawnTableRows(
+    fromDom(selectedContentOf(part, flavor, readBodyText)),
+    readBodyText,
+  );
+  return tree instanceof Promise
+    ? tree.then((filledTree) => partOf(filledTree, flavor))
+    : partOf(tree, flavor);
 }
 
 /**
  * One row's part of a selection across the conversation's rows: an end row's selected part as it
- * was drawn, any other row's whole text, `undefined` for a row with none. An end that lies outside
+ * was drawn, as `readSelectedPart` reads it, any other row's whole text, `undefined` for a row with
+ * none. An end that lies outside
  * the scroller takes its row whole, and so does an end row with no drawing kept or a message row
  * whose part reaches its large body.
  */
-export function readRowPart(span: RowSpanSelection, rowKey: string): SelectedPart | undefined {
+export function readRowPart(
+  span: RowSpanSelection,
+  rowKey: string,
+): SelectedPart | Promise<SelectedPart> | undefined {
   const { start, end } = span.selection;
   const startAt = start.at === "row" && rowKey === start.rowKey ? start.position : undefined;
   const endAt = end.at === "row" && rowKey === end.rowKey ? end.position : undefined;
@@ -119,16 +131,11 @@ export function readRowPart(span: RowSpanSelection, rowKey: string): SelectedPar
   return readSelectedPart(range, rowElement, () => span.rowBodyText(rowKey));
 }
 
-/**
- * What `part` holds as a tree, with a long table's undrawn rows and a large body read from the
- * body's text, laid out as the screen lays it out.
- */
-function selectedTreeOf(
-  part: Range,
-  flavor: CopyFlavor,
-  readBodyText: () => string | undefined,
-): DrawnTree {
-  return withUndrawnTableRows(fromDom(selectedContentOf(part, flavor, readBodyText)), readBodyText);
+/** A selected part's tree, its undrawn rows filled, as the text it copies in `flavor`. */
+function partOf(tree: DrawnTree, flavor: CopyFlavor): SelectedPart {
+  return flavor === "markdown"
+    ? { flavor, text: rebuildMarkdown(tree) }
+    : { flavor, text: toText(tree) };
 }
 
 /**
