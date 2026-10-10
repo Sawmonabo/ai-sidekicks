@@ -8,7 +8,7 @@ import "./DiagramBlock.css";
 import { useRef } from "react";
 
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
-import type { BlockCopyOffer } from "../block-copy-offer.js";
+import type { BlockCopyOffer, BlockCopyRenderer } from "../block-copy-offer.js";
 import { encodeDiagramPng } from "./png.js";
 import { useDrawnDiagram, type DrawnDiagramView } from "./useDrawnDiagram.js";
 
@@ -19,7 +19,7 @@ export interface DiagramBlockProps {
   /** Whether the block has settled; a fence still streaming shows its source and is never drawn. */
   readonly isSettled: boolean;
   /** Draws one of the block's copy controls, or `undefined` where the body offers none. */
-  readonly renderCopy: ((offer: BlockCopyOffer) => React.ReactNode) | undefined;
+  readonly renderCopy: BlockCopyRenderer | undefined;
 }
 
 /** A diagram fence: its picture, its source while the picture is made, or why it has none. */

@@ -9,6 +9,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import { BlockCopyRendererContext } from "#renderer/components/Markdown/block-copy-offer.js";
 import {
   DiagramPictures,
   DiagramPicturesContext,
@@ -26,6 +27,7 @@ import { entityProjectorRegistry } from "#renderer/registries/entity-projectors/
 import { paneRegistry } from "#renderer/registries/panes/registry.js";
 import { screenRegistry } from "#renderer/registries/screens/registry.js";
 import { SafeStartNotice } from "#renderer/layout/AppShell/SafeStartNotice.js";
+import { renderBlockCopy } from "#renderer/features/transcript/index.js";
 import { useAppCommands } from "./hooks/useAppCommands.js";
 import { useAppearance } from "./hooks/useAppearance.js";
 import { useKeptWindowLayout } from "./hooks/useKeptWindowLayout.js";
@@ -143,21 +145,23 @@ export function AppWindows(props: AppWindowsProps): React.JSX.Element {
 
   return (
     <DiagramPicturesContext.Provider value={diagramPictures}>
-      {windows.map(({ openWindow, store }) => (
-        <AppWindow
-          key={openWindow.windowId}
-          openWindow={openWindow}
-          frameStore={store}
-          bridge={bridge}
-          appStores={appStores}
-          appearance={appearance}
-          commandRevision={commandRevision}
-          appTitle={consoleDocument.title}
-          notice={
-            isRestoreOffered ? <SafeStartNotice onRestoreWindows={restoreWindows} /> : undefined
-          }
-        />
-      ))}
+      <BlockCopyRendererContext.Provider value={renderBlockCopy}>
+        {windows.map(({ openWindow, store }) => (
+          <AppWindow
+            key={openWindow.windowId}
+            openWindow={openWindow}
+            frameStore={store}
+            bridge={bridge}
+            appStores={appStores}
+            appearance={appearance}
+            commandRevision={commandRevision}
+            appTitle={consoleDocument.title}
+            notice={
+              isRestoreOffered ? <SafeStartNotice onRestoreWindows={restoreWindows} /> : undefined
+            }
+          />
+        ))}
+      </BlockCopyRendererContext.Provider>
     </DiagramPicturesContext.Provider>
   );
 }

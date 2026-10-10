@@ -1,8 +1,8 @@
-// A step payload by its type: the Table view draws a markdown string as formatted text and a
-// binary field as the file it names, the JSON view keeps both exactly as stored, and either view
-// draws only the rows in view, however many items the payload holds.
+// A step payload by its type: the Table view draws a markdown string as formatted text, with the
+// app's block copies, and a binary field as the file it names, the JSON view keeps both exactly as
+// stored, and either view draws only the rows in view, however many items the payload holds.
 
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -13,6 +13,16 @@ import {
 import { liveBridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { ElementHeightShim } from "#test/helpers/element/height-shim.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { BlockCopyRendererContext } from "#renderer/components/Markdown/block-copy-offer.js";
+import {
+  DiagramPictures,
+  DiagramPicturesContext,
+} from "#renderer/components/Markdown/diagram/pictures.js";
+import {
+  drawnOutcome,
+  FakeDiagramWorkers,
+} from "#renderer/components/Markdown/diagram/worker/connection.test-support.js";
+import { renderBlockCopy } from "#renderer/features/transcript/index.js";
 import { formatByteQuantity } from "#renderer/lib/wire/figures.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
 import { StepPayload, type StepPayloadView } from "./StepPayload.js";
@@ -107,6 +117,43 @@ describe("a step payload in the Table view", () => {
 
     const values = [...container.querySelectorAll(".meridian-workflow-payload__value")];
     expect(values.map((value) => value.textContent)).toContain(NOTES_TEXT);
+  });
+
+  it("offers a code block's Copy and a diagram's two copies", async () => {
+    const workers = new FakeDiagramWorkers();
+    const pictures = new DiagramPictures(16 * 1024 * 1024, workers.start, () => undefined);
+    const report = "```ts\nconst cap = 2;\n```\n\n```mermaid\nflowchart LR\n  cache --> cap\n```";
+    const { container } = render(
+      <LiveAnnouncerProvider>
+        <DiagramPicturesContext.Provider value={pictures}>
+          <BlockCopyRendererContext.Provider value={renderBlockCopy}>
+            <StepPayload
+              items={[WorkflowItemSchema.parse({ json: { report } })]}
+              storage={{ kind: "inline" }}
+              view="table"
+              label={LABEL}
+            />
+          </BlockCopyRendererContext.Provider>
+        </DiagramPicturesContext.Provider>
+      </LiveAnnouncerProvider>,
+      { wrapper: liveBridgeWrapper() },
+    );
+    // The diagram's picture copy waits for its picture.
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await act(async () => {
+      workers.latest().answer(drawnOutcome("cache"));
+      await Promise.resolve();
+    });
+
+    const labelsOf = (selector: string): string[] =>
+      [...container.querySelectorAll(`${selector} button`)].map((button) => button.textContent);
+    expect(labelsOf(".meridian-code-block__copy")).toStrictEqual(["Copy"]);
+    expect(labelsOf(".meridian-diagram__actions")).toStrictEqual([
+      "Copy as picture",
+      "Copy source",
+    ]);
   });
 
   it("draws a binary field as the file it names, and the input item it came from", () => {

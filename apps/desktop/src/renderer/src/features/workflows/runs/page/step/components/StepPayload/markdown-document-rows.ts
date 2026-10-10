@@ -28,11 +28,13 @@ export interface ParsedMarkdownDocument {
 
 /**
  * Parse a whole stored markdown string into its rows. It is finished, so it draws settled: its
- * code is colored and its math typeset.
+ * code is colored and its math typeset, and its code and diagram blocks draw their own copies
+ * through `renderCopy`.
  */
 export function parseMarkdownDocument(
   text: string,
   codeSpanReader: CodeSpanReader,
+  renderCopy: MarkdownRenderContext["renderCopy"],
 ): ParsedMarkdownDocument {
   const nodes = parseSettledBlock(text).children;
   const footnotes = collectFootnoteDefinitions(nodes);
@@ -47,8 +49,7 @@ export function parseMarkdownDocument(
       isSettled: true,
       definedFootnoteIdentifiers: footnotes.definedIdentifiers,
       codeSpanReader,
-      // Step output draws no per-block Copy.
-      renderCopy: undefined,
+      renderCopy,
       renderTable: undefined,
     },
     holdsMarkdown: nodes.some(
