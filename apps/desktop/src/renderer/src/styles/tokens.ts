@@ -8,6 +8,8 @@
 // the scheme. The records exist so a check can hold the cascade to them, and so the agent-hue
 // allocator can hand out a wheel step by number.
 
+import { AGENT_ACCENT_HUES, type AgentAccentHue } from "@ai-sidekicks/contracts/agent/definition";
+
 import {
   COLOR_SCHEMES,
   SYSTEM_SCHEME_PREFERENCE,
@@ -90,19 +92,19 @@ export const THEMED_COLOR_TOKENS: readonly (readonly [string, ThemedColor])[] = 
     ] as const,
 );
 
-/** The token name of an agent wheel step. */
-export function formatHueWheelTokenName(step: number): string {
-  return `hue-${String(step).padStart(2, "0")}`;
+/** The token name of an agent wheel step, the hue the wire names it by. Throws off the wheel. */
+export function formatHueWheelTokenName(step: number): AgentAccentHue {
+  const tokenName = AGENT_ACCENT_HUES[step];
+  if (tokenName === undefined) {
+    throw new RangeError(`agent hue step ${step} is outside the ${HUE_WHEEL_STEPS}-step wheel`);
+  }
+  return tokenName;
 }
 
 /** The wheel step a token name names, or `undefined` for a name that is no step of the wheel. */
 export function readHueWheelStep(tokenName: string): number | undefined {
-  for (let step = 0; step < HUE_WHEEL_STEPS; step += 1) {
-    if (formatHueWheelTokenName(step) === tokenName) {
-      return step;
-    }
-  }
-  return undefined;
+  const step = AGENT_ACCENT_HUES.findIndex((hue) => hue === tokenName);
+  return step < 0 ? undefined : step;
 }
 
 /**

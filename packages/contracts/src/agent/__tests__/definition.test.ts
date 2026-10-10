@@ -1,8 +1,8 @@
 // The definition registry is written by the editor, the importer and the daemon's file watch,
 // and read by the library, the composer and the workflow chooser. These cases hold the refusals
 // every one of them relies on: one binding per provider, a project scope that names its project,
-// a plugin agent that says so, requests that carry only their own members, and the closed
-// refusal reasons of resolution.
+// a plugin agent that says so, a hue on the wheel, requests that carry only their own members,
+// and the closed refusal reasons of resolution.
 import { describe, expect, it } from "vitest";
 
 import {
@@ -32,7 +32,7 @@ const FULL_CREATE_REQUEST = {
   name: "reviewer",
   description: "Reviews code changes.",
   icon: "magnifier",
-  accentHue: "teal",
+  accentHue: "hue-07",
   bindings: { default: CLAUDE_BINDING, overrides: [CODEX_BINDING] },
   instructions: "Review the change.",
   goal: null,
@@ -93,6 +93,13 @@ describe("agent.definitionCreate", () => {
     expect(AgentDefinitionCreateRequestSchema.safeParse(withoutProject).success).toBe(false);
     expect(
       AgentDefinitionCreateRequestSchema.safeParse({ ...FULL_CREATE_REQUEST, scope: "global" })
+        .success,
+    ).toBe(false);
+  });
+
+  it("refuses a hue off the wheel", () => {
+    expect(
+      AgentDefinitionCreateRequestSchema.safeParse({ ...FULL_CREATE_REQUEST, accentHue: "hue-12" })
         .success,
     ).toBe(false);
   });

@@ -47,9 +47,10 @@ interface AgentDefinition {
   // A glyph key from the console's own icon set. Icon and color are separate fields rather than one theme,
   // so a person can change either without the other. null = the generic agent mark.
   icon: string | null;
-  // One step of the console's twelve-step hue wheel, by its token name, `hue-00` through `hue-11`. null = no
-  // chosen hue, and the card draws the generic mark's own.
-  accentHue: string | null;
+  // One step of the console's twelve-step hue wheel, by its token name: `AGENT_ACCENT_HUES`, `hue-00`
+  // through `hue-11`, declared once and refused off the wheel. null = no chosen hue, and the card draws the
+  // generic mark's own.
+  accentHue: AgentAccentHue | null;
   // The provider bindings. `overrides` is present on a stored row and may be empty, so a reader never has
   // to tell an empty set from a missing one.
   bindings: {
@@ -151,7 +152,7 @@ interface AgentDefinitionCreateRequest {
   name: string;
   description?: string;
   icon?: string | null;
-  accentHue?: string | null;
+  accentHue?: AgentAccentHue | null;
   // `overrides` is OPTIONAL on the request and always present on the stored row — the same
   // stored-versus-draft grammar the rest of this surface uses: an author who has not added one submits
   // nothing, and the daemon stores an empty list rather than leaving the member absent.
@@ -184,7 +185,7 @@ interface AgentDefinitionUpdateRequest {
   name?: string;
   description?: string;
   icon?: string | null;
-  accentHue?: string | null;
+  accentHue?: AgentAccentHue | null;
   // `bindings` patches as a WHOLE-OBJECT REPLACE, not per override: a per-override patch grammar would
   // need stable override identities and a three-way merge, which is more wire than the editor's own
   // save-the-whole-set gesture needs. Absent still leaves the stored bindings alone.

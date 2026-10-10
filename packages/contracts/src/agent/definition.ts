@@ -248,6 +248,24 @@ export const AgentHooksSchema: z.ZodType<AgentHooks, AgentHooks> = z.record(
 
 // The stored definition
 
+/** The app's agent hue wheel, its twelve steps by token name in wheel order. */
+export const AGENT_ACCENT_HUES = [
+  "hue-00",
+  "hue-01",
+  "hue-02",
+  "hue-03",
+  "hue-04",
+  "hue-05",
+  "hue-06",
+  "hue-07",
+  "hue-08",
+  "hue-09",
+  "hue-10",
+  "hue-11",
+] as const;
+/** One step of the agent hue wheel. */
+export type AgentAccentHue = (typeof AGENT_ACCENT_HUES)[number];
+
 /** A tool name on an allowlist, as the catalog spells it. */
 const toolNameSchema: z.ZodString = wireFreeFormString(DRIVER_TOOL_NAME_MAX_LEN, "tool name");
 /** The number of turns an agent may take before it is stopped. */
@@ -260,11 +278,8 @@ export interface AgentDefinition {
   description: string;
   /** A glyph key from the app's icon set; null is the generic agent mark. */
   icon: string | null;
-  /**
-   * One step of the app's twelve-step hue wheel, by its token name, `hue-00` through `hue-11`;
-   * null is no chosen hue.
-   */
-  accentHue: string | null;
+  /** One step of the app's hue wheel; null is no chosen hue. */
+  accentHue: AgentAccentHue | null;
   bindings: AgentDefinitionBindings;
   instructions: string;
   goal: string | null;
@@ -291,7 +306,7 @@ const agentDefinitionFields = {
   name: wireFreeFormString(DRIVER_TOOL_NAME_MAX_LEN, "AgentDefinition.name"),
   description: z.string(),
   icon: z.string().min(1).nullable(),
-  accentHue: z.string().min(1).nullable(),
+  accentHue: z.enum(AGENT_ACCENT_HUES).nullable(),
   bindings: AgentDefinitionBindingsSchema,
   instructions: z.string(),
   goal: z.string().nullable(),
@@ -422,7 +437,7 @@ export interface AgentResolvedConfiguration {
   resolvedFromDefinitionId: AgentDefinitionId;
   resolvedBinding: AgentProviderBinding;
   /** The definition's chosen hue, which the agent wears for the session's life. */
-  accentHue: string | null;
+  accentHue: AgentAccentHue | null;
   toolAllowlist: string[] | null;
   instructions: string;
   goal: string | null;
@@ -483,7 +498,7 @@ export interface AgentDefinitionCreateRequest {
   name: string;
   description?: string | undefined;
   icon?: string | null | undefined;
-  accentHue?: string | null | undefined;
+  accentHue?: AgentAccentHue | null | undefined;
   bindings: AgentDefinitionBindingsDraft;
   instructions?: string | undefined;
   goal?: string | null | undefined;
@@ -552,7 +567,7 @@ export interface AgentDefinitionUpdateRequest {
   name?: string | undefined;
   description?: string | undefined;
   icon?: string | null | undefined;
-  accentHue?: string | null | undefined;
+  accentHue?: AgentAccentHue | null | undefined;
   bindings?: AgentDefinitionBindingsDraft | undefined;
   instructions?: string | undefined;
   goal?: string | null | undefined;

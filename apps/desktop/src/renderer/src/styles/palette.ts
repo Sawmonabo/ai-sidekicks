@@ -8,6 +8,8 @@
 //     lightness (`HUE_WHEEL_LIGHTNESS`) clears 3:1 as an edge or mark against every rendering's
 //     grounds, which is why it sits mid-scale.
 
+import { AGENT_ACCENT_HUES } from "@ai-sidekicks/contracts/agent/definition";
+
 import { type SchemePair } from "#shared/color-scheme.js";
 import { type AppearanceTheme } from "#shared/theme/registry.js";
 // The enumeration row height and the transcript's row gap are products of the type scale and line
@@ -50,8 +52,8 @@ export const TOOL_HUE_ALIASES: Readonly<Record<string, string>> = {
   "tool-hue-workflow": "code-name",
 };
 
-/** Steps on the agent wheel: twelve. */
-export const HUE_WHEEL_STEPS = 12;
+/** Steps on the agent wheel, one per hue the wire names. */
+export const HUE_WHEEL_STEPS: number = AGENT_ACCENT_HUES.length;
 
 /**
  * Fixed lightness for every agent hue, one value for every rendering because identity color
