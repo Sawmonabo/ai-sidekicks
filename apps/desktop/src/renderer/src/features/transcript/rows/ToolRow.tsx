@@ -19,7 +19,7 @@ import {
 } from "../components/TranscriptRowLayout/TranscriptRowLayout.js";
 import { formatDuration } from "#renderer/lib/wire/figures.js";
 import { describeRowKind, isFoldableCall, toolResultState, type ToolResultState } from "./kind.js";
-import type { HydratedRowProps } from "./hydrated-props.js";
+import type { TranscriptCardProps } from "./card-props.js";
 import { ToolOutput } from "./bodies/ToolOutput.js";
 import { ToolKindBadge } from "./tool-kinds/ToolKindBadge.js";
 import { readDeclaredToolKind } from "./tool-kinds/vocabulary.js";
@@ -33,7 +33,7 @@ import { projectedPayload, readWireCount } from "#renderer/store/session/events/
 const TOOL_SUMMARY_MAX_CHARACTERS = 96;
 
 /** What a mount hands a tool card, beyond the row itself. */
-export interface ToolRowProps extends HydratedRowProps {
+export interface ToolRowProps extends TranscriptCardProps {
   /**
    * Fold or open this call, handed the chevron that was pressed. Optional because density belongs
    * to the list: without it the card renders a state rather than a control.

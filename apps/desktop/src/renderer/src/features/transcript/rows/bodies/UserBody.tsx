@@ -4,13 +4,13 @@
 import { useMemo } from "react";
 
 import { publishedTextOf } from "../../reveal/published-text.js";
-import type { HydratedRowProps } from "../hydrated-props.js";
+import type { TranscriptCardProps } from "../card-props.js";
 import { StreamingMarkdown } from "./StreamingMarkdown.js";
 
 /** Props for `UserBody`. */
 export interface UserBodyProps {
-  readonly row: HydratedRowProps["row"];
-  readonly footnotes: HydratedRowProps["footnotes"];
+  readonly row: TranscriptCardProps["row"];
+  readonly footnotes: TranscriptCardProps["footnotes"];
 }
 
 /**

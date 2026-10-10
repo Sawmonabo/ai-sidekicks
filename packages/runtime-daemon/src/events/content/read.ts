@@ -10,39 +10,24 @@
  * - `content_payload` is node-local, so a row carried in from a peer reads as `absent`.
  */
 
-import type {
-  EventEnvelope,
-  HydratedSessionEvent,
-  HydratedSessionEventContent,
-} from "@ai-sidekicks/contracts/event/envelope";
+import type { EventEnvelope, HydratedSessionEvent } from "@ai-sidekicks/contracts/event/envelope";
 import { storedBodyContentOf } from "@ai-sidekicks/contracts/transcript/content";
 
 /**
- * One stored row, as the caller read it. `contentPayload` is `unknown` because it arrives straight
- * from SQLite, where a cast would be an assumption.
+ * One stored row, as the caller read it. `contentPayload` is text or `null`: the column is `TEXT`
+ * in a `STRICT` table, so SQLite refuses any other value at write.
  */
 export interface StoredEventContentRow {
   /** The event as already projected from the `payload` column. */
   readonly envelope: EventEnvelope;
   /** `session_events.content_payload`, verbatim. */
-  readonly contentPayload: unknown;
+  readonly contentPayload: string | null;
 }
 
-/**
- * Pairs one stored row with its body. Throws when the column holds something other than text or
- * NULL, which only a write outside the append path can leave.
- */
+/** Pairs one stored row with its body. */
 export function hydrateStoredEvent(row: StoredEventContentRow): HydratedSessionEvent {
-  return { event: row.envelope, content: readContent(row) };
-}
-
-function readContent(row: StoredEventContentRow): HydratedSessionEventContent {
-  if (row.contentPayload != null && typeof row.contentPayload !== "string") {
-    throw new Error(
-      `session_events.content_payload for event ${row.envelope.id} holds a value of type ` +
-        `${typeof row.contentPayload}, not text: the append path writes text or NULL, so the row ` +
-        "was written outside it.",
-    );
-  }
-  return storedBodyContentOf(row.envelope.payload, row.contentPayload ?? undefined);
+  return {
+    event: row.envelope,
+    content: storedBodyContentOf(row.envelope.payload, row.contentPayload ?? undefined),
+  };
 }

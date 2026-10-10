@@ -56,7 +56,7 @@ export function transcriptPageReadThroughDaemon(bridge: PlatformBridge): Transcr
  */
 export function readTranscriptPage(response: TranscriptReadResponse): TranscriptPage {
   return {
-    events: response.entries.map(readTranscriptEventRowAsEvent),
+    events: response.entries.map(readTranscriptReadRowAsEvent),
     edge: { cursor: response.nextCursor, hasMore: response.hasMore },
   };
 }
@@ -68,7 +68,7 @@ export function readTranscriptPage(response: TranscriptReadResponse): Transcript
  * `payload` is spread, not carried by reference, because the rollback arm's payload is a typed
  * event while the store's log holds a keyed record.
  */
-function readTranscriptEventRowAsEvent(row: TranscriptReadRow): ProjectedSessionEvent {
+function readTranscriptReadRowAsEvent(row: TranscriptReadRow): ProjectedSessionEvent {
   const runStamp = runStampOf(row);
   return {
     id: row.id,

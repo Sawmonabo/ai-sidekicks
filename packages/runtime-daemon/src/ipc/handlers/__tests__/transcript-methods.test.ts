@@ -44,7 +44,7 @@ const childRunExpandResponse: ChildRunExpandResponse = {
   hasMore: false,
 };
 
-const transcriptEventRow: TranscriptReadRow = {
+const transcriptReadRow: TranscriptReadRow = {
   kind: "general",
   id: "evt-1",
   sessionId: SESSION_ID,
@@ -60,10 +60,10 @@ const transcriptEventRow: TranscriptReadRow = {
 
 describe("transcript replies are scoped to the request", () => {
   it("a read answering with ANOTHER session's rows is refused as an internal error", async () => {
-    // Rows that are each a valid `TranscriptEventRow` from another session pass every schema check,
+    // Rows that are each a valid `TranscriptReadRow` from another session pass every schema check,
     // because the response schema never sees the request.
     const registry = new MethodRegistryImpl();
-    const foreignRow: TranscriptReadRow = { ...transcriptEventRow, sessionId: OTHER_SESSION_ID };
+    const foreignRow: TranscriptReadRow = { ...transcriptReadRow, sessionId: OTHER_SESSION_ID };
     registerTranscriptMethod(registry, {
       method: TRANSCRIPT_READ_METHOD,
       handler: async () => ({ entries: [foreignRow], hasMore: false }),
@@ -83,11 +83,11 @@ describe("transcript replies are scoped to the request", () => {
     const scopedRegistry = new MethodRegistryImpl();
     registerTranscriptMethod(scopedRegistry, {
       method: TRANSCRIPT_READ_METHOD,
-      handler: async () => ({ entries: [transcriptEventRow], hasMore: false }),
+      handler: async () => ({ entries: [transcriptReadRow], hasMore: false }),
     });
     await expect(
       scopedRegistry.dispatch(TRANSCRIPT_READ_METHOD, { sessionId: SESSION_ID }, dispatchContext),
-    ).resolves.toStrictEqual({ entries: [transcriptEventRow], hasMore: false });
+    ).resolves.toStrictEqual({ entries: [transcriptReadRow], hasMore: false });
   });
 
   it("an expansion answering about ANOTHER run is refused as an internal error", async () => {
@@ -127,7 +127,7 @@ describe("transcript replies are scoped to the request", () => {
     // The response schema bounds `entries` only at the global ceiling; the caller's limit is on
     // the request, which the schema never sees.
     const threeRowPage = {
-      entries: [transcriptEventRow, transcriptEventRow, transcriptEventRow],
+      entries: [transcriptReadRow, transcriptReadRow, transcriptReadRow],
       hasMore: false,
     } satisfies TranscriptReadResponse;
     const registry = new MethodRegistryImpl();
@@ -170,7 +170,7 @@ describe("transcript replies are scoped to the request", () => {
     // the correlation check; the test asserts the ceiling message only that check emits.
     const pageOfSize = (size: number): ChildRunExpandResponse => ({
       ...childRunExpandResponse,
-      entries: Array.from({ length: size }, () => transcriptEventRow),
+      entries: Array.from({ length: size }, () => transcriptReadRow),
     });
     const registry = new MethodRegistryImpl();
     registerTranscriptMethod(registry, {

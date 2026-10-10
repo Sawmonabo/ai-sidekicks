@@ -68,6 +68,38 @@ async function seedRenames(names: readonly string[]): Promise<void> {
   );
 }
 
+/** One stored event's body, `null` for none, and the payload members that describe it. */
+interface StoredBody {
+  readonly body: string | null;
+  readonly payload: Readonly<Record<string, unknown>>;
+}
+
+async function seedBodies(stored: readonly StoredBody[]): Promise<void> {
+  // Queued together, as `seedRenames` queues its rows.
+  await Promise.all(
+    stored.map(({ body, payload }, sequence) =>
+      insertStoredEvent(
+        scratch.writer,
+        {
+          id: `event-${String(sequence)}`,
+          sessionId: SESSION_ID,
+          sequence,
+          occurredAt: "2026-10-09T12:00:00.000Z",
+          monotonicNs: BigInt(sequence),
+          category: "assistant_output",
+          type: "assistant.message",
+          actor: null,
+          payload: body === null ? {} : { contentType: "text/plain", ...payload },
+          correlationId: null,
+          causationId: null,
+          version: "1.0",
+        },
+        body,
+      ),
+    ),
+  );
+}
+
 function windowReader(
   readDamagedFromSequence: DamagedFromSequenceReader = () => undefined,
 ): TranscriptWindowReader {
@@ -183,55 +215,45 @@ describe("TranscriptWindowReader — one transcript.read window", () => {
   });
 
   it("carries each row's body, and keeps a page of outputs over the frame whole as their sizes", async () => {
-    // Twenty outputs of 200,000 bytes each are four times a frame: carried whole, a page would hold
-    // four of them. Each comes back as its size instead, beside a reply that travels with its row
-    // and a row with no body. The first is over the most a body read may hold, and still costs its
-    // page nothing.
+    // Twenty outputs that together are four times a frame: carried whole, a page would hold four
+    // of them. Each comes back as its size instead, beside bodies at the inline bound and a row
+    // with no body. The first is a cut output, kept as the longest prefix the store holds.
     const largeLength = 200_000;
-    const overReadLength = 300_000;
-    const bodies: (string | null)[] = [
-      "x".repeat(overReadLength),
-      ...Array.from({ length: 19 }, () => "x".repeat(largeLength)),
-      "y".repeat(TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES - 2),
-      null,
+    const cutLength = 300_000;
+    const inlineMax = TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES;
+    const stored: readonly StoredBody[] = [
+      {
+        body: "x".repeat(CONTENT_PAYLOAD_PLAINTEXT_MAX),
+        payload: { contentLength: cutLength, contentTruncated: true },
+      },
+      ...Array.from({ length: 19 }, () => ({
+        body: "x".repeat(largeLength),
+        payload: { contentLength: largeLength },
+      })),
+      // Its JSON, quotes included, takes exactly the bound.
+      { body: "y".repeat(inlineMax - 2), payload: { contentLength: inlineMax - 2 } },
+      { body: "y".repeat(inlineMax - 1), payload: { contentLength: inlineMax - 1 } },
+      // Within the bound as text, over it as JSON: the newline is escaped to two bytes.
+      { body: `${"y".repeat(inlineMax - 3)}\n`, payload: {} },
+      // Half as many characters as the bound, each two bytes: over it by its bytes.
+      { body: "é".repeat(inlineMax / 2), payload: {} },
+      { body: null, payload: {} },
     ];
-    for (const [sequence, body] of bodies.entries()) {
-      await insertStoredEvent(
-        scratch.writer,
-        {
-          id: `event-${String(sequence)}`,
-          sessionId: SESSION_ID,
-          sequence,
-          occurredAt: "2026-10-09T12:00:00.000Z",
-          monotonicNs: BigInt(sequence),
-          category: "assistant_output",
-          type: "assistant.message",
-          actor: null,
-          payload: body === null ? {} : { contentType: "text/plain", contentLength: body.length },
-          correlationId: null,
-          causationId: null,
-          version: "1.0",
-        },
-        body,
-      );
-    }
+    await seedBodies(stored);
 
     const page = windowReader().read({ sessionId: SESSION_ID });
 
     // Parsed as the reply's own schema, so a body the contract refuses would fail the page here.
-    expect(TranscriptReadResponseSchema.parse(page).entries).toHaveLength(bodies.length);
+    expect(TranscriptReadResponseSchema.parse(page).entries).toHaveLength(stored.length);
     expect(page.hasMore).toBe(false);
-    expect(overReadLength).toBeGreaterThan(CONTENT_PAYLOAD_PLAINTEXT_MAX);
-    expect(page.entries[0]?.content).toStrictEqual({
-      status: "large",
-      contentLength: overReadLength,
-    });
-    expect(page.entries[1]?.content).toStrictEqual({ status: "large", contentLength: largeLength });
-    expect(page.entries[20]?.content).toStrictEqual({
-      status: "available",
-      body: bodies[20],
-      contentLength: TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES - 2,
-    });
-    expect(page.entries[21]?.content).toStrictEqual({ status: "unavailable", reason: "absent" });
+    expect(page.entries.map((entry) => entry.content)).toStrictEqual([
+      { status: "large", contentLength: cutLength, contentTruncated: true },
+      ...Array.from({ length: 19 }, () => ({ status: "large", contentLength: largeLength })),
+      { status: "available", body: stored[20]?.body, contentLength: inlineMax - 2 },
+      { status: "large", contentLength: inlineMax - 1 },
+      { status: "large", contentLength: inlineMax - 2 },
+      { status: "large", contentLength: inlineMax },
+      { status: "unavailable", reason: "absent" },
+    ]);
   });
 });

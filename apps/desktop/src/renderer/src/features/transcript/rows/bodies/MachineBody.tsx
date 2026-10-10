@@ -1,9 +1,9 @@
 // The one body a machine-authored row draws, in its three states: not read (a streamed row, or a
-// large body that waits for its control), unavailable, available. A truncated body renders its
-// prefix and says so; an unreadable one keeps the turn at its position with the unavailable
-// marker, because an empty body or a dropped row would misreport the turn. `MessageContent` and `ToolOutput` differ only in how a body's shape is read. A live
-// body is read through its lane's handle and a stored one through a handle over its string, so
-// neither is copied whole on a frame.
+// large body, whose row carries its size alone), unavailable, available. A truncated body renders
+// its prefix and says so; an unreadable one keeps the turn at its position with the unavailable
+// marker, because an empty body or a dropped row would misreport the turn. `MessageContent` and
+// `ToolOutput` differ only in how a body's shape is read. A live body is read through its lane's
+// handle and a stored one through a handle over its string, so neither is copied whole on a frame.
 
 import "./MachineBody.css";
 
@@ -38,7 +38,7 @@ export interface MachineBodyProps {
   readonly footnotes: FootnoteRegistry;
   /** What a screen reader calls a command-output block. */
   readonly label: string;
-  /** Keep a pressed control where it stands while the body grows; see `HydratedRowProps`. */
+  /** Keep a pressed control where it stands while the body grows; see `TranscriptCardProps`. */
   readonly holdControlInPlace?: ((control: HTMLElement) => void) | undefined;
 }
 

@@ -77,8 +77,9 @@ export function countInsertedBefore(
 /**
  * Whether the virtualizer may subtract a measurement's delta from the offset: only when the
  * reader is not following (the library's end anchor already holds a follower on the tail) and the
- * measured row sits entirely above the fold. A visible row grows below the reader's eyes, and compensating for it would
- * drag the viewport every frame of a stream and loop through the anchor's change notification.
+ * measured row sits entirely above the fold. A visible row grows below the reader's eyes, and
+ * compensating for it would drag the viewport every frame of a stream and loop through the
+ * anchor's change notification.
  */
 export function shouldCompensateForInsertion(
   readingMode: ReadingState["mode"],

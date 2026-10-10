@@ -1,8 +1,8 @@
-// The log-derived row projection: this window's event log read as `TranscriptEventRow`s. Rows carry
-// what the log supports (id, sequence, cursor, `type`, `actor`, `payload` verbatim and the body a
-// read brought with the event), a run's
-// turn position, epoch and superseded marker as the daemon stamped them, and `summary` as the wire
-// type restated, since no registered payload carries one. The stamps are the daemon's because the
+// The log-derived row projection: this window's event log read as `TranscriptEventRow`s. Rows
+// carry what the log supports (id, sequence, cursor, `type`, `actor`, `payload` verbatim and the
+// body a read brought with the event), a run's turn position, epoch and superseded marker as the
+// daemon stamped them, and `summary` as the wire type restated, since no registered payload
+// carries one. The stamps are the daemon's because the
 // window holds a share of the log: an ordinal counted here would change with what was loaded. The
 // id is the daemon's opaque one, carried not composed: the hydrated-event read keys on
 // {sessionId, eventId} and a row jump finds a row by it, so a `session:sequence` key would resolve

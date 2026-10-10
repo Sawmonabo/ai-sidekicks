@@ -1,8 +1,7 @@
-// A transcript row's body, and the reads that fetch what a row did not carry: a row's large body or
-// full output (`transcript.bodyRead`), and every file patch a tool call left out
-// (`transcript.patchRead`). A body travels with its row unless it is large; a client asks for a
-// large one only when the row's control is pressed, and for a patch when its diff is drawn. Both
-// reads answer with the stored text, or `absent` when the row carries none.
+// A transcript row's body, and the contracts of the reads for what a row does not carry: a row's
+// large body or full output (`transcript.bodyRead`), and every file patch a tool call left out
+// (`transcript.patchRead`). A body travels with its row unless it is large, when the row carries
+// its size alone. Both reads answer with the stored text, or `absent` when the row carries none.
 import { z } from "zod";
 
 import {
@@ -24,16 +23,18 @@ import { requireMemberToRideOneFrame } from "../jsonrpc/page.js";
 import { countSchema } from "../internal/wire-scalars.js";
 import { TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES } from "./limits.js";
 
-/** A body that waits for its row's control: too large to travel with the row, and how large. */
+/** A body too large to travel with its row: the arm carries its size alone. */
 export interface TranscriptLargeBody {
   readonly status: "large";
-  /** The whole body's UTF-8 byte length, for the control to name before it is pressed. */
+  /** The whole body's UTF-8 byte length, as the stored event states it. */
   readonly contentLength: number;
+  /** Present when the stored body is a prefix of a longer one the producer cut. */
+  readonly contentTruncated?: true | undefined;
 }
 
 /**
- * What a row read from history carries of its body: the body itself, why there is none, or that
- * it is large and waits for `transcript.bodyRead`. An `available` body is at most
+ * What a row read from history carries of its body: the body itself, why there is none, or the
+ * size alone of a large one. An `available` body serializes to at most
  * `TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES` JSON bytes.
  */
 export type TranscriptRowContent = HydratedSessionEventContent | TranscriptLargeBody;
@@ -58,35 +59,48 @@ const unavailableContentSchema = z
   .strict();
 
 /**
- * Parses a {@link TranscriptRowContent}. An inline body's JSON bytes bound its characters from
- * above, so the length check is a cheap necessary one; the producer measures the bytes.
+ * Parses a {@link TranscriptRowContent}. The character bound is a cheap first check, since a
+ * body's JSON bytes are never fewer than its characters; the refinement measures the bytes.
  */
 export const TranscriptRowContentSchema: z.ZodType<TranscriptRowContent> = z.discriminatedUnion(
   "status",
   [
-    availableContentSchema(TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES),
+    availableContentSchema(TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES).superRefine(
+      (available, issueContext) => {
+        const byteLength = jsonUtf8ByteLength(available.body);
+        if (byteLength > TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES) {
+          issueContext.addIssue({
+            code: "custom",
+            path: ["body"],
+            message:
+              `a body that travels with its row takes at most ` +
+              `${String(TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES)} JSON bytes; this one takes ` +
+              `${String(byteLength)}, so it belongs on the large arm`,
+          });
+        }
+      },
+    ),
     unavailableContentSchema,
-    z.object({ status: z.literal("large"), contentLength: countSchema }).strict(),
+    z
+      .object({
+        status: z.literal("large"),
+        contentLength: countSchema,
+        contentTruncated: z.literal(true).optional(),
+      })
+      .strict(),
   ],
 );
 
 /**
- * An event's stored body as a read reports it: `absent` when none is stored, never an empty
- * `available` body, which would claim the agent said nothing. `contentLength` and
- * `contentTruncated` are echoed from the payload, never recomputed from `body`: a recomputed length
- * would equal a truncated body's own and hide that anything was cut.
+ * The length and truncation mark a stored event's payload states for its body, echoed rather than
+ * recomputed: a length measured from a cut body would equal its own and hide that anything was cut.
  */
-export function storedBodyContentOf(
-  payload: Readonly<Record<string, unknown>> | undefined,
-  storedBody: string | undefined,
-): HydratedSessionEventContent {
-  if (storedBody === undefined) {
-    return { status: "unavailable", reason: "absent" };
-  }
+function echoedBodyFactsOf(payload: Readonly<Record<string, unknown>> | undefined): {
+  readonly contentLength?: number;
+  readonly contentTruncated?: true;
+} {
   const storedLength = payload?.[CONTENT_LENGTH_PAYLOAD_KEY];
   return {
-    status: "available",
-    body: storedBody,
     ...(typeof storedLength === "number" ? { contentLength: storedLength } : {}),
     ...(payload?.[CONTENT_TRUNCATED_PAYLOAD_KEY] === true
       ? { contentTruncated: true as const }
@@ -95,19 +109,52 @@ export function storedBodyContentOf(
 }
 
 /**
- * The body a row carries, from the stored one: a body over `TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES`
- * JSON bytes becomes the `large` arm, sized by the stored `contentLength`, else by its own bytes.
+ * An event's stored body as a read reports it: `absent` when none is stored, never an empty
+ * `available` body, which would claim the agent said nothing. The length and truncation mark are
+ * the payload's own.
  */
-export function transcriptRowContentOf(stored: HydratedSessionEventContent): TranscriptRowContent {
+export function storedBodyContentOf(
+  payload: Readonly<Record<string, unknown>> | undefined,
+  storedBody: string | undefined,
+): HydratedSessionEventContent {
+  if (storedBody === undefined) {
+    return { status: "unavailable", reason: "absent" };
+  }
+  return { status: "available", body: storedBody, ...echoedBodyFactsOf(payload) };
+}
+
+/**
+ * A stored body as a row read finds it: its UTF-8 size, and its text when that size still lets it
+ * travel with its row (at most `TRANSCRIPT_ROW_BODY_INLINE_MAX_UTF8_BYTES`).
+ */
+export interface StoredRowBody {
+  readonly byteLength: number;
+  readonly body?: string | undefined;
+}
+
+/**
+ * The body a row carries, from what the read found stored: none is `absent`; a body whose JSON
+ * takes more than `TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES` bytes, or whose text was not read, is the
+ * `large` arm, sized by the payload's `contentLength`, else by its stored bytes.
+ */
+export function transcriptRowContentOf(
+  payload: Readonly<Record<string, unknown>> | undefined,
+  stored: StoredRowBody | undefined,
+): TranscriptRowContent {
+  if (stored === undefined) {
+    return { status: "unavailable", reason: "absent" };
+  }
   if (
-    stored.status !== "available" ||
+    stored.body !== undefined &&
     jsonUtf8ByteLength(stored.body) <= TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES
   ) {
-    return stored;
+    return storedBodyContentOf(payload, stored.body);
   }
+  const { contentLength, contentTruncated } = echoedBodyFactsOf(payload);
   return {
     status: "large",
-    contentLength: stored.contentLength ?? new TextEncoder().encode(stored.body).length,
+    contentLength: contentLength ?? stored.byteLength,
+    ...(contentTruncated === undefined ? {} : { contentTruncated }),
   };
 }
 

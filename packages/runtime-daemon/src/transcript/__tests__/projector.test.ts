@@ -11,10 +11,7 @@ import type { EventCategory, EventEnvelope } from "@ai-sidekicks/contracts/event
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import { encodeEventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
-import type {
-  TranscriptEventRow,
-  TranscriptRunStamp,
-} from "@ai-sidekicks/contracts/transcript/row";
+import type { TranscriptReadRow, TranscriptRunStamp } from "@ai-sidekicks/contracts/transcript/row";
 
 import { openScratchDatabase, type ScratchDatabase } from "../../database/__fixtures__/scratch.js";
 import { prepareSessionEventReads } from "../../events/session/read.js";
@@ -142,12 +139,12 @@ function readLog(): EventEnvelope[] {
 }
 
 // Each projection is a fresh projector, as a rebuild is.
-function project(events: readonly EventEnvelope[] = readLog()): TranscriptEventRow[] {
+function project(events: readonly EventEnvelope[] = readLog()): TranscriptReadRow[] {
   return new TranscriptProjector(scratch.reader).projectWindow(SESSION_ID, events);
 }
 
 // The run's rows of `type` as `epoch:position`, followed by `>point` when superseded.
-function marksOf(rows: readonly TranscriptEventRow[], runId: RunId, type: string): string[] {
+function marksOf(rows: readonly TranscriptReadRow[], runId: RunId, type: string): string[] {
   return rows.flatMap((row) => {
     if (row.kind === "general" || row.runId !== runId || row.type !== type) {
       return [];
@@ -166,7 +163,7 @@ function expectedMarks(epoch: number, from: number, to: number, point?: number):
   });
 }
 
-function stampOfRow(row: TranscriptEventRow): TranscriptRunStamp | undefined {
+function stampOfRow(row: TranscriptReadRow): TranscriptRunStamp | undefined {
   if (row.kind === "general") {
     return undefined;
   }
@@ -176,7 +173,7 @@ function stampOfRow(row: TranscriptEventRow): TranscriptRunStamp | undefined {
 
 // A fresh projector over the whole log, one over the log from `windowStart` on, and a live
 // stamper fed every event all attribute each event as `rows` does.
-function expectEveryReaderAlike(rows: readonly TranscriptEventRow[], windowStart: number): void {
+function expectEveryReaderAlike(rows: readonly TranscriptReadRow[], windowStart: number): void {
   const events = readLog();
   expect(project(events)).toEqual(rows);
   expect(project(events.slice(windowStart))).toEqual(rows.slice(windowStart));

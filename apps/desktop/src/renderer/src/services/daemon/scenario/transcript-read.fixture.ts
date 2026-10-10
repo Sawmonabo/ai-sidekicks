@@ -4,8 +4,9 @@
 // at or below it backward, nearest the cursor first chosen, and both the rows between them, read
 // forward. Rows run oldest to newest either way and carry the turn stamps
 // `turn-attribution.fixture.ts` folds and the body each beat stores, a large one as its size, as
-// the daemon reads `content_payload` beside the event. A page stops at the limit or the page byte budget, whichever
-// trips first; a cursor past the newest delivered row is refused, as the daemon refuses it.
+// the daemon reads `content_payload` beside the event. A page stops at the limit or the page byte
+// budget, whichever trips first; a cursor past the newest delivered row is refused, as the daemon
+// refuses it.
 //
 // A scenario scripts its `session.read` record once, for the whole script, while the playback has
 // delivered a prefix of it, so the record's log positions and standing events are read from the
@@ -23,10 +24,7 @@ import {
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/session";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 import { countEntriesFittingOneFrame } from "@ai-sidekicks/contracts/jsonrpc/page";
-import {
-  storedBodyContentOf,
-  transcriptRowContentOf,
-} from "@ai-sidekicks/contracts/transcript/content";
+import { transcriptRowContentOf } from "@ai-sidekicks/contracts/transcript/content";
 import { TRANSCRIPT_READ_LIMIT_MAX } from "@ai-sidekicks/contracts/transcript/limits";
 import { TranscriptReadRequestSchema } from "@ai-sidekicks/contracts/transcript/operations";
 import {
@@ -34,6 +32,7 @@ import {
   TRANSCRIPT_RUN_LIFECYCLE_CATEGORY,
 } from "@ai-sidekicks/contracts/transcript/row";
 
+import { measureUtf8ByteLength } from "#renderer/lib/utf8-byte-length.js";
 import { isWireRecord } from "#renderer/lib/wire/record.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { mergeStandingEvents } from "#renderer/store/session/standing-events.js";
@@ -211,7 +210,12 @@ function rowOf(
     timestamp: event.occurredAt,
     ...(event.actorId === undefined ? {} : { actor: event.actorId }),
     payload: event.payload ?? {},
-    content: transcriptRowContentOf(storedBodyContentOf(event.payload, storedBody)),
+    content: transcriptRowContentOf(
+      event.payload,
+      storedBody === undefined
+        ? undefined
+        : { byteLength: measureUtf8ByteLength(storedBody), body: storedBody },
+    ),
   };
   if (attributed === undefined) {
     return { ...common, kind: "general" };

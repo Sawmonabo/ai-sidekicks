@@ -1,7 +1,8 @@
 // One session's event log read as transcript rows. Every event of a run is stamped with its turn
 // position, its execution epoch and, when an undo rolled its turn back, the superseded marker; a
 // `run.rolled_back` becomes the typed boundary row; an event naming no run is a general row. Every
-// row carries its body, read for the whole window in one statement, a large one as its size.
+// row carries its body, read for the whole window in one statement; a large body is read as its
+// size alone, so a page of large outputs costs no more than their lengths.
 
 import type { Database, Statement } from "better-sqlite3";
 
@@ -10,8 +11,10 @@ import { encodeEventCursor } from "@ai-sidekicks/contracts/session/event-cursor"
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import {
   transcriptRowContentOf,
+  type StoredRowBody,
   type TranscriptRowContent,
 } from "@ai-sidekicks/contracts/transcript/content";
+import { TRANSCRIPT_ROW_BODY_INLINE_MAX_UTF8_BYTES } from "@ai-sidekicks/contracts/transcript/limits";
 import {
   TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE,
   TRANSCRIPT_RUN_LIFECYCLE_CATEGORY,
@@ -20,12 +23,15 @@ import {
   type TranscriptRunStamp,
 } from "@ai-sidekicks/contracts/transcript/row";
 
-import { hydrateStoredEvent } from "../events/content/read.js";
 import type { DamagedFromSequenceReader } from "../events/session/read.js";
 import { RunTurnReads, SessionTurnAttribution } from "./turn-attribution.js";
 
-/** The bodies of a window's events, one row per event that has one stored. */
-const SELECT_CONTENT_PAYLOADS_SQL = `SELECT sequence, content_payload AS contentPayload
+/**
+ * The bodies of a window's events, one row per event that has one stored: each body's UTF-8 size,
+ * and its text only when that size lets it travel, so a large body is never read into memory.
+ */
+const SELECT_STORED_BODIES_SQL = `SELECT sequence, octet_length(content_payload) AS byteLength,
+       CASE WHEN octet_length(content_payload) <= ? THEN content_payload END AS body
   FROM session_events
  WHERE session_id = ? AND content_payload IS NOT NULL
    AND sequence IN (SELECT value FROM json_each(?))`;
@@ -33,9 +39,9 @@ const SELECT_CONTENT_PAYLOADS_SQL = `SELECT sequence, content_payload AS content
 /** Projects the session log into transcript rows and stamps each event of a run. */
 export class TranscriptProjector {
   readonly #reads: RunTurnReads;
-  readonly #selectContentPayloads: Statement<
-    [SessionId, string],
-    { readonly sequence: number; readonly contentPayload: unknown }
+  readonly #selectStoredBodies: Statement<
+    [number, SessionId, string],
+    { readonly sequence: number; readonly byteLength: number; readonly body: string | null }
   >;
 
   /**
@@ -44,31 +50,33 @@ export class TranscriptProjector {
    */
   constructor(reader: Database, readDamagedFromSequence?: DamagedFromSequenceReader) {
     this.#reads = new RunTurnReads(reader, readDamagedFromSequence);
-    this.#selectContentPayloads = reader.prepare(SELECT_CONTENT_PAYLOADS_SQL);
+    this.#selectStoredBodies = reader.prepare(SELECT_STORED_BODIES_SQL);
   }
 
   /**
    * One row per event of `events`, a contiguous ascending stretch of one session's log, in the
    * same order, each with its body. Throws on a `run.rolled_back` whose payload does not match its
-   * contract, and on a body column holding something other than text.
+   * contract.
    */
   projectWindow(sessionId: SessionId, events: readonly EventEnvelope[]): TranscriptReadRow[] {
     const attribution = new SessionTurnAttribution(this.#reads, sessionId);
-    const contentPayloadBySequence = new Map(
-      this.#selectContentPayloads
-        .all(sessionId, JSON.stringify(events.map((event) => event.sequence)))
-        .map((row) => [row.sequence, row.contentPayload]),
+    const storedBodyBySequence = new Map<number, StoredRowBody>(
+      this.#selectStoredBodies
+        .all(
+          TRANSCRIPT_ROW_BODY_INLINE_MAX_UTF8_BYTES,
+          sessionId,
+          JSON.stringify(events.map((event) => event.sequence)),
+        )
+        .map((row) => [
+          row.sequence,
+          { byteLength: row.byteLength, ...(row.body === null ? {} : { body: row.body }) },
+        ]),
     );
     return events.map((event) =>
       rowOf(
         event,
         attribution,
-        transcriptRowContentOf(
-          hydrateStoredEvent({
-            envelope: event,
-            contentPayload: contentPayloadBySequence.get(event.sequence),
-          }).content,
-        ),
+        transcriptRowContentOf(event.payload, storedBodyBySequence.get(event.sequence)),
       ),
     );
   }

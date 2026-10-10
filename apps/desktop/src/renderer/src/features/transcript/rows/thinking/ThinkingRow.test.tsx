@@ -17,6 +17,7 @@ function renderThinkingRow(
   overrides: {
     readonly runId?: RunId | undefined;
     readonly liveText?: string;
+    readonly storedText?: string;
     readonly reading?: ReasoningReading;
     readonly onExpand?: () => void;
   } = {},
@@ -25,6 +26,9 @@ function renderThinkingRow(
     <ThinkingRow
       runId={"runId" in overrides ? overrides.runId : SAMPLE_RUN_ID}
       liveText={overrides.liveText === undefined ? undefined : publishedTextOf(overrides.liveText)}
+      storedText={
+        overrides.storedText === undefined ? undefined : publishedTextOf(overrides.storedText)
+      }
       reading={overrides.reading ?? { status: "not-asked" }}
       onExpand={overrides.onExpand ?? (() => undefined)}
     />,
@@ -63,6 +67,20 @@ describe("the streaming tail", () => {
     });
     expect(container.textContent).toContain("still going");
     expect(container.textContent).toContain("settled entry");
+  });
+});
+
+describe("the stored tail", () => {
+  it("draws a read row's own entry at rest, and gives way once the whole reasoning is read", () => {
+    const atRest = renderThinkingRow({ storedText: "weighed the two branches" });
+    expect(atRest.textContent).toContain("weighed the two branches");
+
+    const whole = renderThinkingRow({
+      storedText: "kept tail",
+      reading: { status: "read", response: availableReply(["the whole reasoning"]) },
+    });
+    expect(whole.textContent).not.toContain("kept tail");
+    expect(whole.textContent).toContain("the whole reasoning");
   });
 });
 

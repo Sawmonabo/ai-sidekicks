@@ -2,6 +2,7 @@
 // ranks.
 
 import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event/envelope";
+import type { TranscriptLargeBody } from "@ai-sidekicks/contracts/transcript/content";
 import { describe, expect, it } from "vitest";
 
 import { classifyTranscriptRow, toolResultState } from "./kind.js";
@@ -12,6 +13,12 @@ const TRUNCATED_BODY: HydratedSessionEventContent = {
   status: "available",
   body: "don",
   contentLength: 4096,
+  contentTruncated: true,
+};
+/** A cut output too large to travel with its row, as almost every cut one is. */
+const LARGE_TRUNCATED_BODY: TranscriptLargeBody = {
+  status: "large",
+  contentLength: 400_000,
   contentTruncated: true,
 };
 const ABSENT_BODY: HydratedSessionEventContent = {
@@ -37,5 +44,9 @@ describe("the tool result state", () => {
   it("tells an unreadable body from a successful one", () => {
     expect(toolResultState("tool.result", ABSENT_BODY)).toBe("body-unavailable");
     expect(toolResultState("tool.result", AVAILABLE_BODY)).toBe("ok");
+  });
+
+  it("says a cut output was cut when its row carries only the output's size", () => {
+    expect(toolResultState("tool.result", LARGE_TRUNCATED_BODY)).toBe("truncated");
   });
 });

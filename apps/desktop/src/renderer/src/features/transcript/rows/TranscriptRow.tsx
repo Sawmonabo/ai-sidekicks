@@ -96,6 +96,9 @@ export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element {
               <ThinkingRowWithRead
                 runId={attributedRunId}
                 liveText={liveText}
+                storedBody={
+                  props.row.content?.status === "available" ? props.row.content.body : undefined
+                }
                 holdControlInPlace={holdPressedControl}
               />
             ) : undefined

@@ -29,8 +29,8 @@ interface TranscriptReadRequest {
 // page is the honest answer to an exhausted continuation and to a filtered read that matched nothing.
 // entries is additionally bounded by PAGE_MAX_BYTES (see this section's opening note).
 type TranscriptReadResponse =
-  | { entries: TranscriptEventRow[]; hasMore: true; nextCursor: EventCursor }
-  | { entries: TranscriptEventRow[]; hasMore: false; nextCursor?: EventCursor };
+  | { entries: TranscriptReadRow[]; hasMore: true; nextCursor: EventCursor }
+  | { entries: TranscriptReadRow[]; hasMore: false; nextCursor?: EventCursor };
 
 interface TranscriptEventRowBase {
   id: string;
@@ -49,22 +49,23 @@ interface TranscriptEventRowBase {
   // row draws like one whose patch traveled, and `transcript.patchRead` fetches every left-out
   // patch of the call in one read.
   omittedPatches?: TranscriptOmittedPatch[];
-  // The row's body, read for the whole window in one statement beside its events. Required on every
-  // row a read returns; a client that projects stream changes into this type leaves it out, since a
-  // stream change carries no body.
-  content: TranscriptRowContent;
+  // The row's body, read for the whole window in one statement beside its events. Absent on a row a
+  // client projects from a stream change, which carries no body; required on a TranscriptReadRow.
+  content?: TranscriptRowContent;
   payload: Record<string, unknown>;
 }
 // A body travels with its row up to TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES, 32 KiB of JSON; a larger
-// one comes back as its size and waits for `transcript.bodyRead`. A page of rows whose bodies all
-// sit at the ceiling still holds 29 of them under PAGE_MAX_BYTES (26 with every summary at its
-// limit), so one huge output never crowds its neighbors out of a page. The figure is above what
-// chat services hold a single message to (a few thousand characters recommended, 40,000 before a
-// message is cut, 65,535 bytes for a whole event), so an ordinary reply always travels whole.
+// one comes back as its size alone, which `transcript.bodyRead` reads in full. A page therefore
+// holds many rows even when every body sits at the ceiling, and one huge output never crowds its
+// neighbors out of a page. Chat services size a single message in the same range (a few thousand
+// characters recommended, 40,000 before a message is cut, 65,535 bytes for a whole event), so a
+// reply of ordinary length travels whole. The daemon reads a large body's size, never its bytes.
 type TranscriptRowContent =
   | { status: "available"; body: string; contentLength?: number; contentTruncated?: true }
   | { status: "unavailable"; reason: HydratedContentUnavailableReason }
-  | { status: "large"; contentLength: number }; // the body's size in bytes, its bytes left out
+  // The body's size in bytes, its bytes left out; contentTruncated echoed as on the available arm,
+  // so a cut output still says it was cut.
+  | { status: "large"; contentLength: number; contentTruncated?: true };
 interface TranscriptOmittedPatch {
   path: string;
   size: number; // the patch's size in bytes
@@ -99,7 +100,10 @@ type TranscriptRollbackBoundary = Omit<TranscriptEventRowBase, "category" | "typ
   payload: RunRolledBackEvent; // validated into the typed shape (defined in run-control-payloads.md §Plan-002 — Queue Steer Pause Resume) at projection, so the live client rule reads a typed targetPosition — never an unsafe cast; an entry failing that validation is a projection defect surfaced at emission, never delivered untyped. Delivery is visibility-resolved: the boundary reaches every subscription holding any row of the affected run, so a subscriber holding that run's rows always receives the cutoff. Outer attribution and payload cannot disagree: the boundary arm's schema refines runId === payload.runId, sessionId === payload.sessionId, and position === payload.targetPosition (the boundary row ranks at the confirmed rewind floor — which is why a later rollback below it supersedes it), so a conflicting boundary fails parse as a projection defect, never delivered. The `Omit` on the base is load-bearing rather than stylistic (`packages/contracts/src/transcript/row.ts`): a plain `TranscriptEventRowBase &` intersection would type `payload` as `Record<string, unknown> & RunRolledBackEvent`, which no `RunRolledBackEvent`-typed value satisfies (an interface carries no implicit index signature) and which `RunRolledBackEventSchema` cannot be annotated against — the typed payload this comment promises would be unconstructible. `type` is Omitted for the same reason it is re-declared: this arm narrows the base's free-form string to one literal.
 };
 
-type TranscriptEventRow = TranscriptRollbackBoundary | RunScopedTranscriptEntry | TranscriptEntry; // the row union every transcript surface returns — TranscriptReadResponse.entries and ChildRunExpandResponse.entries are both TranscriptEventRow — genuinely discriminated on the literal kind: the contracts Zod discriminatedUnion selects the arm by kind (rollback_boundary | run | general), each arm validates strictly, and consumers narrow structurally on row.kind — never probing type: string, never casting
+type TranscriptEventRow = TranscriptRollbackBoundary | RunScopedTranscriptEntry | TranscriptEntry; // the row union, genuinely discriminated on the literal kind: the contracts Zod discriminatedUnion selects the arm by kind (rollback_boundary | run | general), each arm validates strictly, and consumers narrow structurally on row.kind — never probing type: string, never casting
+// A row as a read returns it, every arm with its body required: TranscriptReadResponse.entries and
+// ChildRunExpandResponse.entries are both TranscriptReadRow, and TranscriptReadRowSchema parses it.
+type TranscriptReadRow = TranscriptEventRow & { content: TranscriptRowContent };
 
 // The run stamp a session.subscribe change carries for an event of a run (Plan-010 T2.4): the same
 // position, epoch and superseded marker the event's transcript.read row carries, because the daemon
@@ -206,7 +210,7 @@ type ChildRunExpandResponse = {
   runId: RunId;
   parentRunId: RunId;
   state: RunState;
-  entries: TranscriptEventRow[]; // bounded by PAGE_MAX_BYTES as well as by the row cap
+  entries: TranscriptReadRow[]; // bounded by PAGE_MAX_BYTES as well as by the row cap
 } & ({ hasMore: true; nextCursor: EventCursor } | { hasMore: false; nextCursor?: EventCursor });
 
 // TranscriptBodyRead — transcript.bodyRead. A row's large body (the `large` arm of its `content`) or

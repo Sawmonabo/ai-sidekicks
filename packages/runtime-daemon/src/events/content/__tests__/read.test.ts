@@ -1,6 +1,5 @@
 // `hydrateStoredEvent` pairs a stored event with its body: a row with no body reads as `absent`,
-// never as an empty body; a text body echoes the stored length and truncation marker; a column
-// holding anything but text or NULL is refused.
+// never as an empty body; a text body echoes the stored length and truncation marker.
 
 import { describe, expect, it } from "vitest";
 
@@ -43,11 +42,5 @@ describe("hydrateStoredEvent", () => {
       contentLength: 120_000,
       contentTruncated: true,
     });
-  });
-
-  it("refuses a column that holds something other than text", () => {
-    expect(() =>
-      hydrateStoredEvent({ envelope: STORED_ENVELOPE, contentPayload: Buffer.from("bytes") }),
-    ).toThrow(/holds a value of type object, not text/);
   });
 });

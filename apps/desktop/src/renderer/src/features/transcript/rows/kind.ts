@@ -122,7 +122,7 @@ export const TOOL_RESULT_STATES = [
 export type ToolResultState = (typeof TOOL_RESULT_STATES)[number];
 
 /**
- * What a tool row's header reports, from its event type and its hydrated body.
+ * What a tool row's header reports, from its event type and the body its row carries.
  *
  * `tool.error` outranks every body condition: a collapsed row must not hide a failure, and a
  * truncated error is still an error. Below that the body's condition decides, because a body
@@ -144,5 +144,6 @@ export function toolResultState(
   if (content.status === "unavailable") {
     return "body-unavailable";
   }
-  return content.status === "available" && content.contentTruncated === true ? "truncated" : "ok";
+  // A cut output is large as often as not, so the mark is read from either arm that carries it.
+  return content.contentTruncated === true ? "truncated" : "ok";
 }

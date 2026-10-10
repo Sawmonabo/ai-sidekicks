@@ -19,9 +19,16 @@ export const TRANSCRIPT_READ_LIMIT_MAX = 256;
 
 /**
  * The most JSON bytes a row's body takes and still travels with its row on a read; a larger one
- * comes back as the `large` arm, naming its size, and waits for `transcript.bodyRead`. A page of
- * rows whose bodies all sit at this ceiling still holds 29 of them, 26 with every summary at its
- * limit, so one huge output never crowds its neighbors out of a page, while a reply of any
- * ordinary length travels whole.
+ * comes back as the `large` arm, which carries its size alone. Under `PAGE_MAX_BYTES` a page of
+ * rows whose bodies all sit at this ceiling holds 29 of them when their other members are of
+ * ordinary size, and 26 when every summary is at its limit in plain ASCII, so one huge output
+ * never crowds its neighbors out of a page.
  */
 export const TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES = 32_768;
+
+/**
+ * The most UTF-8 bytes a stored body holds and may still travel with its row: its JSON form adds
+ * at least the two quotes, so a body over this is large without measuring its escapes.
+ */
+export const TRANSCRIPT_ROW_BODY_INLINE_MAX_UTF8_BYTES: number =
+  TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES - 2;

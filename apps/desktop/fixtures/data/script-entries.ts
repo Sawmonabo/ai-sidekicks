@@ -20,6 +20,7 @@ import type { AgentListEntry } from "@ai-sidekicks/contracts/agent/methods";
 import type { RunCompletionKind } from "@ai-sidekicks/contracts/run/control";
 import { encodeEventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 
+import { measureUtf8ByteLength } from "#renderer/lib/utf8-byte-length.js";
 import type { ScenarioBeat } from "../scenario.js";
 
 /** One scripted moment, before the builder gives it a position and an instant. */
@@ -262,7 +263,7 @@ export function assistantOutputEntry(input: AssistantOutputInput): ScriptEntry {
       sessionId: input.sessionId,
       runId: input.runId,
       contentType: input.contentType,
-      contentLength: utf8ByteLength(input.body),
+      contentLength: measureUtf8ByteLength(input.body),
     },
     body: input.body,
   };
@@ -279,7 +280,7 @@ export function toolActivityEntry(input: ToolActivityInput): ScriptEntry {
       toolName: input.toolName,
       toolCallId: input.toolCallId,
       ...(input.durationMs === undefined ? {} : { durationMs: input.durationMs }),
-      ...(input.body === undefined ? {} : { contentLength: utf8ByteLength(input.body) }),
+      ...(input.body === undefined ? {} : { contentLength: measureUtf8ByteLength(input.body) }),
     },
     ...(input.body === undefined ? {} : { body: input.body }),
   };
@@ -315,13 +316,6 @@ export function createRunEntryBuilders(sessionId: string): RunEntryBuilders {
     subagent: (runId, input) => subagentActivityEntry({ ...input, sessionId, runId }),
   };
 }
-
-/** A body's UTF-8 byte length, as a producer stores it beside the payload. */
-function utf8ByteLength(body: string): number {
-  return utf8Encoder.encode(body).byteLength;
-}
-
-const utf8Encoder = new TextEncoder();
 
 /** The creation-row members this entry states, with no key for the rest. */
 function creationRowMembers(input: RunTransitionInput): Readonly<Record<string, unknown>> {

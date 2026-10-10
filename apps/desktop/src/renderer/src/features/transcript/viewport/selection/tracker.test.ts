@@ -165,7 +165,8 @@ describe("ViewportSelectionTracker — the selection's range", () => {
     const [endNode, endOffset] = positionIn(secondRow, 9);
     select([startNode, startOffset], [endNode, endOffset]);
     expect(listener).toHaveBeenCalledTimes(1);
-    // By identity: both rows hold the same characters, so a structural match cannot tell them apart.
+    // By identity: both rows hold the same characters, so a structural match cannot tell them
+    // apart.
     expect(tracker.selectionRange?.startContainer).toBe(startNode);
     expect(tracker.selectionRange?.startOffset).toBe(startOffset);
     expect(tracker.selectionRange?.endContainer).toBe(endNode);

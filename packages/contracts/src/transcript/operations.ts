@@ -12,7 +12,7 @@ import { type EventCursor } from "../session/event-cursor.js";
 
 import { refuseSelfParentingRun } from "./child-run-summary.js";
 import { TRANSCRIPT_READ_LIMIT_MAX } from "./limits.js";
-import { TranscriptEventRowSchema, type TranscriptReadRow } from "./row.js";
+import { TranscriptReadRowSchema, type TranscriptReadRow } from "./row.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 
 /**
@@ -84,12 +84,12 @@ export type TranscriptReadResponse =
 // client re-ask the same cursor forever. A terminal page may be empty, the honest answer to a
 // read that matched nothing. Both arms share the request's limit constant.
 const continuingTranscriptEntriesSchema = z
-  .array(TranscriptEventRowSchema)
+  .array(TranscriptReadRowSchema)
   .min(1)
   .max(TRANSCRIPT_READ_LIMIT_MAX);
 
 const terminalTranscriptEntriesSchema = z
-  .array(TranscriptEventRowSchema)
+  .array(TranscriptReadRowSchema)
   .max(TRANSCRIPT_READ_LIMIT_MAX);
 
 /** Parses a {@link TranscriptReadResponse}; entries also fit one frame and run oldest to newest. */

@@ -497,7 +497,7 @@ export type TranscriptReadRow = TranscriptEventRow extends infer Row
  * Parses a {@link TranscriptReadRow}. The arm is chosen by `kind`, so a failure is reported
  * against that arm and never retried against a sibling.
  */
-export const TranscriptEventRowSchema: z.ZodType<TranscriptReadRow> = z.discriminatedUnion("kind", [
+export const TranscriptReadRowSchema: z.ZodType<TranscriptReadRow> = z.discriminatedUnion("kind", [
   transcriptRollbackBoundaryArmSchema,
   runScopedTranscriptArmSchema,
   transcriptGeneralArmSchema,

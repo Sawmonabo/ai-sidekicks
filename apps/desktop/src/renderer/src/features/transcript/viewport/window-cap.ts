@@ -156,7 +156,8 @@ export class TranscriptWindow {
     const foundTail = this.#holdsLogTail ? lastPosition : positionOfKey(rows, this.#tailKey);
     const head = foundHead < 0 ? 0 : foundHead;
     const tail = foundTail < 0 ? lastPosition : foundTail;
-    // Ends the log now carries in the other order hold no span between them; the log is taken whole.
+    // Ends the log now carries in the other order hold no span between them; the log is taken
+    // whole.
     if (tail < head) {
       this.#placeSpan(0, lastPosition);
     } else {

@@ -19,7 +19,7 @@ import {
 } from "../components/TranscriptRowLayout/TranscriptRowLayout.js";
 import { type InlineCardProps } from "#renderer/registries/inline-cards/registry.js";
 import { type RowKindDescriptor } from "./kind.js";
-import type { HydratedRowProps } from "./hydrated-props.js";
+import type { TranscriptCardProps } from "./card-props.js";
 import { InlineCards } from "./InlineCards.js";
 import { CopyButton } from "#renderer/components/CopyButton/CopyButton.js";
 import { useClipboardCopy } from "#renderer/services/platform/hooks/useClipboardCopy.js";
@@ -34,7 +34,7 @@ import { useReplyText } from "../copy/hooks/useReplyText.js";
 import { publishedTextOf, type PublishedText } from "../reveal/published-text.js";
 
 /** What a mount hands a message card, beyond the row itself. */
-export interface MessageRowProps extends HydratedRowProps {
+export interface MessageRowProps extends TranscriptCardProps {
   /** The row's kind, as the dispatcher classified it: one of the three message kinds. */
   readonly rowKind: RowKindDescriptor;
   /** The inline cards this message carries, handed down rather than derived from the payload. */

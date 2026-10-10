@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 // The row-id namespace comes from the transcript scenario that declares it: a stem
 // restated here would be a second namespace the day the scenario's own moved.
 import { EVENT_ID_STEM } from "#fixtures/scenarios/transcript-states.js";
-import { isContractTranscriptEventRow } from "./rows.test-support.js";
+import { isContractTranscriptReadRow } from "./rows.test-support.js";
 import { type ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { projectTranscriptRows } from "./rows.js";
 
@@ -53,7 +53,7 @@ describe("the log-derived row projection", () => {
     for (const row of projection.rows) {
       // The real contract validator, not a local shape check: a row it refuses is unusable
       // downstream.
-      expect(isContractTranscriptEventRow(row)).toBe(true);
+      expect(isContractTranscriptReadRow(row)).toBe(true);
     }
   });
 
