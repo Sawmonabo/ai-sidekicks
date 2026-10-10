@@ -14,12 +14,14 @@
 // whose history is damaged; the session services' background work starts once the pass has ended.
 // A client that reads the previous token in the moment between the bind and the write is refused
 // once, and its next read finds this start's token. Its stop, asked for over the socket or by a
-// terminate signal, ends it cleanly, and records the clean stop once the database has closed.
+// terminate signal, ends it cleanly at any point of the start or after it, and records the clean
+// stop once the database has closed; a start that nothing stopped says the daemon is ready.
 
 import { chmod, mkdir } from "node:fs/promises";
 import * as path from "node:path";
 
 import {
+  DAEMON_READY_LINE,
   DAEMON_STOP_DRAIN_BOUND_MS,
   DAEMON_STOP_TERMINAL_DRAIN_MS,
   DAEMON_STOP_TERMINAL_HOST_DRAIN_MS,
@@ -31,6 +33,7 @@ import type { DaemonProcessState } from "@ai-sidekicks/contracts/daemon/status";
 import type { ProcessIdentity } from "@ai-sidekicks/contracts/process-identity";
 import { MACHINE_SETTINGS_FILE_PATH_SEGMENTS } from "@ai-sidekicks/contracts/machine-settings";
 import { DeviceIdSchema } from "@ai-sidekicks/contracts/trust-statement";
+import { CURRENT_PROTOCOL_VERSION } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 
 import { bootstrap } from "../bootstrap/index.js";
@@ -134,6 +137,11 @@ export interface DaemonProcessOptions {
   readonly now: () => Date;
   /** Writes one line to the service log, the daemon's standard error. */
   readonly writeServiceLog: (line: string) => void;
+  /**
+   * Aborts when a terminate signal asks the daemon to stop. Before the daemon listens it ends the
+   * start; once it listens it stops the daemon as a stop over the socket does.
+   */
+  readonly stopSignal: AbortSignal;
 }
 
 /**
@@ -392,10 +400,12 @@ export class DaemonProcess {
 
   /**
    * Starts the daemon and resolves once it listens, its recovery pass has ended and the session
-   * services' background work has started; a pass that fails leaves the node's recovery state
-   * saying so and never fails the start. Throws `DaemonAlreadyRunningError` when another daemon
-   * holds the data folder or answers on the socket; any other failure releases what the start had
-   * taken.
+   * services' background work has started, then logs that it is ready; a pass that fails leaves
+   * the node's recovery state saying so and never fails the start. A stop during the pass resolves
+   * with the daemon stopping, its background work never started and no ready line. Throws
+   * `DaemonAlreadyRunningError` when another daemon holds the data folder or answers on the
+   * socket, and `DaemonStartStoppedError` when the stop signal ended a repair of the file; any
+   * failure releases what the start had taken.
    */
   static async start(options: DaemonProcessOptions): Promise<DaemonProcess> {
     const startedAt = options.now();
@@ -437,6 +447,7 @@ export class DaemonProcess {
         readBackupFolder: async () =>
           (await settingsFile.read()).settings.backup.folder ??
           path.join(dataFolder, BACKUP_DEFAULT_FOLDER_NAME),
+        stopSignal: options.stopSignal,
         now: options.now,
         writeServiceLog: options.writeServiceLog,
       });
@@ -505,12 +516,24 @@ export class DaemonProcess {
         await daemon.#listen(options.runFolder, sessionToken);
         const listening = daemon;
         void damageWatch.whenFound.then((damage) => listening.#stopForRepair(damage));
-        daemon.#recoveryPass = daemon.#startupRecovery.run();
-        await daemon.#recoveryPass;
-        // A stop that came during the pass, for damage or over the socket, starts no background
-        // work, nor does damage the pass met, whose stop starts once this turn ends.
-        if (daemon.#stopping === undefined && !damageWatch.isFound) {
+        // A stop signaled during the start, before this point included, stops the daemon as one
+        // over the socket does; the pass then never starts.
+        if (options.stopSignal.aborted) {
+          void daemon.stop();
+        } else {
+          options.stopSignal.addEventListener("abort", () => void listening.stop(), { once: true });
+          daemon.#recoveryPass = daemon.#startupRecovery.run();
+          await daemon.#recoveryPass;
+        }
+        // A stop that came during the pass, for damage, by a signal or over the socket, whose
+        // own stop starts a turn later, starts no background work and says nothing is ready, nor
+        // does damage the pass met, whose stop starts once this turn ends.
+        if (daemon.#processState !== "stopping" && !damageWatch.isFound) {
           await daemon.#startSessionServices();
+          options.writeServiceLog(
+            `${DAEMON_READY_LINE} (process ${String(options.processIdentity.processId)}, ` +
+              `protocol ${CURRENT_PROTOCOL_VERSION}).`,
+          );
         }
         return daemon;
       } catch (startError) {

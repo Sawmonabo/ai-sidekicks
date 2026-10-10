@@ -210,6 +210,7 @@ function repair(progressReports: (DaemonRepairProgress | undefined)[] = []) {
       repairDamagedFile((progress) => {
         progressReports.push(progress);
       }),
+    stopSignal: new AbortController().signal,
     now: () => new Date("2026-10-07T13:00:00.000Z"),
     writeServiceLog: () => {},
   });

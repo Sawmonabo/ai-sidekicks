@@ -10,8 +10,6 @@ import { readFile } from "node:fs/promises";
 import * as os from "node:os";
 import { promisify } from "node:util";
 
-import { DAEMON_READY_LINE } from "@ai-sidekicks/contracts/daemon/lifecycle";
-import { CURRENT_PROTOCOL_VERSION } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 import { resolveDaemonRunFolder } from "@ai-sidekicks/contracts/daemon/run-folder";
 import { createProcessIdentityReader } from "@ai-sidekicks/contracts/process-identity";
 
@@ -23,6 +21,7 @@ import {
 } from "./daemon/login-shell-environment.js";
 import { createNodeMachineNameSources, readMachineName } from "./daemon/machine/name.js";
 import { readProcessTreeUsage } from "./daemon/process-tree-usage.js";
+import { DaemonStartStoppedError } from "./daemon/start-stopped-error.js";
 import { openServiceLog } from "./daemon/service-log.js";
 import { readWindowsDriveMounts } from "./daemon/windows-drive-mounts.js";
 import { selectPtyHost } from "./pty/host/selector.js";
@@ -67,9 +66,10 @@ process.on("uncaughtException", (error: unknown) => {
 });
 
 // Installed before the start, so a signal sent at any moment stops the daemon cleanly: during the
-// start it ends the login shell's capture, its reason saying why in the service log, and the daemon
-// stops as soon as it has started. The handlers stay installed for the whole stop: with none, a
-// second signal would end the daemon mid-drain.
+// start it ends the login shell's capture, its reason saying why in the service log, and a repair
+// of the database file under way, which ends the start; once the daemon listens it stops it. The
+// handlers stay installed for the whole stop: with none, a second signal would end the daemon
+// mid-drain.
 const stopRequest = new AbortController();
 for (const signal of ["SIGTERM", "SIGINT"] as const) {
   process.on(signal, () => {
@@ -91,6 +91,7 @@ if (processIdentity === undefined) {
 }
 const account = os.userInfo();
 const daemon = await DaemonProcess.start({
+  stopSignal: stopRequest.signal,
   homeDirectory,
   runFolder: resolveDaemonRunFolder({
     platform: process.platform,
@@ -129,19 +130,17 @@ const daemon = await DaemonProcess.start({
   readProcessTreeUsage: () => readProcessTreeUsage(process.pid),
   now: () => new Date(),
   writeServiceLog,
+}).catch((error: unknown) => {
+  // A start a stop ended before the daemon listened has let go of what it took, so it exits as a
+  // clean stop does; anything that failed beside it is a failed start.
+  if (error instanceof DaemonStartStoppedError && error.cause === undefined) {
+    writeServiceLog(`The daemon stopped during its start: ${error.message}.`);
+    process.exit(0);
+  }
+  throw error;
 });
 
 isStarted = true;
-if (stopRequest.signal.aborted) {
-  void daemon.stop();
-} else {
-  stopRequest.signal.addEventListener("abort", () => {
-    void daemon.stop();
-  });
-  writeServiceLog(
-    `${DAEMON_READY_LINE} (process ${String(process.pid)}, protocol ${CURRENT_PROTOCOL_VERSION}).`,
-  );
-}
 
 void daemon.whenStopped().then((outcome) => {
   if (!outcome.isClean) {

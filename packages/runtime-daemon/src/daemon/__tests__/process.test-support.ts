@@ -119,6 +119,7 @@ export async function startDaemon(
     readProcessTreeUsage: () => readProcessTreeUsage(process.pid),
     now: () => new Date(STARTED_AT),
     writeServiceLog: () => {},
+    stopSignal: new AbortController().signal,
   };
   const daemon = await start(options);
   started.push(daemon);

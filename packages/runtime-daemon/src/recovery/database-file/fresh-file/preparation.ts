@@ -24,14 +24,27 @@ const WORKER_URL = moduleUrlBeside(import.meta.url, "worker");
 /**
  * Takes each session the backup copy holds more readable events of from it, then readies the
  * fresh file, and resolves with how many sessions came from the backup. Rejects when the file
- * lacks an object of the schema or fails the full integrity check, or when the thread fails.
+ * lacks an object of the schema or fails the full integrity check, or when the thread fails, and
+ * at once when `stopSignal` aborts, ending the thread without waiting for it: a long SQLite call
+ * it is in ends only when it returns, and the fresh file it holds is never read without the
+ * repair's marker.
  */
 export function prepareFreshFile(
   workerData: FreshFileWorkerData,
   writeServiceLog: (line: string) => void,
+  stopSignal: AbortSignal,
 ): Promise<number> {
   return new Promise((resolve, reject) => {
+    if (stopSignal.aborted) {
+      reject(new Error("The service's stop came before the fresh file's thread started"));
+      return;
+    }
     const worker = new Worker(WORKER_URL, { workerData });
+    const stop = (): void => {
+      reject(new Error("The service's stop ended the fresh file's thread"));
+      void worker.terminate();
+    };
+    stopSignal.addEventListener("abort", stop, { once: true });
     let outcome: FreshFileReply | undefined;
     worker.on("message", (reply: FreshFileReply) => {
       if (reply.type === "log") {
@@ -43,6 +56,7 @@ export function prepareFreshFile(
     worker.once("error", reject);
     // The thread's last message arrives before its exit.
     worker.once("exit", (code) => {
+      stopSignal.removeEventListener("abort", stop);
       if (outcome?.type === "prepared") {
         resolve(outcome.sessionsFromBackup);
       } else if (outcome?.type === "failed") {

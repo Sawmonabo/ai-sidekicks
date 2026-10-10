@@ -1,6 +1,6 @@
 // The database file as a start opens it. A file a previous run found damaged is repaired first,
 // while the socket answers that the service is repairing; one the repair cannot heal fails the
-// start, naming why. The file's structural check then runs beside the service at every start but
+// start, naming why, and a stop during the repair ends the start, the file left for the next. The file's structural check then runs beside the service at every start but
 // the first: after any end of the last run, clean or not, writes go at once, since nothing but a
 // checkpoint the storage did not flush can damage the file, and the writer's checkpoints flush
 // it; a file something else changed since the last run, or with no record of one, holds every
@@ -28,6 +28,7 @@ import {
 } from "../recovery/database-file/last-run.js";
 import { repairDatabaseFile } from "../recovery/database-file/repair.js";
 import { answerRepairingWhile } from "./repairing-socket.js";
+import { DaemonStartStoppedError } from "./start-stopped-error.js";
 
 /** What a start needs to open the database file. */
 export interface DatabaseFileOpenOptions {
@@ -37,6 +38,8 @@ export interface DatabaseFileOpenOptions {
   readonly runFolder: DaemonRunFolder;
   /** The folder the person's backups go to; read only when the file is damaged. */
   readonly readBackupFolder: () => Promise<string>;
+  /** Ends a repair under way when it aborts. */
+  readonly stopSignal: AbortSignal;
   readonly now: () => Date;
   readonly writeServiceLog: (line: string) => void;
 }
@@ -65,7 +68,7 @@ export interface OpenedDatabaseFile {
 /**
  * Repairs the file when a run recorded damage to it, opens it and starts its check. Throws when
  * the file is damaged and could not be repaired, or is too damaged to open, which is recorded so
- * the next start repairs it.
+ * the next start repairs it, and `DaemonStartStoppedError` when a stop ended the repair.
  */
 export async function openDatabaseFile(
   options: DatabaseFileOpenOptions,
@@ -78,9 +81,13 @@ export async function openDatabaseFile(
     indexFolderPath: options.indexFolderPath,
     readBackupFolder: options.readBackupFolder,
     whileRepairing: (repair) => answerRepairingWhile(options.runFolder, repair),
+    stopSignal: options.stopSignal,
     now: options.now,
     writeServiceLog,
   });
+  if (fileRepair.outcome === "stopped") {
+    throw new DaemonStartStoppedError("repairing the database file");
+  }
   // A file the repair could not heal is left as it is, never opened for writing, and the service
   // does not start: with no store it has nothing to serve.
   if (fileRepair.outcome === "unrepaired") {

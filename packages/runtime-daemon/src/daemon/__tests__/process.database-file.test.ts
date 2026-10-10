@@ -3,7 +3,9 @@
 // not, writes go at once, and a check that cannot run never fails the start; a damaged page the
 // recovery pass reads stops the daemon, and its next start repairs the file while the socket
 // answers that the service is repairing, with the repair's count, and the repaired file takes
-// writes at once. The check is stood in, so each test decides when it answers.
+// writes at once. A stop during the start, in the repair or while writes wait for the check, ends
+// it, and a start a stop came to never says the daemon is ready. The check is stood in, so each
+// test decides when it answers.
 
 import { existsSync } from "node:fs";
 import { mkdir, open, readdir, readFile, utimes } from "node:fs/promises";
@@ -14,6 +16,7 @@ import Database from "better-sqlite3";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 
 import { DAEMON_DATA_FOLDER_NAME } from "@ai-sidekicks/contracts/daemon/data";
+import { DAEMON_READY_LINE } from "@ai-sidekicks/contracts/daemon/lifecycle";
 import {
   DAEMON_REPAIRING_CODE,
   type DaemonRepairProgress,
@@ -25,11 +28,13 @@ import {
   DatabaseFileCheck,
   type DatabaseFileCheckAnswer,
 } from "../../recovery/database-file/check.js";
+import { recordDatabaseDamage } from "../../recovery/database-file/damage.js";
 import { recordCleanStop, recordRunStart } from "../../recovery/database-file/last-run.js";
 import { openDatabase } from "../../session/migration-runner.js";
 import type { SearchThread } from "../../session/search/thread/handle.js";
-import { DATABASE_FILE_NAME } from "../process.js";
+import { DATABASE_FILE_NAME, DaemonProcess, type DaemonProcessOptions } from "../process.js";
 import { answerRepairingWhile } from "../repairing-socket.js";
+import { DaemonStartStoppedError } from "../start-stopped-error.js";
 import {
   DRAIN_NOTHING,
   homeDirectory,
@@ -266,4 +271,108 @@ describe("damage met while the daemon runs", () => {
     expect(await repairing).toBe("repaired");
     expect(await isSocketAnswering(runFolder.socketPath)).toBe(false);
   });
+});
+
+// Starts a daemon whose service log lands in `serviceLog`, stopped by a signal when `stopRequest`
+// aborts.
+function startDaemonLogging(
+  serviceLog: string[],
+  stopRequest: AbortController = new AbortController(),
+  onLine: (line: string) => void = () => {},
+): Promise<DaemonProcess> {
+  return startDaemon(DRAIN_NOTHING, {}, (options: DaemonProcessOptions) =>
+    DaemonProcess.start({
+      ...options,
+      stopSignal: stopRequest.signal,
+      writeServiceLog: (line) => {
+        serviceLog.push(line);
+        onLine(line);
+      },
+    }),
+  );
+}
+
+describe("a stop during the start", () => {
+  it("ends the start while writes wait for the check, and in the repair, leaving the file to the next", async () => {
+    standInChecks(() => new Promise(() => {}));
+    await (await startDaemonLogging([])).stop();
+    // Something else wrote the file since its clean stop, so the next start's writes, the
+    // recovery pass's first, wait for a check that never answers.
+    await touchDatabaseFile();
+    const heldStop = new AbortController();
+    const heldLog: string[] = [];
+    const held = startDaemonLogging(heldLog, heldStop);
+    await vi.waitFor(
+      async () => {
+        expect(await isSocketAnswering(runFolder.socketPath)).toBe(true);
+      },
+      { timeout: SOCKET_WAIT_MS, interval: 20 },
+    );
+    heldStop.abort("a stop came during the start");
+    const stopping = await held;
+    expect(await stopping.whenStopped()).toStrictEqual({ isClean: true, isFileDamaged: false });
+    expect(heldLog).not.toContainEqual(expect.stringContaining(DAEMON_READY_LINE));
+    expect(await isSocketAnswering(runFolder.socketPath)).toBe(false);
+
+    // A run found the file damaged; the stop comes once its copy is aside, as the recovery starts.
+    await recordDatabaseDamage(databasePath(), "a page the test names damaged");
+    const fileBefore = await readFile(databasePath());
+    const repairStop = new AbortController();
+    const repairLog: string[] = [];
+    const failure = await startDaemonLogging(repairLog, repairStop, (line) => {
+      if (line.startsWith("The damaged database's files are copied aside")) {
+        repairStop.abort("a stop came during the start");
+      }
+    }).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(DaemonStartStoppedError);
+    expect(repairLog).toContain(
+      "The service's stop ended the repair; the damaged file stays as it was and its next start " +
+        "repairs it",
+    );
+    expect(await readFile(databasePath())).toStrictEqual(fileBefore);
+    expect(existsSync(`${databasePath()}.damaged`)).toBe(true);
+    expect(existsSync(`${databasePath()}.recovered-ready`)).toBe(false);
+    expect(await isSocketAnswering(runFolder.socketPath)).toBe(false);
+
+    // The next start, with no stop, repairs the file and takes it.
+    const repairedLog: string[] = [];
+    await startDaemonLogging(repairedLog);
+    expect(existsSync(`${databasePath()}.damaged`)).toBe(false);
+    expect(repairedLog).toContainEqual(expect.stringContaining(DAEMON_READY_LINE));
+  }, 30_000);
+
+  it("says nothing is ready when a stop over the socket comes during the recovery pass", async () => {
+    standInChecks(() => new Promise(() => {}));
+    const firstLog: string[] = [];
+    await (await startDaemonLogging(firstLog)).stop();
+    // The negative control: a start nothing stopped says the daemon is ready.
+    expect(firstLog).toContainEqual(expect.stringContaining(DAEMON_READY_LINE));
+    // The pass's first write waits for a check that never answers, so the pass is under way when
+    // the stop comes.
+    await touchDatabaseFile();
+    const serviceLog: string[] = [];
+    const starting = startDaemonLogging(serviceLog);
+    await vi.waitFor(
+      async () => {
+        expect(await isSocketAnswering(runFolder.socketPath)).toBe(true);
+      },
+      { timeout: SOCKET_WAIT_MS, interval: 20 },
+    );
+    // The token is written just after the bind, so a stop sent with the last start's is refused.
+    await vi.waitFor(
+      async () => {
+        const { client, call } = await openSession();
+        try {
+          expect(await call("daemon.stop")).toMatchObject({ result: { accepted: true } });
+        } finally {
+          await client.close();
+        }
+      },
+      { timeout: SOCKET_WAIT_MS, interval: 20 },
+    );
+
+    const daemon = await starting;
+    expect(await daemon.whenStopped()).toStrictEqual({ isClean: true, isFileDamaged: false });
+    expect(serviceLog).not.toContainEqual(expect.stringContaining(DAEMON_READY_LINE));
+  }, 30_000);
 });

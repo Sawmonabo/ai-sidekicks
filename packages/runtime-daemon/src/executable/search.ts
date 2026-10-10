@@ -5,7 +5,7 @@ import { constants as filesystemConstants } from "node:fs";
 import { access, stat } from "node:fs/promises";
 import { delimiter as pathDelimiter, extname, isAbsolute, join, resolve } from "node:path";
 
-import { hostEnvNameMatchForPlatform, type SpawnEnvPair } from "./provider/spawn-env.js";
+import { hostEnvNameMatchForPlatform, type SpawnEnvPair } from "../provider/spawn-env.js";
 
 /** "Is this path a file this process may execute?" — never rejects. */
 type ExecutableFileProbe = (candidate: string) => Promise<boolean>;
