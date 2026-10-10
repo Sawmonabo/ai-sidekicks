@@ -1,10 +1,13 @@
-// The recovery pass every start runs before the node takes writes: it rebuilds each session's
-// projections the log has moved past, settles every run the restart left live, the person's
-// pending interrupt with it, and records the pass on the service's own session. A session whose
-// rebuild fails is healed first: the store's files are copied aside untouched, once a pass and
-// once for the same damage across starts, and the rebuild runs again; one that still fails opens
-// at its last good point, or reads damaged when none of it can be read. It never throws: a pass
-// that fails leaves the node blocked, or a session damaged, and says why in the service log.
+// The recovery pass every start runs: it rebuilds each session's projections the log has moved
+// past, settles every run the restart left live, the person's pending interrupt with it, and
+// records the pass on the service's own session. The node takes no write until the pass has
+// listed those sessions; from then each listed session alone refuses the calls that name it until
+// it is rebuilt and its runs settled, so every other session takes its writes while the pass goes
+// on. A session whose rebuild fails is healed first: the store's files are copied aside untouched,
+// once a pass and once for the same damage across starts, and the rebuild runs again; one that
+// still fails opens at its last good point, or reads damaged when none of it can be read. It never
+// throws: a pass that fails leaves the node blocked, or a session damaged, and says why in the
+// service log.
 
 import type { Database, Statement } from "better-sqlite3";
 
@@ -26,7 +29,7 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { EventLogService } from "../events/log-service.js";
 import { boundFailureDetail } from "../provider/driver/contract.js";
 import type { RunEngine } from "../session/run/engine.js";
-import type { RunStateReader } from "../session/run/read.js";
+import type { LiveRun, RunStateReader } from "../session/run/read.js";
 import { hasSqliteErrorCode } from "../session/sqlite-error-code.js";
 import { mintUuidV7 } from "../uuid-v7.js";
 import type { DamagedHistory } from "./damaged-history.js";
@@ -114,7 +117,11 @@ export class StartupRecovery {
    * Runs the pass and resolves once it has ended, either way; the node's recovery state then says
    * how it ended. Never throws.
    */
-  async run(): Promise<void> {
+  run(): Promise<void> {
+    return this.#deps.status.runPass(() => this.#run());
+  }
+
+  async #run(): Promise<void> {
     const { status } = this.#deps;
     const passStartedAt = performance.now();
     const tally: RecoveryTally = {
@@ -148,10 +155,28 @@ export class StartupRecovery {
         startedAt: this.#deps.now().toISOString(),
       } satisfies RecoveryAttemptedPayload);
 
-      await this.#rebuildProjections(tally);
+      // A stale session's runs are read from its projection once it is rebuilt; every other
+      // session's are read now, before the node takes a write that could start a new one.
+      const sessionsToRebuild = new Set(this.#deps.projectionRebuild.listSessionsToRebuild());
+      const runsOfCurrentSessions = this.#deps.runs
+        .listLiveRuns()
+        .filter((run) => run.state !== "queued" && !sessionsToRebuild.has(run.sessionId));
+      for (const sessionId of [
+        ...sessionsToRebuild,
+        ...runsOfCurrentSessions.map((run) => run.sessionId),
+      ]) {
+        status.markSessionRebuilding(sessionId);
+      }
+      status.markPassListed();
 
       base.phase = "run_resumption";
-      await this.#settleLiveRuns(tally, runsLeftInFlight);
+      await this.#settleLiveRuns(runsOfCurrentSessions, tally, runsLeftInFlight);
+      for (const run of runsOfCurrentSessions) {
+        this.#markListedSessionHealthy(run.sessionId);
+      }
+      base.phase = "projection_rebuild";
+      await this.#rebuildProjections(sessionsToRebuild, tally, runsLeftInFlight);
+      base.phase = "run_resumption";
 
       const failureKind: RecoveryFailureKind | undefined =
         status.readOverall() === "degraded" ? "projection_rebuild_failed" : undefined;
@@ -194,17 +219,19 @@ export class StartupRecovery {
     }
   }
 
-  // A session whose log cannot be folded is healed and the pass goes on; any other failure ends
-  // the pass.
-  async #rebuildProjections(tally: RecoveryTally): Promise<void> {
-    const { projectionRebuild, status } = this.#deps;
+  // Rebuilds each session, then settles its runs the restart left live. A session whose log
+  // cannot be folded is healed and the pass goes on; any other failure ends the pass.
+  async #rebuildProjections(
+    sessionsToRebuild: ReadonlySet<SessionId>,
+    tally: RecoveryTally,
+    runsLeftInFlight: Set<RunId>,
+  ): Promise<void> {
+    const { projectionRebuild, runs } = this.#deps;
     const heal: HealState = { asideFolder: undefined };
-    for (const sessionId of projectionRebuild.listSessionsToRebuild()) {
-      status.markSessionRebuilding(sessionId);
+    for (const sessionId of sessionsToRebuild) {
       try {
         const rebuilt = await projectionRebuild.rebuild({ sessionId });
         tally.eventsApplied += rebuilt.eventsApplied;
-        status.markSessionHealthy(sessionId);
       } catch (error) {
         if (!(error instanceof ProjectionFailureError)) {
           throw error;
@@ -214,6 +241,13 @@ export class StartupRecovery {
         );
         await this.#healSession(sessionId, heal, tally);
       }
+      // The session has refused every call since the listing, so each live run is one the
+      // restart left.
+      const liveRuns = runs
+        .listLiveRuns()
+        .filter((run) => run.state !== "queued" && run.sessionId === sessionId);
+      await this.#settleLiveRuns(liveRuns, tally, runsLeftInFlight);
+      this.#markListedSessionHealthy(sessionId);
     }
   }
 
@@ -240,7 +274,6 @@ export class StartupRecovery {
     try {
       const rebuilt = await projectionRebuild.rebuild({ sessionId, force: true });
       tally.eventsApplied += rebuilt.eventsApplied;
-      status.markSessionHealthy(sessionId);
       return;
     } catch (error) {
       if (!(error instanceof ProjectionFailureError)) {
@@ -267,9 +300,12 @@ export class StartupRecovery {
   // No driver has any run after a restart, so every live run settles as the run engine decides,
   // which ends a run under the person's pending interrupt and gives that interrupt its outcome. A
   // damaged session takes no writes, so its runs are left as they are.
-  async #settleLiveRuns(tally: RecoveryTally, runsLeftInFlight: Set<RunId>): Promise<void> {
-    const { runs, runEngine, status } = this.#deps;
-    const liveRuns = runs.listLiveRuns().filter((run) => run.state !== "queued");
+  async #settleLiveRuns(
+    liveRuns: readonly LiveRun[],
+    tally: RecoveryTally,
+    runsLeftInFlight: Set<RunId>,
+  ): Promise<void> {
+    const { runEngine, status } = this.#deps;
     for (const run of liveRuns) {
       runsLeftInFlight.add(run.runId);
     }
@@ -284,6 +320,14 @@ export class StartupRecovery {
         tally.runsInterrupted += 1;
       }
       runsLeftInFlight.delete(run.runId);
+    }
+  }
+
+  // A session the pass listed takes calls again, unless its heal left its history damaged.
+  #markListedSessionHealthy(sessionId: SessionId): void {
+    const { status } = this.#deps;
+    if (status.readSessionWriteRefusal(sessionId) === undefined) {
+      status.markSessionHealthy(sessionId);
     }
   }
 

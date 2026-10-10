@@ -1,9 +1,9 @@
-// Refuses a mutating call that would write on top of read state the daemon cannot trust. While
-// the restart's pass runs, or once the local store has failed, the whole node refuses, so nothing
-// is admitted before the store is rebuilt; the stop, the restart and the flush are still taken,
-// since they are how a person gets out of a stuck recovery and none writes session state. Once
-// the pass has ended, only a session whose history is damaged refuses the calls that name it,
-// except its own two recovery actions; every other session takes its writes.
+// Refuses a mutating call that would write on top of read state the daemon cannot trust. Until
+// the restart's pass has listed the sessions it must rebuild, or once the local store has failed,
+// the whole node refuses; the stop, the restart and the flush are still taken, since they are how
+// a person gets out of a stuck recovery and none writes session state. From then on, a session
+// the pass is still rebuilding refuses the calls that name it, and so does a session whose history
+// is damaged, except its own two recovery actions; every other session takes its writes.
 
 import { DAEMON_LIFECYCLE_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/daemon/lifecycle";
 import {
@@ -17,7 +17,7 @@ import { SessionIdSchema, type SessionId } from "@ai-sidekicks/contracts/session
 
 import { DaemonDomainError } from "../ipc/domain-error.js";
 import { DelegatingRegistry } from "../ipc/registry.js";
-import { refuseWriteToDamagedSession } from "./session-write-refusal.js";
+import { refuseCallNamingSession } from "./session-write-refusal.js";
 import type { RecoveryStatusTracker } from "./status.js";
 
 const METHODS_TAKEN_WHILE_RECOVERING: ReadonlySet<string> = new Set([
@@ -34,11 +34,11 @@ const METHODS_TAKEN_BY_A_DAMAGED_SESSION: ReadonlySet<string> = new Set([
 
 /** Wraps a registry so its mutating calls wait for state the daemon can trust. */
 export class RecoveryWriteGate {
-  readonly #status: Pick<RecoveryStatusTracker, "readNodeWriteRefusal" | "readSessionWriteRefusal">;
+  readonly #status: Pick<RecoveryStatusTracker, "readNodeWriteRefusal" | "readSessionCallRefusal">;
 
   /** `status` answers, at each call, whether the node and the named session take writes. */
   constructor(
-    status: Pick<RecoveryStatusTracker, "readNodeWriteRefusal" | "readSessionWriteRefusal">,
+    status: Pick<RecoveryStatusTracker, "readNodeWriteRefusal" | "readSessionCallRefusal">,
   ) {
     this.#status = status;
   }
@@ -46,7 +46,8 @@ export class RecoveryWriteGate {
   /**
    * Returns a registry that dispatches through `inner`, refusing a mutating call other than the
    * stop, the restart and the flush with `daemon.write_refused` while the node takes no writes,
-   * and one that names a session with damaged history with `session.write_refused`.
+   * and one that names a session the pass is still rebuilding, or one with damaged history, with
+   * `session.write_refused`.
    */
   wrap(inner: MethodRegistry): MethodRegistry {
     return new DelegatingRegistry(inner, async (method, params, ctx) => {
@@ -73,7 +74,7 @@ export class RecoveryWriteGate {
     }
     const sessionId = readNamedSession(params);
     if (sessionId !== undefined && !METHODS_TAKEN_BY_A_DAMAGED_SESSION.has(method)) {
-      refuseWriteToDamagedSession(this.#status, sessionId, method);
+      refuseCallNamingSession(this.#status, sessionId, method);
     }
   }
 }

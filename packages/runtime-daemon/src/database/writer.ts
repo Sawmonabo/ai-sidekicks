@@ -17,7 +17,7 @@ import type { ServiceLogWriter } from "../daemon/service-log.js";
 import type { SessionEventRow } from "../events/session/insert.js";
 import { rebuildError } from "../worker/carried-error.js";
 import { moduleUrlBeside } from "../worker/module-url.js";
-import type { CheckpointMode, CheckpointOptions, CheckpointResult } from "./checkpoint.js";
+import type { CheckpointMode, CheckpointResult } from "./checkpoint.js";
 import type {
   WriteJob,
   WriteJobOutcome,
@@ -290,22 +290,15 @@ export class DatabaseWriter {
   }
 
   /**
-   * Runs a WAL checkpoint in `mode` on the writer's connection, between batches; every write waits
-   * behind it, a busy one included unless it skips the wait for readers. Throws once the writer is
-   * closing or closed.
+   * Runs a WAL checkpoint in `mode` on the writer's connection, between batches. It never waits for
+   * a reader that holds an older snapshot: it answers busy at once, so no write waits behind it
+   * longer than the checkpoint's own work. Throws once the writer is closing or closed.
    */
-  async checkpoint(
-    mode: CheckpointMode,
-    options: CheckpointOptions = {},
-  ): Promise<CheckpointResult> {
+  async checkpoint(mode: CheckpointMode): Promise<CheckpointResult> {
     if (this.#closing !== undefined) {
       throw new Error("The database writer is closed; the checkpoint did not run");
     }
-    const reply = await this.#request({
-      type: "checkpoint",
-      mode,
-      shouldWaitForReaders: options.shouldWaitForReaders ?? true,
-    });
+    const reply = await this.#request({ type: "checkpoint", mode });
     switch (reply.type) {
       case "checkpointed":
         return reply.result;

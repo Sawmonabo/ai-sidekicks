@@ -124,23 +124,19 @@ function serve(connection: Database): void {
 
   const runBatch = connection.transaction((jobs: readonly WriteJob[]) => jobs.map(runJob));
 
+  // A checkpoint calls the busy handler while a reader holds an older snapshot, which would hold
+  // the connection, and every write behind it, for the whole busy timeout; with none it answers
+  // busy at once. The timeout is put back whatever the checkpoint does.
   const checkpoint = (mode: CheckpointMode): CheckpointResult => {
-    const rows = connection.pragma(`wal_checkpoint(${mode})`) as readonly WalCheckpointRow[];
-    const row = rows[0];
-    if (row === undefined) {
-      throw new Error(`wal_checkpoint(${mode}) returned no row`);
-    }
-    return { isBusy: row.busy !== 0, logFrames: row.log, checkpointedFrames: row.checkpointed };
-  };
-
-  // A checkpoint calls the busy handler while a reader holds an older snapshot, which holds the
-  // connection, and every write behind it, for the whole busy timeout; with none it answers busy
-  // at once. The timeout is put back whatever the checkpoint does.
-  const checkpointWithoutWaiting = (mode: CheckpointMode): CheckpointResult => {
     const busyTimeoutMs = connection.pragma("busy_timeout", { simple: true }) as number;
     connection.pragma("busy_timeout = 0");
     try {
-      return checkpoint(mode);
+      const rows = connection.pragma(`wal_checkpoint(${mode})`) as readonly WalCheckpointRow[];
+      const row = rows[0];
+      if (row === undefined) {
+        throw new Error(`wal_checkpoint(${mode}) returned no row`);
+      }
+      return { isBusy: row.busy !== 0, logFrames: row.log, checkpointedFrames: row.checkpointed };
     } finally {
       connection.pragma(`busy_timeout = ${String(busyTimeoutMs)}`);
     }
@@ -159,9 +155,7 @@ function serve(connection: Database): void {
         try {
           post({
             type: "checkpointed",
-            result: request.shouldWaitForReaders
-              ? checkpoint(request.mode)
-              : checkpointWithoutWaiting(request.mode),
+            result: checkpoint(request.mode),
           });
         } catch (error) {
           post({ type: "checkpoint-failed", error: carryError(error) });

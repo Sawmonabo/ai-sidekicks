@@ -29,6 +29,11 @@ export class DatabaseDamageWatch {
     this.whenFound = this.#found.promise;
   }
 
+  /** Whether damage has been found, so a caller can act before {@link whenFound}'s callbacks run. */
+  get isFound(): boolean {
+    return this.#isFound;
+  }
+
   /** Records damage the check or a caller describes as `damage`; only the first counts. */
   find(damage: string): void {
     if (!this.#isFound) {

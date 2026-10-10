@@ -644,6 +644,11 @@ CREATE TABLE projection_cursors (
   updated_at      TEXT NOT NULL
 );
 
+-- Owner: Plan-012. The sessions a restart rebuilds: every session with events
+-- has a cursor, written with each event, so only one not current needs a rebuild.
+CREATE INDEX idx_projection_cursors_not_current ON projection_cursors(session_id)
+  WHERE state <> 'current';
+
 -- Owner: Plan-012
 CREATE TABLE recovery_checkpoints (
   id              TEXT PRIMARY KEY,

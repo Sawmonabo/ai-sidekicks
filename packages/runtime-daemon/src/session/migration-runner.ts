@@ -4,7 +4,7 @@
 import Database from "better-sqlite3";
 import type { Database as DatabaseType } from "better-sqlite3";
 
-import { PAGE_CACHE_SIZE_PRAGMA, prepareOrClose } from "../database/connection/setup.js";
+import { applyConnectionPragmas, prepareOrClose } from "../database/connection/setup.js";
 import { DAEMON_SCHEMA_SQL } from "./daemon-schema.js";
 
 /**
@@ -12,22 +12,25 @@ import { DAEMON_SCHEMA_SQL } from "./daemon-schema.js";
  * connection-local.
  *
  * - WAL journal mode: readers run during writes.
- * - synchronous=FULL: overrides better-sqlite3's NORMAL default so a committed event survives
- *   power loss.
+ * - synchronous=FULL: overrides better-sqlite3's NORMAL default, so a commit syncs the log.
+ * - checkpoint_fullfsync=ON: a checkpoint syncs with `F_FULLFSYNC` on macOS, whose `fsync` leaves
+ *   the drive free to write out of order, so a power loss during one cannot damage the file.
  * - foreign_keys=ON: enforces foreign keys at INSERT, UPDATE and DELETE, so a row another row
  *   names cannot be deleted before it.
  * - busy_timeout=5000: a concurrent writer waits up to 5 s before SQLITE_BUSY surfaces.
  * - secure_delete=ON: a deleted row's page is overwritten with zeros, so a purged session's
  *   content does not linger in free pages.
- * - cache_size=-2000: the page cache every connection holds, read-only ones included.
+ * - what every connection holds, read-only ones included: its page cache and the check of each
+ *   page read from disk.
  */
 export function applyPragmas(db: DatabaseType): void {
   db.pragma("journal_mode = WAL");
   db.pragma("synchronous = FULL");
+  db.pragma("checkpoint_fullfsync = ON");
   db.pragma("foreign_keys = ON");
   db.pragma("busy_timeout = 5000");
   db.pragma("secure_delete = ON");
-  db.pragma(PAGE_CACHE_SIZE_PRAGMA);
+  applyConnectionPragmas(db);
 }
 
 /**

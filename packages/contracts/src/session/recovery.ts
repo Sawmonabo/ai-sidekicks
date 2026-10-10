@@ -1,6 +1,7 @@
-// A session whose history is damaged: the refusal its writes meet, the refusal of its two
-// actions when they do not apply, and the event `Continue from here` appends. The log is never
-// cut or rewritten: the event names the damaged range, and every read and rebuild skips it.
+// A session whose history is damaged: the refusal its writes meet, which a session the restart's
+// pass is still rebuilding gives too, the refusal of its two actions when they do not apply, and
+// the event `Continue from here` appends. The log is never cut or rewritten: the event names the
+// damaged range, and every read and rebuild skips it.
 //
 // This file imports nothing from the event registry, which imports it.
 import { z } from "zod";
@@ -9,18 +10,19 @@ import type { DaemonRecoverySessionState } from "../daemon/recovery.js";
 import { countSchema } from "../internal/wire-scalars.js";
 import { SessionIdSchema, type SessionId } from "./id.js";
 
-/** A write to a session whose history is damaged; nothing is written. */
+/** A write to a session the restart's pass is rebuilding or whose history is damaged. */
 export type SessionWriteRefusedCode = "session.write_refused";
 /**
- * The error code a session with damaged history answers each of its writes with, until it
- * continues from its last good point or is deleted. Every other session takes its writes.
+ * The error code a session answers a call naming it with while the restart's pass rebuilds it, and
+ * a session with damaged history answers each of its writes with, until it continues from its last
+ * good point or is deleted. Every other session takes its writes.
  */
 export const SESSION_WRITE_REFUSED_CODE: SessionWriteRefusedCode = "session.write_refused";
 
 /** The refusal's `data.fields`: the session and where its recovery stands. */
 export interface SessionWriteRefusedDetails {
   sessionId: SessionId;
-  recovery: Extract<DaemonRecoverySessionState, "degraded" | "damaged">;
+  recovery: Extract<DaemonRecoverySessionState, "rebuilding" | "degraded" | "damaged">;
 }
 
 /** `session.recoveryContinue` or `session.recoveryDelete` asked of a session they do not fit. */

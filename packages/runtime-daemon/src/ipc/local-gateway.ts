@@ -125,8 +125,11 @@ function allocTransportId(): number {
  */
 export interface LocalIpcGatewayOptions {
   readonly registry: MethodRegistry;
-  /** The device every connection on this local socket comes from: the service's own device id. */
-  readonly deviceId: DeviceId;
+  /**
+   * The device every connection on this local socket comes from: the service's own device id.
+   * Absent while the service repairs its database file, before it can read the id.
+   */
+  readonly deviceId?: DeviceId;
   readonly hooks?: SupervisionHooks;
 }
 
@@ -138,7 +141,7 @@ export interface LocalIpcGatewayOptions {
  */
 export class LocalIpcGateway {
   readonly #registry: MethodRegistry;
-  readonly #deviceId: DeviceId;
+  readonly #deviceId: DeviceId | undefined;
   readonly #hooks: SupervisionHooks | null;
   #server: net.Server | null;
   #connections: Map<number, ConnectionState>;
@@ -493,7 +496,10 @@ export class LocalIpcGateway {
     // whatever the handler threw; both paths reply through `#sendEnvelope`. The read loop does not
     // wait, so several dispatches can be in flight per connection: JSON-RPC promises no order
     // beyond id correlation.
-    const ctx: HandlerContext = { transportId: state.transport.id, deviceId: this.#deviceId };
+    const ctx: HandlerContext =
+      this.#deviceId === undefined
+        ? { transportId: state.transport.id }
+        : { transportId: state.transport.id, deviceId: this.#deviceId };
     this.#registry.dispatch(methodCandidate, params, ctx).then(
       (result: unknown) => {
         if (isNotification) {

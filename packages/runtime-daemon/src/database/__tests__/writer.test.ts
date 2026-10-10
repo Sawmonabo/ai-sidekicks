@@ -253,7 +253,7 @@ describe("closing", () => {
 });
 
 describe("a checkpoint a reader keeps busy", () => {
-  it("answers busy at once when it skips the wait, and the next call waits again", async () => {
+  it("answers busy at once, without the busy timeout, and truncates once the reader ends", async () => {
     await writeDraft("first");
     // A reader holding a snapshot older than the log's newest frame keeps a truncation busy.
     const reader = new Database(scratch.databasePath, { readonly: true });
@@ -265,21 +265,18 @@ describe("a checkpoint a reader keeps busy", () => {
     await writeDraft("second");
 
     const startedAt = performance.now();
-    const skipped = await scratch.writer.checkpoint("TRUNCATE", { shouldWaitForReaders: false });
+    const skipped = await scratch.writer.checkpoint("TRUNCATE");
     const skippedMs = performance.now() - startedAt;
 
     expect(skipped.isBusy).toBe(true);
     // Far below the connection's five-second busy timeout.
     expect(skippedMs).toBeLessThan(1_000);
 
-    // The busy timeout is back: this call waits for the reader, which ends while it waits.
-    setTimeout(() => {
-      reader.exec("COMMIT");
-    }, 200);
-    const waited = await scratch.writer.checkpoint("TRUNCATE");
+    reader.exec("COMMIT");
+    const truncated = await scratch.writer.checkpoint("TRUNCATE");
 
-    expect(waited.isBusy).toBe(false);
-    expect(waited.logFrames).toBe(0);
+    expect(truncated.isBusy).toBe(false);
+    expect(truncated.logFrames).toBe(0);
   });
 });
 

@@ -102,6 +102,8 @@ export interface SessionMethodsDeps {
   readonly outboundQueue: OutboundQueue;
   /** The thread searches and the search index's merges run on, with its own read connection. */
   readonly searchThread: SearchThread;
+  /** Settles once the start's check of the database file has ended. */
+  readonly whenFileCheckEnds: Promise<unknown>;
   /** Throws when the session takes no event of `eventType`, its history damaged. */
   readonly refuseSessionWrite: (sessionId: SessionId, eventType: string) => void;
   /** Where a damaged session's reads stop. */
@@ -367,6 +369,7 @@ export function registerSessionMethods(
     sessionLock: changes.lock,
     sessionList: listFeed,
     relatedRanking,
+    whenFileCheckEnds: deps.whenFileCheckEnds,
   });
   // A stop can come while the recovery pass runs, before any start, or while a start is under way.
   let isStopped = false;

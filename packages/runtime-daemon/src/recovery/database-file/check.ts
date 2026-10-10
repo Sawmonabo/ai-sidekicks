@@ -52,13 +52,9 @@ export class DatabaseFileCheck {
     return new DatabaseFileCheck(databasePath);
   }
 
-  /**
-   * Ends the shell if it still runs; resolves with the answer once it has exited, `stopped` when
-   * this stop ended it, and rejects as the answer does.
-   */
-  stop(): Promise<DatabaseFileCheckAnswer> {
+  /** Ends the shell if it still runs; the answer then settles `stopped` once it has exited. */
+  stop(): void {
     this.#stopRequest.abort();
-    return this.answer;
   }
 
   async #run(databasePath: string): Promise<DatabaseFileCheckAnswer> {

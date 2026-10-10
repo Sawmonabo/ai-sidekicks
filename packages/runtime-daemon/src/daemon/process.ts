@@ -1,13 +1,11 @@
 // The daemon as a running process. Its start takes the data-folder lock before anything else, so of
 // two starts on one data folder only one goes on. It then starts capturing the login shell's
 // environment, which providers are built from, and loading the session services' modules; while
-// those run, it repairs a database file a previous run found damaged, dropping the search index
-// built from the file it replaces and failing the start, naming why, when it cannot, opens the
-// database, through its writer for writes and a read-only connection for reads, and starts the
-// file's structural check beside it. After a clean stop that left the file as it was, writes go at
-// once; otherwise the writer holds every write until the check finds the file sound. Damage the
-// check or any read or write meets is recorded beside the file and stops the daemon, so its next
-// start repairs the file before anything opens it. The start then starts the search thread, which
+// those run, it opens the database file, through its writer for writes and a read-only connection
+// for reads, repairing it first, while the socket answers that it is repairing, when a previous run
+// found it damaged, and starts the file's structural check beside it (`database-file.ts`). Damage
+// the check or any read or write meets is recorded beside the file and stops the daemon, so its
+// next start repairs the file before anything opens it. The start then starts the search thread, which
 // opens its own read-only connection and the search index, building the index again when it
 // cannot serve, while the start goes on, kills the terminal children a previous run left running
 // and knows this machine. It builds the terminal host over this run's orphan guard, listens on its
@@ -18,7 +16,6 @@
 // once, and its next read finds this start's token. Its stop, asked for over the socket or by a
 // terminate signal, ends it cleanly, and records the clean stop once the database has closed.
 
-import { randomBytes } from "node:crypto";
 import { chmod, mkdir } from "node:fs/promises";
 import * as path from "node:path";
 
@@ -41,7 +38,6 @@ import { waitWithin } from "../bounded-wait.js";
 import { withCleanupFailures } from "../cleanup-failures.js";
 import {
   closeDatabaseConnections,
-  openDatabaseConnections,
   type DatabaseConnections,
 } from "../database/connection/lifecycle.js";
 import { findBranchPatternRefusal } from "../git/branch-name-pattern.js";
@@ -66,16 +62,12 @@ import {
   findAsideCopyOfSession,
   recordSessionInAsideCopy,
 } from "../recovery/database-file/aside-copy.js";
-import { DatabaseFileCheck } from "../recovery/database-file/check.js";
-import { recordCleanStop, takeCleanStop } from "../recovery/database-file/clean-stop.js";
 import {
-  DatabaseDamageWatch,
-  isDatabaseDamageError,
+  type DatabaseDamageWatch,
   recordDatabaseDamage,
 } from "../recovery/database-file/damage.js";
-import { repairDatabaseFile } from "../recovery/database-file/repair.js";
 import { ProjectionRebuildService } from "../recovery/projection-rebuild.js";
-import { refuseEventOfDamagedSession } from "../recovery/session-write-refusal.js";
+import { refuseSessionEvent } from "../recovery/session-write-refusal.js";
 import { StartupRecovery } from "../recovery/startup.js";
 import { RecoveryStatusTracker } from "../recovery/status.js";
 import { RecoveryWriteGate } from "../recovery/write-gate.js";
@@ -85,14 +77,14 @@ import { RUNS_PROJECTION } from "../session/run/projection.js";
 import { RunStateReader } from "../session/run/read.js";
 import { SearchThread } from "../session/search/thread/handle.js";
 import { readFolderPlace, type FolderPlace } from "../workspace/folder/place.js";
-import { DaemonAlreadyRunningError } from "./already-running-error.js";
+import { openDatabaseFile, type OpenedDatabaseFile } from "./database-file.js";
 import { takeDataFolderLock, type DataFolderLock } from "./data-folder-lock.js";
 import { registerLifecycleMethods } from "./lifecycle-methods.js";
 import { readOrMintLocalMachine, type LocalMachine } from "./machine/local.js";
 import { MachineSettingsFile } from "./machine/settings/file.js";
 import { registerMachineSettingsMethods } from "./machine/settings/methods.js";
 import type { ProcessTreeUsage } from "./process-tree-usage.js";
-import { prepareRunFolder, writeSessionToken } from "./run-folder.js";
+import { bindSocket, mintSessionToken, prepareRunFolder } from "./run-folder.js";
 import type { registerSessionMethods } from "./session-methods.js";
 import { registerStatusMethods } from "./status-methods.js";
 
@@ -100,9 +92,6 @@ import { registerStatusMethods } from "./status-methods.js";
 export const DATABASE_FILE_NAME = "daemon.db";
 /** The search index's folder in the data folder, beside the database it is built from. */
 export const SEARCH_INDEX_FOLDER_NAME = "search-index";
-
-// The session token's size: 256 bits from the system's secure random source.
-const SESSION_TOKEN_BYTES = 32;
 
 /** The data folder the daemon holds inside `homeDirectory`. */
 export function resolveDataFolder(homeDirectory: string): string {
@@ -170,9 +159,7 @@ export class DaemonProcess {
   readonly #dataFolderLock: DataFolderLock;
   readonly #databasePath: string;
   readonly #database: DatabaseConnections;
-  readonly #fileCheck: DatabaseFileCheck;
-  // Whether the start found a clean stop's record matching the file, so it trusted the file.
-  readonly #isCleanStart: boolean;
+  readonly #databaseFile: OpenedDatabaseFile;
   #isFileDamaged = false;
   readonly #searchThread: SearchThread;
   readonly #gateway: LocalIpcGateway;
@@ -198,10 +185,7 @@ export class DaemonProcess {
     dataFolder: string;
     dataFolderLock: DataFolderLock;
     databasePath: string;
-    database: DatabaseConnections;
-    fileCheck: DatabaseFileCheck;
-    damageWatch: DatabaseDamageWatch;
-    isCleanStart: boolean;
+    databaseFile: OpenedDatabaseFile;
     /** The machine settings file, whose backup folder the start's repair read. */
     settingsFile: MachineSettingsFile;
     orphanGuard: OrphanGuard;
@@ -221,9 +205,9 @@ export class DaemonProcess {
     this.providerBaseEnvironment = parts.providerBaseEnvironment;
     this.#dataFolderLock = parts.dataFolderLock;
     this.#databasePath = parts.databasePath;
-    this.#database = parts.database;
-    this.#fileCheck = parts.fileCheck;
-    this.#isCleanStart = parts.isCleanStart;
+    this.#databaseFile = parts.databaseFile;
+    this.#database = parts.databaseFile.database;
+    const { damageWatch } = parts.databaseFile;
     this.#orphanGuard = parts.orphanGuard;
     this.#searchThread = parts.searchThread;
     this.#ptyHost = options.createPtyHost(parts.orphanGuard);
@@ -236,7 +220,7 @@ export class DaemonProcess {
     const writeGate = new RecoveryWriteGate(this.#recoveryStatus);
     const registry = negotiator.wrap(
       writeGate.wrap(
-        this.#inFlightMutations.wrap(reportDamageOf(new MethodRegistryImpl(), parts.damageWatch)),
+        this.#inFlightMutations.wrap(reportDamageOf(new MethodRegistryImpl(), damageWatch)),
       ),
     );
     negotiator.registerHandshakeMethod(registry);
@@ -273,7 +257,7 @@ export class DaemonProcess {
       findBranchPatternRefusal: (pattern) => findBranchPatternRefusal(pattern, parts.git),
     });
     const sessionServices = parts.registerSessionMethods(registry, {
-      database: parts.database,
+      database: this.#database,
       homeDirectory: options.homeDirectory,
       nodeId: parts.localMachine.nodeId,
       git: parts.git,
@@ -288,10 +272,11 @@ export class DaemonProcess {
         onceDrained: (transportId, listener) => this.#gateway.onceDrained(transportId, listener),
       },
       searchThread: parts.searchThread,
+      whenFileCheckEnds: parts.databaseFile.checkOutcome,
       commandShell: options.commandShell,
       providerBaseEnvironment: parts.providerBaseEnvironment,
       refuseSessionWrite: (sessionId, eventType) => {
-        refuseEventOfDamagedSession(this.#recoveryStatus, sessionId, eventType);
+        refuseSessionEvent(this.#recoveryStatus, sessionId, eventType);
       },
       readDamagedFromSequence: (sessionId) =>
         this.#recoveryStatus.readDamagedFromSequence(sessionId),
@@ -302,7 +287,7 @@ export class DaemonProcess {
     // The pass and the damaged history append through the daemon's one event log, so what they
     // write reaches the sessions list like any other event, and read through its session reads,
     // which stop at a damaged session's last good point.
-    const { reader, writer } = parts.database;
+    const { reader, writer } = this.#database;
     const runEngine = new RunEngine({ reader, sessionEvents: sessionServices.eventLog });
     // A run the restart settles releases what its execution root held, as any run's end does.
     runEngine.registerSetupGate(sessionServices.setupGate);
@@ -350,7 +335,7 @@ export class DaemonProcess {
       runEngine,
       status: this.#recoveryStatus,
       reportStoreFailure: (error) => {
-        parts.damageWatch.report(error);
+        damageWatch.report(error);
       },
       now: options.now,
       writeServiceLog: options.writeServiceLog,
@@ -387,9 +372,16 @@ export class DaemonProcess {
     // A search thread whose index failed to open, rebuild or apply, or that died, fails every
     // search from then on, so the service reads as degraded too, while every other service goes on.
     void this.#searchThread.whenWorkerFailed.then((error) => {
-      parts.damageWatch.report(error);
+      damageWatch.report(error);
       this.#markDegraded();
       options.writeServiceLog(`The search thread failed: ${describeError(error)}`);
+    });
+    // A file the start could not check takes writes unchecked, so the service reads as degraded;
+    // the check has already said why in the service log.
+    void parts.databaseFile.checkOutcome.then((outcome) => {
+      if (outcome === "failed") {
+        this.#markDegraded();
+      }
     });
     // A managed workspaces watch that could not start or failed reports no chat's write from then
     // on, so the service reads as degraded; the watch has already said why in the service log.
@@ -437,71 +429,19 @@ export class DaemonProcess {
         filePath: path.join(options.homeDirectory, ...MACHINE_SETTINGS_FILE_PATH_SEGMENTS),
         now: options.now,
       });
-      // Before anything opens the file, so a repaired file replaces it whole.
-      const fileRepair = await repairDatabaseFile({
+      const databaseFile = await openDatabaseFile({
         databasePath,
         dataFolder,
         indexFolderPath,
+        runFolder: options.runFolder,
+        bootId: options.processIdentity.bootId,
         readBackupFolder: async () =>
           (await settingsFile.read()).settings.backup.folder ??
           path.join(dataFolder, BACKUP_DEFAULT_FOLDER_NAME),
         now: options.now,
         writeServiceLog: options.writeServiceLog,
       });
-      // A file the repair could not heal is left as it is, never opened for writing, and the
-      // service does not start: with no store it has nothing to serve.
-      if (fileRepair.outcome === "unrepaired") {
-        throw new Error(
-          `The database file is damaged and could not be repaired: ${fileRepair.reason}. ` +
-            `Its files are copied aside in ${fileRepair.asideFolder}`,
-        );
-      }
-      const isCleanStart = await takeCleanStop(databasePath);
-      const writesHold = isCleanStart ? undefined : Promise.withResolvers<void>();
-      const damageWatch = new DatabaseDamageWatch();
-      const database = await openDatabaseRecordingDamage({
-        databasePath,
-        writeServiceLog: options.writeServiceLog,
-        writesHeldUntil: writesHold?.promise,
-        onWriteFailed: (error) => {
-          damageWatch.report(error);
-        },
-      });
-      // After the writer's open, which rebuilds a crashed run's log index under locks the check's
-      // own open would be refused by.
-      const fileCheck = DatabaseFileCheck.start(databasePath);
-      const checkStartedAt = performance.now();
-      fileCheck.answer.then(
-        (answer) => {
-          switch (answer.outcome) {
-            case "sound": {
-              const checkMs = Math.round(performance.now() - checkStartedAt);
-              options.writeServiceLog(
-                `The database file's check found it sound in ${String(checkMs)} ms`,
-              );
-              writesHold?.resolve();
-              return;
-            }
-            case "damaged":
-              damageWatch.find(answer.damage);
-              return;
-            case "stopped":
-              return;
-          }
-        },
-        (error: unknown) => {
-          options.writeServiceLog(
-            `The database file could not be checked: ${describeError(error)}`,
-          );
-          writesHold?.reject(
-            new Error(
-              `The database file could not be checked after an unclean stop, so no write is ` +
-                `taken: ${describeError(error)}`,
-              { cause: error },
-            ),
-          );
-        },
-      );
+      const { database, damageWatch } = databaseFile;
       // The search thread opens the index on its own thread from here on, building it again if it
       // must; the start never waits for it, and a search waits for its open.
       const searchThread = SearchThread.start({
@@ -544,17 +484,14 @@ export class DaemonProcess {
 
         await prepareRunFolder(options.runFolder);
         // A new token at every start, so the previous start's token no longer opens a connection.
-        const sessionToken = randomBytes(SESSION_TOKEN_BYTES).toString("hex");
+        const sessionToken = mintSessionToken();
         daemon = new DaemonProcess({
           options,
           startedAt,
           dataFolder,
           dataFolderLock,
           databasePath,
-          database,
-          fileCheck,
-          damageWatch,
-          isCleanStart,
+          databaseFile,
           settingsFile,
           orphanGuard,
           searchThread,
@@ -572,8 +509,8 @@ export class DaemonProcess {
         daemon.#recoveryPass = daemon.#startupRecovery.run();
         await daemon.#recoveryPass;
         // A stop that came during the pass, for damage or over the socket, starts no background
-        // work.
-        if (daemon.#stopping === undefined) {
+        // work, nor does damage the pass met, whose stop starts once this turn ends.
+        if (daemon.#stopping === undefined && !damageWatch.isFound) {
           await daemon.#startSessionServices();
         }
         return daemon;
@@ -593,7 +530,7 @@ export class DaemonProcess {
           orphanGuard?.close(),
           // After the search thread's read-only connection and the check's, as at a stop, so the
           // writer closes last and folds the write-ahead log into the database file.
-          Promise.allSettled([searchThreadClose, fileCheck.stop()]).then(() =>
+          Promise.allSettled([searchThreadClose, databaseFile.stopCheck()]).then(() =>
             closeDatabaseConnections(database),
           ),
         ]);
@@ -656,21 +593,7 @@ export class DaemonProcess {
   }
 
   async #listen(runFolder: DaemonRunFolder, sessionToken: string): Promise<void> {
-    try {
-      await this.#gateway.start();
-    } catch (error) {
-      // Another start bound the socket between this start's check of the run folder and its bind.
-      if (error instanceof Error && "code" in error && error.code === "EADDRINUSE") {
-        throw new DaemonAlreadyRunningError(`the socket ${runFolder.socketPath}`, { cause: error });
-      }
-      throw error;
-    }
-    try {
-      await writeSessionToken(runFolder, sessionToken);
-    } catch (error) {
-      await this.#gateway.stop();
-      throw error;
-    }
+    await bindSocket(this.#gateway, runFolder, sessionToken);
     if (this.#processState === "starting") {
       this.#processState = "running";
     }
@@ -775,13 +698,8 @@ export class DaemonProcess {
       DAEMON_STOP_DRAIN_BOUND_MS - (performance.now() - stopStartedAt),
     );
     // The check's shell ends first, so the writer is the last to close the file and folds the
-    // write-ahead log into it. The file is vouched for by a clean start or a sound check.
-    let isFileVouched = this.#isCleanStart;
-    try {
-      isFileVouched ||= (await this.#fileCheck.stop()).outcome === "sound";
-    } catch (error) {
-      failures.push(error);
-    }
+    // write-ahead log into it.
+    await this.#databaseFile.stopCheck();
     let unfinishedCount = 0;
     try {
       unfinishedCount = await closeDatabaseConnections(this.#database, drainLeftMs);
@@ -793,9 +711,9 @@ export class DaemonProcess {
     } catch (error) {
       failures.push(error);
     }
-    if (isFileVouched && !this.#isFileDamaged && unfinishedCount === 0 && failures.length === 0) {
+    if (!this.#isFileDamaged && unfinishedCount === 0 && failures.length === 0) {
       try {
-        await recordCleanStop(this.#databasePath);
+        await this.#databaseFile.recordCleanStop();
       } catch (error) {
         failures.push(error);
       }
@@ -811,25 +729,6 @@ export class DaemonProcess {
     if (failures.length > 1) {
       throw new AggregateError(failures, "The daemon's stop failed in more than one step");
     }
-  }
-}
-
-// Opens the database's connections; a file too damaged to open is recorded for the next start to
-// repair, and the start fails naming it.
-async function openDatabaseRecordingDamage(
-  options: Parameters<typeof openDatabaseConnections>[0],
-): Promise<DatabaseConnections> {
-  try {
-    return await openDatabaseConnections(options);
-  } catch (error) {
-    if (!isDatabaseDamageError(error)) {
-      throw error;
-    }
-    await recordDatabaseDamage(options.databasePath, describeError(error));
-    throw new Error(
-      `The database file is damaged; the next start repairs it: ${describeError(error)}`,
-      { cause: error },
-    );
   }
 }
 

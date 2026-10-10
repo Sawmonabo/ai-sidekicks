@@ -5,8 +5,10 @@
 // last good point, read no further, its damaged events kept in place and its runs left as they
 // are, while every other session takes its writes; `Continue from here` skips the damaged events,
 // settles the run the restart left live past every version the skipped rows hold, and the session
-// takes new work; a session with no readable event can only be deleted. While the pass runs, every
-// mutating call but the restart is refused.
+// takes new work; a session with no readable event can only be deleted. Until the pass has listed
+// the sessions it rebuilds, every mutating call but the restart is refused; then a session it is
+// still rebuilding refuses every write but the pass's own, and every other session takes its
+// writes.
 
 import { randomUUID } from "node:crypto";
 
@@ -19,6 +21,7 @@ import {
   EventEnvelopeVersionSchema,
 } from "@ai-sidekicks/contracts/event/envelope";
 import { RunIdSchema, type RunId } from "@ai-sidekicks/contracts/run/id";
+import { START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/event-cursor";
 import { NodeIdSchema } from "@ai-sidekicks/contracts/runtime-node/id";
 import { SessionIdSchema, type SessionId } from "@ai-sidekicks/contracts/session/id";
 
@@ -31,11 +34,12 @@ import {
   openRunEngineFixture,
   type RunEngineFixture,
 } from "../../session/run/__tests__/engine.test-support.js";
+import { RunEngine } from "../../session/run/engine.js";
 import { insertQueuedRunStatement, RUNS_PROJECTION } from "../../session/run/projection.js";
 import { SessionService } from "../../session/service.js";
 import { DamagedHistory } from "../damaged-history.js";
 import { ProjectionRebuildService, REBUILD_PAGE_SIZE } from "../projection-rebuild.js";
-import { refuseEventOfDamagedSession } from "../session-write-refusal.js";
+import { refuseSessionEvent } from "../session-write-refusal.js";
 import { StartupRecovery } from "../startup.js";
 import { RecoveryStatusTracker } from "../status.js";
 import { RecoveryWriteGate } from "../write-gate.js";
@@ -43,6 +47,7 @@ import { RecoveryWriteGate } from "../write-gate.js";
 const OCCURRED_AT = "2026-10-07T12:00:00.000Z";
 // The agent every queued run is created for.
 const QUEUED_AGENT_ID = AgentIdSchema.parse(randomUUID());
+const MARK_EVERY_CURSOR_STALE_SQL = "UPDATE projection_cursors SET state = 'stale'";
 
 describe("the recovery pass at a restart", () => {
   let fixture: RunEngineFixture;
@@ -69,19 +74,25 @@ describe("the recovery pass at a restart", () => {
     return interventionId;
   }
 
-  // Writes `rows` as a session's log from sequence 0, each payload stored as given.
+  // Writes `rows` as a session's log from sequence 0, each payload stored as given, with its
+  // cursor stale as a repair of the file leaves it, so the pass rebuilds it.
   async function writeLog(
     sessionId: SessionId,
     rows: readonly { type: string; payload: string }[],
   ): Promise<void> {
-    await fixture.database.writer.write(
-      rows.map((row, sequence) => ({
+    await fixture.database.writer.write([
+      ...rows.map((row, sequence) => ({
         sql: `INSERT INTO session_events
                 (id, session_id, sequence, occurred_at, monotonic_ns, category, type, payload)
               VALUES (?, ?, ?, ?, 0, 'run_lifecycle', ?, ?)`,
         bindings: [randomUUID(), sessionId, sequence, OCCURRED_AT, row.type, row.payload],
       })),
-    );
+      {
+        sql: `INSERT INTO projection_cursors (id, session_id, last_sequence, state, updated_at)
+              VALUES (?, ?, ?, 'stale', ?)`,
+        bindings: [randomUUID(), sessionId, START_OF_LOG_POSITION, OCCURRED_AT],
+      },
+    ]);
   }
 
   function runEvents(sessionId: SessionId, runId: RunId): { type: string; payload: string }[] {
@@ -175,10 +186,12 @@ describe("the recovery pass at a restart", () => {
     readonly sessions: Set<string>;
   }
 
-  // The pass as the daemon builds it, with the sessions it rebuilds pushed onto `rebuiltSessions`.
+  // The pass as the daemon builds it, with the sessions it rebuilds pushed onto `rebuiltSessions`,
+  // each rebuild starting once `beforeRebuild` resolves.
   function buildPass(
     rebuiltSessions: SessionId[] = [],
     asideCopies: AsideCopies = { count: 0, sessions: new Set() },
+    beforeRebuild: () => Promise<void> = () => Promise.resolve(),
   ): PassParts {
     const { reader, writer } = fixture.database;
     const status = new RecoveryStatusTracker();
@@ -189,9 +202,11 @@ describe("the recovery pass at a restart", () => {
         throw new Error(`unexpected service log line: ${line}`);
       },
       refuseSessionWrite: (sessionId, eventType) => {
-        refuseEventOfDamagedSession(status, sessionId, eventType);
+        refuseSessionEvent(status, sessionId, eventType);
       },
     });
+    // The restart's engine appends through the refusing log, as the daemon's does.
+    const runEngine = new RunEngine({ reader, sessionEvents });
     const projectionRebuild = new ProjectionRebuildService({
       reader,
       writer,
@@ -213,9 +228,10 @@ describe("the recovery pass at a restart", () => {
         sessionLock: new KeyedLock<SessionId>(),
         sessionList: { refresh: () => {} },
         relatedRanking: { rescoreAround: () => {} },
+        whenFileCheckEnds: Promise.resolve(),
       }),
       runs: fixture.runs,
-      runEngine: fixture.restartEngine(),
+      runEngine,
       status,
     });
     const pass = new StartupRecovery({
@@ -224,8 +240,9 @@ describe("the recovery pass at a restart", () => {
       sessionEvents,
       projectionRebuild: {
         listSessionsToRebuild: () => projectionRebuild.listSessionsToRebuild(),
-        rebuild: (request) => {
+        rebuild: async (request) => {
           rebuiltSessions.push(request.sessionId);
+          await beforeRebuild();
           return projectionRebuild.rebuild(request);
         },
       },
@@ -245,7 +262,7 @@ describe("the recovery pass at a restart", () => {
         },
       },
       runs: fixture.runs,
-      runEngine: fixture.restartEngine(),
+      runEngine,
       status,
       reportStoreFailure: () => {},
       now: () => new Date(OCCURRED_AT),
@@ -302,8 +319,8 @@ describe("the recovery pass at a restart", () => {
     const stopped = await fixture.runThrough(["starting", "running"]);
     const interventionId = await acceptInterrupt(stopped);
     const queued = await fixture.queueRun();
-    // Every session is rebuilt, as on a store whose projection cursors are gone.
-    await fixture.database.writer.write([{ sql: "DELETE FROM projection_cursors" }]);
+    // Every session is rebuilt, as on a store a repair marked stale.
+    await fixture.database.writer.write([{ sql: MARK_EVERY_CURSOR_STALE_SQL }]);
     const { status, pass } = buildPass();
 
     await pass.run();
@@ -394,7 +411,12 @@ describe("the recovery pass at a restart", () => {
 
   it("refuses the damaged session's writes and takes every other session's", async () => {
     const unfoldable = await writeUnfoldableSession();
-    const { status, sessionEvents, pass } = buildPass();
+    const rebuildReached = Promise.withResolvers<void>();
+    const rebuildHeld = Promise.withResolvers<void>();
+    const { status, sessionEvents, pass } = buildPass([], undefined, () => {
+      rebuildReached.resolve();
+      return rebuildHeld.promise;
+    });
     const registry = new RecoveryWriteGate(status).wrap(new MethodRegistryImpl());
     const sessionTarget = z.object({ sessionId: z.string() }).strict();
     for (const method of ["session.rename", "daemon.restart"]) {
@@ -413,7 +435,25 @@ describe("the recovery pass at a restart", () => {
     ).rejects.toMatchObject({ code: "daemon.write_refused", detail: { recovery: "rebuilding" } });
     await expect(registry.dispatch("daemon.restart", {}, {})).resolves.toStrictEqual({});
 
-    await pass.run();
+    // Once listed, the session being rebuilt refuses the calls that name it, and the rest write.
+    const passing = pass.run();
+    await rebuildReached.promise;
+    await expect(
+      registry.dispatch("session.rename", { sessionId: fixture.sessionId }, {}),
+    ).resolves.toStrictEqual({});
+    await expect(
+      registry.dispatch("session.rename", { sessionId: unfoldable.sessionId }, {}),
+    ).rejects.toMatchObject({
+      code: "session.write_refused",
+      detail: { sessionId: unfoldable.sessionId, recovery: "rebuilding" },
+    });
+    // An append from outside the pass, however its writer found the session, is refused too.
+    await expect(queueRunThrough(sessionEvents, unfoldable.sessionId)).rejects.toMatchObject({
+      code: "session.write_refused",
+      detail: { sessionId: unfoldable.sessionId, recovery: "rebuilding" },
+    });
+    rebuildHeld.resolve();
+    await passing;
 
     await expect(
       registry.dispatch("session.rename", { sessionId: fixture.sessionId }, {}),
@@ -472,7 +512,7 @@ describe("the recovery pass at a restart", () => {
       [7, "run.queued"],
     ]);
     const restarted = buildPass();
-    await fixture.database.writer.write([{ sql: "DELETE FROM projection_cursors" }]);
+    await fixture.database.writer.write([{ sql: MARK_EVERY_CURSOR_STALE_SQL }]);
     await restarted.pass.run();
     expect(restarted.status.read()).toStrictEqual({ overall: "healthy", sessions: [] });
     await expect(damagedHistory.continueFromLastGoodPoint(sessionId)).rejects.toMatchObject({

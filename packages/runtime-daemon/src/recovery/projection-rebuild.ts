@@ -69,7 +69,7 @@ export class ProjectionFailureError extends Error {
 
 /**
  * A rebuild of one session; `force` rebuilds it even when its projections are current, and
- * `beforeSequence` folds only the events before that one.
+ * `beforeSequence` folds only the events before that one, leaving the cursor stale.
  */
 export interface ProjectionRebuildRequest {
   readonly sessionId: SessionId;
@@ -98,26 +98,10 @@ export interface ProjectionRebuildServiceDeps {
 /** The most events one page of a rebuild reads and writes. */
 export const REBUILD_PAGE_SIZE = 1_000;
 
-// Walks the session index one session at a time, so listing the sessions reads one index entry
-// per session rather than every event.
-const SELECT_SESSIONS_TO_REBUILD_SQL = `WITH RECURSIVE logged(session_id) AS (
-    SELECT MIN(session_id) FROM session_events
-    UNION ALL
-    SELECT (SELECT MIN(session_id) FROM session_events WHERE session_id > logged.session_id)
-      FROM logged WHERE logged.session_id IS NOT NULL
-  ),
-  heads AS (
-    SELECT session_id,
-           (SELECT MAX(sequence) FROM session_events
-             WHERE session_events.session_id = logged.session_id) AS head_sequence
-      FROM logged
-     WHERE session_id IS NOT NULL AND session_id <> @sentinel
-  )
-  SELECT heads.session_id FROM heads
-    LEFT JOIN projection_cursors ON projection_cursors.session_id = heads.session_id
-   WHERE projection_cursors.session_id IS NULL
-      OR projection_cursors.state <> 'current'
-      OR projection_cursors.last_sequence < heads.head_sequence`;
+// Every session with events has a cursor, written with each event, and a current one is at its
+// newest sequence, so the sessions to rebuild are those whose cursor is not current.
+const SELECT_SESSIONS_TO_REBUILD_SQL = `SELECT session_id FROM projection_cursors
+  WHERE state <> 'current' AND session_id <> @sentinel`;
 
 const SELECT_CURSOR_SQL = `SELECT last_sequence, state FROM projection_cursors
   WHERE session_id = ?`;
@@ -139,8 +123,10 @@ const ADVANCE_REBUILDING_SQL = `UPDATE projection_cursors
   SET last_sequence = @last_sequence, updated_at = ${DATABASE_NOW_SQL}
   WHERE session_id = @session_id`;
 
-const MARK_CURRENT_SQL = `UPDATE projection_cursors
-  SET state = 'current', last_sequence = @last_sequence, updated_at = ${DATABASE_NOW_SQL}
+// Goes with the last page: current at the log's head, or stale where a rebuild stopped before
+// damaged events, so the next restart lists the session again.
+const MARK_FOLDED_SQL = `UPDATE projection_cursors
+  SET state = @state, last_sequence = @last_sequence, updated_at = ${DATABASE_NOW_SQL}
   WHERE session_id = @session_id`;
 
 const MARK_STALE_SQL = `UPDATE projection_cursors
@@ -190,8 +176,8 @@ export class ProjectionRebuildService {
   }
 
   /**
-   * Every session but the service's own whose projections do not reflect its newest event: no
-   * cursor, a cursor behind the log, or one left stale or mid-rebuild.
+   * Every session but the service's own whose projections do not reflect its newest event: its
+   * cursor was left stale or mid-rebuild, or a repair marked it.
    */
   listSessionsToRebuild(): SessionId[] {
     return this.#selectSessionsToRebuild
@@ -290,7 +276,7 @@ export class ProjectionRebuildService {
   }
 
   // Folds the log a page at a time, writing each page's statements in its own write; the last
-  // page's write marks the cursor current at `headSequence`. Returns the events read. A failure
+  // page's write marks the cursor folded at `headSequence`. Returns the events read. A failure
   // names the event it came from; a refused write names its page's event only when the page
   // holds one.
   async #foldPages(fold: FoldRange, pageSize: number): Promise<number> {
@@ -326,8 +312,12 @@ export class ProjectionRebuildService {
               bindings: { session_id: sessionId, last_sequence: page.nextSequence },
             }
           : {
-              sql: MARK_CURRENT_SQL,
-              bindings: { session_id: sessionId, last_sequence: headSequence },
+              sql: MARK_FOLDED_SQL,
+              bindings: {
+                session_id: sessionId,
+                last_sequence: headSequence,
+                state: fold.beforeSequence === undefined ? "current" : "stale",
+              },
             },
       );
       const onlyEvent = page.events.length === 1 ? page.events[0] : undefined;

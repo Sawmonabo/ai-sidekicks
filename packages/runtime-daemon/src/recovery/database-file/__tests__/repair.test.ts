@@ -176,6 +176,7 @@ function repair() {
     dataFolder,
     indexFolderPath,
     readBackupFolder: () => Promise.resolve(backupFolder),
+    whileRepairing: (repairDamagedFile) => repairDamagedFile(),
     now: () => new Date("2026-10-07T13:00:00.000Z"),
     writeServiceLog: () => {},
   });
@@ -209,9 +210,12 @@ describe("the database file's repair", () => {
     const repaired = new Database(databasePath, { readonly: true });
     try {
       expect(repaired.pragma("integrity_check")).toStrictEqual([{ integrity_check: "ok" }]);
+      // Every session's cursor is stale, so the next start rebuilds each one.
       expect(
-        repaired.prepare("SELECT COUNT(*) AS count FROM projection_cursors").get(),
-      ).toStrictEqual({ count: 0 });
+        repaired
+          .prepare("SELECT state, COUNT(*) AS count FROM projection_cursors GROUP BY state")
+          .all(),
+      ).toStrictEqual([{ state: "stale", count: 2 }]);
     } finally {
       repaired.close();
     }

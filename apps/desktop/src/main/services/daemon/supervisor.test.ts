@@ -2,7 +2,8 @@
 // answers and waits 10 seconds for the handshake, through a token not written yet and no longer
 // once the started service exits, and ends a started service that never answers the handshake or
 // the status read after it. A service found on its socket is waited for while its token is not
-// written yet. It asks a quiet link to answer after 5 seconds and counts it dead after 20, brings a
+// written yet, and a started or found one for as long as it answers it is repairing its database
+// file and while it binds its socket again after. It asks a quiet link to answer after 5 seconds and counts it dead after 20, brings a
 // lost link back at the backoff's waits and stops after five failed starts, reads an unrecognized
 // loss as `unknown`, starts again on `Retry` as a fresh start, and starts nothing once it is let go
 // at quit. It reads the service's process as each link comes up, on another protocol too, so a
@@ -205,6 +206,34 @@ describe("starting the service", () => {
     await vi.advanceTimersByTimeAsync(1_000);
     expect(service.connectTimes).toStrictEqual([0, 0, SERVICE_HELLO_WAIT_MS + 1_000]);
   });
+
+  it.each([
+    ["started", { kind: "starting" }, [0]],
+    ["found running", { kind: "connecting" }, []],
+  ])(
+    "waits for a service it %s for as long as it answers it is repairing, and through its new bind",
+    async (way, waitingConnection, startTimes) => {
+      if (way === "started") {
+        service.afterStart = { kind: "repairing" };
+      } else {
+        service.connectAnswer = { kind: "repairing" };
+      }
+      supervisor.start();
+
+      await vi.advanceTimersByTimeAsync(3 * SERVICE_HELLO_WAIT_MS);
+      expect(service.endedServices).toStrictEqual([]);
+      expect(link.state.connection).toStrictEqual(waitingConnection);
+      // The repair is done and the socket is gone until the service binds it again.
+      service.connectAnswer = { kind: "absent" };
+      await vi.advanceTimersByTimeAsync(SERVICE_HELLO_WAIT_MS / 2);
+      service.connectAnswer = { kind: "answering", hello: COMPATIBLE_HELLO, answersPing: true };
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      expect(service.endedServices).toStrictEqual([]);
+      expect(service.startTimes).toStrictEqual(startTimes);
+      expect(link.state.connection).toStrictEqual({ kind: "connected" });
+    },
+  );
 
   it("fails a start whose status read never answers, and ends the service it started", async () => {
     service.statusReadAnswer = "silent";

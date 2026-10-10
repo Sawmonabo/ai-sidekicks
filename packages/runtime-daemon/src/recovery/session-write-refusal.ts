@@ -1,47 +1,63 @@
-// The one refusal a session with damaged history gives each write: at the wire for a call that
-// names it, and at the append for every event of it, whoever writes.
+// The one refusal a session with damaged history, or one the restart's pass is still rebuilding,
+// gives each write: at the wire for a call that names it, and at the append for every event of
+// it, whoever writes and however the writer found the session. The pass's own appends go on.
 
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
-import { SESSION_WRITE_REFUSED_CODE } from "@ai-sidekicks/contracts/session/recovery";
+import {
+  SESSION_WRITE_REFUSED_CODE,
+  type SessionWriteRefusedDetails,
+} from "@ai-sidekicks/contracts/session/recovery";
 
 import { DAMAGED_EVENTS_SKIPPED_TYPE } from "../events/session/skipped-ranges.js";
 import { DaemonDomainError } from "../ipc/domain-error.js";
 import type { RecoveryStatusTracker } from "./status.js";
 
 /**
- * Throws `session.write_refused` when the session's history is damaged; `write` names what was
- * refused, a method or an event type.
+ * Throws `session.write_refused` when the restart's pass is still rebuilding the session or its
+ * history is damaged; `method` names the call refused.
  */
-export function refuseWriteToDamagedSession(
-  status: Pick<RecoveryStatusTracker, "readSessionWriteRefusal">,
+export function refuseCallNamingSession(
+  status: Pick<RecoveryStatusTracker, "readSessionCallRefusal">,
   sessionId: SessionId,
-  write: string,
+  method: string,
 ): void {
-  const refusal = status.readSessionWriteRefusal(sessionId);
-  if (refusal === undefined) {
-    return;
+  const refusal = status.readSessionCallRefusal(sessionId);
+  if (refusal !== undefined) {
+    throw sessionWriteRefusal(refusal, method);
   }
-  throw new DaemonDomainError(
-    `Session ${sessionId} is not taking ${write}: its history is damaged (${refusal.recovery})`,
-    {
-      code: SESSION_WRITE_REFUSED_CODE,
-      jsonRpcCode: JsonRpcErrorCode.InvalidRequest,
-      detail: { ...refusal },
-    },
-  );
 }
 
 /**
  * Throws `session.write_refused` for an event of a session whose history is damaged, except the
- * one event that continues it from its last good point.
+ * one event that continues it from its last good point, or of a session the restart's pass is
+ * still rebuilding, unless the pass appends it.
  */
-export function refuseEventOfDamagedSession(
-  status: Pick<RecoveryStatusTracker, "readSessionWriteRefusal">,
+export function refuseSessionEvent(
+  status: Pick<RecoveryStatusTracker, "readSessionAppendRefusal">,
   sessionId: SessionId,
   eventType: string,
 ): void {
-  if (eventType !== DAMAGED_EVENTS_SKIPPED_TYPE) {
-    refuseWriteToDamagedSession(status, sessionId, eventType);
+  const refusal =
+    eventType === DAMAGED_EVENTS_SKIPPED_TYPE
+      ? undefined
+      : status.readSessionAppendRefusal(sessionId);
+  if (refusal !== undefined) {
+    throw sessionWriteRefusal(refusal, eventType);
   }
+}
+
+function sessionWriteRefusal(
+  refusal: SessionWriteRefusedDetails,
+  write: string,
+): DaemonDomainError {
+  const why =
+    refusal.recovery === "rebuilding"
+      ? "the restart's recovery is rebuilding it"
+      : `its history is damaged (${refusal.recovery})`;
+  return new DaemonDomainError(`Session ${refusal.sessionId} is not taking ${write}: ${why}`, {
+    code: SESSION_WRITE_REFUSED_CODE,
+    jsonRpcCode: JsonRpcErrorCode.InvalidRequest,
+    detail: { ...refusal },
+  });
 }
