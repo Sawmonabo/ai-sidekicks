@@ -1,14 +1,14 @@
 // Reads a session's mounts, workspaces and roots through the console's one `RefreshScheduler`,
 // which coalesces a burst of reasons into one read and never overlaps two. Reads happen on
 // subscribe, window focus, reconnect and the terminal events this class names, never on an
-// interval. The order is forced by the wire: there is no mount list call, so mounts are learned
-// from the listed workspaces, then read once per distinct mount (the only read carrying
-// `health`), then worktree status once per distinct project those mounts belong to; a chat's
-// managed mount belongs to no project and has no worktrees. A rejected call ends the pass: its
-// cause goes to the window's diagnostic capture, the reading returns to where it stood before the
-// pass, and the session's failed dependent reads hold this reader until a pass succeeds, so the
-// line under the session header says the window could not catch up.
-// The state is not in the session store because a mount read is a probe, not an event
+// interval. The order is forced by the wire: `repo.mountList` lists the machine's folders without
+// their ids or `health`, so a session's mounts are learned from its listed workspaces, then read
+// once per distinct mount (the only read carrying `health`), then worktree status once per distinct
+// project those mounts belong to; a chat's managed mount belongs to no project and has no
+// worktrees. A rejected call ends the pass: its cause goes to the window's diagnostic capture, the
+// reading returns to where it stood before the pass, and the session's failed dependent reads hold
+// this reader until a pass succeeds, so the line under the session header says the window could not
+// catch up. The state is not in the session store because a mount read is a probe, not an event
 // projection.
 
 import type { ProjectId } from "@ai-sidekicks/contracts/project";
