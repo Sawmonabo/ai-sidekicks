@@ -18,7 +18,7 @@ import { buildDiffFixture } from "#test/helpers/diff/fixture/model.js";
 import { SMALL_DIFF_SHAPE } from "#test/helpers/diff/fixture/shapes.js";
 import { renderSettled } from "#test/helpers/app/harness.js";
 import { installMeridianTokens } from "#renderer/app/token-installation.js";
-import { ArtifactPayloadSection } from "#renderer/features/repos/artifacts/components/ArtifactPayloadSection.js";
+import { ArtifactPayloadSection } from "#renderer/features/inspector/artifacts/components/ArtifactPayloadSection.js";
 import { DiffFileList } from "#renderer/features/repos/diff/components/DiffFileList.js";
 import { DiffRenderer } from "#renderer/features/repos/diff/components/DiffRenderer.js";
 import { diffRendererProps } from "#renderer/features/repos/diff/components/DiffRenderer.test-support.js";

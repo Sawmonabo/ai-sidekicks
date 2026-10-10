@@ -42,7 +42,7 @@ import { WINDOW_HEIGHT_FLOOR_REM } from "#renderer/styles/palette.js";
 import { DEFAULT_APPEARANCE_RECORD } from "#shared/appearance.js";
 import { installMeridianTokens } from "#renderer/app/token-installation.js";
 import { PaneFrame } from "#renderer/components/PaneFrame/PaneFrame.js";
-import { ArtifactPayloadSection } from "#renderer/features/repos/artifacts/components/ArtifactPayloadSection.js";
+import { ArtifactPayloadSection } from "#renderer/features/inspector/artifacts/components/ArtifactPayloadSection.js";
 import { PayloadRowWindow } from "#renderer/features/workflows/runs/page/step/components/StepPayload/PayloadRowWindow.js";
 import type { ArtifactPayloadReading } from "#renderer/store/artifact-payload.js";
 import { routeForDestination } from "#renderer/layout/NavigationRail/destinations.js";
