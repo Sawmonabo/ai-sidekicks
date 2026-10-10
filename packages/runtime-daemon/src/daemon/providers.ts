@@ -86,7 +86,10 @@ import type {
 } from "../provider/runtime-binding-store.js";
 import type { ProviderOperatingSystem } from "../provider/operating-system/contract.js";
 import type { SpawnEnvPair } from "../provider/spawn-env.js";
-import { resolveProviderExecutable } from "../provider/spawned-version.js";
+import {
+  ProviderExecutableUnresolvableError,
+  resolveProviderExecutable,
+} from "../provider/spawned-version.js";
 import type { RunEngine } from "../session/run/engine.js";
 import { ExecutionEpochs } from "../session/run/epochs.js";
 import { RunInboundDispatch } from "../session/run/inbound.js";
@@ -543,7 +546,7 @@ export class DaemonProviders {
           this.#writeServiceLog(
             `The ${driverName} driver was not registered: ` +
               (outcome.settled === "rejected"
-                ? describeRejection(outcome.reason)
+                ? describeRegistrationFailure(outcome.reason)
                 : `its capability read did not settle within ` +
                   `${String(CAPABILITY_REFRESH_READ_TIMEOUT_MS)}ms`),
           );
@@ -575,6 +578,14 @@ export class DaemonProviders {
       throw new AggregateError(failures, "Ending the provider processes at the stop failed");
     }
   }
+}
+
+// Why a capability read failed, naming the command and its reason where none was found, since that
+// error's message is the fixed refusal sentence.
+function describeRegistrationFailure(reason: unknown): string {
+  return reason instanceof ProviderExecutableUnresolvableError
+    ? `${reason.message} (${reason.fields.requestedCommand}: ${reason.fields.reason})`
+    : describeRejection(reason);
 }
 
 // A Codex diagnostic with its free `detail` text bounded, since it can quote a provider's output.
