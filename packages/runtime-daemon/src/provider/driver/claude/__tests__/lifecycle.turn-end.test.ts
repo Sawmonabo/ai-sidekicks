@@ -40,8 +40,7 @@ describe("ClaudeSessionLifecycle turn end", () => {
     const harness = buildHarness();
     const driver = new ClaudeDriver({
       ...harness.dependencies,
-      readSpawnedVersion: () => Promise.reject(new Error("no build is read here")),
-      probe: () => Promise.reject(new Error("no build is probed here")),
+      readBuild: () => Promise.reject(new Error("no build is read here")),
     });
     await driver.createSession(buildCreateSessionParams());
     const channel = spawnedChannel(harness);
@@ -68,8 +67,7 @@ describe("ClaudeSessionLifecycle turn end", () => {
     const harness = buildHarness();
     const driver = new ClaudeDriver({
       ...harness.dependencies,
-      readSpawnedVersion: () => Promise.reject(new Error("no build is read here")),
-      probe: () => Promise.reject(new Error("no build is probed here")),
+      readBuild: () => Promise.reject(new Error("no build is read here")),
     });
     await driver.createSession(buildCreateSessionParams());
     const channel = spawnedChannel(harness);

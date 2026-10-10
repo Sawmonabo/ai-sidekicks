@@ -4,9 +4,9 @@
  *
  * - {@link CLAUDE_CAPABILITY_FLAGS} is total over `DriverCapabilityFlag`; an undeclared flag is
  *   unsupported, and support is never inferred from a method existing on the provider's wire.
- * - Order is version read, then probe, then compose, so the flags describe the build whose version
- *   is reported. A probe may withdraw a declared flag but never grant one. `detectionSource` is set
- *   only on this live read.
+ * - Order is version read, then probe, then compose, all on one process of the build, so the flags
+ *   describe the build whose version is reported. A probe may withdraw a declared flag but never
+ *   grant one. `detectionSource` is set only on this live read.
  */
 
 import type {
@@ -86,34 +86,45 @@ const CLAUDE_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, boolean>> =
   output_speed: true,
 });
 
+/** One read of the spawned build: its version, then its zero-turn probes, on one process. */
+export interface ClaudeBuildRead {
+  /**
+   * One in-band reading of the spawned build (normally `readSpawnedProviderVersion`), which starts
+   * the process; its resolved executable ties the declaration to the build the session will run.
+   */
+  readonly readSpawnedVersion: () => Promise<SpawnedProviderVersionReading>;
+  /** Sends one probe on the process the version read started. */
+  readonly probe: CapabilityProbeExchange;
+}
+
 /** Constructor dependencies of {@link ClaudeCapabilityReporter}. */
 export interface ClaudeCapabilityReporterDependencies {
   /**
-   * One in-band reading of the spawned build (normally `readSpawnedProviderVersion`); its resolved
-   * executable ties the declaration to the build the session will run.
+   * Runs `read` over a fresh read of the build, a seam since a reading captured once could go
+   * stale; the read's process ends once `read` settles.
    */
-  readonly readSpawnedVersion: () => Promise<SpawnedProviderVersionReading>;
-  /** The zero-turn probe transport; a seam, since a reading captured once could go stale. */
-  readonly probe: CapabilityProbeExchange;
+  readonly readBuild: <T>(read: (build: ClaudeBuildRead) => Promise<T>) => Promise<T>;
   /** Reports flag withdrawals; required so they cannot go uncounted. */
   readonly diagnostics: DriverDiagnosticsEmitter;
 }
 
 /** Reports and re-declares the Claude driver's capabilities. */
 export class ClaudeCapabilityReporter {
-  readonly #readSpawnedVersion: () => Promise<SpawnedProviderVersionReading>;
-  readonly #probe: CapabilityProbeExchange;
+  readonly #readBuild: ClaudeCapabilityReporterDependencies["readBuild"];
   readonly #diagnostics: DriverDiagnosticsEmitter;
 
   constructor(dependencies: ClaudeCapabilityReporterDependencies) {
-    this.#readSpawnedVersion = dependencies.readSpawnedVersion;
-    this.#probe = dependencies.probe;
+    this.#readBuild = dependencies.readBuild;
     this.#diagnostics = dependencies.diagnostics;
   }
 
   /** The driver's `getCapabilities()` answer; every member is a fresh object. */
   async getCapabilities(): Promise<GetCapabilitiesResult> {
-    const reading = await this.#readSpawnedVersion();
+    return await this.#readBuild(async (build) => await this.#readCapabilities(build));
+  }
+
+  async #readCapabilities(build: ClaudeBuildRead): Promise<GetCapabilitiesResult> {
+    const reading = await build.readSpawnedVersion();
     // A reading from another driver's build is a daemon wiring fault, not provider misbehavior.
     if (reading.driverName !== CLAUDE_DRIVER_NAME) {
       throw new Error(
@@ -127,7 +138,7 @@ export class ClaudeCapabilityReporter {
       // The executable the version handshake resolved, not resolved again, so the version and the
       // flags describe one build even if a `PATH` change lands between the reads.
       boundExecutablePath: reading.resolvedExecutablePath,
-      exchange: this.#probe,
+      exchange: build.probe,
     });
     emitCapabilityDetectionDiagnostics(this.#diagnostics, detection);
     const capabilities: DriverCapabilities = {

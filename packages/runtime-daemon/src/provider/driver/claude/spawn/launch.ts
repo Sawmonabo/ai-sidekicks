@@ -2,9 +2,9 @@
 // the process in the session's folder and environment with the composed command line, and brings
 // it up: `initialize` with the daemon's hooks, the summarized thinking display, the session's tool
 // servers, and the settings readback. It also runs the processes that keep nothing: the sign-in
-// probe, the model catalog read, the figures read when a session is created, the build's version
-// read and each capability probe, which spend no turn, and a one-turn process. It keeps every
-// process it started, so the daemon's stop ends them all.
+// probe, the model catalog read, the figures read when a session is created, the build read,
+// whose version read and capability probes share one process, which spend no turn, and a one-turn
+// process. It keeps every process it started, so the daemon's stop ends them all.
 
 import os from "node:os";
 
@@ -95,11 +95,19 @@ export interface ClaudeProcessTransportDependencies {
   readonly diagnostics: DriverDiagnosticsEmitter;
 }
 
-/** One capability probe: the build the version read proved, its environment, and the name. */
-interface ClaudeCapabilityProbeRequest {
-  readonly executablePath: string;
-  readonly spawnEnvironment: readonly SpawnEnvPair[];
-  readonly probeName: string;
+/** The reads of one build, on one process that keeps nothing: its version first, then probes. */
+export interface ClaudeBuildProcess {
+  /**
+   * Starts the process at the request's resolved path in its environment and reads the build's
+   * version with `get_binary_version`; the reply is the provider's, unread. Throws when Claude
+   * Code refuses the request.
+   */
+  readonly readBinaryVersion: (request: ProviderVersionHandshakeRequest) => Promise<unknown>;
+  /**
+   * Sends one capability probe on the process the version read started and resolves with Claude
+   * Code's answer as it came, a refusal of the name included, for the probe classifier to read.
+   */
+  readonly sendCapabilityProbe: (probeName: string) => Promise<ClaudeControlResponse>;
 }
 
 // The arguments of a process brought up only to answer control requests, keeping nothing.
@@ -331,38 +339,34 @@ export class ClaudeProcessTransport implements ClaudeSessionTransport {
   }
 
   /**
-   * Reads the version of the build at the request's resolved path from a process that keeps
-   * nothing, with `get_binary_version`; the reply is the provider's, unread. Throws when Claude
-   * Code refuses the request.
+   * Hands `read` the reads of one build, all on the one process its version read starts, which
+   * ends once `read` settles.
    */
-  async readBinaryVersion(request: ProviderVersionHandshakeRequest): Promise<unknown> {
-    const environment = Object.entries(request.environment).flatMap(
-      ([name, value]): SpawnEnvPair[] => (value === undefined ? [] : [[name, value]]),
-    );
-    const claudeProcess = await this.#startKeepingNothing(
-      request.resolvedExecutablePath,
-      environment,
-    );
+  async readBuild<T>(read: (build: ClaudeBuildProcess) => Promise<T>): Promise<T> {
+    let claudeProcess: ClaudeCodeProcess | undefined;
     try {
-      return await this.#expectSuccess(claudeProcess, { subtype: "get_binary_version" });
+      return await read({
+        readBinaryVersion: async (request) => {
+          const environment = Object.entries(request.environment).flatMap(
+            ([name, value]): SpawnEnvPair[] => (value === undefined ? [] : [[name, value]]),
+          );
+          claudeProcess = await this.#startKeepingNothing(
+            request.resolvedExecutablePath,
+            environment,
+          );
+          return await this.#expectSuccess(claudeProcess, { subtype: "get_binary_version" });
+        },
+        sendCapabilityProbe: async (probeName) => {
+          if (claudeProcess === undefined) {
+            throw new Error(
+              "A capability probe was sent before the version read started Claude Code",
+            );
+          }
+          return await claudeProcess.sendCapabilityProbe(probeName);
+        },
+      });
     } finally {
-      await claudeProcess.dispose();
-    }
-  }
-
-  /**
-   * Sends one capability probe from its own process that keeps nothing and resolves with Claude
-   * Code's answer as it came, a refusal of the name included, for the probe classifier to read.
-   */
-  async probeControlRequest(request: ClaudeCapabilityProbeRequest): Promise<ClaudeControlResponse> {
-    const claudeProcess = await this.#startKeepingNothing(
-      request.executablePath,
-      request.spawnEnvironment,
-    );
-    try {
-      return await claudeProcess.sendCapabilityProbe(request.probeName);
-    } finally {
-      await claudeProcess.dispose();
+      await claudeProcess?.dispose();
     }
   }
 

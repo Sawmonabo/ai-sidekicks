@@ -53,10 +53,13 @@ function makeReporter(
   ),
 ): ClaudeCapabilityReporter {
   return new ClaudeCapabilityReporter({
-    readSpawnedVersion: async () => claudeReading(await readCliVersion()),
-    // The default double answers every probed subtype and refuses the negative control; the probe
-    // itself is tested in `provider/capability/__tests__/probe.test.ts`.
-    probe: probe.exchange,
+    readBuild: async (read) =>
+      await read({
+        readSpawnedVersion: async () => claudeReading(await readCliVersion()),
+        // The default double answers every probed subtype and refuses the negative control; the
+        // probe itself is tested in `provider/capability/__tests__/probe.test.ts`.
+        probe: probe.exchange,
+      }),
     // Silent: these assertions are about the declaration, not the diagnostics.
     diagnostics: makeSilentDriverDiagnostics(),
   });
@@ -135,8 +138,11 @@ describe("Claude composition is bound to the spawned build", () => {
       report: { rawVersion: "0.149.1", parsedVersion: "0.149.1" },
     };
     const reporter = new ClaudeCapabilityReporter({
-      readSpawnedVersion: () => Promise.resolve(foreign),
-      probe: new RecordingCapabilityProbeTransport(claudeDefaultProbeReply).exchange,
+      readBuild: async (read) =>
+        await read({
+          readSpawnedVersion: () => Promise.resolve(foreign),
+          probe: new RecordingCapabilityProbeTransport(claudeDefaultProbeReply).exchange,
+        }),
       diagnostics: makeSilentDriverDiagnostics(),
     });
     await expect(reporter.getCapabilities()).rejects.toThrow(/driver 'codex'/);

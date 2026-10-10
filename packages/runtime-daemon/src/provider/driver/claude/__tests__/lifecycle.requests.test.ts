@@ -233,8 +233,7 @@ describe("ClaudeSessionLifecycle choices", () => {
     const harness = buildHarness();
     const driver = new ClaudeDriver({
       ...harness.dependencies,
-      readSpawnedVersion: () => Promise.reject(new Error("no build is read here")),
-      probe: () => Promise.reject(new Error("no build is probed here")),
+      readBuild: () => Promise.reject(new Error("no build is read here")),
     });
     // A turn the daemon starts runs at the session's level, so the session holds one, on a model
     // with the auto mode Reviewed runs in.

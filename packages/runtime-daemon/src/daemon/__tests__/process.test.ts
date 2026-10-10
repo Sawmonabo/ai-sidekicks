@@ -7,8 +7,9 @@
 // loser is refused and the token file holds the winner's token; a start that fails at the bind
 // stops the session services it built and closes the search thread and the database, and one whose
 // session services fail to load fails with what the load threw, never leaving it unhandled, and
-// frees the data folder. A start releases the execution root of each run its recovery settles. A
-// start that fails while its login shell runs ends the shell and fails at once.
+// frees the data folder. A start releases the execution root of each run its recovery settles, and
+// starts registering the drivers only once the search index has opened. A start that fails while
+// its login shell runs ends the shell and fails at once.
 
 import { randomUUID } from "node:crypto";
 import { access, chmod, lstat, mkdir, readFile, writeFile } from "node:fs/promises";
@@ -53,6 +54,7 @@ import {
   insertExecutionContextCheckout,
 } from "../../workflow/runs/__fixtures__/rows.js";
 import { DaemonAlreadyRunningError } from "../already-running-error.js";
+import { DaemonProviders } from "../providers.js";
 import { captureLoginShellEnvironment } from "../login-shell-environment.js";
 import { DATABASE_FILE_NAME, DaemonProcess, type DaemonProcessOptions } from "../process.js";
 import {
@@ -258,6 +260,28 @@ describe("DaemonProcess.start", () => {
     await expect(access(writeAheadLogPath())).rejects.toMatchObject({ code: "ENOENT" });
     // The data folder is free again, so the next start takes it.
     await startDaemon(DRAIN_NOTHING);
+  });
+
+  it("starts registering the drivers only once the search index has opened", async () => {
+    const indexOpen = Promise.withResolvers<void>();
+    useSearchThreads((options) => {
+      const thread = startSearchThread(options);
+      vi.spyOn(thread, "whenOpenSettled").mockReturnValue(indexOpen.promise);
+      return thread;
+    });
+    const providersStart = vi.spyOn(DaemonProviders.prototype, "start");
+    onTestFinished(() => {
+      providersStart.mockRestore();
+    });
+
+    await startDaemon(DRAIN_NOTHING);
+    // The start answers ready while the index still opens, and no provider process runs yet.
+    expect(providersStart).not.toHaveBeenCalled();
+
+    indexOpen.resolve();
+    await vi.waitFor(() => {
+      expect(providersStart).toHaveBeenCalledOnce();
+    });
   });
 
   it("fails with what the session services' load threw, never left unhandled, and closes the database and frees the data folder", async () => {

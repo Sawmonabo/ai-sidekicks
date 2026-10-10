@@ -10,14 +10,16 @@
 // index again when it cannot serve, while the start goes on, kills the terminal children a
 // previous run left running and knows this machine. It builds the terminal host over this run's
 // orphan guard and its provider side, listens on its socket and writes this start's session token
-// once the bind has succeeded, starts registering each driver, then runs its recovery pass,
-// refusing every write until the pass has listed the sessions it rebuilds, then a listed session's
-// and one naming no session until the pass ends, and after it only the writes of a session whose
-// history is damaged; the session services' background work starts once the pass has ended.
-// A client that reads the previous token in the moment between the bind and the write is refused
-// once, and its next read finds this start's token. Its stop, asked for over the socket or by a
-// terminate signal, ends it cleanly at any point of the start or after it, and records the clean
-// stop once the database has closed; a start that nothing stopped says the daemon is ready.
+// once the bind has succeeded, starts registering each driver once the search index has opened or
+// failed to, so the provider processes the registration starts never overlap an index build, then
+// runs its recovery pass, refusing every write until the pass has listed the sessions it rebuilds,
+// then a listed session's and one naming no session until the pass ends, and after it only the
+// writes of a session whose history is damaged; the session services' background work starts once
+// the pass has ended. A client that reads the previous token in the moment between the bind and
+// the write is refused once, and its next read finds this start's token. Its stop, asked for over
+// the socket or by a terminate signal, ends it cleanly at any point of the start or after it, and
+// records the clean stop once the database has closed; a start that nothing stopped says the
+// daemon is ready.
 
 import { chmod, mkdir } from "node:fs/promises";
 import * as path from "node:path";
@@ -566,9 +568,13 @@ export class DaemonProcess {
         } else {
           options.stopSignal.addEventListener("abort", () => void listening.stop(), { once: true });
           // Not awaited: a provider's read, bounded as it is, never holds the daemon's ready
-          // answer back, and a call before a driver registers is refused `driver.unavailable`.
-          // Each driver that fails to register says why in the service log; none rejects.
-          void daemon.#providers.start();
+          // answer back, and a call before a driver registers is refused `driver.unavailable`. It
+          // waits for the search index, so the provider processes it starts never add to an index
+          // build's memory; an index that failed to open lets it start, its failure already
+          // reported. Each driver that fails to register says why in the service log; none
+          // rejects.
+          const providers = daemon.#providers;
+          void searchThread.whenOpenSettled().then(() => providers.start());
           daemon.#recoveryPass = daemon.#startupRecovery.run();
           await daemon.#recoveryPass;
         }
@@ -591,12 +597,18 @@ export class DaemonProcess {
         } catch (error) {
           cleanupFailures.push(error);
         }
-        // The session services' background work reads the database, so it ends first.
+        // The session services' background work reads the database, so it ends first. The
+        // provider side stops too, so no driver registers and no provider process outlives the
+        // failed start.
         if (daemon !== undefined) {
-          try {
-            await daemon.#stopSessionServices();
-          } catch (error) {
-            cleanupFailures.push(error);
+          const stops = await Promise.allSettled([
+            daemon.#stopSessionServices(),
+            daemon.#providers.stop(),
+          ]);
+          for (const stop of stops) {
+            if (stop.status === "rejected") {
+              cleanupFailures.push(stop.reason);
+            }
           }
         }
         const searchThreadClose = searchThread.close();

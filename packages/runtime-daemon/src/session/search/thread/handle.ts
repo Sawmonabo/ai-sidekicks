@@ -3,7 +3,7 @@
 // threw as its own class. It tells the thread each time the database writer commits, so the thread
 // applies the outbox, and deletes the outbox rows each durable index commit holds through the
 // writer. The main thread only waits, so a search, however long it reads, holds no other call, and
-// nothing waits for the index to open but a search.
+// only a search and the daemon's provider start wait for the index to open.
 
 import { Worker } from "node:worker_threads";
 
@@ -126,6 +126,14 @@ export class SearchThread {
       }),
       options,
     );
+  }
+
+  /**
+   * Resolves once the index has opened, the open or the thread has failed, or a close came first;
+   * never rejects, since {@link whenWorkerFailed} carries a failure.
+   */
+  whenOpenSettled(): Promise<void> {
+    return this.#openSettled.promise;
   }
 
   /** One page of a `session.search`, as the session search answers it on the thread. */

@@ -163,13 +163,16 @@ describe("the lifecycle verbs over the socket", () => {
     );
     const { client, call } = await openSession();
 
+    // The drivers register once the search index has opened, after the start answers ready.
+    await vi.waitFor(() => {
+      expect(serviceLog).toEqual(
+        expect.arrayContaining([
+          "The claude driver was not registered: no provider is part of this test",
+          "The codex driver was not registered: no provider is part of this test",
+        ]),
+      );
+    });
     expect(await call("driver.listModes")).toMatchObject({ result: { drivers: [] } });
-    expect(serviceLog).toEqual(
-      expect.arrayContaining([
-        "The claude driver was not registered: no provider is part of this test",
-        "The codex driver was not registered: no provider is part of this test",
-      ]),
-    );
     await client.close();
   });
 

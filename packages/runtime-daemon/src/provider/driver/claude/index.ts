@@ -75,17 +75,17 @@ import type { ClaudeSessionLifecycleDependencies } from "./session/state.js";
 import { composeClaudeSpawnEnvironment } from "./spawn/environment.js";
 import { ClaudeProcessTransport, type ClaudeProcessTransportDependencies } from "./spawn/launch.js";
 
-/** The composition root's dependencies: the lifecycle's and the build reads. */
+/** The composition root's dependencies: the lifecycle's and the build read. */
 type ClaudeDriverDependencies = ClaudeSessionLifecycleDependencies &
-  Pick<ClaudeCapabilityReporterDependencies, "readSpawnedVersion" | "probe">;
+  Pick<ClaudeCapabilityReporterDependencies, "readBuild">;
 
 /**
  * Builds the Claude driver over the real process transport, reading the build's version and
- * probing its capabilities through that transport, each from a process that keeps nothing; the
+ * probing its capabilities through that transport, both on one process that keeps nothing; the
  * daemon's startup reaches it through the driver factory table.
  */
 export function createDriver(
-  dependencies: Omit<ClaudeDriverDependencies, "transport" | "readSpawnedVersion" | "probe"> &
+  dependencies: Omit<ClaudeDriverDependencies, "transport" | "readBuild"> &
     Pick<ClaudeProcessTransportDependencies, "providerCommand" | "toolServerRoute">,
 ): ProviderDriver {
   const { providerCommand, toolServerRoute, ...driverDependencies } = dependencies;
@@ -98,25 +98,21 @@ export function createDriver(
   return new ClaudeDriver({
     ...driverDependencies,
     transport,
-    readSpawnedVersion: async () =>
-      await readSpawnedProviderVersion({
-        driverName: CLAUDE_DRIVER_NAME,
-        requestedCommand: await providerCommand(),
-        handshake: async (request) => await transport.readBinaryVersion(request),
-        baseEnv: providerBaseEnvironment,
-        environmentNameMatch: operatingSystem.environmentNameMatch,
-      }),
-    probe: async (request) =>
-      await transport.probeControlRequest({
-        executablePath: request.boundExecutablePath,
-        spawnEnvironment: composeClaudeSpawnEnvironment({
-          providerBaseEnvironment,
-          environmentNameMatch: operatingSystem.environmentNameMatch,
-          environmentRows: undefined,
-          accountFolders: undefined,
-        }),
-        probeName: request.probeName,
-      }),
+    readBuild: async (read) =>
+      await transport.readBuild(
+        async (buildProcess) =>
+          await read({
+            readSpawnedVersion: async () =>
+              await readSpawnedProviderVersion({
+                driverName: CLAUDE_DRIVER_NAME,
+                requestedCommand: await providerCommand(),
+                handshake: async (request) => await buildProcess.readBinaryVersion(request),
+                baseEnv: providerBaseEnvironment,
+                environmentNameMatch: operatingSystem.environmentNameMatch,
+              }),
+            probe: async (request) => await buildProcess.sendCapabilityProbe(request.probeName),
+          }),
+      ),
   });
 }
 

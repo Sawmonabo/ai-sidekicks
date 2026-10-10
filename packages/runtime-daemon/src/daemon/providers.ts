@@ -512,10 +512,12 @@ export class DaemonProviders {
    * declared durably; resolves once all have settled. A driver whose read fails or does not
    * settle, such as a provider not installed, is left unregistered, so its methods answer
    * `driver.unavailable`, and the service log says why; a read that settles after its deadline or
-   * after `stop` registers nothing.
+   * after `stop` registers nothing, and a start after `stop` starts nothing.
    */
   start(): Promise<void> {
-    this.#registration = this.#register();
+    if (!this.#isStopping) {
+      this.#registration = this.#register();
+    }
     return this.#registration;
   }
 
