@@ -20,7 +20,12 @@ describe("a block's long tables, measured off the list", () => {
     const offList = new OffListTables(document, () => rows.widthPx);
     const preparation =
       prepareTableWindows(
-        { source: LONG_TABLE_BLOCK, definitionPreamble: "", definedFootnoteIdentifiers: new Set() },
+        {
+          source: LONG_TABLE_BLOCK,
+          fingerprint: "block",
+          definitionPreamble: "",
+          definedFootnoteIdentifiers: new Set(),
+        },
         offList,
         () => undefined,
       ) ?? expect.fail("a long table waits to be measured");
@@ -39,7 +44,12 @@ describe("a block's long tables, measured off the list", () => {
     const onReady = vi.fn();
     const preparation =
       prepareTableWindows(
-        { source: LONG_TABLE_BLOCK, definitionPreamble: "", definedFootnoteIdentifiers: new Set() },
+        {
+          source: LONG_TABLE_BLOCK,
+          fingerprint: "block",
+          definitionPreamble: "",
+          definedFootnoteIdentifiers: new Set(),
+        },
         offList,
         onReady,
       ) ?? expect.fail("a long table waits to be measured");

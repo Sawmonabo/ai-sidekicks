@@ -66,8 +66,12 @@ export class FlowBodyPlacement implements TableBodyPlacement {
     return this.#bodyElement?.ownerDocument;
   }
 
-  public get definitionPreambleLength(): number {
-    return this.#blocks.definitionPreamble.length;
+  public get rowKey(): string {
+    return this.#rowKey;
+  }
+
+  public get definitionPreamble(): string {
+    return this.#blocks.definitionPreamble;
   }
 
   /** Takes the body's blocks and its text's length for this frame. */
@@ -78,6 +82,11 @@ export class FlowBodyPlacement implements TableBodyPlacement {
 
   public blockSourceStart(index: number): number {
     return blockSourceStartOf(this.#blocks, this.#bodyTextLength, index);
+  }
+
+  /** A settled block's fingerprint; `undefined` for the streaming tail. */
+  public blockFingerprint(index: number): string | undefined {
+    return this.#blocks.settledBlocks[index]?.fingerprint;
   }
 
   /** Every table here measures its place from the body. */

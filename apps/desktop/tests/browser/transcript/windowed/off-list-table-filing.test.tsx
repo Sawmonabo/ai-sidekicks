@@ -1,9 +1,10 @@
-// A long table measured off the list reads its fingerprint, which walks every row's text, once for
-// the check that no geometry is filed for it, its filing, and the listed table that recalls it,
-// and never whole in one task: measured, it reads it beside its row estimates and lands in a task
-// of its own; parsed anew while its geometry is filed, it reads it in slices and lands from the
-// filing. Measured in the engine that lays its hidden frames out, as the frames are read only
-// after a real layout.
+// A long table's geometry kept for its next mount without reading its rows. Measured off the list,
+// a settled block's table is filed by its block's fingerprint, the definitions it is parsed after
+// and its place in the block, so the same block parsed anew is filed at once and its listed mount
+// draws its window from its first frame; it lands in a task of its own. A streaming table's window
+// hands its geometry to its row's next mount starting at the same place in the body's text: the
+// table remounted as a block ahead of it settles, its row listed again, or its own block settled.
+// Measured in the engine that lays the hidden frames out, as they are read only after a layout.
 
 import { waitFor } from "@testing-library/react";
 import type { Table } from "mdast";
@@ -16,16 +17,15 @@ import { installMeridianTokens } from "#renderer/app/token-installation.js";
 import { parseMarkdown } from "#renderer/components/Markdown/parse.js";
 import { OffListTableFrames } from "#renderer/features/transcript/rows/bodies/OffListTableFrames.js";
 import { suiteWindowViewport } from "#renderer/features/transcript/rows/bodies/WindowedMarkdown.test-support.js";
-import { TextFingerprint } from "#renderer/features/transcript/rows/markdown/body-blocks.js";
+import { type TableBodyPlacement } from "#renderer/features/transcript/rows/markdown/table-window/context.js";
 import {
-  type ListedBodies,
-  type TableBodyPlacement,
-} from "#renderer/features/transcript/rows/markdown/table-window/context.js";
-import { recallTableGeometry } from "#renderer/features/transcript/rows/markdown/table-window/geometry-memory.js";
-import { longTablesOf } from "#renderer/features/transcript/rows/markdown/table-window/long-tables.js";
+  recallTableGeometry,
+  settledTableKeyOf,
+  type TableGeometry,
+} from "#renderer/features/transcript/rows/markdown/table-window/geometry-memory.js";
 import { TableWindowLayout } from "#renderer/features/transcript/rows/markdown/table-window/layout.js";
+import { longTablesOf } from "#renderer/features/transcript/rows/markdown/table-window/long-tables.js";
 import { OffListTables } from "#renderer/features/transcript/rows/markdown/table-window/off-list.js";
-import { TableFingerprints } from "#renderer/features/transcript/rows/markdown/table-window/table-text.js";
 import { ManualClock } from "#renderer/lib/clock.js";
 import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 
@@ -35,25 +35,67 @@ const LAND_TIMEOUT_MS = 10_000;
 /** A selection that never starts. */
 const NO_SELECTION = { subscribe: () => () => undefined, read: () => undefined };
 
-/** A markdown body that has mounted no element and placed no block. */
-const UNLAID_PLACEMENT: TableBodyPlacement = {
-  bodyType: undefined,
-  ownerDocument: undefined,
-  definitionPreambleLength: 0,
-  blockSourceStart: () => 0,
-  anchorOf: () => null,
-  anchorTopPx: () => undefined,
-  subscribeToPlacement: () => () => undefined,
-};
+/** The definitions a block of a body with one footnote is parsed after. */
+const FOOTNOTE_PREAMBLE = "[^note]: x\n\n";
 
-/** A parsed table longer than any drawn whole, its lanes named by `name`. */
-function longTableOf(name: string): Table {
-  const source = [
+/** A block holding one table longer than any drawn whole, its lanes named by `name`. */
+function longTableBlockOf(name: string): string {
+  return [
     "| Lane | State |",
     "| --- | --- |",
     ...Array.from({ length: 80 }, (_, index) => `| ${name}-${String(index)} | running |`),
   ].join("\n");
-  return longTablesOf(parseMarkdown(source))[0] ?? expect.fail("a long table");
+}
+
+/** `block` parsed, as its body parses it each time it is drawn: a new table every time. */
+function longTableOf(block: string): Table {
+  return longTablesOf(parseMarkdown(block))[0] ?? expect.fail("a long table");
+}
+
+/** The row the bodies here are drawn in. */
+const ROW_KEY = "row";
+
+/**
+ * A markdown body of row `rowKey` that has mounted no element, its blocks starting where
+ * `blockSourceStart` says: a block is settled while `blockFingerprint` answers one for it, and
+ * streaming before.
+ */
+function bodyPlacementOf(
+  blockFingerprint: (index: number) => string | undefined,
+  blockSourceStart: (index: number) => number = () => 0,
+  rowKey = ROW_KEY,
+): TableBodyPlacement {
+  return {
+    bodyType: undefined,
+    ownerDocument: undefined,
+    definitionPreamble: "",
+    rowKey,
+    blockSourceStart,
+    blockFingerprint,
+    anchorOf: () => null,
+    anchorTopPx: () => undefined,
+    subscribeToPlacement: () => () => undefined,
+  };
+}
+
+/** A listed table in block `blockIndex` of `placement`, laid out at `offList`'s listed type. */
+function listedTableOf(
+  table: Table,
+  placement: TableBodyPlacement,
+  offList: OffListTables,
+  blockIndex = 0,
+): TableWindowLayout {
+  const viewport = suiteWindowViewport(
+    new ScrollController({ clock: new ManualClock() }),
+    NO_SELECTION,
+  );
+  return new TableWindowLayout(
+    { viewport, placement },
+    table,
+    blockIndex,
+    () => undefined,
+    offList,
+  );
 }
 
 /** Mounts the hidden frames of `offList`'s tables. */
@@ -65,6 +107,21 @@ async function drawFrames(offList: OffListTables): Promise<void> {
       <OffListTableFrames offList={offList} />
     </Wrapper>,
   );
+}
+
+/** Measures the table of `block`, fingerprinted `blockFingerprint`, off the list until it lands. */
+async function landTable(
+  offList: OffListTables,
+  block: string,
+  blockFingerprint: string,
+): Promise<TableGeometry> {
+  const table = longTableOf(block);
+  const tableKey = settledTableKeyOf(blockFingerprint, "", table);
+  const landed = vi.fn();
+  offList.measure(table, tableKey, new Set(), landed);
+  await waitFor(() => expect(landed).toHaveBeenCalledOnce(), { timeout: LAND_TIMEOUT_MS });
+  const bodyType = offList.listedBodyType() ?? expect.fail("a listed body type");
+  return recallTableGeometry({ tableKey, bodyType }) ?? expect.fail("the geometry filed");
 }
 
 /**
@@ -89,116 +146,136 @@ function followPostedTasks(): () => number | undefined {
   return () => runningTask;
 }
 
-/** The posted task each row's text was read in for a fingerprint, as `readRunningTask` answers. */
-function followRowReads(readRunningTask: () => number | undefined): (number | undefined)[] {
-  const read = TextFingerprint.prototype.read;
-  const tasks: (number | undefined)[] = [];
-  vi.spyOn(TextFingerprint.prototype, "read").mockImplementation(function (
-    this: TextFingerprint,
-    text: string,
-  ) {
-    tasks.push(readRunningTask());
-    read.call(this, text);
-  });
-  return tasks;
-}
-
 afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("a long table measured off the list", () => {
-  it("walks its rows once for its fingerprint, from its filed check to the listed table's recall", async () => {
-    const offList = new OffListTables(document, () => 680);
-    // The feed hands its off-list tables to its listed tables as their listed bodies.
-    const listedBodies: ListedBodies = offList;
-    await drawFrames(offList);
-    // The first table's land reads the body type rows are set at, so the second's filed check
-    // reads its fingerprint.
-    const firstLanded = vi.fn();
-    offList.measure(longTableOf("first"), new Set(), firstLanded);
-    await waitFor(() => expect(firstLanded).toHaveBeenCalledOnce(), { timeout: LAND_TIMEOUT_MS });
-
-    const rowReads = vi.spyOn(TextFingerprint.prototype, "read");
-    const second = longTableOf("second");
-    const secondLanded = vi.fn();
-    expect(offList.measure(second, new Set(), secondLanded)).not.toBe(undefined);
-    await waitFor(() => expect(secondLanded).toHaveBeenCalledOnce(), { timeout: LAND_TIMEOUT_MS });
-    // Filed: measured again, it is not drawn off the list.
-    expect(offList.measure(second, new Set(), () => undefined)).toBe(undefined);
-    // Listed, in a body not yet laid out: it lays out at the listed bodies' type and recalls the
-    // geometry filed there.
-    const listed = new TableWindowLayout(
-      {
-        viewport: suiteWindowViewport(
-          new ScrollController({ clock: new ManualClock() }),
-          NO_SELECTION,
-        ),
-        placement: UNLAID_PLACEMENT,
-      },
-      second,
-      0,
-      () => undefined,
-      listedBodies,
-    );
-    listed.update();
-    expect(listed.heldColumns, "the columns the listed table recalls").not.toBe(undefined);
-    expect(rowReads, "rows read of the second table").toHaveBeenCalledTimes(second.children.length);
-  });
-
-  it("reads its fingerprint beside its row estimates, and lands in a task of its own", async () => {
+describe("a long table's geometry, kept for its next mount", () => {
+  it("lands off the list in a task of its own", async () => {
     const offList = new OffListTables(document, () => 680);
     await drawFrames(offList);
     const runningTask = followPostedTasks();
-    const rowReadTasks = followRowReads(runningTask);
-    const table = longTableOf("sliced");
+    const table = longTableOf(longTableBlockOf("own-task"));
     let landedIn: number | undefined;
     const landed = vi.fn(() => {
       landedIn = runningTask();
     });
-    offList.measure(table, new Set(), landed);
+    offList.measure(table, settledTableKeyOf("own-task", "", table), new Set(), landed);
     await waitFor(() => expect(landed).toHaveBeenCalledOnce(), { timeout: LAND_TIMEOUT_MS });
-
     expect(landedIn, "the posted task the table lands in").not.toBe(undefined);
-    expect(rowReadTasks, "rows read").toHaveLength(table.children.length);
-    expect(
-      rowReadTasks.filter((task) => task === landedIn),
-      "rows read in the task the table lands in",
-    ).toEqual([]);
-    expect(offList.tableFingerprints.fingerprintOf(table), "the fingerprint read in slices").toBe(
-      new TableFingerprints().fingerprintOf(table),
-    );
   });
 
-  it("lands a table parsed anew while its geometry is filed, its fingerprint read in slices", async () => {
+  it("files a settled block's table so the block parsed anew is filed and drawn from it at once", async () => {
     const offList = new OffListTables(document, () => 680);
     await drawFrames(offList);
-    const filed = longTableOf("filed");
-    const filedLanded = vi.fn();
-    offList.measure(filed, new Set(), filedLanded);
-    await waitFor(() => expect(filedLanded).toHaveBeenCalledOnce(), { timeout: LAND_TIMEOUT_MS });
-    const geometryKey = {
-      fingerprint: offList.tableFingerprints.fingerprintOf(filed),
-      bodyType: offList.listedBodyType() ?? expect.fail("a listed body type"),
-    };
-    const geometry = recallTableGeometry(geometryKey);
+    const block = `${longTableBlockOf("settled")}\n\n${longTableBlockOf("settled-next")}`;
+    const geometry = await landTable(offList, block, "settled");
 
-    const rowReadTasks = followRowReads(followPostedTasks());
-    // The same text parsed again: a table whose fingerprint is not read yet.
-    const parsedAnew = longTableOf("filed");
-    const landed = vi.fn();
+    const [parsedAnew, nextInBlock] = longTablesOf(parseMarkdown(block));
+    if (parsedAnew === undefined || nextInBlock === undefined) {
+      expect.fail("two long tables");
+    }
     expect(
-      offList.measure(parsedAnew, new Set(), landed),
-      "the withdrawal of a table not read yet",
-    ).not.toBe(undefined);
-    expect(rowReadTasks, "rows read as it is measured").toEqual([]);
-    await waitFor(() => expect(landed).toHaveBeenCalledOnce(), { timeout: LAND_TIMEOUT_MS });
-    expect(rowReadTasks, "rows read").toHaveLength(parsedAnew.children.length);
-    expect(
-      rowReadTasks.filter((task) => task === undefined),
-      "rows read outside a slice",
-    ).toEqual([]);
-    expect(recallTableGeometry(geometryKey), "the geometry it landed with").toBe(geometry);
-    expect(offList.read(), "the tables still measured").toEqual([]);
+      offList.measure(parsedAnew, settledTableKeyOf("settled", "", parsedAnew), new Set(), vi.fn()),
+      "the block parsed anew, measured off the list",
+    ).toBe(undefined);
+    const withFootnotes = longTablesOf(parseMarkdown(FOOTNOTE_PREAMBLE + block))[0];
+    const unfiledKeys = {
+      "the block parsed after other definitions": settledTableKeyOf(
+        "settled",
+        FOOTNOTE_PREAMBLE,
+        withFootnotes ?? expect.fail("a long table"),
+      ),
+      "the next table in the block": settledTableKeyOf("settled", "", nextInBlock),
+    };
+    for (const [unfiled, tableKey] of Object.entries(unfiledKeys)) {
+      const withdraw = offList.measure(parsedAnew, tableKey, new Set(), vi.fn());
+      expect(withdraw, unfiled).not.toBe(undefined);
+      withdraw?.();
+    }
+
+    const listed = listedTableOf(
+      parsedAnew,
+      bodyPlacementOf(() => "settled"),
+      offList,
+    );
+    listed.update();
+    expect(listed.heldColumns, "the columns its first frame draws").toBe(geometry.columns);
+  });
+
+  it("hands a streaming table's geometry to its remounts and to its settled block", async () => {
+    const offList = new OffListTables(document, () => 680);
+    await drawFrames(offList);
+    const block = longTableBlockOf("streaming");
+    const geometry = await landTable(offList, block, "measured-before");
+    const paragraph = "Ahead of the table.\n\n";
+    // The tail holds the paragraph and the table until the paragraph settles as block 0.
+    const settledFingerprints: string[] = [];
+    const placement = bodyPlacementOf(
+      (index) => settledFingerprints[index],
+      (index) => (index === 0 ? 0 : paragraph.length),
+    );
+    const bodyType = offList.listedBodyType() ?? expect.fail("a listed body type");
+    // What an earlier mount of the streaming table handed on.
+    offList.streamingTables.hand(ROW_KEY, paragraph.length, { geometry, bodyType });
+    const first = listedTableOf(longTableOf(paragraph + block), placement, offList);
+    first.update();
+    expect(first.heldColumns, "the columns handed to the first mount").toBe(geometry.columns);
+    first.release();
+
+    settledFingerprints.push("paragraph");
+    const remounted = listedTableOf(longTableOf(block), placement, offList, 1);
+    remounted.update();
+    expect(remounted.heldColumns, "the columns it draws, a block ahead settled").toBe(
+      geometry.columns,
+    );
+    // A frame of the stream, the table still drawn.
+    remounted.update();
+
+    settledFingerprints.push("table");
+    const settled = listedTableOf(longTableOf(block), placement, offList, 1);
+    settled.update();
+    expect(settled.heldColumns, "the columns its settled block draws").toBe(geometry.columns);
+    remounted.release();
+    settled.release();
+  });
+
+  it("keeps a streaming table's geometry while its row leaves the list, until the log lets it go", async () => {
+    const offList = new OffListTables(document, () => 680);
+    await drawFrames(offList);
+    const block = longTableBlockOf("listed-again");
+    const geometry = await landTable(offList, block, "measured-before");
+    const bodyType = offList.listedBodyType() ?? expect.fail("a listed body type");
+    const isStreaming = (): undefined => undefined;
+    // What an earlier mount of the streaming table handed on.
+    offList.streamingTables.hand(ROW_KEY, 0, { geometry, bodyType });
+    const first = listedTableOf(longTableOf(block), bodyPlacementOf(isStreaming), offList);
+    first.update();
+    // A frame of the stream, then the row leaves the list and its body unmounts.
+    first.update();
+    first.release();
+
+    const otherRow = listedTableOf(
+      longTableOf(block),
+      bodyPlacementOf(isStreaming, () => 0, "other-row"),
+      offList,
+    );
+    otherRow.update();
+    expect(otherRow.heldColumns, "another row's table at the same place").toBe(undefined);
+    otherRow.release();
+
+    // Listed again with no new rows: a new body, a new parse.
+    const listedAgain = listedTableOf(longTableOf(block), bodyPlacementOf(isStreaming), offList);
+    listedAgain.update();
+    expect(listedAgain.heldColumns, "the columns its row draws listed again").toBe(
+      geometry.columns,
+    );
+    listedAgain.release();
+
+    offList.streamingTables.retainRows(new Map());
+    const afterLetGo = listedTableOf(longTableOf(block), bodyPlacementOf(isStreaming), offList);
+    afterLetGo.update();
+    expect(afterLetGo.heldColumns, "the columns after the log let its row go").toBe(undefined);
+    afterLetGo.release();
   });
 });

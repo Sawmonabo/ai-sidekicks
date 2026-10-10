@@ -21,6 +21,7 @@ import {
   forgetTableGeometries,
   recallTableGeometry,
   rememberTableGeometry,
+  settledTableKeyOf,
   type TableGeometry,
 } from "./geometry-memory.js";
 import { TableCellMeasure } from "./cell-measure.js";
@@ -30,7 +31,6 @@ import {
   type TableCellMeasurer,
   type TableMeasuringFrame,
 } from "./measurement.js";
-import { TableFingerprints } from "./table-text.js";
 import { type WidestCells } from "./widest-cells.js";
 
 /** The virtualizer a long table runs, over its body element and its row elements. */
@@ -56,8 +56,6 @@ export class TableWindowLayout {
   readonly #body: TableWindowBody;
   readonly #scroller: ScrollerWindowMembers;
   #table: Table;
-  /** The listed bodies' table fingerprints, so a table measured off the list reads none. */
-  readonly #tableFingerprints: TableFingerprints;
   #blockIndex: number;
   #bodyElement: HTMLElement | undefined;
   #stopObservingBody: Unsubscribe | undefined;
@@ -72,10 +70,8 @@ export class TableWindowLayout {
   #topPx = 0;
   /** The held columns, their rows' type and the rows' kept heights. */
   #geometry: TableGeometry | undefined;
-  /** The body type the geometry is filed at; `undefined` while the body had none to file it at. */
-  #filedBodyType: MarkdownBodyType | undefined;
-  /** The table as it stood when its geometry was last filed. */
-  #filedTable: Table | undefined;
+  /** The body type the geometry is kept at; `undefined` while the body had none to keep it at. */
+  #keptBodyType: MarkdownBodyType | undefined;
   /** How many body rows the held columns were checked against: more arrive while it streams. */
   #checkedRowCount = 0;
   /** Whether the held geometry was measured in fonts that have since loaded anew. */
@@ -173,7 +169,8 @@ export class TableWindowLayout {
 
   /**
    * `onMeasured` is told each time the hidden frame to draw changes or a geometry is ready; the
-   * table lays out at `listedBodies`' type until its own body is laid out.
+   * table lays out at `listedBodies`' type until its own body is laid out, and a streaming table
+   * hands its geometry to its next mount through them.
    */
   public constructor(
     body: TableWindowBody,
@@ -184,7 +181,6 @@ export class TableWindowLayout {
   ) {
     this.#body = body;
     this.#listedBodies = listedBodies;
-    this.#tableFingerprints = listedBodies?.tableFingerprints ?? new TableFingerprints();
     this.#table = table;
     this.#blockIndex = blockIndex;
     this.#onMeasured = onMeasured;
@@ -233,18 +229,19 @@ export class TableWindowLayout {
       );
       rowHeightsPx.set(geometry.rowHeightsPx);
       this.#geometry = { ...geometry, rowHeightsPx };
-      if (this.#filedBodyType !== undefined) {
-        this.#file(this.#filedBodyType, this.#geometry);
+      if (this.#keptBodyType !== undefined) {
+        this.#keep(this.#keptBodyType, this.#geometry);
       }
     }
   }
 
   /**
    * Brings the held geometry up to the table and the body as they stand, reading nothing from the
-   * page: a measurement that finished is held; columns remembered at the body's width are taken;
-   * and a measurement starts where none holds, for a body of another width, for rows that
-   * arrived holding a column's widest cells, or after a font loaded. What is held stays drawn
-   * until a measurement replaces it.
+   * page: a measurement that finished is held; columns remembered at the body's width are taken,
+   * or a streaming table's handed from its last mount, drawn while it is measured anew; and a
+   * measurement starts where none holds, for a body of another width, for rows that arrived
+   * holding a column's widest cells, or after a font loaded. What is held stays drawn until a
+   * measurement replaces it. A streaming table hands what it holds to its next mount each time.
    */
   public update(): void {
     const bodyType = this.bodyType;
@@ -258,10 +255,10 @@ export class TableWindowLayout {
     if (
       geometry !== undefined &&
       !this.#isMeasuredInOldFonts &&
-      (this.#filedBodyType === undefined || isSameBodyType(this.#filedBodyType, bodyType))
+      (this.#keptBodyType === undefined || isSameBodyType(this.#keptBodyType, bodyType))
     ) {
-      if (this.#filedBodyType === undefined) {
-        this.#file(bodyType, geometry);
+      if (this.#keptBodyType === undefined || this.#isStreaming()) {
+        this.#keep(bodyType, geometry);
       }
       this.#checkNewRows(geometry, bodyType);
       return;
@@ -269,29 +266,27 @@ export class TableWindowLayout {
     if (isSameBodyType(this.#measurement?.bodyType, bodyType)) {
       return;
     }
-    const remembered = this.#isMeasuredInOldFonts
-      ? undefined
-      : recallTableGeometry({
-          fingerprint: this.#tableFingerprints.fingerprintOf(this.#table),
-          bodyType,
-        });
+    const remembered = this.#isMeasuredInOldFonts ? undefined : this.#recall(bodyType);
     if (remembered === undefined) {
       this.#measure(bodyType, this.#isMeasuredInOldFonts ? undefined : this.#known(bodyType));
       return;
     }
     this.#measurement?.measurement.stop();
     this.#measurement = undefined;
-    this.#holdGeometry(remembered, this.rowCount);
+    const { geometry: recalled, isHanded } = remembered;
+    this.#holdGeometry(recalled, this.rowCount);
     if (!isSameTextSize(this.#cellMeasurerBodyType, bodyType)) {
       this.#cellMeasurer = {
-        type: remembered.cellType,
-        measure: new TableCellMeasure(remembered.cellType, this.#ownerDocument()),
+        type: recalled.cellType,
+        measure: new TableCellMeasure(recalled.cellType, this.#ownerDocument()),
       };
       this.#cellMeasurerBodyType = bodyType;
     }
-    this.#filedBodyType = bodyType;
-    this.#filedTable = this.#table;
+    this.#keptBodyType = bodyType;
     this.setTable(this.#table, this.#blockIndex);
+    if (isHanded) {
+      this.#measure(bodyType, undefined);
+    }
   }
 
   /**
@@ -301,25 +296,21 @@ export class TableWindowLayout {
   public forgetMeasurements(): void {
     forgetTableGeometries();
     this.#isMeasuredInOldFonts = true;
-    this.#filedBodyType = undefined;
+    this.#keptBodyType = undefined;
     this.#measurement?.measurement.stop();
     this.#measurement = undefined;
   }
 
   /**
-   * Files the held geometry again under the table as it now stands, for the mount that draws it
-   * next: a streaming table's block settling into place draws its last rows.
+   * Keeps the held geometry for the mount that draws the table next, as the table now stands: a
+   * streaming table's block settling into place draws its last rows.
    */
   public release(): void {
     this.#measurement?.measurement.stop();
     this.#measurement = undefined;
     const geometry = this.#geometry;
-    if (
-      geometry !== undefined &&
-      this.#filedBodyType !== undefined &&
-      this.#filedTable !== this.#table
-    ) {
-      this.#file(this.#filedBodyType, geometry);
+    if (geometry !== undefined && this.#keptBodyType !== undefined) {
+      this.#keep(this.#keptBodyType, geometry);
     }
   }
 
@@ -451,7 +442,6 @@ export class TableWindowLayout {
     return rowBottomPx > scrollTop + viewportHeight ? rowBottomPx - viewportHeight : undefined;
   }
 
-  /** The table body's top in the scroller's content: its anchor's top and its place there. */
   /** The body's document, known once the body has mounted, or the listed bodies' before. */
   #ownerDocument(): Document {
     const ownerDocument = this.#body.placement.ownerDocument ?? this.#listedBodies?.ownerDocument;
@@ -461,6 +451,7 @@ export class TableWindowLayout {
     return ownerDocument;
   }
 
+  /** The table body's top in the scroller's content: its anchor's top and its place there. */
   #readTopPx(): number {
     const anchorTopPx = this.#body.placement.anchorTopPx(this.#blockIndex);
     if (anchorTopPx !== undefined) {
@@ -522,7 +513,6 @@ export class TableWindowLayout {
       measurement: new TableMeasurement(
         this.#table,
         this.#ownerDocument(),
-        this.#tableFingerprints,
         this.#onMeasured,
         known,
       ),
@@ -546,7 +536,7 @@ export class TableWindowLayout {
       : { cellMeasurer, widestCells: this.#widestCells };
   }
 
-  /** Holds the geometry `measurement` ended with, filed at the body type it measured at. */
+  /** Holds the geometry `measurement` ended with, kept at the body type it measured at. */
   #holdMeasured(measurement: TableMeasurement, bodyType: MarkdownBodyType): void {
     const geometry = measurement.geometry;
     const known = measurement.known;
@@ -559,7 +549,7 @@ export class TableWindowLayout {
     this.#cellMeasurerBodyType = bodyType;
     this.#widestCells = known.widestCells;
     this.#holdGeometry(geometry, Math.max(0, measurement.table.children.length - 1));
-    this.#file(bodyType, geometry, measurement.table);
+    this.#keep(bodyType, geometry);
     this.setTable(this.#table, this.#blockIndex);
   }
 
@@ -569,14 +559,81 @@ export class TableWindowLayout {
     this.#checkedRowCount = checkedRowCount;
   }
 
-  /** Files `geometry` under `table` at `bodyType`: the table as it stands, by default. */
-  #file(bodyType: MarkdownBodyType, geometry: TableGeometry, table: Table = this.#table): void {
-    rememberTableGeometry(
-      { fingerprint: this.#tableFingerprints.fingerprintOf(table), bodyType },
-      geometry,
+  /**
+   * Keeps `geometry`, measured at `bodyType`, for the table's next mount, reading none of its rows:
+   * filed under a settled table's key, or handed through the window for a streaming table.
+   */
+  #keep(bodyType: MarkdownBodyType, geometry: TableGeometry): void {
+    const placement = this.#body.placement;
+    const blockFingerprint = placement.blockFingerprint(this.#blockIndex);
+    if (blockFingerprint === undefined) {
+      this.#listedBodies?.streamingTables.hand(placement.rowKey, this.#startInBody(), {
+        geometry,
+        bodyType,
+      });
+    } else {
+      rememberTableGeometry(
+        {
+          tableKey: settledTableKeyOf(blockFingerprint, placement.definitionPreamble, this.#table),
+          bodyType,
+        },
+        geometry,
+      );
+    }
+    this.#keptBodyType = bodyType;
+  }
+
+  /**
+   * The geometry kept for the table at `bodyType`, reading none of its rows: filed under a settled
+   * table's key, or else handed by the last mount starting where the table does in the body's
+   * text, which is taken either way.
+   */
+  #recall(
+    bodyType: MarkdownBodyType,
+  ): { readonly geometry: TableGeometry; readonly isHanded: boolean } | undefined {
+    const placement = this.#body.placement;
+    const handed = this.#listedBodies?.streamingTables.take(placement.rowKey, this.#startInBody());
+    const blockFingerprint = placement.blockFingerprint(this.#blockIndex);
+    const filed =
+      blockFingerprint === undefined
+        ? undefined
+        : recallTableGeometry({
+            tableKey: settledTableKeyOf(
+              blockFingerprint,
+              placement.definitionPreamble,
+              this.#table,
+            ),
+            bodyType,
+          });
+    if (filed !== undefined) {
+      return { geometry: filed, isHanded: false };
+    }
+    return handed !== undefined && isSameBodyType(handed.bodyType, bodyType)
+      ? { geometry: handed.geometry, isHanded: true }
+      : undefined;
+  }
+
+  /** Whether the table is in the streaming tail, which has no key to be filed under. */
+  #isStreaming(): boolean {
+    return this.#body.placement.blockFingerprint(this.#blockIndex) === undefined;
+  }
+
+  /**
+   * Where the table starts in the body's text: a streaming table's block starts later each time a
+   * block ahead of it settles, and its place in the block earlier by as much.
+   */
+  #startInBody(): number {
+    return this.#bodyOffsetOf(this.#table.position?.start.offset ?? 0);
+  }
+
+  /** The body text offset of `parseOffset` in the block's parse, less the definitions it counts. */
+  #bodyOffsetOf(parseOffset: number): number {
+    const placement = this.#body.placement;
+    return (
+      placement.blockSourceStart(this.#blockIndex) -
+      placement.definitionPreamble.length +
+      parseOffset
     );
-    this.#filedBodyType = bodyType;
-    this.#filedTable = table;
   }
 
   /**
@@ -595,15 +652,12 @@ export class TableWindowLayout {
     }
     const firstRow = this.#table.children[firstIndex + 1];
     const lastRow = this.#table.children[lastIndex + 1];
-    const base =
-      this.#body.placement.blockSourceStart(this.#blockIndex) -
-      this.#body.placement.definitionPreambleLength;
     rows.push({
       kind: "spacer",
       key: firstIndex === 0 ? "before" : `after:${String(firstIndex - 1)}`,
       heightPx,
-      sourceStart: base + (firstRow?.position?.start.offset ?? 0),
-      sourceEnd: base + (lastRow?.position?.end.offset ?? 0),
+      sourceStart: this.#bodyOffsetOf(firstRow?.position?.start.offset ?? 0),
+      sourceEnd: this.#bodyOffsetOf(lastRow?.position?.end.offset ?? 0),
     });
   }
 }

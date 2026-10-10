@@ -139,7 +139,7 @@ class MessageRowPreparation implements TranscriptRowPreparation {
     const settledBlocks = blocks.settledBlocks;
     for (const block of settledBlocks.slice(this.#readBlockCount)) {
       const blockSource = blocks.readBlockSource(block);
-      this.#prepareTableWindows(blockSource, blocks);
+      this.#prepareTableWindows(blockSource, block.fingerprint, blocks);
       if (DEFERRED_FENCE_OPENER.test(blockSource)) {
         const fences: DeferredFence[] = [];
         collectDeferredFences(parseSettledBlock(blockSource, blocks.definitionPreamble), fences);
@@ -189,11 +189,16 @@ class MessageRowPreparation implements TranscriptRowPreparation {
   }
 
   /** Measures the block's long tables off the list, so each draws its window on its first frame. */
-  #prepareTableWindows(blockSource: string, blocks: MarkdownBodyBlocksSnapshot): void {
+  #prepareTableWindows(
+    blockSource: string,
+    blockFingerprint: string,
+    blocks: MarkdownBodyBlocksSnapshot,
+  ): void {
     let landed: (() => void) | undefined;
     const preparation = prepareTableWindows(
       {
         source: blockSource,
+        fingerprint: blockFingerprint,
         definitionPreamble: blocks.definitionPreamble,
         definedFootnoteIdentifiers: blocks.definedFootnoteIdentifiers,
       },

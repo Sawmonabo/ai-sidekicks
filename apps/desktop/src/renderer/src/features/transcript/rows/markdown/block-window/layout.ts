@@ -224,9 +224,14 @@ export class BlockWindowLayout implements TableBodyPlacement {
     return this.#bodyElement?.ownerDocument;
   }
 
-  /** How long the definitions are that every parsed offset in this body counts. */
-  public get definitionPreambleLength(): number {
-    return this.#blocks.definitionPreamble.length;
+  /** The key of the transcript row the body is drawn in. */
+  public get rowKey(): string {
+    return this.#rowKey;
+  }
+
+  /** The definitions every block of this body is parsed after. */
+  public get definitionPreamble(): string {
+    return this.#blocks.definitionPreamble;
   }
 
   /** Takes the body's blocks and its text's length for this frame. */
@@ -237,6 +242,11 @@ export class BlockWindowLayout implements TableBodyPlacement {
 
   public blockSourceStart(index: number): number {
     return blockSourceStartOf(this.#blocks, this.#bodyTextLength, index);
+  }
+
+  /** A settled block's fingerprint; `undefined` for the streaming tail. */
+  public blockFingerprint(index: number): string | undefined {
+    return this.#blocks.settledBlocks[index]?.fingerprint;
   }
 
   /** A table's anchor here is the wrapper of the block it is drawn in. */
