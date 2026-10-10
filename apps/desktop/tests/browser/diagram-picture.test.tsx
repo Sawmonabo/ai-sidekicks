@@ -63,6 +63,12 @@ const LAYOUT_BODY = "flowchart TD\n  A --> B\n  B --> C\n  A --> C\n  C --> D\n 
 /** The eight bytes every PNG file opens with. */
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 
+/**
+ * How long a case waits for the diagram worker to draw, decode or copy a picture: far past what
+ * it takes, so a loaded machine slows a case without failing it.
+ */
+const PICTURE_WAIT = { timeout: 10_000 };
+
 /** A share of memory far larger than these cases draw, so nothing is evicted mid-case. */
 const TEST_CACHE_BYTE_CAP = 64 * 1024 * 1024;
 
@@ -100,16 +106,13 @@ function frameHeightIn(container: HTMLElement): number {
 }
 
 async function decodedPictureIn(container: HTMLElement): Promise<HTMLImageElement> {
-  return waitFor(
-    () => {
-      const picture = container.querySelector("img");
-      if (picture === null || !picture.complete || picture.naturalWidth === 0) {
-        throw new Error("The picture has not been drawn and decoded yet.");
-      }
-      return picture;
-    },
-    { timeout: 10_000 },
-  );
+  return waitFor(() => {
+    const picture = container.querySelector("img");
+    if (picture === null || !picture.complete || picture.naturalWidth === 0) {
+      throw new Error("The picture has not been drawn and decoded yet.");
+    }
+    return picture;
+  }, PICTURE_WAIT);
 }
 
 function markupOf(outcome: DiagramOutcome): string {
@@ -163,7 +166,7 @@ it("holds its place, draws an image, remounts at its height and copies a PNG", a
   await userEvent.click(short.getByRole("button", { name: "Copy as picture" }));
   await waitFor(() => {
     expect(copied).toHaveLength(1);
-  });
+  }, PICTURE_WAIT);
   const [content] = copied;
   const png = content !== undefined && "png" in content ? content.png : expect.fail("a PNG copy");
   expect([...png.slice(0, PNG_SIGNATURE.length)]).toStrictEqual(PNG_SIGNATURE);
@@ -208,12 +211,9 @@ it("copies a mindmap as a picture with no HTML labels, which would taint the can
   );
   await decodedPictureIn(block.container);
   await userEvent.click(block.getByRole("button", { name: "Copy as picture" }));
-  await waitFor(
-    () => {
-      expect(copied).toHaveLength(1);
-    },
-    { timeout: 10_000 },
-  );
+  await waitFor(() => {
+    expect(copied).toHaveLength(1);
+  }, PICTURE_WAIT);
   const [content] = copied;
   const png = content !== undefined && "png" in content ? content.png : expect.fail("a PNG copy");
   expect([...png.slice(0, PNG_SIGNATURE.length)]).toStrictEqual(PNG_SIGNATURE);
@@ -227,7 +227,7 @@ it("shows the parser's reason above the source of a diagram it refuses", async (
       <DiagramBlock source={REFUSED_SOURCE} isSettled renderCopy={undefined} />
     </DiagramPicturesContext.Provider>,
   );
-  const line = await block.findByText(/^Could not draw this diagram · /u, {}, { timeout: 10_000 });
+  const line = await block.findByText(/^Could not draw this diagram · /u, {}, PICTURE_WAIT);
   // The parser's own reason, not a failure of the library or its worker.
   expect(line.textContent).toMatch(/^Could not draw this diagram · Diagram parse error/u);
   expect(block.container.querySelector("code")?.textContent).toBe(REFUSED_SOURCE);
