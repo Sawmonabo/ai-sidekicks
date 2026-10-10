@@ -10,7 +10,10 @@ export interface TraceEvent {
   readonly name: string;
   readonly ph: string;
   readonly pid: number;
+  readonly tid?: number;
   readonly ts: number;
+  /** A complete record's length, in microseconds. */
+  readonly dur?: number;
   readonly id?: string;
   readonly id2?: { readonly local?: string };
   readonly args?: Record<string, unknown>;
