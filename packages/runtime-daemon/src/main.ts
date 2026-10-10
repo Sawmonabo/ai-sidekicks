@@ -5,7 +5,6 @@
 // system's service manager end it.
 
 import { execFile } from "node:child_process";
-import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import * as os from "node:os";
 import { promisify } from "node:util";
@@ -23,27 +22,11 @@ import { createNodeMachineNameSources, readMachineName } from "./daemon/machine/
 import { readProcessTreeUsage } from "./daemon/process-tree-usage.js";
 import { DaemonStartStoppedError } from "./daemon/start-stopped-error.js";
 import { openServiceLog } from "./daemon/service-log.js";
+import { readServiceVersion } from "./daemon/service-version.js";
 import { readWindowsDriveMounts } from "./daemon/windows-drive-mounts.js";
 import { selectPtyHost } from "./pty/host/selector.js";
 import { openOrphanGuard } from "./pty/orphan/guard.js";
 import { openOrphanOperatingSystem } from "./pty/orphan/operating-system.js";
-
-// The service's version is its package's; the manifest sits one folder above this file, in the
-// source tree and in the build alike.
-function readServiceVersion(): string {
-  const manifest: unknown = JSON.parse(
-    readFileSync(new URL("../package.json", import.meta.url), "utf8"),
-  );
-  if (
-    typeof manifest === "object" &&
-    manifest !== null &&
-    "version" in manifest &&
-    typeof manifest.version === "string"
-  ) {
-    return manifest.version;
-  }
-  throw new Error("The daemon's package.json names no version");
-}
 
 // First, so every service-log line from here on is kept in the file too.
 const homeDirectory = os.homedir();

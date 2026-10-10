@@ -22,6 +22,10 @@ import type { FreshFileReply, FreshFileWorkerData } from "./preparation.js";
 // The table `.recover` puts rows in that it found no table for; the aside copy keeps their bytes.
 const LOST_AND_FOUND_TABLE_PATTERN = "lost_and_found%";
 
+// The stored columns of an event; SQLite computes a generated column and refuses a value for it.
+const STORED_EVENT_COLUMNS = `id, session_id, sequence, occurred_at, monotonic_ns, category, type,
+  actor, payload, content_payload, correlation_id, causation_id, version`;
+
 // Each session whose readable events the backup holds more of than the fresh file.
 const SELECT_SESSIONS_RICHER_IN_BACKUP_SQL = `SELECT backup_counts.session_id AS session_id
   FROM (SELECT session_id, COUNT(*) FILTER (WHERE json_valid(payload)) AS readable
@@ -96,10 +100,6 @@ function takeRicherSessionsFromBackup(fresh: DatabaseType, backupPath: string): 
     return 0;
   }
 }
-
-// The stored columns of an event; SQLite computes a generated column and refuses a value for it.
-const STORED_EVENT_COLUMNS = `id, session_id, sequence, occurred_at, monotonic_ns, category, type,
-  actor, payload, content_payload, correlation_id, causation_id, version`;
 
 // A snapshot names the event it reflects, so the session's snapshots go and come with its events.
 // Its events are inserted in sequence order, so their rowids keep the log's order in the session.

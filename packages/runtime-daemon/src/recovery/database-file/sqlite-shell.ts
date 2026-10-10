@@ -12,8 +12,6 @@
 // file, goes on however long it takes.
 
 import { execFile, spawn, type ChildProcess } from "node:child_process";
-import { stat } from "node:fs/promises";
-import * as os from "node:os";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
@@ -46,15 +44,18 @@ const PAGE_TABLE_OPTION_SQL =
 // uses some in every minute, while one blocked for good uses none.
 const RECOVERY_STALL_WINDOW_MS = 60_000;
 
-// The writing shell's page cache, in bytes. The recovery writes every row in one transaction, and
-// the fresh file's unique index on a session and its sequence takes the rows out of its order, so
-// once that index outgrows the cache every row writes a page out to make room for the one it
-// needs, and the recovery slows many times over. A sixth of the damaged file holds that index with
-// room to spare; the cache never falls below 256 MiB, nor takes more than an eighth of the
-// machine's memory.
-const RECOVERY_WRITER_CACHE_FLOOR_BYTES = 256 * 1024 * 1024;
-const RECOVERY_WRITER_CACHE_FILE_SHARE = 6;
-const RECOVERY_WRITER_CACHE_MEMORY_SHARE = 8;
+// What the writing shell runs before the recovery's SQL. The fresh file is scratch until it is
+// synced and marked ready, and a failed repair removes it, so it keeps no rollback journal and
+// waits for no sync; defensive mode refuses a journal turned off, and the recovery's own SQL turns
+// it off first in any case. Its page cache is fixed at 256 MiB, in KiB: the recovery keeps its
+// unique indexes, built before the rows so that a duplicate row is dropped, and the rows reach the
+// one on a session and its sequence out of its order, so a cache that index outgrows writes a page
+// out for nearly every row; a cache sized to that index grows with the file instead.
+const RECOVERY_WRITER_PREAMBLE = `.dbconfig defensive off
+PRAGMA journal_mode = OFF;
+PRAGMA synchronous = OFF;
+PRAGMA cache_size = -${String(256 * 1024)};
+`;
 
 // The table whose rows the recovery counts, and how `.recover` starts each row it writes to it.
 const COUNTED_TABLE = "session_events";
@@ -83,7 +84,6 @@ export async function recoverIntoFreshFile(
 ): Promise<void> {
   const { stopSignal } = options;
   await refuseUnfitShell();
-  const cacheKib = Math.round(sizeWriterCache((await stat(damagedPath)).size) / 1024);
   const reader = spawn(SQLITE_SHELL_PROGRAM, ["-readonly", damagedPath, ".recover"], {
     stdio: ["ignore", "pipe", "pipe"],
     signal: stopSignal,
@@ -94,7 +94,7 @@ export async function recoverIntoFreshFile(
     signal: stopSignal,
     killSignal: "SIGKILL",
   });
-  writer.stdin.write(`PRAGMA cache_size = -${String(cacheKib)};\n`);
+  writer.stdin.write(RECOVERY_WRITER_PREAMBLE);
   reader.stdout.pipe(writer.stdin);
   let recoveredEvents = 0;
   // A row's start can straddle two chunks, so each search begins in the last chunk's tail, which
@@ -138,14 +138,6 @@ export async function recoverIntoFreshFile(
         )
       : firstFailure;
   }
-}
-
-// The writing shell's page cache for a damaged file of `fileBytes`, in bytes.
-function sizeWriterCache(fileBytes: number): number {
-  return Math.min(
-    Math.max(RECOVERY_WRITER_CACHE_FLOOR_BYTES, fileBytes / RECOVERY_WRITER_CACHE_FILE_SHARE),
-    Math.max(RECOVERY_WRITER_CACHE_FLOOR_BYTES, os.totalmem() / RECOVERY_WRITER_CACHE_MEMORY_SHARE),
-  );
 }
 
 // Watches a recovery's shells for a stall: once no byte has passed for a whole window it reads each

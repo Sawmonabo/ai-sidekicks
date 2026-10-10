@@ -68,13 +68,16 @@ export class ProjectionFailureError extends Error {
 }
 
 /**
- * A rebuild of one session; `force` rebuilds it even when its projections are current, and
- * `beforeSequence` folds only the events before that one, leaving the cursor stale.
+ * A rebuild of one session; `force` rebuilds it even when its projections are current,
+ * `beforeSequence` folds only the events before that one, leaving the cursor stale, and
+ * `stopSignal` ends it before its next page, throwing the signal's reason with the cursor left
+ * `rebuilding`, so the next pass rebuilds it.
  */
 export interface ProjectionRebuildRequest {
   readonly sessionId: SessionId;
   readonly force?: boolean | undefined;
   readonly beforeSequence?: number | undefined;
+  readonly stopSignal?: AbortSignal | undefined;
 }
 
 /** What a rebuild did: the projections it replaced and the last event they reflect. */
@@ -144,6 +147,7 @@ interface FoldRange {
   readonly sessionId: SessionId;
   readonly headSequence: number;
   readonly beforeSequence: number | undefined;
+  readonly stopSignal: AbortSignal | undefined;
 }
 
 interface CursorRow {
@@ -225,7 +229,12 @@ export class ProjectionRebuildService {
           eventsApplied: 0,
         };
       }
-      const fold = { sessionId, headSequence, beforeSequence: request.beforeSequence };
+      const fold = {
+        sessionId,
+        headSequence,
+        beforeSequence: request.beforeSequence,
+        stopSignal: request.stopSignal,
+      };
       try {
         return await this.#rebuildFromFirstEvent(fold, REBUILD_PAGE_SIZE);
       } catch (error) {
@@ -289,6 +298,7 @@ export class ProjectionRebuildService {
     let eventsRead = 0;
     let hasMore = true;
     while (hasMore) {
+      fold.stopSignal?.throwIfAborted();
       const page = this.#readPage({
         sessionId,
         afterSequence,

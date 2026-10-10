@@ -174,8 +174,9 @@ export class DaemonProcess {
   readonly #inFlightMutations: InFlightMutations;
   readonly #recoveryStatus = new RecoveryStatusTracker();
   readonly #startupRecovery: StartupRecovery;
-  // The start's recovery pass, which a stop waits for before the database closes under it.
+  // The start's recovery pass, which a stop ends and waits for before the database closes under it.
   #recoveryPass: Promise<void> = Promise.resolve();
+  readonly #stopRequest = new AbortController();
   readonly #ptyHost: Pick<PtyHost, "shutdown">;
   readonly #orphanGuard: OrphanGuard;
   readonly #writeServiceLog: (line: string) => void;
@@ -345,6 +346,7 @@ export class DaemonProcess {
       reportStoreFailure: (error) => {
         damageWatch.report(error);
       },
+      stopSignal: this.#stopRequest.signal,
       now: options.now,
       writeServiceLog: options.writeServiceLog,
     });
@@ -583,18 +585,18 @@ export class DaemonProcess {
   }
 
   /**
-   * Stops the daemon: closes the socket and every connection, then, side by side and each within
-   * the drain bound, waits for the calls already under way, the start's recovery pass and the
-   * session services' background work, lets the searches under way finish and ends the search
-   * thread, and drains every terminal (each gets its graceful signal, then a kill); then stops
-   * watching terminal children's exits and, in what is left of the bound, waits for every write
-   * taken to commit, failing any still unfinished, closes the database and lets the data folder
-   * go.
-   * Repeated calls share the first stop.
+   * Stops the daemon: ends the start's recovery pass before its next page, closes the socket and
+   * every connection, then, side by side and each within the drain bound, waits for the calls
+   * already under way, the recovery pass and the session services' background work, lets the
+   * searches under way finish and ends the search thread, and drains every terminal (each gets its
+   * graceful signal, then a kill); then stops watching terminal children's exits and, in what is
+   * left of the bound, waits for every write taken to commit, failing any still unfinished, closes
+   * the database and lets the data folder go. Repeated calls share the first stop.
    */
   stop(): Promise<void> {
     if (this.#stopping === undefined) {
       this.#processState = "stopping";
+      this.#stopRequest.abort(new Error("The service is stopping"));
       const stopping = this.#runStop();
       this.#stopping = stopping;
       stopping.then(

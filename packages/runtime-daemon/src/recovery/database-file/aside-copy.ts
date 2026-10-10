@@ -62,15 +62,25 @@ export async function copyDatabaseFilesAside(options: DatabaseFilesAsideOptions)
     path.join(asideRoot, `${options.now().toISOString().replaceAll(":", "-")}-`),
   );
   // A clone where the file system offers one (APFS, Btrfs, XFS), which takes no time or space and
-  // keeps the bytes as they were when the file is replaced; a full copy elsewhere.
-  for (const file of files) {
-    await copyFile(
-      path.join(path.dirname(options.databasePath), file.name),
-      path.join(folder, file.name),
-      constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE,
-    );
+  // keeps the bytes as they were when the file is replaced; a full copy elsewhere. The log goes
+  // when the last connection closes, folded into the file first, so the companions are copied
+  // before the file: a log gone by its copy is in the file copied after it.
+  const copied: StoredFile[] = [];
+  for (const file of files.toReversed()) {
+    try {
+      await copyFile(
+        path.join(path.dirname(options.databasePath), file.name),
+        path.join(folder, file.name),
+        constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE,
+      );
+      copied.push(file);
+    } catch (error) {
+      if (file.name === path.basename(options.databasePath) || !isMissingFileError(error)) {
+        throw error;
+      }
+    }
   }
-  await writeRecord(folder, { files, sessions: [] });
+  await writeRecord(folder, { files: copied, sessions: [] });
   return folder;
 }
 

@@ -341,7 +341,7 @@ describe("a stop during the start", () => {
     expect(repairedLog).toContainEqual(expect.stringContaining(DAEMON_READY_LINE));
   }, 30_000);
 
-  it("says nothing is ready when a stop over the socket comes during the recovery pass", async () => {
+  it("ends the recovery pass and says nothing is ready when a stop over the socket comes during it", async () => {
     standInChecks(() => new Promise(() => {}));
     const firstLog: string[] = [];
     await (await startDaemonLogging(firstLog)).stop();
@@ -374,5 +374,10 @@ describe("a stop during the start", () => {
     const daemon = await starting;
     expect(await daemon.whenStopped()).toStrictEqual({ isClean: true, isFileDamaged: false });
     expect(serviceLog).not.toContainEqual(expect.stringContaining(DAEMON_READY_LINE));
+    // The pass's held write fails as the stop closes the database, which the pass reads as the
+    // stop, never as a failed store.
+    expect(serviceLog).toContain(
+      "The service's stop ended the recovery pass; its next start rebuilds what it had yet to",
+    );
   }, 30_000);
 });

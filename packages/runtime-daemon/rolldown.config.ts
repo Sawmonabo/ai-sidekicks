@@ -66,7 +66,9 @@ const ENTRY_PATHS = [
 // A line of code, not of a comment, that reads the module's own URL, folder or file path.
 const OWN_LOCATION_IN_CODE = /^(?!\s*(?:\/\/|\/?\*)).*\bimport\.meta\.(?:url|dirname|filename)\b/m;
 
-// The modules that find a file from their own location, entries aside, which keep theirs already.
+// The modules that find a file from their own location. An entry is left out and never reads its
+// own: its file is written at its source path, but its body moves into a chunk once another chunk
+// imports a module it holds.
 function readsItsOwnLocation(modulePath: string): boolean {
   return (
     modulePath.startsWith(SOURCE_FOLDER + path.sep) &&

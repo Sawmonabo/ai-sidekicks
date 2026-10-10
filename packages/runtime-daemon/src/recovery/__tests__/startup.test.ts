@@ -8,7 +8,8 @@
 // takes new work; a session with no readable event can only be deleted. Until the pass has listed
 // the sessions it rebuilds, every mutating call but the restart is refused, and one that names no
 // session until the pass ends; then a session it is still rebuilding refuses every write but the
-// pass's own, and every other session takes its writes.
+// pass's own, and every other session takes its writes. The service's stop ends the pass before its
+// next page or session, and leaves every session it had not finished to the next pass.
 
 import { randomUUID } from "node:crypto";
 
@@ -187,11 +188,12 @@ describe("the recovery pass at a restart", () => {
   }
 
   // The pass as the daemon builds it, with the sessions it rebuilds pushed onto `rebuiltSessions`,
-  // each rebuild starting once `beforeRebuild` resolves.
+  // each rebuild starting once `beforeRebuild` resolves, and ended by `stopSignal`.
   function buildPass(
     rebuiltSessions: SessionId[] = [],
     asideCopies: AsideCopies = { count: 0, sessions: new Set() },
     beforeRebuild: () => Promise<void> = () => Promise.resolve(),
+    stopSignal: AbortSignal = new AbortController().signal,
   ): PassParts {
     const { reader, writer } = fixture.database;
     const status = new RecoveryStatusTracker();
@@ -265,6 +267,7 @@ describe("the recovery pass at a restart", () => {
       runEngine,
       status,
       reportStoreFailure: () => {},
+      stopSignal,
       now: () => new Date(OCCURRED_AT),
       writeServiceLog: () => {},
     });
@@ -355,6 +358,41 @@ describe("the recovery pass at a restart", () => {
         },
       },
     ]);
+  });
+
+  it("ends at the service's stop before its next page or session, leaving them to the next pass", async () => {
+    const sessionIds: SessionId[] = [];
+    for (let index = 0; index < 3; index += 1) {
+      const sessionId = SessionIdSchema.parse(randomUUID());
+      await writeLog(sessionId, runEvents(sessionId, RunIdSchema.parse(randomUUID())));
+      sessionIds.push(sessionId);
+    }
+    const stopRequest = new AbortController();
+    const rebuiltSessions: SessionId[] = [];
+    // The stop comes as the first session's rebuild starts.
+    const { pass } = buildPass(
+      rebuiltSessions,
+      undefined,
+      () => {
+        stopRequest.abort(new Error("The service is stopping"));
+        return Promise.resolve();
+      },
+      stopRequest.signal,
+    );
+
+    await pass.run();
+
+    expect(rebuiltSessions).toHaveLength(1);
+    // No session's rows were trusted as current, so the next pass rebuilds all three.
+    expect(
+      fixture.database.reader
+        .prepare<[], string>("SELECT session_id FROM projection_cursors WHERE state != 'current'")
+        .pluck()
+        .all()
+        .toSorted(),
+    ).toStrictEqual(sessionIds.toSorted());
+    // A pass the stop ended neither succeeded nor failed the store.
+    expect(readRecoveryEvents().map((event) => event.type)).toStrictEqual(["recovery.attempted"]);
   });
 
   it("opens a session it cannot rebuild at its last good point and keeps its damaged events", async () => {

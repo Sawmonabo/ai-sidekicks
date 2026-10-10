@@ -7,7 +7,9 @@
 // once a pass and once for the same damage across starts, and the rebuild runs again; one that
 // still fails opens at its last good point, or reads damaged when none of it can be read. It never
 // throws: a pass that fails leaves the node blocked, or a session damaged, and says why in the
-// service log.
+// service log. The service's stop ends the pass before the next page it would fold, so the stop
+// never waits on it; what the pass had yet to rebuild stays listed for the next start's pass, and
+// a pass that fails once the stop came is never read as a failed store.
 
 import type { Database, Statement } from "better-sqlite3";
 
@@ -67,6 +69,8 @@ export interface StartupRecoveryDeps {
   readonly status: RecoveryStatusTracker;
   /** Told what failed the store, so a damaged file is repaired. */
   readonly reportStoreFailure: (error: unknown) => void;
+  /** Aborts when the service stops, which ends the pass. */
+  readonly stopSignal: AbortSignal;
   readonly now: () => Date;
   readonly writeServiceLog: (line: string) => void;
 }
@@ -200,6 +204,12 @@ export class StartupRecovery {
         );
       }
     } catch (error) {
+      // A step the stop ended, or one that failed as the stop closed what it used, says nothing
+      // of the store.
+      if (this.#deps.stopSignal.aborted) {
+        this.#logStop();
+        return;
+      }
       // A failure outside one session's fold is the store's: nothing more can be trusted.
       status.markStoreFailed();
       this.#deps.reportStoreFailure(error);
@@ -228,9 +238,10 @@ export class StartupRecovery {
   ): Promise<void> {
     const { projectionRebuild, runs } = this.#deps;
     const heal: HealState = { asideFolder: undefined };
+    const { stopSignal } = this.#deps;
     for (const sessionId of sessionsToRebuild) {
       try {
-        const rebuilt = await projectionRebuild.rebuild({ sessionId });
+        const rebuilt = await projectionRebuild.rebuild({ sessionId, stopSignal });
         tally.eventsApplied += rebuilt.eventsApplied;
       } catch (error) {
         if (!(error instanceof ProjectionFailureError)) {
@@ -272,7 +283,11 @@ export class StartupRecovery {
     }
     let failure: ProjectionFailureError;
     try {
-      const rebuilt = await projectionRebuild.rebuild({ sessionId, force: true });
+      const rebuilt = await projectionRebuild.rebuild({
+        sessionId,
+        force: true,
+        stopSignal: this.#deps.stopSignal,
+      });
       tally.eventsApplied += rebuilt.eventsApplied;
       return;
     } catch (error) {
@@ -321,6 +336,12 @@ export class StartupRecovery {
       }
       runsLeftInFlight.delete(run.runId);
     }
+  }
+
+  #logStop(): void {
+    this.#deps.writeServiceLog(
+      "The service's stop ended the recovery pass; its next start rebuilds what it had yet to",
+    );
   }
 
   // A session the pass listed takes calls again, unless its heal left its history damaged.
