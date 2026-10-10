@@ -9,7 +9,7 @@
 // - The transport is an injected seam with no default (each driver's `lifecycle.ts` owns process
 //   talk); its implementer owns the deadline (`driver.timeout`).
 import { realpath as realpathFromFilesystem } from "node:fs/promises";
-import { isAbsolute } from "node:path";
+import { delimiter as pathDelimiter, isAbsolute } from "node:path";
 
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
@@ -46,6 +46,8 @@ type ExecutableRealpathResolver = (candidate: string) => Promise<string>;
 /** The search's seams, and the `realpath` that turns a launcher into the exact build path. */
 export interface ProviderExecutableResolverDependencies extends ExecutableSearchDependencies {
   readonly realpath: ExecutableRealpathResolver;
+  /** Where the providers' installers put their commands, searched after the `PATH`. */
+  readonly providerCommandFolders: readonly string[];
 }
 
 /** The one executable a spawn and its binding row both name; only the build describes it. */
@@ -58,8 +60,8 @@ export interface ResolvedProviderExecutable {
 
 /**
  * Resolves a configured command to the exact build path to spawn: a command with a separator is
- * anchored, a bare one is searched along the spawn environment's `PATH` (never the daemon's own),
- * and the winner is `realpath`ed. Throws {@link ProviderExecutableUnresolvableError} when nothing
+ * anchored, a bare one is searched along the spawn environment's `PATH` (never the daemon's own)
+ * and then the provider command folders, and the winner is `realpath`ed. Throws {@link ProviderExecutableUnresolvableError} when nothing
  * resolves.
  */
 export async function resolveProviderExecutable(
@@ -77,22 +79,31 @@ export async function resolveProviderExecutable(
   }
   // Resolves like `fs.realpath.native()`: a launcher symlink becomes the exact build path.
   const realpath = dependencies.realpath ?? realpathFromFilesystem;
-  for await (const candidate of findExecutables(requestedCommand, spawnEnvironment, dependencies)) {
-    let resolvedExecutablePath: string;
-    try {
-      resolvedExecutablePath = await realpath(candidate);
-    } catch {
-      // Vanished between probe and dereference: try the next, never the unresolved launcher path.
-      continue;
+  const commandFolders = dependencies.providerCommandFolders ?? [];
+  // The folders go in a `PATH` of their own, ahead of the spawn environment's, so the second
+  // search reads them the way the first reads the shell's.
+  const searches: readonly (readonly SpawnEnvPair[])[] =
+    commandFolders.length === 0
+      ? [spawnEnvironment]
+      : [spawnEnvironment, [["PATH", commandFolders.join(pathDelimiter)], ...spawnEnvironment]];
+  for (const environment of searches) {
+    for await (const candidate of findExecutables(requestedCommand, environment, dependencies)) {
+      let resolvedExecutablePath: string;
+      try {
+        resolvedExecutablePath = await realpath(candidate);
+      } catch {
+        // Vanished between probe and dereference: try the next, never the unresolved launcher.
+        continue;
+      }
+      if (!isAbsolute(resolvedExecutablePath)) {
+        throw new ProviderExecutableUnresolvableError(
+          driverName,
+          requestedCommand,
+          "the resolved provider executable path is not absolute",
+        );
+      }
+      return { requestedCommand, resolvedExecutablePath };
     }
-    if (!isAbsolute(resolvedExecutablePath)) {
-      throw new ProviderExecutableUnresolvableError(
-        driverName,
-        requestedCommand,
-        "the resolved provider executable path is not absolute",
-      );
-    }
-    return { requestedCommand, resolvedExecutablePath };
   }
   throw new ProviderExecutableUnresolvableError(
     driverName,

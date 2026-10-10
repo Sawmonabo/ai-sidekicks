@@ -12,4 +12,10 @@ export const WINDOWS_PROVIDER_OPERATING_SYSTEM: ProviderOperatingSystem = {
   canRunClaudeBashSandbox: false,
   environmentNameMatch: "case-insensitive",
   homeVariable: "USERPROFILE",
+  // Claude Code's installer puts `claude.exe` in `.local\bin`; Codex's puts `codex.exe` under the
+  // account's local application data.
+  providerCommandFolders: (homeDirectory) => [
+    `${homeDirectory}\\.local\\bin`,
+    `${homeDirectory}\\AppData\\Local\\Programs\\OpenAI\\Codex\\bin`,
+  ],
 };

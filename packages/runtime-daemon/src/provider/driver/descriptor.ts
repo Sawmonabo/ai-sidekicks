@@ -28,7 +28,8 @@ export type ReportedVersionReading =
 export interface ProviderDriverDescriptor {
   /**
    * The command the provider's own installer puts on `PATH`, which every spawn resolves along the
-   * login shell's `PATH` until the person sets a command of their own.
+   * login shell's `PATH` and then where the installers put it, until the person sets a command of
+   * their own.
    */
   readonly command: string;
   /** How each capability flag is decided, total over the flag set. */

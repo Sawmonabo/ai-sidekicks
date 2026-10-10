@@ -13,4 +13,10 @@ export interface ProviderOperatingSystem {
   readonly environmentNameMatch: SpawnEnvNameMatch;
   /** The environment variable a provider process reads the person's home folder from. */
   readonly homeVariable: "HOME" | "USERPROFILE";
+  /**
+   * The folders the providers' own installers and the system's package manager put their commands
+   * in, for a person whose home folder is given; a provider's command is looked for there when the
+   * login shell's search path holds none.
+   */
+  readonly providerCommandFolders: (homeDirectory: string) => readonly string[];
 }

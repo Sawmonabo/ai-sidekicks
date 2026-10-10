@@ -8,4 +8,11 @@ export const DARWIN_PROVIDER_OPERATING_SYSTEM: ProviderOperatingSystem = {
   canRunClaudeBashSandbox: true,
   environmentNameMatch: "case-sensitive",
   homeVariable: "HOME",
+  // Both providers' installers link their command into `~/.local/bin`; Homebrew uses
+  // `/opt/homebrew` on Apple Silicon and `/usr/local` on Intel.
+  providerCommandFolders: (homeDirectory) => [
+    `${homeDirectory}/.local/bin`,
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+  ],
 };

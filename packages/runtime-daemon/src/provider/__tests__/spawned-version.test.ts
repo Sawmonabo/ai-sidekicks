@@ -250,6 +250,33 @@ describe("provider executable resolution", () => {
     expect(refusal.fields.requestedCommand).toBe("codex");
   });
 
+  it("looks for a bare command where the installers put it only after the PATH", async () => {
+    const executables = new Set([join("/installer/bin", "codex")]);
+    const dependencies = {
+      isExecutableFile: (candidate: string) => Promise.resolve(executables.has(candidate)),
+      realpath: (candidate: string) => Promise.resolve(candidate),
+      providerCommandFolders: ["/installer/bin"],
+    };
+    const shellEnvironment: readonly SpawnEnvPair[] = [["PATH", "/shell/bin"]];
+
+    const fromFolders = await resolveProviderExecutable(
+      "codex",
+      "codex",
+      shellEnvironment,
+      dependencies,
+    );
+    expect(fromFolders.resolvedExecutablePath).toBe(join("/installer/bin", "codex"));
+
+    executables.add(join("/shell/bin", "codex"));
+    const fromPath = await resolveProviderExecutable(
+      "codex",
+      "codex",
+      shellEnvironment,
+      dependencies,
+    );
+    expect(fromPath.resolvedExecutablePath).toBe(join("/shell/bin", "codex"));
+  });
+
   // Spelled `Path`, as Windows spells it: names are matched case-insensitively there.
   const WINDOWS_SPAWN_ENV: readonly SpawnEnvPair[] = [
     ["Path", join("/tools")],

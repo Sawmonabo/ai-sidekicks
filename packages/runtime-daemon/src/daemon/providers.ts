@@ -295,13 +295,18 @@ export class DaemonProviders {
       }
       return declared;
     };
-    // Each spawn resolves the provider's own command along the login shell's `PATH` again.
+    // Each spawn resolves the provider's own command along the login shell's `PATH` again, then
+    // where the providers' installers put it, so a shell that missed its deadline loses neither.
+    const providerCommandFolders = context.operatingSystem.providerCommandFolders(
+      context.homeDirectory,
+    );
     const providerCommandOf = (driverName: ProviderName) => async (): Promise<string> =>
       (
         await resolveProviderExecutable(
           driverName,
           PROVIDER_DRIVER_DESCRIPTORS[driverName].command,
           providerBaseEnvironment,
+          { providerCommandFolders },
         )
       ).resolvedExecutablePath;
     const onSessionRelaunched: ClaudeDependencies["onSessionRelaunched"] = (sessionId, result) => {
