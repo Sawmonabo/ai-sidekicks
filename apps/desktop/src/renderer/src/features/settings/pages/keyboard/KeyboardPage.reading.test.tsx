@@ -98,13 +98,13 @@ describe("keyboard page — the keyboard map read after the page opened", () => 
       await keybindingOverrides.hydrateFrom(
         keyboardMapStoring({
           "bridge.checkForUpdates": "Alt+KeyJ",
-          "frame.goToSessions": "Alt+KeyJ",
+          "frame.toggleSessionsList": "Alt+KeyJ",
         }),
       );
       await crossMacrotaskBoundary();
     });
     expect(drawnText(container)).toContain(
-      "A chord kept for Sessions was not installed this time.",
+      "A chord kept for Sessions list was not installed this time.",
     );
     expect(said.spoken()).toStrictEqual([]);
 

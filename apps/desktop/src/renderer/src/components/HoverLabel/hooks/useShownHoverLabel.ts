@@ -10,10 +10,12 @@
 // drops them drops the label. The pointer's label put away stays away until the pointer moves to
 // another trigger or off every trigger. The focused trigger's label put away stays away until focus
 // moves, except one held back with the pointer's, which returns once the pointer leaves. A bare
-// Escape while a label shows puts the label away and does nothing else: the press reaches no
-// handler below the document and its default is canceled, so the screen's own Escape waits for the
-// next press. A label hidden because its trigger scrolled out of view takes no Escape, nor does a
-// press with a modifier key or one that ends a text composition.
+// Escape puts the shown label away. On the focused control's label it does nothing else: the press
+// reaches no handler below the document and its default is canceled, so the control's own Escape
+// waits for the next press. A label the pointer alone opened goes with the press and leaves it to
+// the screen, since focus is elsewhere and the screen's Escape is the one the person meant. A label
+// hidden because its trigger scrolled out of view takes no Escape, nor does a press with a modifier
+// key or one that ends a text composition.
 //
 // The elements are kept in refs and the shown label in state that changes only when the trigger,
 // its words or its side do, so a pointer sweeping across a page re-renders nothing until it
@@ -112,18 +114,22 @@ export function useShownHoverLabel(
     };
     // Captured on the document, ahead of the page's own handlers and the tooltip's.
     const onKeyDown = (event: KeyboardEvent): void => {
+      const anchor = shownOf(tracked)?.anchor;
       if (
-        isBareEscape(event) &&
+        !isBareEscape(event) ||
         // Escape mid-composition cancels the composition; the label keeps it from no one.
-        !event.isComposing &&
-        shownOf(tracked) !== undefined &&
+        event.isComposing ||
+        anchor === undefined ||
         // A trigger scrolled out of view hides its label, so the key is the page's.
-        labelBoxRef.current?.hasAttribute("data-anchor-hidden") !== true
+        labelBoxRef.current?.hasAttribute("data-anchor-hidden") === true
       ) {
+        return;
+      }
+      if (anchor === triggerOf(tracked.focus)) {
         event.preventDefault();
         event.stopImmediatePropagation();
-        close();
       }
+      close();
     };
     const onFocusOut = (event: FocusEvent): void => {
       if (tracked.focus === event.target) {

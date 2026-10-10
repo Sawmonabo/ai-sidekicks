@@ -224,7 +224,7 @@ function rowDuration(run: WorkflowRunSummary, nowMs: number): readonly FigureSen
   if (run.durationMs !== undefined) {
     return [{ wire: formatUnitDuration(run.durationMs) }];
   }
-  return isGoing(run.status) ? [{ derived: runDurationWords(run.startedAt, nowMs) }] : [];
+  return isGoing(run.status) ? [runDurationWords(run.startedAt, nowMs)] : [];
 }
 
 /** Where a going run is: `4 of 9 · Review one PR`. */

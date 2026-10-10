@@ -106,12 +106,25 @@ export function startedByWords(startedBy: WorkflowStartedBy): string {
   return STARTED_BY_WORDS[startedBy.kind];
 }
 
-/** A count of items with its noun, `1 item`, `12 items`, the count a figure of `origin`. */
-export function itemCountWords(count: number, origin: FigureOrigin): readonly FigureSentencePart[] {
-  return [figurePart(origin, formatCount(count)), count === 1 ? " item" : " items"];
+/**
+ * A count of items with its noun, `1 item`, `12 items`: the count a figure of `origin`, or with no
+ * origin plain text in the sentence's own ink.
+ */
+export function itemCountWords(
+  count: number,
+  origin?: FigureOrigin,
+): readonly FigureSentencePart[] {
+  return [countPart(count, origin), count === 1 ? " item" : " items"];
 }
 
-/** A count of runs with its noun, `1 run`, `4 runs`, the count a figure of `origin`. */
-export function runCountWords(count: number, origin: FigureOrigin): readonly FigureSentencePart[] {
-  return [figurePart(origin, formatCount(count)), count === 1 ? " run" : " runs"];
+/**
+ * A count of runs with its noun, `1 run`, `4 runs`: the count a figure of `origin`, or with no
+ * origin plain text in the sentence's own ink.
+ */
+export function runCountWords(count: number, origin?: FigureOrigin): readonly FigureSentencePart[] {
+  return [countPart(count, origin), count === 1 ? " run" : " runs"];
+}
+
+function countPart(count: number, origin: FigureOrigin | undefined): FigureSentencePart {
+  return origin === undefined ? formatCount(count) : figurePart(origin, formatCount(count));
 }

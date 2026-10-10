@@ -19,6 +19,11 @@
   font-size: var(--meridian-text-xs);
 }
 
+/* The words between the figures, `declared` and `of`, recede so the figures carry the line. */
+.meridian-attachment__label {
+  color: var(--meridian-text-muted);
+}
+
 .meridian-attachment__bytes {
   display: flex;
   align-items: baseline;

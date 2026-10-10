@@ -1,9 +1,10 @@
 // The icon rail: the destinations, a spacer, the attention and color-scheme controls, then Settings
 // at the foot, always in the same place, so a person builds muscle memory. It renders exactly the
 // entries it is handed and has no availability flag: an unreachable destination is absent, not
-// disabled. It carries no color except the accent on the current destination and on the bell while
-// its list is open, and two marks: the attention pip and the Settings dot. Each control has one
-// string, its hover label and its spoken name at once.
+// disabled. Sessions and the bell each open and shut a list in the sessions track rather than
+// navigating. The rail carries no color except the accent on the current destination and on a
+// button while its list is open, and two marks: the attention pip and the Settings dot. Each
+// control has one string, its hover label and its spoken name at once.
 
 import type { GlyphName } from "#renderer/styles/glyphs.js";
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
@@ -26,18 +27,22 @@ export interface RailEntry extends RailEntryTemplate {
   readonly destination: RailDestination;
 }
 
+/** A rail button that opens and shuts a list in the sessions track. */
+export interface RailListControl {
+  /** Whether the button's list is open. */
+  readonly isExpanded: boolean;
+  /** The id of the element the list mounts in. */
+  readonly controlsId: string;
+  readonly onToggle: () => void;
+}
+
 /** The attention control: what waits on a person, and the notifications list it opens and shuts. */
-export interface RailAttentionControl {
+export interface RailAttentionControl extends RailListControl {
   /**
    * The sessions and workflow runs waiting on a person now, as the daemon counts them; absent or
    * with none waiting, no pip is drawn and the name carries no figure.
    */
   readonly count?: number;
-  /** Whether the notifications list is open. */
-  readonly isExpanded: boolean;
-  /** The id of the element the notifications list mounts in. */
-  readonly controlsId: string;
-  readonly onToggle: () => void;
 }
 
 /** The entries to render, which one is current, and the acts of the rail's two controls. */
@@ -53,6 +58,8 @@ export interface NavigationRailProps {
    * has no suffix.
    */
   readonly chords: Readonly<Partial<Record<RailDestination, string>>>;
+  /** The Sessions button's act: the sessions list it shows and hides. */
+  readonly sessionsList: RailListControl;
   readonly attention: RailAttentionControl;
   /** Steps the color scheme to the next in its cycle. */
   readonly onCycleColorScheme: () => void;
@@ -74,6 +81,7 @@ export function NavigationRail(props: NavigationRailProps): React.JSX.Element {
               name={name}
               isCurrent={entry.destination === props.current}
               onSelect={props.onSelect}
+              listControl={entry.destination === "sessions" ? props.sessionsList : undefined}
             />
           </li>
         ))}
@@ -145,12 +153,14 @@ interface RailDestinationButtonProps {
   readonly name: string;
   readonly isCurrent: boolean;
   readonly onSelect: (destination: RailDestination) => void;
+  /** The list the button opens and shuts in place of navigating, for a destination that has one. */
+  readonly listControl?: RailListControl | undefined;
   /** A mark drawn over the glyph, hidden from assistive technology. */
   readonly children?: React.ReactNode;
 }
 
 function RailDestinationButton(props: RailDestinationButtonProps): React.JSX.Element {
-  const { entry } = props;
+  const { entry, listControl } = props;
   return (
     <HoverLabel text={props.name} textRole="name" side="right">
       <button
@@ -161,8 +171,14 @@ function RailDestinationButton(props: RailDestinationButtonProps): React.JSX.Ele
             : "meridian-rail__button"
         }
         aria-current={props.isCurrent ? "page" : undefined}
+        aria-expanded={listControl?.isExpanded}
+        aria-controls={listControl?.controlsId}
         onClick={() => {
-          props.onSelect(entry.destination);
+          if (listControl === undefined) {
+            props.onSelect(entry.destination);
+          } else {
+            listControl.onToggle();
+          }
         }}
       >
         <Glyph name={entry.glyph} />

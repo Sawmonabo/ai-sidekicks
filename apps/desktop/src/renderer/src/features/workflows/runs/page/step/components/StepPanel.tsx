@@ -408,7 +408,7 @@ function sourceWords(
     // The pass is the app's own count of the source node's runs; the rest is the edge as sent.
     const pass: readonly FigureSentencePart[] =
       fed !== undefined && passes.some((entry) => entry.pass > 1)
-        ? [", run ", { derived: formatCount(fed.pass) }]
+        ? [`, run ${formatCount(fed.pass)}`]
         : [];
     return [
       [

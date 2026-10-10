@@ -25,10 +25,10 @@ export type PayerReading =
   | { readonly kind: "unnamed" }
   | { readonly kind: "named"; readonly label: string };
 
-/** The cost alone, `$0.1865` or `$7.30`; the app's own `$0.00` where nothing was spent. */
+/** The cost alone, `$0.1865` or `$7.30`; a plain `$0.00` where nothing was spent. */
 export function costFigure(cost: WorkflowCost | undefined): FigureSentencePart {
   const amount = formatMoney((cost?.usdMicros ?? 0) / MICROS_PER_DOLLAR);
-  return cost === undefined ? { derived: amount } : { wire: amount };
+  return cost === undefined ? amount : { wire: amount };
 }
 
 /**

@@ -4,9 +4,9 @@
 // but measures nothing; once it ends the row says how it ended, and where conversations failed
 // or files could not be read, pressing the row unfolds them. The counts read, imported, total and
 // already here, and the names of attached projects, are the service's own and drawn as wire
-// figures; the failed and unreadable counts are the row's own tallies of the lists the service
-// sent, drawn as derived figures. A filled bar or percentage would invent a denominator nobody
-// sent.
+// figures; the unreadable and failed counts are the row's own tallies of the lists the service
+// sent. Already here recedes, and the unreadable and failed clauses draw in the attention amber
+// and the failure red. A filled bar or percentage would invent a denominator nobody sent.
 
 import { Collapsible } from "@base-ui/react/collapsible";
 import { useMemo } from "react";
@@ -150,7 +150,7 @@ function rowSentence(
   if (newest.settlement.outcome === "stopped") {
     return [IMPORT_STOPPED_SENTENCE];
   }
-  return settledSentence(newest.settlement, providerLabel);
+  return settledClauses(newest.settlement, providerLabel).flatMap((clause) => clause.parts);
 }
 
 /**
@@ -163,7 +163,20 @@ function SettledLine(props: {
 }): React.JSX.Element {
   const { settlement, providerLabel } = props;
   const failures = settlement.outcome === "finished" ? settlement.failures : [];
-  const line = <FigureSentence parts={settledSentence(settlement, providerLabel)} />;
+  // One flex item, so the row's gap never stands in for a space between the line's words.
+  const line = (
+    <span>
+      {settledClauses(settlement, providerLabel).map((clause, index) =>
+        clause.tone === undefined ? (
+          <FigureSentence key={index} parts={clause.parts} />
+        ) : (
+          <span key={index} className={SETTLED_CLAUSE_TONE_CLASSES[clause.tone]}>
+            <FigureSentence parts={clause.parts} />
+          </span>
+        ),
+      )}
+    </span>
+  );
   if (failures.length === 0 && settlement.unreadableFiles.length === 0) {
     return <p className={PROGRESS_CLASS}>{line}</p>;
   }
@@ -188,14 +201,27 @@ function SettledLine(props: {
   );
 }
 
+/** One stretch of the settled line, drawn in the hue its tone names where it has one. */
+interface SettledClause {
+  readonly parts: readonly FigureSentencePart[];
+  readonly tone?: "quiet" | "attention" | "failure";
+}
+
+/** The class each toned clause wears. */
+const SETTLED_CLAUSE_TONE_CLASSES: Readonly<Record<NonNullable<SettledClause["tone"]>, string>> = {
+  quiet: "meridian-provider-import__clause--quiet",
+  attention: "meridian-provider-import__clause--attention",
+  failure: "meridian-provider-import__clause--failure",
+};
+
 /**
- * How an import that found sessions, or found nothing new, ended, then the projects it attached;
- * each part only where there is one.
+ * How an import that found sessions, or found nothing new, ended, then the projects it attached,
+ * each part only where there is one, as the line's clauses.
  */
-function settledSentence(
+function settledClauses(
   settlement: Extract<ProviderImportOutcome, { outcome: "finished" | "nothingNew" }>,
   providerLabel: string,
-): readonly FigureSentencePart[] {
+): readonly SettledClause[] {
   const head: readonly FigureSentencePart[] =
     settlement.outcome === "nothingNew"
       ? [`Nothing new to import from ${providerLabel}`]
@@ -207,35 +233,54 @@ function settledSentence(
   const failureCount = settlement.outcome === "finished" ? settlement.failures.length : 0;
   const attachedProjects = settlement.outcome === "finished" ? settlement.attachedProjects : [];
   const unreadableCount = settlement.unreadableFiles.length;
-  const clauses: (readonly FigureSentencePart[])[] = [
+  const clauses: readonly SettledClause[] = [
+    { parts: head },
     ...(settlement.alreadyHere === 0
       ? []
-      : [[{ wire: formatCount(settlement.alreadyHere) }, " already here"]]),
-    ...(failureCount === 0 ? [] : [[{ derived: formatCount(failureCount) }, " failed"]]),
+      : [
+          {
+            parts: [{ wire: formatCount(settlement.alreadyHere) }, " already here"],
+            tone: "quiet" as const,
+          },
+        ]),
     ...(unreadableCount === 0
       ? []
       : [
-          [
-            { derived: formatCount(unreadableCount) },
-            ` ${unreadableCount === 1 ? "file" : "files"} could not be read`,
-          ],
+          {
+            parts: [
+              `${formatCount(unreadableCount)} ${unreadableCount === 1 ? "file" : "files"} ` +
+                "could not be read",
+            ],
+            tone: "attention" as const,
+          },
         ]),
+    ...(failureCount === 0
+      ? []
+      : [{ parts: [`${formatCount(failureCount)} failed`], tone: "failure" as const }]),
     ...(attachedProjects.length === 0
       ? []
       : [
-          [
-            "attached ",
-            ...attachedProjects.flatMap((project, index) => [
-              ...(index === 0 ? [] : [", "]),
-              { wire: project },
-            ]),
-          ],
+          {
+            parts: [
+              "attached ",
+              ...attachedProjects.flatMap((project, index) => [
+                ...(index === 0 ? [] : [", "]),
+                { wire: project },
+              ]),
+            ],
+          },
         ]),
   ];
-  return [
-    ...[head, ...clauses].flatMap((clause, index) => [...(index === 0 ? [] : [" · "]), ...clause]),
-    ".",
-  ];
+  // Each clause carries its own separator and the last the full stop, so a toned clause's hue
+  // reaches its separator and no element boundary falls inside the sentence's punctuation.
+  return clauses.map((clause, index) => ({
+    ...clause,
+    parts: [
+      ...(index === 0 ? [] : [" · "]),
+      ...clause.parts,
+      ...(index === clauses.length - 1 ? ["."] : []),
+    ],
+  }));
 }
 
 /** `125 of 128 sessions`, or `12 sessions` where every session read was imported. */

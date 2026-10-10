@@ -6,7 +6,6 @@
 
 import { FILE_PATH_MAX_LEN } from "@ai-sidekicks/contracts/free-form-string";
 import { formatCount } from "#renderer/lib/wire/figures.js";
-import type { FigureSentencePart } from "#renderer/lib/figure-sentence.js";
 
 /** What the dialog holds while it is open: the path, exactly as typed. */
 export interface AttachFormState {
@@ -27,7 +26,7 @@ export const EMPTY_ATTACH_FORM: AttachFormState = { localPath: "" };
  */
 export type AttachFormVerdict =
   | { readonly status: "sendable"; readonly localPath: string }
-  | { readonly status: "incomplete"; readonly because: readonly FigureSentencePart[] };
+  | { readonly status: "incomplete"; readonly because: string };
 
 /**
  * Read one form into the verdict the dialog sends by. Length is measured in code units, as the
@@ -35,19 +34,14 @@ export type AttachFormVerdict =
  */
 export function resolveAttachForm(form: AttachFormState): AttachFormVerdict {
   if (form.localPath.trim().length === 0) {
-    return { status: "incomplete", because: ["Name the repository's path."] };
+    return { status: "incomplete", because: "Name the repository's path." };
   }
   if (form.localPath.length > FILE_PATH_MAX_LEN) {
     return {
       status: "incomplete",
-      // Both figures are the app's own: its measure of the typed path and the contract's limit.
-      because: [
-        "That path is ",
-        { derived: formatCount(form.localPath.length) },
-        " characters. The wire accepts ",
-        { derived: formatCount(FILE_PATH_MAX_LEN) },
-        ".",
-      ],
+      because:
+        `That path is ${formatCount(form.localPath.length)} characters. The wire accepts ` +
+        `${formatCount(FILE_PATH_MAX_LEN)}.`,
     };
   }
   return { status: "sendable", localPath: form.localPath };

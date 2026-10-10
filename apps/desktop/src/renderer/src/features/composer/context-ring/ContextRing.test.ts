@@ -1,6 +1,7 @@
 // What the context ring puts on screen: the not-checked state before the daemon has reported
 // anything, the share the reading carries once it has, and no hint, status line, state attribute
-// or color class on the fill however full the window is. Uses the real `SessionStore`.
+// or color class on the fill however full the window is. Each token count carries the exact number
+// the daemon sent as its description. Uses the real `SessionStore`.
 
 import { describe, expect, it } from "vitest";
 
@@ -50,5 +51,34 @@ describe("ComposerToolbar — the context ring", () => {
     expect(pastTheWindow.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe(
       "100",
     );
+  });
+
+  it("describes each token count by the exact number the daemon sent", () => {
+    const container = mountToolbar(
+      [
+        {
+          ...contextWindowEvent(1),
+          payload: {
+            runId: RUN_ID,
+            windowUsedTokens: 168_042,
+            windowMaxTokens: 200_000,
+            windowSource: "provider_reported",
+            exceeded: false,
+          },
+        },
+      ],
+      ADDRESSED,
+    );
+    const descriptions = [
+      ...container.querySelectorAll(".meridian-context-ring__tokens .meridian-figure--wire"),
+    ].map((figure) => [
+      figure.textContent,
+      document.getElementById(figure.getAttribute("aria-describedby") ?? "")?.textContent,
+    ]);
+
+    expect(descriptions).toStrictEqual([
+      ["168,042", "168042"],
+      ["200,000", "200000"],
+    ]);
   });
 });

@@ -46,11 +46,11 @@ export function ContextRingReading(props: {
         <DerivedFigure text={formatCount(usagePercent)} />
         <span className="meridian-context-ring__unit">%</span>
         <span className="meridian-context-ring__tokens">
-          <WireFigure value={formatCount(windowUsedTokens)} />
+          <WireFigure value={formatCount(windowUsedTokens)} hoverLabel={String(windowUsedTokens)} />
           <span className="meridian-context-ring__separator" aria-hidden="true">
             /
           </span>
-          <WireFigure value={formatCount(windowMaxTokens)} />
+          <WireFigure value={formatCount(windowMaxTokens)} hoverLabel={String(windowMaxTokens)} />
           <span className="meridian-context-ring__unit">tokens</span>
         </span>
       </span>

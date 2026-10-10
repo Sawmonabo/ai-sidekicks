@@ -51,14 +51,11 @@ const ON_LIVE_STEP_TOLERANCE_PX = 1;
 /** How long the view takes to slide to the live step, in milliseconds. */
 const FOLLOW_SLIDE_MS = MOTION_DURATIONS_MS["motion-thread"];
 
-/** A slide moves the view straight to where it rests, never the library's zoom out and back in. */
-const SLIDE_INTERPOLATION = "linear";
-
 /**
  * Keeps the view on the live step: placed on it when the graph opens, sliding after it as the run
  * moves (only while the canvas is on screen and never under reduced motion, where it jumps), and
  * fitting the whole graph while nothing is live. A pan, a zoom, a key or keyboard focus on a node
- * or count stops it, and only `resumeFollowing` starts it again.
+ * stops it, and only `resumeFollowing` starts it again.
  */
 export function useLiveStepFollow(
   liveCenter: CanvasPoint | undefined,
@@ -106,7 +103,7 @@ export function useLiveStepFollow(
   const slideTo = useCallback(
     (resting: Viewport, duration: number): Promise<boolean> => {
       restingViewportRef.current = resting;
-      const placement = setViewport(resting, { duration, interpolate: SLIDE_INTERPOLATION });
+      const placement = setViewport(resting, { duration });
       void placement.then(() => {
         if (restingViewportRef.current === resting) {
           restingViewportRef.current = undefined;

@@ -5,10 +5,9 @@
 // It never draws a state, kind, status, mode or code: those reach the screen as words.
 // `DerivedFigure` is a separate module so a call site cannot pick the wrong class by omission.
 //
-// `hoverLabel` says what the visible figure stands for: the exact wire value under a formatted
-// reading of a quantity, for a time the time on the machine's own clock with its zone, the whole
-// value of a truncated one, or what kind of value it is or whose claim, where nothing beside it
-// says so.
+// `hoverLabel` says what the visible figure stands for: the exact wire value of a quantity, for a
+// time the time on the machine's own clock with its zone, the whole value of a truncated one, or
+// what kind of value it is or whose claim, where nothing beside it says so.
 
 import { formatWireString } from "#renderer/lib/wire/figures.js";
 import { HoverLabel } from "#renderer/components/HoverLabel/HoverLabel.js";
@@ -18,9 +17,9 @@ export interface WireFigureProps {
   /** The figure as it will be shown — either verbatim, or already `Intl`-formatted. */
   readonly value: string;
   /**
-   * What `value` stands for: the exact wire value under a formatted quantity, a time on the
-   * machine's own clock with its zone from `formatZonedDateTime`, the whole of a truncated value,
-   * or the value's kind or origin. Never the visible text again where it is shown whole.
+   * What `value` stands for: a quantity's exact wire value, a time on the machine's own clock with
+   * its zone from `formatZonedDateTime`, the whole of a truncated value, or the value's kind or
+   * origin. Never a string shown whole again.
    */
   readonly hoverLabel?: string | undefined;
   /**

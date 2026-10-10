@@ -92,7 +92,9 @@ function renderIngesting(
         {attachmentMediaTypeReadings(entry).map((mediaTypeReading) => (
           <Fragment key={mediaTypeReading.provenance}>
             {mediaTypeReading.provenance === "declared" ? (
-              <span>{ATTACHMENT_DECLARED_MEDIA_TYPE_LABEL}</span>
+              <span className="meridian-attachment__label">
+                {ATTACHMENT_DECLARED_MEDIA_TYPE_LABEL}
+              </span>
             ) : null}
             <Chip
               label={mediaTypeReading.mediaType}
@@ -103,7 +105,7 @@ function renderIngesting(
         ))}
         <span className="meridian-attachment__bytes">
           <WireFigure value={receivedFigure.text} hoverLabel={receivedFigure.exactText} />
-          <span>of</span>
+          <span className="meridian-attachment__label">of</span>
           <WireFigure value={declaredFigure.text} hoverLabel={declaredFigure.exactText} />
         </span>
         <Chip

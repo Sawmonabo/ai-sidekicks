@@ -10,7 +10,6 @@
 
 import { TOOL_ALLOWLIST_NAMED_CAP } from "../../caps.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
-import type { FigureSentencePart } from "#renderer/lib/figure-sentence.js";
 import type { AgentListEntry } from "@ai-sidekicks/contracts/agent/methods";
 
 /**
@@ -81,22 +80,15 @@ export const NAMELESS_TOOL_ALLOWLIST_WORDING: Readonly<
  * arm because there is no pluralizer, and it does not promise a list longer than
  * {@link TOOL_ALLOWLIST_NAMED_CAP} is named whole: the disclosure names only the first few.
  */
-export function namedToolAllowlistSentence(
-  toolNames: readonly string[],
-): readonly FigureSentencePart[] {
+export function namedToolAllowlistSentence(toolNames: readonly string[]): string {
   if (toolNames.length === 1) {
-    return ["Restricted to the one tool, named in the resolved configuration below."];
+    return "Restricted to the one tool, named in the resolved configuration below.";
   }
-  // Both figures are the app's own: a count of the names the wire sent, and its own cap.
-  const restriction = ["Restricted to the ", { derived: formatCount(toolNames.length) }, " tools"];
+  const restriction = `Restricted to the ${formatCount(toolNames.length)} tools`;
   return toolNames.length > TOOL_ALLOWLIST_NAMED_CAP
-    ? [
-        ...restriction,
-        "; the first ",
-        { derived: formatCount(TOOL_ALLOWLIST_NAMED_CAP) },
-        " are named in the resolved configuration below.",
-      ]
-    : [...restriction, ", named in the resolved configuration below."];
+    ? `${restriction}; the first ${formatCount(TOOL_ALLOWLIST_NAMED_CAP)} are named in the ` +
+        "resolved configuration below."
+    : `${restriction}, named in the resolved configuration below.`;
 }
 
 /**

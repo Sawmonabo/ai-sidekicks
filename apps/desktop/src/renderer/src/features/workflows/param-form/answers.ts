@@ -7,17 +7,12 @@ import type { WorkflowHumanFormPathAnswer } from "@ai-sidekicks/contracts/workfl
 import { parse as parseWithErrors, type ParseError } from "jsonc-parser";
 
 import type { PickedFolder } from "#shared/preload-api.js";
-import { formatCount } from "#renderer/lib/wire/figures.js";
-import type { FigureSentencePart } from "#renderer/lib/figure-sentence.js";
 
 /** The answers a form holds, keyed by field id. */
 export type ParamAnswers = Readonly<Record<string, unknown>>;
 
-/**
- * One sentence per field id that holds an answer the form refuses, as parts so a figure in it
- * draws in its own class.
- */
-export type ParamIssues = Readonly<Record<string, readonly FigureSentencePart[]>>;
+/** One sentence per field id that holds an answer the form refuses. */
+export type ParamIssues = Readonly<Record<string, string>>;
 
 /** What checking a form's answers found. */
 export type ParamAnswerCheck =
@@ -137,7 +132,7 @@ type CollectionParamSpec = Extract<WorkflowParamSpec, { type: "collection" }>;
 
 /** What a check gathers beside the values: the refusals and the `path` fields' answers. */
 interface FoundAnswers {
-  readonly issues: Record<string, readonly FigureSentencePart[]>;
+  readonly issues: Record<string, string>;
   readonly paths: WorkflowHumanFormPathAnswer[];
 }
 
@@ -145,7 +140,7 @@ interface FoundAnswers {
 type LeafOutcome =
   | { readonly kind: "answered"; readonly value: unknown }
   | { readonly kind: "empty" }
-  | { readonly kind: "refused"; readonly issue: readonly FigureSentencePart[] };
+  | { readonly kind: "refused"; readonly issue: string };
 
 function seedCollection(field: CollectionParamSpec, savedAnswer: unknown): unknown {
   if (field.multiple === true) {
@@ -236,7 +231,7 @@ function checkCollection(
 function checkLeaf(field: LeafParamSpec, answer: unknown): LeafOutcome {
   if (isEmptyAnswer(answer)) {
     return field.required === true
-      ? { kind: "refused", issue: ["Fill in this field."] }
+      ? { kind: "refused", issue: "Fill in this field." }
       : { kind: "empty" };
   }
   switch (field.type) {
@@ -245,11 +240,11 @@ function checkLeaf(field: LeafParamSpec, answer: unknown): LeafOutcome {
     case "select":
       return isListedOption(field, answer)
         ? { kind: "answered", value: answer }
-        : { kind: "refused", issue: ["Choose one of the listed options."] };
+        : { kind: "refused", issue: "Choose one of the listed options." };
     case "multiselect":
       return Array.isArray(answer) && answer.every((value) => isListedOption(field, value))
         ? { kind: "answered", value: answer }
-        : { kind: "refused", issue: ["Choose only from the listed options."] };
+        : { kind: "refused", issue: "Choose only from the listed options." };
     case "json":
       return readJson(answer);
     default:
@@ -287,7 +282,7 @@ function readNumber(answer: unknown): LeafOutcome {
         : Number.NaN;
   return Number.isFinite(parsed)
     ? { kind: "answered", value: parsed }
-    : { kind: "refused", issue: ["Enter a number."] };
+    : { kind: "refused", issue: "Enter a number." };
 }
 
 function isListedOption(field: LeafParamSpec, value: unknown): boolean {
@@ -312,7 +307,7 @@ function readJson(answer: unknown): LeafOutcome {
 
 // The platform parser names no position for most mistakes, so a second, strict parse that keeps
 // going past them finds the first one's offset.
-function jsonIssue(source: string): readonly FigureSentencePart[] {
+function jsonIssue(source: string): string {
   const errors: ParseError[] = [];
   parseWithErrors(source, errors, {
     disallowComments: true,
@@ -321,17 +316,10 @@ function jsonIssue(source: string): readonly FigureSentencePart[] {
   });
   const first = errors[0];
   if (first === undefined) {
-    return ["This is not valid JSON."];
+    return "This is not valid JSON.";
   }
   const before = source.slice(0, first.offset);
   const line = before.split("\n").length;
   const column = first.offset - before.lastIndexOf("\n");
-  // The line and column are the app's own reading of the person's text.
-  return [
-    "This is not valid JSON. Check line ",
-    { derived: formatCount(line) },
-    ", column ",
-    { derived: formatCount(column) },
-    ".",
-  ];
+  return `This is not valid JSON. Check line ${String(line)}, column ${String(column)}.`;
 }

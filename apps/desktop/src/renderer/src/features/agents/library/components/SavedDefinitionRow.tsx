@@ -4,7 +4,7 @@ import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
-import { formatAge, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
+import { formatRelativeTime, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import { type AgentLibraryView } from "../view.js";
 import { describeDeletionQuestion, type AgentDefinitionRow } from "../definition-rows.js";
@@ -53,7 +53,7 @@ export function SavedDefinitionRow(props: {
                 <WireFigure value={axis.reading} />
               ) : axis.source === "instant" ? (
                 <WireFigure
-                  value={formatAge(axis.reading, props.nowMilliseconds)}
+                  value={formatRelativeTime(axis.reading, props.nowMilliseconds)}
                   hoverLabel={formatZonedDateTime(axis.reading, clockLocale)}
                 />
               ) : (
