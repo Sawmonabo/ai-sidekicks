@@ -1,0 +1,12 @@
+{
+  "name": "ai-sidekicks",
+  "description": "Plugins this repository ships for its own Claude Code sessions",
+  "owner": { "name": "AI Sidekicks" },
+  "plugins": [
+    {
+      "name": "typescript-native-lsp",
+      "source": "./plugins/typescript-native-lsp",
+      "description": "TypeScript 7's own language server, from the workspace's TypeScript"
+    }
+  ]
+}
