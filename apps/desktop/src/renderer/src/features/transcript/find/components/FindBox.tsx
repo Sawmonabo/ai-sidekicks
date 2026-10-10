@@ -61,7 +61,12 @@ export function FindBox(props: FindBoxProps): React.JSX.Element {
         />
       </label>
 
-      <AnnouncedLine element="span" words={countText} politeness="polite">
+      <AnnouncedLine
+        element="span"
+        className="meridian-find__count"
+        words={countText}
+        politeness="polite"
+      >
         <DerivedFigure text={countText} />
       </AnnouncedLine>
 

@@ -11,6 +11,8 @@
   font-size: var(--meridian-text-xs);
   text-align: start;
   cursor: pointer;
+  /* A running output's size reads in the control's own words, not set apart. */
+  --meridian-figure-derived-color: inherit;
 }
 
 .meridian-full-output:hover {

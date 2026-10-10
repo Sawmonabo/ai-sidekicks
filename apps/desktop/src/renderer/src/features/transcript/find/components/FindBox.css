@@ -8,6 +8,13 @@
   font-size: var(--meridian-text-xs);
   color: var(--meridian-text-muted);
   flex-wrap: wrap;
+  /* The match count reads a step quieter than the field's controls. */
+  --meridian-figure-derived-color: var(--meridian-text-faint);
+}
+
+/* The match count, a size under the field's; its figures stay tabular, from the figure class. */
+.meridian-find__count {
+  font-size: var(--meridian-text-10-5);
 }
 
 .meridian-find__field {
