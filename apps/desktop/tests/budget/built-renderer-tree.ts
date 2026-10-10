@@ -60,12 +60,6 @@ const SHIPPED_TEXT_EXTENSIONS = /\.(?:js|cjs|mjs|html?|css)$/iu;
 /** The extensions of the initial graph's code: scripts and stylesheets. */
 const CODE_EXTENSIONS = /\.(?:js|mjs|css)$/iu;
 
-/**
- * A script a chunk lists among its assets rather than its imports: a worker's script, which the
- * page starts by its address only when the worker is needed, so it is lazy code.
- */
-const SCRIPT_ASSET_EXTENSIONS = /\.(?:js|mjs)$/iu;
-
 /** The alignment worker's own module, which only the worker's built script holds. */
 const ALIGNMENT_WORKER_MODULE = "/src/features/repos/diff/intraline/worker/script.ts";
 
@@ -117,10 +111,11 @@ export function readSourceMapsOrFailLoudly(
 /**
  * The initial graph of the renderer build in `rendererOutputDirectory` (`out/renderer` unless
  * another is handed in), read off the chunk manifest its `manifest: true` config writes: every
- * entry chunk and what it reaches by static import, with its stylesheets and assets but no
- * worker's script, so lazy chunks and workers stay out. Throws when the manifest is missing, marks no entry, names a chunk it does not
- * hold, or names a file of no budget kind or one that does not glob to itself, which size-limit
- * would drop.
+ * entry chunk and what it reaches by static import, with its stylesheets and assets, so lazy
+ * chunks stay out. The alignment worker's script is listed as an asset too, yet a window starts it
+ * only when a long pair needs it, so it is lazy code and stays out as well. Throws when the
+ * manifest is missing, marks no entry, names a chunk it does not hold, or names a file of no
+ * budget kind or one that does not glob to itself, which size-limit would drop.
  */
 export function readInitialGraphOrFailLoudly(
   rendererOutputDirectory: string = RENDERER_OUTPUT_DIRECTORY,
@@ -146,7 +141,9 @@ export function readInitialGraphOrFailLoudly(
       throw new Error(`${manifestPath} imports a chunk \`${key}\` it does not hold.`);
     }
     visitedKeys.add(key);
-    const assets = (chunk.assets ?? []).filter((asset) => !SCRIPT_ASSET_EXTENSIONS.test(asset));
+    const assets = (chunk.assets ?? []).filter(
+      (asset) => !isAlignmentWorkerScript(join(rendererOutputDirectory, asset)),
+    );
     for (const emitted of [chunk.file, ...(chunk.css ?? []), ...assets]) {
       emittedFiles.add(emitted);
     }
@@ -210,6 +207,18 @@ interface ManifestChunk {
   readonly imports?: readonly string[];
   readonly css?: readonly string[];
   readonly assets?: readonly string[];
+}
+
+/** Whether a built file is the alignment worker's script, by the module its source map lists. */
+function isAlignmentWorkerScript(path: string): boolean {
+  const mapPath = `${path}.map`;
+  if (!existsSync(mapPath)) {
+    return false;
+  }
+  const map = JSON.parse(readFileSync(mapPath, "utf8")) as { sources: string[] };
+  return map.sources.some((source) =>
+    resolve(dirname(path), source).endsWith(ALIGNMENT_WORKER_MODULE),
+  );
 }
 
 function budgetKindOf(emitted: string): keyof InitialGraph | undefined {
