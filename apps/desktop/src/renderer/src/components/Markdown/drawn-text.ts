@@ -67,11 +67,21 @@ function fillUndrawnRows(parent: ParentNode): void {
     }
     const undrawnRows = child.properties[UNDRAWN_ROWS_MARKDOWN_PROPERTY];
     if (typeof undrawnRows === "string") {
-      return markdownTableBodyRows(undrawnRows);
+      return markdownTableBodyRows(undrawnRows).map(asDrawnRow);
     }
     fillUndrawnRows(child);
     return [child];
   });
+}
+
+/**
+ * `row` with only its cells, as the screen draws it: the parse puts a line break between cells,
+ * which plain text would read as spaces around each cell.
+ */
+function asDrawnRow(row: ChildNode): ChildNode {
+  return "children" in row
+    ? { ...row, children: row.children.filter((cell) => cell.type === "element") }
+    : row;
 }
 
 /** The markdown that made the drawn reply elements in `tree`, rebuilt from them. */
