@@ -1,14 +1,20 @@
 // The transcript, composed: the find field and the feed. Derivations belong to
 // `useTranscriptFeedWindows` and every scroll to the viewport binding; this file arranges the
 // pieces and wires their callbacks. There is one viewport binding: a second would leave the find
-// walk reading a virtualizer with no element under it, a jump that scrolls nothing.
+// walk reading a virtualizer with no element under it, a jump that scrolls nothing. The rows are
+// first shown once the first read has landed and the faces they draw in have settled; until then
+// they are laid out hidden, so they ask for those faces and measure in them, and the body shows
+// `Loading…` past the loading line's delay, or nothing while the line under the session header
+// says the window is behind.
 
 import "./TranscriptFeed.css";
 
 import { useCallback, useMemo } from "react";
 
 import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event/envelope";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
+import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import { RowRevealProvider } from "../../reveal/components/RowRevealProvider.js";
@@ -17,17 +23,21 @@ import { LoadEarlier } from "../../history/components/LoadEarlier.js";
 import { type TranscriptBodyRead } from "#renderer/services/daemon/transcript/body.js";
 import { type TranscriptPageRead } from "#renderer/services/daemon/transcript/page.js";
 import { TranscriptFeedHeader } from "./TranscriptFeedHeader.js";
-import { TranscriptWindowSkeleton } from "../../window/components/TranscriptWindowSkeleton.js";
 import { useTranscriptRowRenderer } from "../hooks/useTranscriptRowRenderer.js";
 import { useFullBodyReads } from "../hooks/useFullBodyReads.js";
 import { FullBodyReadsContext } from "../../rows/full-body-reads.js";
 import { OffListTableFrames } from "../../rows/bodies/OffListTableFrames.js";
 import { ListedBodiesContext } from "../../rows/markdown/table-window/context.js";
+import {
+  useDependentReadFailed,
+  useSessionDegraded,
+} from "#renderer/store/session/hooks/useSessionInitialized.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
 import { type TranscriptRowRenderer } from "../../rows/renderer.js";
 import { useTranscriptFeedWindows } from "../hooks/useTranscriptFeedWindows.js";
 import { useTranscriptFindAndJump } from "../hooks/useTranscriptFindAndJump.js";
 import { useTranscriptStructureActs } from "../hooks/useTranscriptStructureActs.js";
+import { useTypefacesSettled } from "../../hooks/useTypefacesSettled.js";
 import { useConversationCopy } from "../../copy/hooks/useConversationCopy.js";
 import {
   largeBodyRowIdsOf,
@@ -82,13 +92,22 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
     prepareRow: props.rowRenderer.prepareRow,
   });
   const { folds, transcriptWindow, viewport, history } = windows;
+  // The first rows are in the document once the virtualizer holds some, or there are none to hold.
+  const areRowsCommitted =
+    windows.firstReadSettled &&
+    (transcriptWindow.viewportRows.length === 0 || viewport.virtualItems.length > 0);
+  const isDrawable = useTypefacesSettled(areRowsCommitted);
+  // The line under the session header stands whenever either holds, and nothing repeats it.
+  const isWindowDegraded = useSessionDegraded(props.sessionStore);
+  const isDependentReadFailed = useDependentReadFailed(props.sessionStore);
   const fullBodyReads = useFullBodyReads(props.sessionStore, props.readTranscriptBody);
   const jumpToRow = viewport.jumpToRow;
   const findAndJump = useTranscriptFindAndJump({
     foldedAwayRows: windows.runGroupFold.removedRows,
     systemMessageByRowId: windows.unfurledWindow.systemMessageByRowId,
     drawsBody: props.rowRenderer.drawsBody,
-    rows: transcriptWindow.rows,
+    // Nothing hidden is found: the walk sees the rows once they are shown.
+    rows: isDrawable ? transcriptWindow.rows : NO_ROWS,
     jumpToRow,
     focusTranscriptViewport: viewport.focusScrollContainer,
   });
@@ -268,6 +287,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
                   renderRow={renderRow}
                   feedLabel={props.feedLabel}
                   firstReadSettled={windows.firstReadSettled}
+                  isShown={isDrawable}
                   hasActiveTurn={transcriptWindow.liveRunIds.size > 0}
                   earlierHistoryControl={
                     history === undefined ? undefined : (
@@ -282,9 +302,16 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
             </FullBodyReadsContext>
           </RowRevealProvider>
         </RowToggleProvider>
-        <TranscriptWindowSkeleton sessionStore={props.sessionStore} />
+        {isDrawable || isWindowDegraded || isDependentReadFailed ? null : (
+          <div className="meridian-transcript-feed__loading">
+            <LoadingNotice title="Loading…" clock={clock} />
+          </div>
+        )}
         <OffListTableFrames offList={windows.offListTables} />
       </div>
     </div>
   );
 }
+
+/** What the find walk sees while the rows are hidden. */
+const NO_ROWS: readonly TranscriptEventRow[] = [];

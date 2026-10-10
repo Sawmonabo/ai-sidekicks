@@ -48,6 +48,7 @@ function ViewportUnderTest(props: {
       renderRow={(row) => <div style={{ height: "24px" }}>{row.key}</div>}
       feedLabel="Transcript"
       firstReadSettled
+      isShown
     />
   );
 }

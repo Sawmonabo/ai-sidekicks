@@ -12,6 +12,11 @@
   min-height: 0;
 }
 
+/* Laid out but not seen, until the first read and the faces its rows draw in have settled. */
+.meridian-transcript-viewport--hidden {
+  visibility: hidden;
+}
+
 /*
  * The one scroll container in the transcript; a second scrolling box would give the chokepoint
  * a rival `scrollTop`. `overscroll-behavior: contain` stops a flick at the end of the log from

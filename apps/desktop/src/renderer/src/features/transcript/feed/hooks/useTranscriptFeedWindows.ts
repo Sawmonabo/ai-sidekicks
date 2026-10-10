@@ -117,8 +117,8 @@ export interface TranscriptFeedWindows {
 export function useTranscriptFeedWindows(
   inputs: TranscriptFeedWindowsInputs,
 ): TranscriptFeedWindows {
-  // The same reading `TranscriptWindowSkeleton` draws from, so the empty sentence and the
-  // skeleton rows cannot both be on screen.
+  // The one reading of the first read: the feed draws its loading line until it lands and the
+  // viewport, empty sentence included, after.
   const firstReadSettled = useTranscriptFirstReadSettled(inputs.sessionStore);
   // What a person folded is a fact about who is reading, so it is held here and handed to the
   // derivation rather than folded into it.

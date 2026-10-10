@@ -8,6 +8,7 @@
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { type Clock, type ScheduledHandle } from "#renderer/lib/clock.js";
 import { observeElementResize } from "#renderer/lib/element-resize.js";
+import { type FontLoadingDocument } from "#renderer/lib/font-loading-document.js";
 
 /** Dependencies of an `OverflowMeasurementBatch`: the clock and the callbacks it drives. */
 export interface OverflowMeasurementBatchOptions {
@@ -102,12 +103,4 @@ export class OverflowMeasurementBatch {
     this.release();
     this.#disposed = true;
   }
-}
-
-/**
- * The part of `document.fonts` this module uses; declared optional because the unit tier's DOM
- * shim has no font set.
- */
-interface FontLoadingDocument {
-  readonly fonts?: { readonly ready: Promise<unknown> };
 }

@@ -4,7 +4,7 @@
 // is held whole in the store; the other is opened as the app opens a session, its runs' calls
 // served as history. The same mount draws any store, with its history behind a page read.
 
-import { getConfig } from "@testing-library/react";
+import { act, getConfig } from "@testing-library/react";
 import { expect, vi } from "vitest";
 
 import { CONTENT_LENGTH_PAYLOAD_KEY } from "@ai-sidekicks/contracts/event/declared-variants";
@@ -183,9 +183,22 @@ export async function mountTranscriptFeed(
       </LiveAnnouncerProvider>
     </Wrapper>,
   );
+  // The rows are shown once the faces they draw in have landed, which can outlast the mount. Each
+  // look waits on the faces inside its own act, so the render their landing asks for is drawn.
+  const viewport =
+    container.querySelector(".meridian-transcript-viewport") ??
+    expect.fail("the feed draws its viewport");
+  await expect
+    .poll(async () => {
+      await act(async () => {
+        await document.fonts.ready;
+      });
+      return getComputedStyle(viewport).visibility;
+    })
+    .toBe("visible");
   await settleFrames();
   const scroller =
-    container.querySelector<HTMLElement>(".meridian-transcript-viewport__scroll-container") ??
+    viewport.querySelector<HTMLElement>(".meridian-transcript-viewport__scroll-container") ??
     expect.fail("the feed draws its scroller");
   return { scroller, copied };
 }

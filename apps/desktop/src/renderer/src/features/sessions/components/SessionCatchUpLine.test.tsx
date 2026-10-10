@@ -238,7 +238,8 @@ describe("SessionCatchUpLine", () => {
 
   it("says nothing more when a session read lands beside a dependent read still failed", async () => {
     const clock = new ManualClock(0);
-    let readRejects = true;
+    // The session is read once first, so a later failure is one it could not catch up from.
+    let readRejects = false;
     const entry = new OpenSessionEntry("session-read-lands", {
       openingPageLimit,
       offScreenRowLimit,
@@ -263,6 +264,9 @@ describe("SessionCatchUpLine", () => {
     entry.refreshScheduler.request("subscribe");
     mountsReader.start();
     await landReads();
+    readRejects = true;
+    entry.refreshScheduler.request("user-request");
+    await landReads();
     advance(clock, CATCH_UP_LINE_DWELL_MS);
     const saidOnTheFailures = liveRegionText(container, "assertive");
     advance(clock, LIVE_ANNOUNCEMENT_HOLD_MS);
@@ -280,7 +284,7 @@ describe("SessionCatchUpLine", () => {
     expect(saidOnTheLanding).toBe("");
   });
 
-  it("asks for exactly one re-read of this session when Try again is pressed", () => {
+  it("says a session whose first read failed could not load, and Try again reads it once", () => {
     const clock = new ManualClock(0);
     const sessionStore = new SessionStore({ sessionId: SESSION_ID });
     sessionStore.markReadFailed();
@@ -289,6 +293,7 @@ describe("SessionCatchUpLine", () => {
       rereads.push(sessionId);
     });
     advance(clock, CATCH_UP_LINE_DWELL_MS);
+    const drawnOnTheFailure = drawnText(container);
 
     const tryAgain = container.querySelector("button");
     if (tryAgain === null) {
@@ -296,6 +301,7 @@ describe("SessionCatchUpLine", () => {
     }
     fireEvent.click(tryAgain);
 
+    expect(drawnOnTheFailure).toBe("Could not load this session · Try again");
     expect(rereads).toStrictEqual([SESSION_ID]);
   });
 
@@ -335,8 +341,8 @@ describe("SessionCatchUpLine", () => {
         detail: `session ${SESSION_ID}: read-failed`,
       }),
     ]);
-    expect(drawnText(container)).toBe("Couldn't catch up · Try again");
-    expect(liveRegionText(container, "assertive")).toBe("Couldn't catch up");
+    expect(drawnText(container)).toBe("Could not load this session · Try again");
+    expect(liveRegionText(container, "assertive")).toBe("Could not load this session");
     expect(container.textContent).not.toContain("read-failed");
   });
 });
