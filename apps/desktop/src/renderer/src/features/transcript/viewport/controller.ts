@@ -2,11 +2,12 @@
 // table, window cap, selection tracker) and decides when each is asked and what the tree is told.
 //
 // The library owns measurements, offsets and the total size, and a follower's position: its end
-// anchor holds the tail as rows measure and it lands on each appended row; what moves the tail
-// past its reach lands the follower again through `tail-follow.ts`. `virtualizer-options.ts` owns its reach to the outside world. The anchor is captured from the
-// virtualizer, never the DOM, so holding a reading position costs no element read. The snapshot
-// vocabulary, prune cycle, publication, deferred hold, anchor capture, landing, the history line,
-// the tail follow and the reader's input on the box each have a module beside this one.
+// anchor holds the tail as rows measure and it lands on each appended row; what moves the tail past
+// its reach lands the follower again through `tail-follow.ts`. `virtualizer-options.ts` owns its
+// reach to the outside world. The anchor is captured from the virtualizer, never the DOM, so
+// holding a reading position costs no element read. The snapshot vocabulary, prune cycle,
+// publication, deferred hold, anchor capture, landing, the history line, the tail follow and the
+// reader's input on the box each have a module beside this one.
 import { type Clock } from "#renderer/lib/clock.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
 import { type RememberedRowHeights } from "#renderer/store/session/remembered-row-heights.js";
@@ -79,6 +80,11 @@ export interface ViewportControllerOptions {
   readonly holdsRowAfter?: ((rowKey: string | undefined) => boolean) | undefined;
   /** Hear each time any row's work lands, so a waiting landing asks again. */
   readonly subscribeToRowWork?: ((listener: () => void) => Unsubscribe) | undefined;
+  /**
+   * Whether the feed is still revealing a row's text, which a follower glides along rather than
+   * jumps to; none when omitted.
+   */
+  readonly isRowRevealing?: ((rowKey: string) => boolean) | undefined;
 }
 
 /** Wires the scroll, anchor, measurement and window-cap objects into one published snapshot. */
@@ -157,6 +163,10 @@ export class ViewportController {
       scroll: this.scroll,
       measurements: this.measurements,
       virtualKeyAt: (index) => this.#virtualKeys[index],
+      isRowRevealing: (index) => {
+        const rowKey = this.#rowKeys[index];
+        return rowKey !== undefined && options.isRowRevealing?.(rowKey) === true;
+      },
       isFollowing: () => this.anchor.state.mode === "following",
       heldRowIndexes: () => this.#heldRowIndexes(),
       virtualizer: () => this.#virtualizer,

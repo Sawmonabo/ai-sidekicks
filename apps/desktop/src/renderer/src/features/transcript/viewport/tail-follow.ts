@@ -1,8 +1,10 @@
 // Keeping a follower on the tail. The library's end anchor holds the tail as rows measure and
 // lands on each appended row; a re-key, a re-measure or a library correction that leaves the
 // offset short, and a re-layout of every row, move the tail past its reach, so the follower is
-// landed again here. Only the reader leaves the tail, and a reader who does so by their own act
-// ends the library's running scroll.
+// landed again here, at once: a landing is a correction, never the arriving text a follower is
+// eased after, so it ends that glide, and no landing is made while the glide is on its way to the
+// tail. Only the reader leaves the tail, and a reader who does so by their own act ends the
+// library's running scroll.
 
 import { type ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { type ScrollCaller } from "#renderer/lib/scroll/callers.js";
@@ -42,12 +44,16 @@ export class ViewportTailFollow {
     this.#virtualizer = options.virtualizer;
   }
 
-  /** The library's own landing on the last row, which re-aims as the rows near it measure. */
+  /**
+   * The library's own landing on the last row, which re-aims as the rows near it measure. Placed at
+   * once, so it ends a glide after arriving text.
+   */
   public scrollToTail(caller: ScrollCaller): void {
     const virtualizer = this.#virtualizer();
     if (virtualizer === undefined) {
       return;
     }
+    this.#scroll.stopEasing();
     this.#virtualizerOptions.scrollFor(caller, () => {
       virtualizer.scrollToEnd();
     });
@@ -56,7 +62,8 @@ export class ViewportTailFollow {
   /**
    * Lands a follower the transcript or the library moved off the tail back on it, once, after the
    * write that moved it returns: only the reader leaves the tail, so a re-key, a re-measure or a
-   * library correction that left the offset short is undone rather than read as leaving.
+   * library correction that left the offset short is undone rather than read as leaving. A glide
+   * after arriving text stands short of the tail on its way there, so none is made meanwhile.
    */
   public queueTailLanding(): void {
     if (this.#isTailLandingQueued) {
@@ -65,7 +72,11 @@ export class ViewportTailFollow {
     this.#isTailLandingQueued = true;
     queueMicrotask(() => {
       this.#isTailLandingQueued = false;
-      if (this.#anchor.state.mode === "following" && this.#scroll.geometry?.isAtTail === false) {
+      if (
+        this.#anchor.state.mode === "following" &&
+        this.#scroll.geometry?.isAtTail === false &&
+        !this.#scroll.isEasing
+      ) {
         this.scrollToTail("follow-tail");
       }
     });

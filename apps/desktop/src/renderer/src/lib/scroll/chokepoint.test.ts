@@ -4,7 +4,9 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { AnimationFrameScheduler } from "#renderer/features/transcript/animation-frame-scheduler.js";
 import { ManualClock } from "#renderer/lib/clock.js";
+import { MOTION_DURATIONS_MS, settleEasingAt } from "#renderer/styles/motion.js";
 import {
   createCountingScrollContainer,
   type CountingScrollContainer,
@@ -203,5 +205,76 @@ describe("the scroll chokepoint — prune veto, batching, and teardown", () => {
     clock.runFrame();
 
     expect(measuredViewportHeights).toStrictEqual([640]);
+  });
+});
+
+describe("the scroll chokepoint — an eased glide", () => {
+  /** One display frame, in milliseconds. */
+  const FRAME_MS = 16;
+  const SETTLE = { durationMs: MOTION_DURATIONS_MS["motion-settle"], easing: settleEasingAt };
+
+  /** Runs frames until the glide ends, answering the offset each one left the box at. */
+  function runGlideFrames(): number[] {
+    const offsets: number[] = [];
+    for (let frame = 0; frame < 100 && controller.isEasing; frame += 1) {
+      clock.advance(FRAME_MS);
+      clock.runFrame();
+      offsets.push(scrollContainer.scrollTop);
+    }
+    return offsets;
+  }
+
+  it("moves a write a frame toward a moving target, never back, and lands on it", () => {
+    controller.attach(scrollContainer);
+    controller.adoptFrameScheduler(new AnimationFrameScheduler({ clock }));
+    let targetPx = 1000;
+
+    expect(controller.easeTo("follow-arriving-text", () => targetPx, SETTLE)).toBe(true);
+    clock.advance(FRAME_MS);
+    clock.runFrame();
+    const firstStepPx = scrollContainer.scrollTop;
+    // Text arrives every frame for a while: the target moves on each one.
+    const whileArriving: number[] = [];
+    for (let frame = 0; frame < 5; frame += 1) {
+      targetPx += 40;
+      clock.advance(FRAME_MS);
+      clock.runFrame();
+      whileArriving.push(scrollContainer.scrollTop);
+    }
+    const settling = runGlideFrames();
+    const offsets = [firstStepPx, ...whileArriving, ...settling];
+
+    // The first frame already moves, part of the way.
+    expect(firstStepPx).toBeGreaterThan(0);
+    expect(firstStepPx).toBeLessThan(1000);
+    // Each frame of arriving text moves the box on, short of the target that frame named.
+    expect(whileArriving.every((offset, frame) => offset < 1000 + 40 * (frame + 1))).toBe(true);
+    const arrivingSteps = [firstStepPx, ...whileArriving];
+    expect(arrivingSteps.every((offset, frame) => offset > (arrivingSteps[frame - 1] ?? 0))).toBe(
+      true,
+    );
+    expect(offsets.slice(1).every((offset, frame) => offset >= (offsets[frame] ?? 0))).toBe(true);
+    expect(new Set(offsets).size).toBeGreaterThan(3);
+    expect(offsets.at(-1)).toBe(targetPx);
+    expect(controller.isEasing).toBe(false);
+  });
+
+  it("places a target behind the box at once, and a stopped glide writes nothing more", () => {
+    controller.attach(scrollContainer);
+    controller.adoptFrameScheduler(new AnimationFrameScheduler({ clock }));
+    scrollContainer.moveTo(800);
+    controller.easeTo("follow-arriving-text", () => 300, SETTLE);
+    clock.advance(FRAME_MS);
+    clock.runFrame();
+    const behindPx = scrollContainer.scrollTop;
+
+    controller.easeTo("follow-arriving-text", () => 2000, SETTLE);
+    controller.stopEasing();
+    clock.advance(FRAME_MS);
+    clock.runFrame();
+
+    expect(behindPx).toBe(300);
+    expect(scrollContainer.scrollTop).toBe(300);
+    expect(controller.isEasing).toBe(false);
   });
 });

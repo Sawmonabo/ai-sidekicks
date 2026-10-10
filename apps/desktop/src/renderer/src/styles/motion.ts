@@ -4,8 +4,9 @@
 //
 // Motion uses platform primitives (CSS transitions, `@starting-style`, the Web Animations API)
 // with a spring written out as a `linear()` easing, and no animation library on the render path,
-// where one would fight the virtualizer. No sampler ships: the spring's inputs are constants, so
-// sampling it at every mount would recompute the same 106 characters.
+// where one would fight the virtualizer. The spring is not sampled at run time: its inputs are
+// constants, so its stops are written out once, and the stylesheet's `linear()` and the one
+// motion drawn by script, a scroll eased a frame at a time, both read those stops.
 //
 // This file lives in `styles/` and carries no DOM type: the assets tier reads `styles/` from
 // Node, where `Document` and `Window` do not exist.
@@ -26,14 +27,30 @@ export const MOTION_DURATIONS_MS: Readonly<Record<MotionDurationToken, number>> 
   "motion-breath": 1200,
 };
 
+/** The chrome spring's progress at evenly spaced moments of its duration, start to end. */
+const CHROME_SETTLE_STOPS: readonly number[] = [
+  0, 0.3554, 0.7127, 0.8883, 0.9596, 0.986, 0.9953, 0.9985, 0.9995, 0.9998, 0.9999, 1, 1, 1, 1, 1,
+  1,
+];
+
 /**
- * The app's one settle easing: the chrome spring sampled into a `linear()` the compositor
- * runs under the platform's own timing, written out because the spring's inputs are constants.
- * It is emitted under the name every stylesheet reads, `--meridian-ease-settle`.
+ * The app's one settle easing: the chrome spring as a `linear()` the compositor runs under the
+ * platform's own timing. It is emitted under the name every stylesheet reads,
+ * `--meridian-ease-settle`.
  */
-export const CHROME_SETTLE_EASING: string =
-  "linear(0, 0.3554, 0.7127, 0.8883, 0.9596, 0.986, 0.9953, " +
-  "0.9985, 0.9995, 0.9998, 0.9999, 1, 1, 1, 1, 1, 1)";
+export const CHROME_SETTLE_EASING: string = `linear(${CHROME_SETTLE_STOPS.join(", ")})`;
+
+/**
+ * The settle easing's progress at `elapsedShare` of its duration, from 0 to 1, read between its
+ * stops as `linear()` reads them, for motion drawn by script. A share past either end is clamped.
+ */
+export function settleEasingAt(elapsedShare: number): number {
+  const position = Math.min(1, Math.max(0, elapsedShare)) * (CHROME_SETTLE_STOPS.length - 1);
+  const before = Math.floor(position);
+  const from = CHROME_SETTLE_STOPS[before] ?? 1;
+  const to = CHROME_SETTLE_STOPS[before + 1] ?? from;
+  return from + (to - from) * (position - before);
+}
 
 /**
  * How long the pointer rests before an overlay scrollbar fades, in milliseconds: long enough that
