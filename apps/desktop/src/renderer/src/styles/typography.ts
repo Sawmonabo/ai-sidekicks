@@ -90,8 +90,8 @@ export const LETTER_SPACING_EM: Readonly<Record<string, number>> = {
  * faces, self-hosted as variable builds: `typeface.ts` declares the `@font-face` rules over
  * `@ibm/plex-sans-variable` and `@ibm/plex-mono-variable`. Those packages are build-time-only
  * `devDependencies`, since the bundler resolves the `?url` imports and nothing resolves them at
- * runtime. The platform fallbacks stay because the faces hold only the Latin-1 split, so a
- * codepoint outside it falls through to them, one character at a time, instead of rendering a
+ * runtime. Every split the packages ship is declared, so the fallbacks after the first name draw
+ * only a character neither family has (CJK, an emoji), one character at a time, instead of a
  * notdef box.
  *
  * The stack names the family a rule asks for; which bytes answer is `typeface.ts`'s. The files
