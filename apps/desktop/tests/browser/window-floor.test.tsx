@@ -274,6 +274,8 @@ describe("the window floor", () => {
           layout={layout}
           registry={framedPaneRegistry()}
           paneContextFor={framedPaneContext}
+          isSessionOpen
+          sessionId={undefined}
         />
       </LiveAnnouncerProvider>,
     );

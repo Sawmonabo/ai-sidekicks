@@ -41,13 +41,3 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-/* The opening placeholder fixes the header's height before the session opens. Not animated. */
-.meridian-session-header__placeholder {
-  display: inline-block;
-  width: 9ch;
-  height: var(--meridian-space-6);
-  border: 1px solid var(--meridian-edge);
-  border-radius: var(--meridian-radius-sm);
-  background: var(--meridian-surface-raised);
-}

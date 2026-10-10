@@ -1,8 +1,10 @@
 // One window a person sees: its frame store, the bindings that keep it live, the `AppShell`
 // around the routed screen and the window's one hover label, drawn into the window's own document
 // through a portal from the console document's tree. Until the background service first answers
-// the window draws only its boot cover, so no screen reads a service that is not there yet and
-// nothing is drawn half painted; at the answer the console mounts under the cover as it fades.
+// the window draws its console's frame, inert, under its boot cover: the rail, the window frame
+// and a session's pane arrangement at the sizes it was left at, with nothing that reads the
+// service, so no session is opened and no chord is taken yet. At the answer the session opens and
+// the screens fill in under the cover as it fades, the frame staying where it is.
 // Everything below reads the window it is in from `OwnerWindowProvider`, and runs its frame work
 // on that window's own paint through `WindowClockProvider`.
 
@@ -85,7 +87,7 @@ export function AppWindow(props: AppWindowProps): React.JSX.Element {
   );
 }
 
-/** The window's title, its console once the service has answered, and its boot cover. */
+/** The window's title, its console, and its boot cover until the service has answered. */
 function WindowBody(props: AppWindowProps): React.JSX.Element {
   const { frameStore, hasServiceAnswered } = props;
   const route = useWindowStore(frameStore, (state) => state.route);
@@ -93,7 +95,7 @@ function WindowBody(props: AppWindowProps): React.JSX.Element {
   const cover = useBootCover(frameStore, hasServiceAnswered);
   return (
     <>
-      {hasServiceAnswered ? <WindowContents {...props} /> : null}
+      <WindowContents {...props} />
       {cover === undefined ? null : (
         <BootCover cover={cover} requestStart={props.bridge.daemon.requestStart} />
       )}
@@ -102,11 +104,11 @@ function WindowBody(props: AppWindowProps): React.JSX.Element {
 }
 
 /**
- * The window's bindings and chrome. The palette follows the retained session, so session commands
- * stay offered from Settings.
+ * The window's bindings and chrome, its frame alone until the service has answered. The palette
+ * follows the retained session, so session commands stay offered from Settings.
  */
 function WindowContents(props: AppWindowProps): React.JSX.Element {
-  const { frameStore, bridge, appStores, appearance } = props;
+  const { frameStore, bridge, appStores, appearance, hasServiceAnswered } = props;
   const ownerWindow = props.openWindow.window;
   const hash = useLocationHash(ownerWindow);
 
@@ -123,6 +125,7 @@ function WindowContents(props: AppWindowProps): React.JSX.Element {
     lastOpenedSessionId,
     ownerWindow,
     revision: props.commandRevision,
+    canTakeChords: hasServiceAnswered,
   });
 
   const chooseScheme = useCallback(
@@ -139,9 +142,10 @@ function WindowContents(props: AppWindowProps): React.JSX.Element {
   // The window's one reading of the updater, which the rail's Settings dot reads.
   const isUpdateStaged = useIsUpdateStaged(bridge.update);
 
+  // No session opens before the service has answered, since opening one reads it.
   const sessionStore = useActiveSessionStore(
     appStores.sessionStoreRegistry,
-    frameStore.activeSessionId,
+    hasServiceAnswered ? frameStore.activeSessionId : undefined,
   );
 
   const screenContext: ScreenContext = {
@@ -166,6 +170,7 @@ function WindowContents(props: AppWindowProps): React.JSX.Element {
       readBoundChord={readBoundChord}
       onCycleColorScheme={cycleColorScheme}
       isUpdateStaged={isUpdateStaged}
+      isUnderBootCover={!hasServiceAnswered}
       notice={props.notice}
       // The loosest density's floor, so the window holds one pane beside the conversation at
       // whichever density the pane layout runs at; in px as the layout holds it, so it does not
@@ -177,7 +182,7 @@ function WindowContents(props: AppWindowProps): React.JSX.Element {
         });
       }}
     >
-      <AppRouter context={screenContext} />
+      <AppRouter context={screenContext} hasServiceAnswered={hasServiceAnswered} />
     </AppShell>
   );
 }

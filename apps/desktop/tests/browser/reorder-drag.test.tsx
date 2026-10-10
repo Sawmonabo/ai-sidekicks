@@ -568,6 +568,8 @@ describe("browser — dragging a pane to reorder", () => {
               paneContextFor={(pane) =>
                 layoutPaneContext(pane, { bridge: fixture.bridge, sessionStore: undefined })
               }
+              isSessionOpen
+              sessionId={undefined}
             />,
             secondWindow.document.body,
           )}

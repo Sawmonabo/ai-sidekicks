@@ -26,6 +26,8 @@ export interface WindowCommandsInput {
   readonly ownerWindow: Window;
   /** The app's command revision, bumped when the command set changed. */
   readonly revision: number;
+  /** Whether the window takes chords; not under the boot cover, where the console is inert. */
+  readonly canTakeChords: boolean;
 }
 
 /** One window's palette props and its reading of the chords bound now. */
@@ -48,7 +50,7 @@ export interface WindowCommands {
  * bound now.
  */
 export function useWindowCommands(input: WindowCommandsInput): WindowCommands {
-  const { route, lastOpenedSessionId, ownerWindow, revision } = input;
+  const { route, lastOpenedSessionId, ownerWindow, revision, canTakeChords } = input;
 
   // Whether this window's transcript holds a run group, so the fold rows are offered only where
   // there is a run to fold.
@@ -90,13 +92,14 @@ export function useWindowCommands(input: WindowCommandsInput): WindowCommands {
   }, [keyBindings, keybindingSnapshot]);
 
   // Absent while a chord is recorded: it listens in the capture phase, so recording `$mod+b`
-  // would navigate to Sessions instead of binding it.
+  // would navigate to Sessions instead of binding it. Absent under the boot cover too, so no
+  // chord reaches the inert console behind it.
   useEffect(() => {
-    if (keybindingSnapshot.recording) {
+    if (!canTakeChords || keybindingSnapshot.recording) {
       return undefined;
     }
     return keyBindings.install(ownerWindow);
-  }, [keyBindings, keybindingSnapshot, ownerWindow]);
+  }, [keyBindings, keybindingSnapshot, ownerWindow, canTakeChords]);
 
   // Off the snapshot rather than the table: the table takes a rebinding in an effect, after the
   // render that draws the new chord.

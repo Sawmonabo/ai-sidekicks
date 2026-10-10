@@ -1,7 +1,8 @@
 // One pane's frame, and the body the pane layout resolves for it. `SessionPaneLayout.tsx`
 // decides which panes exist, their order, widths and focus (questions about the set); this
 // file answers what is drawn for a single pane, including when nothing is registered for its
-// kind. Both symbols are reached only from `SessionPaneLayout.tsx`.
+// kind, and the frame alone while the session's store has not opened. Both symbols are reached
+// only from `SessionPaneLayout.tsx`.
 
 import { memo, useCallback, useMemo } from "react";
 import { Panel } from "react-resizable-panels";
@@ -9,6 +10,7 @@ import { Panel } from "react-resizable-panels";
 import { type Refusal } from "#renderer/lib/refusal/contract.js";
 import { type ReorderDrag } from "#renderer/lib/reorder-drag.js";
 import { PaneControlsContext, type PaneControls } from "#renderer/components/PaneFrame/controls.js";
+import { PaneFrame } from "#renderer/components/PaneFrame/PaneFrame.js";
 import { type PaneContext } from "#renderer/registries/panes/context.js";
 import { type PaneRegistry } from "#renderer/registries/panes/registry.js";
 import { PaneBody } from "./PaneBody.js";
@@ -29,6 +31,13 @@ export interface SessionPaneSlotProps {
    * partition that never held the row.
    */
   readonly paneContextFor: (pane: SessionPane) => PaneContext | Refusal;
+  /**
+   * Whether the session's store has opened. Until it has, the pane draws its frame alone, at its
+   * place and width with its address's trail, since its body reads the session.
+   */
+  readonly isSessionOpen: boolean;
+  /** The session the pane is about, which its frame names while it draws no body. */
+  readonly sessionId: string | undefined;
   /** The pane row's reorder: the panel is the item that moves, the pane's header its grip. */
   readonly paneDrag: ReorderDrag<string>;
   readonly onFocus: (paneId: string) => void;
@@ -64,6 +73,9 @@ export const SessionPaneSlot: React.NamedExoticComponent<SessionPaneSlotProps> =
     if (descriptor === undefined) {
       throw new Error(`no body is registered for the ${pane.kind} pane kind`);
     }
+    // The address comes from the saved arrangement, so the frame's trail is drawn before the
+    // session opens just as the open pane draws it.
+    const context = props.paneContextFor(pane);
 
     return (
       <Panel
@@ -75,7 +87,18 @@ export const SessionPaneSlot: React.NamedExoticComponent<SessionPaneSlotProps> =
         onFocusCapture={onFocusCapture}
       >
         <PaneControlsContext.Provider value={controls}>
-          <PaneBody descriptor={descriptor} context={props.paneContextFor(pane)} />
+          {props.isSessionOpen ? (
+            <PaneBody descriptor={descriptor} context={context} />
+          ) : "code" in context ? (
+            // An address that could not be read names no session, as its refusal does once open.
+            <PaneFrame kind={pane.kind} sessionId={undefined} />
+          ) : (
+            <PaneFrame
+              kind={pane.kind}
+              sessionId={props.sessionId}
+              entity={"entity" in context ? context.entity : undefined}
+            />
+          )}
         </PaneControlsContext.Provider>
       </Panel>
     );

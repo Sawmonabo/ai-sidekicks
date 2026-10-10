@@ -6,8 +6,12 @@ import { createElement } from "react";
 
 import { registerComposer } from "#renderer/registries/composer/registry.js";
 import { MessageComposer } from "../Composer.js";
+import { ComposerRestingSpace } from "../components/ComposerRestingSpace.js";
 
 /** Fill the composer registry. The owner string appears in duplicate-claim errors. */
 export function registerComposerView(): void {
-  registerComposer("composer", (props) => createElement(MessageComposer, props));
+  registerComposer("composer", {
+    open: (props) => createElement(MessageComposer, props),
+    resting: () => createElement(ComposerRestingSpace),
+  });
 }

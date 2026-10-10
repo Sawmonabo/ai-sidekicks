@@ -57,6 +57,8 @@ function renderPaneLayout(layout: PaneLayoutStore, registry: PaneRegistry): HTML
           paneContextFor={(pane) =>
             layoutPaneContext(pane, { bridge: fixture.bridge, sessionStore: undefined })
           }
+          isSessionOpen
+          sessionId={undefined}
         />
       </LiveAnnouncerProvider>
     </FixtureBridgeProvider>,

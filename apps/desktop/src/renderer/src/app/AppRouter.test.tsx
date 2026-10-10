@@ -139,7 +139,7 @@ describe("AppRouter — the screen across an address change", () => {
   }
 
   function screenAt(route: AppRoute): React.JSX.Element {
-    return <AppRouter context={screenContextFor(route)} />;
+    return <AppRouter context={screenContextFor(route)} hasServiceAnswered />;
   }
 
   it("mounts no pane, and reuses no instance, when the session changes", async () => {
@@ -233,5 +233,5 @@ const UNKNOWN_RUN_ID = "019b7a10-0280-75e5-8510-ada11a5a4999";
 
 /** The workflows screen as the window draws it: through the router. */
 function routedThroughRouter(context: ScreenContext): React.JSX.Element {
-  return <AppRouter context={context} />;
+  return <AppRouter context={context} hasServiceAnswered />;
 }

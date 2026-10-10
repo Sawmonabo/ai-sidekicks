@@ -9,9 +9,7 @@ import { newestContextWindowReading } from "#renderer/store/session/events/conte
 import { useSessionStore } from "#renderer/store/session/hooks/useOpenSessionStore.js";
 import { selectStandingEvents } from "#renderer/store/session/selectors.js";
 import { useComposerAddress } from "../hooks/useComposerAddress.js";
-import { ContextRing } from "../context-ring/ContextRing.js";
-
-import "./ComposerToolbar.css";
+import { ComposerMeterStrip } from "./ComposerMeterStrip.js";
 
 /** The composer's toolbar: how full the conversation is. */
 export function ComposerToolbar(props: ComposerProps): React.JSX.Element {
@@ -24,13 +22,5 @@ export function ComposerToolbar(props: ComposerProps): React.JSX.Element {
     [standingEvents, addressedRunId],
   );
 
-  return (
-    <div className="meridian-composer__toolbar">
-      <div className="meridian-composer__toolbar-cluster">
-        <div className="meridian-composer__meters">
-          <ContextRing reading={contextReading} />
-        </div>
-      </div>
-    </div>
-  );
+  return <ComposerMeterStrip contextReading={contextReading} />;
 }

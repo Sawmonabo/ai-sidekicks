@@ -81,3 +81,8 @@
   border-top: 1px solid var(--meridian-edge);
   background: var(--meridian-surface);
 }
+
+/* Before the session opens: the composer's resting box, taking its room and drawing nothing. */
+.meridian-session-screen__composer[data-resting] {
+  visibility: hidden;
+}

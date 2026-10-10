@@ -1,8 +1,9 @@
 // The quiet cover a window draws over itself until the background service first answers: the
 // working indicator and one line saying what main is doing, or, once main has given up, the card
-// saying the service is not answering with its `Retry`. Nothing is drawn under it until the answer,
-// so the console it fades from is never half painted. The window has no frame yet, so the cover
-// mounts its own announcer, and the whole cover is the window's drag region.
+// saying the service is not answering with its `Retry`. Under its glass the console's frame is
+// already drawn, inert and without anything that reads the service, so at the fade only the
+// screens fill in. The cover sits outside the frame's announcer, so it mounts its own, and the
+// whole cover is the window's drag region.
 
 import "./BootCover.css";
 

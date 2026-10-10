@@ -53,6 +53,8 @@ describe("browser — moving a pane", () => {
             paneContextFor={(pane) =>
               layoutPaneContext(pane, { bridge: fixture.bridge, sessionStore: undefined })
             }
+            isSessionOpen
+            sessionId={undefined}
           />
         </LiveAnnouncerProvider>
       </FixtureBridgeProvider>,

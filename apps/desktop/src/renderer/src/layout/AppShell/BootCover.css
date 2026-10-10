@@ -1,7 +1,7 @@
-/* The boot cover: the window's ground as glass over the whole window, its working line in the
-   middle, or its card on the solid ground. With no frame under it, the cover is the window's drag
-   region. Once the service answers it fades and takes no press, so the console under it is live at
-   once. */
+/* The boot cover: the window's ground as glass over the console's inert frame, its working line in
+   the middle, or its card on the solid ground, which hides the frame. The cover is the window's
+   drag region. Once the service answers it fades and takes no press, so the console under it is
+   live at once. */
 .meridian-boot-cover {
   position: fixed;
   inset: 0;
