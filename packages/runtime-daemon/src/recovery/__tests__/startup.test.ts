@@ -6,9 +6,9 @@
 // are, while every other session takes its writes; `Continue from here` skips the damaged events,
 // settles the run the restart left live past every version the skipped rows hold, and the session
 // takes new work; a session with no readable event can only be deleted. Until the pass has listed
-// the sessions it rebuilds, every mutating call but the restart is refused; then a session it is
-// still rebuilding refuses every write but the pass's own, and every other session takes its
-// writes.
+// the sessions it rebuilds, every mutating call but the restart is refused, and one that names no
+// session until the pass ends; then a session it is still rebuilding refuses every write but the
+// pass's own, and every other session takes its writes.
 
 import { randomUUID } from "node:crypto";
 
@@ -418,8 +418,8 @@ describe("the recovery pass at a restart", () => {
       return rebuildHeld.promise;
     });
     const registry = new RecoveryWriteGate(status).wrap(new MethodRegistryImpl());
-    const sessionTarget = z.object({ sessionId: z.string() }).strict();
-    for (const method of ["session.rename", "daemon.restart"]) {
+    const sessionTarget = z.object({ sessionId: z.string(), repoMountId: z.string() }).strict();
+    for (const method of ["session.rename", "daemon.restart", "repo.detach"]) {
       registry.register(
         method,
         sessionTarget.partial(),
@@ -428,6 +428,8 @@ describe("the recovery pass at a restart", () => {
         { mutating: true },
       );
     }
+    // A detach archives the workspaces of every session on its mount, none of which it names.
+    const detach = { repoMountId: randomUUID() };
 
     // While the pass runs nothing is admitted but the restart.
     await expect(
@@ -447,6 +449,11 @@ describe("the recovery pass at a restart", () => {
       code: "session.write_refused",
       detail: { sessionId: unfoldable.sessionId, recovery: "rebuilding" },
     });
+    // A call that names no session could reach the one being rebuilt, so it waits for the pass.
+    await expect(registry.dispatch("repo.detach", detach, {})).rejects.toMatchObject({
+      code: "daemon.write_refused",
+      detail: { recovery: "rebuilding" },
+    });
     // An append from outside the pass, however its writer found the session, is refused too.
     await expect(queueRunThrough(sessionEvents, unfoldable.sessionId)).rejects.toMatchObject({
       code: "session.write_refused",
@@ -454,6 +461,7 @@ describe("the recovery pass at a restart", () => {
     });
     rebuildHeld.resolve();
     await passing;
+    await expect(registry.dispatch("repo.detach", detach, {})).resolves.toStrictEqual({});
 
     await expect(
       registry.dispatch("session.rename", { sessionId: fixture.sessionId }, {}),

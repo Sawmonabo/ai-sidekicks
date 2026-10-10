@@ -1,7 +1,8 @@
 // The node's recovery state as the status read serves it: `rebuilding` while the restart's pass
 // runs, `blocked` once the local store has failed, and `degraded` while a session's history is
-// damaged. The whole node refuses writes only until the pass has listed what it must rebuild;
-// from then a session it is still rebuilding refuses every write but the pass's own, as a damaged
+// damaged. The whole node refuses writes until the pass has listed what it must rebuild, and a
+// call that names no session until the pass ends; from then a session it is still rebuilding
+// refuses every write but the pass's own, as a damaged
 // session, open at its last good point or unreadable, refuses its writes. The pass's writes are
 // told apart by the asynchronous context it runs in. Sessions are keyed by their canonical id, so
 // a call that spells one in capitals meets the same refusal.
@@ -143,14 +144,15 @@ export class RecoveryStatusTracker {
   }
 
   /**
-   * Why the whole node takes no write: its pass has not yet listed the sessions it must rebuild,
-   * or its store has failed; `undefined` when it takes writes.
+   * Why the whole node takes no write of a call: its store has failed, its pass has not yet listed
+   * the sessions it must rebuild, or the call names no session while the pass runs, since it may
+   * reach any session; `undefined` when it takes the write.
    */
-  readNodeWriteRefusal(): "rebuilding" | "blocked" | undefined {
+  readNodeWriteRefusal(namesSession: boolean): "rebuilding" | "blocked" | undefined {
     if (this.#hasStoreFailed) {
       return "blocked";
     }
-    return this.#isPassListing ? "rebuilding" : undefined;
+    return this.#isPassListing || (this.#isPassRunning && !namesSession) ? "rebuilding" : undefined;
   }
 
   /** The node's overall state: the most severe of its own and every listed session's. */

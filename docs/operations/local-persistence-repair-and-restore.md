@@ -4,13 +4,13 @@
 
 Repair or restore the Local Runtime Daemon SQLite store when the service's own repair at a start could not heal it, or when a session's history stays damaged after that repair.
 
-The service heals first, on its own ([Spec-013 §Fallback Behavior](../specs/013-persistence-and-recovery.md#fallback-behavior)). It checks the file's structure at every start, beside its work after a clean stop and before it takes any write after an unclean stop or a changed file; damage that check or any read or write meets stops the service, and its next start repairs the file before it opens it: a damaged file is copied aside untouched into a folder under `~/.ai-sidekicks/damaged/` with its write-ahead log, recovered into a fresh file with SQLite's own recovery (`sqlite3_recover`) and checked with `PRAGMA integrity_check` before it is used, a session the newest backup holds more events of taking them from that backup; a session whose events still cannot be read opens at its last good point, read-only, with `Continue from here` and `Delete session`, and only that session refuses writes. This runbook starts where that repair ends.
+The service heals first, on its own ([Spec-013 §Fallback Behavior](../specs/013-persistence-and-recovery.md#fallback-behavior)). It checks the file's structure at every start, beside its work after a clean stop or an end of its process while the machine stayed up, and before it takes any write after a crash of the machine, a power loss or a changed file; damage that check or any read or write meets stops the service, and its next start repairs the file before it opens it: a damaged file is copied aside untouched into a folder under `~/.ai-sidekicks/damaged/` with its write-ahead log, recovered into a fresh file with SQLite's own recovery (`sqlite3_recover`) and checked with `PRAGMA integrity_check` before it is used, a session the newest backup holds more events of taking them from that backup; a session whose events still cannot be read opens at its last good point, read-only, with `Continue from here` and `Delete session`, and only that session refuses writes. This runbook starts where that repair ends.
 
 ## Symptoms
 
 - The service stops on its own, and its log reads `The database file is damaged: <reason>. The service stops; its next start repairs the file`; the next start then repairs it
 - The service does not start, and its log reads `The database file is damaged and could not be repaired` with the reason and the folder its files were copied aside to
-- After an unclean stop the service serves reads but takes no write, and its log reads `The database file could not be checked` with the reason (the service's own `sqlite3` shell is missing or damaged)
+- The service reads `degraded` and takes writes unchecked, and its log reads `The database file could not be checked` with the reason (the service's own `sqlite3` shell is missing or damaged); its next start checks the file again before it writes
 - The `recovery` field on `daemon.status.read` stays `blocked` because local persistence failed during the restart's recovery pass
 - A session reads `degraded` (at its last good point) or `damaged` (no readable event) in that field's session list, and Settings › Runtime names it
 - Local Runtime Daemon logs show SQLite open, lock, integrity, or WAL-related failure
@@ -73,12 +73,12 @@ A backup is taken with `Back up now` on Settings › Runtime; the service's heal
 
 ## SLOs and Thresholds
 
-| Metric                                                                   | Target |
-| ------------------------------------------------------------------------ | ------ |
-| The service's structural check, which holds writes after an unclean stop | < 30s  |
-| The service's repair of a damaged store                                  | < 60s  |
-| Backup restore                                                           | < 60s  |
-| Projection rebuild after restore                                         | < 120s |
+| Metric | Target |
+| --- | --- |
+| The service's structural check, which holds writes only after a crash of the machine, a power loss or a changed file | < 3s at a million messages; about 2 minutes at ten million, 140 s at worst on an M1 Pro |
+| The service's repair of a damaged store | < 60s |
+| Backup restore | < 60s |
+| Projection rebuild after restore | < 120s |
 
 ## Related Architecture Docs
 

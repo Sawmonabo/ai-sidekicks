@@ -1,9 +1,11 @@
 // Refuses a mutating call that would write on top of read state the daemon cannot trust. Until
 // the restart's pass has listed the sessions it must rebuild, or once the local store has failed,
 // the whole node refuses; the stop, the restart and the flush are still taken, since they are how
-// a person gets out of a stuck recovery and none writes session state. From then on, a session
-// the pass is still rebuilding refuses the calls that name it, and so does a session whose history
-// is damaged, except its own two recovery actions; every other session takes its writes.
+// a person gets out of a stuck recovery and none writes session state. A call that names no
+// session can reach any, through a project, a mount, a workspace or a tree, so it waits for the
+// whole pass. From then on, a session the pass is still rebuilding refuses the calls that name it,
+// and so does a session whose history is damaged, except its own two recovery actions; every
+// other session takes its writes.
 
 import { DAEMON_LIFECYCLE_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/daemon/lifecycle";
 import {
@@ -60,7 +62,8 @@ export class RecoveryWriteGate {
     if (inner.isMutating(method) !== true || METHODS_TAKEN_WHILE_RECOVERING.has(method)) {
       return;
     }
-    const recovery = this.#status.readNodeWriteRefusal();
+    const sessionId = readNamedSession(params);
+    const recovery = this.#status.readNodeWriteRefusal(sessionId !== undefined);
     if (recovery !== undefined) {
       const detail: DaemonWriteRefusedDetails = { recovery };
       throw new DaemonDomainError(
@@ -72,7 +75,6 @@ export class RecoveryWriteGate {
         },
       );
     }
-    const sessionId = readNamedSession(params);
     if (sessionId !== undefined && !METHODS_TAKEN_BY_A_DAMAGED_SESSION.has(method)) {
       refuseCallNamingSession(this.#status, sessionId, method);
     }

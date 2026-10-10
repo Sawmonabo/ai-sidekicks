@@ -204,7 +204,9 @@ describe("the database file's repair", () => {
     if (result.outcome !== "repaired") {
       throw new Error("The file was not repaired");
     }
-    expect(await readFile(path.join(result.asideFolder, "daemon.db"))).toStrictEqual(damagedBytes);
+    // Compared as bytes: a deep comparison of a megabyte buffer takes seconds under load.
+    const asideBytes = await readFile(path.join(result.asideFolder, "daemon.db"));
+    expect(asideBytes.equals(damagedBytes), "the aside copy is byte-equal").toBe(true);
     expect(countEvents(KEPT_SESSION)).toBe(4);
     expect(countEvents(BACKED_UP_SESSION)).toBe(5);
     const repaired = new Database(databasePath, { readonly: true });
@@ -272,7 +274,7 @@ describe("the database file's repair", () => {
 
     expect(first).toMatchObject({ outcome: "unrepaired" });
     expect(second).toStrictEqual(first);
-    expect(await readFile(databasePath)).toStrictEqual(file);
+    expect((await readFile(databasePath)).equals(file), "the file is untouched").toBe(true);
     expect(await readdir(path.join(dataFolder, "damaged"))).toHaveLength(1);
   });
 

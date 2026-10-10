@@ -8,7 +8,7 @@ Recover the user-local execution daemon, the Local Runtime Daemon, when local ex
 
 - Desktop or CLI cannot connect to the Local Runtime Daemon
 - Session reads work intermittently or not at all
-- New mutable work is refused: by every session until the restart's recovery pass has listed the sessions it rebuilds, or while the store is unavailable (`daemon.write_refused`), or by one session the pass is still rebuilding or whose history is damaged (`session.write_refused`) while the others keep working
+- New mutable work is refused: by every session until the restart's recovery pass has listed the sessions it rebuilds, work that names no session (a project, a folder, a worktree) until the pass ends, or everything while the store is unavailable (`daemon.write_refused`), or by one session the pass is still rebuilding or whose history is damaged (`session.write_refused`) while the others keep working
 - Scope and blast radius: one machine, its local sessions, and any runs on it
 
 ## Detection
