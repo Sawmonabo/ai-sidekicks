@@ -400,38 +400,44 @@ async function scrollOnce(
     const cdpSession = await appUnderTest.application.context().newCDPSession(appUnderTest.window);
     await startTraceRecording(cdpSession, SCROLL_TRACE_CATEGORIES);
     const samplingEnd = sampleFrameTimings(appUnderTest, 0).then(() => performance.now());
-    await waitForDeliveredBeats(appUnderTest, FOUR_LANE_BEAT_COUNT);
-    const beatsAtGestureStart = await readDeliveredBeatCount(appUnderTest);
-    if (gesture === "fling") {
-      const waitForScrollEnd = await armScrollEnd(appUnderTest, scroller);
-      await cdpSession.send("Input.synthesizeScrollGesture", {
-        x: pointer.x,
-        y: pointer.y,
-        yDistance: -direction * Math.round(geometry.range * FLING_DRAG_SHARE_OF_RANGE),
-        speed: FLING_SPEED_PX_PER_SECOND,
-        // A synthesized drag stops dead at its last move unless it is let fling.
-        preventFling: false,
-        gestureSourceType: "touch",
-      });
-      await waitForScrollEnd();
-    } else {
-      const travel = direction === 1 ? geometry.range - geometry.offset : geometry.offset;
-      const notchCount = Math.max(
-        1,
-        Math.min(MAX_WHEEL_NOTCH_COUNT, Math.floor(travel / WHEEL_NOTCH_PX)),
-      );
-      await wheelNotches(appUnderTest, scroller, direction, notchCount);
+    // The sampler settles before the window closes on every path, so a failure in the body
+    // reaches the reader alone rather than beside the sampler losing its page.
+    try {
+      await waitForDeliveredBeats(appUnderTest, FOUR_LANE_BEAT_COUNT);
+      const beatsAtGestureStart = await readDeliveredBeatCount(appUnderTest);
+      if (gesture === "fling") {
+        const waitForScrollEnd = await armScrollEnd(appUnderTest, scroller);
+        await cdpSession.send("Input.synthesizeScrollGesture", {
+          x: pointer.x,
+          y: pointer.y,
+          yDistance: -direction * Math.round(geometry.range * FLING_DRAG_SHARE_OF_RANGE),
+          speed: FLING_SPEED_PX_PER_SECOND,
+          // A synthesized drag stops dead at its last move unless it is let fling.
+          preventFling: false,
+          gestureSourceType: "touch",
+        });
+        await waitForScrollEnd();
+      } else {
+        const travel = direction === 1 ? geometry.range - geometry.offset : geometry.offset;
+        const notchCount = Math.max(
+          1,
+          Math.min(MAX_WHEEL_NOTCH_COUNT, Math.floor(travel / WHEEL_NOTCH_PX)),
+        );
+        await wheelNotches(appUnderTest, scroller, direction, notchCount);
+      }
+      const beatsAtGestureEnd = await readDeliveredBeatCount(appUnderTest);
+      const gestureEndedAtMs = performance.now();
+      const reading = readScrollTrace(await endTraceRecording(cdpSession));
+      const samplingEndedAtMs = await samplingEnd;
+      return {
+        reading,
+        beatsAtGestureStart,
+        beatsAtGestureEnd,
+        didSamplingOutlastGesture: samplingEndedAtMs > gestureEndedAtMs,
+      };
+    } finally {
+      await Promise.allSettled([samplingEnd]);
     }
-    const beatsAtGestureEnd = await readDeliveredBeatCount(appUnderTest);
-    const gestureEndedAtMs = performance.now();
-    const reading = readScrollTrace(await endTraceRecording(cdpSession));
-    const samplingEndedAtMs = await samplingEnd;
-    return {
-      reading,
-      beatsAtGestureStart,
-      beatsAtGestureEnd,
-      didSamplingOutlastGesture: samplingEndedAtMs > gestureEndedAtMs,
-    };
   });
 }
 
