@@ -13,6 +13,7 @@ import {
   readSelectedPart,
 } from "#renderer/features/transcript/copy/conversation-selection.js";
 import { MARKDOWN_TABLE_ROW_INDEX_ATTRIBUTE } from "#renderer/features/transcript/rows/markdown/block-window/markers.js";
+import { READING_LINE_HEIGHT } from "#renderer/styles/typography.js";
 import {
   benchRow,
   benchTable,
@@ -164,12 +165,16 @@ describe("browser — a long table drawn as a window over its rows", () => {
     // A page in quirks mode, as a window opened on `about:blank` is, sets a table's to `normal`;
     // a table of its own, so no geometry remembered from the case above is taken.
     { rowCount: 301, lineHeight: "normal" },
+    // A reply's own line height, whose lines fall between the layout's 1/64 px steps, so an undrawn
+    // row estimated from anything but laid-out lines drifts from the whole table row by row; a
+    // table of its own too.
+    { rowCount: 302, lineHeight: "reading" },
   ] as const)(
     "lays out $rowCount rows, line height $lineHeight, at the whole table's column widths and row heights, wherever the window stands",
     async ({ rowCount, lineHeight }) => {
-      if (lineHeight === "normal") {
+      if (lineHeight !== "inherited") {
         const style = document.createElement("style");
-        style.textContent = ".meridian-markdown__table { line-height: normal; }";
+        style.textContent = `.meridian-markdown__table { line-height: ${lineHeight === "normal" ? "normal" : String(READING_LINE_HEIGHT)}; }`;
         document.head.append(style);
         onTestFinished(() => {
           style.remove();
