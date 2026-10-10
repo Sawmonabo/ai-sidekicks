@@ -32,6 +32,7 @@ import {
 import { type ViewportSelectionTracker } from "../selection/tracker.js";
 import { type ViewportConditions, type ViewportSnapshot } from "../snapshot.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
+import { type JumpToLogEnd } from "../conversation-edge-jump.js";
 import { type WindowSide } from "../window-cap.js";
 import { useObserveDisplaySettings } from "./useObserveDisplaySettings.js";
 
@@ -151,6 +152,11 @@ export interface UseTranscriptViewportOptions extends ViewportConditions {
    * called, so a new function does not mint a new controller.
    */
   readonly readBeyondLogEdge?: ((side: WindowSide) => boolean) | undefined;
+  /**
+   * Reads the page at an end of the conversation for a jump there; see `ViewportControllerOptions`.
+   * Read when called, so a new function does not mint a new controller.
+   */
+  readonly jumpToLogEnd?: JumpToLogEnd | undefined;
   /**
    * Whether a listed row draws whole if mounted now, which rows the feed holds out of the list and
    * where they join it, and hearing a row's work land; see `ViewportControllerOptions`. Read when
@@ -465,6 +471,7 @@ function mintViewportController(
   options: Omit<
     ViewportControllerOptions,
     | "readBeyondLogEdge"
+    | "jumpToLogEnd"
     | "isRowPrepared"
     | "isRowHeldOut"
     | "holdsRowAfter"
@@ -476,6 +483,8 @@ function mintViewportController(
   return new ViewportController({
     ...options,
     readBeyondLogEdge: (side) => latestOptions.current.readBeyondLogEdge?.(side) ?? false,
+    jumpToLogEnd: (side, beforePageLands) =>
+      latestOptions.current.jumpToLogEnd?.(side, beforePageLands) ?? false,
     isRowPrepared: (rowKey) => latestOptions.current.isRowPrepared?.(rowKey) ?? true,
     isRowHeldOut: (rowKey) => latestOptions.current.isRowHeldOut?.(rowKey) ?? false,
     holdsRowAfter: (rowKey) => latestOptions.current.holdsRowAfter?.(rowKey) ?? false,

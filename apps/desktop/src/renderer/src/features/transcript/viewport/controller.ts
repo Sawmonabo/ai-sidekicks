@@ -27,6 +27,7 @@ import { ViewportLanding } from "./landing.js";
 import { ViewportPruneCycle } from "./prune-cycle.js";
 import { ViewportPublication } from "./publication.js";
 import { ViewportReaderInput } from "./reader-input.js";
+import { rowKeyOf } from "./selection/record.js";
 import { ViewportSelectionTracker } from "./selection/tracker.js";
 import {
   shouldCompensateForInsertion,
@@ -36,6 +37,7 @@ import {
   type ViewportRow,
   type ViewportSnapshot,
 } from "./snapshot.js";
+import { ConversationEdgeJump, type JumpToLogEnd } from "./conversation-edge-jump.js";
 import { ViewportTailFollow } from "./tail-follow.js";
 import { VirtualizerOptions, type TranscriptRowVirtualizer } from "./virtualizer-options.js";
 import { TranscriptWindow, type WindowSide } from "./window-cap.js";
@@ -65,6 +67,11 @@ export interface ViewportControllerOptions {
    * given none reads nothing past the log.
    */
   readonly readBeyondLogEdge?: ((side: WindowSide) => boolean) | undefined;
+  /**
+   * Reads the page at an end of the conversation in place of the log when the log does not reach
+   * it, for a jump there; a frame given none jumps within its log.
+   */
+  readonly jumpToLogEnd?: JumpToLogEnd | undefined;
   /**
    * Whether a row the feed lists draws whole if mounted now, which a landing waits on for every
    * row it will show. A frame given none lands at once.
@@ -116,6 +123,8 @@ export class ViewportController {
   readonly #drawnBand: ViewportDrawnBand;
   /** A follower landed on the tail again when something other than the reader moved it off. */
   readonly #tailFollow: ViewportTailFollow;
+  /** Home, End, the tail pill and the palette's jump, reading an end the log lacks first. */
+  readonly #edgeJump: ConversationEdgeJump;
   readonly #teardown: Unsubscribe[] = [];
 
   #virtualizer: TranscriptRowVirtualizer | undefined;
@@ -181,13 +190,17 @@ export class ViewportController {
       virtualizerOptions: this.virtualizerOptions,
       virtualizer: () => this.#virtualizer,
     });
+    this.#edgeJump = new ConversationEdgeJump({
+      jumpToLogEnd: options.jumpToLogEnd,
+      landOnLogEdge: (side) => {
+        this.#landOnLogEdge(side);
+      },
+    });
     this.selection = new ViewportSelectionTracker({
       holdSelectedRows: (rowKeys) => {
         this.#holdSelectedRows(rowKeys);
       },
       logPositionOf: (rowKey) => this.rowWindow.logPositionOf(rowKey),
-      logEdgeRowKey: (side) =>
-        side === "head" ? this.rowWindow.logHeadRowKey : this.rowWindow.logTailRowKey,
       drawRow: (rowKey) => {
         this.landing.landOnRow(rowKey, "row-reveal");
       },
@@ -265,11 +278,11 @@ export class ViewportController {
           this.#drawnBand.widenFully();
         }
       },
-      selectWholeLog: () => {
-        this.selection.selectWholeLog();
+      selectWholeConversation: () => {
+        this.selection.selectWholeConversation();
       },
       jumpToHead: () => {
-        this.#jumpToHead();
+        this.#edgeJump.jump("head");
       },
       jumpToTail: () => {
         this.jumpToTail();
@@ -423,8 +436,12 @@ export class ViewportController {
    */
   public reconcile(conditions: ViewportConditions): void {
     this.#runPass(conditions, { admitSide: undefined, isRender: true });
-    // A new log may hold the rows a waiting landing's screen was missing.
+    // A new log may hold the rows a waiting landing's screen was missing, or a jump's page.
     this.landing.retryWaiting();
+    const owedJump = this.#edgeJump.takeOwedLanding();
+    if (owedJump !== undefined) {
+      this.#landOnLogEdge(owedJump);
+    }
   }
 
   /**
@@ -546,34 +563,27 @@ export class ViewportController {
   }
 
   /**
-   * The tail pill, the palette's jump and End, once the tail's screen draws whole: following
-   * resumes, the window takes the tail back if it had let it go, and the library lands on the last
-   * row, re-aiming as the rows near it measure and as the rows the pass brought in render.
+   * The tail pill, the palette's jump and End: lands on the conversation's last row, its newest
+   * page read in place of the log first where the log does not reach it.
    */
   public jumpToTail(): void {
-    const jump = (): void => {
-      this.anchor.resumeFollowing();
-      this.#drawnBand.narrow();
-      const conditions = this.#pruneCycle.lastConditions;
-      if (conditions !== undefined) {
-        this.#runPass(conditions, OWN_PASS);
-      }
-      this.#tailFollow.scrollToTail("jump-to-tail");
-    };
-    const tailRowKey = this.rowWindow.logTailRowKey;
-    if (tailRowKey === undefined) {
-      jump();
-    } else {
-      this.landing.landOncePrepared(tailRowKey, "end", jump);
-    }
+    this.#edgeJump.jump("tail");
   }
 
-  /** The keys of the rows the reader's selection runs across, in log order; empty without one. */
+  /**
+   * The keys of the rows the log holds of the reader's selection, in log order; an end of the
+   * conversation reaches the log's edge row on its side. Empty without a selection.
+   */
   public selectedRowKeys(): readonly string[] {
     const selection = this.selection.selection;
-    return selection === undefined
+    if (selection === undefined) {
+      return [];
+    }
+    const startRowKey = rowKeyOf(selection.start) ?? this.rowWindow.logHeadRowKey;
+    const endRowKey = rowKeyOf(selection.end) ?? this.rowWindow.logTailRowKey;
+    return startRowKey === undefined || endRowKey === undefined
       ? []
-      : this.rowWindow.logRowKeysBetween(selection.start.rowKey, selection.end.rowKey);
+      : this.rowWindow.logRowKeysBetween(startRowKey, endRowKey);
   }
 
   /**
@@ -603,8 +613,40 @@ export class ViewportController {
     this.#publication.dispose();
     this.scroll.dispose();
     this.anchor.dispose();
+    this.#edgeJump.dispose();
     this.#virtualizer = undefined;
     this.#disposed = true;
+  }
+
+  /**
+   * Lands on the log's first row at the top of the viewport, admitted first if it was let go; or,
+   * once the tail's screen draws whole, following resumes, the window takes the tail back if it
+   * had let it go, and the library lands on the last row, re-aiming as the rows near it measure
+   * and as the rows the pass brought in render.
+   */
+  #landOnLogEdge(side: WindowSide): void {
+    if (side === "head") {
+      const headRowKey = this.rowWindow.logHeadRowKey;
+      if (headRowKey !== undefined) {
+        this.landing.landOnRow(headRowKey, "jump-to-head");
+      }
+      return;
+    }
+    const jump = (): void => {
+      this.anchor.resumeFollowing();
+      this.#drawnBand.narrow();
+      const conditions = this.#pruneCycle.lastConditions;
+      if (conditions !== undefined) {
+        this.#runPass(conditions, OWN_PASS);
+      }
+      this.#tailFollow.scrollToTail("jump-to-tail");
+    };
+    const tailRowKey = this.rowWindow.logTailRowKey;
+    if (tailRowKey === undefined) {
+      jump();
+    } else {
+      this.landing.landOncePrepared(tailRowKey, "end", jump);
+    }
   }
 
   /**
@@ -747,14 +789,6 @@ export class ViewportController {
       const index = this.#indexOfRowKey(rowKey);
       return index === undefined ? [] : [index];
     });
-  }
-
-  /** Home: the log's first row at the top of the viewport, admitted first if it was let go. */
-  #jumpToHead(): void {
-    const headRowKey = this.rowWindow.logHeadRowKey;
-    if (headRowKey !== undefined) {
-      this.landing.landOnRow(headRowKey, "jump-to-head");
-    }
   }
 
   /**

@@ -17,7 +17,12 @@ import {
 } from "../../helpers/system-keys.js";
 
 import { resolveTextPosition } from "#renderer/features/transcript/viewport/selection/preservation.js";
-import type { RowSelectionBoundary } from "#renderer/features/transcript/viewport/selection/record.js";
+import {
+  CONVERSATION_END,
+  CONVERSATION_START,
+  rowKeyOf,
+  type RowSelectionBoundary,
+} from "#renderer/features/transcript/viewport/selection/record.js";
 import { ViewportSelectionTracker } from "#renderer/features/transcript/viewport/selection/tracker.js";
 
 const ROW_COUNT = 14;
@@ -56,7 +61,6 @@ function mountTrackedRows(drawRow: (rowKey: string) => void = () => {}): Tracked
   const tracker = new ViewportSelectionTracker({
     holdSelectedRows: () => {},
     logPositionOf: (rowKey) => rowKeys.indexOf(rowKey),
-    logEdgeRowKey: (side) => (side === "head" ? rowKeys[0] : rowKeys.at(-1)),
     drawRow,
   });
   tracker.attach(scrollContainer);
@@ -108,7 +112,7 @@ async function settle(): Promise<void> {
 
 /** A boundary `characterOffset` characters into a row with no windowed element. */
 function boundaryAt(index: number, characterOffset: number): RowSelectionBoundary {
-  return { rowKey: `row-${String(index)}`, position: { path: [], characterOffset } };
+  return { at: "row", rowKey: `row-${String(index)}`, position: { path: [], characterOffset } };
 }
 
 afterEach(() => {
@@ -194,9 +198,9 @@ describe("ViewportSelectionTracker — a clamped selection in the browser", () =
       await settle();
       const nativeSelection = native.tracker.selection ?? expect.fail("the step selected");
       expect(nativeSelection.end).not.toStrictEqual(boundaryAt(2, 3));
-      expect(nativeSelection.end.rowKey === "row-2" ? "stays in its row" : "leaves its row").toBe(
-        rowMove,
-      );
+      expect(
+        rowKeyOf(nativeSelection.end) === "row-2" ? "stays in its row" : "leaves its row",
+      ).toBe(rowMove);
       native.tracker.detach();
       document.getSelection()?.removeAllRanges();
       document.body.replaceChildren();
@@ -277,11 +281,8 @@ describe("ViewportSelectionTracker — a selection settling under real keys", ()
     await pressKey(SELECT_ALL);
     await settle();
 
-    // The whole log, its head row to its tail row, each whole.
-    expect(tracker.selection).toStrictEqual({
-      start: { rowKey: "row-0", position: undefined },
-      end: { rowKey: `row-${String(ROW_COUNT - 1)}`, position: undefined },
-    });
+    // The whole conversation, its start to its end.
+    expect(tracker.selection).toStrictEqual({ start: CONVERSATION_START, end: CONVERSATION_END });
     expect(settledCount).toBe(1);
   });
 });

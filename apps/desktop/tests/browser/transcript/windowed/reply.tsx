@@ -85,7 +85,6 @@ export async function mountBodies(
   const tracker = new ViewportSelectionTracker({
     holdSelectedRows: () => {},
     logPositionOf: (rowKey) => (rowKey === REPLY_ROW_KEY ? 0 : undefined),
-    logEdgeRowKey: () => REPLY_ROW_KEY,
     drawRow: () => {},
   });
   const viewport = suiteWindowViewport(scrollController, {
