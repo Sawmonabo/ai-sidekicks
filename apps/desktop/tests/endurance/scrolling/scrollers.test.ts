@@ -37,7 +37,7 @@ import { openPalette } from "../../helpers/palette-interaction.js";
 import { IN_WINDOW_STEP_TIMEOUT_MS } from "../../helpers/launch/body.js";
 import { percentileByNearestRank } from "../../helpers/sample-statistics.js";
 import { MEASURED_RUN_COUNT, measureLaunches, sampleFrameTimings } from "../frame-sampling.js";
-import { RUNNER_CLASS_DESCRIPTION, isPinnedRunnerClass } from "../pinned-runner-class.js";
+import { RUNNER_CLASS_DESCRIPTION, gateOnPinnedRunner } from "../pinned-runner-class.js";
 import { findStreamingStretch, peakConcurrentStreamingRuns } from "../streaming-lanes.js";
 import { endTraceRecording, startTraceRecording } from "../trace/recording.js";
 import {
@@ -273,36 +273,31 @@ describe.skipIf(!bundleIsBuilt)(
             `ms — ${RUNNER_CLASS_DESCRIPTION}\n`,
         );
 
-        // Not a timing: whether the compositor finds a scroller depends on how it is painted, on
-        // every machine.
+        // Not timings: whether the compositor finds a scroller depends on how it is painted, and
+        // whether a moving update reached a presented frame on how frames are produced, on every
+        // machine.
         expect(
           mainThreadHitTests,
           `${frameGapBudget.label}: gestures on ${host.name} whose scroller the compositor could ` +
             "not find on its own, so each waited for the main thread before it moved",
         ).toStrictEqual([]);
-        if (!isPinnedRunnerClass) {
-          // Not a skip: the instrument ran and the figures are printed. Only the timed
-          // comparisons are withheld, because frame cost off the pinned class describes that
-          // machine.
-          return;
-        }
-        expect(
-          frameGapVerdict.withinBudget,
-          `${frameGapBudget.label}: ${host.name}'s fling presented frames ` +
-            `${String(flingGapP95)} refreshes apart at the 95th percentile, against a ` +
-            `${String(frameGapBudget.limit.canonicalValue)} refresh ceiling`,
-        ).toBe(true);
-        expect(
-          inputVerdict.withinBudget,
-          `${inputToFrameBudget.label}: ${slowestInputToSubmit.update} waited ` +
-            `${slowestInputToSubmit.refreshes.toFixed(2)} refreshes from its input reaching ` +
-            `the window to its frame's submit, against a ` +
-            `${String(inputToFrameBudget.limit.canonicalValue)} refresh ceiling`,
-        ).toBe(true);
         expect(
           undrawnUpdates,
           `${host.name}: scroll updates that moved the content and no presented frame drew`,
         ).toStrictEqual([]);
+        gateOnPinnedRunner(
+          frameGapVerdict,
+          `${frameGapBudget.label}: ${host.name}'s fling presented frames ` +
+            `${String(flingGapP95)} refreshes apart at the 95th percentile, against a ` +
+            `${String(frameGapBudget.limit.canonicalValue)} refresh ceiling`,
+        );
+        gateOnPinnedRunner(
+          inputVerdict,
+          `${inputToFrameBudget.label}: ${slowestInputToSubmit.update} waited ` +
+            `${slowestInputToSubmit.refreshes.toFixed(2)} refreshes from its input reaching ` +
+            `the window to its frame's submit, against a ` +
+            `${String(inputToFrameBudget.limit.canonicalValue)} refresh ceiling`,
+        );
       });
     }
 

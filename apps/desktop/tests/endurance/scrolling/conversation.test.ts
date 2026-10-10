@@ -42,7 +42,7 @@ import { fixtureBundleExists } from "../../helpers/fixture/bundle.js";
 import { IN_WINDOW_STEP_TIMEOUT_MS } from "../../helpers/launch/body.js";
 import { medianOf, percentileByNearestRank } from "../../helpers/sample-statistics.js";
 import { measureLaunches } from "../frame-sampling.js";
-import { RUNNER_CLASS_DESCRIPTION, isPinnedRunnerClass } from "../pinned-runner-class.js";
+import { RUNNER_CLASS_DESCRIPTION, gateOnPinnedRunner } from "../pinned-runner-class.js";
 import { findStreamingStretch } from "../streaming-lanes.js";
 import { endTraceRecording, startTraceRecording } from "../trace/recording.js";
 import {
@@ -547,16 +547,4 @@ function reportFirstLaunch(load: ConversationLoad, run: ConversationRun): void {
       `${firstMovedFrameExcessMs(run).toFixed(2)} ms over the plain page's ` +
       `(${describeFirstMovedFrames(run)}) — ${RUNNER_CLASS_DESCRIPTION}\n`,
   );
-}
-
-/**
- * Compares a timed reading on the pinned runner class only. Not a skip elsewhere: the instrument
- * ran and the figure is printed; only the comparison is withheld, since frame cost off the pinned
- * class describes that machine.
- */
-function gateOnPinnedRunner(verdict: BudgetVerdict, failure: string): void {
-  if (!isPinnedRunnerClass) {
-    return;
-  }
-  expect(verdict.withinBudget, failure).toBe(true);
 }
