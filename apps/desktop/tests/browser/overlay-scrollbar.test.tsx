@@ -55,10 +55,14 @@ import {
 import { RAIL_DESTINATIONS } from "#renderer/routing/readers.js";
 import { SETTINGS_PAGE_IDS } from "#renderer/routing/settings-page-ids.js";
 import { formatRoute } from "#renderer/routing/routes.js";
-import { nextFrame } from "../helpers/animation-frame.js";
+import {
+  changeLayout,
+  letFramesPassUntil,
+  letFramesPassUntilStill,
+  nextFrame,
+} from "../helpers/animation-frame.js";
 import { liveBridgeWrapper } from "../helpers/app/frame-fixtures.js";
 import { renderAppSettled } from "../helpers/app/harness.js";
-import { changeLayout } from "../helpers/animation-frame.js";
 import { advanceScenarioUntil } from "../helpers/scenario/manual-clock.js";
 import { untilInsideAct } from "../helpers/settle.js";
 
@@ -70,6 +74,9 @@ const SHORT_WINDOW = { width: 1024, height: 360 };
 
 /** The conversation's scroller, the one that draws no bar at all. */
 const CONVERSATION_SCROLLER = ".meridian-transcript-viewport__scroll-container";
+
+/** A row of the conversation, laid out while the conversation is still hidden. */
+const CONVERSATION_ROW = `${CONVERSATION_SCROLLER} .meridian-transcript-viewport__row`;
 
 /** The terminal's own emulator, which draws its own bar inside the terminal. */
 const TERMINAL_EMULATOR = ".xterm";
@@ -104,6 +111,15 @@ const BUSY_TASK_MS = 20;
 
 /** Past the idle start's deadline, with room for a busy window's task in front of it. */
 const BUSY_WINDOW_START_TIMEOUT_MS = 3000;
+
+/**
+ * The most frames the conversation's faces may take to load before the wait gives up: five
+ * seconds of frames at 60 a second, a ceiling rather than a wait.
+ */
+const FACES_LOAD_FRAME_LIMIT = 300;
+
+/** The frames the conversation holds still for once its rows are measured in their faces. */
+const CONVERSATION_STILL_FRAME_COUNT = 3;
 
 /** How long a bar may take to start: the library's load plus its window's idle time. */
 const OVERLAY_START_TIMEOUT_MS = 5000;
@@ -326,18 +342,22 @@ describe("the overlay scrollbar", () => {
   it("draws no bar on the conversation", async () => {
     document.location.hash = SESSION_ROUTE;
     const appWindow = await renderAppSettled(TRANSCRIPT_STATES_SCENARIO_ID);
-    // The conversation is hidden until the scenario's log is read on its clock.
+    // The conversation's rows are read from the scenario's log on its clock. They are shown once
+    // their faces load and then measured in them, both in real time, so frames pass outside `act`
+    // until it is shown and holds still, so no measurement lands after the height set below.
     await advanceScenarioUntil(runningScenario(), () => {
-      const shownConversation = appWindow.document.querySelector(CONVERSATION_SCROLLER);
-      expect(shownConversation).not.toBeNull();
-      expect(shownConversation === null ? "" : getComputedStyle(shownConversation).visibility).toBe(
-        "visible",
-      );
+      expect(appWindow.document.querySelector(CONVERSATION_ROW)).not.toBeNull();
     });
     const conversation = appWindow.document.querySelector<HTMLElement>(CONVERSATION_SCROLLER);
     if (conversation === null) {
       throw new Error("the session screen drew no conversation");
     }
+    await letFramesPassUntil(
+      () => getComputedStyle(conversation).visibility === "visible",
+      FACES_LOAD_FRAME_LIMIT,
+      "the conversation was not shown once its faces loaded",
+    );
+    await letFramesPassUntilStill(conversation, CONVERSATION_STILL_FRAME_COUNT);
     // The log's height is set from outside, as the virtualizer sets it, to make the conversation
     // hold more than it shows.
     const sizer = conversation.querySelector<HTMLElement>(".meridian-transcript-viewport__sizer");
