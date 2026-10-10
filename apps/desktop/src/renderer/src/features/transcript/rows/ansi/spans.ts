@@ -12,14 +12,6 @@ import { type PublishedText } from "../../reveal/published-text.js";
 import { withoutResidualEscapes } from "./escape-sequences.js";
 
 /**
- * ANSI chunks one command-output body renders before the rest is folded away. `anser` yields
- * one entry per style run, so the cap is on the mapped spans, which become DOM nodes. It is
- * the first render's cap, not a ceiling: `AnsiOutput` offers a control that re-parses the
- * text under a cap admitting every run, because reopening re-parses the same capped sequence.
- */
-export const ANSI_SPAN_RENDER_CAP = 4096;
-
-/**
  * One parsed run, derived from `ansiToJson`'s return type: `anser` publishes `export = Anser`,
  * whose namespace half is not reliably in scope through a default import under
  * `verbatimModuleSyntax`.
@@ -88,21 +80,10 @@ export interface AnsiSpan {
   readonly decorations: readonly AnsiDecoration[];
 }
 
-/** What one parse produced, and what it had to leave out. */
-export interface AnsiSpanSequence {
-  readonly spans: readonly AnsiSpan[];
-  /**
-   * How many further spans the source held past the cap, so a truncated render is not mistaken
-   * for a tool that stopped printing. It counts only runs that would have become spans: the
-   * empty entries anser emits around a bare escape are skipped, not counted.
-   */
-  readonly elidedSpanCount: number;
-}
-
 /**
  * Parses one command output into styled spans as it grows, reading only the text past what it
- * already parsed. The result is the same as one parse of the whole text: the same spans, classes,
- * text and counts. Up to `spanCap` spans are built; the rest are counted, not built.
+ * already parsed. The result is the same as one parse of the whole text: the same spans, classes
+ * and text.
  *
  * The parsed part always ends where an `ESC [` begins. `anser` splits its input there, and every
  * run between two of them is one entry, so a cut anywhere else would split one run into two
@@ -112,64 +93,54 @@ export interface AnsiSpanSequence {
  * it is parsed again on each revision, from a copy of that instance's state.
  */
 export class AnsiSpanParser {
-  /** The spans of the parsed part, up to the cap. */
+  /** The spans of the parsed part. */
   readonly #parsedSpans: AnsiSpan[] = [];
   /** The `anser` instance standing where the parsed part ends, its style state carried. */
   #anser = new Anser();
-  #parsedElidedSpanCount = 0;
   #parsed: ParsedText | undefined;
-  #spanCap = ANSI_SPAN_RENDER_CAP;
 
   /**
    * The spans of `text` as it stands. The parsed part is kept while `text` is the handle last read
-   * and still begins with it and the `ESC [` after it; a different handle, a rewrite below that or
-   * a different cap parses from the start.
+   * and still begins with it and the `ESC [` after it; a different handle or a rewrite below that
+   * parses from the start.
    */
-  public read(text: PublishedText, spanCap: number = ANSI_SPAN_RENDER_CAP): AnsiSpanSequence {
-    if (!this.#continues(text, spanCap)) {
-      this.#reset(spanCap);
+  public read(text: PublishedText): readonly AnsiSpan[] {
+    if (!this.#continues(text)) {
+      this.#reset();
     }
     const parsedLength = this.#parsed?.length ?? 0;
     const unparsed = text.slice(parsedLength);
     // With no `ESC [` past its first character, the unparsed text is one run and none of it final.
     const runStart = Math.max(0, unparsed.lastIndexOf(CONTROL_SEQUENCE_INTRODUCER));
     if (runStart > 0) {
-      this.#parsedElidedSpanCount += appendSpans(
+      appendSpans(
         this.#anser.ansiToJson(unparsed.slice(0, runStart), anserOptions()),
         this.#parsedSpans,
-        this.#spanCap,
       );
     }
     this.#parsed = { text, revision: text.revision, length: parsedLength + runStart };
 
     const spans = [...this.#parsedSpans];
-    const lastRunElidedSpanCount = appendSpans(
-      copyOf(this.#anser).ansiToJson(unparsed.slice(runStart), anserOptions()),
-      spans,
-      this.#spanCap,
-    );
-    return { spans, elidedSpanCount: this.#parsedElidedSpanCount + lastRunElidedSpanCount };
+    appendSpans(copyOf(this.#anser).ansiToJson(unparsed.slice(runStart), anserOptions()), spans);
+    return spans;
   }
 
-  /** Whether the parsed part still stands for `text` under `spanCap`. */
-  #continues(text: PublishedText, spanCap: number): boolean {
+  /** Whether the parsed part still stands for `text`. */
+  #continues(text: PublishedText): boolean {
     const parsed = this.#parsed;
     return (
       parsed !== undefined &&
       parsed.text === text &&
-      spanCap === this.#spanCap &&
       // The `ESC [` the parsed part ends before must stand too: the next part is parsed as
       // starting with it, so a rewrite of those two characters alone still parses from the start.
       text.keepsPrefix(parsed.revision, parsed.length + CONTROL_SEQUENCE_INTRODUCER.length)
     );
   }
 
-  #reset(spanCap: number): void {
+  #reset(): void {
     this.#anser = new Anser();
     this.#parsedSpans.length = 0;
-    this.#parsedElidedSpanCount = 0;
     this.#parsed = undefined;
-    this.#spanCap = spanCap;
   }
 }
 
@@ -356,29 +327,16 @@ function anserOptions(): { json: true; use_classes: true; remove_empty: true } {
   return { json: true, use_classes: true, remove_empty: true };
 }
 
-/**
- * Appends the spans of `entries` to `spans` until it holds `spanCap`, and returns how many more
- * there were. Only runs that would become spans are counted: an empty entry is skipped.
- */
-function appendSpans(
-  entries: readonly AnserJsonEntry[],
-  spans: AnsiSpan[],
-  spanCap: number,
-): number {
-  let elidedSpanCount = 0;
+/** Appends the spans of `entries` to `spans`, skipping the empty entries. */
+function appendSpans(entries: readonly AnserJsonEntry[], spans: AnsiSpan[]): void {
   for (const entry of entries) {
     if (entry.content === "") {
-      continue;
-    }
-    if (spans.length >= spanCap) {
-      elidedSpanCount += 1;
       continue;
     }
     const span = toSpan(entry);
     // Anser leaves OSC and two-byte escapes inside a chunk; strip them before they become text.
     spans.push({ ...span, text: withoutResidualEscapes(span.text) });
   }
-  return elidedSpanCount;
 }
 
 /**

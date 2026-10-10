@@ -1,0 +1,25 @@
+/* A call's output cut at a share of the visible flow (`OutputHeightCut`). */
+
+/* The box across the body's width, and `Show full output` under it once the cut is in force. */
+.meridian-output-cut {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  min-width: 0;
+}
+
+/*
+ * The cut is whole lines of the box's own type: the flow's share rounded down to its line height,
+ * so a text size step moves the cut with the lines. Content-box, so the box's padding and edge are
+ * drawn around whole lines rather than taken out of them.
+ */
+.meridian-output-cut__body--cut {
+  box-sizing: content-box;
+  max-height: round(down, var(--meridian-output-cut-height), 1lh);
+  overflow: hidden;
+}
+
+/* A block, so its whole height is measured while the box stops at the cut. */
+.meridian-output-cut__content {
+  display: block;
+}
