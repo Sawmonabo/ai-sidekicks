@@ -93,7 +93,7 @@ describe("a selection across more of the log than the window keeps", () => {
 
       scroller.focus();
       await act(() => userEvent.keyboard("{Home}"));
-      await endGesture();
+      await endGesture(scroller);
       noteDrawnRows();
       const startRow = drawnRow(START_ROW_POSITION);
       const startText = nameTextOf(startRow);
@@ -149,7 +149,7 @@ describe("a selection across more of the log than the window keeps", () => {
       const stepsBeforeLetGo = Math.ceil((screensBeforeLetGo * FEED_HEIGHT_PX) / WHEEL_STEP_PX);
       for (let step = 0; step < stepsBeforeLetGo; step += 1) {
         await userEvent.wheel(scroller, { delta: { y: WHEEL_STEP_PX } });
-        await endGesture();
+        await endGesture(scroller);
         noteDrawnRows();
         dragEndToScreenBottom();
         await settleFrames();
@@ -181,7 +181,7 @@ describe("a selection across more of the log than the window keeps", () => {
       const stepsPastLetGo = Math.ceil(FEED_HEIGHT_PX / WHEEL_STEP_PX);
       for (let step = 0; step < stepsPastLetGo; step += 1) {
         await userEvent.wheel(scroller, { delta: { y: WHEEL_STEP_PX } });
-        await endGesture();
+        await endGesture(scroller);
       }
       expect(drawnRows().has(START_ROW_POSITION)).toBe(false);
       expect(browserSelection.isCollapsed).toBe(false);
@@ -209,7 +209,7 @@ describe("a selection across more of the log than the window keeps", () => {
         step += 1
       ) {
         await userEvent.wheel(scroller, { delta: { y: -WHEEL_STEP_PX } });
-        await endGesture();
+        await endGesture(scroller);
       }
       isSampling = false;
       expect(wrongFrames).toStrictEqual([]);
@@ -220,7 +220,7 @@ describe("a selection across more of the log than the window keeps", () => {
 
       // At the tail, both end rows let go: the copy is still whole and the window still bounded.
       await act(() => userEvent.keyboard("{End}"));
-      await endGesture();
+      await endGesture(scroller);
       noteDrawnRows();
       expect(drawnRows().has(endPosition)).toBe(false);
       expect((await copyNow())?.text).toBe(wholeSelectionText());
@@ -261,7 +261,7 @@ describe("a selection across more of the log than the window keeps", () => {
       };
       // At the head, where the browser's own Select All would end in the last row drawn.
       await act(() => userEvent.keyboard("{Home}"));
-      await endGesture();
+      await endGesture(scroller);
       await selectAllThenClear(() =>
         act(() => userEvent.keyboard("{ControlOrMeta>}a{/ControlOrMeta}")),
       );
@@ -299,7 +299,7 @@ describe("a selection across more of the log than the window keeps", () => {
       // the row is let go. The composer stays selected where the reader's drag ended, and the copy
       // takes the rows from that row on, and still no page text.
       await act(() => userEvent.keyboard("{Home}"));
-      await endGesture();
+      await endGesture(scroller);
       const anchoredPosition = START_ROW_POSITION + 3;
       browserSelection.setBaseAndExtent(
         nameTextOf(drawnRow(anchoredPosition)),
@@ -313,7 +313,7 @@ describe("a selection across more of the log than the window keeps", () => {
       );
       for (let step = 0; step < stepsBeyondLetGo; step += 1) {
         await userEvent.wheel(scroller, { delta: { y: WHEEL_STEP_PX } });
-        await endGesture();
+        await endGesture(scroller);
       }
       expect(drawnRows().has(anchoredPosition)).toBe(false);
       const acrossEnd = browserSelection.getRangeAt(0);

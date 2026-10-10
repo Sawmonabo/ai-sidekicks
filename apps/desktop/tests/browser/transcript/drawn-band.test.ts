@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 import { userEvent } from "vitest/browser";
 
+import { letFramesPassUntil } from "../../helpers/animation-frame.js";
 import { RealClock, type Clock, type ScheduledHandle } from "#renderer/lib/clock.js";
 import {
   FEED_HEIGHT_PX,
@@ -33,6 +34,8 @@ const LONG_TURN_PX = FEED_HEIGHT_PX * 1.25;
 const TOUCH_FLING_PX = FEED_HEIGHT_PX * 3;
 /** A quick flick, whose momentum carries on long after the hand lets go, in pixels a second. */
 const QUICK_FLICK_SPEED = 8000;
+/** The frames a fling's control may take to land once its momentum has run out. */
+const CONTROL_FRAME_LIMIT = 120;
 /** The wheel gestures before the first take-back a case may start at, near the window's end. */
 const GESTURES_BEFORE_NEAR_END = 2;
 /** The wheel gestures before a take-back a case may start at, deep in the window's middle. */
@@ -226,7 +229,7 @@ async function wheelToTakeBack(scroller: HTMLElement, minimumGestureCount: numbe
   for (let gesture = 0; gesture < SCREEN_COUNT; gesture += 1) {
     const scrollHeightPx = scroller.scrollHeight;
     await userEvent.wheel(scroller, { delta: { y: -FEED_HEIGHT_PX } });
-    await endGesture();
+    await endGesture(scroller);
     if (gesture + 1 >= minimumGestureCount && scroller.scrollHeight > scrollHeightPx) {
       return;
     }
@@ -292,7 +295,7 @@ describe("a land draws the rows the reader ends on first", () => {
         isAfterLand = false;
         lands.forgetTakenDown();
         await userEvent.wheel(scroller, { delta: { y: -FEED_HEIGHT_PX } });
-        await endGesture();
+        await endGesture(scroller);
       }
       lands.stop();
       // The control: pages joined at the head, so a land was laid out.
@@ -315,7 +318,7 @@ describe("a land draws the rows the reader ends on first", () => {
       for (let turn = 0; turn < FLING_TURN_COUNT; turn += 1) {
         await userEvent.wheel(scroller, { delta: { y: -FLING_TURN_PX } });
       }
-      await endGesture();
+      await endGesture(scroller);
     });
     expect(unfilledFramesPx).toEqual([]);
   });
@@ -328,11 +331,11 @@ describe("a land draws the rows the reader ends on first", () => {
       await wheelToTakeBack(scroller, GESTURES_BEFORE_MIDDLE);
       // A turn toward the tail inside the band, so the reader moves that way with the band whole.
       await userEvent.wheel(scroller, { delta: { y: FEED_HEIGHT_PX / 2 } });
-      await endGesture();
+      await endGesture(scroller);
       const startScrollTopPx = scroller.scrollTop;
       const unfilledFramesPx = await unfilledFramesPxDuring(scroller, async () => {
         await userEvent.wheel(scroller, { delta: { y: LONG_TURN_PX } });
-        await endGesture();
+        await endGesture(scroller);
       });
       // The control: the turn moved the box toward the tail.
       expect(scroller.scrollTop).not.toBe(startScrollTopPx);
@@ -350,6 +353,11 @@ describe("a land draws the rows the reader ends on first", () => {
       await wheelToTakeBack(scroller, GESTURES_BEFORE_NEAR_END);
       const unfilledFramesPx = await unfilledFramesPxDuring(scroller, async () => {
         await touchFling(scroller, TOUCH_FLING_PX, QUICK_FLICK_SPEED);
+        await letFramesPassUntil(
+          () => scroller.scrollTop === 0,
+          CONTROL_FRAME_LIMIT,
+          "the fling never reached the head",
+        );
       });
       // The control: the fling reached the head, taking rows back on the way.
       expect(scroller.scrollTop).toBe(0);
@@ -366,6 +374,11 @@ describe("a land draws the rows the reader ends on first", () => {
       const startScrollHeightPx = scroller.scrollHeight;
       const unfilledFramesPx = await unfilledFramesPxDuring(scroller, async () => {
         await touchFling(scroller, -TOUCH_FLING_PX, FASTEST_FLICK_SPEED);
+        await letFramesPassUntil(
+          () => scroller.scrollHeight < startScrollHeightPx,
+          CONTROL_FRAME_LIMIT,
+          "the fling cut no rows from the head",
+        );
       });
       // The control: the fling cut rows from the head on its way, moving the offset under it.
       expect(scroller.scrollHeight).toBeLessThan(startScrollHeightPx);

@@ -11,7 +11,7 @@ import { CONTENT_LENGTH_PAYLOAD_KEY } from "@ai-sidekicks/contracts/event/declar
 import type { TranscriptReadRequest } from "@ai-sidekicks/contracts/transcript/operations";
 
 import type { TextClipboardContent } from "#shared/preload-api.js";
-import { letFramesPass } from "../../helpers/animation-frame.js";
+import { letFramesPassUntilStill } from "../../helpers/animation-frame.js";
 import { bridgeWrapper } from "../../helpers/app/frame-fixtures.js";
 import { renderSettled } from "../../helpers/app/harness.js";
 import { settleFrames } from "./windowed/reply.js";
@@ -60,8 +60,8 @@ const EVENTS_PER_RUN = CALLS_PER_RUN + 2;
 const TOOL_BODY_LENGTH = 64;
 /** Longer than the pause that ends one scroll gesture, so each wheel step admits on its own. */
 const GESTURE_PAUSE_MS = 200;
-/** The frames a gesture's scroll takes to be heard, re-rendered, measured and painted. */
-const GESTURE_SETTLE_FRAME_COUNT = 4;
+/** The frames the list holds still for once a gesture's scroll has been heard and drawn. */
+const GESTURE_STILL_FRAME_COUNT = 3;
 
 /** The log position a drawn tool row names, read from its tool name. */
 export function positionOfRow(row: Element): number | undefined {
@@ -71,17 +71,18 @@ export function positionOfRow(row: Element): number | undefined {
 }
 
 /**
- * Waits out one gesture, so the next scroll is a gesture of its own, with React rendering as it
- * does in the app rather than held until the wait ends.
+ * Waits out one gesture: until the list holds still, so whatever the scroll set off has landed,
+ * then the pause that ends a gesture, so the next scroll is a gesture of its own, and until it
+ * holds still again. React renders as it does in the app rather than held until the wait ends.
  */
-export async function endGesture(): Promise<void> {
-  await letFramesPass(GESTURE_SETTLE_FRAME_COUNT);
+export async function endGesture(scroller: HTMLElement): Promise<void> {
+  await letFramesPassUntilStill(scroller, GESTURE_STILL_FRAME_COUNT);
   await getConfig().asyncWrapper(async () => {
     await new Promise<void>((resolve) => {
       setTimeout(resolve, GESTURE_PAUSE_MS);
     });
   });
-  await letFramesPass(GESTURE_SETTLE_FRAME_COUNT);
+  await letFramesPassUntilStill(scroller, GESTURE_STILL_FRAME_COUNT);
 }
 
 /** The mounted feed and what the case reads back: the clipboard writes and the drawn rows. */
