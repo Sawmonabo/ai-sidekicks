@@ -1,0 +1,30 @@
+/* `FullOutputControl`: a line of accent words across the body's width, red once a read failed. */
+
+.meridian-full-output {
+  display: block;
+  inline-size: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--meridian-accent-text);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-xs);
+  text-align: start;
+  cursor: pointer;
+}
+
+.meridian-full-output:hover {
+  text-decoration: underline;
+}
+
+.meridian-full-output[data-reading="reading"] {
+  cursor: default;
+}
+
+.meridian-full-output[data-reading="reading"]:hover {
+  text-decoration: none;
+}
+
+.meridian-full-output[data-reading="refused"] {
+  color: var(--meridian-red-text);
+}

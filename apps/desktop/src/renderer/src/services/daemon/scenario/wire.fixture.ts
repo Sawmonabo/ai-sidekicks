@@ -1,11 +1,11 @@
 // The fixture daemon: the daemon calls and subscriptions a scripted scenario answers. A method the
 // scenario scripts no reply for rejects with a named error rather than resolving `undefined`, so a
-// screen is never trained to render an empty state where the live daemon would fail. The one read
-// the daemon derives from the log, `transcript.read`, is answered from the delivered log, as the
-// session stream is, unless the scenario scripts it, and the `session.read` record names the
-// delivered log's positions and standing events. A scenario's daemon always answers, so the status
-// topic reads connected from its first delivery, with the handshake a compatible service settles,
-// naming the scenario's own device.
+// screen is never trained to render an empty state where the live daemon would fail. The reads
+// the daemon derives from the log, `transcript.read` and `transcript.bodyRead`, are answered from
+// the delivered log, as the session stream is, unless the scenario scripts them, and the
+// `session.read` record names the delivered log's positions and standing events. A scenario's
+// daemon always answers, so the status topic reads connected from its first delivery, with the
+// handshake a compatible service settles, naming the scenario's own device.
 
 import type {
   DaemonMethod,
@@ -26,10 +26,18 @@ import type {
 import type { ScenarioEngine } from "../engine.fixture.js";
 import { assertScriptedReplyOnContract, resolveScriptedReply } from "../scripted/reply.fixture.js";
 import { subscribeToScenario } from "./subscriptions.fixture.js";
-import { readScenarioTranscript, withDeliveredLog } from "./transcript-read.fixture.js";
+import {
+  readScenarioTranscript,
+  readScenarioTranscriptBody,
+  withDeliveredLog,
+} from "./transcript-read.fixture.js";
 
-/** The read the fixture answers from the delivered log when the scenario scripts no reply. */
-const LOG_DERIVED_READ = "transcript.read";
+/** The reads the fixture answers from the delivered log when the scenario scripts no reply. */
+const LOG_DERIVED_READS: ReadonlyMap<string, (engine: ScenarioEngine, params: unknown) => unknown> =
+  new Map([
+    ["transcript.read", readScenarioTranscript],
+    ["transcript.bodyRead", readScenarioTranscriptBody],
+  ]);
 
 /** The record read whose log positions the fixture reads from the delivered log. */
 const SESSION_RECORD_READ = "session.read";
@@ -61,9 +69,10 @@ export function createFixtureDaemon(scenarioEngine: ScenarioEngine): DaemonWire 
       method: MethodName,
       params: DaemonParams<MethodName>,
     ): Promise<ServedDaemonCall<DaemonResult<MethodName>>> => {
+      const logDerivedRead = LOG_DERIVED_READS.get(method);
       const reply =
-        method === LOG_DERIVED_READ && scenarioEngine.replyFor(method) === undefined
-          ? readScenarioTranscript(scenarioEngine, params)
+        logDerivedRead !== undefined && scenarioEngine.replyFor(method) === undefined
+          ? logDerivedRead(scenarioEngine, params)
           : await resolveScriptedReply(scenarioEngine, method, params);
       return {
         value: assertScriptedReplyOnContract(

@@ -36,6 +36,7 @@ import {
   drawsTranscriptRowBody,
 } from "#renderer/features/transcript/rows/TranscriptRow.js";
 import { type Clock } from "#renderer/lib/clock.js";
+import { type TranscriptBodyRead } from "#renderer/services/daemon/transcript/body.js";
 import { type TranscriptPageRead } from "#renderer/services/daemon/transcript/page.js";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
@@ -131,12 +132,13 @@ export async function mountLongToolHistory(): Promise<
 /**
  * The real feed over `sessionStore` between the page's text above and below it, its history read
  * through `readTranscriptPage` (none, when `undefined`), on `clock` (the wall clock, when
- * `undefined`).
+ * `undefined`), a large body read in full through `readTranscriptBody` (none, when `undefined`).
  */
 export async function mountTranscriptFeed(
   sessionStore: SessionStore,
   readTranscriptPage: TranscriptPageRead | undefined,
   clock?: Clock,
+  readTranscriptBody?: TranscriptBodyRead,
 ): Promise<MountedFeed> {
   installMeridianTokens(document);
   const fixture = createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO });
@@ -161,6 +163,7 @@ export async function mountTranscriptFeed(
             }}
             feedLabel="Transcript"
             readTranscriptPage={readTranscriptPage}
+            readTranscriptBody={readTranscriptBody}
           />
         </div>
         <p data-testid="composer">{COMPOSER_TEXT}</p>

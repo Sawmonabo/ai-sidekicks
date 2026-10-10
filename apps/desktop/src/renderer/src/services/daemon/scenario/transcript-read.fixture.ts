@@ -1,12 +1,13 @@
-// The fixture daemon's `transcript.read`: a window of the log this playback has delivered, read by
-// the daemon's rules, so a store opens on rows the stream fixture then follows without a gap. A
-// cursor is a log position: `afterCursor` reads the rows after it forward, `beforeCursor` the rows
-// at or below it backward, nearest the cursor first chosen, and both the rows between them, read
-// forward. Rows run oldest to newest either way and carry the turn stamps
-// `turn-attribution.fixture.ts` folds and the body each beat stores, a large one as its size, as
-// the daemon reads `content_payload` beside the event. A page stops at the limit or the page byte
-// budget, whichever trips first; a cursor past the newest delivered row is refused, as the daemon
-// refuses it.
+// The fixture daemon's `transcript.read` and `transcript.bodyRead`. A read is a window of the log
+// this playback has delivered, read by the daemon's rules, so a store opens on rows the stream
+// fixture then follows without a gap. A cursor is a log position: `afterCursor` reads the rows
+// after it forward, `beforeCursor` the rows at or below it backward, nearest the cursor first
+// chosen, and both the rows between them, read forward. Rows run oldest to newest either way and
+// carry the turn stamps `turn-attribution.fixture.ts` folds and the body each beat stores, a large
+// one as its size, as the daemon reads `content_payload` beside the event. A page stops at the
+// limit or the page byte budget, whichever trips first; a cursor past the newest delivered row is
+// refused, as the daemon refuses it. A body read answers a delivered row's whole stored body,
+// `absent` for a row that stores none, and refuses an id the delivered log does not hold.
 //
 // A scenario scripts its `session.read` record once, for the whole script, while the playback has
 // delivered a prefix of it, so the record's log positions and standing events are read from the
@@ -24,7 +25,11 @@ import {
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/session";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 import { countEntriesFittingOneFrame } from "@ai-sidekicks/contracts/jsonrpc/page";
-import { transcriptRowContentOf } from "@ai-sidekicks/contracts/transcript/content";
+import {
+  TranscriptBodyReadRequestSchema,
+  storedBodyContentOf,
+  transcriptRowContentOf,
+} from "@ai-sidekicks/contracts/transcript/content";
 import { TRANSCRIPT_READ_LIMIT_MAX } from "@ai-sidekicks/contracts/transcript/limits";
 import { TranscriptReadRequestSchema } from "@ai-sidekicks/contracts/transcript/operations";
 import {
@@ -62,6 +67,23 @@ export function readScenarioTranscript(engine: ScenarioEngine, request: unknown)
     return readBackward(log, storedBodies, beforePosition, pageLimit);
   }
   return readForward(log, storedBodies, afterPosition, beforePosition, pageLimit);
+}
+
+/**
+ * Answer one `transcript.bodyRead` from the delivered log. Throws the wire's refusal for a row id
+ * the delivered log does not hold.
+ */
+export function readScenarioTranscriptBody(engine: ScenarioEngine, request: unknown): unknown {
+  const { rowId } = TranscriptBodyReadRequestSchema.parse(request);
+  const event = engine.deliveredEvents().find((delivered) => delivered.id === rowId);
+  if (event === undefined) {
+    const refusal: ScenarioRefusalEnvelope = {
+      code: INVALID_PARAMS_CODE,
+      message: "The session holds no row with this id.",
+    };
+    throw refusal;
+  }
+  return storedBodyContentOf(event.payload, storedBodiesOf(engine).get(rowId));
 }
 
 /**
@@ -104,6 +126,9 @@ function storedBodiesOf(engine: ScenarioEngine): StoredBodies {
 }
 
 type StoredBodies = ReadonlyMap<string, string>;
+
+/** The code the daemon refuses a request whose parameters name nothing it holds with. */
+const INVALID_PARAMS_CODE = "invalid_params";
 
 /** The oldest rows after `afterPosition`, up to `beforePosition` when one bounds the window. */
 function readForward(

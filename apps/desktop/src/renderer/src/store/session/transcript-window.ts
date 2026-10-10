@@ -1,7 +1,8 @@
 // The edges of the window a store holds of its session's log, and the ways they move besides the
 // stream: a page read before the head grows it backward, a page read after a detached tail grows
-// it forward, a release lets go of rows far from where the person reads, and a window no screen
-// shows keeps only its newest rows. Pure folds, so
+// it forward, a release lets go of rows far from where the person reads, a window no screen
+// shows keeps only its newest rows, and a large body read in full takes the place of its size.
+// Pure folds, so
 // the store holds no arithmetic; `sequence-reconciler.ts` owns the stream's direction, and its
 // vocabulary would call a row from beyond an edge a duplicate or a divergence.
 //
@@ -20,6 +21,7 @@
 // to them, and the standing events keep the newest of each kind whatever order rows arrive in.
 
 import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
+import type { TranscriptBodyReadResponse } from "@ai-sidekicks/contracts/transcript/content";
 
 import { AgentHueAllocator } from "#renderer/styles/agent-hue.js";
 import type { ProjectedSessionEvent } from "./entities/vocabulary.js";
@@ -246,6 +248,28 @@ export function releaseBeyondNewest(
       current.transcriptTail.following === "detached"
         ? current.transcriptTail
         : { cursor: heldRowCursor(transcript.at(-1)!), hasMore: true, following: "detached" },
+    revision: current.revision + 1,
+  };
+}
+
+/**
+ * The state with the held event `eventId`'s large body replaced by `body`, the body read in full,
+ * or `undefined` when the window no longer holds that event or holds it with no large body.
+ */
+export function admitFullBody(
+  current: SessionStoreState,
+  eventId: string,
+  body: TranscriptBodyReadResponse,
+): SessionStoreState | undefined {
+  const { transcript } = current;
+  const index = transcript.findIndex((event) => event.id === eventId);
+  const event = transcript[index];
+  if (event?.content?.status !== "large") {
+    return undefined;
+  }
+  return {
+    ...current,
+    transcript: transcript.with(index, { ...event, content: body }),
     revision: current.revision + 1,
   };
 }

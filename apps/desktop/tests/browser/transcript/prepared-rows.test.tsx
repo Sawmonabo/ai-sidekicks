@@ -7,11 +7,13 @@
 // it waits, and a picture not yet decoded. Each reply's body arrives on its row in the page read,
 // as the daemon serves history, and the reply is prepared from it before it is listed. The
 // pictures' decodes are held too, so a reply whose picture is drawn but not decoded is seen still
-// out of the list.
+// out of the list. A listed reply whose large body is opened keeps drawing as it stood until the
+// body it read draws whole.
 
 import { act, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { TranscriptRowContent } from "@ai-sidekicks/contracts/transcript/content";
 import type { TranscriptReadRequest } from "@ai-sidekicks/contracts/transcript/operations";
 
 import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
@@ -43,6 +45,7 @@ import {
   TranscriptRow,
   drawsTranscriptRowBody,
 } from "#renderer/features/transcript/rows/TranscriptRow.js";
+import { type TranscriptBodyRead } from "#renderer/services/daemon/transcript/body.js";
 import { type TranscriptPageRead } from "#renderer/services/daemon/transcript/page.js";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { letFramesPass, nextFrame } from "../../helpers/animation-frame.js";
@@ -240,17 +243,30 @@ function TaggedTranscriptRow(props: TranscriptRowProps): React.JSX.Element {
 
 /**
  * History read back as the daemon serves it, the rows at `bodies`' indexes as replies carrying
- * those bodies, and every read held until the case releases it.
+ * those bodies, the rows at `largeBodies`' as replies carrying those bodies' sizes alone, and
+ * every read held until the case releases it.
  */
-function heldHistoryRead(bodies: ReadonlyMap<number, string>): {
+function heldHistoryRead(
+  bodies: ReadonlyMap<number, string>,
+  largeBodies: ReadonlyMap<number, string> = new Map(),
+): {
   readonly read: TranscriptPageRead;
   readonly requests: TranscriptReadRequest[];
   readonly release: () => void;
 } {
   const log = scriptedTranscriptLog(LOG_ROW_COUNT);
-  const bodyById = new Map(
-    [...bodies].map(([index, body]) => [transcriptFixtureEventId(index), body] as const),
-  );
+  const contentById = new Map<string, TranscriptRowContent>([
+    ...[...bodies].map(
+      ([index, body]) => [transcriptFixtureEventId(index), { status: "available", body }] as const,
+    ),
+    ...[...largeBodies].map(
+      ([index, body]) =>
+        [
+          transcriptFixtureEventId(index),
+          { status: "large", contentLength: new TextEncoder().encode(body).byteLength },
+        ] as const,
+    ),
+  ]);
   const requests: TranscriptReadRequest[] = [];
   let release: () => void = () => undefined;
   const released = new Promise<void>((resolve) => {
@@ -272,9 +288,9 @@ function heldHistoryRead(bodies: ReadonlyMap<number, string>): {
             value: {
               ...answer.value,
               entries: answer.value.entries.map((row) => {
-                const body = bodyById.get(row.id);
-                return body !== undefined && row.kind === "general"
-                  ? { ...row, type: "assistant.message", content: { status: "available", body } }
+                const content = contentById.get(row.id);
+                return content !== undefined && row.kind === "general"
+                  ? { ...row, type: "assistant.message", content }
                   : row;
               }),
             },
@@ -283,10 +299,14 @@ function heldHistoryRead(bodies: ReadonlyMap<number, string>): {
   };
 }
 
-/** The feed over the store's last rows, its history behind `read`, drawing diagrams in `pictures`. */
+/**
+ * The feed over the store's last rows, its history behind `read`, drawing diagrams in `pictures`,
+ * a large body read in full through `readBody`.
+ */
 async function mountFeed(
   read: TranscriptPageRead,
   pictures: DiagramPictures,
+  readBody?: TranscriptBodyRead,
 ): Promise<HTMLElement> {
   installMeridianTokens(document);
   const sessionStore = openPagedSessionStore(FIRST_OPEN_INDEX, LOG_ROW_COUNT - 1, {
@@ -309,6 +329,7 @@ async function mountFeed(
               }}
               feedLabel="Transcript"
               readTranscriptPage={read}
+              readTranscriptBody={readBody}
             />
           </div>
         </DiagramPicturesContext.Provider>
@@ -474,6 +495,8 @@ describe("a held reply joining the list", () => {
 
 /** A reply in the first page read back holding a long table, prose after it settling its block. */
 const LONG_TABLE_INDEX = 33;
+/** A reply in the first page read back whose body is too large to travel with it. */
+const LARGE_BODY_INDEX = 34;
 const LONG_TABLE_ROW_COUNT = 300;
 /** A cell only the table's last rows hold: drawn in a sample of its widest rows, never on screen. */
 const SAMPLE_ONLY_TEXT = "読者位置表";
@@ -656,6 +679,76 @@ describe("a reply read back holding a long table", () => {
       // Both the frame off the list and the one on screen were drawn, and neither was selected.
       expect(selections.sampledCount).toBeGreaterThan(1);
       expect(selections.leaks).toEqual([]);
+    },
+  );
+});
+
+describe("a listed reply whose large body is opened", () => {
+  it(
+    "draws as it stood, the read under way, until the body it read draws whole",
+    { timeout: CASE_TIMEOUT_MS },
+    async () => {
+      const pictures = new DiagramPictures(
+        PICTURE_CACHE_BYTE_CAP,
+        startDiagramWorker,
+        () => undefined,
+      );
+      const largeBody =
+        formulaAndDiagramReply("read") + replyWith(benchTable(LONG_TABLE_ROW_COUNT));
+      const history = heldHistoryRead(new Map(), new Map([[LARGE_BODY_INDEX, largeBody]]));
+      const replyId = transcriptFixtureEventId(LARGE_BODY_INDEX);
+      const readBody: TranscriptBodyRead = async () => ({
+        status: "served",
+        value: { status: "available", body: largeBody },
+      });
+      const container = await mountFeed(history.read, pictures, readBody);
+      await waitFor(() => {
+        expect(history.requests.length).toBeGreaterThan(0);
+      });
+      await act(async () => {
+        history.release();
+        await nextFrame();
+      });
+      const control = await waitFor(
+        () =>
+          container.querySelector<HTMLButtonElement>(
+            `[data-row-id="${replyId}"] .meridian-full-output`,
+          ) ?? expect.fail("the reply offers its full output"),
+        { timeout: CASE_TIMEOUT_MS / 2 },
+      );
+
+      const decodes = holdImageDecodes();
+      const recorder = new WholeRowRecorder(container, [replyId]);
+      await act(async () => {
+        control.click();
+        await nextFrame();
+      });
+      // The body is read and its picture drawn, but not decoded: the reply still stands as it was.
+      await waitFor(
+        () => {
+          expect(decodes.heldCount()).toBeGreaterThan(0);
+        },
+        { timeout: CASE_TIMEOUT_MS / 2 },
+      );
+      await letFramesPass(2);
+      expect(recorder.rowOf(replyId)?.textContent).toContain("Loading the full output…");
+      decodes.release();
+      await waitFor(
+        () => {
+          expect(
+            recorder.rowOf(replyId)?.querySelector(".meridian-diagram__picture") ?? null,
+          ).not.toBe(null);
+        },
+        { timeout: CASE_TIMEOUT_MS / 2 },
+      );
+      await letFramesPass(2);
+      recorder.stop();
+
+      expect(recorder.halfMade).toEqual([]);
+      const row = recorder.rowOf(replyId) ?? expect.fail("the reply is listed");
+      expect(row.querySelector(".meridian-math--display")).not.toBe(null);
+      expect(row.querySelector("table[aria-rowcount]")).not.toBe(null);
+      expect(row.querySelector(".meridian-full-output")).toBe(null);
     },
   );
 });

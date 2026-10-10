@@ -23,6 +23,7 @@
 import { createStore } from "zustand/vanilla";
 import type { StoreApi } from "zustand/vanilla";
 import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
+import type { TranscriptBodyReadResponse } from "@ai-sidekicks/contracts/transcript/content";
 
 import {
   readPerformanceMeterTime,
@@ -38,6 +39,7 @@ import {
   type SessionDegradedCause,
 } from "./degradation.js";
 import {
+  admitFullBody,
   foldEarlierWindowPage,
   foldLaterWindowPage,
   releaseBeyondNewest,
@@ -408,6 +410,18 @@ export class SessionStore {
     }
     this.#store.setState(next);
     recordStoreSize(this.#sessionId, next.transcript.length);
+  }
+
+  /**
+   * Puts a large body read in full on the held event `eventId`, in place of its size; an event the
+   * window has let go of, or one holding no large body, is left as it is. Not a second apply
+   * chokepoint, on the terms of {@link prependEarlierEvents}.
+   */
+  public admitFullBody(eventId: string, body: TranscriptBodyReadResponse): void {
+    const next = admitFullBody(this.#store.getState(), eventId, body);
+    if (next !== undefined) {
+      this.#store.setState(next);
+    }
   }
 
   /**
