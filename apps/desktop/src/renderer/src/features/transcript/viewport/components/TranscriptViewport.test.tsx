@@ -21,10 +21,8 @@ import { CALM, syntheticRows, withLaidOutViewport } from "../controller.test-sup
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { spiedAnnouncer } from "#test/helpers/spied-announcer.js";
-import {
-  DrawnBandContext,
-  MarkdownWindowViewportContext,
-} from "../../rows/markdown/block-window/context.js";
+import { DrawnBandContext } from "../../rows/markdown/block-window/context.js";
+import { TranscriptBodyViewportContext } from "#renderer/components/TranscriptBodyViewport/context.js";
 import { type DrawnBandScreenHeights } from "../drawn-band.js";
 
 const LONG_LOG_ROW_COUNT = 500;
@@ -219,7 +217,7 @@ describe("the transcript viewport — the drawn band", () => {
       return null;
     }
     function ViewportReader(props: { readonly rowKey: string }): React.ReactNode {
-      useContext(MarkdownWindowViewportContext);
+      useContext(TranscriptBodyViewportContext);
       viewportRenderCountOf.set(props.rowKey, (viewportRenderCountOf.get(props.rowKey) ?? 0) + 1);
       return null;
     }

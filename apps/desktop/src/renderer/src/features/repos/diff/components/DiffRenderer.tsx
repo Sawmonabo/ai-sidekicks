@@ -13,7 +13,7 @@ import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar
 import { useRowWindow } from "#renderer/hooks/useRowWindow.js";
 import { useBridgeClock } from "#renderer/services/platform/hooks/useClock.js";
 import {
-  DIFF_ROW_HEIGHT_PX,
+  DIFF_ROW_HEIGHT_REM,
   DIFF_VIEWPORT_FALLBACK_HEIGHT_PX,
   DIFF_WINDOW_OVERSCAN_ROWS,
 } from "../measures.js";
@@ -22,6 +22,8 @@ import { DiffRowView } from "./DiffRowView.js";
 import type { DiffGapExpansion } from "../rows/model.js";
 import { DiffRowIndex } from "../rows/flat-index.js";
 import { useIntralineSegmentCache } from "../hooks/useIntralineSegmentCache.js";
+import { useDiffRowHeightPx } from "../hooks/useDiffRowHeightPx.js";
+import { diffFileGutterDigitCount } from "../rows/gutter.js";
 
 /** Props for `DiffRenderer`. */
 export interface DiffRendererProps {
@@ -53,6 +55,12 @@ export function DiffRenderer(props: DiffRendererProps): React.JSX.Element {
   );
 
   const intraline = useIntralineSegmentCache(props.model);
+  // Each file's line-number columns, read once per model.
+  const gutterDigitCounts = useMemo(
+    () => props.model.files.map(diffFileGutterDigitCount),
+    [props.model],
+  );
+  const rowHeightPx = useDiffRowHeightPx();
 
   // Rows are measured, not fixed-height: a wrapped line makes a row taller than the estimate.
   // The window's compensation for a taller row above the fold is its one scroll write past the
@@ -61,7 +69,7 @@ export function DiffRenderer(props: DiffRendererProps): React.JSX.Element {
     rowCount: index.rowCount,
     getScrollElement: () => scrollerRef.current,
     clock,
-    estimateRowHeightPx: () => DIFF_ROW_HEIGHT_PX,
+    estimateRowHeightPx: () => rowHeightPx,
     overscanRows: DIFF_WINDOW_OVERSCAN_ROWS,
     initialViewportHeightPx: DIFF_VIEWPORT_FALLBACK_HEIGHT_PX,
   });
@@ -91,6 +99,7 @@ export function DiffRenderer(props: DiffRendererProps): React.JSX.Element {
         viewMode={props.viewMode}
         look="review"
         onExpandGap={props.onExpandGap}
+        gutterDigitCount={gutterDigitCounts[row.fileIndex] ?? 0}
         rowElementRef={virtualizer.measureElement}
       />,
     );
@@ -112,7 +121,7 @@ export function DiffRenderer(props: DiffRendererProps): React.JSX.Element {
       // The row height has one home, `measures.ts`; the sheet reads it from here so the
       // window arithmetic and the painted rows cannot disagree.
       style={
-        { "--meridian-diff-row-height": `${String(DIFF_ROW_HEIGHT_PX)}px` } as React.CSSProperties
+        { "--meridian-diff-row-height": `${String(DIFF_ROW_HEIGHT_REM)}rem` } as React.CSSProperties
       }
     >
       {/* The content box holds the full height so the scrollbar spans the whole diff, and the

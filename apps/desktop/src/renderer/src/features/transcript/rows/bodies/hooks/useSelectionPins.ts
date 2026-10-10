@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { type MarkdownWindowViewport } from "../../markdown/block-window/context.js";
+import { type TranscriptBodyViewport } from "#renderer/components/TranscriptBodyViewport/context.js";
 import { pinnedRangeOf, type PinnedRange } from "../../markdown/block-window/selection-pins.js";
 
 /**
@@ -9,7 +9,7 @@ import { pinnedRangeOf, type PinnedRange } from "../../markdown/block-window/sel
  * pinned items stay the same, so a selection that only moves inside them re-renders nothing.
  */
 export function useSelectionPins(
-  viewport: MarkdownWindowViewport,
+  viewport: TranscriptBodyViewport,
   readWindowElement: () => Element | null,
   readItemCount: () => number,
   indexAttribute: string,

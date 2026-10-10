@@ -12,8 +12,8 @@ import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
 import type { DiffInlineCardProps } from "#renderer/registries/inline-cards/registry.js";
 import { useDiffBlockOverhead } from "../hooks/useDiffBlockOverhead.js";
+import { useDiffRowHeightPx } from "../hooks/useDiffRowHeightPx.js";
 import { useVisibleFlowHeight } from "../hooks/useVisibleFlowHeight.js";
-import { DIFF_ROW_HEIGHT_PX } from "../measures.js";
 import { type DiffModel } from "../model.js";
 // Type-only: `patch-parse.ts` calls the diff library, and this card is registered eagerly, so
 // a value import would put the parser on the initial import graph.
@@ -60,11 +60,17 @@ function InlineDiffBlocks(props: {
 }): React.JSX.Element {
   const { diff, flowHeightPx } = props;
   const fileRows = useMemo(() => diff.files.map((file) => diffFlowRowsOf(diff, file)), [diff]);
+  const rowHeightPx = useDiffRowHeightPx();
   // Until the first block's footer is laid out, a block's overhead is reckoned as one row; it is
   // read before the first paint, so the count a person sees is the measured one.
   const blockOverheadPx =
-    useDiffBlockOverhead(props.cardElement, diff.files.length > 0) ?? DIFF_ROW_HEIGHT_PX;
-  const drawnFileCount = diffFlowDrawnFileCount(fileRows, flowHeightPx, blockOverheadPx);
+    useDiffBlockOverhead(props.cardElement, diff.files.length > 0) ?? rowHeightPx;
+  const drawnFileCount = diffFlowDrawnFileCount(
+    fileRows,
+    flowHeightPx,
+    blockOverheadPx,
+    rowHeightPx,
+  );
   const foldedFileCount = diff.files.length - drawnFileCount;
 
   return (
@@ -77,6 +83,7 @@ function InlineDiffBlocks(props: {
             file={file}
             flowRows={flowRows}
             flowHeightPx={flowHeightPx}
+            rowHeightPx={rowHeightPx}
           />
         );
       })}

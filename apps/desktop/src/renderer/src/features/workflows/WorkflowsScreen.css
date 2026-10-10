@@ -320,18 +320,9 @@
   align-items: flex-start;
 }
 
+/* Drawn as a link by `meridian-link-button`; a wrapped label starts at the line's start. */
 .meridian-workflow-run__link {
-  padding: 0;
-  font: inherit;
-  color: var(--meridian-accent-text);
   text-align: start;
-  cursor: pointer;
-  background: none;
-  border: 0;
-}
-
-.meridian-workflow-run__link:hover {
-  text-decoration: underline;
 }
 
 /* A run control and, after a refused press, the daemon's words beside it on the same line. */

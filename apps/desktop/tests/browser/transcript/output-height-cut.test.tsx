@@ -24,7 +24,7 @@ import {
   SuiteWindowViewportProvider,
   suiteWindowViewport,
 } from "#renderer/features/transcript/rows/bodies/WindowedMarkdown.test-support.js";
-import { type MarkdownWindowViewport } from "#renderer/features/transcript/rows/markdown/block-window/context.js";
+import { type TranscriptBodyViewport } from "#renderer/components/TranscriptBodyViewport/context.js";
 import { FootnoteRegistry } from "#renderer/features/transcript/rows/markdown/footnotes/registry.js";
 import { prepareRowBodiesForTest } from "#renderer/features/transcript/rows/preparation.test-support.js";
 import {
@@ -202,7 +202,7 @@ function HeldToolOutput(props: {
  */
 async function renderInScroller(
   children: React.ReactNode,
-  rowEndPx?: MarkdownWindowViewport["rowEndPx"],
+  rowEndPx?: TranscriptBodyViewport["rowEndPx"],
 ): Promise<{
   readonly container: HTMLElement;
   readonly rerender: (children: React.ReactNode) => void;

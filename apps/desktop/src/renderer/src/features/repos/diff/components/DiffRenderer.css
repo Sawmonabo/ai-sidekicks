@@ -162,11 +162,18 @@
   flex: 0 0 auto;
   align-items: center;
   justify-content: flex-end;
-  gap: var(--meridian-space-1);
-  inline-size: 4rem;
-  padding-inline-end: var(--meridian-space-2);
   color: var(--meridian-text-muted);
   user-select: none;
+}
+
+/* A gutter is as many figures wide as its file's widest number needs, in the rows' mono face at
+   the current text size, past its padding; the row or the block sets the figure count. */
+.meridian-diff__gutter,
+.meridian-diff__flow-gutter {
+  box-sizing: content-box;
+  inline-size: calc(var(--meridian-diff-gutter-digits, 2) * 1ch);
+  padding-inline: var(--meridian-space-1) var(--meridian-space-2);
+  font-variant-numeric: tabular-nums;
 }
 
 .meridian-diff__text {
@@ -250,11 +257,7 @@
 /* Line numbers are content, so they take Review's gutter color rather than `text-faint`. */
 .meridian-diff__flow-gutter {
   flex: none;
-  box-sizing: content-box;
-  inline-size: calc(var(--meridian-diff-gutter-digits, 2) * 1ch);
-  padding-inline: var(--meridian-space-1) var(--meridian-space-2);
   color: var(--meridian-text-muted);
-  font-variant-numeric: tabular-nums;
   text-align: end;
   user-select: none;
 }

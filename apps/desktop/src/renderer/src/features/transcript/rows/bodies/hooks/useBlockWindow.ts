@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useReducer, useState } from "r
 import { useDirectlyPlacedVirtualizer } from "#renderer/hooks/useDirectlyPlacedVirtualizer.js";
 import { useStopObservingRemovedItems } from "#renderer/hooks/useStopObservingRemovedItems.js";
 import { type MarkdownBodyBlocksSnapshot } from "../../markdown/body-blocks.js";
-import { type MarkdownWindowViewport } from "../../markdown/block-window/context.js";
+import { type TranscriptBodyViewport } from "#renderer/components/TranscriptBodyViewport/context.js";
 import {
   BlockWindowLayout,
   windowedBlockKeyOf,
@@ -37,7 +37,7 @@ export interface BlockWindow {
 export function useBlockWindow(
   blocks: MarkdownBodyBlocksSnapshot,
   bodyTextLength: number,
-  viewport: MarkdownWindowViewport,
+  viewport: TranscriptBodyViewport,
   rowKey: string,
 ): BlockWindow {
   const [layout] = useState(

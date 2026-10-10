@@ -18,9 +18,9 @@ import type { Unsubscribe } from "#shared/preload-api.js";
 import { watchElementsResize } from "#renderer/lib/element-resize.js";
 import { requestLayoutRead } from "../../layout-reads.js";
 import {
-  MarkdownWindowViewportContext,
-  type MarkdownWindowViewport,
-} from "../../markdown/block-window/context.js";
+  TranscriptBodyViewportContext,
+  type TranscriptBodyViewport,
+} from "#renderer/components/TranscriptBodyViewport/context.js";
 
 /**
  * The share of the visible flow a call's output is drawn to before the rest is one press away: a
@@ -49,7 +49,7 @@ export function useOutputHeightCut(isCutAtFlowHeight: boolean, rowKey: string): 
   const bodyRef = useRef<HTMLPreElement>(null);
   const contentRef = useRef<HTMLSpanElement>(null);
   const [runsPastCut, setRunsPastCut] = useState(false);
-  const viewport = useContext(MarkdownWindowViewportContext);
+  const viewport = useContext(TranscriptBodyViewportContext);
   const flowHeightPx = useVisibleFlowHeight(viewport);
   const cutHeightPx =
     isCutAtFlowHeight && flowHeightPx !== undefined
@@ -164,7 +164,7 @@ const CUT_TOLERANCE_PX = 0.5;
  * it and the box move it as they are measured. Reads no element.
  */
 function isRowScreensAboveBox(
-  viewport: MarkdownWindowViewport,
+  viewport: TranscriptBodyViewport,
   rowKey: string,
   screenCount: number,
 ): boolean {
@@ -184,7 +184,7 @@ function isRowScreensAboveBox(
  * `undefined` outside a transcript viewport or before its first sample. A scroll publishes
  * geometry too, but only a changed height draws again.
  */
-function useVisibleFlowHeight(viewport: MarkdownWindowViewport | undefined): number | undefined {
+function useVisibleFlowHeight(viewport: TranscriptBodyViewport | undefined): number | undefined {
   const scrollController = viewport?.scrollController;
   const subscribe = useCallback(
     (onChange: () => void): Unsubscribe =>

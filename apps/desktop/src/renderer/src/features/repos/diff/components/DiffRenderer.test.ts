@@ -6,7 +6,7 @@
 import { fireEvent } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { DIFF_ROW_HEIGHT_PX, DIFF_WINDOW_OVERSCAN_ROWS } from "../measures.js";
+import { DIFF_WINDOW_OVERSCAN_ROWS } from "../measures.js";
 import { buildDiffFixture } from "#test/helpers/diff/fixture/model.js";
 import {
   ENDURANCE_DIFF_SHAPE,
@@ -16,6 +16,7 @@ import {
   TERMINAL_NEWLINE_FIXTURE_FILE,
 } from "#test/helpers/diff/fixture/shapes.js";
 import {
+  DIFF_FIXTURE_ROW_HEIGHT_PX,
   DIFF_FIXTURE_VIEWPORT_HEIGHT_PX,
   DiffLayoutFixture,
   type DiffGrownRow,
@@ -25,12 +26,12 @@ import { expandGap } from "../rows/model.js";
 
 /** The rendered-row ceiling one window may reach: viewport rows, overscan, and a boundary row. */
 const MAXIMUM_WINDOW_ROW_COUNT =
-  Math.ceil(DIFF_FIXTURE_VIEWPORT_HEIGHT_PX / DIFF_ROW_HEIGHT_PX) +
+  Math.ceil(DIFF_FIXTURE_VIEWPORT_HEIGHT_PX / DIFF_FIXTURE_ROW_HEIGHT_PX) +
   DIFF_WINDOW_OVERSCAN_ROWS * 2 +
   2;
 
 /** The row the wrapped cases grow, and how tall a three-line wrap makes it. */
-const WRAPPED_ROW: DiffGrownRow = { rowIndex: 3, heightPx: DIFF_ROW_HEIGHT_PX * 3 };
+const WRAPPED_ROW: DiffGrownRow = { rowIndex: 3, heightPx: DIFF_FIXTURE_ROW_HEIGHT_PX * 3 };
 
 const layout = new DiffLayoutFixture();
 
@@ -179,7 +180,7 @@ function contentHeightPx(container: HTMLElement): number {
 
 describe("diff renderer — a wrapped row and the offsets under it", () => {
   const bigDiff = buildDiffFixture(ENDURANCE_DIFF_SHAPE);
-  const grownByPx = WRAPPED_ROW.heightPx - DIFF_ROW_HEIGHT_PX;
+  const grownByPx = WRAPPED_ROW.heightPx - DIFF_FIXTURE_ROW_HEIGHT_PX;
 
   beforeEach(() => {
     layout.install({
@@ -196,7 +197,7 @@ describe("diff renderer — a wrapped row and the offsets under it", () => {
       // count by a constant would report the estimate and scroll past the end of the content.
       const container = renderDiff({ model: bigDiff });
       expect(contentHeightPx(container)).toBe(
-        reportedRowCount(container) * DIFF_ROW_HEIGHT_PX + grownByPx,
+        reportedRowCount(container) * DIFF_FIXTURE_ROW_HEIGHT_PX + grownByPx,
       );
     },
   );
@@ -212,7 +213,7 @@ describe("diff renderer — a wrapped row and the offsets under it", () => {
 
     const firstRowIndex = firstRenderedRowIndex(container);
     expect(firstRowIndex).toBeGreaterThan(WRAPPED_ROW.rowIndex);
-    expect(windowOffsetPx(container)).toBe(firstRowIndex * DIFF_ROW_HEIGHT_PX + grownByPx);
+    expect(windowOffsetPx(container)).toBe(firstRowIndex * DIFF_FIXTURE_ROW_HEIGHT_PX + grownByPx);
   });
 });
 

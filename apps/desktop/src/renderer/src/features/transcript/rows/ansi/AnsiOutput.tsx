@@ -13,9 +13,9 @@ import { memo, useContext, useSyncExternalStore } from "react";
 import { MeasuringFrames } from "../bodies/MeasuringFrames.js";
 import { OutputHeightCut, type OutputOpening } from "../bodies/OutputHeightCut.js";
 import {
-  MarkdownWindowViewportContext,
-  type MarkdownWindowViewport,
-} from "../markdown/block-window/context.js";
+  TranscriptBodyViewportContext,
+  type TranscriptBodyViewport,
+} from "#renderer/components/TranscriptBodyViewport/context.js";
 import { useAnsiLineWindow } from "./hooks/useAnsiLineWindow.js";
 import { type AnsiLineChunk, type AnsiLineChunkList } from "./lines/chunks.js";
 import {
@@ -60,7 +60,7 @@ export function AnsiOutput(props: AnsiOutputProps): React.JSX.Element {
   const chunks = useSyncExternalStore(preparedBodies.subscribe, () =>
     preparedBodies.chunksOf(rowKey),
   );
-  const viewport = useContext(MarkdownWindowViewportContext);
+  const viewport = useContext(TranscriptBodyViewportContext);
 
   return (
     <OutputHeightCut
@@ -109,7 +109,7 @@ const WINDOWED_OUTPUT_MIN_CHUNKS = 3;
 interface WindowedAnsiLinesProps {
   readonly chunks: AnsiLineChunkList;
   /** The viewport the output is drawn in; held for the window's life. */
-  readonly viewport: MarkdownWindowViewport;
+  readonly viewport: TranscriptBodyViewport;
   /** The row the output belongs to; held for the window's life. */
   readonly rowKey: string;
   /** The output box's class, which the measuring frame's box takes too. */

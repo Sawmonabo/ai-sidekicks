@@ -2,37 +2,42 @@
 // file's lines are skipped between hunks, and no hunk header. The flow's gutter numbers each line
 // once, by the new file, so its width is read off the same walk.
 
-import {
-  DIFF_FLOW_FILE_BLOCK_SCREENS,
-  DIFF_FLOW_GUTTER_MIN_DIGITS,
-  DIFF_FLOW_SHARE_DIVISOR,
-  DIFF_ROW_HEIGHT_PX,
-} from "../measures.js";
+import { DIFF_FLOW_FILE_BLOCK_SCREENS, DIFF_FLOW_SHARE_DIVISOR } from "../measures.js";
 import { diffFileChangeNotes, type DiffFile, type DiffLine, type DiffModel } from "../model.js";
 import { DiffRowIndex } from "./flat-index.js";
+import { diffGutterDigitCount } from "./gutter.js";
 import type { DiffRow } from "./model.js";
 
 /** One file's rows in the flow, and what its block's cut, footer and gutter are read from. */
 export interface DiffFlowRows {
   /** The index the rows address, over a model holding this one file. */
   readonly index: DiffRowIndex;
-  /** The rows drawn, in order: lines, separators, and the file's header only where it has a note. */
+  /**
+   * The rows drawn, in order: lines, separators, and the file's header where it has a note or no
+   * lines to draw.
+   */
   readonly rows: readonly DiffRow[];
   /** How many of the rows are lines of the file. */
   readonly lineCount: number;
   /** Characters the gutter's widest number takes, never under the gutter's minimum. */
   readonly gutterDigitCount: number;
+  /**
+   * What changed about a file with no lines to draw, in Review's words, written where its lines
+   * would be; empty for a file with lines, whose header carries its notes.
+   */
+  readonly bodyNotes: readonly string[];
 }
 
 /**
  * The flow's rows of one file of `diff`. A hunk after the first opens with the separator that
  * stands for the lines skipped above it; the first hunk opens on its first line. The file's
- * header row is drawn only where the file carries a change note (a rename, a mode change, binary
- * or unreadable contents), so a file with no lines still says what changed.
+ * header row is drawn where the file carries a change note (a rename, a mode change, binary or
+ * unreadable contents) and where it has no lines, so a file with no lines keeps its header.
  */
 export function diffFlowRowsOf(diff: DiffModel, file: DiffFile): DiffFlowRows {
   const index = new DiffRowIndex({ baseRef: diff.baseRef, headRef: diff.headRef, files: [file] });
-  const hasChangeNote = diffFileChangeNotes(file).length > 0;
+  const changeNotes = diffFileChangeNotes(file);
+  const hasHeader = changeNotes.length > 0 || file.hunks.length === 0;
   const rows: DiffRow[] = [];
   let lineCount = 0;
   let widestNumber = 0;
@@ -42,7 +47,7 @@ export function diffFlowRowsOf(diff: DiffModel, file: DiffFile): DiffFlowRows {
       continue;
     }
     if (row.kind === "file-header") {
-      if (hasChangeNote) {
+      if (hasHeader) {
         rows.push(row);
       }
     } else if (row.kind === "hunk-header") {
@@ -62,7 +67,8 @@ export function diffFlowRowsOf(diff: DiffModel, file: DiffFile): DiffFlowRows {
     index,
     rows,
     lineCount,
-    gutterDigitCount: Math.max(DIFF_FLOW_GUTTER_MIN_DIGITS, String(widestNumber).length),
+    gutterDigitCount: diffGutterDigitCount(widestNumber),
+    bodyNotes: lineCount === 0 ? changeNotes : [],
   };
 }
 
@@ -72,30 +78,34 @@ export function diffFlowLineNumber(line: DiffLine): number | undefined {
 }
 
 /**
- * How many rows a block draws before its cut: as many as a third of the visible flow holds, and
- * never none. Rows are at least a row tall, so no row past this count starts above the cut.
+ * How many rows a block draws before its cut: as many rows of `rowHeightPx` as a third of the
+ * visible flow holds, and never none. Rows are at least a row tall, so no row past this count
+ * starts above the cut.
  */
-export function diffFlowCutRowCount(flowHeightPx: number): number {
-  return Math.max(1, Math.floor(flowHeightPx / DIFF_FLOW_SHARE_DIVISOR / DIFF_ROW_HEIGHT_PX));
+export function diffFlowCutRowCount(flowHeightPx: number, rowHeightPx: number): number {
+  return Math.max(1, Math.floor(flowHeightPx / DIFF_FLOW_SHARE_DIVISOR / rowHeightPx));
 }
 
 /**
  * How many of a call's files draw a block: as many as two screens of the flow hold, each block
- * reckoned at its rows up to the cut plus `blockOverheadPx` (its footer and the space under it),
- * and always the first. A count of files, so it never changes how any one block is drawn.
+ * reckoned at its rows of `rowHeightPx` up to the cut, a row for its notes where it has no lines,
+ * plus `blockOverheadPx` (its footer and the space under it), and always the first. A count of files, so it never changes how any one block
+ * is drawn.
  */
 export function diffFlowDrawnFileCount(
   fileRows: readonly DiffFlowRows[],
   flowHeightPx: number,
   blockOverheadPx: number,
+  rowHeightPx: number,
 ): number {
-  const cutRowCount = diffFlowCutRowCount(flowHeightPx);
+  const cutRowCount = diffFlowCutRowCount(flowHeightPx, rowHeightPx);
   const heldPx = flowHeightPx * DIFF_FLOW_FILE_BLOCK_SCREENS;
   let usedPx = 0;
   let drawnFileCount = 0;
   for (const flowRows of fileRows) {
-    const blockPx =
-      Math.min(flowRows.rows.length, cutRowCount) * DIFF_ROW_HEIGHT_PX + blockOverheadPx;
+    const blockRowCount =
+      Math.min(flowRows.rows.length, cutRowCount) + (flowRows.bodyNotes.length > 0 ? 1 : 0);
+    const blockPx = blockRowCount * rowHeightPx + blockOverheadPx;
     if (drawnFileCount > 0 && usedPx + blockPx > heldPx) {
       break;
     }
@@ -104,3 +114,6 @@ export function diffFlowDrawnFileCount(
   }
   return drawnFileCount;
 }
+
+/** The attribute each step of a block's rows carries, holding the step's index in the block. */
+export const DIFF_FLOW_STEP_ATTRIBUTE = "data-diff-flow-step";

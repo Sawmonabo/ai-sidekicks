@@ -2,11 +2,7 @@ import { useLayoutEffect, useState } from "react";
 
 import { getWindow } from "@floating-ui/utils/dom";
 
-import {
-  SCROLLING_OVERFLOW_VALUES,
-  clippingAncestorsOf,
-  overflowAxesOf,
-} from "#renderer/lib/clipping-ancestors.js";
+import { nearestVerticalScrollerOf } from "#renderer/lib/clipping-ancestors.js";
 import { observeElementResize } from "#renderer/lib/element-resize.js";
 
 /**
@@ -22,7 +18,7 @@ export function useVisibleFlowHeight(element: HTMLElement | null): number | unde
       return undefined;
     }
     const ownerWindow = getWindow(element);
-    const scroller = verticalScrollerOf(element);
+    const scroller = nearestVerticalScrollerOf(element);
     if (scroller === undefined) {
       const readWindow = (): void => {
         setHeightPx(ownerWindow.innerHeight);
@@ -40,16 +36,4 @@ export function useVisibleFlowHeight(element: HTMLElement | null): number | unde
   }, [element]);
 
   return heightPx;
-}
-
-/** The nearest ancestor whose vertical overflow the person scrolls, innermost first. */
-function verticalScrollerOf(element: HTMLElement): HTMLElement | undefined {
-  const ownerWindow = getWindow(element);
-  for (const ancestor of clippingAncestorsOf(element)) {
-    const { vertical } = overflowAxesOf(ownerWindow.getComputedStyle(ancestor));
-    if (SCROLLING_OVERFLOW_VALUES.some((value) => value === vertical)) {
-      return ancestor;
-    }
-  }
-  return undefined;
 }

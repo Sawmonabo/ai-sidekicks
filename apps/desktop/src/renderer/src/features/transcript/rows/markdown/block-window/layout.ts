@@ -16,7 +16,7 @@ import { offsetInRowPx, ScrollerWindowMembers } from "../scroller-window.js";
 import { type TableBodyPlacement, type TablePlacementChange } from "../table-window/context.js";
 import { TablePlacementReports } from "../table-window/placement-reports.js";
 import { MARKDOWN_BLOCK_INDEX_ATTRIBUTE } from "./markers.js";
-import { type MarkdownWindowViewport } from "./context.js";
+import { type TranscriptBodyViewport } from "#renderer/components/TranscriptBodyViewport/context.js";
 import {
   DEFAULT_BLOCK_TYPOGRAPHY,
   estimateBlockHeightPx,
@@ -51,7 +51,7 @@ export interface WindowedBlocks {
 /** What one body's window is laid out against. */
 export interface BlockWindowLayoutOptions {
   /** The viewport the body is drawn in; held for the layout's life. */
-  readonly viewport: MarkdownWindowViewport;
+  readonly viewport: TranscriptBodyViewport;
   /** The row the body belongs to, whose top the body's is measured from. */
   readonly rowKey: string;
   readonly blocks: WindowedBlocks;
@@ -80,7 +80,7 @@ export type BlockWindowRow =
  * measured geometry, and the body's place in the scroller.
  */
 export class BlockWindowLayout implements TableBodyPlacement {
-  readonly #viewport: MarkdownWindowViewport;
+  readonly #viewport: TranscriptBodyViewport;
   readonly #rowKey: string;
   readonly #scroller: ScrollerWindowMembers;
   readonly #placeHold: ReaderPlaceHold;

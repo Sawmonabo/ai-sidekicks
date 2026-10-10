@@ -15,7 +15,7 @@ import { useDrawnBandScreenHeights } from "../../bodies/hooks/useDrawnBandScreen
 import { useSelectionPins } from "../../bodies/hooks/useSelectionPins.js";
 import { DrawnWindowSourcesContext } from "../../drawn-window-sources.js";
 import { requestLayoutRead } from "../../layout-reads.js";
-import { type MarkdownWindowViewport } from "../../markdown/block-window/context.js";
+import { type TranscriptBodyViewport } from "#renderer/components/TranscriptBodyViewport/context.js";
 import { rangeEnds, withPinnedIndexes } from "../../markdown/block-window/selection-pins.js";
 import { type AnsiLineChunkList } from "../lines/chunks.js";
 import { ANSI_LINE_CHUNK_INDEX_ATTRIBUTE } from "../lines/markers.js";
@@ -51,7 +51,7 @@ export interface AnsiLineWindow {
  */
 export function useAnsiLineWindow(
   chunks: AnsiLineChunkList,
-  viewport: MarkdownWindowViewport,
+  viewport: TranscriptBodyViewport,
   rowKey: string,
 ): AnsiLineWindow {
   const [layout] = useState(() => new AnsiLineWindowLayout(viewport, rowKey, chunks));

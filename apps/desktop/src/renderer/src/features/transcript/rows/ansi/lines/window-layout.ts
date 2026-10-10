@@ -11,7 +11,7 @@ import type { Range, VirtualItem, Virtualizer } from "@tanstack/virtual-core";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { observeElementResize } from "#renderer/lib/element-resize.js";
 import { type DrawnBandScreenHeights } from "#renderer/features/transcript/viewport/drawn-band.js";
-import { type MarkdownWindowViewport } from "../../markdown/block-window/context.js";
+import { type TranscriptBodyViewport } from "#renderer/components/TranscriptBodyViewport/context.js";
 import { ReaderPlaceHold } from "../../markdown/reader-place-hold.js";
 import { offsetInRowPx, ScrollerWindowMembers } from "../../markdown/scroller-window.js";
 import { type AnsiLineChunk, type AnsiLineChunkList } from "./chunks.js";
@@ -42,7 +42,7 @@ export type AnsiLineWindowRow =
  * estimates read, and the place of the output's lines in the scroller.
  */
 export class AnsiLineWindowLayout {
-  readonly #viewport: MarkdownWindowViewport;
+  readonly #viewport: TranscriptBodyViewport;
   readonly #rowKey: string;
   readonly #scroller: ScrollerWindowMembers;
   readonly #placeHold: ReaderPlaceHold;
@@ -162,7 +162,7 @@ export class AnsiLineWindowLayout {
   };
 
   /** `viewport` and `rowKey` are held for the layout's life. */
-  public constructor(viewport: MarkdownWindowViewport, rowKey: string, chunks: AnsiLineChunkList) {
+  public constructor(viewport: TranscriptBodyViewport, rowKey: string, chunks: AnsiLineChunkList) {
     this.#viewport = viewport;
     this.#rowKey = rowKey;
     this.#chunks = chunks;

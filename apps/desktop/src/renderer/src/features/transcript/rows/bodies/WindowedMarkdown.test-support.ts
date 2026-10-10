@@ -9,11 +9,11 @@ import { RealClock } from "#renderer/lib/clock.js";
 import { Emitter } from "#renderer/lib/emitter.js";
 import { type ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { ViewportDrawnBand, type DrawnBandScreenHeights } from "../../viewport/drawn-band.js";
+import { DrawnBandContext } from "../markdown/block-window/context.js";
 import {
-  DrawnBandContext,
-  MarkdownWindowViewportContext,
-  type MarkdownWindowViewport,
-} from "../markdown/block-window/context.js";
+  TranscriptBodyViewportContext,
+  type TranscriptBodyViewport,
+} from "#renderer/components/TranscriptBodyViewport/context.js";
 
 /** A reply of at least `minimumCharacters`, cycle after cycle of every kind of block. */
 export function longReplyMarkdown(minimumCharacters: number): string {
@@ -78,14 +78,14 @@ export function SuiteWindowViewportProvider(props: {
     viewport.drawnBandScreenHeights,
   );
   return createElement(
-    MarkdownWindowViewportContext,
+    TranscriptBodyViewportContext,
     { value: viewport },
     createElement(DrawnBandContext, { value: bandScreenHeights }, props.children),
   );
 }
 
 /** A suite's viewport, with the transcript's own drawn band its provider draws the rows in. */
-interface SuiteWindowViewport extends MarkdownWindowViewport {
+interface SuiteWindowViewport extends TranscriptBodyViewport {
   /** The band beyond each edge of the scroller now; the same object until a side changes. */
   readonly drawnBandScreenHeights: () => DrawnBandScreenHeights;
   /** Hears each change that may move what `drawnBandScreenHeights` answers. */
