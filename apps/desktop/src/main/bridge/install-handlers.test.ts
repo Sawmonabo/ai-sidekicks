@@ -63,6 +63,7 @@ beforeEach(async () => {
       appearance: { choose: vi.fn(), record: DEFAULT_APPEARANCE_RECORD },
       openWindows: {
         windowWithId: vi.fn(),
+        documentOfWindow: vi.fn(),
         isConsoleDocument: vi.fn(),
         windowUsedLast: vi.fn(),
         setDefaultSizes: vi.fn(),

@@ -8,7 +8,7 @@ import { markdownWorker } from "#renderer/components/Markdown/worker/connection.
 import { startSlice } from "#renderer/lib/work-slices.js";
 import { type TranscriptPageRead } from "#renderer/services/daemon/transcript/page.js";
 import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
-import { LateClipboardCopy } from "#renderer/services/platform/late-clipboard-copy.js";
+import { copyOnceBuilt } from "#renderer/services/platform/late-clipboard-copy.js";
 import { primarySelectionFor } from "#renderer/services/platform/primary-selection/host.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
@@ -293,41 +293,39 @@ export function useConversationCopy(source: ConversationCopySource): void {
     // clipboard still holds that text; a copy whose text and flavor come together is one write.
     // Each write lands only while no newer copy, from any app, took the clipboard.
     const writeOnceBuilt = (finish: CopyFinish, isCurrent: () => boolean): void => {
-      const lateCopy = new LateClipboardCopy(bridge);
-      // How the plain text written first went.
-      let textWrite: Promise<"written" | "replaced" | "failed"> | undefined;
-      finish((text) => {
-        if (isCurrent()) {
-          textWrite = lateCopy.write({ text }).then(
-            (isWritten) => (isWritten ? "written" : "replaced"),
-            () => "failed",
-          );
-        }
-      })
-        .then(async (content) => {
-          if (content === undefined || !isCurrent()) {
-            return;
-          }
-          if (textWrite === undefined) {
-            await lateCopy.write(content);
-            return;
-          }
-          // Main compares against the clipboard's text, so the formatting waits for it to land.
-          const written = await textWrite;
-          if (written === "failed") {
-            sayCopyFailed();
-            return;
-          }
-          if (written === "written" && content.html !== undefined) {
-            await bridge.native.addClipboardFormatting({ text: content.text, html: content.html });
-          }
-        })
-        .catch(() => {
-          // A newer copy stands in for this one, and says how it went.
+      copyOnceBuilt(bridge, async (lateWrite) => {
+        // How the plain text written first went.
+        let textWrite: Promise<"written" | "replaced" | "failed"> | undefined;
+        const content = await finish((text) => {
           if (isCurrent()) {
-            sayCopyFailed();
+            textWrite = lateWrite({ text }).then(
+              (isWritten) => (isWritten ? "written" : "replaced"),
+              () => "failed",
+            );
           }
         });
+        if (content === undefined || !isCurrent()) {
+          return;
+        }
+        if (textWrite === undefined) {
+          await lateWrite(content);
+          return;
+        }
+        // Main compares against the clipboard's text, so the formatting waits for it to land.
+        const written = await textWrite;
+        if (written === "failed") {
+          sayCopyFailed();
+          return;
+        }
+        if (written === "written" && content.html !== undefined) {
+          await bridge.native.addClipboardFormatting({ text: content.text, html: content.html });
+        }
+      }).catch(() => {
+        // A newer copy stands in for this one, and says how it went.
+        if (isCurrent()) {
+          sayCopyFailed();
+        }
+      });
     };
     const copySelection = (event: ClipboardEvent): void => {
       // Another conversation the selection crosses has written it.

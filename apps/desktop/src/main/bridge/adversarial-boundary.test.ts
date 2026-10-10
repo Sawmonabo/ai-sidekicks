@@ -123,6 +123,8 @@ let appearanceChoices: unknown[];
 let defaultSizes: unknown[];
 /** The minimum sizes the one open window was given. */
 let minimumSizes: unknown[];
+/** How many pastes the one open window's document was asked for. */
+let pastes: number;
 
 beforeEach(async () => {
   electronMock.reset();
@@ -131,6 +133,7 @@ beforeEach(async () => {
   clipboardWrites.length = 0;
   revealedPaths.length = 0;
   minimumSizes = [];
+  pastes = 0;
   appearanceChoices = [];
   defaultSizes = [];
   userData = await mkdtemp(path.join(tmpdir(), "sidekicks-adversarial-boundary-"));
@@ -169,6 +172,13 @@ beforeEach(async () => {
           getBounds: () => ({ x: 0, y: 25, width: 1200, height: 800 }),
           setMinimumSize: (width: number, height: number) => {
             minimumSizes.push([width, height]);
+          },
+        }) as never,
+      documentOfWindow: () =>
+        ({
+          isDestroyed: () => false,
+          paste: () => {
+            pastes += 1;
           },
         }) as never,
       isConsoleDocument: () => true,
@@ -453,6 +463,14 @@ async function intakeCases(): Promise<readonly IntakeCase[]> {
       accepted: { windowId: "w-1", size: { width: 600, height: 400 } },
       send: (payload) => invoke(BRIDGE_CHANNELS.setMinimumSize, payload),
       acted: () => minimumSizes.length,
+    },
+    {
+      member: "window.paste",
+      refused: [7, { windowId: "w-1" }, ["w-1"], null],
+      refusal: SCHEMA_REFUSAL,
+      accepted: "w-1",
+      send: (payload) => invoke(BRIDGE_CHANNELS.pasteInWindow, payload),
+      acted: () => pastes,
     },
     {
       member: "window.setDefaultSizes",

@@ -30,6 +30,7 @@ import { AppShell } from "#renderer/layout/AppShell/AppShell.js";
 import { PANE_LAYOUT_LOOSEST_MINIMUM_PANE_WIDTH_PX } from "#renderer/features/sessions/index.js";
 import { useActiveSessionStore } from "./hooks/useActiveSessionStore.js";
 import { useHashRouteBinding } from "./hooks/useHashRouteBinding.js";
+import { useHeldPaste } from "./hooks/useHeldPaste.js";
 import { useWindowFocusRefresh } from "./hooks/useWindowFocusRefresh.js";
 import { useWindowCommands } from "./hooks/useWindowCommands.js";
 import { useWindowTitle } from "./hooks/useWindowTitle.js";
@@ -97,6 +98,8 @@ function WindowContents(props: AppWindowProps): React.JSX.Element {
   useWindowFocusRefresh(frameStore, appStores.sessionStoreRegistry, ownerWindow);
 
   useWindowTitle(ownerWindow, route, props.appTitle);
+
+  useHeldPaste(bridge, ownerWindow, props.openWindow.windowId);
 
   const { palette, readBoundChord } = useWindowCommands({
     route,

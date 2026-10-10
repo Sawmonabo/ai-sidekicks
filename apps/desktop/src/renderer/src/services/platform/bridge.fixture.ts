@@ -19,6 +19,7 @@ import type {
 } from "#shared/preload-api.js";
 import type { PlatformBridge } from "./bridge.js";
 import { ClockLocale } from "./clock-locale.js";
+import { PendingClipboardCopies } from "./late-clipboard-copy.js";
 import {
   FixtureBridgeError,
   refuseAbsentCapability,
@@ -151,6 +152,8 @@ export function createFixtureBridge(options: FixtureBridgeOptions): FixtureBridg
       bringForward: async () => {
         // A fixture runs no main to bring a window forward; the harness lays out every one itself.
       },
+      // A fixture runs no main, so no window's Edit menu can paste for it.
+      paste: () => refuseAbsentCapability("window.paste"),
       setDefaultSizes: async () => {
         // Nothing reads the sizes back, and the harness sizes the fixture window itself.
       },
@@ -167,6 +170,7 @@ export function createFixtureBridge(options: FixtureBridgeOptions): FixtureBridg
     app,
     transportReconnect: new TransportReconnectSignal(),
     clockLocale: new ClockLocale(app),
+    pendingClipboardCopies: new PendingClipboardCopies(),
     source: "fixture",
   };
   return { bridge, scenarioEngine };

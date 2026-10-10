@@ -516,6 +516,11 @@ export interface PreloadApi {
      */
     bringForward(windowId: string): Promise<void>;
     /**
+     * Pastes the system clipboard into the focused field of an open window, as its Edit menu's
+     * Paste does; nothing for a window that closed while the ask crossed.
+     */
+    paste(windowId: string): Promise<void>;
+    /**
      * The widths a pane's own window with no kept place opens at, handed before the first window
      * opens and again when the text size changes.
      */
@@ -619,6 +624,7 @@ export function createStubBridge(app: AppFacts, lastUsedWindowId: string): Prelo
       subscribeAppearance: () => stubThrow("window.subscribeAppearance"),
       setMinimumSize: () => stubThrow("window.setMinimumSize"),
       bringForward: () => stubThrow("window.bringForward"),
+      paste: () => stubThrow("window.paste"),
       setDefaultSizes: () => stubThrow("window.setDefaultSizes"),
       endSafeStart: () => stubThrow("window.endSafeStart"),
       subscribeToReopenRequest: () => stubThrow("window.subscribeToReopenRequest"),

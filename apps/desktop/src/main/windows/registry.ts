@@ -229,6 +229,12 @@ export class OpenWindows {
       .baseWindow;
   }
 
+  /** The document of the window a person sees with `windowId`, or `undefined` when none is open. */
+  public documentOfWindow(windowId: string): WebContents | undefined {
+    return this.#windows.find((openWindow) => openWindow.windowId === windowId)?.rendererWindow.view
+      .webContents;
+  }
+
   /** The window a person used last, or `undefined` when none is open. */
   public windowUsedLast(): BaseWindow | undefined {
     return this.#windows[0]?.rendererWindow.baseWindow;

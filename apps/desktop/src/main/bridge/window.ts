@@ -1,10 +1,11 @@
 // The bridge's `window` members main answers: the appearance the renderer chose, the current
 // appearance record a subscription starts from, a window's minimum size, held within the work area
-// of the display the window is on, a window brought forward, the widths a window with no kept
-// place opens at, the end of a safe start, and the navigation request main held. Only the console
-// document asks, and it names the window by the id its frame name carries. The pushes that follow
-// a subscription's first delivery, and main's ask to reopen a window, come from main's registry of
-// windows (`../windows/registry.ts`), which owns every window and the console document.
+// of the display the window is on, a window brought forward, a paste into a window, the widths a
+// window with no kept place opens at, the end of a safe start, and the navigation request main
+// held. Only the console document asks, and it names the window by the id its frame name carries.
+// The pushes that follow a subscription's first delivery, and main's ask to reopen a window, come
+// from main's registry of windows (`../windows/registry.ts`), which owns every window and the
+// console document.
 
 import { screen, type IpcMainInvokeEvent } from "electron";
 import * as z from "zod/mini";
@@ -25,6 +26,7 @@ export interface WindowHandlerContext {
   readonly openWindows: Pick<
     OpenWindows,
     | "windowWithId"
+    | "documentOfWindow"
     | "isConsoleDocument"
     | "windowUsedLast"
     | "setDefaultSizes"
@@ -43,6 +45,7 @@ type WindowChannel =
   | typeof BRIDGE_CHANNELS.readNavigationRequest
   | typeof BRIDGE_CHANNELS.setMinimumSize
   | typeof BRIDGE_CHANNELS.bringWindowForward
+  | typeof BRIDGE_CHANNELS.pasteInWindow
   | typeof BRIDGE_CHANNELS.setDefaultSizes
   | typeof BRIDGE_CHANNELS.endSafeStart;
 
@@ -113,6 +116,16 @@ export function windowAnswers(
       // the console document on its own.
       if (baseWindow !== undefined) {
         bringWindowForward(baseWindow);
+      }
+    },
+    // The console document holds the bridge, so a paste a page held goes to the window it was in.
+    [BRIDGE_CHANNELS.pasteInWindow]: (event, request) => {
+      requireConsoleDocument(event);
+      const windowDocument = context.openWindows.documentOfWindow(windowIdSchema.parse(request));
+      // A window that closed while the ask crossed, or whose document a quit destroyed a moment
+      // before the window goes, has no field to paste into.
+      if (windowDocument !== undefined && !windowDocument.isDestroyed()) {
+        windowDocument.paste();
       }
     },
     [BRIDGE_CHANNELS.setDefaultSizes]: (event, request) => {
