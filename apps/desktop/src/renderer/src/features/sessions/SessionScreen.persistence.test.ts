@@ -44,22 +44,23 @@ describe("SessionScreen — the saved arrangement", () => {
     batches.length = 0;
     const store = memoryStore();
     await store.write(SESSION_ID, PANE_LAYOUT_RECORD_KEY, "layout", {
-      $paneLayout: { version: 99, density: "standard" },
-      "pane-1": { position: 0, kind: "transcript" },
+      $paneLayout: { version: 99, side: "right", terminalPlace: "below" },
+      "pane-1": { position: 0, kind: "terminal" },
     });
     const { container } = renderSessionScreen(store);
-    // Discarded whole: the pane layout falls back to the transcript instead of adopting the
-    // pane the unknown record named.
+    const restoreRecords = (): readonly string[] => {
+      windowDiagnosticCapture.flush();
+      return batches
+        .flatMap((batch) => batch.split("\n"))
+        .map((line) => JSON.parse(line) as { kind: string; detail: string })
+        .filter((record) => record.kind === "pane-layout-not-restored")
+        .map((record) => record.detail);
+    };
     await waitFor(() => {
-      expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(1);
+      expect(restoreRecords()).toStrictEqual([`session ${SESSION_ID}: snapshot-version-unknown`]);
     });
-    windowDiagnosticCapture.flush();
-    const restoreRecords = batches
-      .flatMap((batch) => batch.split("\n"))
-      .map((line) => JSON.parse(line) as { kind: string; detail: string })
-      .filter((record) => record.kind === "pane-layout-not-restored")
-      .map((record) => record.detail);
-    expect(restoreRecords).toStrictEqual([`session ${SESSION_ID}: snapshot-version-unknown`]);
+    // Discarded whole: the pane the unknown record named is not opened, and nothing is drawn.
+    expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(0);
     expect(container.textContent).not.toContain("written by a different version");
   });
 });
@@ -67,7 +68,7 @@ describe("SessionScreen — the saved arrangement", () => {
 describe("SessionScreen — navigating between two sessions the window already has open", () => {
   /** Cycle pane layout focus, which commits an arrangement without opening or closing a pane. */
   function cyclePaneFocus(container: HTMLElement): void {
-    const paneLayoutElement = container.querySelector(".meridian-pane-layout");
+    const paneLayoutElement = container.querySelector(".meridian-pane-layout__block");
     expect(paneLayoutElement).not.toBeNull();
     if (paneLayoutElement !== null) {
       fireEvent.keyDown(paneLayoutElement, { key: "ArrowRight", altKey: true });
@@ -80,8 +81,8 @@ describe("SessionScreen — navigating between two sessions the window already h
     // queued arrangement would land in the second's partition over its saved pane layout.
     const adapter = new GatedPersistenceAdapter();
     const store = new UiStateStore({ adapter });
-    await saveLayout(store, SESSION_ID, ["transcript", "terminal"]);
-    await saveLayout(store, SESSION_B_ID, ["transcript"]);
+    await saveLayout(store, SESSION_ID, ["browser", "terminal"]);
+    await saveLayout(store, SESSION_B_ID, ["browser"]);
 
     const first: SessionWithStore = { sessionId: SESSION_ID, store: sessionStore() };
     const { container, rerender } = render(workspaceFor(first, store));

@@ -225,11 +225,77 @@ export const CONVERSATION_HEIGHT_FLOOR_REM: number =
   CONVERSATION_HEIGHT_FLOOR_LINES * scaleStep(TYPE_SCALE_REM, "text-sm") * READING_LINE_HEIGHT;
 
 /**
- * The separator between two panes in a pane row, in rem: its width is the drag target and a
- * hairline is drawn down its middle. Summed into the window's floor, which holds one separator
- * between the conversation and one pane.
+ * Review's floor, in rem: the narrowest one half of a side-by-side diff still reads at, 420 px at
+ * the default text size. Root-relative, so the same half reads at every text size.
  */
-export const PANE_SEPARATOR_WIDTH_REM: number = scaleStep(SPACE_SCALE_REM, "space-2");
+export const REVIEW_PANE_FLOOR_REM = 26.25;
+
+/**
+ * Review's width until a person drags its edge, in rem: room for both halves of a diff beside
+ * the conversation on a laptop, 720 px at the default text size.
+ */
+export const REVIEW_PANE_WIDTH_REM = 45;
+
+/**
+ * Preview's floor, in rem: the narrowest one column of a page still reads at, 420 px at the
+ * default text size.
+ */
+export const PREVIEW_PANE_FLOOR_REM = 26.25;
+
+/** Preview's width until a person drags its edge, in rem: 720 px at the default text size. */
+export const PREVIEW_PANE_WIDTH_REM = 45;
+
+/**
+ * The terminal's floor while it is alone in the pane block, in rem: the narrowest a command line
+ * still reads at, 360 px at the default text size. Stacked with the row it takes the row's width.
+ */
+export const TERMINAL_PANE_FLOOR_REM = 22.5;
+
+/**
+ * The terminal's width while it is alone in the pane block, until a person drags its edge, in
+ * rem: room for a command line and its output to wrap rarely, 560 px at the default text size.
+ */
+export const TERMINAL_PANE_WIDTH_REM = 35;
+
+/**
+ * The widest floor one pane holds, in rem: the window's floor keeps room for any one pane beside
+ * the conversation. The inspector and the agents pane are not resizable, so their width is their
+ * floor.
+ */
+export const PANE_FLOOR_WIDEST_REM: number = Math.max(
+  INSPECTOR_WIDTH_REM,
+  AGENTS_PANE_WIDTH_REM,
+  REVIEW_PANE_FLOOR_REM,
+  PREVIEW_PANE_FLOOR_REM,
+  TERMINAL_PANE_FLOOR_REM,
+);
+
+/**
+ * The shortest the terminal gets beside the row of panes, in rem: about ten lines of the shell,
+ * 160 px at the default text size.
+ */
+export const TERMINAL_PANE_HEIGHT_FLOOR_REM = 10;
+
+/**
+ * The shortest the row of panes gets beside the terminal, in rem: about fifteen lines of a pane's
+ * body, 240 px at the default text size.
+ */
+export const PANE_ROW_HEIGHT_FLOOR_REM = 15;
+
+/**
+ * One arrow press on a pane edge, in rem: 24 px at the default text size, so a press moves the
+ * edge as far at every text size.
+ */
+export const PANE_EDGE_STEP_REM = 1.5;
+
+/** One arrow press with Shift on a pane edge, in rem: 80 px at the default text size. */
+export const PANE_EDGE_LARGE_STEP_REM = 5;
+
+/**
+ * A pane edge's grab zone, in rem: wider than the hairline it draws, so the pointer finds it
+ * without hunting, and laid over the pane's own side so it takes no width from the row.
+ */
+export const PANE_EDGE_WIDTH_REM: number = scaleStep(SPACE_SCALE_REM, "space-2");
 
 /** The gutter either side of a transcript row's column, in rem: 36 px at the default text size. */
 export const ROW_GUTTER_REM = 2.25;

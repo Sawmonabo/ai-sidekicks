@@ -1,19 +1,17 @@
-// The pane layout's palette rows. Each row is contributed once at composition time and
-// resolves the newest mounted pane layout (`MountedPaneLayouts`) when it is pressed; with
-// none mounted the press raises a refusal a person reads.
+// The pane layout's palette rows and the four moves' chords. Each row is contributed once at
+// composition time and resolves the newest mounted pane layout (`MountedPaneLayouts`) when it is
+// pressed; with none mounted the press raises a refusal a person reads.
 //
-// No chord is claimed here on purpose. The pane layout binds Alt+Arrow, Alt+Shift+Arrow and
-// Alt+Backspace on its own element behind `isEditableTarget` (`lib/editable-target.ts`), so
-// typing in a find field, combobox or listbox never rearranges panes. The window's binding
-// table asks the narrower `isTextEntryTarget` in the capture phase and consumes any press
-// whose command ran, so binding these keys there would preempt that guard and eat a
-// listbox's arrow keys. A `when` clause cannot carry the guard: its vocabulary is a closed
-// set of route keys.
+// The moves are chords in the window's table, live only with focus in a pane: the table skips a
+// press in a text field, the terminal's body among them, so there the keys reach the field or
+// the shell. Focusing and closing stay on the block's own element behind the wider
+// `isEditableTarget` (`lib/editable-target.ts`), since a listbox in a pane takes bare arrows.
 
 import { raiseCommandRefusal } from "#renderer/registries/commands/refusal.js";
 import { readCommandWindow } from "#renderer/registries/commands/command-window.js";
 import { type CommandDefinition } from "#renderer/registries/commands/definition.js";
 import { type CommandContributionRegistry } from "#renderer/registries/commands/contributions.js";
+import { type Keybinding } from "#renderer/registries/commands/keybinding.js";
 import { WHEN_SESSION_ACTIVE } from "#renderer/registries/commands/when-clause/vocabulary.js";
 import type { PaneLayoutActName, PaneLayoutActs } from "../pane-layout/acts.js";
 import { mountedPaneLayouts, type MountedPaneLayouts } from "../pane-layout/mounted.js";
@@ -29,6 +27,41 @@ export const PANE_LAYOUT_COMMAND_GROUP = "Panes";
  * composing twice (a hot reload, a second test) replaces these rows instead of raising.
  */
 export const PANE_LAYOUT_COMMAND_OWNER = "pane-layout";
+
+/** The ids of the four move commands, each bound to an `Alt+Shift` arrow. */
+const PANE_MOVE_COMMAND_IDS = {
+  movePaneLeft: "paneLayout.movePaneLeft",
+  movePaneRight: "paneLayout.movePaneRight",
+  moveTerminalUp: "paneLayout.moveTerminalUp",
+  moveTerminalDown: "paneLayout.moveTerminalDown",
+} as const;
+
+/** The clause the four move chords are live under: focus in one of the session's panes. */
+const WHEN_PANE_FOCUSED = "sessionActive && paneFocused";
+
+/** The four move chords. */
+const PANE_MOVE_KEY_BINDINGS: readonly Keybinding[] = [
+  {
+    chord: "Alt+Shift+ArrowLeft",
+    commandId: PANE_MOVE_COMMAND_IDS.movePaneLeft,
+    when: WHEN_PANE_FOCUSED,
+  },
+  {
+    chord: "Alt+Shift+ArrowRight",
+    commandId: PANE_MOVE_COMMAND_IDS.movePaneRight,
+    when: WHEN_PANE_FOCUSED,
+  },
+  {
+    chord: "Alt+Shift+ArrowUp",
+    commandId: PANE_MOVE_COMMAND_IDS.moveTerminalUp,
+    when: WHEN_PANE_FOCUSED,
+  },
+  {
+    chord: "Alt+Shift+ArrowDown",
+    commandId: PANE_MOVE_COMMAND_IDS.moveTerminalDown,
+    when: WHEN_PANE_FOCUSED,
+  },
+];
 
 /** Build the palette commands, given the acts each one performs. */
 export function paneLayoutPaletteCommands(acts: PaneLayoutActs): readonly CommandDefinition[] {
@@ -58,20 +91,36 @@ export function paneLayoutPaletteCommands(acts: PaneLayoutActs): readonly Comman
       run: acts.closeFocusedPane,
     },
     {
-      id: "paneLayout.movePaneLeft",
-      title: "Move the focused pane left",
+      id: PANE_MOVE_COMMAND_IDS.movePaneLeft,
+      title: "Move pane left",
       group: PANE_LAYOUT_COMMAND_GROUP,
       when: WHEN_SESSION_ACTIVE,
-      keywords: ["pane", "reorder", "rearrange"],
+      keywords: ["pane", "reorder", "rearrange", "side"],
       run: acts.moveFocusedPaneLeft,
     },
     {
-      id: "paneLayout.movePaneRight",
-      title: "Move the focused pane right",
+      id: PANE_MOVE_COMMAND_IDS.movePaneRight,
+      title: "Move pane right",
       group: PANE_LAYOUT_COMMAND_GROUP,
       when: WHEN_SESSION_ACTIVE,
-      keywords: ["pane", "reorder", "rearrange"],
+      keywords: ["pane", "reorder", "rearrange", "side"],
       run: acts.moveFocusedPaneRight,
+    },
+    {
+      id: PANE_MOVE_COMMAND_IDS.moveTerminalUp,
+      title: "Move terminal up",
+      group: PANE_LAYOUT_COMMAND_GROUP,
+      when: WHEN_SESSION_ACTIVE,
+      keywords: ["terminal", "shell", "above"],
+      run: acts.moveTerminalUp,
+    },
+    {
+      id: PANE_MOVE_COMMAND_IDS.moveTerminalDown,
+      title: "Move terminal down",
+      group: PANE_LAYOUT_COMMAND_GROUP,
+      when: WHEN_SESSION_ACTIVE,
+      keywords: ["terminal", "shell", "below"],
+      run: acts.moveTerminalDown,
     },
   ];
 }
@@ -87,7 +136,7 @@ export function registerPaneLayoutCommands(
   registry.contribute({
     owner: PANE_LAYOUT_COMMAND_OWNER,
     commands: paneLayoutPaletteCommands(actsOnTheMountedPaneLayout(mountedLayouts)),
-    keyBindings: [],
+    keyBindings: PANE_MOVE_KEY_BINDINGS,
   });
 }
 
@@ -114,6 +163,12 @@ function actsOnTheMountedPaneLayout(mountedLayouts: MountedPaneLayouts): PaneLay
     },
     moveFocusedPaneRight: () => {
       perform("moveFocusedPaneRight");
+    },
+    moveTerminalUp: () => {
+      perform("moveTerminalUp");
+    },
+    moveTerminalDown: () => {
+      perform("moveTerminalDown");
     },
   };
 }

@@ -20,7 +20,7 @@ import {
 
 /** Cycle pane layout focus, which commits an arrangement without opening or closing a pane. */
 function cyclePaneFocus(container: HTMLElement): void {
-  const paneLayoutElement = container.querySelector(".meridian-pane-layout");
+  const paneLayoutElement = container.querySelector(".meridian-pane-layout__block");
   expect(paneLayoutElement).not.toBeNull();
   if (paneLayoutElement !== null) {
     fireEvent.keyDown(paneLayoutElement, { key: "ArrowRight", altKey: true });
@@ -36,7 +36,7 @@ describe("SessionScreen — the arrangement follows the store on screen", () => 
     const retiredAdapter = new GatedPersistenceAdapter();
     const liveAdapter = new GatedPersistenceAdapter();
     const retiredStore = storeOver(retiredAdapter);
-    await saveLayout(retiredStore, SESSION_ID, ["transcript", "terminal"]);
+    await saveLayout(retiredStore, SESSION_ID, ["browser", "terminal"]);
     const session: SessionWithStore = { sessionId: SESSION_ID, store: sessionStore() };
 
     // Unkeyed, the shape the defect lives in: a replaced store re-renders this subtree.
@@ -63,9 +63,9 @@ describe("SessionScreen — the restore runs once for the session on screen", ()
     // `PaneLayoutStore.restore` replaces wholesale, which is wrong against a layout somebody
     // has been arranging. The two records disagree so a second restore shows as a lost pane.
     const firstStore = storeOver(new GatedPersistenceAdapter());
-    await saveLayout(firstStore, SESSION_ID, ["transcript", "terminal"]);
+    await saveLayout(firstStore, SESSION_ID, ["browser", "terminal"]);
     const secondStore = storeOver(new GatedPersistenceAdapter());
-    await saveLayout(secondStore, SESSION_ID, ["transcript"]);
+    await saveLayout(secondStore, SESSION_ID, ["browser"]);
     const session: SessionWithStore = { sessionId: SESSION_ID, store: sessionStore() };
 
     const { container, rerender } = render(workspaceFor(session, firstStore));

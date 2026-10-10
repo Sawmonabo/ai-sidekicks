@@ -1,11 +1,11 @@
-// The composer's draft typed past its cap, in Chromium, since happy-dom has no layout and no
-// caret. The text area grows with its text and never scrolls; the box around it stops at the
-// smaller of the draft's row cap and a third of the conversation's visible height, the pane row
-// the draft's own growth takes from, scrolls, draws its bar over the text and keeps the caret in
-// view as the browser reveals it. In a tall window the row cap wins and in a window at the height
-// floor the third does, each the negative control for the other; moving the caret back to the top
-// scrolls the box back, leaving the draft's last line out of view: the negative control for the
-// in-view check.
+// The composer's draft typed past its cap, in Chromium, since happy-dom has no layout and no caret.
+// The text area grows with its text and never scrolls; the box around it stops at the smaller of
+// the draft's row cap and a third of the conversation's visible height, the transcript's row the
+// draft's own growth takes from, scrolls, draws its bar over the text and keeps the caret in view
+// as the browser reveals it. In a tall window the row cap wins and in a window at the height floor
+// the third does, each the negative control for the other; moving the caret back to the top scrolls
+// the box back, leaving the draft's last line out of view: the negative control for the in-view
+// check.
 
 import { act, cleanup } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -54,8 +54,8 @@ interface LongDraft {
   readonly lineHeightPx: number;
   /** The session screen, whose flow the conversation and the composer share. */
   readonly screen: HTMLElement;
-  /** The conversation's pane row, whose height the draft's cap is a third of. */
-  readonly paneRow: HTMLElement;
+  /** The transcript's row, whose height the draft's cap is a third of. */
+  readonly transcriptRow: HTMLElement;
 }
 
 /** Opens the session in a window of `size`, waits for the draft's bar, and types past the cap. */
@@ -70,7 +70,7 @@ async function typeLongDraft(size: { width: number; height: number }): Promise<L
   const box = line?.parentElement;
   const frame = box?.parentElement;
   const screen = appWindow.document.querySelector<HTMLElement>(".meridian-session-screen");
-  const paneRow = screen?.querySelector<HTMLElement>(":scope > .meridian-pane-layout");
+  const transcriptRow = screen?.querySelector<HTMLElement>(".meridian-session-screen__transcript");
   if (
     line === null ||
     box === null ||
@@ -78,8 +78,8 @@ async function typeLongDraft(size: { width: number; height: number }): Promise<L
     frame === null ||
     frame === undefined ||
     screen === null ||
-    paneRow === null ||
-    paneRow === undefined
+    transcriptRow === null ||
+    transcriptRow === undefined
   ) {
     throw new Error("the session screen drew no draft line");
   }
@@ -101,7 +101,7 @@ async function typeLongDraft(size: { width: number; height: number }): Promise<L
     frame,
     lineHeightPx: Number.parseFloat(styleOf(box).lineHeight),
     screen,
-    paneRow,
+    transcriptRow,
   };
 }
 
@@ -113,9 +113,9 @@ function contentHeightOf(box: HTMLElement): number {
   );
 }
 
-/** A third of the conversation's visible height: its pane row's. */
+/** A third of the conversation's visible height: its transcript row's. */
 function thirdOfConversation(draft: LongDraft): number {
-  return draft.paneRow.getBoundingClientRect().height / 3;
+  return draft.transcriptRow.getBoundingClientRect().height / 3;
 }
 
 /** The element's computed style, read in its own window: an app window is a document of its own. */
@@ -199,7 +199,7 @@ describe("the composer's draft", () => {
     // The third is the conversation's own, not the window's: with the screen held shorter than
     // the window, as a title bar would hold it, the box comes down with the conversation once the
     // screen has measured the change, and stays a third of it.
-    const conversationBefore = draft.paneRow.getBoundingClientRect().height;
+    const conversationBefore = draft.transcriptRow.getBoundingClientRect().height;
     draft.screen.style.minBlockSize = "0";
     draft.screen.style.maxBlockSize = `${String(FLOOR_WINDOW.height * 0.75)}px`;
     await expect

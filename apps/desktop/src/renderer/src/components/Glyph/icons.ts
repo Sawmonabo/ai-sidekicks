@@ -113,6 +113,8 @@ import CopyFace from "~icons/signature/copy";
 import PencilFace from "~icons/signature/pencil";
 // A container plus an arrow; Tabler rounds the frame with a radius rather than the join.
 import ExternalFace from "~icons/signature/external";
+// Two corners pulled apart along the diagonal, plain lines and the join.
+import ExpandFace from "~icons/tabler/arrows-diagonal";
 // Three zero-length segments under round caps; Tabler draws three circles.
 import MoreFace from "~icons/signature/more";
 // Two lines.
@@ -171,6 +173,7 @@ export const GLYPH_ICONS: Readonly<Record<GlyphName, GlyphIcon>> = {
   copy: CopyFace,
   pencil: PencilFace,
   external: ExternalFace,
+  expand: ExpandFace,
   more: MoreFace,
   plus: PlusFace,
 };

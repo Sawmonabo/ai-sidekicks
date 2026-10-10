@@ -1,15 +1,15 @@
-/* The session screen: its grid, banners and composer region. */
+/* The session screen: the conversation's grid, banners and composer region. */
 
 /*
- * Head, pane layout, composer. The pane layout's row takes what the head and the composer leave,
- * down to the conversation's height floor; below that the composer's row gives way instead, and
- * its open command list scrolls in what is left. `SessionScreen.tsx` writes the height the pane
- * layout and the composer share onto it as `--meridian-session-flow-height`, so the composer's
- * draft can cap itself at a share of the conversation's.
+ * The pane layout fills the screen: the conversation and the block of panes beside it.
+ * `SessionScreen.tsx` writes the height the transcript and the composer share onto the screen as
+ * `--meridian-session-flow-height`, so the composer's draft can cap itself at a share of the
+ * conversation's.
  */
 .meridian-session-screen {
   display: grid;
-  grid-template-rows: auto minmax(var(--meridian-conversation-height-floor), 1fr) minmax(0, auto);
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   min-width: 0;
   min-height: 100%;
   background: var(--meridian-ground);
@@ -18,8 +18,28 @@
 }
 
 /*
+ * Head, transcript, composer. The transcript's row takes what the head and the composer leave,
+ * down to the conversation's height floor; below that the composer's row gives way instead, and
+ * its open command list scrolls in what is left.
+ */
+.meridian-session-screen__conversation {
+  display: grid;
+  grid-template-rows: auto minmax(var(--meridian-conversation-height-floor), 1fr) minmax(0, auto);
+  min-width: 0;
+  min-height: 0;
+}
+
+/* The transcript's place, which its pane frame fills. */
+.meridian-session-screen__transcript {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+}
+
+/*
  * The session header, its banners and the catching-up line in one box, so however many are
- * up, none pushes the pane layout out of the growing row.
+ * up, none pushes the transcript out of the growing row.
  */
 .meridian-session-screen__head {
   display: grid;

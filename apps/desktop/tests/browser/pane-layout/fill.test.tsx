@@ -1,10 +1,10 @@
 // Whether a pane fills the cell the pane layout gives it, in the arrangement the pane layout
 // actually uses.
 //
-// `.meridian-pane` (`PaneFrame.css`) takes `flex: 1 1 auto`. The pane layout is a column flex chain
-// (`features/sessions/pane-layout/components/SessionPaneLayout.css`), where the initial `0 1 auto`
-// would size a pane by its content and hand the transcript's scroll container a fraction of the
-// layout's height. Under a grid parent `flex` is inert, so both arrangements ship and both are
+// `.meridian-pane` (`PaneFrame.css`) takes `flex: 1 1 auto`. Each slot in the block's row is a
+// column flex box (`features/sessions/pane-layout/components/SessionPaneLayout.css`), where the
+// initial `0 1 auto` would size a pane by its content and hand its scroll container a fraction of
+// the block's height. Under a grid parent `flex` is inert, so both arrangements ship and both are
 // covered here.
 //
 // The subject is the frame, not the terminal pane: `.meridian-pane` is one sheet for every kind,
@@ -28,13 +28,6 @@ import { TERMINAL_LEASE_SCENARIO } from "#fixtures/scenarios/terminal-lease.js";
 /** The pane layout's own height. Every assertion below is against this one number. */
 const PANE_LAYOUT_HEIGHT_PX = 600;
 
-/**
- * How `react-resizable-panels` lays its group out. The library writes it inline at runtime and
- * this tier measures CSS; the case depends only on the group being a row, which makes the pane
- * cell inside it stretch vertically.
- */
-const RESIZABLE_GROUP_LAYOUT = { display: "flex", flexDirection: "row" } as const;
-
 interface MountedPane {
   readonly layoutCell: HTMLElement;
   readonly pane: HTMLElement;
@@ -45,9 +38,11 @@ async function mountPaneInPaneLayout(): Promise<MountedPane> {
   const { bridge } = createFixtureBridge({ scenario: TERMINAL_LEASE_SCENARIO });
   const { container } = await renderSettled(
     <div className="meridian-pane-layout" style={{ height: `${String(PANE_LAYOUT_HEIGHT_PX)}px` }}>
-      <div className="meridian-pane-layout__group" style={RESIZABLE_GROUP_LAYOUT}>
-        <div className="meridian-pane-layout__pane">
-          <TerminalPane {...terminalPaneContext(undefined, bridge)} />
+      <div className="meridian-pane-layout__block">
+        <div className="meridian-pane-layout__row">
+          <div className="meridian-pane-layout__pane">
+            <TerminalPane {...terminalPaneContext(undefined, bridge)} />
+          </div>
         </div>
       </div>
     </div>,
@@ -61,7 +56,7 @@ async function mountPaneInPaneLayout(): Promise<MountedPane> {
 }
 
 describe("browser — a pane fills the cell the pane layout gives it", () => {
-  it("takes the whole cell height in the pane layout's column-flex arrangement", async () => {
+  it("takes the whole cell height in the row's column-flex slot", async () => {
     const { layoutCell, pane } = await mountPaneInPaneLayout();
 
     expect(layoutCell.getBoundingClientRect().height).toBe(PANE_LAYOUT_HEIGHT_PX);

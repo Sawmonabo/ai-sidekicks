@@ -11,7 +11,7 @@ import { useState } from "react";
 import { createPortal } from "react-dom";
 import { cdp, userEvent } from "vitest/browser";
 import { act } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
 import { nextFrame } from "../helpers/animation-frame.js";
 import { FrameWindows } from "../helpers/frame-windows.js";
@@ -30,12 +30,10 @@ import { PageTabStrip } from "#renderer/features/preview/components/PageTab/Page
 import { previewPage } from "#renderer/features/preview/page-list-reading.test-support.js";
 import { type Refusal } from "#renderer/lib/refusal/contract.js";
 import { SessionPaneLayout } from "#renderer/features/sessions/pane-layout/components/SessionPaneLayout.js";
-import {
-  PANE_LAYOUT_RESTORED_PANE_CAP,
-  PaneLayoutStore,
-} from "#renderer/features/sessions/pane-layout/store.js";
+import { PaneLayoutStore } from "#renderer/features/sessions/pane-layout/store.js";
 import { PaneRegistry } from "#renderer/registries/panes/registry.js";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
+import { StylesheetMirror } from "#renderer/services/window/stylesheet-mirror.js";
 import { FIRST_RUN_SCENARIO } from "#fixtures/scenarios/first-run.js";
 
 const frames = new FrameWindows();
@@ -549,44 +547,18 @@ describe("browser — moving a tab from its menu", () => {
 
 describe("browser — dragging a pane to reorder", () => {
   it("moves a pane by its header in a second document and says where it landed", async () => {
-    installMeridianTokens(document);
-    const secondWindow = frames.open("second-window");
-    if (secondWindow === null) {
-      throw new Error("the second window did not open");
-    }
-    const layout = new PaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });
-    const firstPane = layout.open({ kind: "transcript" });
-    const secondPane = layout.open({ kind: "terminal" });
-    const fixture = createFixtureBridge({ scenario: FIRST_RUN_SCENARIO });
-    const mount = await renderSettled(
-      <FixtureBridgeProvider fixture={fixture}>
-        <LiveAnnouncerProvider>
-          {createPortal(
-            <SessionPaneLayout
-              layout={layout}
-              registry={registryWithFrames()}
-              paneContextFor={(pane) =>
-                layoutPaneContext(pane, { bridge: fixture.bridge, sessionStore: undefined })
-              }
-              isSessionOpen
-              sessionId={undefined}
-            />,
-            secondWindow.document.body,
-          )}
-        </LiveAnnouncerProvider>
-      </FixtureBridgeProvider>,
-    );
-    const panels = [...secondWindow.document.querySelectorAll<HTMLElement>("[data-panel]")];
-    const [firstPanel, secondPanel] = panels;
-    const firstHead = firstPanel?.querySelector(".meridian-pane__head");
-    if (firstPanel === undefined || secondPanel === undefined || !firstHead) {
+    const { layout, mount, secondWindow, slots } = await mountPaneRowInSecondWindow();
+    const [firstSlot, secondSlot] = slots;
+    const firstHead = firstSlot?.querySelector(".meridian-pane__head");
+    if (firstSlot === undefined || secondSlot === undefined || !firstHead) {
       throw new Error("the second window drew no pane headers");
     }
+    const [firstPane, secondPane] = layout.snapshot().panes.map((pane) => pane.paneId);
     const mouse = await RealMouse.calibrated(secondWindow.document);
 
     const press = centerOf(firstHead);
-    const carried = { x: centerOf(secondPanel).x + 8, y: press.y };
-    const homeLeft = firstPanel.getBoundingClientRect().left;
+    const carried = { x: centerOf(secondSlot).x + 8, y: press.y };
+    const homeLeft = firstSlot.getBoundingClientRect().left;
     // The lift and the settle re-render the layout, so each gesture runs inside `act`.
     await act(async () => {
       await mouse.press(press);
@@ -594,8 +566,8 @@ describe("browser — dragging a pane to reorder", () => {
       await nextFrame(secondWindow);
     });
     const travel = carried.x - press.x;
-    expect(translateXOf(firstPanel)).toBeCloseTo(travel, 2);
-    expect(firstPanel.getBoundingClientRect().left).toBeCloseTo(homeLeft + travel, 1);
+    expect(translateXOf(firstSlot)).toBeCloseTo(travel, 2);
+    expect(firstSlot.getBoundingClientRect().left).toBeCloseTo(homeLeft + travel, 1);
     expect(layout.snapshot().panes.map((pane) => pane.paneId)).toStrictEqual([
       firstPane,
       secondPane,
@@ -610,16 +582,122 @@ describe("browser — dragging a pane to reorder", () => {
       firstPane,
     ]);
     await vi.waitFor(() => {
-      expect(politeText(mount.container)).toBe("Moved the Transcript pane to position 2 of 2.");
+      expect(politeText(mount.container)).toBe("Moved the Sidekicks pane to position 2 of 2.");
     });
-    const settledPanels = [...secondWindow.document.querySelectorAll<HTMLElement>("[data-panel]")];
+    const settledSlots = paneSlotsOf(secondWindow);
     await act(async () => {
-      await glidesEnded(settledPanels);
+      await glidesEnded(settledSlots);
     });
-    expect(settledPanels.map((panel) => panel.id)).toStrictEqual([secondPane, firstPane]);
-    expect(settledPanels.map((panel) => panel.style.transform)).toStrictEqual(["", ""]);
+    expect(settledSlots.map((slot) => slot.dataset["paneId"])).toStrictEqual([
+      secondPane,
+      firstPane,
+    ]);
+    expect(settledSlots.map((slot) => slot.style.transform)).toStrictEqual(["", ""]);
+  });
+
+  it("moves the block to the conversation's other side past its middle", async () => {
+    const { layout, mount, secondWindow, slots } = await mountPaneRowInSecondWindow();
+    const lastSlot = slots.at(-1);
+    const lastHead = lastSlot?.querySelector(".meridian-pane__head");
+    const conversation = secondWindow.document.querySelector(".meridian-pane-layout__conversation");
+    if (lastSlot === undefined || !lastHead || conversation === null) {
+      throw new Error("the second window drew no pane header or conversation");
+    }
+    const [firstPane, lastPane] = layout.snapshot().panes.map((pane) => pane.paneId);
+    const mouse = await RealMouse.calibrated(secondWindow.document);
+
+    const press = centerOf(lastHead);
+    const conversationBox = conversation.getBoundingClientRect();
+    // Short of the conversation's middle, then past it.
+    const shortOfMiddle = { x: conversationBox.left + conversationBox.width * 0.75, y: press.y };
+    const pastMiddle = { x: conversationBox.left + conversationBox.width * 0.25, y: press.y };
+    await act(async () => {
+      await mouse.press(press);
+      await mouse.dragTo(press, shortOfMiddle, 12);
+      await nextFrame(secondWindow);
+    });
+    expect(secondWindow.document.querySelector(".meridian-pane-layout__side-mark")).toBeNull();
+    await act(async () => {
+      await mouse.dragTo(shortOfMiddle, pastMiddle, 6);
+      await nextFrame(secondWindow);
+    });
+    expect(secondWindow.document.querySelector(".meridian-pane-layout__side-mark")).not.toBeNull();
+
+    await act(async () => {
+      await mouse.release(pastMiddle);
+      await nextFrame(secondWindow);
+    });
+    // Left of the conversation, the dragged pane lands at the row's far end from it.
+    expect(layout.snapshot().side).toBe("left");
+    expect(layout.snapshot().panes.map((pane) => pane.paneId)).toStrictEqual([lastPane, firstPane]);
+    await vi.waitFor(() => {
+      expect(politeText(mount.container)).toBe("Moved the Inspector pane to position 1 of 2.");
+    });
+    const settledSlots = paneSlotsOf(secondWindow);
+    await act(async () => {
+      await glidesEnded(settledSlots);
+    });
+    expect(settledSlots.map((slot) => slot.style.transform)).toStrictEqual(["", ""]);
+    expect(secondWindow.document.querySelector(".meridian-pane-layout__side-mark")).toBeNull();
+    const block = secondWindow.document.querySelector(".meridian-pane-layout__block");
+    expect(block?.getBoundingClientRect().right).toBeLessThanOrEqual(
+      conversation.getBoundingClientRect().left + 0.5,
+    );
   });
 });
+
+/**
+ * The pane layout drawn into a second document beside a conversation: Sidekicks then the
+ * inspector along the row, narrow enough together that the block holds still beside the
+ * conversation in the tier's window.
+ */
+async function mountPaneRowInSecondWindow(): Promise<{
+  readonly layout: PaneLayoutStore;
+  readonly mount: { readonly container: HTMLElement };
+  readonly secondWindow: Window;
+  readonly slots: readonly HTMLElement[];
+}> {
+  installMeridianTokens(document);
+  const secondWindow = frames.open("second-window");
+  if (secondWindow === null) {
+    throw new Error("the second window did not open");
+  }
+  // The layout is drawn by its sheets, so the second document carries them as an app window does.
+  const mirror = new StylesheetMirror(document, secondWindow.document);
+  onTestFinished(() => {
+    mirror.disconnect();
+  });
+  const layout = new PaneLayoutStore();
+  layout.open({ kind: "agents" });
+  layout.open({ kind: "inspector", entity: { kind: "worktree", id: "worktree-01" } });
+  const fixture = createFixtureBridge({ scenario: FIRST_RUN_SCENARIO });
+  const mount = await renderSettled(
+    <FixtureBridgeProvider fixture={fixture}>
+      <LiveAnnouncerProvider>
+        {createPortal(
+          <div style={{ display: "grid", blockSize: "100vh" }}>
+            <SessionPaneLayout
+              layout={layout}
+              registry={registryWithFrames()}
+              paneContextFor={(pane) =>
+                layoutPaneContext(pane, { bridge: fixture.bridge, sessionStore: undefined })
+              }
+              isSessionOpen
+              sessionId={undefined}
+              conversation={<p>the conversation</p>}
+            />
+          </div>,
+          secondWindow.document.body,
+        )}
+      </LiveAnnouncerProvider>
+    </FixtureBridgeProvider>,
+  );
+  return { layout, mount, secondWindow, slots: paneSlotsOf(secondWindow) };
+}
+
+function paneSlotsOf(ownerWindow: Window): HTMLElement[] {
+  return [...ownerWindow.document.querySelectorAll<HTMLElement>(".meridian-pane-layout__pane")];
+}
 
 /** The tab strip over a page list it reorders itself, as the Preview act's reading would. */
 function ReorderingTabStrip(props: {
@@ -654,7 +732,7 @@ function ReorderingTabStrip(props: {
 /** Bodies that wear the real pane chrome, whose header is the grip a pane is dragged by. */
 function registryWithFrames(): PaneRegistry {
   const registry = new PaneRegistry();
-  for (const kind of ["transcript", "terminal"] as const) {
+  for (const kind of ["agents", "inspector"] as const) {
     registry.register({
       kind,
       owner: "reorder-drag-test",

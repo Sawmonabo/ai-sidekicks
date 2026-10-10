@@ -70,17 +70,15 @@
 
 /* The window's floor, laid out where the text size and the macOS title-bar inset resolve and
    measured as one box: the rail, the sessions track and one session view's floor across, the
-   height floor down. A session view's floor is the conversation's, the separator beside it and
-   one pane's. The pane term is the narrowest a pane may be, in px as the pane layout holds it, set
-   on the box by the frame, so one open pane fits beside the conversation at its floor. */
+   height floor down. A session view's floor is the conversation's and one pane's, the widest any
+   pane holds, so whichever one pane is open fits beside the conversation at its floor. */
 .meridian-frame__window-floor {
   position: fixed;
   inset-block-start: 0;
   inset-inline-start: 0;
   inline-size: calc(
     var(--meridian-frame-rail-track) + var(--meridian-sessions-track-width) +
-      var(--meridian-conversation-floor) + var(--meridian-pane-separator-width) +
-      var(--meridian-frame-minimum-pane-width)
+      var(--meridian-conversation-floor) + var(--meridian-pane-floor-widest)
   );
   block-size: var(--meridian-window-height-floor);
   visibility: hidden;

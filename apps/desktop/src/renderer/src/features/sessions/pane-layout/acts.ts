@@ -1,17 +1,18 @@
-// The five pane layout acts a person can perform without a pointer, and what each announces.
+// The pane layout acts a person can perform without a pointer, and what each announces.
 //
-// The layout's own key handler (`SessionPaneLayout.tsx`) and the palette (through
-// `mounted.ts`) dispatch the same acts.
+// The layout's own key handler (`SessionPaneLayout.tsx`), the window's chords and the palette
+// (through `mounted.ts`) dispatch the same acts.
 //
 // Focus is a ring rather than DOM focus, so every act announces its result in a live region.
-// The move act reuses `paneDropAnnouncement` so the keyboard and pointer paths say the same
-// thing. A boundary move is not a refusal (`paneDropAnnouncement` covers "was not moved");
-// only an act with no subject is refused: no layout mounted, or no pane focused.
+// The move acts say what the pointer's drop says (`move-announcement.ts`). A move that goes
+// nowhere is not a refusal; only an act with no subject is refused: no layout mounted, or no
+// pane focused.
 
 import { TITLE_BY_PANE_KIND } from "#renderer/components/PaneFrame/PaneFrame.js";
 import type { Announce } from "#renderer/components/LiveAnnouncer/announcer.js";
 import type { PaneLayoutStore } from "./store.js";
-import { paneDropAnnouncement } from "./drag.js";
+import { paneMoveAnnouncement } from "./move-announcement.js";
+import { terminalPane, type TerminalPlace } from "./state.js";
 
 /**
  * The acts a mounted pane layout offers. One niladic call per act, so the name is the whole
@@ -23,6 +24,8 @@ export interface PaneLayoutActs {
   readonly closeFocusedPane: () => void;
   readonly moveFocusedPaneLeft: () => void;
   readonly moveFocusedPaneRight: () => void;
+  readonly moveTerminalUp: () => void;
+  readonly moveTerminalDown: () => void;
 }
 
 /** One act, by name. */
@@ -32,7 +35,7 @@ export type PaneLayoutActName = keyof PaneLayoutActs;
 export const NO_FOCUSED_PANE_SENTENCE = "No pane is focused.";
 
 /**
- * Binds the five acts to one pane layout and an announcer.
+ * Binds the acts to one pane layout and an announcer.
  *
  * Kept out of `PaneLayoutStore`, which holds no opinion about live regions.
  */
@@ -44,7 +47,7 @@ export function paneLayoutActsOn(layout: PaneLayoutStore, announce: Announce): P
     const position = panes.findIndex((pane) => pane.paneId === focusedPaneId);
     const focused = panes[position];
     if (focused === undefined) {
-      // An empty layout already says so on screen; no second sentence.
+      // An empty block draws nothing to focus, so there is nothing to say.
       return;
     }
     if (focusedPaneId === before) {
@@ -60,23 +63,26 @@ export function paneLayoutActsOn(layout: PaneLayoutStore, announce: Announce): P
   };
 
   const moveStep = (step: 1 | -1): void => {
-    const before = layout.snapshot().panes;
-    const fromPosition = before.findIndex(
-      (pane) => pane.paneId === layout.snapshot().focusedPaneId,
-    );
-    const moved = before[fromPosition];
+    const before = layout.snapshot();
+    const moved = before.panes.find((pane) => pane.paneId === before.focusedPaneId);
     if (moved === undefined) {
       announce(NO_FOCUSED_PANE_SENTENCE, "assertive");
       return;
     }
     layout.movePane(moved.paneId, step);
-    const after = layout.snapshot().panes;
-    const announcement = paneDropAnnouncement(
-      moved.kind,
-      fromPosition,
-      after.findIndex((pane) => pane.paneId === moved.paneId),
-      after.length,
-    );
+    const announcement = paneMoveAnnouncement(before, layout.snapshot(), moved.paneId);
+    announce(announcement.message, announcement.politeness);
+  };
+
+  const placeTerminal = (place: TerminalPlace): void => {
+    const before = layout.snapshot();
+    const terminal = terminalPane(before.panes);
+    if (terminal === undefined) {
+      announce(`The ${TITLE_BY_PANE_KIND.terminal} pane was not moved.`, "assertive");
+      return;
+    }
+    layout.placeTerminal(place);
+    const announcement = paneMoveAnnouncement(before, layout.snapshot(), terminal.paneId);
     announce(announcement.message, announcement.politeness);
   };
 
@@ -102,6 +108,12 @@ export function paneLayoutActsOn(layout: PaneLayoutStore, announce: Announce): P
     },
     moveFocusedPaneRight: () => {
       moveStep(1);
+    },
+    moveTerminalUp: () => {
+      placeTerminal("above");
+    },
+    moveTerminalDown: () => {
+      placeTerminal("below");
     },
   };
 }

@@ -11,6 +11,7 @@ import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { useRowWindow, type RowWindow } from "#renderer/hooks/useRowWindow.js";
 import { type ChordPlatform } from "#renderer/lib/chord-format.js";
+import { rootFontSizePx } from "#renderer/lib/root-font-size.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
 import {
   ENUMERATION_ROW_HEIGHT_REM,
@@ -66,10 +67,7 @@ export function PaletteResultList(props: PaletteResultListProps): React.JSX.Elem
     estimateRowHeightPx: (rowIndex) =>
       (rows[rowIndex]?.kind === "group-label"
         ? GROUP_LABEL_HEIGHT_REM
-        : ENUMERATION_ROW_HEIGHT_REM) *
-      Number.parseFloat(
-        ownerWindow.getComputedStyle(ownerWindow.document.documentElement).fontSize,
-      ),
+        : ENUMERATION_ROW_HEIGHT_REM) * rootFontSizePx(ownerWindow.document),
     overscanRows: OVERSCAN_ROWS,
     rowWindowRef: props.rowWindowRef,
   });

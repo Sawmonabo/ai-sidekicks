@@ -1,36 +1,44 @@
-// The pane layout: the panes side by side, their order, widths, focus, separators and keyboard
-// paths, and the one place each pane body is mounted from the pane registry by kind. Layout
-// lives in `PaneLayoutStore`; this component subscribes and dispatches.
+// The session view's pane layout: the conversation and, beside it, the block of panes — the row
+// of main panes in the person's order and the terminal above or below it — with the one place
+// each pane body is mounted from the pane registry by kind. Layout lives in `PaneLayoutStore`;
+// this component subscribes and dispatches.
 //
-// `react-resizable-panels` owns the resize gesture and the window-splitter ARIA, and reports
-// back to the store, which clamps again over a freshly measured layout because upstream rescales
-// a pixel floor as a percentage across a window resize. A pane's header drags it to a new place
-// through the shared pointer reorder, and the Alt+Shift chords below move the focused pane.
+// A pane's header drags it along the row on the shared pointer reorder, or past the middle of the
+// conversation to move the whole block to its other side; the terminal's header drags it above or
+// below the row. The block scrolls sideways when the row does not fit beside the conversation's
+// floor, and a pane just opened is scrolled into view. The window's chords move the focused pane
+// (`contributions/commands.ts`); the block's own keys focus and close panes.
 
 import "./SessionPaneLayout.css";
 
-import { Fragment, useCallback, useMemo, useRef } from "react";
-import { Group, Separator } from "react-resizable-panels";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { type Refusal } from "#renderer/lib/refusal/contract.js";
-import { Nothing } from "#renderer/components/Nothing/Nothing.js";
-import { isEditableTarget } from "#renderer/lib/editable-target.js";
+import { isEditableTarget, isUnclaimedEscape } from "#renderer/lib/editable-target.js";
+import { rootFontSizePx } from "#renderer/lib/root-font-size.js";
+import { revealInRow } from "#renderer/lib/scroll/chokepoint.js";
 import { useAnnounce } from "#renderer/hooks/announce/useAnnounce.js";
-import { useReorderDrag } from "#renderer/hooks/useReorderDrag.js";
+import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
+import { useReorderDrag, type ReorderDragSettings } from "#renderer/hooks/useReorderDrag.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { type PaneContext } from "#renderer/registries/panes/context.js";
 import { type PaneRegistry } from "#renderer/registries/panes/registry.js";
+import {
+  CONVERSATION_FLOOR_REM,
+  PANE_ROW_HEIGHT_FLOOR_REM,
+  TERMINAL_PANE_HEIGHT_FLOOR_REM,
+} from "#renderer/styles/palette.js";
 import { usePaneLayoutState } from "../hooks/usePaneLayoutState.js";
 import { type PaneLayoutStore } from "../store.js";
 import { paneLayoutActsOn } from "../acts.js";
 import { useMountedPaneLayout } from "../hooks/useMountedPaneLayout.js";
-import { PANE_LAYOUT_TOTAL_PERMILLE, toPaneSizePercentages, type SessionPane } from "../state.js";
-import { type PaneLayoutDensity } from "../measures.js";
-import { minimumPaneWidthPx } from "../density.js";
+import { rowPanes, terminalPane, type SessionPane } from "../state.js";
 import { commitPaneDrop } from "../drag.js";
-import { SessionPaneSlot } from "./SessionPaneSlot.js";
+import { PANE_WIDTH_RULE_BY_KIND } from "../widths.js";
+import { SessionPaneSlot, paneSlotSelector, type PaneSlotPlacement } from "./SessionPaneSlot.js";
+import { type PaneEdgeReading } from "./PaneEdge.js";
 
-/** What the pane layout needs: its layout store, its pane registry, and each pane's context. */
+/** What the pane layout needs: its store, its registry, each pane's context, the conversation. */
 export interface SessionPaneLayoutProps {
   readonly layout: PaneLayoutStore;
   /** Where pane bodies come from. Passed rather than reached for, so a host picks its own. */
@@ -41,55 +49,156 @@ export interface SessionPaneLayoutProps {
   readonly isSessionOpen: boolean;
   /** The session the panes are about, which a pane's frame names while it draws no body. */
   readonly sessionId: string | undefined;
+  /** The conversation the block stands beside: its header, transcript and composer. */
+  readonly conversation: React.ReactNode;
 }
 
-/** The panes a person is looking at, side by side, arranged by a `PaneLayoutStore`. */
+/** The conversation and the block of panes beside it, arranged by a `PaneLayoutStore`. */
 export function SessionPaneLayout(props: SessionPaneLayoutProps): React.JSX.Element {
   const { layout } = props;
   const state = usePaneLayoutState(layout);
-  const containerReference = useRef<HTMLDivElement>(null);
+  const layoutRef = useRef<HTMLDivElement>(null);
+  const conversationRef = useRef<HTMLDivElement>(null);
+  const blockRef = useRef<HTMLDivElement>(null);
+  const drawBlockScrollbar = useDrawOverlayScrollbar(blockRef);
+  const [isOverConversation, setIsOverConversation] = useState(false);
+  const [isResizing, setIsResizing] = useState(false);
+  // The pane holding the window's focus, so a pane closed under focus hands it on.
+  const focusHolderPaneIdRef = useRef<string | undefined>(undefined);
 
   // Read here, in the component with the context: outside `LiveAnnouncerProvider` this throws
-  // instead of reordering panes in a silence nobody can detect.
+  // instead of moving panes in a silence nobody can detect.
   const announce = useAnnounce();
-  const paneIds = useMemo(() => state.panes.map((pane) => pane.paneId), [state.panes]);
-  const onPaneDrop = useCallback(
-    (paneId: string, toPosition: number) => {
-      commitPaneDrop(layout, paneId, toPosition, announce);
-    },
-    [layout, announce],
-  );
   const clock = useClock();
-  const paneDrag = useReorderDrag("horizontal", paneIds, onPaneDrop, clock);
+  const row = useMemo(() => rowPanes(state.panes), [state.panes]);
+  const terminal = terminalPane(state.panes);
+  const isFull = state.fullWidthPaneId !== undefined;
 
-  // The five acts, built once per (layout, announcer) pair and shared by this component's key
-  // handler and the palette rows in `contributions/commands.ts`, so a chord and a row cannot
-  // mean two moves.
+  // Built once per (layout, announcer) pair and shared by this component's keys, the window's
+  // chords and the palette rows in `contributions/commands.ts`, so a chord and a row cannot mean
+  // two moves.
   const acts = useMemo(() => paneLayoutActsOn(layout, announce), [layout, announce]);
   useMountedPaneLayout(acts);
 
-  /**
-   * The density floor as a share of the pane layout, in permille, right now. Measured at the
-   * moment of the act rather than held in state, since a width kept in state would go stale
-   * exactly when the window is resized. Read inside a callback, never during a render.
-   */
-  const minimumPermille = useCallback(
-    (density: PaneLayoutDensity): number => {
-      const paneLayoutWidth = containerReference.current?.getBoundingClientRect().width ?? 0;
-      if (paneLayoutWidth <= 0) {
-        return 0;
-      }
-      return Math.round(
-        (minimumPaneWidthPx(density) / paneLayoutWidth) * PANE_LAYOUT_TOTAL_PERMILLE,
-      );
+  // A pane holding the full width does not move; the order it sits in stays as it was.
+  const rowKeys = useMemo(() => (isFull ? [] : row.map((pane) => pane.paneId)), [isFull, row]);
+  const commitRowMove = useCallback(
+    (paneId: string, toPosition: number) => {
+      commitPaneDrop(layout, paneId, { kind: "row", toPosition }, announce);
     },
-    [containerReference],
+    [layout, announce],
   );
+  const rowSettings: ReorderDragSettings<string> = {
+    onDropInPlace: (paneId) => {
+      commitPaneDrop(layout, paneId, { kind: "in-place" }, announce);
+    },
+    beyond: {
+      // Past the middle of the conversation, the block would move to its other side.
+      contains: (pointerX) => {
+        const box = conversationRef.current?.getBoundingClientRect();
+        if (box === undefined) {
+          return false;
+        }
+        const middle = box.left + box.width / 2;
+        return state.side === "right" ? pointerX < middle : pointerX > middle;
+      },
+      onHover: setIsOverConversation,
+      onDrop: (paneId) => {
+        commitPaneDrop(layout, paneId, { kind: "across-conversation" }, announce);
+      },
+    },
+  };
+  const rowDrag = useReorderDrag("horizontal", rowKeys, commitRowMove, clock, rowSettings);
+  // The block moved sides under a pane let go past the conversation: glide it from where the hand
+  // left it. Nothing is waiting after a chord's move, so the settle is then a no-op.
+  useLayoutEffect(() => {
+    rowDrag.settle();
+  }, [rowDrag, state.side]);
 
+  const isStacked = terminal !== undefined && row.length > 0;
+  const terminalKeys = useMemo(() => {
+    if (terminal === undefined || !isStacked || isFull) {
+      return [];
+    }
+    return state.terminalPlace === "above"
+      ? [terminal.paneId, ROW_KEY]
+      : [ROW_KEY, terminal.paneId];
+  }, [terminal, isStacked, isFull, state.terminalPlace]);
+  const commitTerminalMove = useCallback(
+    (paneId: string, toIndex: number) => {
+      const place = toIndex === 0 ? "above" : "below";
+      commitPaneDrop(layout, paneId, { kind: "terminal", place }, announce);
+    },
+    [layout, announce],
+  );
+  const terminalDrag = useReorderDrag("vertical", terminalKeys, commitTerminalMove, clock, {
+    isHandleRequired: true,
+    onDropInPlace: (paneId) => {
+      commitPaneDrop(layout, paneId, { kind: "in-place" }, announce);
+    },
+  });
+
+  // A pane just opened, or brought forward again, is scrolled into view along the row.
+  const lastOpened = state.lastOpened;
+  useLayoutEffect(() => {
+    const block = blockRef.current;
+    if (lastOpened === undefined || block === null) {
+      return;
+    }
+    const slot = block.querySelector(paneSlotSelector(lastOpened.paneId));
+    if (slot !== null) {
+      revealInRow(block, slot);
+    }
+  }, [lastOpened]);
+
+  // A pane closed while it held the window's focus hands it to the pane the layout now focuses,
+  // rather than leaving it on the document's body.
+  const focusedPaneId = state.focusedPaneId;
+  useLayoutEffect(() => {
+    const holder = focusHolderPaneIdRef.current;
+    const activeElement = layoutRef.current?.ownerDocument.activeElement;
+    if (
+      holder === undefined ||
+      focusedPaneId === undefined ||
+      state.panes.some((pane) => pane.paneId === holder) ||
+      // Focus the person already moved elsewhere stays where they put it.
+      (activeElement?.isConnected === true && activeElement !== activeElement.ownerDocument.body)
+    ) {
+      return;
+    }
+    focusHolderPaneIdRef.current = undefined;
+    blockRef.current
+      ?.querySelector<HTMLElement>(`${paneSlotSelector(focusedPaneId)} .meridian-pane`)
+      ?.focus();
+  }, [state.panes, focusedPaneId]);
+
+  const onBlockFocus = useCallback((event: React.FocusEvent<HTMLDivElement>) => {
+    focusHolderPaneIdRef.current =
+      event.target.closest<HTMLElement>(paneSlotSelector())?.dataset["paneId"];
+  }, []);
+  const onBlockBlur = useCallback((event: React.FocusEvent<HTMLDivElement>) => {
+    // Focus that left for somewhere else is no longer a pane's to hand on.
+    if (event.relatedTarget !== null && !event.currentTarget.contains(event.relatedTarget)) {
+      focusHolderPaneIdRef.current = undefined;
+    }
+  }, []);
+
+  const fullWidthPaneId = state.fullWidthPaneId;
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
-      // `Alt` alone, so nothing collides with the palette's `$mod` chords.
-      if (!event.altKey || event.ctrlKey || event.metaKey) {
+      // Escape typed into a field, the terminal's shell among them, stays the field's.
+      if (
+        fullWidthPaneId !== undefined &&
+        isUnclaimedEscape(event) &&
+        !isEditableTarget(event.target)
+      ) {
+        layout.setFullWidth(undefined);
+        event.preventDefault();
+        return;
+      }
+      // `Alt` alone, so nothing collides with the palette's `$mod` chords or the window's
+      // `Alt+Shift` moves.
+      if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
         return;
       }
       // Not from inside a widget that owns these keys: on macOS Option+Arrow moves the caret
@@ -100,37 +209,27 @@ export function SessionPaneLayout(props: SessionPaneLayoutProps): React.JSX.Elem
       }
       switch (event.key) {
         case "ArrowRight":
-        case "ArrowLeft": {
-          const goingRight = event.key === "ArrowRight";
-          if (event.shiftKey) {
-            if (goingRight) {
-              acts.moveFocusedPaneRight();
-            } else {
-              acts.moveFocusedPaneLeft();
-            }
-          } else if (goingRight) {
-            acts.focusNextPane();
-          } else {
-            acts.focusPreviousPane();
-          }
+          acts.focusNextPane();
           event.preventDefault();
           return;
-        }
+        case "ArrowLeft":
+          acts.focusPreviousPane();
+          event.preventDefault();
+          return;
         case "Backspace":
-        case "Delete": {
+        case "Delete":
           // Consumed only where there is a pane to close, so an unfocused layout leaves
           // Backspace to whatever else wanted it, as the window's binding table does.
-          if (state.focusedPaneId !== undefined) {
+          if (focusedPaneId !== undefined) {
             acts.closeFocusedPane();
             event.preventDefault();
           }
           return;
-        }
         default:
           return;
       }
     },
-    [acts, state.focusedPaneId],
+    [acts, layout, fullWidthPaneId, focusedPaneId],
   );
 
   const focusPane = useCallback(
@@ -145,61 +244,145 @@ export function SessionPaneLayout(props: SessionPaneLayoutProps): React.JSX.Elem
     },
     [layout],
   );
-  /**
-   * Adopt what the group settled on. `onLayoutChanged` fires once, on pointer release or key
-   * press; writing every frame would put sixty arrangements a second through the persistence
-   * writer.
-   */
-  const onLayoutSettled = useCallback(
-    (percentages: Readonly<Record<string, number>>) => {
-      layout.applyLayout(percentages, minimumPermille(state.density));
+  const toggleFullWidth = useCallback(
+    (paneId: string) => {
+      layout.setFullWidth(layout.snapshot().fullWidthPaneId === paneId ? undefined : paneId);
     },
-    [layout, minimumPermille, state.density],
+    [layout],
   );
+  const setPaneWidth = useCallback(
+    (kind: SessionPane["kind"], widthPx: number | undefined) => {
+      layout.setPaneWidth(kind, widthPx);
+    },
+    [layout],
+  );
+  const setTerminalHeight = useCallback(
+    (heightPx: number | undefined) => {
+      layout.setTerminalHeight(heightPx);
+    },
+    [layout],
+  );
+  // A pane may be dragged as wide as leaves the conversation its floor.
+  const measureWidthCeilingPx = useCallback((): number => {
+    const element = layoutRef.current;
+    if (element === null) {
+      return 0;
+    }
+    const width = element.getBoundingClientRect().width;
+    return width - CONVERSATION_FLOOR_REM * rootFontSizePx(element.ownerDocument);
+  }, []);
+  const terminalHeightPx = state.terminalHeightPx;
+  // The terminal and the row each keep the height they stop being readable under.
+  const measureTerminalHeight = useCallback((): PaneEdgeReading => {
+    const block = blockRef.current;
+    const stacked = block?.querySelector('[data-placement="terminal-stacked"]');
+    if (block === null || stacked === null || stacked === undefined) {
+      throw new Error("The terminal's height was measured with no terminal stacked in the block.");
+    }
+    const rootPx = rootFontSizePx(block.ownerDocument);
+    return {
+      sizePx: terminalHeightPx ?? stacked.getBoundingClientRect().height,
+      minimumPx: TERMINAL_PANE_HEIGHT_FLOOR_REM * rootPx,
+      maximumPx: block.clientHeight - PANE_ROW_HEIGHT_FLOOR_REM * rootPx,
+    };
+  }, [terminalHeightPx]);
+  const previewTerminalHeight = useCallback((heightPx: number | undefined) => {
+    if (heightPx === undefined) {
+      blockRef.current?.style.removeProperty(LIVE_TERMINAL_HEIGHT_PROPERTY);
+    } else {
+      blockRef.current?.style.setProperty(LIVE_TERMINAL_HEIGHT_PROPERTY, `${String(heightPx)}px`);
+    }
+  }, []);
 
-  const defaultLayout = useMemo(() => toPaneSizePercentages(state.panes), [state.panes]);
+  const slotFor = (pane: SessionPane, placement: PaneSlotPlacement): React.JSX.Element => {
+    const drag = placement === "row" ? rowDrag : terminalDrag;
+    return (
+      <SessionPaneSlot
+        key={pane.paneId}
+        pane={pane}
+        placement={placement}
+        side={state.side}
+        terminalPlace={state.terminalPlace}
+        widthPx={state.paneWidthsPx[pane.kind]}
+        isFullWidth={state.fullWidthPaneId === pane.paneId}
+        registry={props.registry}
+        paneContextFor={props.paneContextFor}
+        isSessionOpen={props.isSessionOpen}
+        sessionId={props.sessionId}
+        registerItem={drag.itemRef(pane.paneId)}
+        registerDragHandle={drag.handleRef(pane.paneId)}
+        measureWidthCeilingPx={measureWidthCeilingPx}
+        measureTerminalHeight={measureTerminalHeight}
+        previewTerminalHeight={previewTerminalHeight}
+        onSetWidth={setPaneWidth}
+        onSetTerminalHeight={setTerminalHeight}
+        onResizingChange={setIsResizing}
+        onFocus={focusPane}
+        onClose={closePane}
+        onToggleFullWidth={toggleFullWidth}
+      />
+    );
+  };
 
+  // The narrowest the block's content gets: every row pane at its floor, or the terminal alone.
+  const floorPanes = row.length > 0 ? row : state.panes;
+  const blockStyle: PaneBlockStyle = {
+    "--meridian-pane-row-floor": `${String(
+      floorPanes.reduce((sum, pane) => sum + PANE_WIDTH_RULE_BY_KIND[pane.kind].floorRem, 0),
+    )}rem`,
+    ...(terminalHeightPx === undefined
+      ? {}
+      : { "--meridian-terminal-pane-height": `${String(terminalHeightPx)}px` }),
+  };
   return (
     <div
+      ref={layoutRef}
       className="meridian-pane-layout"
-      data-density={state.density}
-      role="group"
-      aria-label="Open panes"
-      onKeyDown={onKeyDown}
+      data-side={state.side}
+      data-full-width={isFull ? "" : undefined}
+      data-resizing={isResizing ? "" : undefined}
     >
-      {state.panes.length === 0 ? (
-        <Nothing kind="empty" placement="block" title="No panes are open." />
-      ) : (
-        <Group
-          className="meridian-pane-layout__group"
-          elementRef={containerReference}
-          orientation="horizontal"
-          defaultLayout={defaultLayout}
-          onLayoutChanged={onLayoutSettled}
+      <div ref={conversationRef} className="meridian-pane-layout__conversation">
+        {props.conversation}
+      </div>
+      {state.panes.length === 0 ? null : (
+        <div
+          ref={drawBlockScrollbar}
+          className="meridian-pane-layout__block"
+          data-terminal={terminal === undefined ? undefined : isStacked ? "stacked" : "alone"}
+          data-terminal-place={state.terminalPlace}
+          style={blockStyle}
+          role="group"
+          aria-label="Open panes"
+          onKeyDown={onKeyDown}
+          onFocus={onBlockFocus}
+          onBlur={onBlockBlur}
         >
-          {state.panes.map((pane, position) => (
-            <Fragment key={pane.paneId}>
-              {position === 0 ? null : (
-                <Separator
-                  className="meridian-pane-layout__separator"
-                  aria-label="Resize the pane to the left"
-                />
-              )}
-              <SessionPaneSlot
-                pane={pane}
-                density={state.density}
-                registry={props.registry}
-                paneContextFor={props.paneContextFor}
-                isSessionOpen={props.isSessionOpen}
-                sessionId={props.sessionId}
-                paneDrag={paneDrag}
-                onFocus={focusPane}
-                onClose={closePane}
-              />
-            </Fragment>
-          ))}
-        </Group>
+          {row.length === 0 ? null : (
+            <div className="meridian-pane-layout__row" ref={terminalDrag.itemRef(ROW_KEY)}>
+              {row.map((pane) => slotFor(pane, "row"))}
+            </div>
+          )}
+          {terminal === undefined
+            ? null
+            : slotFor(terminal, isStacked ? "terminal-stacked" : "terminal-alone")}
+        </div>
       )}
+      {isOverConversation ? (
+        <div className="meridian-pane-layout__side-mark" aria-hidden="true" />
+      ) : null}
     </div>
   );
+}
+
+/** The terminal drag's key for the row of main panes, which moves with it but is not dragged. */
+const ROW_KEY = "$row";
+
+/** The property a dragged divider draws the terminal's height on, ahead of the height it keeps. */
+const LIVE_TERMINAL_HEIGHT_PROPERTY = "--meridian-terminal-pane-height-live";
+
+/** Carries the row's floor and the terminal height a person set into the block's sheet. */
+interface PaneBlockStyle extends React.CSSProperties {
+  readonly "--meridian-pane-row-floor": string;
+  readonly "--meridian-terminal-pane-height"?: string;
 }

@@ -114,6 +114,7 @@ export const GLYPH_NAMES = [
   "copy",
   "pencil",
   "external",
+  "expand",
   "more",
   "plus",
 ] as const;

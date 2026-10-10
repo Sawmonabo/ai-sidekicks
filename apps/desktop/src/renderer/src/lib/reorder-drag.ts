@@ -40,6 +40,25 @@ export interface ReorderDragOptions<Key extends string> {
    * once per drag, on release, and only when the index changed.
    */
   readonly onReorder: (key: Key, toIndex: number) => void;
+  /** Called on a release that leaves the order as it was, for an owner that says so. */
+  readonly onDropInPlace?: (key: Key) => void;
+  /** True where an item with no registered handle cannot be dragged at all. */
+  readonly isHandleRequired?: boolean;
+  /** A place outside the list a drag can be let go on, as a pane is dragged past a column. */
+  readonly beyond?: ReorderDropBeyond<Key>;
+}
+
+/**
+ * A place outside the list's own room an item can be dropped on. While the pointer is over it the
+ * neighbors close back up; a release there hands the item to `onDrop` instead of reordering, and
+ * the owner calls `settle` once it has laid the list out again.
+ */
+export interface ReorderDropBeyond<Key extends string> {
+  /** Whether the pointer, in the item's window's viewport pixels, is over that place. */
+  readonly contains: (pointerX: number, pointerY: number) => boolean;
+  /** The pointer went over that place or left it, for a mark to show where the drop lands. */
+  readonly onHover: (isOver: boolean) => void;
+  readonly onDrop: (key: Key) => void;
 }
 
 /**
@@ -92,8 +111,21 @@ export class ReorderDrag<Key extends string> {
     if (gesture.phase === "pressed") {
       return;
     }
+    const beyond = this.#options.beyond;
+    if (gesture.isBeyond && beyond !== undefined) {
+      beyond.onHover(false);
+      // The item stays where the hand left it until the owner lays the list out and settles.
+      this.#awaitedCommit = {
+        keys: gesture.slots.map((slot) => slot.key),
+        slots: gesture.slots,
+        scroller: gesture.scroller,
+      };
+      beyond.onDrop(gesture.key);
+      return;
+    }
     if (gesture.to === gesture.from) {
       this.#settle(undefined);
+      this.#options.onDropInPlace?.(gesture.key);
       return;
     }
     const home = slotAt(gesture.slots, gesture.from);
@@ -195,11 +227,17 @@ export class ReorderDrag<Key extends string> {
 
   /**
    * Glides every item from where it is drawn to where its layout puts it now. A caller whose
-   * commit was refused calls this, since no new order will arrive to settle the drawn positions.
+   * commit was refused calls this, since no new order will arrive to settle the drawn positions,
+   * and so does an owner that laid the list out again after a drop beyond it. Nothing happens
+   * once a new order has settled them.
    */
   public settle(): void {
+    const awaited = this.#awaitedCommit;
+    if (awaited === undefined) {
+      return;
+    }
     this.#awaitedCommit = undefined;
-    this.#settle(undefined);
+    this.#settle(awaited);
   }
 
   /** Ends a press or a drag without committing, gliding a lifted item back. */
@@ -210,6 +248,9 @@ export class ReorderDrag<Key extends string> {
     }
     this.#endGesture(gesture);
     if (gesture.phase === "lifted") {
+      if (gesture.isBeyond) {
+        this.#options.beyond?.onHover(false);
+      }
       this.#settle(undefined);
     }
   }
@@ -244,7 +285,11 @@ export class ReorderDrag<Key extends string> {
       return;
     }
     const handle = this.#handles.get(key);
-    if (handle !== undefined && !event.composedPath().includes(handle)) {
+    if (
+      handle === undefined
+        ? this.#options.isHandleRequired === true
+        : !event.composedPath().includes(handle)
+    ) {
       return;
     }
     const ownerDocument = element.ownerDocument;
@@ -312,6 +357,7 @@ export class ReorderDrag<Key extends string> {
       pointerX: gesture.pressX,
       pointerY: gesture.pressY,
       edgeScroll: undefined,
+      isBeyond: false,
     };
     this.#gesture = lifted;
     announceScriptedMotion(gesture.element);
@@ -327,8 +373,16 @@ export class ReorderDrag<Key extends string> {
     const offset = travel + this.#scrolledBy(gesture.scroller);
     gesture.element.style.transform = this.#translate(offset);
     announceScriptedMotion(gesture.element);
+    const isBeyond = this.#options.beyond?.contains(pointerX, pointerY) ?? false;
+    if (isBeyond !== gesture.isBeyond) {
+      gesture.isBeyond = isBeyond;
+      this.#options.beyond?.onHover(isBeyond);
+    }
     const home = slotAt(gesture.slots, gesture.from);
-    const to = nearestSlot(gesture.slots, home.start + home.size / 2 + offset);
+    // Over the place beyond the list, the neighbors close back up behind the item.
+    const to = isBeyond
+      ? gesture.from
+      : nearestSlot(gesture.slots, home.start + home.size / 2 + offset);
     if (to !== gesture.to) {
       gesture.to = to;
       this.#makeRoom(gesture);
@@ -642,6 +696,8 @@ interface LiftedGesture<Key extends string> extends Omit<PressedGesture<Key>, "p
   pointerY: number;
   /** The armed edge-scroll frame and when it was armed, or `undefined` while none is. */
   edgeScroll: { readonly armedAt: number; readonly frame: ScheduledHandle } | undefined;
+  /** Whether the pointer is over the place beyond the list. */
+  isBeyond: boolean;
 }
 
 type Gesture<Key extends string> = PressedGesture<Key> | LiftedGesture<Key>;

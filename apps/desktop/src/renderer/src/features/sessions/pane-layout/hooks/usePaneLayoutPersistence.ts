@@ -3,8 +3,8 @@
 // The record is read before anything is written: a save that ran first would file an empty layout
 // over the record still to be read, and a second restore would replace what the person arranged.
 // Results are keyed by (layout, session) because the session screen stays mounted across a route
-// between two open sessions. A failed read is not a first run: the fallback transcript pane is
-// opened for both `absent` and `failed`, but filed only for `absent`.
+// between two open sessions. A failed read is not a first run: an empty block is filed only for
+// `absent`.
 
 import { useEffect } from "react";
 
@@ -13,8 +13,8 @@ import { type UiStateStore } from "#renderer/store/persistence/ui-state-store.js
 import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
 import { useSubjectScopedResource } from "#renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
+import type { BlockPaneKind } from "#renderer/routing/panes/kinds.js";
 import { type PaneLayoutStore } from "../store.js";
-import { paneAddressKey } from "../state.js";
 import { type PaneLayoutRestoreReport } from "../snapshot.js";
 import {
   CoalescingLayoutWriter,
@@ -106,14 +106,14 @@ export function usePaneLayoutPersistence(options: PaneLayoutPersistenceOptions):
       const paneIdsBeforeRead = new Set(layout.snapshot().panes.map((pane) => pane.paneId));
       const revisionBeforeRead = layout.snapshot().revision;
 
-      // Every address opened while the read ran, kept even once closed again: a close leaves
+      // Every kind opened while the read ran, kept even once closed again: a close leaves
       // nothing in the snapshot, so comparing before with after would let the record put the
       // closed pane back.
-      const openedDuringRead = new Set<string>();
+      const openedDuringRead = new Set<BlockPaneKind>();
       const watchActsDuringRead = layout.subscribe((state) => {
         for (const pane of state.panes) {
           if (!paneIdsBeforeRead.has(pane.paneId)) {
-            openedDuringRead.add(paneAddressKey(pane));
+            openedDuringRead.add(pane.kind);
           }
         }
       });
@@ -126,7 +126,7 @@ export function usePaneLayoutPersistence(options: PaneLayoutPersistenceOptions):
       const record = readOutcome.outcome === "present" ? readOutcome.record : undefined;
 
       // An untouched layout takes the record wholesale. A layout the person arranged during the
-      // read is newer: it wins for every address it holds, and `adoptBeneath` fills in the rest,
+      // read is newer: it wins for every kind it holds, and `adoptBeneath` fills in the rest,
       // honoring closes.
       //
       // Panes present before the read are dropped either way; after a route between sessions
@@ -139,9 +139,9 @@ export function usePaneLayoutPersistence(options: PaneLayoutPersistenceOptions):
         for (const paneId of paneIdsBeforeRead) {
           layout.close(paneId);
         }
-        const liveAddresses = new Set(layout.snapshot().panes.map(paneAddressKey));
+        const liveKinds = new Set(layout.snapshot().panes.map((pane) => pane.kind));
         const closedDuringRead = new Set(
-          [...openedDuringRead].filter((address) => !liveAddresses.has(address)),
+          [...openedDuringRead].filter((kind) => !liveKinds.has(kind)),
         );
         report =
           record === undefined ? undefined : layout.adoptBeneath(record.value, closedDuringRead);
@@ -149,18 +149,14 @@ export function usePaneLayoutPersistence(options: PaneLayoutPersistenceOptions):
       for (const refusal of report?.refusals ?? []) {
         restoreRefusedRef.current(refusal, sessionId);
       }
-      if (layout.snapshot().panes.length === 0) {
-        // A window with no panes is not a state this screen has; the transcript fills it.
-        layout.open({ kind: "transcript" });
-      }
 
       // Opened only now, so no save fired during the commits above.
       restore.settle();
       restoredRef.current?.(sessionId);
       if (readOutcome.outcome === "failed") {
-        // Nothing is filed over a record this read could not reach: the layout on screen is the
-        // fallback, not an arrangement the person asked to save. The subscription below still
-        // files their next deliberate change.
+        // Nothing is filed over a record this read could not reach: the layout on screen is not
+        // an arrangement the person asked to save. The subscription below still files their next
+        // deliberate change.
         return;
       }
       if (actedDuringRead || (report?.restoredPaneCount ?? 0) === 0) {

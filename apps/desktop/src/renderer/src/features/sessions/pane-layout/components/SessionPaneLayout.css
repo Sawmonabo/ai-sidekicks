@@ -1,96 +1,257 @@
-/* The pane layout: the panes, the separators between them, and the density presets. */
+/* The pane layout: the conversation, the block of panes beside it, its edges and its side mark. */
 
 /*
- * The pane layout is bounded by the region it sits in, and `max-height` says so.
- * `min-height: 0` lets a flex child shrink but not stop growing. With no ceiling a pane
- * whose body overflowed pushed the pane layout past the session screen region, so the pane's
- * own scroller never engaged and every list inside it mounted every row.
- * `.meridian-session-screen-container` (in the transcript's sheet) carries the same ceiling
- * one level up. A ceiling and not a `height`, so it bounds the broken case and moves no
- * layout that already fitted.
+ * The conversation keeps its floor and takes what the block leaves. The block takes as much of
+ * the rest as its panes' own widths ask for, and past that scrolls sideways: a track that grows
+ * only up to its content, and an overflowing scroller inside it.
  */
 .meridian-pane-layout {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 0;
-  max-height: 100%;
-}
-
-/*
- * The panel group itself. `react-resizable-panels` fixes `display`, `flex-direction`,
- * `flex-wrap` and `overflow` on it and documents that they cannot be overridden, so the
- * pane layout's frame above carries anything that would have fought them.
- */
-.meridian-pane-layout__group {
-  flex: 1 1 auto;
-  min-width: 0;
-  min-height: 0;
-}
-
-/* One pane's frame. The panel owns the width, and the density floor rides its `minSize`. */
-.meridian-pane-layout__pane {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 0;
   position: relative;
+  display: grid;
+  grid-template-columns: minmax(var(--meridian-conversation-floor), 1fr) minmax(0, max-content);
+  grid-template-rows: minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+}
+
+.meridian-pane-layout[data-side="left"] {
+  grid-template-columns: minmax(0, max-content) minmax(var(--meridian-conversation-floor), 1fr);
+}
+
+.meridian-pane-layout__conversation {
+  display: grid;
+  grid-row: 1;
+  grid-column: 1;
+  grid-template-rows: minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+}
+
+.meridian-pane-layout[data-side="left"] > .meridian-pane-layout__conversation {
+  grid-column: 2;
 }
 
 /*
- * While a pane is lifted the panes slide and the separators stay put, so they would cut across
- * a pane gliding past; they step aside while it is lifted and return as it is let go, when the
- * panes start gliding into their new order.
+ * The block: one column as wide as the view, or as the row's floors where those are wider, so a
+ * pane narrows toward its own floor before the block scrolls, and the terminal spans the row.
+ * Its own vertical scroll is never used; a pane scrolls inside itself.
  */
-.meridian-pane-layout__group:has(> [data-reorder-lifted]) > .meridian-pane-layout__separator {
+.meridian-pane-layout__block {
+  display: grid;
+  grid-row: 1;
+  grid-column: 2;
+  grid-template-columns: max(100%, var(--meridian-pane-row-floor, 0px));
+  grid-template-rows: minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+}
+
+.meridian-pane-layout[data-side="left"] > .meridian-pane-layout__block {
+  grid-column: 1;
+}
+
+/*
+ * The terminal under the row, or over it, at its height: a third of the block until a person
+ * sets one, and never under its floor or so tall the row goes under its own.
+ */
+.meridian-pane-layout__block[data-terminal="stacked"] {
+  --meridian-terminal-pane-height-now: clamp(
+    var(--meridian-terminal-pane-height-floor),
+    var(
+      --meridian-terminal-pane-height-live,
+      var(--meridian-terminal-pane-height, var(--meridian-terminal-height))
+    ),
+    calc(100% - var(--meridian-pane-row-height-floor))
+  );
+  grid-template-rows:
+    minmax(var(--meridian-pane-row-height-floor), 1fr)
+    var(--meridian-terminal-pane-height-now);
+}
+
+.meridian-pane-layout__block[data-terminal="stacked"][data-terminal-place="above"] {
+  grid-template-rows:
+    var(--meridian-terminal-pane-height-now)
+    minmax(var(--meridian-pane-row-height-floor), 1fr);
+}
+
+.meridian-pane-layout__row {
+  display: flex;
+  grid-row: 1;
+  grid-column: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.meridian-pane-layout__block[data-terminal-place="above"] > .meridian-pane-layout__row {
+  grid-row: 2;
+}
+
+/*
+ * One pane's slot: its own width by its kind's rule, narrowing toward its floor before the
+ * block scrolls. A column, so the pane's frame fills the slot's height. Panes are set apart by a
+ * one-pixel inset line in the edge color on the side that faces the conversation, not by a
+ * border; the pane stands clear of it so its head never paints over it.
+ */
+.meridian-pane-layout__pane {
+  position: relative;
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  box-sizing: border-box;
+  padding-inline-start: 1px;
+  box-shadow: inset 1px 0 0 var(--meridian-edge);
+  inline-size: var(--meridian-pane-width-live, var(--meridian-pane-width));
+  min-inline-size: var(--meridian-pane-floor);
+  min-height: 0;
+}
+
+/* Alone in the block, the terminal keeps its own width, narrowing toward its floor. */
+.meridian-pane-layout__pane[data-placement="terminal-alone"] {
+  grid-row: 1;
+  grid-column: 1;
+  justify-self: start;
+  max-inline-size: 100%;
+}
+
+/*
+ * Stacked, the terminal spans the row and gives the block no width of its own: its head's text
+ * would otherwise widen the block past the row.
+ */
+.meridian-pane-layout__pane[data-placement="terminal-stacked"] {
+  grid-row: 2;
+  grid-column: 1;
+  min-width: 0;
+  contain: inline-size;
+}
+
+.meridian-pane-layout__block[data-terminal-place="above"]
+  > .meridian-pane-layout__pane[data-placement="terminal-stacked"] {
+  grid-row: 1;
+}
+
+/* On the left of the conversation the line moves to the pane's side that faces it. */
+.meridian-pane-layout[data-side="left"] .meridian-pane-layout__pane {
+  padding-inline: 0 1px;
+  box-shadow: inset -1px 0 0 var(--meridian-edge);
+}
+
+/*
+ * Full width: the one pane takes the whole width of the layout, the conversation and every other
+ * pane collapse behind it, and nothing scrolls or resizes until the width is given back.
+ */
+.meridian-pane-layout[data-full-width] {
+  grid-template-columns: 0 minmax(0, 1fr);
+}
+
+.meridian-pane-layout[data-full-width][data-side="left"] {
+  grid-template-columns: minmax(0, 1fr) 0;
+}
+
+.meridian-pane-layout[data-full-width] > .meridian-pane-layout__conversation {
+  overflow: hidden;
   visibility: hidden;
 }
 
-/* A lifted pane glides over its neighbors, so it clips its corners to show them through. */
-.meridian-pane-layout__pane[data-reorder-lifted] {
-  --meridian-pane-overflow: hidden;
+.meridian-pane-layout[data-full-width] > .meridian-pane-layout__block {
+  grid-template-columns: 100%;
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.meridian-pane-layout[data-full-width] .meridian-pane-layout__pane:not([data-full-width]),
+.meridian-pane-layout[data-full-width] .meridian-pane-layout__row:not(:has(> [data-full-width])),
+.meridian-pane-layout[data-full-width] .meridian-pane-edge {
+  display: none;
+}
+
+.meridian-pane-layout[data-full-width] .meridian-pane-layout__row,
+.meridian-pane-layout__pane[data-full-width] {
+  grid-row: 1;
+}
+
+.meridian-pane-layout__pane[data-full-width] {
+  flex: 1 1 auto;
+  inline-size: auto;
+  max-inline-size: none;
+}
+
+/* While an edge is dragged nothing under the pointer is selected. */
+.meridian-pane-layout[data-resizing] {
+  user-select: none;
 }
 
 /*
- * The separator is the library's widget wearing our chrome: focusable, arrow-operable, with
- * the window-splitter ARIA, so every line below is paint. Drawn as a hairline and hit as a
- * bar: the width is the target and the gradient is the line.
+ * A pane edge: a grab zone laid over the pane's side that faces the conversation, drawing its
+ * line only while it is reached for. The divider between the row and the terminal lies along
+ * the terminal's side that faces the row.
  */
-.meridian-pane-layout__separator {
-  width: var(--meridian-pane-separator-width);
-  border: 0;
-  background: linear-gradient(
-    to right,
-    transparent 40%,
-    var(--meridian-edge) 40% 60%,
-    transparent 60%
-  );
+.meridian-pane-edge {
+  position: absolute;
+  z-index: 1;
+  outline: none;
+}
+
+.meridian-pane-edge[data-orientation="vertical"] {
+  inset-block: 0;
+  inset-inline-start: 0;
+  inline-size: var(--meridian-pane-edge-width);
   cursor: col-resize;
 }
 
-.meridian-pane-layout__separator:hover {
+.meridian-pane-layout[data-side="left"] .meridian-pane-edge[data-orientation="vertical"] {
+  inset-inline: auto 0;
+}
+
+.meridian-pane-edge[data-orientation="horizontal"] {
+  inset-inline: 0;
+  inset-block-start: 0;
+  block-size: var(--meridian-pane-edge-width);
+  cursor: row-resize;
+}
+
+.meridian-pane-layout__block[data-terminal-place="above"]
+  .meridian-pane-edge[data-orientation="horizontal"] {
+  inset-block: auto 0;
+}
+
+.meridian-pane-edge:hover,
+.meridian-pane-edge:focus-visible,
+.meridian-pane-layout[data-resizing] .meridian-pane-edge:active {
   background: linear-gradient(
-    to right,
-    transparent 30%,
-    var(--meridian-accent) 30% 70%,
-    transparent 70%
+    to var(--meridian-pane-edge-line-direction, right),
+    var(--meridian-accent) 0 var(--meridian-leading-edge),
+    transparent var(--meridian-leading-edge)
   );
 }
 
-/* --- Density presets ---------------------------------------------------- */
-
-/*
- * The preset's minimum width is carried inline by the pane, from `density.ts`.
- * The rhythm that goes with it is set here as custom properties on the pane layout, never as
- * rules on the pane's own classes: `meridian-pane__head` is `PaneFrame.css`'s, and a second
- * sheet writing against it would make the cascade answer by bundler emit order. This sheet
- * states values and `PaneFrame.css` spends them.
- */
-.meridian-pane-layout[data-density="comfortable"] {
-  --meridian-pane-head-padding-block: var(--meridian-space-3);
+/* The line runs along the edge's outer side: the gradient starts there. */
+.meridian-pane-layout[data-side="left"] .meridian-pane-edge[data-orientation="vertical"] {
+  --meridian-pane-edge-line-direction: left;
 }
 
-.meridian-pane-layout[data-density="compact"] {
-  --meridian-pane-head-padding-block: var(--meridian-space-1);
-  --meridian-pane-head-font-size: var(--meridian-text-xs);
+.meridian-pane-edge[data-orientation="horizontal"] {
+  --meridian-pane-edge-line-direction: bottom;
+}
+
+.meridian-pane-layout__block[data-terminal-place="above"]
+  .meridian-pane-edge[data-orientation="horizontal"] {
+  --meridian-pane-edge-line-direction: top;
+}
+
+/* Dragged past the conversation, its far side marks where the block would land. */
+.meridian-pane-layout__side-mark {
+  position: absolute;
+  z-index: 2;
+  inset-block: 0;
+  inset-inline-start: 0;
+  inline-size: var(--meridian-leading-edge);
+  background: var(--meridian-accent);
+  pointer-events: none;
+}
+
+.meridian-pane-layout[data-side="left"] > .meridian-pane-layout__side-mark {
+  inset-inline: auto 0;
 }

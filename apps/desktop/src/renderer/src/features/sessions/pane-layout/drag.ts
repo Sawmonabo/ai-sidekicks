@@ -1,74 +1,46 @@
 // Moving a pane by dragging its header: what a drop commits and what it says out loud.
 //
 // The gesture is the shared pointer reorder (`lib/reorder-drag.ts`), which glides the pane into
-// its place and hands over where it landed; this module commits that through
-// `PaneLayoutStore.reorderPane` and announces it, in the same words as the keyboard move.
+// its place and hands over where it landed; this module commits that through the store and
+// announces it, in the same words as the keyboard move.
 
-import {
-  type Announce,
-  type AnnouncementPoliteness,
-} from "#renderer/components/LiveAnnouncer/announcer.js";
-import { TITLE_BY_PANE_KIND } from "#renderer/components/PaneFrame/PaneFrame.js";
-import { type PaneKind } from "#renderer/routing/panes/kinds.js";
+import { type Announce } from "#renderer/components/LiveAnnouncer/announcer.js";
 import type { PaneLayoutStore } from "./store.js";
+import { paneMoveAnnouncement } from "./move-announcement.js";
+import type { TerminalPlace } from "./state.js";
 
-/** What a settled drop is announced as, and in which lane. */
-export interface PaneDropAnnouncement {
-  readonly message: string;
-  readonly politeness: AnnouncementPoliteness;
-}
-
-/**
- * What a settled drop is announced as.
- *
- * A move is polite; a drop that changed nothing is assertive, because that lane is for "the
- * thing you tried did not happen". The position is one-based and given against the pane count.
- */
-export function paneDropAnnouncement(
-  paneKind: PaneKind,
-  fromPosition: number,
-  toPosition: number,
-  paneCount: number,
-): PaneDropAnnouncement {
-  if (fromPosition === toPosition) {
-    return {
-      message: `The ${TITLE_BY_PANE_KIND[paneKind]} pane was not moved.`,
-      politeness: "assertive",
-    };
-  }
-  return {
-    message:
-      `Moved the ${TITLE_BY_PANE_KIND[paneKind]} pane to position ` +
-      `${String(toPosition + 1)} of ${String(paneCount)}.`,
-    politeness: "polite",
-  };
-}
+/** Where a dragged pane was let go: a place along its own list, past the conversation, or home. */
+export type PaneDrop =
+  | { readonly kind: "row"; readonly toPosition: number }
+  | { readonly kind: "across-conversation" }
+  | { readonly kind: "terminal"; readonly place: TerminalPlace }
+  | { readonly kind: "in-place" };
 
 /**
- * Settles one drop: moves `paneId` to `toPosition` and announces what happened. Whether the pane
- * moved is measured from its index before and after, since the store clamps the position. Throws
- * for a pane the layout does not hold.
+ * Settles one drop: commits it through the store and announces what happened, measured from the
+ * arrangement before and after, since the store clamps a position. Throws for a pane the layout
+ * does not hold: a drag ends without committing when the layout changes under it.
  */
 export function commitPaneDrop(
   layout: PaneLayoutStore,
   paneId: string,
-  toPosition: number,
+  drop: PaneDrop,
   announce: Announce,
 ): void {
-  const before = layout.snapshot().panes;
-  const fromPosition = before.findIndex((pane) => pane.paneId === paneId);
-  const draggedPane = before[fromPosition];
-  if (draggedPane === undefined) {
-    // A drag ends without committing when the layout changes under it, so this is a defect.
-    throw new Error(`A pane that is not in the layout was dropped: ${paneId}`);
+  const before = layout.snapshot();
+  switch (drop.kind) {
+    case "row":
+      layout.reorderPane(paneId, drop.toPosition);
+      break;
+    case "across-conversation":
+      layout.moveBlockAcross(paneId);
+      break;
+    case "terminal":
+      layout.placeTerminal(drop.place);
+      break;
+    case "in-place":
+      break;
   }
-  layout.reorderPane(paneId, toPosition);
-  const after = layout.snapshot().panes;
-  const announcement = paneDropAnnouncement(
-    draggedPane.kind,
-    fromPosition,
-    after.findIndex((pane) => pane.paneId === paneId),
-    after.length,
-  );
+  const announcement = paneMoveAnnouncement(before, layout.snapshot(), paneId);
   announce(announcement.message, announcement.politeness);
 }

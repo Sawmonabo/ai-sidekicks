@@ -37,8 +37,6 @@ export interface FrameChromeProps {
   readonly notice?: React.ReactNode;
   /** What the sessions track holds; with nothing, the track is closed and zero wide. */
   readonly sessionsTrack?: React.ReactNode;
-  /** The narrowest one pane may be, in CSS px, the pane term of the window's floor. */
-  readonly minimumPaneWidthPx: number;
   /** The window's smallest size, in CSS px, reported on first layout and on every change. */
   readonly onWindowFloorChange: (floor: WindowSize) => void;
 }
@@ -97,10 +95,7 @@ export function FrameChrome(props: FrameChromeProps): React.JSX.Element {
           </main>
         </div>
       </div>
-      <WindowFloorBox
-        minimumPaneWidthPx={props.minimumPaneWidthPx}
-        onWindowFloorChange={props.onWindowFloorChange}
-      />
+      <WindowFloorBox onWindowFloorChange={props.onWindowFloorChange} />
       {props.overlays}
     </div>
   );

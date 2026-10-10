@@ -1,11 +1,11 @@
-// The session screen: the header with its banners and catching-up line, the pane layout,
-// and the composer's region. It owns only the arrangement; panes and the composer come
-// through their registries.
+// The session screen: the conversation — the header with its banners and catching-up line, the
+// transcript and the composer's region — and the block of panes beside it. It owns only the
+// arrangement; the transcript, the panes and the composer come through their registries.
 //
-// The layout is restored once at mount and saved through the persistence hook. An empty layout
-// opens the transcript alone at full width. Until the session's store opens, as under the boot
-// cover before the background service has first answered, the screen draws its frame: the header's
-// identity and each pane's frame at its place and width, with no pane body, since each reads the
+// The block is restored once at mount and saved through the persistence hook; a session with no
+// pane saved opens none. Until the session's store opens, as under the boot cover before the
+// background service has first answered, the screen draws its frame: the header's identity, the
+// transcript's and each pane's frame at its place and width, with no body, since each reads the
 // session, and the composer's resting space held empty below them, so nothing moves when the store
 // opens. A pane another screen asked this session for (Review from a workflow run's page) opens
 // once the restore has landed. A save that failed raises one banner under the header; its code goes
@@ -13,14 +13,14 @@
 // closed. The screen is not remounted between two open sessions, so banners are scoped to (bridge,
 // session): the arriving session reads an empty column, and a bridge replacement clears it too.
 //
-// The screen carries the height its pane layout and composer share as a custom property, so the
+// The screen carries the height the transcript and the composer share as a custom property, so the
 // composer's draft can cap itself at a share of the conversation's. It is measured on resize only:
 // a size container would make every layout pass under the screen dearer, and the streaming
 // transcript lays out on most frames.
 
 import "./SessionScreen.css";
 
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 
 import {
   diagnosticStampAt,
@@ -42,7 +42,7 @@ import { SessionHeader } from "./header/components/SessionHeader.js";
 import { SessionBannerRow } from "./components/SessionBannerRow.js";
 import { SessionCatchUpLine } from "./components/SessionCatchUpLine.js";
 import { SessionPaneLayout } from "./pane-layout/components/SessionPaneLayout.js";
-import { PANE_LAYOUT_RESTORED_PANE_CAP } from "./pane-layout/store.js";
+import { PaneBody } from "./pane-layout/components/PaneBody.js";
 import { usePaneLayoutStore } from "./pane-layout/hooks/usePaneLayoutStore.js";
 import { usePaneLayoutState } from "./pane-layout/hooks/usePaneLayoutState.js";
 import type { SessionPane } from "./pane-layout/state.js";
@@ -88,7 +88,7 @@ export interface SessionScreenProps {
 export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
   const sessionId = routeSessionId(props.route);
   const registry = props.paneRegistry;
-  const layout = usePaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });
+  const layout = usePaneLayoutStore();
   const paneLayoutState = usePaneLayoutState(layout);
   const clock = useClock();
   // The bridge is the subject and the session the key: every refusal here came through that
@@ -180,8 +180,29 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
   const composer = findComposerRenderers();
   const focusedPane = useFocusedPaneAddress(paneLayoutState.panes, paneLayoutState.focusedPaneId);
 
-  return (
-    <div className="meridian-session-screen" ref={carryFlowHeight}>
+  // The conversation's transcript, mounted by kind like a pane but standing outside the block, so
+  // it is never moved, closed or taken full width.
+  const transcriptContext = useMemo<PaneContext>(
+    () => ({
+      kind: "transcript",
+      paneId: CONVERSATION_PANE_ID,
+      bridge: props.bridge,
+      frameStore: props.frameStore,
+      sessionStore: props.sessionStore,
+      uiStateStore: props.uiStateStore,
+      draftStore: props.draftStore,
+      linkedSourcePaneId: undefined,
+    }),
+    [props.bridge, props.frameStore, props.sessionStore, props.uiStateStore, props.draftStore],
+  );
+  const transcriptDescriptor = registry.descriptorFor("transcript");
+  // A kind with no registered body is a composition defect, not something to draw around.
+  if (transcriptDescriptor === undefined) {
+    throw new Error("no body is registered for the transcript pane kind");
+  }
+
+  const conversation = (
+    <div className="meridian-session-screen__conversation">
       <div className="meridian-session-screen__head">
         <SessionHeader sessionId={sessionId} />
         {banners.map((banner) => (
@@ -191,15 +212,16 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
           <SessionCatchUpLine sessionStore={props.sessionStore} onTryAgain={tryAgain} />
         )}
       </div>
-      <SessionPaneLayout
-        layout={layout}
-        registry={registry}
-        paneContextFor={paneContextFor}
-        isSessionOpen={props.sessionStore !== undefined}
-        sessionId={sessionId}
-      />
+      <div className="meridian-session-screen__transcript">
+        <PaneBody
+          descriptor={transcriptDescriptor}
+          context={transcriptContext}
+          isSessionOpen={props.sessionStore !== undefined}
+          sessionId={sessionId}
+        />
+      </div>
       {composer === undefined ? null : props.sessionStore === undefined ? (
-        // The composer's resting space, unseen and out of reach, so the pane row already has the
+        // The composer's resting space, unseen and out of reach, so the transcript already has the
         // height it keeps when the composer arrives.
         <div className="meridian-session-screen__composer" data-resting="" aria-hidden inert>
           {composer.resting()}
@@ -218,11 +240,27 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
       )}
     </div>
   );
+
+  return (
+    <div className="meridian-session-screen" ref={carryFlowHeight}>
+      <SessionPaneLayout
+        layout={layout}
+        registry={registry}
+        paneContextFor={paneContextFor}
+        isSessionOpen={props.sessionStore !== undefined}
+        sessionId={sessionId}
+        conversation={conversation}
+      />
+    </div>
+  );
 }
 
+/** The transcript's identity as a pane, the one the conversation mounts. */
+const CONVERSATION_PANE_ID = "conversation";
+
 /**
- * Write the height the pane layout and the composer share onto the screen as
- * `--meridian-session-flow-height`. The pane layout's row takes up whatever the head and the
+ * Write the height the transcript and the composer share onto the screen as
+ * `--meridian-session-flow-height`. The transcript's row takes up whatever the head and the
  * composer leave, so it resizes whenever any of them does, and is the one box observed; the sum
  * holds still while the draft grows, since the draft's growth comes out of that row.
  */
@@ -231,21 +269,19 @@ function carryFlowHeight(screen: HTMLElement | null): (() => void) | undefined {
     // A ref callback that returned a cleanup is never called with null.
     return undefined;
   }
-  const paneLayout = screen.querySelector(":scope > .meridian-pane-layout");
-  if (paneLayout === null) {
-    throw new Error("The session screen drew no pane layout to measure.");
+  const transcript = screen.querySelector(".meridian-session-screen__transcript");
+  if (transcript === null) {
+    throw new Error("The session screen drew no transcript to measure.");
   }
-  return observeElementResize(paneLayout, () => {
-    const composer = screen.querySelector<HTMLElement>(
-      ":scope > .meridian-session-screen__composer",
-    );
+  return observeElementResize(transcript, () => {
+    const composer = screen.querySelector<HTMLElement>(".meridian-session-screen__composer");
     // The composer's box inside its top edge, fractional: a rounded height would move the sum as
     // the draft grows.
     const composerHeight =
       composer === null
         ? 0
         : composer.getBoundingClientRect().height - (composer.offsetHeight - composer.clientHeight);
-    const flowHeight = paneLayout.getBoundingClientRect().height + composerHeight;
+    const flowHeight = transcript.getBoundingClientRect().height + composerHeight;
     screen.style.setProperty("--meridian-session-flow-height", `${String(flowHeight)}px`);
   });
 }

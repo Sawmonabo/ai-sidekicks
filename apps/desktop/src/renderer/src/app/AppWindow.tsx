@@ -33,7 +33,6 @@ import { screenRegistry } from "#renderer/registries/screens/registry.js";
 import { AppShell } from "#renderer/layout/AppShell/AppShell.js";
 import { BootCover } from "#renderer/layout/AppShell/BootCover.js";
 import { useBootCover } from "#renderer/layout/AppShell/hooks/useBootCover.js";
-import { PANE_LAYOUT_LOOSEST_MINIMUM_PANE_WIDTH_PX } from "#renderer/features/sessions/index.js";
 import { useActiveSessionStore } from "./hooks/useActiveSessionStore.js";
 import { useHashRouteBinding } from "./hooks/useHashRouteBinding.js";
 import { useWindowFocusRefresh } from "./hooks/useWindowFocusRefresh.js";
@@ -173,10 +172,6 @@ function WindowContents(props: AppWindowProps): React.JSX.Element {
       isUpdateStaged={isUpdateStaged}
       isUnderBootCover={!hasServiceAnswered}
       notice={props.notice}
-      // The loosest density's floor, so the window holds one pane beside the conversation at
-      // whichever density the pane layout runs at; in px as the layout holds it, so it does not
-      // grow with the text size.
-      minimumPaneWidthPx={PANE_LAYOUT_LOOSEST_MINIMUM_PANE_WIDTH_PX}
       onWindowFloorChange={(floor) => {
         bridge.window.setMinimumSize(props.openWindow.windowId, floor).catch((failure: unknown) => {
           recordRejectedRequest("app/AppWindow", "minimum-size-not-set", failure);

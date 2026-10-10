@@ -12,11 +12,10 @@ import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { memoryStore } from "../../SessionScreen.test-support.js";
-import { type PaneLayoutStore } from "../store.js";
+import { PaneLayoutStore } from "../store.js";
 import { PANE_LAYOUT_RECORD_KEY } from "../persistence.js";
 import {
   RESTORE_SESSION_ID,
-  createPaneLayoutStore,
   drain,
   mountPersistence,
   paneKinds,
@@ -24,23 +23,27 @@ import {
   savedPaneCount,
 } from "./usePaneLayoutPersistence.test-support.js";
 
-/** The widths on screen, in the order the panes sit in. */
-function paneWidths(layout: PaneLayoutStore): readonly number[] {
-  return layout.snapshot().panes.map((pane) => pane.sizePermille);
+/** Moves the block left of the conversation and the terminal above the row. */
+function blockLeftTerminalAbove(layout: PaneLayoutStore): void {
+  const first = layout.snapshot().panes[0];
+  layout.movePane(first?.paneId ?? "", -1);
+  layout.placeTerminal("above");
 }
 
-/** A width floor loose enough that nothing in these fixtures is clamped by it. */
-const UNCLAMPED_WIDTH_FLOOR_PERMILLE = 100;
+function focusedKind(layout: PaneLayoutStore): string | undefined {
+  const { panes, focusedPaneId } = layout.snapshot();
+  return panes.find((pane) => pane.paneId === focusedPaneId)?.kind;
+}
 
 describe("usePaneLayoutPersistence — an arrangement made while the record was being read", () => {
   it("writes nothing while the read is still in flight", async () => {
     const store = memoryStore();
-    await savePaneLayout(store, ["transcript", "terminal"]);
-    const layout = createPaneLayoutStore();
+    await savePaneLayout(store, ["browser", "terminal"]);
+    const layout = new PaneLayoutStore();
 
     mountPersistence(layout, store);
     act(() => {
-      layout.open({ kind: "terminal" });
+      layout.open({ kind: "agents" });
     });
 
     // The one-pane layout on screen has reached the store through no path, so the two-pane
@@ -49,54 +52,30 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
     await drain();
   });
 
-  it("keeps both the saved arrangement and the pane opened during the read", async () => {
+  it("keeps the saved panes and the one opened during the read, and files the merge", async () => {
     const store = memoryStore();
-    await savePaneLayout(store, ["transcript"]);
-    const layout = createPaneLayoutStore();
+    await savePaneLayout(store, ["browser", "terminal"]);
+    const layout = new PaneLayoutStore();
 
     mountPersistence(layout, store);
     act(() => {
+      layout.open({ kind: "agents" });
+      // Already in the record: kept once, under the live pane's id.
       layout.open({ kind: "terminal" });
     });
     await drain();
 
-    expect(paneKinds(layout)).toStrictEqual(["transcript", "terminal"]);
-  });
-
-  it("writes the reconciled arrangement once, after the restore settles", async () => {
-    const store = memoryStore();
-    await savePaneLayout(store, ["transcript"]);
-    const layout = createPaneLayoutStore();
-
-    mountPersistence(layout, store);
-    act(() => {
-      layout.open({ kind: "terminal" });
-    });
-    await drain();
-
-    expect(await savedPaneCount(store)).toBe(2);
-  });
-
-  it("does not duplicate a pane the record already held", async () => {
-    const store = memoryStore();
-    await savePaneLayout(store, ["transcript", "terminal"]);
-    const layout = createPaneLayoutStore();
-
-    mountPersistence(layout, store);
-    act(() => {
-      layout.open({ kind: "terminal" });
-    });
-    await drain();
-
-    expect(paneKinds(layout)).toStrictEqual(["transcript", "terminal"]);
+    // The record's panes were open first, so they stand in front; the terminal stays last.
+    expect(paneKinds(layout)).toStrictEqual(["browser", "agents", "terminal"]);
+    expect(await savedPaneCount(store)).toBe(3);
   });
 
   it("leaves a pane the person closed during the read closed", async () => {
     // A close made during the read leaves no trace in the snapshot, so a reconciliation that
     // diffs the layout cannot see it and the record would put the pane straight back.
     const store = memoryStore();
-    await savePaneLayout(store, ["transcript", "terminal"]);
-    const layout = createPaneLayoutStore();
+    await savePaneLayout(store, ["browser", "terminal"]);
+    const layout = new PaneLayoutStore();
 
     mountPersistence(layout, store);
     act(() => {
@@ -105,126 +84,93 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
     });
     await drain();
 
-    expect(paneKinds(layout)).toStrictEqual(["transcript"]);
+    expect(paneKinds(layout)).toStrictEqual(["browser"]);
     expect(await savedPaneCount(store)).toBe(1);
   });
 
-  it("keeps the widths the person set during the read while the record adds a pane", async () => {
-    // The record names an address that is not on screen, so the merge actually runs; a record
-    // whose addresses are all open adopts nothing and cannot constrain the commit. A merge
-    // that equalized every live pane would undo the drag the person had just finished. The
-    // arriving pane takes the equal share of three, and the two live panes keep their
-    // seventy-thirty ratio across the rest (467 to 200, from 700 and 300 rescaled into 667).
+  it("keeps the person's order from during the read, and the record's side and place", async () => {
+    // The record holds the same panes in the other order; a wholesale restore would undo the
+    // order the person just set, and a merge that ignored the record would lose its side and
+    // terminal place.
     const store = memoryStore();
-    await savePaneLayout(store, ["agents"]);
-    const layout = createPaneLayoutStore();
+    await savePaneLayout(store, ["agents", "browser", "terminal"], blockLeftTerminalAbove);
+    const layout = new PaneLayoutStore();
 
     mountPersistence(layout, store);
     act(() => {
-      const transcriptPaneId = layout.open({ kind: "transcript" });
-      const terminalPaneId = layout.open({ kind: "terminal" });
-      layout.applyLayout(
-        { [transcriptPaneId]: 70, [terminalPaneId]: 30 },
-        UNCLAMPED_WIDTH_FLOOR_PERMILLE,
-      );
-    });
-    await drain();
-
-    expect(paneKinds(layout)).toStrictEqual(["agents", "transcript", "terminal"]);
-    expect(paneWidths(layout)).toStrictEqual([333, 467, 200]);
-  });
-
-  it("focuses an adopted pane when the person left the pane layout focusing nothing", async () => {
-    // `close` clears the focus when its pane goes, so an open-then-close during the read
-    // reaches the merge focusing nothing; the composer then had nowhere to send until a click.
-    const store = memoryStore();
-    await savePaneLayout(store, ["agents"]);
-    const layout = createPaneLayoutStore();
-
-    mountPersistence(layout, store);
-    act(() => {
-      const terminalPaneId = layout.open({ kind: "terminal" });
-      layout.close(terminalPaneId);
-    });
-    await drain();
-
-    const focused = layout
-      .snapshot()
-      .panes.find((pane) => pane.paneId === layout.snapshot().focusedPaneId);
-    expect(focused?.kind).toBe("agents");
-  });
-
-  it("negative control: a live focus is not moved onto the adopted pane", async () => {
-    // Without this the case above would pass over a merge that focused the record's panes
-    // unconditionally, undoing the person's work one axis over.
-    const store = memoryStore();
-    await savePaneLayout(store, ["agents"]);
-    const layout = createPaneLayoutStore();
-
-    mountPersistence(layout, store);
-    act(() => {
+      layout.open({ kind: "browser" });
+      layout.open({ kind: "agents" });
       layout.open({ kind: "terminal" });
     });
     await drain();
 
-    const focused = layout
-      .snapshot()
-      .panes.find((pane) => pane.paneId === layout.snapshot().focusedPaneId);
-    expect(focused?.kind).toBe("terminal");
+    expect(paneKinds(layout)).toStrictEqual(["browser", "agents", "terminal"]);
+    // The person moved neither, so the record's side and place are taken.
+    expect(layout.snapshot().side).toBe("left");
+    expect(layout.snapshot().terminalPlace).toBe("above");
   });
 
-  it("keeps the order the person set during the read", async () => {
-    // The same two panes in opposite orders in the record and the layout. A wholesale restore
-    // takes the record's and undoes the reorder the person just made.
+  it("focuses an adopted pane only when the person left the layout focusing nothing", async () => {
+    // An open-then-close during the read reaches the merge focusing nothing; the composer then
+    // had nowhere to send until a click. A live focus stays where the person put it.
     const store = memoryStore();
-    await savePaneLayout(store, ["transcript", "terminal"]);
-    const layout = createPaneLayoutStore();
+    await savePaneLayout(store, ["agents"]);
+    const emptied = new PaneLayoutStore();
+    const focused = new PaneLayoutStore();
 
-    mountPersistence(layout, store);
+    mountPersistence(emptied, store);
     act(() => {
-      layout.open({ kind: "transcript" });
-      const terminalPaneId = layout.open({ kind: "terminal" });
-      layout.movePane(terminalPaneId, -1);
+      emptied.close(emptied.open({ kind: "terminal" }));
+    });
+    await drain();
+    mountPersistence(focused, store);
+    act(() => {
+      focused.open({ kind: "terminal" });
     });
     await drain();
 
-    expect(paneKinds(layout)).toStrictEqual(["terminal", "transcript"]);
+    expect(focusedKind(emptied)).toBe("agents");
+    expect(focusedKind(focused)).toBe("terminal");
   });
+});
 
-  it("negative control: an untouched read restores the record, writing nothing back", async () => {
-    // Without this, a hook that wrote on every settle would pass while spending a durable
-    // write on every session opened.
+describe("usePaneLayoutPersistence — a read nobody acted during", () => {
+  it("restores order, side and terminal place, writing nothing back", async () => {
+    // Without the write check, a hook that wrote on every settle would pass while spending a
+    // durable write on every session opened.
     const store = memoryStore();
-    await savePaneLayout(store, ["transcript", "terminal"]);
+    await savePaneLayout(store, ["agents", "browser", "terminal"], blockLeftTerminalAbove);
     const before = await store.read(RESTORE_SESSION_ID, PANE_LAYOUT_RECORD_KEY);
-    const layout = createPaneLayoutStore();
+    const layout = new PaneLayoutStore();
 
     mountPersistence(layout, store);
     await drain();
 
-    expect(paneKinds(layout)).toStrictEqual(["transcript", "terminal"]);
+    expect(paneKinds(layout)).toStrictEqual(["agents", "browser", "terminal"]);
+    expect(layout.snapshot().side).toBe("left");
+    expect(layout.snapshot().terminalPlace).toBe("above");
     const after = await store.read(RESTORE_SESSION_ID, PANE_LAYOUT_RECORD_KEY);
     expect(after?.updatedAt).toBe(before?.updatedAt);
   });
 
-  it("negative control: nothing saved opens the fallback transcript and writes it", async () => {
+  it("negative control: nothing saved files the empty block as the first record", async () => {
     // The gate must not swallow the first run's own record.
     const store = memoryStore();
-    const layout = createPaneLayoutStore();
+    const layout = new PaneLayoutStore();
 
     mountPersistence(layout, store);
     await drain();
 
-    expect(paneKinds(layout)).toStrictEqual(["transcript"]);
-    expect(await savedPaneCount(store)).toBe(1);
+    expect(paneKinds(layout)).toStrictEqual([]);
+    expect(await store.read(RESTORE_SESSION_ID, PANE_LAYOUT_RECORD_KEY)).toBeDefined();
   });
 
   it("negative control: a change made after the restore settled is written", async () => {
     // The gate opens and does not stay shut; without this every case above would pass over a
     // hook that had stopped writing.
     const store = memoryStore();
-    await savePaneLayout(store, ["transcript"]);
-    const layout = createPaneLayoutStore();
+    await savePaneLayout(store, ["browser"]);
+    const layout = new PaneLayoutStore();
 
     mountPersistence(layout, store);
     await drain();
@@ -243,8 +189,8 @@ describe("usePaneLayoutPersistence — the writer across a double-mount", () => 
     // holder that re-committed the retired writer left the person rearranging with nothing
     // kept. React's double-mount is the trigger.
     const store = memoryStore();
-    await savePaneLayout(store, ["transcript"]);
-    const layout = createPaneLayoutStore();
+    await savePaneLayout(store, ["browser"]);
+    const layout = new PaneLayoutStore();
 
     mountPersistence(layout, store, { underStrictMode: true });
     await drain();

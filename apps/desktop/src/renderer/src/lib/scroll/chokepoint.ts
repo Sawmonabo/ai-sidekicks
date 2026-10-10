@@ -7,6 +7,7 @@
 // display is known to round offsets.
 
 import { type Clock } from "#renderer/lib/clock.js";
+import { prefersReducedMotion } from "#renderer/lib/reduced-motion.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { OverflowMeasurementBatch } from "./overflow-measurement-batch.js";
 import { type ScrollGeometry, type GeometryChangeCause } from "./geometry/sample.js";
@@ -318,6 +319,35 @@ export function scrollForReorderDrag(
   const maximum = Math.max(0, container.scrollHeight - container.clientHeight);
   container.scrollTop = Math.min(Math.max(0, offset), maximum);
   return container.scrollTop;
+}
+
+/**
+ * Scrolls `container` sideways the least distance that brings `item` wholly into view, gliding
+ * unless its window asks for reduced motion. The pane block is its one caller: a pane just opened
+ * past the block's visible width is brought into view, and the block holds no `ScrollController`.
+ * Throws for a container whose document has no window.
+ */
+export function revealInRow(container: Element, item: Element): void {
+  const view = container.ownerDocument.defaultView;
+  if (view === null) {
+    throw new Error("A row was scrolled in a document with no window.");
+  }
+  const containerBox = container.getBoundingClientRect();
+  const itemBox = item.getBoundingClientRect();
+  const leftOverflow = itemBox.left - containerBox.left;
+  const rightOverflow = itemBox.right - containerBox.right;
+  // An item wider than the view shows its start, where its header is.
+  const shift =
+    leftOverflow < 0 || itemBox.width > containerBox.width
+      ? leftOverflow
+      : Math.max(0, rightOverflow);
+  if (shift === 0) {
+    return;
+  }
+  container.scrollTo({
+    left: container.scrollLeft + shift,
+    behavior: prefersReducedMotion(view) ? "instant" : "smooth",
+  });
 }
 
 function clampToContent(targetScrollTop: number, maximumScrollTop: number): number {

@@ -1,17 +1,18 @@
 // The chrome every pane wears, drawn once so six features do not draw six frames.
 //
-// The control strip holds the kind's own actions and close. Close comes from an explicit prop or
-// from `controls.ts`'s context (explicit wins); with neither, the control is left out rather
-// than drawn disabled. The head is also the drag handle, so selecting text in a body never starts
-// a drag; the registration arrives through the same context, and a pane outside a pane layout is
-// simply not draggable. The pane-level key claim is a prop for the same reason: the head is not
-// inside the body, and wrapping the chrome from outside would put a box around the section.
+// The control strip holds the kind's own actions, the full-width toggle and close. Close comes
+// from an explicit prop or from `controls.ts`'s context (explicit wins), the toggle from the
+// context alone; without them, each control is left out rather than drawn disabled. The head is
+// also the drag handle, so selecting text in a body never starts a drag; the registration
+// arrives through the same context, and a pane outside a pane layout is simply not draggable.
+// The pane-level key claim is a prop for the same reason: the head is not inside the body, and
+// wrapping the chrome from outside would put a box around the section.
 import "./PaneFrame.css";
 
 import { useId } from "react";
 
-import { CornerCaps, type CornerCapCorner } from "../CornerCaps/CornerCaps.js";
 import { Glyph } from "../Glyph/Glyph.js";
+import { HoverLabel } from "../HoverLabel/HoverLabel.js";
 import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
 import { type EntityRef } from "#renderer/lib/entity-kinds.js";
 import { GLYPH_DEFAULT_SIZE, GLYPH_SIZE_CHROME, type GlyphName } from "#renderer/styles/glyphs.js";
@@ -53,9 +54,6 @@ export const TITLE_BY_PANE_KIND: Readonly<Record<PaneKind, string>> = {
  */
 const PANE_KIND_GLYPH_SIZE = GLYPH_DEFAULT_SIZE;
 
-/** The pane's bottom corners, which its body can reach; the head rounds the top ones itself. */
-const PANE_CORNER_CAPS: readonly CornerCapCorner[] = ["end-start", "end-end"];
-
 /** Props for `PaneFrame`: its kind, the address it is scoped to, and its body. */
 export interface PaneFrameProps {
   readonly kind: PaneKind;
@@ -89,6 +87,7 @@ export function PaneFrame(props: PaneFrameProps): React.JSX.Element {
   const hostControls = usePaneControls();
   const onClose = props.onClose ?? hostControls?.onClose;
   const registerDragHandle = hostControls?.registerDragHandle;
+  const fullWidth = hostControls?.fullWidth;
   const title = TITLE_BY_PANE_KIND[props.kind];
   // The conversation draws no bar, its right edge being the ask rail's, so the transcript's body
   // attaches none either.
@@ -117,6 +116,24 @@ export function PaneFrame(props: PaneFrameProps): React.JSX.Element {
         />
         <span className="meridian-pane__controls">
           {props.actions}
+          {fullWidth === undefined ? null : (
+            // A toggle keeps one name and carries its state in `aria-pressed`; only the hover
+            // title flips, and while held its words are spoken as the description.
+            <HoverLabel
+              text={fullWidth.isHeld ? "Back to the side (Esc)" : "Full width"}
+              textRole={fullWidth.isHeld ? "description" : "visible-text"}
+            >
+              <button
+                type="button"
+                className="meridian-pane__control"
+                aria-label="Full width"
+                aria-pressed={fullWidth.isHeld}
+                onClick={fullWidth.toggle}
+              >
+                <Glyph name="expand" size={GLYPH_SIZE_CHROME} />
+              </button>
+            </HoverLabel>
+          )}
           {onClose === undefined ? null : (
             <button
               type="button"
@@ -132,7 +149,6 @@ export function PaneFrame(props: PaneFrameProps): React.JSX.Element {
       <div className="meridian-pane__body" ref={bodyScrollbarRef}>
         {props.children}
       </div>
-      <CornerCaps corners={PANE_CORNER_CAPS} />
     </section>
   );
 }

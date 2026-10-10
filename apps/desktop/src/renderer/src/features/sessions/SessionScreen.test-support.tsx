@@ -5,7 +5,6 @@
 import { render } from "@testing-library/react";
 import { expect } from "vitest";
 
-import { PANE_LAYOUT_RESTORED_PANE_CAP } from "./pane-layout/store.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "#renderer/store/persistence/caps.js";
 import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
 import {
@@ -47,11 +46,11 @@ export interface SessionWithStore {
 
 /**
  * A registry whose bodies say which kind they are and what they were opened over, so a pane and
- * its address are identifiable.
+ * its address are identifiable. The transcript's body is the conversation's.
  */
 export function testRegistry(): PaneRegistry {
   const registry = new PaneRegistry();
-  for (const kind of ["transcript", "terminal", "diff"] as const) {
+  for (const kind of ["transcript", "terminal", "diff", "browser"] as const) {
     registry.register({
       kind,
       owner: "session-screen-test",
@@ -211,9 +210,9 @@ export function workspaceFor(
 export async function saveLayout(
   store: UiStateStore,
   partition: string,
-  kinds: readonly ("transcript" | "terminal")[],
+  kinds: readonly ("terminal" | "browser")[],
 ): Promise<void> {
-  const layout = new PaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });
+  const layout = new PaneLayoutStore();
   for (const kind of kinds) {
     layout.open({ kind });
   }
