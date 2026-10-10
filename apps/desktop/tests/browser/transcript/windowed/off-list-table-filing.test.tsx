@@ -1,11 +1,11 @@
 // A long table measured off the list reads its fingerprint, which walks every row's text, once for
-// the check that no geometry is filed for it, its filing, and the listed table that recalls it.
-// Measured in the engine that lays its hidden frames out, as the frames are read only after a real
-// layout.
+// the check that no geometry is filed for it, its filing, and the listed table that recalls it;
+// measured, it reads it beside its row estimates, and lands in a task of its own. Measured in the
+// engine that lays its hidden frames out, as the frames are read only after a real layout.
 
 import { waitFor } from "@testing-library/react";
 import type { Table } from "mdast";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { liveBridgeWrapper } from "../../../helpers/app/frame-fixtures.js";
 import { renderSettled } from "../../../helpers/app/harness.js";
@@ -14,7 +14,6 @@ import { installMeridianTokens } from "#renderer/app/token-installation.js";
 import { parseMarkdown } from "#renderer/components/Markdown/parse.js";
 import { OffListTableFrames } from "#renderer/features/transcript/rows/bodies/OffListTableFrames.js";
 import { suiteWindowViewport } from "#renderer/features/transcript/rows/bodies/WindowedMarkdown.test-support.js";
-import { fingerprintOf } from "#renderer/features/transcript/rows/markdown/body-blocks.js";
 import {
   type ListedBodies,
   type TableBodyPlacement,
@@ -22,17 +21,12 @@ import {
 import { longTablesOf } from "#renderer/features/transcript/rows/markdown/table-window/long-tables.js";
 import { TableWindowLayout } from "#renderer/features/transcript/rows/markdown/table-window/layout.js";
 import { OffListTables } from "#renderer/features/transcript/rows/markdown/table-window/off-list.js";
+import {
+  TableFingerprintReading,
+  TableFingerprints,
+} from "#renderer/features/transcript/rows/markdown/table-window/table-text.js";
 import { ManualClock } from "#renderer/lib/clock.js";
 import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
-
-// Each table walk ends in one hash of the text it read.
-vi.mock("#renderer/features/transcript/rows/markdown/body-blocks.js", async (importOriginal) => {
-  const original =
-    await importOriginal<
-      typeof import("#renderer/features/transcript/rows/markdown/body-blocks.js")
-    >();
-  return { ...original, fingerprintOf: vi.fn(original.fingerprintOf) };
-});
 
 /** How long a table's hidden frames take to be laid out, read and filed, with room to spare. */
 const LAND_TIMEOUT_MS = 10_000;
@@ -61,25 +55,34 @@ function longTableOf(name: string): Table {
   return longTablesOf(parseMarkdown(source))[0] ?? expect.fail("a long table");
 }
 
+/** Mounts the hidden frames of `offList`'s tables. */
+async function drawFrames(offList: OffListTables): Promise<void> {
+  installMeridianTokens(document);
+  const Wrapper = liveBridgeWrapper();
+  await renderSettled(
+    <Wrapper>
+      <OffListTableFrames offList={offList} />
+    </Wrapper>,
+  );
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 describe("a long table measured off the list", () => {
   it("walks its rows once for its fingerprint, from its filed check to the listed table's recall", async () => {
-    installMeridianTokens(document);
     const offList = new OffListTables(document, () => 680);
     // The feed hands its off-list tables to its listed tables as their listed bodies.
     const listedBodies: ListedBodies = offList;
-    const Wrapper = liveBridgeWrapper();
-    await renderSettled(
-      <Wrapper>
-        <OffListTableFrames offList={offList} />
-      </Wrapper>,
-    );
+    await drawFrames(offList);
     // The first table's land reads the body type rows are set at, so the second's filed check
     // reads its fingerprint.
     const firstLanded = vi.fn();
     offList.measure(longTableOf("first"), new Set(), firstLanded);
     await waitFor(() => expect(firstLanded).toHaveBeenCalledOnce(), { timeout: LAND_TIMEOUT_MS });
 
-    vi.mocked(fingerprintOf).mockClear();
+    const rowReads = vi.spyOn(TableFingerprintReading.prototype, "readRow");
     const second = longTableOf("second");
     const secondLanded = vi.fn();
     expect(offList.measure(second, new Set(), secondLanded)).not.toBe(undefined);
@@ -103,6 +106,52 @@ describe("a long table measured off the list", () => {
     );
     listed.update();
     expect(listed.heldColumns, "the columns the listed table recalls").not.toBe(undefined);
-    expect(vi.mocked(fingerprintOf), "walks of the second table").toHaveBeenCalledOnce();
+    expect(rowReads, "rows read of the second table").toHaveBeenCalledTimes(second.children.length);
+  });
+
+  it("reads its fingerprint beside its row estimates, and lands in a task of its own", async () => {
+    const offList = new OffListTables(document, () => 680);
+    await drawFrames(offList);
+    // Each posted task is told apart, so a row read or the land is placed in the task it ran in.
+    let runningTask: number | undefined;
+    let postedCount = 0;
+    const postTask = window.scheduler.postTask.bind(window.scheduler);
+    vi.spyOn(window.scheduler, "postTask").mockImplementation((callback, options) => {
+      postedCount += 1;
+      const task = postedCount;
+      return postTask(() => {
+        runningTask = task;
+        try {
+          return callback();
+        } finally {
+          runningTask = undefined;
+        }
+      }, options);
+    });
+    const readRow = TableFingerprintReading.prototype.readRow;
+    const rowReadTasks: (number | undefined)[] = [];
+    vi.spyOn(TableFingerprintReading.prototype, "readRow").mockImplementation(function (
+      this: TableFingerprintReading,
+    ) {
+      rowReadTasks.push(runningTask);
+      return readRow.call(this);
+    });
+    const table = longTableOf("sliced");
+    let landedIn: number | undefined;
+    const landed = vi.fn(() => {
+      landedIn = runningTask;
+    });
+    offList.measure(table, new Set(), landed);
+    await waitFor(() => expect(landed).toHaveBeenCalledOnce(), { timeout: LAND_TIMEOUT_MS });
+
+    expect(landedIn, "the posted task the table lands in").not.toBe(undefined);
+    expect(rowReadTasks, "rows read").toHaveLength(table.children.length);
+    expect(
+      rowReadTasks.filter((task) => task === landedIn),
+      "rows read in the task the table lands in",
+    ).toEqual([]);
+    expect(offList.tableFingerprints.fingerprintOf(table), "the fingerprint read in slices").toBe(
+      new TableFingerprints().fingerprintOf(table),
+    );
   });
 });

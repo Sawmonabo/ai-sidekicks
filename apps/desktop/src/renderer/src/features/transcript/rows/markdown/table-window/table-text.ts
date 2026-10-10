@@ -2,7 +2,7 @@
 
 import type { Table, TableCell, TableRow } from "mdast";
 
-import { fingerprintOf } from "../body-blocks.js";
+import { TextFingerprint } from "../body-blocks.js";
 
 /**
  * Parsed tables' fingerprints, each read once per parsed table: reading one walks every row's text,
@@ -21,8 +21,57 @@ export class TableFingerprints {
     if (held !== undefined) {
       return held;
     }
-    const fingerprint = tableFingerprintOf(table);
-    this.#byTable.set(table, fingerprint);
+    const reading = this.#readingOf(table);
+    let fingerprint = reading.readRow();
+    while (fingerprint === undefined) {
+      fingerprint = reading.readRow();
+    }
+    return fingerprint;
+  }
+
+  /**
+   * Reads `table`'s fingerprint a row at a time, for work that visits its rows in slices; it is
+   * held once the last row is read. `undefined` when it is held already.
+   */
+  public startReading(table: Table): TableFingerprintReading | undefined {
+    return this.#byTable.has(table) ? undefined : this.#readingOf(table);
+  }
+
+  #readingOf(table: Table): TableFingerprintReading {
+    return new TableFingerprintReading(table, (fingerprint) => {
+      this.#byTable.set(table, fingerprint);
+    });
+  }
+}
+
+/** One table's fingerprint, read a row at a time from its head row on. */
+export class TableFingerprintReading {
+  readonly #table: Table;
+  readonly #onRead: (fingerprint: string) => void;
+  readonly #text = new TextFingerprint();
+  #nextIndex = 0;
+
+  /** `onRead` is given the fingerprint once the last row is read. */
+  public constructor(table: Table, onRead: (fingerprint: string) => void) {
+    this.#table = table;
+    this.#onRead = onRead;
+    this.#text.read(`${String(table.children[0]?.children.length ?? 0)}${ROW_SEPARATOR}`);
+  }
+
+  /** Reads the table's next row; answers the fingerprint once the last row is read. */
+  public readRow(): string | undefined {
+    const row = this.#table.children[this.#nextIndex];
+    if (row !== undefined) {
+      this.#text.read(
+        this.#nextIndex === 0 ? rowSignatureOf(row) : `${ROW_SEPARATOR}${rowSignatureOf(row)}`,
+      );
+      this.#nextIndex += 1;
+    }
+    if (this.#nextIndex < this.#table.children.length) {
+      return undefined;
+    }
+    const fingerprint = this.#text.value;
+    this.#onRead(fingerprint);
     return fingerprint;
   }
 }
@@ -31,11 +80,6 @@ export class TableFingerprints {
 const INLINE_KIND_SEPARATOR = "\u0002";
 const CELL_SEPARATOR = "\u0000";
 const ROW_SEPARATOR = "\u0001";
-
-function tableFingerprintOf(table: Table): string {
-  const text = table.children.map(rowSignatureOf).join(ROW_SEPARATOR);
-  return fingerprintOf(`${String(table.children[0]?.children.length ?? 0)}${ROW_SEPARATOR}${text}`);
-}
 
 function rowSignatureOf(row: TableRow): string {
   return row.children.map(cellSignatureOf).join(CELL_SEPARATOR);
