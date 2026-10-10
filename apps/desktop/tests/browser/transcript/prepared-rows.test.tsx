@@ -49,6 +49,8 @@ import { type TranscriptBodyRead } from "#renderer/services/daemon/transcript/bo
 import { type TranscriptPageRead } from "#renderer/services/daemon/transcript/page.js";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { letFramesPass, nextFrame } from "../../helpers/animation-frame.js";
+import { ROW_SELECTOR } from "./long-tool-feed.js";
+import { PaintedFrameReader } from "./painted-frames.js";
 import { readerScrollsTo } from "./reader-scroll.js";
 import { bridgeWrapper } from "../../helpers/app/frame-fixtures.js";
 import { renderSettled } from "../../helpers/app/harness.js";
@@ -548,75 +550,25 @@ class SampleSelectionRecorder {
   }
 }
 
-/**
- * Reads, in each frame as it will be painted, how far a row overlaps the listed row below it, and
- * records each frame where the two overlap.
- *
- * The read runs in the frame's resize observation, after the list's: observers are told in the
- * order they were made, the list's was made when its first row mounted, before this one, and the
- * list moves the rows below a resized row in its own callback. A probe element resized each frame
- * makes this observer's turn come every frame. A callback that resizes a row starts another pass
- * in the same frame, where only deeper elements are told, so this observer watches the listed rows
- * too: every pass that resizes a row ends with this read, after the list's. The frame's last read
- * is the layout it paints, recorded once the next frame begins. A state a task commits after one
- * paint and the next frame's observation corrects is never painted, so it is never read.
- */
+/** Records each painted frame where a row paints over the listed row below it. */
 class PaintedOverlapRecorder {
   readonly overlaps: string[] = [];
-  readonly #probe: HTMLElement;
-  readonly #observer: ResizeObserver;
-  readonly #listing: MutationObserver;
-  readonly #observedRows = new WeakSet<Element>();
-  /** The overlap the frame's latest read found, until the frame is painted. */
-  #frameOverlap: string | undefined;
-  #isWatching = true;
+  readonly #frames: PaintedFrameReader<string | undefined>;
 
   public constructor(rowOf: () => HTMLElement | null) {
-    this.#probe = document.createElement("div");
-    this.#probe.style.cssText = "position: fixed; top: 0; left: 0; width: 1px; height: 1px;";
-    document.body.append(this.#probe);
-    this.#observer = new ResizeObserver(() => {
-      this.#frameOverlap = overlapBelow(rowOf()?.closest(VIEWPORT_ROW_SELECTOR) ?? null);
-    });
-    this.#observer.observe(this.#probe);
-    this.#listing = new MutationObserver(() => {
-      this.#observeListedRows();
-    });
-    this.#listing.observe(document.body, { childList: true, subtree: true });
-    this.#observeListedRows();
-    const onFrame = (): void => {
-      this.#recordPaintedFrame();
-      if (!this.#isWatching) {
-        return;
-      }
-      this.#probe.style.width = this.#probe.style.width === "1px" ? "2px" : "1px";
-      requestAnimationFrame(onFrame);
-    };
-    requestAnimationFrame(onFrame);
+    this.#frames = new PaintedFrameReader(
+      ROW_SELECTOR,
+      () => overlapBelow(rowOf()?.closest(ROW_SELECTOR) ?? null),
+      (overlap) => {
+        if (overlap !== undefined) {
+          this.overlaps.push(overlap);
+        }
+      },
+    );
   }
 
   public stop(): void {
-    this.#isWatching = false;
-    this.#recordPaintedFrame();
-    this.#observer.disconnect();
-    this.#listing.disconnect();
-    this.#probe.remove();
-  }
-
-  #observeListedRows(): void {
-    for (const row of document.querySelectorAll(VIEWPORT_ROW_SELECTOR)) {
-      if (!this.#observedRows.has(row)) {
-        this.#observedRows.add(row);
-        this.#observer.observe(row);
-      }
-    }
-  }
-
-  #recordPaintedFrame(): void {
-    if (this.#frameOverlap !== undefined) {
-      this.overlaps.push(this.#frameOverlap);
-    }
-    this.#frameOverlap = undefined;
+    this.#frames.stop();
   }
 }
 
@@ -626,7 +578,7 @@ function overlapBelow(row: Element | null): string | undefined {
     return undefined;
   }
   const box = row.getBoundingClientRect();
-  const below = [...document.querySelectorAll(VIEWPORT_ROW_SELECTOR)]
+  const below = [...document.querySelectorAll(ROW_SELECTOR)]
     .map((listed) => listed.getBoundingClientRect())
     .filter((listed) => listed.top > box.top)
     .sort((first, second) => first.top - second.top)[0];
@@ -634,8 +586,6 @@ function overlapBelow(row: Element | null): string | undefined {
     ? `painted over the row below by ${String(box.bottom - below.top)} px`
     : undefined;
 }
-
-const VIEWPORT_ROW_SELECTOR = ".meridian-transcript-viewport__row";
 
 describe("a reply read back holding a long table", () => {
   it(
