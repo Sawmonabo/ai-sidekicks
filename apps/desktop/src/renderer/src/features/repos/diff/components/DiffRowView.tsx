@@ -2,7 +2,7 @@ import { memo, useSyncExternalStore } from "react";
 import { GLYPH_SIZE_ROW } from "#renderer/styles/glyphs.js";
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
-import { diffFileChangeNotes, type DiffViewMode } from "../model.js";
+import { diffFileChangeNotes, diffFileUnshownReason, type DiffViewMode } from "../model.js";
 import type { DiffRow } from "../rows/model.js";
 import type { DiffRowIndex } from "../rows/flat-index.js";
 import type { IntralineSegmentCache } from "../intraline/segment-cache.js";
@@ -67,8 +67,8 @@ export const DiffRowView: React.MemoExoticComponent<
 
   if (row.kind === "file-header") {
     const file = index.model.files[row.fileIndex];
-    // The patch's extended-header notes. A rename-only, copy-only, mode-only or binary file has
-    // no hunks, so in Review this row is the only place its change appears; the flow writes such a
+    // The patch's extended-header kind words. A rename-only, copy-only or mode-only file has no
+    // hunks, so in Review this row is the only place its change appears; the flow writes such a
     // file's notes where its lines would be instead (`InlineDiffBlock.tsx`).
     const changeNotes =
       file === undefined || (props.look === "flow" && file.hunks.length === 0)
@@ -84,6 +84,15 @@ export const DiffRowView: React.MemoExoticComponent<
             <span className="meridian-diff__file-change">{changeNotes.join(", ")}</span>
           )}
         </span>
+      </div>
+    );
+  }
+
+  if (row.kind === "unshown-reason") {
+    const file = index.model.files[row.fileIndex];
+    return (
+      <div {...rowProps} className="meridian-diff__row meridian-diff__row--unshown">
+        <span role="cell">{file === undefined ? "" : diffFileUnshownReason(file)}</span>
       </div>
     );
   }
