@@ -1,6 +1,7 @@
-/* The boot cover: the window's own ground over the whole window, its working line or its card in
-   the middle. With no frame under it, the cover is the window's drag region. Once the service
-   answers it fades and takes no press, so the console under it is live at once. */
+/* The boot cover: the window's ground as glass over the whole window, its working line in the
+   middle, or its card on the solid ground. With no frame under it, the cover is the window's drag
+   region. Once the service answers it fades and takes no press, so the console under it is live at
+   once. */
 .meridian-boot-cover {
   position: fixed;
   inset: 0;
@@ -11,7 +12,8 @@
   justify-content: center;
   gap: var(--meridian-space-3);
   padding: var(--meridian-space-4);
-  background: var(--meridian-ground);
+  background: color-mix(in oklab, var(--meridian-ground) var(--meridian-glass), transparent);
+  backdrop-filter: blur(var(--meridian-glass-blur));
   color: var(--meridian-text-faint);
   font-size: var(--meridian-text-12);
   text-align: center;
@@ -19,44 +21,14 @@
   transition: opacity var(--meridian-motion-settle) var(--meridian-ease-settle);
 }
 
+.meridian-boot-cover[data-not-answering] {
+  background: var(--meridian-ground);
+  backdrop-filter: none;
+}
+
 .meridian-boot-cover[data-fading] {
   opacity: 0;
   pointer-events: none;
-}
-
-/* Three stepped bars in the running accent, each lit in turn. */
-.meridian-boot-cover__working-indicator {
-  display: inline-flex;
-  gap: var(--meridian-space-1);
-  align-items: center;
-}
-
-.meridian-boot-cover__working-indicator > span {
-  inline-size: var(--meridian-space-1);
-  block-size: var(--meridian-space-2);
-  border-radius: var(--meridian-radius-sm);
-  background: var(--meridian-accent);
-  opacity: 0.25;
-  animation: meridian-boot-cover-step var(--meridian-motion-breath) step-end infinite;
-}
-
-.meridian-boot-cover__working-indicator > span:nth-child(2) {
-  animation-delay: calc(var(--meridian-motion-breath) / -3 * 2);
-}
-
-.meridian-boot-cover__working-indicator > span:nth-child(3) {
-  animation-delay: calc(var(--meridian-motion-breath) / -3);
-}
-
-@keyframes meridian-boot-cover-step {
-  0% {
-    opacity: 1;
-  }
-
-  33.333%,
-  100% {
-    opacity: 0.25;
-  }
 }
 
 .meridian-boot-cover__line,

@@ -45,6 +45,7 @@ import {
   CONVERSATION_HEIGHT_FLOOR_REM,
   PANE_SEPARATOR_WIDTH_REM,
   SPACE_SCALE_REM,
+  GLASS_BLUR_PX,
   TOKEN_ALIASES,
   TOOL_HUE_ALIASES,
   TRANSCRIPT_ROW_GAP_REM,
@@ -264,6 +265,7 @@ function invariantBlock(): string {
   for (const [tokenName, sizePx] of Object.entries(RADIUS_SCALE_PX)) {
     lines.push(declaration(tokenName, `${sizePx}px`));
   }
+  lines.push(declaration("glass-blur", `${GLASS_BLUR_PX}px`));
   lines.push(declaration("leading-edge", `${LEADING_EDGE_WIDTH_PX}px`));
   lines.push(declaration("rail-button-size", `${RAIL_BUTTON_SIZE_REM}rem`));
   lines.push(declaration("rail-width", `${RAIL_WIDTH_REM}rem`));

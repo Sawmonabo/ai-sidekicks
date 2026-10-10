@@ -113,6 +113,12 @@ export const RADIUS_SCALE_PX: Readonly<Record<string, number>> = {
 };
 
 /**
+ * The glass's blur, in px: what shows through a glass surface is blurred this far. Drawn, like a
+ * radius, so it stays as drawn when `Text size` grows the chrome around it.
+ */
+export const GLASS_BLUR_PX = 16;
+
+/**
  * The leading edge's width, in px: wide enough to carry a hue at a glance, narrow enough
  * that a screen of rows reads as a log rather than a striped table.
  */

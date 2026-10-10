@@ -11,6 +11,7 @@ import { FigureSentence } from "#renderer/components/FigureSentence/FigureSenten
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { StandingContent } from "#renderer/components/LiveAnnouncer/StandingContent.js";
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
+import { WorkingIndicator } from "#renderer/components/WorkingIndicator/WorkingIndicator.js";
 import { useAnnounceWhenChanged } from "#renderer/hooks/announce/useAnnounceWhenChanged.js";
 import type { FigureSentencePart } from "#renderer/lib/figure-sentence.js";
 import { recordRejectedRequest } from "#renderer/lib/diagnostic-capture/rejected-request-record.js";
@@ -35,6 +36,7 @@ export function BootCover(props: BootCoverProps): React.JSX.Element {
       ref={cover.coverRef}
       className="meridian-boot-cover"
       data-fading={cover.isFading ? "" : undefined}
+      data-not-answering={cover.content.kind === "notAnswering" ? "" : undefined}
       inert={cover.isFading}
       aria-busy={cover.content.kind === "working"}
       onTransitionEnd={cover.onTransitionEnd}
@@ -62,11 +64,7 @@ function WorkingLine(props: {
   useAnnounceWhenChanged(props.spokenLine, "polite");
   return (
     <>
-      <span className="meridian-boot-cover__working-indicator" aria-hidden="true">
-        <span />
-        <span />
-        <span />
-      </span>
+      <WorkingIndicator />
       {props.line === undefined ? null : (
         <p className="meridian-boot-cover__line">
           <FigureSentence parts={props.line} />
