@@ -53,9 +53,12 @@ function cutOf(
   if (cutHeightPx === undefined || (!hasUndrawnRows && rowsElement.scrollHeight <= cutHeightPx)) {
     return { isCut: false, drawnLineCount: lineCount };
   }
+  // Read against the box's own top: each step of rows contains its layout, so a row's offset
+  // parent is its step, not the box.
+  const boxTopPx = rowsElement.getBoundingClientRect().top;
   let drawnLineCount = 0;
   for (const row of rowsElement.querySelectorAll<HTMLElement>(".meridian-diff__row--line")) {
-    if (row.offsetTop < cutHeightPx) {
+    if (row.getBoundingClientRect().top - boxTopPx < cutHeightPx) {
       drawnLineCount += 1;
     }
   }

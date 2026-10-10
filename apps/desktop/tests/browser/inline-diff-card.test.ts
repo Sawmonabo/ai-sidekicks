@@ -16,12 +16,16 @@ import {
   drawDiffCard,
   filePatch,
 } from "#renderer/features/repos/diff/components/InlineDiffCard.test-support.js";
+import { DIFF_FLOW_FILL_STEP_ROWS } from "#renderer/features/repos/diff/measures.js";
 import type { DiffModel } from "#renderer/features/repos/diff/model.js";
 import { diffModelFromRead } from "#renderer/features/repos/diff/read-model.js";
 import { letObserversAnswer } from "../helpers/animation-frame.js";
 
 /** The flow's visible height, in CSS pixels, standing in for the transcript's scroller. */
 const FLOW_HEIGHT_PX = 600;
+
+/** A flow tall enough that its cut holds more rows than one step of rows. */
+const TALL_FLOW_HEIGHT_PX = 3600;
 
 /** The changed lines of the long file. */
 const LINE_COUNT = 40;
@@ -94,6 +98,34 @@ describe("browser — the transcript's diff card", () => {
       expect(longCode.getBoundingClientRect().height).toBeGreaterThan(rowHeightPx);
     });
     expect(longCode.scrollWidth).toBeLessThanOrEqual(longCode.clientWidth);
+  });
+
+  it("counts the lines a person sees above a cut that runs past the first step of rows", () => {
+    const lineCount = 200;
+    // The first lines wrap, so rows of the second step fall below the cut.
+    const body = Array.from({ length: lineCount }, (_unused, ordinal) =>
+      ordinal < 10
+        ? `+const token${String(ordinal)} = "${"word ".repeat(40)}";`
+        : `+const value${String(ordinal)} = compute(${String(ordinal)});`,
+    );
+    const { block } = drawDiffCard(
+      diffOf([filePatch("module.ts", `@@ -0,0 +1,${String(lineCount)} @@`, body)]),
+      { heightPx: TALL_FLOW_HEIGHT_PX, widthPx: 420 },
+    );
+    const rowsBox = block.querySelector<HTMLElement>(".meridian-diff-block__rows");
+    const footer = block.querySelector<HTMLElement>(".meridian-diff-block__footer");
+    if (rowsBox === null || footer === null) {
+      throw new Error("the block drew no rows or footer");
+    }
+
+    const rows = [...rowsBox.querySelectorAll<HTMLElement>('[role="row"]')];
+    expect(rows.length).toBeGreaterThan(DIFF_FLOW_FILL_STEP_ROWS);
+    const cutEdgePx = rowsBox.getBoundingClientRect().bottom;
+    const seenRows = rows.filter((row) => row.getBoundingClientRect().top < cutEdgePx);
+    expect(seenRows.length).toBeLessThan(rows.length);
+    expect(footer.textContent).toBe(
+      `${String(seenRows.length)} of ${String(lineCount)} lines·Show all·Copy patch`,
+    );
   });
 
   it("keeps a file open whole when its card is drawn again after scrolling away", async () => {
