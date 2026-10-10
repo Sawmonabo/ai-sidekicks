@@ -6,6 +6,7 @@ import { act, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
+import { windowDiagnosticCapture } from "#renderer/lib/diagnostic-capture/capture.js";
 import { XtermMountPoint } from "#renderer/features/terminal/emulator/components/XtermMountPoint.js";
 import {
   COMPONENT_TERMINAL_IDS,
@@ -79,24 +80,49 @@ function HeldPaste(props: { readonly bridge: PlatformBridge }): null {
   return null;
 }
 
-/** A field with the bridge's paste hold on its window, and every paste the field took. */
-function renderField(bridge: PlatformBridge): {
-  readonly field: HTMLTextAreaElement;
-  readonly pasted: string[];
-} {
-  render(
-    <>
-      <HeldPaste bridge={bridge} />
-      <textarea aria-label="Message" />
-    </>,
-  );
-  const field = screen.getByRole<HTMLTextAreaElement>("textbox", { name: "Message" });
+/** Every paste `field` takes, by its text. */
+function pastesInto(field: HTMLElement): string[] {
   const pasted: string[] = [];
   field.addEventListener("paste", (event) => {
     pasted.push(event.clipboardData?.getData("text/plain") ?? expect.fail("the paste holds text"));
   });
+  return pasted;
+}
+
+function Fields(props: { readonly bridge: PlatformBridge; readonly hasMessageBox: boolean }) {
+  return (
+    <>
+      <HeldPaste bridge={props.bridge} />
+      {props.hasMessageBox ? <textarea aria-label="Message" /> : null}
+      <textarea aria-label="Search" />
+    </>
+  );
+}
+
+/**
+ * The message box, focused, and a search field, with the bridge's paste hold on their window,
+ * every paste each took, and the message box's removal.
+ */
+function renderField(bridge: PlatformBridge): {
+  readonly field: HTMLTextAreaElement;
+  readonly pasted: string[];
+  readonly searchField: HTMLTextAreaElement;
+  readonly searchPasted: string[];
+  readonly removeField: () => void;
+} {
+  const { rerender } = render(<Fields bridge={bridge} hasMessageBox />);
+  const field = screen.getByRole<HTMLTextAreaElement>("textbox", { name: "Message" });
+  const searchField = screen.getByRole<HTMLTextAreaElement>("textbox", { name: "Search" });
   field.focus();
-  return { field, pasted };
+  return {
+    field,
+    pasted: pastesInto(field),
+    searchField,
+    searchPasted: pastesInto(searchField),
+    removeField: () => {
+      rerender(<Fields bridge={bridge} hasMessageBox={false} />);
+    },
+  };
 }
 
 describe("a paste while a copy is being written", () => {
@@ -153,6 +179,44 @@ describe("a paste while a copy is being written", () => {
     await vi.waitFor(() => {
       expect(pasted).toStrictEqual([OLDER_COPY]);
     });
+  });
+
+  it("pastes into the field it was pressed in, though focus moved meanwhile", async () => {
+    const { bridge, land } = bridgeOverClipboard();
+    const { field, pasted, searchField, searchPasted } = renderField(bridge);
+    const copied = copyOnceBuilt(bridge, (write) => write({ text: NEW_COPY }));
+
+    pasteInto(field, OLDER_COPY);
+    searchField.focus();
+    await land();
+    await copied;
+
+    await vi.waitFor(() => {
+      expect(pasted).toStrictEqual([NEW_COPY]);
+    });
+    expect([searchPasted, document.activeElement]).toStrictEqual([[], field]);
+  });
+
+  it("drops a held paste whose field is gone, pasting it nowhere, and records the drop", async () => {
+    const { bridge, land } = bridgeOverClipboard();
+    const { field, removeField } = renderField(bridge);
+    const batches: string[] = [];
+    const detachForwarder = windowDiagnosticCapture.installForwarder((jsonLines) => {
+      batches.push(jsonLines);
+    });
+    const copied = copyOnceBuilt(bridge, (write) => write({ text: NEW_COPY }));
+
+    pasteInto(field, OLDER_COPY);
+    removeField();
+    await land();
+    await copied;
+
+    await vi.waitFor(() => {
+      windowDiagnosticCapture.flush();
+      expect(batches.join("\n")).toContain('"kind":"held-paste-dropped"');
+    });
+    detachForwarder();
+    expect(bridge.window.paste).not.toHaveBeenCalled();
   });
 
   it("lets a middle-click paste through where it pastes the primary selection, and holds ⌘V after", async () => {
