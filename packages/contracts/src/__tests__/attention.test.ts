@@ -1,6 +1,6 @@
 // The `attention.*` wire. A Notify step's entry is the one that names a step, and it is
 // informational and carries its run; the delivery read shows a web address as its host
-// exactly when one is saved.
+// only when one is saved.
 import { describe, expect, it } from "vitest";
 
 import { AttentionDeliveryReadResponseSchema, AttentionProjectionSchema } from "../attention.js";
@@ -70,23 +70,23 @@ describe("attention.deliveryRead", () => {
     expect(AttentionDeliveryReadResponseSchema.safeParse(read).success).toBe(true);
   });
 
-  it("carries a host only when an address is saved, and none for a saved text", () => {
-    // A saved text with no scheme and host has no host, and its test sends nothing.
+  it("always carries host, a string only when an address is saved, null for a saved text", () => {
+    // A saved text with no scheme and host reads a null host, and its test sends nothing.
     const notAnAddress = { at: "2026-09-24T14:14:00Z", result: "notAnAddress", undelivered: 0 };
-    const savedWithoutHost = {
-      webAddress: { saved: true, lastOutcome: notAnAddress },
+    const savedNullHost = {
+      webAddress: { saved: true, host: null, lastOutcome: notAnAddress },
       emailDigest: digest,
     };
     const hostWithoutSave = {
       webAddress: { saved: false, host: "ntfy.sh", lastOutcome: null },
       emailDigest: digest,
     };
-    const nullHost = {
-      ...savedWithoutHost,
-      webAddress: { saved: true, host: null, lastOutcome: null },
+    const omittedHost = {
+      webAddress: { saved: true, lastOutcome: notAnAddress },
+      emailDigest: digest,
     };
-    expect(AttentionDeliveryReadResponseSchema.safeParse(savedWithoutHost).success).toBe(true);
+    expect(AttentionDeliveryReadResponseSchema.safeParse(savedNullHost).success).toBe(true);
     expect(AttentionDeliveryReadResponseSchema.safeParse(hostWithoutSave).success).toBe(false);
-    expect(AttentionDeliveryReadResponseSchema.safeParse(nullHost).success).toBe(false);
+    expect(AttentionDeliveryReadResponseSchema.safeParse(omittedHost).success).toBe(false);
   });
 });

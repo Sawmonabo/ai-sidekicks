@@ -119,7 +119,7 @@ interface AttentionDeliveryOutcome {
 }
 interface AttentionDeliveryReadRequest {}
 interface AttentionDeliveryReadResponse {
-  webAddress: { saved: boolean; host?: string; lastOutcome: AttentionDeliveryOutcome | null };
+  webAddress: { saved: boolean; host: string | null; lastOutcome: AttentionDeliveryOutcome | null };
   emailDigest: { passwordSaved: boolean; lastOutcome: AttentionDeliveryOutcome | null };
 }
 interface AttentionDeliveryTestRequest {
@@ -138,7 +138,7 @@ interface AttentionWebAddressSaveRequest {
   address: string;
 }
 interface AttentionWebAddressSaveResponse {
-  host?: string; // absent for saved text with no scheme and host, which reads masked
+  host: string | null; // null for saved text with no scheme and host, which reads masked
   signingSecret?: string; // present only on the first save, which mints it
 }
 interface AttentionWebAddressSecretRotateRequest {}

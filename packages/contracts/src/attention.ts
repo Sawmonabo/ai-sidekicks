@@ -252,14 +252,14 @@ const AttentionDeliveryOutcomeSchema: z.ZodType<AttentionDeliveryOutcome> = z
   .strict();
 
 /**
- * What each channel last did. The web address is shown back as its host only, and a saved text
- * with no scheme and host has none; neither the address, its signing secret nor the mail
+ * What each channel last did. The web address is shown back as its host only, `null` when nothing
+ * is saved or the saved text has no scheme and host; neither the address, its signing secret nor the mail
  * password is ever sent.
  */
 export interface AttentionDeliveryReadResponse {
   webAddress: {
     saved: boolean;
-    host?: string | undefined;
+    host: string | null;
     lastOutcome: AttentionDeliveryOutcome | null;
   };
   emailDigest: {
@@ -267,18 +267,18 @@ export interface AttentionDeliveryReadResponse {
     lastOutcome: AttentionDeliveryOutcome | null;
   };
 }
-/** Parses an {@link AttentionDeliveryReadResponse}; `host` is present only when an address is saved. */
+/** Parses an {@link AttentionDeliveryReadResponse}; `host` is `null` whenever no address is saved. */
 export const AttentionDeliveryReadResponseSchema: z.ZodType<AttentionDeliveryReadResponse> = z
   .object({
     webAddress: z
       .object({
         saved: z.boolean(),
-        host: z.string().min(1).optional(),
+        host: z.string().min(1).nullable(),
         lastOutcome: AttentionDeliveryOutcomeSchema.nullable(),
       })
       .strict()
-      .refine((webAddress) => webAddress.saved || webAddress.host === undefined, {
-        message: "host is present only when an address is saved.",
+      .refine((webAddress) => webAddress.saved || webAddress.host === null, {
+        message: "host is null when no address is saved.",
         path: ["host"],
       }),
     emailDigest: z
@@ -351,16 +351,16 @@ export const AttentionWebAddressSaveRequestSchema: z.ZodType<
   .strict();
 
 /**
- * The saved address's host, absent for a text with no scheme and host, and on the first save the
+ * The saved address's host, `null` for a text with no scheme and host, and on the first save the
  * signing secret the receiver checks each message with, shown this once.
  */
 export interface AttentionWebAddressSaveResponse {
-  host?: string | undefined;
+  host: string | null;
   signingSecret?: string | undefined;
 }
 /** Parses an {@link AttentionWebAddressSaveResponse}. */
 export const AttentionWebAddressSaveResponseSchema: z.ZodType<AttentionWebAddressSaveResponse> = z
-  .object({ host: z.string().min(1).optional(), signingSecret: z.string().min(1).optional() })
+  .object({ host: z.string().min(1).nullable(), signingSecret: z.string().min(1).optional() })
   .strict();
 
 /** A new signing secret, shown this once; the old one stops verifying at once. */
