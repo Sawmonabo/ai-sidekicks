@@ -1,30 +1,31 @@
-// A long table's rows the window has not drawn, read back into a copy from the row's text. Each
-// spacer row standing for undrawn rows names the text they were parsed from; the copy parses that
-// text under a blank head of the table's width and puts the rows it makes in the spacer's place,
-// drawn under the screen's own policy, so they copy exactly as drawn rows do.
+// A long table's rows the window has not drawn, read back into a copy from its row's body text.
+// Each spacer row standing for undrawn rows names the text they were parsed from and the table's
+// column count; the copy parses that text under a blank head of that width and puts the rows it
+// makes in the spacer's place, drawn under the screen's own policy, so they copy exactly as drawn
+// rows do.
 
 import { markdownToHast, type DrawnTree } from "./clipboard-flavors.js";
 
 /**
  * `tree` with every spacer row that names a text range replaced by the rows that text makes.
- * `readRowText` reads the row's whole text, which the ranges index; it is read only when a spacer
- * is found. Throws when the row has no text to read them from, since a copy missing rows would
- * look whole.
+ * `readBodyText` reads the text of the row's body, which the ranges index; it is read only when a
+ * spacer is found. Throws when the body has no text to read them from, since a copy missing rows
+ * would look whole.
  */
 export function withUndrawnTableRows(
   tree: DrawnTree,
-  readRowText: () => string | undefined,
+  readBodyText: () => string | undefined,
 ): DrawnTree {
-  let rowText: string | undefined;
-  const textOfRow = (): string => {
-    rowText ??= readRowText();
-    if (rowText === undefined) {
+  let bodyText: string | undefined;
+  const textOfBody = (): string => {
+    bodyText ??= readBodyText();
+    if (bodyText === undefined) {
       throw new Error("A copied table's undrawn rows have no text to be read from.");
     }
-    return rowText;
+    return bodyText;
   };
   if ("children" in tree) {
-    fillSpacers(tree, textOfRow);
+    fillSpacers(tree, textOfBody);
   }
   return tree;
 }
@@ -35,26 +36,25 @@ type ParentNode = Extract<DrawnTree, { children: unknown }>;
 /** One child of a drawn tree's node. */
 type ChildNode = ParentNode["children"][number];
 
-function fillSpacers(parent: ParentNode, textOfRow: () => string): void {
+function fillSpacers(parent: ParentNode, textOfBody: () => string): void {
   parent.children = parent.children.flatMap((child): ChildNode[] => {
     if (child.type !== "element") {
       return [child];
     }
     const start = numberOf(child.properties["dataMarkdownSourceStart"]);
     const end = numberOf(child.properties["dataMarkdownSourceEnd"]);
-    if (child.tagName === "tr" && start !== undefined && end !== undefined) {
-      return undrawnRows(textOfRow(), start, end, columnCountOf(child));
+    const columnCount = numberOf(child.properties["dataMarkdownColumnCount"]);
+    if (
+      child.tagName === "tr" &&
+      start !== undefined &&
+      end !== undefined &&
+      columnCount !== undefined
+    ) {
+      return undrawnRows(textOfBody(), start, end, columnCount);
     }
-    fillSpacers(child, textOfRow);
+    fillSpacers(child, textOfBody);
     return [child];
   });
-}
-
-/** How many columns a spacer row spans: a cell for each. */
-function columnCountOf(spacer: ChildNode): number {
-  return "children" in spacer
-    ? spacer.children.filter((cell) => cell.type === "element").length
-    : 1;
 }
 
 /** A property's number, read as the DOM reader keeps it: a number, or the attribute's text. */
@@ -69,13 +69,13 @@ function numberOf(value: unknown): number | undefined {
  * the first row are cut from the start of each line after it.
  */
 function undrawnRows(
-  rowText: string,
+  bodyText: string,
   start: number,
   end: number,
   columnCount: number,
 ): ChildNode[] {
-  const containerMarks = rowText.slice(rowText.lastIndexOf("\n", start - 1) + 1, start);
-  const lines = rowText
+  const containerMarks = bodyText.slice(bodyText.lastIndexOf("\n", start - 1) + 1, start);
+  const lines = bodyText
     .slice(start, end)
     .split("\n")
     .map((line, index) =>

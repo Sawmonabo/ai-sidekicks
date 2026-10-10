@@ -200,6 +200,8 @@ describe("a reply whose body is too large to travel with its row", () => {
       const controlText = control()?.firstChild ?? expect.fail("the control draws its words");
       await selectThroughReply(controlText instanceof Text ? controlText : expect.fail("as text"));
       expect(await copyAnswering(true)).toBe(replyCopied);
+      // Copied as the markdown it is, with its formatted flavor beside it.
+      expect(copied.at(-1)?.html).toContain(`>${BODY_HEADING}</h2>`);
       expect(bodyReads).toStrictEqual([largeReplyRead, largeReplyRead]);
       expect(control()?.textContent).toBe(
         `Show full output (${formatByteQuantity(LARGE_BODY_BYTES).text})`,

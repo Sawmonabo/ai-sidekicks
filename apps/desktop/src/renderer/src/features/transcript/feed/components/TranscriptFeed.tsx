@@ -29,7 +29,12 @@ import { useTranscriptFeedWindows } from "../hooks/useTranscriptFeedWindows.js";
 import { useTranscriptFindAndJump } from "../hooks/useTranscriptFindAndJump.js";
 import { useTranscriptStructureActs } from "../hooks/useTranscriptStructureActs.js";
 import { useConversationCopy } from "../../copy/hooks/useConversationCopy.js";
-import { largeBodyRowIdsOf, readRowText } from "../../copy/row-text.js";
+import {
+  largeBodyRowIdsOf,
+  readRowBodyText,
+  readRowText,
+  type RowTextSources,
+} from "../../copy/row-text.js";
 import { RowToggleProvider, type RowToggle } from "../../rows/RowToggleProvider.js";
 import { densityFor } from "../fold-state.js";
 import { rowBesideRunWindowEdge, type RunWindowEdge } from "../../runs/call-window.js";
@@ -189,20 +194,34 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
   );
   const clockLocale = useClockLocale();
   const revealChannel = windows.reveal.channel;
+  const rowTextSources = useCallback(
+    (
+      rowTextWindow: TranscriptWindowModel,
+      fullBodyOf: (rowId: string) => HydratedSessionEventContent | undefined,
+    ): RowTextSources => ({
+      transcriptWindow: rowTextWindow,
+      reveal: revealChannel,
+      densityOf: (rowId) => densityFor(rowId, foldedCallRowIds),
+      fullBodyOf,
+      clockLocale,
+    }),
+    [revealChannel, foldedCallRowIds, clockLocale],
+  );
   const rowText = useCallback(
     (
       rowKey: string,
       rowTextWindow: TranscriptWindowModel,
       fullBodyOf: (rowId: string) => HydratedSessionEventContent | undefined,
-    ) =>
-      readRowText(rowKey, {
-        transcriptWindow: rowTextWindow,
-        reveal: revealChannel,
-        densityOf: (rowId) => densityFor(rowId, foldedCallRowIds),
-        fullBodyOf,
-        clockLocale,
-      }),
-    [revealChannel, foldedCallRowIds, clockLocale],
+    ) => readRowText(rowKey, rowTextSources(rowTextWindow, fullBodyOf)),
+    [rowTextSources],
+  );
+  const rowBodyText = useCallback(
+    (
+      rowKey: string,
+      rowTextWindow: TranscriptWindowModel,
+      fullBodyOf: (rowId: string) => HydratedSessionEventContent | undefined,
+    ) => readRowBodyText(rowKey, rowTextSources(rowTextWindow, fullBodyOf)),
+    [rowTextSources],
   );
   const largeBodyRowIds = useCallback(
     (rowKeys: readonly string[], rowTextWindow: TranscriptWindowModel) =>
@@ -227,6 +246,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
     selectedRowKeys: viewport.selectedRowKeys,
     rowSourceWindows: { unfurledWindow: windows.unfurledWindow, transcriptWindow },
     rowText,
+    rowBodyText,
     largeBodyRowIds,
     fullBodyReads,
     history: copyHistory,

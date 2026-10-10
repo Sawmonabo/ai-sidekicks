@@ -1,18 +1,20 @@
 // What a selection in the conversation copies: each row it runs across, in log order, joined by a
-// blank line. The rows come from the viewport's record of the selection, not from the drawn
-// rows, so rows the window let go between its ends are copied too. Each end row gives the part
-// selected in it as it was drawn, and every row between gives its whole text from the source it is
-// drawn from (`row-text.ts`). A long table's rows the window has not drawn inside an end row's part
-// are read from that same source, through the text range each spacer row names, so a copy never
-// waits for rows to draw. A part inside one table is copied as a table of what was selected. A
-// message row gives only its body, never its author line, stamp or controls: a reply's part as the
-// markdown rebuilt from what was selected, and the person's own message or a reasoning aside as
-// plain text. Any other row gives the text selected in it. Plain text is read the way the screen
-// lays it out, a block's lines on lines of their own, and no control's label is ever part of it. An
-// end row's part that reaches a large body, which draws only its control, is the whole row, the
-// body read in full, so the body is never dropped and the control's words never copied. A
-// formula copies as its TeX source, whole, once. A formatted flavor rides beside the text whenever
-// a reply is part of it. A selection crossing the conversation copies only the conversation's part.
+// blank line. The rows come from the viewport's record of the selection, not from the drawn rows,
+// so rows the window let go between its ends are copied too. Each end row gives the part selected
+// in it as it was drawn, and every row between gives its whole text from the source it is drawn
+// from (`row-text.ts`). A long table's rows the window has not drawn inside an end row's part are
+// read from the text of the row's body, from that same source, through the text range each spacer
+// row names, so a copy never waits for rows to draw. A part inside one table is copied as a table
+// of what was selected. A message row gives only its body, never its author line, stamp or
+// controls: a reply's part as the markdown rebuilt from what was selected, and the person's own
+// message or a reasoning aside as plain text. Any other row gives the text selected in it. Plain
+// text is read the way the screen lays it out, a block's lines on lines of their own, and no
+// control's label is ever part of it. An end row's part that reaches a large body, which draws only
+// its control, holds the body read in full in the control's place, from where the part begins, so
+// the body is never dropped and the control's words never copied; a message's body is its row's
+// text, so its part is the whole. A formula copies as its TeX source, whole, once. A formatted
+// flavor rides beside the text whenever a reply is part of it. A selection crossing the
+// conversation copies only the conversation's part.
 
 import { isElement } from "@floating-ui/utils/dom";
 import { fromDom } from "hast-util-from-dom";
@@ -40,6 +42,11 @@ export interface RowSpanSelection {
   readonly endRowElement: (rowKey: string) => Element | undefined;
   /** A whole row's text from the source it is drawn from, or `undefined` for a row with none. */
   readonly rowText: (rowKey: string) => SelectedPart | undefined;
+  /**
+   * The text of a row's body alone, from the same source, which an end row's part reads a long
+   * table's undrawn rows and a large body from; `undefined` for a row that draws no body.
+   */
+  readonly rowBodyText: (rowKey: string) => string | undefined;
 }
 
 /** The attribute a row's copyable body carries, naming the flavor its selected part copies as. */
@@ -50,7 +57,7 @@ export type CopyFlavor = "markdown" | "text";
 
 /**
  * The attribute the place of a body its row carries as its size alone holds, around the control
- * that reads it: an end row's part reaching it copies as the whole row.
+ * that reads it: an end row's part reaching it copies the body read in full in its place.
  */
 export const LARGE_BODY_ATTRIBUTE = "data-large-body";
 
@@ -70,20 +77,21 @@ export function readRowSpanSelection(span: RowSpanSelection): TextClipboardConte
 }
 
 /**
- * The part of a drawn row that `range` selects. `readRowText` reads the row's whole text, which a
- * long table's undrawn rows in the part are filled from; it is read only when the part holds some.
+ * The part of a drawn row that `range` selects. `readBodyText` reads the text of the row's body,
+ * which a long table's undrawn rows and a large body drawn as its control are read from; it is
+ * read only when the part holds one. Throws when the part holds one and the body has no text.
  */
 export function readSelectedPart(
   range: Range,
   row: Element,
-  readRowText: () => string | undefined,
+  readBodyText: () => string | undefined,
 ): SelectedPart {
   const body = row.querySelector(`[${COPY_FLAVOR_ATTRIBUTE}]`);
   // A selection holding only the row's author line or controls clamps to nothing in its body.
   const part = clampedTo(range, body ?? row);
   return body?.getAttribute(COPY_FLAVOR_ATTRIBUTE) === "markdown"
-    ? { flavor: "markdown", text: rebuildMarkdown(selectedTreeOf(part, "markdown", readRowText)) }
-    : { flavor: "text", text: toText(selectedTreeOf(part, "text", readRowText)) };
+    ? { flavor: "markdown", text: rebuildMarkdown(selectedTreeOf(part, "markdown", readBodyText)) }
+    : { flavor: "text", text: toText(selectedTreeOf(part, "text", readBodyText)) };
 }
 
 /**
@@ -114,7 +122,7 @@ export function clipboardContentOf(
 /**
  * One row's part: an end row's selected part as it was drawn, any other row's whole text. An end
  * that lies outside the scroller takes its row whole, and so does an end row with no drawing kept
- * or one whose part reaches a large body.
+ * or a message row whose part reaches its large body.
  */
 function rowPartOf(span: RowSpanSelection, rowKey: string): SelectedPart | undefined {
   const { start, end } = span.selection;
@@ -136,33 +144,44 @@ function rowPartOf(span: RowSpanSelection, rowKey: string): SelectedPart | undef
   if (endPosition !== undefined) {
     range.setEnd(endPosition.textNode, endPosition.offsetInNode);
   }
-  for (const largeBody of rowElement.querySelectorAll(`[${LARGE_BODY_ATTRIBUTE}]`)) {
-    if (range.intersectsNode(largeBody)) {
-      return span.rowText(rowKey);
-    }
+  // A message's large body draws its control alone, so a part reaching it is the whole body, which
+  // is the row's text, in the flavor the body copies as.
+  const isMessageRow = rowElement.querySelector(`[${COPY_FLAVOR_ATTRIBUTE}]`) !== null;
+  if (
+    isMessageRow &&
+    [...rowElement.querySelectorAll(`[${LARGE_BODY_ATTRIBUTE}]`)].some((largeBody) =>
+      range.intersectsNode(largeBody),
+    )
+  ) {
+    return span.rowText(rowKey);
   }
-  return readSelectedPart(range, rowElement, () => span.rowText(rowKey)?.text);
+  return readSelectedPart(range, rowElement, () => span.rowBodyText(rowKey));
 }
 
 /**
- * What `part` holds as a tree, with a long table's undrawn rows read from the row's text, laid out
- * as the screen lays it out.
+ * What `part` holds as a tree, with a long table's undrawn rows and a large body read from the
+ * body's text, laid out as the screen lays it out.
  */
 function selectedTreeOf(
   part: Range,
   flavor: CopyFlavor,
-  readRowText: () => string | undefined,
+  readBodyText: () => string | undefined,
 ): DrawnTree {
-  return withUndrawnTableRows(fromDom(selectedContentOf(part, flavor)), readRowText);
+  return withUndrawnTableRows(fromDom(selectedContentOf(part, flavor, readBodyText)), readBodyText);
 }
 
 /**
- * What `part` holds, without the controls drawn among it, since a button's label is no one's
- * text, and with each formula as its TeX source: as text, or as a math block the markdown rebuild
- * reads as one. A part inside one table, between rows or cells, is put back in that table, so it
- * copies as a table rather than as loose rows.
+ * What `part` holds, with a large body's place holding the body read in full as preformatted text,
+ * without the controls drawn among it, since a button's label is no one's text, and with each
+ * formula as its TeX source: as text, or as a math block the markdown rebuild reads as one. A part
+ * inside one table, between rows or cells, is put back in that table, so it copies as a table
+ * rather than as loose rows.
  */
-function selectedContentOf(part: Range, flavor: CopyFlavor): DocumentFragment {
+function selectedContentOf(
+  part: Range,
+  flavor: CopyFlavor,
+  readBodyText: () => string | undefined,
+): DocumentFragment {
   // A formula draws its hidden MathML before its glyphs, so a part of one would miss its source.
   const startFormula = formulaHolding(part.startContainer);
   if (startFormula !== null) {
@@ -173,6 +192,9 @@ function selectedContentOf(part: Range, flavor: CopyFlavor): DocumentFragment {
     part.setEndAfter(endFormula);
   }
   const content = part.cloneContents();
+  for (const largeBody of content.querySelectorAll(`[${LARGE_BODY_ATTRIBUTE}]`)) {
+    largeBody.replaceWith(largeBodyNode(largeBody.ownerDocument, readBodyText));
+  }
   for (const control of content.querySelectorAll("button")) {
     control.remove();
   }
@@ -213,6 +235,20 @@ function withinItsTable(content: DocumentFragment, commonAncestor: Node): Docume
   const wrapped = table.ownerDocument.createDocumentFragment();
   wrapped.append(tableCopy);
   return wrapped;
+}
+
+/**
+ * The node a large body's place becomes: its text read in full, preformatted, so its lines stay
+ * lines. Throws for a body with no text, since a copy missing it would look whole.
+ */
+function largeBodyNode(ownerDocument: Document, readBodyText: () => string | undefined): Node {
+  const bodyText = readBodyText();
+  if (bodyText === undefined) {
+    throw new Error("A copied large body has no text to be read from.");
+  }
+  const block = ownerDocument.createElement("pre");
+  block.append(ownerDocument.createTextNode(bodyText));
+  return block;
 }
 
 /** `MathBlock` marks every formula it draws with `data-math`. */
