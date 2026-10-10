@@ -58,7 +58,8 @@ export class DiffRowIndex {
         return;
       }
       const startRowIndex = rowCursor;
-      // The header, and under it the line saying why the contents are not drawn, where they are not.
+      // The header, and under it the line saying why the contents are not drawn, where they are
+      // not.
       const hasUnshownReason = diffFileUnshownReason(file) !== undefined;
       let fileRowCount = hasUnshownReason ? 2 : 1;
       const hunkSpans: HunkRowSpan[] = [];

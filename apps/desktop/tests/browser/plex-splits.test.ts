@@ -1,18 +1,27 @@
 // A character outside Latin-1 is drawn in Plex. The arrow the console draws in a chord hint and a
 // diff footer lives in the packages' Pi split; drawing one makes Chromium fetch that split and no
-// other, and the face that answers is the app's own family, not the host's.
+// other, and the face that answers is the app's own family, not the host's. And the mark a flow
+// diff draws where it skips lines is made of characters a Plex split holds, so no host face draws
+// it.
 
+import { cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
   MERIDIAN_STYLE_ELEMENT_ID,
   installMeridianTokens,
 } from "#renderer/app/token-installation.js";
+import {
+  diffOf,
+  drawDiffCard,
+  filePatch,
+} from "#renderer/features/repos/diff/components/InlineDiffCard.test-support.js";
 
 /** The arrow's code point, inside the Pi split's `U+2190-2199`. */
 const RIGHTWARDS_ARROW = 0x2192;
 
 afterEach(() => {
+  cleanup();
   document.getElementById(MERIDIAN_STYLE_ELEMENT_ID)?.remove();
   document.body.replaceChildren();
 });
@@ -39,6 +48,30 @@ describe("browser — the Plex splits", () => {
     expect(answering).toHaveLength(1);
     // A range of its own, not the whole of Unicode: the split is fetched only for what it holds.
     expect(answering[0]?.unicodeRange).not.toBe("U+0-10FFFF");
+  });
+
+  it("draws the flow diff's skipped-lines mark from characters a Plex Sans split holds", () => {
+    installMeridianTokens(document);
+    const { block } = drawDiffCard(
+      diffOf([filePatch("two.ts", "@@ -1 +1 @@", ["-a", "+A"], "@@ -40 +40 @@", ["-z", "+Z"])]),
+      { heightPx: 600, widthPx: 420 },
+    );
+    const mark = block.querySelector(".meridian-diff__separator [aria-hidden='true']");
+    const codePoints = [...(mark?.textContent ?? "")].map((character) => character.codePointAt(0));
+    expect(codePoints.length).toBeGreaterThan(0);
+    const plexSansFaces = [...document.fonts].filter(
+      (face) =>
+        (face.family === '"IBM Plex Sans"' || face.family === "IBM Plex Sans") &&
+        face.style === "normal" &&
+        face.unicodeRange !== "U+0-10FFFF",
+    );
+    expect(
+      codePoints.filter(
+        (codePoint) =>
+          codePoint === undefined ||
+          !plexSansFaces.some((face) => coversCodePoint(face, codePoint)),
+      ),
+    ).toStrictEqual([]);
   });
 });
 

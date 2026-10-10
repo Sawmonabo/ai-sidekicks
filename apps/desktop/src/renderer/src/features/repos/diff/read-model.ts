@@ -1,5 +1,5 @@
 // The daemon's diff read as the model the pane renders. Each wire file carries its own patch, so
-// the path, rename, binary, unreadable and step facts are taken from the wire file and only the
+// the path, kind, binary, unreadable and step facts are taken from the wire file and only the
 // hunks (and a declared mode change) from its parsed patch.
 
 import type {
@@ -7,7 +7,7 @@ import type {
   GitflowDiffReadResponse,
 } from "@ai-sidekicks/contracts/gitflow/local";
 
-import type { DiffFile, DiffModel } from "./model.js";
+import type { DiffFile, DiffFileChange, DiffModel } from "./model.js";
 import { parseUnifiedPatch, type ComparedStates } from "./patch-parse.js";
 
 /** The model one `gitflow.diffRead` reply draws, its two ends named as the daemon named them. */
@@ -24,7 +24,7 @@ function diffFileFromWire(file: WireDiffFile, comparedStates: ComparedStates): D
     file.patch === undefined ? undefined : parseUnifiedPatch(file.patch, comparedStates).files[0];
   return {
     path: file.path,
-    ...(file.oldPath === undefined ? {} : { renamedFrom: file.oldPath }),
+    change: changeOf(file),
     ...(parsed?.modeChange === undefined ? {} : { modeChange: parsed.modeChange }),
     ...(file.binary === true ? { binary: true } : {}),
     ...(file.unreadable === undefined ? {} : { unreadable: file.unreadable }),
@@ -32,4 +32,15 @@ function diffFileFromWire(file: WireDiffFile, comparedStates: ComparedStates): D
     ...(file.patch === undefined ? {} : { patch: file.patch }),
     hunks: parsed?.hunks ?? [],
   };
+}
+
+/** The wire file's kind, with the path a rename came from, which the wire sends exactly then. */
+function changeOf(file: WireDiffFile): DiffFileChange {
+  if (file.kind !== "renamed") {
+    return { kind: file.kind };
+  }
+  if (file.oldPath === undefined) {
+    throw new Error(`The daemon named ${file.path} renamed with no path it came from.`);
+  }
+  return { kind: "renamed", renamedFrom: file.oldPath };
 }

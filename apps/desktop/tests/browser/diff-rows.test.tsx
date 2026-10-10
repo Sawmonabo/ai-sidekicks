@@ -15,6 +15,7 @@ import {
 } from "#renderer/features/repos/diff/components/InlineDiffCard.test-support.js";
 import type { DiffViewMode } from "#renderer/features/repos/diff/model.js";
 import { liveBridgeWrapper, withAnnouncer } from "#test/helpers/app/frame-fixtures.js";
+import { withAlignmentWorker } from "#test/helpers/diff/alignment-worker.js";
 
 /** A short file, whose numbers take one figure, and one whose widest number takes five. */
 const SHORT_AND_LONG = diffOf([
@@ -39,8 +40,7 @@ describe("browser — the diff's rows", () => {
     if (flowRow === null || reviewRow === null) {
       throw new Error("a look drew no line row");
     }
-    // At the default text size, a line of `text-12` at the body line height, as the design sets a
-    // diff in both.
+    // At the default text size, both looks set a line in `text-12` at the body line height.
     for (const row of [flowRow, reviewRow]) {
       expect(getComputedStyle(row).fontSize).toBe("12px");
       expect(row.getBoundingClientRect().height).toBe(18);
@@ -120,7 +120,7 @@ describe("browser — the diff's rows", () => {
 
 /** Review's renderer over the two files, in a pane tall enough to draw every row. */
 function drawReview(viewMode: DiffViewMode): HTMLElement {
-  const Wrapper = withAnnouncer(liveBridgeWrapper());
+  const Wrapper = withAlignmentWorker(withAnnouncer(liveBridgeWrapper()));
   const { container } = render(
     <Wrapper>
       <div style={{ display: "flex", blockSize: 600, inlineSize: 760 }}>

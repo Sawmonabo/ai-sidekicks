@@ -17,36 +17,23 @@ export interface ElementsResizeObservation {
 
 /**
  * Report every size change of one element, with the observer's entries carrying its observed
- * boxes, until the returned disposer is called.
- *
- * A platform with no `ResizeObserver` arms nothing; the caller's other sources still fire, so
- * the reading is coarser, never wrong. The constructor is the element's own window's, read at arm
- * time: an observer reports only for the window it was made in, and a test's fake still reaches
- * every consumer.
+ * boxes, until the returned disposer is called. The observer is made from the element's own
+ * window, read at arm time: an observer reports only for the window it was made in, and a test's
+ * fake still reaches every consumer.
  */
 export function observeElementResize(
   element: Element,
   onResize: (entries: readonly ResizeObserverEntry[]) => void,
 ): Unsubscribe {
-  const ObserverConstructor = getWindow(element).ResizeObserver as
-    | typeof ResizeObserver
-    | undefined;
-  if (ObserverConstructor === undefined) {
-    return () => undefined;
-  }
-  const observer = new ObserverConstructor((entries) => {
-    onResize(entries);
-  });
-  observer.observe(element);
-  return () => {
-    observer.disconnect();
-  };
+  const observation = observeElementsResize(getWindow(element), onResize);
+  observation.observe(element);
+  return observation.disconnect;
 }
 
 /**
  * Report every size change of any element handed to `observe`, through one observer made from
- * `ownerWindow`, until `disconnect` is called. A platform with no `ResizeObserver` reports
- * nothing, as {@link observeElementResize} does.
+ * `ownerWindow`, until `disconnect` is called. A platform with no `ResizeObserver` arms nothing;
+ * the caller's other sources still fire, so the reading is coarser, never wrong.
  */
 export function observeElementsResize(
   ownerWindow: Window,

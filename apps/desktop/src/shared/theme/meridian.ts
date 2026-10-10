@@ -66,6 +66,9 @@ export const MERIDIAN_PALETTE: ThemePalette = {
     "ansi-bright-blue": { light: oklch(0.515, 0.13, 255), dark: oklch(0.86, 0.1, 255) },
     "ansi-bright-magenta": { light: oklch(0.53, 0.15, 330), dark: oklch(0.86, 0.12, 330) },
     "ansi-bright-cyan": { light: oklch(0.505, 0.1, 205), dark: oklch(0.88, 0.08, 205) },
+    // The ANSI green and red themselves: each reaches 4.5:1 on its own line's wash.
+    "diff-insert-sign": { light: oklch(0.45, 0.12, 150), dark: oklch(0.8, 0.12, 150) },
+    "diff-delete-sign": { light: oklch(0.48, 0.16, 25), dark: oklch(0.76, 0.14, 25) },
   },
   glassOpacityPercent: { light: 92, dark: 88 },
 };

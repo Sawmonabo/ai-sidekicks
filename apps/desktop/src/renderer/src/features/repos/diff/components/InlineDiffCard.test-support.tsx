@@ -12,10 +12,11 @@ import type { DiffInlineCardProps } from "#renderer/registries/inline-cards/regi
 import { liveBridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import type { DiffModel } from "../model.js";
 import { parseUnifiedPatch } from "../patch-parse.js";
+import { AlignmentWorkerProvider } from "./AlignmentWorkerProvider.js";
 import { InlineDiffCard } from "./InlineDiffCard.js";
 
 /** A row's card props, naming no compared pair. */
-export const DIFF_CARD: DiffInlineCardProps = {
+const DIFF_CARD: DiffInlineCardProps = {
   kind: "diff",
   runId: "run-1",
   diffArtifactId: "diff-artifact-1",
@@ -62,39 +63,36 @@ export function drawDiffCard(
   options: {
     readonly heightPx: number;
     readonly widthPx: number;
-    readonly card?: DiffInlineCardProps;
     readonly viewport?: TranscriptBodyViewport;
   },
 ): DrawnDiffCard {
   const BridgeHost = liveBridgeWrapper();
   const tree = (isCardMounted: boolean): React.JSX.Element => {
     const card = (
-      <DiffCardWithOpenState
-        card={options.card ?? DIFF_CARD}
-        diff={diff}
-        isCardMounted={isCardMounted}
-      />
+      <DiffCardWithOpenState card={DIFF_CARD} diff={diff} isCardMounted={isCardMounted} />
     );
     return (
       <BridgeHost>
-        <div
-          data-flow=""
-          // The conversation's own scroll anchoring is off, so the browser's is too.
-          style={{
-            blockSize: options.heightPx,
-            inlineSize: options.widthPx,
-            overflowY: "auto",
-            overflowAnchor: "none",
-          }}
-        >
-          {options.viewport === undefined ? (
-            card
-          ) : (
-            <TranscriptBodyViewportContext value={options.viewport}>
-              {card}
-            </TranscriptBodyViewportContext>
-          )}
-        </div>
+        <AlignmentWorkerProvider>
+          <div
+            data-flow=""
+            // The conversation's own scroll anchoring is off, so the browser's is too.
+            style={{
+              blockSize: options.heightPx,
+              inlineSize: options.widthPx,
+              overflowY: "auto",
+              overflowAnchor: "none",
+            }}
+          >
+            {options.viewport === undefined ? (
+              card
+            ) : (
+              <TranscriptBodyViewportContext value={options.viewport}>
+                {card}
+              </TranscriptBodyViewportContext>
+            )}
+          </div>
+        </AlignmentWorkerProvider>
       </BridgeHost>
     );
   };

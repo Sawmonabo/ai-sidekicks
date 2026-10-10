@@ -96,6 +96,7 @@ describe("diff renderer — the view controls it is handed", () => {
       files: [
         {
           path: "packages/contracts/src/budget.ts",
+          change: { kind: "modified" as const },
           hunks: [
             {
               header: "@@ -1,1 +1,0 @@",
@@ -128,6 +129,7 @@ describe("diff renderer — the view controls it is handed", () => {
       files: [
         {
           path: "packages/contracts/src/spacing.ts",
+          change: { kind: "modified" as const },
           hunks: [
             {
               header: "@@ -1,1 +1,1 @@",

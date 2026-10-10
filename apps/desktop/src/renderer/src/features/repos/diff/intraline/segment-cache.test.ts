@@ -9,6 +9,7 @@ import { DIFF_INTRALINE_CACHE_ENTRY_CAP } from "../caps.js";
 import { diffLineText, type DiffModel, type DiffLine } from "../model.js";
 import type { DiffLineRow } from "../rows/model.js";
 import { IntralineSegmentCache } from "./segment-cache.js";
+import { AlignmentWorker } from "./worker/handle.js";
 import { parseUnifiedPatch } from "../patch-parse.js";
 import { COMPARED_STATES } from "#test/helpers/patch-parsing.js";
 
@@ -75,7 +76,7 @@ describe("intraline segmentation — when the word diff runs", () => {
   });
 
   it("runs one when a row is materialized, and none on a second read of that row", () => {
-    const cache = new IntralineSegmentCache(modelOf(MODIFIED_PAIR_BODY));
+    const cache = new IntralineSegmentCache(modelOf(MODIFIED_PAIR_BODY), new AlignmentWorker());
     const first = cache.readingFor(bodyRow(0), 0);
     expect(wordDiffCalls).toHaveBeenCalledTimes(1);
     // A scroll re-renders its window every tick, so this decides whether the window costs one
@@ -87,7 +88,7 @@ describe("intraline segmentation — when the word diff runs", () => {
 
   it("serves both rows of one pair from the single comparison that made them", () => {
     // One comparison serves both rows; a register keyed by line would run two.
-    const cache = new IntralineSegmentCache(modelOf(MODIFIED_PAIR_BODY));
+    const cache = new IntralineSegmentCache(modelOf(MODIFIED_PAIR_BODY), new AlignmentWorker());
     const deleted = cache.readingFor(bodyRow(0), 0);
     const inserted = cache.readingFor(bodyRow(1), 1);
 
@@ -112,7 +113,10 @@ describe("intraline segmentation — when the word diff runs", () => {
       deletions.push(`-const value${String(ordinal)} = previousBudget;`);
       insertions.push(`+const value${String(ordinal)} = nextBudget;`);
     }
-    const cache = new IntralineSegmentCache(modelOf([...deletions, ...insertions]));
+    const cache = new IntralineSegmentCache(
+      modelOf([...deletions, ...insertions]),
+      new AlignmentWorker(),
+    );
     for (let lineIndex = 0; lineIndex < pairCount - 1; lineIndex += 1) {
       cache.readingFor(bodyRow(lineIndex), lineIndex);
     }
@@ -132,7 +136,7 @@ describe("intraline segmentation — what a pair segments to", () => {
   it("reassembles each side to the line it was read for", () => {
     // A reading is a view of the text, not a second copy of it.
     const model = modelOf(MODIFIED_PAIR_BODY);
-    const cache = new IntralineSegmentCache(model);
+    const cache = new IntralineSegmentCache(model, new AlignmentWorker());
     for (const lineIndex of [0, 1]) {
       const reading = cache.readingFor(bodyRow(lineIndex), lineIndex);
       expect(reading.segments.map((segment) => segment.text).join("")).toBe(
@@ -154,6 +158,7 @@ describe("intraline segmentation — what a pair segments to", () => {
           "+const value = compute(nextBudget, 1);",
           " const kept = false;",
         ]),
+        new AlignmentWorker(),
       );
       expect(
         cache.readingFor(bodyRow(0), 0).segments.filter((segment) => segment.changed),
@@ -171,6 +176,7 @@ describe("intraline segmentation — what a pair segments to", () => {
         "+const value = compute(nextBudget, 1);",
         "+const added = true;",
       ]),
+      new AlignmentWorker(),
     );
     expect(cache.readingFor(bodyRow(2), 2)).toStrictEqual({
       segments: [{ text: "const added = true;", changed: false }],

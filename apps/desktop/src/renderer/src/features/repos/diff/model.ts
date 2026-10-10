@@ -3,7 +3,7 @@
 // per rendered row by `intraline/segment-cache.ts`, never at parse time, because computing
 // every pair up front costs the whole change set before the virtualizer places a row.
 
-import type { DiffFileUnreadableReason } from "@ai-sidekicks/contracts/gitflow/local";
+import type { DiffFileKind, DiffFileUnreadableReason } from "@ai-sidekicks/contracts/gitflow/local";
 
 /** The three things a line in a unified diff can be. Closed. */
 export const DIFF_LINE_KINDS = ["context", "insert", "delete"] as const;
@@ -72,20 +72,23 @@ export interface DiffFileModeChange {
 }
 
 /**
- * One file's change set. The extended-header members (rename, copy, mode, binary) are why a
+ * What happened to a file, in the daemon's words: added, deleted, renamed or only modified. A
+ * rename carries the path it came from, path-verbatim, so a rename with no old path cannot be
+ * written down.
+ */
+export type DiffFileChange =
+  | { readonly kind: Exclude<DiffFileKind, "renamed"> }
+  | { readonly kind: "renamed"; readonly renamedFrom: string };
+
+/**
+ * One file's change set. The extended-header members (mode, binary) and the change are why a
  * file can have no hunks; they are carried rather than inferred from `hunks.length === 0`,
- * which cannot say which one it was. Each is absent where the patch did not declare it.
+ * which cannot say which one it was. Each optional one is absent where nothing declared it.
  */
 export interface DiffFile {
   /** Wire-verbatim path, rendered as received and never re-rooted. */
   readonly path: string;
-  /** Where a renamed file came from. The patch's `rename from`, path-verbatim. */
-  readonly renamedFrom?: string;
-  /**
-   * Where a copied file came from (`copy from`, path-verbatim). Not folded into a rename:
-   * git emits `copy from` only when the source still exists.
-   */
-  readonly copiedFrom?: string;
+  readonly change: DiffFileChange;
   /** The two modes, where the patch declared the file's mode changed. */
   readonly modeChange?: DiffFileModeChange;
   /** True where the patch states the two sides differ and carries no text for it. */
@@ -156,18 +159,17 @@ export function diffFileChangeCounts(file: DiffFile): DiffFileChangeCounts {
 }
 
 /**
- * What a file's extended headers say changed about it, as the kind words drawn at `place`, in
- * git's header order (rename or copy, then mode); empty for an ordinary textual change, where the
- * counts already say it. A rename names its old path on the header and reads `renamed` on the
- * narrower row. A copy reads `added`: its source stays where it was and the copy is a new path.
+ * What changed about a file, as the words drawn at `place`: its kind word, then a mode change;
+ * empty for a file that was only edited, where the counts already say it. A rename names its old
+ * path on the header and reads `renamed` on the narrower row.
  */
 export function diffFileChangeNotes(file: DiffFile, place: DiffFileNotePlace): readonly string[] {
   const notes: string[] = [];
-  if (file.renamedFrom !== undefined) {
-    notes.push(place === "header" ? `renamed from ${file.renamedFrom}` : "renamed");
-  }
-  if (file.copiedFrom !== undefined) {
-    notes.push("added");
+  const { change } = file;
+  if (change.kind === "renamed") {
+    notes.push(place === "header" ? `renamed from ${change.renamedFrom}` : "renamed");
+  } else if (change.kind !== "modified") {
+    notes.push(change.kind);
   }
   if (file.modeChange !== undefined) {
     notes.push("mode changed");

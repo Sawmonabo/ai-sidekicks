@@ -1,0 +1,148 @@
+/* One changed file of a diff in the flow, and the flow's look of its rows. */
+
+/*
+ * The flow's washes are tinted from the terminal's own green and red, the code colors rather than
+ * the attention roles, and the sign carries the same fact without the hue. Declared on `:root`
+ * for the reason the Review sheet gives for its grounds.
+ */
+:root {
+  --meridian-diff-flow-insert-wash: color-mix(
+    in oklch,
+    var(--meridian-ansi-green) 14%,
+    transparent
+  );
+  --meridian-diff-flow-delete-wash: color-mix(in oklch, var(--meridian-ansi-red) 12%, transparent);
+  --meridian-diff-flow-insert-changed-wash: color-mix(
+    in oklch,
+    var(--meridian-ansi-green) 22%,
+    transparent
+  );
+  --meridian-diff-flow-delete-changed-wash: color-mix(
+    in oklch,
+    var(--meridian-ansi-red) 20%,
+    transparent
+  );
+}
+
+/* One changed file in the flow: an indent and one rule over the sunken ground, its rows drawn in
+   the conversation and never scrolled inside the block. */
+.meridian-diff-block {
+  display: flex;
+  flex-direction: column;
+  margin-inline-start: var(--meridian-space-3);
+  border-inline-start: 1px solid var(--meridian-edge);
+  border-start-end-radius: var(--meridian-radius-md);
+  border-end-end-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface-sunken);
+  overflow: hidden;
+}
+
+/* Clips, never scrolls: a long line wraps, and the cut is a row count, not a height. */
+.meridian-diff-block__rows {
+  position: relative;
+  overflow: hidden;
+  font-family: var(--meridian-font-mono);
+  /* The size `DIFF_ROW_HEIGHT_REM` is reckoned from, so a row is one line of it. */
+  font-size: var(--meridian-text-12);
+  line-height: var(--meridian-diff-row-height);
+}
+
+/* The fade at the cut, into the block's own ground. */
+.meridian-diff-block__rows--cut::after {
+  position: absolute;
+  inset-inline: 0;
+  inset-block-end: 0;
+  block-size: calc(var(--meridian-diff-row-height) * 1.5);
+  background: linear-gradient(to bottom, transparent, var(--meridian-surface-sunken));
+  content: "";
+  pointer-events: none;
+}
+
+/* A file with no lines to draw: what changed, where its lines would be. */
+.meridian-diff-block__note {
+  margin: 0;
+  padding-inline: var(--meridian-space-3);
+  color: var(--meridian-text-muted);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-xs);
+  line-height: var(--meridian-diff-row-height);
+}
+
+/* The block's footer: what is drawn of it, and the links that lift the cut and copy the patch. The
+   card's fold of the files past two screens reads as one more footer. */
+.meridian-diff-block__footer,
+.meridian-diff-card__fold {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+  border-block-start: 1px solid var(--meridian-edge);
+}
+
+/*
+ * The flow's look. One quiet gutter of the new file's numbers, as wide as the block's widest
+ * number needs, then a one-character sign cell tinted with its row, then the code, so a wrapped
+ * line's continuation starts under the code. A row is marked by its wash and its sign alone.
+ */
+.meridian-diff__side--flow.meridian-diff__side--insert {
+  background: var(--meridian-diff-flow-insert-wash);
+}
+
+.meridian-diff__side--flow.meridian-diff__side--delete {
+  background: var(--meridian-diff-flow-delete-wash);
+}
+
+/* Line numbers are content, so they take Review's gutter color rather than `text-faint`. */
+.meridian-diff__flow-gutter {
+  flex: none;
+  color: var(--meridian-text-muted);
+  text-align: end;
+  user-select: none;
+}
+
+.meridian-diff__sign {
+  flex: none;
+  inline-size: 1ch;
+  margin-inline-end: var(--meridian-space-1);
+}
+
+/* Each sign takes its line's hue at the step that stays legible on that line's wash. */
+.meridian-diff__side--insert > .meridian-diff__sign {
+  color: var(--meridian-diff-insert-sign);
+}
+
+.meridian-diff__side--delete > .meridian-diff__sign {
+  color: var(--meridian-diff-delete-sign);
+}
+
+.meridian-diff__side--flow > .meridian-diff__code {
+  flex: 1 1 auto;
+  padding-inline-end: var(--meridian-space-3);
+}
+
+/* On a tinted wash `text-faint` falls under the 4.5:1 floor, so the annotation reads muted. */
+.meridian-diff__side--flow > .meridian-diff__no-newline {
+  color: var(--meridian-text-muted);
+}
+
+/* The changed words of a replaced pair: a stronger wash of the row's own color. */
+.meridian-diff__side--flow.meridian-diff__side--insert .meridian-diff__segment--changed {
+  background: var(--meridian-diff-flow-insert-changed-wash);
+}
+
+.meridian-diff__side--flow.meridian-diff__side--delete .meridian-diff__segment--changed {
+  background: var(--meridian-diff-flow-delete-changed-wash);
+}
+
+/* Where the flow skips lines of the file: a quiet mark across the row, with no number, no wash
+   and nothing to press. Its three middle dots are set in sans, whose dots sit as close as a
+   midline ellipsis's. */
+.meridian-diff__separator {
+  flex: 1 1 auto;
+  color: var(--meridian-text-faint);
+  font-family: var(--meridian-font-sans);
+  text-align: center;
+}

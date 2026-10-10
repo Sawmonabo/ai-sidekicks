@@ -23,7 +23,7 @@ import { DIFF_FLOW_STEP_ATTRIBUTE } from "../rows/flow.js";
  * write, and nothing is held. `mountedRowCount` is how many rows are mounted, so each step that
  * lands is observed from its first frame.
  */
-export function useReaderHeldOverSteps(
+export function useHoldReaderOverSteps(
   rowsElement: HTMLElement | null,
   isWhole: boolean,
   mountedRowCount: number | undefined,

@@ -31,6 +31,7 @@ import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBrid
 import { scenarioBridgeAndStore } from "./feature-mounts/repos/fixtures.js";
 import { mountDiffPane } from "./feature-mounts/repos/views.js";
 import { liveBridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
+import { withAlignmentWorker } from "#test/helpers/diff/alignment-worker.js";
 import { CommandPalette } from "#renderer/layout/CommandPalette/CommandPalette.js";
 import { CommandRegistry } from "#renderer/registries/commands/registry.js";
 import { runRow } from "#renderer/features/transcript/event-rows.test-support.js";
@@ -162,7 +163,7 @@ describe("accessibility — the overlay scrollbar", () => {
     installMeridianTokens(document);
     installOverlayScrollbarLibrary(document);
     const diffPane = await mountDiffPane();
-    const BridgeHost = liveBridgeWrapper();
+    const BridgeHost = withAlignmentWorker(liveBridgeWrapper());
     const runRows = Array.from({ length: RUN_GROUP_VISIBLE_ROW_CAP * 2 }, (_unused, index) =>
       runRow({
         id: `r${String(index + 1)}`,

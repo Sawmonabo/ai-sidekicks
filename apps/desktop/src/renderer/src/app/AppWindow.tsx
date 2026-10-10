@@ -1,10 +1,11 @@
 // One window a person sees: its frame store, the bindings that keep it live, the `AppShell`
-// around the routed screen and the window's one hover label, drawn into the window's own document
-// through a portal from the console document's tree. Until the background service first answers
-// the window draws its console's frame, inert, under its boot cover: the rail, the window frame
-// and a session's pane arrangement at the sizes it was left at, with nothing that reads the
-// service, so no session is opened and no chord is taken yet. At the answer the session opens and
-// the screens fill in under the cover as it fades, the frame staying where it is.
+// around the routed screen, the alignment worker its diffs share and the window's one hover
+// label, drawn into the window's own document through a portal from the console document's tree.
+// Until the background service first answers the window draws its console's frame, inert, under
+// its boot cover: the rail, the window frame and a session's pane arrangement at the sizes it was
+// left at, with nothing that reads the service, so no session is opened and no chord is taken yet.
+// At the answer the session opens and the screens fill in under the cover as it fades, the frame
+// staying where it is.
 // Everything below reads the window it is in from `OwnerWindowProvider`, and runs its frame work
 // on that window's own paint through `WindowClockProvider`.
 
@@ -33,6 +34,7 @@ import { screenRegistry } from "#renderer/registries/screens/registry.js";
 import { AppShell } from "#renderer/layout/AppShell/AppShell.js";
 import { BootCover } from "#renderer/layout/AppShell/BootCover.js";
 import { useBootCover } from "#renderer/layout/AppShell/hooks/useBootCover.js";
+import { AlignmentWorkerProvider } from "#renderer/features/repos/index.js";
 import { PANE_LAYOUT_LOOSEST_MINIMUM_PANE_WIDTH_PX } from "#renderer/features/sessions/index.js";
 import { useActiveSessionStore } from "./hooks/useActiveSessionStore.js";
 import { useHashRouteBinding } from "./hooks/useHashRouteBinding.js";
@@ -78,7 +80,9 @@ export function AppWindow(props: AppWindowProps): React.JSX.Element {
   return createPortal(
     <OwnerWindowProvider window={ownerWindow}>
       <WindowClockProvider frames={ownerWindow}>
-        <WindowBody {...props} />
+        <AlignmentWorkerProvider>
+          <WindowBody {...props} />
+        </AlignmentWorkerProvider>
         <WindowHoverLabel />
       </WindowClockProvider>
     </OwnerWindowProvider>,

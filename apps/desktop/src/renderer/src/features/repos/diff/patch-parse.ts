@@ -1,6 +1,6 @@
 // Unified patch text in, `DiffModel` out (`diff` 9.0.0; `parsePatch` is called only here). A
 // parsed line carries one whole-line segment; the split is derived per row by
-// `intraline/segment-cache.ts`. The compared refs are the caller's, and rename, copy, mode and
+// `intraline/segment-cache.ts`. The compared refs are the caller's, and the file's kind, mode and
 // binary facts are carried from `StructuredPatch` rather than inferred from an empty hunk list.
 
 // Subpath imports, not the package root: this module is on the initial import graph and the
@@ -10,7 +10,7 @@ import { parsePatch } from "diff/lib/patch/parse.js";
 import type { StructuredPatch } from "diff/lib/types.js";
 
 import { hunkLines } from "./hunk/lines.js";
-import type { DiffModel, DiffFile } from "./model.js";
+import type { DiffModel, DiffFile, DiffFileChange } from "./model.js";
 
 /** The compared states the caller names, carried onto the parsed model verbatim. */
 export interface ComparedStates {
@@ -134,28 +134,46 @@ function renderedPath(structuredPatch: StructuredPatch, path: string): string {
 }
 
 /** The extended-header members `DiffFile` carries, as a spreadable partial. */
-type ExtendedHeaderChange = Pick<DiffFile, "renamedFrom" | "copiedFrom" | "modeChange" | "binary">;
+type ExtendedHeaderChange = Pick<DiffFile, "change" | "modeChange" | "binary">;
 
 /**
- * What a file's extended headers declared, read off the parsed structure. Members are spread
- * in rather than assigned `undefined`: under `exactOptionalPropertyTypes` that is a different
- * type from absent, and presence is the claim.
+ * What a file's headers declared, read off the parsed structure. Members are spread in rather
+ * than assigned `undefined`: under `exactOptionalPropertyTypes` that is a different type from
+ * absent, and presence is the claim.
  *
  * A mode change needs both sides and a difference: `parsePatch` also fills one mode for a
  * created or deleted file, which did not change mode.
  */
 function extendedHeaderChange(structuredPatch: StructuredPatch): ExtendedHeaderChange {
-  const { oldFileName, oldMode, newMode } = structuredPatch;
+  const { oldMode, newMode } = structuredPatch;
   return {
-    ...(structuredPatch.isRename === true && oldFileName !== undefined
-      ? { renamedFrom: renderedPath(structuredPatch, oldFileName) }
-      : {}),
-    ...(structuredPatch.isCopy === true && oldFileName !== undefined
-      ? { copiedFrom: renderedPath(structuredPatch, oldFileName) }
-      : {}),
+    change: fileChangeOf(structuredPatch),
     ...(oldMode !== undefined && newMode !== undefined && oldMode !== newMode
       ? { modeChange: { from: oldMode, to: newMode } }
       : {}),
     ...(structuredPatch.isBinary === true ? { binary: true } : {}),
   };
+}
+
+/**
+ * What happened to a file, as its patch says it where nothing else names the kind: git's
+ * `rename from`, `new file mode` and `deleted file mode` headers, or a side named `/dev/null`. A
+ * copy is added: its source stays where it was and the copy is a new path.
+ */
+function fileChangeOf(structuredPatch: StructuredPatch): DiffFileChange {
+  const { oldFileName, newFileName } = structuredPatch;
+  if (structuredPatch.isRename === true && oldFileName !== undefined) {
+    return { kind: "renamed", renamedFrom: renderedPath(structuredPatch, oldFileName) };
+  }
+  if (
+    structuredPatch.isCreate === true ||
+    structuredPatch.isCopy === true ||
+    oldFileName === ABSENT_FILE_NAME
+  ) {
+    return { kind: "added" };
+  }
+  if (structuredPatch.isDelete === true || newFileName === ABSENT_FILE_NAME) {
+    return { kind: "deleted" };
+  }
+  return { kind: "modified" };
 }
