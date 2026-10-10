@@ -65,6 +65,8 @@ async function runBuilt(
   return { exitCode, stdout, stderr };
 }
 
+const countFormat = new Intl.NumberFormat();
+
 function run(args: readonly string[], failure: unknown = undefined): Promise<RunOutcome> {
   return runBuilt((context) => createTestProgram(context, failure), args);
 }
@@ -174,6 +176,26 @@ describe("runProgram", () => {
       new JsonRpcTransportClosedError(new Error("reset")),
       69,
       "error: The connection to the background service closed: reset\n",
+    ],
+    [
+      "a service repairing its database file, with its count",
+      new JsonRpcRemoteError(-32600, "The service is repairing its database file", {
+        type: "daemon.repairing",
+        fields: { progress: { done: 1200, total: 4000 } },
+      }),
+      69,
+      // In the machine's own locale, as the command line writes a count.
+      `error: Repairing saved sessions after an unexpected shutdown · ${countFormat.format(1200)} ` +
+        `of ${countFormat.format(4000)}\n`,
+    ],
+    [
+      "a service repairing its database file, with no count",
+      new JsonRpcRemoteError(-32600, "The service is repairing its database file", {
+        type: "daemon.repairing",
+        fields: {},
+      }),
+      69,
+      "error: Repairing saved sessions after an unexpected shutdown…\n",
     ],
     [
       "a daemon code with no exit code",

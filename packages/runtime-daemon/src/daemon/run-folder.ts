@@ -1,7 +1,8 @@
 // The run folder the daemon's socket and session token live in: private to the person, cleared of
 // the socket a crashed daemon left behind while a daemon that still answers there keeps it, and
-// given a new session token at every start.
+// given a new session token at every bind.
 
+import { randomBytes } from "node:crypto";
 import { lstat, mkdir, open, rename, unlink } from "node:fs/promises";
 import * as net from "node:net";
 
@@ -11,7 +12,43 @@ import {
 } from "@ai-sidekicks/contracts/daemon/run-folder";
 
 import { isMissingFileError } from "../file/missing-error.js";
+import type { LocalIpcGateway } from "../ipc/local-gateway.js";
 import { DaemonAlreadyRunningError } from "./already-running-error.js";
+
+// The session token's size: 256 bits from the system's secure random source.
+const SESSION_TOKEN_BYTES = 32;
+
+/** Mints a session token, new at every bind, so an earlier bind's token opens no connection. */
+export function mintSessionToken(): string {
+  return randomBytes(SESSION_TOKEN_BYTES).toString("hex");
+}
+
+/**
+ * Binds `gateway`'s socket in the prepared run folder, then writes `sessionToken`, which the
+ * gateway's handshake checks. Throws `DaemonAlreadyRunningError` when another start bound the
+ * socket first; a failed write stops the gateway again.
+ */
+export async function bindSocket(
+  gateway: Pick<LocalIpcGateway, "start" | "stop">,
+  runFolder: DaemonRunFolder,
+  sessionToken: string,
+): Promise<void> {
+  try {
+    await gateway.start();
+  } catch (error) {
+    // Another start bound the socket between this start's check of the run folder and its bind.
+    if (error instanceof Error && "code" in error && error.code === "EADDRINUSE") {
+      throw new DaemonAlreadyRunningError(`the socket ${runFolder.socketPath}`, { cause: error });
+    }
+    throw error;
+  }
+  try {
+    await writeSessionToken(runFolder, sessionToken);
+  } catch (error) {
+    await gateway.stop();
+    throw error;
+  }
+}
 
 /**
  * Makes the run folder ready for a bind: creates it readable by the person alone, refuses one
@@ -40,11 +77,9 @@ export async function prepareRunFolder(runFolder: DaemonRunFolder): Promise<void
   await unlink(runFolder.socketPath);
 }
 
-/**
- * Writes this start's session token, readable by the person alone (mode 600). It replaces the
- * previous start's file in one rename, so a client never reads half a token.
- */
-export async function writeSessionToken(runFolder: DaemonRunFolder, token: string): Promise<void> {
+// Writes the bind's session token, readable by the person alone (mode 600). It replaces the
+// previous bind's file in one rename, so a client never reads half a token.
+async function writeSessionToken(runFolder: DaemonRunFolder, token: string): Promise<void> {
   const temporaryPath = `${runFolder.tokenPath}.${String(process.pid)}.tmp`;
   const file = await open(temporaryPath, "w", 0o600);
   try {

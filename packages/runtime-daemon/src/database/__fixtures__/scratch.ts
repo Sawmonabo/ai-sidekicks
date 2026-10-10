@@ -6,13 +6,12 @@ import * as os from "node:os";
 import * as path from "node:path";
 
 import type { ServiceLogWriter } from "../../daemon/service-log.js";
-import {
-  closeDatabaseConnections,
-  openDatabaseConnections,
-  type DatabaseConnections,
-} from "../connection/lifecycle.js";
+import { openDatabaseConnections, type DatabaseConnections } from "../connection/lifecycle.js";
 
-/** An open scratch database; `close` closes both connections and removes the folder. */
+/**
+ * An open scratch database; `close` closes both connections, without the checkpoint a daemon's
+ * close makes, and removes the folder.
+ */
 export interface ScratchDatabase extends DatabaseConnections {
   readonly databasePath: string;
   readonly close: () => Promise<void>;
@@ -35,7 +34,14 @@ export async function openScratchDatabase(
     ...connections,
     databasePath,
     close: async () => {
-      await closeDatabaseConnections(connections);
+      // The folder is removed next, so the writer closes while the reader still holds the file:
+      // a close that is not the file's last skips the checkpoint and its drive flushes, which
+      // otherwise stall every other test's file writes on the same disk.
+      try {
+        await connections.writer.close();
+      } finally {
+        connections.reader.close();
+      }
       await rm(folder, { recursive: true, force: true });
     },
   };

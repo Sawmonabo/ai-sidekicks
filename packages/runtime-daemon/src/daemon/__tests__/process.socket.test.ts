@@ -232,7 +232,7 @@ describe("the lifecycle verbs over the socket", () => {
 
       expect(await caller.call(method)).toMatchObject({ result: { accepted: true } });
 
-      expect(await daemon.whenStopped()).toStrictEqual({ isClean: true });
+      expect(await daemon.whenStopped()).toStrictEqual({ isClean: true, isFileDamaged: false });
       await whenClosed(bystander.client);
       expect(drains).toHaveLength(1);
       expect(await isSocketAnswering(runFolder.socketPath)).toBe(false);
@@ -337,7 +337,7 @@ describe("the machine's settings over the socket", () => {
     await pipe.writeFile(JSON.stringify(MACHINE_SETTINGS_DEFAULTS));
     await pipe.close();
 
-    expect(await daemon.whenStopped()).toStrictEqual({ isClean: true });
+    expect(await daemon.whenStopped()).toStrictEqual({ isClean: true, isFileDamaged: false });
     // The write's rename replaced the pipe with the file.
     expect((await lstat(settingsPath())).isFile()).toBe(true);
     expect(JSON.parse(await readFile(settingsPath(), "utf8"))).toStrictEqual({
@@ -370,7 +370,7 @@ describe("the machine's settings over the socket", () => {
 
     const askedAt = Date.now();
     expect(await stopper.call("daemon.stop")).toMatchObject({ result: { accepted: true } });
-    expect(await daemon.whenStopped()).toStrictEqual({ isClean: true });
+    expect(await daemon.whenStopped()).toStrictEqual({ isClean: true, isFileDamaged: false });
 
     expect(Date.now() - askedAt).toBeLessThan(DAEMON_STOP_DRAIN_BOUND_MS + 1_000);
     expect(logged).toContain("The stop's drain bound passed; writes still running: 1.");

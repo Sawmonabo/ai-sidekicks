@@ -79,12 +79,7 @@ it(
         const start = startServiceDetached(
           {
             command: process.execPath,
-            args: [
-              "--conditions=@ai-sidekicks/source",
-              "--import",
-              `data:text/javascript,import{register}from"node:module";register(${JSON.stringify(SOURCE_LOADER)})`,
-              DAEMON_ENTRY,
-            ],
+            args: ["--conditions=@ai-sidekicks/source", "--import", SOURCE_LOADER, DAEMON_ENTRY],
           },
           { ...process.env, HOME: homeDirectory, XDG_RUNTIME_DIR: runtimeDirectory },
         ).then((service) => {

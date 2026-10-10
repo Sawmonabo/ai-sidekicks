@@ -13,8 +13,10 @@
 //   - The writer's connection runs with `secure_delete` on, so a freed page is overwritten with
 //     zeros. The write-ahead log still holds the deleted pages' earlier images until a checkpoint,
 //     so the purge ends with the writer's `TRUNCATE` checkpoint once its deletes and its receipt
-//     have committed, even when nothing was deleted. While a reader keeps the log busy it tries
-//     again a bounded number of times, then reports the log as left untruncated.
+//     have committed, even when nothing was deleted. The start's check of the file reads in one
+//     snapshot for as long as it runs, so the truncation waits for it to end; no checkpoint waits
+//     for a reader, so no write waits behind one. While a reader keeps the log busy it tries again
+//     a bounded number of times, then reports the log as left untruncated.
 //   - The purge refuses to start inside an append-lock hold. The lock is reentrant per owner, so a
 //     purge entered inside a hold would delete rows outside the serialization the hold provides.
 //   - A refused session does not stop the deletion; the others are independent. Each session's
@@ -157,6 +159,8 @@ export interface SessionPurgeDeps {
    * one retry follows each. Defaults to the daemon's retry waits.
    */
   readonly checkpointRetryDelaysMs?: readonly number[];
+  /** Settles once the start's check of the database file, a reader holding one snapshot, ends. */
+  readonly whenFileCheckEnds: Promise<unknown>;
 }
 
 // The range read's row once rows were deleted: its guard returns it only when both ends are safe
@@ -204,6 +208,7 @@ export class SessionPurge {
   readonly #operationIdFactory: () => string;
   readonly #newEventId: () => string;
   readonly #checkpointRetryDelaysMs: readonly number[];
+  readonly #whenFileCheckEnds: Promise<unknown>;
 
   constructor(deps: SessionPurgeDeps) {
     this.#writer = deps.writer;
@@ -216,18 +221,16 @@ export class SessionPurge {
     this.#now = deps.now ?? ((): Date => new Date());
     this.#operationIdFactory = deps.operationIdFactory ?? mintUuidV7;
     this.#newEventId = deps.newEventId ?? mintUuidV7;
-    // The truncation's first try, right after the deletes commit, waits out the writer
-    // connection's busy timeout for a reader, holding every write behind it that long; each retry
-    // answers busy at once, so a reader that stays open costs the writer only that first wait.
     this.#checkpointRetryDelaysMs = deps.checkpointRetryDelaysMs ?? RETRY_WAITS_MS;
+    this.#whenFileCheckEnds = deps.whenFileCheckEnds;
   }
 
   /**
    * Removes a chat's managed workspace folder and deletes every purgeable row of each session in
    * `sessionIds`, queues the related lists of the sessions they were linked to for re-scoring,
-   * appends one receipt naming every session that lost rows, and truncates the write-ahead log.
-   * With the default retry waits, a reader that keeps the log busy holds the purge about 70 s at
-   * most: the first try's busy timeout, then 63 s of waits.
+   * appends one receipt naming every session that lost rows, and truncates the write-ahead log
+   * once the start's check of the file has ended. With the default retry waits, a reader that
+   * keeps the log busy holds the purge 63 s at most past the check.
    *
    * Never throws: every failure becomes a `refusedReason`, on the session it belongs to or on the
    * deletion.
@@ -379,17 +382,16 @@ export class SessionPurge {
   }
 
   /**
-   * Truncates the log, trying again after each retry wait while another connection's older
-   * snapshot keeps it busy; only the first try waits for the reader. Returns why the log is left
-   * untruncated: the checkpoint failed, or the reader outlasted every try.
+   * Truncates the log once the start's check has ended, trying again after each retry wait while
+   * another connection's older snapshot keeps it busy. Returns why the log is left untruncated:
+   * the checkpoint failed, or the reader outlasted every try.
    */
   async #truncateWriteAheadLog(): Promise<string | undefined> {
+    await this.#whenFileCheckEnds;
     for (let retry = 0; ; retry += 1) {
       let checkpoint: CheckpointResult;
       try {
-        checkpoint = await this.#writer.checkpoint("TRUNCATE", {
-          shouldWaitForReaders: retry === 0,
-        });
+        checkpoint = await this.#writer.checkpoint("TRUNCATE");
       } catch (error) {
         return (
           "the write-ahead log could not be truncated after the purge: " + describeError(error)

@@ -12,6 +12,8 @@ import {
   type PtyBackendUnavailableDetails,
 } from "@ai-sidekicks/contracts/error";
 
+import { executableFileName } from "../../executable/file-name.js";
+
 /**
  * Thrown when no PTY backend is usable (binary missing, crash budget exhausted). `details` is the
  * wire payload from `@ai-sidekicks/contracts`.
@@ -56,10 +58,6 @@ function publishedPackageIdFor(
   return `@ai-sidekicks/pty-sidecar-${platform}-${arch}/bin/${binaryName}`;
 }
 
-function platformBinaryName(base: string, platform: NodeJS.Platform): string {
-  return platform === "win32" ? `${base}.exe` : base;
-}
-
 /** Workspace build path for step 3 or 4, resolved from this file's URL. */
 function workspaceTargetPath(profile: "release" | "debug", binaryName: string): string {
   // Four levels up from `{src,dist}/pty/sidecar/` is `packages/`; located from this file's URL,
@@ -82,7 +80,7 @@ export function resolveSidecarBinaryPath(opts?: ResolveSidecarBinaryPathOptions)
     opts?.nodeRequire ?? createRequire(import.meta.url);
   const existsSync: (path: string) => boolean = opts?.existsSync ?? fsExistsSync;
   const platform: NodeJS.Platform = opts?.platform ?? process.platform;
-  const binaryName: string = platformBinaryName("sidecar", platform);
+  const binaryName: string = executableFileName("sidecar", platform);
 
   const attempts: ResolutionAttempt[] = [];
 

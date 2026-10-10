@@ -1,15 +1,10 @@
 // @ts-check
 // Worker fixture for the concurrent-boot migration race test.
 //
-// Why a `.mjs` file (not `.ts`):
-//   * The worker must `import()` the production `migration-runner.ts`
-//     dynamically so the test exercises the actual code path. That
-//     requires a module-resolver hook to rewrite `.js` → `.ts`
-//     extensions, which `node:module#register()` installs only in
-//     `.mjs`/`.js` ESM hosts and MUST execute before any source-import
-//     happens.
-//   * Plain `.ts` workers via Node's native TS-stripping cannot install
-//     loader hooks before their own static imports run.
+// The worker `import()`s the production `migration-runner.ts` dynamically so the
+// test exercises the actual code path; its `.js` specifiers resolve to their
+// `.ts` sources through the loader the test process preloads, which the worker
+// inherits through its `execArgv`.
 //
 // What this worker exercises:
 //   * IMMEDIATE path (`workerData.useDeferred === false`): dynamically
@@ -54,17 +49,9 @@
 // expires, so a worker that dies before arriving degrades the test to
 // probabilistic contention instead of hanging the suite.
 
-import { register } from "node:module";
 import { parentPort, workerData } from "node:worker_threads";
 
 import Database from "better-sqlite3";
-
-// Install the .js → .ts module-resolver hook BEFORE any subsequent
-// `import()` attempts to resolve project source. Without this,
-// `import("../migration-runner.js")` would succeed but its transitive
-// `import { DAEMON_SCHEMA_SQL } from "./daemon-schema.js"` would fail to
-// resolve under vanilla Node.
-register("../../../tests/helpers/typescript-source-loader.mjs", import.meta.url);
 
 /**
  * @typedef {object} WorkerInput

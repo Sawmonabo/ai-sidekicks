@@ -92,6 +92,7 @@ export async function mountWorkflowsScreen(
       read: () => Promise.resolve(undefined),
       projectors: {},
     }),
+    hasServiceAnswered: true,
     paneRegistry: new PaneRegistry(),
     uiStateStore,
     draftStore: new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT }),

@@ -41,7 +41,8 @@ const DAEMON_RECOVERY_SESSION_STATE_VALUES = [
 ] as const;
 
 /**
- * Where one session that is not healthy stands: `rebuilding` while its projections are rebuilt,
+ * Where one session that is not healthy stands: `rebuilding` while the restart's pass has yet to
+ * rebuild it, which a write refusal names and the status read leaves to the node's own state,
  * `degraded` when its history is damaged after a readable start, so it opens read-only at its
  * last good point, `damaged` when no event of it can be read, and `blocked` when a run of it
  * halted after the restart on a question for the person, named in its `haltedRuns`, which the
@@ -136,6 +137,52 @@ export const DAEMON_WRITE_REFUSED_CODE: DaemonWriteRefusedCode = "daemon.write_r
 /** The refusal's `data.fields`: the node's recovery state when the call arrived. */
 export interface DaemonWriteRefusedDetails {
   recovery: Extract<DaemonRecoveryState, "rebuilding" | "blocked">;
+}
+
+// ---- The repair of the database file ----
+
+/** A call refused while the service repairs its database file before it opens it. */
+export type DaemonRepairingCode = "daemon.repairing";
+/**
+ * The error code a service answers `daemon.hello` with, once the hello carries its session token,
+ * while it repairs its database file: it serves nothing until the repair ends, then binds its
+ * socket again and answers as usual. A client waits for it rather than counting it as silence.
+ */
+export const DAEMON_REPAIRING_CODE: DaemonRepairingCode = "daemon.repairing";
+
+/** How far a repair has come: `done` of the damaged file's `total` session events recovered. */
+export interface DaemonRepairProgress {
+  done: number;
+  total: number;
+}
+
+/**
+ * The `daemon.repairing` refusal's `data.fields`: the repair's count, absent while the step it is
+ * on gives none.
+ */
+export interface DaemonRepairingDetails {
+  progress?: DaemonRepairProgress | undefined;
+}
+/** Parses a {@link DaemonRepairingDetails}. */
+export const DaemonRepairingDetailsSchema: z.ZodType<DaemonRepairingDetails> = z
+  .object({ progress: z.object({ done: countSchema, total: countSchema }).strict().optional() })
+  .strict();
+
+/** What a person reads while the service repairs its database file. */
+export const DAEMON_REPAIRING_LINE = "Repairing saved sessions after an unexpected shutdown";
+
+/**
+ * The repair's line in parts, `<line> · <done> of <total>`, or the line ending in `…` when there
+ * is no count; `drawCount` turns each figure into the reader's own form of it, such as a string
+ * in the reader's locale.
+ */
+export function describeDaemonRepairingLine<Figure>(
+  progress: DaemonRepairProgress | undefined,
+  drawCount: (count: number) => Figure,
+): (string | Figure)[] {
+  return progress === undefined
+    ? [`${DAEMON_REPAIRING_LINE}…`]
+    : [`${DAEMON_REPAIRING_LINE} · `, drawCount(progress.done), " of ", drawCount(progress.total)];
 }
 
 // ---- The recovery pass's events, recorded on the service's own session ----

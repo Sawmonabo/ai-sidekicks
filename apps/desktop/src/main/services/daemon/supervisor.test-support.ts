@@ -4,6 +4,7 @@
 
 import {
   JsonRpcClient,
+  JsonRpcRemoteError,
   JsonRpcTransportUnavailableError,
   type ClientTransport,
   type DaemonConnection as DaemonClientConnection,
@@ -16,6 +17,7 @@ import {
   NEGOTIATION_VERSION_MISMATCH_CODE,
   type DaemonHelloAck,
 } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
+import { DAEMON_REPAIRING_CODE } from "@ai-sidekicks/contracts/daemon/recovery";
 import type { DaemonStatusReadResponse } from "@ai-sidekicks/contracts/daemon/status";
 import type { ProcessIdentity } from "@ai-sidekicks/contracts/process-identity";
 import { DeviceIdSchema, type DeviceId } from "@ai-sidekicks/contracts/trust-statement";
@@ -61,10 +63,14 @@ export interface ScriptedLink {
 /** How the scripted service answers a call: at once, after `delayMs`, refused, or never. */
 export type CallAnswer = "answered" | { readonly delayMs: number } | "refused" | "silent";
 
-/** How the scripted service answers the next connect. */
+/**
+ * How the scripted service answers the next connect; `repairing` refuses the hello while so, with
+ * the refusal's `fields` as the service sends them.
+ */
 export type ConnectAnswer =
   | { readonly kind: "absent" }
   | { readonly kind: "answering"; readonly hello: DaemonHelloAck; readonly answersPing: boolean }
+  | { readonly kind: "repairing"; readonly fields: Record<string, unknown> }
   | { readonly kind: "silent" };
 
 /** A background service played by the test: what each connect meets, and the starts asked for. */
@@ -120,6 +126,14 @@ export class ScriptedService {
           "/run/daemon.sock",
           Object.assign(new Error("no"), { code: "ENOENT" }),
         ),
+      );
+    }
+    if (answer.kind === "repairing") {
+      return Promise.reject(
+        new JsonRpcRemoteError(JsonRpcErrorCode.InvalidRequest, "repairing the database file", {
+          type: DAEMON_REPAIRING_CODE,
+          fields: answer.fields,
+        }),
       );
     }
     if (answer.kind === "silent") {

@@ -39,10 +39,14 @@ describe("createProcessIdentityReader on Linux", () => {
     });
   });
 
-  it("answers undefined when no process has the id", async () => {
+  it("answers undefined when no process has the id, or it ends while its file is read", async () => {
     const read = createProcessIdentityReader(linuxSystem({}));
-
     expect(await read(4242)).toBeUndefined();
+
+    const ending = createProcessIdentityReader(
+      linuxSystem({ "/proc/4242/stat": () => Promise.reject(systemFailure({ code: "ESRCH" })) }),
+    );
+    expect(await ending(4242)).toBeUndefined();
   });
 });
 

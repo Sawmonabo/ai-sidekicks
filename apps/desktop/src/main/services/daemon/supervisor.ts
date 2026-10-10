@@ -23,6 +23,11 @@ import {
   DAEMON_STOP_DRAIN_BOUND_MS,
   type DaemonLifecycleAccepted,
 } from "@ai-sidekicks/contracts/daemon/lifecycle";
+import {
+  DAEMON_REPAIRING_CODE,
+  DaemonRepairingDetailsSchema,
+  type DaemonRepairProgress,
+} from "@ai-sidekicks/contracts/daemon/recovery";
 import { DAEMON_STATUS_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/daemon/status";
 import {
   CURRENT_PROTOCOL_VERSION,
@@ -49,7 +54,10 @@ import { NOT_CONNECTED_MESSAGE, unlinkedState, type DaemonLink } from "./link/st
 import { LinkLifetime, type LinkEvents, type LinkLossCause } from "./link/lifetime.js";
 import type { ServiceEnding, ServiceExit, ServiceProcess } from "./service/process.js";
 
-/** How long main waits for a started or found service to answer `daemon.hello`. */
+/**
+ * How long main waits for a started or found service to answer `daemon.hello`, counted from the
+ * start, or from the service's latest answer that it is repairing its database file.
+ */
 export const SERVICE_HELLO_WAIT_MS = 10_000;
 
 /**
@@ -449,9 +457,13 @@ export class DaemonSupervisor {
    * Connect and handshake within the hello wait. A just-started service is tried again, at
    * growing pauses, while its socket is not bound or its token not yet written; a found one is
    * tried again only while its token is not written yet, since a socket nothing answers means
-   * there is none to find. The wait ends early, with the exit's reason, when the started service
-   * exits. A service this app started that is still running when the wait runs out is ended as
-   * one that never answered, since it would hold the socket against every later start.
+   * there is none to find. A service, started or found, that answers it is repairing its
+   * database file is waited for as long as it keeps answering so: the wait runs again from each
+   * such answer, reported with its count unless a lost link is being brought back, and the gap
+   * while it binds its socket again is waited out as a start's. The wait ends early, with the
+   * exit's reason, when the started service exits. A service this app started that is still
+   * running when the wait runs out is ended as one that never answered, since it would hold the
+   * socket against every later start.
    */
   async #connectWithin(
     lifetime: LinkLifetime,
@@ -459,17 +471,23 @@ export class DaemonSupervisor {
   ): Promise<DaemonClientConnection> {
     let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
     let hasTimedOut = false;
-    const deadline = new Promise<never>((_resolve, reject) => {
+    const deadline = Promise.withResolvers<never>();
+    // Armed once here and again at each answer that the service is repairing.
+    const armDeadline = (): void => {
+      clearTimeout(deadlineTimer);
       deadlineTimer = setTimeout(() => {
         hasTimedOut = true;
-        reject(
+        deadline.reject(
           new Error(
             `The background service did not answer daemon.hello within ` +
               `${String(SERVICE_HELLO_WAIT_MS / 1000)} seconds`,
           ),
         );
       }, SERVICE_HELLO_WAIT_MS);
-    });
+    };
+    armDeadline();
+    // Whether a missing socket means one still to be bound rather than no service at all.
+    let isSocketExpected = isServiceStarting;
     const started = isServiceStarting ? this.#startedService : undefined;
     const exitedFirst = new Promise<never>((_resolve, reject) => {
       void started?.whenExited().then((exit) => {
@@ -490,18 +508,28 @@ export class DaemonSupervisor {
       for (;;) {
         connecting = this.#connect(lifetime, handshakeAbort.signal);
         try {
-          const opened = await Promise.race([connecting, deadline, exitedFirst]);
+          const opened = await Promise.race([connecting, deadline.promise, exitedFirst]);
           isLinked = true;
           return opened;
         } catch (failure) {
-          // No socket at a found service's place means none is running, so one is started; a
-          // found one still writing its token is waited for, as a started one is.
+          // No socket at a found service's place means none is running, so one is started, unless
+          // it answered that it is repairing; a found one still writing its token is waited for.
           const isNoSocket = failure instanceof JsonRpcTransportUnavailableError;
-          if (!isServiceNotReadyYet(failure) || (isNoSocket && !isServiceStarting)) {
+          if (isServiceRepairing(failure)) {
+            // Alive and busy for as long as the repair takes: it binds its socket again after.
+            isSocketExpected = true;
+            armDeadline();
+            if (!this.#isBringingBack) {
+              this.#reportUnlinked({
+                kind: "repairing",
+                progress: this.#repairProgressOf(failure),
+              });
+            }
+          } else if (!isServiceNotReadyYet(failure) || (isNoSocket && !isSocketExpected)) {
             throw failure;
           }
         }
-        await Promise.race([pause(pauseMs), deadline, exitedFirst]);
+        await Promise.race([pause(pauseMs), deadline.promise, exitedFirst]);
         pauseMs = Math.min(pauseMs * 2, SOCKET_WAIT_LONGEST_PAUSE_MS);
       }
     } catch (failure) {
@@ -522,6 +550,23 @@ export class DaemonSupervisor {
         );
       }
     }
+  }
+
+  /**
+   * The count a repairing answer carries, read from its fields. Fields the app cannot read are
+   * logged, and the repair is reported without a count.
+   */
+  #repairProgressOf(failure: JsonRpcRemoteError): DaemonRepairProgress | undefined {
+    const details = DaemonRepairingDetailsSchema.safeParse(failure.data?.fields ?? {});
+    if (!details.success) {
+      this.#log.write({
+        level: "warning",
+        source: LOG_SOURCE,
+        message: `The background service's repair count could not be read: ${details.error.message}`,
+      });
+      return undefined;
+    }
+    return details.data.progress;
   }
 
   #linkEvents(currentConnection: () => DaemonClientConnection | undefined): LinkEvents {
@@ -758,6 +803,11 @@ function isServiceNotReadyYet(failure: unknown): boolean {
       failure.data?.type === NEGOTIATION_TOKEN_INVALID_CODE) ||
     (failure instanceof Error && (failure as NodeJS.ErrnoException).code === "ENOENT")
   );
+}
+
+// A service repairing its database file answers the hello with this until it is done.
+function isServiceRepairing(failure: unknown): failure is JsonRpcRemoteError {
+  return failure instanceof JsonRpcRemoteError && failure.data?.type === DAEMON_REPAIRING_CODE;
 }
 
 function describeExit(exit: ServiceExit): string {

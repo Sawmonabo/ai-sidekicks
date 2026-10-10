@@ -29,6 +29,13 @@ export interface SessionPaneSlotProps {
    * partition that never held the row.
    */
   readonly paneContextFor: (pane: SessionPane) => PaneContext | Refusal;
+  /**
+   * Whether the session's store has opened. Until it has, the pane draws its frame alone, at its
+   * place and width with its address's trail, since its body reads the session.
+   */
+  readonly isSessionOpen: boolean;
+  /** The session the pane is about, which its frame names while it draws no body. */
+  readonly sessionId: string | undefined;
   /** The pane row's reorder: the panel is the item that moves, the pane's header its grip. */
   readonly paneDrag: ReorderDrag<string>;
   readonly onFocus: (paneId: string) => void;
@@ -64,7 +71,6 @@ export const SessionPaneSlot: React.NamedExoticComponent<SessionPaneSlotProps> =
     if (descriptor === undefined) {
       throw new Error(`no body is registered for the ${pane.kind} pane kind`);
     }
-
     return (
       <Panel
         id={pane.paneId}
@@ -75,7 +81,12 @@ export const SessionPaneSlot: React.NamedExoticComponent<SessionPaneSlotProps> =
         onFocusCapture={onFocusCapture}
       >
         <PaneControlsContext.Provider value={controls}>
-          <PaneBody descriptor={descriptor} context={props.paneContextFor(pane)} />
+          <PaneBody
+            descriptor={descriptor}
+            context={props.paneContextFor(pane)}
+            isSessionOpen={props.isSessionOpen}
+            sessionId={props.sessionId}
+          />
         </PaneControlsContext.Provider>
       </Panel>
     );

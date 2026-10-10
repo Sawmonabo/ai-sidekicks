@@ -44,23 +44,36 @@ export async function openDatabaseConnections(
  * Closes the reader, then the writer once every write taken has settled, or once `drainWithinMs`
  * has passed; resolves with the number of writes the bound left unfinished, which failed. The
  * writer goes last, so its connection's close checkpoints the write-ahead log into the file and
- * removes it.
+ * removes it. An ended writer goes first, so its connection, closed as its worker exits, is never
+ * the file's last and leaves the log as it stands.
  */
 export async function closeDatabaseConnections(
   connections: DatabaseConnections,
   drainWithinMs?: number,
 ): Promise<number> {
   const failures: unknown[] = [];
-  try {
-    connections.reader.close();
-  } catch (error) {
-    failures.push(error);
-  }
-  let unfinishedCount = 0;
-  try {
-    unfinishedCount = await connections.writer.close(drainWithinMs);
-  } catch (error) {
-    failures.push(error);
+  const closeReader = (): void => {
+    try {
+      connections.reader.close();
+    } catch (error) {
+      failures.push(error);
+    }
+  };
+  const closeWriter = async (): Promise<number> => {
+    try {
+      return await connections.writer.close(drainWithinMs);
+    } catch (error) {
+      failures.push(error);
+      return 0;
+    }
+  };
+  let unfinishedCount: number;
+  if (connections.writer.isEnded) {
+    unfinishedCount = await closeWriter();
+    closeReader();
+  } else {
+    closeReader();
+    unfinishedCount = await closeWriter();
   }
   if (failures.length === 1) {
     throw failures[0];

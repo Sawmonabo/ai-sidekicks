@@ -1,6 +1,8 @@
-// Route in, screen out, and the two ways of having nothing to show: a not-found address, and a
-// session still opening, which shows nothing at first and `Loading…` only once the read has run
-// past the short loading delay, so a quick open never flashes a loading line.
+// Route in, screen out, and a not-found address as the one way of having nothing to show. A
+// session whose store is still opening draws its screen's frame, which the session screen fills
+// once the store opens. Before the background service first answers, under the boot cover, every
+// screen draws its own frame alone, told so by its context, so what it draws is in place when the
+// cover fades.
 //
 // Resolution happens during render, since the registry is composed at module scope and an
 // effect would let the first paint say the screen does not exist. A route whose screen has no
@@ -16,11 +18,9 @@
 
 import { Fragment } from "react";
 
-import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { ScreenNotice } from "#renderer/components/ScreenNotice/ScreenNotice.js";
 import { type AppRoute } from "#renderer/routing/routes.js";
-import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { screenRegistry, findScreenNameForRoute } from "#renderer/registries/screens/registry.js";
 import { PendingScreenBody } from "#renderer/registries/screens/PendingScreenBody.js";
 import { type ScreenContext } from "#renderer/registries/screens/context.js";
@@ -43,12 +43,6 @@ export function AppRouter(props: AppRouterProps): React.JSX.Element {
     return <AddressNamesNothing />;
   }
 
-  // The session's store opens from an effect, so there is one frame where it is absent; that
-  // frame is a read in flight.
-  if (context.frameStore.activeSessionId !== undefined && context.sessionStore === undefined) {
-    return <SessionOpeningNotice />;
-  }
-
   const screenName = findScreenNameForRoute(route);
   const descriptor =
     screenName === undefined ? undefined : screenRegistry.descriptorFor(screenName);
@@ -63,15 +57,6 @@ export function AppRouter(props: AppRouterProps): React.JSX.Element {
   }
   // Keyed so a different subject unmounts the previous screen's state.
   return <Fragment key={screenSubjectKey(route)}>{descriptor.render(context)}</Fragment>;
-}
-
-function SessionOpeningNotice(): React.JSX.Element {
-  const clock = useClock();
-  return (
-    <ScreenNotice>
-      <LoadingNotice clock={clock} title="Loading…" />
-    </ScreenNotice>
-  );
 }
 
 /**

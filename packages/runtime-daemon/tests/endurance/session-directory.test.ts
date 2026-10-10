@@ -574,7 +574,7 @@ describe("the session directory's budgets on the seeded set", () => {
     const { largeSessionId } = seeded;
     // The daemon's own purge deletes the session's rows. The seeded sessions are projects, with no
     // managed folder to remove; no list is on screen and no re-score is measured here; and the log
-    // is truncated in one try, so a search's open read holds the purge no longer.
+    // gets one try, so a search's open read holds the purge no longer.
     const purge = new SessionPurge({
       writer: database.writer,
       nodeId: NodeIdSchema.parse("node-endurance"),
@@ -584,6 +584,7 @@ describe("the session directory's budgets on the seeded set", () => {
       sessionList: { refresh: () => undefined },
       relatedRanking: { rescoreAround: () => undefined },
       checkpointRetryDelaysMs: [],
+      whenFileCheckEnds: Promise.resolve(),
     });
     const { outcomes } = await purge.purge([largeSessionId as SessionId]);
     expect(outcomes.map((outcome) => outcome.refusedReason)).toEqual([undefined]);

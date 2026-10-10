@@ -507,8 +507,9 @@ CREATE INDEX idx_runs_live ON runs(state)
 -- Recovery: how far each session's projections reflect its log, and saved
 -- recovery state.
 -- ---------------------------------------------------------------------------
--- Advanced in the same write as each event the session appends, so a session
--- whose cursor is current at its newest sequence needs no rebuild at a restart.
+-- Written in the same write as each event the session appends, so every
+-- session with events has one, and a current cursor is at its newest sequence;
+-- only a session whose cursor is not current needs a rebuild at a restart.
 CREATE TABLE projection_cursors (
   id              TEXT PRIMARY KEY,
   session_id      TEXT NOT NULL UNIQUE,
@@ -517,6 +518,10 @@ CREATE TABLE projection_cursors (
                   CHECK(state IN ('current', 'rebuilding', 'stale')),
   updated_at      TEXT NOT NULL
 ) STRICT;
+
+-- The sessions a restart rebuilds, found without reading every cursor.
+CREATE INDEX idx_projection_cursors_not_current ON projection_cursors(session_id)
+  WHERE state <> 'current';
 
 CREATE TABLE recovery_checkpoints (
   id              TEXT PRIMARY KEY,

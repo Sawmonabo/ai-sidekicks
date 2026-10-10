@@ -5,13 +5,10 @@
 // system's service manager end it.
 
 import { execFile } from "node:child_process";
-import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import * as os from "node:os";
 import { promisify } from "node:util";
 
-import { DAEMON_READY_LINE } from "@ai-sidekicks/contracts/daemon/lifecycle";
-import { CURRENT_PROTOCOL_VERSION } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 import { resolveDaemonRunFolder } from "@ai-sidekicks/contracts/daemon/run-folder";
 import { createProcessIdentityReader } from "@ai-sidekicks/contracts/process-identity";
 
@@ -23,28 +20,14 @@ import {
 } from "./daemon/login-shell-environment.js";
 import { createNodeMachineNameSources, readMachineName } from "./daemon/machine/name.js";
 import { readProcessTreeUsage } from "./daemon/process-tree-usage.js";
+import { DaemonStartStoppedError } from "./daemon/start-stopped-error.js";
 import { openServiceLog } from "./daemon/service-log.js";
+import { readServiceVersion } from "./daemon/service-version.js";
 import { readWindowsDriveMounts } from "./daemon/windows-drive-mounts.js";
 import { selectPtyHost } from "./pty/host/selector.js";
 import { openOrphanGuard } from "./pty/orphan/guard.js";
 import { openOrphanOperatingSystem } from "./pty/orphan/operating-system.js";
-
-// The service's version is its package's; the manifest sits one folder above this file, in the
-// source tree and in the build alike.
-function readServiceVersion(): string {
-  const manifest: unknown = JSON.parse(
-    readFileSync(new URL("../package.json", import.meta.url), "utf8"),
-  );
-  if (
-    typeof manifest === "object" &&
-    manifest !== null &&
-    "version" in manifest &&
-    typeof manifest.version === "string"
-  ) {
-    return manifest.version;
-  }
-  throw new Error("The daemon's package.json names no version");
-}
+import { chooseDatabaseFileOperatingSystem } from "./recovery/database-file/operating-system.js";
 
 // First, so every service-log line from here on is kept in the file too.
 const homeDirectory = os.homedir();
@@ -67,9 +50,10 @@ process.on("uncaughtException", (error: unknown) => {
 });
 
 // Installed before the start, so a signal sent at any moment stops the daemon cleanly: during the
-// start it ends the login shell's capture, its reason saying why in the service log, and the daemon
-// stops as soon as it has started. The handlers stay installed for the whole stop: with none, a
-// second signal would end the daemon mid-drain.
+// start it ends the login shell's capture, its reason saying why in the service log, and a repair
+// of the database file under way, which ends the start; once the daemon listens it stops it. The
+// handlers stay installed for the whole stop: with none, a second signal would end the daemon
+// mid-drain.
 const stopRequest = new AbortController();
 for (const signal of ["SIGTERM", "SIGINT"] as const) {
   process.on(signal, () => {
@@ -91,6 +75,7 @@ if (processIdentity === undefined) {
 }
 const account = os.userInfo();
 const daemon = await DaemonProcess.start({
+  stopSignal: stopRequest.signal,
   homeDirectory,
   runFolder: resolveDaemonRunFolder({
     platform: process.platform,
@@ -109,6 +94,7 @@ const daemon = await DaemonProcess.start({
       writeServiceLog,
     }),
   createPtyHost: selectPtyHost,
+  databaseFileOperatingSystem: chooseDatabaseFileOperatingSystem(process.platform),
   readMachineName: () => readMachineName(createNodeMachineNameSources()),
   captureProviderBaseEnvironment: (startAbort) =>
     captureLoginShellEnvironment({
@@ -129,19 +115,17 @@ const daemon = await DaemonProcess.start({
   readProcessTreeUsage: () => readProcessTreeUsage(process.pid),
   now: () => new Date(),
   writeServiceLog,
+}).catch((error: unknown) => {
+  // A start a stop ended before the daemon listened has let go of what it took, so it exits as a
+  // clean stop does; anything that failed beside it is a failed start.
+  if (error instanceof DaemonStartStoppedError && error.cause === undefined) {
+    writeServiceLog(`The daemon stopped during its start: ${error.message}.`);
+    process.exit(0);
+  }
+  throw error;
 });
 
 isStarted = true;
-if (stopRequest.signal.aborted) {
-  void daemon.stop();
-} else {
-  stopRequest.signal.addEventListener("abort", () => {
-    void daemon.stop();
-  });
-  writeServiceLog(
-    `${DAEMON_READY_LINE} (process ${String(process.pid)}, protocol ${CURRENT_PROTOCOL_VERSION}).`,
-  );
-}
 
 void daemon.whenStopped().then((outcome) => {
   if (!outcome.isClean) {
@@ -150,5 +134,7 @@ void daemon.whenStopped().then((outcome) => {
       `The daemon's stop failed: ${failure instanceof Error ? failure.message : String(failure)}`,
     );
   }
-  process.exit(outcome.isClean ? 0 : 1);
+  // A stop for a damaged file exits as a failure, so whoever started the daemon starts it again
+  // and the start repairs the file.
+  process.exit(outcome.isClean && !outcome.isFileDamaged ? 0 : 1);
 });

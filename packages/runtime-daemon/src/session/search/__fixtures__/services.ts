@@ -69,6 +69,10 @@ export class SearchFixture {
   /** Closes the services and the database and removes the folder. */
   async close(): Promise<void> {
     await this.#close();
+    // The folder is removed next, so the close's checkpoint skips the drive flushes that otherwise
+    // stall every other test's file writes on the same disk.
+    this.database.pragma("checkpoint_fullfsync = OFF");
+    this.database.pragma("synchronous = OFF");
     this.database.close();
     await rm(this.#folder, { recursive: true, force: true });
   }

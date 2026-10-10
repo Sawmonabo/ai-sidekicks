@@ -37,6 +37,10 @@ export interface SessionPaneLayoutProps {
   readonly registry: PaneRegistry;
   /** What each pane's body is handed, or why its address cannot be served. */
   readonly paneContextFor: (pane: SessionPane) => PaneContext | Refusal;
+  /** Whether the session's store has opened; until it has, each pane draws its frame alone. */
+  readonly isSessionOpen: boolean;
+  /** The session the panes are about, which a pane's frame names while it draws no body. */
+  readonly sessionId: string | undefined;
 }
 
 /** The panes a person is looking at, side by side, arranged by a `PaneLayoutStore`. */
@@ -186,6 +190,8 @@ export function SessionPaneLayout(props: SessionPaneLayoutProps): React.JSX.Elem
                 density={state.density}
                 registry={props.registry}
                 paneContextFor={props.paneContextFor}
+                isSessionOpen={props.isSessionOpen}
+                sessionId={props.sessionId}
                 paneDrag={paneDrag}
                 onFocus={focusPane}
                 onClose={closePane}

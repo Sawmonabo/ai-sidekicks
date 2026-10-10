@@ -1,8 +1,11 @@
 // The node's recovery state as the status read serves it: `rebuilding` while the restart's pass
 // runs, `blocked` once the local store has failed, and `degraded` while a session's history is
-// damaged. A damaged session is listed, open at its last good point or unreadable, and only it
-// refuses writes. Sessions are keyed by their canonical id, so a call that spells one in capitals
-// meets the same refusal.
+// damaged. The whole node refuses writes until the pass has listed what it must rebuild, and a
+// call that names no session until the pass ends; from then a session the pass listed refuses
+// every call that names it until it is rebuilt and its runs settled, and every event until the
+// pass comes to settle those runs. A damaged session, open at its last good point or unreadable,
+// refuses its writes. Sessions are keyed by their canonical id, so a
+// call that spells one in capitals meets the same refusal.
 
 import {
   DAEMON_RECOVERY_STATES,
@@ -23,9 +26,12 @@ export interface LastGoodPoint {
   readonly damagedFromSequence: number;
 }
 
+// Where a session the pass listed stands: rebuilding refuses every event, and settling takes the
+// events of the runs the pass settles while it still refuses the calls that name it.
+type ListedSessionStage = "rebuilding" | "settling";
+
 // Where one listed session stands, with what each state carries.
 type SessionRecovery =
-  | { readonly state: "rebuilding" }
   | { readonly state: "degraded"; readonly point: LastGoodPoint }
   | { readonly state: "damaged" };
 
@@ -33,11 +39,25 @@ type SessionRecovery =
 export class RecoveryStatusTracker {
   // Nothing is trusted until the first pass ends, so a status read before it says rebuilding.
   #isPassRunning = true;
+  // No write is taken until the pass knows which sessions it must rebuild.
+  #isPassListing = true;
   #hasStoreFailed = false;
   readonly #sessions = new Map<SessionId, SessionRecovery>();
+  // The sessions the pass has yet to rebuild and settle, kept apart from the damaged ones: after a
+  // repair of the file that is every session, too many for each status read to carry.
+  readonly #rebuildingSessions = new Map<SessionId, ListedSessionStage>();
+
+  /**
+   * Marks the pass's sessions listed, each one it must rebuild marked rebuilding: the node then
+   * takes writes, but for those sessions'.
+   */
+  markPassListed(): void {
+    this.#isPassListing = false;
+  }
 
   /** Marks the pass ended; the node then reads as its store and its sessions stand. */
   markPassEnded(): void {
+    this.#isPassListing = false;
     this.#isPassRunning = false;
   }
 
@@ -46,23 +66,37 @@ export class RecoveryStatusTracker {
     this.#hasStoreFailed = true;
   }
 
-  /** Marks a session's projections as being rebuilt. */
+  /** Marks a session the pass must rebuild before it takes a write. */
   markSessionRebuilding(sessionId: SessionId): void {
-    this.#sessions.set(canonicalizeUuid(sessionId), { state: "rebuilding" });
+    this.#rebuildingSessions.set(canonicalizeUuid(sessionId), "rebuilding");
+  }
+
+  /**
+   * Marks a listed session whose runs the pass settles next: it takes their events and still
+   * refuses the calls that name it. A session the pass no longer lists is left as it stands.
+   */
+  markSessionSettling(sessionId: SessionId): void {
+    const canonicalId = canonicalizeUuid(sessionId);
+    if (this.#rebuildingSessions.has(canonicalId)) {
+      this.#rebuildingSessions.set(canonicalId, "settling");
+    }
   }
 
   /** Marks a session's projections current, or the session deleted, so it is no longer listed. */
   markSessionHealthy(sessionId: SessionId): void {
+    this.#rebuildingSessions.delete(canonicalizeUuid(sessionId));
     this.#sessions.delete(canonicalizeUuid(sessionId));
   }
 
   /** Marks a session whose history is damaged after `point`, which it opens at read-only. */
   markSessionAtLastGoodPoint(sessionId: SessionId, point: LastGoodPoint): void {
+    this.#rebuildingSessions.delete(canonicalizeUuid(sessionId));
     this.#sessions.set(canonicalizeUuid(sessionId), { state: "degraded", point });
   }
 
   /** Marks a session none of whose events can be read. */
   markSessionUnreadable(sessionId: SessionId): void {
+    this.#rebuildingSessions.delete(canonicalizeUuid(sessionId));
     this.#sessions.set(canonicalizeUuid(sessionId), { state: "damaged" });
   }
 
@@ -73,6 +107,26 @@ export class RecoveryStatusTracker {
   readSessionWriteRefusal(sessionId: SessionId): SessionWriteRefusedDetails | undefined {
     const state = this.#sessions.get(canonicalizeUuid(sessionId))?.state;
     return state === "degraded" || state === "damaged" ? { sessionId, recovery: state } : undefined;
+  }
+
+  /**
+   * Why the session takes no appended event: its history is damaged, or the pass is still
+   * rebuilding it and has yet to settle its runs; `undefined` when it takes the event.
+   */
+  readSessionAppendRefusal(sessionId: SessionId): SessionWriteRefusedDetails | undefined {
+    return this.#rebuildingSessions.get(canonicalizeUuid(sessionId)) === "rebuilding"
+      ? { sessionId, recovery: "rebuilding" }
+      : this.readSessionWriteRefusal(sessionId);
+  }
+
+  /**
+   * Why the session takes no call that names it: the pass is still rebuilding it, or its history
+   * is damaged; `undefined` when it takes them.
+   */
+  readSessionCallRefusal(sessionId: SessionId): SessionWriteRefusedDetails | undefined {
+    return this.#rebuildingSessions.has(canonicalizeUuid(sessionId))
+      ? { sessionId, recovery: "rebuilding" }
+      : this.readSessionWriteRefusal(sessionId);
   }
 
   /** The session's last good point while it opens read-only at one, `undefined` otherwise. */
@@ -95,14 +149,15 @@ export class RecoveryStatusTracker {
   }
 
   /**
-   * Why the whole node takes no write: its pass is still running, or its store has failed;
-   * `undefined` when it takes writes.
+   * Why the whole node takes no write of a call: its store has failed, its pass has not yet listed
+   * the sessions it must rebuild, or the call names no session while the pass runs, since it may
+   * reach any session; `undefined` when it takes the write.
    */
-  readNodeWriteRefusal(): "rebuilding" | "blocked" | undefined {
+  readNodeWriteRefusal(namesSession: boolean): "rebuilding" | "blocked" | undefined {
     if (this.#hasStoreFailed) {
       return "blocked";
     }
-    return this.#isPassRunning ? "rebuilding" : undefined;
+    return this.#isPassListing || (this.#isPassRunning && !namesSession) ? "rebuilding" : undefined;
   }
 
   /** The node's overall state: the most severe of its own and every listed session's. */
@@ -125,7 +180,10 @@ export class RecoveryStatusTracker {
     );
   }
 
-  /** The `recovery` field of the status read: the overall state and every session not healthy. */
+  /**
+   * The `recovery` field of the status read: the overall state and every damaged session. The
+   * sessions the pass has yet to rebuild are left out; the node reads rebuilding while it runs.
+   */
   read(): DaemonRecoveryStatus {
     return {
       overall: this.readOverall(),
@@ -138,8 +196,6 @@ export class RecoveryStatusTracker {
 
 function describeSession(sessionId: SessionId, session: SessionRecovery): DaemonRecoverySession {
   switch (session.state) {
-    case "rebuilding":
-      return { sessionId, state: "rebuilding" };
     case "degraded":
       return {
         sessionId,

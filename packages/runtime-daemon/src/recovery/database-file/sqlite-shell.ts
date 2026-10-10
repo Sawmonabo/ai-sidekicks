@@ -1,26 +1,30 @@
-// SQLite's own recovery, `sqlite3_recover`, run through the `sqlite3` shell's `.recover`: the
-// shell reads the damaged file read-only and writes the SQL that rebuilds every row it can reach,
-// and a second shell runs that SQL into a fresh file. The binding the daemon links is built
-// without the page virtual table the recovery reads through and exposes no recovery call, so the
-// daemon carries its own shell, compiled at install from the binding's SQLite source with the page
-// table added (`sqlite-shell/binding.gyp`). A shell that is missing, of another release than the
-// binding or built without the page table means a damaged install and is refused before it runs,
-// and a recovery that runs far past its expected time is stopped.
+// The daemon's own `sqlite3` shell, which the start's check and the repair run in, and SQLite's own
+// recovery, `sqlite3_recover`, run through the shell's `.recover`: the shell reads the damaged file
+// read-only and writes the SQL that rebuilds every row it can reach, and a second shell runs that
+// SQL into a fresh file. The binding the daemon links is built without the page virtual table the
+// recovery reads through and exposes no recovery call, so the daemon carries its own shell,
+// compiled at install from the binding's SQLite source with the page table added
+// (`sqlite-shell/binding.gyp`). A shell that is missing, of another release than the binding or
+// built without the page table means a damaged install and is refused before it runs. The
+// recovery's SQL passes through the daemon on its way to the second shell, and the daemon counts
+// the session events in it. A recovery whose shells have both stopped working is stopped
+// (`stall-watch.ts`). Every shell is a child process, so a stop ends it at once.
 
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { stat } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
+import * as os from "node:os";
 import { promisify } from "node:util";
 
 import Database from "better-sqlite3";
 
-// The shell the daemon's install builds, in the package folder three levels above this file.
-const SQLITE_SHELL_PROGRAM = fileURLToPath(
-  new URL(
-    `../../../sqlite-shell/build/Release/sqlite3${process.platform === "win32" ? ".exe" : ""}`,
-    import.meta.url,
-  ),
-);
+import {
+  readShellProcessorMs,
+  RECOVERY_STALL_WINDOW_MS,
+  RecoveryStallWatch,
+} from "./stall-watch.js";
+
+/** How long a shell reading the file waits out another connection's lock before it fails busy. */
+export const SQLITE_SHELL_BUSY_TIMEOUT_MS = 5_000;
 
 // The tail of a shell's error output kept for the failure's message.
 const ERROR_OUTPUT_KEPT_BYTES = 4_096;
@@ -29,63 +33,167 @@ const ERROR_OUTPUT_KEPT_BYTES = 4_096;
 const PAGE_TABLE_OPTION_SQL =
   "SELECT 1 FROM pragma_compile_options WHERE compile_options = 'ENABLE_DBPAGE_VTAB'";
 
-// A 401 MB file recovered in about 10 seconds; the bound allows ten times that rate, after a
-// minute for any file.
-const RECOVERY_BOUND_FLOOR_MS = 60_000;
-const RECOVERY_BOUND_BYTES_PER_MS = 4_000;
+// What the writing shell runs before the recovery's SQL. The fresh file is scratch until it is
+// flushed and marked ready, and a failed repair removes it, so the shell keeps no rollback journal
+// and waits for no sync. With defensive mode on, SQLite silently keeps the journal, so the
+// preamble turns defensive mode off first, as the recovery's own SQL does.
+const RECOVERY_WRITER_PREAMBLE = `.dbconfig defensive off
+PRAGMA journal_mode = OFF;
+PRAGMA synchronous = OFF;
+`;
+
+// The writing shell's page cache, in bytes. The recovery keeps its unique indexes, built before
+// the rows so that a duplicate row is dropped, and the rows reach the one on a session and its
+// sequence out of its order, so once that index outgrows the cache every row writes a page out to
+// make room for the one it needs, and the recovery slows many times over. A sixth of the damaged
+// file holds that index with room to spare. The cache never falls below 256 MiB, and above that
+// never takes more than an eighth of the machine's memory, so on a machine of under 2 GiB it is
+// 256 MiB. The shell is a child process, so its memory goes when the repair ends.
+const RECOVERY_WRITER_CACHE_FLOOR_BYTES = 256 * 1024 * 1024;
+const RECOVERY_WRITER_CACHE_FILE_SHARE = 6;
+const RECOVERY_WRITER_CACHE_MEMORY_SHARE = 8;
+
+// The table whose rows the recovery counts, and how `.recover` starts each row it writes to it.
+const COUNTED_TABLE = "session_events";
+const COUNTED_ROW_START = Buffer.from(`\nINSERT OR IGNORE INTO '${COUNTED_TABLE}'(`);
+
+/** What a recovery reports to, and what stops it. */
+export interface RecoveryOptions {
+  /** Called with how many session events the recovery has passed so far, as they pass. */
+  readonly onEventsRecovered: (recoveredEvents: number) => void;
+  /** Ends both shells when it aborts. */
+  readonly stopSignal: AbortSignal;
+  readonly writeServiceLog: (line: string) => void;
+}
 
 /**
- * Recovers what `damagedPath` holds into `freshPath`, which must not exist. Rejects when the shell
- * is missing, of another release than the binding or built without the page table, when either
- * shell cannot start or exits with a failure, naming its error output, and when the recovery
- * outlasts its bound, which stops both shells.
+ * Recovers what `damagedPath` holds into `freshPath`, which must not exist, through the shell at
+ * `shellProgram`, calling `onEventsRecovered` with how many session events it has recovered so
+ * far as they pass. Rejects when the shell is missing, of another release than the binding or
+ * built without the page table, when either shell cannot start or exits with a failure, naming its
+ * error output, when both shells stop working, and when `stopSignal` aborts; each of the last two
+ * ends both shells first.
  */
-export async function recoverIntoFreshFile(damagedPath: string, freshPath: string): Promise<void> {
-  await refuseUnfitShell();
-  const boundMs =
-    RECOVERY_BOUND_FLOOR_MS + (await stat(damagedPath)).size / RECOVERY_BOUND_BYTES_PER_MS;
-  const reader = spawn(SQLITE_SHELL_PROGRAM, ["-readonly", damagedPath, ".recover"], {
+export async function recoverIntoFreshFile(
+  shellProgram: string,
+  damagedPath: string,
+  freshPath: string,
+  options: RecoveryOptions,
+): Promise<void> {
+  const { stopSignal } = options;
+  await refuseUnfitShell(shellProgram);
+  const cacheKib = Math.round(sizeWriterCache((await stat(damagedPath)).size) / 1024);
+  const reader = spawn(shellProgram, ["-readonly", damagedPath, ".recover"], {
     stdio: ["ignore", "pipe", "pipe"],
+    signal: stopSignal,
+    killSignal: "SIGKILL",
   });
-  const writer = spawn(SQLITE_SHELL_PROGRAM, ["-bail", freshPath], {
+  const writer = spawn(shellProgram, ["-bail", freshPath], {
     stdio: ["pipe", "ignore", "pipe"],
+    signal: stopSignal,
+    killSignal: "SIGKILL",
   });
+  writer.stdin.write(`${RECOVERY_WRITER_PREAMBLE}PRAGMA cache_size = -${String(cacheKib)};\n`);
   reader.stdout.pipe(writer.stdin);
-  let isPastBound = false;
-  const bound = setTimeout(() => {
-    isPastBound = true;
-    reader.kill("SIGKILL");
-    writer.kill("SIGKILL");
-  }, boundMs);
-  try {
-    await Promise.all([
-      waitForSuccess(reader, "reading the damaged file"),
-      waitForSuccess(writer, "writing the fresh file"),
-    ]);
-  } catch (error) {
-    throw isPastBound
+  let recoveredEvents = 0;
+  // A row's start can straddle two chunks, so each search begins in the last chunk's tail, which
+  // is too short to hold a whole one.
+  let tail = Buffer.alloc(0);
+  const stallWatch = new RecoveryStallWatch([reader, writer], {
+    windowMs: RECOVERY_STALL_WINDOW_MS,
+    readProcessorMs: readShellProcessorMs,
+    writeServiceLog: options.writeServiceLog,
+  });
+  reader.stdout.on("data", (chunk: Buffer) => {
+    stallWatch.notePassedBytes();
+    const searched = Buffer.concat([tail, chunk]);
+    let found = searched.indexOf(COUNTED_ROW_START);
+    let foundInChunk = 0;
+    while (found !== -1) {
+      foundInChunk += 1;
+      found = searched.indexOf(COUNTED_ROW_START, found + COUNTED_ROW_START.length);
+    }
+    tail = searched.subarray(Math.max(0, searched.length - COUNTED_ROW_START.length + 1));
+    if (foundInChunk > 0) {
+      recoveredEvents += foundInChunk;
+      options.onEventsRecovered(recoveredEvents);
+    }
+  });
+  // A shell that fails stops the other, and the recovery settles only once both have exited, so
+  // no shell still writes beside the fresh file a failed repair removes.
+  let firstFailure: unknown;
+  const settle = (step: Promise<void>, other: ChildProcess): Promise<void> =>
+    step.catch((error: unknown) => {
+      firstFailure ??= error;
+      other.kill("SIGKILL");
+    });
+  await Promise.all([
+    settle(waitForSuccess(reader, "reading the damaged file"), writer),
+    settle(waitForSuccess(writer, "writing the fresh file"), reader),
+  ]);
+  stallWatch.end();
+  if (firstFailure !== undefined) {
+    throw stallWatch.isStalled
       ? new Error(
-          `The SQLite shell's recovery ran past ${String(Math.round(boundMs / 1_000))} seconds ` +
-            "and was stopped",
-          { cause: error },
+          `The SQLite shells' recovery passed no byte for ${String(RECOVERY_STALL_WINDOW_MS / 1_000)} ` +
+            "seconds and then used no processor time for as long again, so it was stopped",
+          { cause: firstFailure },
         )
-      : error;
-  } finally {
-    clearTimeout(bound);
+      : firstFailure;
   }
 }
 
-async function refuseUnfitShell(): Promise<void> {
+// The writing shell's page cache for a damaged file of `fileBytes`, in bytes.
+function sizeWriterCache(fileBytes: number): number {
+  return Math.min(
+    Math.max(RECOVERY_WRITER_CACHE_FLOOR_BYTES, fileBytes / RECOVERY_WRITER_CACHE_FILE_SHARE),
+    Math.max(RECOVERY_WRITER_CACHE_FLOOR_BYTES, os.totalmem() / RECOVERY_WRITER_CACHE_MEMORY_SHARE),
+  );
+}
+
+/**
+ * How many session events the damaged file at `path` lists, read through the shell at
+ * `shellProgram` so a large file holds no thread of the daemon's. Rejects when the shell cannot
+ * read the count, as a damaged index makes it, and when `signal` aborts, which ends the shell.
+ */
+export async function countDamagedFileEvents(
+  shellProgram: string,
+  path: string,
+  signal: AbortSignal,
+): Promise<number> {
+  // The recovery's reader opens the file beside it, so the count waits out its locks.
+  const { stdout } = await promisify(execFile)(
+    shellProgram,
+    [
+      "-readonly",
+      "-cmd",
+      `.timeout ${String(SQLITE_SHELL_BUSY_TIMEOUT_MS)}`,
+      path,
+      `SELECT count(*) FROM ${COUNTED_TABLE}`,
+    ],
+    { signal, killSignal: "SIGKILL" },
+  );
+  const count = Number(stdout.trim());
+  if (!Number.isSafeInteger(count) || count < 0) {
+    throw new Error(`The SQLite shell answered the count of session events with ${stdout.trim()}`);
+  }
+  return count;
+}
+
+/**
+ * Rejects when the shell at `shellProgram` is missing, cannot run, is of another SQLite release
+ * than the binding or is built without the page table, each of which means a damaged install.
+ */
+export async function refuseUnfitShell(shellProgram: string): Promise<void> {
   let versionOutput: string;
   let pageTableOutput: string;
   try {
-    versionOutput = (await promisify(execFile)(SQLITE_SHELL_PROGRAM, ["-version"])).stdout;
-    pageTableOutput = (
-      await promisify(execFile)(SQLITE_SHELL_PROGRAM, [":memory:", PAGE_TABLE_OPTION_SQL])
-    ).stdout;
+    versionOutput = (await promisify(execFile)(shellProgram, ["-version"])).stdout;
+    pageTableOutput = (await promisify(execFile)(shellProgram, [":memory:", PAGE_TABLE_OPTION_SQL]))
+      .stdout;
   } catch (error) {
     throw new Error(
-      `The daemon's SQLite shell at ${SQLITE_SHELL_PROGRAM} could not be run, so its install is ` +
+      `The daemon's SQLite shell at ${shellProgram} could not be run, so its install is ` +
         `damaged: ${error instanceof Error ? error.message : String(error)}`,
       { cause: error },
     );
@@ -115,6 +223,60 @@ function readBindingVersion(): string {
   }
 }
 
+/** How a script runs in the shell: what it is for, its output's form and what stops it. */
+export interface SqliteShellScriptOptions {
+  /** What the script does, as the failure's message names it: `checking the fresh file`. */
+  readonly step: string;
+  /** Opens the file read-only. */
+  readonly isReadOnly?: boolean;
+  /** Writes every row as JSON rather than SQLite's list form. */
+  readonly isJson?: boolean;
+  /** Ends the shell when it aborts. */
+  readonly stopSignal: AbortSignal;
+}
+
+/**
+ * Runs `script` in the shell at `shellProgram` on the database at `databasePath`, stopping at its
+ * first error, and resolves with what it wrote once it has exited. Rejects naming the step and the
+ * shell's error output when the shell cannot start or fails, and when `stopSignal` aborts, once the
+ * shell has exited.
+ */
+export async function runSqliteShellScript(
+  shellProgram: string,
+  databasePath: string,
+  script: string,
+  options: SqliteShellScriptOptions,
+): Promise<string> {
+  const shell = spawn(
+    shellProgram,
+    [
+      "-bail",
+      ...(options.isReadOnly === true ? ["-readonly"] : []),
+      ...(options.isJson === true ? ["-json"] : []),
+      databasePath,
+    ],
+    { stdio: ["pipe", "pipe", "pipe"], signal: options.stopSignal, killSignal: "SIGKILL" },
+  );
+  let output = "";
+  shell.stdout.setEncoding("utf8").on("data", (chunk: string) => {
+    output += chunk;
+  });
+  const exit = waitForSuccess(shell, options.step);
+  shell.stdin.end(script);
+  await exit;
+  return output;
+}
+
+/** `text` as an SQL string literal. */
+export function quoteSqlText(text: string): string {
+  return `'${text.replaceAll("'", "''")}'`;
+}
+
+/** `name` as an SQL identifier. */
+export function quoteSqlIdentifier(name: string): string {
+  return `"${name.replaceAll('"', '""')}"`;
+}
+
 function waitForSuccess(child: ChildProcess, step: string): Promise<void> {
   let errorOutput = "";
   child.stderr?.setEncoding("utf8");
@@ -126,22 +288,31 @@ function waitForSuccess(child: ChildProcess, step: string): Promise<void> {
     errorOutput = `${errorOutput}\n${error.message}`.slice(-ERROR_OUTPUT_KEPT_BYTES);
   });
   return new Promise((resolve, reject) => {
+    // A stop's abort is told as an error the moment the kill is sent; a shell that started is
+    // waited for until it has exited, so nothing still writes when this settles.
+    let stopFailure: Error | undefined;
     child.once("error", (error) => {
-      reject(
-        new Error(`The SQLite shell could not start ${step}: ${error.message}`, { cause: error }),
-      );
+      if (child.pid === undefined) {
+        reject(
+          new Error(`The SQLite shell could not start ${step}: ${error.message}`, { cause: error }),
+        );
+      } else {
+        stopFailure = error;
+      }
     });
     child.once("close", (exitCode, signal) => {
-      if (exitCode === 0) {
+      if (stopFailure !== undefined) {
+        reject(new Error(`The SQLite shell was ended ${step}`, { cause: stopFailure }));
+      } else if (exitCode === 0) {
         resolve();
-        return;
+      } else {
+        reject(
+          new Error(
+            `The SQLite shell failed ${step} (${signal ?? `exit ${String(exitCode)}`}): ` +
+              errorOutput.trim(),
+          ),
+        );
       }
-      reject(
-        new Error(
-          `The SQLite shell failed ${step} (${signal ?? `exit ${String(exitCode)}`}): ` +
-            errorOutput.trim(),
-        ),
-      );
     });
   });
 }

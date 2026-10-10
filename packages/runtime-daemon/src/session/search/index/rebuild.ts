@@ -7,7 +7,7 @@
 // highest id at the build's start, and the outbox rows past it are applied after, as at any start.
 
 import { fork } from "node:child_process";
-import { mkdir, rename, rm, stat } from "node:fs/promises";
+import { mkdir, rename, rm } from "node:fs/promises";
 
 import {
   SearchIndex,
@@ -16,7 +16,7 @@ import {
 } from "@ai-sidekicks/search-index";
 
 import { withCleanupFailures } from "../../../cleanup-failures.js";
-import { isMissingFileError } from "../../../file/missing-error.js";
+import { pathExists } from "../../../git/filesystem.js";
 import { rebuildError, type CarriedError } from "../../../worker/carried-error.js";
 import { moduleUrlBeside } from "../../../worker/module-url.js";
 import { INDEX_ROW_KINDS, sourceRowidOf } from "./columns.js";
@@ -70,7 +70,7 @@ export async function openSearchIndex(
   folderPath: string,
   outbox: OutboxReader,
 ): Promise<SearchIndex | SearchIndexRebuildReason> {
-  if (!(await isFolderPresent(folderPath))) {
+  if (!(await pathExists(folderPath))) {
     return "missing";
   }
   let index: SearchIndex;
@@ -271,18 +271,6 @@ export async function closeAfterFailure(
   const [closed] = await Promise.allSettled([index.close()]);
   const cleanupFailures = closed?.status === "rejected" ? [closed.reason] : [];
   return withCleanupFailures(error, cleanupFailures, operation);
-}
-
-async function isFolderPresent(folderPath: string): Promise<boolean> {
-  try {
-    await stat(folderPath);
-    return true;
-  } catch (error) {
-    if (isMissingFileError(error)) {
-      return false;
-    }
-    throw error;
-  }
 }
 
 function isUnreadableIndexError(error: unknown): boolean {

@@ -133,6 +133,7 @@ function screenContext(bridge: PlatformBridge, route: AppRoute): ScreenContext {
       offScreenRowLimit,
       projectors: COMPOSED_ENTITY_PROJECTORS,
     }),
+    hasServiceAnswered: true,
     // The board the screen opens panes from; the pane helper above mounts bodies from the same one.
     paneRegistry: workflowPaneRegistry(),
     uiStateStore,

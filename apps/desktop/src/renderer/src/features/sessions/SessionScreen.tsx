@@ -2,13 +2,16 @@
 // and the composer's region. It owns only the arrangement; panes and the composer come
 // through their registries.
 //
-// The layout is restored once at mount and saved through the persistence hook. An empty
-// layout opens the transcript alone at full width. A pane another screen asked this session
-// for (Review from a workflow run's page) opens once the restore has landed. A save that failed
-// raises one banner under the header; its code goes to the window's diagnostic capture, as does
-// every part of a saved arrangement the restore left closed. The screen is not
-// remounted between two open sessions, so banners are scoped to (bridge, session): the
-// arriving session reads an empty column, and a bridge replacement clears it too.
+// The layout is restored once at mount and saved through the persistence hook. An empty layout
+// opens the transcript alone at full width. Until the session's store opens, as under the boot
+// cover before the background service has first answered, the screen draws its frame: the header's
+// identity and each pane's frame at its place and width, with no pane body, since each reads the
+// session, and the composer's resting space held empty below them, so nothing moves when the store
+// opens. A pane another screen asked this session for (Review from a workflow run's page) opens
+// once the restore has landed. A save that failed raises one banner under the header; its code goes
+// to the window's diagnostic capture, as does every part of a saved arrangement the restore left
+// closed. The screen is not remounted between two open sessions, so banners are scoped to (bridge,
+// session): the arriving session reads an empty column, and a bridge replacement clears it too.
 //
 // The screen carries the height its pane layout and composer share as a custom property, so the
 // composer's draft can cap itself at a share of the conversation's. It is measured on resize only:
@@ -46,7 +49,7 @@ import type { SessionPane } from "./pane-layout/state.js";
 import { usePaneLayoutPersistence } from "./pane-layout/hooks/usePaneLayoutPersistence.js";
 import { usePaneOpenRequests } from "./pane-layout/hooks/usePaneOpenRequests.js";
 import { useFocusedPaneAddress } from "./hooks/useFocusedPaneAddress.js";
-import { findComposerRenderer } from "#renderer/registries/composer/registry.js";
+import { findComposerRenderers } from "#renderer/registries/composer/registry.js";
 import { parsePaneAddress } from "#renderer/routing/panes/parse-address.js";
 import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { type PaneContext } from "#renderer/registries/panes/context.js";
@@ -174,13 +177,13 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
     [rereadSession, clock],
   );
 
-  const composer = findComposerRenderer();
+  const composer = findComposerRenderers();
   const focusedPane = useFocusedPaneAddress(paneLayoutState.panes, paneLayoutState.focusedPaneId);
 
   return (
     <div className="meridian-session-screen" ref={carryFlowHeight}>
       <div className="meridian-session-screen__head">
-        <SessionHeader sessionId={sessionId} sessionStore={props.sessionStore} />
+        <SessionHeader sessionId={sessionId} />
         {banners.map((banner) => (
           <SessionBannerRow key={sessionBannerKey(banner)} banner={banner} onDismiss={dismiss} />
         ))}
@@ -188,10 +191,22 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
           <SessionCatchUpLine sessionStore={props.sessionStore} onTryAgain={tryAgain} />
         )}
       </div>
-      <SessionPaneLayout layout={layout} registry={registry} paneContextFor={paneContextFor} />
-      {composer === undefined || props.sessionStore === undefined ? null : (
+      <SessionPaneLayout
+        layout={layout}
+        registry={registry}
+        paneContextFor={paneContextFor}
+        isSessionOpen={props.sessionStore !== undefined}
+        sessionId={sessionId}
+      />
+      {composer === undefined ? null : props.sessionStore === undefined ? (
+        // The composer's resting space, unseen and out of reach, so the pane row already has the
+        // height it keeps when the composer arrives.
+        <div className="meridian-session-screen__composer" data-resting="" aria-hidden inert>
+          {composer.resting()}
+        </div>
+      ) : (
         <div className="meridian-session-screen__composer">
-          {composer({
+          {composer.open({
             sessionStore: props.sessionStore,
             bridge: props.bridge,
             frameStore: props.frameStore,

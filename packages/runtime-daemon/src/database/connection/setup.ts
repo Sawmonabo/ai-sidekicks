@@ -1,4 +1,4 @@
-// A connection's setup: the page cache every connection to the daemon's database holds, a read-only
+// A connection's setup: what every connection to the daemon's database holds, a read-only
 // connection opened with it, and a connection closed when its setup throws. It holds nothing of the
 // writer, so a thread or process that only reads loads none of it.
 
@@ -6,22 +6,24 @@ import Database from "better-sqlite3";
 import type { Database as DatabaseType } from "better-sqlite3";
 
 /**
- * The page cache every connection to the daemon's database holds: at most 2,000 KiB, SQLite's own
- * default. better-sqlite3 builds with 16,000 KiB, which a large purge or a full read of the session
- * list fills on each connection.
+ * Applies what every connection to the daemon's database holds: a page cache of at most 2,000 KiB,
+ * SQLite's own default, since better-sqlite3 builds with 16,000 KiB, which a large purge or a full
+ * read of the session list fills on each connection; and a check of each b-tree page as it is first
+ * read from disk, so a damaged page fails the read that meets it rather than spreading.
  */
-export const PAGE_CACHE_SIZE_PRAGMA = "cache_size = -2000";
+export function applyConnectionPragmas(database: DatabaseType): void {
+  database.pragma("cache_size = -2000");
+  database.pragma("cell_size_check = ON");
+}
 
 /**
- * Opens a read-only handle on an existing database, its page cache bounded as the writer's is.
- * Throws when the file is missing, closing the handle when its pragma throws.
+ * Opens a read-only handle on an existing database, set up as the writer's is. Throws when the file
+ * is missing, closing the handle when its pragma throws.
  */
 export function openDatabaseReader(databasePath: string): DatabaseType {
   return prepareOrClose(
     new Database(databasePath, { readonly: true, fileMustExist: true }),
-    (database) => {
-      database.pragma(PAGE_CACHE_SIZE_PRAGMA);
-    },
+    applyConnectionPragmas,
   );
 }
 

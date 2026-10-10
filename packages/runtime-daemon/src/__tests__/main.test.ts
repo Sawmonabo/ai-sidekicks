@@ -86,12 +86,7 @@ afterEach(async () => {
 function spawnDaemon(): RunningDaemon {
   const child = spawn(
     process.execPath,
-    [
-      "--conditions=@ai-sidekicks/source",
-      "--import",
-      `data:text/javascript,import{register}from"node:module";register(${JSON.stringify(SOURCE_LOADER)})`,
-      ENTRY_POINT,
-    ],
+    ["--conditions=@ai-sidekicks/source", "--import", SOURCE_LOADER, ENTRY_POINT],
     {
       env: { ...process.env, HOME: homeDirectory, XDG_RUNTIME_DIR: runtimeDirectory },
       stdio: ["ignore", "ignore", "pipe"],

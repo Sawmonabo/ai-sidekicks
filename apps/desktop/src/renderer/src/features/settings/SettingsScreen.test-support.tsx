@@ -111,6 +111,7 @@ export function windowAt(
         offScreenRowLimit,
         read: () => Promise.resolve(undefined),
       }),
+      hasServiceAnswered: true,
       paneRegistry: new PaneRegistry(),
       uiStateStore,
       draftStore: new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT }),

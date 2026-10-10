@@ -1,6 +1,8 @@
 // The session screen mounts the composer and the composer feature fills it; neither imports
 // the other. An empty registry renders nothing. The props are a typed contract because the send
-// router needs the addressed target and run state from the session store and the route.
+// router needs the addressed target and run state from the session store and the route. Until the
+// session's store opens, the screen mounts the composer's resting space instead, which needs no
+// session, so the conversation above it is already at the height it keeps.
 
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { type WindowStore } from "#renderer/store/window/store.js";
@@ -35,18 +37,26 @@ export interface ComposerProps {
 /** The composer body; returns a node so the mount can render it directly. */
 export type ComposerRenderer = (props: ComposerProps) => React.ReactNode;
 
-const composerRegistry = new SingleEntryRegistry<ComposerRenderer>(
+/** What the composer feature fills the registry with. */
+export interface ComposerRenderers {
+  /** The composer over an open session. */
+  readonly open: ComposerRenderer;
+  /** The box the composer takes at rest with nothing drawn in it, for before the session opens. */
+  readonly resting: () => React.ReactNode;
+}
+
+const composerRegistry = new SingleEntryRegistry<ComposerRenderers>(
   "composer",
   "the session view mounts one composer; a second owner " +
     "would make which one renders depend on import order",
 );
 
 /** Fills the registry. A second owner is refused; the same owner replaces its body. */
-export function registerComposer(owner: string, render: ComposerRenderer): void {
+export function registerComposer(owner: string, render: ComposerRenderers): void {
   composerRegistry.register({ owner, render });
 }
 
-/** The composer body, or `undefined` while the registry is empty. */
-export function findComposerRenderer(): ComposerRenderer | undefined {
+/** The composer's bodies, or `undefined` while the registry is empty. */
+export function findComposerRenderers(): ComposerRenderers | undefined {
   return composerRegistry.renderer();
 }

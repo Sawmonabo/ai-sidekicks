@@ -1,5 +1,11 @@
 import { inspect } from "node:util";
 
+import { JsonRpcRemoteError } from "@ai-sidekicks/client-sdk";
+import {
+  DAEMON_REPAIRING_CODE,
+  DaemonRepairingDetailsSchema,
+  describeDaemonRepairingLine,
+} from "@ai-sidekicks/contracts/daemon/recovery";
 import { Command, CommanderError, type OutputConfiguration } from "commander";
 
 import packageManifest from "../package.json" with { type: "json" };
@@ -57,9 +63,24 @@ function writeFailure(program: Command, error: unknown): void {
   // Commander fills every output setting when it builds a command; only the getter's type marks
   // them optional.
   const { writeErr } = program.configureOutput() as Required<OutputConfiguration>;
-  const message =
-    error instanceof Error ? error.message : typeof error === "string" ? error : inspect(error);
-  writeErr(`error: ${message}\n`);
+  writeErr(`error: ${describeFailure(error)}\n`);
+}
+
+// A service repairing its database file is named in the words the app shows, with its count; a
+// count that does not parse reads as none.
+function describeFailure(error: unknown): string {
+  if (error instanceof JsonRpcRemoteError && error.data?.type === DAEMON_REPAIRING_CODE) {
+    const details = DaemonRepairingDetailsSchema.safeParse(error.data.fields ?? {});
+    const countFormat = new Intl.NumberFormat();
+    return describeDaemonRepairingLine(details.data?.progress, (count) =>
+      countFormat.format(count),
+    ).join("");
+  }
+  return error instanceof Error
+    ? error.message
+    : typeof error === "string"
+      ? error
+      : inspect(error);
 }
 
 // The mapper throws for a daemon code with no exit code; that failure is reported like any other.

@@ -9,8 +9,9 @@
 
 import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DAEMON_SCOPE_SENTINEL_SESSION_ID } from "@ai-sidekicks/contracts/event/envelope";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
@@ -556,41 +557,57 @@ describe("SessionPurge — no copy survives on disk", () => {
     expect(statSync(walPath).size).toBe(0);
   });
 
-  it("tries a busy truncation again, waiting for the reader on the first try only", async () => {
-    await fixture.seedMessage("hi");
+  it("truncates once the start's check has ended, trying a busy truncation again", async () => {
+    const message = await fixture.seedMessage("hi");
     const writer = fixture.scratch.writer;
-    const triesWaitingForReaders: boolean[] = [];
-    // The first try answers busy, as a reader holding an older snapshot past the busy timeout makes
-    // it; later tries truncate for real.
+    let tries = 0;
+    // The first try answers busy, as a reader holding an older snapshot makes it; later tries
+    // truncate for real.
     const busyOnceWriter: Pick<DatabaseWriter, "write" | "checkpoint"> = {
       write: (statements) => writer.write(statements),
-      checkpoint: (mode, options) => {
-        triesWaitingForReaders.push(options?.shouldWaitForReaders ?? true);
-        return triesWaitingForReaders.length === 1
+      checkpoint: (mode) => {
+        tries += 1;
+        return tries === 1
           ? Promise.resolve({ isBusy: true, logFrames: 1, checkpointedFrames: 0 })
-          : writer.checkpoint(mode, options);
+          : writer.checkpoint(mode);
       },
     };
+    const fileCheck = Promise.withResolvers<void>();
+    const eventLog = new RecordingEventLog();
 
-    const result = await fixture
-      .buildPurge({ writer: busyOnceWriter, checkpointRetryDelaysMs: [1] })
+    const purging = fixture
+      .buildPurge({
+        eventLog,
+        writer: busyOnceWriter,
+        checkpointRetryDelaysMs: [1],
+        whenFileCheckEnds: fileCheck.promise,
+      })
       .purge([SESSION]);
+    // The rows and the receipt go at once; the truncation waits for the check, whose snapshot
+    // would keep it busy.
+    await vi.waitFor(() => {
+      expect(eventLog.appended).toHaveLength(1);
+    });
+    await delay(50);
+    expect(fixture.rowExists("session_events", message.id)).toBe(false);
+    expect(tries).toBe(0);
+    fileCheck.resolve();
+    const result = await purging;
 
     expect(result.refusedReason).toBeUndefined();
-    // Only the try right after the commit waits for a reader; the retry answers at once.
-    expect(triesWaitingForReaders).toEqual([true, false]);
+    expect(tries).toBe(2);
     expect(statSync(`${fixture.scratch.databasePath}-wal`).size).toBe(0);
   });
 
   it("gives up on a log a reader keeps busy past its last retry, saying what is left", async () => {
     await fixture.seedMessage("hi");
     const writer = fixture.scratch.writer;
-    const triesWaitingForReaders: boolean[] = [];
+    let tries = 0;
     // Every try answers busy, as a reader that never ends its snapshot makes it.
     const alwaysBusyWriter: Pick<DatabaseWriter, "write" | "checkpoint"> = {
       write: (statements) => writer.write(statements),
-      checkpoint: (_mode, options) => {
-        triesWaitingForReaders.push(options?.shouldWaitForReaders ?? true);
+      checkpoint: () => {
+        tries += 1;
         return Promise.resolve({ isBusy: true, logFrames: 7, checkpointedFrames: 0 });
       },
     };
@@ -601,7 +618,7 @@ describe("SessionPurge — no copy survives on disk", () => {
 
     // The rows went; only the truncation is left, and the reason says so.
     expect(onlyOutcome(result).rowsDeleted).toBe(1);
-    expect(triesWaitingForReaders).toEqual([true, false, false]);
+    expect(tries).toBe(3);
     expect(result.refusedReason).toBe(
       "a reader kept the write-ahead log busy through 3 truncation tries over 3 ms of retry " +
         "waits, so it still holds 7 frames, the deleted rows' earlier pages among them; the rows " +

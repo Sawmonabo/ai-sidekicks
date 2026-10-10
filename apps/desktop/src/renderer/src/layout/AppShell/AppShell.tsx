@@ -2,7 +2,8 @@
 // routed screen.
 //
 // The frame's background is inert while a modal overlay is up. This is where the flag is folded
-// from its two producers: the palette's open state and the window store's `isModalDialogOpen`.
+// from its three producers: the boot cover, the palette's open state and the window store's
+// `isModalDialogOpen`.
 
 import { useId } from "react";
 
@@ -48,6 +49,8 @@ export interface AppShellProps {
   readonly onCycleColorScheme: () => void;
   /** Whether an update is staged and waiting for the restart. */
   readonly isUpdateStaged: boolean;
+  /** Whether the boot cover lies over the window, which leaves the frame under it inert. */
+  readonly isUnderBootCover: boolean;
   /** One line about the window itself, drawn above the banners. */
   readonly notice?: React.ReactNode;
   /** The narrowest one pane may be, in CSS px, the pane term of the window's floor. */
@@ -110,7 +113,7 @@ export function AppShell(props: AppShellProps): React.JSX.Element {
           <section id={notificationsListId} aria-label={RAIL_CONTROL_LABELS.notifications} />
         ) : undefined
       }
-      modalOverlayOpen={palette.open || isModalDialogOpen}
+      modalOverlayOpen={props.isUnderBootCover || palette.open || isModalDialogOpen}
       notice={props.notice}
       minimumPaneWidthPx={props.minimumPaneWidthPx}
       onWindowFloorChange={props.onWindowFloorChange}

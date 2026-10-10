@@ -1,0 +1,47 @@
+/* The boot cover: the window's ground as glass over the console's inert frame, its working line in
+   the middle, or its card on the solid ground, which hides the frame. The cover is the window's
+   drag region. Once the service answers it fades and takes no press, so the console under it is
+   live at once. */
+.meridian-boot-cover {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--meridian-space-3);
+  padding: var(--meridian-space-4);
+  background: color-mix(in oklab, var(--meridian-ground) var(--meridian-glass), transparent);
+  backdrop-filter: blur(var(--meridian-glass-blur));
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-12);
+  text-align: center;
+  app-region: drag;
+  transition: opacity var(--meridian-motion-settle) var(--meridian-ease-settle);
+}
+
+.meridian-boot-cover[data-not-answering] {
+  background: var(--meridian-ground);
+  backdrop-filter: none;
+}
+
+.meridian-boot-cover[data-fading] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.meridian-boot-cover__line,
+.meridian-boot-cover__card-line {
+  margin: 0;
+}
+
+.meridian-boot-cover__card-line {
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-12-5);
+}
+
+/* The one control on the cover answers a press, not a drag. */
+.meridian-boot-cover__retry {
+  app-region: no-drag;
+}

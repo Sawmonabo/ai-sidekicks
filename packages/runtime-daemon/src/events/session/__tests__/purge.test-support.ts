@@ -212,7 +212,10 @@ export class PurgeFixture {
    */
   buildPurge(
     overrides: Partial<
-      Pick<SessionPurgeDeps, "eventLog" | "writer" | "checkpointRetryDelaysMs">
+      Pick<
+        SessionPurgeDeps,
+        "eventLog" | "writer" | "checkpointRetryDelaysMs" | "whenFileCheckEnds"
+      >
     > = {},
   ): SessionPurge {
     return new SessionPurge({
@@ -224,6 +227,7 @@ export class PurgeFixture {
       sessionList: this.sessionList,
       relatedRanking: this.relatedRanking,
       now: () => new Date(PURGE_INSTANT),
+      whenFileCheckEnds: Promise.resolve(),
       ...overrides,
     });
   }
