@@ -6,8 +6,8 @@ import { observeElementResize } from "#renderer/lib/element-resize.js";
 
 /**
  * The height a diff block takes beyond its rows, in CSS pixels: its footer and the space under it,
- * read off the first block the card draws and again whenever that footer is resized (a text-size
- * change, or a narrower flow wrapping it). `undefined` until a block is drawn.
+ * read off the first footer the card draws with words in it, and again whenever that footer is
+ * resized (a text-size change, or a narrower flow wrapping it). `undefined` until one is drawn.
  */
 export function useDiffBlockOverhead(
   cardElement: HTMLElement | null,
@@ -17,7 +17,7 @@ export function useDiffBlockOverhead(
 
   useLayoutEffect(() => {
     const footer = hasBlocks
-      ? cardElement?.querySelector<HTMLElement>(".meridian-diff-block__footer")
+      ? cardElement?.querySelector<HTMLElement>(".meridian-diff-block__footer:not(:empty)")
       : undefined;
     if (cardElement === null || footer === null || footer === undefined) {
       return undefined;
