@@ -1,19 +1,16 @@
-// Unified patch text in, `DiffModel` out, plus the intraline word diff for one line pair
-// (`diff` 9.0.0; `parsePatch` and `diffWordsWithSpace` are called only here). A parsed line
-// carries one whole-line segment; the split is derived per row by `intraline-segment-cache.ts`.
-// The compared refs are the caller's, and rename, copy, mode and binary facts are carried
-// from `StructuredPatch` rather than inferred from an empty hunk list.
+// Unified patch text in, `DiffModel` out (`diff` 9.0.0; `parsePatch` is called only here). A
+// parsed line carries one whole-line segment; the split is derived per row by
+// `intraline/segment-cache.ts`. The compared refs are the caller's, and rename, copy, mode and
+// binary facts are carried from `StructuredPatch` rather than inferred from an empty hunk list.
 
 // Subpath imports, not the package root: this module is on the initial import graph and the
-// package declares no side-effect flag, so the root would pull every differ (character,
-// line, sentence, css, json, array) into every launch beside the one word differ used.
-import { diffWordsWithSpace } from "diff/lib/diff/word.js";
+// package declares no side-effect flag, so the root would pull every differ (character, word,
+// line, sentence, css, json, array) into every launch.
 import { parsePatch } from "diff/lib/patch/parse.js";
 import type { StructuredPatch } from "diff/lib/types.js";
 
 import { hunkLines } from "./hunk/lines.js";
-import type { DiffModel, DiffFile, DiffIntralineSegment } from "./model.js";
-import { wholeLineSegments } from "./model.js";
+import type { DiffModel, DiffFile } from "./model.js";
 
 /** The compared states the caller names, carried onto the parsed model verbatim. */
 export interface ComparedStates {
@@ -85,33 +82,6 @@ const HUNK_HEADER_PATTERN = /^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/;
  * lone `\r` inside a body line must not become a line break here that the parser lacks.
  */
 const PATCH_LINE_BREAK_PATTERN = /\n/;
-
-/** One line pair's two segmentations, which are two readings of one alignment. */
-export interface IntralineSegmentPair {
-  readonly deleted: readonly DiffIntralineSegment[];
-  readonly inserted: readonly DiffIntralineSegment[];
-}
-
-/**
- * Segment one changed line pair at its word boundaries, for both sides from one comparison,
- * so the two highlights cannot disagree about which words survived. `diffWordsWithSpace`
- * keeps whitespace in the tokens, so an indentation change stays visible.
- */
-export function intralineSegments(previousText: string, nextText: string): IntralineSegmentPair {
-  const changes = diffWordsWithSpace(previousText, nextText);
-  return {
-    deleted: mergeAdjacent(
-      changes
-        .filter((change) => change.added !== true)
-        .map((change) => ({ text: change.value, changed: change.removed === true })),
-    ),
-    inserted: mergeAdjacent(
-      changes
-        .filter((change) => change.removed !== true)
-        .map((change) => ({ text: change.value, changed: change.added === true })),
-    ),
-  };
-}
 
 /**
  * One line's text without the carriage return a CRLF patch leaves on it, since the parser's
@@ -188,25 +158,4 @@ function extendedHeaderChange(structuredPatch: StructuredPatch): ExtendedHeaderC
       : {}),
     ...(structuredPatch.isBinary === true ? { binary: true } : {}),
   };
-}
-
-/**
- * Fold neighboring segments with the same verdict into one, and drop empty values. Filtering
- * one side out of a word diff leaves runs separated only by the other side's tokens, and an
- * unchanged line must stay the single segment `model.ts` promises.
- */
-function mergeAdjacent(segments: readonly DiffIntralineSegment[]): readonly DiffIntralineSegment[] {
-  const merged: DiffIntralineSegment[] = [];
-  for (const segment of segments) {
-    if (segment.text === "") {
-      continue;
-    }
-    const previous = merged.at(-1);
-    if (previous !== undefined && previous.changed === segment.changed) {
-      merged[merged.length - 1] = { text: previous.text + segment.text, changed: previous.changed };
-      continue;
-    }
-    merged.push(segment);
-  }
-  return merged.length === 0 ? wholeLineSegments("") : merged;
 }

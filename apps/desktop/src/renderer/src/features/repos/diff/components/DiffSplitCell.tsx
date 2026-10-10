@@ -1,5 +1,5 @@
 import { type DiffLine } from "../model.js";
-import type { IntralineReading } from "../intraline-segment-cache.js";
+import type { IntralineReading } from "../intraline/segment-cache.js";
 import { DiffGutter } from "./DiffGutter.js";
 import { DiffLineText } from "./DiffLineText.js";
 

@@ -20,7 +20,7 @@ import type { DiffModel, DiffViewMode } from "../model.js";
 import { DiffRowView } from "./DiffRowView.js";
 import type { DiffGapExpansion } from "../rows/model.js";
 import { DiffRowIndex } from "../rows/flat-index.js";
-import { IntralineSegmentCache } from "../intraline-segment-cache.js";
+import { useIntralineSegmentCache } from "../hooks/useIntralineSegmentCache.js";
 
 /** Props for `DiffRenderer`. */
 export interface DiffRendererProps {
@@ -53,9 +53,7 @@ export function DiffRenderer(props: DiffRendererProps): React.JSX.Element {
     [props.model, props.expansion, props.shownFilePath, props.viewMode],
   );
 
-  // Keyed on the model, not the index: gap expansion, narrowing and view-mode changes rebuild
-  // the index without changing any line's text, so a cache tied to it would be discarded.
-  const intraline = useMemo(() => new IntralineSegmentCache(props.model), [props.model]);
+  const intraline = useIntralineSegmentCache(props.model);
 
   // Rows are measured, not fixed-height: a wrapped line makes a row taller than the estimate.
   // The window's compensation for a taller row above the fold is its one scroll write past the

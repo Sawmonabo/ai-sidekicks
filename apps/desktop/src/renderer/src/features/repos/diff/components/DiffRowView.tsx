@@ -1,11 +1,11 @@
-import { memo } from "react";
+import { memo, useSyncExternalStore } from "react";
 import { GLYPH_SIZE_ROW } from "#renderer/styles/glyphs.js";
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
 import { diffFileChangeNotes, type DiffViewMode } from "../model.js";
 import type { DiffRow } from "../rows/model.js";
 import type { DiffRowIndex } from "../rows/flat-index.js";
-import type { IntralineSegmentCache } from "../intraline-segment-cache.js";
+import type { IntralineSegmentCache } from "../intraline/segment-cache.js";
 import { DiffSplitCell } from "./DiffSplitCell.js";
 import { DiffGutter } from "./DiffGutter.js";
 import { DiffLineText } from "./DiffLineText.js";
@@ -36,6 +36,9 @@ export const DiffRowView: React.MemoExoticComponent<
   (props: DiffRowViewProps) => React.JSX.Element
 > = memo(function DiffRowView(props: DiffRowViewProps): React.JSX.Element {
   const { row, index, rowIndex } = props;
+  // A long pair's marks land after the row first draws; reading the landing re-renders this row
+  // alone when they do.
+  useSyncExternalStore(props.intraline.subscribe, () => props.intraline.landingFor(row));
   // `data-index` is the virtualizer's contract for a measured node; it paints nothing.
   const rowProps = {
     role: "row",
