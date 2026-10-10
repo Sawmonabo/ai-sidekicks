@@ -44,7 +44,8 @@ export interface MenuTemplateItem {
   readonly type?: string;
   readonly checked?: boolean;
   readonly accelerator?: string;
-  readonly click?: () => void;
+  /** A row's handler, handed the row and the window it was chosen in, as Electron hands them. */
+  readonly click?: (menuItem?: unknown, chosenWindow?: unknown) => void;
   readonly submenu?: MenuTemplateItem[];
 }
 

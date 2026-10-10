@@ -42,6 +42,7 @@ export interface MockWebContents {
   readonly setWindowOpenHandler: ReturnType<typeof vi.fn>;
   readonly setBackgroundThrottling: ReturnType<typeof vi.fn>;
   readonly executeJavaScript: ReturnType<typeof vi.fn>;
+  readonly toggleDevTools: ReturnType<typeof vi.fn>;
   /** Every URL `loadURL` was called with, in order. */
   readonly loadedUrls: readonly string[];
   /** Every `send(channel, value)` main made to this document, in order. */
@@ -190,6 +191,7 @@ export function createMockWebContents(owner: MockWindowOwner): MockWebContents {
     }),
     setBackgroundThrottling: vi.fn(),
     executeJavaScript: vi.fn(() => Promise.resolve(undefined)),
+    toggleDevTools: vi.fn(),
     loadURL: (url) => {
       loadedUrls.push(url);
       owner.record(`loadURL:${url}`);

@@ -299,6 +299,19 @@ export class OpenWindows {
     return held;
   }
 
+  /**
+   * Opens or closes the developer tools of the console document in `chosenWindow`, the window a
+   * menu row was chosen in. With no window chosen, or one that holds no console document, nothing
+   * opens.
+   */
+  public toggleDeveloperTools(chosenWindow: BaseWindow | undefined): void {
+    const rendererWindow = [
+      this.#hiddenWindow,
+      ...this.#windows.map((openWindow) => openWindow.rendererWindow),
+    ].find((candidate) => candidate !== undefined && candidate.baseWindow === chosenWindow);
+    rendererWindow?.view.webContents.toggleDevTools();
+  }
+
   /** Whether `webContents` is the console document, the one document that holds the bridge. */
   public isConsoleDocument(webContents: WebContents): boolean {
     return this.#hiddenWindow !== undefined && this.#hiddenWindow.view.webContents === webContents;

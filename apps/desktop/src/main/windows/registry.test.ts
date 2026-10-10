@@ -667,6 +667,22 @@ describe("a window the console document opens", () => {
     second.close();
     expect(openWindows.windowWithId("window/w-2")).toBeUndefined();
   });
+
+  it("has its own document's developer tools toggled when a menu row is chosen in it", async () => {
+    const openWindows = await createOpenWindows("darwin");
+    openWindows.openHiddenWindow({ additionalArguments: [] });
+    const chosen = openChildWindow("window/w-2");
+    const other = openChildWindow("window/w-3");
+    const toggleIn = (built: MockBaseWindow) =>
+      built.contentView.children[0]?.webContents.toggleDevTools;
+
+    openWindows.toggleDeveloperTools(chosen as never);
+    openWindows.toggleDeveloperTools(undefined);
+
+    expect(toggleIn(chosen)).toHaveBeenCalledOnce();
+    expect(toggleIn(other)).not.toHaveBeenCalled();
+    expect(toggleIn(latestHiddenWindow())).not.toHaveBeenCalled();
+  });
 });
 
 describe("the pushes to the console document", () => {

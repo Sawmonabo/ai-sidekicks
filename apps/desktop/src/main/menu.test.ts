@@ -3,8 +3,9 @@
 // written to main's diagnostic log and is announced to the console document, and a change that
 // keeps the scheme rebuilds nothing. About on each platform: the macOS app menu's roles, or the
 // Help menu's one row elsewhere, and the panel filled from the running app before the menu is
-// installed. `electron` is mocked; the kept appearance is real, over a file whose writes the case
-// settles.
+// installed. The developer-tools row, only in a development build, on each platform's keys and
+// toggling the tools of the window it was chosen in. `electron` is mocked; the kept appearance is
+// real, over a file whose writes the case settles.
 
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -80,7 +81,7 @@ describe("the View menu's color scheme", () => {
     installApplicationMenu(
       appearance,
       { write: (entry) => logged.push(entry) },
-      { announceUnkeptScheme },
+      { announceUnkeptScheme, toggleDeveloperTools: () => {} },
       CHECKOUT,
     );
     expect(tickedScheme()).toBe("System");
@@ -148,7 +149,7 @@ describe("About", () => {
     installApplicationMenu(
       { scheme: "system", chooseScheme: () => Promise.resolve(), subscribe: () => () => {} },
       { write: () => {} },
-      { announceUnkeptScheme: () => {} },
+      { announceUnkeptScheme: () => {}, toggleDeveloperTools: () => {} },
       location,
     );
     expect(setAboutPanelOptions).toHaveBeenCalledOnce();
@@ -201,5 +202,58 @@ describe("About", () => {
     const { panel } = await installOn("linux", true);
 
     expect(panel?.iconPath).toBe(path.join(installedResourcesFolder, "icon.png"));
+  });
+});
+
+describe("the developer tools row", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  /** Installs the menu on `platform`, returning its rows, all levels flattened, and the toggle. */
+  async function installOn(platform: NodeJS.Platform) {
+    Object.defineProperty(process, "platform", { value: platform });
+    const toggleDeveloperTools = vi.fn();
+    const { installApplicationMenu } = await import("./menu.js");
+    installApplicationMenu(
+      { scheme: "system", chooseScheme: () => Promise.resolve(), subscribe: () => () => {} },
+      { write: () => {} },
+      { announceUnkeptScheme: () => {}, toggleDeveloperTools },
+      CHECKOUT,
+    );
+    const rows: MenuTemplateItem[] = [];
+    const pending = [...(electronMock.installedMenuTemplates.at(-1) ?? [])];
+    for (let row = pending.pop(); row !== undefined; row = pending.pop()) {
+      rows.push(row);
+      pending.push(...(row.submenu ?? []));
+    }
+    return { rows, toggleDeveloperTools };
+  }
+
+  it.each([
+    ["darwin", "Alt+Command+J"],
+    ["win32", "Control+Shift+J"],
+    ["linux", "Control+Shift+J"],
+  ] as const)(
+    "on %s holds %s and toggles the tools of the window it was chosen in",
+    async (platform, accelerator) => {
+      const { rows, toggleDeveloperTools } = await installOn(platform);
+
+      const row = rows.find((candidate) => candidate.label === "Toggle Developer Tools");
+      expect(row?.accelerator).toBe(accelerator);
+      expect(rows.some((candidate) => candidate.accelerator === "F12")).toBe(false);
+      expect(rows.some((candidate) => candidate.role === "toggleDevTools")).toBe(false);
+      const chosenWindow = { id: 7 };
+      row?.click?.(row, chosenWindow);
+      expect(toggleDeveloperTools).toHaveBeenCalledExactlyOnceWith(chosenWindow);
+    },
+  );
+
+  it("is absent outside a development build", async () => {
+    vi.stubEnv("DEV", false);
+    const { rows } = await installOn("darwin");
+
+    expect(rows.some((candidate) => candidate.label === "Toggle Developer Tools")).toBe(false);
+    expect(rows.some((candidate) => candidate.role === "toggleDevTools")).toBe(false);
   });
 });
