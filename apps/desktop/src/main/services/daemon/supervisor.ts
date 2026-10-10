@@ -460,10 +460,10 @@ export class DaemonSupervisor {
    * there is none to find. A service, started or found, that answers it is repairing its
    * database file is waited for as long as it keeps answering so: the wait runs again from each
    * such answer, reported with its count unless a lost link is being brought back, and the gap
-   * while it binds its socket again is waited out as a start's. The wait ends early, with the exit's
-   * reason, when the started service exits. A service this app started that is still running when
-   * the wait runs out is ended as one that never answered, since it would hold the socket against
-   * every later start.
+   * while it binds its socket again is waited out as a start's. The wait ends early, with the
+   * exit's reason, when the started service exits. A service this app started that is still
+   * running when the wait runs out is ended as one that never answered, since it would hold the
+   * socket against every later start.
    */
   async #connectWithin(
     lifetime: LinkLifetime,

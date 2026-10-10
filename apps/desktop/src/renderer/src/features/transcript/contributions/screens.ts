@@ -41,12 +41,14 @@ export const TRANSCRIPT_OWNER = "transcript";
 
 /**
  * What the session screen hands its body: the screen context minus `sessionStoreRegistry` (this
- * screen renders one session) and `chooseScheme`. The one thing it asks of the registry,
- * re-reading a session when a person presses `Try again`, is handed over as that act alone.
+ * screen renders one session), `hasServiceAnswered` (no session store opens before the service
+ * answers, so the screen draws its frame from the store's absence) and `chooseScheme`. The one
+ * thing it asks of the registry, re-reading a session when a person presses `Try again`, is handed
+ * over as that act alone.
  */
 type SessionScreenMountProps = Omit<
   ScreenContext,
-  "sessionStoreRegistry" | "chooseScheme" | "lastSettingsPage"
+  "sessionStoreRegistry" | "hasServiceAnswered" | "chooseScheme" | "lastSettingsPage"
 > & {
   /** Reads one session again through the registry, for a person's press. */
   readonly rereadSession: (sessionId: string) => Refusal | undefined;

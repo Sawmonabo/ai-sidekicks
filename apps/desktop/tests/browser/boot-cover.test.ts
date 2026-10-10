@@ -1,14 +1,14 @@
 // Opening the app, against main's report of the background service as a test plays it: the window
 // draws one cover saying what main is doing until the service first answers, over the console's
-// inert frame with no screen in it; a session's frame is drawn there at its saved arrangement with
-// no pane body and the composer's room held empty, and stays where it is when the cover fades; a
-// repair's count moves on the cover as each new count arrives, drawn as wire figures; at the answer
-// the cover fades over the console and never comes back, whatever the link does after; and a
-// service that cannot be reached at boot draws the not-answering card, whose `Retry` asks main to
-// start it.
+// inert frame; every screen draws its own frame there with nothing that reads the service, and a
+// session's frame is drawn at its saved arrangement with no pane body and the composer's room held
+// empty; each stays where it is when the cover fades; a repair's count moves on the cover as each
+// new count arrives, drawn as wire figures; at the answer the cover fades over the console and
+// never comes back, whatever the link does after; and a service that cannot be reached at boot
+// draws the not-answering card, whose `Retry` ends its line and asks main to start the service.
 // The negative control for the card is the same report after the first answer, which draws none.
 
-import { act, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createFixtureComposition } from "#renderer/app/fixture/composition.js";
@@ -17,7 +17,7 @@ import {
   PANE_LAYOUT_RESTORED_PANE_CAP,
   PaneLayoutStore,
 } from "#renderer/features/sessions/pane-layout/store.js";
-import { formatRoute } from "#renderer/routing/routes.js";
+import { formatRoute, type AppRoute } from "#renderer/routing/routes.js";
 import type { BridgeComposition } from "#renderer/services/platform/bridge-context.js";
 import { UI_STATE_DATABASE_NAME } from "#renderer/store/persistence/indexeddb-adapter.js";
 import { UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
@@ -47,7 +47,7 @@ interface MainStandIn {
   readonly startRequests: () => number;
 }
 
-/** The scenario's composition, its status topic and start answered by the case rather than by it. */
+/** The scenario's composition, its status topic and start answered by the case, not by it. */
 function standInForMain(scenarioId: string = FIRST_RUN_SCENARIO_ID): MainStandIn {
   const fixture = createFixtureComposition(scenarioId);
   const statusHandlers = new Set<(state: MainProcessState) => void>();
@@ -125,6 +125,55 @@ function screenRegionOf(appWindow: Window): Element {
   return region;
 }
 
+/** Where `element` sits in the window, in CSS px. */
+function boxOf(element: Element): { left: number; width: number; top: number; height: number } {
+  const box = element.getBoundingClientRect();
+  return { left: box.left, width: box.width, top: box.top, height: box.height };
+}
+
+/** The element `selector` names in the window, which must be drawn. */
+function drawnElementOf(appWindow: Window, selector: string): Element {
+  const element = appWindow.document.querySelector(selector);
+  if (element === null) {
+    throw new Error(`the window drew no ${selector}`);
+  }
+  return element;
+}
+
+/**
+ * A screen's frame as a case reads it: the element that must stand at the same place under the
+ * cover and after the answer, the region that reads the service, and what that region holds.
+ */
+interface ScreenFrameCase {
+  readonly name: string;
+  readonly route: AppRoute;
+  /** The screen's own frame, drawn under the cover and left where it stands at the answer. */
+  readonly frameSelector: string;
+  /** What the screen draws only from the service, absent under the cover; none reads nothing. */
+  readonly serviceRegionSelector?: string;
+}
+
+const SCREEN_FRAME_CASES: readonly ScreenFrameCase[] = [
+  {
+    name: "the Sessions destination",
+    route: { kind: "sessions" },
+    // The destination reads nothing yet, so nothing of it waits for the service.
+    frameSelector: ".meridian-sessions__title",
+  },
+  {
+    name: "a Settings page",
+    route: { kind: "settings", page: "runtime" },
+    frameSelector: ".meridian-settings__page-heading",
+    serviceRegionSelector: ".meridian-settings__page > div > *",
+  },
+  {
+    name: "the Workflows runs tab",
+    route: { kind: "workflows", tab: "runs" },
+    frameSelector: ".meridian-workflows-tabs",
+    serviceRegionSelector: ".meridian-workflows-strip, .meridian-workflows-tabs__count",
+  },
+];
+
 /** Each pane the window draws, in order. */
 function panesOf(appWindow: Window): readonly HTMLElement[] {
   return [...appWindow.document.querySelectorAll<HTMLElement>(".meridian-pane")];
@@ -145,13 +194,10 @@ function paneHeadsOf(appWindow: Window): readonly string[] {
 function paneBoxesOf(
   appWindow: Window,
 ): readonly { left: number; width: number; top: number; height: number }[] {
-  return panesOf(appWindow).map((pane) => {
-    const box = pane.getBoundingClientRect();
-    return { left: box.left, width: box.width, top: box.top, height: box.height };
-  });
+  return panesOf(appWindow).map(boxOf);
 }
 
-/** Save, for `sessionId`, the transcript at half the width beside a terminal and a worktree's inspector. */
+/** Save, for `sessionId`, the transcript at half the width beside a terminal and an inspector. */
 async function saveTranscriptBesideTwoPanes(sessionId: string): Promise<void> {
   const layout = new PaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });
   const transcriptPaneId = layout.open({ kind: "transcript" });
@@ -187,7 +233,7 @@ async function deleteUiStateDatabase(): Promise<void> {
   });
 }
 
-/** Wait until the cover has faded and gone; `waitFor` lets React flush the `transitionend` settle. */
+/** Wait until the cover has faded and gone; `waitFor` lets React flush the `transitionend`. */
 async function untilCoverGone(appWindow: Window): Promise<void> {
   await waitFor(() => {
     expect(bootCoverOf(appWindow)).toBeNull();
@@ -204,27 +250,66 @@ afterEach(() => {
 });
 
 describe("browser — opening the app", () => {
-  it("covers the window's inert frame, with no screen in it, until the service first answers", async () => {
+  it("covers the window's inert frame until the service first answers", async () => {
     const main = standInForMain();
     const appWindow = await renderAppSettled(FIRST_RUN_SCENARIO_ID, undefined, main.composition);
 
     await main.report({ kind: "connecting" });
     expect(coverLineOf(appWindow)).toBe("Connecting to the background service…");
+    // A link lost before the first answer is still being connected to, not reconnected.
+    await main.report({ kind: "transient_disconnect", attempt: 1, attemptLimit: 5 });
+    expect(coverLineOf(appWindow)).toBe("Connecting to the background service…");
     await main.report({ kind: "starting" });
     expect(coverLineOf(appWindow)).toBe("Starting the background service…");
     expect(appWindow.document.querySelector(".meridian-rail")).not.toBeNull();
     expect(appWindow.document.querySelector(".meridian-frame__background[inert]")).not.toBeNull();
-    // The sessions list reads the service, so it is not drawn before the answer.
-    expect(screenRegionOf(appWindow).textContent).toBe("");
 
     await main.report({ kind: "connected" });
-    // The screen is drawn under the cover at the answer, and the cover fades from over it.
-    expect(screenRegionOf(appWindow).textContent).not.toBe("");
     expect(appWindow.document.querySelector(".meridian-frame__background[inert]")).toBeNull();
     await untilCoverGone(appWindow);
   });
 
-  it("draws a session's frame at its saved arrangement under the cover, and keeps it at the answer", async () => {
+  for (const frameCase of SCREEN_FRAME_CASES) {
+    it(`draws ${frameCase.name}'s own frame under the cover and keeps it`, async () => {
+      document.location.hash = formatRoute(frameCase.route);
+      const main = standInForMain();
+      const appWindow = await renderAppSettled(FIRST_RUN_SCENARIO_ID, undefined, main.composition);
+      await main.report({ kind: "starting" });
+
+      await waitFor(() => {
+        expect(screenRegionOf(appWindow).querySelector(frameCase.frameSelector)).not.toBeNull();
+      });
+      expect(bootCoverOf(appWindow)).not.toBeNull();
+      const frame = drawnElementOf(appWindow, frameCase.frameSelector);
+      // Measured once the fonts its first layout asked for have loaded: a font that loads late
+      // moves text with or without the cover, and the frame's `ch` widths follow the font.
+      boxOf(frame);
+      await appWindow.document.fonts.ready;
+      const frameBoxUnderCover = boxOf(frame);
+      // Nothing the service answers is drawn, and nothing stands in for it.
+      if (frameCase.serviceRegionSelector !== undefined) {
+        expect(appWindow.document.querySelector(frameCase.serviceRegionSelector)).toBeNull();
+      }
+
+      await main.report({ kind: "connected" });
+      await untilCoverGone(appWindow);
+      const { serviceRegionSelector } = frameCase;
+      if (serviceRegionSelector !== undefined) {
+        await waitFor(() => {
+          expect(appWindow.document.querySelector(serviceRegionSelector)).not.toBeNull();
+        });
+      }
+      // The same frame, where it stood under the cover.
+      expect(drawnElementOf(appWindow, frameCase.frameSelector).textContent).toBe(
+        frame.textContent,
+      );
+      expect(boxOf(drawnElementOf(appWindow, frameCase.frameSelector))).toStrictEqual(
+        frameBoxUnderCover,
+      );
+    });
+  }
+
+  it("draws a session's saved arrangement under the cover and keeps it", async () => {
     await saveTranscriptBesideTwoPanes(SESSION_ID);
     document.location.hash = formatRoute({ kind: "session", sessionId: SESSION_ID });
     const main = standInForMain(TRANSCRIPT_STATES_SCENARIO_ID);
@@ -309,20 +394,20 @@ describe("browser — opening the app", () => {
     expect(consoleFrameOf(appWindow)).not.toBeNull();
   });
 
-  it("draws the not-answering card at boot over the console, and Retry asks for a start", async () => {
+  it("draws the not-answering card at boot, its Retry asking for a start", async () => {
     const main = standInForMain();
     const appWindow = await renderAppSettled(FIRST_RUN_SCENARIO_ID, undefined, main.composition);
-    const shown = within(appWindow.document.body);
     await main.report({ kind: "starting" });
 
     await main.report({ kind: "degraded", attemptLimit: 5, lastError: "spawn node ENOENT" });
-    expect(cardLineOf(appWindow)).toBe(NOT_ANSWERING_MESSAGE);
+    // `Retry` ends the card's own line.
+    expect(cardLineOf(appWindow)).toBe(`${NOT_ANSWERING_MESSAGE} Retry`);
     expect(coverLineOf(appWindow)).toBeNull();
     // The card stands on the solid ground, which hides the frame under it.
     expect(bootCoverOf(appWindow)?.hasAttribute("data-not-answering")).toBe(true);
 
     await act(async () => {
-      fireEvent.click(shown.getByRole("button", { name: "Retry" }));
+      fireEvent.click(drawnElementOf(appWindow, ".meridian-boot-cover__card-line button"));
       await crossMacrotaskBoundary();
     });
     expect(main.startRequests()).toBe(1);

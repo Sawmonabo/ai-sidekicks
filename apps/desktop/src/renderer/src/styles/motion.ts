@@ -11,18 +11,24 @@
 // Node, where `Document` and `Window` do not exist.
 
 /** The motion duration tokens, so a reader that names one is checked against the set. */
-type MotionDurationToken = "motion-quick" | "motion-settle" | "motion-thread" | "motion-breath";
+type MotionDurationToken =
+  | "motion-quick"
+  | "motion-settle"
+  | "motion-thread"
+  | "motion-step"
+  | "motion-breath";
 
 /**
  * Motion durations, in milliseconds: 120-180 ms for chrome, 240 ms for a settings page settling
- * in, and 1200 ms for one half of the breath a running thing's mark takes, slow enough to read as
- * alive rather than as an alarm. Here rather than in `palette.ts`, which answers "what color is
- * this?".
+ * in, 750 ms for one round of the working indicator's three stepped bars, and 1200 ms for one half
+ * of the breath a running thing's mark takes, slow enough to read as alive rather than as an alarm.
+ * Here rather than in `palette.ts`, which answers "what color is this?".
  */
 export const MOTION_DURATIONS_MS: Readonly<Record<MotionDurationToken, number>> = {
   "motion-quick": 120,
   "motion-settle": 180,
   "motion-thread": 240,
+  "motion-step": 750,
   "motion-breath": 1200,
 };
 

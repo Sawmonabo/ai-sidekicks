@@ -5,7 +5,8 @@
 // on the list are the same act and Back works. The pane resolves its page during render from the
 // registry it is handed, which is built before the first render, so an effect would paint
 // "missing" first. A window too narrow for both panes shows one at a time: the list alone on the
-// address that names no page, and a page under `‹ Settings`.
+// address that names no page, and a page under `‹ Settings`. Before the background service first
+// answers, the open page draws its heading and note over an empty body, since its body reads it.
 
 import "./SettingsScreen.css";
 
@@ -182,6 +183,7 @@ export function SettingsScreen(props: SettingsScreenProps): React.JSX.Element {
           pages={pages}
           hitOrdinal={hitOrdinal}
           pendingSearchHit={pendingSearchHit}
+          isPageBodyDrawn={context.hasServiceAnswered}
           onShowPageList={isOneAtATime ? showPageList : undefined}
         />
       </div>

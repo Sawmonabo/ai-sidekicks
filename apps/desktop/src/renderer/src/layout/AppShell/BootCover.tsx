@@ -43,7 +43,7 @@ export function BootCover(props: BootCoverProps): React.JSX.Element {
       onTransitionEnd={cover.onTransitionEnd}
     >
       <LiveAnnouncerProvider clock={clock}>
-        {/* Only the cover's first line stands; the card, a failure, is said even when drawn first. */}
+        {/* The first working line stands; the card, a failure, is said even when drawn first. */}
         <StandingContent>
           {cover.content.kind === "working" ? (
             <WorkingLine line={cover.content.line} spokenLine={cover.content.spokenLine} />
@@ -75,17 +75,18 @@ function WorkingLine(props: {
   );
 }
 
-/** The card in place of an empty console: the service is not answering, and `Retry`. */
+/** The card in place of an empty console: the service is not answering, `Retry` ending the line. */
 function NotAnsweringCard(props: { readonly requestStart: DaemonStartCall }): React.JSX.Element {
   const retry = useDaemonStartAction(props.requestStart);
   return (
-    <>
-      <AnnouncedLine
-        element="p"
-        className="meridian-boot-cover__card-line"
-        words={NOT_ANSWERING_MESSAGE}
-        politeness="assertive"
-      />
+    // `Retry` is not read out.
+    <AnnouncedLine
+      element="p"
+      className="meridian-boot-cover__card-line"
+      words={NOT_ANSWERING_MESSAGE}
+      politeness="assertive"
+    >
+      {NOT_ANSWERING_MESSAGE}{" "}
       <span className="meridian-boot-cover__retry">
         <TryAgainButton
           word="Retry"
@@ -96,6 +97,6 @@ function NotAnsweringCard(props: { readonly requestStart: DaemonStartCall }): Re
           }}
         />
       </span>
-    </>
+    </AnnouncedLine>
   );
 }

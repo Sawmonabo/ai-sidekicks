@@ -1,8 +1,8 @@
 // Route in, screen out, and a not-found address as the one way of having nothing to show. A
 // session whose store is still opening draws its screen's frame, which the session screen fills
-// once the store opens. Before the background service first answers, under the boot cover, only a
-// session draws, as that frame, so its restored arrangement is in place when the cover fades;
-// every other screen reads the service from its first render, so it draws at the answer.
+// once the store opens. Before the background service first answers, under the boot cover, every
+// screen draws its own frame alone, told so by its context, so what it draws is in place when the
+// cover fades.
 //
 // Resolution happens during render, since the registry is composed at module scope and an
 // effect would let the first paint say the screen does not exist. A route whose screen has no
@@ -28,23 +28,16 @@ import { type ScreenContext } from "#renderer/registries/screens/context.js";
 /** The screen context the router resolves the current route against. */
 export interface AppRouterProps {
   readonly context: ScreenContext;
-  /** Whether the service has answered since the app opened; before it has, only a session draws. */
-  readonly hasServiceAnswered: boolean;
 }
 
 /**
- * Resolve the context's route to its screen, or to a not-found notice; nothing before the service
- * first answers, unless the route names a session.
+ * Resolve the context's route to its screen, or to a not-found notice.
  *
  * Throws when a route has no registered screen, which is a composition defect.
  */
-export function AppRouter(props: AppRouterProps): React.JSX.Element | null {
+export function AppRouter(props: AppRouterProps): React.JSX.Element {
   const { context } = props;
   const { route } = context;
-
-  if (!props.hasServiceAnswered && route.kind !== "session") {
-    return null;
-  }
 
   if (route.kind === "not-found") {
     return <AddressNamesNothing />;

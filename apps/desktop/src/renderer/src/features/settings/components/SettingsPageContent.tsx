@@ -24,6 +24,8 @@ export interface SettingsPageContentProps {
   readonly hitOrdinal: number;
   /** The search hit waiting for the page it opened, which this page takes once. */
   readonly pendingSearchHit: PendingSearchHit;
+  /** Whether the page draws its body; until the service answers, its heading and note alone. */
+  readonly isBodyDrawn: boolean;
 }
 
 /**
@@ -65,7 +67,9 @@ export function SettingsPageContent(props: SettingsPageContentProps): React.JSX.
         )}
       </header>
       <div ref={setPageBody}>
-        <StandingContent key={pageId}>{descriptor?.render(context)}</StandingContent>
+        {props.isBodyDrawn ? (
+          <StandingContent key={pageId}>{descriptor?.render(context)}</StandingContent>
+        ) : null}
       </div>
     </article>
   );

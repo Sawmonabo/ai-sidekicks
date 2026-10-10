@@ -21,6 +21,8 @@ export interface SettingsPaneProps {
   readonly hitOrdinal: number;
   /** The search hit waiting for the page it opened, which that page takes once. */
   readonly pendingSearchHit: PendingSearchHit;
+  /** Whether the open page draws its body; until the service answers, heading and note alone. */
+  readonly isPageBodyDrawn: boolean;
   /** Returns to the page list; present only while the window shows one pane at a time. */
   readonly onShowPageList: (() => void) | undefined;
 }
@@ -63,6 +65,7 @@ function renderPaneBody(props: SettingsPaneProps): React.JSX.Element {
         pages={props.pages}
         hitOrdinal={props.hitOrdinal}
         pendingSearchHit={props.pendingSearchHit}
+        isBodyDrawn={props.isPageBodyDrawn}
       />
     );
   }

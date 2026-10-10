@@ -154,6 +154,7 @@ function WindowContents(props: AppWindowProps): React.JSX.Element {
     frameStore,
     sessionStore,
     sessionStoreRegistry: appStores.sessionStoreRegistry,
+    hasServiceAnswered,
     paneRegistry,
     uiStateStore: appStores.uiStateStore,
     draftStore: appStores.draftStore,
@@ -182,7 +183,7 @@ function WindowContents(props: AppWindowProps): React.JSX.Element {
         });
       }}
     >
-      <AppRouter context={screenContext} hasServiceAnswered={hasServiceAnswered} />
+      <AppRouter context={screenContext} />
     </AppShell>
   );
 }

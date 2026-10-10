@@ -132,7 +132,8 @@ function followService(
 
 /**
  * What the cover holds for a connection. A report main has not made yet, or an answer the app's
- * latch is still to take, holds the indicator alone.
+ * latch is still to take, holds the indicator alone. A link this window never saw up is still
+ * being connected to, so it reads as connecting rather than reconnecting.
  */
 function contentOf(connection: DaemonConnection): BootCoverContent {
   switch (serviceBootStageOf(connection)) {
@@ -140,18 +141,20 @@ function contentOf(connection: DaemonConnection): BootCoverContent {
       return { kind: "notAnswering" };
     case "answered":
       return { kind: "working", line: undefined, spokenLine: undefined };
-    case "awaitingAnswer":
-      return connection.kind === "unreported"
-        ? { kind: "working", line: undefined, spokenLine: undefined }
-        : {
-            kind: "working",
-            line: describeDaemonConnectionSentence(connection),
-            spokenLine: describeDaemonConnection(
-              connection.kind === "repairing"
-                ? { kind: "repairing", progress: undefined }
-                : connection,
-            ),
-          };
+    case "awaitingAnswer": {
+      if (connection.kind === "unreported") {
+        return { kind: "working", line: undefined, spokenLine: undefined };
+      }
+      const awaited: DaemonConnection =
+        connection.kind === "transient_disconnect" ? { kind: "connecting" } : connection;
+      return {
+        kind: "working",
+        line: describeDaemonConnectionSentence(awaited),
+        spokenLine: describeDaemonConnection(
+          awaited.kind === "repairing" ? { kind: "repairing", progress: undefined } : awaited,
+        ),
+      };
+    }
   }
 }
 

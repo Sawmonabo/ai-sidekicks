@@ -23,6 +23,13 @@ export interface ScreenContext {
    */
   readonly sessionStoreRegistry: SessionStoreRegistry;
   /**
+   * Whether the background service has answered since the app opened; it never goes back to false.
+   * Until it has, under the boot cover, a screen draws its own frame alone: its header, its page
+   * structure and its track, with every region that reads the service left empty, so nothing moves
+   * when the cover fades.
+   */
+  readonly hasServiceAnswered: boolean;
+  /**
    * The pane registry this composition registered its bodies into. A screen that opens a pane must
    * resolve it from here, not the process-wide singleton, so a test or another window composing its
    * own registry never gets a production body. Required, since a default would still read
