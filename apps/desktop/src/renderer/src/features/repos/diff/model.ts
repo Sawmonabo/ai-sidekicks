@@ -110,6 +110,9 @@ export interface DiffModel {
   readonly files: readonly DiffFile[];
 }
 
+/** Where a file's kind words are drawn: on its header in the diff, or on its row in the list. */
+export type DiffFileNotePlace = "header" | "row";
+
 /** How many lines of each kind a file changes. Derived, never stored. */
 export interface DiffFileChangeCounts {
   readonly insertions: number;
@@ -153,15 +156,15 @@ export function diffFileChangeCounts(file: DiffFile): DiffFileChangeCounts {
 }
 
 /**
- * What a file's extended headers say changed about it, as the kind words a file's header and its
- * row in the list draw, in git's header order (rename or copy, then mode); empty for an ordinary
- * textual change, where the counts already say it. A copy reads `added`: its source stays where it
- * was and the copy is a new path.
+ * What a file's extended headers say changed about it, as the kind words drawn at `place`, in
+ * git's header order (rename or copy, then mode); empty for an ordinary textual change, where the
+ * counts already say it. A rename names its old path on the header and reads `renamed` on the
+ * narrower row. A copy reads `added`: its source stays where it was and the copy is a new path.
  */
-export function diffFileChangeNotes(file: DiffFile): readonly string[] {
+export function diffFileChangeNotes(file: DiffFile, place: DiffFileNotePlace): readonly string[] {
   const notes: string[] = [];
   if (file.renamedFrom !== undefined) {
-    notes.push(`renamed from ${file.renamedFrom}`);
+    notes.push(place === "header" ? `renamed from ${file.renamedFrom}` : "renamed");
   }
   if (file.copiedFrom !== undefined) {
     notes.push("added");

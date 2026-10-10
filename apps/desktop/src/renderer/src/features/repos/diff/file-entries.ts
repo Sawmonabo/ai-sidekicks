@@ -67,7 +67,7 @@ export function diffFileListReading(diff: DiffModel, filterText: string): DiffFi
         kind: "file" as const,
         path: file.path,
         ...(file.hunks.length === 0 ? {} : { counts: diffFileChangeCounts(file) }),
-        changeNotes: diffFileChangeNotes(file),
+        changeNotes: diffFileChangeNotes(file, "row"),
         ...(file.stepName === undefined ? {} : { stepName: file.stepName }),
       })),
     ],
