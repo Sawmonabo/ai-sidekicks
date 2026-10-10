@@ -2,23 +2,19 @@
 // table, window cap, selection tracker) and decides when each is asked and what the tree is told.
 //
 // The library owns measurements, offsets and the total size, and a follower's position: its end
-// anchor holds the tail as rows measure and it lands on each appended row. A box resize and a
-// re-layout of every row move the tail past its reach, so the follower is landed again here.
-// `virtualizer-options.ts` owns its reach to the outside world. The anchor is captured from the
+// anchor holds the tail as rows measure and it lands on each appended row; what moves the tail
+// past its reach lands the follower again through `tail-follow.ts`. `virtualizer-options.ts` owns its reach to the outside world. The anchor is captured from the
 // virtualizer, never the DOM, so holding a reading position costs no element read. The snapshot
-// vocabulary, prune cycle, publication, deferred hold, anchor capture, landing and the reader's
-// input on the box each have a module beside this one.
+// vocabulary, prune cycle, publication, deferred hold, anchor capture, landing, the history line,
+// the tail follow and the reader's input on the box each have a module beside this one.
 import { type Clock } from "#renderer/lib/clock.js";
-import { observeElementResize } from "#renderer/lib/element-resize.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
 import { type RememberedRowHeights } from "#renderer/store/session/remembered-row-heights.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { type RowHeightKind } from "../rows/height-kind.js";
-import { ReadingAnchor, type ReadingMode } from "./reading-anchor.js";
+import { ReadingAnchor } from "./reading-anchor.js";
 import { RowMeasurementTable } from "./row-measurement-table.js";
 import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
-import { SCROLL_TAIL_TOLERANCE_PX } from "#renderer/lib/scroll/geometry/publisher.js";
-import { type ScrollCaller } from "#renderer/lib/scroll/callers.js";
 import {
   SCROLL_GEOMETRY_EPSILON_PX,
   type ScrollGeometry,
@@ -26,6 +22,7 @@ import {
 import { ViewportAnchorCapture } from "./anchor-capture.js";
 import { ViewportDeferredHold } from "./deferred-hold.js";
 import { ViewportDrawnBand } from "./drawn-band.js";
+import { ViewportHistoryLine } from "./history-line.js";
 import { ViewportLanding } from "./landing.js";
 import { ViewportPruneCycle } from "./prune-cycle.js";
 import { ViewportPublication } from "./publication.js";
@@ -39,6 +36,7 @@ import {
   type ViewportRow,
   type ViewportSnapshot,
 } from "./snapshot.js";
+import { ViewportTailFollow } from "./tail-follow.js";
 import { VirtualizerOptions, type TranscriptRowVirtualizer } from "./virtualizer-options.js";
 import { TranscriptWindow, type WindowSide } from "./window-cap.js";
 
@@ -95,6 +93,8 @@ export class ViewportController {
   readonly selection: ViewportSelectionTracker;
   /** A landing on one row, from the ask until the render that holds the row scrolls there. */
   readonly landing: ViewportLanding;
+  /** The history line above the first row, which the list starts below. */
+  readonly historyLine: ViewportHistoryLine;
 
   /** The window's passes, and the re-ask a refusal owes. Constructed over the four above. */
   readonly #pruneCycle: ViewportPruneCycle;
@@ -109,17 +109,13 @@ export class ViewportController {
   readonly #readerInput: ViewportReaderInput;
   /** How far beyond the box the rows are drawn, narrowed by each land. */
   readonly #drawnBand: ViewportDrawnBand;
+  /** A follower landed on the tail again when something other than the reader moved it off. */
+  readonly #tailFollow: ViewportTailFollow;
   readonly #teardown: Unsubscribe[] = [];
 
   #virtualizer: TranscriptRowVirtualizer | undefined;
   /** The box the chokepoint holds, which a landing focuses. */
   #scrollContainer: HTMLElement | undefined;
-  /** Whether the reading state last heard from the anchor was following; it starts there. */
-  #isFollowingTail = true;
-  /** Whether a publication of the estimates is queued behind the current batch of measurements. */
-  #isEstimatePublicationQueued = false;
-  /** Whether a landing on the tail is queued behind the write that moved a follower off it. */
-  #isTailLandingQueued = false;
   /** Whether following ended for a linked message still being read back. */
   #isReadingBackToMessage = false;
   #virtualKeys: readonly string[] = [];
@@ -131,27 +127,25 @@ export class ViewportController {
   #logTailKey: string | undefined;
   /** Whether a pass is running, so a sample its own write publishes cannot start another. */
   #isPassRunning = false;
-  /** The history line's height above the first row, as the last resize observation read it. */
-  #headHeightPx = 0;
-  /**
-   * The part of the line's last change the offset could not move by, and the offset it was left
-   * at. The offset moves in device pixels and the line's height need not be whole, so the fraction
-   * is moved with the next change, unless the offset has moved since, as a reader's scroll does.
-   */
-  #headShiftOwed: { readonly px: number; readonly atScrollTopPx: number } | undefined;
   /** The held set the drawn rows were last extended by, so a change redraws them once. */
   #drawnHeldRowKeys: readonly string[] | undefined;
   #disposed = false;
 
   public constructor(options: ViewportControllerOptions) {
     this.scroll = new ScrollController({ clock: options.clock });
+    this.historyLine = new ViewportHistoryLine({
+      scroll: this.scroll,
+      publish: () => {
+        this.#publication.publish();
+      },
+    });
     this.anchor = new ReadingAnchor();
     this.measurements = new RowMeasurementTable({
       rememberedHeights: options.rememberedRowHeights,
       heightKindOf: options.heightKindOf,
       bodyLengthOf: options.bodyLengthOf,
       onHeightAccepted: () => {
-        this.#queueEstimatePublication();
+        this.#tailFollow.queueEstimatePublication();
       },
     });
     this.rowWindow = new TranscriptWindow();
@@ -164,6 +158,13 @@ export class ViewportController {
       virtualizer: () => this.#virtualizer,
       landingTargetPx: () => this.#landingTargetPx(),
       drawnBandScreenHeights: () => this.#drawnBand.screenHeights,
+    });
+    this.#tailFollow = new ViewportTailFollow({
+      anchor: this.anchor,
+      scroll: this.scroll,
+      measurements: this.measurements,
+      virtualizerOptions: this.virtualizerOptions,
+      virtualizer: () => this.#virtualizer,
     });
     this.selection = new ViewportSelectionTracker({
       holdSelectedRows: (rowKeys) => {
@@ -193,7 +194,7 @@ export class ViewportController {
       measurements: this.measurements,
       rowKeys: () => this.#rowKeys,
       virtualizer: () => this.#virtualizer,
-      headHeightPx: () => this.#headHeightPx,
+      headHeightPx: () => this.historyLine.heightPx,
     });
     this.landing = new ViewportLanding({
       anchor: this.anchor,
@@ -239,9 +240,9 @@ export class ViewportController {
       },
     });
     this.#readerInput = new ViewportReaderInput({
-      noteReaderInput: (inputAtMs) => {
+      noteReaderInput: (inputAtMs, towardSide) => {
         this.anchor.noteReaderInput(inputAtMs);
-        this.#drawnBand.widenFully();
+        this.#drawnBand.widenFully(towardSide);
       },
       notePointerDown: (isDown) => {
         this.anchor.notePointerDown(isDown);
@@ -275,14 +276,16 @@ export class ViewportController {
         }
         this.anchor.observeGeometry(geometry);
         if (this.anchor.state.mode === "following" && !geometry.isAtTail) {
-          this.#queueTailLanding();
+          this.#tailFollow.queueTailLanding();
         }
         this.#anchorCapture.captureFrom(geometry);
+        // Before the pass, so a land the pass makes narrows the band this sample widened.
+        this.#drawnBand.observeGeometry(geometry);
         this.#reviewWindowAfter(geometry);
         this.#drawnBand.review();
       }),
       this.anchor.subscribe((state) => {
-        this.#noteReadingMode(state.mode);
+        this.#tailFollow.noteReadingMode(state.mode);
         const heldRowKeys = this.anchor.heldRowKeys();
         const hadHeldRowKeys = this.#drawnHeldRowKeys;
         this.#drawnHeldRowKeys = heldRowKeys;
@@ -298,7 +301,7 @@ export class ViewportController {
         // the tree is told. The library re-anchors a follower when a row or the row set changes,
         // never when only the box does.
         if (this.anchor.state.mode === "following") {
-          this.#scrollToTail("follow-tail");
+          this.#tailFollow.scrollToTail("follow-tail");
         } else {
           this.holdReadingPosition();
         }
@@ -337,7 +340,7 @@ export class ViewportController {
     this.scroll.attach(scrollContainer, () =>
       this.#virtualizer === undefined
         ? scrollContainer.scrollHeight
-        : this.#headHeightPx + this.#virtualizer.getTotalSize(),
+        : this.historyLine.heightPx + this.#virtualizer.getTotalSize(),
     );
     this.virtualizerOptions.bindScrollContainer(scrollContainer);
     this.selection.attach(scrollContainer);
@@ -352,25 +355,6 @@ export class ViewportController {
     this.selection.detach();
     this.#readerInput.detach();
     this.#scrollContainer = undefined;
-  }
-
-  /**
-   * Follows the height of the history line above the first row until the returned call. The list
-   * starts below it, and a change in it moves every row by as much, so the offset moves with them
-   * and the reader's row stays where it stands on screen. The observation lands after layout and
-   * before paint, so the moved rows are never drawn.
-   */
-  public attachHead(head: HTMLElement): Unsubscribe {
-    const stopObserving = observeElementResize(head, (entries) => {
-      const heightPx = entries[0]?.borderBoxSize[0]?.blockSize;
-      if (heightPx !== undefined) {
-        this.#takeHeadHeight(heightPx);
-      }
-    });
-    return () => {
-      stopObserving();
-      this.#takeHeadHeight(0);
-    };
   }
 
   /**
@@ -546,7 +530,7 @@ export class ViewportController {
       if (conditions !== undefined) {
         this.#runPass(conditions, OWN_PASS);
       }
-      this.#scrollToTail("jump-to-tail");
+      this.#tailFollow.scrollToTail("jump-to-tail");
     };
     const tailRowKey = this.rowWindow.logTailRowKey;
     if (tailRowKey === undefined) {
@@ -580,6 +564,7 @@ export class ViewportController {
     this.#deferredHold.disarm();
     this.landing.dispose();
     this.#drawnBand.dispose();
+    this.historyLine.dispose();
     // Drop the retry's hold on the last row set so a disposed controller keeps no window
     // identity list alive.
     this.#pruneCycle.forgetConditions();
@@ -592,50 +577,6 @@ export class ViewportController {
     this.anchor.dispose();
     this.#virtualizer = undefined;
     this.#disposed = true;
-  }
-
-  /**
-   * Lands a follower the transcript or the library moved off the tail back on it, once, after the
-   * write that moved it returns: only the reader leaves the tail, so a re-key, a re-measure or a
-   * library correction that left the offset short is undone rather than read as leaving.
-   */
-  #queueTailLanding(): void {
-    if (this.#isTailLandingQueued) {
-      return;
-    }
-    this.#isTailLandingQueued = true;
-    queueMicrotask(() => {
-      this.#isTailLandingQueued = false;
-      if (this.anchor.state.mode === "following" && this.scroll.geometry?.isAtTail === false) {
-        this.#scrollToTail("follow-tail");
-      }
-    });
-  }
-
-  /**
-   * Publishes the estimates once after the batch of measurements a follower's rows just made,
-   * and re-lays every row out if one moved, so rows above the screen take what the measured rows
-   * say. The library's cache is cleared whole, and `estimateSize` hands each measured row's
-   * remembered height back to it. The clear moves the tail without moving the offset, and the
-   * library re-anchors only a reader already near the end, so the follower is landed on the tail
-   * again. A reader who reads keeps the estimates the rows were laid out at.
-   */
-  #queueEstimatePublication(): void {
-    if (this.#isEstimatePublicationQueued) {
-      return;
-    }
-    this.#isEstimatePublicationQueued = true;
-    // One microtask after the observer's callback: every row it reported has been accepted.
-    queueMicrotask(() => {
-      this.#isEstimatePublicationQueued = false;
-      if (this.anchor.state.mode !== "following") {
-        return;
-      }
-      if (this.measurements.publishEstimates()) {
-        this.#virtualizer?.measure();
-        this.#scrollToTail("follow-tail");
-      }
-    });
   }
 
   /**
@@ -783,40 +724,6 @@ export class ViewportController {
     }
   }
 
-  /** The library's own landing on the last row, which re-aims as the rows near it measure. */
-  #scrollToTail(caller: ScrollCaller): void {
-    const virtualizer = this.#virtualizer;
-    if (virtualizer === undefined) {
-      return;
-    }
-    this.virtualizerOptions.scrollFor(caller, () => {
-      virtualizer.scrollToEnd();
-    });
-  }
-
-  /**
-   * Retires the library's running scroll when the reader stops following by their own act (a
-   * scroll toward the head, a page of history, a link's landing) rather than inside a write this
-   * frame made. A tail landing re-aims every frame the last row grows, and nothing in the library
-   * cancels it on a gesture, so it would pull the reader back for up to five seconds.
-   */
-  #noteReadingMode(mode: ReadingMode): void {
-    const wasFollowing = this.#isFollowingTail;
-    this.#isFollowingTail = mode === "following";
-    const virtualizer = this.#virtualizer;
-    // `vetoesPrune` answers whether a programmatic glide is in flight: one that moved the reader
-    // off the tail is a jump, whose own scroll replaced the library's.
-    if (
-      !wasFollowing ||
-      this.#isFollowingTail ||
-      virtualizer === undefined ||
-      this.scroll.vetoesPrune()
-    ) {
-      return;
-    }
-    this.virtualizerOptions.retireLibraryScroll(virtualizer);
-  }
-
   /**
    * The offset the land on its way ends at: the head hold's, then a row landing's, then the tail
    * for a follower the box does not yet stand at; `undefined` with none on its way.
@@ -825,7 +732,7 @@ export class ViewportController {
     return (
       this.#deferredHold.headHoldTargetPx() ??
       this.landing.pendingTargetPx() ??
-      this.#unreachedTailPx()
+      this.#tailFollow.unreachedTailPx()
     );
   }
 
@@ -835,27 +742,8 @@ export class ViewportController {
       this.#deferredHold.isHeadHoldArmed ||
       this.landing.isPending ||
       (this.anchor.state.mode === "following" &&
-        (this.scroll.geometry === undefined || this.#unreachedTailPx() !== undefined))
+        (this.scroll.geometry === undefined || this.#tailFollow.unreachedTailPx() !== undefined))
     );
-  }
-
-  /**
-   * The tail's offset over the rows as the library lays them out, while a follower's box stands
-   * above it: on opening, and as rows append, before the box has scrolled there. Read from the
-   * layout rather than the box, whose height lags the rows the render about to commit draws.
-   */
-  #unreachedTailPx(): number | undefined {
-    const geometry = this.scroll.geometry;
-    const virtualizer = this.#virtualizer;
-    if (
-      this.anchor.state.mode !== "following" ||
-      geometry === undefined ||
-      virtualizer === undefined
-    ) {
-      return undefined;
-    }
-    const tailPx = Math.max(0, virtualizer.getTotalSize() - geometry.viewportHeight);
-    return geometry.scrollTop < tailPx - SCROLL_TAIL_TOLERANCE_PX ? tailPx : undefined;
   }
 
   #buildSnapshot(): ViewportSnapshot {
@@ -866,40 +754,10 @@ export class ViewportController {
       keyProjection: this.measurements.projectKeys(this.#rowKeys),
       reading: { mode, newRowCount },
       lastPrune: this.#pruneCycle.lastOutcome,
-      headHeightPx: this.#headHeightPx,
+      headHeightPx: this.historyLine.heightPx,
       heldRowKeys: this.anchor.heldRowKeys(),
       drawnBandScreenHeights: this.#drawnBand.screenHeights,
     };
-  }
-
-  /**
-   * Tells the list where its rows start and, while the history line stands wholly above the
-   * viewport, moves the offset by what the line grew, so the reader's row stays where it stands. A
-   * line in view, as at the top of the log and at mount, lets the rows flow below it instead, so
-   * its own head is never pushed out of sight.
-   */
-  #takeHeadHeight(heightPx: number): void {
-    const previousHeightPx = this.#headHeightPx;
-    const grownPx = heightPx - previousHeightPx;
-    if (this.#disposed || grownPx === 0) {
-      return;
-    }
-    this.#headHeightPx = heightPx;
-    const owed = this.#headShiftOwed;
-    this.#headShiftOwed = undefined;
-    const scrollTopPx = this.scroll.geometry?.scrollTop;
-    if (scrollTopPx !== undefined && scrollTopPx > 0 && scrollTopPx >= previousHeightPx) {
-      const owedPx = owed?.atScrollTopPx === scrollTopPx ? owed.px : 0;
-      const write = this.scroll.glideTo("hold-reading-position", scrollTopPx + owedPx + grownPx);
-      // `glideTo` has already clamped its target to the content, so what the platform left unmoved
-      // is its rounding to a device pixel, which is owed; a pixel or more can only be its own clamp
-      // at the content's end, which owes nothing.
-      const unmovedPx = write === undefined ? 0 : write.requestedScrollTop - write.appliedScrollTop;
-      if (write !== undefined && Math.abs(unmovedPx) < 1) {
-        this.#headShiftOwed = { px: unmovedPx, atScrollTopPx: write.appliedScrollTop };
-      }
-    }
-    this.#publication.publish();
   }
 }
 
