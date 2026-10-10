@@ -69,10 +69,12 @@ function copyOfDrawnRows(
   const copy = new ConversationCopyBuild({
     selection: {
       start: {
+        at: "row",
         rowKey: rowKeys[0] ?? "",
         position: { path: [], characterOffset: startOffset },
       },
       end: {
+        at: "row",
         rowKey: rowKeys.at(-1) ?? "",
         position: { path: [], characterOffset: lastRow.textContent.length },
       },

@@ -1,9 +1,9 @@
 // The edges of the window a store holds of its session's log, and the ways they move besides the
 // stream: a page read before the head grows it backward, a page read after a detached tail grows
-// it forward, a release lets go of rows far from where the person reads, a window no screen
-// shows keeps only its newest rows, and a large body read in full takes the place of its size.
-// Pure folds, so
-// the store holds no arithmetic; `sequence-reconciler.ts` owns the stream's direction, and its
+// it forward, a page read at either end of the log takes the place of the whole window, a release
+// lets go of rows far from where the person reads, a window no screen shows keeps only its newest
+// rows, and a large body read in full takes the place of its size. Pure folds, so the store holds
+// no arithmetic; `sequence-reconciler.ts` owns the stream's direction, and its
 // vocabulary would call a row from beyond an edge a duplicate or a divergence.
 //
 // A page obeys three rules:
@@ -30,6 +30,7 @@ import { mergeStandingEvents } from "./standing-events.js";
 import { admitToHueWheel } from "./hue-admission.js";
 import { isReconcilableSequence, orderBatchBySequence } from "./sequence-reconciler.js";
 import {
+  CLOSED_WINDOW_EDGE,
   heldRowCursor,
   liveTailAfter,
   type SessionStoreState,
@@ -64,6 +65,16 @@ export interface LaterWindowMerge {
    * is live, which the stream extends itself.
    */
   readonly refusedNotLater: number;
+  /** Rows refused for repeating a sequence the page itself already carried. */
+  readonly duplicates: number;
+}
+
+/** What one page read at an end of the log put in place of the window. */
+export interface LogEndPageMerge {
+  /** The page's rows, oldest first, which are now the whole log the window holds. */
+  readonly transcript: readonly ProjectedSessionEvent[];
+  /** Rows admitted. */
+  readonly admitted: number;
   /** Rows refused for repeating a sequence the page itself already carried. */
   readonly duplicates: number;
 }
@@ -182,6 +193,46 @@ export function foldLaterWindowPage(
       ...current,
       transcript: merge.transcript,
       transcriptTail: tailAfterLaterPage(merge.transcript, edge, current.cursor),
+      standingEvents: mergeStandingEvents(current.standingEvents, rows),
+      revision: current.revision + 1,
+    },
+  };
+}
+
+/**
+ * One page read at an end of the log, from the rows it carried to the state a store commits: the
+ * page takes the place of the whole window. At the log's start the head closes and the tail is
+ * read as after a forward page, live once nothing lies beyond the page or the page reaches what the
+ * stream has delivered; at its end the head takes the page's own edge and the tail is live when
+ * the page reaches what the stream has delivered, else detached after its newest row. A page that
+ * carried rows and admitted none, all of another session, moves nothing.
+ */
+export function foldLogEndPage(
+  current: SessionStoreState,
+  events: readonly ProjectedSessionEvent[],
+  logEnd: "start" | "end",
+  edge: TranscriptWindowEdge,
+  dependencies: TranscriptPageDependencies,
+): TranscriptPageFold<LogEndPageMerge> {
+  const { rows, duplicates } = rowsBeyondEdge(
+    admissibleRows(events, dependencies.sessionId),
+    () => false,
+  );
+  const merge: LogEndPageMerge = { transcript: rows, admitted: rows.length, duplicates };
+  if (rows.length === 0 && events.length > 0) {
+    return { merge, nextState: undefined };
+  }
+  recoverRows(rows, dependencies);
+  return {
+    merge,
+    nextState: {
+      ...current,
+      transcript: rows,
+      transcriptHead: logEnd === "start" ? CLOSED_WINDOW_EDGE : edge,
+      transcriptTail:
+        logEnd === "start"
+          ? tailAfterLaterPage(rows, edge, current.cursor)
+          : tailReachingStream(rows, current.cursor),
       standingEvents: mergeStandingEvents(current.standingEvents, rows),
       revision: current.revision + 1,
     },
@@ -334,8 +385,19 @@ function tailAfterLaterPage(
   edge: TranscriptWindowEdge,
   streamCursor: number,
 ): TranscriptWindowTail {
+  return edge.hasMore ? tailReachingStream(transcript, streamCursor) : liveTailAfter(transcript);
+}
+
+/**
+ * The tail of a window the daemon may hold more after: live once its newest row reaches the
+ * stream's cursor, else detached after that row.
+ */
+function tailReachingStream(
+  transcript: readonly ProjectedSessionEvent[],
+  streamCursor: number,
+): TranscriptWindowTail {
   const newest = transcript.at(-1);
-  if (!edge.hasMore || newest === undefined || newest.sequence >= streamCursor) {
+  if (newest === undefined || newest.sequence >= streamCursor) {
     return liveTailAfter(transcript);
   }
   return { cursor: heldRowCursor(newest), hasMore: true, following: "detached" };

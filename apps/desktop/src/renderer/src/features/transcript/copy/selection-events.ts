@@ -1,6 +1,7 @@
 // The events a selection in the conversation runs across, for a copy of rows the store let go: the
 // first event its start row is drawn from and the last its end row is drawn from, noted while the
-// log holds them, and the events between, read when the copy is asked for, from the store where it
+// log holds them, or an end of the conversation, the stream's newest event as the copy is asked
+// for at its end, and the events between, read when the copy is asked for, from the store where it
 // holds them and back through `transcript.read` where it does not. The store keeps only the rows
 // its window holds, so a long selection costs memory only while its copy is read.
 
@@ -14,7 +15,7 @@ import {
 } from "#renderer/services/daemon/transcript/page.js";
 import { heldIdAsWireId } from "#renderer/services/daemon/wire/identifiers.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
-import { type RowSelection } from "../viewport/selection/record.js";
+import { type RowSelection, type RowSelectionBoundary } from "../viewport/selection/record.js";
 import { type RowSourceSpan } from "../window/row-sources.js";
 
 /** One event an end of a selection is drawn from: its place in the log and the cursor it is at. */
@@ -25,7 +26,8 @@ export interface SelectionEndEvent {
 
 /** The first event of a selection's start row and the last event of its end row. */
 export interface SelectionEventSpan {
-  readonly start: SelectionEndEvent;
+  /** The start event's place in the log; `-Infinity` from the conversation's start. */
+  readonly start: Pick<SelectionEndEvent, "sequence">;
   readonly end: SelectionEndEvent;
 }
 
@@ -49,8 +51,8 @@ export interface SelectedEventsRead {
  * holds the rows they sit in. An end whose row the log no longer holds keeps what was noted for it.
  */
 export class SelectionEventSpanRecord {
-  #start: { readonly rowKey: string; readonly event: SelectionEndEvent } | undefined;
-  #end: { readonly rowKey: string; readonly event: SelectionEndEvent } | undefined;
+  #start: NotedEnd | undefined;
+  #end: NotedEnd | undefined;
 
   /** Notes `selection`'s ends from the rows `spanOf` reads them from; `undefined` forgets both. */
   public note(
@@ -62,27 +64,32 @@ export class SelectionEventSpanRecord {
       this.#end = undefined;
       return;
     }
-    const startSpan = spanOf(selection.start.rowKey);
-    this.#start =
-      startSpan === undefined
-        ? this.#start?.rowKey === selection.start.rowKey
-          ? this.#start
-          : undefined
-        : { rowKey: selection.start.rowKey, event: endEventOf(startSpan.first) };
-    const endSpan = spanOf(selection.end.rowKey);
-    this.#end =
-      endSpan === undefined
-        ? this.#end?.rowKey === selection.end.rowKey
-          ? this.#end
-          : undefined
-        : { rowKey: selection.end.rowKey, event: endEventOf(endSpan.last) };
+    this.#start = notedEnd(this.#start, selection.start, spanOf, "first");
+    this.#end = notedEnd(this.#end, selection.end, spanOf, "last");
   }
 
-  /** The span noted for the record's ends, or `undefined` when either end's row was never held. */
-  public get span(): SelectionEventSpan | undefined {
-    return this.#start === undefined || this.#end === undefined
+  /**
+   * The span noted for the record's ends, an end of the conversation's last event being
+   * `conversationEnd`; `undefined` when either end's row was never held, or the end of the
+   * conversation is not known.
+   */
+  public readSpan(conversationEnd: SelectionEndEvent | undefined): SelectionEventSpan | undefined {
+    const start = this.#start;
+    const end = this.#end;
+    if (start === undefined || end === undefined) {
+      return undefined;
+    }
+    const startEvent =
+      start.at === "row"
+        ? start.event
+        : start.at === "conversation-start"
+          ? CONVERSATION_START_EVENT
+          : undefined;
+    const endEvent =
+      end.at === "row" ? end.event : end.at === "conversation-end" ? conversationEnd : undefined;
+    return startEvent === undefined || endEvent === undefined
       ? undefined
-      : { start: this.#start.event, end: this.#end.event };
+      : { start: startEvent, end: endEvent };
   }
 }
 
@@ -121,6 +128,36 @@ export async function readSelectedEvents(
     (event) => event.sequence >= start.sequence && event.sequence <= end.sequence,
   );
   return [...before, ...between, ...after];
+}
+
+/** What an end of a selection was noted as: its row's event, or an end of the conversation. */
+type NotedEnd =
+  | { readonly at: "row"; readonly rowKey: string; readonly event: SelectionEndEvent }
+  | { readonly at: "conversation-start" | "conversation-end" };
+
+/** Where a read from the conversation's start reads down to: before every event. */
+const CONVERSATION_START_EVENT: Pick<SelectionEndEvent, "sequence"> = {
+  sequence: Number.NEGATIVE_INFINITY,
+};
+
+/**
+ * What `boundary` is noted as: the `which` event of its row's span while the log holds it, what
+ * `previous` noted for the same row once it does not, or an end of the conversation.
+ */
+function notedEnd(
+  previous: NotedEnd | undefined,
+  boundary: RowSelectionBoundary,
+  spanOf: (rowKey: string) => RowSourceSpan | undefined,
+  which: "first" | "last",
+): NotedEnd | undefined {
+  if (boundary.at !== "row") {
+    return { at: boundary.at };
+  }
+  const span = spanOf(boundary.rowKey);
+  if (span === undefined) {
+    return previous?.at === "row" && previous.rowKey === boundary.rowKey ? previous : undefined;
+  }
+  return { at: "row", rowKey: boundary.rowKey, event: endEventOf(span[which]) };
 }
 
 /** The end event a row of the log names: its sequence and the cursor it is read at. */

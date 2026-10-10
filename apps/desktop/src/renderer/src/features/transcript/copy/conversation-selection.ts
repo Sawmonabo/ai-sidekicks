@@ -87,8 +87,8 @@ export function readSelectedPart(
  */
 export function readRowPart(span: RowSpanSelection, rowKey: string): SelectedPart | undefined {
   const { start, end } = span.selection;
-  const startAt = rowKey === start.rowKey ? start.position : undefined;
-  const endAt = rowKey === end.rowKey ? end.position : undefined;
+  const startAt = start.at === "row" && rowKey === start.rowKey ? start.position : undefined;
+  const endAt = end.at === "row" && rowKey === end.rowKey ? end.position : undefined;
   const rowElement =
     startAt === undefined && endAt === undefined ? undefined : span.endRowElement(rowKey);
   if (rowElement === undefined) {

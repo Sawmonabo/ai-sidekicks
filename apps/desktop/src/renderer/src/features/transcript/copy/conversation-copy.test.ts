@@ -40,8 +40,8 @@ function rowsReading(
   const position = { path: [], characterOffset: 0 };
   return {
     selection: {
-      start: { rowKey: ROW_KEYS[0] ?? "", position },
-      end: { rowKey: ROW_KEYS.at(-1) ?? "", position },
+      start: { at: "row", rowKey: ROW_KEYS[0] ?? "", position },
+      end: { at: "row", rowKey: ROW_KEYS.at(-1) ?? "", position },
     },
     rowKeys: ROW_KEYS,
     endRowElement: () => undefined,

@@ -32,7 +32,6 @@ function mountTrackedViewport(): TrackedViewport {
   const tracker = new ViewportSelectionTracker({
     holdSelectedRows: () => {},
     logPositionOf: (rowKey) => rowKeys.indexOf(rowKey),
-    logEdgeRowKey: (side) => (side === "head" ? rowKeys[0] : rowKeys[1]),
     drawRow: () => {},
   });
   tracker.attach(scrollContainer);

@@ -3,8 +3,9 @@
 // `transcript.read` as the reader scrolls, and let go of by the store as the window lets rows go.
 // The reader selects rows on screen and scrolls up until the store lets them go: the system's Copy
 // key reads them back and copies the whole selection while the browser's own holds only a caret,
-// and back down the browser's selection is the one the reader made. Select All, scrolled away from,
-// copies the same rows. A page refused while a copy reads writes nothing and says so.
+// and back down the browser's selection is the one the reader made. Select All copies the whole
+// conversation, its first message to its last, as it does again once the store lets its last rows
+// go. A page refused while a copy reads writes nothing and says so.
 
 import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -188,22 +189,16 @@ describe("a selection the store lets go in a session read from its history", () 
       expect(browserSelection.toString()).toBe(selectedText);
       expect(await copyNow()).toBe(wholeSelection);
 
-      // Select All a few screens up, then far enough up that the store lets the selection's last
-      // rows go: the copy holds the same rows.
+      // Select All a few screens up copies the whole conversation, its first message to its
+      // last, read back past the rows the store holds; far enough up that the store lets the
+      // last rows go, the copy holds the same rows.
       await wheel(-WHEEL_STEP_PX, 3);
       await act(() => userEvent.keyboard("{ControlOrMeta>}a{/ControlOrMeta}"));
       await settleFrames();
-      const selectedAll = (await copyNow()) ?? expect.fail("Select All copies the log");
-      const selectedPositions = [...selectedAll.matchAll(/message_(\d+)/g)].map((match) =>
-        Number(match[1]),
-      );
-      expect(selectedPositions.at(-1)).toBe(LOG_ROW_COUNT - 1);
-      expect(selectedPositions).toStrictEqual(
-        Array.from(
-          { length: selectedPositions.length },
-          (_, index) => (selectedPositions[0] ?? 0) + index,
-        ),
-      );
+      const selectedAll = (await copyNow()) ?? expect.fail("Select All copies the conversation");
+      expect(
+        [...selectedAll.matchAll(/message_(\d+)/g)].map((match) => Number(match[1])),
+      ).toStrictEqual(Array.from({ length: LOG_ROW_COUNT }, (_, index) => index));
       await wheel(-WHEEL_STEP_PX, stepsPastLetGo);
       expect(storedPositions().at(-1)).toBeLessThan(LOG_ROW_COUNT - 1);
       expect(await copyNow()).toBe(selectedAll);

@@ -1,5 +1,7 @@
 // Reads the session's history past the edges of the window its store holds: backward before the
-// head, forward after a tail that was let go or never read. A stretch is a height, not a row count:
+// head, forward after a tail that was let go or never read, and the page at either end of the log,
+// which takes the place of the whole window, so Home and End reach the session's own ends without
+// walking the history between. A stretch is a height, not a row count:
 // pages are read until the whole held transcript is estimated that much taller than when the read
 // began, or the daemon has no more, each page's limit sized from the height still owed. This holds
 // no rows and no position: pages go into the store, and every read is asked from the store's own
@@ -83,6 +85,8 @@ export class TranscriptHistoryReader {
   readonly #readLine = new ReadScope();
   readonly #changes = new Emitter<void>("transcript history state");
   #readingSide: WindowSide | undefined;
+  /** Bumped by each walk and each jump, so only the newest clears the side it reads past. */
+  #readCount = 0;
   /** The read that failed past each edge, which asking for that edge again sends unchanged. */
   readonly #failedReadBySide = new Map<WindowSide, PendingRead>();
   readonly #failureCountBySide = new Map<WindowSide, number>();
@@ -174,6 +178,71 @@ export class TranscriptHistoryReader {
   }
 
   /**
+   * Starts reading the page at one end of the session's log, its first page for `head` or its
+   * newest for `tail`, to put it in place of the store's whole window; answers whether it started,
+   * not when the store holds that end already or no viewport measures the page. `beforePageLands`
+   * runs just before the page takes the window's place, so the viewport is told before any render
+   * of it; a read abandoned, overtaken by a newer read, refused or failed lands nothing, and a
+   * refused or failed one reads as a failed read past that edge. A walk under way gives way to
+   * it: the walk's next page finds its edge moved.
+   */
+  public jumpTo(side: WindowSide, read: TranscriptPageRead, beforePageLands: () => void): boolean {
+    const newestCursor = this.#sessionStore.snapshot().streamAfterCursor;
+    const measure = this.#measure;
+    if (
+      !this.#edgeOf(side).hasMore ||
+      measure === undefined ||
+      (side === "tail" && newestCursor === undefined)
+    ) {
+      return false;
+    }
+    const owedHeightPx = TRANSCRIPT_STRETCH_SCREEN_HEIGHTS * measure.screenHeightPx();
+    const pending: PendingRead = {
+      side,
+      request: {
+        sessionId: heldIdAsWireId(this.#sessionStore.sessionId),
+        // No cursor reads forward from the log's start; the stream's newest position, backward.
+        ...(side === "tail" ? { beforeCursor: newestCursor } : {}),
+        limit: pageLimitFor(owedHeightPx, measure.smallestRowHeightPx()),
+      },
+      owedHeightPx,
+    };
+    this.#readLogEnd(pending, read, beforePageLands).catch((error: unknown) => {
+      this.#failWalk(pending, error);
+    });
+    return true;
+  }
+
+  /** Reads `pending`'s page at an end of the log and puts it in place of the store's window. */
+  async #readLogEnd(
+    pending: PendingRead,
+    read: TranscriptPageRead,
+    beforePageLands: () => void,
+  ): Promise<void> {
+    const readNumber = this.#startRead(pending.side);
+    try {
+      const round = this.#readLine.openRound();
+      const reply = await read(pending.request, { signal: round.signal });
+      if (isReadAbandoned(round.signal) || this.#readCount !== readNumber) {
+        return;
+      }
+      if (reply.status === "refused") {
+        this.#recordFailedRead(pending);
+        return;
+      }
+      const page = readTranscriptPage(reply.value);
+      beforePageLands();
+      this.#sessionStore.replaceWithLogEndPage(
+        pending.side === "head" ? "start" : "end",
+        page.events,
+        page.edge,
+      );
+    } finally {
+      this.#endRead(readNumber);
+    }
+  }
+
+  /**
    * Reads one page after another past an edge, starting with `pending`, until the stretch is
    * paid, the edge has no more, the edge moved or a read failed. The stretch is paid once the held
    * transcript, derived whole, is estimated `pending.owedHeightPx` taller than at the start. Each
@@ -186,9 +255,7 @@ export class TranscriptHistoryReader {
     measure: TranscriptStretchMeasure,
   ): Promise<void> {
     const { side } = pending;
-    this.#readingSide = side;
-    this.#failedReadBySide.delete(side);
-    this.#announceChange();
+    const readNumber = this.#startRead(side);
     try {
       const targetHeightPx = this.#heldHeightPx(measure) + pending.owedHeightPx;
       let next = pending;
@@ -227,9 +294,25 @@ export class TranscriptHistoryReader {
         }
       }
     } finally {
-      this.#readingSide = undefined;
-      this.#announceChange();
+      this.#endRead(readNumber);
     }
+  }
+
+  /** Marks a read past `side` under way, clearing its last failure; answers the read's number. */
+  #startRead(side: WindowSide): number {
+    this.#readCount += 1;
+    this.#readingSide = side;
+    this.#failedReadBySide.delete(side);
+    this.#announceChange();
+    return this.#readCount;
+  }
+
+  /** Ends the read numbered `readNumber`; the side it read past stays marked for a newer one. */
+  #endRead(readNumber: number): void {
+    if (this.#readCount === readNumber) {
+      this.#readingSide = undefined;
+    }
+    this.#announceChange();
   }
 
   /**

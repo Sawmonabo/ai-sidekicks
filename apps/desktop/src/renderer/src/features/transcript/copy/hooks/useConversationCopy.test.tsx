@@ -48,7 +48,6 @@ function Conversation(): React.JSX.Element {
       new ViewportSelectionTracker({
         holdSelectedRows: () => {},
         logPositionOf: (rowKey) => ROW_KEYS.indexOf(rowKey),
-        logEdgeRowKey: (side) => (side === "head" ? ROW_KEYS[0] : ROW_KEYS.at(-1)),
         drawRow: () => {},
       }),
   );
@@ -152,7 +151,7 @@ function textNodeHolding(ownerDocument: Document, text: string): Text {
 }
 
 describe("⌘C in a session", () => {
-  it("copies the conversation's selection in reading order while the message box holds none", async () => {
+  it("copies the selection in reading order while the message box holds none", async () => {
     const { copied, box, sessionDocument } = renderSession();
     box.focus();
     box.setSelectionRange(0, 0);

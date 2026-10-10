@@ -1,7 +1,8 @@
 // The React side of the history reader: one reader per session and bridge, its state read as an
-// external store that changes when the reader or a store edge moves, and the one act every
-// trigger asks it through: `Load earlier` and `Try again`, the viewport's approach to an edge, a
-// link reaching back for its message and the look-ahead that keeps rows loaded above the screen.
+// external store that changes when the reader or a store edge moves, the one act every trigger
+// asks a stretch through: `Load earlier` and `Try again`, the viewport's approach to an edge, a
+// link reaching back for its message and the look-ahead that keeps rows loaded above the screen;
+// and the jump Home and End read an end of the log through.
 
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 
@@ -11,6 +12,7 @@ import { type TranscriptPageRead } from "#renderer/services/daemon/transcript/pa
 import { useBridgeClock } from "#renderer/services/platform/hooks/useClock.js";
 import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
+import { type JumpToLogEnd } from "../../viewport/conversation-edge-jump.js";
 import { type WindowSide } from "../../viewport/window-cap.js";
 import {
   TranscriptHistoryReader,
@@ -26,6 +28,12 @@ export interface TranscriptHistory {
    * given; answers whether that edge has more to read. A failed read past it is sent again.
    */
   readonly readStretch: (side: WindowSide, owedHeightPx?: number) => boolean;
+  /**
+   * Starts reading the page at one end of the log in place of the held window, calling
+   * `beforePageLands` just before it takes the window's place; answers whether it started, not
+   * when the store holds that end already.
+   */
+  readonly jumpTo: JumpToLogEnd;
   /** Hands the reader the viewport a stretch is measured in, or takes it back. */
   readonly measureWith: (measure: TranscriptStretchMeasure | undefined) => void;
 }
@@ -75,6 +83,8 @@ export function useTranscriptHistory(
             state,
             readStretch: (side: WindowSide, owedHeightPx?: number) =>
               reader.readStretch(side, readPage, owedHeightPx),
+            jumpTo: (side: WindowSide, beforePageLands: () => void) =>
+              reader.jumpTo(side, readPage, beforePageLands),
             measureWith,
           },
     [readPage, reader, state, measureWith],

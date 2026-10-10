@@ -258,6 +258,7 @@ export function useTranscriptFeedWindows(
   const clock = inputs.clock;
   const rememberedRowHeights = inputs.sessionStore.rememberedRowHeights;
   const readBeyondLogEdge = history?.readStretch;
+  const jumpToLogEnd = history?.jumpTo;
   const viewportRows = transcriptWindow.viewportRows;
   const viewportOptions = useMemo(
     () => ({
@@ -270,6 +271,7 @@ export function useTranscriptFeedWindows(
       heightKindOf,
       bodyLengthOf,
       readBeyondLogEdge,
+      jumpToLogEnd,
       isRowPrepared: preparedRows.isPrepared,
       isRowHeldOut: preparedRows.isHeldOut,
       holdsRowAfter: preparedRows.holdsRowAfter,
@@ -287,6 +289,7 @@ export function useTranscriptFeedWindows(
       heightKindOf,
       bodyLengthOf,
       readBeyondLogEdge,
+      jumpToLogEnd,
       preparedRows.isPrepared,
       preparedRows.isHeldOut,
       preparedRows.holdsRowAfter,

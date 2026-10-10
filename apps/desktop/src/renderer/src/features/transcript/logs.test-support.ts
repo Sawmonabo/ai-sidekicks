@@ -186,6 +186,7 @@ export function openPagedSessionStore(
   const sessionStore = new SessionStore({ sessionId: PAGED_SESSION_ID });
   sessionStore.initialize({
     cursor: lastIndex,
+    streamAfterCursor: transcriptFixtureStreamCursor(lastIndex),
     entities: [],
     transcript: Array.from({ length: lastIndex - firstIndex + 1 }, (_unused, offset) =>
       eventAt(firstIndex + offset),
@@ -198,7 +199,8 @@ export function openPagedSessionStore(
 /**
  * The paged session's rows at positions `0` through `rowCount - 1`, each as `rowAt` serves it (a
  * message, unless given), read as the daemon reads them: up to `limit` rows, oldest to newest,
- * nearest the cursor, with the next cursor and whether rows lie past it.
+ * nearest the cursor, or from the log's start with no cursor, with the next cursor and whether
+ * rows lie past it. A cursor naming no row is refused.
  */
 export function scriptedTranscriptLog(
   rowCount: number,
@@ -219,7 +221,10 @@ export function scriptedTranscriptLog(
       request.beforeCursor === undefined ? undefined : indexByCursor.get(request.beforeCursor);
     const afterIndex =
       request.afterCursor === undefined ? undefined : indexByCursor.get(request.afterCursor);
-    if (refusesNextRead || (beforeIndex === undefined && afterIndex === undefined)) {
+    const namesNoRow =
+      (request.beforeCursor !== undefined && beforeIndex === undefined) ||
+      (request.afterCursor !== undefined && afterIndex === undefined);
+    if (refusesNextRead || namesNoRow) {
       refusesNextRead = false;
       return Promise.resolve({
         status: "refused",
@@ -227,7 +232,11 @@ export function scriptedTranscriptLog(
       });
     }
     const firstIndex =
-      beforeIndex === undefined ? (afterIndex ?? 0) + 1 : Math.max(0, beforeIndex - limit + 1);
+      beforeIndex !== undefined
+        ? Math.max(0, beforeIndex - limit + 1)
+        : afterIndex === undefined
+          ? 0
+          : afterIndex + 1;
     const lastIndex =
       beforeIndex === undefined ? Math.min(rowCount - 1, firstIndex + limit - 1) : beforeIndex;
     const entries = Array.from({ length: lastIndex - firstIndex + 1 }, (_unused, offset) =>

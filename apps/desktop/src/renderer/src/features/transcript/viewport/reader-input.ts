@@ -2,7 +2,8 @@
 // them on the scroll container and its document and tells the frame what the reader did; every
 // decision about the window, the position and the selection stays with the frame.
 
-import { HOST_CHORD_PLATFORM, PLATFORM_MODIFIER_TOKEN } from "#renderer/lib/chord-format.js";
+import { HOST_SELECTION_KEYS } from "#renderer/services/platform/text-selection/host.js";
+import { isChordPress, type KeyChord } from "#renderer/services/platform/text-selection/keys.js";
 import { type WindowSide } from "./window-cap.js";
 
 /** What the reader's input asks of the frame, each call made as the input is heard. */
@@ -14,11 +15,11 @@ export interface ViewportReaderInputOptions {
   readonly noteReaderInput: (inputAtMs: number, towardSide?: WindowSide) => void;
   /** A press in the box began or ended; a selection dragged past an edge scrolls it meanwhile. */
   readonly notePointerDown: (isDown: boolean) => void;
-  /** Select All pressed on the log: the whole log, not only the rows drawn. */
-  readonly selectWholeLog: () => void;
-  /** Home pressed on the log: the log's first row. */
+  /** Select All pressed on the log: the whole conversation, not only the rows drawn. */
+  readonly selectWholeConversation: () => void;
+  /** The platform's press for a view's start, Home among them, on the log: its first row. */
   readonly jumpToHead: () => void;
-  /** End pressed on the log: the log's last row, following again. */
+  /** The platform's press for a view's end, End among them, on the log: its last row, following. */
   readonly jumpToTail: () => void;
   /** The reader pulled toward `side` at `inputAtMs`, which owes a pass where the box stands there. */
   readonly reviewPullAt: (side: WindowSide, inputAtMs: number) => void;
@@ -32,11 +33,11 @@ export class ViewportReaderInput {
   #touchStartYPx: number | undefined;
 
   /**
-   * Home, End and Select All pressed on the log itself, and the arrow and page keys pressed at
-   * either of its ends. A key pressed in a control inside a row, or already handled, is not the
-   * log's, and neither is any other key pressed with a modifier; the browser's own jump is
-   * prevented because it lands on an estimated end, and its own Select All because it selects
-   * only the rows drawn.
+   * The platform's presses for Select All and for a view's start and end pressed on the log
+   * itself, and the arrow and page keys pressed at either of its ends. A key pressed in a control
+   * inside a row, or already handled, is not the log's, and neither is any other key pressed with
+   * a modifier; the browser's own jump is prevented because it lands on an estimated end, and its
+   * own Select All because it selects only the rows drawn.
    */
   readonly #onScrollContainerKeyDown = (event: KeyboardEvent): void => {
     if (event.defaultPrevented) {
@@ -47,20 +48,17 @@ export class ViewportReaderInput {
     if (event.target !== event.currentTarget) {
       return;
     }
-    if (isSelectAllPress(event)) {
+    if (isAnyChordPress(event, HOST_SELECTION_KEYS.selectAll)) {
       event.preventDefault();
-      this.#options.selectWholeLog();
-      return;
-    }
-    if (hasModifier(event)) {
-      return;
-    }
-    if (event.key === "Home") {
+      this.#options.selectWholeConversation();
+    } else if (isAnyChordPress(event, HOST_SELECTION_KEYS.jumps.start)) {
       event.preventDefault();
       this.#options.jumpToHead();
-    } else if (event.key === "End") {
+    } else if (isAnyChordPress(event, HOST_SELECTION_KEYS.jumps.end)) {
       event.preventDefault();
       this.#options.jumpToTail();
+    } else if (hasModifier(event)) {
+      return;
     } else if (event.key === "ArrowUp" || event.key === "PageUp") {
       this.#options.reviewPullAt("head", event.timeStamp);
     } else if (event.key === "ArrowDown" || event.key === "PageDown") {
@@ -152,13 +150,9 @@ function hasModifier(event: KeyboardEvent): boolean {
   return event.altKey || event.ctrlKey || event.metaKey || event.shiftKey;
 }
 
-/** The platform's Select All press: its command modifier and A, with no other modifier. */
-function isSelectAllPress(event: KeyboardEvent): boolean {
-  const isCommandHeld =
-    PLATFORM_MODIFIER_TOKEN[HOST_CHORD_PLATFORM] === "Meta"
-      ? event.metaKey && !event.ctrlKey
-      : event.ctrlKey && !event.metaKey;
-  return isCommandHeld && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "a";
+/** Whether `event` is any of `chords`. */
+function isAnyChordPress(event: KeyboardEvent, chords: readonly KeyChord[]): boolean {
+  return chords.some((chord) => isChordPress(event, chord));
 }
 
 /** The side of the log a scrolling key moves the box toward, or `undefined` for another key. */

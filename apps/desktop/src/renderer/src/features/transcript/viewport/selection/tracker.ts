@@ -4,8 +4,8 @@
 // window, and copy reads it rather than the browser's selection.
 //   - The rows holding the two ends are held, so the window keeps them, and the virtualizer draws
 //     them, while they sit within the let-go distance; the browser's selection is the reader's. An
-//     end outside the scroller takes the log's edge row whole, holds nothing, and stays where the
-//     reader put it.
+//     end outside the scroller takes the conversation's end on its side, holds nothing, and stays
+//     where the reader put it.
 //   - When an end's row is let go, the row is copied as drawn, for copy, and the browser's
 //     selection is written as the record clamped to the drawn rows: that end stands at the edge of
 //     the drawn rows the record covers, so the browser paints exactly the drawn part of the
@@ -18,8 +18,8 @@
 //     would move a clamped end draws that end's row first and moves the end from where it is.
 //   - A change the reader makes that leaves a caret (a click on text or empty space, focus moving
 //     into a text field) clears the record, as it clears the browser's own selection.
-//   - Select All with focus in the log selects the whole log, head row to tail row, held nowhere
-//     and written clamped: the browser's own would select only the rows drawn.
+//   - Select All with focus in the log selects the whole conversation, its start to its end, held
+//     nowhere and written clamped: the browser's own would select only the rows drawn.
 //   - Text arriving in a row the browser's selection ends in replaces the text node an end sits
 //     in, which moves that end to the node's start. An observer on those rows writes the record
 //     back in the microtask after the change, before the browser reports it.
@@ -47,8 +47,12 @@ import {
   type RowTextPosition,
 } from "./preservation.js";
 import {
+  CONVERSATION_END,
+  CONVERSATION_START,
+  logOrderOf,
   otherSide,
   RECORD_SIDES,
+  rowKeyOf,
   type RecordSide,
   type RowSelection,
   type RowSelectionBoundary,
@@ -62,8 +66,6 @@ export interface ViewportSelectionTrackerOptions {
   readonly holdSelectedRows: (rowKeys: readonly string[]) => void;
   /** A row's position in the log the viewport was handed, or `undefined` for a key it lacks. */
   readonly logPositionOf: (rowKey: string) => number | undefined;
-  /** The key of the log's first or last row, which an end outside the scroller takes. */
-  readonly logEdgeRowKey: (side: "head" | "tail") => string | undefined;
   /** Draws a row the window let go and brings it into view, so an end in it can move. */
   readonly drawRow: (rowKey: string) => void;
 }
@@ -136,7 +138,7 @@ export class ViewportSelectionTracker {
           event.target === ownerDocument.body || event.target === ownerDocument.documentElement;
         if (isFromRoot && scrollContainer.contains(ownerDocument.activeElement)) {
           event.preventDefault();
-          this.selectWholeLog();
+          this.selectWholeConversation();
         }
       },
       options,
@@ -168,16 +170,11 @@ export class ViewportSelectionTracker {
   }
 
   /**
-   * Selects the whole log, its head row to its tail row, each whole. Nothing is held, so the
-   * window keeps its usual rows; the browser's selection is written clamped to the drawn rows.
+   * Selects the whole conversation, its start to its end. Nothing is held, so the window keeps its
+   * usual rows; the browser's selection is written clamped to the drawn rows.
    */
-  public selectWholeLog(): void {
-    const start = this.#logEdgeBoundary("head");
-    const end = this.#logEdgeBoundary("tail");
-    if (start === undefined || end === undefined) {
-      return;
-    }
-    this.#setRecord({ start, end }, "start", {});
+  public selectWholeConversation(): void {
+    this.#setRecord({ start: CONVERSATION_START, end: CONVERSATION_END }, "start", {});
     this.#options.holdSelectedRows([]);
     this.#writeRecord();
     this.#settling.noteSelected();
@@ -245,7 +242,7 @@ export class ViewportSelectionTracker {
       return this.#writeRecord({ onlyWhenMoved: true });
     }
     if (
-      (rowKey !== selection.start.rowKey && rowKey !== selection.end.rowKey) ||
+      (rowKey !== rowKeyOf(selection.start) && rowKey !== rowKeyOf(selection.end)) ||
       !this.#hasLost(browserSelection, selection)
     ) {
       return false;
@@ -371,9 +368,6 @@ export class ViewportSelectionTracker {
       isFocusFirst ? "start" : "end",
       scrollContainer,
     );
-    if (focus === undefined) {
-      return undefined;
-    }
     const isKeptFirst = !this.#isBefore(focus.boundary, kept);
     const [keptAs, focusAs]: readonly [RecordSide, RecordSide] = isKeptFirst
       ? ["start", "end"]
@@ -422,9 +416,6 @@ export class ViewportSelectionTracker {
       "end",
       scrollContainer,
     );
-    if (start === undefined || end === undefined) {
-      return undefined;
-    }
     const outsidePoints: Partial<Record<RecordSide, SelectionPoint>> = {};
     if (start.outsidePoint !== undefined) {
       outsidePoints.start = start.outsidePoint;
@@ -442,32 +433,28 @@ export class ViewportSelectionTracker {
 
   /**
    * One end of the browser's selection as the record keeps it: the row boundary inside the
-   * scroller, or the log's edge row whole and the point outside it where the reader put it.
+   * scroller, or the conversation's end on its side and the point outside where the reader put it.
    */
   #endAt(
     point: SelectionPoint,
     side: RecordSide,
     scrollContainer: HTMLElement,
-  ):
-    | { readonly boundary: RowSelectionBoundary; readonly outsidePoint?: SelectionPoint }
-    | undefined {
+  ): { readonly boundary: RowSelectionBoundary; readonly outsidePoint?: SelectionPoint } {
     if (scrollContainer.contains(point.node)) {
-      const boundary = this.#boundaryAt(point.node, point.offset, side);
-      return boundary === undefined ? undefined : { boundary };
+      return { boundary: this.#boundaryAt(point.node, point.offset, side) };
     }
-    const boundary = this.#logEdgeBoundary(side === "start" ? "head" : "tail");
-    return boundary === undefined ? undefined : { boundary, outsidePoint: point };
+    return { boundary: conversationEdgeOf(side), outsidePoint: point };
   }
 
   /**
    * The row boundary of one end of a range inside the scroller: the row holding it, or, for an end
-   * between rows, the nearest row on the selection's side of it.
+   * between rows, the nearest row on the selection's side of it, else the conversation's end there.
    */
-  #boundaryAt(container: Node, offset: number, side: RecordSide): RowSelectionBoundary | undefined {
+  #boundaryAt(container: Node, offset: number, side: RecordSide): RowSelectionBoundary {
     for (let node: Node | null = container; node !== null; node = node.parentNode) {
       const rowKey = this.#rowKeyByElement.get(node);
       if (rowKey !== undefined) {
-        return { rowKey, position: rowTextPositionOf(node, container, offset) };
+        return { at: "row", rowKey, position: rowTextPositionOf(node, container, offset) };
       }
     }
     for (
@@ -479,25 +466,21 @@ export class ViewportSelectionTracker {
       const rowKey = this.#rowKeyByElement.get(node);
       if (rowKey !== undefined) {
         const characterOffset = side === "start" ? 0 : (node.textContent?.length ?? 0);
-        return { rowKey, position: { path: [], characterOffset } };
+        return { at: "row", rowKey, position: { path: [], characterOffset } };
       }
     }
-    return this.#logEdgeBoundary(side === "start" ? "head" : "tail");
-  }
-
-  /** The log's edge row on one side, taken whole. */
-  #logEdgeBoundary(side: "head" | "tail"): RowSelectionBoundary | undefined {
-    const rowKey = this.#options.logEdgeRowKey(side);
-    return rowKey === undefined ? undefined : { rowKey, position: undefined };
+    return conversationEdgeOf(side);
   }
 
   /** Whether `first` comes before `second` in the log. */
   #isBefore(first: RowSelectionBoundary, second: RowSelectionBoundary): boolean {
-    const firstPosition = this.#options.logPositionOf(first.rowKey) ?? 0;
-    const secondPosition = this.#options.logPositionOf(second.rowKey) ?? 0;
+    const firstPosition = logOrderOf(first, this.#options.logPositionOf) ?? 0;
+    const secondPosition = logOrderOf(second, this.#options.logPositionOf) ?? 0;
     return (
       firstPosition < secondPosition ||
       (firstPosition === secondPosition &&
+        first.at === "row" &&
+        second.at === "row" &&
         compareRowTextPositions(first.position ?? ROW_START, second.position ?? ROW_START) < 0)
     );
   }
@@ -598,7 +581,9 @@ export class ViewportSelectionTracker {
       return;
     }
     const focusSide = otherSide(this.#anchorSide);
-    if (this.#clampedEnds[focusSide] === undefined) {
+    // An end of the conversation has no row to draw: the browser moves it from where it shows it.
+    const rowKey = rowKeyOf(selection[focusSide]);
+    if (this.#clampedEnds[focusSide] === undefined || rowKey === undefined) {
       return;
     }
     const extension = extensionOf(event);
@@ -606,7 +591,6 @@ export class ViewportSelectionTracker {
       return;
     }
     event.preventDefault();
-    const rowKey = selection[focusSide].rowKey;
     this.#pendingExtension = { rowKey, extension };
     this.#options.drawRow(rowKey);
   }
@@ -639,9 +623,13 @@ export class ViewportSelectionTracker {
     if (!browserSelection.isCollapsed) {
       return false;
     }
-    return [selection.start.rowKey, selection.end.rowKey].some(
-      (rowKey) => this.#rowElementByKey.get(rowKey)?.contains(liveRange.startContainer) === true,
-    );
+    return [selection.start, selection.end].some((boundary) => {
+      const rowKey = rowKeyOf(boundary);
+      return (
+        rowKey !== undefined &&
+        this.#rowElementByKey.get(rowKey)?.contains(liveRange.startContainer) === true
+      );
+    });
   }
 
   /** Whether the browser's selection ends inside `rowElement`. */
@@ -837,10 +825,15 @@ const ROW_START: RowTextPosition = { path: [], characterOffset: 0 };
 
 /** The rows an end of the selection sits inside, which are held and copied as drawn. */
 function anchoredRowKeys(selection: RowSelection): readonly string[] {
-  const rowKeys = [selection.start, selection.end]
-    .filter((boundary) => boundary.position !== undefined)
-    .map((boundary) => boundary.rowKey);
+  const rowKeys = [selection.start, selection.end].flatMap((boundary) =>
+    boundary.at === "row" && boundary.position !== undefined ? [boundary.rowKey] : [],
+  );
   return [...new Set(rowKeys)];
+}
+
+/** The end of the conversation on `side` of the record. */
+function conversationEdgeOf(side: RecordSide): RowSelectionBoundary {
+  return side === "start" ? CONVERSATION_START : CONVERSATION_END;
 }
 
 /** Whether the browser's focus comes before its anchor. */

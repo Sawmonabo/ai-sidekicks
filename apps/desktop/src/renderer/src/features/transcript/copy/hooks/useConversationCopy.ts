@@ -13,7 +13,7 @@ import type { ProjectedSessionEvent } from "#renderer/store/session/entities/voc
 import { type SessionStore } from "#renderer/store/session/store.js";
 import { type FullBodyReads } from "../../rows/full-body-reads.js";
 import { readRunWindowEdgeKey } from "../../runs/call-window.js";
-import { type RowSelection } from "../../viewport/selection/record.js";
+import { rowKeyOf, type RowSelection } from "../../viewport/selection/record.js";
 import { type ViewportSelectionTracker } from "../../viewport/selection/tracker.js";
 import { rowSourceSpanReader, type RowSourceWindows } from "../../window/row-sources.js";
 import { type TranscriptWindowModel } from "../../window/transcript-window.js";
@@ -36,8 +36,8 @@ export interface ConversationCopySource {
   /** The viewport's record of the selection, kept while rows it runs through are let go. */
   readonly selectionTracker: ViewportSelectionTracker;
   /**
-   * The keys of the rows the selection runs across, in log order; empty unless the log holds both
-   * of its ends.
+   * The keys of the rows the log holds of the selection, in log order, an end of the conversation
+   * reaching the log's edge row on its side; empty unless the log holds the rows of both ends.
    */
   readonly selectedRowKeys: () => readonly string[];
   /** The windows the viewport was handed, which the events of a selection's ends are read from. */
@@ -153,7 +153,7 @@ export function useConversationCopy(source: ConversationCopySource): void {
     const takeHeldCopy = (): RowSpanCopy | undefined => {
       const selection = selectionTracker.selection;
       const rowKeys = selectedRowKeys();
-      return selection === undefined || rowKeys.length === 0
+      return selection === undefined || rowKeys.length === 0 || !holdsEndsOf(selection)
         ? undefined
         : {
             selection,
@@ -162,15 +162,28 @@ export function useConversationCopy(source: ConversationCopySource): void {
             endRowElement: (rowKey) => selectionTracker.endRowElement(rowKey),
           };
     };
+    // Whether the store's log holds each end of the conversation the selection reaches; a copy
+    // composed with no history holds the whole conversation.
+    const holdsEndsOf = (selection: RowSelection): boolean => {
+      if (history === undefined) {
+        return true;
+      }
+      const state = history.sessionStore.snapshot();
+      return (
+        (selection.start.at !== "conversation-start" || !state.transcriptHead.hasMore) &&
+        (selection.end.at !== "conversation-end" || state.transcriptTail.following === "live")
+      );
+    };
     // Each end row as `endRowElement` draws it now, copied, for a copy that waits.
     const keptEndRows = (
       selection: RowSelection,
       endRowElement: (rowKey: string) => Element | undefined,
     ): ReadonlyMap<string, Element> => {
       const endRows = new Map<string, Element>();
-      for (const rowKey of [selection.start.rowKey, selection.end.rowKey]) {
-        const endRow = endRowElement(rowKey);
-        if (endRow !== undefined) {
+      for (const boundary of [selection.start, selection.end]) {
+        const rowKey = rowKeyOf(boundary);
+        const endRow = rowKey === undefined ? undefined : endRowElement(rowKey);
+        if (rowKey !== undefined && endRow !== undefined) {
           endRows.set(rowKey, endRow.cloneNode(true) as Element);
         }
       }
@@ -204,11 +217,18 @@ export function useConversationCopy(source: ConversationCopySource): void {
     // Everything the read back needs is taken here, before anything waits.
     const takeHistoryCopy = (): HistoryCopy | undefined => {
       const selection = selectionTracker.selection;
-      const span = eventSpan.span;
-      if (selection === undefined || span === undefined || history === undefined) {
+      if (selection === undefined || history === undefined) {
         return undefined;
       }
       const state = history.sessionStore.snapshot();
+      const span = eventSpan.readSpan(
+        state.streamAfterCursor === undefined
+          ? undefined
+          : { sequence: state.cursor, cursor: state.streamAfterCursor },
+      );
+      if (span === undefined) {
+        return undefined;
+      }
       return {
         selection,
         span,
@@ -234,8 +254,9 @@ export function useConversationCopy(source: ConversationCopySource): void {
       }
       const transcriptWindow = readHistory.deriveDrawnWindow(events);
       const rowKeys = transcriptWindow.viewportRows.map((row) => row.key);
-      const first = rowKeys.indexOf(copy.selection.start.rowKey);
-      const last = rowKeys.indexOf(copy.selection.end.rowKey);
+      const { start, end } = copy.selection;
+      const first = start.at === "row" ? rowKeys.indexOf(start.rowKey) : 0;
+      const last = end.at === "row" ? rowKeys.indexOf(end.rowKey) : rowKeys.length - 1;
       if (first === -1 || last < first) {
         throw new Error("The rows read back do not hold the selection's ends.");
       }

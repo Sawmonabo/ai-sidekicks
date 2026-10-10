@@ -42,10 +42,12 @@ import {
   admitFullBody,
   foldEarlierWindowPage,
   foldLaterWindowPage,
+  foldLogEndPage,
   releaseBeyondNewest,
   releaseOutsideKept,
   type EarlierWindowMerge,
   type LaterWindowMerge,
+  type LogEndPageMerge,
   type TranscriptPageDependencies,
 } from "./transcript-window.js";
 import { EntityProjectionRunner } from "./entities/projection-runner.js";
@@ -394,6 +396,31 @@ export class SessionStore {
     );
     if (nextState !== undefined) {
       this.#store.setState(nextState);
+    }
+    return merge;
+  }
+
+  /**
+   * Puts a page read at one end of the log, its start or its end, in place of the whole window;
+   * returns what it admitted. At the start the head closes; at the end the head takes `edge`, the
+   * page's own, and the tail goes live when the page reaches what the stream has delivered. Not a
+   * second apply chokepoint, on the terms of {@link prependEarlierEvents}.
+   */
+  public replaceWithLogEndPage(
+    logEnd: "start" | "end",
+    events: readonly ProjectedSessionEvent[],
+    edge: TranscriptWindowEdge,
+  ): LogEndPageMerge {
+    const { merge, nextState } = foldLogEndPage(
+      this.#store.getState(),
+      events,
+      logEnd,
+      edge,
+      this.#pageDependencies,
+    );
+    if (nextState !== undefined) {
+      this.#store.setState(nextState);
+      recordStoreSize(this.#sessionId, nextState.transcript.length);
     }
     return merge;
   }

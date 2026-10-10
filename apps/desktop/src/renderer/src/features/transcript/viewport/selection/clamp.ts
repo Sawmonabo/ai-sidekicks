@@ -1,10 +1,17 @@
 // Where the browser's selection is written to show a recorded selection over the rows the window
 // has drawn: each end where it sits while its row is drawn, where the reader put it outside the
-// scroller, or else at the edge of the drawn rows the record covers, so the browser paints exactly
-// the drawn part of the selection with its own selection.
+// scroller, or else, an end of the conversation among them, at the edge of the drawn rows the
+// record covers, so the browser paints exactly the drawn part of the selection with its own
+// selection.
 
 import { resolveRowTextPosition, type RowTextPosition } from "./preservation.js";
-import { otherSide, type RecordSide, type RowSelection, type SelectionPoint } from "./record.js";
+import {
+  logOrderOf,
+  otherSide,
+  type RecordSide,
+  type RowSelection,
+  type SelectionPoint,
+} from "./record.js";
 
 /**
  * An end standing at the edge of the drawn rows: the drawn row, or the scroller when none is
@@ -31,8 +38,8 @@ export function shownEndsOf(
   selection: RowSelection,
   rows: DrawnRows,
 ): Record<RecordSide, ShownEnd> {
-  const startPosition = rows.logPositionOf(selection.start.rowKey);
-  const endPosition = rows.logPositionOf(selection.end.rowKey);
+  const startPosition = logOrderOf(selection.start, rows.logPositionOf);
+  const endPosition = logOrderOf(selection.end, rows.logPositionOf);
   let firstCovered: { readonly position: number; readonly row: HTMLElement } | undefined;
   let lastCovered: { readonly position: number; readonly row: HTMLElement } | undefined;
   if (startPosition !== undefined && endPosition !== undefined) {
@@ -55,9 +62,9 @@ export function shownEndsOf(
       return { point: outside, clamped: undefined };
     }
     const boundary = selection[side];
-    const row = rows.rowElementByKey.get(boundary.rowKey);
+    const row = boundary.at === "row" ? rows.rowElementByKey.get(boundary.rowKey) : undefined;
     const drawn =
-      row === undefined
+      row === undefined || boundary.at !== "row"
         ? undefined
         : boundary.position === undefined
           ? rowEdgePoint(row, side)
