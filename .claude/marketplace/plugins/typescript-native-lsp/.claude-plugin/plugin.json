@@ -1,0 +1,8 @@
+{
+  "name": "typescript-native-lsp",
+  "version": "1.0.0",
+  "description": "TypeScript 7's own language server, from the workspace's TypeScript",
+  "author": {
+    "name": "AI Sidekicks"
+  }
+}

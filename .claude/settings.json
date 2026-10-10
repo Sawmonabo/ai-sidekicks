@@ -64,9 +64,15 @@
     "context7@claude-plugins-official": true,
     "code-simplifier@claude-plugins-official": false,
     "claude-md-management@claude-plugins-official": false,
-    "typescript-lsp@claude-plugins-official": true,
+    "typescript-lsp@claude-plugins-official": false,
+    "typescript-native-lsp@ai-sidekicks": true,
     "rust-analyzer-lsp@claude-plugins-official": true,
     "deep-research@sidekick-skills": true
+  },
+  "extraKnownMarketplaces": {
+    "ai-sidekicks": {
+      "source": { "source": "directory", "path": "./.claude/marketplace" }
+    }
   },
   "spinnerVerbs": {
     "mode": "replace",
