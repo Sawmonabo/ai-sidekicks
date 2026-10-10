@@ -90,6 +90,13 @@ export function createFixtureBridge(options: FixtureBridgeOptions): FixtureBridg
         // A no-op is safe: nothing reads the result back, and a refusal would make every "copy id"
         // affordance untestable.
       },
+      // The fixture keeps no clipboard: a snapshot reads it empty, so a later write always lands,
+      // as the same write a copy at once makes, read at the call so a spy on it sees the write.
+      takeClipboardSnapshot: async () => ({ digest: "" }),
+      copyToClipboardUnlessChanged: async (content) => {
+        await bridge.native.copyToClipboard(content);
+        return true;
+      },
       // The fixture keeps no clipboard, so none still holds a copy's text.
       addClipboardFormatting: async () => false,
       revealInFileExplorer: () => refuseAbsentCapability("native.revealInFileExplorer"),

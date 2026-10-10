@@ -25,7 +25,13 @@ import type { MainDiagnosticLog } from "../services/diagnostic-log.js";
 import type { DaemonForwarding } from "./daemon.js";
 import type { FilePathRefs } from "./file-path/refs.js";
 import { KEYBOARD_MAP_FILE_NAME, KeyboardMapFile, parseKeyboardMap } from "./keyboard-map-file.js";
-import { addClipboardFormatting, clipboardHostsFor, copyToClipboard } from "./native/clipboard.js";
+import {
+  addClipboardFormatting,
+  clipboardHostsFor,
+  copyToClipboard,
+  copyToClipboardUnlessChanged,
+  takeClipboardSnapshot,
+} from "./native/clipboard.js";
 import { listEditors } from "./native/editors/installed.js";
 import { openInEditor, parseEditorOpenRequest, readChosenEditorId } from "./native/editors/open.js";
 import { runProgram } from "./native/editors/program-runner.js";
@@ -158,6 +164,10 @@ export function installBridgeHandlers(services: BridgeHandlerServices): void {
     [BRIDGE_CHANNELS.getNotificationPermission]: () =>
       readNotificationPermission(getNotificationStatus),
     [BRIDGE_CHANNELS.copyToClipboard]: (_event, request) => copyToClipboard(clipboards, request),
+    [BRIDGE_CHANNELS.takeClipboardSnapshot]: (_event, request) =>
+      takeClipboardSnapshot(clipboards, request),
+    [BRIDGE_CHANNELS.copyToClipboardUnlessChanged]: (_event, request) =>
+      copyToClipboardUnlessChanged(clipboards, request),
     [BRIDGE_CHANNELS.addClipboardFormatting]: (_event, request) =>
       addClipboardFormatting(clipboards, request),
     [BRIDGE_CHANNELS.revealInFileExplorer]: (event, ref) => {

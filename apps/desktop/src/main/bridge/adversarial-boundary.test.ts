@@ -10,7 +10,7 @@
 // that got around it would; the two daemon-backed members go through the page's bridge, which
 // turns main's failed answer into a rejection.
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -52,6 +52,7 @@ const electronMock = createElectronMock();
 /** What the platform's dialog, clipboard and file manager were asked to do, in order. */
 const dialogOpens: unknown[] = [];
 const clipboardWrites: unknown[] = [];
+const clipboardReads: unknown[] = [];
 const revealedPaths: string[] = [];
 
 // The shared mock carries no dialog, clipboard or file-manager reveal; these record each ask.
@@ -75,6 +76,11 @@ vi.mock("electron", () => ({
     },
     // Holds the text every accepted formatting request names, so an accepted one writes.
     readText: () => Promise.resolve("a"),
+    // Holds no entry, so a snapshot of it is the digest of nothing.
+    read: () => {
+      clipboardReads.push("read");
+      return Promise.resolve([]);
+    },
   },
   ClipboardItem: class {
     public constructor(public readonly flavors: unknown) {}
@@ -85,6 +91,9 @@ const SESSION_ID = "00000000-0000-4000-8000-000000000001" as SessionId;
 
 /** The file a served `session.memoryRead` offers to open. */
 const MEMORY_FILE = "/Users/person/.claude/projects/app/CLAUDE.md";
+
+/** What a snapshot of a clipboard holding no entry reads. */
+const EMPTY_DIGEST = createHash("sha256").digest("hex");
 
 /** A refusal from a member's schema: a Zod issue list, never a runtime error from main's code. */
 const SCHEMA_REFUSAL = /"code": "[a-z_]+"/;
@@ -353,6 +362,30 @@ async function intakeCases(): Promise<readonly IntakeCase[]> {
       refusal: SCHEMA_REFUSAL,
       accepted: { content: { text: "a", html: "<b>a</b>" } },
       send: (payload) => invoke(BRIDGE_CHANNELS.copyToClipboard, payload),
+      acted: () => clipboardWrites.length,
+    },
+    {
+      member: "native.takeClipboardSnapshot",
+      refused: [{ clipboard: "system" }, { clipboard: 7 }, { extra: true }, "a", null],
+      refusal: SCHEMA_REFUSAL,
+      accepted: {},
+      send: (payload) => invoke(BRIDGE_CHANNELS.takeClipboardSnapshot, payload),
+      acted: () => clipboardReads.length,
+    },
+    {
+      member: "native.copyToClipboardUnlessChanged",
+      refused: [
+        { content: { text: "a" } },
+        { content: { text: "a" }, since: { digest: 7 } },
+        { content: { text: "a" }, since: { clipboard: "system", digest: EMPTY_DIGEST } },
+        { content: { text: 7 }, since: { digest: EMPTY_DIGEST } },
+        { content: { text: "a" }, since: { digest: EMPTY_DIGEST }, extra: true },
+        "a",
+        null,
+      ],
+      refusal: SCHEMA_REFUSAL,
+      accepted: { content: { text: "a" }, since: { digest: EMPTY_DIGEST } },
+      send: (payload) => invoke(BRIDGE_CHANNELS.copyToClipboardUnlessChanged, payload),
       acted: () => clipboardWrites.length,
     },
     {

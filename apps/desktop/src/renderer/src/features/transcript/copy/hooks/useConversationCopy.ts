@@ -8,6 +8,7 @@ import { markdownWorker } from "#renderer/components/Markdown/worker/connection.
 import { startSlice } from "#renderer/lib/work-slices.js";
 import { type TranscriptPageRead } from "#renderer/services/daemon/transcript/page.js";
 import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
+import { LateClipboardCopy } from "#renderer/services/platform/late-clipboard-copy.js";
 import { primarySelectionFor } from "#renderer/services/platform/primary-selection/host.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
@@ -117,11 +118,11 @@ const COPY_FAILED_ANNOUNCEMENT = "Could not copy";
  * its ends sit in. A copy is built a slice at a time, so it holds no frame however long, and a
  * large body it takes in is read in full just before its row, opened or not. A copy built at once
  * is written whole in one write. One that builds longer writes its plain text as soon as every row
- * is read, so a paste never takes the clipboard's older copy, then adds its formatted flavor only
- * while the clipboard still holds that text, so a newer copy made meanwhile, here or in another
- * app, stands. Nothing is written when a page or a body is refused; the newest copy wins. A
- * selection settled in the conversation, by a drag or the keys, hands the same text to the system's
- * primary selection. A refused write or read is said aloud.
+ * is read, only while the clipboard holds what it held when the key was pressed, then adds its
+ * formatted flavor only while the clipboard still holds that text, so a newer copy made meanwhile,
+ * here or in another app, stands. Nothing is written when a page or a body is refused; the newest
+ * copy wins. A selection settled in the conversation, by a drag or the keys, hands the same text to
+ * the system's primary selection. A refused write or read is said aloud.
  */
 export function useConversationCopy(source: ConversationCopySource): void {
   const bridge = usePlatformBridge();
@@ -290,14 +291,16 @@ export function useConversationCopy(source: ConversationCopySource): void {
     };
     // The plain text first, once every row is read, then its formatted flavor beside it while the
     // clipboard still holds that text; a copy whose text and flavor come together is one write.
+    // Each write lands only while no newer copy, from any app, took the clipboard.
     const writeOnceBuilt = (finish: CopyFinish, isCurrent: () => boolean): void => {
-      // Whether the plain text written first reached the clipboard.
-      let isTextWritten: Promise<boolean> | undefined;
+      const lateCopy = new LateClipboardCopy(bridge);
+      // How the plain text written first went.
+      let textWrite: Promise<"written" | "replaced" | "failed"> | undefined;
       finish((text) => {
         if (isCurrent()) {
-          isTextWritten = bridge.native.copyToClipboard({ text }).then(
-            () => true,
-            () => false,
+          textWrite = lateCopy.write({ text }).then(
+            (isWritten) => (isWritten ? "written" : "replaced"),
+            () => "failed",
           );
         }
       })
@@ -305,16 +308,17 @@ export function useConversationCopy(source: ConversationCopySource): void {
           if (content === undefined || !isCurrent()) {
             return;
           }
-          if (isTextWritten === undefined) {
-            write(content);
+          if (textWrite === undefined) {
+            await lateCopy.write(content);
             return;
           }
           // Main compares against the clipboard's text, so the formatting waits for it to land.
-          if (!(await isTextWritten)) {
+          const written = await textWrite;
+          if (written === "failed") {
             sayCopyFailed();
             return;
           }
-          if (content.html !== undefined) {
+          if (written === "written" && content.html !== undefined) {
             await bridge.native.addClipboardFormatting({ text: content.text, html: content.html });
           }
         })

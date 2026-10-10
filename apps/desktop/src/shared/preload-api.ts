@@ -137,6 +137,16 @@ export interface TextClipboardContent {
 export type ClipboardContent = TextClipboardContent | { readonly png: Uint8Array<ArrayBuffer> };
 
 /**
+ * What a clipboard held when a copy was asked for, as a digest main reads: the copy's content,
+ * coming later, is written only while the clipboard still holds it.
+ */
+export interface ClipboardSnapshot {
+  /** The selection clipboard, or the system one when absent. */
+  readonly clipboard?: "selection";
+  readonly digest: string;
+}
+
+/**
  * An install that cannot update itself, and what can: a package manager's own update
  * command, or, for a macOS copy outside a writable folder, moving it to Applications.
  */
@@ -419,6 +429,20 @@ export interface PreloadApi {
      */
     copyToClipboard(content: ClipboardContent, clipboard?: "selection"): Promise<void>;
     /**
+     * What the system clipboard, or the selection one, holds now, for a copy whose content comes
+     * later to write against; refused as `copyToClipboard` refuses the clipboard.
+     */
+    takeClipboardSnapshot(clipboard?: "selection"): Promise<ClipboardSnapshot>;
+    /**
+     * Put `content` on the clipboard `since` names in one write, only while that clipboard still
+     * holds what it held when `since` was taken; resolves `false`, writing nothing, once a newer
+     * copy, from this app or another, holds it.
+     */
+    copyToClipboardUnlessChanged(
+      content: ClipboardContent,
+      since: ClipboardSnapshot,
+    ): Promise<boolean>;
+    /**
      * Put `html` beside `text` on the system clipboard, in one write, only while the clipboard
      * still holds `text` as a copy wrote it; resolves `false`, writing nothing, once a newer copy,
      * from this app or another, holds it.
@@ -568,6 +592,8 @@ export function createStubBridge(app: AppFacts, lastUsedWindowId: string): Prelo
       listEditors: () => stubThrow("native.listEditors"),
       getNotificationPermission: () => stubThrow("native.getNotificationPermission"),
       copyToClipboard: () => stubThrow("native.copyToClipboard"),
+      takeClipboardSnapshot: () => stubThrow("native.takeClipboardSnapshot"),
+      copyToClipboardUnlessChanged: () => stubThrow("native.copyToClipboardUnlessChanged"),
       addClipboardFormatting: () => stubThrow("native.addClipboardFormatting"),
       revealInFileExplorer: () => stubThrow("native.revealInFileExplorer"),
     },
