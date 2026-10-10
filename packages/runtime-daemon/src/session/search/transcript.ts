@@ -97,20 +97,23 @@ export class TranscriptSearchService {
       .reduce((total, rowMatchCount) => total + rowMatchCount, 0);
     const limit = request.limit ?? TRANSCRIPT_READ_LIMIT_MAX;
     // One candidate past the limit shows whether more remain.
-    const candidates = this.#hitLines
-      .readLines(rowKeys.subarray(firstPlace), searchQuery, limit + 1)
-      .flatMap(({ row, marked }): TranscriptSearchHit[] =>
-        row.logRow === undefined
-          ? []
-          : [
-              {
-                rowId: row.logRow.eventId,
-                cursor: encodeEventCursor(row.logRow.sequence),
-                snippet: marked.line,
-                matchRanges: marked.matchRanges,
-              },
-            ],
-      );
+    const [lines = []] = this.#hitLines.readLines(
+      [rowKeys.subarray(firstPlace)],
+      searchQuery,
+      limit + 1,
+    );
+    const candidates = lines.flatMap(({ row, marked }): TranscriptSearchHit[] =>
+      row.logRow === undefined
+        ? []
+        : [
+            {
+              rowId: row.logRow.eventId,
+              cursor: encodeEventCursor(row.logRow.sequence),
+              snippet: marked.line,
+              matchRanges: marked.matchRanges,
+            },
+          ],
+    );
     const pageSize = countEntriesFittingOneFrame(candidates, limit);
     const hits = candidates.slice(0, pageSize);
     const lastHit = hits.at(-1);

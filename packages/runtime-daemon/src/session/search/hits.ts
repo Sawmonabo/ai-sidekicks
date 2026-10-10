@@ -40,45 +40,65 @@ export class HitLineReader {
   }
 
   /**
-   * The lines of the first `count` of these keys' rows that still hold a match of the query's
-   * words, marked as the index marks them, in the keys' order. Rows are read only as far as that
-   * takes.
+   * For each list of keys, the lines of the first `count` of its rows that still hold a match of
+   * the query's words, marked as the index marks them, in the keys' order. Rows are read only as
+   * far as that takes, every list's in one read at a time.
    */
-  readLines(keys: HitKeys, query: SearchQuery, count: number): HitLine[] {
-    return this.#readMarkedLines(keys, (row) => this.#index.markMatches(row.text, query), count);
+  readLines(keyLists: readonly HitKeys[], query: SearchQuery, count: number): HitLine[][] {
+    return this.#readMarkedLines(
+      keyLists,
+      (row) => this.#index.markMatches(row.text, query),
+      count,
+    );
   }
 
   /**
-   * The lines of the first `count` of these keys' tag rows that a queried tag, each a tag fold,
-   * still matches, in the keys' order: each tag marked through as many levels as the longest
-   * queried tag it is or is nested under has.
+   * For each list of keys, the lines of the first `count` of its tag rows that a queried tag, each
+   * a tag fold, still matches, in the keys' order: each tag marked through as many levels as the
+   * longest queried tag it is or is nested under has.
    */
-  readTagLines(keys: HitKeys, tagFolds: readonly string[], count: number): HitLine[] {
-    return this.#readMarkedLines(keys, (row) => tagMatchRanges(row, tagFolds), count);
+  readTagLines(
+    keyLists: readonly HitKeys[],
+    tagFolds: readonly string[],
+    count: number,
+  ): HitLine[][] {
+    return this.#readMarkedLines(keyLists, (row) => tagMatchRanges(row, tagFolds), count);
   }
 
-  #readMarkedLines(keys: HitKeys, marker: MatchMarker, count: number): HitLine[] {
-    const lines: HitLine[] = [];
-    let next = 0;
-    while (lines.length < count && next < keys.length) {
-      const chunk = keys.slice(next, next + count - lines.length);
-      next += chunk.length;
-      const rows = this.#rows.readRows(chunk);
-      for (const key of chunk) {
-        const row = rows.get(key);
-        if (row === undefined) {
-          continue;
+  // Each round reads, for every list short of `count` lines with keys left, as many of its next
+  // keys as it is short, all in one read.
+  #readMarkedLines(keyLists: readonly HitKeys[], marker: MatchMarker, count: number): HitLine[][] {
+    const reads = keyLists.map((keys) => ({ keys, next: 0, lines: [] as HitLine[] }));
+    for (;;) {
+      const chunks = reads.flatMap((read) => {
+        const { keys, next, lines } = read;
+        if (lines.length >= count || next >= keys.length) {
+          return [];
         }
-        const [firstRange, ...laterRanges] = marker(row);
-        if (firstRange !== undefined) {
-          lines.push({
-            row,
-            marked: cutMarkedLine(row.text, [firstRange, ...laterRanges], this.#lineMaxLength),
-          });
+        const chunk = keys.slice(next, next + count - lines.length);
+        read.next += chunk.length;
+        return [{ chunk, lines }];
+      });
+      if (chunks.length === 0) {
+        return reads.map(({ lines }) => lines);
+      }
+      const rows = this.#rows.readRows(chunks.flatMap(({ chunk }) => [...chunk]));
+      for (const { chunk, lines } of chunks) {
+        for (const key of chunk) {
+          const row = rows.get(key);
+          if (row === undefined) {
+            continue;
+          }
+          const [firstRange, ...laterRanges] = marker(row);
+          if (firstRange !== undefined) {
+            lines.push({
+              row,
+              marked: cutMarkedLine(row.text, [firstRange, ...laterRanges], this.#lineMaxLength),
+            });
+          }
         }
       }
     }
-    return lines;
   }
 }
 

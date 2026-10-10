@@ -204,11 +204,11 @@ export class SessionSearchService {
   }
 
   // The sessions of a held search's order from where `resume` names on, a batch at a time, each
-  // with its hits that still hold a match, read one past what a page holds so a session with more
-  // splits across pages; the first with only those after the last hit an earlier page showed. A
-  // session since purged, or one whose rowid a later session took, is passed over, and so is a hit
-  // whose row is gone or was taken. Throws `session.search_cursor_unresolvable` when the cursor's
-  // hit is none of its session's hits.
+  // with its hits that still hold a match, the batch's lines read together, each session's one past
+  // what a page holds so a session with more splits across pages; the first with only those after
+  // the last hit an earlier page showed. A session since purged, or one whose rowid a later session
+  // took, is passed over, and so is a hit whose row is gone or was taken. Throws
+  // `session.search_cursor_unresolvable` when the cursor's hit is none of its session's hits.
   *#candidates(
     snapshot: SearchSnapshot,
     isHeldRow: HeldRowCheck | undefined,
@@ -235,11 +235,11 @@ export class SessionSearchService {
       const hitKeysBySession = new Map(
         heldKeys.map((sessionKey, index) => [sessionKey, hitKeysOfHeld[index] ?? []]),
       );
-      let batchHits = 0;
-      for (const [offset, sessionKey] of sessionKeys.entries()) {
+      const { searchQuery, tagFolds } = snapshot.query;
+      const shown = sessionKeys.flatMap((sessionKey, offset) => {
         const session = sessions.get(sessionKey);
         if (session === undefined) {
-          continue;
+          return [];
         }
         const sessionIndex = batchStart + offset;
         let hitKeys = hitKeysBySession.get(sessionKey) ?? [];
@@ -251,13 +251,17 @@ export class SessionSearchService {
           }
           hitKeys = hitKeys.slice(shownThrough + 1);
         }
-        const { searchQuery, tagFolds } = snapshot.query;
         const heldHitKeys = isHeldRow === undefined ? hitKeys : hitKeys.filter(isHeldRow);
-        const hits = (
-          searchQuery === undefined
-            ? this.#hitLines.readTagLines(heldHitKeys, tagFolds, limit + 1)
-            : this.#hitLines.readLines(heldHitKeys, searchQuery, limit + 1)
-        ).map(shownHitOf);
+        return [{ session, sessionIndex, resumeAfter, heldHitKeys }];
+      });
+      const keyLists = shown.map(({ heldHitKeys }) => heldHitKeys);
+      const linesOfEach =
+        searchQuery === undefined
+          ? this.#hitLines.readTagLines(keyLists, tagFolds, limit + 1)
+          : this.#hitLines.readLines(keyLists, searchQuery, limit + 1);
+      let batchHits = 0;
+      for (const [place, { session, sessionIndex, resumeAfter }] of shown.entries()) {
+        const hits = (linesOfEach[place] ?? []).map(shownHitOf);
         batchHits += hits.length;
         hitsOffered += hits.length;
         yield {
