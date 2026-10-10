@@ -16,7 +16,7 @@ import {
 } from "#renderer/features/terminal/emulator/components/XtermMountPoint.test-support.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
-import { copyOnceBuilt } from "#renderer/services/platform/late-clipboard-copy.js";
+import { copyOnceBuilt } from "#renderer/services/platform/clipboard/late-copy.js";
 import { useHeldPaste } from "./useHeldPaste.js";
 
 const WINDOW_ID = "window/w-1";

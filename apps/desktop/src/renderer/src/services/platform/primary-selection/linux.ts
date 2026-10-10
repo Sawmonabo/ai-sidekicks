@@ -3,7 +3,7 @@
 // A middle-click pastes it.
 
 import type { PlatformBridge } from "../bridge.js";
-import { copyOnceBuilt } from "../late-clipboard-copy.js";
+import { copyOnceBuilt } from "../clipboard/late-copy.js";
 import type { PrimarySelection } from "./contract.js";
 
 /** The primary selection Linux keeps, written through `bridge`'s selection clipboard. */

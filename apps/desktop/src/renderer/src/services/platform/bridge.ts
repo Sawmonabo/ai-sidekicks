@@ -8,7 +8,7 @@
 import type { PreloadApi } from "#shared/preload-api.js";
 import type { TransportReconnectSignal } from "#renderer/services/transport/reconnect.js";
 import type { ClockLocale } from "./clock-locale.js";
-import type { PendingClipboardCopies } from "./late-clipboard-copy.js";
+import type { PendingClipboardCopies } from "./clipboard/pending-copies.js";
 
 /** Which bridge the window is running against. Rendered, never inferred. */
 export type PlatformBridgeSource = "live" | "fixture";
