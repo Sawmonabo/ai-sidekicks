@@ -90,6 +90,8 @@ describe("browser — the history line holds the reader's row as its height chan
     const { container, scrollContainer, sessionStore, log, landRead } =
       await mountEarlierHistoryFeed();
     await changeLayout(() => {
+      // The reader's wheel, which is what tells the frame a scroll is the reader's own.
+      fireEvent.wheel(scrollContainer, { deltaY: -1 });
       scrollContainer.scrollTop = READING_AT_PX;
       fireEvent.scroll(scrollContainer);
     });
@@ -141,6 +143,8 @@ describe("browser — the history line holds the reader's row as its height chan
     document.head.append(caseSheet);
     const { container, scrollContainer, log, landRead } = await mountEarlierHistoryFeed();
     await changeLayout(() => {
+      // The reader's wheel, which is what tells the frame a scroll is the reader's own.
+      fireEvent.wheel(scrollContainer, { deltaY: -1 });
       scrollContainer.scrollTop = READING_AT_PX;
       fireEvent.scroll(scrollContainer);
     });
@@ -168,6 +172,8 @@ describe("browser — the history line holds the reader's row as its height chan
   it("lets the rows flow below the line at the top of the log, its head in view", async () => {
     const { container, scrollContainer, log, landRead } = await mountEarlierHistoryFeed();
     await changeLayout(() => {
+      // The reader's wheel, which is what tells the frame a scroll is the reader's own.
+      fireEvent.wheel(scrollContainer, { deltaY: -1 });
       scrollContainer.scrollTop = 0;
       fireEvent.scroll(scrollContainer);
     });
