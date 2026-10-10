@@ -3,7 +3,13 @@
 // once, by the new file, so its width is read off the same walk.
 
 import { DIFF_FLOW_FILE_BLOCK_SCREENS, DIFF_FLOW_SHARE_DIVISOR } from "../measures.js";
-import { diffFileChangeNotes, type DiffFile, type DiffLine, type DiffModel } from "../model.js";
+import {
+  diffFileChangeNotes,
+  diffFileUnshownReason,
+  type DiffFile,
+  type DiffLine,
+  type DiffModel,
+} from "../model.js";
 import { DiffRowIndex } from "./flat-index.js";
 import { diffGutterDigitCount } from "./gutter.js";
 import type { DiffRow } from "./model.js";
@@ -36,7 +42,11 @@ export interface DiffFlowRows {
  */
 export function diffFlowRowsOf(diff: DiffModel, file: DiffFile): DiffFlowRows {
   const index = new DiffRowIndex({ baseRef: diff.baseRef, headRef: diff.headRef, files: [file] });
-  const changeNotes = diffFileChangeNotes(file);
+  const unshownReason = diffFileUnshownReason(file);
+  const changeNotes = [
+    ...diffFileChangeNotes(file),
+    ...(unshownReason === undefined ? [] : [unshownReason]),
+  ];
   const hasHeader = changeNotes.length > 0 || file.hunks.length === 0;
   const rows: DiffRow[] = [];
   let lineCount = 0;
@@ -50,6 +60,9 @@ export function diffFlowRowsOf(diff: DiffModel, file: DiffFile): DiffFlowRows {
       if (hasHeader) {
         rows.push(row);
       }
+    } else if (row.kind === "unshown-reason") {
+      // The flow writes the reason with the file's other notes, where its lines would be.
+      continue;
     } else if (row.kind === "hunk-header") {
       // A gap row above the header already stands for the skipped lines.
       if (row.hunkIndex > 0 && rows.at(-1)?.kind !== "gap") {
@@ -89,8 +102,8 @@ export function diffFlowCutRowCount(flowHeightPx: number, rowHeightPx: number): 
 /**
  * How many of a call's files draw a block: as many as two screens of the flow hold, each block
  * reckoned at its rows of `rowHeightPx` up to the cut, a row for its notes where it has no lines,
- * plus `blockOverheadPx` (its footer and the space under it), and always the first. A count of files, so it never changes how any one block
- * is drawn.
+ * plus `blockOverheadPx` (its footer and the space under it), and always the first. A count of
+ * files, so it never changes how any one block is drawn.
  */
 export function diffFlowDrawnFileCount(
   fileRows: readonly DiffFlowRows[],

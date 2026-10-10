@@ -281,10 +281,13 @@ describe("diff renderer — the file header carries what the extended headers sa
     expect(fileHeaderTextFor(modeChanged.path)).toContain("mode changed");
   });
 
-  it("marks a binary file, whose change no unified patch can show", () => {
-    expect(fileHeaderTextFor(EXTENDED_HEADER_FIXTURE_FILES.binary.path)).toContain(
-      "binary — contents not shown",
-    );
+  it("says a binary file's contents are not shown where its lines would be, not on its header", () => {
+    const { path } = EXTENDED_HEADER_FIXTURE_FILES.binary;
+    const container = renderDiff({ model: EXTENDED_HEADER_DIFF, shownFilePath: path });
+    const rows = [...container.querySelectorAll<HTMLElement>('[role="row"]')];
+    // The file keeps its header, path and all, and the reason stands alone in the row under it.
+    expect(rows.map((row) => row.textContent)).toStrictEqual([path, "binary — contents not shown"]);
+    expect(rows[0]?.classList).toContain("meridian-diff__row--file");
   });
 });
 

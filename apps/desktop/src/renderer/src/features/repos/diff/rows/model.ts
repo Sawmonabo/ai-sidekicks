@@ -14,6 +14,12 @@ export interface DiffFileHeaderRow {
   readonly fileIndex: number;
 }
 
+/** The line under a file's header saying why its contents are not drawn, where its lines would be. */
+export interface DiffUnshownReasonRow {
+  readonly kind: "unshown-reason";
+  readonly fileIndex: number;
+}
+
 /** The collapsed context above a hunk, with what is still hidden. */
 export interface DiffGapRow {
   readonly kind: "gap";
@@ -53,7 +59,12 @@ export interface DiffLineRow {
 }
 
 /** One addressable row of a rendered diff. Narrow on `kind`. */
-export type DiffRow = DiffFileHeaderRow | DiffGapRow | DiffHunkHeaderRow | DiffLineRow;
+export type DiffRow =
+  | DiffFileHeaderRow
+  | DiffUnshownReasonRow
+  | DiffGapRow
+  | DiffHunkHeaderRow
+  | DiffLineRow;
 
 /**
  * How much of each gap has been revealed, keyed by gap. A plain readonly map because it is

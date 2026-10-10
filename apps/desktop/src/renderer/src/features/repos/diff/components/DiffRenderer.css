@@ -109,6 +109,16 @@
   font-style: italic;
 }
 
+/* Why a file's contents are not drawn, standing on its own where its lines would be. */
+.meridian-diff__row--unshown {
+  justify-content: center;
+  padding: var(--meridian-space-3);
+  background: var(--meridian-surface-sunken);
+  color: var(--meridian-text-muted);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-sm);
+}
+
 .meridian-diff__row--hunk,
 .meridian-diff__row--gap {
   padding-inline: var(--meridian-space-3);

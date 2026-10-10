@@ -153,10 +153,10 @@ export function diffFileChangeCounts(file: DiffFile): DiffFileChangeCounts {
 }
 
 /**
- * What a file's extended headers say changed about it, as the words a diff view draws. One
- * derivation for the list and the renderer, in git's header order (rename or copy, mode,
- * binary); empty for an ordinary textual change, where the counts already say it. A copy reads
- * `added`: its source stays where it was and the copy is a new path.
+ * What a file's extended headers say changed about it, as the kind words a file's header and its
+ * row in the list draw, in git's header order (rename or copy, then mode); empty for an ordinary
+ * textual change, where the counts already say it. A copy reads `added`: its source stays where it
+ * was and the copy is a new path.
  */
 export function diffFileChangeNotes(file: DiffFile): readonly string[] {
   const notes: string[] = [];
@@ -169,13 +169,19 @@ export function diffFileChangeNotes(file: DiffFile): readonly string[] {
   if (file.modeChange !== undefined) {
     notes.push("mode changed");
   }
-  if (file.binary === true) {
-    notes.push("binary — contents not shown");
-  }
-  if (file.unreadable !== undefined) {
-    notes.push(UNREADABLE_REASON_COPY[file.unreadable]);
-  }
   return notes;
+}
+
+/**
+ * Why a file's contents are not drawn, in the console's own words, written where its lines would
+ * be: binary contents, or the cause the daemon could not read them; absent for a file whose lines
+ * can be drawn.
+ */
+export function diffFileUnshownReason(file: DiffFile): string | undefined {
+  if (file.binary === true) {
+    return "binary — contents not shown";
+  }
+  return file.unreadable === undefined ? undefined : UNREADABLE_REASON_COPY[file.unreadable];
 }
 
 /** What a file the daemon could not read says, naming the cause in the console's own words. */

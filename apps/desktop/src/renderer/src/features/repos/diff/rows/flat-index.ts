@@ -7,7 +7,13 @@
 // answers `rowAt` by binary search, so memory follows the change set's shape rather than its
 // row count, and an expansion re-derives one prefix sum instead of thousands of row objects.
 
-import type { DiffHunk, DiffModel, DiffLine, DiffViewMode } from "../model.js";
+import {
+  diffFileUnshownReason,
+  type DiffHunk,
+  type DiffModel,
+  type DiffLine,
+  type DiffViewMode,
+} from "../model.js";
 import { diffGapKey, type DiffGapExpansion, type DiffLineRow, type DiffRow } from "./model.js";
 import {
   buildHunkBodyLayout,
@@ -52,7 +58,9 @@ export class DiffRowIndex {
         return;
       }
       const startRowIndex = rowCursor;
-      let fileRowCount = 1;
+      // The header, and under it the line saying why the contents are not drawn, where they are not.
+      const hasUnshownReason = diffFileUnshownReason(file) !== undefined;
+      let fileRowCount = hasUnshownReason ? 2 : 1;
       const hunkSpans: HunkRowSpan[] = [];
       file.hunks.forEach((hunk, hunkIndex) => {
         const available = hunk.precedingContext.length;
@@ -77,7 +85,13 @@ export class DiffRowIndex {
         });
         fileRowCount += hunkRowCount;
       });
-      fileSpans.push({ fileIndex, startRowIndex, rowCount: fileRowCount, hunkSpans });
+      fileSpans.push({
+        fileIndex,
+        startRowIndex,
+        rowCount: fileRowCount,
+        hasUnshownReason,
+        hunkSpans,
+      });
       rowCursor += fileRowCount;
     });
 
@@ -121,6 +135,9 @@ export class DiffRowIndex {
     const withinFile = rowIndex - span.startRowIndex;
     if (withinFile === 0) {
       return { kind: "file-header", fileIndex };
+    }
+    if (withinFile === 1 && span.hasUnshownReason) {
+      return { kind: "unshown-reason", fileIndex };
     }
     const hunkSpan = spanAt(span.hunkSpans, withinFile);
     if (hunkSpan === undefined) {
@@ -218,6 +235,8 @@ interface FileRowSpan {
   readonly fileIndex: number;
   readonly startRowIndex: number;
   readonly rowCount: number;
+  /** Whether the file's contents are not drawn, so a row under its header says why. */
+  readonly hasUnshownReason: boolean;
   /** This file's hunks, each with the rows it occupies. Built once, in the constructor. */
   readonly hunkSpans: readonly HunkRowSpan[];
 }
