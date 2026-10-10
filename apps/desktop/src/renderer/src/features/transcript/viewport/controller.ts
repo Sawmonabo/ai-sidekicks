@@ -82,7 +82,7 @@ export interface ViewportControllerOptions {
   readonly subscribeToRowWork?: ((listener: () => void) => Unsubscribe) | undefined;
   /**
    * Whether the feed is still revealing a row's text, which a follower glides along rather than
-   * jumps to; none when omitted.
+   * jumps to and whose growth moves no estimate until it settles; none when omitted.
    */
   readonly isRowRevealing?: ((rowKey: string) => boolean) | undefined;
 }
@@ -157,6 +157,8 @@ export class ViewportController {
       onHeightAccepted: () => {
         this.#tailFollow.queueEstimatePublication();
       },
+      viewportHeightPx: () => this.scroll.geometry?.viewportHeight,
+      isRowRevealing: options.isRowRevealing,
     });
     this.rowWindow = new TranscriptWindow();
     this.virtualizerOptions = new VirtualizerOptions({

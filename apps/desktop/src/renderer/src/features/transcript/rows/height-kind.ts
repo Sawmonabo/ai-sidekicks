@@ -3,7 +3,8 @@
 // kind differ in height by more than their text (a tool row by its density), and adds the rows
 // the feed draws itself: a run group's header, the line at an edge of a long run's window, a
 // system message and the line a row the window no longer holds draws. Each seed is built from the
-// type and space scales, so it moves with them.
+// type and space scales, so it moves with them, and so is the tallest an open call with its output
+// cut is drawn, which no estimate of one passes.
 
 import {
   BODY_LINE_HEIGHT,
@@ -11,6 +12,7 @@ import {
   TYPE_SCALE_REM,
 } from "#renderer/styles/typography.js";
 import { SPACE_SCALE_REM, TRANSCRIPT_ROW_GAP_REM, scaleStep } from "#renderer/styles/palette.js";
+import { OUTPUT_CUT_FLOW_SHARE } from "./bodies/hooks/useOutputHeightCut.js";
 
 /** Every kind of height a transcript list row can take. Closed. */
 export const ROW_HEIGHT_KINDS = [
@@ -66,3 +68,24 @@ export const ROW_HEIGHT_SEED_REM: Readonly<Record<RowHeightKind, number>> = {
   // One line of body text with no row padding around it.
   "not-loaded": scaleStep(TYPE_SCALE_REM, "text-md") * BODY_LINE_HEIGHT,
 };
+
+/**
+ * What an open call draws around its output once the output is cut, in rem: the header line, the
+ * output box's padding above and below, the one line of its control a `space-1` under the box
+ * (`Show all` once settled, `Show full output (<size>)` while the command runs), and the row gap.
+ * The box's padding is a command output's, so a plain output's row comes out shorter.
+ */
+const CUT_CALL_SURROUND_REM =
+  READING_LINE_REM +
+  2 * scaleStep(SPACE_SCALE_REM, "space-2") +
+  scaleStep(SPACE_SCALE_REM, "space-1") +
+  scaleStep(TYPE_SCALE_REM, "text-xs") * READING_LINE_HEIGHT +
+  TRANSCRIPT_ROW_GAP_REM;
+
+/**
+ * The tallest an open call is drawn while its output is cut, in pixels: the cut, a share of the
+ * visible flow `flowHeightPx` high, inside what the call draws around it at `rootFontSizePx`.
+ */
+export function cutCallHeightPx(flowHeightPx: number, rootFontSizePx: number): number {
+  return flowHeightPx * OUTPUT_CUT_FLOW_SHARE + CUT_CALL_SURROUND_REM * rootFontSizePx;
+}
