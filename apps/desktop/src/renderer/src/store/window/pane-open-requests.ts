@@ -7,12 +7,12 @@
 import type { Unsubscribe } from "#shared/preload-api.js";
 
 import { Emitter } from "#renderer/lib/emitter.js";
-import type { PaneAddress } from "#renderer/routing/panes/address.js";
+import type { BlockPaneAddress } from "#renderer/routing/panes/address.js";
 
 /** One held request: the session whose layout should open the pane, and the pane's address. */
 export interface PaneOpenRequest {
   readonly sessionId: string;
-  readonly address: PaneAddress;
+  readonly address: BlockPaneAddress;
 }
 
 /** The window's one held pane-open request. One instance per window store. */
@@ -30,7 +30,7 @@ export class PaneOpenRequests {
    * The held address when it is for this session, which is then no longer held; `undefined` when
    * nothing is held for it. A request for another session stays for that session's layout.
    */
-  public take(sessionId: string): PaneAddress | undefined {
+  public take(sessionId: string): BlockPaneAddress | undefined {
     const held = this.#held;
     if (held?.sessionId !== sessionId) {
       return undefined;

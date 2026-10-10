@@ -12,8 +12,8 @@ const SESSION_B = "session-b";
 
 function snapshotAt(position: number): PaneLayoutSnapshotRecord {
   return {
-    $paneLayout: { version: 1, density: "standard" },
-    "pane-1": { position, kind: "transcript" },
+    $paneLayout: { version: 2, side: "right", terminalPlace: "below" },
+    "pane-1": { position, kind: "terminal" },
   };
 }
 

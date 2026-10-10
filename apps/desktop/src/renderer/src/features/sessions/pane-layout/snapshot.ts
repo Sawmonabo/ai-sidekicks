@@ -6,10 +6,8 @@
 //   - A snapshot of an unknown version is discarded whole; a half-restored layout hides which
 //     half is missing.
 //   - An unknown pane kind is dropped and reported as a typed refusal.
-//   - The restore count is capped, because a corrupted or hand-edited record is untrusted.
-//   - One entity, one pane: a duplicate address is coalesced during decoding, first in position
-//     order winning, and reported. `open()` would not repair it, and the duplicate would be
-//     written back on every save.
+//   - One pane per kind: a second pane of a kind is dropped during decoding, first in position
+//     order winning, and reported; it would otherwise be written back on every save.
 //
 // Drops are refusals rather than tripwires, which throw in development and are for defects; a
 // snapshot from an older build is expected input. The session screen records them in the
@@ -17,27 +15,26 @@
 
 import { isRefusal, refuse, type NarrowedRefusal } from "#renderer/lib/refusal/contract.js";
 import { isWireRecord } from "#renderer/lib/wire/record.js";
-import { isEphemeralPaneKind, isPaneKind } from "#renderer/routing/panes/kinds.js";
+import { isBlockPaneKind, type BlockPaneKind } from "#renderer/routing/panes/kinds.js";
 import { parsePaneAddress } from "#renderer/routing/panes/parse-address.js";
 import {
   encodePaneEntity,
   readPaneEntityCandidate,
 } from "#renderer/routing/panes/entity-record.js";
-import { DEFAULT_PANE_LAYOUT_DENSITY, type PaneLayoutDensity } from "./measures.js";
-import { isPaneLayoutDensity } from "./density.js";
 import {
-  PANE_LAYOUT_TOTAL_PERMILLE,
-  normalize,
-  paneAddressKey,
+  DEFAULT_PANE_BLOCK_SIDE,
+  DEFAULT_TERMINAL_PLACE,
+  type PaneBlockSide,
   type PaneLayoutState,
   type SessionPane,
+  type TerminalPlace,
 } from "./state.js";
 
 /**
  * The snapshot grammar's version. Bump it whenever a member's meaning changes; a restore of any
  * other value discards the whole record.
  */
-export const PANE_LAYOUT_SNAPSHOT_VERSION = 1;
+export const PANE_LAYOUT_SNAPSHOT_VERSION = 2;
 
 /**
  * The reserved snapshot key carrying the record's header. The `$` prefix is admitted by the
@@ -59,8 +56,7 @@ export const PANE_LAYOUT_RESTORE_REFUSAL_CODES = [
   "pane-shape-invalid",
   "pane-kind-unknown",
   "pane-entity-invalid",
-  "pane-address-duplicate",
-  "restore-cap-exceeded",
+  "pane-kind-duplicate",
 ] as const;
 
 /** One restore refusal code. */
@@ -82,45 +78,35 @@ export interface PaneLayoutRestoreReport {
 export interface DecodedPaneLayoutSnapshot {
   readonly panes: readonly SessionPane[];
   readonly focusedPaneId: string | undefined;
-  readonly density: PaneLayoutDensity;
+  readonly side: PaneBlockSide;
+  readonly terminalPlace: TerminalPlace;
   readonly refusals: readonly PaneLayoutRestoreRefusal[];
 }
 
-/** Writes a state out. Ephemeral panes are skipped, so a restart reopens no page. */
+/** Writes a state out: the open panes in order, the block's side and the terminal's place. */
 export function encodePaneLayoutSnapshot(state: PaneLayoutState): PaneLayoutSnapshotRecord {
   const header: Record<string, number | boolean | string> = {
     version: PANE_LAYOUT_SNAPSHOT_VERSION,
-    density: state.density,
+    side: state.side,
+    terminalPlace: state.terminalPlace,
   };
   if (state.focusedPaneId !== undefined) {
     header["focusedPaneId"] = state.focusedPaneId;
   }
 
   const snapshot: PaneLayoutSnapshotRecord = { [PANE_LAYOUT_SNAPSHOT_HEADER_KEY]: header };
-  let position = 0;
-  for (const pane of state.panes) {
-    if (pane.isEphemeral) {
-      continue;
-    }
+  state.panes.forEach((pane, position) => {
     snapshot[pane.paneId] = {
       position,
       kind: pane.kind,
-      sizePermille: pane.sizePermille,
       ...(pane.entity === undefined ? {} : encodePaneEntity(pane.entity)),
     };
-    position += 1;
-  }
+  });
   return snapshot;
 }
 
-/**
- * Reads a snapshot back, dropping what this build cannot interpret. `restoredPaneCap` is a
- * parameter so a test can drive the boundary with two panes instead of thirteen.
- */
-export function decodePaneLayoutSnapshot(
-  snapshot: unknown,
-  restoredPaneCap: number,
-): DecodedPaneLayoutSnapshot {
+/** Reads a snapshot back, dropping what this build cannot interpret. */
+export function decodePaneLayoutSnapshot(snapshot: unknown): DecodedPaneLayoutSnapshot {
   if (!isWireRecord(snapshot)) {
     return emptyDecode(
       refusePaneLayoutRestore(
@@ -164,51 +150,35 @@ export function decodePaneLayoutSnapshot(
   candidates.sort((left, right) => readPosition(left.entry) - readPosition(right.entry));
 
   const panes: SessionPane[] = [];
-  // Keyed off the decoded pane, so malformed entity members still refuse as
-  // `pane-entity-invalid`; a duplicate is a coherent pane at a taken address.
-  const adoptedAddressKeys = new Set<string>();
+  const adoptedKinds = new Set<BlockPaneKind>();
   for (const candidate of candidates) {
-    if (panes.length >= restoredPaneCap) {
-      refusals.push(
-        refusePaneLayoutRestore(
-          "restore-cap-exceeded",
-          `The saved layout held more than ${String(restoredPaneCap)} ` +
-            `panes. The first ${String(restoredPaneCap)} were restored and ` +
-            "the rest were left closed.",
-        ),
-      );
-      break;
-    }
     const pane = decodePane(candidate.paneId, candidate.entry, refusals);
     if (pane === undefined) {
       continue;
     }
-    const addressKey = paneAddressKey(pane);
-    if (adoptedAddressKeys.has(addressKey)) {
-      // Dropped before the push, so repeats of one address cannot push real panes past the cap.
+    if (adoptedKinds.has(pane.kind)) {
       refusals.push(
         refusePaneLayoutRestore(
-          "pane-address-duplicate",
-          "Two saved panes showed the same thing, so the second was left closed.",
+          "pane-kind-duplicate",
+          "Two saved panes were the same kind of pane, so the second was left closed.",
         ),
       );
       continue;
     }
-    adoptedAddressKeys.add(addressKey);
+    adoptedKinds.add(pane.kind);
     panes.push(pane);
   }
 
   const focusedCandidate = header["focusedPaneId"];
   return {
-    panes: normalize(panes),
+    panes,
     focusedPaneId:
       typeof focusedCandidate === "string" && panes.some((pane) => pane.paneId === focusedCandidate)
         ? focusedCandidate
         : panes[0]?.paneId,
-    // An unknown preset takes the default; a missing floor would squeeze panes to nothing.
-    density: isPaneLayoutDensity(header["density"])
-      ? header["density"]
-      : DEFAULT_PANE_LAYOUT_DENSITY,
+    // A member this build does not know takes the default, as a record without it would.
+    side: header["side"] === "left" ? "left" : DEFAULT_PANE_BLOCK_SIDE,
+    terminalPlace: header["terminalPlace"] === "above" ? "above" : DEFAULT_TERMINAL_PLACE,
     refusals,
   };
 }
@@ -225,7 +195,8 @@ function emptyDecode(refusal: PaneLayoutRestoreRefusal): DecodedPaneLayoutSnapsh
   return {
     panes: [],
     focusedPaneId: undefined,
-    density: DEFAULT_PANE_LAYOUT_DENSITY,
+    side: DEFAULT_PANE_BLOCK_SIDE,
+    terminalPlace: DEFAULT_TERMINAL_PLACE,
     refusals: [refusal],
   };
 }
@@ -235,53 +206,33 @@ function decodePane(
   entry: UnknownRecord,
   refusals: PaneLayoutRestoreRefusal[],
 ): SessionPane | undefined {
-  const kind = entry["kind"];
-  if (isPaneKind(kind) && isEphemeralPaneKind(kind)) {
-    // This build never writes one, so the record came from elsewhere. Checked ahead of the
-    // address grammar, which would admit it: an ephemeral pane's address is valid, but saving it
-    // would reopen a page nobody asked for.
-    refusals.push(
-      refusePaneLayoutRestore(
-        "pane-kind-unknown",
-        "One saved pane is a kind the app never saves, so it was left closed.",
-      ),
-    );
-    return undefined;
-  }
-
-  // Admission uses the one pane-address grammar. A weaker check would admit a `transcript` over
-  // an artifact or an id like `bad/id`, which the pane body then refuses: an unusable pane
-  // that counts against the cap and is written back on every save.
-  const address = parsePaneAddress(kind, readPaneEntityCandidate(entry));
-  if (isRefusal(address)) {
+  // Admission uses the one pane-address grammar. A weaker check would admit an inspector over a
+  // run or an id like `bad/id`, which the pane body then refuses: an unusable pane written back
+  // on every save. The transcript is the conversation's, never a pane in the block.
+  const address = parsePaneAddress(entry["kind"], readPaneEntityCandidate(entry));
+  if (isRefusal(address) || !isBlockPaneKind(address.kind)) {
     // Two messages cover every parse code; what a person can do about a dropped pane is the
     // same either way.
     refusals.push(
-      address.code === "pane-kind-unknown"
+      isRefusal(address) && address.code !== "pane-kind-unknown"
         ? refusePaneLayoutRestore(
+            "pane-entity-invalid",
+            "One saved pane named something the app could not resolve, so it was left closed.",
+          )
+        : refusePaneLayoutRestore(
             "pane-kind-unknown",
             "One saved pane is a kind this version of the app does not have, " +
               "so it was left closed.",
-          )
-        : refusePaneLayoutRestore(
-            "pane-entity-invalid",
-            "One saved pane named something the app could not resolve, so it was left closed.",
           ),
     );
     return undefined;
   }
-
-  const sizePermille = entry["sizePermille"];
   return {
     paneId,
     kind: address.kind,
     entity: "entity" in address ? address.entity : undefined,
-    sizePermille:
-      typeof sizePermille === "number" && Number.isFinite(sizePermille) && sizePermille > 0
-        ? sizePermille
-        : PANE_LAYOUT_TOTAL_PERMILLE,
-    isEphemeral: false,
     sourcePaneId: undefined,
+    returnFocusPaneId: undefined,
   };
 }
 

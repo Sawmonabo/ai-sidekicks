@@ -59,8 +59,8 @@ async function storeWithSavedLayouts(): Promise<{
 }> {
   const adapter = new ScriptedWriteAdapter();
   const store = new UiStateStore({ adapter });
-  await saveLayout(store, SESSION_ID, ["transcript", "terminal"]);
-  await saveLayout(store, SESSION_B_ID, ["transcript", "terminal"]);
+  await saveLayout(store, SESSION_ID, ["browser", "terminal"]);
+  await saveLayout(store, SESSION_B_ID, ["browser", "terminal"]);
   return { store, adapter };
 }
 
@@ -72,7 +72,7 @@ async function awaitRestoredPaneLayout(container: HTMLElement): Promise<void> {
 
 /** Commit one arrangement, and let the write it queues settle. */
 async function commitArrangement(container: HTMLElement): Promise<void> {
-  const paneLayoutElement = container.querySelector(".meridian-pane-layout");
+  const paneLayoutElement = container.querySelector(".meridian-pane-layout__block");
   expect(paneLayoutElement).not.toBeNull();
   if (paneLayoutElement !== null) {
     fireEvent.keyDown(paneLayoutElement, { key: "ArrowRight", altKey: true });

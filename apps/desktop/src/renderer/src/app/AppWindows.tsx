@@ -32,6 +32,7 @@ import { useAppearance } from "./hooks/useAppearance.js";
 import { useDiagramFaceWarm } from "./hooks/useDiagramFaceWarm.js";
 import { useKeptWindowLayout } from "./hooks/useKeptWindowLayout.js";
 import { useLazyBodyIdleWarm } from "./hooks/useLazyBodyIdleWarm.js";
+import { useSendPaneWindowWidths } from "./hooks/useSendPaneWindowWidths.js";
 import { useSessionStoreRegistry } from "./hooks/useSessionStoreRegistry.js";
 import { useLastSettingsPage } from "./hooks/useLastSettingsPage.js";
 import { useUiStateStore } from "./hooks/useUiStateStore.js";
@@ -93,6 +94,7 @@ export function AppWindows(props: AppWindowsProps): React.JSX.Element {
 
   // Main keeps the appearance; every window applies what main kept and asks main for a change.
   const appearance = useAppearance(bridge, openWindows);
+  useSendPaneWindowWidths(bridge, appearance);
 
   // A window opened again comes forward through main, which keeps test windows unobtrusive.
   useEffect(

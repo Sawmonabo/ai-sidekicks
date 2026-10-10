@@ -53,8 +53,6 @@ export interface AppShellProps {
   readonly isUnderBootCover: boolean;
   /** One line about the window itself, drawn above the banners. */
   readonly notice?: React.ReactNode;
-  /** The narrowest one pane may be, in CSS px, the pane term of the window's floor. */
-  readonly minimumPaneWidthPx: number;
   /** The window's smallest size, in CSS px, reported on first layout and on every change. */
   readonly onWindowFloorChange: (floor: WindowSize) => void;
   /** The screen the route names. */
@@ -115,7 +113,6 @@ export function AppShell(props: AppShellProps): React.JSX.Element {
       }
       modalOverlayOpen={props.isUnderBootCover || palette.open || isModalDialogOpen}
       notice={props.notice}
-      minimumPaneWidthPx={props.minimumPaneWidthPx}
       onWindowFloorChange={props.onWindowFloorChange}
       banners={banners}
       onDismissBanner={(bannerId) => {

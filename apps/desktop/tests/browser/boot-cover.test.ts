@@ -13,10 +13,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createFixtureComposition } from "#renderer/app/fixture/composition.js";
 import { PANE_LAYOUT_RECORD_KEY } from "#renderer/features/sessions/pane-layout/persistence.js";
-import {
-  PANE_LAYOUT_RESTORED_PANE_CAP,
-  PaneLayoutStore,
-} from "#renderer/features/sessions/pane-layout/store.js";
+import { PaneLayoutStore } from "#renderer/features/sessions/pane-layout/store.js";
 import { formatRoute, type AppRoute } from "#renderer/routing/routes.js";
 import type { BridgeComposition } from "#renderer/services/platform/bridge-context.js";
 import { UI_STATE_DATABASE_NAME } from "#renderer/store/persistence/indexeddb-adapter.js";
@@ -197,16 +194,11 @@ function paneBoxesOf(
   return panesOf(appWindow).map(boxOf);
 }
 
-/** Save, for `sessionId`, the transcript at half the width beside a terminal and an inspector. */
-async function saveTranscriptBesideTwoPanes(sessionId: string): Promise<void> {
-  const layout = new PaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });
-  const transcriptPaneId = layout.open({ kind: "transcript" });
-  const terminalPaneId = layout.open({ kind: "terminal" });
-  const inspectorPaneId = layout.open({
-    kind: "inspector",
-    entity: { kind: "worktree", id: "worktree-01" },
-  });
-  layout.applyLayout({ [transcriptPaneId]: 50, [terminalPaneId]: 25, [inspectorPaneId]: 25 }, 1);
+/** Save, for `sessionId`, a block of an inspector with a terminal under it. */
+async function saveInspectorOverTerminal(sessionId: string): Promise<void> {
+  const layout = new PaneLayoutStore();
+  layout.open({ kind: "terminal" });
+  layout.open({ kind: "inspector", entity: { kind: "worktree", id: "worktree-01" } });
   const store = UiStateStore.opening();
   try {
     const result = await store.write(
@@ -310,7 +302,7 @@ describe("browser — opening the app", () => {
   }
 
   it("draws a session's saved arrangement under the cover and keeps it", async () => {
-    await saveTranscriptBesideTwoPanes(SESSION_ID);
+    await saveInspectorOverTerminal(SESSION_ID);
     document.location.hash = formatRoute({ kind: "session", sessionId: SESSION_ID });
     const main = standInForMain(TRANSCRIPT_STATES_SCENARIO_ID);
     const appWindow = await renderAppSettled(
@@ -321,10 +313,11 @@ describe("browser — opening the app", () => {
     await main.report({ kind: "starting" });
 
     await waitFor(() => {
+      // The conversation's transcript, then the block: the row, and the terminal under it.
       expect(panesOf(appWindow).map((pane) => pane.className)).toStrictEqual([
         expect.stringContaining("meridian-pane--transcript"),
-        expect.stringContaining("meridian-pane--terminal"),
         expect.stringContaining("meridian-pane--inspector"),
+        expect.stringContaining("meridian-pane--terminal"),
       ]);
     });
     expect(bootCoverOf(appWindow)).not.toBeNull();
@@ -343,7 +336,7 @@ describe("browser — opening the app", () => {
     const paneLayout = appWindow.document.querySelector(".meridian-pane-layout");
     const boxesUnderCover = paneBoxesOf(appWindow);
     const headsUnderCover = paneHeadsOf(appWindow);
-    expect(headsUnderCover[2]).toContain("worktree-01");
+    expect(headsUnderCover[1]).toContain("worktree-01");
     expect(boxesUnderCover[1]?.width).toBeLessThan(boxesUnderCover[0]?.width ?? 0);
 
     await main.report({ kind: "connected" });

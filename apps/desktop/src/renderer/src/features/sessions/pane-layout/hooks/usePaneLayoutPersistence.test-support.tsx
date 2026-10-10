@@ -8,7 +8,6 @@ import { act, render } from "@testing-library/react";
 import { StrictMode } from "react";
 import { expect } from "vitest";
 
-import { PANE_LAYOUT_RESTORED_PANE_CAP } from "../store.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { type UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
 import { PaneLayoutStore } from "../store.js";
@@ -18,20 +17,20 @@ import { usePaneLayoutPersistence } from "./usePaneLayoutPersistence.js";
 /** The one session every case here arranges, saves, and restores. */
 export const RESTORE_SESSION_ID = "session-restore";
 
-/** An empty layout store with the production restored-pane cap. */
-export function createPaneLayoutStore(): PaneLayoutStore {
-  return new PaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });
-}
-
-/** A saved arrangement, written through the grammar that reads it back. */
+/**
+ * A saved arrangement, written through the grammar that reads it back: the kinds opened in order,
+ * then `arrange` run over them before the write.
+ */
 export async function savePaneLayout(
   store: UiStateStore,
-  kinds: readonly ("transcript" | "terminal" | "agents")[],
+  kinds: readonly ("browser" | "terminal" | "agents")[],
+  arrange: (layout: PaneLayoutStore) => void = () => undefined,
 ): Promise<void> {
-  const layout = createPaneLayoutStore();
+  const layout = new PaneLayoutStore();
   for (const kind of kinds) {
     layout.open({ kind });
   }
+  arrange(layout);
   const result = await store.write(
     RESTORE_SESSION_ID,
     PANE_LAYOUT_RECORD_KEY,

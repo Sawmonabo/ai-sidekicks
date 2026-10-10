@@ -66,6 +66,9 @@ const CHECKOUT_ENTITY_KINDS: readonly CheckoutEntityKind[] = ENTITY_KINDS.filter
  */
 export type PaneAddress = { [K in PaneKind]: PaneAddressOf<K> }[PaneKind];
 
+/** The address of a pane the session's pane block holds: any but the conversation's transcript. */
+export type BlockPaneAddress = Exclude<PaneAddress, { readonly kind: "transcript" }>;
+
 /**
  * One pane kind's address arm, entity member and all.
  *
