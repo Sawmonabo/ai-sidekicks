@@ -18,7 +18,7 @@ import {
   type ScriptedTranscriptLog,
 } from "#renderer/features/transcript/logs.test-support.js";
 import { type TranscriptRowProps } from "#renderer/features/transcript/rows/renderer.js";
-import { type TranscriptPageRead } from "#renderer/services/daemon/transcript-page.js";
+import { type TranscriptPageRead } from "#renderer/services/daemon/transcript/page.js";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
 

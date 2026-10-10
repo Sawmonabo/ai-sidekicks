@@ -22,7 +22,7 @@ import { registerTranscriptCommands } from "../../contributions/commands.js";
 import { TRANSCRIPT_OWNER } from "../../contributions/screens.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
 import { type TranscriptRowProps } from "../../rows/renderer.js";
-import { type TranscriptPageRead } from "#renderer/services/daemon/transcript-page.js";
+import { type TranscriptPageRead } from "#renderer/services/daemon/transcript/page.js";
 import { ViewportController } from "../../viewport/controller.js";
 import { TranscriptFeed } from "./TranscriptFeed.js";
 

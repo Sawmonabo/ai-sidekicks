@@ -5,7 +5,7 @@
 
 import { useMemo } from "react";
 
-import { transcriptPageReadThroughDaemon } from "#renderer/services/daemon/transcript-page.js";
+import { transcriptPageReadThroughDaemon } from "#renderer/services/daemon/transcript/page.js";
 import { routeSessionId, sessionMessageAnchorCursor } from "#renderer/routing/readers.js";
 import { useWindowStore } from "#renderer/store/window/hooks/useWindowStore.js";
 import { PaneFrame } from "#renderer/components/PaneFrame/PaneFrame.js";

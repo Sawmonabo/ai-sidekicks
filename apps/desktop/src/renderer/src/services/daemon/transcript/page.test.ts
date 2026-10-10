@@ -10,7 +10,7 @@ import type { TranscriptRowContent } from "@ai-sidekicks/contracts/transcript/co
 import type { TranscriptReadRow } from "@ai-sidekicks/contracts/transcript/row";
 import { TranscriptReadResponseSchema } from "@ai-sidekicks/contracts/transcript/operations";
 
-import { readTranscriptPage } from "./transcript-page.js";
+import { readTranscriptPage } from "./page.js";
 
 const SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5a44a5" as SessionId;
 

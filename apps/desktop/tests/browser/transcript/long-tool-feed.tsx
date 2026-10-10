@@ -36,7 +36,7 @@ import {
   drawsTranscriptRowBody,
 } from "#renderer/features/transcript/rows/TranscriptRow.js";
 import { type Clock } from "#renderer/lib/clock.js";
-import { type TranscriptPageRead } from "#renderer/services/daemon/transcript-page.js";
+import { type TranscriptPageRead } from "#renderer/services/daemon/transcript/page.js";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { type SessionStore } from "#renderer/store/session/store.js";

@@ -7,7 +7,7 @@ import { useCallback, useMemo, useSyncExternalStore } from "react";
 
 import { useSubjectScopedResource } from "#renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { type SubjectScopedDisposal } from "#renderer/lib/subject-scoped/disposal.js";
-import { type TranscriptPageRead } from "#renderer/services/daemon/transcript-page.js";
+import { type TranscriptPageRead } from "#renderer/services/daemon/transcript/page.js";
 import { useBridgeClock } from "#renderer/services/platform/hooks/useClock.js";
 import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
