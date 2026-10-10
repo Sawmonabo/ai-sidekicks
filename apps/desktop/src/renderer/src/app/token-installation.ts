@@ -8,6 +8,9 @@
 // It lives in `app/` and not `styles/` because it is the one part that touches a `Document`, and
 // node-context tooling imports `styles/` with no DOM lib.
 
+import { recordRejectedRequest } from "#renderer/lib/diagnostic-capture/rejected-request-record.js";
+import { type FontLoadingDocument } from "#renderer/lib/font-loading-document.js";
+import { lossyStringify } from "#renderer/lib/wire/errors.js";
 import { generateMeridianCss } from "#renderer/styles/generate-css.js";
 import { composeRootAppearance, type AppearanceRecord } from "#shared/appearance.js";
 import { type ColorScheme } from "#shared/color-scheme.js";
@@ -36,7 +39,9 @@ export function installMeridianTokens(targetDocument: Document): boolean {
 
 /**
  * Starts every face's load as the sheet installs, not when a run first matches it: a row drawn in
- * the fallback while its face is on the way would be measured again when the face lands.
+ * the fallback while its face is on the way would be measured again when the face lands. A face
+ * that fails to load is recorded with its reason, and the text it would have set draws in the
+ * fallback.
  */
 function loadTypefaces(targetDocument: FontLoadingDocument): void {
   const fonts = targetDocument.fonts;
@@ -44,16 +49,18 @@ function loadTypefaces(targetDocument: FontLoadingDocument): void {
     return;
   }
   for (const face of TYPEFACE_FACES) {
-    void fonts.load(`${face.style} 1em "${face.family}"`);
+    fonts.load(`${face.style} 1em "${face.family}"`).catch((failure: unknown) => {
+      recordRejectedRequest(
+        "app/token-installation",
+        "typeface-not-loaded",
+        new Error(
+          `${face.family} ${face.style} did not load: ${
+            failure instanceof Error ? failure.message : lossyStringify(failure)
+          }`,
+        ),
+      );
+    });
   }
-}
-
-/**
- * The part of `document.fonts` the load uses; declared optional because the unit tier's DOM shim
- * has no font set.
- */
-interface FontLoadingDocument {
-  readonly fonts?: Pick<FontFaceSet, "load">;
 }
 
 /** The media query that answers whether the platform draws in the dark scheme now. */

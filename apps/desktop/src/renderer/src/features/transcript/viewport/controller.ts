@@ -116,6 +116,10 @@ export class ViewportController {
   #virtualizer: TranscriptRowVirtualizer | undefined;
   /** The box the chokepoint holds, which a landing focuses. */
   #scrollContainer: HTMLElement | undefined;
+  /** Whether the viewport is shown; a hidden one cannot take focus. */
+  #isShown = true;
+  /** Where focus stood when the log was asked to take it while hidden, until it is shown. */
+  #focusOwedFrom: { readonly element: Element | null } | undefined;
   /** Whether following ended for a linked message still being read back. */
   #isReadingBackToMessage = false;
   #virtualKeys: readonly string[] = [];
@@ -206,7 +210,7 @@ export class ViewportController {
         return conditions === undefined ? undefined : this.#runPass(conditions, OWN_PASS);
       },
       focusLog: () => {
-        this.#scrollContainer?.focus();
+        this.focusLog();
       },
       logRows: () => this.#pruneCycle.lastConditions?.rows ?? [],
       logPositionOf: (rowKey) => this.rowWindow.logPositionOf(rowKey),
@@ -346,6 +350,40 @@ export class ViewportController {
     this.selection.attach(scrollContainer);
     this.#readerInput.attach(scrollContainer);
     this.#scrollContainer = scrollContainer;
+  }
+
+  /**
+   * Puts keyboard focus on the log. Asked while the viewport is hidden, it is owed until the
+   * viewport is shown, and dropped if a person has put focus somewhere else by then.
+   */
+  public focusLog(): void {
+    const scrollContainer = this.#scrollContainer;
+    if (scrollContainer === undefined) {
+      return;
+    }
+    if (this.#isShown) {
+      scrollContainer.focus();
+      return;
+    }
+    this.#focusOwedFrom = { element: scrollContainer.ownerDocument.activeElement };
+  }
+
+  /** Tells the controller whether the viewport is shown, which pays a focus owed while hidden. */
+  public noteShown(isShown: boolean): void {
+    this.#isShown = isShown;
+    const owed = this.#focusOwedFrom;
+    const scrollContainer = this.#scrollContainer;
+    if (!isShown || owed === undefined || scrollContainer === undefined) {
+      return;
+    }
+    this.#focusOwedFrom = undefined;
+    // Paid where focus still stands where it was asked from, or fell to nothing when that
+    // element left, as the find field does on its close.
+    const ownerDocument = scrollContainer.ownerDocument;
+    const active = ownerDocument.activeElement;
+    if (active === owed.element || active === null || active === ownerDocument.body) {
+      scrollContainer.focus();
+    }
   }
 
   /** Let go of the scroll container, for an unmount or a container about to be replaced. */

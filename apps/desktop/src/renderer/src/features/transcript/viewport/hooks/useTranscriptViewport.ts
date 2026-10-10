@@ -62,8 +62,11 @@ export interface TranscriptViewportBinding {
   /**
    * Puts keyboard focus back on the log for a caller that took it (the find field's close).
    * Without it focus falls to `body` and the next Tab restarts from the top of the document.
+   * Asked while the viewport is hidden, it lands once the viewport is shown.
    */
   readonly focusScrollContainer: () => void;
+  /** Tells the binding whether the viewport is shown, for a focus asked while it was hidden. */
+  readonly noteShown: (isShown: boolean) => void;
   /**
    * Keeps one row where it stands on screen through a press that changes heights in or around
    * it, and stops following the tail; see `ViewportController.holdRowInPlace`. Call it before the
@@ -330,8 +333,14 @@ export function useTranscriptViewport(
       [controller],
     ),
     focusScrollContainer: useCallback(() => {
-      scrollContainerRef.current?.focus();
-    }, []),
+      controller.focusLog();
+    }, [controller]),
+    noteShown: useCallback(
+      (isShown: boolean) => {
+        controller.noteShown(isShown);
+      },
+      [controller],
+    ),
     attachSizer: virtualizer.containerRef,
     attachHead: useCallback(
       (element: HTMLElement | null) =>

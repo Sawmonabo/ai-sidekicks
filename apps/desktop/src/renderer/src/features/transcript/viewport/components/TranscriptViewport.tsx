@@ -10,7 +10,7 @@
 // transition is the pill's hover color. The binding's one selection tracker reaches the rows
 // through context, beside what a long markdown body reads to draw only the blocks near the reader.
 
-import { useMemo } from "react";
+import { useLayoutEffect, useMemo } from "react";
 
 import { EmptyTranscript } from "./EmptyTranscript.js";
 import { VirtualRow, type ViewportRowRenderer } from "./VirtualRow.js";
@@ -36,10 +36,16 @@ export interface TranscriptViewportProps {
   readonly feedLabel: string;
   /**
    * Whether this session's first read has settled. Required so a caller decides: the empty
-   * window is a claim about a session, and an inherited default would show "Nothing has
-   * happened" above the pane's skeleton rows while the read is still in flight.
+   * window is a claim about a session, and an inherited default would say it while the read is
+   * still in flight.
    */
   readonly firstReadSettled: boolean;
+  /**
+   * Whether the rows are shown. Until then the viewport is laid out but hidden, out of reach of
+   * the keyboard and the accessibility tree, so its rows ask for their faces and measure in them
+   * before they are seen.
+   */
+  readonly isShown: boolean;
   /** A run is still being written, which marks the log busy for a screen reader. */
   readonly hasActiveTurn?: boolean;
   /**
@@ -53,7 +59,11 @@ export interface TranscriptViewportProps {
 export function TranscriptViewport(props: TranscriptViewportProps): React.JSX.Element {
   const { binding } = props;
   const { snapshot } = binding;
-  const { scrollController, rowStartPx, selectionTracker: tracker } = binding;
+  const { scrollController, rowStartPx, selectionTracker: tracker, noteShown } = binding;
+  // A layout effect, so a landing the same commit asks for knows the viewport is hidden.
+  useLayoutEffect(() => {
+    noteShown(props.isShown);
+  }, [noteShown, props.isShown]);
   // One value for the viewport's life: each windowed body holds it while it is mounted.
   const markdownWindowViewport = useMemo<MarkdownWindowViewport>(
     () => ({
@@ -68,7 +78,13 @@ export function TranscriptViewport(props: TranscriptViewportProps): React.JSX.El
   return (
     <ViewportSelectionTrackerContext value={tracker}>
       <MarkdownWindowViewportContext value={markdownWindowViewport}>
-        <div className="meridian-transcript-viewport">
+        <div
+          className={
+            props.isShown
+              ? "meridian-transcript-viewport"
+              : "meridian-transcript-viewport meridian-transcript-viewport--hidden"
+          }
+        >
           <div
             className="meridian-transcript-viewport__scroll-container meridian-focus-inset"
             ref={binding.attachScrollContainer}
@@ -117,8 +133,8 @@ export function TranscriptViewport(props: TranscriptViewportProps): React.JSX.El
               })}
             </div>
             {/*
-             * Empty only once the first read has landed: while it is in flight the pane already
-             * draws skeleton rows, and a second element would talk over the loading state.
+             * Empty only once the first read has landed: while it is in flight the feed draws its
+             * loading line, and a second element would talk over it.
              */}
             {snapshot.rows.length === 0 && props.firstReadSettled ? <EmptyTranscript /> : null}
           </div>

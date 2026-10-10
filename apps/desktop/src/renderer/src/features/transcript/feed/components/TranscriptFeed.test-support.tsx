@@ -5,6 +5,7 @@
 // `features/transcript/viewport/controller.test-support.ts`.
 
 import { act, fireEvent, render } from "@testing-library/react";
+import { Profiler, useRef, type ReactNode } from "react";
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
@@ -39,8 +40,9 @@ export const LONG_LOG_EVENT_COUNT = 450;
  * lets a case read the three decisions the list makes for a row, which reach the row renderer as
  * arguments and never as markup. `messageAnchorCursor` opens the feed at that message,
  * `readTranscriptPage` is the `transcript.read` the feed reads its history with, `drawsBody` is
- * the row renderer's answer to which rows it draws, every row unless a case says otherwise, and
- * `fixture` the bridge whose frozen clock a case advances, a fresh one unless it says otherwise.
+ * the row renderer's answer to which rows it draws, every row unless a case says otherwise,
+ * `fixture` the bridge whose frozen clock a case advances, a fresh one unless it says otherwise,
+ * and `onCommit` reads the feed as each commit anywhere in it leaves it.
  */
 export function renderFeed(
   sessionStore: SessionStore,
@@ -51,26 +53,29 @@ export function renderFeed(
     readonly readTranscriptPage?: TranscriptPageRead;
     readonly drawsBody?: (row: TranscriptEventRow) => boolean;
     readonly fixture?: FixtureBridge;
+    readonly onCommit?: (feed: HTMLElement) => void;
   } = {},
 ): HTMLElement {
   const fixture = options.fixture ?? createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO });
   const { container } = render(
     <FixtureBridgeProvider fixture={fixture}>
       <LiveAnnouncerProvider>
-        <TranscriptFeed
-          sessionStore={sessionStore}
-          rowRenderer={{
-            render: (mount) => {
-              onRowMounted?.(mount);
-              return renderRowBody === undefined ? <p>{mount.row.type}</p> : renderRowBody(mount);
-            },
-            drawsBody: options.drawsBody ?? (() => true),
-            prepareRow: () => undefined,
-          }}
-          feedLabel="Transcript"
-          messageAnchorCursor={options.messageAnchorCursor}
-          readTranscriptPage={options.readTranscriptPage}
-        />
+        <CommitProbe onCommit={options.onCommit}>
+          <TranscriptFeed
+            sessionStore={sessionStore}
+            rowRenderer={{
+              render: (mount) => {
+                onRowMounted?.(mount);
+                return renderRowBody === undefined ? <p>{mount.row.type}</p> : renderRowBody(mount);
+              },
+              drawsBody: options.drawsBody ?? (() => true),
+              prepareRow: () => undefined,
+            }}
+            feedLabel="Transcript"
+            messageAnchorCursor={options.messageAnchorCursor}
+            readTranscriptPage={options.readTranscriptPage}
+          />
+        </CommitProbe>
       </LiveAnnouncerProvider>
     </FixtureBridgeProvider>,
   );
@@ -179,4 +184,31 @@ export function dispatchCommand(commandId: string): void {
   act(() => {
     void command.run();
   });
+}
+
+/**
+ * Hands the feed under it to `onCommit` at every commit anywhere in it, as React reports each one
+ * to a profiler, with the commit's elements already in place.
+ */
+function CommitProbe(props: {
+  readonly onCommit: ((feed: HTMLElement) => void) | undefined;
+  readonly children: ReactNode;
+}): React.JSX.Element {
+  const probe = useRef<HTMLDivElement>(null);
+  const { onCommit } = props;
+  return (
+    <div ref={probe}>
+      <Profiler
+        id="transcript-feed"
+        onRender={() => {
+          const feed = probe.current?.querySelector(".meridian-transcript-feed");
+          if (onCommit !== undefined && feed instanceof HTMLElement) {
+            onCommit(feed);
+          }
+        }}
+      >
+        {props.children}
+      </Profiler>
+    </div>
+  );
 }

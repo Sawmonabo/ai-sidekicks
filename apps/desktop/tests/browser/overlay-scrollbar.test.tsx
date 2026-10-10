@@ -326,19 +326,20 @@ describe("the overlay scrollbar", () => {
   it("draws no bar on the conversation", async () => {
     document.location.hash = SESSION_ROUTE;
     const appWindow = await renderAppSettled(TRANSCRIPT_STATES_SCENARIO_ID);
-    await untilInsideAct(() =>
-      expect
-        .poll(() => appWindow.document.querySelector(CONVERSATION_SCROLLER), {
-          timeout: OVERLAY_START_TIMEOUT_MS,
-        })
-        .not.toBeNull(),
-    );
+    // The conversation is hidden until the scenario's log is read on its clock.
+    await advanceScenarioUntil(runningScenario(), () => {
+      const shownConversation = appWindow.document.querySelector(CONVERSATION_SCROLLER);
+      expect(shownConversation).not.toBeNull();
+      expect(shownConversation === null ? "" : getComputedStyle(shownConversation).visibility).toBe(
+        "visible",
+      );
+    });
     const conversation = appWindow.document.querySelector<HTMLElement>(CONVERSATION_SCROLLER);
     if (conversation === null) {
       throw new Error("the session screen drew no conversation");
     }
-    // The scenario's log is still loading here, so the log's height is set from outside, as the
-    // virtualizer sets it, to make the conversation hold more than it shows.
+    // The log's height is set from outside, as the virtualizer sets it, to make the conversation
+    // hold more than it shows.
     const sizer = conversation.querySelector<HTMLElement>(".meridian-transcript-viewport__sizer");
     if (sizer === null) {
       throw new Error("the conversation drew no sizer");

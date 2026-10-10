@@ -62,6 +62,7 @@ function ComposedTranscriptViewport(props: ComposedTranscriptViewportProps): Rea
       renderRow={props.renderRow}
       feedLabel={props.feedLabel}
       firstReadSettled
+      isShown
     />
   );
 }

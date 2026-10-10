@@ -9,8 +9,11 @@ import { type Clock } from "#renderer/lib/clock.js";
  */
 export const CATCH_UP_LINE_DWELL_MS = 400;
 
-/** What the catching-up line says: `Catching up…` or `Couldn't catch up · Try again`. */
-export type CatchUpWords = "catching-up" | "could-not-catch-up";
+/**
+ * What the catching-up line says: `Catching up…`, `Couldn't catch up · Try again`, or, before the
+ * session's first read has landed, `Could not load this session · Try again`.
+ */
+export type CatchUpWords = "catching-up" | "could-not-catch-up" | "could-not-load";
 
 /**
  * The words the catching-up line shows, or nothing while it is down.
