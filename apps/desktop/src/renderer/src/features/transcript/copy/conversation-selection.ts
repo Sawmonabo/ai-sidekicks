@@ -4,10 +4,10 @@
 // part selected in it as it was drawn, and every row between gives its whole text from the source
 // it is drawn from (`row-text.ts`). A long table's rows the window has not drawn inside an end
 // row's part are read from the text of the row's body, from that same source, through the text
-// range each spacer row names, so a copy never waits for rows to draw; a long run of them is parsed
-// by the markdown worker, so its part comes once the worker answers. A part inside one table is
-// copied as a table of what was selected. A message row gives only its body, never its author line,
-// stamp or controls: a reply's part as the markdown rebuilt from what was selected, and the
+// range each spacer row names, so a copy never waits for rows to draw. A long part is read into its
+// text by the markdown worker, so its part comes once the worker answers. A part inside one table
+// is copied as a table of what was selected. A message row gives only its body, never its author
+// line, stamp or controls: a reply's part as the markdown rebuilt from what was selected, and the
 // person's own message or a reasoning aside as plain text. Any other row gives the text selected in
 // it. Plain text is read the way the screen lays it out, a block's lines on lines of their own, and
 // no control's label is ever part of it. An end row's part that reaches a large body, which draws
@@ -18,11 +18,14 @@
 
 import { isElement } from "@floating-ui/utils/dom";
 import { fromDom } from "hast-util-from-dom";
-import { toText } from "hast-util-to-text";
 
+import { type CopyFlavor } from "#renderer/components/Markdown/drawn-text.js";
+import {
+  makeDrawnText,
+  type MarkdownWorkerConnection,
+} from "#renderer/components/Markdown/worker/connection.js";
 import { resolveRowTextPosition } from "../viewport/selection/preservation.js";
 import { type RowSelection } from "../viewport/selection/record.js";
-import { rebuildMarkdown, type DrawnTree } from "./clipboard-flavors.js";
 import { withUndrawnTableRows } from "./undrawn-table-rows.js";
 
 /** One row's share of a copy: its text, and the flavor it copies as. */
@@ -45,13 +48,12 @@ export interface RowSpanSelection {
    * table's undrawn rows and a large body from; `undefined` for a row that draws no body.
    */
   readonly rowBodyText: (rowKey: string) => string | undefined;
+  /** What reads a long end row's part into its text off the page's thread. */
+  readonly markdownWorker: Pick<MarkdownWorkerConnection, "drawnText">;
 }
 
 /** The attribute a row's copyable body carries, naming the flavor its selected part copies as. */
 export const COPY_FLAVOR_ATTRIBUTE = "data-copy-flavor";
-
-/** How a body's selected part is copied: a reply's markdown, or plain text. */
-export type CopyFlavor = "markdown" | "text";
 
 /**
  * The attribute the place of a body its row carries as its size alone holds, around the control
@@ -63,9 +65,9 @@ export const LARGE_BODY_ATTRIBUTE = "data-large-body";
 export const PART_SEPARATOR = "\n\n";
 
 /**
- * The part of a drawn row that `range` selects: at once, or once the markdown worker has made a
- * long table's undrawn rows, rejecting with the worker's `Error`; the row is read before anything
- * is waited on. `readBodyText` reads the text of the row's body, which a long table's undrawn rows
+ * The part of a drawn row that `range` selects: at once, or once `markdownWorker` has read a long
+ * part into its text, rejecting with the worker's `Error`; the row is read before anything is
+ * waited on. `readBodyText` reads the text of the row's body, which a long table's undrawn rows
  * and a large body drawn as its control are read from; it is read only when the part holds one.
  * Throws when the part holds one and the body has no text.
  */
@@ -73,6 +75,7 @@ export function readSelectedPart(
   range: Range,
   row: Element,
   readBodyText: () => string | undefined,
+  markdownWorker: Pick<MarkdownWorkerConnection, "drawnText">,
 ): SelectedPart | Promise<SelectedPart> {
   const body = row.querySelector(`[${COPY_FLAVOR_ATTRIBUTE}]`);
   // A selection holding only the row's author line or controls clamps to nothing in its body.
@@ -82,9 +85,10 @@ export function readSelectedPart(
     fromDom(selectedContentOf(part, flavor, readBodyText)),
     readBodyText,
   );
-  return tree instanceof Promise
-    ? tree.then((filledTree) => partOf(filledTree, flavor))
-    : partOf(tree, flavor);
+  const text = makeDrawnText(tree, flavor, markdownWorker);
+  return typeof text === "string"
+    ? { flavor, text }
+    : text.then((madeText) => ({ flavor, text: madeText }));
 }
 
 /**
@@ -128,14 +132,7 @@ export function readRowPart(
   ) {
     return span.rowText(rowKey);
   }
-  return readSelectedPart(range, rowElement, () => span.rowBodyText(rowKey));
-}
-
-/** A selected part's tree, its undrawn rows filled, as the text it copies in `flavor`. */
-function partOf(tree: DrawnTree, flavor: CopyFlavor): SelectedPart {
-  return flavor === "markdown"
-    ? { flavor, text: rebuildMarkdown(tree) }
-    : { flavor, text: toText(tree) };
+  return readSelectedPart(range, rowElement, () => span.rowBodyText(rowKey), span.markdownWorker);
 }
 
 /**

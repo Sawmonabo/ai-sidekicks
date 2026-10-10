@@ -77,7 +77,9 @@ function drawnPartOf(row: Element, from: "row-start" | Text, to: "row-end" | Tex
   if (to !== "row-end") {
     range.setEnd(to, END_OFFSET);
   }
-  const part = readSelectedPart(range, row, () => expect.fail("a message row draws no table"));
+  const part = readSelectedPart(range, row, () => expect.fail("a message row draws no table"), {
+    drawnText: () => expect.fail("a message row is read at once"),
+  });
   return part instanceof Promise ? expect.fail("a message row is read at once") : part.text;
 }
 

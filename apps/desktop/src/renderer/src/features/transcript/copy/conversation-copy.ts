@@ -3,8 +3,8 @@
 // formatted flavor a part at a time, joined by a blank line into the content of one clipboard
 // write. A large body is read in full just before its row and let go once the row's part is read,
 // so a copy holds one at a time. A reply part too long to make into HTML within a slice is made by
-// the markdown worker, off the page's thread, and so are a long table's undrawn rows in an end
-// row. A copy built in slices is the same bytes as one built at once.
+// the markdown worker, off the page's thread, and so is a long end row's part read into its text.
+// A copy built in slices is the same bytes as one built at once.
 
 import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event/envelope";
 import { toHtml } from "hast-util-to-html";
@@ -43,8 +43,11 @@ export interface ConversationCopyRows {
   readonly largeBodyRowIdOf: (rowKey: string) => string | undefined;
   /** What a large body is read in full through, or `undefined` where none is read. */
   readonly fullBodyReads: Pick<FullBodyReads, "readFullBody"> | undefined;
-  /** What makes a long reply part's formatted flavor off the page's thread. */
-  readonly markdownWorker: Pick<MarkdownWorkerConnection, "html">;
+  /**
+   * What makes a long reply part's formatted flavor, and reads a long end row's part into its text,
+   * off the page's thread.
+   */
+  readonly markdownWorker: Pick<MarkdownWorkerConnection, "html" | "drawnText">;
 }
 
 /**
@@ -90,13 +93,14 @@ export class ConversationCopyBuild {
       endRowElement: (rowKey) => rows.endRowElement(rowKey),
       rowText: (rowKey) => rows.rowText(rowKey, fullBodyOf),
       rowBodyText: (rowKey) => rows.rowBodyText(rowKey, fullBodyOf),
+      markdownWorker: rows.markdownWorker,
     };
   }
 
   /**
    * Builds one part after another while `hasTime` answers true, one at the least, and stops
-   * before a row whose large body is still to be read in full, or after a row whose undrawn table
-   * rows or reply part's formatted flavor the markdown worker makes.
+   * before a row whose large body is still to be read in full, or after a row whose part or
+   * reply part's formatted flavor the markdown worker makes.
    */
   public buildWhile(hasTime: () => boolean): ConversationCopyStep {
     this.#step = this.#buildWhile(hasTime);
@@ -105,8 +109,8 @@ export class ConversationCopyBuild {
 
   /**
    * Builds the rest of the copy in slices in `view`, reading each large body in full, one at a
-   * time, as its row comes, and each long table's undrawn rows and long reply part's formatted
-   * flavor through the markdown worker. Once every row's part is read, a copy whose formatted
+   * time, as its row comes, and each long end row's part and long reply part's formatted flavor
+   * through the markdown worker. Once every row's part is read, a copy whose formatted
    * flavor is still to be made hands its plain text to `onText`, then makes the rest. Resolves
    * `undefined` once `isCurrent` answers false, as when a newer copy took over; throws a
    * `RefusalError` when a body's read is refused, or the worker's `Error` when it fails.
@@ -243,9 +247,9 @@ export class ConversationCopyBuild {
   }
 
   /**
-   * Settles what the build waits on: reads the next row's large body in full, has the worker make
-   * the last row's undrawn table rows, or the next part's formatted flavor. `false` once a newer
-   * copy took over.
+   * Settles what the build waits on: reads the next row's large body in full, has the worker read
+   * the last row's part into its text, or make the next part's formatted flavor. `false` once a
+   * newer copy took over.
    */
   async #settleAwaited(isCurrent: () => boolean): Promise<boolean> {
     const awaited = this.#awaited;

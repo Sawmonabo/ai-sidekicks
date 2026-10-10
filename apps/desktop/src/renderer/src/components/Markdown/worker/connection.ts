@@ -1,13 +1,14 @@
 // The page's end of the markdown worker, one for the whole app. It starts the worker on the first
-// text, sends each text as UTF-8 bytes moved to the worker, and pairs each reply, the text's HTML
-// or its table's body rows, with its text. When the worker stops, sends a reply that cannot be
-// read, or leaves a text unanswered past its deadline, it ends that worker and fails every text
-// still waiting; the next text starts a new one. A worker left with nothing to do for a minute is
-// ended to give its memory back.
+// request, sends a reply's markdown as UTF-8 bytes moved to the worker or a drawn part's tree as a
+// copy, and pairs each text the worker made with its request. When the worker stops, sends a reply
+// that cannot be read, or leaves a request unanswered past its deadline, it ends that worker and
+// fails every request still waiting; the next request starts a new one. A worker left with nothing
+// to do for a minute is ended to give its memory back.
 
 import type { WorkerPort, WorkerStart } from "#renderer/lib/worker-port.js";
 import { describeFailure } from "#shared/failure-message.js";
-import { markdownTableBodyRows, markdownToHtml, type MarkdownHastChild } from "../html.js";
+import { drawnTreeLength, drawnTreeText, type CopyFlavor, type DrawnTree } from "../drawn-text.js";
+import { markdownToHtml } from "../html.js";
 import type { MarkdownWorkerReply, MarkdownWorkerRequest } from "./messages.js";
 
 /** The markdown worker as the connection drives it, so a test can stand in for the worker. */
@@ -17,19 +18,26 @@ export type MarkdownWorkerPort = WorkerPort<MarkdownWorkerRequest, MarkdownWorke
 export type MarkdownWorkerStart = WorkerStart<MarkdownWorkerRequest, MarkdownWorkerReply>;
 
 /**
- * The length, in UTF-16 code units, from which a text is made into HTML, or into its table's body
- * rows, by the worker rather than on the page's thread. Measured on a loaded machine, a 4 KiB text
- * took 3.2 ms to make into HTML on the page and 3.5 ms to make into a table's rows, which still
- * fits a 4 ms slice of copy work inside a frame; at 8 KiB they took 6 ms and 7.6 ms, which do not.
- * A warm worker's round trip took 0.3 to 0.7 ms longer than the page for HTML, and 1.8 ms longer
- * for rows, which cross back by copy.
+ * The length, in UTF-16 code units, from which a text is made into HTML by the worker rather
+ * than on the page's thread. Measured on a loaded machine, the page made HTML at about 0.75 ms a
+ * KiB and a warm worker's round trip took 0.3 to 0.7 ms longer: a 4 KiB text took 3.2 ms on the
+ * page, which still fits a 4 ms slice of copy work inside a frame, and 6 ms at 8 KiB, which does
+ * not.
  */
-export const PAGE_MARKDOWN_CHARACTER_LIMIT = 4096;
+export const PAGE_HTML_CHARACTER_LIMIT = 4096;
 
-/** One worker at a time: started on the first text, replaced after it fails, ended when idle. */
+/**
+ * The characters a drawn part holds, as `drawnTreeLength` counts them, from which the worker reads
+ * it into its text rather than the page. Measured on a loaded machine, a table of 1 KiB took 3.4 ms
+ * to fill with its undrawn rows and rebuild as markdown on the page, which fits a 4 ms slice of
+ * copy work inside a frame, and 6.1 ms at 2 KiB, which does not; prose and plain text cost less.
+ */
+export const PAGE_DRAWN_TEXT_CHARACTER_LIMIT = 1024;
+
+/** One worker at a time: started on the first request, replaced after it fails, ended when idle. */
 export class MarkdownWorkerConnection {
   readonly #startWorker: MarkdownWorkerStart;
-  /** Each text sent and not answered, by its request id. */
+  /** Each request sent and not answered, by its id. */
   readonly #waiting = new Map<number, WaitingText>();
   #port: MarkdownWorkerPort | undefined;
   /** Ends the current worker once it has had nothing to do for the idle stop. */
@@ -46,30 +54,35 @@ export class MarkdownWorkerConnection {
    * the HTML, stops, or does not answer in time.
    */
   public html(markdown: string): Promise<string> {
-    return this.#ask("html", markdown, (reply) =>
-      reply.status === "html" ? new TextDecoder().decode(reply.html) : undefined,
+    const source = new TextEncoder().encode(markdown).buffer;
+    return this.#ask(
+      (requestId) => ({ kind: "html", requestId, source }),
+      [source],
+      source.byteLength,
     );
   }
 
   /**
-   * The body rows of the one table `markdown` makes, made off the page's thread: the same tree
-   * `markdownTableBodyRows` makes on it. Rejects as `html` does.
+   * The text the drawn part `tree` copies as in `flavor`, read off the page's thread: the same text
+   * `drawnTreeText` reads on it. Rejects as `html` does.
    */
-  public tableBodyRows(markdown: string): Promise<readonly MarkdownHastChild[]> {
-    return this.#ask("table-rows", markdown, (reply) =>
-      reply.status === "table-rows" ? reply.rows : undefined,
+  public drawnText(tree: DrawnTree, flavor: CopyFlavor): Promise<string> {
+    return this.#ask(
+      (requestId) => ({ kind: "drawn-text", requestId, tree, flavor }),
+      [],
+      drawnTreeLength(tree),
     );
   }
 
   /**
-   * Sends `markdown` as a `kind` request and resolves what `read` takes from its reply, rejecting
-   * when the reply is of another kind.
+   * Sends the request `requestOf` makes, moving `transfer` to the worker, and resolves the text it
+   * makes, within the deadline of a request `size` bytes long.
    */
-  #ask<Answer>(
-    kind: MarkdownWorkerRequest["kind"],
-    markdown: string,
-    read: (reply: MarkdownWorkerAnswer) => Answer | undefined,
-  ): Promise<Answer> {
+  #ask(
+    requestOf: (requestId: number) => MarkdownWorkerRequest,
+    transfer: Transferable[],
+    size: number,
+  ): Promise<string> {
     let port: MarkdownWorkerPort;
     try {
       port = this.#port ?? this.#open();
@@ -81,21 +94,12 @@ export class MarkdownWorkerConnection {
     clearTimeout(this.#idleStop);
     this.#requestCount += 1;
     const requestId = this.#requestCount;
-    const source = new TextEncoder().encode(markdown).buffer;
     return new Promise((resolve, reject) => {
       const watchdog = setTimeout(() => {
         this.#fail(port, "The markdown worker did not answer in time");
-      }, answerDeadlineMs(source.byteLength));
-      const settle = (reply: MarkdownWorkerAnswer): void => {
-        const answer = read(reply);
-        if (answer === undefined) {
-          reject(new Error(`The markdown worker answered a ${kind} request with ${reply.status}`));
-        } else {
-          resolve(answer);
-        }
-      };
-      this.#waiting.set(requestId, { settle, reject, watchdog });
-      port.postMessage({ kind, requestId, source }, [source]);
+      }, answerDeadlineMs(size));
+      this.#waiting.set(requestId, { resolve, reject, watchdog });
+      port.postMessage(requestOf(requestId), transfer);
     });
   }
 
@@ -124,7 +128,7 @@ export class MarkdownWorkerConnection {
     if (reply.status === "failed") {
       waiting.reject(new Error(`The markdown worker failed: ${reply.reason}`));
     } else {
-      waiting.settle(reply);
+      waiting.resolve(new TextDecoder().decode(reply.text));
     }
     if (this.#waiting.size === 0) {
       this.#idleStop = setTimeout(() => {
@@ -135,7 +139,7 @@ export class MarkdownWorkerConnection {
     }
   }
 
-  /** End `port` and fail every text it holds; the next text starts a new worker. */
+  /** End `port` and fail every request it holds; the next request starts a new worker. */
   #fail(port: MarkdownWorkerPort, reason: string): void {
     if (port !== this.#port) {
       return;
@@ -143,9 +147,9 @@ export class MarkdownWorkerConnection {
     this.#end(port);
     const waiting = [...this.#waiting.values()];
     this.#waiting.clear();
-    for (const text of waiting) {
-      clearTimeout(text.watchdog);
-      text.reject(new Error(reason));
+    for (const request of waiting) {
+      clearTimeout(request.watchdog);
+      request.reject(new Error(reason));
     }
   }
 
@@ -156,56 +160,54 @@ export class MarkdownWorkerConnection {
   }
 }
 
-/** A reply that answers its text, rather than saying why the worker made nothing of it. */
-type MarkdownWorkerAnswer = Exclude<MarkdownWorkerReply, { readonly status: "failed" }>;
-
-/** One text sent and not answered: how to settle it, and the deadline that fails its worker. */
+/** One request sent and not answered: how to settle it, and the deadline that fails its worker. */
 interface WaitingText {
-  readonly settle: (reply: MarkdownWorkerAnswer) => void;
+  readonly resolve: (text: string) => void;
   readonly reject: (error: Error) => void;
   readonly watchdog: ReturnType<typeof setTimeout>;
 }
 
 /**
- * How long the worker may take over a text, in milliseconds, for each started mebibyte of it,
- * counted from when the text is sent and including a worker's start. A 2 MiB reply took about
- * 1.1 s on the page's own thread, so this leaves a heavily loaded machine plenty of room while a
- * worker that never answers still fails its text.
+ * How long the worker may take over a request, in milliseconds, for each started mebibyte of it,
+ * counted from when it is sent and including a worker's start. A 2 MiB reply took about 1.1 s to
+ * make into HTML on the page's own thread, and a 2 MiB table about 7 s to fill and rebuild, so
+ * this leaves a heavily loaded machine room while a worker that never answers still fails it.
  */
 const ANSWER_DEADLINE_MS_PER_MEBIBYTE = 10_000;
 
 /**
  * How long the worker may sit with nothing to do, in milliseconds, before it is ended to give its
- * memory back; the next text starts a new one.
+ * memory back; the next request starts a new one.
  */
 const MARKDOWN_WORKER_IDLE_STOP_MS = 60_000;
 
 /**
  * The HTML `markdown` makes under the screen's policy: made at once on the page's thread when it is
- * shorter than `PAGE_MARKDOWN_CHARACTER_LIMIT`, otherwise by `worker` off it, rejecting as its
- * `html` does.
+ * shorter than `PAGE_HTML_CHARACTER_LIMIT`, otherwise by `worker` off it, rejecting as its `html`
+ * does.
  */
 export function makeMarkdownHtml(
   markdown: string,
   worker: Pick<MarkdownWorkerConnection, "html">,
 ): string | Promise<string> {
-  return markdown.length < PAGE_MARKDOWN_CHARACTER_LIMIT
+  return markdown.length < PAGE_HTML_CHARACTER_LIMIT
     ? markdownToHtml(markdown)
     : worker.html(markdown);
 }
 
 /**
- * The body rows of the one table `markdown` makes: made at once on the page's thread when it is
- * shorter than `PAGE_MARKDOWN_CHARACTER_LIMIT`, otherwise by `worker` off it, rejecting as its
- * `tableBodyRows` does.
+ * The text the drawn part `tree` copies as in `flavor`: read at once on the page's thread when it
+ * holds fewer characters than `PAGE_DRAWN_TEXT_CHARACTER_LIMIT`, otherwise by `worker` off it,
+ * rejecting as its `drawnText` does.
  */
-export function makeMarkdownTableBodyRows(
-  markdown: string,
-  worker: Pick<MarkdownWorkerConnection, "tableBodyRows">,
-): readonly MarkdownHastChild[] | Promise<readonly MarkdownHastChild[]> {
-  return markdown.length < PAGE_MARKDOWN_CHARACTER_LIMIT
-    ? markdownTableBodyRows(markdown)
-    : worker.tableBodyRows(markdown);
+export function makeDrawnText(
+  tree: DrawnTree,
+  flavor: CopyFlavor,
+  worker: Pick<MarkdownWorkerConnection, "drawnText">,
+): string | Promise<string> {
+  return drawnTreeLength(tree) < PAGE_DRAWN_TEXT_CHARACTER_LIMIT
+    ? drawnTreeText(tree, flavor)
+    : worker.drawnText(tree, flavor);
 }
 
 /** The app's markdown worker, loaded from the renderer's own origin as a module. */
@@ -213,14 +215,14 @@ export function startMarkdownWorker(): MarkdownWorkerPort {
   return new Worker(new URL("./entry.ts", import.meta.url), { type: "module", name: "markdown" });
 }
 
-/** The deadline of a text `byteLength` bytes long. */
+/** The deadline of a request `byteLength` bytes long. */
 function answerDeadlineMs(byteLength: number): number {
   return ANSWER_DEADLINE_MS_PER_MEBIBYTE * Math.max(1, Math.ceil(byteLength / 2 ** 20));
 }
 
 /**
  * The app's one connection to the markdown worker. Every window is drawn from the one console
- * document, so every window's text reaches the same worker; it starts on the first text.
+ * document, so every window's requests reach the same worker; it starts on the first one.
  */
 export const markdownWorker: MarkdownWorkerConnection = new MarkdownWorkerConnection(
   startMarkdownWorker,

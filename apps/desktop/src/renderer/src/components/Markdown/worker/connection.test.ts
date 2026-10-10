@@ -29,7 +29,7 @@ class StandInWorker implements MarkdownWorkerPort {
     const encoded = new TextEncoder().encode(html).buffer;
     this.onmessage?.(
       new MessageEvent("message", {
-        data: { status: "html", requestId: request.requestId, html: encoded },
+        data: { status: "made", requestId: request.requestId, text: encoded },
       }),
     );
   }
@@ -53,7 +53,10 @@ it("fails every text when its worker stops, and starts a new one for the next", 
   expect(workers[0]?.isEnded).toBe(true);
 
   const third = connection.html("# three");
-  expect(new TextDecoder().decode(workers[1]?.requests[0]?.source)).toBe("# three");
+  const request = workers[1]?.requests[0];
+  expect(request?.kind === "html" ? new TextDecoder().decode(request.source) : request).toBe(
+    "# three",
+  );
   workers[1]?.answer("<h1>three</h1>");
   expect(await third).toBe("<h1>three</h1>");
 });

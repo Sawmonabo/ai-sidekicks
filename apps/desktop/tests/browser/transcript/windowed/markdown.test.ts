@@ -6,7 +6,7 @@ import { act } from "@testing-library/react";
 import { fromDom } from "hast-util-from-dom";
 import { describe, expect, it } from "vitest";
 
-import { rebuildMarkdown } from "#renderer/features/transcript/copy/clipboard-flavors.js";
+import { drawnTreeText } from "#renderer/components/Markdown/drawn-text.js";
 import { longReplyMarkdown } from "#renderer/features/transcript/rows/bodies/WindowedMarkdown.test-support.js";
 import { MARKDOWN_BLOCK_INDEX_ATTRIBUTE } from "#renderer/features/transcript/rows/markdown/block-window/markers.js";
 import {
@@ -237,7 +237,10 @@ describe("browser — a long reply drawn as a window over its blocks", () => {
     const lastText = textEnds(lastBlock).last;
     selection.extend(lastText, lastText.length);
     await settleFrames();
-    const windowedCopy = rebuildMarkdown(fromDom(selection.getRangeAt(0).cloneContents()));
+    const windowedCopy = drawnTreeText(
+      fromDom(selection.getRangeAt(0).cloneContents()),
+      "markdown",
+    );
 
     const flowEnds = textEnds(flowBody);
     const flowRange = document.createRange();
@@ -245,7 +248,7 @@ describe("browser — a long reply drawn as a window over its blocks", () => {
     flowRange.setEnd(flowEnds.last, flowEnds.last.length);
     selection.removeAllRanges();
 
-    expect(windowedCopy).toBe(rebuildMarkdown(fromDom(flowRange.cloneContents())));
+    expect(windowedCopy).toBe(drawnTreeText(fromDom(flowRange.cloneContents()), "markdown"));
     const drawnAtEnd = drawnBlocks(windowedBody);
     expect(drawnAtEnd.size).toBe(lastIndex + 1);
     expect(

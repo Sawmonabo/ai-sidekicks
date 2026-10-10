@@ -13,6 +13,7 @@ import { CONTENT_LENGTH_PAYLOAD_KEY } from "@ai-sidekicks/contracts/event/declar
 
 import { readWireString } from "#renderer/lib/wire/strings.js";
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
+import { type CopyFlavor } from "#renderer/components/Markdown/drawn-text.js";
 import {
   TranscriptRowLayout,
   hueStepOf,
@@ -29,7 +30,7 @@ import { UserBody } from "./bodies/UserBody.js";
 import { userMessageTextOf } from "./user-message.js";
 import { projectedPayload, readWireCount } from "#renderer/store/session/events/wire-payload.js";
 import { replyClipboardContent } from "../copy/clipboard-flavors.js";
-import { COPY_FLAVOR_ATTRIBUTE, type CopyFlavor } from "../copy/conversation-selection.js";
+import { COPY_FLAVOR_ATTRIBUTE } from "../copy/conversation-selection.js";
 import { replyCopyFlavorOf } from "../copy/drawn-reply-text.js";
 import { useReplyText } from "../copy/hooks/useReplyText.js";
 import { publishedTextOf, type PublishedText } from "../reveal/published-text.js";

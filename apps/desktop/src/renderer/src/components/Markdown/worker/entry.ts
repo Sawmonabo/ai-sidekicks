@@ -1,10 +1,11 @@
-// The markdown worker: makes each text the page sends into HTML under the screen's policy, or into
-// the body rows of the one table it makes, off the page's thread, one at a time, and sends back the
-// HTML as UTF-8 bytes it moves, or the rows. A text it cannot make into either is answered with the
-// reason, and the worker goes on to the next.
+// The markdown worker: makes each reply's markdown the page sends into HTML under the screen's
+// policy, and reads each drawn part it sends back into the text it copies as, off the page's
+// thread, one at a time, and moves what it made back as UTF-8 bytes. A request it cannot answer is
+// answered with the reason, and the worker goes on to the next.
 
 import { describeFailure } from "#shared/failure-message.js";
-import { markdownTableBodyRows, markdownToHtml } from "../html.js";
+import { drawnTreeText } from "../drawn-text.js";
+import { markdownToHtml } from "../html.js";
 import type { MarkdownWorkerReply, MarkdownWorkerRequest } from "./messages.js";
 
 /** The parts of a dedicated worker's global scope this script uses; the DOM types lack them. */
@@ -23,19 +24,18 @@ const decoder = new TextDecoder();
 const encoder = new TextEncoder();
 
 workerScope.addEventListener("message", (event) => {
-  const { kind, requestId, source } = event.data;
+  const request = event.data;
   try {
-    const markdown = decoder.decode(source);
-    if (kind === "table-rows") {
-      workerScope.postMessage(
-        { status: "table-rows", requestId, rows: markdownTableBodyRows(markdown) },
-        [],
-      );
-      return;
-    }
-    const html = encoder.encode(markdownToHtml(markdown)).buffer;
-    workerScope.postMessage({ status: "html", requestId, html }, [html]);
+    const made =
+      request.kind === "html"
+        ? markdownToHtml(decoder.decode(request.source))
+        : drawnTreeText(request.tree, request.flavor);
+    const text = encoder.encode(made).buffer;
+    workerScope.postMessage({ status: "made", requestId: request.requestId, text }, [text]);
   } catch (error: unknown) {
-    workerScope.postMessage({ status: "failed", requestId, reason: describeFailure(error) }, []);
+    workerScope.postMessage(
+      { status: "failed", requestId: request.requestId, reason: describeFailure(error) },
+      [],
+    );
   }
 });
