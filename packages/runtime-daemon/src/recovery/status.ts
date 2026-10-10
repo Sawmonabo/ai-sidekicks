@@ -1,13 +1,11 @@
 // The node's recovery state as the status read serves it: `rebuilding` while the restart's pass
 // runs, `blocked` once the local store has failed, and `degraded` while a session's history is
 // damaged. The whole node refuses writes until the pass has listed what it must rebuild, and a
-// call that names no session until the pass ends; from then a session it is still rebuilding
-// refuses every write but the pass's own, as a damaged
-// session, open at its last good point or unreadable, refuses its writes. The pass's writes are
-// told apart by the asynchronous context it runs in. Sessions are keyed by their canonical id, so
-// a call that spells one in capitals meets the same refusal.
-
-import { AsyncLocalStorage } from "node:async_hooks";
+// call that names no session until the pass ends; from then a session the pass listed refuses
+// every call that names it until it is rebuilt and its runs settled, and every event until the
+// pass comes to settle those runs. A damaged session, open at its last good point or unreadable,
+// refuses its writes. Sessions are keyed by their canonical id, so a
+// call that spells one in capitals meets the same refusal.
 
 import {
   DAEMON_RECOVERY_STATES,
@@ -28,6 +26,10 @@ export interface LastGoodPoint {
   readonly damagedFromSequence: number;
 }
 
+// Where a session the pass listed stands: rebuilding refuses every event, and settling takes the
+// events of the runs the pass settles while it still refuses the calls that name it.
+type ListedSessionStage = "rebuilding" | "settling";
+
 // Where one listed session stands, with what each state carries.
 type SessionRecovery =
   | { readonly state: "degraded"; readonly point: LastGoodPoint }
@@ -41,16 +43,9 @@ export class RecoveryStatusTracker {
   #isPassListing = true;
   #hasStoreFailed = false;
   readonly #sessions = new Map<SessionId, SessionRecovery>();
-  // The sessions the pass has yet to rebuild, kept apart from the listed ones: after a repair of
-  // the file that is every session, too many for each status read to carry.
-  readonly #rebuildingSessions = new Set<SessionId>();
-  // Set within the pass, whose appends reach the sessions it is rebuilding.
-  readonly #passWrites = new AsyncLocalStorage<true>();
-
-  /** Runs the restart's pass, so the events it appends reach the sessions it is rebuilding. */
-  runPass<T>(pass: () => Promise<T>): Promise<T> {
-    return this.#passWrites.run(true, pass);
-  }
+  // The sessions the pass has yet to rebuild and settle, kept apart from the damaged ones: after a
+  // repair of the file that is every session, too many for each status read to carry.
+  readonly #rebuildingSessions = new Map<SessionId, ListedSessionStage>();
 
   /**
    * Marks the pass's sessions listed, each one it must rebuild marked rebuilding: the node then
@@ -73,7 +68,18 @@ export class RecoveryStatusTracker {
 
   /** Marks a session the pass must rebuild before it takes a write. */
   markSessionRebuilding(sessionId: SessionId): void {
-    this.#rebuildingSessions.add(canonicalizeUuid(sessionId));
+    this.#rebuildingSessions.set(canonicalizeUuid(sessionId), "rebuilding");
+  }
+
+  /**
+   * Marks a listed session whose runs the pass settles next: it takes their events and still
+   * refuses the calls that name it. A session the pass no longer lists is left as it stands.
+   */
+  markSessionSettling(sessionId: SessionId): void {
+    const canonicalId = canonicalizeUuid(sessionId);
+    if (this.#rebuildingSessions.has(canonicalId)) {
+      this.#rebuildingSessions.set(canonicalId, "settling");
+    }
   }
 
   /** Marks a session's projections current, or the session deleted, so it is no longer listed. */
@@ -105,13 +111,12 @@ export class RecoveryStatusTracker {
 
   /**
    * Why the session takes no appended event: its history is damaged, or the pass is still
-   * rebuilding it and the append is not the pass's own; `undefined` when it takes the event.
+   * rebuilding it and has yet to settle its runs; `undefined` when it takes the event.
    */
   readSessionAppendRefusal(sessionId: SessionId): SessionWriteRefusedDetails | undefined {
-    if (this.#passWrites.getStore() === true) {
-      return this.readSessionWriteRefusal(sessionId);
-    }
-    return this.readSessionCallRefusal(sessionId);
+    return this.#rebuildingSessions.get(canonicalizeUuid(sessionId)) === "rebuilding"
+      ? { sessionId, recovery: "rebuilding" }
+      : this.readSessionWriteRefusal(sessionId);
   }
 
   /**

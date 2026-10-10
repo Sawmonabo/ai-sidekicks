@@ -1,6 +1,7 @@
 // The one refusal a session with damaged history, or one the restart's pass is still rebuilding,
 // gives each write: at the wire for a call that names it, and at the append for every event of
-// it, whoever writes and however the writer found the session. The pass's own appends go on.
+// it, whoever writes and however the writer found the session, until the pass comes to settle the
+// session's runs.
 
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
@@ -31,7 +32,7 @@ export function refuseCallNamingSession(
 /**
  * Throws `session.write_refused` for an event of a session whose history is damaged, except the
  * one event that continues it from its last good point, or of a session the restart's pass is
- * still rebuilding, unless the pass appends it.
+ * still rebuilding and has yet to settle the runs of.
  */
 export function refuseSessionEvent(
   status: Pick<RecoveryStatusTracker, "readSessionAppendRefusal">,

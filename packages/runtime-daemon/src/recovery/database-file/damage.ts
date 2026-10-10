@@ -29,7 +29,7 @@ export class DatabaseDamageWatch {
     this.whenFound = this.#found.promise;
   }
 
-  /** Whether damage has been found, so a caller can act before {@link whenFound}'s callbacks run. */
+  /** Whether damage has been found, so a caller acts before {@link whenFound}'s callbacks run. */
   get isFound(): boolean {
     return this.#isFound;
   }

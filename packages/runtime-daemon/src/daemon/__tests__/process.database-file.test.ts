@@ -1,8 +1,9 @@
 // The database file at a start: when something else changed the file since the last run every
 // write waits for the file's check to find it sound, while after any end of the last run, clean or
-// not, writes go at once, and a check that cannot run never fails the start; a damaged page the
-// recovery pass reads stops the daemon, and its next start repairs the file while the socket
-// answers that the service is repairing, with the repair's count, and the repaired file takes
+// not, writes go at once, and a check that cannot run never fails the start but holds the next
+// start's writes; a damaged page the recovery pass reads stops the daemon, and its next start
+// repairs the file while the socket answers that the service is repairing, with the repair's
+// count, takes a stop over a connection whose hello carried the token, and the repaired file takes
 // writes at once. A stop during the start, in the repair or while writes wait for the check, ends
 // it, and a start a stop came to never says the daemon is ready. The check is stood in, so each
 // test decides when it answers.
@@ -21,9 +22,11 @@ import {
   DAEMON_REPAIRING_CODE,
   type DaemonRepairProgress,
 } from "@ai-sidekicks/contracts/daemon/recovery";
+import { JSONRPC_VERSION } from "@ai-sidekicks/contracts/jsonrpc/message";
 import { CURRENT_PROTOCOL_VERSION } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 
 import { bootstrap } from "../../bootstrap/index.js";
+import { connect } from "../../ipc/__fixtures__/local-socket-client.js";
 import {
   DatabaseFileCheck,
   type DatabaseFileCheckAnswer,
@@ -98,36 +101,24 @@ function countRecoveryPasses(): number {
 }
 
 describe("the database file's check at a start", () => {
-  it("holds every write on a file changed since the last run until the check answers, and none otherwise", async () => {
+  it("holds every write on a file changed or unvouched since the last run until the check answers, and none otherwise", async () => {
     const heldAnswer = Promise.withResolvers<DatabaseFileCheckAnswer>();
+    const heldFailure = Promise.withResolvers<DatabaseFileCheckAnswer>();
     const answers: (() => Promise<DatabaseFileCheckAnswer>)[] = [
       () => heldAnswer.promise,
       () => new Promise(() => {}),
       () => new Promise(() => {}),
       () => Promise.reject(new Error("The shell is missing")),
+      () => heldFailure.promise,
     ];
     standInChecks(() => (answers.shift() ?? (() => Promise.reject(new Error("A fifth check"))))());
     // A new file has nothing to check, and its first start knows this machine.
     await (await startDaemon(DRAIN_NOTHING)).stop();
-    expect(answers).toHaveLength(4);
+    expect(answers).toHaveLength(5);
     // A clean stop's facts the file no longer matches: something else wrote it since.
     await touchDatabaseFile();
 
-    let isStarted = false;
-    const starting = startDaemon(DRAIN_NOTHING).then((daemon) => {
-      isStarted = true;
-      return daemon;
-    });
-    await vi.waitFor(
-      async () => {
-        expect(await isSocketAnswering(runFolder.socketPath)).toBe(true);
-      },
-      { timeout: SOCKET_WAIT_MS, interval: 20 },
-    );
-    await delay(HELD_WRITE_WAIT_MS);
-    expect(countRecoveryPasses()).toBe(1);
-    expect(isStarted).toBe(false);
-
+    const { starting } = await startHeld(1);
     heldAnswer.resolve({ outcome: "sound" });
     await (await starting).stop();
     expect(countRecoveryPasses()).toBe(2);
@@ -141,12 +132,36 @@ describe("the database file's check at a start", () => {
     await (await startDaemon(DRAIN_NOTHING)).stop();
     expect(countRecoveryPasses()).toBe(4);
 
-    // A check that cannot run on a changed file lets the writes go.
-    await touchDatabaseFile();
-    await startDaemon(DRAIN_NOTHING);
+    // A check that cannot run unvouches the file the last run vouched for, so the next start holds
+    // its writes; once that start's check fails too, the writes go.
+    await (await startDaemon(DRAIN_NOTHING)).stop();
     expect(countRecoveryPasses()).toBe(5);
+    const unvouched = await startHeld(5);
+    heldFailure.reject(new Error("The shell is missing"));
+    await unvouched.starting;
+    expect(countRecoveryPasses()).toBe(6);
     expect(answers).toHaveLength(0);
   }, 30_000);
+
+  // Starts a daemon and resolves, with its start, once the start is seen holding its writes: its
+  // socket answers and the recovery pass has written nothing past the `passCount` before it.
+  async function startHeld(passCount: number): Promise<{ starting: Promise<DaemonProcess> }> {
+    let isStarted = false;
+    const starting = startDaemon(DRAIN_NOTHING).then((daemon) => {
+      isStarted = true;
+      return daemon;
+    });
+    await vi.waitFor(
+      async () => {
+        expect(await isSocketAnswering(runFolder.socketPath)).toBe(true);
+      },
+      { timeout: SOCKET_WAIT_MS, interval: 20 },
+    );
+    await delay(HELD_WRITE_WAIT_MS);
+    expect(countRecoveryPasses()).toBe(passCount);
+    expect(isStarted).toBe(false);
+    return { starting };
+  }
 });
 
 describe("damage met while the daemon runs", () => {
@@ -224,14 +239,21 @@ describe("damage met while the daemon runs", () => {
     }
   });
 
-  it("answers a hello with its token as repairing while the file is repaired, and goes after", async () => {
+  it("answers a hello with its token as repairing, takes a stop only after one, and goes after", async () => {
     bootstrap({ localIpcPath: runFolder.socketPath });
     const repair = Promise.withResolvers<string>();
     let reportProgress: (progress: DaemonRepairProgress | undefined) => void = () => {};
-    const repairing = answerRepairingWhile(runFolder, (reportRepairProgress) => {
-      reportProgress = reportRepairProgress;
-      return repair.promise;
-    });
+    const repairing = answerRepairingWhile(
+      runFolder,
+      (reportRepairProgress, stopAsked) => {
+        reportProgress = reportRepairProgress;
+        stopAsked.addEventListener("abort", () => {
+          repair.reject(stopAsked.reason);
+        });
+        return repair.promise;
+      },
+      () => {},
+    );
     // The token is written once the socket is bound, so a hello waits for both.
     await vi.waitFor(
       async () => {
@@ -267,8 +289,30 @@ describe("damage met while the daemon runs", () => {
     })) as { error?: { data?: { type?: string } } };
     expect(wrongToken.error?.data?.type).toBe("auth.token_invalid");
 
-    repair.resolve("repaired");
-    expect(await repairing).toBe("repaired");
+    // A connection whose hello lacked the token cannot stop the repair; one whose hello carried it
+    // can.
+    const stranger = await connect(runFolder.socketPath);
+    onTestFinished(() => stranger.close());
+    stranger.send({
+      jsonrpc: JSONRPC_VERSION,
+      id: 1,
+      method: "daemon.hello",
+      params: { protocolVersion: CURRENT_PROTOCOL_VERSION, sessionToken: "not-this-start's" },
+    });
+    stranger.send({
+      jsonrpc: JSONRPC_VERSION,
+      id: 2,
+      method: "daemon.stop",
+      params: {},
+      protocolVersion: CURRENT_PROTOCOL_VERSION,
+    });
+    const strangerStop = (await stranger.replies(2)).find(
+      (reply) => (reply as { id: unknown }).id === 2,
+    );
+    expect(strangerStop).toMatchObject({ error: { data: { type: "auth.token_invalid" } } });
+    expect(await call("daemon.stop")).toMatchObject({ result: { accepted: true } });
+
+    await expect(repairing).rejects.toThrow("A stop was asked for over the socket");
     expect(await isSocketAnswering(runFolder.socketPath)).toBe(false);
   });
 });

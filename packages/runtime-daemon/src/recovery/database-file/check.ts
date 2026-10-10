@@ -7,11 +7,7 @@
 
 import { spawn } from "node:child_process";
 
-import {
-  refuseUnfitShell,
-  SQLITE_SHELL_BUSY_TIMEOUT_MS,
-  SQLITE_SHELL_PROGRAM,
-} from "./sqlite-shell.js";
+import { refuseUnfitShell, SQLITE_SHELL_BUSY_TIMEOUT_MS } from "./sqlite-shell.js";
 
 /**
  * What the check found: the file is sound, or damaged, with what SQLite reported; or `stopped`
@@ -39,8 +35,8 @@ export class DatabaseFileCheck {
 
   readonly #stopRequest = new AbortController();
 
-  private constructor(databasePath: string) {
-    this.answer = this.#run(databasePath).catch((error: unknown) => {
+  private constructor(databasePath: string, shellProgram: string) {
+    this.answer = this.#run(databasePath, shellProgram).catch((error: unknown) => {
       if (this.#stopRequest.signal.aborted) {
         return { outcome: "stopped" } as const;
       }
@@ -48,9 +44,12 @@ export class DatabaseFileCheck {
     });
   }
 
-  /** Starts the check of the file at `databasePath`, which exists; returns at once. */
-  static start(databasePath: string): DatabaseFileCheck {
-    return new DatabaseFileCheck(databasePath);
+  /**
+   * Starts the check of the file at `databasePath`, which exists, in the shell at `shellProgram`;
+   * returns at once.
+   */
+  static start(databasePath: string, shellProgram: string): DatabaseFileCheck {
+    return new DatabaseFileCheck(databasePath, shellProgram);
   }
 
   /** Ends the shell if it still runs; the answer then settles `stopped` once it has exited. */
@@ -58,11 +57,11 @@ export class DatabaseFileCheck {
     this.#stopRequest.abort();
   }
 
-  async #run(databasePath: string): Promise<DatabaseFileCheckAnswer> {
-    await refuseUnfitShell();
+  async #run(databasePath: string, shellProgram: string): Promise<DatabaseFileCheckAnswer> {
+    await refuseUnfitShell(shellProgram);
     this.#stopRequest.signal.throwIfAborted();
     const shell = spawn(
-      SQLITE_SHELL_PROGRAM,
+      shellProgram,
       [
         "-readonly",
         "-cmd",

@@ -4,14 +4,16 @@
 // those run, it opens the database file, through its writer for writes and a read-only connection
 // for reads, repairing it first, while the socket answers that it is repairing, when a previous run
 // found it damaged, and starts the file's structural check beside it (`database-file.ts`). Damage
-// the check or any read or write meets is recorded beside the file and stops the daemon, so its
-// next start repairs the file before anything opens it. The start then starts the search thread, which
-// opens its own read-only connection and the search index, building the index again when it
-// cannot serve, while the start goes on, kills the terminal children a previous run left running
-// and knows this machine. It builds the terminal host over this run's orphan guard, listens on its
-// socket and writes this start's session token once the bind has succeeded, then runs its recovery
-// pass, refusing writes until that pass has ended and, after it, only the writes of a session
-// whose history is damaged; the session services' background work starts once the pass has ended.
+// the check or any read or write meets stops the daemon and is recorded beside the file before the
+// stop ends, so its next start repairs the file before anything opens it. The start then starts
+// the search thread, which opens its own read-only connection and the search index, building the
+// index again when it cannot serve, while the start goes on, kills the terminal children a
+// previous run left running and knows this machine. It builds the terminal host over this run's
+// orphan guard, listens on its socket and writes this start's session token once the bind has
+// succeeded, then runs its recovery pass, refusing every write until the pass has listed the
+// sessions it rebuilds, then a listed session's and one naming no session until the pass ends,
+// and after it only the writes of a session whose history is damaged; the session services'
+// background work starts once the pass has ended.
 // A client that reads the previous token in the moment between the bind and the write is refused
 // once, and its next read finds this start's token. Its stop, asked for over the socket or by a
 // terminate signal, ends it cleanly at any point of the start or after it, and records the clean
@@ -65,10 +67,8 @@ import {
   findAsideCopyOfSession,
   recordSessionInAsideCopy,
 } from "../recovery/database-file/aside-copy.js";
-import {
-  type DatabaseDamageWatch,
-  recordDatabaseDamage,
-} from "../recovery/database-file/damage.js";
+import type { DatabaseDamageWatch } from "../recovery/database-file/damage.js";
+import type { DatabaseFileOperatingSystem } from "../recovery/database-file/operating-system.js";
 import { ProjectionRebuildService } from "../recovery/projection-rebuild.js";
 import { refuseSessionEvent } from "../recovery/session-write-refusal.js";
 import { StartupRecovery } from "../recovery/startup.js";
@@ -126,6 +126,8 @@ export interface DaemonProcessOptions {
   readonly captureProviderBaseEnvironment: (
     signal: AbortSignal,
   ) => Promise<readonly SpawnEnvPair[]>;
+  /** What the database file's check, repair and copies aside take from the operating system. */
+  readonly databaseFileOperatingSystem: DatabaseFileOperatingSystem;
   /** The login shell a project's setup commands run in; `null` runs the system's default one. */
   readonly commandShell: string | null;
   /** The service's own release version, which the status read reports. */
@@ -165,10 +167,8 @@ export class DaemonProcess {
   readonly providerBaseEnvironment: readonly SpawnEnvPair[];
 
   readonly #dataFolderLock: DataFolderLock;
-  readonly #databasePath: string;
   readonly #database: DatabaseConnections;
   readonly #databaseFile: OpenedDatabaseFile;
-  #isFileDamaged = false;
   readonly #searchThread: SearchThread;
   readonly #gateway: LocalIpcGateway;
   readonly #inFlightMutations: InFlightMutations;
@@ -213,7 +213,6 @@ export class DaemonProcess {
     this.localMachine = parts.localMachine;
     this.providerBaseEnvironment = parts.providerBaseEnvironment;
     this.#dataFolderLock = parts.dataFolderLock;
-    this.#databasePath = parts.databasePath;
     this.#databaseFile = parts.databaseFile;
     this.#database = parts.databaseFile.database;
     const { damageWatch } = parts.databaseFile;
@@ -321,6 +320,7 @@ export class DaemonProcess {
     const asideOptions = {
       databasePath: parts.databasePath,
       dataFolder: parts.dataFolder,
+      operatingSystem: options.databaseFileOperatingSystem,
       now: options.now,
       writeServiceLog: options.writeServiceLog,
     };
@@ -331,11 +331,10 @@ export class DaemonProcess {
       projectionRebuild,
       damagedHistory,
       storeAside: {
-        // Every write the pass queued commits first, so the copy holds them.
-        copy: async () => {
-          await writer.flush();
-          return copyDatabaseFilesAside(asideOptions);
-        },
+        // Every write taken before the copy commits first, so the copy holds it, and none reaches
+        // the files, nor a checkpoint, while they are copied.
+        copy: (stopSignal) =>
+          writer.holdWhile(() => copyDatabaseFilesAside(asideOptions, stopSignal)),
         findCopyOfSession: (sessionId, headSequence) =>
           findAsideCopyOfSession(asideOptions, sessionId, headSequence),
         recordSession: recordSessionInAsideCopy,
@@ -446,6 +445,7 @@ export class DaemonProcess {
         dataFolder,
         indexFolderPath,
         runFolder: options.runFolder,
+        operatingSystem: options.databaseFileOperatingSystem,
         readBackupFolder: async () =>
           (await settingsFile.read()).settings.backup.folder ??
           path.join(dataFolder, BACKUP_DEFAULT_FOLDER_NAME),
@@ -540,6 +540,12 @@ export class DaemonProcess {
         return daemon;
       } catch (startError) {
         const cleanupFailures: unknown[] = [];
+        // Damage found before the daemon listened is recorded too, so the next start repairs it.
+        try {
+          await databaseFile.recordFoundDamage();
+        } catch (error) {
+          cleanupFailures.push(error);
+        }
         // The session services' background work reads the database, so it ends first.
         if (daemon !== undefined) {
           try {
@@ -601,7 +607,10 @@ export class DaemonProcess {
       this.#stopping = stopping;
       stopping.then(
         () => {
-          this.#stopOutcome.resolve({ isClean: true, isFileDamaged: this.#isFileDamaged });
+          this.#stopOutcome.resolve({
+            isClean: true,
+            isFileDamaged: this.#databaseFile.damageWatch.isFound,
+          });
         },
         (failure: unknown) => {
           this.#stopOutcome.resolve({ isClean: false, failure });
@@ -635,25 +644,18 @@ export class DaemonProcess {
   }
 
   // The file cannot be replaced under open connections: the writer ends without its closing
-  // checkpoint, so the damaged files go aside as they are, the damage is recorded for the next
-  // start to repair, and the daemon stops.
+  // checkpoint, so the damaged files go aside as they are, and the daemon stops, recording the
+  // damage for the next start to repair. The stop's signal goes first, so a recovery pass that the
+  // writer's end fails reads the stop, not a failed store.
   async #stopForRepair(damage: string): Promise<void> {
-    this.#isFileDamaged = true;
     this.#recoveryStatus.markStoreFailed();
     this.#writeServiceLog(
       `The database file is damaged: ${damage}. The service stops; its next start repairs the file`,
     );
+    this.#stopRequest.abort(new Error("The service is stopping"));
     this.#database.writer.end(
       new Error(`The database file is damaged, so no write is taken: ${damage}`),
     );
-    try {
-      await recordDatabaseDamage(this.#databasePath, damage);
-    } catch (error) {
-      this.#writeServiceLog(
-        `Recording the damage failed, so the next start's check must find it again: ` +
-          describeError(error),
-      );
-    }
     await this.stop();
   }
 
@@ -735,7 +737,13 @@ export class DaemonProcess {
     } catch (error) {
       failures.push(error);
     }
-    if (!this.#isFileDamaged && unfinishedCount === 0 && failures.length === 0) {
+    // Damage found at any point of the run is recorded before the stop ends.
+    try {
+      await this.#databaseFile.recordFoundDamage();
+    } catch (error) {
+      failures.push(error);
+    }
+    if (!this.#databaseFile.damageWatch.isFound && unfinishedCount === 0 && failures.length === 0) {
       try {
         await this.#databaseFile.recordCleanStop();
       } catch (error) {

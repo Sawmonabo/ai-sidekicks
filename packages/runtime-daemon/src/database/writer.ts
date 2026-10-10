@@ -6,7 +6,9 @@
 // failure fails every write in the batch. A write is never split across batches, so the events one
 // write carries, such as a workflow tick's, commit together. At the queue's cap a write waits for
 // the next batch to commit, except an assistant's thinking update, which is dropped and counted.
-// A writer opened with a hold queues every write and sends none until the hold is let go.
+// A writer opened with a hold queues every write and sends none until the hold is let go, and work
+// the writer is held for, such as a copy of the files, sees no commit and no checkpoint while it
+// runs.
 
 import { Worker } from "node:worker_threads";
 
@@ -60,7 +62,10 @@ export class WriteRefusedError extends Error {
   }
 }
 
-/** How an assistant's thinking update ended: stored at its sequence, or dropped at the full queue. */
+/**
+ * How an assistant's thinking update ended: stored at its sequence, or dropped at the full
+ * queue.
+ */
 export type ThinkingUpdateOutcome =
   | { readonly isStored: true; readonly sequence: number }
   | { readonly isStored: false };
@@ -119,6 +124,9 @@ export class DatabaseWriter {
   readonly #onWriteFailed: ((error: Error) => void) | undefined;
   // Whether the writes wait for the hold the writer was opened with.
   #isHeld: boolean;
+  // The work under way that no commit or checkpoint may reach, and its end.
+  #holdingWorkCount = 0;
+  #holdingWorkEnded = Promise.withResolvers<void>();
   readonly #workerFailure = Promise.withResolvers<Error>();
   readonly #exited: Promise<void>;
   // Replies come back in the order the requests went out.
@@ -290,11 +298,37 @@ export class DatabaseWriter {
   }
 
   /**
-   * Runs a WAL checkpoint in `mode` on the writer's connection, between batches. It never waits for
-   * a reader that holds an older snapshot: it answers busy at once, so no write waits behind it
-   * longer than the checkpoint's own work. Throws once the writer is closing or closed.
+   * Runs `work` once every write taken before this call has committed or failed, with no commit
+   * and no checkpoint reaching the file while it runs: the writes and checkpoints asked for
+   * meanwhile wait until it settles. Resolves or rejects as `work` does.
+   */
+  async holdWhile<T>(work: () => Promise<T>): Promise<T> {
+    await this.flush();
+    this.#holdingWorkCount += 1;
+    try {
+      // A batch sent while the flush settled commits before the work starts.
+      await Promise.allSettled((this.#inFlight ?? []).map((entry) => entry.outcome));
+      return await work();
+    } finally {
+      this.#holdingWorkCount -= 1;
+      if (this.#holdingWorkCount === 0) {
+        this.#holdingWorkEnded.resolve();
+        this.#holdingWorkEnded = Promise.withResolvers<void>();
+      }
+      this.#pump();
+    }
+  }
+
+  /**
+   * Runs a WAL checkpoint in `mode` on the writer's connection, between batches and never while
+   * work it is held for runs. It never waits for a reader that holds an older snapshot: it answers
+   * busy at once, so no write waits behind it longer than the checkpoint's own work. Throws once
+   * the writer is closing or closed.
    */
   async checkpoint(mode: CheckpointMode): Promise<CheckpointResult> {
+    while (this.#holdingWorkCount > 0) {
+      await this.#holdingWorkEnded.promise;
+    }
     if (this.#closing !== undefined) {
       throw new Error("The database writer is closed; the checkpoint did not run");
     }
@@ -307,6 +341,11 @@ export class DatabaseWriter {
       default:
         throw unexpectedReply(reply);
     }
+  }
+
+  /** Whether the writer was ended: by {@link end}, by its worker's failure, or at a drain bound. */
+  get isEnded(): boolean {
+    return this.#failure !== undefined;
   }
 
   /**
@@ -438,7 +477,12 @@ export class DatabaseWriter {
   // Sends the next batch when no hold keeps the writes, none is at the worker and the queued
   // writes are due: the batch is full, its wait has passed, or a flush is waiting.
   #pump(): void {
-    if (this.#isHeld || this.#inFlight !== undefined || this.#queued.length === 0) {
+    if (
+      this.#isHeld ||
+      this.#holdingWorkCount > 0 ||
+      this.#inFlight !== undefined ||
+      this.#queued.length === 0
+    ) {
       return;
     }
     const isDue = this.#queuedSize >= BATCH_ENTRY_LIMIT || this.#isBatchDue || this.#flushCount > 0;

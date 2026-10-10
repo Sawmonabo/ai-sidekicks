@@ -230,41 +230,19 @@ export class ProtocolNegotiator {
         };
       }
 
-      if (!this.#isSessionToken(params.sessionToken)) {
-        this.#refusedTransports.add(transportId);
-        throw sessionTokenRefusal();
-      }
-
-      const outcome = negotiateProtocol(params, SUPPORTED_PROTOCOL_VERSIONS);
-
-      if (outcome.kind === "compatible") {
-        const newState: NegotiationState = {
-          kind: "done-compatible",
-          negotiatedProtocolVersion: outcome.negotiated,
-        };
-        this.#handshakes.set(transportId, newState);
+      const state = this.#latchHandshake(params, transportId);
+      if (state.kind === "done-compatible") {
         return {
           compatible: true,
-          protocolVersion: outcome.negotiated,
+          protocolVersion: state.negotiatedProtocolVersion,
           deviceId,
         };
       }
-
-      const reason: NegotiationIncompatibleReason =
-        outcome.kind === "floor"
-          ? NEGOTIATION_REASON_FLOOR_EXCEEDED
-          : NEGOTIATION_REASON_CEILING_EXCEEDED;
-      const newState: NegotiationState = {
-        kind: "done-incompatible",
-        preferredProtocolVersion: outcome.daemonPreferred,
-        reason,
-      };
-      this.#handshakes.set(transportId, newState);
       return {
         compatible: false,
-        protocolVersion: outcome.daemonPreferred,
+        protocolVersion: state.preferredProtocolVersion,
         deviceId,
-        reason,
+        reason: state.reason,
         daemonSupportedProtocols: SUPPORTED_PROTOCOL_VERSIONS,
       };
     };
@@ -279,29 +257,36 @@ export class ProtocolNegotiator {
   }
 
   /**
-   * Registers the `daemon.hello` handler of a service still repairing its database file, which
-   * serves nothing else: a hello with this start's session token is answered `daemon.repairing`
-   * with the progress `readProgress` reads, one without it is refused as any wrong token is.
+   * Registers the `daemon.hello` handler of a service still repairing its database file: a hello
+   * with this start's session token is answered `daemon.repairing` with the progress
+   * `readProgress` reads, every time, and latches the handshake as any hello does, so the gate
+   * lets that connection's lifecycle calls through; one without the token is refused as any wrong
+   * token is.
    */
   registerRepairingHandshakeMethod(
     registry: MethodRegistry,
     readProgress: () => DaemonRepairProgress | undefined,
   ): void {
-    const handler: Handler<DaemonHello, DaemonHelloAck> = (params) => {
-      if (!this.#isSessionToken(params.sessionToken)) {
-        return Promise.reject(sessionTokenRefusal());
+    // A hello always fails, so a client keeps waiting; a repeated one still carries the token.
+    const handler: Handler<DaemonHello, DaemonHelloAck> = async (params, ctx) => {
+      const { transportId } = ctx;
+      if (transportId === undefined) {
+        throw new Error(`${DAEMON_HELLO_METHOD}: handler requires ctx.transportId`);
+      }
+      if (!this.#handshakes.has(transportId)) {
+        this.#latchHandshake(params, transportId);
+      } else if (!this.#isSessionToken(params.sessionToken)) {
+        throw sessionTokenRefusal();
       }
       const progress = readProgress();
       const detail: DaemonRepairingDetails = progress === undefined ? {} : { progress };
-      return Promise.reject(
-        new DaemonDomainError(
-          "The service is repairing its database file and answers once the repair has ended",
-          {
-            code: DAEMON_REPAIRING_CODE,
-            jsonRpcCode: JsonRpcErrorCode.InvalidRequest,
-            detail: { ...detail },
-          },
-        ),
+      throw new DaemonDomainError(
+        "The service is repairing its database file and answers once the repair has ended",
+        {
+          code: DAEMON_REPAIRING_CODE,
+          jsonRpcCode: JsonRpcErrorCode.InvalidRequest,
+          detail: { ...detail },
+        },
       );
     };
     registry.register(
@@ -311,6 +296,32 @@ export class ProtocolNegotiator {
       handler,
       { mutating: false },
     );
+  }
+
+  // Refuses a hello without this start's session token, latching the refusal, and otherwise
+  // latches the protocol the hello negotiates.
+  #latchHandshake(
+    hello: DaemonHello,
+    transportId: number,
+  ): Exclude<NegotiationState, { readonly kind: "pre" | "refused" }> {
+    if (!this.#isSessionToken(hello.sessionToken)) {
+      this.#refusedTransports.add(transportId);
+      throw sessionTokenRefusal();
+    }
+    const outcome = negotiateProtocol(hello, SUPPORTED_PROTOCOL_VERSIONS);
+    const state: Exclude<NegotiationState, { readonly kind: "pre" | "refused" }> =
+      outcome.kind === "compatible"
+        ? { kind: "done-compatible", negotiatedProtocolVersion: outcome.negotiated }
+        : {
+            kind: "done-incompatible",
+            preferredProtocolVersion: outcome.daemonPreferred,
+            reason:
+              outcome.kind === "floor"
+                ? NEGOTIATION_REASON_FLOOR_EXCEEDED
+                : NEGOTIATION_REASON_CEILING_EXCEEDED,
+          };
+    this.#handshakes.set(transportId, state);
+    return state;
   }
 
   // Constant-time, after a length check, since `timingSafeEqual` throws on unequal lengths.

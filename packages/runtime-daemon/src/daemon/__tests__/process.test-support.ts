@@ -21,6 +21,7 @@ import type { ProcessIdentity } from "@ai-sidekicks/contracts/process-identity";
 import { connect, type Client } from "../../ipc/__fixtures__/local-socket-client.js";
 import type { DrainResult, PtyHost } from "../../pty/host/contract.js";
 import { openOrphanGuard } from "../../pty/orphan/guard.js";
+import { chooseDatabaseFileOperatingSystem } from "../../recovery/database-file/operating-system.js";
 import { SearchThread, type SearchThreadOptions } from "../../session/search/thread/handle.js";
 import { DaemonProcess, type DaemonProcessOptions } from "../process.js";
 import { readProcessTreeUsage } from "../process-tree-usage.js";
@@ -111,6 +112,7 @@ export async function startDaemon(
         writeServiceLog: () => {},
       }),
     createPtyHost: () => ptyHost,
+    databaseFileOperatingSystem: chooseDatabaseFileOperatingSystem(process.platform),
     readMachineName: () => Promise.resolve("Test machine"),
     captureProviderBaseEnvironment: () => Promise.resolve([]),
     commandShell: null,

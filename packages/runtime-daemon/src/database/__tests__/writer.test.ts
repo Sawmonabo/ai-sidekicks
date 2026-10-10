@@ -1,14 +1,20 @@
 // The database writer: the writes of one batch commit together or not at all, a write's events
 // never split, a write that cannot reach the worker fails alone, a close commits what it took or
-// fails what its bound cut off, a checkpoint that skips the wait for readers holds the writer for
-// none of the busy timeout, and at the queue's cap a canonical event waits while an
-// assistant's thinking update is dropped, with the depth warning and the drop count on the log.
+// fails what its bound cut off, an ended writer's close leaves the log as it stands, a checkpoint
+// that skips the wait for readers holds the writer for none of the busy timeout, work the writer
+// is held for sees no commit or checkpoint while it runs, and at the queue's cap a canonical event
+// waits while an assistant's thinking update is dropped, with the depth warning and the drop count
+// on the log.
+
+import { statSync } from "node:fs";
+import { setTimeout as delay } from "node:timers/promises";
 
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
 import type { SessionEventRow } from "../../events/session/insert.js";
 import { openScratchDatabase, type ScratchDatabase } from "../__fixtures__/scratch.js";
+import { closeDatabaseConnections } from "../connection/lifecycle.js";
 import { WRITE_QUEUE_CAPACITY } from "../writer.js";
 
 const SESSION = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f10";
@@ -246,6 +252,17 @@ describe("closing", () => {
     expect(storedEventCount()).toBe(0);
   });
 
+  it("leaves the log of a writer ended before it as it stands", async () => {
+    await scratch.writer.appendEvents([eventRow(SESSION)]);
+    const logPath = `${scratch.databasePath}-wal`;
+    const logSize = statSync(logPath).size;
+
+    scratch.writer.end(new Error("The database file is damaged"));
+    await closeDatabaseConnections(scratch);
+
+    expect(statSync(logPath).size).toBe(logSize);
+  });
+
   it("refuses a checkpoint once closed", async () => {
     await scratch.writer.close();
     await expect(scratch.writer.checkpoint("PASSIVE")).rejects.toThrow(/closed/);
@@ -277,6 +294,34 @@ describe("a checkpoint a reader keeps busy", () => {
 
     expect(truncated.isBusy).toBe(false);
     expect(truncated.logFrames).toBe(0);
+  });
+});
+
+describe("work the writer is held for", () => {
+  it("runs after the writes taken before it, with no commit or checkpoint until it settles", async () => {
+    const before = scratch.writer.appendEvents([eventRow(SESSION)]);
+    let during: Promise<readonly number[]> | undefined;
+    let checkpointing: Promise<unknown> | undefined;
+
+    const held = await scratch.writer.holdWhile(async () => {
+      expect(await isSettled(before)).toBe(true);
+      const logBytes = statSync(`${scratch.databasePath}-wal`).size;
+      // Another session's write, and the truncation a purge asks for, as a copy of the files runs.
+      during = scratch.writer.appendEvents([eventRow(OTHER_SESSION)]);
+      checkpointing = scratch.writer.checkpoint("TRUNCATE");
+      // Long past a batch's wait.
+      await delay(100);
+      expect(await isSettled(during)).toBe(false);
+      expect(await isSettled(checkpointing)).toBe(false);
+      expect(storedEventCount()).toBe(1);
+      expect(statSync(`${scratch.databasePath}-wal`).size).toBe(logBytes);
+      return "copied";
+    });
+
+    expect(held).toBe("copied");
+    expect(await during).toStrictEqual([0]);
+    await checkpointing;
+    expect(storedEventCount()).toBe(2);
   });
 });
 

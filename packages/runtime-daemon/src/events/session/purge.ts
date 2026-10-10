@@ -159,7 +159,7 @@ export interface SessionPurgeDeps {
    * one retry follows each. Defaults to the daemon's retry waits.
    */
   readonly checkpointRetryDelaysMs?: readonly number[];
-  /** Settles once the start's check of the database file, a reader that holds one snapshot, ends. */
+  /** Settles once the start's check of the database file, a reader holding one snapshot, ends. */
   readonly whenFileCheckEnds: Promise<unknown>;
 }
 

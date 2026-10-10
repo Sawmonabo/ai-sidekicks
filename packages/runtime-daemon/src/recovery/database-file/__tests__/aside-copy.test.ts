@@ -1,31 +1,19 @@
-// The store's files copied aside while the last connection closes: the close folds the
-// write-ahead log into the file and removes it between the listing and its copy, and the copy
-// still holds every commit, with the log it never found left out of its record.
+// The store's files copied aside: while the last connection closes, folding the write-ahead log
+// into the file and removing it between the listing and its copy, the copy still holds every
+// commit, with the log it never found left out of its record; and a stop ends the copy, leaving
+// no copy behind.
 
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 
 import Database from "better-sqlite3";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it } from "vitest";
 
 import { copyDatabaseFilesAside } from "../aside-copy.js";
+import { chooseDatabaseFileOperatingSystem } from "../operating-system.js";
 
-// Runs once, after the first file is copied, so the test can close the database between copies.
-let afterFirstCopy: (() => void) | undefined;
-
-vi.mock("node:fs/promises", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("node:fs/promises")>();
-  return {
-    ...actual,
-    copyFile: async (...args: Parameters<typeof actual.copyFile>) => {
-      await actual.copyFile(...args);
-      const hook = afterFirstCopy;
-      afterFirstCopy = undefined;
-      hook?.();
-    },
-  };
-});
+const operatingSystem = chooseDatabaseFileOperatingSystem(process.platform);
 
 let dataFolder: string;
 
@@ -34,7 +22,6 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  afterFirstCopy = undefined;
   await rm(dataFolder, { recursive: true, force: true });
 });
 
@@ -46,16 +33,27 @@ it("keeps every commit when the log goes while the files are copied", async () =
   // The row lives in the log alone until the close folds it into the file.
   database.pragma("wal_autocheckpoint = 0");
   database.prepare("INSERT INTO notes (body) VALUES (?)").run("written before the copy");
-  afterFirstCopy = () => {
-    database.close();
-  };
+  let isFirstCopy = true;
 
-  const folder = await copyDatabaseFilesAside({
-    databasePath,
-    dataFolder,
-    now: () => new Date("2026-10-10T12:00:00.000Z"),
-    writeServiceLog: () => {},
-  });
+  const folder = await copyDatabaseFilesAside(
+    {
+      databasePath,
+      dataFolder,
+      // The database closes once the first file is copied, between that copy and the next.
+      operatingSystem: {
+        copyFile: async (sourcePath, destinationPath, stopSignal) => {
+          await operatingSystem.copyFile(sourcePath, destinationPath, stopSignal);
+          if (isFirstCopy) {
+            isFirstCopy = false;
+            database.close();
+          }
+        },
+      },
+      now: () => new Date("2026-10-10T12:00:00.000Z"),
+      writeServiceLog: () => {},
+    },
+    new AbortController().signal,
+  );
 
   const copy = new Database(path.join(folder, "daemon.db"), { readonly: true });
   try {
@@ -70,4 +68,25 @@ it("keeps every commit when the log goes while the files are copied", async () =
   };
   // The index was copied before the close; the log the close removed is left out.
   expect(record.files.map((file) => file.name)).toStrictEqual(["daemon.db-shm", "daemon.db"]);
+});
+
+it("ends the copy at a stop and leaves no copy behind", async () => {
+  const databasePath = path.join(dataFolder, "daemon.db");
+  new Database(databasePath).close();
+  const stop = new AbortController();
+  stop.abort(new Error("The service is stopping"));
+
+  await expect(
+    copyDatabaseFilesAside(
+      {
+        databasePath,
+        dataFolder,
+        operatingSystem,
+        now: () => new Date("2026-10-10T12:00:00.000Z"),
+        writeServiceLog: () => {},
+      },
+      stop.signal,
+    ),
+  ).rejects.toThrow();
+  expect(await readdir(path.join(dataFolder, "damaged"))).toStrictEqual([]);
 });

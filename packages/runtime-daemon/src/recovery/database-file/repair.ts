@@ -4,30 +4,32 @@
 // backup that reads, each session whose events the newest backup holds more of takes them from it.
 // While the recovery runs, the repair reports how many of the damaged file's session events it has
 // recovered. The fresh file must hold every table, index, trigger and view of the schema and pass
-// the full integrity check, on a thread of its own, before it replaces the damaged one; every
-// session's projections are then rebuilt from its events, and the search index, built from the
-// damaged file's rows, is dropped to be built again from the fresh file's. A marker written once
-// the fresh file is ready lets a start that a crash cut short finish the replacement rather than
-// recover again from a file whose log is gone. A stop before that marker ends the repair at once
-// and leaves the damaged file, its record and its copy aside as they were, so the next start
-// repairs it again; from the marker on, the replacement finishes first.
+// the full integrity check, each step in the daemon's own `sqlite3` shell, before it is flushed to
+// disk and replaces the damaged one; every session's projections are then rebuilt from its events,
+// and the search index, built from the damaged file's rows, is dropped to be built again from the
+// fresh file's. A marker written once the fresh file is ready lets a start that a crash cut short
+// finish the replacement rather than recover again from a file whose log is gone. A stop before
+// that marker, by a terminate signal or over the repairing socket, ends the repair at once and
+// leaves the damaged file, its record and its copy aside as they were, so the next start repairs
+// it again; from the marker on, the replacement finishes first.
 
-import { constants } from "node:fs";
-import { access, copyFile, open, rename, rm } from "node:fs/promises";
+import { rename, rm } from "node:fs/promises";
 import * as path from "node:path";
 
 import type { DaemonRepairProgress } from "@ai-sidekicks/contracts/daemon/recovery";
 
+import { flushPath } from "../../disk-flush.js";
 import { syncFolder, writeFileAtomically } from "../../file/atomic-write.js";
-import { isMissingFileError } from "../../file/missing-error.js";
+import { pathExists } from "../../git/filesystem.js";
 import { copyDatabaseFilesAside, DATABASE_COMPANION_FILE_SUFFIXES } from "./aside-copy.js";
 import { readDatabaseDamage, removeDatabaseDamage } from "./damage.js";
-import { prepareFreshFile } from "./fresh-file/preparation.js";
+import { prepareFreshFile } from "./fresh-file.js";
 import { recordCleanStop } from "./last-run.js";
 import { findNewestBackupDatabase } from "./newest-backup.js";
+import type { DatabaseFileOperatingSystem } from "./operating-system.js";
 import { countDamagedFileEvents, recoverIntoFreshFile } from "./sqlite-shell.js";
 
-// The rollback journal the fresh file's writing shell keeps beside it.
+// The rollback journal each step that readies the fresh file keeps beside it while it writes.
 const FRESH_FILE_JOURNAL_SUFFIX = "-journal";
 
 /** What the repair reads and where it writes. */
@@ -36,14 +38,19 @@ export interface DatabaseFileRepairOptions {
   readonly dataFolder: string;
   /** The search index's folder, built from the database's rows; a replaced file drops it. */
   readonly indexFolderPath: string;
+  readonly operatingSystem: DatabaseFileOperatingSystem;
   /** The folder the person's backups go to; read only when the file is damaged. */
   readonly readBackupFolder: () => Promise<string>;
   /**
    * Runs the repair of a damaged file, which can take minutes, and returns what it returns; the
-   * repair reports how far it has come, or `undefined` while the step it is on gives no count.
+   * repair reports how far it has come, or `undefined` while the step it is on gives no count, and
+   * ends as at a stop once the signal it is handed aborts.
    */
   readonly whileRepairing: <T>(
-    repair: (reportProgress: (progress: DaemonRepairProgress | undefined) => void) => Promise<T>,
+    repair: (
+      reportProgress: (progress: DaemonRepairProgress | undefined) => void,
+      stopAsked: AbortSignal,
+    ) => Promise<T>,
   ) => Promise<T>;
   /** Ends the repair when it aborts, unless the fresh file is already being put in place. */
   readonly stopSignal: AbortSignal;
@@ -80,7 +87,7 @@ export async function repairDatabaseFile(
 ): Promise<DatabaseFileRepair> {
   const { databasePath } = options;
   const { freshPath, readyMarkerPath } = freshFilePaths(databasePath);
-  if (await fileExists(readyMarkerPath)) {
+  if (await pathExists(readyMarkerPath)) {
     options.writeServiceLog("A repaired database file was ready; its replacement is finished now");
     await replaceDatabaseFile(options, freshPath, readyMarkerPath);
   }
@@ -88,12 +95,16 @@ export async function repairDatabaseFile(
   if (damage === undefined) {
     return { outcome: "intact" };
   }
-  if (!(await fileExists(databasePath))) {
+  if (!(await pathExists(databasePath))) {
     await removeDatabaseDamage(databasePath);
     return { outcome: "intact" };
   }
-  return options.whileRepairing((reportProgress) =>
-    repairDamagedFile(options, damage, reportProgress),
+  return options.whileRepairing((reportProgress, stopAsked) =>
+    repairDamagedFile(
+      { ...options, stopSignal: AbortSignal.any([options.stopSignal, stopAsked]) },
+      damage,
+      reportProgress,
+    ),
   );
 }
 
@@ -106,7 +117,15 @@ async function repairDamagedFile(
   const { databasePath, stopSignal } = options;
   const { freshPath, readyMarkerPath } = freshFilePaths(databasePath);
   options.writeServiceLog(`The database file is damaged: ${damage}`);
-  const asideFolder = await copyDatabaseFilesAside(options);
+  let asideFolder: string;
+  try {
+    asideFolder = await copyDatabaseFilesAside(options, stopSignal);
+  } catch (error) {
+    if (stopSignal.aborted) {
+      return logStoppedRepair(options);
+    }
+    throw error;
+  }
   options.writeServiceLog(`The damaged database's files are copied aside in ${asideFolder}`);
   // A repair a stop or a crash cut short may have left a fresh file and its journal, which SQLite
   // would otherwise roll back into the new one.
@@ -117,18 +136,14 @@ async function repairDamagedFile(
     await recoverCountingEvents(options, freshPath, reportProgress);
     reportProgress(undefined);
     sessionsFromBackup = await prepareWithNewestBackup(options, freshPath);
-    stopSignal.throwIfAborted();
-    await syncFile(freshPath);
+    // The recovery wrote with no syncs; the whole file reaches the disk before its marker.
+    await flushPath(freshPath);
     stopSignal.throwIfAborted();
   } catch (error) {
-    // The fresh file is left for the next repair to remove: the thread readying it may still hold
-    // it open, and nothing reads it without the marker.
+    // Every shell has exited; the fresh file is left for the next repair to remove, and nothing
+    // reads it without the marker.
     if (stopSignal.aborted) {
-      options.writeServiceLog(
-        "The service's stop ended the repair; the damaged file stays as it was and its next " +
-          "start repairs it",
-      );
-      return { outcome: "stopped" };
+      return logStoppedRepair(options);
     }
     await removeFreshFile(freshPath);
     const reason = error instanceof Error ? error.message : String(error);
@@ -146,13 +161,21 @@ async function repairDamagedFile(
   return { outcome: "repaired", asideFolder, sessionsFromBackup };
 }
 
+function logStoppedRepair(options: DatabaseFileRepairOptions): DatabaseFileRepair {
+  options.writeServiceLog(
+    "The service's stop ended the repair; the damaged file stays as it was and its next start " +
+      "repairs it",
+  );
+  return { outcome: "stopped" };
+}
+
 // The fresh file a repair recovers into, and the marker that says it is ready to replace the file.
 function freshFilePaths(databasePath: string): { freshPath: string; readyMarkerPath: string } {
   const freshPath = `${databasePath}.recovered`;
   return { freshPath, readyMarkerPath: `${freshPath}-ready` };
 }
 
-// The fresh file and the rollback journal its writing shell keeps beside it.
+// The fresh file and the rollback journal a step readying it keeps beside it.
 async function removeFreshFile(freshPath: string): Promise<void> {
   await rm(freshPath, { force: true });
   await rm(`${freshPath}${FRESH_FILE_JOURNAL_SUFFIX}`, { force: true });
@@ -176,6 +199,7 @@ async function recoverCountingEvents(
   // The count serves only while the recovery runs, so its shell ends with the recovery.
   const countEnd = new AbortController();
   const counting = countDamagedFileEvents(
+    options.operatingSystem.sqliteShellProgram,
     options.databasePath,
     AbortSignal.any([options.stopSignal, countEnd.signal]),
   ).then(
@@ -194,14 +218,19 @@ async function recoverCountingEvents(
     },
   );
   try {
-    await recoverIntoFreshFile(options.databasePath, freshPath, {
-      onEventsRecovered: (recoveredEvents) => {
-        done = recoveredEvents;
-        report();
+    await recoverIntoFreshFile(
+      options.operatingSystem.sqliteShellProgram,
+      options.databasePath,
+      freshPath,
+      {
+        onEventsRecovered: (recoveredEvents) => {
+          done = recoveredEvents;
+          report();
+        },
+        stopSignal: options.stopSignal,
+        writeServiceLog: options.writeServiceLog,
       },
-      stopSignal: options.stopSignal,
-      writeServiceLog: options.writeServiceLog,
-    });
+    );
   } finally {
     countEnd.abort();
     await counting;
@@ -211,7 +240,7 @@ async function recoverCountingEvents(
 // Readies the fresh file with the newest backup's database, read from a copy in the data folder so
 // nothing is written beside the person's backups, and returns how many sessions took their events
 // from it. A backup that cannot be found or copied heals nothing, like no backup: the recovery
-// alone heals the file, and the log says why the backup was passed over.
+// alone heals the file, and the log says why the backup was passed over. A stop ends the copy.
 async function prepareWithNewestBackup(
   options: DatabaseFileRepairOptions,
   freshPath: string,
@@ -224,36 +253,31 @@ async function prepareWithNewestBackup(
       options.writeServiceLog,
     );
     if (backupDatabase !== undefined) {
-      // A clone where the file system offers one, so a large backup takes no time or space.
-      await copyFile(backupDatabase, backupCopyPath, constants.COPYFILE_FICLONE);
+      // A clone where the file system makes one, so a large backup takes no time or space.
+      await options.operatingSystem.copyFile(backupDatabase, backupCopyPath, options.stopSignal);
       isBackupCopied = true;
     }
   } catch (error) {
+    if (options.stopSignal.aborted) {
+      throw error;
+    }
     options.writeServiceLog(
       "The newest backup could not be read and was passed over: " +
         (error instanceof Error ? error.message : String(error)),
     );
   }
   try {
-    return await prepareFreshFile(
-      { freshPath, backupCopyPath: isBackupCopied ? backupCopyPath : undefined },
-      options.writeServiceLog,
-      options.stopSignal,
-    );
+    return await prepareFreshFile({
+      shellProgram: options.operatingSystem.sqliteShellProgram,
+      freshPath,
+      backupCopyPath: isBackupCopied ? backupCopyPath : undefined,
+      writeServiceLog: options.writeServiceLog,
+      stopSignal: options.stopSignal,
+    });
   } finally {
     for (const suffix of ["", ...DATABASE_COMPANION_FILE_SUFFIXES]) {
       await rm(`${backupCopyPath}${suffix}`, { force: true });
     }
-  }
-}
-
-// Opened for writing because Windows refuses to flush a file opened only for reading.
-async function syncFile(filePath: string): Promise<void> {
-  const file = await open(filePath, "r+");
-  try {
-    await file.sync();
-  } finally {
-    await file.close();
   }
 }
 
@@ -273,7 +297,7 @@ async function replaceDatabaseFile(
     await rm(`${databasePath}${suffix}`, { force: true });
   }
   await rm(options.indexFolderPath, { recursive: true, force: true });
-  if (await fileExists(freshPath)) {
+  if (await pathExists(freshPath)) {
     await rename(freshPath, databasePath);
   }
   await syncFolder(path.dirname(databasePath));
@@ -281,16 +305,4 @@ async function replaceDatabaseFile(
   await removeDatabaseDamage(databasePath);
   await rm(readyMarkerPath);
   await syncFolder(path.dirname(databasePath));
-}
-
-async function fileExists(filePath: string): Promise<boolean> {
-  try {
-    await access(filePath);
-    return true;
-  } catch (error) {
-    if (isMissingFileError(error)) {
-      return false;
-    }
-    throw error;
-  }
 }

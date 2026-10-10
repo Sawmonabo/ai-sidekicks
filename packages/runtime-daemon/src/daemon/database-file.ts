@@ -1,13 +1,14 @@
 // The database file as a start opens it. A file a previous run found damaged is repaired first,
 // while the socket answers that the service is repairing; one the repair cannot heal fails the
-// start, naming why, and a stop during the repair ends the start, the file left for the next. The file's structural check then runs beside the service at every start but
-// the first: after any end of the last run, clean or not, writes go at once, since nothing but a
-// checkpoint the storage did not flush can damage the file, and the writer's checkpoints flush
-// it; a file something else changed since the last run, or with no record of one, holds every
-// write until the check finds it sound. A check that cannot run leaves the service
-// taking writes and reading as degraded, and the next start checks before it writes again. Damage
-// the check or any read or write meets is recorded beside the file and stops the daemon, so its
-// next start repairs the file before anything opens it.
+// start, naming why, and a stop during the repair ends the start, the file left for the next. The
+// file's structural check then runs beside the service at every start but the first: after any
+// end of the last run, clean or not, writes go at once, since nothing but a checkpoint the storage
+// did not flush can damage the file, and the writer's checkpoints flush it; a file something else
+// changed since the last run, or with no record of one, holds every write until the check finds
+// it sound. A check that cannot run leaves the service taking writes and reading as degraded, and
+// the file unvouched, so the next start checks before it writes again. Damage the check or any
+// read or write meets is recorded beside the file and stops the daemon, so its next start repairs
+// the file before anything opens it.
 
 import type { DaemonRunFolder } from "@ai-sidekicks/contracts/daemon/run-folder";
 
@@ -15,17 +16,22 @@ import {
   openDatabaseConnections,
   type DatabaseConnections,
 } from "../database/connection/lifecycle.js";
-import { DatabaseFileCheck } from "../recovery/database-file/check.js";
+import {
+  DatabaseFileCheck,
+  type DatabaseFileCheckAnswer,
+} from "../recovery/database-file/check.js";
 import {
   DatabaseDamageWatch,
   isDatabaseDamageError,
   recordDatabaseDamage,
 } from "../recovery/database-file/damage.js";
 import {
+  forgetLastRun,
   readLastRunEnd,
   recordCleanStop,
   recordRunStart,
 } from "../recovery/database-file/last-run.js";
+import type { DatabaseFileOperatingSystem } from "../recovery/database-file/operating-system.js";
 import { repairDatabaseFile } from "../recovery/database-file/repair.js";
 import { answerRepairingWhile } from "./repairing-socket.js";
 import { DaemonStartStoppedError } from "./start-stopped-error.js";
@@ -36,6 +42,7 @@ export interface DatabaseFileOpenOptions {
   readonly dataFolder: string;
   readonly indexFolderPath: string;
   readonly runFolder: DaemonRunFolder;
+  readonly operatingSystem: DatabaseFileOperatingSystem;
   /** The folder the person's backups go to; read only when the file is damaged. */
   readonly readBackupFolder: () => Promise<string>;
   /** Ends a repair under way when it aborts. */
@@ -44,9 +51,9 @@ export interface DatabaseFileOpenOptions {
   readonly writeServiceLog: (line: string) => void;
 }
 
-// How the start's check of the file ended: it found the file `sound` or `damaged`, a stop ended it
-// first (`stopped`), it `failed` to run, or a new file was not checked (`not-run`).
-type DatabaseFileCheckOutcome = "sound" | "damaged" | "stopped" | "failed" | "not-run";
+// How the start's check of the file ended: as the check answered, or it `failed` to run, or a new
+// file was not checked (`not-run`).
+type DatabaseFileCheckOutcome = DatabaseFileCheckAnswer["outcome"] | "failed" | "not-run";
 
 /** The open database file, its damage watch and its check. */
 export interface OpenedDatabaseFile {
@@ -63,6 +70,12 @@ export interface OpenedDatabaseFile {
    * error.
    */
   recordCleanStop(): Promise<void>;
+  /**
+   * Records the damage found, if any, beside the file, so the next start repairs it; resolves at
+   * once when none was found, and every call shares one record. Rejects with the file system's
+   * error, naming what the next start must do instead.
+   */
+  recordFoundDamage(): Promise<void>;
 }
 
 /**
@@ -79,8 +92,9 @@ export async function openDatabaseFile(
     databasePath,
     dataFolder: options.dataFolder,
     indexFolderPath: options.indexFolderPath,
+    operatingSystem: options.operatingSystem,
     readBackupFolder: options.readBackupFolder,
-    whileRepairing: (repair) => answerRepairingWhile(options.runFolder, repair),
+    whileRepairing: (repair) => answerRepairingWhile(options.runFolder, repair, writeServiceLog),
     stopSignal: options.stopSignal,
     now: options.now,
     writeServiceLog,
@@ -97,11 +111,12 @@ export async function openDatabaseFile(
     );
   }
   const lastRunEnd = await readLastRunEnd(databasePath);
-  let isVouched = lastRunEnd !== "unknown";
+  let isVouched = false;
   // A run that ends uncleanly leaves this record, which vouches for the file at the next start;
   // an unvouched file keeps the last run's record until its check finds it sound.
-  if (isVouched) {
+  if (lastRunEnd !== "unknown") {
     await recordRunStart(databasePath);
+    isVouched = true;
   } else {
     writeServiceLog(
       "The database file changed since the service's last run, or holds no record of one; " +
@@ -120,7 +135,10 @@ export async function openDatabaseFile(
   });
   // A new file has nothing to check. A check starts after the writer's open, which rebuilds a
   // crashed run's log index under locks the check's own open would be refused by.
-  const fileCheck = lastRunEnd === "new-file" ? undefined : DatabaseFileCheck.start(databasePath);
+  const fileCheck =
+    lastRunEnd === "new-file"
+      ? undefined
+      : DatabaseFileCheck.start(databasePath, options.operatingSystem.sqliteShellProgram);
   const checkStartedAt = performance.now();
   const checkOutcome: Promise<DatabaseFileCheckOutcome> =
     fileCheck === undefined
@@ -134,13 +152,15 @@ export async function openDatabaseFile(
                   `The database file's check found it sound in ${String(checkMs)} ms`,
                 );
                 if (!isVouched) {
-                  isVouched = true;
-                  await recordRunStart(databasePath).catch((error: unknown) => {
+                  try {
+                    await recordRunStart(databasePath);
+                    isVouched = true;
+                  } catch (error) {
                     writeServiceLog(
                       "Recording that the file was found sound failed, so the next start " +
                         `checks it before it writes again: ${describeError(error)}`,
                     );
-                  });
+                  }
                 }
                 writesHold?.resolve();
                 return "sound";
@@ -152,15 +172,26 @@ export async function openDatabaseFile(
                 return "stopped";
             }
           },
-          (error: unknown): DatabaseFileCheckOutcome => {
+          async (error: unknown): Promise<DatabaseFileCheckOutcome> => {
             writeServiceLog(
               `The database file could not be checked, so the service takes writes unchecked ` +
                 `and its next start checks the file again: ${describeError(error)}`,
             );
             writesHold?.resolve();
+            // A file the last run vouched for is vouched for no longer.
+            if (isVouched) {
+              isVouched = false;
+              await forgetLastRun(databasePath).catch((forgetError: unknown) => {
+                writeServiceLog(
+                  "Removing the record of the last run failed, so the next start may write " +
+                    `before its check answers: ${describeError(forgetError)}`,
+                );
+              });
+            }
             return "failed";
           },
         );
+  let damageRecord: Promise<void> | undefined;
   return {
     database,
     damageWatch,
@@ -173,6 +204,23 @@ export async function openDatabaseFile(
       if (isVouched) {
         await recordCleanStop(databasePath);
       }
+    },
+    recordFoundDamage: () => {
+      if (!damageWatch.isFound) {
+        return Promise.resolve();
+      }
+      damageRecord ??= damageWatch.whenFound.then(async (damage) => {
+        try {
+          await recordDatabaseDamage(databasePath, damage);
+        } catch (error) {
+          throw new Error(
+            "Recording the damage to the database file failed, so the next start's check must " +
+              `find it again: ${describeError(error)}`,
+            { cause: error },
+          );
+        }
+      });
+      return damageRecord;
     },
   };
 }

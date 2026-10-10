@@ -1,17 +1,18 @@
 // The record of how the daemon's last run on the database file ended, kept beside the file. A start
 // writes that it runs; a clean stop, once every connection has closed, replaces that with the
-// file's facts as it left them. A run that ends any other way leaves the file sound: SQLite keeps
-// every committed transaction across a crash of the program, and in WAL mode a crash of the
-// machine or a power loss can damage the file only through a checkpoint whose syncs the storage
-// did not honor, which the writer's checkpoints rule out by flushing the drive. A file whose facts
-// no longer match a clean stop's, or with no record, was changed by something else, so a start
-// cannot vouch for it. SQLite keeps no such flag of its own, and a missing write-ahead log proves
-// nothing. The facts come from `stat` alone, since opening and closing the database file in this
-// process would drop the locks SQLite holds on it.
+// file's facts as it left them; a run that could not check the file removes it. A run that ends
+// any other way leaves the file sound: SQLite keeps every committed transaction across a crash of
+// the program, and in WAL mode a crash of the machine or a power loss can damage the file only
+// through a checkpoint whose syncs the storage did not honor, which the writer's checkpoints rule
+// out by flushing the drive. A file whose facts no longer match a clean stop's, or with no record,
+// was changed by something else, so a start cannot vouch for it. SQLite keeps no such flag of its
+// own, and a missing write-ahead log proves nothing. The facts come from `stat` alone, since
+// opening and closing the database file in this process would drop the locks SQLite holds on it.
 
-import { readFile, stat } from "node:fs/promises";
+import { readFile, rm, stat } from "node:fs/promises";
+import * as path from "node:path";
 
-import { writeFileAtomically } from "../../file/atomic-write.js";
+import { syncFolder, writeFileAtomically } from "../../file/atomic-write.js";
 import { isMissingFileError } from "../../file/missing-error.js";
 
 /**
@@ -62,6 +63,15 @@ export async function recordCleanStop(databasePath: string): Promise<void> {
     `${CLEAN_PREFIX}${await describeDatabaseFile(databasePath)}`,
     0o600,
   );
+}
+
+/**
+ * Removes the record, so the next start cannot vouch for the file and holds its writes until its
+ * check finds the file sound. Rejects with the file system's error.
+ */
+export async function forgetLastRun(databasePath: string): Promise<void> {
+  await rm(lastRunRecordPath(databasePath), { force: true });
+  await syncFolder(path.dirname(databasePath));
 }
 
 // The file's device, inode, size, modification and change times, and its log's size. A missing

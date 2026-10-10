@@ -27,6 +27,7 @@ import { readWindowsDriveMounts } from "./daemon/windows-drive-mounts.js";
 import { selectPtyHost } from "./pty/host/selector.js";
 import { openOrphanGuard } from "./pty/orphan/guard.js";
 import { openOrphanOperatingSystem } from "./pty/orphan/operating-system.js";
+import { chooseDatabaseFileOperatingSystem } from "./recovery/database-file/operating-system.js";
 
 // First, so every service-log line from here on is kept in the file too.
 const homeDirectory = os.homedir();
@@ -93,6 +94,7 @@ const daemon = await DaemonProcess.start({
       writeServiceLog,
     }),
   createPtyHost: selectPtyHost,
+  databaseFileOperatingSystem: chooseDatabaseFileOperatingSystem(process.platform),
   readMachineName: () => readMachineName(createNodeMachineNameSources()),
   captureProviderBaseEnvironment: (startAbort) =>
     captureLoginShellEnvironment({

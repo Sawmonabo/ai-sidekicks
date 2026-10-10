@@ -50,8 +50,11 @@ export interface StartupRecoveryDeps {
    * pass copies the store at most once, and never again for damage already copied.
    */
   readonly storeAside: {
-    /** Copies the store's files aside untouched and returns where. */
-    readonly copy: () => Promise<string>;
+    /**
+     * Copies the store's files aside untouched and returns where. Rejects, leaving no copy, when
+     * `stopSignal` aborts.
+     */
+    readonly copy: (stopSignal: AbortSignal) => Promise<string>;
     /** The copy taken for the session damaged with its head at `headSequence`, if one was. */
     readonly findCopyOfSession: (
       sessionId: SessionId,
@@ -121,11 +124,7 @@ export class StartupRecovery {
    * Runs the pass and resolves once it has ended, either way; the node's recovery state then says
    * how it ended. Never throws.
    */
-  run(): Promise<void> {
-    return this.#deps.status.runPass(() => this.#run());
-  }
-
-  async #run(): Promise<void> {
+  async run(): Promise<void> {
     const { status } = this.#deps;
     const passStartedAt = performance.now();
     const tally: RecoveryTally = {
@@ -174,6 +173,9 @@ export class StartupRecovery {
       status.markPassListed();
 
       base.phase = "run_resumption";
+      for (const run of runsOfCurrentSessions) {
+        status.markSessionSettling(run.sessionId);
+      }
       await this.#settleLiveRuns(runsOfCurrentSessions, tally, runsLeftInFlight);
       for (const run of runsOfCurrentSessions) {
         this.#markListedSessionHealthy(run.sessionId);
@@ -257,6 +259,7 @@ export class StartupRecovery {
       const liveRuns = runs
         .listLiveRuns()
         .filter((run) => run.state !== "queued" && run.sessionId === sessionId);
+      this.#deps.status.markSessionSettling(sessionId);
       await this.#settleLiveRuns(liveRuns, tally, runsLeftInFlight);
       this.#markListedSessionHealthy(sessionId);
     }
@@ -276,7 +279,9 @@ export class StartupRecovery {
       this.#deps.writeServiceLog(`The store's files were already copied aside to ${earlierCopy}`);
     } else {
       if (heal.asideFolder === undefined) {
-        heal.asideFolder = await storeAside.copy();
+        // A copy of a large store takes a while, so a stop that came first never starts one.
+        this.#deps.stopSignal.throwIfAborted();
+        heal.asideFolder = await storeAside.copy(this.#deps.stopSignal);
         this.#deps.writeServiceLog(`The store's files were copied aside to ${heal.asideFolder}`);
       }
       thisPassCopy = heal.asideFolder;

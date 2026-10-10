@@ -22,6 +22,7 @@ import type { DaemonRepairProgress } from "@ai-sidekicks/contracts/daemon/recove
 
 import { openDatabase } from "../../../session/migration-runner.js";
 import { recordDatabaseDamage } from "../damage.js";
+import { chooseDatabaseFileOperatingSystem } from "../operating-system.js";
 import { repairDatabaseFile } from "../repair.js";
 
 const PAGE_SIZE = 4096;
@@ -206,10 +207,11 @@ function repair(progressReports: (DaemonRepairProgress | undefined)[] = []) {
     dataFolder,
     indexFolderPath,
     readBackupFolder: () => Promise.resolve(backupFolder),
+    operatingSystem: chooseDatabaseFileOperatingSystem(process.platform),
     whileRepairing: (repairDamagedFile) =>
       repairDamagedFile((progress) => {
         progressReports.push(progress);
-      }),
+      }, new AbortController().signal),
     stopSignal: new AbortController().signal,
     now: () => new Date("2026-10-07T13:00:00.000Z"),
     writeServiceLog: () => {},

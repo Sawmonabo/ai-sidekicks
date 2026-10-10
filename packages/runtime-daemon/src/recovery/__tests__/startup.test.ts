@@ -39,7 +39,11 @@ import { RunEngine } from "../../session/run/engine.js";
 import { insertQueuedRunStatement, RUNS_PROJECTION } from "../../session/run/projection.js";
 import { SessionService } from "../../session/service.js";
 import { DamagedHistory } from "../damaged-history.js";
-import { ProjectionRebuildService, REBUILD_PAGE_SIZE } from "../projection-rebuild.js";
+import {
+  ProjectionRebuildService,
+  REBUILD_PAGE_SIZE,
+  type ProjectionRebuildResponse,
+} from "../projection-rebuild.js";
 import { refuseSessionEvent } from "../session-write-refusal.js";
 import { StartupRecovery } from "../startup.js";
 import { RecoveryStatusTracker } from "../status.js";
@@ -188,11 +192,13 @@ describe("the recovery pass at a restart", () => {
   }
 
   // The pass as the daemon builds it, with the sessions it rebuilds pushed onto `rebuiltSessions`,
-  // each rebuild starting once `beforeRebuild` resolves, and ended by `stopSignal`.
+  // each rebuild run through `runRebuild`, and ended by `stopSignal`.
   function buildPass(
     rebuiltSessions: SessionId[] = [],
     asideCopies: AsideCopies = { count: 0, sessions: new Set() },
-    beforeRebuild: () => Promise<void> = () => Promise.resolve(),
+    runRebuild: (
+      rebuild: () => Promise<ProjectionRebuildResponse>,
+    ) => Promise<ProjectionRebuildResponse> = (rebuild) => rebuild(),
     stopSignal: AbortSignal = new AbortController().signal,
   ): PassParts {
     const { reader, writer } = fixture.database;
@@ -242,15 +248,15 @@ describe("the recovery pass at a restart", () => {
       sessionEvents,
       projectionRebuild: {
         listSessionsToRebuild: () => projectionRebuild.listSessionsToRebuild(),
-        rebuild: async (request) => {
+        rebuild: (request) => {
           rebuiltSessions.push(request.sessionId);
-          await beforeRebuild();
-          return projectionRebuild.rebuild(request);
+          return runRebuild(() => projectionRebuild.rebuild(request));
         },
       },
       damagedHistory,
       storeAside: {
         copy: () => {
+          // The service's own copy ends at the stop; this one stands in for a copy that goes on.
           asideCopies.count += 1;
           return Promise.resolve(`/aside/${String(asideCopies.count)}`);
         },
@@ -322,8 +328,10 @@ describe("the recovery pass at a restart", () => {
     const stopped = await fixture.runThrough(["starting", "running"]);
     const interventionId = await acceptInterrupt(stopped);
     const queued = await fixture.queueRun();
-    // Every session is rebuilt, as on a store a repair marked stale.
-    await fixture.database.writer.write([{ sql: MARK_EVERY_CURSOR_STALE_SQL }]);
+    // A session the pass rebuilds first, as a repair of the file leaves every session.
+    const rebuiltSessionId = SessionIdSchema.parse(randomUUID());
+    const rebuiltRunId = RunIdSchema.parse(randomUUID());
+    await writeLog(rebuiltSessionId, runEvents(rebuiltSessionId, rebuiltRunId));
     const { status, pass } = buildPass();
 
     await pass.run();
@@ -339,8 +347,9 @@ describe("the recovery pass at a restart", () => {
         .get(interventionId),
     ).toStrictEqual({ state: "applied" });
     expect(fixture.runs.getRun(queued)?.state).toBe("queued");
+    expect(fixture.runs.getRun(rebuiltRunId)?.state).toBe("failed");
     expect(status.read()).toStrictEqual({ overall: "healthy", sessions: [] });
-    // Two runs of three events each and one queued run: seven events rebuilt, two runs settled.
+    // One session of three events rebuilt, and three runs settled.
     expect(readRecoveryEvents()).toMatchObject([
       { type: "recovery.attempted", payload: { attemptNumber: 1, priorFailureCount: 0 } },
       {
@@ -348,10 +357,10 @@ describe("the recovery pass at a restart", () => {
         payload: {
           attemptNumber: 1,
           phase: "run_resumption",
-          eventsApplied: 7,
+          eventsApplied: 3,
           bindingsRestored: 0,
           runsResumed: 0,
-          runsFailedDeterministically: 1,
+          runsFailedDeterministically: 2,
           runsHaltedForReconciliation: 0,
           runsInterrupted: 1,
           completedAt: OCCURRED_AT,
@@ -373,9 +382,9 @@ describe("the recovery pass at a restart", () => {
     const { pass } = buildPass(
       rebuiltSessions,
       undefined,
-      () => {
+      (rebuild) => {
         stopRequest.abort(new Error("The service is stopping"));
-        return Promise.resolve();
+        return rebuild();
       },
       stopRequest.signal,
     );
@@ -447,13 +456,38 @@ describe("the recovery pass at a restart", () => {
     ]);
   });
 
+  it("copies nothing aside for a heal the service's stop came before", async () => {
+    await writeUnfoldableSession();
+    const asideCopies: AsideCopies = { count: 0, sessions: new Set() };
+    const stopRequest = new AbortController();
+    // The stop comes as the rebuild that sends the session to its heal fails.
+    const { pass } = buildPass(
+      [],
+      asideCopies,
+      async (rebuild) => {
+        try {
+          return await rebuild();
+        } finally {
+          stopRequest.abort(new Error("The service is stopping"));
+        }
+      },
+      stopRequest.signal,
+    );
+
+    await pass.run();
+
+    expect(asideCopies.count).toBe(0);
+    expect(readRecoveryEvents().map((event) => event.type)).toStrictEqual(["recovery.attempted"]);
+  });
+
   it("refuses the damaged session's writes and takes every other session's", async () => {
     const unfoldable = await writeUnfoldableSession();
     const rebuildReached = Promise.withResolvers<void>();
     const rebuildHeld = Promise.withResolvers<void>();
-    const { status, sessionEvents, pass } = buildPass([], undefined, () => {
+    const { status, sessionEvents, pass } = buildPass([], undefined, async (rebuild) => {
       rebuildReached.resolve();
-      return rebuildHeld.promise;
+      await rebuildHeld.promise;
+      return rebuild();
     });
     const registry = new RecoveryWriteGate(status).wrap(new MethodRegistryImpl());
     const sessionTarget = z.object({ sessionId: z.string(), repoMountId: z.string() }).strict();

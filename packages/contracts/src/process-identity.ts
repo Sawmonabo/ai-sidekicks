@@ -48,7 +48,8 @@ export interface ProcessIdentitySystem {
   /** `process.platform`. */
   readonly platform: string;
   /**
-   * Reads a text file; rejects as `fs.promises.readFile` does, with `code` `ENOENT` when absent.
+   * Reads a text file; rejects as `fs.promises.readFile` does, with `code` `ENOENT` when absent and
+   * `ESRCH` when a process's file goes while it is read.
    */
   readonly readTextFile: (path: string) => Promise<string>;
   /**
@@ -150,7 +151,8 @@ async function readLinuxProcessStartTime(
   try {
     stat = await system.readTextFile(`/proc/${String(processId)}/stat`);
   } catch (failure) {
-    if (failureCode(failure) === "ENOENT") {
+    // A process gone before the open has no folder; one ending during the read answers ESRCH.
+    if (failureCode(failure) === "ENOENT" || failureCode(failure) === "ESRCH") {
       return undefined;
     }
     throw failure;

@@ -76,7 +76,7 @@ A backup is taken with `Back up now` on Settings › Runtime; the service's heal
 | Metric | Target |
 | --- | --- |
 | The service's structural check, which holds writes only on a file something else changed or one with no record of the last run | < 3s at a million messages; about 2 minutes at ten million, 140 s at worst on an M1 Pro |
-| The service's repair of a damaged store | < 60s at a million messages, 28 s on an M1 Pro; about 9 minutes at ten million, 534 s on an M1 Pro. The minute cannot hold ten million: reading the damaged file alone takes 125 s, the step that runs the full integrity check the fresh file must pass took 100 s, and the fresh file's unique index on a session and its sequence outgrows the writing shell's cache. That cache, a sixth of the file, took the writing shell to 1.85 GiB at ten million; it is a child process's memory, released when the repair ends, and the daemon's 256 MB operating target covers the daemon alone |
+| The service's repair of a damaged store | < 60s at a million messages, 28 s on an M1 Pro; about 8 minutes at ten million, 473 s on an M1 Pro at a load average of 18.4 at its start. The minute cannot hold ten million: reading the damaged file alone takes 125 s, the steps that ready the fresh file, the full integrity check it must pass among them, took 137 s, and the fresh file's unique index on a session and its sequence outgrows the writing shell's cache. That cache, a sixth of the file, took the writing shell to 2.24 GiB at ten million; it is a child process's memory, released when the repair ends, and the daemon's 256 MB operating target covers the daemon alone |
 | Backup restore | < 60s |
 | Projection rebuild after restore | < 120s |
 
