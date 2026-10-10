@@ -103,10 +103,11 @@ export class ViewportController {
   /** The history line's height above the first row, as the last resize observation read it. */
   #headHeightPx = 0;
   /**
-   * The part of the line's last change the offset could not move by: it moves in whole pixels and
-   * the line's height need not be one, so the fraction left over is moved with the next change.
+   * The part of the line's last change the offset could not move by, and the offset it was left
+   * at. The offset moves in device pixels and the line's height need not be whole, so the fraction
+   * is moved with the next change, unless the offset has moved since, as a reader's scroll does.
    */
-  #headShiftOwedPx = 0;
+  #headShiftOwed: { readonly px: number; readonly atScrollTopPx: number } | undefined;
   #disposed = false;
 
   /**
@@ -190,6 +191,7 @@ export class ViewportController {
       measurements: this.measurements,
       rowKeys: () => this.#rowKeys,
       virtualizer: () => this.#virtualizer,
+      headHeightPx: () => this.#headHeightPx,
     });
     this.#publication = new ViewportPublication({ build: () => this.#buildSnapshot() });
     this.#deferredHold = new ViewportDeferredHold({
@@ -725,24 +727,33 @@ export class ViewportController {
     };
   }
 
-  /** Moves the offset by what the history line grew, and tells the list where its rows start. */
+  /**
+   * Tells the list where its rows start and, while the history line stands wholly above the
+   * viewport, moves the offset by what the line grew, so the reader's row stays where it stands. A
+   * line in view, as at the top of the log and at mount, lets the rows flow below it instead, so
+   * its own head is never pushed out of sight.
+   */
   #takeHeadHeight(heightPx: number): void {
-    const grownPx = heightPx - this.#headHeightPx;
+    const previousHeightPx = this.#headHeightPx;
+    const grownPx = heightPx - previousHeightPx;
     if (this.#disposed || grownPx === 0) {
       return;
     }
     this.#headHeightPx = heightPx;
+    const owed = this.#headShiftOwed;
+    this.#headShiftOwed = undefined;
     const scrollTopPx = this.scroll.geometry?.scrollTop;
-    const write =
-      scrollTopPx === undefined
-        ? undefined
-        : this.scroll.glideTo(
-            "hold-reading-position",
-            scrollTopPx + this.#headShiftOwedPx + grownPx,
-          );
-    const unmovedPx = write === undefined ? 0 : write.requestedScrollTop - write.appliedScrollTop;
-    // A whole pixel or more unmoved is the box's edge stopping the offset, which owes nothing.
-    this.#headShiftOwedPx = Math.abs(unmovedPx) < 1 ? unmovedPx : 0;
+    if (scrollTopPx !== undefined && scrollTopPx > 0 && scrollTopPx >= previousHeightPx) {
+      const owedPx = owed?.atScrollTopPx === scrollTopPx ? owed.px : 0;
+      const write = this.scroll.glideTo("hold-reading-position", scrollTopPx + owedPx + grownPx);
+      // `glideTo` has already clamped its target to the content, so what the platform left unmoved
+      // is its rounding to a device pixel, which is owed; a pixel or more can only be its own clamp
+      // at the content's end, which owes nothing.
+      const unmovedPx = write === undefined ? 0 : write.requestedScrollTop - write.appliedScrollTop;
+      if (write !== undefined && Math.abs(unmovedPx) < 1) {
+        this.#headShiftOwed = { px: unmovedPx, atScrollTopPx: write.appliedScrollTop };
+      }
+    }
     this.#publication.publish();
   }
 }

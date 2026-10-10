@@ -16,9 +16,8 @@
 import { RUN_STATE_KINDS } from "#renderer/store/session/events/run/state-kinds.js";
 import type { StoredEntity, ProjectedSessionEvent } from "../entities/vocabulary.js";
 import {
-  ATTENTION_RUN_STATE_KINDS,
+  RUN_STATE_EVENT_PREFIX,
   identifiedRequestKeyOf,
-  isAttentionRunState,
   lifecycleFor,
   runIdOf,
   uncorrelatedKey,
@@ -35,11 +34,14 @@ export interface WaitingRequestRecord {
   readonly closedAtSequence: number | undefined;
 }
 
-/** One run's newest known state, as the position it was read at and what it means. */
+/** One run's newest known state and the position it was read at. */
 export interface WaitingRunRecord {
   readonly atSequence: number;
-  /** Whether that state is one a person has to act on. */
-  readonly needsAttention: boolean;
+  /**
+   * The state, wire-verbatim, or `undefined` where the base state named none. Whether a person
+   * has to act on it is `isAttentionRunState`'s call.
+   */
+  readonly state: string | undefined;
 }
 
 /** Everything the register knows, as one immutable reading. */
@@ -93,7 +95,7 @@ export class WaitingOnPersonRegister {
       this.#recordRunState({
         runId: entity.id,
         atSequence: seed.cursor,
-        needsAttention: isAttentionRunState(entity.state),
+        state: entity.state,
       });
     }
   }
@@ -129,7 +131,7 @@ export class WaitingOnPersonRegister {
       this.#recordRunState({
         runId: runIdOf(event) ?? uncorrelatedKey(event),
         atSequence: event.sequence,
-        needsAttention: ATTENTION_RUN_STATE_KINDS.includes(event.kind),
+        state: event.kind.slice(RUN_STATE_EVENT_PREFIX.length),
       });
       return;
     }
@@ -155,7 +157,7 @@ export class WaitingOnPersonRegister {
     }
     this.#runsByRunId.set(record.runId, {
       atSequence: record.atSequence,
-      needsAttention: record.needsAttention,
+      state: record.state,
     });
     this.#revision += 1;
   }

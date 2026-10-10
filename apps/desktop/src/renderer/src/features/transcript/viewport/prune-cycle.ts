@@ -335,10 +335,10 @@ export class ViewportPruneCycle {
    * Whether the condition that refused the last pass is gone. Total over
    * `PRUNE_DEFERRAL_REASONS`, so a new reason is a compile error until classified.
    *
-   * `within-share` owes nothing, and the feed already re-runs the pass when the working rows
-   * change, which is when `working-rows` clears, so those answer `false`. The sets compare rather
-   * than test for empty: only a changed engagement, screen or place helps a stopped cut, and
-   * comparing makes the re-ask single-shot.
+   * `within-share` owes nothing, and the feed re-runs the pass with a new working-row check
+   * whenever the working rows or the reveal's held lanes change, which is when `working-rows`
+   * clears, so those answer `false`. The sets compare rather than test for empty: only a changed
+   * engagement, screen or place helps a stopped cut, and comparing makes the re-ask single-shot.
    */
   #deferralHasCleared(owedBecause: PruneDeferralReason): boolean {
     switch (owedBecause) {

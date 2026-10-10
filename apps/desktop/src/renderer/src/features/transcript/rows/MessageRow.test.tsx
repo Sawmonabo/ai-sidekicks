@@ -23,7 +23,7 @@ import { FootnoteRegistry } from "./markdown/footnotes/registry.js";
 import {
   SAMPLE_RUN_ROW_TIME_SELECTOR,
   sampleRunRow,
-} from "#test/helpers/transcript-event-row-samples.js";
+} from "#test/helpers/transcript/event-row-samples.js";
 import { FIRST_RUN_SCENARIO } from "#fixtures/scenarios/first-run.js";
 import {
   RowRevealContext,

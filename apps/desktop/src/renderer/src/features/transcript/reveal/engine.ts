@@ -52,6 +52,8 @@ export class RevealEngine {
   /** Insertion order is the queue order the catch-up remainder is offered in. */
   readonly #lanesById = new Map<string, RevealLane>();
 
+  /** Bumped whenever a lane is first held or retired, the only changes `holdsLane` sees. */
+  #laneRevision = 0;
   #frameSubmitted = false;
   #disposed = false;
 
@@ -90,6 +92,11 @@ export class RevealEngine {
   /** Whether a lane by this name is held: seen and not yet retired. A map lookup. */
   public holdsLane(laneId: string): boolean {
     return this.#lanesById.has(laneId);
+  }
+
+  /** A count that moves exactly when the set of held lanes does, so a reader can re-ask cheaply. */
+  public get laneRevision(): number {
+    return this.#laneRevision;
   }
 
   public laneState(laneId: string): RevealLaneState | undefined {
@@ -140,7 +147,9 @@ export class RevealEngine {
    */
   public retireLane(laneId: string): void {
     this.#lanesById.get(laneId)?.quarantine();
-    this.#lanesById.delete(laneId);
+    if (this.#lanesById.delete(laneId)) {
+      this.#laneRevision += 1;
+    }
   }
 
   /** Terminal. A disposed engine arms nothing and reaches nobody. */
@@ -159,6 +168,7 @@ export class RevealEngine {
     }
     const lane = new RevealLane(laneId);
     this.#lanesById.set(laneId, lane);
+    this.#laneRevision += 1;
     return lane;
   }
 

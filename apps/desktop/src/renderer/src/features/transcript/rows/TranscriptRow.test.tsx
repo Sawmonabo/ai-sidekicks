@@ -11,7 +11,7 @@ import { registerTranscriptRowRenderer, type TranscriptRowProps } from "./render
 import { registerTranscriptRowFooterRenderer } from "./footer-renderer.js";
 import { registerTranscriptRows } from "../contributions/rows.js";
 import { TranscriptRow } from "./TranscriptRow.js";
-import { sampleRunRow } from "#test/helpers/transcript-event-row-samples.js";
+import { sampleRunRow } from "#test/helpers/transcript/event-row-samples.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 
 function rowRendererProps(row: TranscriptRowProps["row"]): TranscriptRowProps {

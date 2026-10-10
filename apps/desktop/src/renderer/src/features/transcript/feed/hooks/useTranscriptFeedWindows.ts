@@ -149,15 +149,17 @@ export function useTranscriptFeedWindows(
   );
   // The rows the window keeps whatever their distance: read once per window and register
   // revision, beside the reveal, which answers whether a live run's newest reply still streams.
+  // The check is re-made when the reveal's held lanes change, since a new check is what has the
+  // viewport ask a cut the last check stopped short again.
   const waitingOnPerson = inputs.sessionStore.waitingOnPersonRecords;
   const workingRows = useMemo(
     () => readWorkingRows(unfurledWindow, waitingOnPerson),
     [unfurledWindow, waitingOnPerson],
   );
-  const isRevealing = reveal.isRevealing;
+  const { isRevealing, laneRevision } = reveal;
   const isWorkingRow = useMemo(
     () => bindWorkingRowCheck(workingRows, isRevealing),
-    [workingRows, isRevealing],
+    [workingRows, isRevealing, laneRevision],
   );
   const viewport = useTranscriptViewport({
     clock: inputs.clock,

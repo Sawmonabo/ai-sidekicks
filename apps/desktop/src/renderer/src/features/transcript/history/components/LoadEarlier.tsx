@@ -7,10 +7,14 @@
 
 import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
+import { useAnnounceWhenChanged } from "#renderer/hooks/announce/useAnnounceWhenChanged.js";
 import { type TranscriptHistory } from "../hooks/useTranscriptHistory.js";
 
 /** The words of the line after a read of earlier messages failed, before its `Try again`. */
 const EARLIER_READ_FAILED_WORDS = "Couldn't load earlier messages";
+
+/** The words of the line while a stretch of earlier messages is read. */
+const READING_WORDS = "Loading…";
 
 /** The history whose head the line offers and whose stretch it asks for. */
 export interface LoadEarlierProps {
@@ -21,9 +25,15 @@ export interface LoadEarlierProps {
 export function LoadEarlier(props: LoadEarlierProps): React.JSX.Element | null {
   const { history } = props;
   const { hasMore, isReading, hasFailed, failureCount } = history.state.earlier;
+  // Said each time a read starts: between reads the line reports nothing, so the same words that
+  // come back with the next read are news again.
+  useAnnounceWhenChanged(isReading ? READING_WORDS : null, "polite");
   // A failed read is sent again unchanged: the press asks the reader for the stretch it failed.
+  // A press while a stretch is read asks for nothing.
   const readEarlier = (): void => {
-    history.readStretch("head");
+    if (!isReading) {
+      history.readStretch("head");
+    }
   };
   if (hasFailed) {
     return (
@@ -50,10 +60,11 @@ export function LoadEarlier(props: LoadEarlierProps): React.JSX.Element | null {
       className="meridian-transcript-viewport__load-earlier meridian-clickable-word"
       onClick={readEarlier}
       // While a stretch is read the line says so in its own place, disabled rather than hidden,
-      // so it does not vanish under the pointer that pressed it.
-      disabled={isReading}
+      // so it does not vanish under the pointer that pressed it, and `aria-disabled` rather than
+      // `disabled`, so the focus a keyboard press left on it stays.
+      aria-disabled={isReading}
     >
-      {isReading ? "Loading…" : "Load earlier"}
+      {isReading ? READING_WORDS : "Load earlier"}
     </button>
   );
 }

@@ -2,37 +2,17 @@
 // identity, and how those compose into a key. `register.ts` holds the records.
 //
 // Every derivation is fail-closed: an event the wire did not identify is held open under a key of
-// its own rather than dropped, and a state this build cannot name is not an attention state.
-// Clearing a block that was never seen resolved is the defect the register exists to prevent.
+// its own rather than dropped. Clearing a block that was never seen resolved is the defect the
+// register exists to prevent.
 
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 import { INTERVENTION_STATES } from "@ai-sidekicks/contracts/run/control";
-import type { RunState } from "@ai-sidekicks/contracts/run/state";
 
 import { structuralKey } from "#renderer/lib/structural-key.js";
 import type { ProjectedSessionEvent } from "../entities/vocabulary.js";
 
 /** How the run-lifecycle taxonomy denormalizes a state onto its event type. */
 export const RUN_STATE_EVENT_PREFIX = "run.";
-
-/**
- * The run states that mean a person has to act. A failed run is included: it stopped and will
- * not start itself. Typed as `RunState` so the compiler rejects a state the contract lacks.
- */
-export const ATTENTION_RUN_STATES: readonly RunState[] = [
-  "waiting_for_approval",
-  "waiting_for_input",
-  "failed",
-];
-
-/**
- * The event kinds that put a run in the attention set. Derived from the states above so the
- * base-state and log vocabularies cannot disagree about which state needs a person. Every other
- * run-state kind takes the run out of it.
- */
-export const ATTENTION_RUN_STATE_KINDS: readonly string[] = ATTENTION_RUN_STATES.map(
-  (state) => `${RUN_STATE_EVENT_PREFIX}${state}`,
-);
 
 /** The payload member a run event carries its run's identity on. */
 const RUN_CORRELATION_MEMBER = "runId";
@@ -79,14 +59,6 @@ export const REQUEST_LIFECYCLES: readonly RequestLifecycle[] = [
     correlationMember: "interventionId",
   },
 ];
-
-/**
- * Whether a base-state entity's wire-verbatim state is one a person has to act on. A state this
- * build does not register is not one: better to miss it than call an unknown word a block.
- */
-export function isAttentionRunState(state: string | undefined): boolean {
-  return state !== undefined && (ATTENTION_RUN_STATES as readonly string[]).includes(state);
-}
 
 /**
  * The key an event takes when the wire named nothing that identifies it: its log position, so

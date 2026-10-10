@@ -23,16 +23,11 @@ function rowOf(
   return actorId === undefined ? base : { ...base, actorId };
 }
 
-/** How many lifecycles the records hold open — an opening with no terminal after it. */
+/** How many requests the records hold open — an opening with no terminal after it. */
 function openCountOf(records: WaitingOnPersonRecords): number {
   let open = 0;
   for (const request of records.requestsByKey.values()) {
     if (request.openedAtSequence !== undefined && request.closedAtSequence === undefined) {
-      open += 1;
-    }
-  }
-  for (const run of records.runsByRunId.values()) {
-    if (run.needsAttention) {
       open += 1;
     }
   }
@@ -52,8 +47,10 @@ describe("WaitingOnPersonRegister — what a base state establishes", () => {
       ],
     });
 
-    expect(openCountOf(register.records)).toBe(1);
-    expect(register.records.runsByRunId.get("run-a")?.atSequence).toBe(12);
+    expect(register.records.runsByRunId.get("run-a")).toStrictEqual({
+      atSequence: 12,
+      state: "waiting_for_approval",
+    });
   });
 
   it("keeps what it already held when a later read re-establishes the window", () => {
@@ -73,10 +70,10 @@ describe("WaitingOnPersonRegister — what a base state establishes", () => {
       entities: [{ kind: "run", id: "run-a", state: "waiting_for_approval" }],
     });
     register.admit([rowOf(12, "run.running", { runId: "run-a" })]);
-    expect(openCountOf(register.records)).toBe(1);
+    expect(register.records.runsByRunId.get("run-a")?.state).toBe("waiting_for_approval");
 
     register.admit([rowOf(13, "run.running", { runId: "run-a" })]);
-    expect(openCountOf(register.records)).toBe(0);
+    expect(register.records.runsByRunId.get("run-a")?.state).toBe("running");
   });
 });
 
@@ -108,15 +105,10 @@ describe("WaitingOnPersonRegister — rows in any order", () => {
     register.admit([rowOf(8, "run.running", { runId: "run-a" })]);
     register.admit([rowOf(3, "run.waiting_for_approval", { runId: "run-a" })]);
 
-    expect(openCountOf(register.records)).toBe(0);
-  });
-
-  it("stops counting a run once it moves on to pausing", () => {
-    const register = new WaitingOnPersonRegister();
-    register.admit([rowOf(3, "run.waiting_for_approval", { runId: "run-a" })]);
-    register.admit([rowOf(4, "run.pausing", { runId: "run-a" })]);
-
-    expect(openCountOf(register.records)).toBe(0);
+    expect(register.records.runsByRunId.get("run-a")).toStrictEqual({
+      atSequence: 8,
+      state: "running",
+    });
   });
 });
 

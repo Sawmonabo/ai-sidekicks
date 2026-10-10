@@ -4,17 +4,18 @@
 //
 // The feed is mounted in a box narrow enough that the failed read's line wraps onto a second line,
 // so the line grows when a read fails, shrinks when it is asked again, and leaves once the stretch
-// it read reaches the session's first message.
+// it read reaches the session's first message. A reader past the line keeps their row; a reader at
+// the top sees the line grow in place, its head still in view.
 
 import { fireEvent } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { changeLayout } from "../../helpers/animation-frame.js";
 import {
   EARLIER_HISTORY_BOX_HEIGHT_PX,
   EARLIER_HISTORY_ROW_HEIGHT_PX,
   mountEarlierHistoryFeed,
-} from "../../helpers/earlier-history-feed.js";
+} from "../../helpers/transcript/earlier-history-feed.js";
 
 import { installMeridianTokens } from "#renderer/app/token-installation.js";
 // The viewport's stylesheet and the clickable word's, imported for their side effect: this tier
@@ -48,13 +49,40 @@ function offsetOfRow(scrollContainer: HTMLElement, id: string): number {
   return row.getBoundingClientRect().top - scrollContainer.getBoundingClientRect().top;
 }
 
-/** The height the history line takes above the rows. */
-function headHeightPx(scrollContainer: HTMLElement): number {
-  return scrollContainer.querySelector(".meridian-transcript-viewport__head")?.clientHeight ?? 0;
+/** The history line's box, which a case measures to the fraction a layout gives it. */
+function headOf(scrollContainer: HTMLElement): HTMLElement {
+  const head = scrollContainer.querySelector<HTMLElement>(".meridian-transcript-viewport__head");
+  if (head === null) {
+    throw new Error("the feed drew no history line");
+  }
+  return head;
 }
+
+/** The height the history line takes above the rows, unrounded. */
+function headHeightPx(scrollContainer: HTMLElement): number {
+  return headOf(scrollContainer).getBoundingClientRect().height;
+}
+
+/** The press on the failed line's `Try again`. */
+function pressTryAgain(container: HTMLElement): Promise<void> {
+  const tryAgain = [...container.querySelectorAll("button")].find(
+    (button) => button.textContent === "Try again",
+  );
+  return changeLayout(() => {
+    tryAgain?.click();
+  });
+}
+
+/** A stylesheet the case adds for itself, removed after it. */
+let caseSheet: HTMLStyleElement | undefined;
 
 beforeEach(() => {
   installMeridianTokens(document);
+});
+
+afterEach(() => {
+  caseSheet?.remove();
+  caseSheet = undefined;
 });
 
 describe("browser — the history line holds the reader's row as its height changes", () => {
@@ -92,12 +120,7 @@ describe("browser — the history line holds the reader's row as its height chan
     expectRowHeld();
 
     // `Try again` brings the one-line `Loading…` back, so the line shrinks.
-    const tryAgain = [...container.querySelectorAll("button")].find(
-      (button) => button.textContent === "Try again",
-    );
-    await changeLayout(() => {
-      tryAgain?.click();
-    });
+    await pressTryAgain(container);
     expect(headHeightPx(scrollContainer)).toBe(oneLineHeightPx);
     expectRowHeld();
 
@@ -106,5 +129,66 @@ describe("browser — the history line holds the reader's row as its height chan
     expect(sessionStore.snapshot().transcript[0]?.sequence).toBe(0);
     expect(container.querySelector(".meridian-transcript-viewport__load-earlier")).toBeNull();
     expectRowHeld();
+  });
+
+  it("keeps the row in place through changes of a fractional height", async () => {
+    // A line whose height is no whole pixel moves the rows by a fraction the offset cannot take
+    // in one write; what it leaves over is moved with the next change. A half pixel is the worst
+    // case: the platform rounds it the same way growing and shrinking, so without the carry each
+    // failure and retry would leave the row a pixel further from where it stood.
+    caseSheet = document.createElement("style");
+    caseSheet.textContent = ".meridian-transcript-viewport__head { line-height: 16.5px; }";
+    document.head.append(caseSheet);
+    const { container, scrollContainer, log, landRead } = await mountEarlierHistoryFeed();
+    await changeLayout(() => {
+      scrollContainer.scrollTop = READING_AT_PX;
+      fireEvent.scroll(scrollContainer);
+    });
+    const underReader = rowUnderReader(scrollContainer);
+    const oneLineHeightPx = headHeightPx(scrollContainer);
+    expect(Number.isInteger(oneLineHeightPx)).toBe(false);
+    await changeLayout(() => {
+      container
+        .querySelector<HTMLButtonElement>(".meridian-transcript-viewport__load-earlier")
+        ?.click();
+    });
+
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      log.refuseNextRead();
+      await landRead();
+      await pressTryAgain(container);
+    }
+
+    expect(headHeightPx(scrollContainer)).toBe(oneLineHeightPx);
+    expect(
+      Math.abs(offsetOfRow(scrollContainer, underReader.id) - underReader.offsetPx),
+    ).toBeLessThanOrEqual(HELD_TOLERANCE_PX);
+  });
+
+  it("lets the rows flow below the line at the top of the log, its head in view", async () => {
+    const { container, scrollContainer, log, landRead } = await mountEarlierHistoryFeed();
+    await changeLayout(() => {
+      scrollContainer.scrollTop = 0;
+      fireEvent.scroll(scrollContainer);
+    });
+    // At the top the reader reads the stretch on its own; the line reads `Loading…`.
+    expect(container.textContent).toContain("Loading…");
+    const firstRowId =
+      scrollContainer.querySelector<HTMLElement>("[data-row-id]")?.dataset["rowId"] ?? "";
+    const firstRowOffsetPx = offsetOfRow(scrollContainer, firstRowId);
+    const oneLineHeightPx = headHeightPx(scrollContainer);
+
+    log.refuseNextRead();
+    await landRead();
+
+    const grownPx = headHeightPx(scrollContainer) - oneLineHeightPx;
+    expect(grownPx).toBeGreaterThan(0);
+    expect(scrollContainer.scrollTop).toBe(0);
+    expect(headOf(scrollContainer).getBoundingClientRect().top).toBeGreaterThanOrEqual(
+      scrollContainer.getBoundingClientRect().top,
+    );
+    expect(
+      Math.abs(offsetOfRow(scrollContainer, firstRowId) - (firstRowOffsetPx + grownPx)),
+    ).toBeLessThanOrEqual(HELD_TOLERANCE_PX);
   });
 });

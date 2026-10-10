@@ -11,7 +11,7 @@ import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers
 import {
   SAMPLE_RUN_ROW_TIME_SELECTOR,
   sampleRunRow,
-} from "#test/helpers/transcript-event-row-samples.js";
+} from "#test/helpers/transcript/event-row-samples.js";
 import { classifyTranscriptRow } from "../rows/kind.js";
 import { MessageRow } from "../rows/MessageRow.js";
 import { ToolRow } from "../rows/ToolRow.js";

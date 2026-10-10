@@ -12,6 +12,22 @@ Governed by [Spec-026](../../specs/026-agent-definitions-and-peer-invocation.md)
 // ProviderAccountId (Plan-023) — the identity and the words a person reads are separate axes on purpose.
 type AgentDefinitionId = string & { readonly __brand: "AgentDefinitionId" };
 
+// One step of the console's twelve-step hue wheel, by its token name: the closed set
+// `AGENT_ACCENT_HUES`, declared once and refused off the wheel.
+type AgentAccentHue =
+  | "hue-00"
+  | "hue-01"
+  | "hue-02"
+  | "hue-03"
+  | "hue-04"
+  | "hue-05"
+  | "hue-06"
+  | "hue-07"
+  | "hue-08"
+  | "hue-09"
+  | "hue-10"
+  | "hue-11";
+
 // A saved, node-local agent configuration. Configuration, not session state: not events-canonical,
 // not rebuilt from the event log. Every axis below is one a run already carries, so this
 // shape composes existing axes into a reusable named bundle and mints no new configuration dimension.
@@ -47,9 +63,7 @@ interface AgentDefinition {
   // A glyph key from the console's own icon set. Icon and color are separate fields rather than one theme,
   // so a person can change either without the other. null = the generic agent mark.
   icon: string | null;
-  // One step of the console's twelve-step hue wheel, by its token name: `AGENT_ACCENT_HUES`, `hue-00`
-  // through `hue-11`, declared once and refused off the wheel. null = no chosen hue, and the card draws the
-  // generic mark's own.
+  // The chosen hue. null = no chosen hue, and the card draws the generic mark's own.
   accentHue: AgentAccentHue | null;
   // The provider bindings. `overrides` is present on a stored row and may be empty, so a reader never has
   // to tell an empty set from a missing one.

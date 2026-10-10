@@ -34,7 +34,7 @@ export interface TranscriptViewportProps {
   readonly binding: TranscriptViewportBinding;
   /** Stable across renders, or the memoized rows re-render with it. */
   readonly renderRow: ViewportRowRenderer;
-  /** Names the feed for a screen reader walking the window. */
+  /** Names the feed, and the scroll region holding it, for a screen reader walking the window. */
   readonly feedLabel: string;
   /**
    * Whether this session's first read has settled. Required so a caller decides: the empty
@@ -76,8 +76,11 @@ export function TranscriptViewport(props: TranscriptViewportProps): React.JSX.El
           <div
             className="meridian-transcript-viewport__scroll-container meridian-focus-inset"
             ref={selection.attachScrollContainer}
-            // Focusable so the log is reachable and scrollable from the keyboard.
+            // Focusable so the log is reachable and scrollable from the keyboard, and so a region
+            // with a name, which is what a screen reader announces when the focus lands on it.
             tabIndex={0}
+            role="region"
+            aria-label={props.feedLabel}
           >
             {/*
              * In the flow, above the rows: the virtualizer counts its height as the space before

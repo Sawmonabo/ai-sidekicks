@@ -45,6 +45,12 @@ export interface RevealBinding {
    * grow, until the lane is retired. A map lookup; the same function for the engine's life.
    */
   readonly isRevealing: (rowId: string) => boolean;
+  /**
+   * Moves whenever `isRevealing` would answer differently for some row: a lane first held or
+   * retired. A drained frame leaves it, so a reader keyed on it re-asks once per lane, not per
+   * frame.
+   */
+  readonly laneRevision: number;
 }
 
 /** Inputs to `useReveal`. */
@@ -130,6 +136,7 @@ export function useReveal(options: UseRevealOptions): RevealBinding {
     ),
     retireLanes: useCallback(
       (shouldRetire: (laneId: string) => boolean, isReplyRow: (laneId: string) => boolean) => {
+        const laneRevision = engine.laneRevision;
         for (const lane of engine.lanes()) {
           if (!shouldRetire(lane.laneId)) {
             continue;
@@ -145,6 +152,10 @@ export function useReveal(options: UseRevealOptions): RevealBinding {
           }
           engine.retireLane(lane.laneId);
         }
+        // Retiring runs in an effect and drains no frame, so nothing else renders the change.
+        if (engine.laneRevision !== laneRevision) {
+          setFrameRevision((current) => current + 1);
+        }
       },
       [engine, drawnReplyText],
     ),
@@ -155,5 +166,6 @@ export function useReveal(options: UseRevealOptions): RevealBinding {
       [drawnReplyText],
     ),
     isRevealing: useCallback((rowId: string) => engine.holdsLane(rowId), [engine]),
+    laneRevision: engine.laneRevision,
   };
 }

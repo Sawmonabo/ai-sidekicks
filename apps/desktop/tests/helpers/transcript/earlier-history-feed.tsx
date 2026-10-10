@@ -3,9 +3,10 @@
 // enough that the failed read's words wrap onto a second line, and every read waits until the case
 // lets it land, so the line can be caught while it reads.
 
-import { changeLayout, letObserversAnswer } from "./animation-frame.js";
-import { FixtureBridgeProvider } from "./app/frame-fixtures.js";
-import { renderSettled } from "./app/harness.js";
+import { changeLayout, letObserversAnswer } from "../animation-frame.js";
+import { spiedAnnouncer } from "../spied-announcer.js";
+import { FixtureBridgeProvider } from "../app/frame-fixtures.js";
+import { renderSettled } from "../app/harness.js";
 
 import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
@@ -17,7 +18,6 @@ import {
   type ScriptedTranscriptLog,
 } from "#renderer/features/transcript/logs.test-support.js";
 import { type TranscriptRowProps } from "#renderer/features/transcript/rows/renderer.js";
-import { ManualClock } from "#renderer/lib/clock.js";
 import { type TranscriptPageRead } from "#renderer/services/daemon/transcript-page.js";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
@@ -33,12 +33,17 @@ const ROWS_BEFORE_HEAD = 10;
 /** The rows the store holds when the feed opens. */
 const WINDOW_ROWS = 30;
 
-/** The mounted feed, its store and log, and the one act that lands the oldest waiting read. */
+/**
+ * The mounted feed, its store and log, what its announcer said, and the one act that lands the
+ * oldest waiting read.
+ */
 export interface EarlierHistoryFeed {
   readonly container: HTMLElement;
   readonly scrollContainer: HTMLElement;
   readonly sessionStore: SessionStore;
   readonly log: ScriptedTranscriptLog;
+  /** Every sentence the window's announcer was asked to say, in order. */
+  readonly spoken: () => readonly string[];
   /** Answers the oldest read still waiting, and lets the layout settle. */
   readonly landRead: () => Promise<void>;
 }
@@ -57,9 +62,10 @@ export async function mountEarlierHistoryFeed(): Promise<EarlierHistoryFeed> {
     cursor: transcriptFixtureStreamCursor(ROWS_BEFORE_HEAD - 1),
     hasMore: true,
   });
+  const announcer = spiedAnnouncer();
   const { container } = await renderSettled(
     <FixtureBridgeProvider fixture={createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO })}>
-      <LiveAnnouncerProvider clock={new ManualClock()}>
+      <LiveAnnouncerProvider announcer={announcer.announcer}>
         <div
           style={{
             display: "grid",
@@ -89,6 +95,7 @@ export async function mountEarlierHistoryFeed(): Promise<EarlierHistoryFeed> {
     scrollContainer,
     sessionStore,
     log,
+    spoken: announcer.spoken,
     landRead: async () => {
       await changeLayout(() => {
         waitingReads.shift()?.();

@@ -28,6 +28,7 @@ import {
   HUE_WHEEL_STEPS,
   TOOL_HUE_ALIASES,
   computeHueWheelAngle,
+  isHueWheelStep,
 } from "./palette.js";
 
 // The scheme vocabulary is declared in `#shared/color-scheme.ts`, which main and the renderer both
@@ -94,7 +95,7 @@ export const THEMED_COLOR_TOKENS: readonly (readonly [string, ThemedColor])[] = 
 
 /** The token name of an agent wheel step, the hue the wire names it by. Throws off the wheel. */
 export function formatHueWheelTokenName(step: number): AgentAccentHue {
-  const tokenName = AGENT_ACCENT_HUES[step];
+  const tokenName = isHueWheelStep(step) ? AGENT_ACCENT_HUES[step] : undefined;
   if (tokenName === undefined) {
     throw new RangeError(`agent hue step ${step} is outside the ${HUE_WHEEL_STEPS}-step wheel`);
   }
@@ -123,7 +124,7 @@ export const HUE_WHEEL: readonly OklchColor[] = Array.from(
 
 /** The resolved color of a wheel step. Throws on a step outside the wheel. */
 export function readHueWheelColor(step: number): OklchColor {
-  const color = HUE_WHEEL[step];
+  const color = isHueWheelStep(step) ? HUE_WHEEL[step] : undefined;
   if (color === undefined) {
     throw new RangeError(`agent hue step ${step} is outside the ${HUE_WHEEL_STEPS}-step wheel`);
   }

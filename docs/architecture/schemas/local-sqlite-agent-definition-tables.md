@@ -29,7 +29,8 @@ CREATE TABLE agent_definitions (
   description            TEXT NOT NULL DEFAULT ''
                          CHECK(instr(description, char(0)) = 0),
   icon                   TEXT,  -- NULL = the generic agent glyph. A glyph key from the console's own icon set; icon and accent are two fields, not one theme, so either changes without the other
-  accent_hue             TEXT,  -- NULL = no chosen hue, and the card draws the generic mark's own. One step of the console's twelve-step hue wheel
+  accent_hue             TEXT  -- NULL = no chosen hue, and the card draws the generic mark's own. One step of the console's twelve-step hue wheel, by its token name: the closed set `AGENT_ACCENT_HUES`
+                         CHECK(accent_hue IS NULL OR accent_hue IN ('hue-00', 'hue-01', 'hue-02', 'hue-03', 'hue-04', 'hue-05', 'hue-06', 'hue-07', 'hue-08', 'hue-09', 'hue-10', 'hue-11')),
   origin                 TEXT NOT NULL DEFAULT 'ours'  -- which place the definition's file lives in
                          CHECK(origin IN ('ours', 'claude', 'codex', 'plugin')),
   plugin_name            TEXT NOT NULL DEFAULT '',  -- the installing plugin's name on a plugin's agent, which is read-only; '' on every other origin

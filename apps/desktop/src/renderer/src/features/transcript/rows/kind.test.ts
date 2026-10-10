@@ -5,7 +5,7 @@ import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event/
 import { describe, expect, it } from "vitest";
 
 import { classifyTranscriptRow, toolResultState } from "./kind.js";
-import { sampleGeneralRow, sampleRunRow } from "#test/helpers/transcript-event-row-samples.js";
+import { sampleGeneralRow, sampleRunRow } from "#test/helpers/transcript/event-row-samples.js";
 
 const AVAILABLE_BODY: HydratedSessionEventContent = { status: "available", body: "done" };
 const TRUNCATED_BODY: HydratedSessionEventContent = {

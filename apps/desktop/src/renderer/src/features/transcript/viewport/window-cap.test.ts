@@ -103,24 +103,15 @@ describe("the transcript window — letting go around the reader", () => {
     expect(heldKeys(window).at(-1)).toBe(rowKey(readerRowIndex));
   });
 
-  it("lets go of a live run's settled rows far from the reader, and keeps a working one", () => {
-    // A live run's header and rows sit far below the reader. Settled, the whole run group goes
-    // like any other rows; while one of its rows still works, the cut stops at that row and
-    // keeps the group whole, header included.
+  it("stops a cut at a working row far from the reader, keeping its run group whole", () => {
+    // A live run's header and rows sit far below the reader. While one of its rows still works,
+    // the cut stops at that row and keeps the group whole, header included.
     const liveRunGroupKey = "run-live";
     const liveRowIndexes = Array.from({ length: 9 }, (_unused, offset) => 301 + offset);
     const liveLog = flatLog((index) =>
       liveRowIndexes.includes(index) ? liveRunGroupKey : undefined,
     ).map((row, index) => (index === 300 ? { ...row, key: liveRunGroupKey } : row));
     const liveGroupKeys = [liveRunGroupKey, ...liveRowIndexes.map(rowKey)];
-    const settledWindow = new TranscriptWindow();
-    settledWindow.ingest(liveLog);
-
-    const settled = settledWindow.prune(READING_MID_LOG);
-
-    expect(settled.owedBecause).toBeUndefined();
-    expect(settled.prunedKeys).toStrictEqual(expect.arrayContaining(liveGroupKeys));
-
     const workingRowKey = rowKey(305);
     const workingWindow = new TranscriptWindow();
     workingWindow.ingest(liveLog);

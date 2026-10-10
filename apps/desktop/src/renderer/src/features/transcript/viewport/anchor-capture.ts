@@ -21,6 +21,8 @@ export interface ViewportAnchorCaptureOptions {
   readonly rowKeys: () => readonly string[];
   /** The bound virtualizer, or `undefined` before one is bound. */
   readonly virtualizer: () => TranscriptRowVirtualizer | undefined;
+  /** The history line's height above the first row, where the list starts. */
+  readonly headHeightPx: () => number;
 }
 
 /** Captures the reader's anchor row from library measurements, without touching an element. */
@@ -30,6 +32,7 @@ export class ViewportAnchorCapture {
   readonly #measurements: RowMeasurementTable;
   readonly #rowKeys: () => readonly string[];
   readonly #virtualizer: () => TranscriptRowVirtualizer | undefined;
+  readonly #headHeightPx: () => number;
 
   public constructor(options: ViewportAnchorCaptureOptions) {
     this.#anchor = options.anchor;
@@ -37,6 +40,7 @@ export class ViewportAnchorCapture {
     this.#measurements = options.measurements;
     this.#rowKeys = options.rowKeys;
     this.#virtualizer = options.virtualizer;
+    this.#headHeightPx = options.headHeightPx;
   }
 
   /**
@@ -58,7 +62,7 @@ export class ViewportAnchorCapture {
     }
     const rowKeys = this.#rowKeys();
     // The list starts below the history line, as the library's own starts do.
-    let offset = virtualizer?.options.scrollMargin ?? 0;
+    let offset = this.#headHeightPx();
     for (let cursor = 0; cursor < index; cursor += 1) {
       offset += this.#measurements.heightOf(rowKeys[cursor] ?? "");
     }

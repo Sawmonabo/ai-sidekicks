@@ -55,6 +55,11 @@ export const TOOL_HUE_ALIASES: Readonly<Record<string, string>> = {
 /** Steps on the agent wheel, one per hue the wire names. */
 export const HUE_WHEEL_STEPS: number = AGENT_ACCENT_HUES.length;
 
+/** Whether `step` is a step of the agent wheel: a whole number from 0 up to `HUE_WHEEL_STEPS`. */
+export function isHueWheelStep(step: number): boolean {
+  return Number.isInteger(step) && step >= 0 && step < HUE_WHEEL_STEPS;
+}
+
 /**
  * Fixed lightness for every agent hue, one value for every rendering because identity color
  * does not change with the theme or the scheme. Holding the whole wheel to 3:1 leaves one narrow

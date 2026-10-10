@@ -122,10 +122,10 @@
   cursor: pointer;
 }
 
-:where(.meridian-clickable-word:disabled) {
+:where(.meridian-clickable-word:is(:disabled, [aria-disabled="true"])) {
   cursor: default;
 }
 
-:where(.meridian-clickable-word:hover:not(:disabled)) {
+:where(.meridian-clickable-word:hover:not(:disabled, [aria-disabled="true"])) {
   text-decoration: underline;
 }

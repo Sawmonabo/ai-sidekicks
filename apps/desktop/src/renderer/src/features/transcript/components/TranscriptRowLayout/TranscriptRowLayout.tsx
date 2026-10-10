@@ -8,7 +8,7 @@
 import { useId, useMemo } from "react";
 
 import "./TranscriptRowLayout.css";
-import { HUE_WHEEL_STEPS } from "#renderer/styles/palette.js";
+import { isHueWheelStep } from "#renderer/styles/palette.js";
 import { formatHueWheelTokenName, tokenReference } from "#renderer/styles/tokens.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { formatClockTime, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
@@ -53,10 +53,7 @@ export function TranscriptRowLayout(props: TranscriptRowLayoutProps): React.JSX.
 
   // Fail closed: a step outside the wheel is not clamped into another author's color. The edge
   // falls back to the neutral boundary and the class says the row carries no attribution.
-  const isAttributed =
-    Number.isInteger(props.agentHueStep) &&
-    props.agentHueStep >= 0 &&
-    props.agentHueStep < HUE_WHEEL_STEPS;
+  const isAttributed = isHueWheelStep(props.agentHueStep);
   const edgeStyle: LeadingEdgeStyle = {
     "--meridian-row-hue": isAttributed
       ? tokenReference(formatHueWheelTokenName(props.agentHueStep))

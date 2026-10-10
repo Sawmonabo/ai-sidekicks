@@ -11,7 +11,7 @@ import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAn
 import { WindowedListRow } from "#renderer/components/WindowedListRow/WindowedListRow.js";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
-import { sampleRunRow } from "#test/helpers/transcript-event-row-samples.js";
+import { sampleRunRow } from "#test/helpers/transcript/event-row-samples.js";
 import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
 import { MessageRow } from "../../rows/MessageRow.js";
 import { classifyTranscriptRow } from "../../rows/kind.js";

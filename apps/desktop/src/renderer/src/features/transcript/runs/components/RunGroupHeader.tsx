@@ -11,7 +11,7 @@ import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
 import { RunGroupBody } from "./RunGroupBody.js";
-import { HUE_WHEEL_STEPS } from "#renderer/styles/palette.js";
+import { isHueWheelStep } from "#renderer/styles/palette.js";
 import { formatHueWheelTokenName, tokenReference } from "#renderer/styles/tokens.js";
 import { type AgentHueAssignment } from "#renderer/styles/agent-hue.js";
 import { type RunGroup } from "../groups.js";
@@ -35,14 +35,14 @@ export function RunGroupHeader(props: RunGroupHeaderProps): React.JSX.Element {
     <div
       className="meridian-run-group-header"
       style={
-        hueStep < 0 || hueStep >= HUE_WHEEL_STEPS
-          ? undefined
-          : {
+        isHueWheelStep(hueStep)
+          ? {
               // The same 2 px leading edge every transcript row wears, so a run group and
               // its rows are attributed by the same wheel. An edge, not a tint: a hue never
               // sits behind text.
               borderInlineStartColor: tokenReference(formatHueWheelTokenName(hueStep)),
             }
+          : undefined
       }
     >
       {/* The header's own text is the button's name. A space between two parts draws nothing in
