@@ -47,6 +47,7 @@ import {
   rowBodyLengthOf,
   rowHeightKindOf,
   runWindowMeasureOf,
+  type RowDrawing,
   type RunWindowEstimates,
 } from "../row-height-inputs.js";
 import { RunGroupFold, type RunWindowInputs } from "../run-group-fold.js";
@@ -128,10 +129,12 @@ export function useTranscriptFeedWindows(
   // is minted, so they arrive from the layout effect below. Until then every call reads zero
   // high and a window holds one call; the fold cuts it again once they land, which is before any
   // frame paints, and the first rows stay hidden until their faces settle besides.
-  // The calls a reader folded are read when the fold runs, so a call's press re-folds nothing.
+  // The calls a reader folded and the outputs they opened are read when the fold runs, so a press
+  // on a call re-folds nothing.
   const [runWindowEstimates, setRunWindowEstimates] =
-    useState<Omit<RunWindowEstimates, "foldedCallRowIds">>();
+    useState<Omit<RunWindowEstimates, "foldedCallRowIds" | "openedOutputRowIds">>();
   const committedFoldedCallRowIds = useLatestRef(folds.foldedCallRowIds);
+  const committedOpenedOutputRowIds = useLatestRef(folds.openedOutputRowIds);
   const { runCallWindows, runWindowMoveCount } = folds;
   const runWindowInputs = useMemo<RunWindowInputs>(
     () => ({
@@ -142,10 +145,17 @@ export function useTranscriptFeedWindows(
           : runWindowMeasureOf(model, {
               ...runWindowEstimates,
               foldedCallRowIds: committedFoldedCallRowIds.current,
+              openedOutputRowIds: committedOpenedOutputRowIds.current,
             }),
       moveCount: runWindowMoveCount,
     }),
-    [runCallWindows, runWindowEstimates, committedFoldedCallRowIds, runWindowMoveCount],
+    [
+      runCallWindows,
+      runWindowEstimates,
+      committedFoldedCallRowIds,
+      committedOpenedOutputRowIds,
+      runWindowMoveCount,
+    ],
   );
   const runGroupFold = useFoldedRunGroups(
     unfurledWindow,
@@ -199,15 +209,23 @@ export function useTranscriptFeedWindows(
   // body length only for rows that window holds.
   const committedTranscriptWindow = useLatestRef(transcriptWindow);
   const isRevealingRow = useLatestRef(reveal.isRevealing);
+  // Read through, so the viewport's many asks for a row's kind allocate nothing.
+  const committedRowDrawing = useMemo<RowDrawing>(
+    () => ({
+      get foldedCallRowIds() {
+        return committedFoldedCallRowIds.current;
+      },
+      get openedOutputRowIds() {
+        return committedOpenedOutputRowIds.current;
+      },
+      isRevealing: (rowId) => isRevealingRow.current(rowId),
+    }),
+    [committedFoldedCallRowIds, committedOpenedOutputRowIds, isRevealingRow],
+  );
   const heightKindOf = useCallback(
     (rowKey: string) =>
-      rowHeightKindOf(
-        committedTranscriptWindow.current,
-        committedFoldedCallRowIds.current,
-        isRevealingRow.current,
-        rowKey,
-      ),
-    [committedTranscriptWindow, committedFoldedCallRowIds, isRevealingRow],
+      rowHeightKindOf(committedTranscriptWindow.current, committedRowDrawing, rowKey),
+    [committedTranscriptWindow, committedRowDrawing],
   );
   const bodyLengthOf = useCallback(
     (rowKey: string) =>
@@ -292,6 +310,7 @@ export function useTranscriptFeedWindows(
     drawsBody,
     foldedRunGroupKeys: folds.foldedRunGroupKeys,
     foldedCallRowIds: folds.foldedCallRowIds,
+    openedOutputRowIds: folds.openedOutputRowIds,
   });
   const { estimatedRowHeightPx } = viewport;
   const screenHeightPx = stretchMeasure.screenHeightPx;

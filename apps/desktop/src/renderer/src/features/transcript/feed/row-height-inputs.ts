@@ -16,13 +16,19 @@ import { type TranscriptViewportBinding } from "../viewport/hooks/useTranscriptV
 import { type TranscriptWindowModel } from "../window/transcript-window.js";
 import { densityFor } from "./fold-state.js";
 
-/** What a row's height is estimated from: the viewport's table, and how the feed draws the row. */
-export interface RowHeightEstimates {
-  readonly estimatedRowHeightPx: TranscriptViewportBinding["estimatedRowHeightPx"];
+/** How the feed draws a row of its list, beyond the row itself. */
+export interface RowDrawing {
   /** The calls the reader folded; every other call with a body draws open. */
   readonly foldedCallRowIds: ReadonlySet<string>;
+  /** The calls whose output the reader opened whole; every other open call's output draws cut. */
+  readonly openedOutputRowIds: ReadonlySet<string>;
   /** Whether a row's output is still streaming in. */
   readonly isRevealing: (rowId: string) => boolean;
+}
+
+/** What a row's height is estimated from: the viewport's table, and how the feed draws the row. */
+export interface RowHeightEstimates extends RowDrawing {
+  readonly estimatedRowHeightPx: TranscriptViewportBinding["estimatedRowHeightPx"];
 }
 
 /** The estimates a long run's window is cut in, with the screen it is measured against. */
@@ -33,13 +39,13 @@ export interface RunWindowEstimates extends RowHeightEstimates {
 
 /**
  * The height kind the feed draws a key of its list as, decided as the row dispatch and the tool
- * card decide what to draw: a call draws its body only where it has one and nobody folded it.
- * `isRevealing` names a row whose output is streaming in, which has a body before it has a count.
+ * card decide what to draw: a call draws its body only where it has one and nobody folded it, and
+ * the body's output whole once the reader opened it. A row `isRevealing` names has a body before
+ * it has a count.
  */
 export function rowHeightKindOf(
   transcriptWindow: TranscriptWindowModel,
-  foldedCallRowIds: ReadonlySet<string>,
-  isRevealing: (rowId: string) => boolean,
+  drawing: RowDrawing,
   rowKey: string,
 ): RowHeightKind {
   if (transcriptWindow.runGroupByHeaderKey.has(rowKey)) {
@@ -64,10 +70,13 @@ export function rowHeightKindOf(
   if (kind !== "tool-call") {
     return kind;
   }
-  return isFoldableCall(row, isRevealing(row.id)) &&
-    densityFor(row.id, foldedCallRowIds) === "expanded"
-    ? "tool-call-expanded"
-    : "tool-call-collapsed";
+  if (
+    !isFoldableCall(row, drawing.isRevealing(row.id)) ||
+    densityFor(row.id, drawing.foldedCallRowIds) === "collapsed"
+  ) {
+    return "tool-call-collapsed";
+  }
+  return drawing.openedOutputRowIds.has(row.id) ? "tool-call-output-opened" : "tool-call-expanded";
 }
 
 /**
@@ -100,7 +109,7 @@ export function estimatedRowHeightPxOf(
 ): number {
   return estimates.estimatedRowHeightPx(
     rowKey,
-    rowHeightKindOf(transcriptWindow, estimates.foldedCallRowIds, estimates.isRevealing, rowKey),
+    rowHeightKindOf(transcriptWindow, estimates, rowKey),
     rowBodyLengthOf(transcriptWindow, estimates.isRevealing, rowKey),
   );
 }

@@ -21,6 +21,8 @@ export interface DrawnHeightInputs {
   readonly foldedRunGroupKeys: ReadonlySet<string>;
   /** The calls the reader folded; every other call with a body draws open. */
   readonly foldedCallRowIds: ReadonlySet<string>;
+  /** The calls whose output the reader opened whole; every other open call's output draws cut. */
+  readonly openedOutputRowIds: ReadonlySet<string>;
 }
 
 /** The estimated height, in pixels, of the rows the feed would draw for an unfurled window. */
@@ -33,6 +35,7 @@ export function estimateDrawnHeightPx(
     estimatedRowHeightPx: inputs.estimatedRowHeightPx,
     screenHeightPx: inputs.screenHeightPx,
     foldedCallRowIds: inputs.foldedCallRowIds,
+    openedOutputRowIds: inputs.openedOutputRowIds,
     isRevealing: isNeverRevealing,
   };
   // A long run draws its newest calls, as the feed's window opens on a run it has not windowed

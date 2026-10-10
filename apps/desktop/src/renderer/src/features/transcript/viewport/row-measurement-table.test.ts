@@ -192,6 +192,31 @@ describe("the measurement table — a line of height on body length", () => {
       cutCallHeightPx(1_600, INITIAL_ROOT_FONT_SIZE_PX),
     );
   });
+
+  it("estimates a call whose output was opened whole no shorter than its cut, and past it", () => {
+    // Only an output taller than its cut can be opened, and it then draws whole: held to an open
+    // call's cap, a long opened output read above the reader would land far too short.
+    let viewportHeightPx: number | undefined = undefined;
+    const table = new RowMeasurementTable({
+      heightKindOf: () => "tool-call-output-opened",
+      bodyLengthOf: bodyLengthOfSuffixedKey,
+      viewportHeightPx: () => viewportHeightPx,
+    });
+    table.acceptedHeight("call-a-200", 200);
+    table.acceptedHeight("call-b-400", 300);
+    table.acceptedHeight("call-c-600", 400);
+    // Before the flow is measured there is no cut to hold to, so the line stands.
+    table.publishEstimates();
+    expect(table.heightOf("call-unmeasured-0")).toBe(200);
+
+    viewportHeightPx = 800;
+    const cutAt800Px = cutCallHeightPx(800, INITIAL_ROOT_FONT_SIZE_PX);
+    expect(cutAt800Px).toBeGreaterThan(200);
+    expect(table.publishEstimates()).toBe(true);
+    expect(table.heightOf("call-unmeasured-0")).toBe(cutAt800Px);
+    expect(table.estimatedHeightOf("call-new", "tool-call-output-opened", 0)).toBe(cutAt800Px);
+    expect(table.heightOf("call-unmeasured-100000")).toBe(50_100);
+  });
 });
 
 describe("the measurement table — the idle trim", () => {

@@ -1,10 +1,11 @@
 // The kinds of height a row of the transcript's list can take before it is measured, and the
 // height each kind starts from. A kind splits the row kinds `kind.ts` names where cards of one
-// kind differ in height by more than their text (a tool row by its density), and adds the rows
-// the feed draws itself: a run group's header, the line at an edge of a long run's window, a
-// system message and the line a row the window no longer holds draws. Each seed is built from the
-// type and space scales, so it moves with them, and so is the tallest an open call with its output
-// cut is drawn, which no estimate of one passes.
+// kind differ in height by more than their text (a tool row by its density, an open one by whether
+// its output was opened whole), and adds the rows the feed draws itself: a run group's header, the
+// line at an edge of a long run's window, a system message and the line a row the window no longer
+// holds draws. Each seed is built from the type and space scales, so it moves with them, and so is
+// the height an open call with its output cut is drawn at: no estimate of such a call passes it,
+// and none of a call whose output was opened, which was cut before it was opened, falls short.
 
 import {
   BODY_LINE_HEIGHT,
@@ -21,6 +22,7 @@ export const ROW_HEIGHT_KINDS = [
   "thinking",
   "tool-call-collapsed",
   "tool-call-expanded",
+  "tool-call-output-opened",
   "system-message",
   "run-group-header",
   "run-window-edge",
@@ -42,6 +44,9 @@ const FIGURE_LINE_REM = scaleStep(TYPE_SCALE_REM, "text-xs") * BODY_LINE_HEIGHT;
 /** The gutter of a row that names its author: the author over the time. */
 const AUTHORED_GUTTER_REM = AUTHOR_LINE_REM + FIGURE_LINE_REM;
 
+/** An open call's header line over six lines of output. */
+const OPEN_CALL_SEED_REM = 7 * READING_LINE_REM + TRANSCRIPT_ROW_GAP_REM;
+
 /**
  * The height each kind is estimated at before any row of it is measured, in rem: what its card
  * lays out at the type and space scales with a typical amount of text. Every row pads half the
@@ -57,8 +62,9 @@ export const ROW_HEIGHT_SEED_REM: Readonly<Record<RowHeightKind, number>> = {
   thinking: 2 * READING_LINE_REM + scaleStep(SPACE_SCALE_REM, "space-2") + TRANSCRIPT_ROW_GAP_REM,
   // One line of tool header, shorter than the gutter beside it.
   "tool-call-collapsed": Math.max(AUTHORED_GUTTER_REM, READING_LINE_REM) + TRANSCRIPT_ROW_GAP_REM,
-  // The header line over six lines of output.
-  "tool-call-expanded": 7 * READING_LINE_REM + TRANSCRIPT_ROW_GAP_REM,
+  "tool-call-expanded": OPEN_CALL_SEED_REM,
+  // The table holds it to no less than its cut, whatever the scales make of this.
+  "tool-call-output-opened": OPEN_CALL_SEED_REM,
   // One line naming the act, beside the time alone.
   "system-message": Math.max(FIGURE_LINE_REM, READING_LINE_REM) + TRANSCRIPT_ROW_GAP_REM,
   // One line of header, padded by half a gap above and below.
@@ -83,8 +89,9 @@ const CUT_CALL_SURROUND_REM =
   TRANSCRIPT_ROW_GAP_REM;
 
 /**
- * The tallest an open call is drawn while its output is cut, in pixels: the cut, a share of the
- * visible flow `flowHeightPx` high, inside what the call draws around it at `rootFontSizePx`.
+ * The height an open call is drawn at while its output is cut, in pixels: the cut, a share of the
+ * visible flow `flowHeightPx` high, inside what the call draws around it at `rootFontSizePx`. No
+ * cut call is drawn taller, and no call whose output was opened whole shorter.
  */
 export function cutCallHeightPx(flowHeightPx: number, rootFontSizePx: number): number {
   return flowHeightPx * OUTPUT_CUT_FLOW_SHARE + CUT_CALL_SURROUND_REM * rootFontSizePx;

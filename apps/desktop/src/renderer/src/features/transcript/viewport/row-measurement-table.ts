@@ -7,7 +7,8 @@
 //     length, of a kind whose measured rows fit a line of height on body length, is estimated on
 //     that line; any other row at the median of its kind's newest measured rows or, before any,
 //     at the kind's seed. An open call is estimated no taller than it draws with its output cut
-//     at a share of the visible flow. All three move only when published. A row still revealing
+//     at a share of the visible flow, and one whose output was opened whole no shorter. All three
+//     move only when published. A row still revealing
 //     its text joins its kind's samples once it settles, so its growth moves no estimate.
 //   - Layout validity: a display or row width change re-lays out every row, so the heights and
 //     the samples measured before it are dropped.
@@ -108,8 +109,11 @@ export class RowMeasurementTable {
   readonly #estimatePxByKind: Record<RowHeightKind, number>;
   /** The line an unmeasured row reporting its body length is laid out on, as last published. */
   readonly #lineByKind: Record<RowHeightKind, BodyLengthLine | undefined>;
-  /** The most an unmeasured open call is laid out at, as last published; unbounded before. */
-  #cutCallHeightPx = Infinity;
+  /**
+   * The height an open call is drawn at with its output cut, as last published, which bounds an
+   * unmeasured open call's estimate; `undefined` while the viewport has no height.
+   */
+  #cutCallHeightPx: number | undefined;
   /**
    * The revealing rows measured since they last joined their kind's samples, each with the
    * height its samples hold for it, `undefined` for none.
@@ -208,7 +212,8 @@ export class RowMeasurementTable {
    * lengths. A line is kept only over at least two distinct lengths and a slope that is not
    * negative; otherwise the kind's rows take its median. An open call's estimate, on its line or
    * at its median, is capped at the height it draws with its output cut at the visible flow's
-   * height as it stands now. A held row that has settled since joins its samples first.
+   * height as it stands now, and one whose output was opened whole is held to no less. A held row
+   * that has settled since joins its samples first.
    *
    * Called only where a moved estimate cannot shift a row already laid out above the reader,
    * since the library reads an estimate whenever it re-lays a row out. Answers whether any
@@ -221,11 +226,12 @@ export class RowMeasurementTable {
     const viewportHeightPx = this.#viewportHeightPx();
     this.#cutCallHeightPx =
       viewportHeightPx === undefined || viewportHeightPx <= 0
-        ? Infinity
+        ? undefined
         : cutCallHeightPx(viewportHeightPx, this.#rootFontSizePx());
-    // Unbounded on both sides is no move: the difference of two infinities is not a number.
     let isMoved =
-      Math.abs(this.#cutCallHeightPx - previousCutCallHeightPx) >= SCROLL_GEOMETRY_EPSILON_PX;
+      this.#cutCallHeightPx === undefined || previousCutCallHeightPx === undefined
+        ? this.#cutCallHeightPx !== previousCutCallHeightPx
+        : Math.abs(this.#cutCallHeightPx - previousCutCallHeightPx) >= SCROLL_GEOMETRY_EPSILON_PX;
     for (const kind of ROW_HEIGHT_KINDS) {
       const previousEstimatePx = this.#estimatePxByKind[kind];
       const estimatePx = this.#heightSampleByKind[kind].median() ?? this.#seedPxOf(kind);
@@ -281,10 +287,9 @@ export class RowMeasurementTable {
   public get smallestEstimatePx(): number {
     return Math.min(
       ...ROW_HEIGHT_KINDS.filter((kind) => kind !== "not-loaded").map((kind) =>
-        Math.min(
-          this.#estimatePxByKind[kind],
-          this.#lineByKind[kind]?.floorPx ?? Infinity,
-          this.#ceilingPxOf(kind),
+        this.#heldToCutPx(
+          kind,
+          Math.min(this.#estimatePxByKind[kind], this.#lineByKind[kind]?.floorPx ?? Infinity),
         ),
       ),
     );
@@ -335,21 +340,35 @@ export class RowMeasurementTable {
 
   /**
    * A kind's estimate: on its line where it has one and the length is known, else its median,
-   * never past the kind's ceiling.
+   * held to the cut height where the kind is bound to it.
    */
   #estimateFor(kind: RowHeightKind, bodyLength: number | undefined): number {
     const line = this.#lineByKind[kind];
-    return Math.min(
+    return this.#heldToCutPx(
+      kind,
       line === undefined || bodyLength === undefined
         ? this.#estimatePxByKind[kind]
         : heightOnLine(line, bodyLength),
-      this.#ceilingPxOf(kind),
     );
   }
 
-  /** The most a kind is estimated at: an open call's cut height, and no bound for the others. */
-  #ceilingPxOf(kind: RowHeightKind): number {
-    return kind === "tool-call-expanded" ? this.#cutCallHeightPx : Infinity;
+  /**
+   * A kind's height held to the published cut height: an open call's no taller, one whose output
+   * was opened whole no shorter, and any other kind's as it is.
+   */
+  #heldToCutPx(kind: RowHeightKind, heightPx: number): number {
+    const cutPx = this.#cutCallHeightPx;
+    if (cutPx === undefined) {
+      return heightPx;
+    }
+    switch (kind) {
+      case "tool-call-expanded":
+        return Math.min(heightPx, cutPx);
+      case "tool-call-output-opened":
+        return Math.max(heightPx, cutPx);
+      default:
+        return heightPx;
+    }
   }
 
   /** Replace a row's height in its kind's samples: `previousHeightPx` with `heightPx`. */

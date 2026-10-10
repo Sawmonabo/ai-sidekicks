@@ -23,6 +23,8 @@ export interface StretchMeasureInputs {
   readonly foldedRunGroupKeys: ReadonlySet<string>;
   /** The calls the reader folded; every other call with a body draws open. */
   readonly foldedCallRowIds: ReadonlySet<string>;
+  /** The calls whose output the reader opened whole; every other open call's output draws cut. */
+  readonly openedOutputRowIds: ReadonlySet<string>;
 }
 
 /**
@@ -31,7 +33,15 @@ export interface StretchMeasureInputs {
  */
 export function useStretchMeasure(inputs: StretchMeasureInputs): TranscriptStretchMeasure {
   const ownerWindow = useOwnerWindow();
-  const { history, derivation, viewport, drawsBody, foldedRunGroupKeys, foldedCallRowIds } = inputs;
+  const {
+    history,
+    derivation,
+    viewport,
+    drawsBody,
+    foldedRunGroupKeys,
+    foldedCallRowIds,
+    openedOutputRowIds,
+  } = inputs;
   const { scrollController, estimatedRowHeightPx, smallestRowHeightPx } = viewport;
   // Its own callback, stable while the box is, so the run windows cut against it are not cut
   // again each time a fold moves the measure below.
@@ -50,6 +60,7 @@ export function useStretchMeasure(inputs: StretchMeasureInputs): TranscriptStret
           drawsBody,
           foldedRunGroupKeys,
           foldedCallRowIds,
+          openedOutputRowIds,
         }),
     }),
     [
@@ -60,6 +71,7 @@ export function useStretchMeasure(inputs: StretchMeasureInputs): TranscriptStret
       drawsBody,
       foldedRunGroupKeys,
       foldedCallRowIds,
+      openedOutputRowIds,
     ],
   );
   const measureWith = history?.measureWith;
