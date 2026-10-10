@@ -126,7 +126,8 @@ export function useTranscriptFeedWindows(
   const { unfurledWindow, derivation } = useTranscriptProjection(inputs.sessionStore);
   // A long run's window is cut in the viewport's estimates, but the fold runs before the viewport
   // is minted, so they arrive from the layout effect below. Until then every call reads zero
-  // high and a window holds one call; the fold cuts it again once they land.
+  // high and a window holds one call; the fold cuts it again once they land, which is before any
+  // frame paints, and the first rows stay hidden until their faces settle besides.
   // The calls a reader folded are read when the fold runs, so a call's press re-folds nothing.
   const [runWindowEstimates, setRunWindowEstimates] =
     useState<Omit<RunWindowEstimates, "foldedCallRowIds">>();
