@@ -74,6 +74,29 @@ export function clockLocaleFor(clock: MachineClock): string {
   return new Intl.Locale(clock.regionLocale, { hourCycle: clock.hourCycle }).toString();
 }
 
+/** The number styles a transcript row's counts, byte quantities and durations draw in. */
+const TRANSCRIPT_ROW_NUMBER_STYLES: readonly NumberStyle[] = [
+  "count",
+  "wholeNumber",
+  "oneDecimal",
+  "upToOneDecimal",
+  "bareDigits",
+  "twoDigits",
+];
+
+/**
+ * Builds every formatter a transcript row draws with, so the first row on screen finds them held:
+ * the row's clock time in `clockLocale` and its numbers in the host's locale. The clock-time
+ * formatter alone takes about a millisecond to build, which would otherwise land in that row's
+ * frame.
+ */
+export function prepareTranscriptRowFormatters(clockLocale: string): void {
+  dateTimeFormatFor("clockTime", clockLocale);
+  for (const style of TRANSCRIPT_ROW_NUMBER_STYLES) {
+    numberFormatFor(style);
+  }
+}
+
 /**
  * The one place in the app that scales a byte figure. Whole bytes render with no fraction
  * (`512 B`); scaled units get one fraction digit up to `99.9`, then none, which keeps column width

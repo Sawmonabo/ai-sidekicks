@@ -131,11 +131,9 @@ export class MarkdownBlockSegmenter {
     }
 
     const settledCount = Math.max(0, this.#completeBlocks.length - MARKDOWN_SETTLE_LAG_BLOCKS);
-    const laggedBlockTexts = this.#completeBlocks
-      .slice(settledCount)
-      .map((block) => cumulativeSource.slice(block.start, block.end));
-    const remainder = cumulativeSource.slice(this.#remainderOffset);
-    const volatileTail = withoutLeadingBlankLines([...laggedBlockTexts, remainder].join(""));
+    // Blocks touch end to start, so the tail is every character after the last settled block.
+    const tailStart = this.#completeBlocks[settledCount - 1]?.end ?? 0;
+    const volatileTail = withoutLeadingBlankLines(cumulativeSource.slice(tailStart));
     return {
       source: cumulativeSource,
       settledBlocks: this.#completeBlocks.slice(0, settledCount),
@@ -177,13 +175,15 @@ export class MarkdownBlockSegmenter {
    * Walks the uncommitted remainder, closing every block boundary it now contains. It starts at
    * `#remainderOffset`, so committed text is never re-examined; fence state is recomputed across
    * the remainder alone, which is sound because a boundary is only committed outside a fence.
-   * On a final text the trailing blank run is a boundary and the unterminated last line is
-   * the author's last line.
+   * A block ends after the first blank line of the run that closes it, and blank lines ahead of a
+   * block's first content line open that block, so the blocks cover the text with no gap. On a
+   * final text the unterminated last line is the author's last line.
    */
   #scanFrom(cumulativeSource: PublishedText, isFinal: boolean): void {
     let openFence: FenceState | undefined;
     let lineStart = this.#remainderOffset;
-    let blankRunStart: number | undefined;
+    // Where the first blank line of the current blank run ends, newline included.
+    let blankRunFirstLineEnd: number | undefined;
     let openContainer: BlockContainer | undefined;
     let blockHasContent = false;
 
@@ -202,7 +202,7 @@ export class MarkdownBlockSegmenter {
         const opener = readFenceMarker(line);
         if (opener !== undefined) {
           openFence = opener;
-          blankRunStart = undefined;
+          blankRunFirstLineEnd = undefined;
           if (!blockHasContent) {
             openContainer = readBlockContainer(line);
             blockHasContent = true;
@@ -211,17 +211,21 @@ export class MarkdownBlockSegmenter {
           continue;
         }
         if (line.trim() === "") {
-          blankRunStart ??= lineStart;
+          blankRunFirstLineEnd ??= nextLineStart;
           lineStart = nextLineStart;
           continue;
         }
-        if (blankRunStart !== undefined && !continuesContainer(openContainer, line)) {
-          // The blank run closed the block before it; the block keeps its trailing blank line
-          // so a re-join reproduces the source.
-          this.#commitBlock(cumulativeSource, blankRunStart + 1);
+        if (
+          blankRunFirstLineEnd !== undefined &&
+          blockHasContent &&
+          !continuesContainer(openContainer, line)
+        ) {
+          // The blank run closed the block before it; the block keeps the run's first blank line
+          // and the rest open the next one.
+          this.#commitBlock(blankRunFirstLineEnd);
           blockHasContent = false;
         }
-        blankRunStart = undefined;
+        blankRunFirstLineEnd = undefined;
         if (!blockHasContent) {
           openContainer = readBlockContainer(line);
           blockHasContent = true;
@@ -236,28 +240,17 @@ export class MarkdownBlockSegmenter {
       lineStart = nextLineStart;
     }
 
-    if (!isFinal) {
-      return;
+    // On the last text no lazy continuation can follow a trailing blank run, so the open block
+    // ends with the text. Blank lines alone after the last block draw nothing and are not kept.
+    if (isFinal && blockHasContent) {
+      this.#commitBlock(cumulativeSource.length);
     }
-    if (blankRunStart !== undefined) {
-      // A trailing blank run is pending only because a lazy continuation could still follow;
-      // on the last text none can. It cannot be set inside a fence: opening one clears it.
-      this.#commitBlock(cumulativeSource, blankRunStart + 1);
-    }
-    this.#commitBlock(cumulativeSource, cumulativeSource.length);
   }
 
-  /**
-   * Closes the block from the remainder's start to `end` and moves the remainder past it. A block
-   * of blank lines alone draws nothing and is not kept.
-   */
-  #commitBlock(cumulativeSource: PublishedText, end: number): void {
-    const start = this.#remainderOffset;
+  /** Closes the block from the remainder's start to `end` and moves the remainder past it. */
+  #commitBlock(end: number): void {
+    this.#completeBlocks.push({ start: this.#remainderOffset, end });
     this.#remainderOffset = end;
-    if (cumulativeSource.slice(start, end).trim() === "") {
-      return;
-    }
-    this.#completeBlocks.push({ start, end });
   }
 }
 

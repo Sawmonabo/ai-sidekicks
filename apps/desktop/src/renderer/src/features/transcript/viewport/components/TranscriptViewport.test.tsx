@@ -130,9 +130,13 @@ describe("the transcript viewport — the feed", () => {
       />,
       { wrapper: LiveAnnouncerProvider },
     );
-    // Row measurements coalesce onto one frame; after that a quiet viewport holds nothing armed.
+    // Row measurements coalesce onto one frame and the drawn band widens over the tasks after it;
+    // after that a quiet viewport holds nothing armed.
     for (let pass = 0; pass < 4; pass += 1) {
       clock.runFrame();
+      act(() => {
+        clock.advance(0);
+      });
     }
     expect(clock.pendingCount).toBe(0);
   });
@@ -211,6 +215,10 @@ describe("the transcript viewport — what a row's lines say", () => {
       </LiveAnnouncerProvider>
     );
     const { rerender } = render(viewportWith("The daemon refused this turn."));
+    // The transcript opens on its tail; the reader goes to the first row.
+    act(() => {
+      holder.binding?.jumpToRow("row-0");
+    });
     expect(screen.getByText("The daemon refused this turn.")).toBeDefined();
 
     // Scrolled out of sight and back: the window unmounts the row and mounts it again.

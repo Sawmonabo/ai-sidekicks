@@ -11,7 +11,7 @@
 import { generateMeridianCss } from "#renderer/styles/generate-css.js";
 import { composeRootAppearance, type AppearanceRecord } from "#shared/appearance.js";
 import { type ColorScheme } from "#shared/color-scheme.js";
-import { generateTypefaceCss } from "#renderer/styles/typeface.js";
+import { generateTypefaceCss, TYPEFACE_FACES } from "#renderer/styles/typeface.js";
 
 /** The id the generated sheet is installed under. */
 export const MERIDIAN_STYLE_ELEMENT_ID = "meridian-tokens";
@@ -30,7 +30,30 @@ export function installMeridianTokens(targetDocument: Document): boolean {
   styleElement.textContent = `${generateTypefaceCss()}\n\n${generateMeridianCss()}`;
   // Prepended so component stylesheets cascade after the custom properties they read.
   targetDocument.head.prepend(styleElement);
+  loadTypefaces(targetDocument);
   return true;
+}
+
+/**
+ * Starts every face's load as the sheet installs, not when a run first matches it: a row drawn in
+ * the fallback while its face is on the way would be measured again when the face lands.
+ */
+function loadTypefaces(targetDocument: FontLoadingDocument): void {
+  const fonts = targetDocument.fonts;
+  if (fonts === undefined) {
+    return;
+  }
+  for (const face of TYPEFACE_FACES) {
+    void fonts.load(`${face.style} 1em "${face.family}"`);
+  }
+}
+
+/**
+ * The part of `document.fonts` the load uses; declared optional because the unit tier's DOM shim
+ * has no font set.
+ */
+interface FontLoadingDocument {
+  readonly fonts?: Pick<FontFaceSet, "load">;
 }
 
 /** The media query that answers whether the platform draws in the dark scheme now. */

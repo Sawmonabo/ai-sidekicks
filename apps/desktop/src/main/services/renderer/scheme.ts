@@ -21,13 +21,15 @@ export const RENDERER_INDEX_URL: string = `${RENDERER_ORIGIN}/index.html`;
 
 // A response header is the policy's only carrier; the shipped `index.html` has no meta tag.
 // `connect-src` is `'self'`: the page connects to nothing beyond its own origin. It is the one
-// directive the dev transport widens, so it is a constant of its own.
+// directive the dev transport widens, so it is a constant of its own. `script-src` admits
+// `'wasm-unsafe-eval'`, which lets WebAssembly compile, for the diagram worker, and still refuses
+// every JavaScript evaluation.
 const RENDERER_CONNECT_SRC = "connect-src 'self'";
 
 /** Every directive except `connect-src`, in emitted order. Both transports share it verbatim. */
 const RENDERER_POLICY_DIRECTIVES: readonly string[] = [
   "default-src 'self'",
-  "script-src 'self'",
+  "script-src 'self' 'wasm-unsafe-eval'",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self'",

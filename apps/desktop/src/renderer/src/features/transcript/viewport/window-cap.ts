@@ -9,9 +9,10 @@
 // The span is held by its end rows, so it survives the feed handing over the whole log on every
 // pass, and an end at the log's first or last row stays there as the log grows at it. A run group
 // goes with its children: no end falls between a row and the row it hangs from. A cut never takes
-// the reader's row, a row on screen, a held row or a working row (a reply still streaming, a tool
-// call still running, an ask still open); it stops short of the first one, and names it. Every
-// other row goes, a live run's settled rows among them.
+// the reader's row or a row on screen, nor a held row or a row whose state still moves while it
+// sits within the let-go distance; it stops short of the first one, and names it. Every other row
+// goes, a live run's settled rows and a far held or changing row among them: the feed reads it
+// again from the store, in its current state, when the reader comes back.
 //
 // The feed hands over the whole projected log on every reconcile, so the key index describes the
 // last log ingested and an ingest re-indexes only the span that differs from it.
@@ -45,7 +46,8 @@ export const PRUNE_DEFERRAL_REASONS = [
   "reading-floor",
   "on-screen-rows",
   "held-rows",
-  "working-rows",
+  "changing-rows",
+  "run-group-rows",
 ] as const;
 
 /** One deferral reason. Derived from the enumeration, never restated. */
@@ -56,11 +58,14 @@ export interface PruneConditions {
   /** `ScrollController.vetoesPrune()` — a programmatic write is in flight. */
   readonly scrollControllerVetoes: boolean;
   /**
-   * Whether a row is still working: a reply still streaming, a tool call still running, an
-   * approval, intervention or question still open. A working row is never let go.
+   * Whether a row's state still moves: a reply still streaming, a tool call still running, an ask
+   * still waiting on a person. Such a row is kept while it sits within the let-go distance.
    */
-  readonly isWorkingRow: (rowKey: string) => boolean;
-  /** `ReadingAnchor.heldRowKeys()`. A held row is never let go. */
+  readonly isChangingRow: (rowKey: string) => boolean;
+  /**
+   * `ReadingAnchor.heldRowKeys()`. A held row is kept while it sits within the let-go distance,
+   * as a changing row is, so a hold never pins the window to a row far from the reader.
+   */
   readonly heldRowKeys: readonly string[];
   /** The rows the viewport has on screen, as the virtualizer laid them out. Never let go. */
   readonly onScreenRowKeys: readonly string[];
@@ -185,9 +190,32 @@ export class TranscriptWindow {
     return this.#ingestedRows[0]?.key;
   }
 
+  /** The key of the log's last row, whether or not the window holds it. */
+  public get logTailRowKey(): string | undefined {
+    return this.#ingestedRows[this.#ingestedRows.length - 1]?.key;
+  }
+
   /** Whether the last ingested log carries a row under this key, held by the window or not. */
   public logHoldsRow(rowKey: string): boolean {
     return this.#ingestedRowKeys.has(rowKey);
+  }
+
+  /** A row's position in the last ingested log, or `undefined` for a key the log lacks. */
+  public logPositionOf(rowKey: string): number | undefined {
+    return this.#positionOf(rowKey);
+  }
+
+  /**
+   * The keys of the last ingested log from `firstRowKey` to `lastRowKey`, in log order, or an
+   * empty list when the log lacks either or they come in the other order.
+   */
+  public logRowKeysBetween(firstRowKey: string, lastRowKey: string): readonly string[] {
+    const first = this.#positionOf(firstRowKey);
+    const last = this.#positionOf(lastRowKey);
+    if (first === undefined || last === undefined || last < first) {
+      return [];
+    }
+    return this.#ingestedRows.slice(first, last + 1).map((row) => row.key);
   }
 
   /**
@@ -284,12 +312,15 @@ export class TranscriptWindow {
     }
 
     // An edge is cut only once it sits past the let-go distance, and then back to the share.
+    const headLetGoPosition = firstPositionBeyond(above, head, letGoPx);
+    const tailLetGoPosition =
+      below === undefined ? undefined : firstPositionBeyond(below, tail, letGoPx);
     const headCutEnd =
-      firstPositionBeyond(above, head, letGoPx) === undefined
+      headLetGoPosition === undefined
         ? undefined
         : (firstPositionBeyond(above, head, retainedPx) ?? head - 1) + 1;
     const tailCutStart =
-      below === undefined || firstPositionBeyond(below, tail, letGoPx) === undefined
+      below === undefined || tailLetGoPosition === undefined
         ? undefined
         : (firstPositionBeyond(below, tail, retainedPx) ?? tail + 1);
     if (headCutEnd === undefined && tailCutStart === undefined) {
@@ -299,7 +330,13 @@ export class TranscriptWindow {
       return this.#settle(head, tail, deferredOutcome("scroll-write"));
     }
 
-    const protectionOf = rowProtection(conditions, log[readerPosition]?.key);
+    // A changing row protects only within the let-go distance; beyond it, it goes like any other.
+    const protectionOf = rowProtection(
+      conditions,
+      log[readerPosition]?.key,
+      (position) =>
+        position > (headLetGoPosition ?? head - 1) && position < (tailLetGoPosition ?? tail + 1),
+    );
     let stoppedBecause: PruneDeferralReason | undefined;
     let keptHead = head;
     if (headCutEnd !== undefined) {
@@ -372,14 +409,15 @@ export class TranscriptWindow {
 
   /**
    * Where the head cut ends: before the first protected row, and before any row tied by hanging
-   * to a row the window keeps, so a run group never leaves without its children.
+   * to a row the window keeps, so a run group never leaves without its children. A cut the tie
+   * shortens names `run-group-rows` unless a protected row stopped it first.
    */
   #headCut(head: number, cutEnd: number, tail: number, protectionOf: RowProtection): WindowCut {
     let keptHead = cutEnd;
     let stoppedBecause: PruneDeferralReason | undefined;
     for (let position = head; position < keptHead; position += 1) {
       const row = this.#ingestedRows[position];
-      const reason = row === undefined ? undefined : protectionOf(row);
+      const reason = row === undefined ? undefined : protectionOf(row, position);
       if (reason !== undefined) {
         keptHead = position;
         stoppedBecause = reason;
@@ -392,6 +430,7 @@ export class TranscriptWindow {
         return { keptEdge: keptHead, stoppedBecause };
       }
       keptHead = tiedPosition;
+      stoppedBecause ??= "run-group-rows";
     }
   }
 
@@ -401,7 +440,7 @@ export class TranscriptWindow {
     let stoppedBecause: PruneDeferralReason | undefined;
     for (let position = tail; position > keptTail; position -= 1) {
       const row = this.#ingestedRows[position];
-      const reason = row === undefined ? undefined : protectionOf(row);
+      const reason = row === undefined ? undefined : protectionOf(row, position);
       if (reason !== undefined) {
         keptTail = position;
         stoppedBecause = reason;
@@ -414,6 +453,7 @@ export class TranscriptWindow {
         return { keptEdge: keptTail, stoppedBecause };
       }
       keptTail = tiedPosition;
+      stoppedBecause ??= "run-group-rows";
     }
   }
 
@@ -675,29 +715,37 @@ function deferredOutcome(reason: PruneDeferralReason): PruneOutcome {
   };
 }
 
-/** What a cut must stop short of at one row: the reason it names, or `undefined` for none. */
-type RowProtection = (row: WindowRow) => PruneDeferralReason | undefined;
+/** What a cut must stop short of at one row and position: the reason, or `undefined` for none. */
+type RowProtection = (row: WindowRow, position: number) => PruneDeferralReason | undefined;
 
 /**
  * The rows a cut must stop short of, with the reason each names: the reader's row, which outranks
- * the others, a row on screen, a held row, then a working row.
+ * the others, a row on screen, then a held row and a row whose state still moves, those two only
+ * while `isWithinLetGo` says their position sits within the let-go distance.
  */
 function rowProtection(
   conditions: PruneConditions,
   readerRowKey: string | undefined,
+  isWithinLetGo: (position: number) => boolean,
 ): RowProtection {
   const reasons = new Map<string, PruneDeferralReason>();
-  for (const heldRowKey of conditions.heldRowKeys) {
-    reasons.set(heldRowKey, "held-rows");
-  }
   for (const onScreenRowKey of conditions.onScreenRowKeys) {
     reasons.set(onScreenRowKey, "on-screen-rows");
   }
   if (readerRowKey !== undefined) {
     reasons.set(readerRowKey, "reading-floor");
   }
-  return (row) =>
-    reasons.get(row.key) ?? (conditions.isWorkingRow(row.key) ? "working-rows" : undefined);
+  const heldRowKeys = new Set(conditions.heldRowKeys);
+  return (row, position) => {
+    const reason = reasons.get(row.key);
+    if (reason !== undefined || !isWithinLetGo(position)) {
+      return reason;
+    }
+    if (heldRowKeys.has(row.key)) {
+      return "held-rows";
+    }
+    return conditions.isChangingRow(row.key) ? "changing-rows" : undefined;
+  };
 }
 
 /** A key's first position in a log, or `-1`; a repeated key resolves to its first occurrence. */

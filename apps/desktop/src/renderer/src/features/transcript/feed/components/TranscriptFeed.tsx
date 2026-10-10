@@ -7,6 +7,7 @@ import "./TranscriptFeed.css";
 
 import { useCallback, useMemo } from "react";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
+import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import { RowRevealProvider } from "../../reveal/components/RowRevealProvider.js";
 import { TranscriptViewport } from "../../viewport/components/TranscriptViewport.js";
 import { LoadEarlier } from "../../history/components/LoadEarlier.js";
@@ -14,14 +15,20 @@ import { type TranscriptPageRead } from "#renderer/services/daemon/transcript-pa
 import { TranscriptFeedHeader } from "./TranscriptFeedHeader.js";
 import { TranscriptWindowSkeleton } from "../../window/components/TranscriptWindowSkeleton.js";
 import { useTranscriptRowRenderer } from "../hooks/useTranscriptRowRenderer.js";
+import { OffListTableFrames } from "../../rows/bodies/OffListTableFrames.js";
+import { ListedBodiesContext } from "../../rows/markdown/table-window/context.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
 import { type TranscriptRowRenderer } from "../../rows/renderer.js";
 import { useTranscriptFeedWindows } from "../hooks/useTranscriptFeedWindows.js";
 import { useTranscriptFindAndJump } from "../hooks/useTranscriptFindAndJump.js";
 import { useTranscriptStructureActs } from "../hooks/useTranscriptStructureActs.js";
 import { useConversationCopy } from "../../copy/hooks/useConversationCopy.js";
+import { readRowText } from "../../copy/row-text.js";
 import { RowToggleProvider, type RowToggle } from "../../rows/RowToggleProvider.js";
-import { readRunGroupKey } from "../../runs/groups.js";
+import { densityFor } from "../fold-state.js";
+import { rowBesideRunWindowEdge, type RunWindowEdge } from "../../runs/call-window.js";
+import { type RunGroup } from "../../runs/groups.js";
+import { type TranscriptWindowModel } from "../../window/transcript-window.js";
 
 /** What the feed is a log of and the row body it draws each row through. */
 export interface TranscriptFeedProps {
@@ -56,12 +63,14 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
     messageAnchorCursor: props.messageAnchorCursor,
     readTranscriptPage: props.readTranscriptPage,
     drawsBody: props.rowRenderer.drawsBody,
+    prepareRow: props.rowRenderer.prepareRow,
   });
   const { folds, transcriptWindow, viewport, history } = windows;
   const jumpToRow = viewport.jumpToRow;
   const findAndJump = useTranscriptFindAndJump({
     foldedAwayRows: windows.runGroupFold.removedRows,
-    drawsRow: windows.drawsRow,
+    systemMessageByRowId: windows.unfurledWindow.systemMessageByRowId,
+    drawsBody: props.rowRenderer.drawsBody,
     rows: transcriptWindow.rows,
     jumpToRow,
     focusTranscriptViewport: viewport.focusScrollContainer,
@@ -79,16 +88,36 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
   // Every fold is held, then made: the viewport reads where the pressed row stands before the
   // press changes the rows, and keeps it there once they are laid out again.
   const { holdRowInPlace, holdRowNearestMiddle } = viewport;
-  const { foldedRunIds, foldedCallRowIds, toggleCall, foldEveryRunGroup, unfoldEveryRunGroup } =
-    folds;
+  const {
+    foldedRunGroupKeys,
+    foldedCallRowIds,
+    toggleCall,
+    foldEveryRunGroup,
+    unfoldEveryRunGroup,
+  } = folds;
   const toggleFoldedRunGroup = folds.toggleRunGroup;
-  // A header's key is the run id it heads.
+  // A header's key is the key of the run group it heads.
   const toggleRunGroup = useCallback(
-    (runId: string) => {
-      holdRowInPlace(runId);
-      toggleFoldedRunGroup(runId);
+    (runGroupKey: string) => {
+      holdRowInPlace(runGroupKey);
+      toggleFoldedRunGroup(runGroupKey);
     },
     [holdRowInPlace, toggleFoldedRunGroup],
+  );
+  // The row beside the pressed edge holds where it stands while the next stretch lands past it.
+  const runCallWindows = folds.runCallWindows;
+  const openWindowedRunStretch = windows.openRunStretch;
+  const openRunStretch = useCallback(
+    (runGroup: RunGroup, edge: RunWindowEdge) => {
+      const window = runCallWindows.resolvedWindowOf(runGroup.key);
+      const besideRowId =
+        window === undefined ? undefined : rowBesideRunWindowEdge(runGroup, window, edge);
+      if (besideRowId !== undefined) {
+        holdRowInPlace(besideRowId);
+      }
+      openWindowedRunStretch(runGroup, edge);
+    },
+    [runCallWindows, holdRowInPlace, openWindowedRunStretch],
   );
   const rowToggle = useMemo<RowToggle>(
     () => ({
@@ -106,10 +135,12 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
   const renderTranscriptRow = props.rowRenderer.render;
   const renderRow = useTranscriptRowRenderer({
     transcriptWindow,
-    foldedRunIds,
+    foldedRunGroupKeys,
     foldedCallRowIds,
     hueForAgent,
     toggleRunGroup,
+    runCallWindows,
+    openRunStretch,
     renderTranscriptRow,
   });
 
@@ -118,36 +149,60 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
   // holds nothing, so it leaves a reader following the tail where they are.
   const runGroupByHeaderKey = transcriptWindow.runGroupByHeaderKey;
   const foldEveryRun = useCallback(() => {
-    const runIds = [...runGroupByHeaderKey.keys()];
-    if (runIds.every((runId) => foldedRunIds.has(runId))) {
+    const runGroupKeys = [...runGroupByHeaderKey.keys()];
+    if (runGroupKeys.every((runGroupKey) => foldedRunGroupKeys.has(runGroupKey))) {
       return;
     }
     // A member row leaves with its group; a header or a row outside every group stays.
-    holdRowNearestMiddle((rowKey) => {
-      const row = transcriptWindow.rowsByKey.get(rowKey);
-      return row === undefined || readRunGroupKey(row) === undefined;
-    });
-    foldEveryRunGroup(runIds);
+    holdRowNearestMiddle((rowKey) => !transcriptWindow.runGroupKeyByRowId.has(rowKey));
+    foldEveryRunGroup(runGroupKeys);
   }, [
     runGroupByHeaderKey,
-    foldedRunIds,
+    foldedRunGroupKeys,
     holdRowNearestMiddle,
     transcriptWindow,
     foldEveryRunGroup,
   ]);
   const unfoldEveryRun = useCallback(() => {
-    const runIds = [...runGroupByHeaderKey.keys()];
-    if (!runIds.some((runId) => foldedRunIds.has(runId))) {
+    const runGroupKeys = [...runGroupByHeaderKey.keys()];
+    if (!runGroupKeys.some((runGroupKey) => foldedRunGroupKeys.has(runGroupKey))) {
       return;
     }
     holdRowNearestMiddle(() => true);
-    unfoldEveryRunGroup(runIds);
-  }, [runGroupByHeaderKey, foldedRunIds, holdRowNearestMiddle, unfoldEveryRunGroup]);
+    unfoldEveryRunGroup(runGroupKeys);
+  }, [runGroupByHeaderKey, foldedRunGroupKeys, holdRowNearestMiddle, unfoldEveryRunGroup]);
   useTranscriptStructureActs(
     { find, jumpToRow, jumpToTail: viewport.jumpToTail, foldEveryRun, unfoldEveryRun },
     runGroupByHeaderKey.size > 0,
   );
-  const copySelection = useConversationCopy();
+  const clockLocale = useClockLocale();
+  const revealChannel = windows.reveal.channel;
+  const rowText = useCallback(
+    (rowKey: string, rowTextWindow: TranscriptWindowModel) =>
+      readRowText(rowKey, {
+        transcriptWindow: rowTextWindow,
+        reveal: revealChannel,
+        densityOf: (rowId) => densityFor(rowId, foldedCallRowIds),
+        clockLocale,
+      }),
+    [revealChannel, foldedCallRowIds, clockLocale],
+  );
+  const readPage = props.readTranscriptPage;
+  const deriveDrawnWindow = windows.deriveDrawnWindow;
+  const copyHistory = useMemo(
+    () =>
+      readPage === undefined
+        ? undefined
+        : { sessionStore: props.sessionStore, readPage, deriveDrawnWindow },
+    [props.sessionStore, readPage, deriveDrawnWindow],
+  );
+  useConversationCopy({
+    selectionTracker: viewport.selectionTracker,
+    selectedRowKeys: viewport.selectedRowKeys,
+    rowSourceWindows: { unfurledWindow: windows.unfurledWindow, transcriptWindow },
+    rowText,
+    history: copyHistory,
+  });
 
   // `Load earlier` comes from `history/`, over the daemon's verdict about the log before the head.
   return (
@@ -155,22 +210,30 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
       <div className="meridian-transcript-feed__head">
         <TranscriptFeedHeader findAndJump={findAndJump} />
       </div>
-      <div className="meridian-transcript-feed__body" onCopy={copySelection}>
+      <div className="meridian-transcript-feed__body">
         <RowToggleProvider rowToggle={rowToggle}>
-          <RowRevealProvider channel={windows.reveal.channel}>
-            <TranscriptViewport
-              binding={viewport}
-              renderRow={renderRow}
-              feedLabel={props.feedLabel}
-              firstReadSettled={windows.firstReadSettled}
-              hasActiveTurn={transcriptWindow.liveRunGroupKeys.size > 0}
-              earlierHistoryControl={
-                history === undefined ? undefined : <LoadEarlier history={history} />
-              }
-            />
+          <RowRevealProvider channel={revealChannel}>
+            <ListedBodiesContext value={windows.offListTables}>
+              <TranscriptViewport
+                binding={viewport}
+                renderRow={renderRow}
+                feedLabel={props.feedLabel}
+                firstReadSettled={windows.firstReadSettled}
+                hasActiveTurn={transcriptWindow.liveRunIds.size > 0}
+                earlierHistoryControl={
+                  history === undefined ? undefined : (
+                    <LoadEarlier
+                      history={history}
+                      isLinkedMessageMissing={windows.messageReadBack === "not-in-history"}
+                    />
+                  )
+                }
+              />
+            </ListedBodiesContext>
           </RowRevealProvider>
         </RowToggleProvider>
         <TranscriptWindowSkeleton sessionStore={props.sessionStore} />
+        <OffListTableFrames offList={windows.offListTables} />
       </div>
     </div>
   );

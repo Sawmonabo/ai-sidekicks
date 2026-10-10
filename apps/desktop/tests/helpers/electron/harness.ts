@@ -48,7 +48,7 @@ import {
   POST_READINESS_RESERVE_MS,
   readinessFailure,
 } from "../launch/deadline.js";
-import { createLaunchProfile, removeLaunchProfile } from "../launch/profile.js";
+import { createLaunchProfile, GpuCacheCarry, removeLaunchProfile } from "../launch/profile.js";
 import { MainProcessOutput } from "../launch/main-process-output.js";
 import { awaitPaintingAppWindow } from "../launch/readiness.js";
 import { LAUNCH_TRACE_TAG } from "../launch/trace.js";
@@ -155,7 +155,14 @@ async function launchApp(options: LaunchAppOptions): Promise<LaunchedApp> {
     options.scenarioId === undefined
       ? (await startIsolatedService(deadline.remainingMs(POST_READINESS_RESERVE_MS))).environment
       : {};
-  const profile = createLaunchProfile();
+  const profile = createLaunchProfile({ gpuCacheCarry: runningTestGpuCacheCarry.current() });
+  // Printed on every launch, so a run's log says which launch's figures are first-launch ones.
+  console.error(
+    profile.carriedGpuCaches.length === 0
+      ? `${LAUNCH_TRACE_TAG} GPU caches cold: none carried in, so this is a first-launch figure`
+      : `${LAUNCH_TRACE_TAG} GPU caches warm: carried in ${profile.carriedGpuCaches.join(", ")} ` +
+          "from this test's previous launch",
+  );
   // Watching from before the spawn, so a failure main writes before the handover is kept.
   const mainOutput = new MainProcessOutput(profile.directory);
   let application: ElectronApplication;
@@ -257,6 +264,38 @@ async function launchApp(options: LaunchAppOptions): Promise<LaunchedApp> {
     throw withCleanupOutcome(mainOutput.failureWith(error, standing), cleanupOutcome);
   }
 }
+
+/**
+ * The GPU cache carry the running test's launches share, minted at its first launch and removed
+ * when it finishes, so each test's first launch starts cold and the copy never outlives the test.
+ *
+ * The removal is registered before that launch's settle-time close. `onTestFinished` runs its
+ * callbacks in reverse, so on a vitest timeout every close keeps its caches before the copy goes.
+ * Outside a running test (a `beforeAll`) nothing would remove a carry, so that launch gets none.
+ */
+class RunningTestGpuCacheCarry {
+  #carry: GpuCacheCarry | undefined;
+
+  current(): GpuCacheCarry | undefined {
+    if (this.#carry !== undefined) {
+      return this.#carry;
+    }
+    try {
+      onTestFinished(() => {
+        const carry = this.#carry;
+        this.#carry = undefined;
+        carry?.remove();
+      });
+    } catch {
+      // Not inside a running test: the launch starts cold and hands nothing on.
+      return undefined;
+    }
+    this.#carry = new GpuCacheCarry();
+    return this.#carry;
+  }
+}
+
+const runningTestGpuCacheCarry = new RunningTestGpuCacheCarry();
 
 /**
  * Binds `application`'s close to the end of the current test, and closes now when that

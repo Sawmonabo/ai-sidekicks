@@ -1,11 +1,16 @@
-import { cleanup, render } from "@testing-library/react";
+import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { DiagramPictures, DiagramPicturesContext } from "./diagram/pictures.js";
+import { FakeDiagramWorkers } from "./diagram/worker/connection.test-support.js";
 import type { CodeSpanReader } from "./highlight/code-span-reader.js";
 import { MarkdownNodes } from "./MarkdownNodes.js";
 import { parseSettledBlock } from "./parse.js";
 
 /** These documents hold no code block, so nothing may ask for colors. */
+/** Leaves the renderer's caches alone: no case here shows enough pictures to empty them for. */
+const keepUnusedMemory = (): void => undefined;
+
 const NO_CODE_SPANS: CodeSpanReader = {
   heldSpans: () => {
     throw new Error("A document here asked for code colors.");
@@ -24,6 +29,7 @@ function renderMarkdown(source: string, isSettled = true): HTMLElement {
         definedFootnoteIdentifiers: new Set(),
         codeSpanReader: NO_CODE_SPANS,
         renderCopy: undefined,
+        renderTable: undefined,
       }}
     />,
   );
@@ -80,31 +86,44 @@ describe("structure", () => {
 });
 
 describe("a mermaid fence", () => {
-  const idleRequests: IdleRequestCallback[] = [];
-  const { requestIdleCallback, cancelIdleCallback } = window;
-
   afterEach(() => {
-    // Unmounting withdraws the held request from the queue every diagram block shares.
     cleanup();
-    idleRequests.length = 0;
-    window.requestIdleCallback = requestIdleCallback;
-    window.cancelIdleCallback = cancelIdleCallback;
   });
 
-  it("is a diagram block that asks for its picture once settled, and only then", () => {
-    // Held, never run: the library is not loaded and nothing is drawn.
-    window.requestIdleCallback = (callback) => idleRequests.push(callback);
-    window.cancelIdleCallback = () => undefined;
+  it("is a diagram block that asks for its picture once settled, and only then", async () => {
+    const workers = new FakeDiagramWorkers();
+    const pictures = new DiagramPictures(16 * 1024 * 1024, workers.start, keepUnusedMemory);
     const source = "flowchart LR\n  streamed --> settled";
     const fence = `\`\`\`mermaid\n${source}\n\`\`\`\n`;
+    const renderFence = (isSettled: boolean): HTMLElement =>
+      render(
+        <DiagramPicturesContext.Provider value={pictures}>
+          <MarkdownNodes
+            nodes={parseSettledBlock(fence).children}
+            context={{
+              isSettled,
+              definedFootnoteIdentifiers: new Set(),
+              codeSpanReader: NO_CODE_SPANS,
+              renderCopy: undefined,
+              renderTable: undefined,
+            }}
+          />
+        </DiagramPicturesContext.Provider>,
+      ).container;
 
-    const streaming = renderMarkdown(fence, false);
+    const streaming = renderFence(false);
+    await act(async () => {
+      await Promise.resolve();
+    });
     expect(streaming.querySelector(".meridian-diagram__source")?.textContent).toBe(source);
-    expect(idleRequests).toHaveLength(0);
+    expect(workers.started).toHaveLength(0);
 
-    const settled = renderMarkdown(fence);
+    const settled = renderFence(true);
+    await act(async () => {
+      await Promise.resolve();
+    });
     expect(settled.querySelector("figure.meridian-diagram")).not.toBeNull();
     expect(settled.querySelector(".meridian-code-block")).toBeNull();
-    expect(idleRequests).toHaveLength(1);
+    expect(workers.latest().requests.map((request) => request.source)).toStrictEqual([source]);
   });
 });

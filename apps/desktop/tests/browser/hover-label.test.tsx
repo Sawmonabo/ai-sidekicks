@@ -276,7 +276,7 @@ it("closes the Find field and a label the pointer alone opened on one Escape", a
       <div style={{ display: "flex", flexDirection: "column", gap: "64px", padding: "64px" }}>
         <FindBox
           query=""
-          result={findInTranscript([], "")}
+          result={findInTranscript([], "", new Map())}
           currentMatchIndex={-1}
           openRequestCount={1}
           onQueryChange={() => undefined}

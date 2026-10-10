@@ -7,9 +7,8 @@
 // them; `role="feed"` is declared on the sizer and its article children by `VirtualRow`, so the
 // relationship does not rest on whatever a registered row renderer draws, and the history line
 // above the sizer is no entry of it. Attention is steered by luminance, never motion: the only
-// transition is the pill's hover color. The viewport's one selection tracker lives with the
-// scroll container and reaches the rows through context, beside what a long markdown body reads
-// to draw only the blocks near the reader.
+// transition is the pill's hover color. The binding's one selection tracker reaches the rows
+// through context, beside what a long markdown body reads to draw only the blocks near the reader.
 
 import { useMemo } from "react";
 
@@ -17,7 +16,6 @@ import { EmptyTranscript } from "./EmptyTranscript.js";
 import { VirtualRow, type ViewportRowRenderer } from "./VirtualRow.js";
 import { JumpToLatest } from "./JumpToLatest.js";
 import { type TranscriptViewportBinding } from "../hooks/useTranscriptViewport.js";
-import { useTrackViewportSelection } from "../hooks/selection/useTrackViewportSelection.js";
 import { ViewportSelectionTrackerContext } from "../selection/context.js";
 import {
   MarkdownWindowViewportContext,
@@ -55,9 +53,7 @@ export interface TranscriptViewportProps {
 export function TranscriptViewport(props: TranscriptViewportProps): React.JSX.Element {
   const { binding } = props;
   const { snapshot } = binding;
-  const selection = useTrackViewportSelection(binding.attachScrollContainer);
-  const { tracker } = selection;
-  const { scrollController, rowStartPx } = binding;
+  const { scrollController, rowStartPx, selectionTracker: tracker } = binding;
   // One value for the viewport's life: each windowed body holds it while it is mounted.
   const markdownWindowViewport = useMemo<MarkdownWindowViewport>(
     () => ({
@@ -75,7 +71,7 @@ export function TranscriptViewport(props: TranscriptViewportProps): React.JSX.El
         <div className="meridian-transcript-viewport">
           <div
             className="meridian-transcript-viewport__scroll-container meridian-focus-inset"
-            ref={selection.attachScrollContainer}
+            ref={binding.attachScrollContainer}
             // Focusable so the log is reachable and scrollable from the keyboard, and so a region
             // with a name, which is what a screen reader announces when the focus lands on it.
             tabIndex={0}

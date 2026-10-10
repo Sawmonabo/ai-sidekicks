@@ -35,7 +35,7 @@ function flatLog(
 /** A reader at the top of their row in the middle of the log, with nothing refusing a cut. */
 const READING_MID_LOG: PruneConditions = {
   scrollControllerVetoes: false,
-  isWorkingRow: () => false,
+  isChangingRow: () => false,
   heldRowKeys: [],
   onScreenRowKeys: [],
   readingPosition: { rowKey: rowKey(READER_ROW_INDEX), offsetWithinViewportPx: 0 },
@@ -103,27 +103,65 @@ describe("the transcript window — letting go around the reader", () => {
     expect(heldKeys(window).at(-1)).toBe(rowKey(readerRowIndex));
   });
 
-  it("stops a cut at a working row far from the reader, keeping its run group whole", () => {
-    // A live run's header and rows sit far below the reader. While one of its rows still works,
-    // the cut stops at that row and keeps the group whole, header included.
-    const liveRunGroupKey = "run-live";
-    const liveRowIndexes = Array.from({ length: 9 }, (_unused, offset) => 301 + offset);
-    const liveLog = flatLog((index) =>
-      liveRowIndexes.includes(index) ? liveRunGroupKey : undefined,
-    ).map((row, index) => (index === 300 ? { ...row, key: liveRunGroupKey } : row));
-    const liveGroupKeys = [liveRunGroupKey, ...liveRowIndexes.map(rowKey)];
-    const workingRowKey = rowKey(305);
-    const workingWindow = new TranscriptWindow();
-    workingWindow.ingest(liveLog);
+  it("stops the cut at a run group's header rather than split the group, and names the tie", () => {
+    // Row 150 is a run group's header and rows 151 to 199 hang from it, so the share's edge falls
+    // inside the group.
+    const headerRowIndex = 150;
+    const window = new TranscriptWindow();
+    window.ingest(
+      flatLog((index) =>
+        index > headerRowIndex && index < READER_ROW_INDEX ? rowKey(headerRowIndex) : undefined,
+      ),
+    );
 
-    const working = workingWindow.prune({
+    const outcome = window.prune(READING_MID_LOG);
+
+    expect(heldKeys(window)[0]).toBe(rowKey(headerRowIndex));
+    expect(outcome.prunedKeys).toContain(rowKey(headerRowIndex - 1));
+    expect(outcome.owedBecause).toBe("run-group-rows");
+  });
+
+  it("keeps a live run's changing rows near the reader and lets go of every row far from them", () => {
+    // A live run draws no header: its rows hang from a run key no row of the log carries, as the
+    // feed hands them over. Its newest rows, a tool call still running and a reply still
+    // streaming, sit seven screens above the reader: past the share, within the let-go distance.
+    // Far above them sit its settled rows and an approval still open.
+    const liveRunGroupKey = "run-live";
+    const openApprovalRowIndex = 100;
+    const runningToolRowKey = rowKey(300);
+    const streamingReplyRowKey = rowKey(301);
+    const changingRowKeys = new Set([
+      rowKey(openApprovalRowIndex),
+      runningToolRowKey,
+      streamingReplyRowKey,
+    ]);
+    const readerRowIndex = 330;
+    const window = new TranscriptWindow();
+    window.ingest(flatLog((index) => (index <= 301 ? liveRunGroupKey : undefined)));
+
+    const outcome = window.prune({
       ...READING_MID_LOG,
-      isWorkingRow: (key) => key === workingRowKey,
+      readingPosition: { rowKey: rowKey(readerRowIndex), offsetWithinViewportPx: 0 },
+      isChangingRow: (key) => changingRowKeys.has(key),
     });
 
-    expect(heldKeys(workingWindow)).toStrictEqual(expect.arrayContaining(liveGroupKeys));
-    expect(heldKeys(workingWindow).at(-1)).toBe(rowKey(309));
-    expect(working.prunedKeys).toContain(rowKey(399));
-    expect(working.owedBecause).toBe("working-rows");
+    // The cut above stops at the near changing rows. The far approval goes with the settled rows:
+    // no header ties the run's rows together, so none rides along with the kept ones.
+    expect(heldKeys(window).slice(0, 2)).toEqual([runningToolRowKey, streamingReplyRowKey]);
+    for (let index = 0; index < 300; index += 1) {
+      expect(outcome.prunedKeys).toContain(rowKey(index));
+    }
+    expect(outcome.owedBecause).toBe("changing-rows");
+
+    // The reader comes back to the approval: the window takes it again, and lets go of the
+    // changing rows now far below.
+    const returned = window.prune({
+      ...READING_MID_LOG,
+      readingPosition: { rowKey: rowKey(openApprovalRowIndex), offsetWithinViewportPx: 0 },
+      isChangingRow: (key) => changingRowKeys.has(key),
+    });
+    expect(heldKeys(window)).toContain(rowKey(openApprovalRowIndex));
+    expect(returned.prunedKeys).toContain(runningToolRowKey);
+    expect(returned.prunedKeys).toContain(streamingReplyRowKey);
   });
 });

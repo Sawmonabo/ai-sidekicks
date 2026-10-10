@@ -1,6 +1,8 @@
-// What a selection across the conversation copies, read from the rows as they are drawn.
+// What a selection across the conversation copies from the rows its ends sit in, read from the
+// rows as they are drawn: each end row's part from the end's character offset.
 
 import { render } from "@testing-library/react";
+import type { TextClipboardContent } from "#shared/preload-api.js";
 import { renderToString } from "katex";
 import { describe, expect, it } from "vitest";
 
@@ -11,15 +13,17 @@ import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers
 import {
   SAMPLE_RUN_ROW_TIME_SELECTOR,
   sampleRunRow,
+  sampleUserMessageRow,
 } from "#test/helpers/transcript/event-row-samples.js";
 import { classifyTranscriptRow } from "../rows/kind.js";
 import { MessageRow } from "../rows/MessageRow.js";
 import { ToolRow } from "../rows/ToolRow.js";
 import { FootnoteRegistry } from "../rows/markdown/footnotes/registry.js";
+import { characterOffsetWithin } from "../viewport/selection/preservation.js";
 import {
   COPY_FLAVOR_ATTRIBUTE,
   type CopyFlavor,
-  readConversationSelection,
+  readRowSpanSelection,
 } from "./conversation-selection.js";
 
 /** A formula whose drawing spells none of its source: KaTeX draws `\frac` as a fraction. */
@@ -41,20 +45,31 @@ function conversationWithFormula(flavor: CopyFlavor, formulaAttributes: string):
   return conversation;
 }
 
-/** A range over everything in `conversation`. */
-function everythingIn(conversation: Element): Range {
-  const range = document.createRange();
-  range.selectNodeContents(conversation);
-  return range;
+/**
+ * What a selection copies from the first drawn row in `conversation`, at `startOffset` characters,
+ * to the end of the last, each row an end row.
+ */
+function copyOfDrawnRows(conversation: Element, startOffset = 0): TextClipboardContent | undefined {
+  const rows = [...conversation.querySelectorAll(`[${WINDOWED_ROW_INDEX_ATTRIBUTE}]`)];
+  const rowKeys = rows.map((_, index) => `row-${String(index)}`);
+  const lastRow = rows.at(-1) ?? expect.fail("the conversation draws a row");
+  return readRowSpanSelection({
+    selection: {
+      start: { rowKey: rowKeys[0] ?? "", position: { path: [], characterOffset: startOffset } },
+      end: {
+        rowKey: rowKeys.at(-1) ?? "",
+        position: { path: [], characterOffset: lastRow.textContent.length },
+      },
+    },
+    rowKeys,
+    endRowElement: (rowKey) => rows[rowKeys.indexOf(rowKey)],
+    rowText: () => expect.fail("every row here is an end row"),
+  });
 }
 
 describe("a selection across the conversation", () => {
   it("copies each row's lines as drawn, and no control's label", () => {
-    const asked = sampleRunRow({
-      id: "asks",
-      type: "user.message",
-      summary: "line one\n\nline two",
-    });
+    const asked = sampleUserMessageRow({ id: "asks", message: "line one\n\nline two" });
     const askedKind = classifyTranscriptRow(asked);
     if (askedKind === undefined) {
       throw new Error("a user message is a message kind");
@@ -79,7 +94,6 @@ describe("a selection across the conversation", () => {
               id: "ran",
               type: "tool.result",
               actor: "Claude",
-              summary: "Ran pnpm test",
               payload: { toolName: "bash", contentLength: "first line\n  second line".length },
               content: { status: "available", body: "first line\n  second line" },
             })}
@@ -95,13 +109,11 @@ describe("a selection across the conversation", () => {
     const toolTime = container.querySelector(
       `[data-index="1"] ${SAMPLE_RUN_ROW_TIME_SELECTOR}`,
     )?.textContent;
-    const everything = document.createRange();
-    everything.selectNodeContents(container);
 
-    expect(readConversationSelection(everything, container)).toStrictEqual({
+    expect(copyOfDrawnRows(container)).toStrictEqual({
       text: [
         "line one\n\nline two",
-        `Claude\n${toolTime ?? ""}\nbash Ran pnpm test\nfirst line\n  second line`,
+        `Claude\n${toolTime ?? ""}\nbash\nfirst line\n  second line`,
       ].join("\n\n"),
     });
   });
@@ -133,10 +145,7 @@ describe("a selection across the conversation", () => {
         </div>
       </FixtureBridgeProvider>,
     );
-    const everything = document.createRange();
-    everything.selectNodeContents(container);
-
-    const copied = readConversationSelection(everything, container);
+    const copied = copyOfDrawnRows(container);
     expect(copied?.text).toBe("Run it:\n\n```ts\nconst a = 1;\n```");
     expect(copied?.html).not.toContain("Copy");
   });
@@ -145,26 +154,27 @@ describe("a selection across the conversation", () => {
 describe("a formula in a selection", () => {
   it("copies as its TeX source once, as text and as a math block", () => {
     const asText = conversationWithFormula("text", 'data-math=""');
-    expect(readConversationSelection(everythingIn(asText), asText)).toStrictEqual({
+    expect(copyOfDrawnRows(asText)).toStrictEqual({
       text: FORMULA_SOURCE,
     });
 
     // Begun on the drawn glyphs, past the hidden MathML that holds the source.
     const asMarkdown = conversationWithFormula("markdown", 'data-math=""');
-    const fromGlyphs = everythingIn(asMarkdown);
     const firstGlyph = asMarkdown.querySelector(".katex-html .mord");
-    if (firstGlyph === null) {
+    const drawnRow = asMarkdown.firstElementChild;
+    if (firstGlyph === null || drawnRow === null) {
       throw new Error("KaTeX drew no glyph");
     }
-    fromGlyphs.setStart(firstGlyph, 0);
-    expect(readConversationSelection(fromGlyphs, asMarkdown)?.text).toBe(
+    const glyphOffset = characterOffsetWithin(drawnRow, firstGlyph, 0);
+    expect(glyphOffset).toBeGreaterThan(0);
+    expect(copyOfDrawnRows(asMarkdown, glyphOffset)?.text).toBe(
       ["```math", FORMULA_SOURCE, "```"].join("\n"),
     );
   });
 
   it("negative control: an unmarked drawing copies more than its source", () => {
     const unmarked = conversationWithFormula("text", 'class="other"');
-    const copied = readConversationSelection(everythingIn(unmarked), unmarked)?.text;
+    const copied = copyOfDrawnRows(unmarked)?.text;
 
     expect(copied).toContain(FORMULA_SOURCE);
     expect(copied).not.toBe(FORMULA_SOURCE);

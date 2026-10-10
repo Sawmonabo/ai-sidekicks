@@ -28,22 +28,29 @@
 //
 // Every run is a fresh launch, because the scenario's frozen clock does not rewind. Idle, the clock
 // stops at the end of the history; streaming, it moves through the four lanes' stretch at a steady
-// pace across the series (`startPacedDelivery`).
+// pace across the series (`startPacedDelivery`). Each load launches once cold, printed on its own
+// as the first-launch figure, and gates on the median over the warm launches after it
+// (`../frame-sampling.ts` says why).
 
 import process from "node:process";
 
 import type { CDPSession } from "playwright";
-import { beforeAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { withLaunchedApp, type AppUnderTest } from "../../helpers/electron/harness.js";
 import { fixtureBundleExists } from "../../helpers/fixture/bundle.js";
 import { IN_WINDOW_STEP_TIMEOUT_MS } from "../../helpers/launch/body.js";
 import { medianOf, percentileByNearestRank } from "../../helpers/sample-statistics.js";
-import { MEASURED_RUN_COUNT } from "../frame-sampling.js";
+import { measureLaunches } from "../frame-sampling.js";
 import { RUNNER_CLASS_DESCRIPTION, isPinnedRunnerClass } from "../pinned-runner-class.js";
 import { findStreamingStretch } from "../streaming-lanes.js";
 import { endTraceRecording, startTraceRecording } from "../trace/recording.js";
-import { SCROLL_TRACE_CATEGORIES, readScrollTrace, type ScrollReading } from "../trace/scroll.js";
+import {
+  SCROLL_TRACE_CATEGORIES,
+  readScrollTrace,
+  requirePresentedFrameGaps,
+  type ScrollReading,
+} from "../trace/scroll.js";
 import { TRANSCRIPT_ROW_BOX_SELECTOR } from "../transcript/window-read.js";
 import {
   CONVERSATION_SCROLLER_SELECTOR,
@@ -157,94 +164,79 @@ const FOUR_LANE_STRETCH = findStreamingStretch(
 
 describe.skipIf(!bundleIsBuilt)("endurance — scrolling the conversation", () => {
   for (const load of CONVERSATION_LOADS) {
-    describe(load, () => {
-      let runs: readonly ConversationRun[] = [];
+    it(`${load}: a frame each refresh through the flings, no janky or unrastered frame, each fling moving as soon as on a plain page`, async () => {
+      // Every launch runs inside the test: the harness binds each app's lifetime to the running
+      // test, which a hook is not.
+      const { firstLaunch, warmLaunches: runs } = await measureLaunches(
+        async () =>
+          await scrollConversationOnce({ load, flingCount: FLING_COUNT, planted: undefined }),
+      );
+      reportFirstLaunch(load, firstLaunch);
 
-      beforeAll(async () => {
-        const measured: ConversationRun[] = [];
-        for (let runIndex = 1; runIndex <= MEASURED_RUN_COUNT; runIndex += 1) {
-          measured.push(
-            await scrollConversationOnce({
-              load,
-              flingCount: FLING_COUNT,
-              planted: undefined,
-            }),
-          );
-        }
-        runs = measured;
-      });
+      const frameGapExcessesMs = runs.map(({ conversation }) => frameGapExcessMs(conversation));
+      const frameGapMs = medianOf(frameGapExcessesMs);
+      const frameGapVerdict = evaluateBudget(frameGapBudget, frameGapMs);
+      report(
+        load,
+        `presented-frame gap p95 ${frameGapMs.toFixed(2)} ms past one refresh (median of warm ` +
+          `launches ${describeFigures(frameGapExcessesMs, 2)}; one refresh is ` +
+          `${describeRefreshes(runs)} ms)`,
+        frameGapVerdict,
+      );
 
-      it("presents a frame each refresh through the flings, within 1 ms at the 95th percentile", () => {
-        const excessesMs = runs.map(({ conversation }) => frameGapExcessMs(conversation));
-        const excessMs = medianOf(excessesMs);
-        const verdict = evaluateBudget(frameGapBudget, excessMs);
-        report(
-          load,
-          `presented-frame gap p95 ${excessMs.toFixed(2)} ms past one refresh (median of ` +
-            `${describeFigures(excessesMs, 2)}; one refresh is ` +
-            `${describeRefreshes(runs)} ms)`,
-          verdict,
-        );
-        gateOnPinnedRunner(
-          verdict,
-          `${frameGapBudget.label}, ${load}: the flings presented frames ` +
-            `${excessMs.toFixed(2)} ms past one refresh apart at the 95th percentile`,
-        );
-      });
+      const jankShares = runs.map(({ conversation }) => jankShareOf(conversation));
+      const jankShare = medianOf(jankShares);
+      const jankVerdict = evaluateBudget(jankyFramesBudget, jankShare);
+      report(
+        load,
+        `janky frames ${(jankShare * 100).toFixed(3)} % (median of warm launches ` +
+          `${runs.map(({ conversation }) => describeJank(conversation)).join(", ")})`,
+        jankVerdict,
+      );
 
-      it("judges at most a tenth of a percent of the moving frames janky", () => {
-        const shares = runs.map(
-          ({ conversation }) => conversation.jankyFrameCount / conversation.movingFrameCount,
-        );
-        const share = medianOf(shares);
-        const verdict = evaluateBudget(jankyFramesBudget, share);
-        report(
-          load,
-          `janky frames ${(share * 100).toFixed(3)} % (median of ` +
-            `${runs.map(({ conversation }) => describeJank(conversation)).join(", ")})`,
-          verdict,
-        );
-        gateOnPinnedRunner(
-          verdict,
-          `${jankyFramesBudget.label}, ${load}: ${(share * 100).toFixed(3)} % of the frames ` +
-            "that moved the content were janky",
-        );
-      });
+      const unrasteredCounts = runs.map(({ conversation }) => conversation.unrasteredFrameCount);
+      const unrasteredCount = unrasteredCounts.reduce((sum, count) => sum + count, 0);
+      const unrasteredVerdict = evaluateBudget(unrasteredFramesBudget, unrasteredCount);
+      report(
+        load,
+        `frames drawn with unrastered content ${String(unrasteredCount)} ` +
+          `(warm launches ${unrasteredCounts.join(" + ")} of ` +
+          `${runs.map(({ conversation }) => String(conversation.presentedFrameCount)).join(" + ")})`,
+        unrasteredVerdict,
+      );
 
-      it("draws no frame with unrastered content", () => {
-        const counts = runs.map(({ conversation }) => conversation.unrasteredFrameCount);
-        const unrasteredCount = counts.reduce((sum, count) => sum + count, 0);
-        const verdict = evaluateBudget(unrasteredFramesBudget, unrasteredCount);
-        report(
-          load,
-          `frames drawn with unrastered content ${String(unrasteredCount)} ` +
-            `(${counts.join(" + ")} of ` +
-            `${runs.map(({ conversation }) => String(conversation.presentedFrameCount)).join(" + ")})`,
-          verdict,
-        );
-        gateOnPinnedRunner(
-          verdict,
-          `${unrasteredFramesBudget.label}, ${load}: ${String(unrasteredCount)} frames presented ` +
-            "while the flings moved the content were drawn with unrastered content",
-        );
-      });
+      const firstMovedExcessesMs = runs.map(firstMovedFrameExcessMs);
+      const firstMovedMs = medianOf(firstMovedExcessesMs);
+      const firstMovedVerdict = evaluateBudget(firstMovedFrameBudget, firstMovedMs);
+      report(
+        load,
+        `median first moved frame ${firstMovedMs.toFixed(2)} ms over the plain page's (median ` +
+          `of warm launches ${describeFigures(firstMovedExcessesMs, 2)}; ` +
+          `${runs.map(describeFirstMovedFrames).join("; ")})`,
+        firstMovedVerdict,
+      );
 
-      it("first moves the content within 1 ms of the plain page's first moved frame", () => {
-        const excessesMs = runs.map(firstMovedFrameExcessMs);
-        const excessMs = medianOf(excessesMs);
-        const verdict = evaluateBudget(firstMovedFrameBudget, excessMs);
-        report(
-          load,
-          `median first moved frame ${excessMs.toFixed(2)} ms over the plain page's (median of ` +
-            `${describeFigures(excessesMs, 2)}; ${runs.map(describeFirstMovedFrames).join("; ")})`,
-          verdict,
-        );
-        gateOnPinnedRunner(
-          verdict,
-          `${firstMovedFrameBudget.label}, ${load}: the median fling first moved the content ` +
-            `${excessMs.toFixed(2)} ms later than on a plain page`,
-        );
-      });
+      // Gated after all four are printed, so a reading over its ceiling never hides the others.
+      gateOnPinnedRunner(
+        frameGapVerdict,
+        `${frameGapBudget.label}, ${load}: the flings presented frames ` +
+          `${frameGapMs.toFixed(2)} ms past one refresh apart at the 95th percentile`,
+      );
+      gateOnPinnedRunner(
+        jankVerdict,
+        `${jankyFramesBudget.label}, ${load}: ${(jankShare * 100).toFixed(3)} % of the frames ` +
+          "that moved the content were janky",
+      );
+      gateOnPinnedRunner(
+        unrasteredVerdict,
+        `${unrasteredFramesBudget.label}, ${load}: ${String(unrasteredCount)} frames presented ` +
+          "while the flings moved the content were drawn with unrastered content",
+      );
+      gateOnPinnedRunner(
+        firstMovedVerdict,
+        `${firstMovedFrameBudget.label}, ${load}: the median fling first moved the content ` +
+          `${firstMovedMs.toFixed(2)} ms later than on a plain page`,
+      );
     });
   }
 
@@ -257,7 +249,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — scrolling the conversation", () =
       planted: { kind: "blurring-layers", layerCount: BLURRING_LAYER_COUNT },
     });
     const excessMs = frameGapExcessMs(conversation);
-    const share = conversation.jankyFrameCount / conversation.movingFrameCount;
+    const share = jankShareOf(conversation);
     process.stdout.write(
       `[endurance] scrolling the conversation under ${String(BLURRING_LAYER_COUNT)} blurring ` +
         `layers: presented-frame gap p95 ${excessMs.toFixed(2)} ms past one refresh, ` +
@@ -493,7 +485,13 @@ function seriesDurationMs(flingPx: number, flingCount: number): number {
 
 /** The 95th-percentile gap between presented frames, less one refresh, in milliseconds. */
 function frameGapExcessMs(reading: ScrollReading): number {
+  requirePresentedFrameGaps(reading);
   return percentileByNearestRank(reading.presentedFrameGapsMs, 0.95) - reading.refreshIntervalMs;
+}
+
+/** The share of the frames that moved the content that Chromium judged janky. */
+function jankShareOf(reading: ScrollReading): number {
+  return reading.jankyFrameCount / reading.movingFrameCount;
 }
 
 /** The conversation's median first moved frame less the plain page's, in milliseconds. */
@@ -532,6 +530,22 @@ function report(load: ConversationLoad, reading: string, verdict: BudgetVerdict)
       `${String(verdict.limitCanonicalValue)} ${verdict.canonicalUnit} ceiling ` +
       `(${(verdict.utilizationFraction * 100).toFixed(1)} % of budget) — ` +
       `${RUNNER_CLASS_DESCRIPTION}\n`,
+  );
+}
+
+/** Prints the cold first launch's four readings on one line, apart from the gated medians. */
+function reportFirstLaunch(load: ConversationLoad, run: ConversationRun): void {
+  const { conversation } = run;
+  process.stdout.write(
+    `[endurance] scrolling the conversation, ${load}: first launch, cold GPU caches, not ` +
+      `gated: presented-frame gap p95 ${frameGapExcessMs(conversation).toFixed(2)} ms past one ` +
+      `refresh (one refresh is ${conversation.refreshIntervalMs.toFixed(3)} ms); janky frames ` +
+      `${(jankShareOf(conversation) * 100).toFixed(3)} % ` +
+      `(${describeJank(conversation)}); frames drawn with unrastered content ` +
+      `${String(conversation.unrasteredFrameCount)} of ` +
+      `${String(conversation.presentedFrameCount)}; median first moved frame ` +
+      `${firstMovedFrameExcessMs(run).toFixed(2)} ms over the plain page's ` +
+      `(${describeFirstMovedFrames(run)}) — ${RUNNER_CLASS_DESCRIPTION}\n`,
   );
 }
 

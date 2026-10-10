@@ -13,7 +13,6 @@ import { ToolRow } from "./ToolRow.js";
 function renderToolCard(
   overrides: {
     readonly type?: string;
-    readonly summary?: string;
     readonly payload?: Readonly<Record<string, unknown>>;
     readonly density?: "collapsed" | "expanded";
     readonly onDensityToggle?: (control: HTMLElement) => void;
@@ -24,7 +23,6 @@ function renderToolCard(
     <ToolRow
       row={sampleRunRow({
         type: overrides.type ?? "tool.invoked",
-        ...(overrides.summary === undefined ? {} : { summary: overrides.summary }),
         ...(overrides.payload === undefined ? {} : { payload: overrides.payload }),
         ...(overrides.body === undefined
           ? {}
@@ -79,7 +77,6 @@ function FoldingToolCard(props: { readonly body: string }): React.JSX.Element {
     <ToolRow
       row={sampleRunRow({
         type: "tool.result",
-        summary: "ran the build",
         payload: { toolName: "bash", contentLength: props.body.length },
         content: { status: "available", body: props.body },
       })}
@@ -95,7 +92,7 @@ function FoldingToolCard(props: { readonly body: string }): React.JSX.Element {
 }
 
 describe("a call's chevron", () => {
-  it("folds a call with a multi-line body to its line, keeping the summary in view", () => {
+  it("folds a call with a multi-line body to its line, keeping the tool's name in view", () => {
     const body = "step one\nstep two\nstep three";
     const { container } = render(<FoldingToolCard body={body} />, {
       wrapper: liveBridgeWrapper(),
@@ -112,9 +109,7 @@ describe("a call's chevron", () => {
 
     expect(chevron.getAttribute("aria-expanded")).toBe("false");
     expect(container.querySelector(".meridian-machine-body__plain")).toBeNull();
-    expect(container.querySelector(".meridian-tool-card__summary")?.textContent).toBe(
-      "ran the build",
-    );
+    expect(container.querySelector(".meridian-tool-card__name")?.textContent).toBe("bash");
   });
 
   it("is absent from a call with no body, leaving no tab stop", () => {

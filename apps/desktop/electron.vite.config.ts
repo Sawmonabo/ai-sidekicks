@@ -1,4 +1,5 @@
-// electron-vite configuration: three build targets (main, preload, renderer).
+// electron-vite configuration: three build targets (main, preload, renderer), and the renderer's
+// diagram worker, which the renderer build bundles apart from the page.
 //
 // The renderer loads over a custom protocol, not file://. Source maps are "hidden": readable for a
 // crash report's stack but not referenced from the shipped bundle. The release fixture gate
@@ -33,6 +34,7 @@ import { fileURLToPath } from "node:url";
 
 import { defineConfig, type ElectronViteConfigFnObject } from "electron-vite";
 
+import { clearThirdPartyNotices, thirdPartyNoticesPlugin } from "./build/third-party-notices.ts";
 import {
   RENDERER_DEV_CONTENT_SECURITY_POLICY,
   RENDERER_DEV_SERVER_PORT,
@@ -117,7 +119,10 @@ export function isFixtureOnlyModule(moduleId: string): boolean {
 // Annotated rather than inferred: `isolatedDeclarations` is repo-wide, and
 // `tests/budget/release-absence.test.ts` imports this module (it reads `isFixtureOnlyModule`), so
 // it is part of a checked program.
-const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) => {
+const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ command, mode }) => {
+  if (command === "build") {
+    clearThirdPartyNotices();
+  }
   // `--mode=smoke` builds ship the probe; the default build tree-shakes it out. See the header.
   const isSmokeBuild = mode === "smoke";
   // The builds that carry the scenario catalog: `electron-vite dev` (mode `development`) and
@@ -133,6 +138,7 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) =
 
   return {
     main: {
+      plugins: [thirdPartyNoticesPlugin("main")],
       // See the header on `define`: a textual substitution, so Rollup folds `if (false && expr)`
       // and drops the probe body from the release bundle.
       define: {
@@ -186,7 +192,15 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) =
       // inlined as markup, and the overlay scrollbar library's browser bundle, which its package
       // does not export. Both live in modules the Vitest tiers install too (see
       // `vitest/icon-compilation.ts` and `vitest/overlay-scrollbar-bundle.ts`), so none can drift.
-      plugins: [iconCompilationPlugin(), overlayScrollbarBundlePlugin()],
+      plugins: [
+        iconCompilationPlugin(),
+        overlayScrollbarBundlePlugin(),
+        thirdPartyNoticesPlugin("renderer"),
+      ],
+      // The diagram worker is a module: merman loads its WebAssembly glue with a dynamic import,
+      // which a classic worker bundle cannot split out. Its bundle is built apart from the page's,
+      // so it writes notices of its own.
+      worker: { format: "es", plugins: () => [thirdPartyNoticesPlugin("diagram-worker")] },
       server: {
         port: RENDERER_DEV_SERVER_PORT,
         // See the header note: the policy names this port, so a silent

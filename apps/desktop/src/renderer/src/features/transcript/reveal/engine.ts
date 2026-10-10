@@ -51,6 +51,14 @@ export class RevealEngine {
   readonly #diagnosticEmitter = new Emitter<RevealDiagnostic>("reveal diagnostic");
   /** Insertion order is the queue order the catch-up remainder is offered in. */
   readonly #lanesById = new Map<string, RevealLane>();
+  /**
+   * The lanes with text left to reveal, in queue order, kept apart so a frame walks only these: a
+   * settled lane stays held until its row leaves the window and costs no frame meanwhile.
+   */
+  readonly #workingLanes: RevealLane[] = [];
+  /** Each held lane's place in the queue, by when it was first seen. */
+  readonly #queuePositionByLane = new Map<RevealLane, number>();
+  #nextQueuePosition = 0;
 
   /** Bumped whenever a lane is first held or retired, the only changes `holdsLane` sees. */
   #laneRevision = 0;
@@ -77,6 +85,12 @@ export class RevealEngine {
       });
     } else {
       lane.appendSpeculative(delta.text);
+    }
+    if (lane.hasWork()) {
+      this.#markWorking(lane);
+    } else {
+      // An authoritative commit can leave a lane with nothing left to reveal.
+      this.#dropSettledLanes();
     }
     this.#armFrame();
   }
@@ -112,11 +126,11 @@ export class RevealEngine {
     if (this.#lanesById.size === 0) {
       return "idle";
     }
-    const working = [...this.#lanesById.values()].filter((lane) => !lane.isSettled);
-    if (working.length === 0) {
+    // A lane with no work is settled: a quarantined lane released what it will not reveal.
+    if (this.#workingLanes.length === 0) {
       return "settled";
     }
-    return working.some((lane) => lane.isCatchingUp) ? "catching-up" : "streaming";
+    return this.#workingLanes.some((lane) => lane.isCatchingUp) ? "catching-up" : "streaming";
   }
 
   /** True while a drain is submitted. The viewport defers pruning while this is true. */
@@ -142,14 +156,19 @@ export class RevealEngine {
   }
 
   /**
-   * Drop a lane whose run ended, so a finished turn stops costing memory. A reader still holding
-   * its text keeps only what was revealed: the rest is released first.
+   * Drop a lane whose row the window let go, so its text stops costing memory. A reader still
+   * holding its text keeps only what was revealed: the rest is released first.
    */
   public retireLane(laneId: string): void {
-    this.#lanesById.get(laneId)?.quarantine();
-    if (this.#lanesById.delete(laneId)) {
-      this.#laneRevision += 1;
+    const lane = this.#lanesById.get(laneId);
+    if (lane === undefined) {
+      return;
     }
+    lane.quarantine();
+    this.#lanesById.delete(laneId);
+    this.#laneRevision += 1;
+    this.#queuePositionByLane.delete(lane);
+    this.#dropSettledLanes();
   }
 
   /** Terminal. A disposed engine arms nothing and reaches nobody. */
@@ -158,6 +177,8 @@ export class RevealEngine {
     this.#frameEmitter.clear();
     this.#diagnosticEmitter.clear();
     this.#lanesById.clear();
+    this.#workingLanes.length = 0;
+    this.#queuePositionByLane.clear();
     this.#disposed = true;
   }
 
@@ -169,14 +190,40 @@ export class RevealEngine {
     const lane = new RevealLane(laneId);
     this.#lanesById.set(laneId, lane);
     this.#laneRevision += 1;
+    this.#queuePositionByLane.set(lane, this.#nextQueuePosition);
+    this.#nextQueuePosition += 1;
     return lane;
+  }
+
+  /** Put a lane with work among the working lanes, at its place in the queue, once. */
+  #markWorking(lane: RevealLane): void {
+    if (this.#workingLanes.includes(lane)) {
+      return;
+    }
+    const position = this.#queuePositionByLane.get(lane) ?? this.#nextQueuePosition;
+    const before = this.#workingLanes.findIndex(
+      (working) => (this.#queuePositionByLane.get(working) ?? 0) > position,
+    );
+    this.#workingLanes.splice(before === -1 ? this.#workingLanes.length : before, 0, lane);
+  }
+
+  /** Drop every working lane left with nothing to reveal. */
+  #dropSettledLanes(): void {
+    let kept = 0;
+    for (const lane of this.#workingLanes) {
+      if (lane.hasWork()) {
+        this.#workingLanes[kept] = lane;
+        kept += 1;
+      }
+    }
+    this.#workingLanes.length = kept;
   }
 
   #armFrame(): void {
     if (this.#frameSubmitted || this.#disposed) {
       return;
     }
-    if (![...this.#lanesById.values()].some((lane) => lane.hasWork())) {
+    if (this.#workingLanes.length === 0) {
       return;
     }
     this.#frameSubmitted = true;
@@ -196,7 +243,8 @@ export class RevealEngine {
 
   /** One frame's work: allocate, advance, publish, and re-arm only if anything is pending. */
   #drainFrame(): void {
-    const workingLanes = [...this.#lanesById.values()].filter((lane) => lane.hasWork());
+    // A copy: the passes below read the frame's lanes while the list is pruned after them.
+    const workingLanes = this.#workingLanes.filter((lane) => lane.hasWork());
     if (workingLanes.length === 0) {
       return;
     }
@@ -238,12 +286,14 @@ export class RevealEngine {
           "reveal transition threw; the remaining lanes finished the frame",
       });
     }
-    this.#frameEmitter.emit({ state: this.state, lanes: this.lanes(), charactersRevealed: spent });
+    this.#dropSettledLanes();
+    // Armed before the frame is published, so a subscriber reads whether another drain follows.
+    this.#armFrame();
+    this.#frameEmitter.emit({ charactersRevealed: spent });
     // The series key comes from the scheduler, which also retires it on dispose: the task key
     // alone repeats across schedulers (one per feed), and two spellings of one key retire
     // nothing.
     recordRevealDrain(this.#frameScheduler.meterSeriesKeyFor(this.#frameTaskKey), spent);
-    this.#armFrame();
   }
 
   #advanceLane(lane: RevealLane, share: number, failures: string[]): number {

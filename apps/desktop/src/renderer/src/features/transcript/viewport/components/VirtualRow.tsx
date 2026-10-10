@@ -41,7 +41,7 @@ export const VirtualRow: React.MemoExoticComponent<(props: VirtualRowProps) => R
   memo((props: VirtualRowProps): React.JSX.Element => {
     // The virtualizer measures the row and the viewport's selection tracker keeps a reader's
     // highlight inside it; `WindowedListRow` takes one ref, so both are composed here.
-    const attachPreservedSelection = usePreservedRowSelection();
+    const attachPreservedSelection = usePreservedRowSelection(props.row.key);
     const attachRow = props.attachRow;
     const attachRowElement = useCallback(
       (element: HTMLElement | null): void => {

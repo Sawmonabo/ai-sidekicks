@@ -52,6 +52,8 @@ export const BROWSER_MODE_OPTIMIZE_DEPS: { include: string[] } = {
     "@dagrejs/dagre",
     // The math chunk: found late, it would start the second pass described above.
     "katex",
+    // The diagram worker's library: found late, it would start the second pass described above.
+    "@mermanjs/web-render",
     "@testing-library/react",
     "axe-core",
   ],

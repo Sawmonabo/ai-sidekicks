@@ -1,6 +1,7 @@
-// The four-lane frame-time budget: the median of three runs' 95th-percentile frame duration while
-// four agent lanes stream into the transcript, in refreshes of the display the run drew on,
-// compared through the registry's own `evaluateBudget`.
+// The four-lane frame-time budget: the median of three warm launches' 95th-percentile frame
+// duration while four agent lanes stream into the transcript, in refreshes of the display the run
+// drew on, compared through the registry's own `evaluateBudget`. The cold launch before them is
+// printed on its own as the first-launch figure (`frame-sampling.ts` says why).
 //
 // A frame's duration is the main-thread work it costs, not the interval between frames: the
 // interval between animation-frame callbacks is the display's refresh period, so its p95 could
@@ -33,6 +34,7 @@ import { RUNNER_CLASS_DESCRIPTION, isPinnedRunnerClass } from "./pinned-runner-c
 import {
   MEASURED_RUN_COUNT,
   expectFourLaneWorkloadInsideWindow,
+  measureLaunches,
   sampleFrameTimings,
   type FrameTimingRun,
 } from "./frame-sampling.js";
@@ -87,27 +89,33 @@ function totalMilliseconds(durationsMs: readonly number[]): number {
   return durationsMs.reduce((total, duration) => total + duration, 0);
 }
 
+/** A run's 95th-percentile frame duration, in refreshes of the display it drew on. */
+function p95InRefreshes(run: MeasuredRun): number {
+  return percentileByNearestRank(run.frameDurationsMs, 0.95) / run.refreshIntervalMs;
+}
+
+function describeRunLoad(run: MeasuredRun): string {
+  return (
+    `${String(run.longTaskDurationsMs.length)} long tasks ` +
+    `(${totalMilliseconds(run.longTaskDurationsMs).toFixed(0)} ms), ` +
+    `${String(run.startedOverlayScrollbarCount)} overlay scrollbars started, ` +
+    `one refresh ${run.refreshIntervalMs.toFixed(3)} ms`
+  );
+}
+
 describe.skipIf(!bundleIsBuilt)(
   "endurance — frame time with the concurrent-streaming session open",
   () => {
     it("holds the 95th-percentile frame duration under the budget's ceiling", async () => {
-      const perRunPercentiles: number[] = [];
-      const perRunMedians: number[] = [];
-      const perRunLongTasks: string[] = [];
-      for (let runIndex = 0; runIndex < MEASURED_RUN_COUNT; runIndex += 1) {
+      const { firstLaunch, warmLaunches } = await measureLaunches(async () => {
         const run = await runOnce(0);
         expectFourLaneWorkloadInsideWindow(run);
-        perRunPercentiles.push(
-          percentileByNearestRank(run.frameDurationsMs, 0.95) / run.refreshIntervalMs,
-        );
-        perRunMedians.push(percentileByNearestRank(run.frameDurationsMs, 0.5));
-        perRunLongTasks.push(
-          `${String(run.longTaskDurationsMs.length)} long tasks ` +
-            `(${totalMilliseconds(run.longTaskDurationsMs).toFixed(0)} ms), ` +
-            `${String(run.startedOverlayScrollbarCount)} overlay scrollbars started, ` +
-            `one refresh ${run.refreshIntervalMs.toFixed(3)} ms`,
-        );
-      }
+        return run;
+      });
+      const perRunPercentiles = warmLaunches.map(p95InRefreshes);
+      const perRunMedians = warmLaunches.map((run) =>
+        percentileByNearestRank(run.frameDurationsMs, 0.5),
+      );
       const measuredP95 = percentileByNearestRank(perRunPercentiles, 0.5);
       const verdict = evaluateBudget(budget, measuredP95);
 
@@ -116,13 +124,19 @@ describe.skipIf(!bundleIsBuilt)(
       // the instrument reports how often frames arrive.
       process.stdout.write(
         `[endurance] frame time p95 ${measuredP95.toFixed(3)} refreshes ` +
-          `(median of ${String(MEASURED_RUN_COUNT)} runs: ` +
+          `(median of ${String(MEASURED_RUN_COUNT)} warm launches: ` +
           `${perRunPercentiles.map((value) => value.toFixed(3)).join(", ")}) ` +
           `of a ${String(budget.limit.canonicalValue)} refresh ceiling ` +
           `(${(verdict.utilizationFraction * 100).toFixed(1)} % of budget); ` +
           `p50 ${percentileByNearestRank(perRunMedians, 0.5).toFixed(2)} ms ` +
           `(${perRunMedians.map((value) => value.toFixed(2)).join(", ")}); ` +
-          `${perRunLongTasks.join("; ")} — ${RUNNER_CLASS_DESCRIPTION}\n`,
+          `${warmLaunches.map(describeRunLoad).join("; ")} — ${RUNNER_CLASS_DESCRIPTION}\n`,
+      );
+      process.stdout.write(
+        `[endurance] frame time first launch, cold GPU caches, not gated: p95 ` +
+          `${p95InRefreshes(firstLaunch).toFixed(3)} refreshes; p50 ` +
+          `${percentileByNearestRank(firstLaunch.frameDurationsMs, 0.5).toFixed(2)} ms; ` +
+          `${describeRunLoad(firstLaunch)} — ${RUNNER_CLASS_DESCRIPTION}\n`,
       );
 
       if (!isPinnedRunnerClass) {

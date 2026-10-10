@@ -10,18 +10,10 @@
 // wire contract: ids are UUIDs, and `session.created` carries the session's shape and its
 // lead, not a title, which its `.strict()` schema rejects.
 
-import {
-  encodeEventCursor,
-  START_OF_LOG_POSITION,
-} from "@ai-sidekicks/contracts/session/event-cursor";
-
 import { composeSessionCreatedPayload } from "../data/opening-entries.js";
-import {
-  composeScenarioInstant,
-  composeScriptBeats,
-  findBeatCursor,
-} from "../data/script-entries.js";
+import { composeScenarioInstant, composeScriptBeats } from "../data/script-entries.js";
 import { defineScenario, type Scenario, type ScenarioBeat } from "../scenario.js";
+import { sessionReadReply } from "../data/session-record.js";
 
 /** The id of the first-run scenario. */
 export const FIRST_RUN_SCENARIO_ID = "first-run";
@@ -76,30 +68,15 @@ export const FIRST_RUN_SCENARIO: Scenario = defineScenario(
     return {
       beats,
       replies: [
-        {
-          // `provisioning` is what a session being created reads as before it is admitted.
-          call: "session.read",
-          result: {
-            session: {
-              id: SESSION_ID,
-              state: "provisioning",
-              shape: "chat",
-              muted: false,
-              pendingWorkingFolder: null,
-              createdAt: STARTED_AT_ISO,
-              updatedAt: STARTED_AT_ISO,
-              draft: "",
-              tags: [],
-            },
-            transcriptCursors: {
-              earliest: encodeEventCursor(START_OF_LOG_POSITION),
-              latest: findBeatCursor(beats, beats.length - 1),
-            },
-            // The record a read before any beat lands holds: no run has begun.
-            liveRuns: [],
-            standingEvents: [],
-          },
-        },
+        // `provisioning` is what a session being created reads as before it is admitted.
+        sessionReadReply({
+          sessionId: SESSION_ID,
+          state: "provisioning",
+          shape: "chat",
+          createdAt: STARTED_AT_ISO,
+          updatedAt: STARTED_AT_ISO,
+          beats,
+        }),
       ],
     };
   },

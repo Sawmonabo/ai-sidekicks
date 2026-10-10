@@ -47,12 +47,24 @@ export const TRANSCRIPT_LET_GO_SCREEN_HEIGHTS: number =
 export const TRANSCRIPT_DRAWN_BAND_SCREEN_HEIGHTS = 1;
 
 /**
+ * How far the drawn band widens beyond each edge of the viewport per task after a land, in screen
+ * heights.
+ *
+ * A land (a page at the head, a landing on a row or the tail, the opening) draws only the rows on
+ * screen in its own task, then the band grows by this much a task until it reaches
+ * `TRANSCRIPT_DRAWN_BAND_SCREEN_HEIGHTS`, so no one task mounts a whole band beside the land.
+ */
+export const TRANSCRIPT_BAND_WIDENING_SCREEN_HEIGHTS = 0.5;
+
+/**
  * The pause between two of the reader's scroll samples, in milliseconds, that ends one gesture and
  * starts the next.
  *
- * Compared against the samples' own clock stamps, never armed. A wheel or a fling delivers a
- * sample every frame while it moves, so a pause of several frames is a hand that let go; one
- * gesture admits at most one stretch, so a fling brings a stretch and not the whole log.
+ * Compared against the samples' scroll-event time stamps, never armed. A wheel or a fling delivers
+ * a sample every frame while it moves, so a pause of several frames is a hand that let go; one
+ * gesture admits at most one stretch, so a fling brings a stretch and not the whole log. A scroll
+ * sample this soon after the reader's wheel, key or touch is that input's, which is what lets it
+ * end following.
  */
 export const TRANSCRIPT_GESTURE_GAP_MS = 150;
 

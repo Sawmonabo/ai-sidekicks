@@ -175,6 +175,27 @@ export class MarkdownBodyBlocks {
   }
 }
 
+/** A text's length and FNV-1a hash, in base 36: equal for equal texts, short for any. */
+export function fingerprintOf(text: string): string {
+  let hash = FINGERPRINT_OFFSET_BASIS;
+  for (let index = 0; index < text.length; index += 1) {
+    hash = Math.imul(hash ^ text.charCodeAt(index), FINGERPRINT_PRIME);
+  }
+  return `${text.length.toString(36)}.${(hash >>> 0).toString(36)}`;
+}
+
+/**
+ * Where block `index` of a body starts in the body's text, in UTF-16 code units: a settled block's
+ * own start, or the tail's, which runs to the body's end.
+ */
+export function blockSourceStartOf(
+  blocks: Pick<MarkdownBodyBlocksSnapshot, "settledBlocks" | "volatileTail">,
+  bodyTextLength: number,
+  index: number,
+): number {
+  return blocks.settledBlocks[index]?.start ?? bodyTextLength - blocks.volatileTail.length;
+}
+
 /** One generation's text, as the handle it is read through: every block of it is cut from this. */
 class GenerationText {
   #text: PublishedText = NO_TEXT;
@@ -240,13 +261,4 @@ function identifiersOf(blocks: readonly SettledMarkdownBlock[]): ReadonlySet<str
   return blocks.length === 0
     ? NO_IDENTIFIERS
     : new Set(blocks.flatMap((block) => [...block.definedFootnoteIdentifiers]));
-}
-
-/** A text's length and FNV-1a hash, in base 36: equal for equal texts, short for any. */
-function fingerprintOf(text: string): string {
-  let hash = FINGERPRINT_OFFSET_BASIS;
-  for (let index = 0; index < text.length; index += 1) {
-    hash = Math.imul(hash ^ text.charCodeAt(index), FINGERPRINT_PRIME);
-  }
-  return `${text.length.toString(36)}.${(hash >>> 0).toString(36)}`;
 }

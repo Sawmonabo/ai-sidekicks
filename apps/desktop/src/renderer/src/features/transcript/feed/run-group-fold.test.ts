@@ -1,88 +1,253 @@
-// The run group fold, driven with no store and no React. A run longer than the cap needs
-// this file: a virtualized feed mounts a range whatever the fold admitted.
+// The run group fold, driven with no store and no React: the headers it stands, the folds a
+// person holds, and the window of a long run it lets through.
 
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 import { act, renderHook } from "@testing-library/react";
 import { createElement } from "react";
 import { describe, expect, it } from "vitest";
 import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
-import { RUN_GROUP_VISIBLE_ROW_CAP } from "../runs/body.js";
 import { type ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
-import { foldRunGroupHeaders } from "./run-group-fold.js";
+import { RunGroupFold } from "./run-group-fold.js";
+import { measuredRunWindowInputs, wholeRunWindowInputs } from "./run-group-fold.test-support.js";
+import { runWindowEdgeKey, type RunWindowMeasure } from "../runs/call-window.js";
+import { longRunCallIds, longRunEvents, onlyRunGroupOf } from "../runs/call-window.test-support.js";
 import { useTranscriptFolds, type TranscriptFolds } from "./hooks/useTranscriptFolds.js";
 import { transcriptFixtureStampAt, transcriptFixtureStreamCursor } from "../logs.test-support.js";
-import { deriveTranscriptWindow, type TranscriptWindowModel } from "../window/transcript-window.js";
+import {
+  TranscriptWindowDerivation,
+  deriveTranscriptWindow,
+  type TranscriptWindowModel,
+} from "../window/transcript-window.js";
 
 const SESSION_ID = "session-run-group-cap";
 const RUN_ID = "019b793b-7b60-740e-8110-d1a4c1150111";
-const ROWS_PAST_THE_CAP = 5;
+const OTHER_RUN_ID = "019b793b-7b60-740e-8110-d1a4c1150222";
+/** A run group's key, opaque to the folds a person holds. */
+const RUN_GROUP_KEY = "run-group-folded-by-the-reader";
 
 // One finished run of `memberCount` rows, alone, so every figure below is that run's.
 function oneRunLog(memberCount: number): readonly ProjectedSessionEvent[] {
-  const payload = { sessionId: SESSION_ID, runId: RUN_ID };
-  return Array.from({ length: memberCount }, (_unused, index) => ({
-    id: `event-${String(index)}`,
+  return runLog(
+    Array.from({ length: memberCount }, (_unused, index) =>
+      index === memberCount - 1 ? "run.completed" : "assistant.message",
+    ),
+  );
+}
+
+/** One run's events of `kinds`, in order. */
+function runLog(kinds: readonly string[]): readonly ProjectedSessionEvent[] {
+  return eventsOf(
+    kinds.map((kind, index) => ({ id: `event-${String(index)}`, kind, runId: RUN_ID })),
+  );
+}
+
+/** The events of `rows`, in order, each of its own kind and run. */
+function eventsOf(
+  rows: readonly { readonly id: string; readonly kind: string; readonly runId: string }[],
+): readonly ProjectedSessionEvent[] {
+  return rows.map((row, index) => ({
+    id: row.id,
     sessionId: SESSION_ID,
     sequence: index,
     cursor: transcriptFixtureStreamCursor(index),
-    kind: index === memberCount - 1 ? "run.completed" : "assistant.message",
+    kind: row.kind,
     occurredAt: transcriptFixtureStampAt(index),
-    payload,
+    payload: { sessionId: SESSION_ID, runId: row.runId },
     runStamp: { position: index, epoch: 0 },
   }));
 }
 
-function foldedOverOneRun(memberCount: number, isOpen: boolean): TranscriptWindowModel {
-  return foldRunGroupHeaders(
-    deriveTranscriptWindow(oneRunLog(memberCount)),
-    new Set(isOpen ? [] : [RUN_ID]),
-  ).window;
+/** The key of the one run group a window of one unbroken run holds. */
+function onlyRunGroupKey(model: TranscriptWindowModel): string {
+  const [runGroupKey, ...others] = model.runGroupByHeaderKey.keys();
+  if (runGroupKey === undefined || others.length > 0) {
+    throw new Error("the window does not hold exactly one run group");
+  }
+  return runGroupKey;
 }
 
-function renderedMemberKeys(model: TranscriptWindowModel): readonly string[] {
-  return model.viewportRows.filter((row) => row.parentKey === RUN_ID).map((row) => row.key);
-}
+describe("a long run's window in the outer list", () => {
+  /** Ten pixels a row on a hundred-pixel screen: five screens hold fifty calls. */
+  const MEASURE: RunWindowMeasure = { screenHeightPx: () => 100, rowHeightPx: () => 10 };
 
-describe("an open run group admits the cap's own window and no more", () => {
-  const OVER_CAP_MEMBER_COUNT = RUN_GROUP_VISIBLE_ROW_CAP + ROWS_PAST_THE_CAP;
+  it("puts the window's rows in the outer list between its two edge lines", () => {
+    const events = longRunEvents(120);
+    const model = deriveTranscriptWindow(events);
+    const runGroup = onlyRunGroupOf(model);
+    const inputs = measuredRunWindowInputs(MEASURE);
+    const fold = new RunGroupFold();
+    fold.fold(model, new Set(), inputs);
+    inputs.windows.openStretch(runGroup, "earlier", MEASURE);
 
-  it("renders exactly the cap when a run longer than it is opened", () => {
-    const model = foldedOverOneRun(OVER_CAP_MEMBER_COUNT, true);
-    expect(renderedMemberKeys(model)).toHaveLength(RUN_GROUP_VISIBLE_ROW_CAP);
-    expect(model.rows).toHaveLength(RUN_GROUP_VISIBLE_ROW_CAP);
-  });
+    const folded = fold.fold(model, new Set(), { ...inputs, moveCount: 1 });
 
-  it("keeps the newest rows and clips the run's older head", () => {
-    // Newest, not oldest: the body clips behind a top-edge fade.
-    const model = foldedOverOneRun(OVER_CAP_MEMBER_COUNT, true);
-    const everyMemberId = deriveTranscriptWindow(oneRunLog(OVER_CAP_MEMBER_COUNT)).rows.map(
-      (row: TranscriptEventRow) => row.id,
+    const callIds = longRunCallIds(events);
+    const window = inputs.windows.resolvedWindowOf(runGroup.key);
+    expect(window?.earlierCount).toBeGreaterThan(0);
+    expect(window?.laterCount).toBeGreaterThan(0);
+    const firstCallId = callIds[window?.earlierCount ?? 0] ?? "";
+    const lastCallId = callIds[callIds.length - (window?.laterCount ?? 0) - 1] ?? "";
+    const windowRowIds = runGroup.rowIds.slice(
+      runGroup.rowIds.indexOf(firstCallId),
+      runGroup.rowIds.indexOf(lastCallId) + 1,
     );
-    const rendered = new Set(renderedMemberKeys(model));
-    for (const clippedId of everyMemberId.slice(0, ROWS_PAST_THE_CAP)) {
-      expect(rendered.has(clippedId)).toBe(false);
-    }
-    for (const keptId of everyMemberId.slice(ROWS_PAST_THE_CAP)) {
-      expect(rendered.has(keptId)).toBe(true);
-    }
-  });
-
-  it("reports as clipped exactly what it did not render", () => {
-    const model = foldedOverOneRun(OVER_CAP_MEMBER_COUNT, true);
-    const runGroup = model.runGroupByHeaderKey.get(RUN_ID);
-    expect(runGroup?.clippedRowCount).toBe(ROWS_PAST_THE_CAP);
-    expect((runGroup?.rowCount ?? 0) - renderedMemberKeys(model).length).toBe(
-      runGroup?.clippedRowCount,
+    expect(folded.window.viewportRows.map((row) => row.key)).toStrictEqual([
+      runGroup.key,
+      runWindowEdgeKey(runGroup.key, "earlier"),
+      ...windowRowIds,
+      runWindowEdgeKey(runGroup.key, "later"),
+    ]);
+    expect(folded.removedRows.map((row) => row.id)).toStrictEqual(
+      runGroup.rowIds.filter((rowId) => !windowRowIds.includes(rowId)),
     );
   });
 
-  it("opens a run group under the cap whole", () => {
-    const memberCount = RUN_GROUP_VISIBLE_ROW_CAP - 1;
-    const model = foldedOverOneRun(memberCount, true);
-    expect(renderedMemberKeys(model)).toHaveLength(memberCount);
-    expect(model.runGroupByHeaderKey.get(RUN_ID)?.clippedRowCount).toBe(0);
+  it("folds a run's growth in place as it would fold the grown log whole", () => {
+    // Past the let-go distance, so the growth lets the window's oldest calls go.
+    const events = longRunEvents(160);
+    const derivation = new TranscriptWindowDerivation();
+    const inputs = measuredRunWindowInputs(MEASURE);
+    const fold = new RunGroupFold();
+    fold.fold(derivation.derive(events.slice(0, 120)), new Set(), inputs);
+
+    const grownModel = derivation.derive(events);
+    const grown = fold.fold(grownModel, new Set(), inputs);
+    const whole = new RunGroupFold().fold(grownModel, new Set(), inputs);
+
+    expect(grown.window.viewportRows.map((row) => row.key)).toStrictEqual(
+      whole.window.viewportRows.map((row) => row.key),
+    );
+    expect(grown.removedRows.map((row) => row.id)).toStrictEqual(
+      whole.removedRows.map((row) => row.id),
+    );
+    expect(grown.removedRows.length).toBeGreaterThan(0);
+  });
+});
+
+describe("a person's fold stays with its stretch as the window around it moves", () => {
+  const STRETCH_ROW_COUNT = 10;
+  const ROWS_OUTSIDE_THE_WINDOW = 4;
+
+  /** Whether the fold under `foldedRunGroupKeys` shows the stretch as its header alone. */
+  function isFoldedAway(
+    model: TranscriptWindowModel,
+    foldedRunGroupKeys: ReadonlySet<string>,
+  ): boolean {
+    const folded = new RunGroupFold().fold(
+      model,
+      foldedRunGroupKeys,
+      wholeRunWindowInputs(),
+    ).window;
+    return folded.rows.length === 0 && folded.viewportRows.length === 1;
+  }
+
+  it("stays folded when a page of the stretch's older rows lands before it", () => {
+    const log = oneRunLog(STRETCH_ROW_COUNT);
+    const derivation = new TranscriptWindowDerivation();
+    const folded = new Set([
+      onlyRunGroupKey(derivation.derive(log.slice(ROWS_OUTSIDE_THE_WINDOW))),
+    ]);
+
+    expect(isFoldedAway(derivation.derive(log), folded)).toBe(true);
+  });
+
+  it("stays folded when the stretch's first rows are let go", () => {
+    const log = oneRunLog(STRETCH_ROW_COUNT);
+    const derivation = new TranscriptWindowDerivation();
+    const folded = new Set([onlyRunGroupKey(derivation.derive(log))]);
+
+    expect(isFoldedAway(derivation.derive(log.slice(ROWS_OUTSIDE_THE_WINDOW)), folded)).toBe(true);
+  });
+
+  // The run's reply, its running row that draws nothing, another agent's reply, then two more of
+  // the run's replies: two stretches of the run, which the running row may sit in either of.
+  const twoStretchLog = eventsOf([
+    { id: "reply-1", kind: "assistant.message", runId: RUN_ID },
+    { id: "running", kind: "run.running", runId: RUN_ID },
+    { id: "other-reply", kind: "assistant.message", runId: OTHER_RUN_ID },
+    { id: "reply-2", kind: "assistant.message", runId: RUN_ID },
+    { id: "reply-3", kind: "assistant.message", runId: RUN_ID },
+  ]);
+
+  /** The key of the stretch `rowId` sits in, or throws where it sits in none. */
+  function stretchKeyOf(model: TranscriptWindowModel, rowId: string): string {
+    const runGroupKey = model.runGroupKeyByRowId.get(rowId);
+    if (runGroupKey === undefined) {
+      throw new Error(`${rowId} sits in no run group`);
+    }
+    return runGroupKey;
+  }
+
+  /** The rows the fold under `foldedRunGroupKeys` hides, by id. */
+  function foldedAwayRowIds(
+    model: TranscriptWindowModel,
+    foldedRunGroupKeys: ReadonlySet<string>,
+  ): readonly string[] {
+    return new RunGroupFold()
+      .fold(model, foldedRunGroupKeys, wholeRunWindowInputs())
+      .removedRows.map((row) => row.id);
+  }
+
+  it("keeps two stretches apart when pages land through a row that draws nothing", () => {
+    const log = eventsOf([
+      { id: "reply-1", kind: "assistant.message", runId: RUN_ID },
+      { id: "other-reply", kind: "assistant.message", runId: OTHER_RUN_ID },
+      { id: "running", kind: "run.running", runId: RUN_ID },
+      { id: "reply-2", kind: "assistant.message", runId: RUN_ID },
+    ]);
+    const derivation = new TranscriptWindowDerivation();
+    const folded = new Set([stretchKeyOf(derivation.derive(log.slice(3)), "reply-2")]);
+    derivation.derive(log.slice(2));
+    const model = derivation.derive(log);
+
+    // Both of the run's stretches and the other agent's reply each stand under a header.
+    expect(model.runGroupByHeaderKey.size).toBe(3);
+    expect(foldedAwayRowIds(model, folded)).toStrictEqual(["reply-2"]);
+  });
+
+  it("keeps a fold on its stretch when an earlier stretch of the run is let go", () => {
+    const derivation = new TranscriptWindowDerivation();
+    const whole = derivation.derive(twoStretchLog);
+    const foldedEarlier = new Set([stretchKeyOf(whole, "reply-1")]);
+    const foldedLater = new Set([stretchKeyOf(whole, "reply-2")]);
+    const released = derivation.derive(twoStretchLog.slice(1));
+
+    expect(foldedAwayRowIds(released, foldedLater)).toStrictEqual([
+      "running",
+      "reply-2",
+      "reply-3",
+    ]);
+    expect(foldedAwayRowIds(released, foldedEarlier)).toStrictEqual([]);
+  });
+
+  it("keeps a fold on its stretch when an earlier stretch of the run lands before it", () => {
+    const derivation = new TranscriptWindowDerivation();
+    const folded = new Set([stretchKeyOf(derivation.derive(twoStretchLog.slice(1)), "reply-2")]);
+
+    expect(foldedAwayRowIds(derivation.derive(twoStretchLog), folded)).toStrictEqual([
+      "reply-2",
+      "reply-3",
+    ]);
+  });
+});
+
+describe("a run with nothing drawn has no header", () => {
+  it("stands no header over a run until its first card, then one above that card", () => {
+    const log = runLog(["run.queued", "run.running", "assistant.message", "run.completed"]);
+
+    const started = deriveTranscriptWindow(log.slice(0, 2));
+    expect(started.runGroupByHeaderKey.size).toBe(0);
+    expect(
+      new RunGroupFold().fold(started, new Set(), wholeRunWindowInputs()).window.viewportRows,
+    ).toStrictEqual(started.viewportRows);
+
+    const replied = deriveTranscriptWindow(log);
+    const keys = new RunGroupFold()
+      .fold(replied, new Set(), wholeRunWindowInputs())
+      .window.viewportRows.map((row) => row.key);
+    const runGroupKey = onlyRunGroupKey(replied);
+    expect(keys).toStrictEqual(["event-0", "event-1", runGroupKey, "event-2", "event-3"]);
   });
 });
 
@@ -108,29 +273,30 @@ describe("the run group folds follow the session the pane is a log of", () => {
   it("opens the next session's run groups, whatever was folded in the last", () => {
     const folds = mountFolds();
     act(() => {
-      folds.result.current.toggleRunGroup(RUN_ID);
+      folds.result.current.toggleRunGroup(RUN_GROUP_KEY);
     });
-    expect([...folds.result.current.foldedRunIds]).toStrictEqual([RUN_ID]);
+    expect([...folds.result.current.foldedRunGroupKeys]).toStrictEqual([RUN_GROUP_KEY]);
 
     act(() => {
       folds.rerender({ sessionId: OTHER_SESSION_ID });
     });
 
-    // A run id belongs to the session that minted it; carrying the set over folds the wrong group.
-    expect([...folds.result.current.foldedRunIds]).toStrictEqual([]);
+    // A run group belongs to the session whose log holds it; carrying the set over folds the wrong
+    // group.
+    expect([...folds.result.current.foldedRunGroupKeys]).toStrictEqual([]);
   });
 
   it("holds a session's own folds across a re-render at that same session", () => {
     // Guards against a fix that resets on every render, opening a group whenever a row arrives.
     const folds = mountFolds();
     act(() => {
-      folds.result.current.toggleRunGroup(RUN_ID);
+      folds.result.current.toggleRunGroup(RUN_GROUP_KEY);
     });
 
     act(() => {
       folds.rerender({ sessionId: SESSION_ID });
     });
 
-    expect([...folds.result.current.foldedRunIds]).toStrictEqual([RUN_ID]);
+    expect([...folds.result.current.foldedRunGroupKeys]).toStrictEqual([RUN_GROUP_KEY]);
   });
 });

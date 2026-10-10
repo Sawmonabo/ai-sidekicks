@@ -1,26 +1,28 @@
-// Which of a windowed body's blocks a selection keeps drawn. A selection's ends live in drawn
-// nodes, and copying reads the nodes between them, so every block from the one holding the start
-// to the one holding the end stays drawn however far the reader scrolls. An end outside the body
-// pins the body's edge on that side.
+// Which of a window's items a selection keeps drawn: a long body's blocks, or a long table's rows,
+// each marked with its index under its window's own attribute. A selection's ends live in drawn
+// nodes, so the items holding them stay drawn however far the reader scrolls; a body's blocks
+// between the ends stay drawn too, since a copy reads them from the page, while a table's rows
+// between them are read from the text and drawn only where the reader looks. An end outside the
+// window pins the window's edge on that side.
 
-import { MARKDOWN_BLOCK_INDEX_ATTRIBUTE } from "./markers.js";
-
-/** The blocks a selection runs across, first and last, by index. */
-export interface PinnedBlockRange {
+/** The items a selection runs across, first and last, by index. */
+export interface PinnedRange {
   readonly firstIndex: number;
   readonly lastIndex: number;
 }
 
 /**
- * The blocks of the window in `windowElement` that `selectionRange` runs across, or `undefined`
- * when it misses them: no selection, or one wholly before or after the window.
+ * The items of the window in `windowElement`, marked with `indexAttribute`, that `selectionRange`
+ * runs across, or `undefined` when it misses them: no selection, or one wholly before or after
+ * the window.
  */
-export function pinnedBlockRangeOf(
+export function pinnedRangeOf(
   selectionRange: AbstractRange | undefined,
   windowElement: Element,
-  blockCount: number,
-): PinnedBlockRange | undefined {
-  if (selectionRange === undefined || blockCount === 0) {
+  itemCount: number,
+  indexAttribute: string,
+): PinnedRange | undefined {
+  if (selectionRange === undefined || itemCount === 0) {
     return undefined;
   }
   const windowRange = windowElement.ownerDocument.createRange();
@@ -30,55 +32,81 @@ export function pinnedBlockRangeOf(
   if (start > 0 || end < 0) {
     return undefined;
   }
-  const lastBlockIndex = blockCount - 1;
+  const lastItemIndex = itemCount - 1;
   const firstIndex =
     start < 0
       ? 0
-      : blockIndexAt(
+      : itemIndexAt(
           selectionRange.startContainer,
           selectionRange.startOffset,
           windowElement,
+          indexAttribute,
           "start",
         );
   const lastIndex =
     end > 0
-      ? lastBlockIndex
-      : blockIndexAt(selectionRange.endContainer, selectionRange.endOffset, windowElement, "end");
+      ? lastItemIndex
+      : itemIndexAt(
+          selectionRange.endContainer,
+          selectionRange.endOffset,
+          windowElement,
+          indexAttribute,
+          "end",
+        );
   return {
-    firstIndex: Math.min(firstIndex ?? 0, lastBlockIndex),
-    lastIndex: Math.min(lastIndex ?? lastBlockIndex, lastBlockIndex),
+    firstIndex: Math.min(firstIndex ?? 0, lastItemIndex),
+    lastIndex: Math.min(lastIndex ?? lastItemIndex, lastItemIndex),
   };
 }
 
-/**
- * The window's own indexes with every pinned block below `blockCount` added, ascending and each
- * once. A pin can outlive a block it named, when the body was replaced since the selection.
- */
-export function withPinnedBlocks(
-  windowIndexes: number[],
-  pins: PinnedBlockRange | undefined,
-  blockCount: number,
-): number[] {
+/** Every index from a pinned range's first to its last, for a window that keeps them all drawn. */
+export function indexesBetween(pins: PinnedRange | undefined): readonly number[] {
   if (pins === undefined) {
+    return [];
+  }
+  const indexes: number[] = [];
+  for (let index = pins.firstIndex; index <= pins.lastIndex; index += 1) {
+    indexes.push(index);
+  }
+  return indexes;
+}
+
+/** A pinned range's two ends, for a window that keeps only the items holding them drawn. */
+export function rangeEnds(pins: PinnedRange | undefined): readonly number[] {
+  return pins === undefined ? [] : [pins.firstIndex, pins.lastIndex];
+}
+
+/**
+ * The window's own indexes with every pinned index below `itemCount` added, ascending and each
+ * once. A pin can outlive an item it named, when the body was replaced since the selection.
+ */
+export function withPinnedIndexes(
+  windowIndexes: number[],
+  pinnedIndexes: readonly number[],
+  itemCount: number,
+): number[] {
+  if (pinnedIndexes.length === 0) {
     return windowIndexes;
   }
   const indexes = new Set(windowIndexes);
-  const lastIndex = Math.min(pins.lastIndex, blockCount - 1);
-  for (let index = pins.firstIndex; index <= lastIndex; index += 1) {
-    indexes.add(index);
+  for (const index of pinnedIndexes) {
+    if (index < itemCount) {
+      indexes.add(index);
+    }
   }
   return [...indexes].sort((left, right) => left - right);
 }
 
 /**
- * The index of the block holding a boundary point inside the window. A point between the
- * window's own children belongs to the nearest wrapper after it for a start and before it for an
- * end, past any spacer; `undefined` when no wrapper holds or follows (or precedes) it.
+ * The index of the item holding a boundary point inside the window. A point between the
+ * window's own children belongs to the nearest marked item after it for a start and before it for
+ * an end, past any spacer; `undefined` when no item holds or follows (or precedes) it.
  */
-function blockIndexAt(
+function itemIndexAt(
   container: Node,
   offset: number,
   windowElement: Element,
+  indexAttribute: string,
   boundary: "start" | "end",
 ): number | undefined {
   if (container === windowElement) {
@@ -90,7 +118,7 @@ function blockIndexAt(
       node !== null && node !== undefined;
       node = boundary === "start" ? node.nextSibling : node.previousSibling
     ) {
-      const index = indexOf(node);
+      const index = indexOf(node, indexAttribute);
       if (index !== undefined) {
         return index;
       }
@@ -102,7 +130,7 @@ function blockIndexAt(
     node !== null && node !== windowElement;
     node = node.parentNode
   ) {
-    const index = indexOf(node);
+    const index = indexOf(node, indexAttribute);
     if (index !== undefined) {
       return index;
     }
@@ -110,11 +138,9 @@ function blockIndexAt(
   return undefined;
 }
 
-/** The block index a wrapper carries; `undefined` for any other node. */
-function indexOf(node: Node): number | undefined {
+/** The index a marked item carries; `undefined` for any other node. */
+function indexOf(node: Node, indexAttribute: string): number | undefined {
   const attribute =
-    node.nodeType === Node.ELEMENT_NODE
-      ? (node as Element).getAttribute(MARKDOWN_BLOCK_INDEX_ATTRIBUTE)
-      : null;
+    node.nodeType === Node.ELEMENT_NODE ? (node as Element).getAttribute(indexAttribute) : null;
   return attribute === null ? undefined : Number(attribute);
 }

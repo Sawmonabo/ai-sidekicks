@@ -2,10 +2,13 @@
 // outside world, pointed at machinery this frame already has.
 //
 // Every member is a stable reference, because the virtualizer memoizes measurements against
-// option identity and a closure rebuilt per render would recompute every offset. No member reads
-// an element: offset and rect come from one geometry sample, so following takes no hit test per
-// scroll event. Every offset the library writes reaches the scroll chokepoint through
-// `scrollToFn`, named for whoever it is made for.
+// option identity and a closure rebuilt per render would recompute every offset. The exceptions
+// are the key and the range extractor, replaced when the rows, the held rows or the drawn band
+// change: the library's memos of the layout and of which rows it draws are keyed on them. No member
+// reads an element: offset and rect come from one geometry sample, so following takes no hit test
+// per scroll event. Every offset the library writes reaches the scroll chokepoint through
+// `scrollToFn`, named for whoever it is made for. While a land is on its way the rows are drawn at
+// the offset it ends at, not the one the box stands at.
 
 import type { Range, Rect, Virtualizer } from "@tanstack/react-virtual";
 
@@ -15,7 +18,6 @@ import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { type ScrollCaller } from "#renderer/lib/scroll/callers.js";
 import { SCROLL_TAIL_TOLERANCE_PX } from "#renderer/lib/scroll/geometry/publisher.js";
 import { SCROLL_GEOMETRY_EPSILON_PX } from "#renderer/lib/scroll/geometry/sample.js";
-import { TRANSCRIPT_DRAWN_BAND_SCREEN_HEIGHTS } from "./caps.js";
 
 /** The virtualizer this frame drives, at the two element types it drives it with. */
 export type TranscriptRowVirtualizer = Virtualizer<HTMLElement, HTMLElement>;
@@ -31,8 +33,17 @@ export interface VirtualizerOptionsInputs {
   readonly virtualKeyAt: (index: number) => string | undefined;
   /** Whether the reader follows the tail, read at each write the library makes. */
   readonly isFollowing: () => boolean;
+  /** The indexes of the rows the reader holds that the window keeps, in any order. */
+  readonly heldRowIndexes: () => readonly number[];
   /** The virtualizer built with these options, once it is bound. */
   readonly virtualizer: () => TranscriptRowVirtualizer | undefined;
+  /**
+   * The offset a land on its way ends at, over the rows as the library lays them out, or
+   * `undefined` with none on its way.
+   */
+  readonly landingTargetPx: () => number | undefined;
+  /** How far beyond each edge of the viewport the rows are drawn now, in screen heights. */
+  readonly drawnBandScreenHeights: () => number;
 }
 
 /** The stable option members the transcript's virtualizer is constructed with. */
@@ -41,7 +52,10 @@ export class VirtualizerOptions {
   readonly #measurements: RowMeasurementTable;
   readonly #virtualKeyAt: (index: number) => string | undefined;
   readonly #isFollowing: () => boolean;
+  readonly #heldRowIndexes: () => readonly number[];
   readonly #virtualizer: () => TranscriptRowVirtualizer | undefined;
+  readonly #landingTargetPx: () => number | undefined;
+  readonly #drawnBandScreenHeights: () => number;
 
   #scrollContainer: HTMLElement | undefined;
   /** Whom the library's writes are made for while a jump runs. */
@@ -53,6 +67,10 @@ export class VirtualizerOptions {
   #reaimCaller: ScrollCaller | undefined;
   /** Set when the library takes a box; its next write puts that box at the offset it holds. */
   #isOpeningBox = false;
+  /** The current identity of `rangeExtractor`, replaced by `redrawBand` and `rekeyRows`. */
+  #rangeExtractor = (range: Range): number[] => this.#drawnIndexesOf(range);
+  /** The current identity of `getItemKey`, replaced by `rekeyRows`. */
+  #getItemKey = (index: number): string => this.#keyAt(index);
 
   /**
    * How near its end, in pixels, the library counts the reader as at it: the reading anchor's
@@ -106,10 +124,6 @@ export class VirtualizerOptions {
       sink({ width: 0, height: geometry.viewportHeight });
     });
 
-  /** One row's key. Stable references: a closure rebuilt per render invalidates the memo. */
-  public readonly getItemKey = (index: number): string =>
-    this.#virtualKeyAt(index) ?? `row-without-a-key-${String(index)}`;
-
   /**
    * An unmeasured row's height: what the session remembers for it, or its kind's estimate.
    *
@@ -128,33 +142,6 @@ export class VirtualizerOptions {
     // Set as the library sets a measured size, without a rebuild: this one lays the row out at it.
     this.#virtualizer()?.itemSizeCache.set(measuredKey, rememberedHeightPx);
     return rememberedHeightPx;
-  };
-
-  /**
-   * The rows the library draws: the ones the box intersects, and beyond each end the rows within
-   * `TRANSCRIPT_DRAWN_BAND_SCREEN_HEIGHTS` of the viewport's own height, counted from the end of
-   * that range and including the row that crosses the band's edge. The library offers only a row
-   * count of its own, so the band is walked in pixels here, over the sizes it laid the rows out at,
-   * or their estimates before it is bound. It re-asks only when the intersected range moves, so a
-   * viewport that changed height without moving that range keeps its band until the next scroll.
-   */
-  public readonly rangeExtractor = (range: Range): number[] => {
-    const bandPx =
-      (this.#scroll.geometry?.viewportHeight ?? 0) * TRANSCRIPT_DRAWN_BAND_SCREEN_HEIGHTS;
-    let startIndex = range.startIndex;
-    for (let drawnPx = 0; startIndex > 0 && drawnPx < bandPx; ) {
-      startIndex -= 1;
-      drawnPx += this.#laidOutSizeAt(startIndex);
-    }
-    let endIndex = range.endIndex;
-    for (let drawnPx = 0; endIndex < range.count - 1 && drawnPx < bandPx; ) {
-      endIndex += 1;
-      drawnPx += this.#laidOutSizeAt(endIndex);
-    }
-    return Array.from(
-      { length: endIndex - startIndex + 1 },
-      (_unused, offset) => startIndex + offset,
-    );
   };
 
   /**
@@ -186,7 +173,54 @@ export class VirtualizerOptions {
     this.#measurements = options.measurements;
     this.#virtualKeyAt = options.virtualKeyAt;
     this.#isFollowing = options.isFollowing;
+    this.#heldRowIndexes = options.heldRowIndexes;
     this.#virtualizer = options.virtualizer;
+    this.#landingTargetPx = options.landingTargetPx;
+    this.#drawnBandScreenHeights = options.drawnBandScreenHeights;
+  }
+
+  /**
+   * The rows the library draws: the ones the box intersects, or would at the offset a land on its
+   * way ends at, beyond each end the rows within the drawn band's share of the viewport's own
+   * height, counted from the end of that range and including the row that crosses the band's
+   * edge, and every held row the window keeps, so the browser's selection stays anchored in the
+   * rows it starts and ends in. The library offers only a row count of its own, so the band is
+   * walked in pixels here, over the sizes it laid the rows out at, or their estimates before it is
+   * bound. The library re-asks only when the intersected range or this function's identity moves,
+   * so a viewport that changed height without moving that range keeps its band until the next
+   * scroll.
+   */
+  public get rangeExtractor(): (range: Range) => number[] {
+    return this.#rangeExtractor;
+  }
+
+  /**
+   * Gives `rangeExtractor` a new identity, which the library's memo of the drawn rows keys on, so
+   * the next render draws the band and the held rows as they now stand. Its other way to
+   * recompute, `measure`, would also drop every measured height.
+   */
+  public redrawBand(): void {
+    this.#rangeExtractor = (range: Range): number[] => this.#drawnIndexesOf(range);
+  }
+
+  /**
+   * One row's key. The library lays the rows out again only when this identity or the row count
+   * moves, so a key it already read is not read again until `rekeyRows` replaces the identity.
+   */
+  public get getItemKey(): (index: number) => string {
+    return this.#getItemKey;
+  }
+
+  /**
+   * Gives `getItemKey` and `rangeExtractor` new identities after the window's rows changed, so the
+   * next render lays the rows out under their new keys and draws its band over their new sizes,
+   * even when the row count and the intersected range did not move. Under the old identities the
+   * library keeps the old keys, so its direct writes place each row at another row's start, and
+   * keeps the band it walked over the old rows' sizes, held rows' indexes among them.
+   */
+  public rekeyRows(): void {
+    this.#getItemKey = (index: number): string => this.#keyAt(index);
+    this.#rangeExtractor = (range: Range): number[] => this.#drawnIndexesOf(range);
   }
 
   /**
@@ -205,18 +239,70 @@ export class VirtualizerOptions {
 
   /**
    * Ends the library's running scroll where the reader is, for a reader who has taken the offset
-   * back. The library keeps re-aiming a scroll for up to five seconds and nothing of its own
-   * cancels one on a gesture; a new command replaces it, and this one's writes are not made.
+   * back. The library keeps re-aiming a scroll for up to five seconds and does not end one on a
+   * gesture itself; `cancelScroll` ends it without a write.
    */
   public retireLibraryScroll(virtualizer: TranscriptRowVirtualizer): void {
     this.#reaimCaller = undefined;
-    // A command of no distance: unlike `scrollToOffset`, it reads no element to clamp against.
-    virtualizer.scrollBy(0);
+    virtualizer.cancelScroll();
   }
 
   /** Points the options at the box the chokepoint just took, or at nothing. */
   public bindScrollContainer(scrollContainer: HTMLElement | undefined): void {
     this.#scrollContainer = scrollContainer;
+  }
+
+  #keyAt(index: number): string {
+    return this.#virtualKeyAt(index) ?? `row-without-a-key-${String(index)}`;
+  }
+
+  /** The band around the intersected range, and the held rows outside it, ascending. */
+  #drawnIndexesOf(libraryRange: Range): number[] {
+    const viewportHeightPx = this.#scroll.geometry?.viewportHeight ?? 0;
+    const range = this.#landedRangeOf(libraryRange, viewportHeightPx);
+    const bandPx = viewportHeightPx * this.#drawnBandScreenHeights();
+    let startIndex = range.startIndex;
+    for (let drawnPx = 0; startIndex > 0 && drawnPx < bandPx; ) {
+      startIndex -= 1;
+      drawnPx += this.#laidOutSizeAt(startIndex);
+    }
+    let endIndex = range.endIndex;
+    for (let drawnPx = 0; endIndex < range.count - 1 && drawnPx < bandPx; ) {
+      endIndex += 1;
+      drawnPx += this.#laidOutSizeAt(endIndex);
+    }
+    const bandIndexes = Array.from(
+      { length: endIndex - startIndex + 1 },
+      (_unused, offset) => startIndex + offset,
+    );
+    const heldOutsideIndexes = this.#heldRowIndexes().filter(
+      (index) => (index < startIndex || index > endIndex) && index < range.count,
+    );
+    if (heldOutsideIndexes.length === 0) {
+      return bandIndexes;
+    }
+    // Ascending, so the rows are drawn in log order and a selection's range runs in reading order.
+    return [...bandIndexes, ...heldOutsideIndexes].sort((left, right) => left - right);
+  }
+
+  /**
+   * The rows the box intersects at the offset a land on its way ends at, so the render that lays
+   * the land out mounts the rows the reader will see rather than the rows at the old offset; the
+   * library's own range with no land on its way.
+   */
+  #landedRangeOf(libraryRange: Range, viewportHeightPx: number): Range {
+    const targetPx = this.#landingTargetPx();
+    const virtualizer = this.#virtualizer();
+    if (targetPx === undefined || virtualizer === undefined) {
+      return libraryRange;
+    }
+    const startIndex = virtualizer.getVirtualItemForOffset(targetPx)?.index;
+    const endIndex = virtualizer.getVirtualItemForOffset(
+      targetPx + Math.max(0, viewportHeightPx - SCROLL_GEOMETRY_EPSILON_PX),
+    )?.index;
+    return startIndex === undefined || endIndex === undefined
+      ? libraryRange
+      : { ...libraryRange, startIndex, endIndex };
   }
 
   /** The size the library laid a row out at, or the estimate it would lay the row out at. */

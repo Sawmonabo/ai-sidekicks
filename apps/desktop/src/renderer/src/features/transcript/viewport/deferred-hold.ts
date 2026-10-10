@@ -2,15 +2,19 @@
 //
 // `reconcile` runs in a passive effect, before the rows it took have rendered, so the sizer and
 // the virtualizer's offsets are still in the previous space. The head hold needs post-insert
-// offsets, so it is armed here and performed once the new height is committed; the anchored hold
-// runs immediately, in the pre-render space its offset was measured in. A press on a control in
-// the log arms the anchored hold for the commit instead: the press changes the rows, and the row's
-// index means something only once the virtualizer has them. A follower is owed nothing here: the
+// offsets, so it is armed here and performed once the new height is committed. The anchored hold
+// runs immediately when the rows did not change, in the space its offset was measured in; when
+// they did, and when a press on a control in the log changes them, it waits for the commit, since
+// the anchored row's index means something only once the virtualizer counts the new rows (a row
+// joining above the reader moves it). A follower is owed nothing here: the
 // virtualizer's end anchor and its landing on appended rows move the offset once the rows render.
 // The head hold does not read the reading anchor, which captures nothing while a reader is at the
-// tail; it uses where the head row was.
+// tail; it uses the rows the reader saw, where they stood when the page landed. A page can land
+// below a listed row as well as above the first: a run's header keeps its place when the run's
+// earlier rows arrive, and they join under it.
 
 import { type ScrollController } from "#renderer/lib/scroll/chokepoint.js";
+import { type ReadingAnchorPoint } from "./reading-anchor.js";
 
 /** Dependencies of a `ViewportDeferredHold`; `rowKeys` is read when the hold is performed. */
 export interface ViewportDeferredHoldOptions {
@@ -33,7 +37,8 @@ export class ViewportDeferredHold {
   readonly #offsetOfIndex: (index: number) => number;
   readonly #holdReadingPosition: (controlDisplacementPx: number) => void;
 
-  #headHoldPending: PendingHeadHold | undefined;
+  /** The rows the reader saw when a page landed at the head, from the top of the viewport down. */
+  #headHoldPending: readonly ReadingAnchorPoint[] | undefined;
   /** How far the pressed control moved inside its row, read when the press's hold is performed. */
   #anchoredHoldPending: (() => number) | undefined;
 
@@ -47,28 +52,27 @@ export class ViewportDeferredHold {
   /**
    * Decides what this reconcile owes the reading position. A page landing at the head is held
    * at the commit, even for a reader who was following, since landing it is the reader's ask for
-   * history; a press's hold whose rows changed waits for the commit too; anything else holds the
-   * anchored row now.
+   * history; a hold whose rows changed waits for the commit too, a press's among them; with the
+   * rows unchanged it holds the anchored row now. Rows a press brought in above the head, as
+   * opening a group whose first row sits above its header does, are the press's, held by its hold.
    */
   public armAfterReconcile(input: {
     readonly headInsertedCount: number;
-    readonly previousHeadKey: string | undefined;
-    /** Where that head row's top edge sat before the pass, below the history line. */
-    readonly previousHeadStartPx: number;
-    readonly scrollTopPx: number;
+    /** The rows the reader saw before the page landed, read only when one did. */
+    readonly readRowsInView: () => readonly ReadingAnchorPoint[];
     /** Whether the reconcile changed the rows the viewport holds, so a render is coming. */
     readonly hasRowSetChanged: boolean;
   }): void {
-    if (input.headInsertedCount > 0 && input.previousHeadKey !== undefined) {
-      this.#headHoldPending = {
-        rowKey: input.previousHeadKey,
-        startPx: input.previousHeadStartPx,
-        scrollTopPx: input.scrollTopPx,
-      };
+    const isPressHoldArmed =
+      this.#anchoredHoldPending !== undefined &&
+      this.#anchoredHoldPending !== NO_CONTROL_DISPLACEMENT;
+    if (input.headInsertedCount > 0 && !isPressHoldArmed) {
+      this.#headHoldPending = input.readRowsInView();
       return;
     }
-    if (this.#anchoredHoldPending !== undefined && input.hasRowSetChanged) {
-      // A press's hold waits for the commit that lays the new rows out.
+    if (input.hasRowSetChanged) {
+      // The hold waits for the commit that lays the new rows out; a press's keeps its control.
+      this.#anchoredHoldPending ??= NO_CONTROL_DISPLACEMENT;
       return;
     }
     this.#performAnchoredHold();
@@ -99,6 +103,21 @@ export class ViewportDeferredHold {
     }
   }
 
+  /** Whether a head hold is armed and waits for the commit that lays its page out. */
+  public get isHeadHoldArmed(): boolean {
+    return this.#headHoldPending !== undefined;
+  }
+
+  /**
+   * The offset the armed head hold will glide to, worked out over the rows as the library now
+   * lays them out, so the render that lays the landed page out draws the rows the reader will
+   * see; `undefined` while none is armed or none of the rows the reader saw is held.
+   */
+  public headHoldTargetPx(): number | undefined {
+    const rowsInView = this.#headHoldPending;
+    return rowsInView === undefined ? undefined : this.#targetOf(rowsInView);
+  }
+
   /** Terminal, and called on disposal: a disposed frame owes no position. */
   public disarm(): void {
     this.#headHoldPending = undefined;
@@ -112,30 +131,32 @@ export class ViewportDeferredHold {
     this.#holdReadingPosition(readControlDisplacementPx?.() ?? 0);
   }
 
-  /**
-   * Puts the row that used to be first back at its previous distance from the top of the
-   * viewport: the reader's `scrollTop` moved on by how far that row's top edge moved, the height
-   * inserted above it. A key the window no longer holds, or an index of zero, leaves the offset
-   * alone rather than anchoring to whichever row now holds it.
-   */
-  #performHeadHold(headHold: PendingHeadHold): void {
-    const index = this.#rowKeys().indexOf(headHold.rowKey);
-    if (index <= 0) {
-      return;
+  #performHeadHold(rowsInView: readonly ReadingAnchorPoint[]): void {
+    const targetPx = this.#targetOf(rowsInView);
+    if (targetPx !== undefined) {
+      this.#scroll.glideTo("hold-reading-position", targetPx);
     }
-    this.#scroll.glideTo(
-      "hold-reading-position",
-      this.#offsetOfIndex(index) - headHold.startPx + headHold.scrollTopPx,
-    );
+  }
+
+  /**
+   * Where the first row the reader saw that no landed row followed is back at its distance from
+   * the top of the viewport: its new offset less that distance. A row the page joined under, such
+   * as a header the run's earlier rows arrived beneath, would hold still while the rows below it
+   * move, so the next row the reader saw is held instead. Rows the window no longer holds are
+   * passed over; with none left there is no target rather than whichever row is there.
+   */
+  #targetOf(rowsInView: readonly ReadingAnchorPoint[]): number | undefined {
+    const rowKeys = this.#rowKeys();
+    for (const [position, row] of rowsInView.entries()) {
+      const index = rowKeys.indexOf(row.rowKey);
+      const nextRow = rowsInView[position + 1];
+      if (index >= 0 && (nextRow === undefined || rowKeys[index + 1] === nextRow.rowKey)) {
+        return this.#offsetOfIndex(index) - row.offsetWithinViewportPx;
+      }
+    }
+    return undefined;
   }
 }
 
-/** What the head hold has to remember between arming and performing. */
-interface PendingHeadHold {
-  /** The row that was first before the page landed. */
-  readonly rowKey: string;
-  /** Where that row's top edge sat then. */
-  readonly startPx: number;
-  /** The offset the scroll container was at when the page landed. */
-  readonly scrollTopPx: number;
-}
+/** A hold no pressed control moved: the anchored row stays exactly where it stood. */
+const NO_CONTROL_DISPLACEMENT = (): number => 0;

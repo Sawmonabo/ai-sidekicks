@@ -1,8 +1,9 @@
 // The kinds of height a row of the transcript's list can take before it is measured, and the
 // height each kind starts from. A kind splits the row kinds `kind.ts` names where cards of one
 // kind differ in height by more than their text (a tool row by its density), and adds the rows
-// the feed draws itself: a run group's header, a system message and the line a row the window no
-// longer holds draws. Each seed is built from the type and space scales, so it moves with them.
+// the feed draws itself: a run group's header, the line at an edge of a long run's window, a
+// system message and the line a row the window no longer holds draws. Each seed is built from the
+// type and space scales, so it moves with them.
 
 import {
   BODY_LINE_HEIGHT,
@@ -20,6 +21,7 @@ export const ROW_HEIGHT_KINDS = [
   "tool-call-expanded",
   "system-message",
   "run-group-header",
+  "run-window-edge",
   "not-loaded",
 ] as const;
 
@@ -59,6 +61,8 @@ export const ROW_HEIGHT_SEED_REM: Readonly<Record<RowHeightKind, number>> = {
   "system-message": Math.max(FIGURE_LINE_REM, READING_LINE_REM) + TRANSCRIPT_ROW_GAP_REM,
   // One line of header, padded by half a gap above and below.
   "run-group-header": AUTHOR_LINE_REM + TRANSCRIPT_ROW_GAP_REM,
+  // One line of figure text, padded by `space-1` above and below.
+  "run-window-edge": FIGURE_LINE_REM + 2 * scaleStep(SPACE_SCALE_REM, "space-1"),
   // One line of body text with no row padding around it.
   "not-loaded": scaleStep(TYPE_SCALE_REM, "text-md") * BODY_LINE_HEIGHT,
 };

@@ -87,7 +87,7 @@ interface WindowSessionPlumbing {
  * The registry and its subscriber, for one window.
  *
  * The clock comes from the bridge: the registry's default is the wall clock, so under the
- * fixture coalescing windows and refresh deadlines would run on `setTimeout` while the
+ * fixture apply frames and refresh deadlines would run on real frames and timers while the
  * scenario's beats move on frozen time, and a step taken right after `advance()` could see
  * either side of a drain. The window sizes each session's opening read, before any transcript in
  * it is laid out, and the share of its log a session keeps off screen.

@@ -22,7 +22,9 @@
 //
 // Every run is a fresh launch, because the scenario's frozen clock does not rewind. The frame-time
 // sampler (`../frame-sampling.ts`) drives the script one step per frame, and each gesture starts
-// once four lanes are mid-turn (`../streaming-lanes.ts`).
+// once four lanes are mid-turn (`../streaming-lanes.ts`). Each scroller's first launch, a fling,
+// starts cold and is printed on its own as the first-launch figure; the gates read the warm
+// launches after it (`../frame-sampling.ts` says why).
 
 import process from "node:process";
 
@@ -34,13 +36,14 @@ import { fixtureBundleExists } from "../../helpers/fixture/bundle.js";
 import { openPalette } from "../../helpers/palette-interaction.js";
 import { IN_WINDOW_STEP_TIMEOUT_MS } from "../../helpers/launch/body.js";
 import { percentileByNearestRank } from "../../helpers/sample-statistics.js";
-import { MEASURED_RUN_COUNT, sampleFrameTimings } from "../frame-sampling.js";
+import { MEASURED_RUN_COUNT, measureLaunches, sampleFrameTimings } from "../frame-sampling.js";
 import { RUNNER_CLASS_DESCRIPTION, isPinnedRunnerClass } from "../pinned-runner-class.js";
 import { findStreamingStretch, peakConcurrentStreamingRuns } from "../streaming-lanes.js";
 import { endTraceRecording, startTraceRecording } from "../trace/recording.js";
 import {
   SCROLL_TRACE_CATEGORIES,
   readScrollTrace,
+  requirePresentedFrameGaps,
   slowestOf,
   type InputToSubmit,
   type ScrollReading,
@@ -78,8 +81,6 @@ const inputToFrameBudget = budgetRegistry.requireBudget(INPUT_TO_FRAME_BUDGET_ID
 
 /** The two gestures the row names. */
 type ScrollGesture = "fling" | "wheel";
-
-const SCROLL_GESTURES: readonly ScrollGesture[] = ["fling", "wheel"];
 
 /** A scroller the row covers, and how a launch puts it on screen with enough in it to scroll. */
 interface ScrollHost {
@@ -218,14 +219,28 @@ describe.skipIf(!bundleIsBuilt)(
         const slowestInputToSubmitByRun: InputToSubmit[] = [];
         const refreshIntervalsMs = new Set<string>();
         const runSummaries: string[] = [];
-        for (const gesture of SCROLL_GESTURES) {
-          for (let runIndex = 1; runIndex <= MEASURED_RUN_COUNT; runIndex += 1) {
-            const run = await scrollOnce(host, gesture, undefined);
+        const { firstLaunch, warmLaunches: flings } = await measureLaunches(
+          async () => await scrollOnce(host, "fling", undefined),
+        );
+        expectFourLanesThroughGesture(firstLaunch, `${host.name}, fling on the first launch`);
+        reportFirstLaunch(host, firstLaunch.reading);
+        const wheels: ScrollRun[] = [];
+        for (let runIndex = 1; runIndex <= MEASURED_RUN_COUNT; runIndex += 1) {
+          wheels.push(await scrollOnce(host, "wheel", undefined));
+        }
+        const measuredRuns: readonly (readonly [ScrollGesture, readonly ScrollRun[]])[] = [
+          ["fling", flings],
+          ["wheel", wheels],
+        ];
+        for (const [gesture, runs] of measuredRuns) {
+          for (const [runOffset, run] of runs.entries()) {
+            const runIndex = runOffset + 1;
             const label = `${host.name}, ${gesture} ${String(runIndex)}`;
             expectFourLanesThroughGesture(run, label);
             const { reading } = run;
             refreshIntervalsMs.add(reading.refreshIntervalMs.toFixed(3));
             if (gesture === "fling") {
+              requirePresentedFrameGaps(reading);
               flingGapPercentiles.push(
                 percentileByNearestRank(reading.presentedFrameGapsInRefreshes, 0.95),
               );
@@ -236,15 +251,7 @@ describe.skipIf(!bundleIsBuilt)(
               ...reading.slowestInputToSubmit,
               update: `${label}: ${reading.slowestInputToSubmit.update}`,
             });
-            runSummaries.push(
-              `${gesture} ${String(runIndex)}: ${String(reading.movingUpdateCount)} moving, ` +
-                `${String(reading.stillUpdateCount)} still, ` +
-                `${String(reading.mainThreadMissedFrameCount)} of ` +
-                `${String(reading.presentedFrameCount)} frames without the main thread's update, ` +
-                `${String(reading.gestureCount - reading.mainThreadHitTestCount)} of ` +
-                `${String(reading.gestureCount)} gestures found on the compositor, input to ` +
-                `submit up to ${reading.slowestInputToSubmit.durationMs.toFixed(2)} ms`,
-            );
+            runSummaries.push(`${gesture} ${String(runIndex)}: ${describeRun(reading)}`);
           }
         }
         const flingGapP95 = percentileByNearestRank(flingGapPercentiles, 0.5);
@@ -254,8 +261,8 @@ describe.skipIf(!bundleIsBuilt)(
 
         process.stdout.write(
           `[endurance] scrolling ${host.name}: presented-frame gap p95 through a fling ` +
-            `${String(flingGapP95)} refreshes (median of ${String(MEASURED_RUN_COUNT)} runs: ` +
-            `${flingGapPercentiles.join(", ")}) of a ` +
+            `${String(flingGapP95)} refreshes (median of ${String(MEASURED_RUN_COUNT)} warm ` +
+            `launches: ${flingGapPercentiles.join(", ")}) of a ` +
             `${String(frameGapBudget.limit.canonicalValue)} refresh ceiling ` +
             `(${(frameGapVerdict.utilizationFraction * 100).toFixed(1)} % of budget); ` +
             `slowest input to submit ${slowestInputToSubmit.refreshes.toFixed(2)} refreshes, ` +
@@ -306,6 +313,7 @@ describe.skipIf(!bundleIsBuilt)(
         kind: "blurring-layers",
         layerCount: BLURRING_LAYER_COUNT,
       });
+      requirePresentedFrameGaps(reading);
       const heavyGapP95 = percentileByNearestRank(reading.presentedFrameGapsInRefreshes, 0.95);
       process.stdout.write(
         `[endurance] scrolling under ${String(BLURRING_LAYER_COUNT)} blurring layers: ` +
@@ -430,6 +438,32 @@ async function scrollOnce(
       didSamplingOutlastGesture: samplingEndedAtMs > gestureEndedAtMs,
     };
   });
+}
+
+/** What one gesture's trace read, for the printed line. */
+function describeRun(reading: ScrollReading): string {
+  return (
+    `${String(reading.movingUpdateCount)} moving, ${String(reading.stillUpdateCount)} still, ` +
+    `${String(reading.mainThreadMissedFrameCount)} of ` +
+    `${String(reading.presentedFrameCount)} frames without the main thread's update, ` +
+    `${String(reading.gestureCount - reading.mainThreadHitTestCount)} of ` +
+    `${String(reading.gestureCount)} gestures found on the compositor, input to ` +
+    `submit up to ${reading.slowestInputToSubmit.durationMs.toFixed(2)} ms`
+  );
+}
+
+/** Prints the cold first launch's fling on one line, apart from the gated figures. */
+function reportFirstLaunch(host: ScrollHost, reading: ScrollReading): void {
+  requirePresentedFrameGaps(reading);
+  process.stdout.write(
+    `[endurance] scrolling ${host.name}: first launch, cold GPU caches, not gated: ` +
+      "presented-frame gap p95 through a fling " +
+      `${String(percentileByNearestRank(reading.presentedFrameGapsInRefreshes, 0.95))} ` +
+      `refreshes; slowest input to submit ${reading.slowestInputToSubmit.refreshes.toFixed(2)} ` +
+      `refreshes (${reading.slowestInputToSubmit.update}); ${describeRun(reading)}; ` +
+      `${String(reading.undrawnUpdates.length)} moving updates no presented frame drew; one ` +
+      `refresh is ${reading.refreshIntervalMs.toFixed(3)} ms — ${RUNNER_CLASS_DESCRIPTION}\n`,
+  );
 }
 
 /** The failure line for a reading whose gestures waited for a main-thread hit test, or none. */

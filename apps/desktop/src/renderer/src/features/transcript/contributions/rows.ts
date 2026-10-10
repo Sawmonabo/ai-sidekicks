@@ -1,5 +1,6 @@
 // The transcript's row renderer, registered in the transcript row registry.
 
+import { prepareTranscriptRow } from "../rows/preparation.js";
 import { registerTranscriptRowRenderer } from "../rows/renderer.js";
 import { TranscriptRow, drawsTranscriptRowBody } from "../rows/TranscriptRow.js";
 
@@ -14,5 +15,6 @@ export function registerTranscriptRows(): void {
   registerTranscriptRowRenderer(TRANSCRIPT_ROW_OWNER, {
     render: TranscriptRow,
     drawsBody: drawsTranscriptRowBody,
+    prepareRow: prepareTranscriptRow,
   });
 }

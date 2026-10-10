@@ -6,10 +6,10 @@
 // The pane is mounted the way the accessibility tier mounts it, with the real row renderer, over
 // a store holding an ended run and a live run among messages, or with the live run ending the log.
 
-import { fireEvent } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { changeLayout } from "../../helpers/animation-frame.js";
+import { readerScrollsTo } from "./reader-scroll.js";
 import { FixtureBridgeProvider } from "../../helpers/app/frame-fixtures.js";
 import { renderSettled } from "../../helpers/app/harness.js";
 
@@ -51,8 +51,9 @@ interface MountedPane {
 
 /** Mounts the transcript pane in a fixed box over one store's log, opened at its tail. */
 async function mountPane(sessionStore: SessionStore): Promise<MountedPane> {
+  const fixture = createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO });
   const { container } = await renderSettled(
-    <FixtureBridgeProvider fixture={createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO })}>
+    <FixtureBridgeProvider fixture={fixture}>
       <LiveAnnouncerProvider clock={new ManualClock()}>
         <div style={{ display: "grid", height: `${String(PANE_HEIGHT_PX)}px` }}>
           <SessionScreenContainer>
@@ -62,8 +63,12 @@ async function mountPane(sessionStore: SessionStore): Promise<MountedPane> {
       </LiveAnnouncerProvider>
     </FixtureBridgeProvider>,
   );
-  // The rows measure and the list lands on its tail once the observers answer.
+  // The rows measure and the list lands on its tail once the observers answer; the rows beyond
+  // the box draw over the tasks after it, which the frozen clock runs when told to.
   await changeLayout(() => undefined);
+  await changeLayout(() => {
+    fixture.scenarioEngine.advance(0);
+  });
   const scrollContainer = container.querySelector<HTMLElement>(
     ".meridian-transcript-viewport__scroll-container",
   );
@@ -95,14 +100,6 @@ function headerOffsetPx(mounted: MountedPane, runState: string): number {
     headerButtonOf(mounted.pane, runState).getBoundingClientRect().top -
     mounted.scrollContainer.getBoundingClientRect().top
   );
-}
-
-/** Scrolls the box as a reader does, and lets the list follow. */
-async function readerScrollsTo(scrollContainer: HTMLElement, scrollTopPx: number): Promise<void> {
-  await changeLayout(() => {
-    scrollContainer.scrollTop = scrollTopPx;
-    fireEvent.scroll(scrollContainer);
-  });
 }
 
 /** Presses a run's header, and lets the fold lay out and the hold land. */

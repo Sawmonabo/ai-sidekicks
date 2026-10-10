@@ -1,12 +1,13 @@
-// Holds the transcript frame's four objects together (scroll chokepoint, reading anchor,
-// measurement table, window cap) and decides when each is asked and what the tree is told.
+// Holds the transcript frame's objects together (scroll chokepoint, reading anchor, measurement
+// table, window cap, selection tracker) and decides when each is asked and what the tree is told.
 //
 // The library owns measurements, offsets and the total size, and a follower's position: its end
-// anchor holds the tail as rows measure and it lands on each appended row. `virtualizer-options.ts`
-// owns its reach to the outside world. The anchor is captured from the virtualizer, never the DOM,
-// so holding a reading position costs no element read. The snapshot vocabulary, prune cycle,
-// publication, deferred hold and anchor capture each have a module beside this one.
-
+// anchor holds the tail as rows measure and it lands on each appended row. A box resize and a
+// re-layout of every row move the tail past its reach, so the follower is landed again here.
+// `virtualizer-options.ts` owns its reach to the outside world. The anchor is captured from the
+// virtualizer, never the DOM, so holding a reading position costs no element read. The snapshot
+// vocabulary, prune cycle, publication, deferred hold, anchor capture, landing and the reader's
+// input on the box each have a module beside this one.
 import { type Clock } from "#renderer/lib/clock.js";
 import { observeElementResize } from "#renderer/lib/element-resize.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
@@ -16,6 +17,7 @@ import { type RowHeightKind } from "../rows/height-kind.js";
 import { ReadingAnchor, type ReadingMode } from "./reading-anchor.js";
 import { RowMeasurementTable } from "./row-measurement-table.js";
 import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
+import { SCROLL_TAIL_TOLERANCE_PX } from "#renderer/lib/scroll/geometry/publisher.js";
 import { type ScrollCaller } from "#renderer/lib/scroll/callers.js";
 import {
   SCROLL_GEOMETRY_EPSILON_PX,
@@ -23,8 +25,12 @@ import {
 } from "#renderer/lib/scroll/geometry/sample.js";
 import { ViewportAnchorCapture } from "./anchor-capture.js";
 import { ViewportDeferredHold } from "./deferred-hold.js";
+import { ViewportDrawnBand } from "./drawn-band.js";
+import { ViewportLanding } from "./landing.js";
 import { ViewportPruneCycle } from "./prune-cycle.js";
 import { ViewportPublication } from "./publication.js";
+import { ViewportReaderInput } from "./reader-input.js";
+import { ViewportSelectionTracker } from "./selection/tracker.js";
 import {
   shouldCompensateForInsertion,
   countAppendedAfter,
@@ -35,6 +41,12 @@ import {
 } from "./snapshot.js";
 import { VirtualizerOptions, type TranscriptRowVirtualizer } from "./virtualizer-options.js";
 import { TranscriptWindow, type WindowSide } from "./window-cap.js";
+
+/**
+ * How reading back toward a linked message the log lacks stands: still reading back, or ended at
+ * the start of history or a failed read without it.
+ */
+export type MessageReadBack = "reading-back" | "not-in-history";
 
 /**
  * The clock every timer and frame of the controller is minted through, where heights live, and
@@ -55,6 +67,20 @@ export interface ViewportControllerOptions {
    * given none reads nothing past the log.
    */
   readonly readBeyondLogEdge?: ((side: WindowSide) => boolean) | undefined;
+  /**
+   * Whether a row the feed lists draws whole if mounted now, which a landing waits on for every
+   * row it will show. A frame given none lands at once.
+   */
+  readonly isRowPrepared?: ((rowKey: string) => boolean) | undefined;
+  /** Whether the feed holds a row out of the list until it draws whole; none when omitted. */
+  readonly isRowHeldOut?: ((rowKey: string) => boolean) | undefined;
+  /**
+   * Whether the feed holds a row out right after the listed row `rowKey`, or before the first
+   * listed row for `undefined`, which is where it joins the list.
+   */
+  readonly holdsRowAfter?: ((rowKey: string | undefined) => boolean) | undefined;
+  /** Hear each time any row's work lands, so a waiting landing asks again. */
+  readonly subscribeToRowWork?: ((listener: () => void) => Unsubscribe) | undefined;
 }
 
 /** Wires the scroll, anchor, measurement and window-cap objects into one published snapshot. */
@@ -65,6 +91,10 @@ export class ViewportController {
   readonly rowWindow: TranscriptWindow;
   /** The option object the virtualizer is constructed with. */
   readonly virtualizerOptions: VirtualizerOptions;
+  /** The reader's selection in this viewport, whose end rows the anchor holds. */
+  readonly selection: ViewportSelectionTracker;
+  /** A landing on one row, from the ask until the render that holds the row scrolls there. */
+  readonly landing: ViewportLanding;
 
   /** The window's passes, and the re-ask a refusal owes. Constructed over the four above. */
   readonly #pruneCycle: ViewportPruneCycle;
@@ -75,31 +105,32 @@ export class ViewportController {
 
   /** The position work a reconcile arms and the binding's layout effect performs. */
   readonly #deferredHold: ViewportDeferredHold;
+  /** The reader's keys, wheel, touch and presses on the box. */
+  readonly #readerInput: ViewportReaderInput;
+  /** How far beyond the box the rows are drawn, narrowed by each land. */
+  readonly #drawnBand: ViewportDrawnBand;
   readonly #teardown: Unsubscribe[] = [];
 
   #virtualizer: TranscriptRowVirtualizer | undefined;
-  /** The box the keyboard's Home and End are heard on, the one the chokepoint holds. */
+  /** The box the chokepoint holds, which a landing focuses. */
   #scrollContainer: HTMLElement | undefined;
   /** Whether the reading state last heard from the anchor was following; it starts there. */
   #isFollowingTail = true;
   /** Whether a publication of the estimates is queued behind the current batch of measurements. */
   #isEstimatePublicationQueued = false;
+  /** Whether a landing on the tail is queued behind the write that moved a follower off it. */
+  #isTailLandingQueued = false;
+  /** Whether following ended for a linked message still being read back. */
+  #isReadingBackToMessage = false;
   #virtualKeys: readonly string[] = [];
   #rows: readonly ViewportRow[] = [];
   #rowKeys: readonly string[] = [];
   /** Each row key's index in `#rowKeys`, built on the first lookup after the keys change. */
   #rowIndexByKey: ReadonlyMap<string, number> | undefined;
-  /**
-   * The row a landing asked for and who asked, until the committed render that holds it scrolls
-   * there; no scroll sample moves the reading state meanwhile.
-   */
-  #pendingLanding: { readonly rowKey: string; readonly caller: RowLandingCaller } | undefined;
   /** The last row of the log the last pass was handed, which appended rows are counted after. */
   #logTailKey: string | undefined;
   /** Whether a pass is running, so a sample its own write publishes cannot start another. */
   #isPassRunning = false;
-  /** Where the reader's touch on the log started, so the direction of a drag is told. */
-  #touchStartYPx: number | undefined;
   /** The history line's height above the first row, as the last resize observation read it. */
   #headHeightPx = 0;
   /**
@@ -108,52 +139,9 @@ export class ViewportController {
    * is moved with the next change, unless the offset has moved since, as a reader's scroll does.
    */
   #headShiftOwed: { readonly px: number; readonly atScrollTopPx: number } | undefined;
+  /** The held set the drawn rows were last extended by, so a change redraws them once. */
+  #drawnHeldRowKeys: readonly string[] | undefined;
   #disposed = false;
-
-  /**
-   * Home and End pressed on the log itself, and the arrow and page keys pressed at either of its
-   * ends. A key pressed in a control inside a row, or with a modifier, or already handled, is not
-   * the log's; the browser's own jump is prevented because it lands on an estimated end.
-   */
-  readonly #onScrollContainerKeyDown = (event: KeyboardEvent): void => {
-    if (event.defaultPrevented || event.target !== event.currentTarget || hasModifier(event)) {
-      return;
-    }
-    if (event.key === "Home") {
-      event.preventDefault();
-      this.#jumpToHead();
-    } else if (event.key === "End") {
-      event.preventDefault();
-      this.jumpToTail();
-    } else if (event.key === "ArrowUp" || event.key === "PageUp") {
-      this.#reviewPullAt("head");
-    } else if (event.key === "ArrowDown" || event.key === "PageDown") {
-      this.#reviewPullAt("tail");
-    }
-  };
-
-  /** A wheel turned past an end of the log the box already stands at. */
-  readonly #onScrollContainerWheel = (event: WheelEvent): void => {
-    if (event.deltaY < 0) {
-      this.#reviewPullAt("head");
-    } else if (event.deltaY > 0) {
-      this.#reviewPullAt("tail");
-    }
-  };
-
-  readonly #onScrollContainerTouchStart = (event: TouchEvent): void => {
-    this.#touchStartYPx = event.touches[0]?.clientY;
-  };
-
-  /** A drag past an end of the log the box already stands at: down toward the head, up the tail. */
-  readonly #onScrollContainerTouchMove = (event: TouchEvent): void => {
-    const touchYPx = event.touches[0]?.clientY;
-    const touchStartYPx = this.#touchStartYPx;
-    if (touchStartYPx === undefined || touchYPx === undefined || touchYPx === touchStartYPx) {
-      return;
-    }
-    this.#reviewPullAt(touchYPx > touchStartYPx ? "head" : "tail");
-  };
 
   public constructor(options: ViewportControllerOptions) {
     this.scroll = new ScrollController({ clock: options.clock });
@@ -172,7 +160,21 @@ export class ViewportController {
       measurements: this.measurements,
       virtualKeyAt: (index) => this.#virtualKeys[index],
       isFollowing: () => this.anchor.state.mode === "following",
+      heldRowIndexes: () => this.#heldRowIndexes(),
       virtualizer: () => this.#virtualizer,
+      landingTargetPx: () => this.#landingTargetPx(),
+      drawnBandScreenHeights: () => this.#drawnBand.screenHeights,
+    });
+    this.selection = new ViewportSelectionTracker({
+      holdSelectedRows: (rowKeys) => {
+        this.#holdSelectedRows(rowKeys);
+      },
+      logPositionOf: (rowKey) => this.rowWindow.logPositionOf(rowKey),
+      logEdgeRowKey: (side) =>
+        side === "head" ? this.rowWindow.logHeadRowKey : this.rowWindow.logTailRowKey,
+      drawRow: (rowKey) => {
+        this.landing.landOnRow(rowKey, "row-reveal");
+      },
     });
     this.#pruneCycle = new ViewportPruneCycle({
       window: this.rowWindow,
@@ -193,6 +195,40 @@ export class ViewportController {
       virtualizer: () => this.#virtualizer,
       headHeightPx: () => this.#headHeightPx,
     });
+    this.landing = new ViewportLanding({
+      anchor: this.anchor,
+      virtualizerOptions: this.virtualizerOptions,
+      virtualizer: () => this.#virtualizer,
+      indexOfRowKey: (rowKey) => this.#indexOfRowKey(rowKey),
+      runOwnPass: () => {
+        const conditions = this.#pruneCycle.lastConditions;
+        return conditions === undefined ? undefined : this.#runPass(conditions, OWN_PASS);
+      },
+      focusLog: () => {
+        this.#scrollContainer?.focus();
+      },
+      logRows: () => this.#pruneCycle.lastConditions?.rows ?? [],
+      logPositionOf: (rowKey) => this.rowWindow.logPositionOf(rowKey),
+      rowHeightPx: (rowKey) => this.measurements.heightOf(rowKey),
+      viewportHeightPx: () => this.scroll.geometry?.viewportHeight ?? 0,
+      isRowPrepared: options.isRowPrepared ?? ALWAYS_PREPARED,
+      isRowHeldOut: options.isRowHeldOut ?? NEVER_HELD_OUT,
+      holdsRowAfter: options.holdsRowAfter ?? NEVER_HELD_OUT,
+      subscribeToRowWork: options.subscribeToRowWork ?? NO_ROW_WORK,
+      onLanding: () => {
+        this.#drawnBand.narrow();
+      },
+    });
+    this.#drawnBand = new ViewportDrawnBand({
+      clock: options.clock,
+      isLanding: () => this.#isLanding(),
+      redraw: () => {
+        this.virtualizerOptions.redrawBand();
+      },
+      publish: () => {
+        this.#publication.publish();
+      },
+    });
     this.#publication = new ViewportPublication({ build: () => this.#buildSnapshot() });
     this.#deferredHold = new ViewportDeferredHold({
       scroll: this.scroll,
@@ -200,6 +236,30 @@ export class ViewportController {
       offsetOfIndex: (index) => this.#anchorCapture.offsetOfIndex(index),
       holdReadingPosition: (controlDisplacementPx) => {
         this.holdReadingPosition(controlDisplacementPx);
+      },
+    });
+    this.#readerInput = new ViewportReaderInput({
+      noteReaderInput: (inputAtMs) => {
+        this.anchor.noteReaderInput(inputAtMs);
+        this.#drawnBand.widenFully();
+      },
+      notePointerDown: (isDown) => {
+        this.anchor.notePointerDown(isDown);
+        if (isDown) {
+          this.#drawnBand.widenFully();
+        }
+      },
+      selectWholeLog: () => {
+        this.selection.selectWholeLog();
+      },
+      jumpToHead: () => {
+        this.#jumpToHead();
+      },
+      jumpToTail: () => {
+        this.jumpToTail();
+      },
+      reviewPullAt: (side, inputAtMs) => {
+        this.#reviewPullAt(side, inputAtMs);
       },
     });
     this.#teardown.push(
@@ -210,15 +270,27 @@ export class ViewportController {
         // Until a link's landing commits, the reading position is the landing's. The rows it
         // brings are not laid out yet, so a sample can read as the tail and resume following,
         // or capture another row and move the floor that keeps the landing's row.
-        if (this.#pendingLanding !== undefined) {
+        if (this.landing.isPending) {
           return;
         }
         this.anchor.observeGeometry(geometry);
+        if (this.anchor.state.mode === "following" && !geometry.isAtTail) {
+          this.#queueTailLanding();
+        }
         this.#anchorCapture.captureFrom(geometry);
         this.#reviewWindowAfter(geometry);
+        this.#drawnBand.review();
       }),
       this.anchor.subscribe((state) => {
         this.#noteReadingMode(state.mode);
+        const heldRowKeys = this.anchor.heldRowKeys();
+        const hadHeldRowKeys = this.#drawnHeldRowKeys;
+        this.#drawnHeldRowKeys = heldRowKeys;
+        if (hadHeldRowKeys !== undefined && hadHeldRowKeys !== heldRowKeys) {
+          this.virtualizerOptions.redrawBand();
+          // A cut that stopped short of a row no longer held is owed now, not at the next scroll.
+          this.retryDeferredPrune();
+        }
         this.#publication.publish();
       }),
       this.scroll.observeOverflow(() => {
@@ -268,14 +340,8 @@ export class ViewportController {
         : this.#headHeightPx + this.#virtualizer.getTotalSize(),
     );
     this.virtualizerOptions.bindScrollContainer(scrollContainer);
-    scrollContainer.addEventListener("keydown", this.#onScrollContainerKeyDown);
-    scrollContainer.addEventListener("wheel", this.#onScrollContainerWheel, { passive: true });
-    scrollContainer.addEventListener("touchstart", this.#onScrollContainerTouchStart, {
-      passive: true,
-    });
-    scrollContainer.addEventListener("touchmove", this.#onScrollContainerTouchMove, {
-      passive: true,
-    });
+    this.selection.attach(scrollContainer);
+    this.#readerInput.attach(scrollContainer);
     this.#scrollContainer = scrollContainer;
   }
 
@@ -283,10 +349,8 @@ export class ViewportController {
   public detach(): void {
     this.scroll.detach();
     this.virtualizerOptions.bindScrollContainer(undefined);
-    this.#scrollContainer?.removeEventListener("keydown", this.#onScrollContainerKeyDown);
-    this.#scrollContainer?.removeEventListener("wheel", this.#onScrollContainerWheel);
-    this.#scrollContainer?.removeEventListener("touchstart", this.#onScrollContainerTouchStart);
-    this.#scrollContainer?.removeEventListener("touchmove", this.#onScrollContainerTouchMove);
+    this.selection.detach();
+    this.#readerInput.detach();
     this.#scrollContainer = undefined;
   }
 
@@ -326,19 +390,24 @@ export class ViewportController {
    */
   public reconcile(conditions: ViewportConditions): void {
     this.#runPass(conditions, { admitSide: undefined, isRender: true });
+    // A new log may hold the rows a waiting landing's screen was missing.
+    this.landing.retryWaiting();
   }
 
   /**
-   * Performs the holds a reconcile or a press armed, now that the new height is committed. The
-   * binding calls it from a layout effect declared after `useVirtualizer`, so the library has
-   * already written the container height, with the rows that render drew: a press's hold waits
-   * for the render whose rows the window has reconciled, since the reconcile runs after it.
+   * Performs the holds a reconcile or a press armed, and a pending landing, now that the new
+   * height is committed. The binding calls it from a layout effect declared after `useVirtualizer`,
+   * so the library has already written the container height, with the rows that render drew: a
+   * press's hold waits for the render whose rows the window has reconciled, since the reconcile
+   * runs after it. A land performed here lets the drawn band start widening.
    */
   public commitPendingPositionHold(renderedRows: readonly ViewportRow[]): void {
     if (this.#disposed) {
       return;
     }
     this.#deferredHold.commit(renderedRows === this.#pruneCycle.lastConditions?.rows);
+    this.landing.commitPendingLanding();
+    this.#drawnBand.review();
   }
 
   /**
@@ -391,51 +460,20 @@ export class ViewportController {
   }
 
   /**
-   * Lands the reader on one row, as a link to a message, a find step or Home does: reading starts
-   * at it, the window centers on it however far from the window it sits, and
-   * `commitPendingLanding` brings it into view. A link's row may not be in the log yet; the pass
-   * that brings it centers the window then. Until it lands, the landing wins over a return to the
-   * tail.
+   * Hears how reading back toward a linked message stands. The link is the reader's own ask, so
+   * following ends while its message is read back, and the tail neither pulls the view nor lets go
+   * of the stretches arriving above. Read back to the start of history or a failed read without
+   * it, the view stays where the reader is rather than moving to the tail.
    */
-  public landOnRow(rowKey: string, caller: RowLandingCaller): void {
-    this.anchor.readFrom(rowKey);
-    this.#pendingLanding = { rowKey, caller };
-    const conditions = this.#pruneCycle.lastConditions;
-    if (conditions === undefined) {
+  public noteMessageReadBack(readBack: MessageReadBack | undefined): void {
+    if (readBack === "reading-back") {
+      if (!this.#isReadingBackToMessage) {
+        this.#isReadingBackToMessage = true;
+        this.anchor.stopFollowing();
+      }
       return;
     }
-    // A row the window already held lands now: the virtualizer still counts the same rows. A row
-    // the pass brought in lands once the render that holds it commits.
-    // A link's landing waits for the binding's layout effect, which also hands the log focus.
-    if (!this.#runPass(conditions, OWN_PASS) && caller !== "message-anchor") {
-      this.commitPendingLanding();
-    }
-  }
-
-  /**
-   * Scrolls to the row `landOnRow` named once the window holds it, through the library's own
-   * index scroll, which re-aims as the estimated rows around it measure: a link's row and Home's
-   * at the top of the viewport, a find match in its middle. Called from the same layout effect as
-   * the position hold, when the virtualizer counts the rows the window holds. Answers who landed,
-   * once per landing, or `undefined`.
-   */
-  public commitPendingLanding(): RowLandingCaller | undefined {
-    const landing = this.#pendingLanding;
-    const virtualizer = this.#virtualizer;
-    if (this.#disposed || landing === undefined || virtualizer === undefined) {
-      return undefined;
-    }
-    const index = this.#indexOfRowKey(landing.rowKey);
-    if (index === undefined) {
-      return undefined;
-    }
-    this.#pendingLanding = undefined;
-    this.virtualizerOptions.scrollFor(landing.caller, () => {
-      virtualizer.scrollToIndex(index, {
-        align: landing.caller === "find-match" ? "center" : "start",
-      });
-    });
-    return landing.caller;
+    this.#isReadingBackToMessage = false;
   }
 
   /**
@@ -496,17 +534,34 @@ export class ViewportController {
   }
 
   /**
-   * The tail pill, the palette's jump and End: following resumes, the window takes the tail back
-   * if it had let it go, and the library lands on the last row, re-aiming as the rows near it
-   * measure and as the rows the pass brought in render.
+   * The tail pill, the palette's jump and End, once the tail's screen draws whole: following
+   * resumes, the window takes the tail back if it had let it go, and the library lands on the last
+   * row, re-aiming as the rows near it measure and as the rows the pass brought in render.
    */
   public jumpToTail(): void {
-    this.anchor.resumeFollowing();
-    const conditions = this.#pruneCycle.lastConditions;
-    if (conditions !== undefined) {
-      this.#runPass(conditions, OWN_PASS);
+    const jump = (): void => {
+      this.anchor.resumeFollowing();
+      this.#drawnBand.narrow();
+      const conditions = this.#pruneCycle.lastConditions;
+      if (conditions !== undefined) {
+        this.#runPass(conditions, OWN_PASS);
+      }
+      this.#scrollToTail("jump-to-tail");
+    };
+    const tailRowKey = this.rowWindow.logTailRowKey;
+    if (tailRowKey === undefined) {
+      jump();
+    } else {
+      this.landing.landOncePrepared(tailRowKey, "end", jump);
     }
-    this.#scrollToTail("jump-to-tail");
+  }
+
+  /** The keys of the rows the reader's selection runs across, in log order; empty without one. */
+  public selectedRowKeys(): readonly string[] {
+    const selection = this.selection.selection;
+    return selection === undefined
+      ? []
+      : this.rowWindow.logRowKeysBetween(selection.start.rowKey, selection.end.rowKey);
   }
 
   /**
@@ -523,6 +578,8 @@ export class ViewportController {
   public dispose(): void {
     this.detach();
     this.#deferredHold.disarm();
+    this.landing.dispose();
+    this.#drawnBand.dispose();
     // Drop the retry's hold on the last row set so a disposed controller keeps no window
     // identity list alive.
     this.#pruneCycle.forgetConditions();
@@ -538,11 +595,30 @@ export class ViewportController {
   }
 
   /**
+   * Lands a follower the transcript or the library moved off the tail back on it, once, after the
+   * write that moved it returns: only the reader leaves the tail, so a re-key, a re-measure or a
+   * library correction that left the offset short is undone rather than read as leaving.
+   */
+  #queueTailLanding(): void {
+    if (this.#isTailLandingQueued) {
+      return;
+    }
+    this.#isTailLandingQueued = true;
+    queueMicrotask(() => {
+      this.#isTailLandingQueued = false;
+      if (this.anchor.state.mode === "following" && this.scroll.geometry?.isAtTail === false) {
+        this.#scrollToTail("follow-tail");
+      }
+    });
+  }
+
+  /**
    * Publishes the estimates once after the batch of measurements a follower's rows just made,
    * and re-lays every row out if one moved, so rows above the screen take what the measured rows
-   * say while the library's end anchor keeps them out of sight. The library's cache is cleared
-   * whole, and `estimateSize` hands each measured row's remembered height back to it. A reader
-   * who reads keeps the estimates the rows were laid out at.
+   * say. The library's cache is cleared whole, and `estimateSize` hands each measured row's
+   * remembered height back to it. The clear moves the tail without moving the offset, and the
+   * library re-anchors only a reader already near the end, so the follower is landed on the tail
+   * again. A reader who reads keeps the estimates the rows were laid out at.
    */
   #queueEstimatePublication(): void {
     if (this.#isEstimatePublicationQueued) {
@@ -557,6 +633,7 @@ export class ViewportController {
       }
       if (this.measurements.publishEstimates()) {
         this.#virtualizer?.measure();
+        this.#scrollToTail("follow-tail");
       }
     });
   }
@@ -578,8 +655,7 @@ export class ViewportController {
     }
     this.#isPassRunning = true;
     try {
-      const previousHeadKey = this.#rowKeys[0];
-      const previousHeadStartPx = this.#anchorCapture.offsetOfIndex(0);
+      const previousRowKeys = this.#rowKeys;
       const previousVirtualKeys = this.#virtualKeys;
       const scrollTopPx = this.scroll.geometry?.scrollTop ?? 0;
       // Counted on the log, not the window: a row appended past a tail the window let go is still
@@ -594,6 +670,7 @@ export class ViewportController {
         this.#rowKeys = retained.map((row) => row.key);
         this.#rowIndexByKey = undefined;
         this.#virtualKeys = this.measurements.projectKeys(this.#rowKeys).virtualKeys;
+        this.virtualizerOptions.rekeyRows();
       }
       if (appendedCount > 0) {
         this.anchor.noteAppendedRows(appendedCount);
@@ -616,12 +693,13 @@ export class ViewportController {
         !isFollowing && this.#pruneCycle.compensateForPrunedHeight(prunedHeightPx);
       if (!compensated && (pass.isRender || hasRowSetChanged)) {
         this.#deferredHold.armAfterReconcile({
-          headInsertedCount: countInsertedBefore(retained, previousHeadKey),
-          previousHeadKey,
-          previousHeadStartPx,
-          scrollTopPx,
+          headInsertedCount: countInsertedBefore(retained, previousRowKeys[0]),
+          readRowsInView: () => this.#anchorCapture.rowsInView(scrollTopPx, previousRowKeys),
           hasRowSetChanged,
         });
+        if (this.#deferredHold.isHeadHoldArmed) {
+          this.#drawnBand.narrow();
+        }
       }
       this.#publication.publish();
       return hasRowSetChanged;
@@ -648,16 +726,16 @@ export class ViewportController {
    * Asks the window for the pass a pull past one end owes, when the box already stands at that
    * end: there it cannot scroll, so the pull publishes no sample for `#reviewWindowAfter`.
    */
-  #reviewPullAt(side: WindowSide): void {
+  #reviewPullAt(side: WindowSide, inputAtMs: number): void {
     const geometry = this.scroll.geometry;
-    if (this.#pendingLanding !== undefined || geometry === undefined) {
+    if (this.landing.isPending || geometry === undefined) {
       return;
     }
     const distanceFromEndPx = side === "head" ? geometry.scrollTop : geometry.distanceFromTailPx;
     if (distanceFromEndPx >= SCROLL_GEOMETRY_EPSILON_PX) {
       return;
     }
-    const request = this.#pruneCycle.passOwedByPullAt(side);
+    const request = this.#pruneCycle.passOwedByPullAt(side, inputAtMs);
     const conditions = this.#pruneCycle.lastConditions;
     if (request !== undefined && conditions !== undefined) {
       this.#runPass(conditions, { admitSide: request.admitSide, isRender: false });
@@ -673,11 +751,35 @@ export class ViewportController {
     return this.#rowIndexByKey.get(rowKey);
   }
 
+  /**
+   * Holds exactly these rows for the reader's selection, the rows it starts and ends in, and
+   * releases every other: the window keeps a held row while it sits within its let-go distance,
+   * and the virtualizer draws it there, so the browser's selection stays anchored.
+   */
+  #holdSelectedRows(rowKeys: readonly string[]): void {
+    for (const heldRowKey of this.anchor.heldRowKeys()) {
+      if (!rowKeys.includes(heldRowKey)) {
+        this.anchor.release(heldRowKey);
+      }
+    }
+    for (const rowKey of rowKeys) {
+      this.anchor.hold(rowKey, "selection");
+    }
+  }
+
+  /** The indexes of the held rows the window keeps. */
+  #heldRowIndexes(): readonly number[] {
+    return this.anchor.heldRowKeys().flatMap((rowKey) => {
+      const index = this.#indexOfRowKey(rowKey);
+      return index === undefined ? [] : [index];
+    });
+  }
+
   /** Home: the log's first row at the top of the viewport, admitted first if it was let go. */
   #jumpToHead(): void {
     const headRowKey = this.rowWindow.logHeadRowKey;
     if (headRowKey !== undefined) {
-      this.landOnRow(headRowKey, "jump-to-head");
+      this.landing.landOnRow(headRowKey, "jump-to-head");
     }
   }
 
@@ -715,6 +817,47 @@ export class ViewportController {
     this.virtualizerOptions.retireLibraryScroll(virtualizer);
   }
 
+  /**
+   * The offset the land on its way ends at: the head hold's, then a row landing's, then the tail
+   * for a follower the box does not yet stand at; `undefined` with none on its way.
+   */
+  #landingTargetPx(): number | undefined {
+    return (
+      this.#deferredHold.headHoldTargetPx() ??
+      this.landing.pendingTargetPx() ??
+      this.#unreachedTailPx()
+    );
+  }
+
+  /** Whether a land is on its way, which the drawn band waits on before it widens. */
+  #isLanding(): boolean {
+    return (
+      this.#deferredHold.isHeadHoldArmed ||
+      this.landing.isPending ||
+      (this.anchor.state.mode === "following" &&
+        (this.scroll.geometry === undefined || this.#unreachedTailPx() !== undefined))
+    );
+  }
+
+  /**
+   * The tail's offset over the rows as the library lays them out, while a follower's box stands
+   * above it: on opening, and as rows append, before the box has scrolled there. Read from the
+   * layout rather than the box, whose height lags the rows the render about to commit draws.
+   */
+  #unreachedTailPx(): number | undefined {
+    const geometry = this.scroll.geometry;
+    const virtualizer = this.#virtualizer;
+    if (
+      this.anchor.state.mode !== "following" ||
+      geometry === undefined ||
+      virtualizer === undefined
+    ) {
+      return undefined;
+    }
+    const tailPx = Math.max(0, virtualizer.getTotalSize() - geometry.viewportHeight);
+    return geometry.scrollTop < tailPx - SCROLL_TAIL_TOLERANCE_PX ? tailPx : undefined;
+  }
+
   #buildSnapshot(): ViewportSnapshot {
     const { mode, newRowCount } = this.anchor.state;
     return {
@@ -724,6 +867,8 @@ export class ViewportController {
       reading: { mode, newRowCount },
       lastPrune: this.#pruneCycle.lastOutcome,
       headHeightPx: this.#headHeightPx,
+      heldRowKeys: this.anchor.heldRowKeys(),
+      drawnBandScreenHeights: this.#drawnBand.screenHeights,
     };
   }
 
@@ -778,22 +923,20 @@ function controlOffsetInRowPx(control: HTMLElement): number | undefined {
     : control.getBoundingClientRect().top - rowElement.getBoundingClientRect().top;
 }
 
-/** Whether a key was pressed with a modifier, which makes it a chord rather than a plain key. */
-function hasModifier(event: KeyboardEvent): boolean {
-  return event.altKey || event.ctrlKey || event.metaKey || event.shiftKey;
-}
-
-/**
- * Who lands the reader on one row: a link to a message, a find step, or Home. Only a link's
- * landing takes focus; the others keep it where the person pressed.
- */
-type RowLandingCaller = Extract<ScrollCaller, "message-anchor" | "find-match" | "jump-to-head">;
-
 /** What starts one pass of the window: the side a reader's approach admits on, and who asked. */
 interface WindowPass {
   readonly admitSide: WindowSide | undefined;
   readonly isRender: boolean;
 }
+
+/** What a frame told nothing of its rows' preparation answers: every row draws whole. */
+const ALWAYS_PREPARED = (): boolean => true;
+
+/** What a frame told nothing of its rows' preparation holds out: no row. */
+const NEVER_HELD_OUT = (): boolean => false;
+
+/** What a frame told nothing of its rows' preparation hears: no work ever lands. */
+const NO_ROW_WORK = (): Unsubscribe => () => undefined;
 
 /** A pass the controller runs itself, outside a render, with no side to admit on. */
 const OWN_PASS: WindowPass = { admitSide: undefined, isRender: false };

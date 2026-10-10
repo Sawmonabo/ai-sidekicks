@@ -52,7 +52,6 @@ const transcriptReadRow: TranscriptReadRow = {
   cursor: "cursor-1" as EventCursor,
   category: "session_lifecycle",
   type: "session.created",
-  summary: "session created",
   timestamp: "2026-09-01T00:00:00.000Z",
   payload: {},
   content: { status: "unavailable", reason: "absent" },

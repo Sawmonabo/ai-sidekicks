@@ -23,8 +23,14 @@ import { type ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { type TranscriptWindowReading } from "#renderer/lib/transcript-window-diagnostics.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
 import { type RowHeightKind } from "../../rows/height-kind.js";
-import { ViewportController, type ViewportControllerOptions } from "../controller.js";
+import {
+  ViewportController,
+  type MessageReadBack,
+  type ViewportControllerOptions,
+} from "../controller.js";
+import { type ViewportSelectionTracker } from "../selection/tracker.js";
 import { type ViewportConditions, type ViewportSnapshot } from "../snapshot.js";
+import type { Unsubscribe } from "#shared/preload-api.js";
 import { type WindowSide } from "../window-cap.js";
 import { useObserveDisplaySettings } from "./useObserveDisplaySettings.js";
 
@@ -45,7 +51,8 @@ export interface TranscriptViewportBinding {
   readonly jumpToTail: () => void;
   /**
    * Scrolls one row of the log into the middle of the view by key, as a find step does: a row the
-   * window let go is landed on, the window centering on it. Does nothing for a key the log lacks.
+   * window let go is landed on, the window centering on it, and a row the feed still holds out is
+   * landed on once it joins the log. Does nothing for a key neither holds.
    *
    * Keyed because an index goes stale when a pass runs between the caller reading and acting on
    * it. Routed through the virtualizer's `scrollToIndex`, which the controller binds to the
@@ -96,6 +103,16 @@ export interface TranscriptViewportBinding {
   ) => number;
   /** The least height any drawn row is estimated at, read when called; stable likewise. */
   readonly smallestRowHeightPx: () => number;
+  /**
+   * The width the log's rows are laid out at, in CSS pixels, read when called: as a row last
+   * declared it, or before any row is measured, the scroller's own, which every row spans.
+   * `undefined` before the scroller is attached. Stable likewise.
+   */
+  readonly readRowWidthPx: () => number | undefined;
+  /** The reader's selection in this log, which the rows and a copy read; stable per controller. */
+  readonly selectionTracker: ViewportSelectionTracker;
+  /** The keys of the rows the reader's selection runs across, in log order, read when called. */
+  readonly selectedRowKeys: () => readonly string[];
 }
 
 /**
@@ -123,11 +140,22 @@ export interface UseTranscriptViewportOptions extends ViewportConditions {
    * first committed render that holds it, and the log takes focus there.
    */
   readonly landingRowKey?: string | undefined;
+  /** How reading back toward a linked message the log lacks stands, or `undefined` for none. */
+  readonly messageReadBack?: MessageReadBack | undefined;
   /**
    * Asks for the stretch past an edge of the log; see `ViewportControllerOptions`. Read when
    * called, so a new function does not mint a new controller.
    */
   readonly readBeyondLogEdge?: ((side: WindowSide) => boolean) | undefined;
+  /**
+   * Whether a listed row draws whole if mounted now, which rows the feed holds out of the list and
+   * where they join it, and hearing a row's work land; see `ViewportControllerOptions`. Read when
+   * called, so new functions do not mint a new controller.
+   */
+  readonly isRowPrepared?: ((rowKey: string) => boolean) | undefined;
+  readonly isRowHeldOut?: ((rowKey: string) => boolean) | undefined;
+  readonly holdsRowAfter?: ((rowKey: string | undefined) => boolean) | undefined;
+  readonly subscribeToRowWork?: ((listener: () => void) => Unsubscribe) | undefined;
 }
 
 /**
@@ -143,8 +171,9 @@ export function useTranscriptViewport(
   const {
     clock,
     rows,
-    isWorkingRow,
+    isChangingRow,
     landingRowKey,
+    messageReadBack,
     rememberedRowHeights,
     heightKindOf,
     bodyLengthOf,
@@ -152,11 +181,11 @@ export function useTranscriptViewport(
   // The attached element, for the one act that needs the node. A ref because nothing renders
   // from it.
   const scrollContainerRef = useRef<HTMLElement | null>(null);
-  const latestReadBeyondLogEdge = useLatestRef(options.readBeyondLogEdge);
+  const latestOptions = useLatestRef(options);
   const [controller, setController] = useState<ViewportController>(() =>
     mintViewportController(
       { clock, rememberedRowHeights, heightKindOf, bodyLengthOf },
-      latestReadBeyondLogEdge,
+      latestOptions,
     ),
   );
 
@@ -165,7 +194,7 @@ export function useTranscriptViewport(
       setController(
         mintViewportController(
           { clock, rememberedRowHeights, heightKindOf, bodyLengthOf },
-          latestReadBeyondLogEdge,
+          latestOptions,
         ),
       );
       return;
@@ -173,14 +202,7 @@ export function useTranscriptViewport(
     return () => {
       controller.dispose();
     };
-  }, [
-    controller,
-    clock,
-    rememberedRowHeights,
-    heightKindOf,
-    bodyLengthOf,
-    latestReadBeyondLogEdge,
-  ]);
+  }, [controller, clock, rememberedRowHeights, heightKindOf, bodyLengthOf, latestOptions]);
   useObserveDisplaySettings(controller);
 
   const snapshot = useSyncExternalStore(
@@ -241,18 +263,25 @@ export function useTranscriptViewport(
       return;
     }
     landed.current = { controller, rowKey: landingRowKey };
-    controller.landOnRow(landingRowKey, "message-anchor");
+    controller.landing.landOnRow(landingRowKey, "message-anchor");
   }, [controller, landingRowKey]);
 
   useEffect(() => {
     if (controller.isDisposed) {
       return;
     }
-    controller.reconcile({ rows, isWorkingRow });
-  }, [controller, rows, isWorkingRow]);
+    controller.noteMessageReadBack(messageReadBack);
+  }, [controller, messageReadBack]);
+
+  useEffect(() => {
+    if (controller.isDisposed) {
+      return;
+    }
+    controller.reconcile({ rows, isChangingRow });
+  }, [controller, rows, isChangingRow]);
 
   // Re-asks a cut the reconcile above could not finish. That effect depends only on the rows and
-  // the working rows, but the window also stops a cut while a programmatic scroll is
+  // which of them still change, but the window also stops a cut while a programmatic scroll is
   // mid-write or the rows it wants are held, on screen or under the reader; none of those moves a
   // dependency. The reading mode carries a return to the tail, and `lastPrune`'s identity the rest
   // because the veto is raised and dropped inside one synchronous write. It cannot spin: a
@@ -278,10 +307,6 @@ export function useTranscriptViewport(
       return;
     }
     controller.commitPendingPositionHold(rows);
-    // Focus goes to the log a link landed in, so the keyboard reads on from the message.
-    if (controller.commitPendingLanding() === "message-anchor") {
-      scrollContainerRef.current?.focus();
-    }
   });
 
   // A press's hold is window state, not React state; the count only re-renders the tree, so the
@@ -319,6 +344,8 @@ export function useTranscriptViewport(
     }, [controller]),
     scrollController: controller.scroll,
     rowStartPx: useCallback((rowKey: string) => controller.rowStartPx(rowKey), [controller]),
+    selectionTracker: controller.selection,
+    selectedRowKeys: useCallback(() => controller.selectedRowKeys(), [controller]),
     estimatedRowHeightPx: useCallback(
       (rowKey: string, kind: RowHeightKind, bodyLength: number | undefined) =>
         controller.measurements.estimatedHeightOf(rowKey, kind, bodyLength),
@@ -326,6 +353,12 @@ export function useTranscriptViewport(
     ),
     smallestRowHeightPx: useCallback(
       () => controller.measurements.smallestEstimatePx,
+      [controller],
+    ),
+    readRowWidthPx: useCallback(
+      () =>
+        controller.measurements.rowWidthPx ??
+        scrollContainerRef.current?.getBoundingClientRect().width,
       [controller],
     ),
     holdRowInPlace: useCallback(
@@ -342,6 +375,8 @@ export function useTranscriptViewport(
       },
       [controller],
     ),
+    // Stable for the controller, reading the snapshot live: a reader minted per snapshot would hold
+    // this render's scope, and the feed's scope holding it would keep every window it derived.
     readWindowDiagnostics: useCallback((): TranscriptWindowReading => {
       // `getVirtualItems()` first: it recomputes the range, so `virtualizer.range` read before
       // it would be stale.
@@ -363,7 +398,7 @@ export function useTranscriptViewport(
         mountedRowCount:
           scrollContainer?.querySelectorAll(`[${WINDOWED_ROW_INDEX_ATTRIBUTE}]`).length ?? 0,
         totalRowCount: virtualizer.options.count,
-        indexableRowCount: snapshot.rows.length,
+        indexableRowCount: controller.snapshot().rows.length,
         visibleRowCount: range === null ? 0 : range.endIndex - range.startIndex + 1,
         // Each band without its outermost row: the space between that row and the box's rows.
         drawnBandPx: Math.max(
@@ -379,35 +414,43 @@ export function useTranscriptViewport(
         viewportScrollHeightPx: scrollContainer?.scrollHeight ?? 0,
         rangedAgainstClientHeightPx: controller.scroll.geometry?.viewportHeight ?? 0,
       };
-    }, [controller, snapshot, virtualizer]),
+    }, [controller, virtualizer]),
     jumpToRow: useCallback(
       (rowKey: string) => {
-        const index = snapshot.rows.findIndex((candidate) => candidate.key === rowKey);
-        if (index >= 0) {
-          controller.virtualizerOptions.scrollFor("find-match", () => {
-            virtualizer.scrollToIndex(index, { align: "center" });
-          });
-          return;
-        }
-        if (controller.rowWindow.logHoldsRow(rowKey)) {
-          controller.landOnRow(rowKey, "find-match");
+        // A row the feed still holds out is landed on once it joins the log.
+        if (
+          controller.rowWindow.logHoldsRow(rowKey) ||
+          latestOptions.current.isRowHeldOut?.(rowKey) === true
+        ) {
+          controller.landing.landOnRow(rowKey, "find-match");
         }
       },
-      [controller, snapshot, virtualizer],
+      [controller, latestOptions],
     ),
   };
 }
 
 /**
- * A controller over the hook's inputs, asking for history through the latest committed read, so
- * a new read function reaches the controller without minting another.
+ * A controller over the hook's inputs, asking for history and for a row's preparation through
+ * the latest committed inputs, so new functions reach the controller without minting another.
  */
 function mintViewportController(
-  options: Omit<ViewportControllerOptions, "readBeyondLogEdge">,
-  latestReadBeyondLogEdge: React.RefObject<UseTranscriptViewportOptions["readBeyondLogEdge"]>,
+  options: Omit<
+    ViewportControllerOptions,
+    "readBeyondLogEdge" | "isRowPrepared" | "isRowHeldOut" | "holdsRowAfter" | "subscribeToRowWork"
+  >,
+  latestOptions: React.RefObject<UseTranscriptViewportOptions>,
 ): ViewportController {
   return new ViewportController({
     ...options,
-    readBeyondLogEdge: (side) => latestReadBeyondLogEdge.current?.(side) ?? false,
+    readBeyondLogEdge: (side) => latestOptions.current.readBeyondLogEdge?.(side) ?? false,
+    isRowPrepared: (rowKey) => latestOptions.current.isRowPrepared?.(rowKey) ?? true,
+    isRowHeldOut: (rowKey) => latestOptions.current.isRowHeldOut?.(rowKey) ?? false,
+    holdsRowAfter: (rowKey) => latestOptions.current.holdsRowAfter?.(rowKey) ?? false,
+    subscribeToRowWork: (listener) =>
+      latestOptions.current.subscribeToRowWork?.(listener) ?? NO_UNSUBSCRIBE,
   });
 }
+
+/** What a waiting landing stops hearing when the feed told it of no work. */
+const NO_UNSUBSCRIBE: Unsubscribe = () => undefined;

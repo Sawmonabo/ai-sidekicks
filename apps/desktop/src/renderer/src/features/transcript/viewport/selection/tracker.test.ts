@@ -10,7 +10,10 @@ import { ViewportSelectionTracker } from "./tracker.js";
 
 const ROW_MARKUP = "<p>The first settled paragraph.</p><p>The volatile tail is still growing.</p>";
 
-/** A scroll container of two rows the tracker knows, attached as the viewport attaches it. */
+/**
+ * A scroll container of two rows the tracker knows, attached as the viewport attaches it, in a
+ * log of those two rows.
+ */
 interface TrackedViewport {
   readonly firstRow: HTMLElement;
   readonly secondRow: HTMLElement;
@@ -25,13 +28,19 @@ function mountTrackedViewport(): TrackedViewport {
     scrollContainer.append(row);
   }
   document.body.append(scrollContainer);
-  const tracker = new ViewportSelectionTracker();
+  const rowKeys = ["first-row", "second-row"];
+  const tracker = new ViewportSelectionTracker({
+    holdSelectedRows: () => {},
+    logPositionOf: (rowKey) => rowKeys.indexOf(rowKey),
+    logEdgeRowKey: (side) => (side === "head" ? rowKeys[0] : rowKeys[1]),
+    drawRow: () => {},
+  });
   tracker.attach(scrollContainer);
   onTestFinished(() => {
     tracker.detach();
   });
-  tracker.addRow(firstRow);
-  tracker.addRow(secondRow);
+  tracker.addRow(firstRow, "first-row");
+  tracker.addRow(secondRow, "second-row");
   return { firstRow, secondRow, tracker };
 }
 
@@ -138,6 +147,24 @@ describe("ViewportSelectionTracker — a selection inside a row", () => {
     expect(tracker.restoreAfterFlush(firstRow)).toBe(false);
     expect(tracker.restoreAfterFlush(secondRow)).toBe(false);
     expect(selectedTextIn(outsideText)).toBe("different");
+  });
+
+  it("puts a selection back in its own block after the window lets a block above it go", () => {
+    const { firstRow, tracker } = mountTrackedViewport();
+    firstRow.innerHTML = [
+      "<div data-markdown-block='0'><p>An opening block.</p></div>",
+      "<div data-markdown-block='1'><p>The selected block.</p></div>",
+    ].join("");
+    const selectedBlock = firstRow.lastElementChild as HTMLElement;
+    selectInRow(selectedBlock, 4, 12);
+    expect(selectedTextIn(firstRow)).toBe("selected");
+
+    // The window draws a spacer in the first block's place and the selected block anew.
+    firstRow.firstElementChild?.replaceWith(document.createElement("div"));
+    selectedBlock.innerHTML = "<p>The selected block.</p>";
+
+    expect(tracker.restoreAfterFlush(firstRow)).toBe(true);
+    expect(selectedTextIn(firstRow)).toBe("selected");
   });
 
   it("reads and restores nothing once detached", () => {

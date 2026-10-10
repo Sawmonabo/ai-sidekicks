@@ -1,6 +1,6 @@
 // What the row measurement table estimates an unmeasured row of the feed's list by: the height
-// kind it draws as and the length of its body. Read for the list the feed holds, and for a page
-// of history the feed has not drawn yet.
+// kind it draws as and the length of its body. Read for the list the feed holds, for a page of
+// history the feed has not drawn yet, and for the calls a long run's window is cut in.
 
 import {
   CONTENT_LENGTH_PAYLOAD_KEY,
@@ -9,10 +9,27 @@ import {
 } from "@ai-sidekicks/contracts/event/declared-variants";
 
 import { projectedPayload, readWireCount } from "#renderer/store/session/events/wire-payload.js";
+import { readRunWindowEdgeKey, type RunWindowMeasure } from "../runs/call-window.js";
 import { type RowHeightKind } from "../rows/height-kind.js";
 import { classifyTranscriptRow, isFoldableCall } from "../rows/kind.js";
+import { type TranscriptViewportBinding } from "../viewport/hooks/useTranscriptViewport.js";
 import { type TranscriptWindowModel } from "../window/transcript-window.js";
 import { densityFor } from "./fold-state.js";
+
+/** What a row's height is estimated from: the viewport's table, and how the feed draws the row. */
+export interface RowHeightEstimates {
+  readonly estimatedRowHeightPx: TranscriptViewportBinding["estimatedRowHeightPx"];
+  /** The calls the reader folded; every other call with a body draws open. */
+  readonly foldedCallRowIds: ReadonlySet<string>;
+  /** Whether a row's output is still streaming in. */
+  readonly isRevealing: (rowId: string) => boolean;
+}
+
+/** The estimates a long run's window is cut in, with the screen it is measured against. */
+export interface RunWindowEstimates extends RowHeightEstimates {
+  /** The viewport's height in pixels. */
+  readonly screenHeightPx: () => number;
+}
 
 /**
  * The height kind the feed draws a key of its list as, decided as the row dispatch and the tool
@@ -27,6 +44,9 @@ export function rowHeightKindOf(
 ): RowHeightKind {
   if (transcriptWindow.runGroupByHeaderKey.has(rowKey)) {
     return "run-group-header";
+  }
+  if (readRunWindowEdgeKey(rowKey, transcriptWindow.runGroupByHeaderKey) !== undefined) {
+    return "run-window-edge";
   }
   const row = transcriptWindow.rowsByKey.get(rowKey);
   if (row === undefined) {
@@ -70,4 +90,28 @@ export function rowBodyLengthOf(
   return contentLength !== undefined && payload[CONTENT_TRUNCATED_PAYLOAD_KEY] === true
     ? Math.min(contentLength, CONTENT_PAYLOAD_PLAINTEXT_MAX)
     : contentLength;
+}
+
+/** The height, in pixels, the viewport's table estimates a key of `transcriptWindow` at. */
+export function estimatedRowHeightPxOf(
+  transcriptWindow: TranscriptWindowModel,
+  estimates: RowHeightEstimates,
+  rowKey: string,
+): number {
+  return estimates.estimatedRowHeightPx(
+    rowKey,
+    rowHeightKindOf(transcriptWindow, estimates.foldedCallRowIds, estimates.isRevealing, rowKey),
+    rowBodyLengthOf(transcriptWindow, estimates.isRevealing, rowKey),
+  );
+}
+
+/** The measure a long run's window over `transcriptWindow`'s rows is cut in. */
+export function runWindowMeasureOf(
+  transcriptWindow: TranscriptWindowModel,
+  estimates: RunWindowEstimates,
+): RunWindowMeasure {
+  return {
+    screenHeightPx: estimates.screenHeightPx,
+    rowHeightPx: (rowId) => estimatedRowHeightPxOf(transcriptWindow, estimates, rowId),
+  };
 }

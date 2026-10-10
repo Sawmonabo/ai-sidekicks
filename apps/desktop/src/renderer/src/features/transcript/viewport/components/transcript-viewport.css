@@ -29,8 +29,8 @@
   min-height: 0;
 }
 
-/* Carries the whole log's height so the scrollbar is honest. The virtualizer writes the
-   height directly, so it is absent from this rule. */
+/* Carries the height of the rows the window holds, which the virtualizer writes directly, so it
+   is absent from this rule. */
 .meridian-transcript-viewport__sizer {
   position: relative;
   width: 100%;
@@ -77,8 +77,12 @@
   font-size: var(--meridian-text-xs);
 }
 
-/* The failed read's line, in the history line's look and pressable at its `Try again`. */
-.meridian-transcript-viewport__load-earlier-failed {
+/*
+ * The failed read's line, in the history line's look and pressable at its `Try again`, and the
+ * line saying a linked message is nowhere in the history, in the same look and place.
+ */
+.meridian-transcript-viewport__load-earlier-failed,
+.meridian-transcript-viewport__message-not-found {
   margin-block: var(--meridian-space-3);
   color: var(--meridian-text-faint);
   font-size: var(--meridian-text-xs);

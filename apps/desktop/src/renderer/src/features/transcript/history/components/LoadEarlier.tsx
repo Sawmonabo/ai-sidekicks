@@ -1,9 +1,10 @@
 // The line at the top of the loaded history: `Load earlier` while the daemon holds rows before the
 // head, `Loading…` while they are read, `Couldn't load earlier messages · Try again` after a read
-// of them failed, and nothing once the head is where the session's history starts. Nearing the top
-// and a pull at the very top read the stretch on their own; the line is for the case they cannot
-// see. The viewport draws it above the first row and holds the reader's row as its height
-// changes.
+// of them failed, `Message not found` once a linked message's reading back reached the start of
+// history without it, and nothing else once the head is where the session's history starts.
+// Nearing the top and a pull at the very top read the stretch on their own; the line is for the
+// case they cannot see. The viewport draws it above the first row and holds the reader's row as
+// its height changes.
 
 import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
 import { TryAgainButton } from "#renderer/components/TryAgainButton/TryAgainButton.js";
@@ -16,9 +17,14 @@ const EARLIER_READ_FAILED_WORDS = "Couldn't load earlier messages";
 /** The words of the line while a stretch of earlier messages is read. */
 const READING_WORDS = "Loading…";
 
+/** The words of the line once a linked message is nowhere in the session's history. */
+const MESSAGE_NOT_FOUND_WORDS = "Message not found";
+
 /** The history whose head the line offers and whose stretch it asks for. */
 export interface LoadEarlierProps {
   readonly history: TranscriptHistory;
+  /** Whether a link named a message the whole history, read back to its start, does not hold. */
+  readonly isLinkedMessageMissing: boolean;
 }
 
 /** The line at the top of the loaded history, or nothing once nothing lies before it. */
@@ -35,6 +41,19 @@ export function LoadEarlier(props: LoadEarlierProps): React.JSX.Element | null {
       history.readStretch("head");
     }
   };
+  if (props.isLinkedMessageMissing) {
+    // Said once, when the reading back ends without the message; the page stays where it is.
+    return (
+      <AnnouncedLine
+        element="p"
+        className="meridian-transcript-viewport__message-not-found"
+        words={MESSAGE_NOT_FOUND_WORDS}
+        politeness="polite"
+      >
+        {MESSAGE_NOT_FOUND_WORDS}
+      </AnnouncedLine>
+    );
+  }
   if (hasFailed) {
     return (
       // `Try again` beside the failure is not read out.

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 3,
   "description": "The single source of truth for every numeric budget the app is gated on, except the renderer bundle sizes, which size-limit checks against the budgets in `apps/desktop/.size-limit.ts`. Rows carry a `scope`. A `product` row is one of the app's own product figures, written here whether or not this revision can measure it, because a budget silently omitted is a budget nobody notices is ungated. A `harness` row is a bound the scaffolding applies to itself or to what the endurance tier reads off the app, with no product figure behind it, so its `specTarget` states the bound in its own terms while `harnessBudgetDerivation` states, once for the whole set, why those figures and not others. Both kinds live here for the same reason: one value, one home. An entry whose `status` is \"n/a\" is not measurable at this revision and names, in `notMeasurableReason`, what is missing.",
-  "harnessBudgetDerivation": "A `harness` row has no product figure behind it, so this field says, once for the whole set, where its number comes from; a derivation copied into each row would have as many places to drift as there are rows. There are two groups. THE FIVE `launch-*` AND `endurance-body` ROWS are the slices of ONE tier timeout. Three bound the launch: `tests/helpers/launch/deadline.ts` mints one deadline per launch and divides it into readiness, the frame paint probe and cleanup, so a launch that overruns produces its own diagnostic instead of Vitest's undiagnosable kill. The other two bound the caller's test body between a settled launch and its cleanup, so Vitest never kills a body mid-poll, before the poll's own message or the cleanup settles, leaving an Electron alive. A launching tier's `testTimeout` is derived from these rows rather than written as a literal: `tierTimeoutFor()` in `tests/helpers/launch/deadline.ts` sums the launch budget, the body allowance that tier applies, and a 2 000 ms settlement residual — a floor rather than a ceiling, which is why it is a constant beside these rows and not a row among them, since every row here is a ceiling. The `launch-cleanup` row is reserved TWICE inside the launch budget (`CLEANUP_PHASES` in `tests/helpers/launch/deadline.ts`), because one cleanup spends it in two phases: the close it races, and then the termination loop that restarts the same figure when the close had to be abandoned. The body allowance is per tier because the two tiers' bodies are different subjects — a driven interaction against a sustained workload — and a tier that states none gets the shorter one, so a new tier fails inside its own bound rather than quietly under Vitest's. The figures are generous on purpose: a cold CI runner with no warm Electron cache is the case these must not flake on, and each is a ceiling for a wedged phase rather than an expectation. THE SIX ENDURANCE DETECTION ROWS (`steady-heap-growth`, `detached-node-retention`, `transcript-fold-cost-ratio`, `transcript-fold-retention`, `overlay-scrollbars-started-streaming` and `overlay-scrollbars-started-wheeling`) bound what the endurance tier reads off the app over a workload no product figure names: a growth, a retention, a cost ratio or a count of started overlay scrollbars rather than a product ceiling. Each sits below what the defect it hunts would produce and above the noise a clean run carries, and its row's `notes` says how.",
+  "harnessBudgetDerivation": "A `harness` row has no product figure behind it, so this field says, once for the whole set, where its number comes from; a derivation copied into each row would have as many places to drift as there are rows. There are two groups. THE FIVE `launch-*` AND `endurance-body` ROWS are the slices of ONE tier timeout. Three bound the launch: `tests/helpers/launch/deadline.ts` mints one deadline per launch and divides it into readiness, the frame paint probe and cleanup, so a launch that overruns produces its own diagnostic instead of Vitest's undiagnosable kill. The other two bound the caller's test body between a settled launch and its cleanup, so Vitest never kills a body mid-poll, before the poll's own message or the cleanup settles, leaving an Electron alive. A launching tier's `testTimeout` is derived from these rows rather than written as a literal: `tierTimeoutFor()` in `tests/helpers/launch/deadline.ts` sums the launch budget, the body allowance that tier applies, and a 2 000 ms settlement residual — a floor rather than a ceiling, which is why it is a constant beside these rows and not a row among them, since every row here is a ceiling. The `launch-cleanup` row is reserved TWICE inside the launch budget (`CLEANUP_PHASES` in `tests/helpers/launch/deadline.ts`), because one cleanup spends it in two phases: the close it races, and then the termination loop that restarts the same figure when the close had to be abandoned. The body allowance is per tier because the two tiers' bodies are different subjects — a driven interaction against a sustained workload — and a tier that states none gets the shorter one, so a new tier fails inside its own bound rather than quietly under Vitest's. The figures are generous on purpose: a cold CI runner with no warm Electron cache is the case these must not flake on, and each is a ceiling for a wedged phase rather than an expectation. THE ENDURANCE DETECTION ROWS (`steady-heap-growth`, `detached-node-retention`, `transcript-fold-cost-ratio`, `transcript-fold-retention`, `run-window-press-cpu-median`, `run-window-press-cpu-worst`, `run-window-sweep-retention`, `overlay-scrollbars-started-streaming` and `overlay-scrollbars-started-wheeling`) bound what the endurance tier reads off the app over a workload no product figure names: a growth, a retention, a cost ratio, a press's processor time or a count of started overlay scrollbars rather than a product ceiling. Each sits below what the defect it hunts would produce and above the noise a clean run carries, and its row's `notes` says how.",
   "enduranceTierNotGatedReason": "Every row the endurance tier's harnesses measure is `n/a` for one shared reason, stated here once rather than copied into each row: the tier runs only by name (`test:endurance`). It is in no CI job and outside the aggregate `test` script until the endurance reference run makes it a gate on every PR. Each such row's `notMeasurableReason` names its harness and the symbol that harness holds, and points here.",
   "unitConventions": {
     "MB": "1000000 bytes (SI). The spec writes `MB`; the SI reading is also the stricter one (120 MB = 120000000 B, against 120 MiB = 125829120 B), so taking it costs the budget nothing and cannot make a passing measurement out of a failing one.",
@@ -187,7 +187,7 @@
       "measuredBy": null,
       "subjectSymbol": null,
       "notMeasurableReason": "`tests/endurance/heap/sustained-streaming.test.ts` measures it, through `RendererHeapProbe`, when the endurance tier is run by name (`test:endurance`). Why that tier gates nothing yet is stated once in `enduranceTierNotGatedReason`.",
-      "notes": "The ceiling is this row's; flatness is judged against `steady-heap-growth`'s allowance, so no number has two owners. The thirty minutes are scenario time on the frozen clock, played inside the `endurance-body` allowance: half of it is spread over stretches of half the in-window step bound, each paced across the window's own frames so the reveal and the viewport run as they do for a reader, each ending on a beat's own tick, and each followed by a settled reading behind a forced collection, which the other half pays for. The ceiling is compared against the largest reading of the run. Flat means every reading after the warm-up sits within `steady-heap-growth`'s allowance of the first reading after it; the warm-up lasts until the store first lets go of events, since until then it holds every event it was given and the heap grows with the log by design. Over the script's 68 turns a leak of about 120 kB a turn reaches the allowance; a smaller one is below what this run can see. The run fails rather than passing over an idle app when the beats delivered stop growing between readings, the stream reaches no store through a subscription, or the store never lets go of events or stops letting go after the warm-up. The figure is `performance.memory.usedJSHeapSize` at precise precision, the minimum over settling samples, which counts allocated and not yet collected bytes and so sits at or above the retained heap, the safe direction for a ceiling.",
+      "notes": "The ceiling is this row's; flatness is judged against `steady-heap-growth`'s allowance, so no number has two owners. The thirty minutes are scenario time on the frozen clock, played inside the `endurance-body` allowance: half of it is spread over stretches of half the in-window step bound, each paced across the window's own frames, every one of which runs the frame work the app armed on the frozen clock after that frame's beats are in, as a reader's frame does, each ending on a beat's own tick, and each followed by a settled reading behind a forced collection, which the other half pays for. The ceiling is compared against the largest reading of the run. Flat means every reading after the warm-up sits within `steady-heap-growth`'s allowance of the first reading after it; the warm-up lasts until the store first lets go of events, since until then it holds every event it was given and the heap grows with the log by design. Over the script's 68 turns a leak of about 120 kB a turn reaches the allowance; a smaller one is below what this run can see. The run fails rather than passing over an idle app when the beats delivered stop growing between readings, the stream reaches no store through a subscription, or the store never lets go of events or stops letting go after the warm-up. The figure is `performance.memory.usedJSHeapSize` at precise precision, the minimum over settling samples, which counts allocated and not yet collected bytes and so sits at or above the retained heap, the safe direction for a ceiling.",
       "scope": "product"
     },
     {
@@ -397,13 +397,13 @@
     {
       "id": "transcript-fold-cost-ratio",
       "label": "Transcript fold cost over a four times longer log",
-      "subject": "How many times longer the transcript's fold, `deriveTranscriptWindow`, takes over a generated ten-thousand-row session than over a quarter of it, each the fastest of several passes.",
-      "specTarget": "≤ 8 times the cost for a log four times as long",
+      "subject": "How many times more processor time the transcript's fold, `deriveTranscriptWindow`, takes over a generated ten-thousand-row session than over a quarter of it: the median of fifteen rounds that each fold both sizes back to back.",
+      "specTarget": "≤ 6 times the cost for a log four times as long",
       "limit": {
         "comparison": "<=",
-        "value": 8,
+        "value": 6,
         "unit": "ratio",
-        "canonicalValue": 8,
+        "canonicalValue": 6,
         "canonicalUnit": "ratio"
       },
       "scope": "harness",
@@ -411,7 +411,7 @@
       "measuredBy": null,
       "subjectSymbol": null,
       "notMeasurableReason": "`tests/endurance/transcript/long-log.test.ts` measures it, through `deriveTranscriptWindow`, when the endurance tier is run by name (`test:endurance`). Why that tier gates nothing yet is stated once in `enduranceTierNotGatedReason`.",
-      "notes": "A ratio between two sizes rather than a wall-clock ceiling, so a slower machine does not break it. The step is four times, so a linear fold lands near 4 and a quadratic one near 16. Measured at about 4.4 (2,500 rows fold in ~2.5 ms, 10,000 in ~11 ms, best of five on an eight-core laptop); 8 leaves room over noise while sitting half way to the quadratic figure. Fixed per-call overhead can only push the ratio down, so it cannot manufacture a failure."
+      "notes": "A ratio between two sizes rather than a ceiling on milliseconds, so a slower machine does not break it, and in processor time rather than wall time, so a busy one does not either: under a one-minute load near 30 the wall-time ratio of a clean fold ranged from 4.3 to 7.9 across runs, which no ceiling could separate from a superlinear one. The step is four times, so a linear fold lands near 4 and a quadratic one near 16. A fold with one quadratic stage among linear ones lands between: when each reply's row list was copied whole on every row the reply gained, the fold read 6.8 to 8.2 across seven runs, against 3.7 to 4.8 across seven runs of the fold as it stands, on an eight-core Apple M1 Pro at one-minute loads from 5 to 31. 6 sits above the clean fold's worst run and below that defect's best. Each round folds both sizes back to back, so a busy stretch of the machine slows both halves of one ratio, and the median round is read; three rounds are folded first and not read, so the fold's code is compiled before any is timed. Fixed per-call overhead can only push the ratio down, so it cannot manufacture a failure."
     },
     {
       "id": "transcript-fold-retention",
@@ -431,6 +431,63 @@
       "subjectSymbol": null,
       "notMeasurableReason": "`tests/endurance/transcript/long-log.test.ts` measures it, through `deriveTranscriptWindow`, when the endurance tier is run by name (`test:endurance`). Why that tier gates nothing yet is stated once in `enduranceTierNotGatedReason`.",
       "notes": "Not zero, because V8 keeps code objects, inline caches and deoptimization data alive across a run. Not a fraction of the baseline, since a leak's size does not depend on how large the process was. Bounded from both sides: one held window over this log measures ~3.9 MB, so a ceiling above that could not catch a fold keeping a single one of its twenty outputs; 2 MiB sits under one window and two orders of magnitude above the ~21 kB twenty clean folds retain. A Node heap reading is honest here because the subject is the fold's own retained structures, which live in whatever process runs it; it states no renderer ceiling."
+    },
+    {
+      "id": "run-window-press-cpu-median",
+      "label": "Run window press, median fold cost",
+      "subject": "The median processor time of the fold after one press on a run window's edge line, `RunGroupFold.fold` after `RunCallWindows.openStretch`, over eight sweeps of a ten-thousand-call run's window from its newest calls to its first and back, cut in a screen fifty calls high, after one sweep that is not read.",
+      "specTarget": "≤ 4 ms of processor time per press at the median",
+      "limit": {
+        "comparison": "<=",
+        "value": 4,
+        "unit": "ms",
+        "canonicalValue": 4,
+        "canonicalUnit": "ms"
+      },
+      "scope": "harness",
+      "status": "n/a",
+      "measuredBy": null,
+      "subjectSymbol": null,
+      "notMeasurableReason": "`tests/endurance/transcript/long-log.test.ts` measures it, through `RunCallWindows.openStretch` and `RunGroupFold.fold`, when the endurance tier is run by name (`test:endurance`). Why that tier gates nothing yet is stated once in `enduranceTierNotGatedReason`.",
+      "notes": "Half of one refresh at 120 Hz: the fold is only the first part of what a press costs before the next frame, ahead of the render of the rows it admits and their layout, so it may take at most half the frame at the median. Processor time of the test's own thread, so a busy machine taking the thread away does not count. What it hunts is a press that walks more than its window: resolving the window again for every row the window admits read a median of 34 ms. Measured at a median of 1.27 to 1.34 ms across three runs on an eight-core Apple M1 Pro at one-minute loads from 15 to 30."
+    },
+    {
+      "id": "run-window-press-cpu-worst",
+      "label": "Run window press, slowest fold cost",
+      "subject": "The processor time of the slowest press's fold over the same sweeps as `run-window-press-cpu-median`.",
+      "specTarget": "≤ 8.3 ms of processor time for every press",
+      "limit": {
+        "comparison": "<=",
+        "value": 8.3,
+        "unit": "ms",
+        "canonicalValue": 8.3,
+        "canonicalUnit": "ms"
+      },
+      "scope": "harness",
+      "status": "n/a",
+      "measuredBy": null,
+      "subjectSymbol": null,
+      "notMeasurableReason": "`tests/endurance/transcript/long-log.test.ts` measures it, through `RunCallWindows.openStretch` and `RunGroupFold.fold`, when the endurance tier is run by name (`test:endurance`). Why that tier gates nothing yet is stated once in `enduranceTierNotGatedReason`.",
+      "notes": "One refresh at 120 Hz, rounded down: a press whose fold alone takes a whole frame drops that frame whatever the render after it costs. The slowest press, not a percentile, because a reader pressing through a long run meets every press. Measured at 4.22 to 5.17 ms across three runs on an eight-core Apple M1 Pro at one-minute loads from 15 to 30, against a median of 1.3 ms."
+    },
+    {
+      "id": "run-window-sweep-retention",
+      "label": "Run window sweep retention",
+      "subject": "What the eight read sweeps of `run-window-press-cpu-median` add to the heap of the process running them, each read behind a forced collection against a reading taken after the unread sweep, the largest reading compared.",
+      "specTarget": "≤ 0.25 MiB retained after eight sweeps",
+      "limit": {
+        "comparison": "<=",
+        "value": 0.25,
+        "unit": "MiB",
+        "canonicalValue": 262144,
+        "canonicalUnit": "bytes"
+      },
+      "scope": "harness",
+      "status": "n/a",
+      "measuredBy": null,
+      "subjectSymbol": null,
+      "notMeasurableReason": "`tests/endurance/transcript/long-log.test.ts` measures it, through `RunCallWindows.openStretch` and `RunGroupFold.fold`, when the endurance tier is run by name (`test:endurance`). Why that tier gates nothing yet is stated once in `enduranceTierNotGatedReason`.",
+      "notes": "A sweep is about 130 presses, and each press folds the run again, so anything a press keeps grows by that much every sweep. The readings rise over the first three sweeps and then hold, at 65 to 67 kB across three runs, which is V8's compiled code and inline caches settling rather than the windows. 0.25 MiB is about four times that plateau. A fold keeping every press's stage read 142 MB after eight sweeps; the windows keeping a history of every window they held, a few hundred bytes a press, read 489 kB. The readings go into arrays sized before the first press, so the test adds nothing to the heap it measures."
     },
     {
       "id": "overlay-scrollbars-started-streaming",

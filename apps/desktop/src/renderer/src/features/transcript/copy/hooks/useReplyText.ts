@@ -3,7 +3,8 @@ import { useCallback, useContext, useEffect, useSyncExternalStore } from "react"
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { RowRevealContext } from "../../reveal/components/RowRevealProvider.js";
 import { PART_SEPARATOR, type CopyFlavor } from "../conversation-selection.js";
-import { replyCopyFlavorOf, type DrawnRowText } from "../drawn-reply-text.js";
+import { type DrawnRowText } from "../drawn-reply-text.js";
+import { replyRowTextOf } from "../row-text.js";
 
 /** What a reply's foot reads of the whole reply's text. */
 export interface ReplyText {
@@ -58,14 +59,9 @@ export function useReplyText(
       if (rowId === ownRowId && ownText !== undefined && ownText.length > 0) {
         return own;
       }
-      const recorded = drawnReplyText?.drawnTextOf(rowId);
-      const live = revealChannel?.publishedTextFor(rowId);
-      if (live !== undefined) {
-        return { text: live, flavor: recorded?.flavor ?? replyCopyFlavorOf(live) };
-      }
-      return recorded;
+      return revealChannel === undefined ? undefined : replyRowTextOf(rowId, revealChannel);
     },
-    [drawnReplyText, own, ownRowId, ownText, revealChannel],
+    [own, ownRowId, ownText, revealChannel],
   );
   const parts = drawnPartsOf(replyRowIds, partOf);
   const read = useCallback(

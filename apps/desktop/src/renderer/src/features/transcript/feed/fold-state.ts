@@ -6,35 +6,35 @@ import { type TranscriptRowDensity } from "../rows/renderer.js";
 
 /** The run groups and calls one session's reader folded; everything else is open. */
 export class TranscriptFoldState {
-  readonly #foldedRunIds = new Set<string>();
+  readonly #foldedRunGroupKeys = new Set<string>();
   readonly #foldedCallRowIds = new Set<string>();
 
   /** Fold an open run group, or open a folded one: what a press on its header does. */
-  public toggleRunGroup(runId: string): void {
-    if (!this.#foldedRunIds.delete(runId)) {
-      this.#foldedRunIds.add(runId);
+  public toggleRunGroup(runGroupKey: string): void {
+    if (!this.#foldedRunGroupKeys.delete(runGroupKey)) {
+      this.#foldedRunGroupKeys.add(runGroupKey);
     }
   }
 
   /** Open one run group. Answers whether it was folded, so an open one costs no repaint. */
-  public openRunGroup(runId: string): boolean {
-    return this.#foldedRunIds.delete(runId);
+  public openRunGroup(runGroupKey: string): boolean {
+    return this.#foldedRunGroupKeys.delete(runGroupKey);
   }
 
   /** Fold every run group named. Answers whether any was open. */
-  public foldRunGroups(runIds: Iterable<string>): boolean {
-    const foldedBefore = this.#foldedRunIds.size;
-    for (const runId of runIds) {
-      this.#foldedRunIds.add(runId);
+  public foldRunGroups(runGroupKeys: Iterable<string>): boolean {
+    const foldedBefore = this.#foldedRunGroupKeys.size;
+    for (const runGroupKey of runGroupKeys) {
+      this.#foldedRunGroupKeys.add(runGroupKey);
     }
-    return this.#foldedRunIds.size !== foldedBefore;
+    return this.#foldedRunGroupKeys.size !== foldedBefore;
   }
 
   /** Open every run group named. Answers whether any was folded. */
-  public unfoldRunGroups(runIds: Iterable<string>): boolean {
+  public unfoldRunGroups(runGroupKeys: Iterable<string>): boolean {
     let opened = false;
-    for (const runId of runIds) {
-      opened = this.#foldedRunIds.delete(runId) || opened;
+    for (const runGroupKey of runGroupKeys) {
+      opened = this.#foldedRunGroupKeys.delete(runGroupKey) || opened;
     }
     return opened;
   }
@@ -46,9 +46,9 @@ export class TranscriptFoldState {
     }
   }
 
-  /** The run groups a person folded, by run id. */
-  public get foldedRunIds(): ReadonlySet<string> {
-    return this.#foldedRunIds;
+  /** The run groups a person folded, by key. */
+  public get foldedRunGroupKeys(): ReadonlySet<string> {
+    return this.#foldedRunGroupKeys;
   }
 
   /** The calls a person folded, by row id. */

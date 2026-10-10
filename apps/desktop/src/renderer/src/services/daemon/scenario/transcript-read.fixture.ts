@@ -205,8 +205,6 @@ function rowOf(
     cursor: event.cursor,
     ...(category === undefined ? {} : { category }),
     type: event.kind,
-    // The event type restated: no registered payload carries a summary.
-    summary: event.kind,
     timestamp: event.occurredAt,
     ...(event.actorId === undefined ? {} : { actor: event.actorId }),
     payload: event.payload ?? {},

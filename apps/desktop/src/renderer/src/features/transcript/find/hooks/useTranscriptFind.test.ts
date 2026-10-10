@@ -20,18 +20,22 @@ import {
 /** Long enough to walk past a shorter window, short enough to enumerate. */
 const LOG_EVENT_COUNT = 10;
 /** A query every row of the log below matches, so a walk is over the whole log. */
-const EVERY_ROW_QUERY = "user.message";
+const EVERY_ROW_QUERY = "keep going";
 
-/** A log of `count` events, oldest first, every one matching {@link EVERY_ROW_QUERY}. */
+/** A log of `count` messages from a person, oldest first, each matching {@link EVERY_ROW_QUERY}. */
 function syntheticEventLog(count: number): readonly ProjectedSessionEvent[] {
   return Array.from({ length: count }, (_unused, index) => ({
     id: `event-${String(index)}`,
     sessionId: "session-find",
     sequence: index,
     cursor: transcriptFixtureStreamCursor(index),
-    kind: EVERY_ROW_QUERY,
+    kind: "user.message",
     occurredAt: transcriptFixtureStampAt(index),
-    payload: {},
+    payload: {
+      sessionId: "session-find",
+      actor: "user",
+      message: `Message ${String(index)}: keep going`,
+    },
   }));
 }
 
@@ -45,7 +49,8 @@ describe("the walk when the result moves under it", () => {
           rows: currentRows,
           // Nothing is folded here, so the fold reports the shared empty removal.
           foldedAwayRows: NO_ROWS_REMOVED,
-          drawsRow: () => true,
+          systemMessageByRowId: new Map(),
+          drawsBody: () => true,
         }),
       { initialProps: { rows } },
     );
@@ -60,16 +65,18 @@ describe("the walk when the result moves under it", () => {
   function findOverPipeline(stages: {
     readonly unfurled: number;
     readonly folded: number;
-    readonly drawsRow: (row: TranscriptEventRow) => boolean;
+    readonly drawsBody: (row: TranscriptEventRow) => boolean;
   }): RenderHookResult<TranscriptFindState, unknown> {
     const modelOf = (count: number): TranscriptWindowModel =>
       deriveTranscriptWindow(syntheticEventLog(count));
     const foldedWindow = modelOf(stages.folded);
+    const unfurledWindow = modelOf(stages.unfurled);
     return renderHook(() =>
       useTranscriptFind({
         rows: foldedWindow.rows,
-        foldedAwayRows: modelOf(stages.unfurled).rows.slice(stages.folded),
-        drawsRow: stages.drawsRow,
+        foldedAwayRows: unfurledWindow.rows.slice(stages.folded),
+        systemMessageByRowId: unfurledWindow.systemMessageByRowId,
+        drawsBody: stages.drawsBody,
       }),
     );
   }
@@ -125,7 +132,7 @@ describe("the walk when the result moves under it", () => {
     const { result } = findOverPipeline({
       unfurled: LOG_EVENT_COUNT,
       folded: LOG_EVENT_COUNT - 2,
-      drawsRow: (row) => row.id !== undrawnRowId,
+      drawsBody: (row) => row.id !== undrawnRowId,
     });
     act(() => {
       result.current.setQuery(EVERY_ROW_QUERY);
@@ -146,7 +153,7 @@ describe("the walk when the result moves under it", () => {
     });
     expect(result.current.currentMatchIndex).toBe(0);
     act(() => {
-      result.current.setQuery("user");
+      result.current.setQuery("message");
     });
     expect(result.current.currentMatchIndex).toBe(-1);
   });
@@ -160,7 +167,8 @@ describe("the find field's own open act", () => {
         rows: transcriptWindow.rows,
         // Nothing is folded here, so the fold reports the shared empty removal.
         foldedAwayRows: NO_ROWS_REMOVED,
-        drawsRow: () => true,
+        systemMessageByRowId: new Map(),
+        drawsBody: () => true,
       }),
     );
   }

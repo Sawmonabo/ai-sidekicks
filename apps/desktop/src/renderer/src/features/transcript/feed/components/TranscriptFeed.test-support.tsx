@@ -62,13 +62,10 @@ export function renderFeed(
           rowRenderer={{
             render: (mount) => {
               onRowMounted?.(mount);
-              return renderRowBody === undefined ? (
-                <p>{mount.row.summary}</p>
-              ) : (
-                renderRowBody(mount)
-              );
+              return renderRowBody === undefined ? <p>{mount.row.type}</p> : renderRowBody(mount);
             },
             drawsBody: options.drawsBody ?? (() => true),
+            prepareRow: () => undefined,
           }}
           feedLabel="Transcript"
           messageAnchorCursor={options.messageAnchorCursor}
@@ -101,7 +98,7 @@ export function CallFoldingRowBody(props: TranscriptRowProps): React.JSX.Element
         toggleCallFold(props.row.id, event.currentTarget);
       }}
     >
-      {props.row.summary}
+      {props.row.type}
     </button>
   );
 }
@@ -115,10 +112,24 @@ export function scrollContainerOf(feed: HTMLElement): HTMLElement {
   return scrollContainer;
 }
 
-/** The reader's own scroll: the box moves and says so, as the platform does after a wheel. */
-export function readerScrollsTo(scrollContainer: HTMLElement, scrollTopPx: number): void {
+/**
+ * The reader's own scroll: their wheel, which turns no line here, then the box moves and says so,
+ * as the platform does after a wheel. `inputAtMs`, where given, is both events' own time stamp.
+ */
+export function readerScrollsTo(
+  scrollContainer: HTMLElement,
+  scrollTopPx: number,
+  inputAtMs?: number,
+): void {
+  const wheel = new WheelEvent("wheel", { deltaY: 0, bubbles: true });
+  const scroll = new UIEvent("scroll");
+  if (inputAtMs !== undefined) {
+    Object.defineProperty(wheel, "timeStamp", { value: inputAtMs });
+    Object.defineProperty(scroll, "timeStamp", { value: inputAtMs });
+  }
+  fireEvent(scrollContainer, wheel);
   scrollContainer.scrollTop = scrollTopPx;
-  fireEvent.scroll(scrollContainer);
+  fireEvent(scrollContainer, scroll);
 }
 
 /**
@@ -137,7 +148,7 @@ export function boundController(bindings: {
 
 /** A row body naming its row by id, so a case can tell which rows the window mounted. */
 export function RowIdBody(props: TranscriptRowProps): React.JSX.Element {
-  return <p data-row-id={props.row.id}>{props.row.summary}</p>;
+  return <p data-row-id={props.row.id}>{props.row.type}</p>;
 }
 
 /**

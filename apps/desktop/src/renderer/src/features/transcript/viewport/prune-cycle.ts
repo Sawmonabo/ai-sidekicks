@@ -74,7 +74,6 @@ export class ViewportPruneCycle {
   readonly #publishedRowKeys: () => readonly string[];
   readonly #publishedIndexOf: (rowKey: string) => number | undefined;
   readonly #readBeyondLogEdge: ((side: WindowSide) => boolean) | undefined;
-  readonly #clock: Clock;
   /**
    * Owned here because `run` is called once per pass, the frame's signal that the transcript
    * moved; the trim measures quiet time against the clock.
@@ -95,8 +94,8 @@ export class ViewportPruneCycle {
   #lastReadingRowKey: string | undefined;
   /** The last sample heard, of any cause, so an edge crossing the let-go distance is told apart. */
   #lastSample: ScrollGeometry | undefined;
-  /** The clock stamp of the reader's last scroll sample or pull, which a pause measures from. */
-  #lastReaderSampleAtMs: number | undefined;
+  /** The event stamp of the reader's last scroll sample or pull, which a pause measures from. */
+  #lastReaderInputAtMs: number | undefined;
   /** Whether the reader's current gesture has had its stretch. */
   #hasGestureAdmitted = false;
 
@@ -109,7 +108,6 @@ export class ViewportPruneCycle {
     this.#publishedRowKeys = options.publishedRowKeys;
     this.#publishedIndexOf = options.publishedIndexOf;
     this.#readBeyondLogEdge = options.readBeyondLogEdge;
-    this.#clock = options.clock;
     this.#idleTrim = new IdleMemoryTrim({
       clock: options.clock,
       window: options.window,
@@ -147,7 +145,7 @@ export class ViewportPruneCycle {
     this.#window.ingest(conditions.rows);
     const outcome = this.#window.prune({
       scrollControllerVetoes: this.#scroll.vetoesPrune(),
-      isWorkingRow: conditions.isWorkingRow,
+      isChangingRow: conditions.isChangingRow,
       heldRowKeys,
       onScreenRowKeys,
       readingPosition,
@@ -191,7 +189,8 @@ export class ViewportPruneCycle {
    *
    * Only the reader's own scroll asks; a sample a programmatic write published is the transcript
    * moving itself. A gesture ends at a pause of `TRANSCRIPT_GESTURE_GAP_MS` between the reader's
-   * samples, read off their clock stamps, so a fling brings one stretch and arms no timer.
+   * samples, read off their scroll events' own time stamps, so a fling brings one stretch, arms
+   * no timer and is told apart whatever clock the app runs on.
    */
   public passOwedBy(geometry: ScrollGeometry): WindowPassRequest | undefined {
     const previous = this.#lastSample;
@@ -205,7 +204,7 @@ export class ViewportPruneCycle {
     ) {
       return undefined;
     }
-    this.#noteReaderInputAt(geometry.sampledAt);
+    this.#noteReaderInputAt(geometry.inputAt);
     const approachPx = TRANSCRIPT_APPROACH_SCREEN_HEIGHTS * screenHeightPx;
     const isNearHead = geometry.scrollTop < approachPx;
     const isNearTail = geometry.distanceFromTailPx < approachPx;
@@ -242,11 +241,11 @@ export class ViewportPruneCycle {
    * gesture as an approach, from the log when the window has let that edge go, else from the
    * history reader.
    */
-  public passOwedByPullAt(side: WindowSide): WindowPassRequest | undefined {
+  public passOwedByPullAt(side: WindowSide, inputAtMs: number): WindowPassRequest | undefined {
     if (this.#lastConditions === undefined || this.#scroll.vetoesPrune()) {
       return undefined;
     }
-    this.#noteReaderInputAt(this.#clock.now());
+    this.#noteReaderInputAt(inputAtMs);
     if (this.#hasGestureAdmitted) {
       return undefined;
     }
@@ -285,12 +284,14 @@ export class ViewportPruneCycle {
   }
 
   /** Starts a new gesture when the reader's input comes a gesture gap after their last one. */
-  #noteReaderInputAt(inputAtMs: number): void {
-    const lastReaderSampleAtMs = this.#lastReaderSampleAtMs;
-    this.#lastReaderSampleAtMs = inputAtMs;
+  #noteReaderInputAt(inputAtMs: number | undefined): void {
+    const lastReaderInputAtMs = this.#lastReaderInputAtMs;
+    this.#lastReaderInputAtMs = inputAtMs;
+    // A sample no input published (the attach) starts a gesture, as a long pause does.
     if (
-      lastReaderSampleAtMs === undefined ||
-      inputAtMs - lastReaderSampleAtMs >= TRANSCRIPT_GESTURE_GAP_MS
+      lastReaderInputAtMs === undefined ||
+      inputAtMs === undefined ||
+      inputAtMs - lastReaderInputAtMs >= TRANSCRIPT_GESTURE_GAP_MS
     ) {
       this.#hasGestureAdmitted = false;
     }
@@ -335,10 +336,14 @@ export class ViewportPruneCycle {
    * Whether the condition that refused the last pass is gone. Total over
    * `PRUNE_DEFERRAL_REASONS`, so a new reason is a compile error until classified.
    *
-   * `within-share` owes nothing, and the feed re-runs the pass with a new working-row check
-   * whenever the working rows or the reveal's held lanes change, which is when `working-rows`
-   * clears, so those answer `false`. The sets compare rather than test for empty: only a changed
-   * engagement, screen or place helps a stopped cut, and comparing makes the re-ask single-shot.
+   * `within-share` owes nothing. A row stops changing when the log moves (a tool result, a
+   * resolution, a run's end), which re-runs the pass; a changing or held row stops protecting once
+   * the reader moves it past the let-go distance, so `changing-rows` clears with the reader's
+   * place, as the reading floor does, and `held-rows` with the place or the held set. A run group
+   * the cut would split moves only with the log, a fold or the reader's place, which moves the
+   * cut, so `run-group-rows` clears with the place too. The sets compare rather than test for
+   * empty: only a changed engagement, screen or place helps a stopped cut, and comparing makes the
+   * re-ask single-shot.
    */
   #deferralHasCleared(owedBecause: PruneDeferralReason): boolean {
     switch (owedBecause) {
@@ -355,13 +360,17 @@ export class ViewportPruneCycle {
       case "scroll-write":
         return !this.#scroll.vetoesPrune();
       case "reading-floor":
+      case "changing-rows":
+      case "run-group-rows":
         return readingPositionRowKey(this.#readingPosition()) !== this.#lastReadingRowKey;
       case "on-screen-rows":
         return !sameRowKeySet(this.#onScreenRowKeys(), this.#lastOnScreenRowKeys);
       case "held-rows":
-        return !sameRowKeySet(this.#anchor.heldRowKeys(), this.#lastHeldRowKeys);
+        return (
+          readingPositionRowKey(this.#readingPosition()) !== this.#lastReadingRowKey ||
+          !sameRowKeySet(this.#anchor.heldRowKeys(), this.#lastHeldRowKeys)
+        );
       case "within-share":
-      case "working-rows":
         return false;
     }
   }

@@ -10,8 +10,14 @@ import { EventCursorSchema, SessionIdSchema, type SessionId } from "../session/i
 import { type EventCursor } from "../session/event-cursor.js";
 
 import { requireMemberToRideOneFrame } from "../jsonrpc/page.js";
-import { TRANSCRIPT_EVENT_ROW_SUMMARY_MAX_LEN, TRANSCRIPT_READ_LIMIT_MAX } from "./limits.js";
+import { TRANSCRIPT_READ_LIMIT_MAX } from "./limits.js";
 import { countSchema } from "../internal/wire-scalars.js";
+
+/**
+ * The longest query, and the longest snippet a hit carries, in UTF-16 code units: each is one
+ * line of a row's text.
+ */
+export const TRANSCRIPT_SEARCH_TEXT_MAX_LEN = 4096;
 
 /**
  * Search one session. Hits come newest first; `beforeCursor` continues from the
@@ -31,10 +37,7 @@ export const TranscriptSearchRequestSchema: z.ZodType<
 > = z
   .object({
     sessionId: SessionIdSchema,
-    query: wireFreeFormString(
-      TRANSCRIPT_EVENT_ROW_SUMMARY_MAX_LEN,
-      "TranscriptSearchRequest.query",
-    ),
+    query: wireFreeFormString(TRANSCRIPT_SEARCH_TEXT_MAX_LEN, "TranscriptSearchRequest.query"),
     beforeCursor: EventCursorSchema.optional(),
     limit: z.number().int().positive().max(TRANSCRIPT_READ_LIMIT_MAX).optional(),
   })
@@ -61,7 +64,7 @@ const TranscriptSearchHitSchema: z.ZodType<TranscriptSearchHit> = z
   .object({
     rowId: wireFreeFormString(EVENT_FIELD_MAX_LEN, "TranscriptSearchHit.rowId"),
     cursor: EventCursorSchema,
-    snippet: z.string().min(1).max(TRANSCRIPT_EVENT_ROW_SUMMARY_MAX_LEN),
+    snippet: z.string().min(1).max(TRANSCRIPT_SEARCH_TEXT_MAX_LEN),
     matchRanges: z.array(SearchMatchRangeSchema).min(1),
   })
   .strict()

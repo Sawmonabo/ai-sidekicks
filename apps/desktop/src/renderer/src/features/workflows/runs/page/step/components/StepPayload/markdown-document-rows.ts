@@ -49,6 +49,7 @@ export function parseMarkdownDocument(
       codeSpanReader,
       // Step output draws no per-block Copy.
       renderCopy: undefined,
+      renderTable: undefined,
     },
     holdsMarkdown: nodes.some(
       (node) => node.type !== "paragraph" || node.children.some((child) => child.type !== "text"),

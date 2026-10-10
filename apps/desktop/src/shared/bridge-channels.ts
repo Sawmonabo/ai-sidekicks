@@ -141,4 +141,6 @@ export const BRIDGE_MEMBER_CHANNELS: Readonly<
   // Pushed by main alone, on `MACHINE_CLOCK_CHANNEL`: the first delivery is the preload's newest.
   "app.subscribeMachineClock": [],
   "app.reportWindowDiagnostics": [BRIDGE_CHANNELS.reportWindowDiagnostics],
+  // Done in the preload itself, which empties the renderer's caches: nothing crosses to main.
+  "app.freeUnusedMemory": [],
 };

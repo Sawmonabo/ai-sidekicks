@@ -2,6 +2,9 @@
 
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 
+/** The sentence a turn recorded without content draws, and a copy of it carries. */
+export const UNAVAILABLE_BODY_TITLE = "This turn was recorded without content.";
+
 /** The turn, at its position, with no content and the sentence saying so. */
 export function UnavailableBody(): React.JSX.Element {
   return (
@@ -12,7 +15,7 @@ export function UnavailableBody(): React.JSX.Element {
       <Nothing
         kind="empty"
         placement="block"
-        title="This turn was recorded without content."
+        title={UNAVAILABLE_BODY_TITLE}
         detail="The turn is shown at its position with no content."
       />
     </div>

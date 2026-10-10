@@ -72,6 +72,8 @@ export function createFixtureBridge(options: FixtureBridgeOptions): FixtureBridg
     subscribeMachineClock: (): Unsubscribe => () => undefined,
     // A fixture run has no service log, so its windows' diagnostics end here.
     reportWindowDiagnostics: () => Promise.resolve(),
+    // A fixture's pictures fill the same caches, but only the preload can empty them.
+    freeUnusedMemory: () => undefined,
   };
   const bridge: PlatformBridge = {
     daemon: createFixtureDaemon(scenarioEngine),

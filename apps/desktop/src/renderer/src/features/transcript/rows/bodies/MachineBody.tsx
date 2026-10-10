@@ -14,7 +14,7 @@ import type { TranscriptRowContent } from "@ai-sidekicks/contracts/transcript/co
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { publishedTextOf, type PublishedText } from "../../reveal/published-text.js";
 import { AnsiOutput } from "../ansi/AnsiOutput.js";
-import { carriesAnsiEscapes, withoutResidualEscapes } from "../ansi/escape-sequences.js";
+import { withoutResidualEscapesOf } from "../ansi/escape-sequences.js";
 import { type FootnoteRegistry } from "../markdown/footnotes/registry.js";
 import { type OutputKind } from "./output-kinds.js";
 import { StreamingMarkdown } from "./StreamingMarkdown.js";
@@ -41,6 +41,9 @@ export interface MachineBodyProps {
   /** Keep a pressed control where it stands while the body grows; see `TranscriptCardProps`. */
   readonly holdControlInPlace?: ((control: HTMLElement) => void) | undefined;
 }
+
+/** What a body not yet asked for says in its place, and a copy of it carries. */
+export const UNREAD_BODY_TITLE = "This body has not been read.";
 
 /** A machine-authored body: markdown, plain text or command output, as `readOutputKind` says. */
 export function MachineBody(props: MachineBodyProps): React.JSX.Element {
@@ -70,7 +73,7 @@ export function MachineBody(props: MachineBodyProps): React.JSX.Element {
       return <UnavailableBody />;
     }
     // `not-checked`, not `not-loaded`: nothing was asked for, so a skeleton would promise a body.
-    return <Nothing kind="not-checked" placement="inline" title="This body has not been read." />;
+    return <Nothing kind="not-checked" placement="inline" title={UNREAD_BODY_TITLE} />;
   }
 
   if (props.liveText !== undefined || props.content?.status !== "available") {
@@ -121,15 +124,7 @@ function renderBodyText(
       footnotes={props.footnotes}
       isComplete={isComplete}
       // Only an agent's reply is drawn as prose here; a tool's output never is.
-      offersCodeCopy
+      offersBlockCopy
     />
   );
-}
-
-/**
- * The text without escape sequences: the same handle for a text that carries none, the usual
- * case. One that carries some is stripped whole, into a string of its own.
- */
-function withoutResidualEscapesOf(text: PublishedText): PublishedText {
-  return carriesAnsiEscapes(text) ? publishedTextOf(withoutResidualEscapes(text.slice(0))) : text;
 }
