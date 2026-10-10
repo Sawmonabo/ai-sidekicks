@@ -323,6 +323,17 @@ A hook passed with `-c` at the service's start is the inline `hooks` key, source
 - **Review.** `review/start` with the `custom` target reviews whatever its instructions name, such as `git diff --cached`; the review runs in a sub-thread whose model requests are not in the parent conversation's token usage, so its cost is read from the sub-thread, tied to the session by its `parentThreadId`.
 - **A steer that cuts in** (**Upstream source**, read at `rust-v0.161.0`, `codex-rs/features/src/lib.rs`). The feature `instant_interrupt`, "Preempt responses and yield foreground code-mode observations on new user input", exists from `0.159.0` at the stage under development and is off by default. With it on, new input interrupts the model's reply in flight and continues the turn with that input, resending the full history on the next request, and a running code-mode cell yields without stopping (release notes, `0.159.0`). It is not measured here.
 
+### Daybreak — broader access for cybersecurity work
+
+**Generated schema**, read at `codex-cli 0.162.0` on 2026-10-10, default and `--experimental`; **Upstream source** read at `openai/codex` `c1382380de69521303b416720a52f42d51af6248`.
+
+- **The refusal.** A turn refused for cybersecurity content fails with `TurnError.codexErrorInfo` `cyberPolicy`, in the default generation.
+- **The catalog.** Each `model/list` row has `availableAccessPrograms: {cyber: CyberAccessProgram[]} | null`, in the default generation; `null` means the catalog gives no access-program metadata, and unknown program names are dropped.
+- **The setting.** `Thread.daybreakEnabled`, set at `thread/start.daybreakEnabled` and changed with `thread/metadata/update {threadId, daybreakEnabled}`, all experimental and refused on an ephemeral thread (`daybreakEnabled is not supported for ephemeral threads`). The server only stores it; `thread/fork` copies it to the fork.
+- **Each turn.** `turn/start.cyberAccessProgram` (experimental) names the program a turn asks for: omitted, the service keeps its automatic behavior, and it never grants access by itself. A client sends the model's Daybreak program, `daybreakBlue` before `daybreakRed`, while the setting is on, and `standard` on a ChatGPT sign-in when the model lists it while it is off.
+- **The default for new threads.** The `config.toml` key `daybreak`.
+- **Who can use it.** A ChatGPT sign-in; an API-key turn carrying a program is refused (`Cyber access programs are disabled for this API-key session.`) unless the service starts with `features.api_key_cyber_access_programs` on; another model provider's program is dropped. The terminal's `/daybreak` sits behind the `cli_daybreak` feature, off by default, but the app-server serves every member above without it.
+
 ### One tool server for every conversation, and a call that waits
 
 **Binary probe**, **Verified at `0.160.0`**, measured 2026-10-02 and 2026-10-03 on the authoring machine against a local HTTP tool server, with two Codex conversations in one Codex process and, for comparison, two Claude Code sessions ([claude.md §One tool server for every session, and a call that waits](claude.md#one-tool-server-for-every-session-and-a-call-that-waits)).
