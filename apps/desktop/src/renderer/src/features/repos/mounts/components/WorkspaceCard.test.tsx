@@ -26,6 +26,7 @@ function renderRow(
     <WorkspaceCard
       workspace={row}
       bindControls={HEALTHY_MOUNT_BIND_CONTROLS}
+      heldReasonLineId="mount-held-reason"
       bridge={bridge}
       operations={scriptedRepoOperations()}
       onRequestRead={() => undefined}
@@ -76,6 +77,5 @@ describe("WorkspaceCard — the root preparation follows the mount", () => {
     const { container } = renderRow(WRITABLE_ROW, { bindControls: DETACHED_MOUNT_BIND_CONTROLS });
 
     expect(branchInput(container)?.disabled).toBe(true);
-    expect(container.querySelector(".meridian-prepare-root__held")).not.toBeNull();
   });
 });

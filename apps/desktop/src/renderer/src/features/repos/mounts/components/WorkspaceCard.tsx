@@ -44,6 +44,8 @@ export interface WorkspaceCardProps {
    * the sentence the mount card already renders, so this row composes no second wording.
    */
   readonly bindControls: BindControlAvailability;
+  /** The id of the mount card's line saying why binds are held, which the prepare form cites. */
+  readonly heldReasonLineId: string;
 }
 
 /** One workspace: its binding chips, root, last error, and root preparation. */
@@ -86,6 +88,7 @@ export function WorkspaceCard(props: WorkspaceCardProps): React.JSX.Element {
         workspaceId={workspace.id}
         executionMode={workspace.executionMode}
         availability={props.bindControls}
+        heldReasonLineId={props.heldReasonLineId}
         operations={props.operations}
         onPrepared={props.onRequestRead}
       />

@@ -4,6 +4,8 @@
 
 import "./MountCard.css";
 
+import { useId } from "react";
+
 import type { RepoMountReadResponse } from "@ai-sidekicks/contracts/repo/folders";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { Chip } from "#renderer/components/Chip/Chip.js";
@@ -50,6 +52,7 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
   const lifecycle = mountLifecycleReading(mount.state);
   const health = mountHealthReading(mount);
   const availability = readBindControlAvailability(mount);
+  const heldReasonLineId = useId();
 
   return (
     <article
@@ -90,13 +93,15 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
       </div>
 
       {/* One state sentence, never two: a withheld card's reason is one of the axis sentences
-          (lifecycle before health), so rendering the axis sentence too would print it twice. */}
+          (lifecycle before health), so rendering the axis sentence too would print it twice. The
+          same line describes each prepare form's control rather than being drawn again there. */}
       {availability.available ? (
         <p className="meridian-mount-card__sentence">{health.sentence}</p>
       ) : (
         <AnnouncedLine
           element="p"
           className="meridian-mount-card__withheld"
+          id={heldReasonLineId}
           words={availability.unavailableBecause}
           politeness="polite"
         />
@@ -131,6 +136,7 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
                 operations={props.operations}
                 onRequestRead={props.onRequestRead}
                 bindControls={availability}
+                heldReasonLineId={heldReasonLineId}
               />
               {/* Beside the card, not inside it: opening a pane is the pane layout's act. */}
               <OpenDiffControl

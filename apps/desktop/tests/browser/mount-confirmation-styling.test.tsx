@@ -89,6 +89,7 @@ describe("browser — a mounts confirmation wears the shared dialog and button t
         workspaceId="workspace-sidekicks"
         executionMode="provisioned-worktree"
         availability={{ available: true }}
+        heldReasonLineId="mount-held-reason"
         onPrepared={() => undefined}
       />,
       { wrapper: withAnnouncer(bridgeWrapper(bridge, clock)) },
