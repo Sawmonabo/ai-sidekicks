@@ -8,6 +8,7 @@
 import type { Table, TableRow } from "mdast";
 
 import { type HeldTableColumns } from "#renderer/components/Markdown/table-offer.js";
+import { workInSlices } from "#renderer/lib/work-slices.js";
 import { TableCellMeasure, readTableCellType, type TableCellType } from "./cell-measure.js";
 import { type TableGeometry } from "./geometry-memory.js";
 import { measureTableColumns } from "./measured-columns.js";
@@ -176,26 +177,15 @@ export class TableMeasurement {
   }
 
   /**
-   * Runs `work` a slice at a time until it answers it is done, then `done`. Each slice is a task of
-   * its own, queued behind the work the thread already has rather than waiting for idle time, which
-   * a hidden or busy window may grant late or never, and each ends by the wall clock. A slice that
-   * throws rejects its task, so the error reaches the page.
+   * Runs `work` a slice at a time until it answers it is done, then `done`, unless the
+   * measurement stops first. A slice that throws rejects the work, so the error reaches the page.
    */
   #workInSlices(work: (hasTime: () => boolean) => boolean, done: () => void): void {
-    void this.#view.scheduler.postTask(
-      () => {
-        if (this.#isStopped) {
-          return;
-        }
-        const sliceEnd = performance.now() + SLICE_MS;
-        if (work(() => performance.now() < sliceEnd)) {
-          done();
-        } else {
-          this.#workInSlices(work, done);
-        }
-      },
-      { priority: "user-visible" },
-    );
+    void workInSlices(this.#view, work, () => this.#isStopped).then((isDone) => {
+      if (isDone) {
+        done();
+      }
+    });
   }
 
   #requireCellMeasurer(): TableCellMeasurer {
@@ -223,6 +213,3 @@ export function estimatedRowHeightPx(
   }
   return textHeightPx + type.rowChromePx;
 }
-
-/** The most one slice works, in milliseconds by the wall clock: well inside a frame. */
-const SLICE_MS = 4;
