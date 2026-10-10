@@ -1,4 +1,5 @@
-// The repos feature's mount list and diff pane, mounted once for the accessibility tier.
+// The repos feature's mount list, diff pane and the transcript's inline diff, mounted once for the
+// accessibility tier.
 //
 // Not a test file. `helpers/app/harness.tsx` owns how the app is mounted,
 // `tests/accessibility/feature-mounts/queries.ts` what a mounted view is and how a tier finds it,
@@ -24,6 +25,7 @@ import { WORKFLOW_OWN_SESSION, WORKFLOW_RUN_IDS } from "#fixtures/data/workflow/
 import { ManualClock } from "#renderer/lib/clock.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { DiffPane } from "#renderer/features/repos/diff/components/DiffPane.js";
+import { InlineDiffCard } from "#renderer/features/repos/diff/components/InlineDiffCard.js";
 import { paneContext } from "#test/helpers/pane-context.js";
 import {
   HEALTHY_WORKSPACE_ID,
@@ -91,6 +93,37 @@ export async function mountDiffPane(): Promise<MountedView> {
   // session id and workspace, both stated by the fixture.
   return { element: requireLabeledRegion(container, /Review$/u), bridge };
 }
+
+/**
+ * The transcript's inline diff over the same change set, in a scrolling flow: each file's rows
+ * on the flow's tinted washes, its one gutter and sign cell, and the header-only file's note.
+ */
+export async function mountInlineDiffCard(): Promise<MountedView> {
+  const { bridge, clock } = scenarioBridgeAndStore();
+  const { container } = await renderSettled(
+    <PlatformBridgeProvider bridge={bridge} clock={clock}>
+      <div style={{ blockSize: INLINE_DIFF_FLOW_HEIGHT_PX, overflowY: "auto" }}>
+        <InlineDiffCard
+          card={{
+            kind: "diff",
+            runId: "run-inline-diff",
+            diffArtifactId: "diff-artifact-inline",
+            artifactManifestId: "artifact-manifest-inline",
+          }}
+          diff={extendedHeaderChangeSet()}
+        />
+      </div>
+    </PlatformBridgeProvider>,
+  );
+  const card = container.querySelector<HTMLElement>(".meridian-diff-card");
+  if (card?.querySelector(".meridian-diff-block") == null) {
+    throw new Error("the inline diff drew no block");
+  }
+  return { element: card, bridge };
+}
+
+/** The flow's visible height the inline diff is cut against, a laptop screen's conversation. */
+const INLINE_DIFF_FLOW_HEIGHT_PX = 720;
 
 /**
  * Review over a finished workflow run, read from the fixture daemon: the files the run's steps

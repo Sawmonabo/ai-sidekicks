@@ -33,3 +33,19 @@ export const DIFF_VIEWPORT_FALLBACK_HEIGHT_PX = 640;
  * minimum, which the entry's padding alone did not reach at this text size.
  */
 export const DIFF_FILE_ROW_HEIGHT_PX = 24;
+
+/** How much of the visible flow a diff block's rows take before its cut: one part in this many. */
+export const DIFF_FLOW_SHARE_DIVISOR = 3;
+
+/** How many screens of the flow a call's diff blocks fill before its other files fold. */
+export const DIFF_FLOW_FILE_BLOCK_SCREENS = 2;
+
+/** The fewest characters the flow's gutter is wide, so a short change's numbers still align. */
+export const DIFF_FLOW_GUTTER_MIN_DIGITS = 2;
+
+/**
+ * Rows one task mounts while a block opens whole past what the flow shows: few enough that a
+ * task stays inside one frame on a slow machine, many enough that the rows land faster than a
+ * person scrolls to them.
+ */
+export const DIFF_FLOW_FILL_STEP_ROWS = 48;

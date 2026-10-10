@@ -29,7 +29,13 @@ export function useRowsCut(
       return undefined;
     }
     const readCut = (): void => {
-      setCut(cutOf(rowsElement, cutHeightPx, lineCount, hasUndrawnRows));
+      const next = cutOf(rowsElement, cutHeightPx, lineCount, hasUndrawnRows);
+      // Kept when unchanged, so a box that grows while its rows land re-renders nothing.
+      setCut((previous) =>
+        previous.isCut === next.isCut && previous.drawnLineCount === next.drawnLineCount
+          ? previous
+          : next,
+      );
     };
     readCut();
     return observeElementResize(rowsElement, readCut);

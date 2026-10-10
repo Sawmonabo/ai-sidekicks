@@ -34,7 +34,7 @@ export function DiffSplitCell(props: {
   return (
     <span className={className} role="cell">
       <DiffGutter line={line} side={props.side} />
-      <DiffLineText line={line} reading={reading} />
+      <DiffLineText line={line} reading={reading} look="review" />
     </span>
   );
 }
