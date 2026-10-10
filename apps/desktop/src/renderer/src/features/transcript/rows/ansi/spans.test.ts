@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import { ANSI_SPAN_RENDER_CAP, type AnsiSpan } from "./spans.js";
-import { AnsiSpanParser } from "./spans.js";
+import { AnsiSpanParser, ansiColorClassName, ansiSpanClassNames } from "./spans.js";
+import { TEXT_CONTRAST_FLOOR } from "#renderer/styles/tokens.js";
+import { TOKEN_ALIASES } from "#renderer/styles/palette.js";
+import { contrastRatio, oklchToSrgb } from "#shared/color.js";
+import { COLOR_SCHEMES } from "#shared/color-scheme.js";
+import { APPEARANCE_THEMES, THEME_PALETTES } from "#shared/theme/registry.js";
 import { publishedTextOf } from "../../reveal/published-text.js";
 import { RevealTextRope } from "../../reveal/text-rope.js";
 
@@ -66,6 +71,35 @@ describe("parsing ANSI output", () => {
       // Reverse video keeps what the stream set on each channel, true colors included.
       ["reversed", "bright-white", "green"],
     ]);
+  });
+
+  it("draws a reversed badge as a block of its color with letters in the body's ground", () => {
+    // Jest's `FAIL` badge, `chalk.reset.inverse.bold.red(" FAIL ")`: the stream sets red text and
+    // no background, then reverses. A terminal swaps the two: a red block, the letters in its own
+    // ground, never in the text color on the page.
+    const spans = new AnsiSpanParser().read(
+      publishedTextOf(
+        `${ESCAPE}[0m${ESCAPE}[7m${ESCAPE}[1m${ESCAPE}[31m FAIL ` +
+          `${ESCAPE}[39m${ESCAPE}[22m${ESCAPE}[27m${ESCAPE}[0m src/run.test.ts`,
+      ),
+    ).spans;
+    const badge = spans.find((span) => span.text === " FAIL ");
+    expect(badge).toBeDefined();
+    const classNames = ansiSpanClassNames(badge as AnsiSpan);
+    expect(classNames).toContain(ansiColorClassName("bg", "red"));
+    expect(classNames).toContain(ansiColorClassName("fg", "default-background"));
+    // The letters read on the block in every theme and scheme: the body's ground on red.
+    const letterRole = TOKEN_ALIASES["ansi-default-background"] as "surface-sunken";
+    for (const theme of APPEARANCE_THEMES) {
+      for (const scheme of COLOR_SCHEMES) {
+        const colors = THEME_PALETTES[theme].colors;
+        const ratio = contrastRatio(
+          oklchToSrgb(colors[letterRole][scheme]),
+          oklchToSrgb(colors["ansi-red"][scheme]),
+        );
+        expect(ratio, `${theme} ${scheme}`).toBeGreaterThanOrEqual(TEXT_CONTRAST_FLOOR);
+      }
+    }
   });
 
   it("parses a growing output a part at a time into what one parse of the whole draws", () => {
