@@ -6,6 +6,8 @@
 import { act } from "@testing-library/react";
 import { describe, expect, it, onTestFinished } from "vitest";
 
+import { TEXT_SIZES } from "#shared/appearance.js";
+
 import {
   COPY_FLAVOR_ATTRIBUTE,
   readSelectedPart,
@@ -38,6 +40,15 @@ import {
 
 /** A table long enough that the fastest fling ends inside it. */
 const FLUNG_TABLE_ROW_COUNT = 3_000;
+
+/** A table of `rowCount` rows whose every cell is a word, so each row draws on one line. */
+function oneLineTable(rowCount: number): string {
+  return [
+    "| Lane | State |",
+    "| :--- | :---- |",
+    ...Array.from({ length: rowCount }, (_, index) => `| lane-${String(index)} | done |`),
+  ].join("\n");
+}
 /** The screens a fling must travel for its frames to have crossed the window's edge many times. */
 const FLING_MINIMUM_SCREENS = 3;
 
@@ -219,8 +230,13 @@ describe("browser — a long table drawn as a window over its rows", () => {
     expectSameLayout(bodies, "at the widening row");
   });
 
-  it("shows no spacer in any frame of the fastest fling, and draws a spacer with no cell", async () => {
-    const bodies = await mountWithWhole(replyWith(benchTable(FLUNG_TABLE_ROW_COUNT)), {
+  it("shows no spacer in any frame of the fastest fling over one-line rows at the smallest text size, and draws a spacer with no cell", async () => {
+    // The shortest rows a table draws: one line each, at the smallest text size a person can pick.
+    document.documentElement.style.fontSize = `${String(Math.min(...TEXT_SIZES))}px`;
+    onTestFinished(() => {
+      document.documentElement.style.removeProperty("font-size");
+    });
+    const bodies = await mountWithWhole(replyWith(oneLineTable(FLUNG_TABLE_ROW_COUNT)), {
       isComplete: true,
     });
     const { windowed } = tablesOf(bodies);
