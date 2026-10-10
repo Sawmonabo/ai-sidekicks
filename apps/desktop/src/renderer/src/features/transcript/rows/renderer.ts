@@ -39,6 +39,11 @@ export interface TranscriptRowProps {
   readonly isSuperseded: boolean;
   readonly density: TranscriptRowDensity;
   /**
+   * Whether a person opened this call's output whole, so it is drawn uncut. Held by the feed, so
+   * it survives the row scrolling out and back, and a fold.
+   */
+  readonly isOutputOpened: boolean;
+  /**
    * On the row that carries a reply's foot, the reply's rows in log order, whose text its Copy
    * takes; absent on every other row.
    */

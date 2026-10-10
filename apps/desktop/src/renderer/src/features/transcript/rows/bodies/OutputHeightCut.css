@@ -1,6 +1,6 @@
 /* A call's output cut at a share of the visible flow (`OutputHeightCut`). */
 
-/* The box across the body's width, and `Show full output` under it once the cut is in force. */
+/* The box across the body's width, and `Show all` under it once the cut is in force. */
 .meridian-output-cut {
   display: flex;
   flex-direction: column;
@@ -11,15 +11,28 @@
 /*
  * The cut is whole lines of the box's own type: the flow's share rounded down to its line height,
  * so a text size step moves the cut with the lines. Content-box, so the box's padding and edge are
- * drawn around whole lines rather than taken out of them.
+ * drawn around whole lines rather than taken out of them, and clipped at that content edge, so no
+ * part of the next line shows in the padding below.
  */
 .meridian-output-cut__body--cut {
   box-sizing: content-box;
   max-height: round(down, var(--meridian-output-cut-height), 1lh);
-  overflow: hidden;
+  overflow: clip;
+  overflow-clip-margin: content-box;
+}
+
+/*
+ * A running command's tail: its content stands on the box's bottom edge, so the last whole lines
+ * show and each new line pushes the oldest out over the top.
+ */
+.meridian-output-cut__body--tail {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
 }
 
 /* A block, so its whole height is measured while the box stops at the cut. */
 .meridian-output-cut__content {
   display: block;
+  flex-shrink: 0;
 }

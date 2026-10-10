@@ -24,6 +24,8 @@ export interface TranscriptRowDispatchOptions {
   readonly transcriptWindow: TranscriptWindowModel;
   readonly foldedRunGroupKeys: ReadonlySet<string>;
   readonly foldedCallRowIds: ReadonlySet<string>;
+  /** The calls whose output a person opened whole. */
+  readonly openedOutputRowIds: ReadonlySet<string>;
   readonly hueForAgent: (actorId: string) => AgentHueAssignment | undefined;
   /** Fold or open a run group, holding its header where it stands. */
   readonly toggleRunGroup: (runGroupKey: string) => void;
@@ -91,7 +93,7 @@ export function TranscriptRowDispatch(props: TranscriptRowDispatchProps): React.
     );
   }
   // Through `TranscriptFeedRow` rather than straight into the row renderer: it is the memo
-  // boundary. The dispatch re-renders on every admitted event, but the five values below are
+  // boundary. The dispatch re-renders on every admitted event, but the six values below are
   // identity-stable when the row did not move, so only the lookups run, not the card.
   return (
     <TranscriptFeedRow
@@ -101,6 +103,7 @@ export function TranscriptRowDispatch(props: TranscriptRowDispatchProps): React.
       // Read from the session's folds, not the row, so a folded call stays folded when it
       // scrolls out of the drawn window and back.
       density={densityFor(projected.id, props.foldedCallRowIds)}
+      isOutputOpened={props.openedOutputRowIds.has(projected.id)}
       replyRowIds={transcriptWindow.replyRowIdsByFootRowId.get(projected.id)}
       renderTranscriptRow={props.renderTranscriptRow}
     />

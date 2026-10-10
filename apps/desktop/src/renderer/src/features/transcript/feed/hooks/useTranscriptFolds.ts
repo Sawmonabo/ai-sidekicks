@@ -26,6 +26,10 @@ export interface TranscriptFolds {
   readonly unfoldEveryRunGroup: (runGroupKeys: readonly string[]) => void;
   /** Fold an open call, or open a folded one. */
   readonly toggleCall: (rowId: string) => void;
+  /** The calls whose output was opened whole, by row id; every other output is cut. */
+  readonly openedOutputRowIds: ReadonlySet<string>;
+  /** Draw one call's output whole. */
+  readonly openOutput: (rowId: string) => void;
   /** The windows of the session's long runs. The same object for the session's lifetime. */
   readonly runCallWindows: RunCallWindows;
   /** How many times a reader moved a run's window: a new number repaints. */
@@ -40,7 +44,7 @@ export interface TranscriptFolds {
 
 /**
  * Hold one session's folds and long-run windows. `TranscriptFoldState` owns the folds and
- * `RunCallWindows` the windows; this hook publishes copies of the two fold sets, and a count of
+ * `RunCallWindows` the windows; this hook publishes copies of the three fold sets, and a count of
  * the window moves, so a press repaints. Both are held per session, because moving between open
  * sessions re-renders this pane instead of unmounting it, and a fold belongs to its own session's
  * rows.
@@ -54,6 +58,11 @@ export function useTranscriptFolds(sessionId: string): TranscriptFolds {
     () => new Set<string>(),
   );
   const foldedCallRowIdsState = useSubjectScopedState<ReadonlySet<string>>(
+    bridge,
+    sessionId,
+    () => new Set<string>(),
+  );
+  const openedOutputRowIdsState = useSubjectScopedState<ReadonlySet<string>>(
     bridge,
     sessionId,
     () => new Set<string>(),
@@ -105,6 +114,15 @@ export function useTranscriptFolds(sessionId: string): TranscriptFolds {
     },
     [foldState, publishFoldedCallRowIds],
   );
+  const publishOpenedOutputRowIds = openedOutputRowIdsState.publish;
+  const openOutput = useCallback(
+    (rowId: string) => {
+      if (foldState.openOutput(rowId)) {
+        publishOpenedOutputRowIds(new Set(foldState.openedOutputRowIds));
+      }
+    },
+    [foldState, publishOpenedOutputRowIds],
+  );
 
   const publishRunWindowMoveCount = runWindowMoveCountState.publish;
   const runWindowMoveCount = runWindowMoveCountState.value;
@@ -118,6 +136,7 @@ export function useTranscriptFolds(sessionId: string): TranscriptFolds {
 
   const foldedRunGroupKeys = foldedRunGroupKeysState.value;
   const foldedCallRowIds = foldedCallRowIdsState.value;
+  const openedOutputRowIds = openedOutputRowIdsState.value;
   return useMemo(
     () => ({
       foldedRunGroupKeys,
@@ -127,6 +146,8 @@ export function useTranscriptFolds(sessionId: string): TranscriptFolds {
       foldEveryRunGroup,
       unfoldEveryRunGroup,
       toggleCall,
+      openedOutputRowIds,
+      openOutput,
       runCallWindows,
       runWindowMoveCount,
       openRunStretch,
@@ -139,6 +160,8 @@ export function useTranscriptFolds(sessionId: string): TranscriptFolds {
       foldEveryRunGroup,
       unfoldEveryRunGroup,
       toggleCall,
+      openedOutputRowIds,
+      openOutput,
       runCallWindows,
       runWindowMoveCount,
       openRunStretch,

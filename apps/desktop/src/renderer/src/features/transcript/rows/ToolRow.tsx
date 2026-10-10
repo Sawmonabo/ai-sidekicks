@@ -17,6 +17,7 @@ import {
 } from "../components/TranscriptRowLayout/TranscriptRowLayout.js";
 import { describeRowKind, isFoldableCall } from "./kind.js";
 import type { TranscriptCardProps } from "./card-props.js";
+import { type OutputOpening } from "./bodies/OutputHeightCut.js";
 import { ToolOutput } from "./bodies/ToolOutput.js";
 import { ToolKindBadge } from "./tool-kinds/ToolKindBadge.js";
 import { ABSENT_TOOL_NAME_LABEL, toolRowHeadingOf } from "./tool-heading.js";
@@ -28,6 +29,11 @@ export interface ToolRowProps extends TranscriptCardProps {
    * to the list: without it the card renders a state rather than a control.
    */
   readonly onDensityToggle?: ((control: HTMLElement) => void) | undefined;
+  /**
+   * The call's output's opening, held by the list so an opened output stays whole when the row
+   * scrolls out and back; without it the output is drawn whole.
+   */
+  readonly outputOpening?: OutputOpening | undefined;
 }
 
 /** A tool-call row: the row kind's glyph and label around its declared arguments and result. */
@@ -109,6 +115,7 @@ export function ToolRow(props: ToolRowProps): React.JSX.Element {
           sourceId={props.row.id}
           footnotes={props.footnotes}
           label={`Output of ${toolName ?? "an unnamed tool"}`}
+          opening={props.outputOpening}
           holdControlInPlace={props.holdControlInPlace}
         />
       ) : null}

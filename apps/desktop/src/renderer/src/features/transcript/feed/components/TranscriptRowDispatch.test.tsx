@@ -46,6 +46,7 @@ function rendererOptions(
     transcriptWindow,
     foldedRunGroupKeys: new Set<string>(),
     foldedCallRowIds: new Set<string>(),
+    openedOutputRowIds: new Set<string>(),
     hueForAgent: () => undefined,
     toggleRunGroup: () => undefined,
     runCallWindows: new RunCallWindows(),
