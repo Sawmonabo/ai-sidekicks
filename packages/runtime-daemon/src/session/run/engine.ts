@@ -48,6 +48,7 @@ import {
 import { PROVIDER_DRIVER_DESCRIPTORS } from "../../provider/driver/descriptor.js";
 import { mintUuidV7 } from "../../uuid-v7.js";
 import { insertQueuedRunStatement } from "./projection.js";
+import { RunAgentReader } from "./agent.js";
 import { RunStateReader, type LiveRun, type RunRead } from "./read.js";
 import { RunAlreadyEndedError, RunInvalidTransitionError, RunNotFoundError } from "./refusals.js";
 import {
@@ -180,6 +181,7 @@ export interface RunEngineDeps extends SessionEventAppenderDeps {
 /** Owns every run state change and the setup gates a run passes before its provider starts it. */
 export class RunEngine {
   readonly #runs: RunStateReader;
+  readonly #agents: RunAgentReader;
   readonly #pendingInterrupts: PendingInterruptReader;
   readonly #changes: RunStateChangeWriter;
   readonly #appender: SessionEventAppender;
@@ -193,6 +195,7 @@ export class RunEngine {
 
   constructor(deps: RunEngineDeps) {
     this.#runs = new RunStateReader(deps.reader);
+    this.#agents = new RunAgentReader(deps.reader);
     this.#pendingInterrupts = new PendingInterruptReader(deps.reader);
     this.#appender = new SessionEventAppender(deps, RUN_ENGINE_EVENT_VERSION);
     this.#changes = new RunStateChangeWriter(this.#runs, this.#appender);
@@ -264,7 +267,8 @@ export class RunEngine {
 
   /**
    * Starts a turn the daemon starts on a session itself, such as a goal or a review, as the
-   * session's own run: `run.queued` with no parent, then the start {@link startRun} makes, its
+   * session's own run: `run.queued` naming the session's lead and no parent, then the start
+   * {@link startRun} makes, its
    * setup gates given no queue item, and resolves with the new run's id once it is `running`.
    * Throws as {@link startRun} does.
    */
@@ -276,6 +280,7 @@ export class RunEngine {
       runId,
       runVersion: 0,
       newState: "queued",
+      agentId: this.#agents.readLeadAgent(request.sessionId),
       ...(accountId === null
         ? {}
         : { admittedProviderAccountId: ProviderAccountIdSchema.parse(accountId) }),
@@ -402,7 +407,8 @@ export class RunEngine {
 
   /**
    * Starts the run of a subagent the provider started beneath `parentRunId`, sharing its process:
-   * `run.queued` naming the parent, then `starting` and `running`, and resolves with the new run's
+   * `run.queued` naming the parent and the parent's agent, which asked its provider for the
+   * subagent, then `starting` and `running`, and resolves with the new run's
    * id. Resolves `undefined` with nothing written when the parent has ended, and throws
    * {@link RunNotFoundError} for a parent the daemon has no run for.
    */
@@ -414,6 +420,7 @@ export class RunEngine {
         runId,
         runVersion: 0,
         newState: "queued",
+        agentId: this.#agents.readAgent(parentRun.sessionId, parentRunId),
         parentRunId,
         reachedBy: "provider_subagent",
       };

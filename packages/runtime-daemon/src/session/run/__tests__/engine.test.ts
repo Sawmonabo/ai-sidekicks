@@ -471,12 +471,15 @@ describe("run engine", () => {
     if (startedRunId === undefined) {
       throw new Error("expected the turn to start under a run id");
     }
-    expect(fixture.readRunEvents(startedRunId).map((event) => event.type)).toEqual([
+    const runEvents = fixture.readRunEvents(startedRunId);
+    expect(runEvents.map((event) => event.type)).toEqual([
       "run.queued",
       "run.starting",
       "run.running",
       "run.completed",
     ]);
+    // The session's own run is the lead's.
+    expect(runEvents[0]?.payload["agentId"]).toBe(fixture.agentId);
   });
 
   describe("fast output notice", () => {

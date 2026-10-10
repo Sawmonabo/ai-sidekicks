@@ -110,6 +110,11 @@ function replyBlocks(turnIndex: number, agentIndex: number, replyIndex: number):
   return blocks;
 }
 
+// The provider's id of one reply's message in a run, which its pieces share.
+function providerMessageIdOf(runId: string, replyIndex: number): string {
+  return `msg-${runId}-${String(replyIndex)}`;
+}
+
 /** What one tool call printed: test output for a command, code for a read, a diff for an edit. */
 function toolOutput(toolName: string, seed: number): string {
   if (toolName === "run_command") {
@@ -201,6 +206,8 @@ export function composeConversationTurn(input: ConversationTurnInput): readonly 
       lane.output(runId, {
         atMs: nextAtMs(),
         kind: "assistant.thinking_update",
+        // The first reply's message, which Claude Code's thinking belongs to.
+        providerMessageId: providerMessageIdOf(runId, 0),
         contentType: "text/plain",
         body: bodyOf([
           blockAt(PROSE_BLOCKS, turnIndex + agentIndex),
@@ -214,6 +221,7 @@ export function composeConversationTurn(input: ConversationTurnInput): readonly 
         lane.output(runId, {
           atMs: nextAtMs(),
           kind: "assistant.message",
+          providerMessageId: providerMessageIdOf(runId, replyIndex),
           contentType: "text/markdown",
           body: bodyOf(replyBlocks(turnIndex, agentIndex, replyIndex)),
         }),

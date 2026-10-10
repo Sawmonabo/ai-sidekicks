@@ -4,12 +4,13 @@
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 
-import { AgentIdSchema } from "@ai-sidekicks/contracts/agent/definition";
+import { AgentIdSchema, type AgentId } from "@ai-sidekicks/contracts/agent/definition";
 import { EventEnvelopeVersionSchema } from "@ai-sidekicks/contracts/event/envelope";
 import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import { RunIdSchema, type RunId } from "@ai-sidekicks/contracts/run/id";
 import { QueueItemIdSchema, type QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
 import type { ChildRunProvenance } from "@ai-sidekicks/contracts/run/queued";
+import type { SessionCreatedPayload } from "@ai-sidekicks/contracts/session/events";
 import { SessionIdSchema, type SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import {
@@ -57,6 +58,8 @@ export interface RunEngineFixture {
   readonly runs: RunStateReader;
   readonly sessionEvents: EventLogService;
   readonly sessionId: SessionId;
+  /** The session's lead, which every run the fixture queues is for. */
+  readonly agentId: AgentId;
   /** Appends `run.queued` with its row, as admission does, and returns the new run's id. */
   queueRun(child?: ChildLink): Promise<RunId>;
   /** Queues a run and moves it through each state in `path`, none of which needs a member. */
@@ -111,12 +114,24 @@ export async function openRunEngineFixture(): Promise<RunEngineFixture> {
     },
   });
   const sessionId = SessionIdSchema.parse(randomUUID());
-  // The agent every queued run is created for.
+  // The session's lead, the agent every queued run is created for.
   const agentId = AgentIdSchema.parse(randomUUID());
   const queuedAppender = new SessionEventAppender(
     { sessionEvents },
     EventEnvelopeVersionSchema.parse("1.0"),
   );
+  const created: SessionCreatedPayload = {
+    sessionId,
+    shape: "chat",
+    mainAgent: {
+      agentId,
+      name: "Implementer",
+      binding: { driverName: "claude", modelId: "opus", providerAccountId: null, effort: null },
+      ancestry: [],
+      createdAt: new Date().toISOString(),
+    },
+  };
+  await queuedAppender.append("session.created", created, {});
   // The home only places the curated credential paths, which no engine test reads.
   const buildEngine = (
     executionPostures = new ExecutionPostureService({ homeDirectory: tmpdir() }),
@@ -147,6 +162,7 @@ export async function openRunEngineFixture(): Promise<RunEngineFixture> {
     runs: new RunStateReader(database.reader),
     sessionEvents,
     sessionId,
+    agentId,
     queueRun,
     runThrough: async (path, child) => {
       const runId = await queueRun(child);

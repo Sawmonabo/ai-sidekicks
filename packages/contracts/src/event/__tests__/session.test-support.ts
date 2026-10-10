@@ -186,6 +186,16 @@ const RECOVERY = {
   phase: "projection_rebuild",
   attemptNumber: 1,
 };
+const RUN_MARKER = { sessionId: SESSION_ID, runId: RUN_ID, runVersion: 3 };
+
+const SUBAGENT = {
+  sessionId: SESSION_ID,
+  runId: RUN_ID,
+  provider: "claude",
+  subagentId: "task_01k9wq4m2h",
+  parentToolCallId: "toolu_01",
+};
+
 const INTERVENTION = {
   sessionId: SESSION_ID,
   interventionId: "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f27",
@@ -386,6 +396,10 @@ export const SESSION_EVENT_PAYLOAD_SAMPLES: ReadonlyMap<
   ],
   ["session.advisor_changed", { sessionId: SESSION_ID, advisorModel: "opus", at: OCCURRED_AT }],
   [
+    "session.output_style_changed",
+    { sessionId: SESSION_ID, outputStyle: "Explanatory", at: OCCURRED_AT },
+  ],
+  [
     "repo.mount_health_changed",
     { repoMountId: REPO_MOUNT_ID, health: { status: "healthy", checkedAt: OCCURRED_AT } },
   ],
@@ -483,5 +497,24 @@ export const SESSION_EVENT_PAYLOAD_SAMPLES: ReadonlyMap<
   ["intervention.rejected", { ...INTERVENTION, state: "rejected" }],
   ["intervention.degraded", { ...INTERVENTION, state: "degraded" }],
   ["intervention.expired", { ...INTERVENTION, state: "expired" }],
-  ["intervention.failed", { ...INTERVENTION, state: "failed" }],
+  [
+    "intervention.failed",
+    { ...INTERVENTION, state: "failed", failureReason: "Codex refused the fork" },
+  ],
+  ["run.provider_initialized", { ...RUN_MARKER, provider: "codex", model: "gpt-5.5" }],
+  ["run.turn_started", { ...RUN_MARKER, position: 2 }],
+  ["run.worker_shutdown", { ...RUN_MARKER, reason: "Server restarting" }],
+  ["subagent.started", SUBAGENT],
+  ["subagent.completed", { ...SUBAGENT, sourceEpoch: 1, sourcePosition: 4 }],
+  [
+    "session.provider_status",
+    {
+      sessionId: SESSION_ID,
+      runId: RUN_ID,
+      provider: "claude",
+      status: "requesting",
+      sourceEpoch: 1,
+      sourcePosition: 4,
+    },
+  ],
 ]);

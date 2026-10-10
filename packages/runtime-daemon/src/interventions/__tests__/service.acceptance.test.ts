@@ -174,6 +174,7 @@ describe("intervention service with the run engine and inbound dispatch", () => 
       device_id: deviceId,
     });
     expect(readSessionEventTypes()).toEqual([
+      "session.created",
       "run.queued",
       "run.starting",
       "run.running",

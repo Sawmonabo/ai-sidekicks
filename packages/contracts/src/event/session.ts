@@ -241,11 +241,7 @@ const SESSION_EVENT_VARIANT_REGISTRATIONS = [
   registerSessionEventVariant("tool.invoked", "tool_activity", toolActivityPayloadSchema),
   registerSessionEventVariant("tool.result", "tool_activity", toolActivityPayloadSchema),
   registerSessionEventVariant("tool.error", "tool_activity", toolActivityPayloadSchema),
-  registerSessionEventVariant(
-    "subagent.started",
-    "tool_activity",
-    SubagentLifecyclePayloadSchema,
-  ),
+  registerSessionEventVariant("subagent.started", "tool_activity", SubagentLifecyclePayloadSchema),
   registerSessionEventVariant(
     "subagent.completed",
     "tool_activity",
