@@ -107,11 +107,24 @@ export async function mountLongToolFeed(
  * the calls, served by `transcript.read` as run rows, the store holding the last page and the
  * rest read back as the reader scrolls.
  */
-export async function mountLongToolHistory(): Promise<
-  MountedFeed & { readonly historyReads: readonly TranscriptReadRequest[] }
-> {
+export async function mountLongToolHistory(): Promise<MountedHistory> {
   const eventCount = (TOOL_ROW_COUNT / CALLS_PER_RUN) * EVENTS_PER_RUN;
-  const events = Array.from({ length: eventCount }, (_, index) => toolRunEventAt(index));
+  return mountPagedHistory(Array.from({ length: eventCount }, (_, index) => toolRunEventAt(index)));
+}
+
+/** The mounted feed over a paged log, and the history reads it asked. */
+export interface MountedHistory extends MountedFeed {
+  readonly historyReads: readonly TranscriptReadRequest[];
+}
+
+/**
+ * `events` as the app opens a session: the store holding the opening page, the last events, and
+ * the rest served by `transcript.read` as the reader scrolls back.
+ */
+export async function mountPagedHistory(
+  events: readonly ProjectedSessionEvent[],
+): Promise<MountedHistory> {
+  const eventCount = events.length;
   const openingFirstIndex = eventCount - transcriptOpeningPageLimit(window);
   const sessionStore = openPagedSessionStore(
     openingFirstIndex,
