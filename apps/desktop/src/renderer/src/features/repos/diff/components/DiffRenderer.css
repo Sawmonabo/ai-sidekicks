@@ -58,7 +58,8 @@
      right edge and the diff never scrolls sideways. */
   overflow: hidden auto;
   font-family: var(--meridian-font-mono);
-  font-size: var(--meridian-text-xs);
+  /* The size `DIFF_ROW_HEIGHT_REM` is reckoned from, so a row is one line of it. */
+  font-size: var(--meridian-text-12);
   line-height: var(--meridian-diff-row-height);
 }
 
