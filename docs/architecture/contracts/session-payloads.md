@@ -252,6 +252,10 @@ interface SessionTokensPerRunUpdateRequest {
 // a managed workspace of its own, and involves no worktree. Parentage is recorded on the forked session's
 // OWN session-created record (`SessionCreatedPayload.parent`) and NOT as a second event: one read of the
 // new session answers where it came from, and the parent's own history is untouched.
+// The fork's `mainAgent` carries the parent main agent's `resolvedConfiguration`, its `accentHue`
+// included, and every copied row keeps its payload unchanged. So the fork's own
+// `session.created.mainAgent`, then the copied prefix's `run.queued` rows with their `resolvedAgent`,
+// admit every agent in the parent's join order, and a forked session keeps its agents' hues.
 interface SessionForkRequest {
   sessionId: SessionId;
   // The anchored message, addressed in the same cursor vocabulary session.subscribe and
