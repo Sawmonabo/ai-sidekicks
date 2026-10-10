@@ -24,8 +24,25 @@ import {
   type DamagedFromSequenceReader,
   type SessionEventReads,
 } from "../events/session/read.js";
-import { SessionNotFoundError } from "../ipc/session-errors.js";
+import { sessionNotFound } from "../session/not-found.js";
 import type { TranscriptProjector } from "./projector.js";
+
+/**
+ * The head a transcript read checks its cursors against, `undefined` for a session whose history is
+ * damaged before its first readable event. Throws `SessionNotFoundError` for a session this daemon
+ * holds no events for.
+ */
+export function readTranscriptHead(
+  reads: Pick<SessionEventReads, "readHead">,
+  readDamagedFromSequence: DamagedFromSequenceReader,
+  sessionId: SessionId,
+): number | undefined {
+  const head = reads.readHead(sessionId);
+  if (head === undefined && readDamagedFromSequence(sessionId) === undefined) {
+    throw sessionNotFound(sessionId);
+  }
+  return head;
+}
 
 /** Answers `transcript.read` from the daemon's read-only connection. */
 export class TranscriptWindowReader {
@@ -60,10 +77,7 @@ export class TranscriptWindowReader {
 
   #readInSnapshot(request: TranscriptReadRequest): TranscriptReadResponse {
     const { sessionId } = request;
-    const head = this.#reads.readHead(sessionId);
-    if (head === undefined && this.#readDamagedFromSequence(sessionId) === undefined) {
-      throw new SessionNotFoundError("This daemon holds no such session.", { sessionId });
-    }
+    const head = readTranscriptHead(this.#reads, this.#readDamagedFromSequence, sessionId);
     const afterPosition = resolveEventCursor(request.afterCursor, head);
     const beforePosition =
       request.beforeCursor === undefined

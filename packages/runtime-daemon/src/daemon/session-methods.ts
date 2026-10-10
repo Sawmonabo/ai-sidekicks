@@ -52,6 +52,7 @@ import { registerSessionSubscribe, type OutboundQueue } from "../ipc/handlers/se
 import { registerSessionTagMethods } from "../ipc/handlers/session/tags.js";
 import { registerSessionTakeControl } from "../ipc/handlers/session/take-control.js";
 import {
+  registerTranscriptBodyRead,
   registerTranscriptRead,
   registerTranscriptSearch,
 } from "../ipc/handlers/transcript-methods.js";
@@ -86,6 +87,7 @@ import { SessionService } from "../session/service.js";
 import { SessionTagService } from "../session/tags/service.js";
 import { prepareWorkingFolderRead } from "../session/working-folder/read.js";
 import { TranscriptProjector } from "../transcript/projector.js";
+import { TranscriptBodyReader } from "../transcript/body.js";
 import { TranscriptWindowReader } from "../transcript/window.js";
 import { WorkspaceEventEmitter } from "../workspace/event-emitter.js";
 import type { StreamedGitRunner } from "../workspace/clone/streamed-git.js";
@@ -391,6 +393,9 @@ export function registerSessionMethods(
       transcriptProjector,
       deps.readDamagedFromSequence,
     ),
+  });
+  registerTranscriptBodyRead(registry, {
+    transcriptBodies: new TranscriptBodyReader(database.reader, deps.readDamagedFromSequence),
   });
   registerTranscriptSearch(registry, {
     transcriptSearch: {
