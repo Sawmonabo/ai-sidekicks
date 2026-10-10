@@ -7,8 +7,11 @@ import { type WindowSide } from "./window-cap.js";
 
 /** What the reader's input asks of the frame, each call made as the input is heard. */
 export interface ViewportReaderInputOptions {
-  /** The reader acted on the log at `inputAtMs`, which may scroll it. */
-  readonly noteReaderInput: (inputAtMs: number) => void;
+  /**
+   * The reader acted on the log at `inputAtMs`, which may scroll it, toward `towardSide` when the
+   * input says which way.
+   */
+  readonly noteReaderInput: (inputAtMs: number, towardSide?: WindowSide) => void;
   /** A press in the box began or ended; a selection dragged past an edge scrolls it meanwhile. */
   readonly notePointerDown: (isDown: boolean) => void;
   /** Select All pressed on the log: the whole log, not only the rows drawn. */
@@ -40,7 +43,7 @@ export class ViewportReaderInput {
       return;
     }
     // Any key the log hears may scroll it, from the box or from a row the focus sits in.
-    this.#options.noteReaderInput(event.timeStamp);
+    this.#options.noteReaderInput(event.timeStamp, keySideOf(event.key));
     if (event.target !== event.currentTarget) {
       return;
     }
@@ -67,11 +70,10 @@ export class ViewportReaderInput {
 
   /** A wheel turned past an end of the log the box already stands at. */
   readonly #onScrollContainerWheel = (event: WheelEvent): void => {
-    this.#options.noteReaderInput(event.timeStamp);
-    if (event.deltaY < 0) {
-      this.#options.reviewPullAt("head", event.timeStamp);
-    } else if (event.deltaY > 0) {
-      this.#options.reviewPullAt("tail", event.timeStamp);
+    const side = event.deltaY < 0 ? "head" : event.deltaY > 0 ? "tail" : undefined;
+    this.#options.noteReaderInput(event.timeStamp, side);
+    if (side !== undefined) {
+      this.#options.reviewPullAt(side, event.timeStamp);
     }
   };
 
@@ -82,13 +84,15 @@ export class ViewportReaderInput {
 
   /** A drag past an end of the log the box already stands at: down toward the head, up the tail. */
   readonly #onScrollContainerTouchMove = (event: TouchEvent): void => {
-    this.#options.noteReaderInput(event.timeStamp);
     const touchYPx = event.touches[0]?.clientY;
     const touchStartYPx = this.#touchStartYPx;
     if (touchStartYPx === undefined || touchYPx === undefined || touchYPx === touchStartYPx) {
+      this.#options.noteReaderInput(event.timeStamp);
       return;
     }
-    this.#options.reviewPullAt(touchYPx > touchStartYPx ? "head" : "tail", event.timeStamp);
+    const side = touchYPx > touchStartYPx ? "head" : "tail";
+    this.#options.noteReaderInput(event.timeStamp, side);
+    this.#options.reviewPullAt(side, event.timeStamp);
   };
 
   /** A press in the box, where a selection dragged past an edge scrolls it with no other input. */
@@ -155,6 +159,22 @@ function isSelectAllPress(event: KeyboardEvent): boolean {
       ? event.metaKey && !event.ctrlKey
       : event.ctrlKey && !event.metaKey;
   return isCommandHeld && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "a";
+}
+
+/** The side of the log a scrolling key moves the box toward, or `undefined` for another key. */
+function keySideOf(key: string): WindowSide | undefined {
+  switch (key) {
+    case "ArrowUp":
+    case "PageUp":
+    case "Home":
+      return "head";
+    case "ArrowDown":
+    case "PageDown":
+    case "End":
+      return "tail";
+    default:
+      return undefined;
+  }
 }
 
 /** The document events that end a press on the box: a release, a cancel, a buttonless move. */

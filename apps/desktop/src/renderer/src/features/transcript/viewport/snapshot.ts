@@ -2,6 +2,7 @@
 // them. Nothing here holds state, so views and the React binding import the row type from here
 // without holding the controller, and the rules are tested directly.
 
+import { type DrawnBandScreenHeights } from "./drawn-band.js";
 import { type ReadingAnchorState } from "./reading-anchor.js";
 import { type RowKeyProjection } from "./row-measurement-table.js";
 import { type WindowRow, type PruneOutcome } from "./window-cap.js";
@@ -33,8 +34,8 @@ export interface ViewportSnapshot {
    * draws the rows re-runs when the held set changes. The anchor's own array, by identity.
    */
   readonly heldRowKeys: readonly string[];
-  /** How far beyond each edge of the box the rows are drawn, in screen heights. */
-  readonly drawnBandScreenHeights: number;
+  /** How far beyond each edge of the box the rows are drawn, in screen heights, by identity. */
+  readonly drawnBandScreenHeights: DrawnBandScreenHeights;
 }
 
 /** What the surrounding feed tells the frame each render. */

@@ -51,7 +51,7 @@ import { readTranscriptWindow } from "./transcript/window-read.js";
 import { expectPreciseHeapInstrument, RendererHeapProbe } from "./heap/instrument.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
 // The viewport's own drawn band, so the bound below is not a figure kept in step by hand.
-import { TRANSCRIPT_DRAWN_BAND_SCREEN_HEIGHTS } from "#renderer/features/transcript/viewport/caps.js";
+import { TRANSCRIPT_LEADING_BAND_SCREEN_HEIGHTS } from "#renderer/features/transcript/viewport/caps.js";
 import { BudgetRegistry } from "../helpers/budget/registry.js";
 import { evaluateBudget } from "../helpers/budget/evaluation.js";
 
@@ -296,12 +296,13 @@ describe.skipIf(!bundleIsBuilt)("endurance — the app held open", () => {
             "bounded by the viewport and the whole log is being laid out",
         ).toBeLessThan(transcriptWindow.totalRowCount);
         // Bounded by the box plus its declared band: the rows the box intersects, and either side
-        // the rows within `TRANSCRIPT_DRAWN_BAND_SCREEN_HEIGHTS` of the box's own height.
+        // the rows within the leading side's `TRANSCRIPT_LEADING_BAND_SCREEN_HEIGHTS` of the
+        // box's own height, the furthest either side reaches.
         expect(
           transcriptWindow.drawnBandPx,
           "the transcript drew further than its band beyond the rows the box intersects",
         ).toBeLessThanOrEqual(
-          transcriptWindow.rangedAgainstClientHeightPx * TRANSCRIPT_DRAWN_BAND_SCREEN_HEIGHTS,
+          transcriptWindow.rangedAgainstClientHeightPx * TRANSCRIPT_LEADING_BAND_SCREEN_HEIGHTS,
         );
       } finally {
         // Detached before the window closes: detaching from a closed application raises and

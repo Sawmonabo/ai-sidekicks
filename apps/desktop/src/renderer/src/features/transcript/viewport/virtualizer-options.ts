@@ -8,11 +8,17 @@
 // reads an element: offset and rect come from one geometry sample, so following takes no hit test
 // per scroll event. Every offset the library writes reaches the scroll chokepoint through
 // `scrollToFn`, named for whoever it is made for. While a land is on its way the rows are drawn at
-// the offset it ends at, not the one the box stands at.
+// the offset it ends at, not the one the box stands at, and a band narrowed for it keeps the
+// rows already drawn near it rather than taking them down to draw them again.
 
 import type { Range, Rect, Virtualizer } from "@tanstack/react-virtual";
 
 import type { Unsubscribe } from "#shared/preload-api.js";
+import {
+  TRANSCRIPT_DRAWN_BAND_SCREEN_HEIGHTS,
+  TRANSCRIPT_LEADING_BAND_SCREEN_HEIGHTS,
+} from "./caps.js";
+import { type DrawnBandScreenHeights } from "./drawn-band.js";
 import { RowMeasurementTable } from "./row-measurement-table.js";
 import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { type ScrollCaller } from "#renderer/lib/scroll/callers.js";
@@ -43,7 +49,7 @@ export interface VirtualizerOptionsInputs {
    */
   readonly landingTargetPx: () => number | undefined;
   /** How far beyond each edge of the viewport the rows are drawn now, in screen heights. */
-  readonly drawnBandScreenHeights: () => number;
+  readonly drawnBandScreenHeights: () => DrawnBandScreenHeights;
 }
 
 /** The stable option members the transcript's virtualizer is constructed with. */
@@ -55,7 +61,7 @@ export class VirtualizerOptions {
   readonly #heldRowIndexes: () => readonly number[];
   readonly #virtualizer: () => TranscriptRowVirtualizer | undefined;
   readonly #landingTargetPx: () => number | undefined;
-  readonly #drawnBandScreenHeights: () => number;
+  readonly #drawnBandScreenHeights: () => DrawnBandScreenHeights;
 
   #scrollContainer: HTMLElement | undefined;
   /** Whom the library's writes are made for while a jump runs. */
@@ -71,6 +77,8 @@ export class VirtualizerOptions {
   #rangeExtractor = (range: Range): number[] => this.#drawnIndexesOf(range);
   /** The current identity of `getItemKey`, replaced by `rekeyRows`. */
   #getItemKey = (index: number): string => this.#keyAt(index);
+  /** The keys of the rows the last call of `rangeExtractor` drew. */
+  #drawnRowKeys: ReadonlySet<string> = new Set();
 
   /**
    * How near its end, in pixels, the library counts the reader as at it: the reading anchor's
@@ -184,7 +192,10 @@ export class VirtualizerOptions {
    * way ends at, beyond each end the rows within the drawn band's share of the viewport's own
    * height, counted from the end of that range and including the row that crosses the band's
    * edge, and every held row the window keeps, so the browser's selection stays anchored in the
-   * rows it starts and ends in. The library offers only a row count of its own, so the band is
+   * rows it starts and ends in. While a land has narrowed the band, a row the last call drew stays
+   * drawn as long as it is within the band's furthest reach, matched by key since a row joining
+   * at the head moves every index: the narrowed band mounts no new row off screen, and takes down
+   * none it would draw again as it widens. The library offers only a row count of its own, so the band is
    * walked in pixels here, over the sizes it laid the rows out at, or their estimates before it is
    * bound. The library re-asks only when the intersected range or this function's identity moves,
    * so a viewport that changed height without moving that range keeps its band until the next
@@ -256,33 +267,72 @@ export class VirtualizerOptions {
     return this.#virtualKeyAt(index) ?? `row-without-a-key-${String(index)}`;
   }
 
-  /** The band around the intersected range, and the held rows outside it, ascending. */
+  /**
+   * The band around the intersected range, the rows a narrowed band keeps drawn, and the held rows
+   * outside it, ascending.
+   */
   #drawnIndexesOf(libraryRange: Range): number[] {
     const viewportHeightPx = this.#scroll.geometry?.viewportHeight ?? 0;
     const range = this.#landedRangeOf(libraryRange, viewportHeightPx);
-    const bandPx = viewportHeightPx * this.#drawnBandScreenHeights();
+    const bandScreenHeights = this.#drawnBandScreenHeights();
+    const { startIndex, endIndex } = this.#bandAround(
+      range,
+      viewportHeightPx * bandScreenHeights.head,
+      viewportHeightPx * bandScreenHeights.tail,
+    );
+    const outsideIndexes = this.#heldRowIndexes().filter(
+      (index) => (index < startIndex || index > endIndex) && index < range.count,
+    );
+    if (
+      Math.min(bandScreenHeights.head, bandScreenHeights.tail) <
+      TRANSCRIPT_DRAWN_BAND_SCREEN_HEIGHTS
+    ) {
+      const reachPx = viewportHeightPx * TRANSCRIPT_LEADING_BAND_SCREEN_HEIGHTS;
+      const reach = this.#bandAround(range, reachPx, reachPx);
+      for (let index = reach.startIndex; index <= reach.endIndex; index += 1) {
+        if (
+          (index < startIndex || index > endIndex) &&
+          this.#drawnRowKeys.has(this.getItemKey(index)) &&
+          !outsideIndexes.includes(index)
+        ) {
+          outsideIndexes.push(index);
+        }
+      }
+    }
+    const drawnIndexes = Array.from(
+      { length: endIndex - startIndex + 1 },
+      (_unused, offset) => startIndex + offset,
+    );
+    if (outsideIndexes.length > 0) {
+      drawnIndexes.push(...outsideIndexes);
+      // Ascending, so the rows are drawn in log order and a selection's range runs in reading
+      // order.
+      drawnIndexes.sort((left, right) => left - right);
+    }
+    this.#drawnRowKeys = new Set(drawnIndexes.map((index) => this.getItemKey(index)));
+    return drawnIndexes;
+  }
+
+  /**
+   * The first and last index of `range` widened by the rows within `headPx` before it and
+   * `tailPx` after it, each side including the row that crosses its edge.
+   */
+  #bandAround(
+    range: Range,
+    headPx: number,
+    tailPx: number,
+  ): { readonly startIndex: number; readonly endIndex: number } {
     let startIndex = range.startIndex;
-    for (let drawnPx = 0; startIndex > 0 && drawnPx < bandPx; ) {
+    for (let drawnPx = 0; startIndex > 0 && drawnPx < headPx; ) {
       startIndex -= 1;
       drawnPx += this.#laidOutSizeAt(startIndex);
     }
     let endIndex = range.endIndex;
-    for (let drawnPx = 0; endIndex < range.count - 1 && drawnPx < bandPx; ) {
+    for (let drawnPx = 0; endIndex < range.count - 1 && drawnPx < tailPx; ) {
       endIndex += 1;
       drawnPx += this.#laidOutSizeAt(endIndex);
     }
-    const bandIndexes = Array.from(
-      { length: endIndex - startIndex + 1 },
-      (_unused, offset) => startIndex + offset,
-    );
-    const heldOutsideIndexes = this.#heldRowIndexes().filter(
-      (index) => (index < startIndex || index > endIndex) && index < range.count,
-    );
-    if (heldOutsideIndexes.length === 0) {
-      return bandIndexes;
-    }
-    // Ascending, so the rows are drawn in log order and a selection's range runs in reading order.
-    return [...bandIndexes, ...heldOutsideIndexes].sort((left, right) => left - right);
+    return { startIndex, endIndex };
   }
 
   /**

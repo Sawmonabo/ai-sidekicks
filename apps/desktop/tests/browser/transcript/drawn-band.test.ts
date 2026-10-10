@@ -2,10 +2,12 @@
 // the rows the reader ends on and no others, so no row mounts at an offset the box never shows,
 // and the band beyond the box widens in the tasks after it, at once when the reader scrolls.
 
+import { getConfig } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { userEvent } from "vitest/browser";
+import { cdp, userEvent } from "vitest/browser";
 
 import { RealClock, type Clock, type ScheduledHandle } from "#renderer/lib/clock.js";
+import { letFramesPass } from "#test/helpers/animation-frame.js";
 import {
   FEED_HEIGHT_PX,
   ROW_SELECTOR,
@@ -26,6 +28,20 @@ const FLING_TURN_COUNT = 2;
 const FLING_TURN_PX = FEED_HEIGHT_PX * 0.4;
 /** How far a row may stand past the box's edge and still be drawn for it: a device pixel. */
 const GRAIN_PX = 1;
+/** One wheel turn that moves the box further than the band reaches on a side it does not lead. */
+const LONG_TURN_PX = FEED_HEIGHT_PX * 1.25;
+/** A touch fling's travel before the hand lets go: three screens. */
+const TOUCH_FLING_PX = FEED_HEIGHT_PX * 3;
+/** A quick flick, whose momentum carries on long after the hand lets go, in pixels a second. */
+const QUICK_FLICK_SPEED = 8000;
+/** The fastest flick, which crosses a cut at the head while the offset moves under it. */
+const FASTEST_FLICK_SPEED = 17000;
+/** The wheel gestures before the first take-back a case may start at, near the window's end. */
+const GESTURES_BEFORE_NEAR_END = 2;
+/** The wheel gestures before a take-back a case may start at, deep in the window's middle. */
+const GESTURES_BEFORE_MIDDLE = 8;
+/** The frames the offset holds still for once a fling's momentum has run out. */
+const FLING_STILL_FRAME_COUNT = 10;
 
 /**
  * The wall clock, except that its timeouts wait until the case runs them, so the band a land
@@ -86,7 +102,9 @@ function unfilledHeightPx(scroller: HTMLElement): number {
  * The rows each change to the DOM mounts and takes down, over the changes `isLand` picks (every
  * change by default). A row one change both mounts and takes down was drawn at an offset the box
  * never showed, or taken down and drawn again: either is work the reader never sees. A row a
- * later change `isAfterLand` picks mounts inside the box was late to the land.
+ * later change `isAfterLand` picks mounts inside the box was late to the land. Over every change,
+ * a row mounted again after an earlier change took it down, since `forgetTakenDown` last ran, was
+ * drawn twice.
  */
 class RowMountRecorder {
   /** The rows the first counted change that mounted any mounted, by log position. */
@@ -95,9 +113,16 @@ class RowMountRecorder {
   public readonly churned: (number | undefined)[] = [];
   /** The rows a change after a land mounted inside the box, by log position. */
   public readonly lateMounted: (number | undefined)[] = [];
+  /**
+   * The rows a change mounted after an earlier change took them down, since `forgetTakenDown`, by
+   * log position.
+   */
+  public readonly remounted: number[] = [];
   /** How many lands were counted. */
   public changeCount = 0;
   readonly #changes: MutationObserver;
+  /** The log positions of every row a change has taken down so far. */
+  readonly #takenDownPositions = new Set<number>();
 
   public constructor(
     root: HTMLElement,
@@ -105,6 +130,7 @@ class RowMountRecorder {
   ) {
     const { isLand = () => true, isAfterLand = () => false } = options;
     this.#changes = new MutationObserver((records) => {
+      this.#noteRemounts(records);
       if (isLand()) {
         this.#count(records);
       } else if (isAfterLand()) {
@@ -122,6 +148,26 @@ class RowMountRecorder {
 
   public stop(): void {
     this.#changes.disconnect();
+  }
+
+  /** Counts a row taken down from now on as drawn twice only if a later change mounts it. */
+  public forgetTakenDown(): void {
+    this.#takenDownPositions.clear();
+  }
+
+  #noteRemounts(records: readonly MutationRecord[]): void {
+    for (const row of mountedRowsOf(records)) {
+      const position = positionOfRow(row);
+      if (position !== undefined && this.#takenDownPositions.has(position)) {
+        this.remounted.push(position);
+      }
+    }
+    for (const row of rowsAmong(records.flatMap((record) => [...record.removedNodes]))) {
+      const position = positionOfRow(row);
+      if (position !== undefined) {
+        this.#takenDownPositions.add(position);
+      }
+    }
   }
 
   #count(records: readonly MutationRecord[]): void {
@@ -177,6 +223,65 @@ function watchEveryChange(scroller: HTMLElement, onChange: () => void): () => vo
   };
 }
 
+/**
+ * Wheels toward the head one gesture at a time until, after `minimumGestureCount`, one takes rows
+ * back from the head: the box then stands in the window's middle, rows cut on both sides.
+ */
+async function wheelToTakeBack(scroller: HTMLElement, minimumGestureCount: number): Promise<void> {
+  for (let gesture = 0; gesture < SCREEN_COUNT; gesture += 1) {
+    const scrollHeightPx = scroller.scrollHeight;
+    await userEvent.wheel(scroller, { delta: { y: -FEED_HEIGHT_PX } });
+    await endGesture();
+    if (gesture + 1 >= minimumGestureCount && scroller.scrollHeight > scrollHeightPx) {
+      return;
+    }
+  }
+  expect.fail("no gesture took rows back from the head");
+}
+
+/**
+ * A touch fling from the box's middle, toward the head for a positive `distancePx`, and the frames
+ * of its momentum until the offset holds still.
+ */
+async function touchFling(scroller: HTMLElement, distancePx: number, speed: number): Promise<void> {
+  const box = scroller.getBoundingClientRect();
+  await getConfig().asyncWrapper(async () => {
+    await cdp().send("Input.synthesizeScrollGesture", {
+      x: Math.round(box.left + box.width / 2),
+      y: Math.round(box.top + box.height / 2),
+      yDistance: distancePx,
+      speed,
+      gestureSourceType: "touch",
+      preventFling: false,
+    });
+  });
+  for (let stillFrames = 0, lastScrollTopPx = -1; stillFrames < FLING_STILL_FRAME_COUNT; ) {
+    await letFramesPass(1);
+    stillFrames = Math.abs(scroller.scrollTop - lastScrollTopPx) < GRAIN_PX ? stillFrames + 1 : 0;
+    lastScrollTopPx = scroller.scrollTop;
+  }
+}
+
+/** The unfilled height of the box after every change to the rows while `drive` runs. */
+async function unfilledFramesPxDuring(
+  scroller: HTMLElement,
+  drive: () => Promise<void>,
+): Promise<number[]> {
+  const unfilledFramesPx: number[] = [];
+  const stopWatching = watchEveryChange(scroller, () => {
+    const unfilledPx = unfilledHeightPx(scroller);
+    if (unfilledPx > 0) {
+      unfilledFramesPx.push(unfilledPx);
+    }
+  });
+  try {
+    await drive();
+  } finally {
+    stopWatching();
+  }
+  return unfilledFramesPx;
+}
+
 describe("a land draws the rows the reader ends on first", () => {
   it("opens on the tail, mounting no row it takes down before the box shows it", async () => {
     const clock = new HeldTimeoutClock();
@@ -192,13 +297,14 @@ describe("a land draws the rows the reader ends on first", () => {
   });
 
   it(
-    "lays out each page joining at the head without taking down a row on screen",
+    "lays out each page joining at the head without taking down a row on screen or near it",
     { timeout: CASE_TIMEOUT_MS },
     async () => {
       const { scroller } = await mountLongToolHistory();
       // The reader only turns toward the head, so the offset rises only when a page joins there
       // and the hold puts the reader back on the rows they saw; until the next turn, any row
-      // mounted inside the box is one the land should have drawn.
+      // mounted inside the box is one the land should have drawn, and a row taken down and drawn
+      // again before the next turn was taken down by a land that should have kept it.
       let lastScrollTopPx = scroller.scrollTop;
       let isAfterLand = false;
       const lands = new RowMountRecorder(scroller, {
@@ -212,16 +318,18 @@ describe("a land draws the rows the reader ends on first", () => {
       });
       for (let screen = 0; screen < SCREEN_COUNT; screen += 1) {
         isAfterLand = false;
+        lands.forgetTakenDown();
         await userEvent.wheel(scroller, { delta: { y: -FEED_HEIGHT_PX } });
         await endGesture();
       }
       lands.stop();
       // The control: pages joined at the head, so a land was laid out.
       expect(lands.changeCount).toBeGreaterThan(0);
-      expect({ churned: lands.churned, late: lands.lateMounted }).toEqual({
-        churned: [],
-        late: [],
-      });
+      expect({
+        churned: lands.churned,
+        late: lands.lateMounted,
+        remounted: lands.remounted,
+      }).toEqual({ churned: [], late: [], remounted: [] });
     },
   );
 
@@ -230,19 +338,66 @@ describe("a land draws the rows the reader ends on first", () => {
     const { scroller } = await mountLongToolFeed(clock);
     // The control: the opening's land left the band narrow, nothing drawn past the box.
     expect(rowsOffScreen(scroller)).toEqual([]);
-    const unfilledFramesPx: number[] = [];
-    const stopWatching = watchEveryChange(scroller, () => {
-      const unfilledPx = unfilledHeightPx(scroller);
-      if (unfilledPx > 0) {
-        unfilledFramesPx.push(unfilledPx);
+    const unfilledFramesPx = await unfilledFramesPxDuring(scroller, async () => {
+      // A fling: the wheel's turns come back to back, faster than the band's tasks would widen it.
+      for (let turn = 0; turn < FLING_TURN_COUNT; turn += 1) {
+        await userEvent.wheel(scroller, { delta: { y: -FLING_TURN_PX } });
       }
+      await endGesture();
     });
-    // A fling: the wheel's turns come back to back, faster than the band's tasks would widen it.
-    for (let turn = 0; turn < FLING_TURN_COUNT; turn += 1) {
-      await userEvent.wheel(scroller, { delta: { y: -FLING_TURN_PX } });
-    }
-    await endGesture();
-    stopWatching();
     expect(unfilledFramesPx).toEqual([]);
   });
+
+  it(
+    "fills the box when one frame moves it further than a screen the way the reader moves",
+    { timeout: CASE_TIMEOUT_MS },
+    async () => {
+      const { scroller } = await mountLongToolFeed();
+      await wheelToTakeBack(scroller, GESTURES_BEFORE_MIDDLE);
+      // A turn toward the tail inside the band, so the reader moves that way with the band whole.
+      await userEvent.wheel(scroller, { delta: { y: FEED_HEIGHT_PX / 2 } });
+      await endGesture();
+      const startScrollTopPx = scroller.scrollTop;
+      const unfilledFramesPx = await unfilledFramesPxDuring(scroller, async () => {
+        await userEvent.wheel(scroller, { delta: { y: LONG_TURN_PX } });
+        await endGesture();
+      });
+      // The control: the turn moved the box toward the tail.
+      expect(scroller.scrollTop).not.toBe(startScrollTopPx);
+      expect(unfilledFramesPx).toEqual([]);
+    },
+  );
+
+  it(
+    "fills the box on every frame of a touch fling's momentum after it takes rows back",
+    { timeout: CASE_TIMEOUT_MS },
+    async () => {
+      // The band's own steps never run, so only the scroll the momentum sends can widen it again
+      // after the take-back's land narrows it; the hand has let go, so no touch says so.
+      const { scroller } = await mountLongToolFeed(new HeldTimeoutClock());
+      await wheelToTakeBack(scroller, GESTURES_BEFORE_NEAR_END);
+      const unfilledFramesPx = await unfilledFramesPxDuring(scroller, async () => {
+        await touchFling(scroller, TOUCH_FLING_PX, QUICK_FLICK_SPEED);
+      });
+      // The control: the fling reached the head, taking rows back on the way.
+      expect(scroller.scrollTop).toBe(0);
+      expect(unfilledFramesPx).toEqual([]);
+    },
+  );
+
+  it(
+    "fills the box on every frame of the fastest touch fling toward the tail",
+    { timeout: CASE_TIMEOUT_MS },
+    async () => {
+      const { scroller } = await mountLongToolFeed();
+      await wheelToTakeBack(scroller, GESTURES_BEFORE_MIDDLE);
+      const startScrollHeightPx = scroller.scrollHeight;
+      const unfilledFramesPx = await unfilledFramesPxDuring(scroller, async () => {
+        await touchFling(scroller, -TOUCH_FLING_PX, FASTEST_FLICK_SPEED);
+      });
+      // The control: the fling cut rows from the head on its way, moving the offset under it.
+      expect(scroller.scrollHeight).toBeLessThan(startScrollHeightPx);
+      expect(unfilledFramesPx).toEqual([]);
+    },
+  );
 });
