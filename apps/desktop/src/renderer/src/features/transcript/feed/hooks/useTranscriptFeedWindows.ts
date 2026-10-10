@@ -124,7 +124,7 @@ export function useTranscriptFeedWindows(
   // What a person folded is a fact about who is reading, so it is held here and handed to the
   // derivation rather than folded into it.
   const folds = useTranscriptFolds(inputs.sessionStore.sessionId);
-  const { unfurledWindow, derivation } = useTranscriptProjection(inputs.sessionStore);
+  const { unfurledWindow, runEntities, derivation } = useTranscriptProjection(inputs.sessionStore);
   // A long run's window is cut in the viewport's estimates, but the fold runs before the viewport
   // is minted, so they arrive from the layout effect below. Until then every call reads zero
   // high and a window holds one call; the fold cuts it again once they land, which is before any
@@ -309,6 +309,7 @@ export function useTranscriptFeedWindows(
   const stretchMeasure = useStretchMeasure({
     history,
     derivation,
+    runEntities,
     viewport,
     drawsBody,
     foldedRunGroupKeys: folds.foldedRunGroupKeys,
@@ -331,13 +332,13 @@ export function useTranscriptFeedWindows(
   const deriveDrawnWindow = useCallback(
     (events: readonly ProjectedSessionEvent[]) =>
       new DrawnRowFilter().filter(
-        new RunGroupFold().fold(deriveTranscriptWindow(events), foldedRunGroupKeys, {
+        new RunGroupFold().fold(deriveTranscriptWindow(events, runEntities), foldedRunGroupKeys, {
           ...runWindowInputs,
           windows: runCallWindows.clone(),
         }).window,
         drawsBody,
       ),
-    [foldedRunGroupKeys, runWindowInputs, runCallWindows, drawsBody],
+    [foldedRunGroupKeys, runEntities, runWindowInputs, runCallWindows, drawsBody],
   );
   useHistoryLookAhead({
     history,

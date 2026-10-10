@@ -37,9 +37,10 @@ function heldSequences(store: SessionStore): number[] {
 describe("SessionStore.replaceWithLogEndPage — an end page replaces the window", () => {
   it("closes the head on the log's first page and leaves the tail detached after it", () => {
     const store = storeInTheMiddle();
-    store.replaceWithLogEndPage("start", eventsAt([0, 1, 2]), {
-      cursor: "cursor-at-2" as EventCursor,
-      hasMore: true,
+    store.replaceWithLogEndPage("start", {
+      events: eventsAt([0, 1, 2]),
+      edge: { cursor: "cursor-at-2" as EventCursor, hasMore: true },
+      runs: [],
     });
 
     expect(heldSequences(store)).toStrictEqual([0, 1, 2]);
@@ -54,7 +55,11 @@ describe("SessionStore.replaceWithLogEndPage — an end page replaces the window
   it("goes live on the newest page only once it reaches what the stream delivered", () => {
     const pageEdge = { cursor: "cursor-at-37" as EventCursor, hasMore: true };
     const reaching = storeInTheMiddle();
-    reaching.replaceWithLogEndPage("end", eventsAt([38, 39, STREAM_SEQUENCE]), pageEdge);
+    reaching.replaceWithLogEndPage("end", {
+      events: eventsAt([38, 39, STREAM_SEQUENCE]),
+      edge: pageEdge,
+      runs: [],
+    });
 
     expect(heldSequences(reaching)).toStrictEqual([38, 39, STREAM_SEQUENCE]);
     expect(reaching.snapshot().transcriptHead).toBe(pageEdge);
@@ -62,7 +67,11 @@ describe("SessionStore.replaceWithLogEndPage — an end page replaces the window
 
     // The stream delivered past the page while it was read: the tail waits detached after it.
     const behind = storeInTheMiddle();
-    behind.replaceWithLogEndPage("end", eventsAt([37, 38, 39]), pageEdge);
+    behind.replaceWithLogEndPage("end", {
+      events: eventsAt([37, 38, 39]),
+      edge: pageEdge,
+      runs: [],
+    });
     expect(behind.snapshot().transcriptTail).toStrictEqual({
       cursor: "cursor-at-39",
       hasMore: true,
@@ -72,9 +81,10 @@ describe("SessionStore.replaceWithLogEndPage — an end page replaces the window
 
   it("moves nothing on a page of another session's rows", () => {
     const store = storeInTheMiddle();
-    store.replaceWithLogEndPage("start", [eventOfKind("some-other-session", "run.running", 0)], {
-      cursor: undefined,
-      hasMore: false,
+    store.replaceWithLogEndPage("start", {
+      events: [eventOfKind("some-other-session", "run.running", 0)],
+      edge: { cursor: undefined, hasMore: false },
+      runs: [],
     });
 
     expect(heldSequences(store)).toStrictEqual([20, 21, 22]);

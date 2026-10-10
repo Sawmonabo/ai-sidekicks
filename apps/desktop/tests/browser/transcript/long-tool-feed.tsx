@@ -113,8 +113,9 @@ export async function mountLongToolHistory(): Promise<MountedHistory> {
   return mountPagedHistory(Array.from({ length: eventCount }, (_, index) => toolRunEventAt(index)));
 }
 
-/** The mounted feed over a paged log, and the history reads it asked. */
+/** The mounted feed over a paged log, its store, and the history reads it asked. */
 export interface MountedHistory extends MountedFeed {
+  readonly sessionStore: SessionStore;
   readonly historyReads: readonly TranscriptReadRequest[];
 }
 
@@ -139,6 +140,7 @@ export async function mountPagedHistory(
   );
   return {
     ...(await mountTranscriptFeed(sessionStore, history.read)),
+    sessionStore,
     historyReads: history.requests,
   };
 }
@@ -230,7 +232,11 @@ function toolRunEventAt(index: number): ProjectedSessionEvent {
     return {
       ...common,
       kind: position === 0 ? "run.running" : "run.completed",
-      payload: { sessionId: PAGED_SESSION_ID, runId },
+      payload: {
+        sessionId: PAGED_SESSION_ID,
+        runId,
+        newState: position === 0 ? "running" : "completed",
+      },
     };
   }
   return {

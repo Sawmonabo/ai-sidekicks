@@ -42,6 +42,7 @@ describe("readTranscriptPage — one window, read as the store's own log", () =>
           content: { status: "available", body: "Done.", contentLength: 5 },
         }),
       ],
+      runs: [],
       hasMore: false,
     } satisfies TranscriptReadResponse);
 
@@ -65,6 +66,7 @@ describe("readTranscriptPage — one window, read as the store's own log", () =>
   it("takes the producer's own `hasMore` as the verdict, never the cursor's presence", () => {
     const continuing = TranscriptReadResponseSchema.parse({
       entries: [rowAt(7)],
+      runs: [],
       hasMore: true,
       nextCursor: "cursor-6" as EventCursor,
     } satisfies TranscriptReadResponse);
@@ -77,6 +79,7 @@ describe("readTranscriptPage — one window, read as the store's own log", () =>
     // report more rows beyond every final page.
     const terminal = TranscriptReadResponseSchema.parse({
       entries: [rowAt(7)],
+      runs: [],
       hasMore: false,
       nextCursor: "cursor-6" as EventCursor,
     } satisfies TranscriptReadResponse);

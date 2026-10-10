@@ -16,7 +16,7 @@ import {
   START_OF_LOG_POSITION,
 } from "@ai-sidekicks/contracts/session/event-cursor";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
-import type { RunState } from "@ai-sidekicks/contracts/run/state";
+import { type RunState, RUN_TERMINAL_STATES } from "@ai-sidekicks/contracts/run/state";
 import type {
   SessionLiveRun,
   SessionReadRequest,
@@ -38,7 +38,6 @@ import { sessionNotFound } from "./not-found.js";
 import { rebuildSession } from "./projector.js";
 import type { DaemonSessionRecord } from "./records.js";
 import { sqlListOf } from "../database/sql-list.js";
-import { RUN_TERMINAL_STATES } from "./run/transitions.js";
 
 /**
  * A session's read as its row, tags, runs and log answer it, standing events included: everything

@@ -66,7 +66,7 @@ import type { RunEngine } from "../session/run/engine.js";
 import { RunAgentReader } from "../session/run/agent.js";
 import { RunStateReader } from "../session/run/read.js";
 import { RunNotFoundError } from "../session/run/refusals.js";
-import { isTerminalState } from "../session/run/transitions.js";
+import { isTerminalState } from "@ai-sidekicks/contracts/run/state";
 import { mintUuidV7 } from "../uuid-v7.js";
 import { QueueAdmission } from "./admission.js";
 import { QueueDelivery } from "./delivery.js";

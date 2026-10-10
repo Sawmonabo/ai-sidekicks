@@ -8,7 +8,7 @@ import type {
   RunStateChangeState,
 } from "@ai-sidekicks/contracts/run/events";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
-import type { RunState } from "@ai-sidekicks/contracts/run/state";
+import { type RunState, isTerminalState } from "@ai-sidekicks/contracts/run/state";
 
 import type { WriteStatement } from "../../database/statement.js";
 import { WriteRefusedError } from "../../database/writer.js";
@@ -16,7 +16,7 @@ import type { SessionEventAppender, SessionEventDraft } from "../../events/sessi
 import { swapRunStateStatement } from "./projection.js";
 import type { RunRead, RunStateReader } from "./read.js";
 import { RunAlreadyEndedError, RunInvalidTransitionError, RunNotFoundError } from "./refusals.js";
-import { RUN_TERMINAL_EVENT_TYPES, isTerminalState, isTransitionAllowed } from "./transitions.js";
+import { RUN_TERMINAL_EVENT_TYPES, isTransitionAllowed } from "./transitions.js";
 
 type RunStateChangeMembers<TState extends RunStateChangeState> = Omit<
   RunStateChangePayload<TState>,

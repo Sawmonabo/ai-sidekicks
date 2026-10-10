@@ -9,10 +9,10 @@
 
 import type { QueueItemState } from "@ai-sidekicks/contracts/run/queue";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
+import { RUN_STATE_EVENT_TYPES } from "@ai-sidekicks/contracts/transcript/run-facts";
 
 import { readFrozenRecord } from "#renderer/lib/frozen-record.js";
 import {
-  RUN_STATE_KINDS,
   runStateForTransitionKind,
   type RunStateTransitionKind,
 } from "#renderer/store/session/events/run/state-kinds.js";
@@ -39,7 +39,7 @@ export type RunStateStreamArm = "state-change" | "rollback";
 /** The arm table: state changes ride `state-change`, and `run.rolled_back` rides `rollback`. */
 const RUN_STATE_STREAM_ARM_BY_KIND: Readonly<Record<string, RunStateStreamArm>> = Object.freeze(
   Object.fromEntries<RunStateStreamArm>([
-    ...RUN_STATE_KINDS.filter((kind) => runStateForTransitionKind(kind) !== undefined).map(
+    ...RUN_STATE_EVENT_TYPES.filter((kind) => runStateForTransitionKind(kind) !== undefined).map(
       (kind): [string, RunStateStreamArm] => [kind, "state-change"],
     ),
     ["run.rolled_back", "rollback"] satisfies [RunStateStreamKind, RunStateStreamArm],

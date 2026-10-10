@@ -19,6 +19,7 @@ import {
 import { TRANSCRIPT_READ_LIMIT_MAX } from "../limits.js";
 import { TranscriptBodyReadResponseSchema } from "../content.js";
 import { TranscriptSearchResponseSchema } from "../search.js";
+import { PROVIDER_ACCOUNT_ID_MAX_LEN } from "../../provider/account/record.js";
 import {
   RUN_ID,
   OTHER_RUN_ID,
@@ -53,6 +54,9 @@ const rowAt = (sequence: number): Record<string, unknown> => ({
   id: `evt-${String(sequence)}`,
   sequence,
 });
+
+// The facts of the one run `runScopedRow` names, as a window reply carries them.
+const runFacts = { runId: RUN_ID, isRewound: false, foldedThroughSequence: 10 } as const;
 
 const reasoningAt = (sequence: number): Record<string, unknown> => ({
   sequence,
@@ -132,7 +136,7 @@ describe("paged replies", () => {
   it("every paged reply runs oldest to newest", () => {
     refusesAt(
       TranscriptReadResponseSchema,
-      { entries: [rowAt(10), rowAt(3)], hasMore: false },
+      { entries: [rowAt(10), rowAt(3)], runs: [runFacts], hasMore: false },
       "entries.1.sequence",
     );
     refusesAt(
@@ -146,8 +150,11 @@ describe("paged replies", () => {
     ).toBe(false);
     // Nondecreasing, not strictly increasing: a projection may emit two rows for one event.
     expect(
-      TranscriptReadResponseSchema.safeParse({ entries: [rowAt(3), rowAt(3)], hasMore: false })
-        .success,
+      TranscriptReadResponseSchema.safeParse({
+        entries: [rowAt(3), rowAt(3)],
+        runs: [runFacts],
+        hasMore: false,
+      }).success,
     ).toBe(true);
     expect(
       ReasoningSurfaceReadResponseSchema.safeParse(
@@ -160,7 +167,7 @@ describe("paged replies", () => {
     {
       reply: "transcript.read",
       schema: TranscriptReadResponseSchema,
-      page: (entries: unknown[], more: object) => ({ entries, ...more }),
+      page: (entries: unknown[], more: object) => ({ entries, runs: [], ...more }),
       entry: generalRow,
     },
     {
@@ -217,6 +224,30 @@ describe("paged replies", () => {
   });
 });
 
+describe("a window's run facts", () => {
+  it("carries one fact for each run its entries name, and no other", () => {
+    const otherRunRow = { ...runScopedRow, id: "evt-other", runId: OTHER_RUN_ID };
+    const reply = (runs: readonly unknown[]): Record<string, unknown> => ({
+      entries: [rowAt(1), { ...rollbackBoundaryRow, sequence: 2 }, generalRow],
+      runs,
+      hasMore: false,
+    });
+    expect(TranscriptReadResponseSchema.safeParse(reply([runFacts])).success).toBe(true);
+    refusesAt(TranscriptReadResponseSchema, reply([runFacts, runFacts]), "runs.1.runId");
+    refusesAt(
+      TranscriptReadResponseSchema,
+      reply([runFacts, { ...runFacts, runId: OTHER_RUN_ID }]),
+      "runs.1.runId",
+    );
+    refusesAt(TranscriptReadResponseSchema, reply([]), "entries.0.runId");
+    refusesAt(
+      TranscriptReadResponseSchema,
+      { entries: [rowAt(1), otherRunRow], runs: [runFacts], hasMore: false },
+      "entries.1.runId",
+    );
+  });
+});
+
 describe("a reply fits one frame", () => {
   // A unit `JSON.stringify` escapes to six bytes: the true worst case, admissible because
   // `wireFreeFormString` bans only NUL and whitespace-only strings.
@@ -229,6 +260,12 @@ describe("a reply fits one frame", () => {
     childRunSummary,
     superseded: { targetPosition: 1 },
   };
+  const worstCaseFacts = {
+    ...runFacts,
+    actor: worstCaseUnit.repeat(EVENT_FIELD_MAX_LEN),
+    admittedProviderAccountId: "a".repeat(PROVIDER_ACCOUNT_ID_MAX_LEN),
+    stateEventType: "run.waiting_for_approval",
+  };
   const worstCasePage = Array.from({ length: TRANSCRIPT_READ_LIMIT_MAX }, (_unused, index) => ({
     ...worstCaseRow,
     sequence: index,
@@ -238,21 +275,35 @@ describe("a reply fits one frame", () => {
     // Every field is at its own bound, so this page is contract-valid on every axis but size.
     expect(jsonUtf8ByteLength(worstCasePage)).toBeGreaterThan(PAGE_MAX_BYTES);
     expect(
-      TranscriptReadResponseSchema.safeParse({ entries: worstCasePage, hasMore: false }).success,
+      TranscriptReadResponseSchema.safeParse({
+        entries: worstCasePage,
+        runs: [worstCaseFacts],
+        hasMore: false,
+      }).success,
     ).toBe(false);
 
-    const fitted = countEntriesFittingOneFrame(worstCasePage, TRANSCRIPT_READ_LIMIT_MAX);
+    // The facts ride in the same frame, so the rows are fitted to the budget left beside them.
+    const fitted = countEntriesFittingOneFrame(
+      worstCasePage,
+      TRANSCRIPT_READ_LIMIT_MAX,
+      PAGE_MAX_BYTES - jsonUtf8ByteLength([worstCaseFacts]),
+    );
     expect(fitted).toBeGreaterThan(0);
     expect(fitted).toBeLessThan(TRANSCRIPT_READ_LIMIT_MAX);
     // The producer and the validator agree: the fitted page parses and one row more does not.
     const page = worstCasePage.slice(0, fitted);
     expect(
-      TranscriptReadResponseSchema.safeParse({ entries: page, hasMore: true, nextCursor: CURSOR })
-        .success,
+      TranscriptReadResponseSchema.safeParse({
+        entries: page,
+        runs: [worstCaseFacts],
+        hasMore: true,
+        nextCursor: CURSOR,
+      }).success,
     ).toBe(true);
     expect(
       TranscriptReadResponseSchema.safeParse({
         entries: worstCasePage.slice(0, fitted + 1),
+        runs: [worstCaseFacts],
         hasMore: true,
         nextCursor: CURSOR,
       }).success,
@@ -264,7 +315,7 @@ describe("a reply fits one frame", () => {
     const frameBody = {
       jsonrpc: "2.0",
       id: maximalCursor,
-      result: { entries: page, hasMore: true, nextCursor: maximalCursor },
+      result: { entries: page, runs: [worstCaseFacts], hasMore: true, nextCursor: maximalCursor },
     };
     expect(jsonUtf8ByteLength(frameBody)).toBeLessThan(MAX_MESSAGE_BYTES);
   });
@@ -352,7 +403,7 @@ describe("a reply fits one frame", () => {
     // That single-row page is still refused at the boundary, never put on the wire.
     refusesAt(
       TranscriptReadResponseSchema,
-      { entries: [unfittableRow], hasMore: false },
+      { entries: [unfittableRow], runs: [runFacts], hasMore: false },
       "entries",
     );
   });

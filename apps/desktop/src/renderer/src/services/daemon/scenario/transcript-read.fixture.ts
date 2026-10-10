@@ -5,9 +5,11 @@
 // chosen, and both the rows between them, read forward. Rows run oldest to newest either way and
 // carry the turn stamps `turn-attribution.fixture.ts` folds and the body each beat stores, a large
 // one as its size, as the daemon reads `content_payload` beside the event. A page stops at the
-// limit or the page byte budget, whichever trips first; a cursor past the newest delivered row is
-// refused, as the daemon refuses it. A body read answers a delivered row's whole stored body,
-// `absent` for a row that stores none, and refuses an id the delivered log does not hold.
+// limit or the page byte budget, whichever trips first, the budget shared with the facts of the
+// runs the page names, folded over the whole delivered log as the daemon folds them; a cursor past
+// the newest delivered row is refused, as the daemon refuses it. A body read answers a delivered
+// row's whole stored body, `absent` for a row that stores none, and refuses an id the delivered log
+// does not hold.
 //
 // A scenario scripts its `session.read` record once, for the whole script, while the playback has
 // delivered a prefix of it, so the record's log positions and standing events are read from the
@@ -24,7 +26,8 @@ import {
 } from "@ai-sidekicks/contracts/session/event-cursor";
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/session";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
-import { countEntriesFittingOneFrame } from "@ai-sidekicks/contracts/jsonrpc/page";
+import { jsonUtf8ByteLength } from "@ai-sidekicks/contracts/jsonrpc/byte-length";
+import { PAGE_MAX_BYTES, countEntriesFittingOneFrame } from "@ai-sidekicks/contracts/jsonrpc/page";
 import {
   TranscriptBodyReadRequestSchema,
   storedBodyContentOf,
@@ -36,6 +39,13 @@ import {
   TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE,
   TRANSCRIPT_RUN_LIFECYCLE_CATEGORY,
 } from "@ai-sidekicks/contracts/transcript/row";
+import { transcriptOwnRunIdOf } from "@ai-sidekicks/contracts/transcript/run-attribution";
+import {
+  UNFOLDED_TRANSCRIPT_RUN_FACTS,
+  foldTranscriptRunFacts,
+  type TranscriptRunBeat,
+  type TranscriptRunFacts,
+} from "@ai-sidekicks/contracts/transcript/run-facts";
 
 import { measureUtf8ByteLength } from "#renderer/lib/utf8-byte-length.js";
 import { isWireRecord } from "#renderer/lib/wire/record.js";
@@ -67,6 +77,35 @@ export function readScenarioTranscript(engine: ScenarioEngine, request: unknown)
     return readBackward(log, storedBodies, beforePosition, pageLimit);
   }
   return readForward(log, storedBodies, afterPosition, beforePosition, pageLimit);
+}
+
+/**
+ * The facts of each run `runIds` names, in that order, folded over `log`, a whole log oldest first,
+ * through its newest event, as the daemon serves them with a window. A run is folded from the
+ * events whose payload names it as its own.
+ */
+export function servedRunFactsOf(
+  log: readonly TranscriptRunBeat[],
+  runIds: Iterable<string>,
+): TranscriptRunFacts[] {
+  const foldedThroughSequence = log.at(-1)?.sequence ?? START_OF_LOG_POSITION;
+  return Array.from(runIds, (runId) => {
+    const folded = log
+      .filter((beat) => transcriptOwnRunIdOf(beat.payload) === runId)
+      .reduce(foldTranscriptRunFacts, UNFOLDED_TRANSCRIPT_RUN_FACTS);
+    // The scripted ids are the daemon's own, minted as it mints them.
+    return { runId: runId as TranscriptRunFacts["runId"], ...folded, foldedThroughSequence };
+  });
+}
+
+/** A delivered log as the run facts fold reads it. */
+export function runBeatsOf(log: readonly ProjectedSessionEvent[]): TranscriptRunBeat[] {
+  return log.map((event) => ({
+    type: event.kind,
+    sequence: event.sequence,
+    actor: event.actorId,
+    payload: event.payload,
+  }));
 }
 
 /**
@@ -144,11 +183,14 @@ function readForward(
     .filter((event) => beforePosition === undefined || event.sequence <= beforePosition);
   const stretch = candidates.slice(0, limit);
   const rows = rowsOf(log, storedBodies, stretch);
+  const stretchRuns = servedRunFactsOf(runBeatsOf(log), runIdsNamedBy(rows));
   // Counted from the oldest end, so a budget cut keeps the rows nearest `afterCursor`.
-  const pageCount = countEntriesFittingOneFrame(rows, limit);
+  const pageCount = countEntriesFittingOneFrame(rows, limit, rowBudgetBeside(stretchRuns));
   const newestKept = stretch[pageCount - 1];
+  const entries = rows.slice(0, pageCount);
   return {
-    entries: rows.slice(0, pageCount),
+    entries,
+    runs: runsNamedBy(entries, stretchRuns),
     hasMore: pageCount < candidates.length,
     // An empty page leaves the reader where it asked to read after.
     nextCursor: encodeEventCursor(newestKept === undefined ? afterPosition : newestKept.sequence),
@@ -165,15 +207,45 @@ function readBackward(
   const candidates = log.filter((event) => event.sequence <= beforePosition).slice(-(limit + 1));
   const stretch = candidates.slice(-limit);
   const rows = rowsOf(log, storedBodies, stretch);
+  const stretchRuns = servedRunFactsOf(runBeatsOf(log), runIdsNamedBy(rows));
   // Counted from the newest end, so a budget cut drops the rows farthest from the cursor.
-  const pageCount = countEntriesFittingOneFrame([...rows].reverse(), limit);
+  const pageCount = countEntriesFittingOneFrame(
+    [...rows].reverse(),
+    limit,
+    rowBudgetBeside(stretchRuns),
+  );
   const entries = rows.slice(rows.length - pageCount);
+  const runs = runsNamedBy(entries, stretchRuns);
   const oldestKept = stretch[stretch.length - pageCount];
   // Every candidate made the page: it reached the start of the log, so no earlier window remains.
   if (pageCount === candidates.length || oldestKept === undefined) {
-    return { entries, hasMore: false };
+    return { entries, runs, hasMore: false };
   }
-  return { entries, hasMore: true, nextCursor: encodeEventCursor(oldestKept.sequence - 1) };
+  return {
+    entries,
+    runs,
+    hasMore: true,
+    nextCursor: encodeEventCursor(oldestKept.sequence - 1),
+  };
+}
+
+/** The runs `rows` name, each once, in the order each is first named. */
+function runIdsNamedBy(rows: readonly Readonly<Record<string, unknown>>[]): Set<string> {
+  return new Set(rows.flatMap((row) => (typeof row["runId"] === "string" ? [row["runId"]] : [])));
+}
+
+/** The bytes a page's rows may take beside the facts of every run its stretch names. */
+function rowBudgetBeside(stretchRuns: readonly TranscriptRunFacts[]): number {
+  return PAGE_MAX_BYTES - jsonUtf8ByteLength(stretchRuns);
+}
+
+/** The facts of the runs `entries` name, from those of the stretch they were cut from. */
+function runsNamedBy(
+  entries: readonly Readonly<Record<string, unknown>>[],
+  stretchRuns: readonly TranscriptRunFacts[],
+): TranscriptRunFacts[] {
+  const namedRunIds = runIdsNamedBy(entries);
+  return stretchRuns.filter((facts) => namedRunIds.has(facts.runId));
 }
 
 /** A cursor's position, or the daemon's refusal when it names none or one past `head`. */
@@ -209,7 +281,7 @@ function rowsOf(
   log: readonly ProjectedSessionEvent[],
   storedBodies: StoredBodies,
   stretch: readonly ProjectedSessionEvent[],
-): readonly unknown[] {
+): readonly Readonly<Record<string, unknown>>[] {
   const attribution = new ScenarioTurnAttribution(() => log);
   return stretch.map((event) =>
     rowOf(event, attribution.attribute(event), storedBodies.get(event.id)),

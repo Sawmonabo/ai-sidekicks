@@ -232,11 +232,7 @@ export class TranscriptHistoryReader {
       }
       const page = readTranscriptPage(reply.value);
       beforePageLands();
-      this.#sessionStore.replaceWithLogEndPage(
-        pending.side === "head" ? "start" : "end",
-        page.events,
-        page.edge,
-      );
+      this.#sessionStore.replaceWithLogEndPage(pending.side === "head" ? "start" : "end", page);
     } finally {
       this.#endRead(readNumber);
     }
@@ -275,9 +271,9 @@ export class TranscriptHistoryReader {
         }
         const page = readTranscriptPage(reply.value);
         if (side === "head") {
-          this.#sessionStore.prependEarlierEvents(page.events, page.edge);
+          this.#sessionStore.prependEarlierEvents(page);
         } else {
-          this.#sessionStore.appendLaterEvents(page.events, page.edge);
+          this.#sessionStore.appendLaterEvents(page);
         }
         const owedHeightPx = targetHeightPx - this.#heldHeightPx(measure);
         const edge = this.#edgeOf(side);

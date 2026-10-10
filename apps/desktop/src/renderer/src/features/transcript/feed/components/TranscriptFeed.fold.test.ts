@@ -120,7 +120,7 @@ describe("the transcript feed — nothing folds itself", () => {
           cursor: transcriptFixtureStreamCursor(3),
           kind: "run.completed",
           occurredAt: transcriptFixtureStampAt(3),
-          payload: { sessionId: SESSION_ID, runId: LIVE_RUN_ID },
+          payload: { sessionId: SESSION_ID, runId: LIVE_RUN_ID, newState: "completed" },
           runStamp: { position: 3, epoch: 0 },
         },
       ]);

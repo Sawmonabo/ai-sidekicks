@@ -14,17 +14,21 @@
 //   - In the page's order. The daemon answers oldest to newest, so its rows are used as they
 //     arrived; sorting would be a second ordering of one log.
 //
-// Nothing here projects an entity or moves the stream's cursor, which is what makes a page safe: a
-// partition holds the newest state of each entity, and an older event's projector would replace a
-// run's current state with an earlier one. A page does advance the hue wheel, the
-// waiting-on-person register and the standing events, since a recovered row is what it is worth
-// to them, and the standing events keep the newest of each kind whatever order rows arrive in.
+// Nothing here projects an entity from a row or moves the stream's cursor, which is what makes a
+// page safe: a partition holds the newest state of each entity, and an older event's projector
+// would replace a run's current state with an earlier one. A page does admit the run facts its
+// reply served, which hold through the log position the reply was read at and so never replace
+// newer ones. It advances the hue wheel, the waiting-on-person register and the standing events,
+// since a recovered row is what it is worth to them, and the standing events keep the newest of
+// each kind whatever order rows arrive in.
 
 import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import type { TranscriptBodyReadResponse } from "@ai-sidekicks/contracts/transcript/content";
+import type { TranscriptRunFacts } from "@ai-sidekicks/contracts/transcript/run-facts";
 
 import { AgentHueAllocator } from "#renderer/styles/agent-hue.js";
 import type { ProjectedSessionEvent } from "./entities/vocabulary.js";
+import { admitServedRunFacts } from "./events/run/facts.js";
 import { WaitingOnPersonRegister } from "./waiting-on-person/register.js";
 import { mergeStandingEvents } from "./standing-events.js";
 import { admitToHueWheel } from "./hue-admission.js";
@@ -79,6 +83,18 @@ export interface LogEndPageMerge {
   readonly duplicates: number;
 }
 
+/**
+ * One `transcript.read` window as a page fold takes it: its rows as app events, its far edge, and
+ * the facts of the runs its rows name.
+ */
+export interface TranscriptWindowPage {
+  /** The rows, oldest to newest as the reply ordered them. */
+  readonly events: readonly ProjectedSessionEvent[];
+  readonly edge: TranscriptWindowEdge;
+  /** The facts of each run the rows name, folded by the daemon from the whole log. */
+  readonly runs: readonly TranscriptRunFacts[];
+}
+
 /** Everything a page fold advances beside the state it answers with. */
 export interface TranscriptPageDependencies {
   readonly sessionId: string;
@@ -124,10 +140,10 @@ export function mergeEarlierWindow(
  */
 export function foldEarlierWindowPage(
   current: SessionStoreState,
-  events: readonly ProjectedSessionEvent[],
-  edge: TranscriptWindowEdge,
+  page: TranscriptWindowPage,
   dependencies: TranscriptPageDependencies,
 ): TranscriptPageFold<EarlierWindowMerge> {
+  const { events, edge } = page;
   const admissible = admissibleRows(events, dependencies.sessionId);
   const merge = mergeEarlierWindow(current.transcript, admissible);
   if (merge.admitted === 0 && events.length > 0) {
@@ -140,6 +156,7 @@ export function foldEarlierWindowPage(
     merge,
     nextState: {
       ...current,
+      partitions: admitServedRunFacts(current.partitions, page.runs),
       transcript: merge.transcript,
       transcriptHead: edge,
       standingEvents: mergeStandingEvents(current.standingEvents, recovered),
@@ -156,10 +173,10 @@ export function foldEarlierWindowPage(
  */
 export function foldLaterWindowPage(
   current: SessionStoreState,
-  events: readonly ProjectedSessionEvent[],
-  edge: TranscriptWindowEdge,
+  page: TranscriptWindowPage,
   dependencies: TranscriptPageDependencies,
 ): TranscriptPageFold<LaterWindowMerge> {
+  const { events, edge } = page;
   if (current.transcriptTail.following === "live") {
     return {
       merge: {
@@ -191,6 +208,7 @@ export function foldLaterWindowPage(
     merge,
     nextState: {
       ...current,
+      partitions: admitServedRunFacts(current.partitions, page.runs),
       transcript: merge.transcript,
       transcriptTail: tailAfterLaterPage(merge.transcript, edge, current.cursor),
       standingEvents: mergeStandingEvents(current.standingEvents, rows),
@@ -209,11 +227,11 @@ export function foldLaterWindowPage(
  */
 export function foldLogEndPage(
   current: SessionStoreState,
-  events: readonly ProjectedSessionEvent[],
+  page: TranscriptWindowPage,
   logEnd: "start" | "end",
-  edge: TranscriptWindowEdge,
   dependencies: TranscriptPageDependencies,
 ): TranscriptPageFold<LogEndPageMerge> {
+  const { events, edge } = page;
   const { rows, duplicates } = rowsBeyondEdge(
     admissibleRows(events, dependencies.sessionId),
     () => false,
@@ -227,6 +245,7 @@ export function foldLogEndPage(
     merge,
     nextState: {
       ...current,
+      partitions: admitServedRunFacts(current.partitions, page.runs),
       transcript: rows,
       transcriptHead: logEnd === "start" ? CLOSED_WINDOW_EDGE : edge,
       transcriptTail:

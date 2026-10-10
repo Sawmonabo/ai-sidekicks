@@ -8,6 +8,7 @@ import { CONTENT_LENGTH_PAYLOAD_KEY } from "@ai-sidekicks/contracts/event/declar
 import { type ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { deriveTranscriptWindow } from "../window/transcript-window.js";
 import { rowHeightKindOf, type RowDrawing } from "./row-height-inputs.js";
+import { runEntitiesOf } from "#test/helpers/transcript/run-facts.js";
 
 /** A call whose result carries a body, so its row folds and its output can be cut. */
 const CALL: ProjectedSessionEvent = {
@@ -34,7 +35,7 @@ function drawing(overrides: Partial<RowDrawing>): RowDrawing {
 describe("a call's height kind", () => {
   it("is an opened output's only while the call is open and its output was opened whole", () => {
     // An opened output draws whole, past the cut an open call's estimate stops at.
-    const transcriptWindow = deriveTranscriptWindow([CALL]);
+    const transcriptWindow = deriveTranscriptWindow([CALL], runEntitiesOf([CALL]));
     const opened = new Set([CALL.id]);
     const kindWith = (overrides: Partial<RowDrawing>) =>
       rowHeightKindOf(transcriptWindow, drawing(overrides), CALL.id);

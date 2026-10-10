@@ -65,7 +65,7 @@ describe("transcript replies are scoped to the request", () => {
     const foreignRow: TranscriptReadRow = { ...transcriptReadRow, sessionId: OTHER_SESSION_ID };
     registerTranscriptMethod(registry, {
       method: TRANSCRIPT_READ_METHOD,
-      handler: async () => ({ entries: [foreignRow], hasMore: false }),
+      handler: async () => ({ entries: [foreignRow], runs: [], hasMore: false }),
     });
 
     const caught = await captureRejection(
@@ -82,11 +82,11 @@ describe("transcript replies are scoped to the request", () => {
     const scopedRegistry = new MethodRegistryImpl();
     registerTranscriptMethod(scopedRegistry, {
       method: TRANSCRIPT_READ_METHOD,
-      handler: async () => ({ entries: [transcriptReadRow], hasMore: false }),
+      handler: async () => ({ entries: [transcriptReadRow], runs: [], hasMore: false }),
     });
     await expect(
       scopedRegistry.dispatch(TRANSCRIPT_READ_METHOD, { sessionId: SESSION_ID }, dispatchContext),
-    ).resolves.toStrictEqual({ entries: [transcriptReadRow], hasMore: false });
+    ).resolves.toStrictEqual({ entries: [transcriptReadRow], runs: [], hasMore: false });
   });
 
   it("an expansion answering about ANOTHER run is refused as an internal error", async () => {
@@ -127,6 +127,7 @@ describe("transcript replies are scoped to the request", () => {
     // the request, which the schema never sees.
     const threeRowPage = {
       entries: [transcriptReadRow, transcriptReadRow, transcriptReadRow],
+      runs: [],
       hasMore: false,
     } satisfies TranscriptReadResponse;
     const registry = new MethodRegistryImpl();

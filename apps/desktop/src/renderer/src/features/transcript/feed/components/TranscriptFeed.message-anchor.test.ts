@@ -17,6 +17,7 @@ import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.
 import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
 import { type TranscriptPageRead } from "#renderer/services/daemon/transcript/page.js";
+import { runFactsServedFor } from "#test/helpers/transcript/run-facts.js";
 import {
   LONG_LOG_EVENT_COUNT,
   RowIdBody,
@@ -86,15 +87,20 @@ function rowsFrom(firstIndex: number): TranscriptReadRow[] {
   );
 }
 
+/** The log behind the window, oldest first. */
+const LOG_BEHIND_WINDOW: readonly TranscriptReadRow[] = [...rowsFrom(0), ...rowsFrom(50)];
+
 /** The two pages behind the window, keyed by the position each is asked before. */
 const PAGES_BY_BEFORE_CURSOR: Readonly<Record<string, TranscriptReadResponse>> = {
   [WINDOW_HEAD_CURSOR]: TranscriptReadResponseSchema.parse({
     entries: rowsFrom(50),
+    runs: runFactsServedFor(rowsFrom(50), LOG_BEHIND_WINDOW),
     hasMore: true,
     nextCursor: "position-before-50",
   }),
   "position-before-50": TranscriptReadResponseSchema.parse({
     entries: rowsFrom(0),
+    runs: runFactsServedFor(rowsFrom(0), LOG_BEHIND_WINDOW),
     hasMore: false,
   }),
 };

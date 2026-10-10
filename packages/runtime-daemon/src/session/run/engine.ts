@@ -22,6 +22,7 @@ import type {
 } from "@ai-sidekicks/contracts/run/events";
 import { RunIdSchema, type RunId } from "@ai-sidekicks/contracts/run/id";
 import type { RunQueuedPayload } from "@ai-sidekicks/contracts/run/queued";
+import { isTerminalState } from "@ai-sidekicks/contracts/run/state";
 import type { QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
 import type { ProviderOutputSpeedState } from "@ai-sidekicks/contracts/provider/driver/output-speed";
 import type { SessionNoticePayload } from "@ai-sidekicks/contracts/session/controls/events";
@@ -64,7 +65,7 @@ import {
   type RunStateChange,
   type RunStateChangeCompanions,
 } from "./state-change.js";
-import { RUN_TERMINAL_EVENT_TYPES, isTerminalState } from "./transitions.js";
+import { RUN_TERMINAL_EVENT_TYPES } from "./transitions.js";
 import { describeRejection } from "../../rejection.js";
 
 // Parsed at load so a bad literal throws at import, not at the first change.

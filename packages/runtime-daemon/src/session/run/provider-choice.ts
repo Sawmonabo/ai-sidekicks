@@ -30,7 +30,7 @@ import type { ProviderChoiceAnswer } from "../../provider/driver/run-control.js"
 import type { RunEngine, RunTransitionRequest } from "./engine.js";
 import type { RunRead, RunStateReader } from "./read.js";
 import { RunInvalidTransitionError, RunNotFoundError } from "./refusals.js";
-import { isTerminalState } from "./transitions.js";
+import { isTerminalState } from "@ai-sidekicks/contracts/run/state";
 
 type ChoiceDialog = ProviderChoiceAnswer["dialog"];
 
