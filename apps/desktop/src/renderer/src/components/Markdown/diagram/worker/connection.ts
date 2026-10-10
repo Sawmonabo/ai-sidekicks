@@ -6,6 +6,7 @@
 // drawing. It never ends a worker for being idle: starting again costs a load before the next
 // diagram.
 
+import type { WorkerPort, WorkerStart } from "#renderer/lib/worker-port.js";
 import type { LabelMeasurer } from "../label-measurer.js";
 import type { DiagramPalette } from "../palette.js";
 import {
@@ -17,17 +18,11 @@ import {
   type DiagramWorkerRequest,
 } from "./messages.js";
 
-/** The parts of a dedicated worker the connection drives, so a test can stand in for the worker. */
-export interface DiagramWorkerPort {
-  onmessage: ((event: MessageEvent<DiagramWorkerReply>) => void) | null;
-  onerror: ((event: ErrorEvent) => void) | null;
-  onmessageerror: ((event: MessageEvent) => void) | null;
-  postMessage(request: DiagramWorkerRequest): void;
-  terminate(): void;
-}
+/** The diagram worker as the connection drives it, so a test can stand in for the worker. */
+export type DiagramWorkerPort = WorkerPort<DiagramWorkerRequest, DiagramWorkerReply>;
 
 /** Starts one diagram worker. */
-export type DiagramWorkerStart = () => DiagramWorkerPort;
+export type DiagramWorkerStart = WorkerStart<DiagramWorkerRequest, DiagramWorkerReply>;
 
 /**
  * What one drawing came to and the outcome to show. Only a settled outcome is the diagram's own

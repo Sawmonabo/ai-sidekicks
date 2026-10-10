@@ -1,35 +1,33 @@
 // The two flavors a reply goes onto the clipboard in: its markdown, and a formatted flavor beside
 // it. A whole reply's markdown is its body; a selected part's markdown is rebuilt from the drawn
 // elements the selection holds. The formatted flavor is always made from markdown, never copied
-// from the screen, so it carries no app classes, and it follows the screen's own policy: no
-// anchor and no image, and a raw HTML line is text, never markup.
+// from the screen, so it carries no app classes, and it follows the screen's own policy.
 
 import { type fromDom } from "hast-util-from-dom";
-import { toHtml } from "hast-util-to-html";
 import { defaultHandlers, toMdast, type Handle } from "hast-util-to-mdast";
 import { gfmToMarkdown } from "mdast-util-gfm";
-import { toHast, type Handlers } from "mdast-util-to-hast";
 import { toMarkdown } from "mdast-util-to-markdown";
 
 import type { TextClipboardContent } from "#shared/preload-api.js";
-import { parseMarkdown } from "#renderer/components/Markdown/parse.js";
+import {
+  makeMarkdownHtml,
+  markdownWorker,
+} from "#renderer/components/Markdown/worker/connection.js";
 
 /** A tree of drawn elements, as the DOM reader builds it. */
 export type DrawnTree = ReturnType<typeof fromDom>;
 
-/** A reply's two flavors: the markdown as written, and the formatted flavor made from it. */
-export function replyClipboardContent(markdown: string): TextClipboardContent {
-  return { text: markdown, html: markdownToHtml(markdown) };
-}
-
-/** The formatted flavor of `markdown`, as the screen would draw it. */
-export function markdownToHtml(markdown: string): string {
-  return toHtml(markdownToHast(markdown));
-}
-
-/** The elements `markdown` makes under the screen's own policy, as a tree. */
-export function markdownToHast(markdown: string): ReturnType<typeof toHast> {
-  return toHast(parseMarkdown(markdown), { handlers: SCREEN_POLICY_HANDLERS });
+/**
+ * A reply's two flavors: the markdown as written, and the formatted flavor made from it, at once
+ * for a short reply and by the markdown worker for a long one, rejecting when the worker fails.
+ */
+export function replyClipboardContent(
+  markdown: string,
+): TextClipboardContent | Promise<TextClipboardContent> {
+  const html = makeMarkdownHtml(markdown, markdownWorker);
+  return typeof html === "string"
+    ? { text: markdown, html }
+    : html.then((madeHtml) => ({ text: markdown, html: madeHtml }));
 }
 
 /** The markdown that made the drawn reply elements in `tree`, rebuilt from them. */
@@ -44,18 +42,6 @@ type RebuiltNodes = ReturnType<Handle>;
 
 /** One element of a drawn tree, as a handler is handed it. */
 type DrawnElement = Parameters<Handle>[1];
-
-/** The screen draws a link as its text, an image as its alt text and raw HTML as literal text. */
-const SCREEN_POLICY_HANDLERS: Handlers = {
-  link: (state, node) => state.all(node),
-  linkReference: (state, node) => state.all(node),
-  image: (_state, node: { alt?: string | null }) => ({ type: "text", value: node.alt ?? "" }),
-  imageReference: (_state, node: { alt?: string | null }) => ({
-    type: "text",
-    value: node.alt ?? "",
-  }),
-  html: (_state, node: { value: string }) => ({ type: "text", value: node.value }),
-};
 
 /**
  * How the markdown drawing's own elements read back: a heading is a `p` carrying its level, a

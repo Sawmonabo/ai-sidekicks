@@ -4,6 +4,7 @@ import type { TextClipboardContent } from "#shared/preload-api.js";
 import { useAnnounce } from "#renderer/hooks/announce/useAnnounce.js";
 import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
+import { markdownWorker } from "#renderer/components/Markdown/worker/connection.js";
 import { startSlice } from "#renderer/lib/work-slices.js";
 import { type TranscriptPageRead } from "#renderer/services/daemon/transcript/page.js";
 import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
@@ -183,6 +184,7 @@ export function useConversationCopy(source: ConversationCopySource): void {
       rowBodyText: (rowKey, fullBodyOf) => rowBodyText(rowKey, copy.transcriptWindow, fullBodyOf),
       largeBodyRowIdOf: (rowKey) => largeBodyRowIdOf(rowKey, copy.transcriptWindow),
       fullBodyReads,
+      markdownWorker,
     });
     // A copy of rows drawn now, built at once when the slice taken now holds it all; otherwise the
     // rest is built in slices from its end rows copied now, as their drawing may change meanwhile.
