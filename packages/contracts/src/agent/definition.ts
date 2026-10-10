@@ -741,11 +741,7 @@ export const AgentExportWriteFailedDetailsSchema: z.ZodType<AgentExportWriteFail
 
 /** A definition that exists and cannot produce a runnable agent now. */
 export type AgentResolutionRefusedCode = "agent.resolution_refused";
-/**
- * The code of a definition that cannot produce a runnable agent now.
- *
- * @consumedBy the handler that returns the `agent.resolution_refused` error
- */
+/** The code of a definition that cannot produce a runnable agent now. */
 export const AGENT_RESOLUTION_REFUSED_CODE: AgentResolutionRefusedCode = "agent.resolution_refused";
 
 /**
@@ -809,47 +805,49 @@ export type AgentResolutionRefusedDetails =
       unsupportedProviderName: string;
     };
 /** Parses {@link AgentResolutionRefusedDetails}. */
-export const AgentResolutionRefusedDetailsSchema: z.ZodType<AgentResolutionRefusedDetails> =
-  z.discriminatedUnion("reason", [
-    z
-      .object({
-        definitionId: AgentDefinitionIdSchema,
-        reason: z.literal("model_unavailable"),
-        driverName: ProviderNameSchema,
-        modelId: providerTokenSchema("modelId").nullable(),
-      })
-      .strict(),
-    z
-      .object({
-        definitionId: AgentDefinitionIdSchema,
-        reason: z.literal("effort_unsupported"),
-        effort: providerTokenSchema("effort"),
-        effortLevels: z.array(providerTokenSchema("effortLevels")),
-      })
-      .strict(),
-    z
-      .object({
-        definitionId: AgentDefinitionIdSchema,
-        reason: z.literal("account_unavailable"),
-        providerAccountId: ProviderAccountIdSchema,
-      })
-      .strict(),
-    z
-      .object({
-        definitionId: AgentDefinitionIdSchema,
-        reason: z.literal("allowlist_unrealizable"),
-        toolNames: z.array(toolNameSchema).min(1),
-        supportedToolNames: z.array(toolNameSchema),
-      })
-      .strict(),
-    z
-      .object({
-        definitionId: AgentDefinitionIdSchema,
-        reason: z.literal("provider_unsupported"),
-        unsupportedProviderName: providerTokenSchema("unsupportedProviderName"),
-      })
-      .strict(),
-  ]);
+export const AgentResolutionRefusedDetailsSchema: z.ZodType<
+  AgentResolutionRefusedDetails,
+  AgentResolutionRefusedDetails
+> = z.discriminatedUnion("reason", [
+  z
+    .object({
+      definitionId: AgentDefinitionIdSchema,
+      reason: z.literal("model_unavailable"),
+      driverName: ProviderNameSchema,
+      modelId: providerTokenSchema("modelId").nullable(),
+    })
+    .strict(),
+  z
+    .object({
+      definitionId: AgentDefinitionIdSchema,
+      reason: z.literal("effort_unsupported"),
+      effort: providerTokenSchema("effort"),
+      effortLevels: z.array(providerTokenSchema("effortLevels")),
+    })
+    .strict(),
+  z
+    .object({
+      definitionId: AgentDefinitionIdSchema,
+      reason: z.literal("account_unavailable"),
+      providerAccountId: ProviderAccountIdSchema,
+    })
+    .strict(),
+  z
+    .object({
+      definitionId: AgentDefinitionIdSchema,
+      reason: z.literal("allowlist_unrealizable"),
+      toolNames: z.array(toolNameSchema).min(1),
+      supportedToolNames: z.array(toolNameSchema),
+    })
+    .strict(),
+  z
+    .object({
+      definitionId: AgentDefinitionIdSchema,
+      reason: z.literal("provider_unsupported"),
+      unsupportedProviderName: providerTokenSchema("unsupportedProviderName"),
+    })
+    .strict(),
+]);
 
 /** A definition update the daemon refused. */
 export type AgentUpdateRefusedCode = "agent.update_refused";

@@ -3,7 +3,8 @@
 // three, node ids that each name one node and a named refusal when not, a schema small enough to
 // send to a model, a content hash blind to layout, pinned data and tags, trigger inputs with
 // distinct names that start on a value their type allows, a tool binding that carries no policy,
-// and a step's failure whose details never travel without its code.
+// and a step's failure whose details never travel without its code, nor an agent refusal without
+// its reason.
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
@@ -282,6 +283,25 @@ describe("WorkflowStepErrorSchema", () => {
     const uncoded: WorkflowStepError = { message: "failed", details: { cause: "step_timeout" } };
     expect(WorkflowStepErrorSchema.safeParse(uncoded).success).toBe(false);
     expect(WorkflowStepErrorSchema.safeParse({ message: "failed" }).success).toBe(true);
+  });
+
+  it("fails a step whose agent could not resolve with that refusal and its reason", () => {
+    const parkRefused = {
+      message: "The account this step waited on was removed",
+      code: "agent.resolution_refused",
+      details: {
+        definitionId: "0b9f6c2e-4d1a-4c3b-9e8f-7a6b5c4d3e2f",
+        reason: "account_unavailable",
+        providerAccountId: "acct_work",
+      },
+    };
+    expect(WorkflowStepErrorSchema.safeParse(parkRefused).success).toBe(true);
+    const { details: _details, ...reasonless } = parkRefused;
+    expect(WorkflowStepErrorSchema.safeParse(reasonless).success).toBe(false);
+    expect(
+      WorkflowStepErrorSchema.safeParse({ ...parkRefused, details: { reason: "out_of_luck" } })
+        .success,
+    ).toBe(false);
   });
 
   it("carries the failing item's index from 0, and no negative one", () => {

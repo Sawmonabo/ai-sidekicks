@@ -18,6 +18,12 @@
 import { z } from "zod";
 
 import { McpServerBindingRefSchema, type McpServerBindingRef } from "../../mcp/server.js";
+import {
+  AGENT_RESOLUTION_REFUSED_CODE,
+  AgentResolutionRefusedDetailsSchema,
+  type AgentResolutionRefusedCode,
+  type AgentResolutionRefusedDetails,
+} from "../../agent/definition.js";
 import { ArtifactIdSchema, type ArtifactId } from "../../artifacts/id.js";
 import { FILE_PATH_MAX_LEN } from "../../free-form-string.js";
 import { findRepeats } from "../../internal/repeats.js";
@@ -360,10 +366,11 @@ const WorkflowPairedItemSchema: z.ZodType<WorkflowPairedItem, WorkflowPairedItem
  * A failure carried on one item, so one item can fail while the rest of a batch succeeds, on the
  * step it failed in, and on a run as why it failed or was canceled. A coded failure carries the
  * step failure's own `workflow.<condition>` code (a timed-out step, a sandbox that did not start, a
- * Code step over its budget …) and may carry that code's `details`; a failure with no code of its
- * own carries the message alone, never `details`. `itemIndex` names the input item the step failed
- * on: the same zero-based index an expression reads as `$itemIndex`, drawn as it stands (`Item 1`
- * for 1).
+ * Code step over its budget …) and may carry that code's `details`; a step whose agent could not
+ * resolve (a park on an account removed first) carries `agent.resolution_refused` with its
+ * reason in `details`; a failure with no code of its own carries the message alone, never
+ * `details`. `itemIndex` names the input item the step failed on: the same zero-based index an
+ * expression reads as `$itemIndex`, drawn as it stands (`Item 1` for 1).
  */
 export type WorkflowStepError =
   | {
@@ -379,6 +386,13 @@ export type WorkflowStepError =
       itemIndex?: number | undefined;
       code: `workflow.${string}`;
       details?: Record<string, unknown> | undefined;
+    }
+  | {
+      message: string;
+      nodeId?: WorkflowNodeId | undefined;
+      itemIndex?: number | undefined;
+      code: AgentResolutionRefusedCode;
+      details: AgentResolutionRefusedDetails;
     };
 
 const stepErrorShape = {
@@ -394,6 +408,13 @@ export const WorkflowStepErrorSchema: z.ZodType<WorkflowStepError, WorkflowStepE
       ...stepErrorShape,
       code: z.templateLiteral(["workflow.", z.string().regex(/^[a-z][a-z_]*$/u)]),
       details: z.record(z.string(), z.unknown()).optional(),
+    })
+    .strict(),
+  z
+    .object({
+      ...stepErrorShape,
+      code: z.literal(AGENT_RESOLUTION_REFUSED_CODE),
+      details: AgentResolutionRefusedDetailsSchema,
     })
     .strict(),
 ]);
