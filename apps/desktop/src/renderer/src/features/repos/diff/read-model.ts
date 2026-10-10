@@ -1,6 +1,6 @@
 // The daemon's diff read as the model the pane renders. Each wire file carries its own patch, so
-// the path, kind, binary, unreadable and step facts are taken from the wire file and only the
-// hunks (and a declared mode change) from its parsed patch.
+// the path, kind, mode, binary, unreadable and step facts are taken from the wire file, which
+// states them for a file with no patch too, and only the hunks from its parsed patch.
 
 import type {
   DiffFile as WireDiffFile,
@@ -25,7 +25,7 @@ function diffFileFromWire(file: WireDiffFile, comparedStates: ComparedStates): D
   return {
     path: file.path,
     change: changeOf(file),
-    ...(parsed?.modeChange === undefined ? {} : { modeChange: parsed.modeChange }),
+    ...(file.modeChanged === true ? { modeChanged: true } : {}),
     ...(file.binary === true ? { binary: true } : {}),
     ...(file.unreadable === undefined ? {} : { unreadable: file.unreadable }),
     ...(file.step === undefined ? {} : { stepName: file.step.nodeName }),

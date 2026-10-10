@@ -63,15 +63,6 @@ export interface DiffHunk {
 }
 
 /**
- * A file's mode on each side, where the patch declared a change. Both sides, because
- * `100755` alone does not say what changed. Wire-verbatim octal strings.
- */
-export interface DiffFileModeChange {
-  readonly from: string;
-  readonly to: string;
-}
-
-/**
  * What happened to a file, in the daemon's words: added, deleted, renamed or only modified. A
  * rename carries the path it came from, path-verbatim, so a rename with no old path cannot be
  * written down.
@@ -89,8 +80,8 @@ export interface DiffFile {
   /** Wire-verbatim path, rendered as received and never re-rooted. */
   readonly path: string;
   readonly change: DiffFileChange;
-  /** The two modes, where the patch declared the file's mode changed. */
-  readonly modeChange?: DiffFileModeChange;
+  /** True where the file's mode changed, whether or not it has lines to draw. */
+  readonly modeChanged?: boolean;
   /** True where the patch states the two sides differ and carries no text for it. */
   readonly binary?: boolean;
   /** Why the daemon could not read the file's contents, where it could not. */
@@ -171,7 +162,7 @@ export function diffFileChangeNotes(file: DiffFile, place: DiffFileNotePlace): r
   } else if (change.kind !== "modified") {
     notes.push(change.kind);
   }
-  if (file.modeChange !== undefined) {
+  if (file.modeChanged === true) {
     notes.push("mode changed");
   }
   return notes;

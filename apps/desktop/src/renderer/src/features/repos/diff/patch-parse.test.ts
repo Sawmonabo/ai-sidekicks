@@ -286,10 +286,10 @@ describe("parseUnifiedPatch — a change that lives only in the extended headers
     expect(file?.hunks).toStrictEqual([]);
   });
 
-  it("carries both modes where the patch declared the file's mode changed", () => {
+  it("reads a mode change where the patch declared the file's two modes differ", () => {
     const file = parsePlainPatch(MODE_ONLY_PATCH).files[0];
     expect(file?.path).toBe("scripts/release.sh");
-    expect(file?.modeChange).toStrictEqual({ from: "100644", to: "100755" });
+    expect(file?.modeChanged).toBe(true);
   });
 
   it("carries the binary marker, which is the only thing such a patch says", () => {
@@ -313,7 +313,7 @@ describe("parseUnifiedPatch — a change that lives only in the extended headers
 
   it("does not read a created file's single mode as a mode change", () => {
     // `parsePatch` fills `newMode` from `new file mode`, and a new file had no mode before; a
-    // member read off one side would render "mode undefined → 100644" on every new file.
+    // fact read off one side would write "mode changed" on every new file.
     const created = [
       "diff --git a/src/fresh.ts b/src/fresh.ts",
       "new file mode 100644",
@@ -323,7 +323,7 @@ describe("parseUnifiedPatch — a change that lives only in the extended headers
       "+const fresh = true;",
       "",
     ].join("\n");
-    expect(parsePlainPatch(created).files[0]?.modeChange).toBeUndefined();
+    expect(parsePlainPatch(created).files[0]?.modeChanged).toBeUndefined();
   });
 });
 
