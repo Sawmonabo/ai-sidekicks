@@ -200,8 +200,8 @@ export type RegistrationFieldReading =
  * Runs before the token exists in the submit handler, so a refused name cannot discard a typed
  * credential. The name is trimmed and required, and differs from that provider's other account
  * names compared by `foldName`, as the service compares them; a name of only spaces passes the
- * browser's `required` check and is refused here. The refusal never echoes the name, which is user content.
- * The form asks nothing about billing, so an admitted account's billing is `unknown`.
+ * browser's `required` check and is refused here. The refusal never echoes the name, which is user
+ * content. The form asks nothing about billing, so an admitted account's billing is `unknown`.
  */
 export function readRegistrationFields(
   typed: { readonly displayLabel: string; readonly provider: ProviderName },

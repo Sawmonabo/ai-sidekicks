@@ -321,7 +321,7 @@ export function isDeleteRefused(
   return isGoing(run) || isParked(run) || isHeldByLaterRun;
 }
 
-/** Whether a bulk delete with this cutoff takes the run from `runs`: older, not kept, not refused. */
+/** Whether a bulk delete at this cutoff takes the run from `runs`: older, not kept, not refused. */
 export function isBulkDeletable(
   run: WorkflowRunRecord,
   cutoffMs: number,

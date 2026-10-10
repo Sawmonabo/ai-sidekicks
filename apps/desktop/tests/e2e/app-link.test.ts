@@ -1,8 +1,8 @@
 // A `sidekicks://` link, a session's or a workflow run's, reaches the console document through the
-// real main, preload and bridge, parsed: one the running app is handed through the platform's own event (`open-url` on macOS, a
-// second launch's command line elsewhere), held until the console document subscribes and pushed
-// after, and one on the command line the app was launched with. A link main's parser refuses
-// reaches the document as nothing.
+// real main, preload and bridge, parsed: one the running app is handed through the platform's own
+// event (`open-url` on macOS, a second launch's command line elsewhere), held until the console
+// document subscribes and pushed after, and one on the command line the app was launched with. A
+// link main's parser refuses reaches the document as nothing.
 
 import type { ElectronApplication, Page } from "playwright";
 import { describe, expect, it } from "vitest";

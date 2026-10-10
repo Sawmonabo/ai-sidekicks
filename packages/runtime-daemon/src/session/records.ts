@@ -52,7 +52,7 @@ export interface SessionDirectoryRow {
   readonly lastActivityAt: string;
 }
 
-/** The projector's view of one session: its directory row, the last folded sequence and the owner. */
+/** The projector's view of one session: its directory row, last folded sequence and owner. */
 export interface DaemonSessionRecord extends SessionDirectoryRow {
   readonly asOfSequence: number;
   /**

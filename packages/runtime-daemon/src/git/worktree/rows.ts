@@ -8,7 +8,7 @@
 import type { WriteStatement } from "../../database/statement.js";
 import { WriteRefusedError } from "../../database/writer.js";
 
-/** The `worktrees` columns a removal reads: the row, its mount, creator, folder, branch and state. */
+/** The `worktrees` columns a removal reads: the row, its mount, creator, folder, branch, state. */
 export interface WorktreeRow {
   readonly id: string;
   readonly repo_mount_id: string;

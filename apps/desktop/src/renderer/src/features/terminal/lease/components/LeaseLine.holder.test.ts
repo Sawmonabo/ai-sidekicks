@@ -78,7 +78,7 @@ describe("the holder line", () => {
     });
     view.rerender(leaseLineWithTake(heldByTheIpad, "iPad", takes.bridge));
     view.rerender(leaseLineWithTake(HELD_BY_A_RUN, "Codex", takes.bridge));
-    // This device holds it for a while, and the iPad takes it back: the line comes back and is said.
+    // This device holds it a while, and the iPad takes it back: the line comes back and is said.
     view.rerender(
       leaseLineWithTake(
         leaseState({ holder: "held-by-this-device", holderDeviceId: THIS_DEVICE_ID }),

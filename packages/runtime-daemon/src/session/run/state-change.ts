@@ -73,11 +73,11 @@ export class RunStateChangeWriter {
   /**
    * Writes `change` from the run's current row and resolves with the run as it left it. A run that
    * moved after it was read is read again and the change retried while the table still allows it
-   * and the run has not ended, up to a few times. Throws {@link RunNotFoundError} for an unknown run,
-   * {@link RunAlreadyEndedError} for a terminal of a run that has ended or whose run version already
-   * holds one, and {@link RunInvalidTransitionError} for a move the table does not allow from the
-   * state the run is in; a companion statement refusing throws its `WriteRefusedError`. Each
-   * refusal writes nothing.
+   * and the run has not ended, up to a few times. Throws {@link RunNotFoundError} for an unknown
+   * run, {@link RunAlreadyEndedError} for a terminal of a run that has ended or whose run version
+   * already holds one, and {@link RunInvalidTransitionError} for a move the table does not allow
+   * from the state the run is in; a companion statement refusing throws its `WriteRefusedError`.
+   * Each refusal writes nothing.
    */
   async write(change: RunStateChange, companions: RunStateChangeCompanions = {}): Promise<RunRead> {
     for (let attempt = 1; ; attempt += 1) {

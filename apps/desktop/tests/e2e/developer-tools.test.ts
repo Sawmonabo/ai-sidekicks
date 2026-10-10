@@ -23,7 +23,7 @@ const bundleIsBuilt = fixtureBundleExists();
  */
 const DEVELOPER_TOOLS_ANNOUNCEMENT_MS = 5_000;
 
-/** The address a console window a person sees starts on: a blank page the console document draws. */
+/** Where a console window a person sees starts: a blank page the console document draws. */
 const VISIBLE_WINDOW_ADDRESS = "about:blank";
 
 /** One visible window, read once its openers have had their step. */

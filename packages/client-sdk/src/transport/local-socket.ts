@@ -41,7 +41,8 @@ export class JsonRpcTransportUnavailableError extends Error {
 }
 
 // A socket file that is missing or that nothing listens on means no service is running; one the
-// client may not open is a permission; anything else the system reports is a socket it cannot reach.
+// client may not open is a permission; anything else the system reports is a socket it cannot
+// reach.
 function socketFailureReason(systemCode: string | undefined): TransportUnavailableReason {
   switch (systemCode) {
     case "ENOENT":

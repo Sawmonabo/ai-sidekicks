@@ -73,7 +73,7 @@ async function downloadArchive(url: string): Promise<Uint8Array> {
   return archive;
 }
 
-// Writes `shell.c` from the kept archive, or a fresh download, unless it is already there unchanged.
+// Writes `shell.c` from the kept archive or a fresh download, unless it is there unchanged.
 async function placeShellSource(): Promise<void> {
   const [major, minor, patch] = PINNED_RELEASE.version.split(".");
   // sqlite.org names a release's files by its version as XYYZZ00: 3.53.4 is 3530400.

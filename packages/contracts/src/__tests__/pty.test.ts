@@ -1,6 +1,7 @@
 // A session's shells cross from the daemon to every device that shows them, and the lease decides
 // which of those devices may type. A shell appears once in the list and in a tab order, a run's
-// hold names its command, and a lease change's holder agrees with its reason and raises the version.
+// hold names its command, and a lease change's holder agrees with its reason and raises the
+// version.
 import { describe, expect, it } from "vitest";
 
 import {

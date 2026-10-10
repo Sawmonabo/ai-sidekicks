@@ -194,7 +194,8 @@ interface MaterializedTree {
 
 /**
  * Makes worktrees and answers the create form's suggestion, through one name plan. Each `UPDATE`
- * carries its legal-predecessor set in its `WHERE`, so the transition table lives in the statements.
+ * carries its legal-predecessor set in its `WHERE`, so the transition table lives in the
+ * statements.
  */
 export class WorktreeCreator {
   readonly #events: WorktreeEventEmitter;

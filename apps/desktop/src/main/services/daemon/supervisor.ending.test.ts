@@ -1,10 +1,10 @@
 // The supervisor's ending of the service over a scripted service and a fake clock. A quit sends
 // `daemon.flush` alone, signals nothing, waits for a service a `Stop` is ending, whatever its flush
-// did, and starts nothing while it waits, a restart's new service included. The person's `Stop` and `Restart` flush first,
-// at most 10 seconds and taking a refusal as the answer, then ask, then end the service of either
-// kind, counting its drain from the request, and a restart's next start waits for it to exit. A
-// loss before the stop's answer reads as stopped and ends a service that fell silent, and a refusal
-// of the stop does not.
+// did, and starts nothing while it waits, a restart's new service included. The person's `Stop` and
+// `Restart` flush first, at most 10 seconds and taking a refusal as the answer, then ask, then end
+// the service of either kind, counting its drain from the request, and a restart's next start waits
+// for it to exit. A loss before the stop's answer reads as stopped and ends a service that fell
+// silent, and a refusal of the stop does not.
 
 import {
   JsonRpcRemoteError,
