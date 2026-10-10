@@ -89,6 +89,7 @@ export function DiffRenderer(props: DiffRendererProps): React.JSX.Element {
         index={index}
         intraline={intraline}
         viewMode={props.viewMode}
+        look="review"
         onExpandGap={props.onExpandGap}
         rowElementRef={virtualizer.measureElement}
       />,

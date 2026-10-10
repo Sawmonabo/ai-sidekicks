@@ -1,23 +1,25 @@
-// The transcript's diff card. Without a compared pair it draws one block per changed file, each
-// file's rows in the flow with its own cut and footer (`InlineDiffBlock`). With both compared
-// states it shows `DiffChangeSet`. A unified patch names neither state, so they come from the row
-// (`contributions/inline-cards.ts`).
+// The transcript's diff card: one block per changed file, each file's rows in the flow with its own
+// cut and footer (`InlineDiffBlock`), and no wrapper or header around the set. Past as many blocks
+// as two screens of the flow hold, the rest of the files fold into one footer. A compared pair the
+// row names is drawn the same way; a unified patch names neither state, so they come from the row
+// (`contributions/inline-cards.ts`) and only the unread copy says them.
 
 import "./InlineDiffCard.css";
 
-import { useId, useState } from "react";
+import { useMemo, useState } from "react";
 
-import { GLYPH_SIZE_ROW } from "#renderer/styles/glyphs.js";
-import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { formatCount } from "#renderer/lib/wire/figures.js";
 import type { DiffInlineCardProps } from "#renderer/registries/inline-cards/registry.js";
-import { DiffChangeSet } from "./DiffChangeSet.js";
-import { InlineDiffBlock } from "./InlineDiffBlock.js";
+import { useDiffBlockOverhead } from "../hooks/useDiffBlockOverhead.js";
+import { useVisibleFlowHeight } from "../hooks/useVisibleFlowHeight.js";
+import { DIFF_ROW_HEIGHT_PX } from "../measures.js";
 import { type DiffModel } from "../model.js";
 // Type-only: `patch-parse.ts` calls the diff library, and this card is registered eagerly, so
 // a value import would put the parser on the initial import graph.
 import type { ComparedStates } from "../patch-parse.js";
-import { HoverLabel } from "#renderer/components/HoverLabel/HoverLabel.js";
+import { diffFlowDrawnFileCount, diffFlowRowsOf } from "../rows/flow.js";
+import { InlineDiffBlock } from "./InlineDiffBlock.js";
 
 /** What the diff card is drawn from: the row's registry props and, once read, the diff. */
 export interface InlineDiffCardProps {
@@ -26,65 +28,67 @@ export interface InlineDiffCardProps {
   readonly diff?: DiffModel;
 }
 
-/** A transcript row's diff card: each file's rows in the flow, or the change set when states are named. */
+/** A transcript row's diff card: each file's rows in the flow, the rest folded past two screens. */
 export function InlineDiffCard(props: InlineDiffCardProps): React.JSX.Element {
-  const headingId = useId();
-  const comparedStates = comparedStatesOf(props.card);
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [cardElement, setCardElement] = useState<HTMLDivElement | null>(null);
+  const flowHeightPx = useVisibleFlowHeight(cardElement);
 
   return (
-    <section className="meridian-diff-card" aria-labelledby={headingId}>
-      <header className="meridian-diff-card__header">
-        <h4 className="meridian-diff-card__heading" id={headingId}>
-          <Glyph name="diff" size={GLYPH_SIZE_ROW} />
-          Diff
-        </h4>
-        {/* Wire-verbatim, and the diff rather than the run: the run is the row's own subject.
-            The manifest id is not shown; it is provenance of the same object, which the
-            artifact views read. */}
-        <HoverLabel text={props.card.diffArtifactId} textRole="visible-text">
-          <span className="meridian-diff-card__change-set">{props.card.diffArtifactId}</span>
-        </HoverLabel>
-        <button
-          type="button"
-          className="meridian-diff-card__control"
-          aria-expanded={!isCollapsed}
-          onClick={() => {
-            setIsCollapsed((previous) => !previous);
-          }}
-        >
-          {isCollapsed ? "Show diff" : "Collapse"}
-        </button>
-      </header>
-      {isCollapsed ? null : (
-        <div className="meridian-diff-card__body">
-          {props.diff === undefined ? (
-            <Nothing
-              kind="not-checked"
-              placement="block"
-              title="This diff has not been read."
-              detail={unreadDiffDetail(comparedStates)}
-            />
-          ) : comparedStates !== undefined ? (
-            // The row named what was compared, so draw the pane's own body: the states are shown
-            // once and the changed files are reachable.
-            <DiffChangeSet diff={props.diff} />
-          ) : (
-            <InlineDiffBlocks diff={props.diff} />
-          )}
-        </div>
+    <div className="meridian-diff-card" ref={setCardElement}>
+      {props.diff === undefined ? (
+        <Nothing
+          kind="not-checked"
+          placement="block"
+          title="This diff has not been read."
+          detail={unreadDiffDetail(comparedStatesOf(props.card))}
+        />
+      ) : flowHeightPx === undefined ? null : (
+        <InlineDiffBlocks diff={props.diff} flowHeightPx={flowHeightPx} cardElement={cardElement} />
       )}
-    </section>
+    </div>
   );
 }
 
-/** One block per changed file, keyed by position: two files of one path each keep their own. */
-function InlineDiffBlocks(props: { readonly diff: DiffModel }): React.JSX.Element {
+/**
+ * One block per changed file, keyed by position so two files of one path each keep their own, up
+ * to as many as two screens of the flow hold; the files past them fold into one footer.
+ */
+function InlineDiffBlocks(props: {
+  readonly diff: DiffModel;
+  readonly flowHeightPx: number;
+  readonly cardElement: HTMLElement | null;
+}): React.JSX.Element {
+  const { diff, flowHeightPx } = props;
+  const fileRows = useMemo(() => diff.files.map((file) => diffFlowRowsOf(diff, file)), [diff]);
+  // Until the first block's footer is laid out, a block's overhead is reckoned as one row; it is
+  // read before the first paint, so the count a person sees is the measured one.
+  const blockOverheadPx =
+    useDiffBlockOverhead(props.cardElement, diff.files.length > 0) ?? DIFF_ROW_HEIGHT_PX;
+  const drawnFileCount = diffFlowDrawnFileCount(fileRows, flowHeightPx, blockOverheadPx);
+  const foldedFileCount = diff.files.length - drawnFileCount;
+
   return (
     <>
-      {props.diff.files.map((file, fileIndex) => (
-        <InlineDiffBlock key={fileIndex} diff={props.diff} file={file} />
-      ))}
+      {diff.files.slice(0, drawnFileCount).map((file, fileIndex) => {
+        const flowRows = fileRows[fileIndex];
+        return flowRows === undefined ? null : (
+          <InlineDiffBlock
+            key={fileIndex}
+            file={file}
+            flowRows={flowRows}
+            flowHeightPx={flowHeightPx}
+          />
+        );
+      })}
+      {foldedFileCount === 0 ? null : (
+        <div className="meridian-diff-card__fold">
+          <span>{`${formatCount(foldedFileCount)} more ${foldedFileCount === 1 ? "file" : "files"} changed`}</span>
+          <span className="meridian-diff-block__separator" aria-hidden="true">
+            ·
+          </span>
+          <span>{`${formatCount(diff.files.length)} total`}</span>
+        </div>
+      )}
     </>
   );
 }

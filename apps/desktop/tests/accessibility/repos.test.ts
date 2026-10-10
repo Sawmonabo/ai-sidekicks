@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { emulateSystemScheme } from "../helpers/media-emulation.js";
 import {
   mountDiffPane,
+  mountInlineDiffCard,
   mountMountList,
   mountWorkflowRunReview,
 } from "./feature-mounts/repos/views.js";
@@ -28,6 +29,7 @@ const AUDITED_VIEWS: readonly {
 }[] = [
   { label: "the mount list with a degraded mount", mount: mountMountList },
   { label: "the diff pane over a parsed change set", mount: mountDiffPane },
+  { label: "the transcript's inline diff over a parsed change set", mount: mountInlineDiffCard },
   { label: "Review over a workflow run's changes", mount: mountWorkflowRunReview },
 ];
 
