@@ -4,7 +4,8 @@
 // makes in the spacer's place, drawn under the screen's own policy, so they copy exactly as drawn
 // rows do.
 
-import { markdownToHast, type DrawnTree } from "./clipboard-flavors.js";
+import { markdownToHast } from "#renderer/components/Markdown/html.js";
+import { type DrawnTree } from "./clipboard-flavors.js";
 
 /**
  * `tree` with every spacer row that names a text range replaced by the rows that text makes.

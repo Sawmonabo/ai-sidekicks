@@ -82,6 +82,7 @@ function copyOfDrawnRows(
     ...readers,
     largeBodyRowIdOf: () => undefined,
     fullBodyReads: undefined,
+    markdownWorker: { html: () => expect.fail("no reply part is long enough for the worker") },
   }).buildWhile(() => true);
   return copy.isBuilt ? copy.content : expect.fail("a copy reading no body in full builds at once");
 }

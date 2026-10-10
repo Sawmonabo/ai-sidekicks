@@ -2,17 +2,22 @@
 // rows it runs across: each row's part in log order, then, whenever a reply is part of it, the
 // formatted flavor a part at a time, joined by a blank line into the content of one clipboard
 // write. A large body is read in full just before its row and let go once the row's part is read,
-// so a copy holds one at a time. A copy built in slices is the same bytes as one built at once.
+// so a copy holds one at a time. A reply part too long to make into HTML within a slice is made by
+// the markdown worker, off the page's thread. A copy built in slices is the same bytes as one built
+// at once.
 
 import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event/envelope";
 import { toHtml } from "hast-util-to-html";
 
 import type { TextClipboardContent } from "#shared/preload-api.js";
+import {
+  makeMarkdownHtml,
+  type MarkdownWorkerConnection,
+} from "#renderer/components/Markdown/worker/connection.js";
 import { RefusalError } from "#renderer/lib/refusal/contract.js";
 import { workInSlices } from "#renderer/lib/work-slices.js";
 import { type FullBodyReads } from "../rows/full-body-reads.js";
 import { type RowSelection } from "../viewport/selection/record.js";
-import { markdownToHtml } from "./clipboard-flavors.js";
 import {
   PART_SEPARATOR,
   readRowPart,
@@ -38,6 +43,8 @@ export interface ConversationCopyRows {
   readonly largeBodyRowIdOf: (rowKey: string) => string | undefined;
   /** What a large body is read in full through, or `undefined` where none is read. */
   readonly fullBodyReads: Pick<FullBodyReads, "readFullBody"> | undefined;
+  /** What makes a long reply part's formatted flavor off the page's thread. */
+  readonly markdownWorker: Pick<MarkdownWorkerConnection, "html">;
 }
 
 /**
@@ -50,7 +57,8 @@ export type ConversationCopyStep =
 
 /**
  * One copy of the conversation's rows, built a slice at a time: `buildWhile` builds what one slice
- * has time for, and `finish` builds the rest in slices, reading each large body as its row comes.
+ * has time for, and `finish` builds the rest in slices, reading each large body as its row comes
+ * and waiting on the markdown worker for each long reply part's formatted flavor.
  */
 export class ConversationCopyBuild {
   readonly #rows: ConversationCopyRows;
@@ -62,8 +70,8 @@ export class ConversationCopyBuild {
   readonly #partHtml: string[] = [];
   /** The large body the next row reads, once it is read in full. */
   #fullBody: { readonly rowId: string; readonly content: HydratedSessionEventContent } | undefined;
-  /** The id of the next row's large body while it waits to be read in full. */
-  #unreadBodyRowId: string | undefined;
+  /** What the build waits on before it goes on, while it waits. */
+  #awaited: AwaitedWork | undefined;
   #step: ConversationCopyStep = NOT_BUILT;
 
   public constructor(rows: ConversationCopyRows) {
@@ -81,7 +89,8 @@ export class ConversationCopyBuild {
 
   /**
    * Builds one part after another while `hasTime` answers true, one at the least, and stops
-   * before a row whose large body is still to be read in full.
+   * before a row whose large body is still to be read in full, or a reply part whose formatted
+   * flavor the markdown worker makes.
    */
   public buildWhile(hasTime: () => boolean): ConversationCopyStep {
     this.#step = this.#buildWhile(hasTime);
@@ -90,8 +99,10 @@ export class ConversationCopyBuild {
 
   /**
    * Builds the rest of the copy in slices in `view`, reading each large body in full, one at a
-   * time, as its row comes. Resolves `undefined` once `isCurrent` answers false, as when a newer
-   * copy took over; throws a `RefusalError` when a body's read is refused, so nothing is copied.
+   * time, as its row comes, and each long reply part's formatted flavor through the markdown
+   * worker. Resolves `undefined` once `isCurrent` answers false, as when a newer copy took over;
+   * throws a `RefusalError` when a body's read is refused, or the worker's `Error` when it fails,
+   * so nothing is copied.
    */
   public async finish(
     view: Window,
@@ -101,13 +112,13 @@ export class ConversationCopyBuild {
       if (this.#step.isBuilt) {
         return this.#step.content;
       }
-      const isStopped = !(await this.#readUnreadBody(isCurrent));
+      const isStopped = !(await this.#settleAwaited(isCurrent));
       if (isStopped) {
         return undefined;
       }
       const isDone = await workInSlices(
         view,
-        (hasTime) => this.buildWhile(hasTime).isBuilt || this.#unreadBodyRowId !== undefined,
+        (hasTime) => this.buildWhile(hasTime).isBuilt || this.#awaited !== undefined,
         () => !isCurrent(),
       );
       if (!isDone) {
@@ -135,7 +146,15 @@ export class ConversationCopyBuild {
     }
     while (this.#partHtml.length < parts.length) {
       const part = parts[this.#partHtml.length] ?? throwLostPlace("a part follows the last made");
-      this.#partHtml.push(partHtmlOf(part));
+      const html =
+        part.flavor === "markdown"
+          ? makeMarkdownHtml(part.text, this.#rows.markdownWorker)
+          : plainHtml(part.text);
+      if (typeof html !== "string") {
+        this.#awaited = { kind: "worker-html", html };
+        return NOT_BUILT;
+      }
+      this.#partHtml.push(html);
       if (!hasTime() && this.#partHtml.length < parts.length) {
         return NOT_BUILT;
       }
@@ -153,7 +172,7 @@ export class ConversationCopyBuild {
     const largeBodyRowId =
       this.#rows.fullBodyReads === undefined ? undefined : this.#rows.largeBodyRowIdOf(rowKey);
     if (largeBodyRowId !== undefined && this.#fullBody?.rowId !== largeBodyRowId) {
-      this.#unreadBodyRowId = largeBodyRowId;
+      this.#awaited = { kind: "full-body", rowId: largeBodyRowId };
       return false;
     }
     const part = readRowPart(this.#span, rowKey);
@@ -165,36 +184,50 @@ export class ConversationCopyBuild {
     return true;
   }
 
-  /** Reads in full the large body the next row waits on; `false` once a newer copy took over. */
-  async #readUnreadBody(isCurrent: () => boolean): Promise<boolean> {
-    const rowId = this.#unreadBodyRowId;
-    const fullBodyReads = this.#rows.fullBodyReads;
-    if (rowId === undefined || fullBodyReads === undefined) {
+  /**
+   * Settles what the build waits on: reads the next row's large body in full, or has the worker
+   * make the next part's formatted flavor. `false` once a newer copy took over.
+   */
+  async #settleAwaited(isCurrent: () => boolean): Promise<boolean> {
+    const awaited = this.#awaited;
+    if (awaited === undefined) {
       return true;
     }
-    const reply = await fullBodyReads.readFullBody(rowId);
-    if (!isCurrent()) {
-      return false;
+    if (awaited.kind === "worker-html") {
+      const html = await awaited.html;
+      if (!isCurrent()) {
+        return false;
+      }
+      this.#partHtml.push(html);
+    } else {
+      const fullBodyReads = this.#rows.fullBodyReads ?? throwLostPlace("a large body has a reader");
+      const reply = await fullBodyReads.readFullBody(awaited.rowId);
+      if (!isCurrent()) {
+        return false;
+      }
+      if (reply.status === "refused") {
+        throw new RefusalError(reply.refusal);
+      }
+      this.#fullBody = { rowId: awaited.rowId, content: reply.value };
     }
-    if (reply.status === "refused") {
-      throw new RefusalError(reply.refusal);
-    }
-    this.#fullBody = { rowId, content: reply.value };
-    this.#unreadBodyRowId = undefined;
+    this.#awaited = undefined;
     return true;
   }
 }
+
+/**
+ * What a build waits on: the large body the next row reads, to be read in full, or the formatted
+ * flavor of the next reply part, which the markdown worker is making.
+ */
+type AwaitedWork =
+  | { readonly kind: "full-body"; readonly rowId: string }
+  | { readonly kind: "worker-html"; readonly html: Promise<string> };
 
 const NOT_BUILT: ConversationCopyStep = { isBuilt: false };
 
 /** The text of a copy's parts, a blank line between each. */
 function textOf(parts: readonly SelectedPart[]): string {
   return parts.map((part) => part.text).join(PART_SEPARATOR);
-}
-
-/** A part's formatted flavor: a reply's markdown as the screen draws it, other text as itself. */
-function partHtmlOf(part: SelectedPart): string {
-  return part.flavor === "markdown" ? markdownToHtml(part.text) : plainHtml(part.text);
 }
 
 /** Plain text as a formatted paragraph, its line breaks kept. */

@@ -171,11 +171,15 @@ describe("a reply whose body is too large to travel with its row", () => {
         browserSelection.setBaseAndExtent(from, 0, end, end.length);
         await settleFrames();
       };
-      // The copy key pressed, and the body read it asks for answered: what reached the clipboard.
+      // The copy key pressed, and the body read it asks for answered: what reached the clipboard,
+      // once the reply's formatted flavor is back from the markdown worker.
       const copyAnswering = async (isServed: boolean): Promise<string | undefined> => {
         const before = copied.length;
         await act(() => pressKey(COPY));
         await answerRead(isServed);
+        if (isServed) {
+          await expect.poll(() => copied.length).toBe(before + 1);
+        }
         return copied.length === before ? undefined : copied.at(-1)?.text;
       };
       const largeReplyRead = {
