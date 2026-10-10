@@ -3,8 +3,9 @@
 // Its offset is the scroller's less the window's top in the scroller's content, taken from the
 // scroll controller's published geometry, so following a scroll reads no element. Its top is read
 // when the offset is sent, never handed to the library as a scroll margin: a changed margin makes
-// the library lay every item out again. The window never writes the scroller and never compensates
-// an item that changed size: the conversation's own window keeps the reader's place.
+// the library lay every item out again. The library never writes the scroller for the window: a
+// window that holds the reader's place through an item it resized does so through
+// `ReaderPlaceHold`, and the conversation's own window holds it for every other change.
 
 import type { Range, Rect } from "@tanstack/react-virtual";
 

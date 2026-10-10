@@ -115,6 +115,8 @@ export async function mountBodies(
               width: `${String(SCROLLER_WIDTH_PX)}px`,
               height: `${String(SCROLLER_HEIGHT_PX)}px`,
               overflowY: "scroll",
+              // As the transcript's scroller: the windows hold the reader's place, the browser not.
+              overflowAnchor: "none",
             }}
           >
             <div

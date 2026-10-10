@@ -12,6 +12,7 @@ import { Emitter } from "#renderer/lib/emitter.js";
 import { observeElementResize } from "#renderer/lib/element-resize.js";
 import { blockSourceStartOf, type SettledMarkdownBlock } from "../body-blocks.js";
 import { isSameBodyType, readMarkdownBodyType, type MarkdownBodyType } from "../body-type.js";
+import { ReaderPlaceHold } from "../reader-place-hold.js";
 import { offsetInRowPx, ScrollerWindowMembers } from "../scroller-window.js";
 import { type TableBodyPlacement, type TablePlacementChange } from "../table-window/context.js";
 import { MARKDOWN_BLOCK_INDEX_ATTRIBUTE } from "./markers.js";
@@ -81,6 +82,7 @@ export class BlockWindowLayout implements TableBodyPlacement {
   readonly #viewport: MarkdownWindowViewport;
   readonly #rowKey: string;
   readonly #scroller: ScrollerWindowMembers;
+  readonly #placeHold: ReaderPlaceHold;
   readonly #placementChanges = new Emitter<TablePlacementChange>("block placement change");
   #blocks: WindowedBlocks;
   #bodyTextLength: number;
@@ -154,6 +156,26 @@ export class BlockWindowLayout implements TableBodyPlacement {
     return this.#sizeOf(index, geometry);
   };
 
+  /**
+   * The library's question whether to move the offset for a block that resized, always answered
+   * no: its write would land on the body, which never scrolls. A block wholly above the scroller's
+   * top, in a row the body holds the reader's place inside, moves the conversation by its change
+   * instead, so the text being read stays where it is.
+   */
+  public readonly holdPlaceThroughResizedBlock = (
+    item: VirtualItem,
+    deltaPx: number,
+    instance: BlockVirtualizer,
+  ): boolean => {
+    if (
+      item.end <= (instance.scrollOffset ?? 0) &&
+      this.#viewport.holdsPlaceInsideRow(this.#rowKey)
+    ) {
+      this.#placeHold.add(deltaPx);
+    }
+    return false;
+  };
+
   /** The body's element, and its size observation: its width, type and place in its row. */
   public readonly attachBody = (element: HTMLElement | null): void => {
     this.#stopObservingBody?.();
@@ -175,6 +197,7 @@ export class BlockWindowLayout implements TableBodyPlacement {
       this.#bodyTopPx(),
     );
     this.#scroller = scroller;
+    this.#placeHold = new ReaderPlaceHold(options.viewport.scrollController);
     this.scrollToFn = scroller.scrollToFn;
     this.observeElementOffset = scroller.observeElementOffset;
     this.observeElementRect = scroller.observeElementRect;
