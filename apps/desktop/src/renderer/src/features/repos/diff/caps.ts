@@ -1,11 +1,5 @@
-// Bounds for the diff views: inline card height, file list scrolling, the intraline register,
-// and the largest patch handed to the parser.
-
-/**
- * Height an inline diff card is capped at before it offers to expand; the card opens capped.
- * About fifteen rows: a hunk's worth of reading with the surrounding turn still visible.
- */
-export const INLINE_DIFF_CARD_HEIGHT_CAP_PX = 300;
+// Bounds for the diff views: file list scrolling, the intraline register, and the largest patch
+// handed to the parser.
 
 /**
  * Files a change set may hold before the file list scrolls instead of rendering every row.

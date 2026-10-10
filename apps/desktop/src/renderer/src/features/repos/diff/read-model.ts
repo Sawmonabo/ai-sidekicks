@@ -29,6 +29,7 @@ function diffFileFromWire(file: WireDiffFile, comparedStates: ComparedStates): D
     ...(file.binary === true ? { binary: true } : {}),
     ...(file.unreadable === undefined ? {} : { unreadable: file.unreadable }),
     ...(file.step === undefined ? {} : { stepName: file.step.nodeName }),
+    ...(file.patch === undefined ? {} : { patch: file.patch }),
     hunks: parsed?.hunks ?? [],
   };
 }

@@ -45,13 +45,6 @@
   min-block-size: 0;
 }
 
-.meridian-diff-card__footer {
-  display: flex;
-  gap: var(--meridian-space-2);
-  padding: var(--meridian-space-2) var(--meridian-space-3);
-  border-block-start: 1px solid var(--meridian-edge);
-}
-
 .meridian-diff-card__control {
   padding: 0;
   border: 0;
@@ -62,9 +55,52 @@
   cursor: pointer;
 }
 
-/* The focus target jump-to-end moves to. It occupies no space: the caret landing here
-   is the whole effect. */
-.meridian-diff-card__end {
-  display: block;
-  block-size: 0;
+/* One changed file in the flow: an indent and one rule over the sunken ground, its rows drawn in
+   the conversation and never scrolled inside the block. */
+.meridian-diff-block {
+  display: flex;
+  flex-direction: column;
+  margin-inline-start: var(--meridian-space-3);
+  border-inline-start: 1px solid var(--meridian-edge);
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-diff-block + .meridian-diff-block {
+  margin-block-start: var(--meridian-space-2);
+}
+
+/* Clips, never scrolls: a long line wraps, and the cut is a row count, not a height. */
+.meridian-diff-block__rows {
+  position: relative;
+  overflow: hidden;
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-xs);
+  line-height: var(--meridian-diff-row-height);
+}
+
+.meridian-diff-block__rows:focus-visible {
+  outline: none;
+}
+
+/* The fade at the cut, into the block's own ground. */
+.meridian-diff-block__rows--cut::after {
+  position: absolute;
+  inset-inline: 0;
+  inset-block-end: 0;
+  block-size: calc(var(--meridian-diff-row-height) * 1.5);
+  background: linear-gradient(to bottom, transparent, var(--meridian-surface-sunken));
+  content: "";
+  pointer-events: none;
+}
+
+.meridian-diff-block__footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  border-block-start: 1px solid var(--meridian-edge);
+  color: var(--meridian-text-faint);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-xs);
 }

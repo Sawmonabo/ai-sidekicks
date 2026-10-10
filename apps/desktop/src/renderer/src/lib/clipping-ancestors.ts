@@ -18,6 +18,9 @@ import { getComputedStyle } from "@floating-ui/utils/dom";
  */
 export const CLIPPING_OVERFLOW_VALUES = ["hidden", "clip", "scroll", "auto", "overlay"] as const;
 
+/** The computed `overflow` values of a box the person scrolls on that axis. */
+export const SCROLLING_OVERFLOW_VALUES = ["auto", "scroll", "overlay"] as const;
+
 /** Whether one computed `overflow` value clips its contents. */
 export function clipsItsContents(overflowValue: string): boolean {
   return CLIPPING_OVERFLOW_VALUES.some((clippingValue) => clippingValue === overflowValue);
