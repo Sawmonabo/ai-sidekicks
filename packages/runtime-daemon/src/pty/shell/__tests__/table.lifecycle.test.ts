@@ -131,38 +131,56 @@ describe("ShellTable lifecycle", () => {
     expect(spawnCount()).toBe(0);
   });
 
+  // Opens a pane on each unstartable login shell and checks that the platform's default shell
+  // starts instead, with the line naming the shell and why it could not start.
+  async function expectFallbackFor(
+    unstartable: readonly (readonly [loginShell: string, reason: string])[],
+  ): Promise<void> {
+    const platformDefaultShell = process.platform === "darwin" ? "/bin/zsh" : "/bin/sh";
+    for (const [loginShell, reason] of unstartable) {
+      const { table, openShell, startedPrograms } = openTable({ loginShell });
+      const { terminalId, child } = await openShell();
+      const laptop = paneOutlet(LAPTOP, 1);
+      await table.subscribeOutput({ sessionId: SESSION_ID, terminalId }, laptop.outlet);
+      child.emitData("$ ");
+
+      expect(startedPrograms).toEqual([platformDefaultShell]);
+      const notice = `Could not start ${loginShell} (${reason}), so this tab runs ${platformDefaultShell}.\r\n`;
+      expect(laptop.frames.flatMap((frame) => frame.changes)).toEqual([
+        expect.objectContaining({ kind: "scrollback", data: notice }),
+        expect.objectContaining({ kind: "output", data: "$ " }),
+      ]);
+    }
+  }
+
   it.skipIf(process.platform === "win32")(
     "starts the platform's default shell, saying why first, where the login shell cannot start",
     async () => {
       const folder = path.join(SCRATCH_FOLDER, "unstartable");
       mkdirSync(folder, { recursive: true });
-      const notAProgram = path.join(folder, "not-a-program");
-      writeFileSync(notAProgram, Buffer.from([0x00, 0x01, 0x02, 0x03, 0xff, 0xfe]));
-      chmodSync(notAProgram, 0o755);
       const missingInterpreter = path.join(folder, "missing-interpreter");
       writeFileSync(missingInterpreter, `#!${path.join(folder, "no-such-interpreter")}\n`);
       chmodSync(missingInterpreter, 0o755);
-      const platformDefaultShell = process.platform === "darwin" ? "/bin/zsh" : "/bin/sh";
 
-      for (const [loginShell, reason] of [
+      await expectFallbackFor([
         [path.join(folder, "no-such-shell"), "no such file"],
         [folder, "not allowed to run"],
-        [notAProgram, "not a program this computer can run"],
         [missingInterpreter, "the program it names to run it is missing"],
-      ] as const) {
-        const { table, openShell, startedPrograms } = openTable({ loginShell });
-        const { terminalId, child } = await openShell();
-        const laptop = paneOutlet(LAPTOP, 1);
-        await table.subscribeOutput({ sessionId: SESSION_ID, terminalId }, laptop.outlet);
-        child.emitData("$ ");
+      ]);
+    },
+  );
 
-        expect(startedPrograms).toEqual([platformDefaultShell]);
-        const notice = `Could not start ${loginShell} (${reason}), so this tab runs ${platformDefaultShell}.\r\n`;
-        expect(laptop.frames.flatMap((frame) => frame.changes)).toEqual([
-          expect.objectContaining({ kind: "scrollback", data: notice }),
-          expect.objectContaining({ kind: "output", data: "$ " }),
-        ]);
-      }
+  // On Linux, Node's bundled libuv starts a file the kernel refuses through /bin/sh instead.
+  it.skipIf(process.platform === "win32" || process.platform === "linux")(
+    "starts the platform's default shell where the login shell is no program for this computer",
+    async () => {
+      const folder = path.join(SCRATCH_FOLDER, "unrunnable");
+      mkdirSync(folder, { recursive: true });
+      const notAProgram = path.join(folder, "not-a-program");
+      writeFileSync(notAProgram, Buffer.from([0x00, 0x01, 0x02, 0x03, 0xff, 0xfe]));
+      chmodSync(notAProgram, 0o755);
+
+      await expectFallbackFor([[notAProgram, "not a program this computer can run"]]);
     },
   );
 
