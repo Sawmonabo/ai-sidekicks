@@ -1,6 +1,6 @@
 // The typed diff model both the pane and the inline card render, and the closed sets that
 // make its illegal states unrepresentable. The word-level split of a line's text is derived
-// per rendered row by `intraline-segment-cache.ts`, never at parse time, because computing
+// per rendered row by `intraline/segment-cache.ts`, never at parse time, because computing
 // every pair up front costs the whole change set before the virtualizer places a row.
 
 import type { DiffFileUnreadableReason } from "@ai-sidekicks/contracts/gitflow/local";
@@ -36,7 +36,7 @@ export interface DiffLine {
   readonly headLineNumber?: number;
   /**
    * The line's text as segments. Producers supply one unchanged segment (the whole line);
-   * the word-level split comes from `intraline-segment-cache.ts`. A line with no intraline
+   * the word-level split comes from `intraline/segment-cache.ts`. A line with no intraline
    * change is one segment, never an empty list.
    */
   readonly segments: readonly DiffIntralineSegment[];

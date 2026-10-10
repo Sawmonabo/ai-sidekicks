@@ -30,6 +30,13 @@ declare module "*.js?url" {
   export default assetUrl;
 }
 
+// Vite's `?worker` import: the module is bundled as its own script and the default export
+// constructs a dedicated worker running it.
+declare module "*?worker" {
+  const WorkerScript: new () => Worker;
+  export default WorkerScript;
+}
+
 // Side-effect stylesheet imports (`import "./Chip.css"`), which Vite bundles. TypeScript checks
 // that a side-effect import resolves, and a stylesheet has no declarations, so the wildcard says
 // every `.css` specifier is a module with no exports.

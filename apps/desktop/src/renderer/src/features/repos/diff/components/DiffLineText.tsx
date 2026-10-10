@@ -1,5 +1,5 @@
 import { type DiffLine, type DiffLineKind } from "../model.js";
-import type { IntralineReading } from "../intraline-segment-cache.js";
+import type { IntralineReading } from "../intraline/segment-cache.js";
 
 /** The marker, then the line's segments. One implementation for both layouts. */
 export function DiffLineText(props: {
