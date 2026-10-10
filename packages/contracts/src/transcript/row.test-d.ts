@@ -3,7 +3,7 @@
 // A failing claim shows up as TS2344 in the package typecheck.
 
 import type { RunRolledBackEvent } from "../run/control.js";
-import type { TranscriptEventRow } from "./row.js";
+import type { TranscriptEventRow, TranscriptReadRow } from "./row.js";
 
 /** Fails to compile (TS2344) at the instantiation when `T` is not `never`. */
 type AssertNever<T extends never> = T;
@@ -54,3 +54,20 @@ type _BoundaryCutoffIsNumber = AssertExtends<
 type _GeneralArmHasNoAttribution = AssertNever<
   Extract<keyof GeneralArm, "runId" | "position" | "epoch" | "superseded">
 >;
+
+// Claim 4: a read row requires its body on every arm, and keeps the arm `kind` selects; the row a
+// client projects from a stream change carries none
+
+type _ReadRunArmRequiresBody = AssertExtends<
+  RequiredKeys<Extract<TranscriptReadRow, { kind: "run" }>>,
+  "content" | "runId" | "position" | "epoch"
+>;
+type _ReadBoundaryArmRequiresBody = AssertExtends<
+  RequiredKeys<Extract<TranscriptReadRow, { kind: "rollback_boundary" }>>,
+  "content"
+>;
+type _ReadGeneralArmRequiresBody = AssertExtends<
+  RequiredKeys<Extract<TranscriptReadRow, { kind: "general" }>>,
+  "content"
+>;
+type _ProjectedRowBodyIsOptional = AssertNever<Extract<RequiredKeys<RunArm>, "content">>;

@@ -10,7 +10,7 @@ import {
   TranscriptReadResponseSchema,
   type TranscriptReadResponse,
 } from "@ai-sidekicks/contracts/transcript/operations";
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
+import type { TranscriptReadRow } from "@ai-sidekicks/contracts/transcript/row";
 import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 
 import { type SessionStore } from "#renderer/store/session/store.js";
@@ -71,7 +71,7 @@ const BEFORE_FIRST_PAGE_INDEX = 10;
 /** The store's head cursor: everything at or before it is behind the window. */
 const WINDOW_HEAD_CURSOR = "position-before-100" as EventCursor;
 
-function rowsFrom(firstIndex: number): TranscriptEventRow[] {
+function rowsFrom(firstIndex: number): TranscriptReadRow[] {
   return Array.from({ length: PAGE_ROWS }, (_unused, offset) =>
     transcriptReadRowAt(firstIndex + offset),
   );

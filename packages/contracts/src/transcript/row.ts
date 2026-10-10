@@ -161,9 +161,8 @@ export interface TranscriptEventRowBase {
   /** Present on a tool call's row that left out one or more patches. */
   omittedPatches?: TranscriptOmittedPatch[] | undefined;
   /**
-   * The row's body. Every row a read returns carries it, which the schema requires; it is
-   * optional here only because a client projects stream changes into this type too, and a stream
-   * change carries no body, so a stand-in would claim one the row never said it lacked.
+   * The row's body, required on a {@link TranscriptReadRow}. Absent on a row a client projects
+   * from a stream change, which carries no body, so a stand-in would claim one it never lacked.
    */
   content?: TranscriptRowContent | undefined;
   payload: Record<string, unknown>;
@@ -475,8 +474,9 @@ const transcriptRollbackBoundaryArmSchema = z
   });
 
 /**
- * The row union every transcript read returns, discriminated on the literal `kind`. Consumers
- * narrow on `kind`, never on the free-form `type` and never by casting.
+ * A transcript row, discriminated on the literal `kind`: as a read returns it, or as a client
+ * projects it from a stream change, which carries no body. Consumers narrow on `kind`, never on
+ * the free-form `type` and never by casting.
  */
 export type TranscriptEventRow =
   | TranscriptRollbackBoundary
@@ -484,13 +484,24 @@ export type TranscriptEventRow =
   | TranscriptEntry;
 
 /**
- * Parses a {@link TranscriptEventRow}. The arm is chosen by `kind`, so a failure is reported
+ * A {@link TranscriptEventRow} as a read returns it, its body required: every row a read window
+ * or an expansion carries, so a row built for one without its body fails to compile.
+ */
+export type TranscriptReadRow = TranscriptEventRow extends infer Row
+  ? Row extends TranscriptEventRow
+    ? Row & { content: TranscriptRowContent }
+    : never
+  : never;
+
+/**
+ * Parses a {@link TranscriptReadRow}. The arm is chosen by `kind`, so a failure is reported
  * against that arm and never retried against a sibling.
  */
-export const TranscriptEventRowSchema: z.ZodType<TranscriptEventRow> = z.discriminatedUnion(
-  "kind",
-  [transcriptRollbackBoundaryArmSchema, runScopedTranscriptArmSchema, transcriptGeneralArmSchema],
-);
+export const TranscriptEventRowSchema: z.ZodType<TranscriptReadRow> = z.discriminatedUnion("kind", [
+  transcriptRollbackBoundaryArmSchema,
+  runScopedTranscriptArmSchema,
+  transcriptGeneralArmSchema,
+]);
 
 /**
  * The run attribution the daemon stamps on one event of a run: its turn position, its execution

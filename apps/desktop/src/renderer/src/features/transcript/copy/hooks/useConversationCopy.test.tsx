@@ -24,7 +24,11 @@ const REPLY = "Here is **the plan**:\n\n- rename the reader\n- keep its callers"
 /** The two rows as the conversation draws them: the person's message, then the agent's reply. */
 const ROWS = [
   sampleRunRow({ id: "event-01", type: "user.message", summary: USER_MESSAGE }),
-  sampleRunRow({ id: "event-02", type: "assistant.message" }),
+  sampleRunRow({
+    id: "event-02",
+    type: "assistant.message",
+    content: { status: "available", body: REPLY },
+  }),
 ];
 
 function Conversation(): React.JSX.Element {
@@ -43,7 +47,6 @@ function Conversation(): React.JSX.Element {
               density="expanded"
               footnotes={new FootnoteRegistry()}
               thinkingRow={undefined}
-              content={{ status: "available", body: REPLY }}
               editControl={undefined}
             />
           </WindowedListRow>

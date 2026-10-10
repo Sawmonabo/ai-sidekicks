@@ -26,14 +26,14 @@ function renderToolCard(
         type: overrides.type ?? "tool.invoked",
         ...(overrides.summary === undefined ? {} : { summary: overrides.summary }),
         ...(overrides.payload === undefined ? {} : { payload: overrides.payload }),
+        ...(overrides.body === undefined
+          ? {}
+          : { content: { status: "available", body: overrides.body } as const }),
       })}
       agentHue={undefined}
       isSuperseded={false}
       density={overrides.density ?? "collapsed"}
       footnotes={new FootnoteRegistry()}
-      {...(overrides.body === undefined
-        ? {}
-        : { content: { status: "available", body: overrides.body } as const })}
       {...(overrides.onDensityToggle === undefined
         ? {}
         : { onDensityToggle: overrides.onDensityToggle })}
@@ -81,12 +81,12 @@ function FoldingToolCard(props: { readonly body: string }): React.JSX.Element {
         type: "tool.result",
         summary: "ran the build",
         payload: { toolName: "bash", contentLength: props.body.length },
+        content: { status: "available", body: props.body },
       })}
       agentHue={undefined}
       isSuperseded={false}
       density={density}
       footnotes={new FootnoteRegistry()}
-      content={{ status: "available", body: props.body }}
       onDensityToggle={() => {
         setDensity((current) => (current === "expanded" ? "collapsed" : "expanded"));
       }}

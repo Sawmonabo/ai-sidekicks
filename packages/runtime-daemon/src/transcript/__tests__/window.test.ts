@@ -10,14 +10,16 @@ import {
   EventCursorUnresolvableError,
   START_OF_LOG_POSITION,
 } from "@ai-sidekicks/contracts/session/event-cursor";
+import { CONTENT_PAYLOAD_PLAINTEXT_MAX } from "@ai-sidekicks/contracts/event/declared-variants";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import {
   TRANSCRIPT_READ_LIMIT_MAX,
   TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES,
 } from "@ai-sidekicks/contracts/transcript/limits";
-import type {
-  TranscriptReadRequest,
-  TranscriptReadResponse,
+import {
+  TranscriptReadResponseSchema,
+  type TranscriptReadRequest,
+  type TranscriptReadResponse,
 } from "@ai-sidekicks/contracts/transcript/operations";
 
 import { openScratchDatabase, type ScratchDatabase } from "../../database/__fixtures__/scratch.js";
@@ -183,10 +185,13 @@ describe("TranscriptWindowReader — one transcript.read window", () => {
   it("carries each row's body, and keeps a page of outputs over the frame whole as their sizes", async () => {
     // Twenty outputs of 200,000 bytes each are four times a frame: carried whole, a page would hold
     // four of them. Each comes back as its size instead, beside a reply that travels with its row
-    // and a row with no body.
+    // and a row with no body. The first is over the most a body read may hold, and still costs its
+    // page nothing.
     const largeLength = 200_000;
+    const overReadLength = 300_000;
     const bodies: (string | null)[] = [
-      ...Array.from({ length: 20 }, () => "x".repeat(largeLength)),
+      "x".repeat(overReadLength),
+      ...Array.from({ length: 19 }, () => "x".repeat(largeLength)),
       "y".repeat(TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES - 2),
       null,
     ];
@@ -213,9 +218,15 @@ describe("TranscriptWindowReader — one transcript.read window", () => {
 
     const page = windowReader().read({ sessionId: SESSION_ID });
 
-    expect(page.entries).toHaveLength(bodies.length);
+    // Parsed as the reply's own schema, so a body the contract refuses would fail the page here.
+    expect(TranscriptReadResponseSchema.parse(page).entries).toHaveLength(bodies.length);
     expect(page.hasMore).toBe(false);
-    expect(page.entries[0]?.content).toStrictEqual({ status: "large", contentLength: largeLength });
+    expect(overReadLength).toBeGreaterThan(CONTENT_PAYLOAD_PLAINTEXT_MAX);
+    expect(page.entries[0]?.content).toStrictEqual({
+      status: "large",
+      contentLength: overReadLength,
+    });
+    expect(page.entries[1]?.content).toStrictEqual({ status: "large", contentLength: largeLength });
     expect(page.entries[20]?.content).toStrictEqual({
       status: "available",
       body: bodies[20],

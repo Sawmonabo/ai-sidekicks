@@ -12,7 +12,7 @@ import { type EventCursor } from "../session/event-cursor.js";
 
 import { refuseSelfParentingRun } from "./child-run-summary.js";
 import { TRANSCRIPT_READ_LIMIT_MAX } from "./limits.js";
-import { TranscriptEventRowSchema, type TranscriptEventRow } from "./row.js";
+import { TranscriptEventRowSchema, type TranscriptReadRow } from "./row.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 
 /**
@@ -77,8 +77,8 @@ export const TranscriptReadRequestSchema: z.ZodType<TranscriptReadRequest, Trans
  * live stream (`session.subscribe` with `afterCursor`) from exactly there.
  */
 export type TranscriptReadResponse =
-  | { entries: TranscriptEventRow[]; hasMore: true; nextCursor: EventCursor }
-  | { entries: TranscriptEventRow[]; hasMore: false; nextCursor?: EventCursor | undefined };
+  | { entries: TranscriptReadRow[]; hasMore: true; nextCursor: EventCursor }
+  | { entries: TranscriptReadRow[]; hasMore: false; nextCursor?: EventCursor | undefined };
 
 // A continuing page carries at least one row: `hasMore: true` with no entries would make a
 // client re-ask the same cursor forever. A terminal page may be empty, the honest answer to a
@@ -252,8 +252,8 @@ export interface ChildRunExpandResponseBase {
   runId: RunId;
   parentRunId: RunId;
   state: RunState;
-  /** The same `TranscriptEventRow` union the read window carries. */
-  entries: TranscriptEventRow[];
+  /** The same rows the read window carries, each with its body. */
+  entries: TranscriptReadRow[];
 }
 
 /**
@@ -278,7 +278,7 @@ const childRunExpandCommonShape = () => ({
  */
 const requireEntriesToBelongToRun = (
   expandedRunId: RunId,
-  entries: readonly TranscriptEventRow[],
+  entries: readonly TranscriptReadRow[],
   issueContext: z.RefinementCtx,
 ): void => {
   for (let index = 0; index < entries.length; index += 1) {

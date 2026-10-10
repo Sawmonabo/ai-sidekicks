@@ -68,6 +68,7 @@ function renderMessageCard(
     type: overrides.type ?? "assistant.message",
     ...(overrides.summary === undefined ? {} : { summary: overrides.summary }),
     ...(overrides.payload === undefined ? {} : { payload: overrides.payload }),
+    ...(overrides.content === undefined ? {} : { content: overrides.content }),
   });
   const rowKind = classifyTranscriptRow(row);
   if (rowKind === undefined) {
@@ -86,7 +87,6 @@ function renderMessageCard(
           density="expanded"
           footnotes={new FootnoteRegistry()}
           thinkingRow={undefined}
-          {...(overrides.content === undefined ? {} : { content: overrides.content })}
           {...(overrides.liveText === undefined
             ? {}
             : { liveText: publishedTextOf(overrides.liveText) })}

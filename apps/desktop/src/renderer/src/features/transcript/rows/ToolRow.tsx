@@ -58,7 +58,7 @@ const RESULT_STATE_CHIPS: Readonly<
 /** A tool-call row: the row kind's glyph and label around its declared arguments and result. */
 export function ToolRow(props: ToolRowProps): React.JSX.Element {
   const kind = describeRowKind("tool-call");
-  const state = toolResultState(props.row.type, props.content);
+  const state = toolResultState(props.row.type, props.row.content);
   const chip = RESULT_STATE_CHIPS[state];
   const payload = projectedPayload(props.row);
   const toolName = readWireString(payload["toolName"]);
@@ -130,7 +130,7 @@ export function ToolRow(props: ToolRowProps): React.JSX.Element {
       </div>
       {isOpen ? (
         <ToolOutput
-          content={props.content}
+          content={props.row.content}
           {...(props.liveText === undefined ? {} : { liveText: props.liveText })}
           // No shape is passed: the payload has no tool kind or content type, so any fixed answer
           // (ANSI or prose) would misread some results. `ToolOutput` reads the bytes, and a

@@ -1,8 +1,6 @@
-// The props every transcript card is handed: the row renderer's contract plus the hydrated body
-// and the footnote registry the message shares. Extending that contract means a member added
+// The props every transcript card is handed: the row renderer's contract plus the live text and
+// the footnote registry the message shares. A card's stored body is its row's own `content`. Extending that contract means a member added
 // to it reaches every card.
-
-import type { TranscriptRowContent } from "@ai-sidekicks/contracts/transcript/content";
 
 import { type PublishedText } from "../reveal/published-text.js";
 import type { TranscriptRowProps } from "./renderer.js";
@@ -10,12 +8,6 @@ import type { FootnoteRegistry } from "./markdown/footnotes/registry.js";
 
 /** What one transcript card is drawn from. */
 export interface HydratedRowProps extends TranscriptRowProps {
-  /**
-   * The row's machine-authored body, as the row a read returned carries it; a large one is its
-   * size alone. `undefined` on a row the stream delivered, which carries no body, so it says "not
-   * read" rather than "not there".
-   */
-  readonly content?: TranscriptRowContent | undefined;
   /**
    * Text the reveal engine is publishing for this row while it streams, as the lane's stable
    * handle; a card memoizes on its `revision`. A prop rather than a subscription: the row

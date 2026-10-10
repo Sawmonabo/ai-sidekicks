@@ -9,7 +9,7 @@ import {
   TranscriptReadResponseSchema,
   type TranscriptReadRequest,
 } from "@ai-sidekicks/contracts/transcript/operations";
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
+import type { TranscriptReadRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { EVENT_ID_STEM } from "#fixtures/scenarios/transcript-states.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
@@ -105,7 +105,7 @@ export function openSessionStoreWithGeneralLog(count: number): SessionStore {
 }
 
 /** The message at one log position of the paged session, as `transcript.read` serves it. */
-export function transcriptReadRowAt(index: number): TranscriptEventRow {
+export function transcriptReadRowAt(index: number): TranscriptReadRow {
   return {
     kind: "general",
     id: transcriptFixtureEventId(index),

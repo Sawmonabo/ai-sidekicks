@@ -6,14 +6,18 @@ import { describe, expect, it } from "vitest";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import type { TranscriptReadResponse } from "@ai-sidekicks/contracts/transcript/operations";
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
+import type { TranscriptRowContent } from "@ai-sidekicks/contracts/transcript/content";
+import type { TranscriptReadRow } from "@ai-sidekicks/contracts/transcript/row";
 import { TranscriptReadResponseSchema } from "@ai-sidekicks/contracts/transcript/operations";
 
 import { readTranscriptPage } from "./transcript-page.js";
 
 const SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5a44a5" as SessionId;
 
-function rowAt(sequence: number, overrides: Partial<TranscriptEventRow> = {}): TranscriptEventRow {
+function rowAt(
+  sequence: number,
+  overrides: { readonly actor?: string; readonly content?: TranscriptRowContent } = {},
+): TranscriptReadRow {
   return {
     kind: "general",
     id: `event-${String(sequence)}`,
@@ -27,7 +31,7 @@ function rowAt(sequence: number, overrides: Partial<TranscriptEventRow> = {}): T
     payload: { note: sequence },
     content: { status: "unavailable", reason: "absent" },
     ...overrides,
-  } as TranscriptEventRow;
+  };
 }
 
 describe("readTranscriptPage — one window, read as the store's own log", () => {

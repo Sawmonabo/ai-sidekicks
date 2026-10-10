@@ -15,8 +15,8 @@ import {
 import {
   TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE,
   TRANSCRIPT_RUN_LIFECYCLE_CATEGORY,
-  type TranscriptEventRow,
   type TranscriptEventRowBase,
+  type TranscriptReadRow,
   type TranscriptRunStamp,
 } from "@ai-sidekicks/contracts/transcript/row";
 
@@ -52,7 +52,7 @@ export class TranscriptProjector {
    * same order, each with its body. Throws on a `run.rolled_back` whose payload does not match its
    * contract, and on a body column holding something other than text.
    */
-  projectWindow(sessionId: SessionId, events: readonly EventEnvelope[]): TranscriptEventRow[] {
+  projectWindow(sessionId: SessionId, events: readonly EventEnvelope[]): TranscriptReadRow[] {
     const attribution = new SessionTurnAttribution(this.#reads, sessionId);
     const contentPayloadBySequence = new Map(
       this.#selectContentPayloads
@@ -89,7 +89,7 @@ function rowOf(
   event: EventEnvelope,
   attribution: SessionTurnAttribution,
   content: TranscriptRowContent,
-): TranscriptEventRow {
+): TranscriptReadRow {
   const common = { ...commonRowFieldsOf(event), content };
   const attributed = attribution.attribute(event);
   if (attributed === undefined) {

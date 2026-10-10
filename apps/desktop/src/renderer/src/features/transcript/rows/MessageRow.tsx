@@ -68,8 +68,8 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
       : props.row.summary
     : rowKind.kind === "thinking" || props.liveText !== undefined
       ? undefined
-      : props.content?.status === "available"
-        ? props.content.body
+      : props.row.content?.status === "available"
+        ? props.row.content.body
         : undefined;
   const storedCopyText = useMemo(
     () => (storedText === undefined ? undefined : publishedTextOf(storedText)),
@@ -141,7 +141,7 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
             props.thinkingRow
           ) : (
             <MessageContent
-              content={props.content}
+              content={props.row.content}
               {...(props.liveText === undefined ? {} : { liveText: props.liveText })}
               // The media type is the producer-set `contentType` on the payload, and the same
               // reading feeds the receipt below, so the renderer and the printed type agree.

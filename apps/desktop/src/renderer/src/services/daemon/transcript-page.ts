@@ -5,19 +5,16 @@
 // The app takes the daemon's stamps rather than projecting them: a row of a run carries its turn
 // position, epoch and superseded marker onto the event as its run stamp, exactly as a stream change
 // carries the stamp the daemon gave it, so a row read and a row streamed say the same thing. The
-// row's body rides onto the event too, so a reply read from history draws its text. The
-// decode is total: every member the log holds is required on the row except an optional `actor`,
-// so no row is dropped. Whether more rows lie beyond the window is the reply's `hasMore`, never
+// row's body rides onto the event too, so a reply read from history draws its text. The decode is
+// total: every member the log holds is required on the row except an optional `actor`, so no row
+// is dropped. Whether more rows lie beyond the window is the reply's `hasMore`, never
 // inferred from a short page.
 
 import type {
   TranscriptReadRequest,
   TranscriptReadResponse,
 } from "@ai-sidekicks/contracts/transcript/operations";
-import type {
-  TranscriptEventRow,
-  TranscriptRunStamp,
-} from "@ai-sidekicks/contracts/transcript/row";
+import type { TranscriptReadRow, TranscriptRunStamp } from "@ai-sidekicks/contracts/transcript/row";
 
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import type { TranscriptWindowEdge } from "#renderer/store/session/state.js";
@@ -71,7 +68,7 @@ export function readTranscriptPage(response: TranscriptReadResponse): Transcript
  * `payload` is spread, not carried by reference, because the rollback arm's payload is a typed
  * event while the store's log holds a keyed record.
  */
-function readTranscriptEventRowAsEvent(row: TranscriptEventRow): ProjectedSessionEvent {
+function readTranscriptEventRowAsEvent(row: TranscriptReadRow): ProjectedSessionEvent {
   const runStamp = runStampOf(row);
   return {
     id: row.id,
@@ -83,12 +80,12 @@ function readTranscriptEventRowAsEvent(row: TranscriptEventRow): ProjectedSessio
     ...(row.actor === undefined ? {} : { actorId: row.actor }),
     payload: { ...row.payload },
     ...(runStamp === undefined ? {} : { runStamp }),
-    ...(row.content === undefined ? {} : { content: row.content }),
+    content: row.content,
   };
 }
 
 /** The run stamp a row of a run carries, or `undefined` on a general row, which names no run. */
-function runStampOf(row: TranscriptEventRow): TranscriptRunStamp | undefined {
+function runStampOf(row: TranscriptReadRow): TranscriptRunStamp | undefined {
   if (row.kind === "general") {
     return undefined;
   }

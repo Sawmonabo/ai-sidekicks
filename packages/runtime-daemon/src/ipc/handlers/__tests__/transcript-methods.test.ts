@@ -12,7 +12,7 @@ import type { HandlerContext } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
+import type { TranscriptReadRow } from "@ai-sidekicks/contracts/transcript/row";
 import {
   TRANSCRIPT_CHILD_RUN_EXPAND_METHOD,
   TRANSCRIPT_READ_METHOD,
@@ -44,7 +44,7 @@ const childRunExpandResponse: ChildRunExpandResponse = {
   hasMore: false,
 };
 
-const transcriptEventRow: TranscriptEventRow = {
+const transcriptEventRow: TranscriptReadRow = {
   kind: "general",
   id: "evt-1",
   sessionId: SESSION_ID,
@@ -63,7 +63,7 @@ describe("transcript replies are scoped to the request", () => {
     // Rows that are each a valid `TranscriptEventRow` from another session pass every schema check,
     // because the response schema never sees the request.
     const registry = new MethodRegistryImpl();
-    const foreignRow: TranscriptEventRow = { ...transcriptEventRow, sessionId: OTHER_SESSION_ID };
+    const foreignRow: TranscriptReadRow = { ...transcriptEventRow, sessionId: OTHER_SESSION_ID };
     registerTranscriptMethod(registry, {
       method: TRANSCRIPT_READ_METHOD,
       handler: async () => ({ entries: [foreignRow], hasMore: false }),

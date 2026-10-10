@@ -6,6 +6,7 @@
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
+import type { TranscriptRowContent } from "@ai-sidekicks/contracts/transcript/content";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { clockLocaleFor, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
@@ -48,6 +49,8 @@ export interface SampleRowOverrides {
   readonly actor?: string;
   readonly timestamp?: string;
   readonly payload?: Readonly<Record<string, unknown>>;
+  /** The row's body, as a read brings it; absent, the row is one the stream delivered. */
+  readonly content?: TranscriptRowContent;
 }
 
 /**
@@ -70,6 +73,7 @@ export function sampleRunRow(overrides: SampleRowOverrides = {}): TranscriptEven
     position: 1,
     epoch: 0,
     ...(overrides.actor === undefined ? {} : { actor: overrides.actor }),
+    ...(overrides.content === undefined ? {} : { content: overrides.content }),
   };
 }
 

@@ -67,7 +67,6 @@ export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element {
       return (
         <ToolRow
           row={props.row}
-          content={props.row.content}
           agentHue={props.agentHue}
           isSuperseded={props.isSuperseded}
           density={props.density}
@@ -83,7 +82,6 @@ export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element {
       return (
         <MessageRow
           row={props.row}
-          content={props.row.content}
           rowKind={rowKind}
           agentHue={props.agentHue}
           isSuperseded={props.isSuperseded}
