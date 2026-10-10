@@ -103,6 +103,11 @@ export class ViewportDeferredHold {
     }
   }
 
+  /** Whether an anchored hold is armed and waits for the commit that lays its rows out. */
+  public get isAnchoredHoldArmed(): boolean {
+    return this.#anchoredHoldPending !== undefined;
+  }
+
   /** Whether a head hold is armed and waits for the commit that lays its page out. */
   public get isHeadHoldArmed(): boolean {
     return this.#headHoldPending !== undefined;
