@@ -4,13 +4,12 @@
 // file's whole patch. A file inside the cut is drawn whole and its footer has nothing to lift. A
 // file with no lines to draw keeps its header and writes what changed where its lines would be.
 //
-// The rows are drawn in steps of a fixed count, each step one box. Show all mounts the steps the
-// flow can show in the press itself and the rest one step per task, each step holding its room
-// until its rows land, so the rows above never move and no task mounts thousands of rows. A
-// scroll that brings a held step near the screen mounts it and lays it out before that frame
-// paints, so a person never sees the room held for it, and the reader stays still as steps above
-// them take their real heights. Steps away from the screen skip their layout and paint
-// (`content-visibility`), which also keeps a whole long diff cheap to lay out again.
+// The rows are drawn in steps of a fixed count, each step one box. Whether a block is open whole
+// is its host's to hold, so it stays open while its row scrolls out and back. Show all mounts the
+// rows to a screen past the screen in the press itself and the rest one step per task, so no task
+// mounts thousands of rows. Rows not mounted yet hold no room: the block grows at the end of its
+// mounted rows as each step lands, so no scroll, however the browser runs it, can reach a part of
+// the block with no rows drawn, and the reader stays still as the block grows above them.
 
 // The rows' own sheet, shared with Review's renderer so a change reads the same in both.
 import "./DiffRenderer.css";
@@ -23,8 +22,7 @@ import { useClipboardCopy } from "#renderer/services/platform/hooks/useClipboard
 import { useIntralineSegmentCache } from "../hooks/useIntralineSegmentCache.js";
 import { useReaderHeldOverSteps } from "../hooks/useReaderHeldOverSteps.js";
 import { useRowsCut } from "../hooks/useRowsCut.js";
-import { useRowsMountedInSteps, type RowStepRange } from "../hooks/useRowsMountedInSteps.js";
-import { useStepsNearView } from "../hooks/useStepsNearView.js";
+import { useRowsMountedInSteps } from "../hooks/useRowsMountedInSteps.js";
 import type { IntralineSegmentCache } from "../intraline/segment-cache.js";
 import { DIFF_FLOW_FILL_STEP_ROWS, DIFF_ROW_HEIGHT_REM } from "../measures.js";
 import type { DiffFile } from "../model.js";
@@ -39,30 +37,36 @@ export interface InlineDiffBlockProps {
   readonly flowHeightPx: number;
   /** One row's height at the current text size, in CSS pixels. */
   readonly rowHeightPx: number;
+  /** Whether the file is open whole; its host holds it, so it outlives the block's mount. */
+  readonly isOpen: boolean;
+  /** Open the file whole, which `Show all` asks for. Nothing closes it again. */
+  readonly onOpen: () => void;
 }
 
 /** One file's rows in the flow, cut at a third of the visible flow, and its footer. */
 export function InlineDiffBlock(props: InlineDiffBlockProps): React.JSX.Element {
-  const { flowRows, flowHeightPx, rowHeightPx } = props;
+  const { flowRows, flowHeightPx, rowHeightPx, isOpen } = props;
   const rowCount = flowRows.rows.length;
-  const stepCount = Math.ceil(rowCount / DIFF_FLOW_FILL_STEP_ROWS);
   const intraline = useIntralineSegmentCache(flowRows.index.model);
-  const { steps, mountAll, bringNear } = useRowsMountedInSteps(rowCount);
   const [rowsElement, setRowsElement] = useState<HTMLDivElement | null>(null);
 
-  const isShowingAll = steps !== undefined;
   const cutRowCount = diffFlowCutRowCount(flowHeightPx, rowHeightPx);
-  const drawnRowCount = isShowingAll ? rowCount : Math.min(rowCount, cutRowCount);
-  const cutHeightPx = isShowingAll ? undefined : cutRowCount * rowHeightPx;
+  // Opening draws the rows to a screen past the screen at once, so a scroll that follows the
+  // press meets rows rather than the block's end coming up early.
+  const mountedRowCount = useRowsMountedInSteps(
+    rowCount,
+    isOpen,
+    cutRowCount + 2 * Math.ceil(flowHeightPx / rowHeightPx),
+  );
+  const drawnRowCount = mountedRowCount ?? Math.min(rowCount, cutRowCount);
+  const cutHeightPx = isOpen ? undefined : cutRowCount * rowHeightPx;
   const { isCut, drawnLineCount } = useRowsCut(
     rowsElement,
     cutHeightPx,
     flowRows.lineCount,
     drawnRowCount < rowCount,
   );
-  // Half a screen past each edge of the flow, so a quick scroll meets rows already laid out.
-  useStepsNearView(rowsElement, isShowingAll, flowHeightPx / 2, bringNear);
-  useReaderHeldOverSteps(rowsElement, isShowingAll, stepCount);
+  useReaderHeldOverSteps(rowsElement, isOpen, mountedRowCount);
 
   // One element per step, so a step mounts its own rows and every other step's memo holds.
   const rowSteps: React.JSX.Element[] = [];
@@ -75,8 +79,6 @@ export function InlineDiffBlock(props: InlineDiffBlockProps): React.JSX.Element 
         intraline={intraline}
         step={step}
         end={Math.min(drawnRowCount, start + DIFF_FLOW_FILL_STEP_ROWS)}
-        isMounted={steps?.mounted[step] ?? true}
-        isNear={isWithin(steps?.near, step)}
       />,
     );
   }
@@ -84,7 +86,6 @@ export function InlineDiffBlock(props: InlineDiffBlockProps): React.JSX.Element 
     "meridian-diff-block__rows",
     "meridian-focus-inset",
     isCut ? "meridian-diff-block__rows--cut" : "",
-    isShowingAll ? "meridian-diff-block__rows--whole" : "",
   ]
     .filter((part) => part !== "")
     .join(" ");
@@ -131,9 +132,7 @@ export function InlineDiffBlock(props: InlineDiffBlockProps): React.JSX.Element 
               type="button"
               className="meridian-link-button"
               onClick={() => {
-                // The rows from the cut to a screen past it land with the press, so whatever
-                // the screen shows is drawn in its first frame.
-                mountAll(cutRowCount + Math.ceil(flowHeightPx / rowHeightPx));
+                props.onOpen();
                 // The control leaves with the cut, so focus goes to the rows it opened rather
                 // than to the page; `preventScroll` keeps the rows above where they were.
                 rowsElement?.focus({ preventScroll: true });
@@ -153,19 +152,17 @@ export function InlineDiffBlock(props: InlineDiffBlockProps): React.JSX.Element 
 
 /**
  * One step of a block's rows, from `step`'s first row to before `end`, numbered by their place in
- * the block. A step whose rows are not mounted yet holds their room at a row's height each.
+ * the block.
  */
 const FlowRowStep = memo(function FlowRowStep(props: {
   readonly flowRows: DiffFlowRows;
   readonly intraline: IntralineSegmentCache;
   readonly step: number;
   readonly end: number;
-  readonly isMounted: boolean;
-  readonly isNear: boolean;
 }): React.JSX.Element {
   const start = props.step * DIFF_FLOW_FILL_STEP_ROWS;
   const rows: React.JSX.Element[] = [];
-  for (let rowIndex = start; props.isMounted && rowIndex < props.end; rowIndex += 1) {
+  for (let rowIndex = start; rowIndex < props.end; rowIndex += 1) {
     const row = props.flowRows.rows[rowIndex];
     if (row !== undefined) {
       rows.push(
@@ -181,21 +178,8 @@ const FlowRowStep = memo(function FlowRowStep(props: {
       );
     }
   }
-  const className = [
-    "meridian-diff-block__step",
-    props.isMounted ? "" : "meridian-diff-block__step--held",
-    props.isNear ? "meridian-diff-block__step--near" : "",
-  ]
-    .filter((part) => part !== "")
-    .join(" ");
   return (
-    <div
-      className={className}
-      {...{ [DIFF_FLOW_STEP_ATTRIBUTE]: props.step }}
-      // A held step is room, not rows, so it is no group of the table's.
-      {...(props.isMounted ? { role: "rowgroup" } : { "aria-hidden": true })}
-      style={{ "--meridian-diff-step-rows": String(props.end - start) } as React.CSSProperties}
-    >
+    <div role="rowgroup" {...{ [DIFF_FLOW_STEP_ATTRIBUTE]: props.step }}>
       {rows}
     </div>
   );
@@ -217,8 +201,4 @@ function PatchCopy(props: {
       <CopyButton label="Copy patch" clipboardCopy={clipboardCopy} look="link" />
     </>
   );
-}
-
-function isWithin(range: RowStepRange | undefined, step: number): boolean {
-  return range !== undefined && step >= range.first && step <= range.last;
 }

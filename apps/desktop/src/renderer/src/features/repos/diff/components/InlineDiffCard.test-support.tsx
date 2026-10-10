@@ -1,7 +1,8 @@
-// The diff card's browser suites: a card drawn in a scrolling flow of a known size, and the
-// patches and models the cases draw it from.
+// The diff card's browser suites: a card drawn in a scrolling flow of a known size under a host
+// that holds which files are open, and the patches and models the cases draw it from.
 
 import { render } from "@testing-library/react";
+import { useCallback, useState } from "react";
 
 import {
   TranscriptBodyViewportContext,
@@ -26,11 +27,34 @@ export interface DrawnDiffCard {
   readonly flow: HTMLElement;
   readonly card: HTMLElement;
   readonly block: HTMLElement;
+  /**
+   * Unmount the card or mount it again under the same host, as the transcript's window does with
+   * a row scrolled out and back.
+   */
+  readonly setCardMounted: (isMounted: boolean) => void;
 }
 
 /**
- * Draw the card, in a document whose tokens the suite installed, in a flow of `heightPx` by
- * `widthPx` that scrolls, inside `viewport` where one is
+ * A diff card whose open files are held outside it, as the transcript's fold will hold them, so
+ * a card mounted again opens them as they were. Draws the card only while `isCardMounted`.
+ */
+export function DiffCardWithOpenState(props: {
+  readonly card: DiffInlineCardProps;
+  readonly diff: DiffModel;
+  readonly isCardMounted: boolean;
+}): React.JSX.Element | null {
+  const [openFileIndexes, setOpenFileIndexes] = useState<ReadonlySet<number>>(() => new Set());
+  const onOpenFile = useCallback((fileIndex: number) => {
+    setOpenFileIndexes((open) => new Set(open).add(fileIndex));
+  }, []);
+  return props.isCardMounted ? (
+    <InlineDiffCard card={props.card} diff={{ model: props.diff, openFileIndexes, onOpenFile }} />
+  ) : null;
+}
+
+/**
+ * Draw the card with its open state held outside it, in a document whose tokens the suite
+ * installed, in a flow of `heightPx` by `widthPx` that scrolls, inside `viewport` where one is
  * given, and hand back the flow, the card and its first block.
  */
 export function drawDiffCard(
@@ -43,36 +67,52 @@ export function drawDiffCard(
   },
 ): DrawnDiffCard {
   const BridgeHost = liveBridgeWrapper();
-  const card = <InlineDiffCard card={options.card ?? DIFF_CARD} diff={diff} />;
-  const { container } = render(
-    <BridgeHost>
-      <div
-        data-flow=""
-        // The conversation's own scroll anchoring is off, so the browser's is too.
-        style={{
-          blockSize: options.heightPx,
-          inlineSize: options.widthPx,
-          overflowY: "auto",
-          overflowAnchor: "none",
-        }}
-      >
-        {options.viewport === undefined ? (
-          card
-        ) : (
-          <TranscriptBodyViewportContext value={options.viewport}>
-            {card}
-          </TranscriptBodyViewportContext>
-        )}
-      </div>
-    </BridgeHost>,
-  );
+  const tree = (isCardMounted: boolean): React.JSX.Element => {
+    const card = (
+      <DiffCardWithOpenState
+        card={options.card ?? DIFF_CARD}
+        diff={diff}
+        isCardMounted={isCardMounted}
+      />
+    );
+    return (
+      <BridgeHost>
+        <div
+          data-flow=""
+          // The conversation's own scroll anchoring is off, so the browser's is too.
+          style={{
+            blockSize: options.heightPx,
+            inlineSize: options.widthPx,
+            overflowY: "auto",
+            overflowAnchor: "none",
+          }}
+        >
+          {options.viewport === undefined ? (
+            card
+          ) : (
+            <TranscriptBodyViewportContext value={options.viewport}>
+              {card}
+            </TranscriptBodyViewportContext>
+          )}
+        </div>
+      </BridgeHost>
+    );
+  };
+  const { container, rerender } = render(tree(true));
   const flow = container.querySelector<HTMLElement>("[data-flow]");
   const drawnCard = container.querySelector<HTMLElement>(".meridian-diff-card");
   const block = drawnCard?.querySelector<HTMLElement>(".meridian-diff-block");
   if (flow === null || drawnCard === null || block === null || block === undefined) {
     throw new Error("the card drew no block");
   }
-  return { flow, card: drawnCard, block };
+  return {
+    flow,
+    card: drawnCard,
+    block,
+    setCardMounted: (isMounted) => {
+      rerender(tree(isMounted));
+    },
+  };
 }
 
 /** One file's patch: its headers, then each hunk header followed by its prefixed lines. */

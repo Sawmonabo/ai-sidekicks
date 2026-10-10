@@ -25,7 +25,7 @@ import { WORKFLOW_OWN_SESSION, WORKFLOW_RUN_IDS } from "#fixtures/data/workflow/
 import { ManualClock } from "#renderer/lib/clock.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { DiffPane } from "#renderer/features/repos/diff/components/DiffPane.js";
-import { InlineDiffCard } from "#renderer/features/repos/diff/components/InlineDiffCard.js";
+import { DiffCardWithOpenState } from "#renderer/features/repos/diff/components/InlineDiffCard.test-support.js";
 import { paneContext } from "#test/helpers/pane-context.js";
 import {
   HEALTHY_WORKSPACE_ID,
@@ -103,7 +103,7 @@ export async function mountInlineDiffCard(): Promise<MountedView> {
   const { container } = await renderSettled(
     <PlatformBridgeProvider bridge={bridge} clock={clock}>
       <div style={{ blockSize: INLINE_DIFF_FLOW_HEIGHT_PX, overflowY: "auto" }}>
-        <InlineDiffCard
+        <DiffCardWithOpenState
           card={{
             kind: "diff",
             runId: "run-inline-diff",
@@ -111,6 +111,7 @@ export async function mountInlineDiffCard(): Promise<MountedView> {
             artifactManifestId: "artifact-manifest-inline",
           }}
           diff={extendedHeaderChangeSet()}
+          isCardMounted
         />
       </div>
     </PlatformBridgeProvider>,

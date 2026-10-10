@@ -4,7 +4,8 @@
 // footer counts the lines drawn beside `Show all` and `Copy patch`, both drawn as links.
 // `Show all` draws every row and leaves the footer. The rows wear the flow's look: a separator
 // where lines are skipped and never the `@@` spelling; a file with no lines says what changed where
-// they would be; and past two screens of blocks the files fold.
+// they would be; past two screens of blocks the files fold; and a file opened whole stays open
+// when the conversation draws its card again.
 
 import { act, cleanup, fireEvent } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -94,6 +95,32 @@ describe("browser — the transcript's diff card", () => {
       expect(longCode.getBoundingClientRect().height).toBeGreaterThan(rowHeightPx);
     });
     expect(longCode.scrollWidth).toBeLessThanOrEqual(longCode.clientWidth);
+  });
+
+  it("keeps a file open whole when its card is drawn again after scrolling away", async () => {
+    const { card, setCardMounted } = drawDiffCard(diffOf([longFile()]), {
+      heightPx: FLOW_HEIGHT_PX,
+      widthPx: 420,
+    });
+    fireEvent.click(showAllOf(card));
+    await vi.waitFor(() => {
+      expect(card.querySelectorAll('[role="row"]')).toHaveLength(LINE_COUNT);
+    });
+
+    // The conversation drops a row scrolled far away and draws it again on the way back; the
+    // file's open state is the host's, so the block comes back whole, with no `Show all`.
+    setCardMounted(false);
+    setCardMounted(true);
+    const drawnAgain = document.querySelector<HTMLElement>(".meridian-diff-card");
+    if (drawnAgain === null || drawnAgain === card) {
+      throw new Error("the card was not drawn again");
+    }
+    await vi.waitFor(() => {
+      expect(drawnAgain.querySelectorAll('[role="row"]')).toHaveLength(LINE_COUNT);
+    });
+    expect(
+      [...drawnAgain.querySelectorAll("button")].map((button) => button.textContent),
+    ).not.toContain("Show all");
   });
 
   it("cuts at as many rows as a third of the flow holds at the current text size", async () => {
@@ -233,6 +260,17 @@ function renderCard(
     card: cardProps,
   });
   return { card, block };
+}
+
+/** The block's `Show all` control. */
+function showAllOf(card: HTMLElement): HTMLButtonElement {
+  const showAll = [...card.querySelectorAll("button")].find(
+    (button) => button.textContent === "Show all",
+  );
+  if (showAll === undefined) {
+    throw new Error("the card drew no Show all");
+  }
+  return showAll;
 }
 
 /** The height the block's first row is drawn at, in CSS pixels. */

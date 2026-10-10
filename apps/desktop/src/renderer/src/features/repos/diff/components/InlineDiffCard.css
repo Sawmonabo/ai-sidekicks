@@ -40,27 +40,6 @@
   pointer-events: none;
 }
 
-/* One step of a block's rows. A step not mounted yet holds its rows' room at a row's height each,
-   so nothing below it moves as its rows land. */
-.meridian-diff-block__step--held {
-  block-size: calc(var(--meridian-diff-step-rows) * var(--meridian-diff-row-height));
-}
-
-/* A block opened whole: a step off the screen skips its layout and paint until it nears the
-   screen, at a row's height for each of its rows until it has been drawn once and at its drawn
-   height after. Only
-   when whole, since a row the cut hides would otherwise stand at that height and miscount the cut.
-   A step the flow brought near is laid out at once, never a frame after the engine notices it. */
-.meridian-diff-block__rows--whole > .meridian-diff-block__step {
-  content-visibility: auto;
-  contain-intrinsic-block-size: auto
-    calc(var(--meridian-diff-step-rows) * var(--meridian-diff-row-height));
-}
-
-.meridian-diff-block__rows--whole > .meridian-diff-block__step--near {
-  content-visibility: visible;
-}
-
 /* A file with no lines to draw: what changed, where its lines would be. */
 .meridian-diff-block__note {
   margin: 0;
