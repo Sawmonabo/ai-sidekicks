@@ -2,12 +2,12 @@
 // time. Only `ansiToJson` is used: an HTML string built from tool output would have to be
 // injected, which the transcript never does.
 // Colors are names (`use_classes: true` reports `ansi-red`), not the tool's RGB values. Blink and
-// conceal are not reproduced; 256-color and true-color runs render in the inherited foreground.
-// Extended colors carry the tool's own palette and the app has no honest mapping onto its
-// twelve-step wheel, so those spans inherit the foreground rather than take a nearest guess.
+// conceal are not reproduced. A 256-color or true-color run takes the name whose color in the
+// program's own palette sits nearest it in OKLab, so each scheme's token for that name draws it.
 
 import Anser from "anser";
 
+import { srgbToOklab, type OklabColor } from "#shared/color.js";
 import { type PublishedText } from "../../reveal/published-text.js";
 import { withoutResidualEscapes } from "./escape-sequences.js";
 
@@ -237,8 +237,8 @@ function toSpan(entry: AnserJsonEntry): AnsiSpan {
   if (!isReversed) {
     return {
       text: entry.content,
-      foreground: resolveColor(entry.fg),
-      background: resolveColor(entry.bg),
+      foreground: resolveColor(entry.fg, entry.fg_truecolor),
+      background: resolveColor(entry.bg, entry.bg_truecolor),
       reversed: false,
       decorations: entry.decorations.filter(isReproducedAnsiDecoration),
     };
@@ -246,8 +246,8 @@ function toSpan(entry: AnserJsonEntry): AnsiSpan {
 
   // Anser already swapped: its `fg` holds the stream's background and its `bg` the stream's
   // foreground. Undo that so the span reports what the stream said.
-  const streamBackground = resolveColor(entry.fg);
-  const streamForeground = resolveColor(entry.bg);
+  const streamBackground = resolveColor(entry.fg, entry.fg_truecolor);
+  const streamForeground = resolveColor(entry.bg, entry.bg_truecolor);
 
   return {
     text: entry.content,
@@ -259,14 +259,83 @@ function toSpan(entry: AnserJsonEntry): AnsiSpan {
 }
 
 /**
- * A color name, or `undefined` for one the app does not reproduce. Anser types the class
- * as `string` but sets `null` when no color applies.
+ * The color name a channel draws in: its own for one of the sixteen, the nearest one for a palette
+ * index past them or a true color (`trueColor`, anser's `r, g, b`), and `undefined` for none.
+ * Anser types both as `string` but sets `null` when no color applies.
  */
-function resolveColor(anserClass: string | null | undefined): AnsiColorName | undefined {
+function resolveColor(
+  anserClass: string | null | undefined,
+  trueColor: string | null | undefined,
+): AnsiColorName | undefined {
   if (anserClass === null || anserClass === undefined) {
     return undefined;
   }
+  if (anserClass === ANSER_TRUE_COLOR_CLASS) {
+    return trueColor === null || trueColor === undefined
+      ? undefined
+      : nearestColorName(oklabOf(trueColor));
+  }
+  if (anserClass.startsWith(ANSER_PALETTE_CLASS_PREFIX)) {
+    const paletteColor = XTERM_PALETTE[Number(anserClass.slice(ANSER_PALETTE_CLASS_PREFIX.length))];
+    return paletteColor === undefined ? undefined : nearestColorName(oklabOf(paletteColor));
+  }
   return COLOR_NAMES_BY_ANSER_CLASS.get(anserClass);
+}
+
+/** The class anser reports for a true color, whose value it carries beside the class. */
+const ANSER_TRUE_COLOR_CLASS = "ansi-truecolor";
+
+/** The class prefix anser reports for a 256-color index from 16 on, before the index. */
+const ANSER_PALETTE_CLASS_PREFIX = "ansi-palette-";
+
+/**
+ * The 256-color palette as anser defines it, one `r, g, b` per index: the sixteen names' own
+ * colors first, then the 6x6x6 cube and the gray ramp.
+ */
+const XTERM_PALETTE: readonly string[] = readXtermPalette();
+
+/** Each of the sixteen names with its palette color in OKLab, in palette order. */
+const COLOR_NAME_POINTS: readonly { readonly name: AnsiColorName; readonly color: OklabColor }[] =
+  ANSI_COLOR_NAMES.map((name, index) => ({ name, color: oklabOf(XTERM_PALETTE[index] ?? "") }));
+
+function readXtermPalette(): readonly string[] {
+  const anser = new Anser();
+  anser.setupPalette();
+  // `setupPalette` fills `PALETTE_COLORS`, which anser's shipped declaration omits.
+  const palette: unknown = "PALETTE_COLORS" in anser ? anser.PALETTE_COLORS : undefined;
+  if (!Array.isArray(palette) || palette.length !== 256) {
+    throw new Error("anser no longer builds its 256-color palette in PALETTE_COLORS");
+  }
+  return palette.map(String);
+}
+
+/** Anser's `r, g, b` (each 0-255) in OKLab. */
+function oklabOf(channels: string): OklabColor {
+  const [red = 0, green = 0, blue = 0] = channels
+    .split(",")
+    .map((channel) => Number(channel) / 255);
+  return srgbToOklab({ red, green, blue });
+}
+
+/**
+ * The name whose palette color sits nearest `color`. Anser gives white and bright white the same
+ * value, and the later name wins a tie, so pure white draws as bright white.
+ */
+function nearestColorName(color: OklabColor): AnsiColorName {
+  let nearest: AnsiColorName = "white";
+  let nearestDistance = Number.POSITIVE_INFINITY;
+  for (const point of COLOR_NAME_POINTS) {
+    const distance = Math.hypot(
+      point.color.lightness - color.lightness,
+      point.color.greenRed - color.greenRed,
+      point.color.blueYellow - color.blueYellow,
+    );
+    if (distance <= nearestDistance) {
+      nearest = point.name;
+      nearestDistance = distance;
+    }
+  }
+  return nearest;
 }
 
 /** The handle last read, at the revision it was read at, and how much of it is parsed. */
