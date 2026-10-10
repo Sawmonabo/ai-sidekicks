@@ -498,23 +498,10 @@ export class ViewportController {
    * row. The head-insert case waits for `commitPendingPositionHold`.
    */
   public holdReadingPosition(controlDisplacementPx = 0): void {
-    const reading = this.anchor.state;
-    const anchorPoint = reading.anchorPoint;
-    if (reading.mode === "following" || anchorPoint === undefined) {
-      return;
+    const targetPx = this.#readingPositionTargetPx();
+    if (targetPx !== undefined) {
+      this.scroll.glideTo("hold-reading-position", targetPx + controlDisplacementPx);
     }
-    const index = this.#indexOfRowKey(anchorPoint.rowKey);
-    if (index === undefined) {
-      // The anchored row left the window; guessing a replacement would teleport the
-      // transcript, so the offset stays.
-      return;
-    }
-    this.scroll.glideTo(
-      "hold-reading-position",
-      this.#anchorCapture.offsetOfIndex(index) -
-        anchorPoint.offsetWithinViewportPx +
-        controlDisplacementPx,
-    );
   }
 
   /**
@@ -629,10 +616,15 @@ export class ViewportController {
         this.measurements.publishEstimates();
       }
       // Rows let go above a reader are paid by arithmetic; rows admitted above them, or a page
-      // landing at the head, are held once the render that lays them out commits.
+      // landing at the head, are held once the render that lays them out commits. A pass that
+      // both lets rows go and admits others is held too, so the render that lays the admitted
+      // rows out draws where the reader stays rather than a commit late.
       const compensated =
         !isFollowing && this.#pruneCycle.compensateForPrunedHeight(prunedHeightPx);
-      if (!compensated && (pass.isRender || hasRowSetChanged)) {
+      if (
+        (!compensated || haveRowsJoined(previousRowKeys, this.#rowKeys)) &&
+        (pass.isRender || hasRowSetChanged)
+      ) {
         this.#deferredHold.armAfterReconcile({
           headInsertedCount: countInsertedBefore(retained, previousRowKeys[0]),
           readRowsInView: () => this.#anchorCapture.rowsInView(scrollTopPx, previousRowKeys),
@@ -725,15 +717,35 @@ export class ViewportController {
   }
 
   /**
-   * The offset the land on its way ends at: the head hold's, then a row landing's, then the tail
-   * for a follower the box does not yet stand at; `undefined` with none on its way.
+   * The offset the land on its way ends at: the head hold's, then a row landing's, then an armed
+   * anchored hold's, then the tail for a follower the box does not yet stand at; `undefined` with
+   * none on its way. The render that lays the new rows out then draws the rows the hold ends on,
+   * so the hold's write moves no row in or out of the drawn range and lays nothing out again.
    */
   #landingTargetPx(): number | undefined {
     return (
       this.#deferredHold.headHoldTargetPx() ??
       this.landing.pendingTargetPx() ??
+      (this.#deferredHold.isAnchoredHoldArmed ? this.#readingPositionTargetPx() : undefined) ??
       this.#tailFollow.unreachedTailPx()
     );
+  }
+
+  /**
+   * The offset that puts the anchored row back at its distance from the top of the viewport, or
+   * `undefined` for a follower, a reader with no anchored row, or one the window no longer holds,
+   * whose replacement a guess would teleport the transcript to.
+   */
+  #readingPositionTargetPx(): number | undefined {
+    const reading = this.anchor.state;
+    const anchorPoint = reading.anchorPoint;
+    if (reading.mode === "following" || anchorPoint === undefined) {
+      return undefined;
+    }
+    const index = this.#indexOfRowKey(anchorPoint.rowKey);
+    return index === undefined
+      ? undefined
+      : this.#anchorCapture.offsetOfIndex(index) - anchorPoint.offsetWithinViewportPx;
   }
 
   /** Whether a land is on its way, which the drawn band waits on before it widens. */
@@ -768,6 +780,12 @@ function haveDifferentEnds(previousKeys: readonly string[], nextKeys: readonly s
     previousKeys[0] !== nextKeys[0] ||
     previousKeys[previousKeys.length - 1] !== nextKeys[nextKeys.length - 1]
   );
+}
+
+/** Whether `nextKeys` holds a row `previousKeys` did not. */
+function haveRowsJoined(previousKeys: readonly string[], nextKeys: readonly string[]): boolean {
+  const previousKeySet = new Set(previousKeys);
+  return nextKeys.some((key) => !previousKeySet.has(key));
 }
 
 /**
