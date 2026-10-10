@@ -69,6 +69,11 @@
     "rust-analyzer-lsp@claude-plugins-official": true,
     "deep-research@sidekick-skills": true
   },
+  "extraKnownMarketplaces": {
+    "ai-sidekicks": {
+      "source": { "source": "directory", "path": "./.claude/marketplace" }
+    }
+  },
   "spinnerVerbs": {
     "mode": "replace",
     "verbs": [
