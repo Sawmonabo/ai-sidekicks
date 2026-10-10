@@ -10,7 +10,7 @@ import type { Table } from "mdast";
 import { readMarkdownBodyType, type MarkdownBodyType } from "../body-type.js";
 import { recallTableGeometry, rememberTableGeometry } from "./geometry-memory.js";
 import { TableMeasurement, type TableMeasuringFrame } from "./measurement.js";
-import { tableFingerprintOf } from "./table-text.js";
+import { TableFingerprints } from "./table-text.js";
 
 /** One table waiting to be measured off the list, as its frames draw it. */
 export interface OffListTable {
@@ -43,6 +43,8 @@ export interface OffListTable {
  * preparation is released.
  */
 export class OffListTables {
+  /** The window's tables' fingerprints, which its listed tables read too. */
+  public readonly tableFingerprints: TableFingerprints = new TableFingerprints();
   readonly #ownerDocument: Document;
   readonly #readRowWidthPx: () => number | undefined;
   readonly #listeners = new Set<() => void>();
@@ -111,7 +113,10 @@ export class OffListTables {
     const measurement: TableMeasurement = new TableMeasurement(table, this.#ownerDocument, () => {
       const geometry = measurement.geometry;
       if (geometry !== undefined && bodyType !== undefined) {
-        rememberTableGeometry({ fingerprint: tableFingerprintOf(table), bodyType }, geometry);
+        rememberTableGeometry(
+          { fingerprint: this.tableFingerprints.fingerprintOf(table), bodyType },
+          geometry,
+        );
       }
       if (geometry !== undefined || measurement.hasFailed) {
         this.#drop(key);
@@ -191,7 +196,7 @@ export class OffListTables {
     return (
       lastBody?.rowWidthPx === rowWidthPx &&
       recallTableGeometry({
-        fingerprint: tableFingerprintOf(table),
+        fingerprint: this.tableFingerprints.fingerprintOf(table),
         bodyType: lastBody.bodyType,
       }) !== undefined
     );

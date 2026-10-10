@@ -30,7 +30,7 @@ import {
   type TableCellMeasurer,
   type TableMeasuringFrame,
 } from "./measurement.js";
-import { tableFingerprintOf } from "./table-text.js";
+import { TableFingerprints } from "./table-text.js";
 import { type WidestCells } from "./widest-cells.js";
 
 /** The virtualizer a long table runs, over its body element and its row elements. */
@@ -56,8 +56,8 @@ export class TableWindowLayout {
   readonly #body: TableWindowBody;
   readonly #scroller: ScrollerWindowMembers;
   #table: Table;
-  /** The fingerprint of the table it was read for, read only when the geometry is filed. */
-  #fingerprint: { readonly table: Table; readonly value: string } | undefined;
+  /** The listed bodies' table fingerprints, so a table measured off the list reads none. */
+  readonly #tableFingerprints: TableFingerprints;
   #blockIndex: number;
   #bodyElement: HTMLElement | undefined;
   #stopObservingBody: Unsubscribe | undefined;
@@ -184,6 +184,7 @@ export class TableWindowLayout {
   ) {
     this.#body = body;
     this.#listedBodies = listedBodies;
+    this.#tableFingerprints = listedBodies?.tableFingerprints ?? new TableFingerprints();
     this.#table = table;
     this.#blockIndex = blockIndex;
     this.#onMeasured = onMeasured;
@@ -270,7 +271,10 @@ export class TableWindowLayout {
     }
     const remembered = this.#isMeasuredInOldFonts
       ? undefined
-      : recallTableGeometry({ fingerprint: this.#currentFingerprint(), bodyType });
+      : recallTableGeometry({
+          fingerprint: this.#tableFingerprints.fingerprintOf(this.#table),
+          bodyType,
+        });
     if (remembered === undefined) {
       this.#measure(bodyType, this.#isMeasuredInOldFonts ? undefined : this.#known(bodyType));
       return;
@@ -566,23 +570,12 @@ export class TableWindowLayout {
 
   /** Files `geometry` under `table` at `bodyType`: the table as it stands, by default. */
   #file(bodyType: MarkdownBodyType, geometry: TableGeometry, table: Table = this.#table): void {
-    rememberTableGeometry({ fingerprint: this.#fingerprintOf(table), bodyType }, geometry);
+    rememberTableGeometry(
+      { fingerprint: this.#tableFingerprints.fingerprintOf(table), bodyType },
+      geometry,
+    );
     this.#filedBodyType = bodyType;
     this.#filedTable = table;
-  }
-
-  #currentFingerprint(): string {
-    return this.#fingerprintOf(this.#table);
-  }
-
-  #fingerprintOf(table: Table): string {
-    const held = this.#fingerprint;
-    if (held?.table === table) {
-      return held.value;
-    }
-    const value = tableFingerprintOf(table);
-    this.#fingerprint = { table, value };
-    return value;
   }
 
   /**

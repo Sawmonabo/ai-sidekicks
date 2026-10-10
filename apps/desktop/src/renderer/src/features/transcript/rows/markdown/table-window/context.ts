@@ -8,6 +8,7 @@ import { createContext, type Context } from "react";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { type MarkdownWindowViewport } from "../block-window/context.js";
 import { type MarkdownBodyType } from "../body-type.js";
+import { type TableFingerprints } from "./table-text.js";
 
 /**
  * Why a body told its tables they may have moved: `"moved"`, a block above measured or the drawn
@@ -65,6 +66,8 @@ export interface ListedBodies {
    * read it; `undefined` before one is read at that width.
    */
   readonly listedBodyType: () => MarkdownBodyType | undefined;
+  /** The window's tables' fingerprints, read once for a table measured off the list and listed. */
+  readonly tableFingerprints: TableFingerprints;
 }
 
 /**
