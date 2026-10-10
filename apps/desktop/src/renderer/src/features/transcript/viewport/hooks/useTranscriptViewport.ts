@@ -43,7 +43,7 @@ export interface TranscriptViewportBinding {
   readonly attachSizer: (element: HTMLElement | null) => void;
   /**
    * The box of the history line above the first row, whose height the list starts below; see
-   * `ViewportController.attachHead`. Returns its own detach, as a React ref callback may.
+   * `ViewportHistoryLine.attach`. Returns its own detach, as a React ref callback may.
    */
   readonly attachHead: (element: HTMLElement | null) => (() => void) | undefined;
   /** One row's element, handed to the library's own measurement observer. */
@@ -335,7 +335,7 @@ export function useTranscriptViewport(
     attachSizer: virtualizer.containerRef,
     attachHead: useCallback(
       (element: HTMLElement | null) =>
-        element === null ? undefined : controller.attachHead(element),
+        element === null ? undefined : controller.historyLine.attach(element),
       [controller],
     ),
     attachRow: virtualizer.measureElement,
