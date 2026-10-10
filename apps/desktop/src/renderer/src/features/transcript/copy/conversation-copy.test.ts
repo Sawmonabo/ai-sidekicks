@@ -5,7 +5,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { PAGE_MARKDOWN_CHARACTER_LIMIT } from "#renderer/components/Markdown/worker/connection.js";
+import { PAGE_HTML_CHARACTER_LIMIT } from "#renderer/components/Markdown/worker/connection.js";
 import { RefusalError } from "#renderer/lib/refusal/contract.js";
 import { ConversationCopyBuild, type ConversationCopyRows } from "./conversation-copy.js";
 import { windowCuttingEveryPart } from "./conversation-copy.test-support.js";
@@ -14,7 +14,7 @@ import { type SelectedPart } from "./conversation-selection.js";
 const LARGE_BODY_ROW_ID = "event-large";
 const LARGE_BODY = "line one\nline two";
 /** A reply too long to make into HTML on the page's thread. */
-const LONG_REPLY = "a".repeat(PAGE_MARKDOWN_CHARACTER_LIMIT);
+const LONG_REPLY = "a".repeat(PAGE_HTML_CHARACTER_LIMIT);
 /** What the stand-in worker makes of the long reply. */
 const WORKER_HTML = "<p>made by the worker</p>";
 
@@ -36,7 +36,7 @@ const ROW_KEYS = Object.keys(ROW_TEXT);
  */
 function rowsReading(
   readFullBody: NonNullable<ConversationCopyRows["fullBodyReads"]>["readFullBody"],
-  markdownWorker: ConversationCopyRows["markdownWorker"],
+  markdownWorker: Pick<ConversationCopyRows["markdownWorker"], "html">,
 ): ConversationCopyRows {
   const position = { path: [], characterOffset: 0 };
   return {
@@ -53,7 +53,7 @@ function rowsReading(
     rowBodyText: () => expect.fail("no row is drawn"),
     largeBodyRowIdOf: (rowKey) => (rowKey === "output" ? LARGE_BODY_ROW_ID : undefined),
     fullBodyReads: { readFullBody },
-    markdownWorker,
+    markdownWorker: { ...markdownWorker, drawnText: () => expect.fail("no row is drawn") },
   };
 }
 

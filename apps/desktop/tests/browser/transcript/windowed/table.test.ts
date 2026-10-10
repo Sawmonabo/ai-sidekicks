@@ -8,6 +8,7 @@ import { describe, expect, it, onTestFinished } from "vitest";
 
 import { TEXT_SIZES } from "#shared/appearance.js";
 
+import { markdownWorker } from "#renderer/components/Markdown/worker/connection.js";
 import {
   COPY_FLAVOR_ATTRIBUTE,
   readSelectedPart,
@@ -134,6 +135,7 @@ async function copiedFromWindowed(bodies: MountedBodies, reply: string): Promise
     selection.getRangeAt(0),
     rowOf(bodies.windowedBody),
     () => reply,
+    markdownWorker,
   );
   selection.removeAllRanges();
   return copied;
@@ -153,7 +155,7 @@ async function copiedFromWhole(
   const end = textEnds(rows?.[lastIndex] ?? expect.fail("last row")).last;
   wholeRange.setEnd(end, end.length);
   const flowBody = bodies.flowBody ?? expect.fail("the whole reply is drawn");
-  return (await readSelectedPart(wholeRange, rowOf(flowBody), () => reply)).text;
+  return (await readSelectedPart(wholeRange, rowOf(flowBody), () => reply, markdownWorker)).text;
 }
 
 describe("browser — a long table drawn as a window over its rows", () => {

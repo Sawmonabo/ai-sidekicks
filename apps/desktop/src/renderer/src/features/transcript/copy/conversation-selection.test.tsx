@@ -1,16 +1,16 @@
 // What a selection across the conversation copies from the rows its ends sit in, read from the
 // rows as they are drawn: each end row's part from the end's character offset, a large body read
-// in full in its control's place, and a long table's undrawn rows made by the markdown worker in
-// their spacer's place.
+// in full in its control's place, and a long table's undrawn rows read in their spacer's place, by
+// the markdown worker for a long part.
 
 import { render } from "@testing-library/react";
 import type { TextClipboardContent } from "#shared/preload-api.js";
 import { toHtml } from "hast-util-to-html";
 import { renderToString } from "katex";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { markdownTableBodyRows, markdownToHtml } from "#renderer/components/Markdown/html.js";
-import { markdownWorker } from "#renderer/components/Markdown/worker/connection.js";
+import { drawnTreeText, type CopyFlavor } from "#renderer/components/Markdown/drawn-text.js";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
 import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
@@ -34,7 +34,7 @@ import { FootnoteRegistry } from "../rows/markdown/footnotes/registry.js";
 import { characterOffsetWithin } from "../viewport/selection/preservation.js";
 import { ConversationCopyBuild, type ConversationCopyRows } from "./conversation-copy.js";
 import { windowCuttingEveryPart } from "./conversation-copy.test-support.js";
-import { COPY_FLAVOR_ATTRIBUTE, type CopyFlavor } from "./conversation-selection.js";
+import { COPY_FLAVOR_ATTRIBUTE } from "./conversation-selection.js";
 
 /** A call's output size, too large to travel with its row. */
 const LARGE_OUTPUT_BYTES = 2_000_000;
@@ -75,11 +75,15 @@ function copyOfDrawnRows(
 ): TextClipboardContent | undefined {
   const copy = buildOfDrawnRows(conversation, startOffset, readers, {
     html: () => expect.fail("no reply part is long enough for the worker"),
+    drawnText: () => expect.fail("no part is long enough for the worker"),
   }).buildWhile(() => true);
   return copy.isBuilt ? copy.content : expect.fail("a copy reading no body in full builds at once");
 }
 
-/** The build of a copy as `copyOfDrawnRows` reads it, a long reply part's HTML made by `worker`. */
+/**
+ * The build of a copy as `copyOfDrawnRows` reads it, a long reply part's HTML made and a long part
+ * read into its text by `worker`.
+ */
 function buildOfDrawnRows(
   conversation: Element,
   startOffset: number,
@@ -263,12 +267,8 @@ describe("a selection across the conversation", () => {
 });
 
 describe("a long table's undrawn rows in a selection", () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it("are made by the markdown worker and copy in their spacer's place, as drawn rows do", async () => {
-    // Long enough that the rows the spacer stands for are parsed off the page's thread.
+  it("are read by the markdown worker in their spacer's place, as drawn rows are", async () => {
+    // Long enough that the part is read off the page's thread.
     const { text, rowLines } = tableReply(160);
     const drawnRow = (line: string): string =>
       toHtml(markdownTableBodyRows(`| Lane | Rows |\n| --- | --- |\n${line}`));
@@ -280,10 +280,13 @@ describe("a long table's undrawn rows in a selection", () => {
       `<tr ${MARKDOWN_SOURCE_START_ATTRIBUTE}="${String(undrawnStart)}" ` +
       `${MARKDOWN_SOURCE_END_ATTRIBUTE}="${String(undrawnEnd)}" ` +
       `${MARKDOWN_COLUMN_COUNT_ATTRIBUTE}="2"></tr>`;
-    const tableBodyRows = vi
-      .spyOn(markdownWorker, "tableBodyRows")
-      .mockImplementation((markdown) => Promise.resolve(markdownTableBodyRows(markdown)));
-    const worker = { html: (markdown: string) => Promise.resolve(markdownToHtml(markdown)) };
+    const drawnText = vi.fn<ConversationCopyRows["markdownWorker"]["drawnText"]>((tree, flavor) =>
+      Promise.resolve(drawnTreeText(tree, flavor)),
+    );
+    const worker = {
+      html: (markdown: string) => Promise.resolve(markdownToHtml(markdown)),
+      drawnText,
+    };
     const readers = { ...END_ROWS_ONLY, rowBodyText: () => text };
     const windowed = buildOfDrawnRows(
       conversationWithTable(drawnRow(firstLine) + spacer + drawnRow(lastLine)),
@@ -308,7 +311,7 @@ describe("a long table's undrawn rows in a selection", () => {
       () => true,
       () => undefined,
     );
-    expect(tableBodyRows).toHaveBeenCalledOnce();
+    expect(drawnText).toHaveBeenCalledTimes(2);
     expect(copied).toStrictEqual(whole);
     expect(copied?.text).toMatch(/^\| lane-80 +\| \*\*80\*\* rows +\|$/mu);
   });

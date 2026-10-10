@@ -32,7 +32,8 @@ import { toolRowHeadingOf, toolRowHeadingText } from "../rows/tool-heading.js";
 import { userMessageTextOf } from "../rows/user-message.js";
 import { runGroupHeadingOf, runGroupHeadingText } from "../runs/heading.js";
 import { type TranscriptWindowModel } from "../window/transcript-window.js";
-import { type CopyFlavor, type SelectedPart } from "./conversation-selection.js";
+import { type CopyFlavor } from "#renderer/components/Markdown/drawn-text.js";
+import { type SelectedPart } from "./conversation-selection.js";
 import { replyCopyFlavorOf, type DrawnRowText } from "./drawn-reply-text.js";
 
 /** Where a row's body is read from: the log's window, the live lanes, and how the list draws it. */

@@ -2,7 +2,8 @@ import { useCallback, useContext, useEffect, useSyncExternalStore } from "react"
 
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { RowRevealContext } from "../../reveal/components/RowRevealProvider.js";
-import { PART_SEPARATOR, type CopyFlavor } from "../conversation-selection.js";
+import { type CopyFlavor } from "#renderer/components/Markdown/drawn-text.js";
+import { PART_SEPARATOR } from "../conversation-selection.js";
 import { type DrawnRowText } from "../drawn-reply-text.js";
 import { replyRowTextOf } from "../row-text.js";
 

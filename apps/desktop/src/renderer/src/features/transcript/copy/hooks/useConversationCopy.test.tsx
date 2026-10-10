@@ -11,9 +11,10 @@ import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { TextClipboardContent } from "#shared/preload-api.js";
+import { drawnTreeText } from "#renderer/components/Markdown/drawn-text.js";
 import {
   markdownWorker,
-  PAGE_MARKDOWN_CHARACTER_LIMIT,
+  PAGE_HTML_CHARACTER_LIMIT,
 } from "#renderer/components/Markdown/worker/connection.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { OwnerWindowProvider } from "#renderer/components/OwnerWindow/OwnerWindowProvider.js";
@@ -43,7 +44,7 @@ const ROWS = [
 ];
 
 /** A reply too long for its formatted flavor to be made on the page's thread. */
-const LONG_REPLY = `Long start ${"word ".repeat(PAGE_MARKDOWN_CHARACTER_LIMIT / 5)}long end`;
+const LONG_REPLY = `Long start ${"word ".repeat(PAGE_HTML_CHARACTER_LIMIT / 5)}long end`;
 
 /** The person's message, then a long reply. */
 const LONG_ROWS = [
@@ -122,7 +123,8 @@ function Conversation(props: { readonly rows: typeof ROWS }): React.JSX.Element 
 
 /**
  * The session's conversation of `rows` and message box in a window of their own, every clipboard
- * write main was asked for, and every formatted flavor main was asked to add.
+ * write main was asked for, and every formatted flavor main was asked to add, a long part read
+ * into its text on the page.
  */
 function renderSession(rows = ROWS): {
   readonly native: ReturnType<typeof createFixtureBridge>["bridge"]["native"];
@@ -144,6 +146,10 @@ function renderSession(rows = ROWS): {
   vi.spyOn(fixture.bridge.native, "copyToClipboard").mockImplementation(async (content) => {
     copied.push("text" in content ? content : expect.fail("the conversation copies text"));
   });
+  // happy-dom runs no worker; a long part is read on the page, as the worker reads it.
+  vi.spyOn(markdownWorker, "drawnText").mockImplementation((tree, flavor) =>
+    Promise.resolve(drawnTreeText(tree, flavor)),
+  );
   const formatted: TextClipboardContent[] = [];
   vi.spyOn(fixture.bridge.native, "addClipboardFormatting").mockImplementation(async (content) => {
     formatted.push(content);

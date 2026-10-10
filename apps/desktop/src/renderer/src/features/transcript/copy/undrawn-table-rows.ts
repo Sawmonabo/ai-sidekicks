@@ -1,27 +1,24 @@
 // A long table's rows the window has not drawn, read back into a copy from its row's body text.
 // Each spacer row standing for undrawn rows names the text they were parsed from and the table's
-// column count; the copy parses that text under a blank head of that width and puts the rows it
-// makes in the spacer's place, drawn under the screen's own policy, so they copy exactly as drawn
-// rows do. A short run of rows is parsed at once; a long one by the markdown worker, off the page's
-// thread, after every spacer's text has been read.
+// column count; the copy gives the spacer that text under a blank head of that width, which the
+// drawn part's reading parses in the spacer's place under the screen's own policy, so the rows copy
+// exactly as drawn rows do.
 
 import {
-  makeMarkdownTableBodyRows,
-  markdownWorker,
-} from "#renderer/components/Markdown/worker/connection.js";
-import { type DrawnTree } from "./clipboard-flavors.js";
+  UNDRAWN_ROWS_MARKDOWN_PROPERTY,
+  type DrawnTree,
+} from "#renderer/components/Markdown/drawn-text.js";
 
 /**
- * `tree` with every spacer row that names a text range replaced by the rows that text makes: at
- * once when every run is short, otherwise once the markdown worker has made the long ones, which
- * rejects with the worker's `Error`. `readBodyText` reads the text of the row's body, which the
- * ranges index; it is read only when a spacer is found, and before anything is waited on. Throws
- * when the body has no text to read them from, since a copy missing rows would look whole.
+ * `tree` with every spacer row that names a text range holding the markdown of the rows that text
+ * makes, for the drawn part's reading to parse in its place. `readBodyText` reads the text of the
+ * row's body, which the ranges index; it is read only when a spacer is found. Throws when the body
+ * has no text to read them from, since a copy missing rows would look whole.
  */
 export function withUndrawnTableRows(
   tree: DrawnTree,
   readBodyText: () => string | undefined,
-): DrawnTree | Promise<DrawnTree> {
+): DrawnTree {
   let bodyText: string | undefined;
   const textOfBody = (): string => {
     bodyText ??= readBodyText();
@@ -30,29 +27,18 @@ export function withUndrawnTableRows(
     }
     return bodyText;
   };
-  const awaitedRows: Promise<void>[] = [];
   if ("children" in tree) {
-    fillSpacers(tree, textOfBody, awaitedRows);
+    markSpacers(tree, textOfBody);
   }
-  return awaitedRows.length === 0 ? tree : Promise.all(awaitedRows).then(() => tree);
+  return tree;
 }
 
 /** A node of a drawn tree that holds children. */
 type ParentNode = Extract<DrawnTree, { children: unknown }>;
 
-/** One child of a drawn tree's node. */
-type ChildNode = ParentNode["children"][number];
-
-/**
- * Puts each spacer's rows in its place under `parent`; a spacer whose rows the worker makes stays
- * until they come, and the wait for them joins `awaitedRows`.
- */
-function fillSpacers(
-  parent: ParentNode,
-  textOfBody: () => string,
-  awaitedRows: Promise<void>[],
-): void {
-  for (const child of [...parent.children]) {
+/** Gives each spacer row under `parent` the markdown of the rows it stands for. */
+function markSpacers(parent: ParentNode, textOfBody: () => string): void {
+  for (const child of parent.children) {
     if (child.type !== "element") {
       continue;
     }
@@ -60,33 +46,21 @@ function fillSpacers(
     const end = numberOf(child.properties["dataMarkdownSourceEnd"]);
     const columnCount = numberOf(child.properties["dataMarkdownColumnCount"]);
     if (
-      child.tagName !== "tr" ||
-      start === undefined ||
-      end === undefined ||
-      columnCount === undefined
+      child.tagName === "tr" &&
+      start !== undefined &&
+      end !== undefined &&
+      columnCount !== undefined
     ) {
-      fillSpacers(child, textOfBody, awaitedRows);
-      continue;
-    }
-    const rows = makeMarkdownTableBodyRows(
-      undrawnRowsMarkdown(textOfBody(), start, end, columnCount),
-      markdownWorker,
-    );
-    if (rows instanceof Promise) {
-      awaitedRows.push(
-        rows.then((madeRows) => {
-          replaceSpacer(parent, child, madeRows);
-        }),
+      child.properties[UNDRAWN_ROWS_MARKDOWN_PROPERTY] = undrawnRowsMarkdown(
+        textOfBody(),
+        start,
+        end,
+        columnCount,
       );
     } else {
-      replaceSpacer(parent, child, rows);
+      markSpacers(child, textOfBody);
     }
   }
-}
-
-/** `parent` with `spacer` replaced by `rows`, in its place. */
-function replaceSpacer(parent: ParentNode, spacer: ChildNode, rows: readonly ChildNode[]): void {
-  parent.children = parent.children.flatMap((child) => (child === spacer ? [...rows] : [child]));
 }
 
 /** A property's number, read as the DOM reader keeps it: a number, or the attribute's text. */

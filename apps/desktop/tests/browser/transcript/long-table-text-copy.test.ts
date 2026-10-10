@@ -1,9 +1,11 @@
 // A selection across a table tens of thousands of rows long, in a body that copies as text, read
-// by the conversation's copy in a real engine: every row, the head's among them, comes out on its
-// own line, its cells apart by a tab, and none is lost to the call stack's depth.
+// by the conversation's copy in a real engine, the markdown worker reading the long part into its
+// text: every row, the head's among them, comes out on its own line, its cells apart by a tab, and
+// none is lost to the call stack's depth.
 
 import { describe, expect, it } from "vitest";
 
+import { markdownWorker } from "#renderer/components/Markdown/worker/connection.js";
 import { ConversationCopyBuild } from "#renderer/features/transcript/copy/conversation-copy.js";
 import { COPY_FLAVOR_ATTRIBUTE } from "#renderer/features/transcript/copy/conversation-selection.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
@@ -15,7 +17,7 @@ const STACK_DEEP_TABLE_ROW_COUNT = 32_549;
 const ROW_KEY = "row-0";
 
 describe("a long table in a selection", () => {
-  it("copies as text, every row on its own line and a tab between its cells", () => {
+  it("copies as text, every row on its own line and a tab between its cells", async () => {
     const lanes = Array.from({ length: STACK_DEEP_TABLE_ROW_COUNT }, (_, index) => String(index));
     const conversation = document.createElement("div");
     conversation.innerHTML =
@@ -25,7 +27,7 @@ describe("a long table in a selection", () => {
       `</tbody></table></div></div>`;
     const row = conversation.firstElementChild ?? expect.fail("the conversation draws its row");
 
-    const copy = new ConversationCopyBuild({
+    const copy = await new ConversationCopyBuild({
       selection: {
         start: { at: "row", rowKey: ROW_KEY, position: { path: [], characterOffset: 0 } },
         end: {
@@ -40,14 +42,18 @@ describe("a long table in a selection", () => {
       rowBodyText: () => expect.fail("the table draws every row"),
       largeBodyRowIdOf: () => undefined,
       fullBodyReads: undefined,
-      markdownWorker: { html: () => expect.fail("a text part needs no formatted flavor") },
-    }).buildWhile(() => true);
+      markdownWorker: {
+        html: () => expect.fail("a text part needs no formatted flavor"),
+        drawnText: (tree, flavor) => markdownWorker.drawnText(tree, flavor),
+      },
+    }).finish(
+      window,
+      () => true,
+      () => expect.fail("a text copy is whole once its text is"),
+    );
 
     expect(copy).toStrictEqual({
-      isBuilt: true,
-      content: {
-        text: ["Lane\tRows", ...lanes.map((lane) => `lane-${lane}\t${lane}`)].join("\n"),
-      },
+      text: ["Lane\tRows", ...lanes.map((lane) => `lane-${lane}\t${lane}`)].join("\n"),
     });
   });
 });
