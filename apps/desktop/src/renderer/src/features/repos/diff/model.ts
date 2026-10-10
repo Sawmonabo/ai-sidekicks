@@ -1,9 +1,9 @@
 // The typed diff model both the pane and the inline card render, and the closed sets that
 // make its illegal states unrepresentable. The word-level split of a line's text is derived
-// per rendered row by `intraline-segment-cache.ts`, never at parse time, because computing
+// per rendered row by `intraline/segment-cache.ts`, never at parse time, because computing
 // every pair up front costs the whole change set before the virtualizer places a row.
 
-import type { DiffFileUnreadableReason } from "@ai-sidekicks/contracts/gitflow/local";
+import type { DiffFileKind, DiffFileUnreadableReason } from "@ai-sidekicks/contracts/gitflow/local";
 
 /** The three things a line in a unified diff can be. Closed. */
 export const DIFF_LINE_KINDS = ["context", "insert", "delete"] as const;
@@ -36,7 +36,7 @@ export interface DiffLine {
   readonly headLineNumber?: number;
   /**
    * The line's text as segments. Producers supply one unchanged segment (the whole line);
-   * the word-level split comes from `intraline-segment-cache.ts`. A line with no intraline
+   * the word-level split comes from `intraline/segment-cache.ts`. A line with no intraline
    * change is one segment, never an empty list.
    */
   readonly segments: readonly DiffIntralineSegment[];
@@ -63,37 +63,36 @@ export interface DiffHunk {
 }
 
 /**
- * A file's mode on each side, where the patch declared a change. Both sides, because
- * `100755` alone does not say what changed. Wire-verbatim octal strings.
+ * What happened to a file, in the daemon's words: added, deleted, renamed or only modified. A
+ * rename carries the path it came from, path-verbatim, so a rename with no old path cannot be
+ * written down.
  */
-export interface DiffFileModeChange {
-  readonly from: string;
-  readonly to: string;
-}
+export type DiffFileChange =
+  | { readonly kind: Exclude<DiffFileKind, "renamed"> }
+  | { readonly kind: "renamed"; readonly renamedFrom: string };
 
 /**
- * One file's change set. The extended-header members (rename, copy, mode, binary) are why a
+ * One file's change set. The extended-header members (mode, binary) and the change are why a
  * file can have no hunks; they are carried rather than inferred from `hunks.length === 0`,
- * which cannot say which one it was. Each is absent where the patch did not declare it.
+ * which cannot say which one it was. Each optional one is absent where nothing declared it.
  */
 export interface DiffFile {
   /** Wire-verbatim path, rendered as received and never re-rooted. */
   readonly path: string;
-  /** Where a renamed file came from. The patch's `rename from`, path-verbatim. */
-  readonly renamedFrom?: string;
-  /**
-   * Where a copied file came from (`copy from`, path-verbatim). Not folded into a rename:
-   * git emits `copy from` only when the source still exists.
-   */
-  readonly copiedFrom?: string;
-  /** The two modes, where the patch declared the file's mode changed. */
-  readonly modeChange?: DiffFileModeChange;
+  readonly change: DiffFileChange;
+  /** True where the file's mode changed, whether or not it has lines to draw. */
+  readonly modeChanged?: boolean;
   /** True where the patch states the two sides differ and carries no text for it. */
   readonly binary?: boolean;
   /** Why the daemon could not read the file's contents, where it could not. */
   readonly unreadable?: DiffFileUnreadableReason;
   /** On a workflow run's comparison, the name of the step that changed the file. */
   readonly stepName?: string;
+  /**
+   * The file's own unified patch, wire-verbatim: what a copy of the patch lifts, whole even
+   * where only part of it is drawn. Absent where the wire carried none.
+   */
+  readonly patch?: string;
   readonly hunks: readonly DiffHunk[];
 }
 
@@ -104,6 +103,9 @@ export interface DiffModel {
   readonly headRef: string;
   readonly files: readonly DiffFile[];
 }
+
+/** Where a file's kind words are drawn: on its header in the diff, or on its row in the list. */
+export type DiffFileNotePlace = "header" | "row";
 
 /** How many lines of each kind a file changes. Derived, never stored. */
 export interface DiffFileChangeCounts {
@@ -148,29 +150,34 @@ export function diffFileChangeCounts(file: DiffFile): DiffFileChangeCounts {
 }
 
 /**
- * What a file's extended headers say changed about it, as the words a diff view draws. One
- * derivation for the list and the renderer, in git's header order (rename or copy, mode,
- * binary); empty for an ordinary textual change, where the counts already say it. A copy reads
- * `added`: its source stays where it was and the copy is a new path.
+ * What changed about a file, as the words drawn at `place`: its kind word, then a mode change;
+ * empty for a file that was only edited, where the counts already say it. A rename names its old
+ * path on the header and reads `renamed` on the narrower row.
  */
-export function diffFileChangeNotes(file: DiffFile): readonly string[] {
+export function diffFileChangeNotes(file: DiffFile, place: DiffFileNotePlace): readonly string[] {
   const notes: string[] = [];
-  if (file.renamedFrom !== undefined) {
-    notes.push(`renamed from ${file.renamedFrom}`);
+  const { change } = file;
+  if (change.kind === "renamed") {
+    notes.push(place === "header" ? `renamed from ${change.renamedFrom}` : "renamed");
+  } else if (change.kind !== "modified") {
+    notes.push(change.kind);
   }
-  if (file.copiedFrom !== undefined) {
-    notes.push("added");
-  }
-  if (file.modeChange !== undefined) {
+  if (file.modeChanged === true) {
     notes.push("mode changed");
   }
-  if (file.binary === true) {
-    notes.push("binary — contents not shown");
-  }
-  if (file.unreadable !== undefined) {
-    notes.push(UNREADABLE_REASON_COPY[file.unreadable]);
-  }
   return notes;
+}
+
+/**
+ * Why a file's contents are not drawn, in the console's own words, written where its lines would
+ * be: binary contents, or the cause the daemon could not read them; absent for a file whose lines
+ * can be drawn.
+ */
+export function diffFileUnshownReason(file: DiffFile): string | undefined {
+  if (file.binary === true) {
+    return "binary — contents not shown";
+  }
+  return file.unreadable === undefined ? undefined : UNREADABLE_REASON_COPY[file.unreadable];
 }
 
 /** What a file the daemon could not read says, naming the cause in the console's own words. */

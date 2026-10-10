@@ -46,6 +46,10 @@ const TIERS: readonly TestProjectInlineConfiguration[] = [
       environment: "happy-dom",
       include: ["src/renderer/src/**/*.test.{ts,tsx}", ...RENDERER_TESTS_OUTSIDE_SOURCE],
       globals: true,
+      // Vitest answers every stylesheet with nothing unless listed here, `?raw` reads included.
+      // `styles/typeface.ts` reads each split's character range off the font packages' own
+      // stylesheets at load, and throws on an empty one.
+      css: { include: [/plex-(?:sans|mono)-variable\/fonts\/split\/woff2\//u] },
     },
   },
   {

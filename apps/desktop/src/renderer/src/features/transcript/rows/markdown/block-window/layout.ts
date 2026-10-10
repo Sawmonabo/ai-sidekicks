@@ -12,7 +12,7 @@ import type { Unsubscribe } from "#shared/preload-api.js";
 import { observeElementResize } from "#renderer/lib/element-resize.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
 import { type SettledMarkdownBlock } from "../body-blocks.js";
-import { type MarkdownWindowViewport } from "./context.js";
+import { type TranscriptBodyViewport } from "#renderer/components/TranscriptBodyViewport/context.js";
 import {
   DEFAULT_BLOCK_TYPOGRAPHY,
   estimateBlockHeightPx,
@@ -44,7 +44,7 @@ export interface WindowedBlocks {
 /** What one body's window is laid out against. */
 export interface BlockWindowLayoutOptions {
   /** The viewport the body is drawn in; held for the layout's life. */
-  readonly viewport: MarkdownWindowViewport;
+  readonly viewport: TranscriptBodyViewport;
   /** The row the body belongs to, whose top the body's is measured from. */
   readonly rowKey: string;
   readonly blocks: WindowedBlocks;
@@ -71,7 +71,7 @@ export type BlockWindowRow =
  * measured geometry, and the body's place in the scroller.
  */
 export class BlockWindowLayout {
-  readonly #viewport: MarkdownWindowViewport;
+  readonly #viewport: TranscriptBodyViewport;
   readonly #rowKey: string;
   #blocks: WindowedBlocks;
   #bodyElement: HTMLElement | undefined;

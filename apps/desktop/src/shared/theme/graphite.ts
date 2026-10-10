@@ -48,6 +48,10 @@ export const GRAPHITE_PALETTE: ThemePalette = {
     "ansi-bright-blue": { light: oklch(0.49, 0.13, 230), dark: oklch(0.86, 0.1, 230) },
     "ansi-bright-magenta": { light: oklch(0.51, 0.15, 330), dark: oklch(0.86, 0.12, 330) },
     "ansi-bright-cyan": { light: oklch(0.485, 0.1, 205), dark: oklch(0.88, 0.08, 205) },
+    // The light green is a step darker than the ANSI green, which falls under 4.5:1 on its own
+    // line's wash; every other sign is the ANSI color itself.
+    "diff-insert-sign": { light: oklch(0.435, 0.15, 150), dark: oklch(0.74, 0.15, 150) },
+    "diff-delete-sign": { light: oklch(0.48, 0.16, 25), dark: oklch(0.76, 0.14, 25) },
   },
   glassOpacityPercent: { light: 88, dark: 84 },
 };

@@ -1,31 +1,11 @@
-// Bounds for the diff views: inline card height, file list scrolling, intraline diff cost,
-// and the largest patch handed to the parser.
-
-/**
- * Height an inline diff card is capped at before it offers to expand; the card opens capped.
- * About fifteen rows: a hunk's worth of reading with the surrounding turn still visible.
- */
-export const INLINE_DIFF_CARD_HEIGHT_CAP_PX = 300;
+// Bounds for the diff views: file list scrolling, the intraline register, and the largest patch
+// handed to the parser.
 
 /**
  * Files a change set may hold before the file list scrolls instead of rendering every row.
  * Past it a person filters rather than scans, so the filter sits above the list.
  */
 export const DIFF_FILE_LIST_SCROLL_THRESHOLD = 12;
-
-/**
- * The longest line an intraline word diff is computed for, in characters. jsdiff's word diff
- * is O(n·m) in tokens, so cost grows with the product of the two lengths. Longer lines are
- * minified or vendored text a word highlight does not help, and one 18,889-character pair in
- * a 5,000-line patch measured 831 ms. Past the cap the row keeps its whole-line highlight.
- */
-export const DIFF_INTRALINE_LINE_CHARACTER_CAP = 2_000;
-
-/**
- * The largest product of a pair's two line lengths an intraline diff is computed for. The
- * line cap bounds one side; this bounds the pair, which is what the cost is quadratic in.
- */
-export const DIFF_INTRALINE_PAIR_CHARACTER_PRODUCT_CAP = 1_000_000;
 
 /**
  * Computed intraline segmentations held before the oldest is dropped. Rows compute intraline

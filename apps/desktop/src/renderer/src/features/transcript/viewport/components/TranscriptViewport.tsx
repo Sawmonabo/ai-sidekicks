@@ -11,18 +11,13 @@
 // scroll container and reaches the rows through context, beside what a long markdown body reads
 // to draw only the blocks near the reader.
 
-import { useMemo } from "react";
-
 import { EmptyTranscript } from "./EmptyTranscript.js";
 import { VirtualRow, type ViewportRowRenderer } from "./VirtualRow.js";
 import { JumpToLatest } from "./JumpToLatest.js";
 import { type TranscriptViewportBinding } from "../hooks/useTranscriptViewport.js";
 import { useTrackViewportSelection } from "../hooks/selection/useTrackViewportSelection.js";
 import { ViewportSelectionTrackerContext } from "../selection/context.js";
-import {
-  MarkdownWindowViewportContext,
-  type MarkdownWindowViewport,
-} from "../../rows/markdown/block-window/context.js";
+import { TranscriptBodyViewportProvider } from "#renderer/components/TranscriptBodyViewport/TranscriptBodyViewportProvider.js";
 
 /** Props for `TranscriptViewport`. */
 export interface TranscriptViewportProps {
@@ -57,21 +52,14 @@ export function TranscriptViewport(props: TranscriptViewportProps): React.JSX.El
   const { snapshot } = binding;
   const selection = useTrackViewportSelection(binding.attachScrollContainer);
   const { tracker } = selection;
-  const { scrollController, rowStartPx } = binding;
-  // One value for the viewport's life: each windowed body holds it while it is mounted.
-  const markdownWindowViewport = useMemo<MarkdownWindowViewport>(
-    () => ({
-      scrollController,
-      rowStartPx,
-      subscribeToSelection: (listener) => tracker.subscribe(listener),
-      readSelectionRange: () => tracker.selectionRange,
-    }),
-    [scrollController, rowStartPx, tracker],
-  );
 
   return (
     <ViewportSelectionTrackerContext value={tracker}>
-      <MarkdownWindowViewportContext value={markdownWindowViewport}>
+      <TranscriptBodyViewportProvider
+        scrollController={binding.scrollController}
+        rowStartPx={binding.rowStartPx}
+        selection={tracker}
+      >
         <div className="meridian-transcript-viewport">
           <div
             className="meridian-transcript-viewport__scroll-container meridian-focus-inset"
@@ -128,7 +116,7 @@ export function TranscriptViewport(props: TranscriptViewportProps): React.JSX.El
           </div>
           <JumpToLatest snapshot={snapshot} onJumpToTail={binding.jumpToTail} />
         </div>
-      </MarkdownWindowViewportContext>
+      </TranscriptBodyViewportProvider>
     </ViewportSelectionTrackerContext>
   );
 }

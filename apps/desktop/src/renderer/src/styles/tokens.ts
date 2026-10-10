@@ -18,7 +18,7 @@ import {
 } from "#shared/color-scheme.js";
 import type { OklchColor } from "#shared/color.js";
 import { resolveEmittedColor } from "#shared/color.js";
-import { ANSI_ROLES, CODE_ROLES, COLOR_ROLES } from "#shared/theme/palette.js";
+import { ANSI_ROLES, CODE_ROLES, COLOR_ROLES, DIFF_SIGN_ROLES } from "#shared/theme/palette.js";
 import { THEME_PALETTES, mapEveryTheme } from "#shared/theme/registry.js";
 import { tokenVariableName } from "#shared/token-variable.js";
 import type { ThemedColor } from "./palette.js";
@@ -197,10 +197,14 @@ export const FILL_INK_PAIRS: readonly (readonly [string, string])[] = [
 export const SUNKEN_WELL_GROUND_TOKEN_NAME = "surface-sunken";
 
 /**
- * The foregrounds painted on that well: the code-token kinds and the ANSI names. Derived from
- * the two role lists so a role added there is measured on the same commit.
+ * The foregrounds painted on that well: the code-token kinds, the ANSI names and a flow diff's
+ * signs. Derived from the role lists so a role added there is measured on the same commit.
  */
-export const SUNKEN_WELL_TEXT_TOKEN_NAMES: readonly string[] = [...CODE_ROLES, ...ANSI_ROLES];
+export const SUNKEN_WELL_TEXT_TOKEN_NAMES: readonly string[] = [
+  ...CODE_ROLES,
+  ...ANSI_ROLES,
+  ...DIFF_SIGN_ROLES,
+];
 
 /** The WCAG 2.2 AA floor for body and UI text. */
 export const TEXT_CONTRAST_FLOOR = 4.5;

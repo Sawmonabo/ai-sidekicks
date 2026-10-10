@@ -98,7 +98,7 @@ function RunRow(
       <th scope="row">
         <button
           type="button"
-          className="meridian-workflow-run__link"
+          className="meridian-workflow-run__link meridian-link-button"
           onClick={() => {
             props.onOpenRun(run.workflowRunId);
           }}

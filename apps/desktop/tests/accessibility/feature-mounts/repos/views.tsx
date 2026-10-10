@@ -1,4 +1,5 @@
-// The repos feature's mount list and diff pane, mounted once for the accessibility tier.
+// The repos feature's mount list, diff pane and the transcript's inline diff, mounted once for the
+// accessibility tier.
 //
 // Not a test file. `helpers/app/harness.tsx` owns how the app is mounted,
 // `tests/accessibility/feature-mounts/queries.ts` what a mounted view is and how a tier finds it,
@@ -24,6 +25,8 @@ import { WORKFLOW_OWN_SESSION, WORKFLOW_RUN_IDS } from "#fixtures/data/workflow/
 import { ManualClock } from "#renderer/lib/clock.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { DiffPane } from "#renderer/features/repos/diff/components/DiffPane.js";
+import { AlignmentWorkerProvider } from "#renderer/features/repos/index.js";
+import { DiffCardWithOpenState } from "#renderer/features/repos/diff/components/InlineDiffCard.test-support.js";
 import { paneContext } from "#test/helpers/pane-context.js";
 import {
   HEALTHY_WORKSPACE_ID,
@@ -76,21 +79,57 @@ export async function mountDiffPane(): Promise<MountedView> {
   const { container } = await renderSettled(
     // The provider carries the clock the row window schedules its scroll writes on.
     <PlatformBridgeProvider bridge={bridge} clock={clock}>
-      <DiffPane
-        context={paneContext(
-          // The session's own workspace, named from the mounts fixture so the subject the audit
-          // reads and the workspace the list states cannot drift.
-          { kind: "diff", entity: { kind: "workspace", id: HEALTHY_WORKSPACE_ID } },
-          { paneId: "pane-diff", bridge, sessionStore },
-        )}
-        diff={extendedHeaderChangeSet()}
-      />
+      <AlignmentWorkerProvider>
+        <DiffPane
+          context={paneContext(
+            // The session's own workspace, named from the mounts fixture so the subject the audit
+            // reads and the workspace the list states cannot drift.
+            { kind: "diff", entity: { kind: "workspace", id: HEALTHY_WORKSPACE_ID } },
+            { paneId: "pane-diff", bridge, sessionStore },
+          )}
+          diff={extendedHeaderChangeSet()}
+        />
+      </AlignmentWorkerProvider>
     </PlatformBridgeProvider>,
   );
   // Anchored at the kind: the chrome names the pane by its trail, so the full name carries the
   // session id and workspace, both stated by the fixture.
   return { element: requireLabeledRegion(container, /Review$/u), bridge };
 }
+
+/**
+ * The transcript's inline diff over the same change set, in a scrolling flow: each file's rows
+ * on the flow's tinted washes, its one gutter and sign cell, and the header-only file's note.
+ */
+export async function mountInlineDiffCard(): Promise<MountedView> {
+  const { bridge, clock } = scenarioBridgeAndStore();
+  const { container } = await renderSettled(
+    <PlatformBridgeProvider bridge={bridge} clock={clock}>
+      <AlignmentWorkerProvider>
+        <div style={{ blockSize: INLINE_DIFF_FLOW_HEIGHT_PX, overflowY: "auto" }}>
+          <DiffCardWithOpenState
+            card={{
+              kind: "diff",
+              runId: "run-inline-diff",
+              diffArtifactId: "diff-artifact-inline",
+              artifactManifestId: "artifact-manifest-inline",
+            }}
+            diff={extendedHeaderChangeSet()}
+            isCardMounted
+          />
+        </div>
+      </AlignmentWorkerProvider>
+    </PlatformBridgeProvider>,
+  );
+  const card = container.querySelector<HTMLElement>(".meridian-diff-card");
+  if (card?.querySelector(".meridian-diff-block") == null) {
+    throw new Error("the inline diff drew no block");
+  }
+  return { element: card, bridge };
+}
+
+/** The flow's visible height the inline diff is cut against, a laptop screen's conversation. */
+const INLINE_DIFF_FLOW_HEIGHT_PX = 720;
 
 /**
  * Review over a finished workflow run, read from the fixture daemon: the files the run's steps
@@ -102,24 +141,26 @@ export async function mountWorkflowRunReview(): Promise<MountedView> {
   const workflowRunId = WORKFLOW_RUN_IDS.succeeded as WorkflowRunId;
   const { container } = await renderSettled(
     <PlatformBridgeProvider bridge={bridge} clock={engine.clock}>
-      <DiffPane
-        context={paneContext(
-          {
-            kind: "diff",
-            entity: {
-              kind: "workflow-run",
-              id: workflowRunId,
-              from: { epoch: 1, point: "start" },
-              to: { epoch: 1, point: "end" },
+      <AlignmentWorkerProvider>
+        <DiffPane
+          context={paneContext(
+            {
+              kind: "diff",
+              entity: {
+                kind: "workflow-run",
+                id: workflowRunId,
+                from: { epoch: 1, point: "start" },
+                to: { epoch: 1, point: "end" },
+              },
             },
-          },
-          {
-            paneId: "pane-diff",
-            bridge,
-            sessionStore: new SessionStore({ sessionId: WORKFLOW_OWN_SESSION }),
-          },
-        )}
-      />
+            {
+              paneId: "pane-diff",
+              bridge,
+              sessionStore: new SessionStore({ sessionId: WORKFLOW_OWN_SESSION }),
+            },
+          )}
+        />
+      </AlignmentWorkerProvider>
     </PlatformBridgeProvider>,
   );
   await advanceScenarioUntil(engine, () => {

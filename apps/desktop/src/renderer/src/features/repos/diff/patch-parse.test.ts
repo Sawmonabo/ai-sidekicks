@@ -5,7 +5,7 @@
 import { describe, expect, it } from "vitest";
 
 import { diffLineText } from "./model.js";
-import { intralineSegments, parseUnifiedPatch } from "./patch-parse.js";
+import { parseUnifiedPatch } from "./patch-parse.js";
 import {
   COMPARED_STATES,
   PLAIN_PATCH,
@@ -145,30 +145,6 @@ describe("parseUnifiedPatch", () => {
   });
 });
 
-describe("intralineSegments", () => {
-  it("reads both sides off one alignment, so the two highlights agree", () => {
-    const pair = intralineSegments("keep alpha keep", "keep beta keep");
-    expect(pair.deleted).toStrictEqual([
-      { text: "keep ", changed: false },
-      { text: "alpha", changed: true },
-      { text: " keep", changed: false },
-    ]);
-    expect(pair.inserted).toStrictEqual([
-      { text: "keep ", changed: false },
-      { text: "beta", changed: true },
-      { text: " keep", changed: false },
-    ]);
-  });
-
-  it("keeps a whitespace-only change visible", () => {
-    // An indentation change is a real change; a tokenizer that discarded whitespace would
-    // report the two lines as identical.
-    const pair = intralineSegments("  value", "    value");
-    expect(pair.deleted.some((segment) => segment.changed)).toBe(true);
-    expect(pair.inserted.some((segment) => segment.changed)).toBe(true);
-  });
-});
-
 /**
  * A hunk carrying a bare empty context line, which is how most producers write one. The blank
  * sits between the leading context and the changed pair, so dropping it puts every number
@@ -303,14 +279,17 @@ describe("parseUnifiedPatch — a change that lives only in the extended headers
     // bare path and lose the name a reader is looking for.
     const file = parsePlainPatch(RENAME_ONLY_PATCH).files[0];
     expect(file?.path).toBe("docs/decisions/after.md");
-    expect(file?.renamedFrom).toBe("docs/decisions/before.md");
+    expect(file?.change).toStrictEqual({
+      kind: "renamed",
+      renamedFrom: "docs/decisions/before.md",
+    });
     expect(file?.hunks).toStrictEqual([]);
   });
 
-  it("carries both modes where the patch declared the file's mode changed", () => {
+  it("reads a mode change where the patch declared the file's two modes differ", () => {
     const file = parsePlainPatch(MODE_ONLY_PATCH).files[0];
     expect(file?.path).toBe("scripts/release.sh");
-    expect(file?.modeChange).toStrictEqual({ from: "100644", to: "100755" });
+    expect(file?.modeChanged).toBe(true);
   });
 
   it("carries the binary marker, which is the only thing such a patch says", () => {
@@ -319,24 +298,22 @@ describe("parseUnifiedPatch — a change that lives only in the extended headers
     expect(file?.binary).toBe(true);
   });
 
-  it("tells a copy from a rename, because the source still exists", () => {
+  it("reads a copy as added, not renamed, because the source still exists", () => {
     // Folding the two would tell a reader the original is gone. `parsePatch` reads `copy from`
     // into the same `oldFileName` with a different flag, so the flag tells them apart.
-    const file = parsePlainPatch(COPY_ONLY_PATCH).files[0];
-    expect(file?.copiedFrom).toBe("config/base.yml");
-    expect(file?.renamedFrom).toBeUndefined();
+    expect(parsePlainPatch(COPY_ONLY_PATCH).files[0]?.change).toStrictEqual({ kind: "added" });
   });
 
   it("keeps the header fact beside the hunks when a rename also changed lines", () => {
     const file = parsePlainPatch(RENAME_WITH_HUNK_PATCH).files[0];
-    expect(file?.renamedFrom).toBe("src/old-name.ts");
+    expect(file?.change).toStrictEqual({ kind: "renamed", renamedFrom: "src/old-name.ts" });
     expect(file?.hunks).toHaveLength(1);
     expect(file?.hunks[0]?.header).toBe("@@ -1,2 +1,2 @@");
   });
 
   it("does not read a created file's single mode as a mode change", () => {
     // `parsePatch` fills `newMode` from `new file mode`, and a new file had no mode before; a
-    // member read off one side would render "mode undefined → 100644" on every new file.
+    // fact read off one side would write "mode changed" on every new file.
     const created = [
       "diff --git a/src/fresh.ts b/src/fresh.ts",
       "new file mode 100644",
@@ -346,7 +323,31 @@ describe("parseUnifiedPatch — a change that lives only in the extended headers
       "+const fresh = true;",
       "",
     ].join("\n");
-    expect(parsePlainPatch(created).files[0]?.modeChange).toBeUndefined();
+    expect(parsePlainPatch(created).files[0]?.modeChanged).toBeUndefined();
+  });
+});
+
+describe("parseUnifiedPatch — what happened to a file, where no daemon names it", () => {
+  it("reads a created file as added and a removed one as deleted, git's headers or not", () => {
+    // The flow's card draws a patch with no wire kind beside it, so the patch alone must say a
+    // file is new or gone, by git's mode headers or by the side it names `/dev/null`.
+    const kinds = [
+      ["diff --git a/a.ts b/a.ts", "new file mode 100644", "--- /dev/null", "+++ b/a.ts"],
+      ["diff --git a/b.ts b/b.ts", "deleted file mode 100644", "--- a/b.ts", "+++ /dev/null"],
+      ["--- /dev/null", "+++ c.ts"],
+      ["--- d.ts", "+++ /dev/null"],
+      ["--- e.ts", "+++ e.ts"],
+    ].map(
+      (headers) =>
+        parsePlainPatch([...headers, "@@ -1 +1 @@", "-x", "+y", ""].join("\n")).files[0]?.change,
+    );
+    expect(kinds).toStrictEqual([
+      { kind: "added" },
+      { kind: "deleted" },
+      { kind: "added" },
+      { kind: "deleted" },
+      { kind: "modified" },
+    ]);
   });
 });
 

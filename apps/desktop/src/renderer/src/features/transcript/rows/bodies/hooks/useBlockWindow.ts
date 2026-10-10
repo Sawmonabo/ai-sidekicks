@@ -2,7 +2,7 @@ import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/rea
 import { useCallback, useEffect, useLayoutEffect, useReducer, useState } from "react";
 
 import { type MarkdownBodyBlocksSnapshot } from "../../markdown/body-blocks.js";
-import { type MarkdownWindowViewport } from "../../markdown/block-window/context.js";
+import { type TranscriptBodyViewport } from "#renderer/components/TranscriptBodyViewport/context.js";
 import {
   BlockWindowLayout,
   windowedBlockKeyOf,
@@ -37,7 +37,7 @@ const BLOCK_WINDOW_OVERSCAN_BLOCKS = 6;
  */
 export function useBlockWindow(
   blocks: MarkdownBodyBlocksSnapshot,
-  viewport: MarkdownWindowViewport,
+  viewport: TranscriptBodyViewport,
   rowKey: string,
 ): BlockWindow {
   const [layout] = useState(() => new BlockWindowLayout({ viewport, rowKey, blocks }));

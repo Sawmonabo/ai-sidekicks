@@ -82,13 +82,20 @@ export const ANSI_ROLES = [
   "ansi-bright-cyan",
 ] as const;
 
+/**
+ * The `+` and `−` a flow diff draws on its added and removed lines: the green and red of those
+ * lines' washes, each at the step of its hue that reaches 4.5:1 on its own wash.
+ */
+export const DIFF_SIGN_ROLES = ["diff-insert-sign", "diff-delete-sign"] as const;
+
 /** One color role a theme fills. */
 export type ColorRole =
   | (typeof GROUND_ROLES)[number]
   | (typeof TEXT_ROLES)[number]
   | (typeof ATTENTION_ROLES)[number]
   | (typeof CODE_ROLES)[number]
-  | (typeof ANSI_ROLES)[number];
+  | (typeof ANSI_ROLES)[number]
+  | (typeof DIFF_SIGN_ROLES)[number];
 
 /** Every color role, in the order the stylesheet emits them. */
 export const COLOR_ROLES: readonly ColorRole[] = [
@@ -97,6 +104,7 @@ export const COLOR_ROLES: readonly ColorRole[] = [
   ...ATTENTION_ROLES,
   ...CODE_ROLES,
   ...ANSI_ROLES,
+  ...DIFF_SIGN_ROLES,
 ];
 
 /** One theme: its name as a person reads it, its color table and its glass. */

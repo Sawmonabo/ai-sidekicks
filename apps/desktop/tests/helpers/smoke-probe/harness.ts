@@ -5,7 +5,11 @@
 // (the bundle tier's release launch) reads the same output and profile.
 
 import { UNOBTRUSIVE_WINDOWS_ENV } from "#main/windows/reveal.js";
-import { READINESS_BREADCRUMB_TAG, SMOKE_PROBE_TAG } from "#shared/probe-tags.js";
+import {
+  READINESS_BREADCRUMB_TAG,
+  SMOKE_PROBE_TAG,
+  SMOKE_WORKER_SCRIPT_ENV,
+} from "#shared/probe-tags.js";
 import { spawnChildCleanedUpAtSettleTime } from "../electron/child/cleanup.js";
 import { TEST_TIMEOUT_SLACK_MS } from "../electron/child/spawner.js";
 import { ELECTRON_BIN, MAIN_ENTRY_PATH, PACKAGE_ROOT } from "../fixture/bundle.js";
@@ -28,6 +32,7 @@ import {
   captureDiagnostics,
 } from "./diagnosis.js";
 import { TaggedJsonReadingScanner, TaggedLineScanner } from "../tagged-line-scanner.js";
+import { readAlignmentWorkerScriptOrFailLoudly } from "../../budget/built-renderer-tree.js";
 
 /** The in-app window budget (5 s); the spawn deadline below is only a backstop around it. */
 export const WINDOW_BUDGET_MS = 5_000;
@@ -72,10 +77,30 @@ interface SmokeProbe {
     readonly indexedDB: string;
     readonly localStorageRoundTrip: boolean;
     readonly rootChildren: number;
+    // The renderer's worker script started from the served bundle and answered one request.
+    readonly alignmentWorker: AlignmentWorkerReading;
   };
   // Read by the main process: `net.fetch` of the served `index.html`, so the header is observed
   // on the wire.
   readonly contentSecurityPolicy: string | null;
+}
+
+/** The worker's reply to the probe's one pair, or why none came. */
+type AlignmentWorkerReading =
+  | {
+      readonly reply: {
+        readonly requestId: number;
+        readonly pair: {
+          readonly deleted: readonly WorkerSegment[];
+          readonly inserted: readonly WorkerSegment[];
+        };
+      };
+    }
+  | { readonly failure: string };
+
+interface WorkerSegment {
+  readonly text: string;
+  readonly changed: boolean;
 }
 
 /** What a spawn produced: the parsed probe, the captured streams, and the timing readings. */
@@ -171,6 +196,13 @@ export async function spawnElectron(options: SpawnElectronOptions = {}): Promise
     }
   }
 
+  let workerScript: string;
+  try {
+    workerScript = readAlignmentWorkerScriptOrFailLoudly();
+  } catch (error: unknown) {
+    return refusedBeforeSpawn(error instanceof Error ? error.message : String(error));
+  }
+
   const service = await startSpawnHarnessService();
   if ("failure" in service) {
     return refusedBeforeSpawn(service.failure);
@@ -211,6 +243,8 @@ export async function spawnElectron(options: SpawnElectronOptions = {}): Promise
           // Opt-in for the main-process smoke branch, which the compile-time smoke build flag
           // removes from release bundles.
           SIDEKICKS_SMOKE_PROBE: "1",
+          // The worker script the probe starts from the served bundle.
+          [SMOKE_WORKER_SCRIPT_ENV]: workerScript,
           // Emit the `dom-ready` breadcrumb beside `did-finish-load`.
           SIDEKICKS_SMOKE_TRACE_READINESS: "1",
           // Reveal the window without activating the app (smoke build only; see

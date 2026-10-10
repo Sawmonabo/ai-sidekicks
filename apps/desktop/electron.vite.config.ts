@@ -217,12 +217,13 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) =
         // Vite inlines any asset under 4 KiB (one of KaTeX's faces is).
         assetsInlineLimit: (filePath) => (FONT_EXTENSIONS.test(filePath) ? false : undefined),
         // Minified, because electron-vite is not Vite here. Vite's production default is `minify:
-        // "esbuild"`; electron-vite overrides it to `false` for every target on the reasoning that
-        // a desktop bundle loads from disk. Unminified, the bundle carries the renderer's source
+        // "oxc"`; electron-vite overrides it to `false` for every target on the reasoning that a
+        // desktop bundle loads from disk. Unminified, the bundle carries the renderer's source
         // text and the initial-code budgets in `.size-limit.ts` measure bytes the app would not
-        // need (measured: 443 585 B gzip unminified, 244 546 B minified). Source maps stay
-        // `hidden` above, so a stack trace is still resolvable by anyone holding the map.
-        minify: "esbuild",
+        // need (measured: 443 585 B gzip unminified, 244 546 B minified). Vite's worker bundles
+        // read this value too, and minify only for `"oxc"`. Source maps stay `hidden` above, so a
+        // stack trace is still resolvable by anyone holding the map.
+        minify: "oxc",
         // `.vite/manifest.json`: the chunk graph Rollup already computed, written out on request.
         // It carries `isEntry`, the static `imports` of every chunk, its `dynamicImports`, `css`
         // and `assets`, which is the initial-versus-lazy split the bundle budgets bound (lazy

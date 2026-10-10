@@ -1,7 +1,8 @@
-// The one diff renderer, shared by the pane and the transcript card so a change reads the same
-// in both. It owns rows (scroller, window, spacers); the host owns its chrome and cap. It holds
-// no diff state, mounts diff text only as text, wraps long lines, and computes intraline
-// segments per drawn row from a cache, so virtualization bounds the cost as well as the DOM.
+// Review's diff renderer: one virtualized scroller of file headers and rows, the pane's one
+// vertical scroller. It owns rows (scroller, window, spacers); the pane owns its chrome. It holds
+// no diff state, mounts diff text only as text, wraps long lines, and computes intraline segments
+// per drawn row from a cache, so virtualization bounds the cost as well as the DOM. The flow draws
+// the same rows without a scroller (`InlineDiffBlock.tsx`).
 
 import "./DiffRenderer.css";
 
@@ -12,7 +13,7 @@ import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar
 import { useRowWindow } from "#renderer/hooks/useRowWindow.js";
 import { useBridgeClock } from "#renderer/services/platform/hooks/useClock.js";
 import {
-  DIFF_ROW_HEIGHT_PX,
+  DIFF_ROW_HEIGHT_REM,
   DIFF_VIEWPORT_FALLBACK_HEIGHT_PX,
   DIFF_WINDOW_OVERSCAN_ROWS,
 } from "../measures.js";
@@ -20,7 +21,9 @@ import type { DiffModel, DiffViewMode } from "../model.js";
 import { DiffRowView } from "./DiffRowView.js";
 import type { DiffGapExpansion } from "../rows/model.js";
 import { DiffRowIndex } from "../rows/flat-index.js";
-import { IntralineSegmentCache } from "../intraline-segment-cache.js";
+import { useIntralineSegmentCache } from "../hooks/useIntralineSegmentCache.js";
+import { useDiffRowHeightPx } from "../hooks/useDiffRowHeightPx.js";
+import { diffFileGutterDigitCount } from "../rows/gutter.js";
 
 /** Props for `DiffRenderer`. */
 export interface DiffRendererProps {
@@ -33,8 +36,6 @@ export interface DiffRendererProps {
    */
   readonly shownFilePath?: string | undefined;
   readonly onExpandGap: (fileIndex: number, hunkIndex: number) => void;
-  /** Height the scroller is capped at, in CSS pixels. The card supplies one; the pane fills. */
-  readonly heightCapPx?: number;
   /** The scroller's accessible name. Its host knows what this diff is of. */
   readonly label: string;
 }
@@ -53,9 +54,13 @@ export function DiffRenderer(props: DiffRendererProps): React.JSX.Element {
     [props.model, props.expansion, props.shownFilePath, props.viewMode],
   );
 
-  // Keyed on the model, not the index: gap expansion, narrowing and view-mode changes rebuild
-  // the index without changing any line's text, so a cache tied to it would be discarded.
-  const intraline = useMemo(() => new IntralineSegmentCache(props.model), [props.model]);
+  const intraline = useIntralineSegmentCache(props.model);
+  // Each file's line-number columns, read once per model.
+  const gutterDigitCounts = useMemo(
+    () => props.model.files.map(diffFileGutterDigitCount),
+    [props.model],
+  );
+  const rowHeightPx = useDiffRowHeightPx();
 
   // Rows are measured, not fixed-height: a wrapped line makes a row taller than the estimate.
   // The window's compensation for a taller row above the fold is its one scroll write past the
@@ -64,7 +69,7 @@ export function DiffRenderer(props: DiffRendererProps): React.JSX.Element {
     rowCount: index.rowCount,
     getScrollElement: () => scrollerRef.current,
     clock,
-    estimateRowHeightPx: () => DIFF_ROW_HEIGHT_PX,
+    estimateRowHeightPx: () => rowHeightPx,
     overscanRows: DIFF_WINDOW_OVERSCAN_ROWS,
     initialViewportHeightPx: DIFF_VIEWPORT_FALLBACK_HEIGHT_PX,
   });
@@ -92,7 +97,9 @@ export function DiffRenderer(props: DiffRendererProps): React.JSX.Element {
         index={index}
         intraline={intraline}
         viewMode={props.viewMode}
+        look="review"
         onExpandGap={props.onExpandGap}
+        gutterDigitCount={gutterDigitCounts[row.fileIndex] ?? 0}
         rowElementRef={virtualizer.measureElement}
       />,
     );
@@ -114,10 +121,7 @@ export function DiffRenderer(props: DiffRendererProps): React.JSX.Element {
       // The row height has one home, `measures.ts`; the sheet reads it from here so the
       // window arithmetic and the painted rows cannot disagree.
       style={
-        {
-          "--meridian-diff-row-height": `${String(DIFF_ROW_HEIGHT_PX)}px`,
-          ...(props.heightCapPx === undefined ? {} : { maxBlockSize: props.heightCapPx }),
-        } as React.CSSProperties
+        { "--meridian-diff-row-height": `${String(DIFF_ROW_HEIGHT_REM)}rem` } as React.CSSProperties
       }
     >
       {/* The content box holds the full height so the scrollbar spans the whole diff, and the

@@ -17,9 +17,9 @@
 // 3. Every row is addressable, not a sample: every one of the ~6,600 rows resolves to a row
 //    value and every line row to a line, since an off-by-one in the per-file walk shows up as
 //    one unreachable row that no spot check finds.
-// 4. One pathological line costs no more than the patch around it. A word diff over every
-//    changed pair is quadratic in tokens, so one 20,000-character line would cost more than the
-//    other five thousand together; no fixture of uniform lines contains that shape.
+// 4. One pathological line costs the parse no more than the patch around it. A word comparison
+//    over every changed pair at parse time would make one 20,000-character line cost more than
+//    the other five thousand together; no fixture of uniform lines contains that shape.
 
 import { describe, expect, it } from "vitest";
 
@@ -29,9 +29,8 @@ import {
   SINGLE_LARGE_HUNK_DIFF_SHAPE,
 } from "#test/helpers/diff/fixture/shapes.js";
 import { diffLineText, type DiffLine } from "../model.js";
-import { diffGapKey, expandGap, type DiffGapExpansion, type DiffLineRow } from "./model.js";
+import { diffGapKey, expandGap, type DiffGapExpansion } from "./model.js";
 import { DiffRowIndex } from "./flat-index.js";
-import { IntralineSegmentCache } from "../intraline-segment-cache.js";
 import { parseUnifiedPatch } from "../patch-parse.js";
 
 const ENDURANCE_DIFF = buildDiffFixture(ENDURANCE_DIFF_SHAPE);
@@ -147,7 +146,7 @@ const PATHOLOGICAL_LINE_TOKEN_COUNT = 1_200;
 const PATHOLOGICAL_PARSE_BUDGET_MS = 200;
 
 describe("one pathological line inside a five-thousand-line patch", () => {
-  it("parses inside its budget, and the wide row falls back rather than being compared", () => {
+  it("parses inside its budget", () => {
     const patchText = pathologicalPatchText();
     const startedAt = performance.now();
     const model = parseUnifiedPatch(patchText, { baseRef: "main", headRef: "feat/large-diff" });
@@ -159,26 +158,14 @@ describe("one pathological line inside a five-thousand-line patch", () => {
     const widestLineLength = diffLineText(lines[0] as DiffLine).length;
     expect(widestLineLength).toBeGreaterThan(20_000);
     expect(parseMilliseconds).toBeLessThan(PATHOLOGICAL_PARSE_BUDGET_MS);
-
-    // The row a reader scrolls to keeps its whole line, unsplit: the cost is not moved from
-    // parse into the row, it is not paid at all.
-    const cache = new IntralineSegmentCache(model);
-    expect(cache.readingFor(pathologicalBodyRow(0), 0).segments).toStrictEqual([
-      { text: diffLineText(lines[0] as DiffLine), changed: false },
-    ]);
   });
 });
-
-/** A body row of the pathological patch's single hunk. */
-function pathologicalBodyRow(lineIndex: number): DiffLineRow {
-  return { kind: "line", fileIndex: 0, hunkIndex: 0, source: "hunk-body", lineIndex };
-}
 
 /**
  * A five-thousand-line patch whose first changed pair is two very wide lines. It lives here,
  * not in the shared diff fixtures, because it is one deliberately hostile input rather than a
- * shape the views render. The wide line is many short tokens because the word diff is quadratic
- * in tokens, and a single long token would be cheap for the reason a real minified line is not.
+ * shape the views render. The wide line is many short tokens, as a real minified line is, since
+ * a word comparison's cost grows with the tokens and a single long token would be cheap.
  */
 function pathologicalPatchText(): string {
   const wideLine = (token: string): string => {

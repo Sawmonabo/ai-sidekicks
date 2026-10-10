@@ -11,7 +11,7 @@ import { useContext } from "react";
 
 import { type PublishedText } from "../../reveal/published-text.js";
 import { type FootnoteRegistry } from "../markdown/footnotes/registry.js";
-import { MarkdownWindowViewportContext } from "../markdown/block-window/context.js";
+import { TranscriptBodyViewportContext } from "#renderer/components/TranscriptBodyViewport/context.js";
 import { useFootnoteDefinitionRegistration } from "./hooks/useFootnoteDefinitionRegistration.js";
 import { useMarkdownBodyBlocks } from "./hooks/useMarkdownBodyBlocks.js";
 import { useMarkdownRenderContexts } from "./hooks/useMarkdownRenderContexts.js";
@@ -59,7 +59,7 @@ export function StreamingMarkdown(props: StreamingMarkdownProps): React.JSX.Elem
     props.isComplete,
     props.offersCodeCopy,
   );
-  const viewport = useContext(MarkdownWindowViewportContext);
+  const viewport = useContext(TranscriptBodyViewportContext);
 
   if (viewport !== undefined && props.publishedText.length >= WINDOWED_BODY_MIN_CHARACTERS) {
     return (
