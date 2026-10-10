@@ -46,6 +46,12 @@ export interface ConversationCopySource {
     transcriptWindow: TranscriptWindowModel,
     fullBodyOf: (rowId: string) => HydratedSessionEventContent | undefined,
   ) => SelectedPart | undefined;
+  /** The text of a row's body alone, read as `rowText` reads it. */
+  readonly rowBodyText: (
+    rowKey: string,
+    transcriptWindow: TranscriptWindowModel,
+    fullBodyOf: (rowId: string) => HydratedSessionEventContent | undefined,
+  ) => string | undefined;
   /** The ids of the rows among `rowKeys` whose text reads a large body, read in full first. */
   readonly largeBodyRowIds: (
     rowKeys: readonly string[],
@@ -104,8 +110,15 @@ export function useConversationCopy(source: ConversationCopySource): void {
   const bridge = usePlatformBridge();
   const announce = useAnnounce();
   const ownerDocument = useOwnerWindow().document;
-  const { selectionTracker, selectedRowKeys, rowText, largeBodyRowIds, fullBodyReads, history } =
-    source;
+  const {
+    selectionTracker,
+    selectedRowKeys,
+    rowText,
+    rowBodyText,
+    largeBodyRowIds,
+    fullBodyReads,
+    history,
+  } = source;
   const primarySelection = useMemo(() => primarySelectionFor(bridge), [bridge]);
   const rowSourceWindows = useLatestRef(source.rowSourceWindows);
   const [eventSpan] = useState(() => new SelectionEventSpanRecord());
@@ -166,6 +179,8 @@ export function useConversationCopy(source: ConversationCopySource): void {
         endRowElement: copy.endRowElement,
         rowText: (rowKey) =>
           rowText(rowKey, copy.transcriptWindow, (rowId) => fullBodies.get(rowId)),
+        rowBodyText: (rowKey) =>
+          rowBodyText(rowKey, copy.transcriptWindow, (rowId) => fullBodies.get(rowId)),
       });
     // One body at a time, so a long selection never has every read out at once. `undefined` when a
     // newer copy took over; throws a `RefusalError` when a read is refused, so nothing is copied.
@@ -342,6 +357,7 @@ export function useConversationCopy(source: ConversationCopySource): void {
     selectionTracker,
     selectedRowKeys,
     rowText,
+    rowBodyText,
     largeBodyRowIds,
     fullBodyReads,
     history,

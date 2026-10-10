@@ -1,5 +1,6 @@
 // What a selection across the conversation copies from the rows its ends sit in, read from the
-// rows as they are drawn: each end row's part from the end's character offset.
+// rows as they are drawn: each end row's part from the end's character offset, a large body read
+// in full in its control's place.
 
 import { render } from "@testing-library/react";
 import type { TextClipboardContent } from "#shared/preload-api.js";
@@ -9,6 +10,7 @@ import { describe, expect, it } from "vitest";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
 import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
+import { type SessionStore } from "#renderer/store/session/store.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
 import {
   SAMPLE_RUN_ROW_TIME_SELECTOR,
@@ -18,13 +20,18 @@ import {
 import { classifyTranscriptRow } from "../rows/kind.js";
 import { MessageRow } from "../rows/MessageRow.js";
 import { ToolRow } from "../rows/ToolRow.js";
+import { FullBodyReads, FullBodyReadsContext } from "../rows/full-body-reads.js";
 import { FootnoteRegistry } from "../rows/markdown/footnotes/registry.js";
 import { characterOffsetWithin } from "../viewport/selection/preservation.js";
 import {
   COPY_FLAVOR_ATTRIBUTE,
   type CopyFlavor,
   readRowSpanSelection,
+  type RowSpanSelection,
 } from "./conversation-selection.js";
+
+/** A call's output size, too large to travel with its row. */
+const LARGE_OUTPUT_BYTES = 2_000_000;
 
 /** A formula whose drawing spells none of its source: KaTeX draws `\frac` as a fraction. */
 const FORMULA_SOURCE = String.raw`\frac{a}{b} = x^2`;
@@ -45,11 +52,21 @@ function conversationWithFormula(flavor: CopyFlavor, formulaAttributes: string):
   return conversation;
 }
 
+/** Row text readers for rows that are all end rows, drawing no long table and no large body. */
+const END_ROWS_ONLY: Pick<RowSpanSelection, "rowText" | "rowBodyText"> = {
+  rowText: () => expect.fail("every row here is an end row"),
+  rowBodyText: () => expect.fail("no row here draws a table or a large body"),
+};
+
 /**
  * What a selection copies from the first drawn row in `conversation`, at `startOffset` characters,
- * to the end of the last, each row an end row.
+ * to the end of the last, each row an end row, its text read through `readers`.
  */
-function copyOfDrawnRows(conversation: Element, startOffset = 0): TextClipboardContent | undefined {
+function copyOfDrawnRows(
+  conversation: Element,
+  startOffset = 0,
+  readers = END_ROWS_ONLY,
+): TextClipboardContent | undefined {
   const rows = [...conversation.querySelectorAll(`[${WINDOWED_ROW_INDEX_ATTRIBUTE}]`)];
   const rowKeys = rows.map((_, index) => `row-${String(index)}`);
   const lastRow = rows.at(-1) ?? expect.fail("the conversation draws a row");
@@ -63,7 +80,7 @@ function copyOfDrawnRows(conversation: Element, startOffset = 0): TextClipboardC
     },
     rowKeys,
     endRowElement: (rowKey) => rows[rowKeys.indexOf(rowKey)],
-    rowText: () => expect.fail("every row here is an end row"),
+    ...readers,
   });
 }
 
@@ -116,6 +133,55 @@ describe("a selection across the conversation", () => {
         `Claude\n${toolTime ?? ""}\nbash\nfirst line\n  second line`,
       ].join("\n\n"),
     });
+  });
+
+  it("copies a call's large output in its control's place, from where the selection begins", () => {
+    const output = "first line\n  second line";
+    const ran = sampleRunRow({
+      id: "ran",
+      type: "tool.result",
+      actor: "Claude",
+      payload: { toolName: "bash", contentLength: LARGE_OUTPUT_BYTES },
+      content: { status: "large", contentLength: LARGE_OUTPUT_BYTES },
+    });
+    // The control is drawn and never pressed, so no body is read and no store is reached.
+    const fullBodyReads = new FullBodyReads({} as SessionStore, () =>
+      expect.fail("a copy's reads are made before it builds"),
+    );
+    const { container } = render(
+      <FixtureBridgeProvider fixture={createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO })}>
+        <FullBodyReadsContext value={fullBodyReads}>
+          <div {...{ [WINDOWED_ROW_INDEX_ATTRIBUTE]: "0" }}>
+            <ToolRow
+              row={ran}
+              agentHue={undefined}
+              isSuperseded={false}
+              density="expanded"
+              footnotes={new FootnoteRegistry()}
+              onDensityToggle={() => undefined}
+            />
+          </div>
+        </FullBodyReadsContext>
+      </FixtureBridgeProvider>,
+    );
+    const row = container.firstElementChild ?? expect.fail("the call is drawn");
+    const heading = document
+      .createTreeWalker(row, NodeFilter.SHOW_TEXT, (node) =>
+        node.textContent === "bash" ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP,
+      )
+      .nextNode();
+    expect(row.textContent).toContain("Show full output");
+
+    // Begun inside the heading, past its first two letters.
+    const copied = copyOfDrawnRows(
+      container,
+      characterOffsetWithin(row, heading ?? expect.fail("the heading is drawn"), 2),
+      {
+        rowText: () => ({ flavor: "text", text: `Claude\nbash\n${output}` }),
+        rowBodyText: () => output,
+      },
+    );
+    expect(copied).toStrictEqual({ text: `sh\n${output}` });
   });
 
   it("rebuilds a reply's code block as its fence, with no word from the block's corner", () => {

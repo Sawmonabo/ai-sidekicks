@@ -118,6 +118,23 @@ export function readRowText(rowKey: string, sources: RowTextSources): SelectedPa
 }
 
 /**
+ * The text of a row's body alone, as `readRowText` reads it: an open call's output without the
+ * lines above it, nothing for a folded call, and any other row's whole text, which is its body.
+ */
+export function readRowBodyText(rowKey: string, sources: RowTextSources): string | undefined {
+  const row = sources.transcriptWindow.rowsByKey.get(rowKey);
+  if (
+    row === undefined ||
+    sources.transcriptWindow.systemMessageByRowId.has(row.id) ||
+    classifyTranscriptRow(row)?.kind !== "tool-call"
+  ) {
+    return readRowText(rowKey, sources)?.text;
+  }
+  const body = rowBodyOf(row, sources);
+  return body === undefined ? undefined : toolOutputTextOf(body, row, sources);
+}
+
+/**
  * The ids of the rows among `rowKeys` whose text reads a body the log holds as its size alone, in
  * order: a reply with no drawing or lane, an open call with no lane. A copy reads each in full
  * before it builds; a folded call copies no output, so it reads none.

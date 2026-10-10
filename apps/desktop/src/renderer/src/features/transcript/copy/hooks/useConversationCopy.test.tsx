@@ -57,6 +57,7 @@ function Conversation(): React.JSX.Element {
     selectedRowKeys: () => ROW_KEYS,
     rowSourceWindows: { unfurledWindow: NO_WINDOW, transcriptWindow: NO_WINDOW },
     rowText: () => expect.fail("both rows are end rows"),
+    rowBodyText: () => expect.fail("neither row draws a table or a large body"),
     largeBodyRowIds: () => [],
     fullBodyReads: undefined,
     history: undefined,
