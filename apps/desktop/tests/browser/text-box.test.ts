@@ -5,10 +5,11 @@
 // view as the browser reveals it. In a tall window the row cap wins and in a window at the height
 // floor the third does, each the negative control for the other; moving the caret back to the top
 // scrolls the box back, leaving the draft's last line out of view: the negative control for the
-// in-view check.
+// in-view check. A draft written in one edit, as a paste lands it, stops where the typed one does,
+// with the composer's height outside its draft the same empty as full.
 
 import { act, cleanup } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished } from "vitest";
 import { page, userEvent } from "vitest/browser";
 
 import {
@@ -19,6 +20,7 @@ import { COMPOSER_DRAFT_MAX_ROWS } from "#renderer/features/composer/bounds.js";
 import { formatRoute } from "#renderer/routing/routes.js";
 import { WINDOW_HEIGHT_FLOOR_REM } from "#renderer/styles/palette.js";
 import { DEFAULT_APPEARANCE_RECORD } from "#shared/appearance.js";
+import { nextFrame } from "../helpers/animation-frame.js";
 import { renderAppSettled } from "../helpers/app/harness.js";
 
 /** The marker the library puts on the element it scrolls. */
@@ -58,8 +60,8 @@ interface LongDraft {
   readonly paneRow: HTMLElement;
 }
 
-/** Opens the session in a window of `size`, waits for the draft's bar, and types past the cap. */
-async function typeLongDraft(size: { width: number; height: number }): Promise<LongDraft> {
+/** Opens the session in a window of `size` and waits for the draft's bar. */
+async function openDraft(size: { width: number; height: number }): Promise<LongDraft> {
   await page.viewport(size.width, size.height);
   document.location.hash = formatRoute({ kind: "session", sessionId: SESSION_ID });
   const appWindow = await renderAppSettled(TRANSCRIPT_STATES_SCENARIO_ID);
@@ -90,11 +92,6 @@ async function typeLongDraft(size: { width: number; height: number }): Promise<L
       })
       .toBe(true);
   });
-
-  line.focus();
-  await press("line{Shift>}{Enter}{/Shift}".repeat(TYPED_LINE_COUNT - 1) + "last");
-  expect(line.value.split("\n")).toHaveLength(TYPED_LINE_COUNT);
-
   return {
     line,
     box,
@@ -103,6 +100,46 @@ async function typeLongDraft(size: { width: number; height: number }): Promise<L
     screen,
     paneRow,
   };
+}
+
+/** Opens the session in a window of `size`, waits for the draft's bar, and types past the cap. */
+async function typeLongDraft(size: { width: number; height: number }): Promise<LongDraft> {
+  const draft = await openDraft(size);
+  await typePastTheCap(draft.line);
+  return draft;
+}
+
+async function typePastTheCap(line: HTMLTextAreaElement): Promise<void> {
+  line.focus();
+  await press("line{Shift>}{Enter}{/Shift}".repeat(TYPED_LINE_COUNT - 1) + "last");
+  expect(line.value.split("\n")).toHaveLength(TYPED_LINE_COUNT);
+}
+
+/**
+ * Writes `text` into the line in one edit, as a paste does: one input event, so the draft store
+ * takes the whole text at once. Lets two frames pass, for the composer to measure itself again.
+ */
+async function writeInOneEdit(line: HTMLTextAreaElement, text: string): Promise<void> {
+  const view = (line.ownerDocument.defaultView ?? window) as Window & typeof globalThis;
+  await act(async () => {
+    line.focus();
+    Object.getOwnPropertyDescriptor(view.HTMLTextAreaElement.prototype, "value")?.set?.call(
+      line,
+      text,
+    );
+    line.dispatchEvent(new view.Event("input", { bubbles: true }));
+    await nextFrame(view);
+    await nextFrame(view);
+  });
+}
+
+/** The composer's height outside its draft, as the composer last carried it. */
+function chromeHeightOf(draft: LongDraft): number {
+  const composer = draft.line.closest<HTMLElement>(".meridian-composer");
+  if (composer === null) {
+    throw new Error("the draft line is outside the composer");
+  }
+  return Number.parseFloat(composer.style.getPropertyValue("--meridian-composer-chrome-height"));
 }
 
 /** The box's height inside its padding: what its cap bounds. */
@@ -186,6 +223,37 @@ describe("the composer's draft", () => {
       frame.getBoundingClientRect().top - 1,
     );
     expect(isLastLineInView(line, frame, lineHeightPx)).toBe(false);
+  });
+
+  it("stops at the same cap written in one edit as typed, its chrome held from empty to full", async () => {
+    const draft = await openDraft(FLOOR_WINDOW);
+    const appWindow = draft.line.ownerDocument.defaultView ?? window;
+    await expect.poll(() => chromeHeightOf(draft)).not.toBeNaN();
+    const emptyChromePx = chromeHeightOf(draft);
+    const notices: string[] = [];
+    const recordNotice = (event: ErrorEvent): void => {
+      notices.push(event.message);
+    };
+    appWindow.addEventListener("error", recordNotice);
+    onTestFinished(() => {
+      appWindow.removeEventListener("error", recordNotice);
+    });
+
+    // A whole draft at once, as a paste lands it: the card's room around the short draft goes in
+    // the same frame the draft reaches its cap, and the chrome the cap reads does not move.
+    await writeInOneEdit(
+      draft.line,
+      Array.from({ length: TYPED_LINE_COUNT }, () => "line").join("\n"),
+    );
+    expect(notices).toEqual([]);
+    expect(Math.abs(chromeHeightOf(draft) - emptyChromePx)).toBeLessThanOrEqual(0.5);
+    const writtenCapPx = contentHeightOf(draft.box);
+
+    // The same draft typed a line at a time from empty stops at the same height.
+    await writeInOneEdit(draft.line, "");
+    await typePastTheCap(draft.line);
+    expect(Math.abs(contentHeightOf(draft.box) - writtenCapPx)).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(chromeHeightOf(draft) - emptyChromePx)).toBeLessThanOrEqual(0.5);
   });
 
   it("stops at a third of the conversation in a window at the height floor", async () => {
