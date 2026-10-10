@@ -211,7 +211,7 @@ const LIST_BLOCK = [
   "- Measure the rows the fling mounts, not the ones it skips.",
   "- Keep the reader's row in place when the window admits a stretch.",
   "  - Let go of rows past the far edge only once the gesture ends.",
-  "- Draw a diagram from its cached picture when it scrolls back.",
+  "- Keep a settled row's measured height when it scrolls back.",
 ].join("\n");
 
 const QUOTE_BLOCK =
