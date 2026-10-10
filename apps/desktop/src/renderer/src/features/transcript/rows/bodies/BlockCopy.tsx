@@ -9,7 +9,7 @@ export function BlockCopy(props: { readonly offer: BlockCopyOffer }): React.JSX.
   );
 }
 
-/** Draws a reply's block copies, for the markdown render context. Module-scope, so stable. */
+/** Draws a markdown block's copies wherever the app provides it. Module-scope, so stable. */
 export function renderBlockCopy(offer: BlockCopyOffer): React.ReactNode {
   return <BlockCopy offer={offer} />;
 }

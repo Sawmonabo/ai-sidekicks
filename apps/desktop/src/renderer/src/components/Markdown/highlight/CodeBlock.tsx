@@ -7,7 +7,7 @@
 
 import "./CodeBlock.css";
 
-import type { BlockCopyOffer } from "../block-copy-offer.js";
+import type { BlockCopyRenderer } from "../block-copy-offer.js";
 import type { CodeSpanReader } from "./code-span-reader.js";
 import { resolveHighlightableLanguage } from "./languages.js";
 import { HighlightedSource } from "./HighlightedSource.js";
@@ -25,7 +25,7 @@ export interface CodeBlockProps {
    * Draws the block's Copy, which copies `source` alone as plain text, or `undefined` where the
    * body offers none. An empty block copies nothing, so it draws no Copy.
    */
-  readonly renderCopy: ((offer: BlockCopyOffer) => React.ReactNode) | undefined;
+  readonly renderCopy: BlockCopyRenderer | undefined;
 }
 
 /** A fenced code block, colored by the daemon once it has settled. */
