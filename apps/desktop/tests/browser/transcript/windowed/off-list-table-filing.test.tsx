@@ -1,7 +1,9 @@
 // A long table measured off the list reads its fingerprint, which walks every row's text, once for
-// the check that no geometry is filed for it, its filing, and the listed table that recalls it;
-// measured, it reads it beside its row estimates, and lands in a task of its own. Measured in the
-// engine that lays its hidden frames out, as the frames are read only after a real layout.
+// the check that no geometry is filed for it, its filing, and the listed table that recalls it,
+// and never whole in one task: measured, it reads it beside its row estimates and lands in a task
+// of its own; parsed anew while its geometry is filed, it reads it in slices and lands from the
+// filing. Measured in the engine that lays its hidden frames out, as the frames are read only
+// after a real layout.
 
 import { waitFor } from "@testing-library/react";
 import type { Table } from "mdast";
@@ -14,17 +16,16 @@ import { installMeridianTokens } from "#renderer/app/token-installation.js";
 import { parseMarkdown } from "#renderer/components/Markdown/parse.js";
 import { OffListTableFrames } from "#renderer/features/transcript/rows/bodies/OffListTableFrames.js";
 import { suiteWindowViewport } from "#renderer/features/transcript/rows/bodies/WindowedMarkdown.test-support.js";
+import { TextFingerprint } from "#renderer/features/transcript/rows/markdown/body-blocks.js";
 import {
   type ListedBodies,
   type TableBodyPlacement,
 } from "#renderer/features/transcript/rows/markdown/table-window/context.js";
+import { recallTableGeometry } from "#renderer/features/transcript/rows/markdown/table-window/geometry-memory.js";
 import { longTablesOf } from "#renderer/features/transcript/rows/markdown/table-window/long-tables.js";
 import { TableWindowLayout } from "#renderer/features/transcript/rows/markdown/table-window/layout.js";
 import { OffListTables } from "#renderer/features/transcript/rows/markdown/table-window/off-list.js";
-import {
-  TableFingerprintReading,
-  TableFingerprints,
-} from "#renderer/features/transcript/rows/markdown/table-window/table-text.js";
+import { TableFingerprints } from "#renderer/features/transcript/rows/markdown/table-window/table-text.js";
 import { ManualClock } from "#renderer/lib/clock.js";
 import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 
@@ -66,6 +67,42 @@ async function drawFrames(offList: OffListTables): Promise<void> {
   );
 }
 
+/**
+ * Tells each posted task apart: answers the number of the one running, `undefined` outside any.
+ */
+function followPostedTasks(): () => number | undefined {
+  let runningTask: number | undefined;
+  let postedCount = 0;
+  const postTask = window.scheduler.postTask.bind(window.scheduler);
+  vi.spyOn(window.scheduler, "postTask").mockImplementation((callback, options) => {
+    postedCount += 1;
+    const task = postedCount;
+    return postTask(() => {
+      runningTask = task;
+      try {
+        return callback();
+      } finally {
+        runningTask = undefined;
+      }
+    }, options);
+  });
+  return () => runningTask;
+}
+
+/** The posted task each row's text was read in for a fingerprint, as `readRunningTask` answers. */
+function followRowReads(readRunningTask: () => number | undefined): (number | undefined)[] {
+  const read = TextFingerprint.prototype.read;
+  const tasks: (number | undefined)[] = [];
+  vi.spyOn(TextFingerprint.prototype, "read").mockImplementation(function (
+    this: TextFingerprint,
+    text: string,
+  ) {
+    tasks.push(readRunningTask());
+    read.call(this, text);
+  });
+  return tasks;
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -82,7 +119,7 @@ describe("a long table measured off the list", () => {
     offList.measure(longTableOf("first"), new Set(), firstLanded);
     await waitFor(() => expect(firstLanded).toHaveBeenCalledOnce(), { timeout: LAND_TIMEOUT_MS });
 
-    const rowReads = vi.spyOn(TableFingerprintReading.prototype, "readRow");
+    const rowReads = vi.spyOn(TextFingerprint.prototype, "read");
     const second = longTableOf("second");
     const secondLanded = vi.fn();
     expect(offList.measure(second, new Set(), secondLanded)).not.toBe(undefined);
@@ -112,34 +149,12 @@ describe("a long table measured off the list", () => {
   it("reads its fingerprint beside its row estimates, and lands in a task of its own", async () => {
     const offList = new OffListTables(document, () => 680);
     await drawFrames(offList);
-    // Each posted task is told apart, so a row read or the land is placed in the task it ran in.
-    let runningTask: number | undefined;
-    let postedCount = 0;
-    const postTask = window.scheduler.postTask.bind(window.scheduler);
-    vi.spyOn(window.scheduler, "postTask").mockImplementation((callback, options) => {
-      postedCount += 1;
-      const task = postedCount;
-      return postTask(() => {
-        runningTask = task;
-        try {
-          return callback();
-        } finally {
-          runningTask = undefined;
-        }
-      }, options);
-    });
-    const readRow = TableFingerprintReading.prototype.readRow;
-    const rowReadTasks: (number | undefined)[] = [];
-    vi.spyOn(TableFingerprintReading.prototype, "readRow").mockImplementation(function (
-      this: TableFingerprintReading,
-    ) {
-      rowReadTasks.push(runningTask);
-      return readRow.call(this);
-    });
+    const runningTask = followPostedTasks();
+    const rowReadTasks = followRowReads(runningTask);
     const table = longTableOf("sliced");
     let landedIn: number | undefined;
     const landed = vi.fn(() => {
-      landedIn = runningTask;
+      landedIn = runningTask();
     });
     offList.measure(table, new Set(), landed);
     await waitFor(() => expect(landed).toHaveBeenCalledOnce(), { timeout: LAND_TIMEOUT_MS });
@@ -153,5 +168,37 @@ describe("a long table measured off the list", () => {
     expect(offList.tableFingerprints.fingerprintOf(table), "the fingerprint read in slices").toBe(
       new TableFingerprints().fingerprintOf(table),
     );
+  });
+
+  it("lands a table parsed anew while its geometry is filed, its fingerprint read in slices", async () => {
+    const offList = new OffListTables(document, () => 680);
+    await drawFrames(offList);
+    const filed = longTableOf("filed");
+    const filedLanded = vi.fn();
+    offList.measure(filed, new Set(), filedLanded);
+    await waitFor(() => expect(filedLanded).toHaveBeenCalledOnce(), { timeout: LAND_TIMEOUT_MS });
+    const geometryKey = {
+      fingerprint: offList.tableFingerprints.fingerprintOf(filed),
+      bodyType: offList.listedBodyType() ?? expect.fail("a listed body type"),
+    };
+    const geometry = recallTableGeometry(geometryKey);
+
+    const rowReadTasks = followRowReads(followPostedTasks());
+    // The same text parsed again: a table whose fingerprint is not read yet.
+    const parsedAnew = longTableOf("filed");
+    const landed = vi.fn();
+    expect(
+      offList.measure(parsedAnew, new Set(), landed),
+      "the withdrawal of a table not read yet",
+    ).not.toBe(undefined);
+    expect(rowReadTasks, "rows read as it is measured").toEqual([]);
+    await waitFor(() => expect(landed).toHaveBeenCalledOnce(), { timeout: LAND_TIMEOUT_MS });
+    expect(rowReadTasks, "rows read").toHaveLength(parsedAnew.children.length);
+    expect(
+      rowReadTasks.filter((task) => task === undefined),
+      "rows read outside a slice",
+    ).toEqual([]);
+    expect(recallTableGeometry(geometryKey), "the geometry it landed with").toBe(geometry);
+    expect(offList.read(), "the tables still measured").toEqual([]);
   });
 });

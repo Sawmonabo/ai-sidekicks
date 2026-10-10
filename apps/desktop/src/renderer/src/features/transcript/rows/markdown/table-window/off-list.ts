@@ -46,6 +46,7 @@ export class OffListTables {
   /** The window's tables' fingerprints, which its listed tables read too. */
   public readonly tableFingerprints: TableFingerprints = new TableFingerprints();
   readonly #ownerDocument: Document;
+  readonly #view: Window;
   readonly #readRowWidthPx: () => number | undefined;
   readonly #listeners = new Set<() => void>();
   #tables: readonly OffListTable[] = [];
@@ -81,9 +82,15 @@ export class OffListTables {
   /**
    * `ownerDocument` is the window's own, whose fonts the tables are set in; `readRowWidthPx`
    * answers the width the window's rows are laid out at, or `undefined` before it is known.
+   * Throws for a document with no window.
    */
   public constructor(ownerDocument: Document, readRowWidthPx: () => number | undefined) {
+    const view = ownerDocument.defaultView;
+    if (view === null) {
+      throw new Error("The off-list tables were given a document with no window.");
+    }
     this.#ownerDocument = ownerDocument;
+    this.#view = view;
     this.#readRowWidthPx = readRowWidthPx;
   }
 
@@ -95,8 +102,10 @@ export class OffListTables {
   /**
    * Measures `table` off the list and calls `onLanded` once its geometry is filed or its measuring
    * failed. Answers the withdrawal, which stops the measuring and drops the table; `undefined`
-   * when a geometry is filed for the table already at the body type rows of this width give. A
-   * table measured before the rows' width is known waits, undrawn, for `readRowWidth`.
+   * when a geometry is filed for the table already at the body type rows of this width give, as
+   * its fingerprint read before answers. A table whose fingerprint is not read yet is measured
+   * while it is read in slices, and lands as soon as it is found filed. A table measured before
+   * the rows' width is known waits, undrawn, for `readRowWidth`.
    */
   public measure(
     table: Table,
@@ -107,6 +116,7 @@ export class OffListTables {
     if (rowWidthPx !== undefined && this.#isFiled(table, rowWidthPx)) {
       return undefined;
     }
+    let hasEnded = false;
     const key = this.#nextKey;
     this.#nextKey += 1;
     let bodyType: MarkdownBodyType | undefined;
@@ -123,6 +133,7 @@ export class OffListTables {
           );
         }
         if (geometry !== undefined || measurement.hasFailed) {
+          hasEnded = true;
           this.#drop(key);
           onLanded();
           return;
@@ -133,8 +144,26 @@ export class OffListTables {
       },
     );
     const withdraw = (): void => {
+      hasEnded = true;
       measurement.stop();
       this.#drop(key);
+    };
+    let isReadingFingerprint = false;
+    // With a body type read to check against, the fingerprint is read in slices beside the
+    // measuring; filed already, the table lands then.
+    const checkFiledInSlices = (): void => {
+      if (isReadingFingerprint || this.#lastBody === undefined) {
+        return;
+      }
+      isReadingFingerprint = true;
+      void this.tableFingerprints
+        .readInSlices(table, this.#view, () => hasEnded)
+        .then(() => {
+          if (!hasEnded && rowWidthPx !== undefined && this.#isFiled(table, rowWidthPx)) {
+            withdraw();
+            onLanded();
+          }
+        });
     };
     if (rowWidthPx === undefined) {
       this.#widthWaits.set(key, (readWidthPx) => {
@@ -144,7 +173,10 @@ export class OffListTables {
           return;
         }
         rowWidthPx = readWidthPx;
+        checkFiledInSlices();
       });
+    } else {
+      checkFiledInSlices();
     }
     this.#tables = [
       ...this.#tables,
@@ -195,15 +227,17 @@ export class OffListTables {
     this.#tell();
   }
 
-  /** Whether a geometry is filed for `table` at the body type rows `rowWidthPx` wide last gave. */
+  /**
+   * Whether a geometry is filed for `table` at the body type rows `rowWidthPx` wide last gave, as
+   * its fingerprint read so far answers: reading nothing, a table not read yet is not filed.
+   */
   #isFiled(table: Table, rowWidthPx: number): boolean {
     const lastBody = this.#lastBody;
+    const fingerprint = this.tableFingerprints.heldFingerprintOf(table);
     return (
       lastBody?.rowWidthPx === rowWidthPx &&
-      recallTableGeometry({
-        fingerprint: this.tableFingerprints.fingerprintOf(table),
-        bodyType: lastBody.bodyType,
-      }) !== undefined
+      fingerprint !== undefined &&
+      recallTableGeometry({ fingerprint, bodyType: lastBody.bodyType }) !== undefined
     );
   }
 

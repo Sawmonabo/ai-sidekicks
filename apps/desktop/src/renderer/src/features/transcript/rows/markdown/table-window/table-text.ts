@@ -2,14 +2,17 @@
 
 import type { Table, TableCell, TableRow } from "mdast";
 
+import { workInSlices } from "#renderer/lib/work-slices.js";
 import { TextFingerprint } from "../body-blocks.js";
 
 /**
  * Parsed tables' fingerprints, each read once per parsed table: reading one walks every row's text,
- * and a parsed table never changes. One is held per window, for its tables on and off the list.
+ * and a parsed table never changes. One is held per window, for its tables on and off the list. A
+ * table's reading under way is shared by everyone who reads it, so its rows are read once.
  */
 export class TableFingerprints {
   readonly #byTable = new WeakMap<Table, string>();
+  readonly #readings = new WeakMap<Table, TableFingerprintReading>();
 
   /**
    * A table's fingerprint: its column count and every row's text, so two tables share one only
@@ -29,6 +32,11 @@ export class TableFingerprints {
     return fingerprint;
   }
 
+  /** A table's fingerprint once it is read, reading nothing; `undefined` before. */
+  public heldFingerprintOf(table: Table): string | undefined {
+    return this.#byTable.get(table);
+  }
+
   /**
    * Reads `table`'s fingerprint a row at a time, for work that visits its rows in slices; it is
    * held once the last row is read. `undefined` when it is held already.
@@ -37,10 +45,46 @@ export class TableFingerprints {
     return this.#byTable.has(table) ? undefined : this.#readingOf(table);
   }
 
+  /**
+   * Reads `table`'s fingerprint in slices of `view`'s thread, each a task of its own. Resolves it,
+   * or `undefined` when `isStopped` answers true before a slice.
+   */
+  public async readInSlices(
+    table: Table,
+    view: Window,
+    isStopped: () => boolean,
+  ): Promise<string | undefined> {
+    const reading = this.startReading(table);
+    if (reading !== undefined) {
+      const isRead = await workInSlices(
+        view,
+        (hasTime) => {
+          let fingerprint: string | undefined;
+          while (fingerprint === undefined && hasTime()) {
+            fingerprint = reading.readRow();
+          }
+          return fingerprint !== undefined;
+        },
+        isStopped,
+      );
+      if (!isRead) {
+        return undefined;
+      }
+    }
+    return this.#byTable.get(table);
+  }
+
   #readingOf(table: Table): TableFingerprintReading {
-    return new TableFingerprintReading(table, (fingerprint) => {
+    const underWay = this.#readings.get(table);
+    if (underWay !== undefined) {
+      return underWay;
+    }
+    const reading = new TableFingerprintReading(table, (fingerprint) => {
       this.#byTable.set(table, fingerprint);
+      this.#readings.delete(table);
     });
+    this.#readings.set(table, reading);
+    return reading;
   }
 }
 
@@ -50,27 +94,40 @@ export class TableFingerprintReading {
   readonly #onRead: (fingerprint: string) => void;
   readonly #text = new TextFingerprint();
   #nextIndex = 0;
+  #fingerprint: string | undefined;
 
   /** `onRead` is given the fingerprint once the last row is read. */
   public constructor(table: Table, onRead: (fingerprint: string) => void) {
     this.#table = table;
     this.#onRead = onRead;
-    this.#text.read(`${String(table.children[0]?.children.length ?? 0)}${ROW_SEPARATOR}`);
   }
 
-  /** Reads the table's next row; answers the fingerprint once the last row is read. */
+  /**
+   * Reads the table's next row; answers the fingerprint once the last row is read, and reads
+   * nothing more after that.
+   */
   public readRow(): string | undefined {
-    const row = this.#table.children[this.#nextIndex];
-    if (row !== undefined) {
-      this.#text.read(
-        this.#nextIndex === 0 ? rowSignatureOf(row) : `${ROW_SEPARATOR}${rowSignatureOf(row)}`,
-      );
-      this.#nextIndex += 1;
+    if (this.#fingerprint !== undefined) {
+      return this.#fingerprint;
     }
-    if (this.#nextIndex < this.#table.children.length) {
+    const rows = this.#table.children;
+    const row = rows[this.#nextIndex];
+    // The column count leads the text, read with the head row.
+    const lead =
+      this.#nextIndex === 0
+        ? `${String(rows[0]?.children.length ?? 0)}${ROW_SEPARATOR}`
+        : ROW_SEPARATOR;
+    if (row !== undefined) {
+      this.#text.read(`${lead}${rowSignatureOf(row)}`);
+      this.#nextIndex += 1;
+    } else if (this.#nextIndex === 0) {
+      this.#text.read(lead);
+    }
+    if (this.#nextIndex < rows.length) {
       return undefined;
     }
     const fingerprint = this.#text.value;
+    this.#fingerprint = fingerprint;
     this.#onRead(fingerprint);
     return fingerprint;
   }
