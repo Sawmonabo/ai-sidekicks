@@ -1,10 +1,12 @@
 // Each shell's marks: the reader takes only marks carrying this shell's nonce out of its output,
 // and real zsh, bash and fish login shells, loaded beside a fixture home's own startup files and
 // another tool's hooks, report the prompt, the command's start and its end with its exit code, a
-// failing command's and a traced one's included, with the nonce in no environment and its file
-// gone. bash is a true login shell both where it reads the script through `ENV` and as macOS's own
-// bash, which loads it from its first prompt command. A shell this machine does not have is
-// skipped.
+// failing command's and a traced one's included, with the nonce, the prompt command and every
+// variable of the launch in no environment a command inherits and the nonce file gone. bash is a
+// true login shell, whose history goes to the person's file and whose `logout` runs their
+// `.bash_logout`, both where it reads the script through `ENV` and as macOS's own bash, which runs
+// its login files from its first prompt command, the managed system profile in place of the other
+// where one exists. A shell this machine does not have is skipped.
 
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -21,6 +23,8 @@ import {
   prepareShellStartupFolders,
 } from "../injection.js";
 import { type ShellMark, ShellMarkReader } from "../marks.js";
+import type { TerminalOperatingSystem } from "../../../operating-system/contract.js";
+import { darwinTerminalOperatingSystem } from "../../../operating-system/darwin.js";
 import { selectTerminalOperatingSystem } from "../../../operating-system/selector.js";
 
 const encoder = new TextEncoder();
@@ -122,6 +126,10 @@ interface ShellCase {
   readonly groupedRedirectCommand: (file: string) => string;
   /** Ends the shell; a bash login shell ends on `logout`, which any other bash refuses. */
   readonly exitCommand: string;
+  /** What the shell starts under, given the fixture home; this machine's own when unset. */
+  readonly operatingSystem?: ((home: string) => TerminalOperatingSystem) | undefined;
+  /** Checks what the shell left in the fixture home once it has exited. */
+  readonly checkAfterExit?: (home: string) => void;
 }
 
 // macOS's own bash 3.2, which loads the script from its first prompt command.
@@ -155,40 +163,79 @@ const BASH_PREEXEC_STAND_IN = [
   `PROMPT_COMMAND=__fixture_precmd$'\\n'"\${PROMPT_COMMAND-}"$'\\n'__fixture_await_line`,
 ].join("\n");
 
-// The bash cases, for one bash. The person's own prompt command goes in as `promptCommandLine`
-// sets it: macOS's own bash loads the script from its prompt command, so there it is kept.
+// The system profile a bash case reads: the machine's own `/etc/profile` for a bash that reads
+// the script through `ENV`, and for macOS's own bash the fixture's, from the managed path where the
+// case writes one there and the plain one otherwise.
+interface BashSystemProfile {
+  readonly operatingSystem?: ((home: string) => TerminalOperatingSystem) | undefined;
+  readonly files: Readonly<Record<string, string>>;
+  /** What the profile read sets `FIXTURE_SYSTEM_PROFILE` to. */
+  readonly expected: string;
+}
+
+const MACHINE_SYSTEM_PROFILE: BashSystemProfile = { files: {}, expected: "" };
+
+// macOS's own bash reading the fixture home's system profiles, the managed one where `isManaged`.
+function appleSystemProfile(isManaged: boolean): BashSystemProfile {
+  return {
+    operatingSystem: (home) =>
+      darwinTerminalOperatingSystem({
+        managedProfilePath: path.join(home, "managed", "profile"),
+        profilePath: path.join(home, "etc", "profile"),
+      }),
+    files: {
+      "etc/profile": "export FIXTURE_SYSTEM_PROFILE=plain",
+      ...(isManaged ? { "managed/profile": "export FIXTURE_SYSTEM_PROFILE=managed" } : {}),
+    },
+    expected: isManaged ? "managed" : "plain",
+  };
+}
+
+// The bash cases, for one bash: beside the person's own prompt command and DEBUG trap, which
+// reads the managed profile where `systemProfile` has one, and beside bash-preexec.
 function bashCases(
   bashName: string,
   shellPath: string | undefined,
-  promptCommandLine: (command: string) => string,
+  systemProfiles: { readonly beside: BashSystemProfile; readonly preexec: BashSystemProfile },
 ): ShellCase[] {
   const login = "$(shopt -q login_shell && echo login)";
   return [
     {
       name: `${bashName} beside the person's PROMPT_COMMAND and DEBUG trap, as a login shell`,
       shellPath,
+      operatingSystem: systemProfiles.beside.operatingSystem,
       files: {
+        ...systemProfiles.beside.files,
         ".bash_profile": "export FIXTURE_BASH_PROFILE=loaded-bash-profile\n. ~/.bashrc",
         ".bashrc": [
           "export FIXTURE_BASHRC=loaded-bashrc",
-          promptCommandLine(`printf "\\033]133;A;aid=person\\007"`),
+          `PROMPT_COMMAND='history -a; printf "\\033]133;A;aid=person\\007"'`,
           "trap 'FIXTURE_DEBUG_TRAP=ran' DEBUG",
         ].join("\n"),
         ".profile": "export FIXTURE_PROFILE=read-though-bash-profile-exists",
+        ".bash_logout": "echo logged-out > ~/logout.txt",
       },
       checkCommand:
-        `echo "$FIXTURE_BASH_PROFILE,$FIXTURE_BASHRC,$FIXTURE_DEBUG_TRAP,$FIXTURE_PROFILE,` +
-        `${login},\${ENV-unset}"`,
-      expectedCheckOutput: () => "loaded-bash-profile,loaded-bashrc,ran,,login,unset",
+        `echo "$FIXTURE_SYSTEM_PROFILE,$FIXTURE_BASH_PROFILE,$FIXTURE_BASHRC,$FIXTURE_DEBUG_TRAP,` +
+        `$FIXTURE_PROFILE,${login},\${ENV-unset}"`,
+      expectedCheckOutput: () =>
+        `${systemProfiles.beside.expected},loaded-bash-profile,loaded-bashrc,ran,,login,unset`,
       passedThrough: [PERSON_PROMPT_MARK],
       traceCommand: "set -x",
       groupedRedirectCommand: (file) => `{ echo grouped; } > ${file}`,
       exitCommand: "logout",
+      checkAfterExit: (home) => {
+        expect(readFileSync(path.join(home, "logout.txt"), "utf8")).toBe("logged-out\n");
+        // `history -a` at each prompt wrote the lines typed to the person's own history file.
+        expect(readFileSync(path.join(home, ".bash_history"), "utf8")).toContain("\nfalse\n");
+      },
     },
     {
       name: `${bashName} beside bash-preexec`,
       shellPath,
+      operatingSystem: systemProfiles.preexec.operatingSystem,
       files: {
+        ...systemProfiles.preexec.files,
         ".bash_profile": [
           "export FIXTURE_BASH_PROFILE=loaded-bash-profile",
           ". ~/bash-preexec.sh",
@@ -199,8 +246,9 @@ function bashCases(
         ].join("\n"),
         "bash-preexec.sh": BASH_PREEXEC_STAND_IN,
       },
-      checkCommand: `echo "$FIXTURE_BASH_PROFILE,$FIXTURE_PREEXEC,${login}"`,
-      expectedCheckOutput: () => "loaded-bash-profile,ran,login",
+      checkCommand:
+        `echo "$FIXTURE_SYSTEM_PROFILE,$FIXTURE_BASH_PROFILE,$FIXTURE_PREEXEC,` + `${login}"`,
+      expectedCheckOutput: () => `${systemProfiles.preexec.expected},loaded-bash-profile,ran,login`,
       passedThrough: [PERSON_PROMPT_MARK],
       traceCommand: "set -x",
       groupedRedirectCommand: (file) => `{ echo grouped; } > ${file}`,
@@ -236,12 +284,14 @@ const SHELL_CASES: readonly ShellCase[] = [
     groupedRedirectCommand: (file) => `{ echo grouped; } > ${file}`,
     exitCommand: "exit",
   },
-  ...bashCases("bash", ENV_BASH_PATH, (command) => `PROMPT_COMMAND='${command}'`),
-  ...bashCases(
-    "macOS's own bash",
-    APPLE_BASH_PATH,
-    (command) => `PROMPT_COMMAND='${command}'$'\\n'"$PROMPT_COMMAND"`,
-  ),
+  ...bashCases("bash", ENV_BASH_PATH, {
+    beside: MACHINE_SYSTEM_PROFILE,
+    preexec: MACHINE_SYSTEM_PROFILE,
+  }),
+  ...bashCases("macOS's own bash", APPLE_BASH_PATH, {
+    beside: appleSystemProfile(true),
+    preexec: appleSystemProfile(false),
+  }),
   {
     name: "fish beside another handler of its prompt event",
     shellPath: findInstalledShell("fish"),
@@ -294,10 +344,10 @@ describe.skipIf(process.platform === "win32")("each shell's marks in a real logi
         }
         const home = writeFixtureHome(shellCase.files);
         const runFolder = mkdtempSync(path.join(tmpdir(), "shell-marks-run-"));
-        const host = new NodePtyHost(
-          makeOrphanGuardDouble(),
-          selectTerminalOperatingSystem(process.platform, process.env),
-        );
+        const operatingSystem =
+          shellCase.operatingSystem?.(home) ??
+          selectTerminalOperatingSystem(process.platform, process.env);
+        const host = new NodePtyHost(makeOrphanGuardDouble(), operatingSystem);
         const launch = await prepareShellLaunch({
           shellPath,
           environment: [
@@ -306,7 +356,7 @@ describe.skipIf(process.platform === "win32")("each shell's marks in a real logi
             ["TERM", "xterm-256color"],
           ],
           startupFolders: await prepareShellStartupFolders(runFolder),
-          operatingSystem: selectTerminalOperatingSystem(process.platform, process.env),
+          operatingSystem,
         });
         try {
           const { markNonce } = launch;
@@ -375,13 +425,20 @@ describe.skipIf(process.platform === "win32")("each shell's marks in a real logi
             { timeout: PROMPT_TIMEOUT_MS, interval: 20 },
           );
 
-          // The script deleted the nonce's file, and no variable a command inherits names it.
+          // The script deleted the nonce's file, and no variable a command inherits names it, the
+          // prompt command or any variable the launch set.
           expect(existsSync(nonceFile)).toBe(false);
           const inherited = await run("env");
           expect(markKinds(inherited.marks)).toEqual(ranWith(0));
           expect(inherited.output).toContain(`HOME=${home}`);
           expect(inherited.output).not.toContain(nonce);
           expect(inherited.output).not.toContain(nonceFile);
+          const launchNames = launch.environment
+            .map(([name]) => name)
+            .filter((name) => name.startsWith("SIDEKICKS_"));
+          for (const name of [...launchNames, "PROMPT_COMMAND"]) {
+            expect(inherited.output).not.toContain(`${name}=`);
+          }
 
           // The start mark a group's first command writes reaches the terminal, never the file
           // the group's output goes to.
@@ -414,6 +471,7 @@ describe.skipIf(process.platform === "win32")("each shell's marks in a real logi
             },
             { timeout: PROMPT_TIMEOUT_MS, interval: 20 },
           );
+          shellCase.checkAfterExit?.(home);
         } finally {
           await host.shutdown({ perSessionTimeoutMs: 2_000, hostTimeoutMs: 2_000 });
           if (launch.markNonce !== null) {

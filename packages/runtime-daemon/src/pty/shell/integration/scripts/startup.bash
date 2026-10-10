@@ -1,11 +1,13 @@
-# Loaded one of two ways, and either way the shell is a login shell. A bash started in posix mode
-# reads only the file `ENV` names, this one: it turns posix mode off and loads the login profile
-# itself. macOS's own bash, which skips `ENV`, reads its login profile as usual and loads this
-# file from its first prompt command, which this file then takes back out. Then it adds the hooks
-# that write the shell's marks. Runs in bash 3.2 as well as bash 5.
+# Loaded one of two ways, and either way the shell is a login shell that has read no login file
+# yet. A bash started in posix mode reads only the file `ENV` names, this one: it turns posix mode
+# off and puts the person's own `ENV` back. macOS's own bash, which skips that `ENV`, starts with
+# its login files skipped and evaluates this file from its first prompt command, which names the
+# system profile that bash reads. Either way this file then runs the login files as bash would
+# have, and adds the hooks that write the shell's marks. Runs in bash 3.2 as well as bash 5.
 
 if builtin shopt -oq posix; then
   __sidekicks_from_prompt=
+  __sidekicks_system_profile=/etc/profile
   builtin set +o posix
   # Posix mode turns this on, and turning posix mode off leaves it on.
   if ((BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 4))); then
@@ -23,11 +25,11 @@ if builtin shopt -oq posix; then
   fi
 else
   __sidekicks_from_prompt=1
+  builtin unset SIDEKICKS_BASH_SCRIPT
 fi
 
-# The nonce goes from its file into an unexported variable, and the file goes at once. In a posix
-# start that is before any startup file runs; loaded from the first prompt command, it is after
-# the login profile, so a program the profile started could have read the file meanwhile.
+# The nonce goes from its file into an unexported variable, and the file goes at once, before any
+# login file runs, so no program one starts can read it.
 __sidekicks_nonce=
 if [ -r "${SIDEKICKS_SHELL_MARK_NONCE_FILE-}" ]; then
   builtin read -r __sidekicks_nonce <"$SIDEKICKS_SHELL_MARK_NONCE_FILE"
@@ -35,33 +37,18 @@ if [ -r "${SIDEKICKS_SHELL_MARK_NONCE_FILE-}" ]; then
 fi
 builtin unset SIDEKICKS_SHELL_MARK_NONCE_FILE
 
-if [ -z "$__sidekicks_from_prompt" ]; then
-  if [ -r /etc/profile ]; then
-    builtin . /etc/profile
-  fi
-  if [ -r ~/.bash_profile ]; then
-    builtin . ~/.bash_profile
-  elif [ -r ~/.bash_login ]; then
-    builtin . ~/.bash_login
-  elif [ -r ~/.profile ]; then
-    builtin . ~/.profile
-  fi
-else
-  # The loader goes for a call that hands on the exit code it was given, so the prompt commands
-  # around it read what they would have. A first line typed after it is the first command only
-  # where no prompt command of the person's follows the loader.
-  __sidekicks_pass_status() {
-    builtin return "$?"
-  }
-  # The daemon hands over the loader's exact text, so it is written in one place.
-  __sidekicks_loader=$SIDEKICKS_BASH_PROMPT_LOADER
-  case $PROMPT_COMMAND in
-    *"$__sidekicks_loader") __sidekicks_is_loader_last=1 ;;
-    *) __sidekicks_is_loader_last= ;;
-  esac
-  PROMPT_COMMAND=${PROMPT_COMMAND//"$__sidekicks_loader"/__sidekicks_pass_status}
-  builtin export -n PROMPT_COMMAND
-  builtin unset SIDEKICKS_BASH_SCRIPT SIDEKICKS_BASH_PROMPT_LOADER __sidekicks_loader
+# The login files, in the order bash reads them: the system profile, then the first of the
+# person's own.
+if [ -r "$__sidekicks_system_profile" ]; then
+  builtin . "$__sidekicks_system_profile"
+fi
+builtin unset __sidekicks_system_profile
+if [ -r ~/.bash_profile ]; then
+  builtin . ~/.bash_profile
+elif [ -r ~/.bash_login ]; then
+  builtin . ~/.bash_login
+elif [ -r ~/.profile ]; then
+  builtin . ~/.profile
 fi
 
 __sidekicks_command_started=
@@ -145,9 +132,13 @@ else
   fi
 fi
 
-# Loaded from the first prompt command, so that prompt's marks are written here. Waiting for the
-# first command is the last thing done, so no command of this file writes its start mark.
+# Evaluated from the first prompt command, which ran in place of the prompt commands the login
+# files set, so they run now, once, the marks hook first, as at every later prompt. bash 3.2's
+# prompt command is one string. Running them is the last thing done, so no command of this file
+# writes the start mark.
 if [ -n "$__sidekicks_from_prompt" ]; then
-  __sidekicks_prompt_hook
-  __sidekicks_at_prompt=$__sidekicks_is_loader_last
+  builtin unset __sidekicks_from_prompt
+  builtin eval "$PROMPT_COMMAND"
+else
+  builtin unset __sidekicks_from_prompt
 fi

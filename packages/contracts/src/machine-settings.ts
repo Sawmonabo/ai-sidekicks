@@ -88,11 +88,9 @@ export const SHELL_ORIGINAL_ENV_ENVIRONMENT_NAME: string = "SIDEKICKS_ORIGINAL_E
 /** Names a Terminal pane's shell script for a bash that loads it from its first prompt command. */
 export const SHELL_BASH_SCRIPT_ENVIRONMENT_NAME: string = "SIDEKICKS_BASH_SCRIPT";
 
-/**
- * Carries the exact prompt command that loads a Terminal pane's shell script, which the script
- * takes back out of `PROMPT_COMMAND`.
- */
-export const SHELL_BASH_PROMPT_LOADER_ENVIRONMENT_NAME: string = "SIDEKICKS_BASH_PROMPT_LOADER";
+/** Carries bash's own `PROMPT_COMMAND` past the first prompt command that loads its script. */
+export const SHELL_ORIGINAL_PROMPT_COMMAND_ENVIRONMENT_NAME: string =
+  "SIDEKICKS_ORIGINAL_PROMPT_COMMAND";
 
 /** Carries zsh's own `ZDOTDIR` past the folder that loads a Terminal pane's shell script. */
 export const SHELL_ORIGINAL_ZDOTDIR_ENVIRONMENT_NAME: string = "SIDEKICKS_ORIGINAL_ZDOTDIR";
@@ -112,7 +110,7 @@ export const APP_SET_ENVIRONMENT_NAMES: readonly string[] = Object.freeze([
   SHELL_MARK_NONCE_FILE_ENVIRONMENT_NAME,
   SHELL_ORIGINAL_ENV_ENVIRONMENT_NAME,
   SHELL_BASH_SCRIPT_ENVIRONMENT_NAME,
-  SHELL_BASH_PROMPT_LOADER_ENVIRONMENT_NAME,
+  SHELL_ORIGINAL_PROMPT_COMMAND_ENVIRONMENT_NAME,
   SHELL_ORIGINAL_ZDOTDIR_ENVIRONMENT_NAME,
   SHELL_ORIGINAL_XDG_DATA_DIRS_ENVIRONMENT_NAME,
 ]);

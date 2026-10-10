@@ -1,14 +1,13 @@
 // How each shell is started so that this daemon's script loads beside the person's own startup
 // files and reports the shell's marks with a nonce minted for that shell alone. zsh reads the
 // script through a `ZDOTDIR` folder, copied into the daemon's run folder, whose files source the
-// person's own; bash starts as a login shell in posix mode, which reads only the file `ENV` names,
-// and the script turns posix mode off and loads the login profile itself; fish reads it through a
-// vendor configuration folder named first in `XDG_DATA_DIRS`, before the person's `config.fish`. A
-// bash that skips the posix start's `ENV`, as macOS's own does, starts as a plain login shell and
-// loads the script from its first prompt command. The nonce goes to the shell in a file of its
-// own, in a folder of the daemon's run folder, which the script reads and deletes, so it never
-// sits in the shell's environment, where any program of the account could read it. Every other
-// shell starts with no script and reports no marks, as a login shell where the system has one.
+// person's own; bash starts as the operating system says, the script running the person's login
+// files itself before it adds its hooks; fish reads it through a vendor configuration folder named
+// first in `XDG_DATA_DIRS`, before the person's `config.fish`. The nonce goes to the shell in a
+// file of its own, in a folder of the daemon's run folder, which the script reads and deletes
+// before any login file runs, so it never sits in the shell's environment, where any program of
+// the account could read it. Every other shell starts with no script and reports no marks, as a
+// login shell where the system has one.
 
 import { randomBytes } from "node:crypto";
 import { chmod, mkdir, rm, writeFile } from "node:fs/promises";
@@ -17,15 +16,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
-  SHELL_BASH_PROMPT_LOADER_ENVIRONMENT_NAME,
-  SHELL_BASH_SCRIPT_ENVIRONMENT_NAME,
   SHELL_MARK_NONCE_FILE_ENVIRONMENT_NAME,
-  SHELL_ORIGINAL_ENV_ENVIRONMENT_NAME,
   SHELL_ORIGINAL_XDG_DATA_DIRS_ENVIRONMENT_NAME,
   SHELL_ORIGINAL_ZDOTDIR_ENVIRONMENT_NAME,
 } from "@ai-sidekicks/contracts/machine-settings";
 
-import type { SpawnEnvPair } from "../../../provider/spawn-env.js";
+import { readSpawnEnvValue, type SpawnEnvPair } from "../../../provider/spawn-env.js";
 import type { TerminalOperatingSystem } from "../../operating-system/contract.js";
 import { prepareZshStartupFolder } from "./zsh-startup.js";
 
@@ -34,12 +30,6 @@ const SCRIPTS_FOLDER = fileURLToPath(new URL("./scripts/", import.meta.url));
 const BASH_SCRIPT_PATH = path.join(SCRIPTS_FOLDER, "startup.bash");
 // A data folder whose `fish/vendor_conf.d` holds fish's script.
 const FISH_DATA_FOLDER = path.join(SCRIPTS_FOLDER, "xdg-data");
-
-// The last prompt command, at its first prompt, of a bash that skips a posix start's `ENV`, which
-// loads the script; the script is handed this exact text and takes it back out of
-// `PROMPT_COMMAND`. It evaluates the script rather than sourcing it, because bash 3.2 puts back a
-// DEBUG trap a sourced file replaced once it ends.
-const BASH_PROMPT_LOADER = `builtin eval "$(<"$${SHELL_BASH_SCRIPT_ENVIRONMENT_NAME}")"`;
 
 // The shells a script here loads into; every other shell reports no marks.
 const SCRIPTED_SHELL_NAMES = ["zsh", "bash", "fish"] as const;
@@ -85,7 +75,7 @@ export async function prepareShellStartupFolders(
 
 /** How one shell is started so its script loads beside the person's own startup files. */
 export interface ShellLaunch {
-  /** The shell's path, as given. */
+  /** The program started: the shell, or for a bash the one the operating system starts it by. */
   readonly command: string;
   /** The login shell's arguments, plus what loads the script. */
   readonly args: readonly string[];
@@ -119,8 +109,12 @@ export async function prepareShellLaunch(input: {
     input.startupFolders.nonceFolder,
   );
   const noncePair: SpawnEnvPair = [SHELL_MARK_NONCE_FILE_ENVIRONMENT_NAME, markNonce.nonceFile];
-  const launch = (args: readonly string[], pairs: readonly SpawnEnvPair[]): ShellLaunch => ({
-    command: shellPath,
+  const launch = (
+    args: readonly string[],
+    pairs: readonly SpawnEnvPair[],
+    command = shellPath,
+  ): ShellLaunch => ({
+    command,
     args,
     environment: laidOver(environment, [noncePair, ...pairs]),
     markNonce,
@@ -128,7 +122,9 @@ export async function prepareShellLaunch(input: {
   switch (shellName) {
     case "zsh": {
       const personFolder =
-        valueOf(environment, "ZDOTDIR") ?? valueOf(environment, "HOME") ?? homedir();
+        readSpawnEnvValue(environment, "ZDOTDIR") ??
+        readSpawnEnvValue(environment, "HOME") ??
+        homedir();
       return launch(
         ["-l"],
         [
@@ -138,38 +134,17 @@ export async function prepareShellLaunch(input: {
       );
     }
     case "bash": {
-      if (operatingSystem.isBashSkippingPosixEnv(shellPath)) {
-        const personPromptCommand = valueOf(environment, "PROMPT_COMMAND");
-        return launch(
-          ["-l"],
-          [
-            [SHELL_BASH_SCRIPT_ENVIRONMENT_NAME, BASH_SCRIPT_PATH],
-            [SHELL_BASH_PROMPT_LOADER_ENVIRONMENT_NAME, BASH_PROMPT_LOADER],
-            [
-              "PROMPT_COMMAND",
-              personPromptCommand === undefined
-                ? BASH_PROMPT_LOADER
-                : `${personPromptCommand}\n${BASH_PROMPT_LOADER}`,
-            ],
-          ],
-        );
-      }
-      // The script puts the person's own `ENV` back, or erases it where none came.
-      const personEnv = valueOf(environment, "ENV");
-      return launch(
-        ["--posix", "-l"],
-        [
-          ...(personEnv === undefined
-            ? []
-            : [[SHELL_ORIGINAL_ENV_ENVIRONMENT_NAME, personEnv] satisfies SpawnEnvPair]),
-          ["ENV", BASH_SCRIPT_PATH],
-        ],
-      );
+      const bash = operatingSystem.startBash({
+        shellPath,
+        scriptPath: BASH_SCRIPT_PATH,
+        environment,
+      });
+      return launch(bash.args, bash.pairs, bash.command);
     }
     case "fish": {
       // The script puts the person's own value back, or erases the variable where none came; the
       // folders fish reads without one stay in reach meanwhile.
-      const personDataFolders = valueOf(environment, "XDG_DATA_DIRS");
+      const personDataFolders = readSpawnEnvValue(environment, "XDG_DATA_DIRS");
       const dataFolders =
         personDataFolders === undefined || personDataFolders.length === 0
           ? operatingSystem.defaultXdgDataFolders
@@ -210,10 +185,6 @@ async function writeMarkNonce(nonce: string, nonceFolder: string): Promise<Shell
 
 function isScriptedShellName(name: string): name is ScriptedShellName {
   return (SCRIPTED_SHELL_NAMES as readonly string[]).includes(name);
-}
-
-function valueOf(environment: readonly SpawnEnvPair[], name: string): string | undefined {
-  return environment.find(([pairName]) => pairName === name)?.[1];
 }
 
 function laidOver(

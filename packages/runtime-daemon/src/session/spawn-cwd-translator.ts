@@ -1,4 +1,5 @@
 import type { SpawnRequest } from "../pty/host/protocol.js";
+import { quoteForPosixShell } from "../shell-quoting.js";
 // Rewrites a spawn request so the PTY's cwd is a stable directory instead of a worktree.
 //
 // On Windows the OS locks the cwd of a spawned process for the process's lifetime, so deleting or
@@ -76,9 +77,9 @@ export function translateSpawnCwd(input: TranslateSpawnCwdInput): SpawnRequest {
 
   if (shell === "posix") {
     // `exec` replaces the wrapper shell, so the PTY child is the target and kill signals reach it.
-    const quotedWorktree: string = quotePosix(worktreePath);
-    const quotedCommand: string = quotePosix(spec.command);
-    const quotedArgs: string = spec.args.map(quotePosix).join(" ");
+    const quotedWorktree: string = quoteForPosixShell(worktreePath);
+    const quotedCommand: string = quoteForPosixShell(spec.command);
+    const quotedArgs: string = spec.args.map(quoteForPosixShell).join(" ");
     const shellScript: string =
       `cd ${quotedWorktree} && exec ${quotedCommand}` +
       (quotedArgs.length > 0 ? ` ${quotedArgs}` : "");
@@ -112,17 +113,6 @@ export function translateSpawnCwd(input: TranslateSpawnCwdInput): SpawnRequest {
     env: spec.env,
     cwd: stableParent,
   };
-}
-
-/**
- * Single-quotes a value for an `sh -c` command line. Nothing inside `'...'` is interpreted, so an
- * embedded `'` is written as `'\''` (close, escaped quote, reopen).
- */
-function quotePosix(value: string): string {
-  if (value.length === 0) {
-    return "''";
-  }
-  return "'" + value.replace(/'/g, "'\\''") + "'";
 }
 
 /**

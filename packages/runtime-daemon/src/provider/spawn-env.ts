@@ -298,3 +298,11 @@ export function placeFolderFirstOnSearchPath(
   });
   return isPathSet ? placed : [...placed, ["PATH", folder]];
 }
+
+/** The value of the first pair named exactly `name`, or `undefined` where none is. */
+export function readSpawnEnvValue(
+  environment: readonly SpawnEnvPair[],
+  name: string,
+): string | undefined {
+  return environment.find(([pairName]) => pairName === name)?.[1];
+}
