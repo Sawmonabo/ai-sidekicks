@@ -317,10 +317,22 @@ export class LocalIpcGateway {
     });
     socket.on("drain", () => {
       // Each waiting listener is called once; one that waits again from inside waits for the next.
+      // One that throws still lets the rest run, and its error is thrown once they have.
       const waiting = [...state.drainListeners];
       state.drainListeners.clear();
+      const errors: unknown[] = [];
       for (const listener of waiting) {
-        listener();
+        try {
+          listener();
+        } catch (error) {
+          errors.push(error);
+        }
+      }
+      if (errors.length === 1) {
+        throw errors[0];
+      }
+      if (errors.length > 1) {
+        throw new AggregateError(errors, "several drain listeners threw");
       }
     });
     socket.on("end", () => {

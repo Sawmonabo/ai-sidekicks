@@ -15,7 +15,11 @@ import { describe, expect, it, vi } from "vitest";
 import { makeOrphanGuardDouble } from "../../../__fixtures__/child-doubles.js";
 import { findInstalledShell } from "../../../__fixtures__/installed-shell.js";
 import { NodePtyHost } from "../../../host/node-pty.js";
-import { discardMarkNonceFile, prepareShellLaunch } from "../injection.js";
+import {
+  discardMarkNonceFile,
+  prepareShellLaunch,
+  prepareShellStartupFolders,
+} from "../injection.js";
 import { type ShellMark, ShellMarkReader } from "../marks.js";
 import { selectTerminalOperatingSystem } from "../../../operating-system/selector.js";
 
@@ -295,7 +299,7 @@ describe.skipIf(process.platform === "win32")("each shell's marks in a real logi
             ["PATH", process.env["PATH"] ?? "/usr/bin:/bin"],
             ["TERM", "xterm-256color"],
           ],
-          runFolderPath: runFolder,
+          startupFolders: await prepareShellStartupFolders(runFolder),
           operatingSystem: selectTerminalOperatingSystem(process.platform, process.env),
         });
         try {

@@ -8,8 +8,6 @@
 // point. One transcript projector serves both the read windows and the run stamp on each streamed
 // change. The services' background work starts only once the recovery pass has ended.
 
-import { userInfo } from "node:os";
-
 import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import type { NodeId } from "@ai-sidekicks/contracts/runtime-node/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
@@ -138,10 +136,14 @@ export interface SessionMethodsDeps {
    * built from.
    */
   readonly providerBaseEnvironment: readonly SpawnEnvPair[];
-  /** The daemon's run folder, which only this account may open; a shell's startup files go there. */
+  /**
+   * The daemon's run folder, which only this account may open; a shell's startup files go there.
+   */
   readonly runFolderPath: string;
   /** What the terminal takes from the operating system it runs on. */
   readonly terminalOperatingSystem: TerminalOperatingSystem;
+  /** Reads the person's login shell, which each shell opens; `null` where the account has none. */
+  readonly readLoginShell: () => string | null;
   /** Writes one line to the service log. */
   readonly writeServiceLog: (line: string) => void;
   /** The terminal host every session's shells run in. */
@@ -394,7 +396,7 @@ export function registerSessionMethods(
   });
   const shellTable = new ShellTable({
     host: deps.ptyHost,
-    followHostSession: (hostSessionId, listeners) =>
+    followPtySession: (hostSessionId, listeners) =>
       deps.ptySessionEvents.follow(hostSessionId, listeners),
     machineDeviceId: deps.machineDeviceId,
     readWorkingFolder: prepareWorkingFolderRead(database.reader),
@@ -409,8 +411,7 @@ export function registerSessionMethods(
       );
     },
     readScreenReaderMode: async () => (await deps.settingsFile.read()).settings.screenReaderMode,
-    // Read from the account's record at each open, so a shell changed with `chsh` opens next.
-    readLoginShell: () => userInfo().shell,
+    readLoginShell: deps.readLoginShell,
     baseEnvironment: deps.providerBaseEnvironment,
     runFolderPath: deps.runFolderPath,
     operatingSystem: deps.terminalOperatingSystem,

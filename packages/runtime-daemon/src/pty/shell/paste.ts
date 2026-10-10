@@ -1,8 +1,8 @@
 // A shell's pastes on their way in, each sent in parts. Whether a paste is marked as pasted is
 // fixed at its first part, by whether the program in the shell asked for bracketed paste then. A
-// paste belongs to the pane output subscription its newest part came through, and each pane has
-// at most one paste open: a pane that starts another closes its earlier one first, so the program
-// is never left inside a paste and what a shell keeps open is bounded by its panes.
+// shell has at most one paste open, which belongs to the pane output subscription its newest part
+// came through: a paste another part starts closes the open one first, so two panes' pastes never
+// interleave and the program is never left inside a paste.
 
 import type { SubscriptionId } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 
@@ -77,55 +77,47 @@ export interface ShellPastePart {
   readonly isLastPart: boolean;
 }
 
-/** The open pastes of one shell, at most one per pane output subscription. */
+/** A shell's pastes, at most one of them open at a time. */
 export class ShellPastes {
-  readonly #open = new Map<SubscriptionId, { readonly pasteId: string; paste: ShellPaste }>();
+  #open: {
+    readonly pasteId: string;
+    readonly owner: SubscriptionId;
+    readonly paste: ShellPaste;
+  } | null = null;
 
   /**
-   * The bytes one part puts on the shell's input: what closes the pane's earlier open paste when
-   * this part starts another, then the part itself. `isBracketed` is read only for a first part.
+   * The bytes one part puts on the shell's input: what closes the open paste when this part starts
+   * another, then the part itself. `isBracketed` is read only for a first part.
    */
   encodePart(part: ShellPastePart, isBracketed: () => boolean): Uint8Array {
-    const owner = this.#ownerOf(part.pasteId);
-    const open = owner === undefined ? undefined : this.#open.get(owner);
-    if (owner !== undefined) {
-      this.#open.delete(owner);
-    }
-    const displaced = this.closeFor(part.outputSubscriptionId);
+    const open = this.#open?.pasteId === part.pasteId ? this.#open : null;
+    const displaced = open === null ? this.closeAll() : NO_BYTES;
     const paste = open?.paste ?? new ShellPaste(isBracketed());
-    if (!part.isLastPart) {
-      this.#open.set(part.outputSubscriptionId, { pasteId: part.pasteId, paste });
-    }
+    this.#open = part.isLastPart
+      ? null
+      : { pasteId: part.pasteId, owner: part.outputSubscriptionId, paste };
     return Buffer.concat([displaced, paste.encodePart(part.data, part.isLastPart)]);
   }
 
   /** The bytes that close the paste open through a pane, which closes; none when it has none. */
   closeFor(outputSubscriptionId: SubscriptionId): Uint8Array {
-    const open = this.#open.get(outputSubscriptionId);
-    if (open === undefined) {
-      return NO_BYTES;
-    }
-    this.#open.delete(outputSubscriptionId);
-    return open.paste.close();
+    return this.#open?.owner === outputSubscriptionId ? this.closeAll() : NO_BYTES;
   }
 
   /** The bytes that close the paste `pasteId`, which closes; none when it is not open. */
   closePaste(pasteId: string): Uint8Array {
-    const owner = this.#ownerOf(pasteId);
-    return owner === undefined ? NO_BYTES : this.closeFor(owner);
+    return this.#open?.pasteId === pasteId ? this.closeAll() : NO_BYTES;
   }
 
-  /** Forgets every open paste, for a shell that takes no more input. */
+  /** The bytes that close the open paste, whichever pane it came through; none when none is. */
+  closeAll(): Uint8Array {
+    const open = this.#open;
+    this.#open = null;
+    return open === null ? NO_BYTES : open.paste.close();
+  }
+
+  /** Forgets the open paste, for a shell that takes no more input. */
   clear(): void {
-    this.#open.clear();
-  }
-
-  #ownerOf(pasteId: string): SubscriptionId | undefined {
-    for (const [outputSubscriptionId, open] of this.#open) {
-      if (open.pasteId === pasteId) {
-        return outputSubscriptionId;
-      }
-    }
-    return undefined;
+    this.#open = null;
   }
 }

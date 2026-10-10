@@ -284,11 +284,7 @@
       // ship with the operating system, never as a package dependency.
       "ignoreBinaries": ["scutil", "mkfifo"],
       "ignoreDependencies": [
-        // Loaded by `import()` of a specifier held in a variable (`pty/host/node-pty.ts`), which
-        // knip cannot follow; it is a hard runtime dependency.
-        "node-pty",
-        // The rest are libraries installed ahead of the code that imports them, each with what
-        // will import it.
+        // Libraries installed ahead of the code that imports them, each with what will import it.
         // The sandbox a workflow code step, and a person's own tool server at Sandboxed, runs in on
         // Claude Code.
         "@anthropic-ai/sandbox-runtime",

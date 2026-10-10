@@ -240,7 +240,7 @@ export class PurgeFixture {
       sessionLock: this.sessionLock,
       sessionList: this.sessionList,
       relatedRanking: this.relatedRanking,
-      shellTable: { closeSessionShells: async () => undefined },
+      shellTable: { closeSessionShells: async () => () => undefined },
       now: () => new Date(PURGE_INSTANT),
       whenFileCheckEnds: Promise.resolve(),
       ...overrides,

@@ -10,6 +10,7 @@ export function windowsTerminalOperatingSystem(
   return {
     defaultShell: commandInterpreter ?? "cmd.exe",
     loginShellArgs: [],
+    defaultXdgDataFolders: [],
     isBashSkippingPosixEnv: () => false,
     launchTerminalChild: (command, args) => ({ command, args: [...args] }),
   };

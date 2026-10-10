@@ -19,7 +19,11 @@ import { SESSION_WORKING_FOLDER_UNAVAILABLE_CODE } from "@ai-sidekicks/contracts
 import { DaemonDomainError } from "../../ipc/domain-error.js";
 import type { SpawnEnvPair } from "../../provider/spawn-env.js";
 import type { TerminalOperatingSystem } from "../operating-system/contract.js";
-import { prepareShellLaunch, type ShellLaunch } from "./integration/injection.js";
+import {
+  prepareShellLaunch,
+  type ShellLaunch,
+  type ShellStartupFolders,
+} from "./integration/injection.js";
 
 // What the system answers when it cannot start a program, in plain words; any other answer is
 // given in the system's own words.
@@ -53,8 +57,8 @@ interface ShellStartInput {
   readonly baseEnvironment: readonly SpawnEnvPair[];
   /** Whether `Simplify for a screen reader` is on, read at this start. */
   readonly isScreenReaderModeOn: boolean;
-  /** The daemon's run folder, which only this account may open. */
-  readonly runFolderPath: string;
+  /** The folders every shell's start reads from, prepared at the daemon's start. */
+  readonly startupFolders: ShellStartupFolders;
   /** What the terminal takes from the operating system it runs on. */
   readonly operatingSystem: TerminalOperatingSystem;
 }
@@ -72,20 +76,21 @@ function isErrnoError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error;
 }
 
-// Starts the program at `path` with no input and no environment and kills it once the system has
-// started it; answers the system's refusal, or `null` once it started. A refusal the system
-// reports at once is thrown by `spawn`, and one it reports later arrives as `error`.
+// Starts the program at `path` with no input and no environment and kills it as soon as `spawn`
+// returns, which is once the system has run it or refused to, so the program runs as little of
+// itself as can be; answers the system's refusal, or `null` once it started. A refusal is thrown
+// by `spawn` or arrives as `error`, and a program refused has no process id.
 function startOnce(path: string): Promise<NodeJS.ErrnoException | null> {
   return new Promise((resolve, reject) => {
     try {
       const probe = spawn(path, [], { stdio: "ignore", env: {} });
-      probe.once("spawn", () => {
-        probe.kill("SIGKILL");
-        resolve(null);
-      });
       probe.once("error", (error) => {
         resolve(error);
       });
+      if (probe.pid !== undefined) {
+        probe.kill("SIGKILL");
+        resolve(null);
+      }
     } catch (error) {
       if (isErrnoError(error)) {
         resolve(error);
@@ -141,7 +146,7 @@ async function launchShell(input: ShellStartInput, shellPath: string): Promise<S
   const launch = await prepareShellLaunch({
     shellPath,
     environment: input.baseEnvironment,
-    runFolderPath: input.runFolderPath,
+    startupFolders: input.startupFolders,
     operatingSystem: input.operatingSystem,
   });
   const environment = launch.environment.filter(

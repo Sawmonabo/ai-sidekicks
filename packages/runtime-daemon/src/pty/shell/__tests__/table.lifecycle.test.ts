@@ -204,7 +204,7 @@ describe("ShellTable lifecycle", () => {
     ]);
     expect(laptop.isCompleted()).toBe(true);
     await vi.waitFor(() => {
-      expect(nonceFiles.map((nonceFile) => existsSync(path.dirname(nonceFile)))).toEqual([false]);
+      expect(nonceFiles.map((nonceFile) => existsSync(nonceFile))).toEqual([false]);
     });
   });
 
@@ -254,7 +254,7 @@ describe("ShellTable lifecycle", () => {
       expect(lists.at(-1)?.terminals).toEqual([]);
     });
     await vi.waitFor(() => {
-      expect(existsSync(path.dirname(nonceFiles[0] ?? ""))).toBe(false);
+      expect(existsSync(nonceFiles[0] ?? "")).toBe(false);
     });
     expect(await refusalOf(() => table.close({ ...shell, force: true }, PHONE))).toMatchObject(
       notFound(terminalId),
@@ -331,7 +331,7 @@ describe("ShellTable lifecycle", () => {
       },
     ]);
     await vi.waitFor(() => {
-      expect(existsSync(path.dirname(nonceFiles[0] ?? ""))).toBe(false);
+      expect(existsSync(nonceFiles[0] ?? "")).toBe(false);
     });
   });
 
@@ -366,6 +366,37 @@ describe("ShellTable lifecycle", () => {
     });
     expect(changes.map((change) => change.reason)).toEqual(["taken"]);
     expect(write).not.toHaveBeenCalled();
+  });
+
+  it("ends a shell still starting as its session is deleted, refusing opens until let", async () => {
+    const { table, host, openShell, spawnCount } = openTable();
+    const spawnLanded = Promise.withResolvers<void>();
+    const spawn = host.spawn.bind(host);
+    vi.spyOn(host, "spawn").mockImplementationOnce(async (request) => {
+      const spawned = await spawn(request);
+      await spawnLanded.promise;
+      return spawned;
+    });
+    const close = vi.spyOn(host, "close");
+    const open = () => table.open({ sessionId: SESSION_ID, clientIdempotencyKey: randomUUID() });
+    const notHeld = { code: "session.not_found", fields: { sessionId: SESSION_ID } };
+
+    const opening = refusalOf(open);
+    await vi.waitFor(() => {
+      expect(spawnCount()).toBe(1);
+    });
+    const deleting = table.closeSessionShells(SESSION_ID);
+    // An open asked once the deletion began starts nothing.
+    expect(await refusalOf(open)).toMatchObject(notHeld);
+    spawnLanded.resolve();
+    const allowOpens = await deleting;
+
+    expect(await opening).toMatchObject(notHeld);
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(spawnCount()).toBe(1);
+    allowOpens();
+    await openShell();
+    expect(spawnCount()).toBe(2);
   });
 
   it("ends every shell of a session being deleted, whoever holds it, and no other's", async () => {

@@ -139,6 +139,7 @@ export async function startDaemon(
     commandShell: null,
     providerOperatingSystem: DARWIN_PROVIDER_OPERATING_SYSTEM,
     terminalOperatingSystem: selectTerminalOperatingSystem(process.platform, process.env),
+    readLoginShell: () => "/bin/sh",
     serviceVersion: SERVICE_VERSION,
     processIdentity: PROCESS_IDENTITY,
     readProcessTreeUsage: () => readProcessTreeUsage(process.pid),

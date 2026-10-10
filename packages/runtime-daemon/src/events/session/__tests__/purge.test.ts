@@ -296,17 +296,23 @@ describe("SessionPurge — the session's directory rows and managed workspace", 
     expect(existsSync(workspace.path)).toBe(true);
     expect(fixture.rowExists("session_events", message.id)).toBe(true);
 
-    // Each shell ends while the folder it runs in is still there.
+    // Each shell ends while the folder it runs in is still there, and no shell opens in the session
+    // again until its rows are gone.
     const folderStoodAtShellEnd: [string, boolean][] = [];
+    const rowStoodAtOpensAllowed: boolean[] = [];
     const shellTable = {
       closeSessionShells: async (sessionId: string) => {
         folderStoodAtShellEnd.push([sessionId, existsSync(workspace.path)]);
+        return () => {
+          rowStoodAtOpensAllowed.push(fixture.rowExists("session_events", message.id));
+        };
       },
     };
     const retried = onlyOutcome(await fixture.buildPurge({ shellTable }).purge([SESSION]));
 
     expect(retried.refusedReason).toBeUndefined();
     expect(folderStoodAtShellEnd).toEqual([[SESSION, true]]);
+    expect(rowStoodAtOpensAllowed).toEqual([false]);
     expect(existsSync(workspace.path)).toBe(false);
   });
 

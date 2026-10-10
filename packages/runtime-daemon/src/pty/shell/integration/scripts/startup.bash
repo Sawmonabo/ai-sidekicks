@@ -25,8 +25,9 @@ else
   __sidekicks_from_prompt=1
 fi
 
-# The nonce goes from its file into an unexported variable, and the file goes at once, so no
-# program the shell starts can read it.
+# The nonce goes from its file into an unexported variable, and the file goes at once. In a posix
+# start that is before any startup file runs; loaded from the first prompt command, it is after
+# the login profile, so a program the profile started could have read the file meanwhile.
 __sidekicks_nonce=
 if [ -r "${SIDEKICKS_SHELL_MARK_NONCE_FILE-}" ]; then
   builtin read -r __sidekicks_nonce <"$SIDEKICKS_SHELL_MARK_NONCE_FILE"
@@ -52,14 +53,15 @@ else
   __sidekicks_pass_status() {
     builtin return "$?"
   }
-  __sidekicks_loader='builtin eval "$(<"$SIDEKICKS_BASH_SCRIPT")"'
+  # The daemon hands over the loader's exact text, so it is written in one place.
+  __sidekicks_loader=$SIDEKICKS_BASH_PROMPT_LOADER
   case $PROMPT_COMMAND in
     *"$__sidekicks_loader") __sidekicks_is_loader_last=1 ;;
     *) __sidekicks_is_loader_last= ;;
   esac
   PROMPT_COMMAND=${PROMPT_COMMAND//"$__sidekicks_loader"/__sidekicks_pass_status}
   builtin export -n PROMPT_COMMAND
-  builtin unset SIDEKICKS_BASH_SCRIPT __sidekicks_loader
+  builtin unset SIDEKICKS_BASH_SCRIPT SIDEKICKS_BASH_PROMPT_LOADER __sidekicks_loader
 fi
 
 __sidekicks_command_started=

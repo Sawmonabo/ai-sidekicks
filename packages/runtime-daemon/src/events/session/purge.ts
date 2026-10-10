@@ -319,29 +319,38 @@ export class SessionPurge {
   async #purgeSession(sessionId: SessionId): Promise<SessionRowsDeletion> {
     try {
       return await this.#sessionLock.run(sessionId, async () => {
-        await this.#shellTable.closeSessionShells(sessionId).catch((error: unknown) => {
-          throw new SessionPurgeRefusal(
-            "the session's shells could not all be ended, so no row was deleted: " +
-              describeRejection(error),
+        const allowShellOpens = await this.#shellTable
+          .closeSessionShells(sessionId)
+          .catch((error: unknown) => {
+            throw new SessionPurgeRefusal(
+              "the session's shells could not all be ended, so no row was deleted: " +
+                describeRejection(error),
+            );
+          });
+        // No shell opens in the session until its folder and rows are gone or the purge refused.
+        try {
+          await this.#providerConversations
+            .deleteConversations(sessionId)
+            .catch((error: unknown) => {
+              throw new SessionPurgeRefusal(
+                "the provider's copy of a conversation could not be deleted, so no row was " +
+                  `deleted: ${describeRejection(error)}`,
+              );
+            });
+          await this.#managedWorkspaces.deleteFolder({ sessionId }).catch((error: unknown) => {
+            throw new SessionPurgeRefusal(
+              "the managed workspace could not be removed, so no row was deleted: " +
+                describeRejection(error),
+            );
+          });
+          const deletion = await sessionAppendLock.run(sessionId, () =>
+            this.#deleteSessionRows(sessionId),
           );
-        });
-        await this.#providerConversations.deleteConversations(sessionId).catch((error: unknown) => {
-          throw new SessionPurgeRefusal(
-            "the provider's copy of a conversation could not be deleted, so no row was " +
-              `deleted: ${describeRejection(error)}`,
-          );
-        });
-        await this.#managedWorkspaces.deleteFolder({ sessionId }).catch((error: unknown) => {
-          throw new SessionPurgeRefusal(
-            "the managed workspace could not be removed, so no row was deleted: " +
-              describeRejection(error),
-          );
-        });
-        const deletion = await sessionAppendLock.run(sessionId, () =>
-          this.#deleteSessionRows(sessionId),
-        );
-        this.#sessionList.refresh([sessionId]);
-        return deletion;
+          this.#sessionList.refresh([sessionId]);
+          return deletion;
+        } finally {
+          allowShellOpens();
+        }
       });
     } catch (error) {
       return {

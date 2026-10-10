@@ -1,5 +1,5 @@
 diff --git a/lib/terminal.js b/lib/terminal.js
-index 5b6aa1b08cbaefa9705faab36b9b16ad0e9aee05..690b8e462d9c31dc7e3f07b5d1f695d766c1b965 100644
+index 5b6aa1b08cbaefa9705faab36b9b16ad0e9aee05..39d90750d0405d030c6d46ea82e4006bb88b8ffa 100644
 --- a/lib/terminal.js
 +++ b/lib/terminal.js
 @@ -72,20 +72,26 @@ var Terminal = /** @class */ (function () {
@@ -31,8 +31,21 @@ index 5b6aa1b08cbaefa9705faab36b9b16ad0e9aee05..690b8e462d9c31dc7e3f07b5d1f695d7
      };
      Terminal.prototype._forwardEvents = function () {
          var _this = this;
+@@ -168,7 +174,11 @@ var Terminal = /** @class */ (function () {
+     };
+     Terminal.prototype._close = function () {
+         this._socket.readable = false;
+-        this.write = function () { };
++        this.write = function (data, callback) {
++            if (callback) {
++                callback(new Error('The terminal closed before this write'));
++            }
++        };
+         this.end = function () { };
+         this._writable = false;
+         this._readable = false;
 diff --git a/lib/unixTerminal.js b/lib/unixTerminal.js
-index af2d24c39deb60e77ad16e6b864f37a7ef58881c..6c37df90d9ece5f64ad85aac51f176f8088ad593 100644
+index af2d24c39deb60e77ad16e6b864f37a7ef58881c..f15dad3df05e6736ee0e408cb613c990127bdd4b 100644
 --- a/lib/unixTerminal.js
 +++ b/lib/unixTerminal.js
 @@ -97,6 +97,13 @@ var UnixTerminal = /** @class */ (function (_super) {
@@ -60,11 +73,15 @@ index af2d24c39deb60e77ad16e6b864f37a7ef58881c..6c37df90d9ece5f64ad85aac51f176f8
      };
      Object.defineProperty(UnixTerminal.prototype, "fd", {
          /* Accessors */
-@@ -293,18 +300,56 @@ var CustomWriteStream = /** @class */ (function () {
-         clearImmediate(this._writeImmediate);
-         this._writeImmediate = undefined;
-     };
--    CustomWriteStream.prototype.write = function (data) {
+@@ -290,25 +297,63 @@ var CustomWriteStream = /** @class */ (function () {
+         this._writeQueue = [];
+     }
+     CustomWriteStream.prototype.dispose = function () {
+-        clearImmediate(this._writeImmediate);
+-        this._writeImmediate = undefined;
++        clearTimeout(this._writeTimeout);
++        this._writeTimeout = undefined;
++    };
 +    /**
 +     * Fails every queued write's callback with `err` and empties the queue.
 +     */
@@ -89,7 +106,8 @@ index af2d24c39deb60e77ad16e6b864f37a7ef58881c..6c37df90d9ece5f64ad85aac51f176f8
 +        else {
 +            onIdle();
 +        }
-+    };
+     };
+-    CustomWriteStream.prototype.write = function (data) {
 +    /**
 +     * Queues `data`; `callback`, when given, is called once every byte of it is written, or with
 +     * the error that stopped it.
@@ -119,7 +137,12 @@ index af2d24c39deb60e77ad16e6b864f37a7ef58881c..6c37df90d9ece5f64ad85aac51f176f8
      };
      CustomWriteStream.prototype._processWriteQueue = function () {
          var _this = this;
-@@ -316,7 +361,14 @@ var CustomWriteStream = /** @class */ (function () {
+-        this._writeImmediate = undefined;
++        this._writeTimeout = undefined;
+         if (this._writeQueue.length === 0) {
+             return;
+         }
+@@ -316,23 +361,45 @@ var CustomWriteStream = /** @class */ (function () {
          // Write to the underlying file descriptor and handle it directly, rather
          // than using the `net.Socket`/`tty.WriteStream` wrappers which swallow and
          // mask errors like EAGAIN and can cause the thread to block indefinitely.
@@ -133,8 +156,16 @@ index af2d24c39deb60e77ad16e6b864f37a7ef58881c..6c37df90d9ece5f64ad85aac51f176f8
 +            }
              if (err) {
                  if ('code' in err && err.code === 'EAGAIN') {
-                     // `setImmediate` is used to yield to the event loop and re-attempt
-@@ -325,14 +377,23 @@ var CustomWriteStream = /** @class */ (function () {
+-                    // `setImmediate` is used to yield to the event loop and re-attempt
+-                    // the write later.
+-                    _this._writeImmediate = setImmediate(function () { return _this._processWriteQueue(); });
++                    // The kernel buffer is full until the terminal's program reads. Retry after a
++                    // pause that doubles from 1 ms to 50 ms while it stays full, so a program that
++                    // stopped reading costs a few wakeups a second rather than a busy loop.
++                    _this._retryDelay = _this._retryDelay === undefined
++                        ? 1
++                        : Math.min(_this._retryDelay * 2, 50);
++                    _this._writeTimeout = setTimeout(function () { return _this._processWriteQueue(); }, _this._retryDelay);
                  }
                  else {
                      // Stop processing immediately on unexpected error and log
@@ -151,6 +182,8 @@ index af2d24c39deb60e77ad16e6b864f37a7ef58881c..6c37df90d9ece5f64ad85aac51f176f8
                  }
                  return;
              }
++            // The buffer took bytes, so the next full buffer starts its pauses over.
++            _this._retryDelay = undefined;
              task.offset += written;
              if (task.offset >= task.buffer.byteLength) {
                  _this._writeQueue.shift();
@@ -161,10 +194,10 @@ index af2d24c39deb60e77ad16e6b864f37a7ef58881c..6c37df90d9ece5f64ad85aac51f176f8
              // Since there is more room in the kernel buffer, we can continue to write
              // until we hit EAGAIN or exhaust the queue.
 diff --git a/lib/windowsTerminal.js b/lib/windowsTerminal.js
-index cd658d0737b2b96e2f41fcd0715a5807caa91307..3262d80062ba495bd5c67d2c4892efe71609721d 100644
+index cd658d0737b2b96e2f41fcd0715a5807caa91307..2973b36aab3f406aab8f7cfedab61106c91cb1e4 100644
 --- a/lib/windowsTerminal.js
 +++ b/lib/windowsTerminal.js
-@@ -116,11 +116,11 @@ var WindowsTerminal = /** @class */ (function (_super) {
+@@ -116,11 +116,22 @@ var WindowsTerminal = /** @class */ (function (_super) {
          _this._forwardEvents();
          return _this;
      }
@@ -177,9 +210,44 @@ index cd658d0737b2b96e2f41fcd0715a5807caa91307..3262d80062ba495bd5c67d2c4892efe7
 -        this._agent.inSocket.write(data);
 +    WindowsTerminal.prototype._doWrite = function (write) {
 +        this._agent.inSocket.write(write.data, write.callback);
++    };
++    WindowsTerminal.prototype._close = function () {
++        _super.prototype._close.call(this);
++        // Calls still waiting for the first data never run now; a write's callback gets the error.
++        var deferreds = this._deferreds;
++        this._deferreds = [];
++        for (var i = 0; i < deferreds.length; i++) {
++            if (deferreds[i].fail) {
++                deferreds[i].fail(new Error('The terminal closed before this write'));
++            }
++        }
      };
      /**
       * openpty
+@@ -183,9 +194,21 @@ var WindowsTerminal = /** @class */ (function (_super) {
+             deferredFn.call(this, arg);
+             return;
+         }
+-        // Queue until terminal is ready.
++        // Queue until terminal is ready. A write failed by `_close` never runs, even when the
++        // ready handler is still walking the queue it was in.
++        var isFailed = false;
+         this._deferreds.push({
+-            run: function () { return deferredFn.call(_this, arg); }
++            run: function () {
++                if (!isFailed) {
++                    deferredFn.call(_this, arg);
++                }
++            },
++            fail: function (err) {
++                isFailed = true;
++                if (arg.callback) {
++                    arg.callback(err);
++                }
++            }
+         });
+     };
+     Object.defineProperty(WindowsTerminal.prototype, "process", {
 diff --git a/typings/node-pty.d.ts b/typings/node-pty.d.ts
 index a6fc5dd0b03af67da9c4bb1de30a8c01c72485d0..51adcedcd499688b7fc85834d49530b012dbf62f 100644
 --- a/typings/node-pty.d.ts

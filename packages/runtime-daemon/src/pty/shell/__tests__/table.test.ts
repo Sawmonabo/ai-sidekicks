@@ -3,9 +3,10 @@
 // watcher that fell behind catches up from the scrollback, the scrollback window keeps its newest
 // whole lines, a window too large for one message goes on in continuation frames, a character
 // split across reads arrives whole with every cursor counting only the bytes sent, input reaches
-// the shell in order and whole, a paste sent in parts marked once around them all, and a request
-// never reaches another session's shell or binds another connection's pane. Over a real zsh, the
-// shell's nonce and its marks reach neither the scrollback nor any output frame.
+// the shell in order and whole, a paste sent in parts marked once around them all and closed at a
+// change of holder, and a request never reaches another session's shell or binds another
+// connection's pane. Over a real zsh, the shell's nonce and its marks reach neither the
+// scrollback nor any output frame.
 
 import { randomUUID } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -308,9 +309,9 @@ describe("ShellTable", () => {
     ]);
     expect(Buffer.concat(pieces).toString()).toBe(whole);
 
-    // A paste belongs to the pane its newest part came through, and a pane's next paste closes
-    // its earlier one first; a paste its pane leaves unfinished is closed with its end mark,
-    // after what it still held.
+    // A shell holds one open paste, which belongs to the pane its newest part came through. A part
+    // of another paste, from any pane, closes the open one with its end mark first; a paste its
+    // pane leaves unfinished is closed with its end mark, after what it still held.
     const otherPane = paneOutlet(LAPTOP, 1);
     await table.subscribeOutput(shell, otherPane.outlet);
     const pastePart = (
@@ -328,7 +329,7 @@ describe("ShellTable", () => {
     expect(writes.slice(-4).map((write) => write.request.toString())).toEqual([
       "\x1b[200~m",
       "n",
-      "\x1b[200~d",
+      "\x1b[201~\x1b[200~d",
       "\x1b[201~\x1b[200~z",
     ]);
     table.endOutputSubscription(laptop.outlet.subscriptionId);
@@ -336,8 +337,23 @@ describe("ShellTable", () => {
     const closings = (): string =>
       Buffer.concat(writes.slice(writtenBefore).map((write) => write.request)).toString();
     await vi.waitFor(() => {
-      expect(closings()).toBe("\x1b[2\x1b[201~\x1b[201~");
+      expect(closings()).toBe("\x1b[2\x1b[201~");
     });
+
+    // A change of holder closes the open paste first, so the new holder's keys never land in it.
+    const laptopAgain = paneOutlet(LAPTOP, 1);
+    const phone = paneOutlet(PHONE, 2);
+    await table.subscribeOutput(shell, laptopAgain.outlet);
+    await table.subscribeOutput(shell, phone.outlet);
+    await pastePart(laptopAgain, { pasteId: randomUUID(), data: "p", isLastPart: false });
+    const writtenBeforeTake = writes.length;
+    await table
+      .leaseForOutputSubscription(SESSION_ID, terminalId, phone.caller)
+      .take(phone.caller, true);
+    await table.write(writeThrough(shell, phone.caller.outputSubscriptionId, "k"), phone.caller);
+    expect(
+      Buffer.concat(writes.slice(writtenBeforeTake).map((write) => write.request)).toString(),
+    ).toBe("\x1b[201~k");
   });
 
   it("never reaches another session's shell or binds another connection's pane", async () => {

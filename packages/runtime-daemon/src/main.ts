@@ -116,6 +116,9 @@ const daemon = await DaemonProcess.start({
     }),
   commandShell: account.shell,
   providerOperatingSystem: selectProviderOperatingSystem(process.platform),
+  terminalOperatingSystem,
+  // Read from the account's record at each open, so a shell changed with `chsh` opens next.
+  readLoginShell: () => os.userInfo().shell,
   serviceVersion: readServiceVersion(),
   processIdentity,
   readProcessTreeUsage: () => readProcessTreeUsage(process.pid),

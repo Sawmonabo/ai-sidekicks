@@ -7,6 +7,8 @@
 // program and its arguments travel as argv (`$0` and `"$@"`), never parsed by a shell, so any
 // bytes pass through exactly.
 
+import type { TerminalChildLaunch } from "./contract.js";
+
 /**
  * Rewrites a POSIX terminal child's launch so `/bin/sh` starts `command` with `args` only if the
  * process `daemonProcessId` was its parent when it started, and exits 1 otherwise.
@@ -15,7 +17,7 @@ export function requireDaemonParent(
   command: string,
   args: readonly string[],
   daemonProcessId: number,
-): { readonly command: string; readonly args: string[] } {
+): TerminalChildLaunch {
   const script = `[ "$PPID" = "${String(daemonProcessId)}" ] || exit 1; exec "$0" "$@"`;
   return { command: "/bin/sh", args: ["-c", script, command, ...args] };
 }

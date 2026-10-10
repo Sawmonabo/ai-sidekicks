@@ -6,17 +6,18 @@
 // vendor configuration folder named first in `XDG_DATA_DIRS`, before the person's `config.fish`. A
 // bash that skips the posix start's `ENV`, as macOS's own does, starts as a plain login shell and
 // loads the script from its first prompt command. The nonce goes to the shell in a file of its
-// own, which the script reads and deletes, so it never sits in the shell's environment, where any
-// program of the account could read it. Every other shell starts with no script and reports no
-// marks, as a login shell where the system has one.
+// own, in a folder of the daemon's run folder, which the script reads and deletes, so it never
+// sits in the shell's environment, where any program of the account could read it. Every other
+// shell starts with no script and reports no marks, as a login shell where the system has one.
 
 import { randomBytes } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { homedir, tmpdir } from "node:os";
+import { chmod, mkdir, rm, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  SHELL_BASH_PROMPT_LOADER_ENVIRONMENT_NAME,
   SHELL_BASH_SCRIPT_ENVIRONMENT_NAME,
   SHELL_MARK_NONCE_FILE_ENVIRONMENT_NAME,
   SHELL_ORIGINAL_ENV_ENVIRONMENT_NAME,
@@ -33,13 +34,11 @@ const SCRIPTS_FOLDER = fileURLToPath(new URL("./scripts/", import.meta.url));
 const BASH_SCRIPT_PATH = path.join(SCRIPTS_FOLDER, "startup.bash");
 // A data folder whose `fish/vendor_conf.d` holds fish's script.
 const FISH_DATA_FOLDER = path.join(SCRIPTS_FOLDER, "xdg-data");
-// The data folders fish reads when `XDG_DATA_DIRS` names none, as the XDG specification sets them.
-const DEFAULT_XDG_DATA_DIRS = ["/usr/local/share", "/usr/share"];
 
 // The last prompt command, at its first prompt, of a bash that skips a posix start's `ENV`, which
-// loads the script; the script takes this exact text back out of `PROMPT_COMMAND`. It evaluates
-// the script rather than sourcing it, because bash 3.2 puts back a DEBUG trap a sourced file
-// replaced once it ends.
+// loads the script; the script is handed this exact text and takes it back out of
+// `PROMPT_COMMAND`. It evaluates the script rather than sourcing it, because bash 3.2 puts back a
+// DEBUG trap a sourced file replaced once it ends.
 const BASH_PROMPT_LOADER = `builtin eval "$(<"$${SHELL_BASH_SCRIPT_ENVIRONMENT_NAME}")"`;
 
 // The shells a script here loads into; every other shell reports no marks.
@@ -48,12 +47,40 @@ type ScriptedShellName = (typeof SCRIPTED_SHELL_NAMES)[number];
 
 // Sixteen random bytes, written as hex so the nonce is a plain option value in a mark.
 const NONCE_BYTE_LENGTH = 16;
+// The folder of the run folder each shell's nonce file is written in.
+const NONCE_FOLDER_NAME = "shell-nonces";
+const PRIVATE_FOLDER_MODE = 0o700;
+const PRIVATE_FILE_MODE = 0o600;
+
+/** The folders every shell's start reads from, prepared once at the daemon's start. */
+export interface ShellStartupFolders {
+  /** The folder each zsh's `ZDOTDIR` names. */
+  readonly zshFolder: string;
+  /** The folder each shell's nonce file is written in, which only this account may open. */
+  readonly nonceFolder: string;
+}
 
 /** The nonce a shell's marks carry and the file the shell reads it from. */
 export interface ShellMarkNonce {
   readonly nonce: string;
-  /** Alone in a folder only this account may open; {@link discardMarkNonceFile} removes both. */
+  /** In the nonce folder; {@link discardMarkNonceFile} removes it. */
   readonly nonceFile: string;
+}
+
+/**
+ * Prepares the folders every shell's start reads from, inside the daemon's run folder: zsh's
+ * startup files, and an empty nonce folder only this account may open, so no nonce file an
+ * earlier start left behind outlives this start.
+ */
+export async function prepareShellStartupFolders(
+  runFolderPath: string,
+): Promise<ShellStartupFolders> {
+  const nonceFolder = path.join(runFolderPath, NONCE_FOLDER_NAME);
+  await rm(nonceFolder, { recursive: true, force: true });
+  await mkdir(nonceFolder, { mode: PRIVATE_FOLDER_MODE });
+  // The mode a folder is made with is narrowed by the process's mask, so it is set again.
+  await chmod(nonceFolder, PRIVATE_FOLDER_MODE);
+  return { zshFolder: await prepareZshStartupFolder(runFolderPath), nonceFolder };
 }
 
 /** How one shell is started so its script loads beside the person's own startup files. */
@@ -76,8 +103,8 @@ export interface ShellLaunch {
 export async function prepareShellLaunch(input: {
   readonly shellPath: string;
   readonly environment: readonly SpawnEnvPair[];
-  /** The daemon's run folder, which only this account may open; zsh's startup files go there. */
-  readonly runFolderPath: string;
+  /** The folders the daemon prepared at its start. */
+  readonly startupFolders: ShellStartupFolders;
   /** What the terminal takes from the operating system it runs on. */
   readonly operatingSystem: TerminalOperatingSystem;
 }): Promise<ShellLaunch> {
@@ -87,7 +114,10 @@ export async function prepareShellLaunch(input: {
     const args = [...operatingSystem.loginShellArgs];
     return { command: shellPath, args, environment, markNonce: null };
   }
-  const markNonce = await writeMarkNonce(randomBytes(NONCE_BYTE_LENGTH).toString("hex"));
+  const markNonce = await writeMarkNonce(
+    randomBytes(NONCE_BYTE_LENGTH).toString("hex"),
+    input.startupFolders.nonceFolder,
+  );
   const noncePair: SpawnEnvPair = [SHELL_MARK_NONCE_FILE_ENVIRONMENT_NAME, markNonce.nonceFile];
   const launch = (args: readonly string[], pairs: readonly SpawnEnvPair[]): ShellLaunch => ({
     command: shellPath,
@@ -103,7 +133,7 @@ export async function prepareShellLaunch(input: {
         ["-l"],
         [
           [SHELL_ORIGINAL_ZDOTDIR_ENVIRONMENT_NAME, personFolder],
-          ["ZDOTDIR", await prepareZshStartupFolder(input.runFolderPath)],
+          ["ZDOTDIR", input.startupFolders.zshFolder],
         ],
       );
     }
@@ -114,6 +144,7 @@ export async function prepareShellLaunch(input: {
           ["-l"],
           [
             [SHELL_BASH_SCRIPT_ENVIRONMENT_NAME, BASH_SCRIPT_PATH],
+            [SHELL_BASH_PROMPT_LOADER_ENVIRONMENT_NAME, BASH_PROMPT_LOADER],
             [
               "PROMPT_COMMAND",
               personPromptCommand === undefined
@@ -141,7 +172,7 @@ export async function prepareShellLaunch(input: {
       const personDataFolders = valueOf(environment, "XDG_DATA_DIRS");
       const dataFolders =
         personDataFolders === undefined || personDataFolders.length === 0
-          ? DEFAULT_XDG_DATA_DIRS
+          ? operatingSystem.defaultXdgDataFolders
           : [personDataFolders];
       return launch(
         ["-l"],
@@ -162,24 +193,19 @@ export async function prepareShellLaunch(input: {
 }
 
 /**
- * Removes a shell's nonce file and its folder, once the shell has read it or will not; a file the
- * script already deleted leaves only the folder.
+ * Removes a shell's nonce file once the shell has read it or never will; one the script already
+ * deleted is no failure.
  */
 export async function discardMarkNonceFile(markNonce: ShellMarkNonce): Promise<void> {
-  await rm(path.dirname(markNonce.nonceFile), { recursive: true, force: true });
+  await rm(markNonce.nonceFile, { force: true });
 }
 
-// Writes the nonce to a file of its own in a new folder only this account may open.
-async function writeMarkNonce(nonce: string): Promise<ShellMarkNonce> {
-  const folder = await mkdtemp(path.join(tmpdir(), "sidekicks-shell-"));
-  const markNonce: ShellMarkNonce = { nonce, nonceFile: path.join(folder, "nonce") };
-  try {
-    await writeFile(markNonce.nonceFile, `${nonce}\n`, { mode: 0o600, flag: "wx" });
-  } catch (error) {
-    await discardMarkNonceFile(markNonce);
-    throw error;
-  }
-  return markNonce;
+// Writes the nonce to a new file of its own in the nonce folder, readable by this account alone.
+async function writeMarkNonce(nonce: string, nonceFolder: string): Promise<ShellMarkNonce> {
+  // A random name, so no file another start wrote is opened; `wx` refuses one that exists.
+  const nonceFile = path.join(nonceFolder, randomBytes(NONCE_BYTE_LENGTH).toString("hex"));
+  await writeFile(nonceFile, `${nonce}\n`, { mode: PRIVATE_FILE_MODE, flag: "wx" });
+  return { nonce, nonceFile };
 }
 
 function isScriptedShellName(name: string): name is ScriptedShellName {

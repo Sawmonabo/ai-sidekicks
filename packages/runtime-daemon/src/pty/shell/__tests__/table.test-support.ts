@@ -132,7 +132,7 @@ export function openTable(options: TableOptions = {}): TableUnderTest {
   const hostSessionEvents = new PtySessionEvents(host);
   const table = new ShellTable({
     host,
-    followHostSession: (hostSessionId, listeners) =>
+    followPtySession: (hostSessionId, listeners) =>
       hostSessionEvents.follow(hostSessionId, listeners),
     machineDeviceId: MACHINE,
     readWorkingFolder: (sessionId) => {

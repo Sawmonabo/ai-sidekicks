@@ -145,6 +145,11 @@ export interface DaemonProcessOptions {
   readonly providerOperatingSystem: ProviderOperatingSystem;
   /** What the terminal takes from the operating system it runs on, picked once at the start. */
   readonly terminalOperatingSystem: TerminalOperatingSystem;
+  /**
+   * Reads the person's login shell at each shell open, so a shell changed with `chsh` opens next;
+   * `null` where the account names none.
+   */
+  readonly readLoginShell: () => string | null;
   /** The service's own release version, which the status read reports. */
   readonly serviceVersion: string;
   /** The daemon's own process as the system knows it, which the status read reports. */
@@ -314,6 +319,7 @@ export class DaemonProcess {
       providerBaseEnvironment: parts.providerBaseEnvironment,
       runFolderPath: options.runFolder.folderPath,
       terminalOperatingSystem: options.terminalOperatingSystem,
+      readLoginShell: options.readLoginShell,
       refuseSessionWrite: (sessionId, eventType) => {
         refuseSessionEvent(this.#recoveryStatus, sessionId, eventType);
       },

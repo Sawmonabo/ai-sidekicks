@@ -31,7 +31,7 @@ patchedDependencies:
     hash: c11ee8a5c80ab59f9d8f2e419d6bde29cac61d64e63cc88aefe787c384fd777c
     path: patches/@xyflow__system@0.0.83.patch
   node-pty@1.2.0-beta.15:
-    hash: 933a1ea6d434450d7784988ce1e46ca11199572fc55a5f7a2b6d95e94ba009d7
+    hash: 242b8bb559d8d687221fa2fc92b1d2be7cf55a752aea6d4ab826daea25bbbe58
     path: patches/node-pty@1.2.0-beta.15.patch
   signalsmith-stretch@1.3.2:
     hash: 57d4569b9fb9b9f1948d03cb1df3a04d8a52bc27d8d0057761a9c9d387a92fc7
@@ -535,7 +535,7 @@ importers:
         version: 13.1.0
       node-pty:
         specifier: ^1.2.0-beta.15
-        version: 1.2.0-beta.15(patch_hash=933a1ea6d434450d7784988ce1e46ca11199572fc55a5f7a2b6d95e94ba009d7)
+        version: 1.2.0-beta.15(patch_hash=242b8bb559d8d687221fa2fc92b1d2be7cf55a752aea6d4ab826daea25bbbe58)
       nodemailer:
         specifier: 10.0.13
         version: 10.0.13
@@ -614,7 +614,7 @@ importers:
     devDependencies:
       '@napi-rs/cli':
         specifier: 3.10.8
-        version: 3.10.8(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@26.6.3)
+        version: 3.10.8(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)(@types/node@26.6.3)
 
   packages/search-ranking: {}
 
@@ -9706,7 +9706,7 @@ snapshots:
       '@modelcontextprotocol/core': 2.3.0
       zod: 4.6.5
 
-  '@napi-rs/cli@3.10.8(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@26.6.3)':
+  '@napi-rs/cli@3.10.8(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)(@types/node@26.6.3)':
     dependencies:
       '@inquirer/prompts': 8.7.2(@types/node@26.6.3)
       '@napi-rs/cross-toolchain': 1.0.3
@@ -9721,8 +9721,8 @@ snapshots:
       typanion: 3.14.0
       typescript: 6.0.3
     optionalDependencies:
-      '@emnapi/core': 1.9.2
-      '@emnapi/runtime': 1.9.2
+      '@emnapi/core': 1.11.2
+      '@emnapi/runtime': 1.11.2
     transitivePeerDependencies:
       - '@napi-rs/cross-toolchain-arm64-target-aarch64'
       - '@napi-rs/cross-toolchain-arm64-target-armv7'
@@ -14308,7 +14308,7 @@ snapshots:
 
   node-int64@0.4.0: {}
 
-  node-pty@1.2.0-beta.15(patch_hash=933a1ea6d434450d7784988ce1e46ca11199572fc55a5f7a2b6d95e94ba009d7):
+  node-pty@1.2.0-beta.15(patch_hash=242b8bb559d8d687221fa2fc92b1d2be7cf55a752aea6d4ab826daea25bbbe58):
     dependencies:
       node-addon-api: 7.1.1
 
