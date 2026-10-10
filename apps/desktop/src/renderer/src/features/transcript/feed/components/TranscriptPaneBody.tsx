@@ -4,7 +4,7 @@
 
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
-import { type TranscriptPageRead } from "#renderer/services/daemon/transcript-page.js";
+import { type TranscriptPageRead } from "#renderer/services/daemon/transcript/page.js";
 import { type TranscriptRowRenderer } from "../../rows/renderer.js";
 import { TranscriptFeed } from "./TranscriptFeed.js";
 

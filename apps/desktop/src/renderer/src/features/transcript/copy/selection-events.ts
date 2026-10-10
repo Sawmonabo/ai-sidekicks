@@ -11,7 +11,7 @@ import { RefusalError } from "#renderer/lib/refusal/contract.js";
 import {
   readTranscriptPage,
   type TranscriptPageRead,
-} from "#renderer/services/daemon/transcript-page.js";
+} from "#renderer/services/daemon/transcript/page.js";
 import { heldIdAsWireId } from "#renderer/services/daemon/wire/identifiers.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { type RowSelection } from "../viewport/selection/record.js";

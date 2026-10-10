@@ -19,7 +19,7 @@ import type { TranscriptReadRow, TranscriptRunStamp } from "@ai-sidekicks/contra
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import type { TranscriptWindowEdge } from "#renderer/store/session/state.js";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
-import { callDaemon, type DaemonCallOptions, type DaemonReply } from "./reply.js";
+import { callDaemon, type DaemonCallOptions, type DaemonReply } from "../reply.js";
 
 /**
  * One `transcript.read`, parsed, or the refusal standing in its place. Resolves `served` or

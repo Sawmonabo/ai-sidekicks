@@ -16,7 +16,7 @@ import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
-import { type TranscriptPageRead } from "#renderer/services/daemon/transcript-page.js";
+import { type TranscriptPageRead } from "#renderer/services/daemon/transcript/page.js";
 import {
   LONG_LOG_EVENT_COUNT,
   RowIdBody,

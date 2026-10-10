@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { TranscriptReadRequest } from "@ai-sidekicks/contracts/transcript/operations";
 
 import { ManualClock } from "#renderer/lib/clock.js";
-import { transcriptPageReadThroughDaemon } from "#renderer/services/daemon/transcript-page.js";
+import { transcriptPageReadThroughDaemon } from "#renderer/services/daemon/transcript/page.js";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
 import {

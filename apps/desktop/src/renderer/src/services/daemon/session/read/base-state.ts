@@ -15,7 +15,7 @@ import {
   readTranscriptPage,
   transcriptPageReadThroughDaemon,
   type TranscriptPage,
-} from "../../transcript-page.js";
+} from "../../transcript/page.js";
 import { readSessionId } from "../../wire/identifiers.js";
 import { projectSessionEvent } from "../event/payload.js";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";

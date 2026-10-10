@@ -41,7 +41,7 @@ import {
   useTranscriptHistory,
   type TranscriptHistory,
 } from "../../history/hooks/useTranscriptHistory.js";
-import { type TranscriptPageRead } from "#renderer/services/daemon/transcript-page.js";
+import { type TranscriptPageRead } from "#renderer/services/daemon/transcript/page.js";
 import { DrawnRowFilter, isDrawnRow } from "../drawn-rows.js";
 import {
   rowBodyLengthOf,

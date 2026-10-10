@@ -43,7 +43,7 @@ import {
   TranscriptRow,
   drawsTranscriptRowBody,
 } from "#renderer/features/transcript/rows/TranscriptRow.js";
-import { type TranscriptPageRead } from "#renderer/services/daemon/transcript-page.js";
+import { type TranscriptPageRead } from "#renderer/services/daemon/transcript/page.js";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { letFramesPass, nextFrame } from "../../helpers/animation-frame.js";
 import { readerScrollsTo } from "./reader-scroll.js";

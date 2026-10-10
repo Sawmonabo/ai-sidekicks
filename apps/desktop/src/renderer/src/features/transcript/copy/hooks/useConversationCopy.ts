@@ -4,7 +4,7 @@ import type { TextClipboardContent } from "#shared/preload-api.js";
 import { useAnnounce } from "#renderer/hooks/announce/useAnnounce.js";
 import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
-import { type TranscriptPageRead } from "#renderer/services/daemon/transcript-page.js";
+import { type TranscriptPageRead } from "#renderer/services/daemon/transcript/page.js";
 import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
 import { primarySelectionFor } from "#renderer/services/platform/primary-selection/host.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
