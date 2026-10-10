@@ -263,8 +263,7 @@ async function prepareWithNewestBackup(
       throw error;
     }
     options.writeServiceLog(
-      "The newest backup could not be read and was passed over: " +
-        describeRejection(error),
+      "The newest backup could not be read and was passed over: " + describeRejection(error),
     );
   }
   try {

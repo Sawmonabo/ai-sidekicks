@@ -386,4 +386,3 @@ export class StartupRecovery {
 function elapsedMs(startedAt: number): number {
   return Math.round(performance.now() - startedAt);
 }
-
