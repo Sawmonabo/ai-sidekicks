@@ -5,7 +5,11 @@ import { describe, expect, it } from "vitest";
 
 import { diffFileListReading, selectedEntryRow } from "./file-entries.js";
 import { buildDiffFixture } from "#test/helpers/diff/fixture/model.js";
-import { SMALL_DIFF_SHAPE } from "#test/helpers/diff/fixture/shapes.js";
+import {
+  EXTENDED_HEADER_DIFF_SHAPE,
+  EXTENDED_HEADER_FIXTURE_FILES,
+  SMALL_DIFF_SHAPE,
+} from "#test/helpers/diff/fixture/shapes.js";
 
 const DIFF = buildDiffFixture(SMALL_DIFF_SHAPE);
 const FIRST_PATH = DIFF.files[0]?.path ?? "";
@@ -24,6 +28,14 @@ describe("diffFileListReading", () => {
     const { entries, matchCount } = diffFileListReading(DIFF, "module-01");
     expect(entries[0]).toStrictEqual({ kind: "all-files", fileCount: SMALL_DIFF_SHAPE.fileCount });
     expect(matchCount).toBe(1);
+  });
+
+  it("gives a binary file its kind words alone: no zero counts, and no reason on its row", () => {
+    const { path } = EXTENDED_HEADER_FIXTURE_FILES.binary;
+    const { entries } = diffFileListReading(buildDiffFixture(EXTENDED_HEADER_DIFF_SHAPE), path);
+    expect(entries[1]).toStrictEqual({ kind: "file", path, changeNotes: [] });
+    // A file with lines keeps its counts.
+    expect(diffFileListReading(DIFF, "module-01").entries[1]).toHaveProperty("counts");
   });
 
   it("matches the wire-verbatim path, case-insensitively and on a substring", () => {
