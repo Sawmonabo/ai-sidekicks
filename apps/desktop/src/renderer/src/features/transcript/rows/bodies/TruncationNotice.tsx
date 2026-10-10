@@ -1,6 +1,8 @@
 // The notice a truncated body's prefix carries: "truncated at N of M bytes" and what is known of
 // the rest. A prefix alone would read as a complete short answer.
 
+import "./TruncationNotice.css";
+
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { byteFigurePart, type FigureSentencePart } from "#renderer/lib/figure-sentence.js";
 import { measureUtf8ByteLength } from "#renderer/lib/utf8-byte-length.js";
@@ -58,11 +60,13 @@ export function TruncationNotice(props: TruncationNoticeProps): React.JSX.Elemen
         ];
 
   return (
-    <Nothing
-      kind="empty"
-      placement="inline"
-      title={[...measurement, " ", ...remainderSentence(remainder)]}
-    />
+    <span className="meridian-truncation-notice">
+      <Nothing
+        kind="empty"
+        placement="inline"
+        title={[...measurement, " ", ...remainderSentence(remainder)]}
+      />
+    </span>
   );
 }
 

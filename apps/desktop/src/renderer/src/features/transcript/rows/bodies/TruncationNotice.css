@@ -1,0 +1,10 @@
+/* The notice a truncated body's prefix carries: `TruncationNotice`. */
+
+/*
+ * Its byte counts read in the sentence's own ink, as the words around them do, not the derived
+ * figure's muted one. A wrapper that draws no box, so the badge keeps its place in the body.
+ */
+.meridian-truncation-notice {
+  display: contents;
+  --meridian-figure-derived-color: inherit;
+}
