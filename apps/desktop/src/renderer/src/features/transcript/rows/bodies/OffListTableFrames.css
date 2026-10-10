@@ -1,0 +1,18 @@
+/* The hidden rows long tables are measured in before their rows are listed. */
+
+/*
+ * Laid out but never seen: off screen, taking no room, never painted, never selected and out of
+ * every reader's tree. Its rows take their own widths inside it.
+ */
+.meridian-off-list-table-frames {
+  position: fixed;
+  top: 0;
+  left: -100vw;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  contain: strict;
+  user-select: none;
+  pointer-events: none;
+}

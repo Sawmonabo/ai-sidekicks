@@ -7,7 +7,7 @@ import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAn
 import { liveRegionText } from "#test/helpers/live-region.js";
 import { FindBox } from "./FindBox.js";
 import { findInTranscript, type FindResult } from "../matcher.js";
-import { runRow } from "../../event-rows.test-support.js";
+import { userMessageRow } from "../../event-rows.test-support.js";
 
 /** More matches than the three-row window below can walk, so the cap arm is real. */
 const UNCAPPED_TOTAL = 940;
@@ -15,32 +15,12 @@ const UNCAPPED_TOTAL = 940;
 function matchingResult(): FindResult {
   return findInTranscript(
     [
-      runRow({
-        id: "r1",
-        sequence: 1,
-        type: "run.running",
-        runId: "run-a",
-        position: 1,
-        summary: "hit one",
-      }),
-      runRow({
-        id: "r2",
-        sequence: 2,
-        type: "run.running",
-        runId: "run-a",
-        position: 2,
-        summary: "hit two",
-      }),
-      runRow({
-        id: "r3",
-        sequence: 3,
-        type: "run.running",
-        runId: "run-a",
-        position: 3,
-        summary: "hit three",
-      }),
+      userMessageRow({ id: "r1", sequence: 1, message: "hit one" }),
+      userMessageRow({ id: "r2", sequence: 2, message: "hit two" }),
+      userMessageRow({ id: "r3", sequence: 3, message: "hit three" }),
     ],
     "hit",
+    new Map(),
   );
 }
 

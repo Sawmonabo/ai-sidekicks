@@ -35,6 +35,6 @@ declare module "*.js?url" {
 // every `.css` specifier is a module with no exports.
 declare module "*.css" {}
 
-// The one Sass import, `components/Markdown/typesetter.scss`, KaTeX's sheet built from its source,
-// which Vite compiles to a stylesheet; like a `.css` import it has no exports.
+// The one Sass import, `components/Markdown/typesetter/sheet.scss`, KaTeX's sheet built from its
+// source, which Vite compiles to a stylesheet; like a `.css` import it has no exports.
 declare module "*.scss" {}

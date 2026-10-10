@@ -1,9 +1,9 @@
 // The React binding for the reveal engine: one per feed, disposed on unmount and re-minted on a
-// remount, since a disposed engine ingests nothing. A drained frame or an ingest bumps a
-// revision so the feed renders; each row reads its own lane through the channel and React's
-// snapshot comparison decides which rows repaint. What the engine reports (a quarantined lane, a
-// retracted source) goes to the window's diagnostic capture. The record of what each reply row
-// drew is the feed's, so it outlives a re-minted engine.
+// remount, since a disposed engine ingests nothing. The feed renders only when the drain starts or
+// stops, which the viewport reads; each row reads its own lane through the channel and React's
+// snapshot comparison decides which rows repaint, so a streaming frame renders no feed. What the
+// engine reports (a quarantined lane, a retracted source) goes to the window's diagnostic capture.
+// The record of what each reply row drew is the feed's, so it outlives a re-minted engine.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -71,13 +71,19 @@ export function useReveal(options: UseRevealOptions): RevealBinding {
   const { frameScheduler, clock } = options;
   const [engine, setEngine] = useState<RevealEngine>(() => new RevealEngine({ frameScheduler }));
   const [drawnReplyText] = useState(() => new DrawnReplyText());
-  // The engine is not React state; bumping the revision is how the tree learns it moved, so the
-  // drain state read below is current. Nothing reads the number itself.
-  const [, setFrameRevision] = useState(0);
+  // The engine is not React state; this copy of its drain state is how the feed learns the drain
+  // started or stopped. Setting the same value again renders nothing.
+  const [isDraining, setIsDraining] = useState(false);
+  // The same for the set of held lanes, which moves only when a lane is first held or retired.
+  const [laneRevision, setLaneRevision] = useState(() => engine.laneRevision);
 
   useEffect(() => {
     if (engine.isDisposed) {
-      setEngine(new RevealEngine({ frameScheduler }));
+      const nextEngine = new RevealEngine({ frameScheduler });
+      setEngine(nextEngine);
+      // The disposed engine canceled its drain and will report no frame that ends it.
+      setIsDraining(false);
+      setLaneRevision(nextEngine.laneRevision);
       return;
     }
     return () => {
@@ -88,7 +94,8 @@ export function useReveal(options: UseRevealOptions): RevealBinding {
   useEffect(
     () =>
       engine.subscribe(() => {
-        setFrameRevision((current) => current + 1);
+        setIsDraining(engine.isDraining);
+        setLaneRevision(engine.laneRevision);
       }),
     [engine],
   );
@@ -124,19 +131,19 @@ export function useReveal(options: UseRevealOptions): RevealBinding {
 
   return {
     channel,
-    isDraining: engine.isDraining,
+    isDraining,
     ingest: useCallback(
       (delta: RevealDelta) => {
         engine.ingest(delta);
         // Arming is a state change no frame has reported yet; without this the viewport would
         // not see the drain until the frame that ends it.
-        setFrameRevision((current) => current + 1);
+        setIsDraining(engine.isDraining);
+        setLaneRevision(engine.laneRevision);
       },
       [engine],
     ),
     retireLanes: useCallback(
       (shouldRetire: (laneId: string) => boolean, isReplyRow: (laneId: string) => boolean) => {
-        const laneRevision = engine.laneRevision;
         for (const lane of engine.lanes()) {
           if (!shouldRetire(lane.laneId)) {
             continue;
@@ -153,9 +160,7 @@ export function useReveal(options: UseRevealOptions): RevealBinding {
           engine.retireLane(lane.laneId);
         }
         // Retiring runs in an effect and drains no frame, so nothing else renders the change.
-        if (engine.laneRevision !== laneRevision) {
-          setFrameRevision((current) => current + 1);
-        }
+        setLaneRevision(engine.laneRevision);
       },
       [engine, drawnReplyText],
     ),
@@ -166,6 +171,6 @@ export function useReveal(options: UseRevealOptions): RevealBinding {
       [drawnReplyText],
     ),
     isRevealing: useCallback((rowId: string) => engine.holdsLane(rowId), [engine]),
-    laneRevision: engine.laneRevision,
+    laneRevision,
   };
 }

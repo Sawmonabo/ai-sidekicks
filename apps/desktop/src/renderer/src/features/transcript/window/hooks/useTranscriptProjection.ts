@@ -5,27 +5,23 @@ import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubject
 import { useSessionStore } from "#renderer/store/session/hooks/useOpenSessionStore.js";
 import { selectTranscript } from "#renderer/store/session/selectors.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
-import { TranscriptRowRetention } from "../row-retention.js";
-import { deriveTranscriptWindow, type TranscriptWindowModel } from "../transcript-window.js";
+import { TranscriptWindowDerivation, type TranscriptWindowModel } from "../transcript-window.js";
 
 /**
- * Subscribe to one session's log and project it with every run group's member rows unfolded, so
+ * Subscribe to one session's log and project it with every run group's member rows unfurled, so
  * Find counts the rows a closed run group's fold would hide. Subscribes to
  * `transcript` only, which the store replaces just when it admits an event.
  */
 export function useTranscriptProjection(sessionStore: SessionStore): TranscriptWindowModel {
   const transcript = useSessionStore(sessionStore, selectTranscript);
-  // One retention table per session, seeded during render so the first pass over a session already
-  // uses that session's table and a navigation never carries the previous session's rows over.
+  // One derivation per session, seeded during render so the first pass over a session already
+  // uses that session's and a navigation never carries the previous session's rows over.
   const bridge = usePlatformBridge();
-  const retention = useSubjectScopedState(
+  const derivation = useSubjectScopedState(
     bridge,
     sessionStore.sessionId,
-    () => new TranscriptRowRetention(),
+    () => new TranscriptWindowDerivation(),
   );
-  const heldRetention = retention.value;
-  return useMemo(
-    () => deriveTranscriptWindow(transcript, heldRetention),
-    [transcript, heldRetention],
-  );
+  const heldDerivation = derivation.value;
+  return useMemo(() => heldDerivation.derive(transcript), [transcript, heldDerivation]);
 }

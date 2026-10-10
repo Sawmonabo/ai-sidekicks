@@ -1,7 +1,7 @@
 // The child runs this window's log names, summarized: the row projection's half of the seam
 // `dispatches/child-run-entries.ts` reads. A run whose `run.queued` creation row names a
 // parent is a child run, said by the daemon; the summary is stamped on that one row per
-// child, the only row naming both, so it takes a fresh object each pass.
+// child, the only row naming both.
 
 import type { ChildRunSummary } from "@ai-sidekicks/contracts/transcript/child-run-summary";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
@@ -16,40 +16,80 @@ import { readWireString } from "#renderer/lib/wire/strings.js";
 import { type ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 
 /**
- * Every child run this log names, keyed by the event id of the row it is stamped on.
- *
- * `state` is read from the newest lifecycle beat's kind, `eventCount` counts this window's
- * rows attributed to the child, and `completeness` is `complete` because the log keeps every
- * row a child wrote and no child-run detail fetch happens here. A pure fold, which the
- * caller's memo depends on.
+ * The child runs a log names, folded one event at a time, so an appended event costs only the
+ * child it names. Each summary keeps its object until its child moves, so a row carrying it keeps
+ * its identity while nothing about the child changed.
  */
-export function deriveChildRunSummaries(
-  events: readonly ProjectedSessionEvent[],
-): ReadonlyMap<string, ChildRunSummary> {
-  const readingsByRunId = new Map<string, ChildRunReading>();
-  for (const event of events) {
+export class ChildRunSummaries {
+  readonly #readingsByRunId = new Map<string, ChildRunReading>();
+  /** Each child's summary as last composed, by the creation event it is stamped on. */
+  readonly #summaryByEventId = new Map<string, ChildRunSummary>();
+
+  /**
+   * Fold one event in, in log order. Answers the creation event id whose summary the event moved,
+   * or `undefined` when it moved none.
+   *
+   * `state` is read from the newest lifecycle beat's kind, `eventCount` counts the log's events
+   * attributed to the child, and `completeness` is `complete` because the log keeps every event a
+   * child wrote and no child-run detail fetch happens here.
+   */
+  public admit(event: ProjectedSessionEvent): string | undefined {
     const runId = transcriptRunIdOf(event.payload);
     if (runId === undefined) {
-      continue;
+      return undefined;
     }
     if (event.kind === RUN_QUEUED_EVENT_KIND) {
-      admitChildRun(readingsByRunId, event, runId);
+      admitChildRun(this.#readingsByRunId, event, runId);
     }
-    const reading = readingsByRunId.get(runId);
+    const reading = this.#readingsByRunId.get(runId);
     if (reading === undefined) {
-      // Not a child run, or a row that arrived before its creation row: nothing to summarize.
-      continue;
+      // Not a child run, or an event that arrived before its creation event: nothing to summarize.
+      return undefined;
     }
     reading.eventCount += 1;
     const announcedState = runStateForTransitionKind(event.kind);
     if (announcedState !== undefined) {
       reading.state = announcedState;
     }
+    // A run that names itself as its parent makes the lineage graph cyclic and every walk of it
+    // non-terminating, so it is never summarized. This is the check a schema would do; nothing on
+    // this path was parsed.
+    if (runId === reading.parentRunId) {
+      return undefined;
+    }
+    this.#summaryByEventId.set(reading.creationEventId, {
+      runId: runId as RunId,
+      parentRunId: reading.parentRunId as RunId,
+      state: reading.state,
+      eventCount: reading.eventCount,
+      completeness: { state: "complete" },
+    });
+    return reading.creationEventId;
   }
-  return composedSummaries(readingsByRunId);
+
+  /** The summary stamped on one creation event, or `undefined` for an event carrying none. */
+  public summaryOf(eventId: string): ChildRunSummary | undefined {
+    return this.#summaryByEventId.get(eventId);
+  }
+
+  /** Every summary, keyed by the creation event it is stamped on, in the order children arrived. */
+  public summaries(): ReadonlyMap<string, ChildRunSummary> {
+    return this.#summaryByEventId;
+  }
 }
 
-/** What one pass has learned about one child run, before it is composed. */
+/** Every child run one log names, keyed by the event id of the row it is stamped on. */
+export function deriveChildRunSummaries(
+  events: readonly ProjectedSessionEvent[],
+): ReadonlyMap<string, ChildRunSummary> {
+  const childRunSummaries = new ChildRunSummaries();
+  for (const event of events) {
+    childRunSummaries.admit(event);
+  }
+  return childRunSummaries.summaries();
+}
+
+/** What the fold has learned about one child run, before it is composed. */
 interface ChildRunReading {
   /** The row the summary is stamped on — this child's own creation row. */
   readonly creationEventId: string;
@@ -79,28 +119,4 @@ function admitChildRun(
     state: RUN_INITIAL_STATE,
     eventCount: 0,
   });
-}
-
-/**
- * Turns the readings into summaries keyed by the stamped row, dropping a run that names itself
- * as its parent: that makes the lineage graph cyclic and every walk of it non-terminating.
- * This is the check a schema would do; nothing on this path was parsed.
- */
-function composedSummaries(
-  readingsByRunId: ReadonlyMap<string, ChildRunReading>,
-): ReadonlyMap<string, ChildRunSummary> {
-  const summariesByEventId = new Map<string, ChildRunSummary>();
-  for (const [runId, reading] of readingsByRunId) {
-    if (runId === reading.parentRunId) {
-      continue;
-    }
-    summariesByEventId.set(reading.creationEventId, {
-      runId: runId as RunId,
-      parentRunId: reading.parentRunId as RunId,
-      state: reading.state,
-      eventCount: reading.eventCount,
-      completeness: { state: "complete" },
-    });
-  }
-  return summariesByEventId;
 }

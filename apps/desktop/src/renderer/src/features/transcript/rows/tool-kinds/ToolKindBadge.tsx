@@ -21,18 +21,20 @@ export function ToolKindBadge(props: ToolKindBadgeProps): React.ReactNode {
   if (reading === undefined || reading.kind === "unrecognized") {
     return null;
   }
-  // The spaces draw nothing between flex items; they keep the figures, and the summary after the
-  // badge, apart in text copied out of the row.
+  // The spaces draw nothing between flex items; each keeps a figure apart from what precedes it,
+  // the tool's name first, in text copied out of the row.
   return (
     <span className="meridian-tool-kind-badge">
       {reading.serverLabel === undefined ? null : (
         <>
-          <WireFigure value={reading.serverLabel} hoverLabel="Server" />{" "}
+          {" "}
+          <WireFigure value={reading.serverLabel} hoverLabel="Server" />
         </>
       )}
       {reading.argumentSummary.map((argument) => (
         <Fragment key={argument}>
-          <WireFigure value={argument} hoverLabel="Argument" />{" "}
+          {" "}
+          <WireFigure value={argument} hoverLabel="Argument" />
         </Fragment>
       ))}
     </span>

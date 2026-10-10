@@ -9,8 +9,11 @@
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
+import { type DiagramPictures } from "#renderer/components/Markdown/diagram/pictures.js";
 import { type AgentHueAssignment } from "#renderer/styles/agent-hue.js";
 import { SingleEntryRegistry } from "#renderer/lib/single-entry-registry.js";
+import { type PublishedText } from "../reveal/published-text.js";
+import { type OffListTables } from "./markdown/table-window/off-list.js";
 
 /**
  * Whether a row is folded: a call with a body is open until a person folds it, and nothing folds
@@ -53,7 +56,48 @@ export interface TranscriptRowRenderer {
    * a row with no body takes no place and no height there.
    */
   readonly drawsBody: (row: TranscriptEventRow) => boolean;
+  /**
+   * Starts the work a row's first frame waits on that is not done yet, such as a finished
+   * diagram's picture, so the feed lists the row only once it draws whole and keeps the rest of
+   * the window ready to scroll to. `undefined` for a row that never waits on anything.
+   */
+  readonly prepareRow: TranscriptRowPreparer;
 }
+
+/** Where a row's first frame reads from, beyond the row itself. */
+export interface TranscriptRowSources {
+  /** The text the reveal engine is publishing for a row, or `undefined` for a row with none. */
+  readonly publishedTextFor: (rowId: string) => PublishedText | undefined;
+  /** The window the feed draws in, whose document and palette a row is drawn under. */
+  readonly ownerWindow: Window;
+  /** The app's diagram pictures, or `undefined` outside the app. */
+  readonly diagramPictures: DiagramPictures | undefined;
+  /** Where a row's long tables are measured before it is listed. */
+  readonly offListTables: OffListTables;
+}
+
+/** The work one row's first frame waits on, kept while the window holds the row. */
+export interface TranscriptRowPreparation {
+  /** Whether every piece of work started so far has landed or failed. */
+  readonly isReady: boolean;
+  /**
+   * Reads the row's text again and starts what its newly finished blocks wait on. A text that did
+   * not change costs nothing, and a grown one costs its growth.
+   */
+  refresh(): void;
+  /** Withdraws the work still running. */
+  release(): void;
+}
+
+/**
+ * Starts a row's preparation; see `TranscriptRowRenderer.prepareRow`. `onReady` is called each
+ * time the work started so far has all landed or failed.
+ */
+export type TranscriptRowPreparer = (
+  row: TranscriptEventRow,
+  sources: TranscriptRowSources,
+  onReady: () => void,
+) => TranscriptRowPreparation | undefined;
 
 const transcriptRowRegistry = new SingleEntryRegistry<TranscriptRowRenderer>(
   "transcript row",

@@ -96,7 +96,7 @@ export async function spawnElectronGcProbe(): Promise<GcProbeSpawnResult> {
 
   // A private profile keeps this Electron off the default profile's `SingletonLock`: a second
   // instance sees `gotTheLock === false` and exits 0 before the probe runs.
-  const profile = createLaunchProfile("sidekicks-gc-test-");
+  const profile = createLaunchProfile({ directoryPrefix: "sidekicks-gc-test-" });
 
   // `--js-flags=--expose-gc` must precede the entry script so Electron forwards it to V8; the
   // suite asserts `globalGcAvailable` to fail loudly without it.

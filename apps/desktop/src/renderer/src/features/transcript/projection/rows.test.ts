@@ -103,14 +103,6 @@ describe("the log-derived row projection", () => {
     expect(ids).toStrictEqual(events.map((admitted) => admitted.id));
     expect(new Set(ids).size).toBe(ids.length);
   });
-
-  it("restates the wire type as the summary rather than composing a sentence", () => {
-    // Negative control for the central claim: a projection that made a sentence up would pass
-    // every other case. The contract refuses an empty summary, so "say nothing" is no option.
-    const projection = projectTranscriptRows([runEvent(1, RUN_ONE, "tool.invoked")]);
-    expect(projection.rows[0]?.summary).toBe("tool.invoked");
-    expect(projection.rows[0]?.summary).toBe(projection.rows[0]?.type);
-  });
 });
 
 describe("which payload member names a row's run", () => {

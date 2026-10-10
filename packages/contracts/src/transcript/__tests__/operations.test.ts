@@ -16,7 +16,7 @@ import {
   ReasoningSurfaceReadResponseSchema,
   TranscriptReadResponseSchema,
 } from "../operations.js";
-import { TRANSCRIPT_READ_LIMIT_MAX, TRANSCRIPT_EVENT_ROW_SUMMARY_MAX_LEN } from "../limits.js";
+import { TRANSCRIPT_READ_LIMIT_MAX } from "../limits.js";
 import { TranscriptBodyReadResponseSchema } from "../content.js";
 import { TranscriptSearchResponseSchema } from "../search.js";
 import {
@@ -226,7 +226,6 @@ describe("a reply fits one frame", () => {
     id: worstCaseUnit.repeat(EVENT_FIELD_MAX_LEN),
     type: worstCaseUnit.repeat(EVENT_FIELD_MAX_LEN),
     actor: worstCaseUnit.repeat(EVENT_FIELD_MAX_LEN),
-    summary: worstCaseUnit.repeat(TRANSCRIPT_EVENT_ROW_SUMMARY_MAX_LEN),
     childRunSummary,
     superseded: { targetPosition: 1 },
   };

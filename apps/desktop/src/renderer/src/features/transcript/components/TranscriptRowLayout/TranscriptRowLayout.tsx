@@ -33,6 +33,9 @@ export interface TranscriptRowLayoutProps {
   readonly isSuperseded?: boolean;
 }
 
+/** The mark a superseded row draws above its body. */
+export const SUPERSEDED_MARK_LABEL = "Superseded";
+
 /** One transcript row: leading edge, actor and time gutter, body, and a footer. */
 export function TranscriptRowLayout(props: TranscriptRowLayoutProps): React.JSX.Element {
   const actorId = useId();
@@ -90,7 +93,9 @@ export function TranscriptRowLayout(props: TranscriptRowLayoutProps): React.JSX.
       <div className="meridian-transcript-row-layout__body">
         {props.isSuperseded === true ? (
           <div className="meridian-transcript-row-layout__meta">
-            <span className="meridian-transcript-row-layout__superseded-mark">Superseded</span>
+            <span className="meridian-transcript-row-layout__superseded-mark">
+              {SUPERSEDED_MARK_LABEL}
+            </span>
           </div>
         ) : null}
         {props.children}

@@ -48,9 +48,10 @@ export interface RevealLaneState {
   readonly isSettled: boolean;
 }
 
-/** One drained frame, published to every subscriber at once. */
+/**
+ * One drained frame, published to every subscriber at once. It carries no lane or state: a reader
+ * that needs them asks the engine, so a frame costs no walk over the settled lanes.
+ */
 export interface RevealFrame {
-  readonly state: RevealEngineState;
-  readonly lanes: readonly RevealLaneState[];
   readonly charactersRevealed: number;
 }

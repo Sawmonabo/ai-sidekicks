@@ -1,10 +1,16 @@
-// What a selection in the conversation copies: each row it touches, in the order the rows are
-// read, joined by a blank line. A message row gives only its body, never its author line, stamp
-// or controls: a reply's part as the markdown rebuilt from what was selected, and the person's
-// own message or a reasoning aside as plain text. Any other row gives the text selected in it.
-// Plain text is read the way the screen lays it out, a block's lines on lines of their own, and
-// no control's label is ever part of it. A formula copies as its TeX source, whole, once. A
-// formatted flavor rides beside the text whenever a reply is part of it.
+// What a selection in the conversation copies: each row it runs across, in log order, joined by a
+// blank line. The rows come from the viewport's record of the selection, not from the drawn
+// rows, so rows the window let go between its ends are copied too. Each end row gives the part
+// selected in it as it was drawn, and every row between gives its whole text from the source it is
+// drawn from (`row-text.ts`). A long table's rows the window has not drawn inside an end row's part
+// are read from that same source, through the text range each spacer row names, so a copy never
+// waits for rows to draw. A part inside one table is copied as a table of what was selected. A
+// message row gives only its body, never its author line, stamp or controls: a reply's part as the
+// markdown rebuilt from what was selected, and the person's own message or a reasoning aside as
+// plain text. Any other row gives the text selected in it. Plain text is read the way the screen
+// lays it out, a block's lines on lines of their own, and no control's label is ever part of it. A
+// formula copies as its TeX source, whole, once. A formatted flavor rides beside the text whenever
+// a reply is part of it. A selection crossing the conversation copies only the conversation's part.
 
 import { isElement } from "@floating-ui/utils/dom";
 import { fromDom } from "hast-util-from-dom";
@@ -12,10 +18,29 @@ import { toHtml } from "hast-util-to-html";
 import { toText } from "hast-util-to-text";
 
 import type { TextClipboardContent } from "#shared/preload-api.js";
-import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
-import { markdownToHtml, rebuildMarkdown } from "./clipboard-flavors.js";
+import { resolveRowTextPosition } from "../viewport/selection/preservation.js";
+import { type RowSelection } from "../viewport/selection/record.js";
+import { markdownToHtml, rebuildMarkdown, type DrawnTree } from "./clipboard-flavors.js";
+import { withUndrawnTableRows } from "./undrawn-table-rows.js";
 
-/** The attribute a message row's body carries, naming the flavor its selected part copies as. */
+/** One row's share of a copy: its text, and the flavor it copies as. */
+export interface SelectedPart {
+  readonly flavor: CopyFlavor;
+  readonly text: string;
+}
+
+/** A selection across the conversation's rows, as a copy reads it. */
+export interface RowSpanSelection {
+  readonly selection: RowSelection;
+  /** The keys of the rows it runs across, in log order. */
+  readonly rowKeys: readonly string[];
+  /** An end row as it was drawn, or `undefined` when no drawing of it is kept. */
+  readonly endRowElement: (rowKey: string) => Element | undefined;
+  /** A whole row's text from the source it is drawn from, or `undefined` for a row with none. */
+  readonly rowText: (rowKey: string) => SelectedPart | undefined;
+}
+
+/** The attribute a row's copyable body carries, naming the flavor its selected part copies as. */
 export const COPY_FLAVOR_ATTRIBUTE = "data-copy-flavor";
 
 /** How a body's selected part is copied: a reply's markdown, or plain text. */
@@ -25,20 +50,42 @@ export type CopyFlavor = "markdown" | "text";
 export const PART_SEPARATOR = "\n\n";
 
 /**
- * What `range` copies out of the conversation drawn in `conversation`, or `undefined` when it
- * touches no row's copyable text, so the platform's own copy stands.
+ * What a selection across the conversation's rows copies, or `undefined` when it holds no row's
+ * copyable text, so the platform's own copy stands.
  */
-export function readConversationSelection(
+export function readRowSpanSelection(span: RowSpanSelection): TextClipboardContent | undefined {
+  const rowParts = span.rowKeys.flatMap((rowKey) => {
+    const part = rowPartOf(span, rowKey);
+    return part === undefined ? [] : [part];
+  });
+  return clipboardContentOf(rowParts);
+}
+
+/**
+ * The part of a drawn row that `range` selects. `readRowText` reads the row's whole text, which a
+ * long table's undrawn rows in the part are filled from; it is read only when the part holds some.
+ */
+export function readSelectedPart(
   range: Range,
-  conversation: Element,
+  row: Element,
+  readRowText: () => string | undefined,
+): SelectedPart {
+  const body = row.querySelector(`[${COPY_FLAVOR_ATTRIBUTE}]`);
+  // A selection holding only the row's author line or controls clamps to nothing in its body.
+  const part = clampedTo(range, body ?? row);
+  return body?.getAttribute(COPY_FLAVOR_ATTRIBUTE) === "markdown"
+    ? { flavor: "markdown", text: rebuildMarkdown(selectedTreeOf(part, "markdown", readRowText)) }
+    : { flavor: "text", text: toText(selectedTreeOf(part, "text", readRowText)) };
+}
+
+/**
+ * The clipboard's flavors for the parts of a copy, in order, or `undefined` when none holds text.
+ * The formatted flavor is made only when a reply's markdown is among them.
+ */
+export function clipboardContentOf(
+  selectedParts: readonly SelectedPart[],
 ): TextClipboardContent | undefined {
-  // The window draws its rows in the order they are read, so document order is reading order.
-  const rows = [
-    ...conversation.querySelectorAll<HTMLElement>(`[${WINDOWED_ROW_INDEX_ATTRIBUTE}]`),
-  ].filter((row) => range.intersectsNode(row));
-  const parts = rows
-    .map((row) => selectedPartOf(range, row))
-    .filter((part) => part.text.trim() !== "");
+  const parts = selectedParts.filter((part) => part.text.trim() !== "");
   if (parts.length === 0) {
     return undefined;
   }
@@ -56,25 +103,50 @@ export function readConversationSelection(
   };
 }
 
-/** One row's share of the selection. */
-interface SelectedPart {
-  readonly flavor: CopyFlavor;
-  readonly text: string;
+/**
+ * One row's part: an end row's selected part as it was drawn, any other row's whole text. An end
+ * that lies outside the scroller takes its row whole, and so does an end row with no drawing kept.
+ */
+function rowPartOf(span: RowSpanSelection, rowKey: string): SelectedPart | undefined {
+  const { start, end } = span.selection;
+  const startAt = rowKey === start.rowKey ? start.position : undefined;
+  const endAt = rowKey === end.rowKey ? end.position : undefined;
+  const rowElement =
+    startAt === undefined && endAt === undefined ? undefined : span.endRowElement(rowKey);
+  if (rowElement === undefined) {
+    return span.rowText(rowKey);
+  }
+  const range = rowElement.ownerDocument.createRange();
+  range.selectNodeContents(rowElement);
+  const startPosition =
+    startAt === undefined ? undefined : resolveRowTextPosition(rowElement, startAt);
+  if (startPosition !== undefined) {
+    range.setStart(startPosition.textNode, startPosition.offsetInNode);
+  }
+  const endPosition = endAt === undefined ? undefined : resolveRowTextPosition(rowElement, endAt);
+  if (endPosition !== undefined) {
+    range.setEnd(endPosition.textNode, endPosition.offsetInNode);
+  }
+  return readSelectedPart(range, rowElement, () => span.rowText(rowKey)?.text);
 }
 
-function selectedPartOf(range: Range, row: HTMLElement): SelectedPart {
-  const body = row.querySelector(`[${COPY_FLAVOR_ATTRIBUTE}]`);
-  // A selection holding only the row's author line or controls clamps to nothing in its body.
-  const part = clampedTo(range, body ?? row);
-  return body?.getAttribute(COPY_FLAVOR_ATTRIBUTE) === "markdown"
-    ? { flavor: "markdown", text: rebuildMarkdown(selectedContentOf(part, "markdown")) }
-    : { flavor: "text", text: toText(fromDom(selectedContentOf(part, "text"))) };
+/**
+ * What `part` holds as a tree, with a long table's undrawn rows read from the row's text, laid out
+ * as the screen lays it out.
+ */
+function selectedTreeOf(
+  part: Range,
+  flavor: CopyFlavor,
+  readRowText: () => string | undefined,
+): DrawnTree {
+  return withUndrawnTableRows(fromDom(selectedContentOf(part, flavor)), readRowText);
 }
 
 /**
  * What `part` holds, without the controls drawn among it, since a button's label is no one's
  * text, and with each formula as its TeX source: as text, or as a math block the markdown rebuild
- * reads as one.
+ * reads as one. A part inside one table, between rows or cells, is put back in that table, so it
+ * copies as a table rather than as loose rows.
  */
 function selectedContentOf(part: Range, flavor: CopyFlavor): DocumentFragment {
   // A formula draws its hidden MathML before its glyphs, so a part of one would miss its source.
@@ -93,7 +165,40 @@ function selectedContentOf(part: Range, flavor: CopyFlavor): DocumentFragment {
   for (const formula of content.querySelectorAll(FORMULA_SELECTOR)) {
     formula.replaceWith(formulaSourceNode(formula, flavor));
   }
-  return content;
+  return withinItsTable(content, part.commonAncestorContainer);
+}
+
+/**
+ * `content` put back in the table its common ancestor sits in: a copy of the table and of each
+ * section and row between it and the ancestor, as a browser wraps a part of a table it copies, so
+ * the part still pastes as a table. Only what was selected is copied: a head the part does not
+ * reach is left out. A part inside one cell, or outside any table, is left as it is.
+ */
+function withinItsTable(content: DocumentFragment, commonAncestor: Node): DocumentFragment {
+  const ancestor = isElement(commonAncestor) ? commonAncestor : commonAncestor.parentElement;
+  const table = ancestor?.closest("table") ?? null;
+  if (ancestor === null || table === null || ancestor.closest("td, th") !== null) {
+    return content;
+  }
+  // The elements from the table down to the ancestor, outermost first.
+  const between: Element[] = [];
+  for (let element: Element | null = ancestor; element !== table; element = element.parentElement) {
+    if (element === null) {
+      return content;
+    }
+    between.unshift(element);
+  }
+  const tableCopy = table.cloneNode(false) as Element;
+  let innermost = tableCopy;
+  for (const element of between) {
+    const elementCopy = element.cloneNode(false) as Element;
+    innermost.append(elementCopy);
+    innermost = elementCopy;
+  }
+  innermost.append(content);
+  const wrapped = table.ownerDocument.createDocumentFragment();
+  wrapped.append(tableCopy);
+  return wrapped;
 }
 
 /** `MathBlock` marks every formula it draws with `data-math`. */

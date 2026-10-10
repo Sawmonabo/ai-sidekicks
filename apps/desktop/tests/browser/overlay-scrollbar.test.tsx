@@ -20,6 +20,10 @@
 // keeps its bar, which React's `textContent` write would delete from a box holding bare text. A
 // window whose library copy fails to load gives its scrollers the platform's bar back and records
 // the failure once.
+//
+// A bar sits inside its scroller, so it scrolls with the content unless it is moved back by the
+// scroll offset; it stays at the scroller's edges through a scroll, and through a resize that
+// changes the scroll range partway down.
 
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -39,11 +43,6 @@ import { DEFAULT_APPEARANCE_RECORD } from "#shared/appearance.js";
 import { installMeridianTokens } from "#renderer/app/token-installation.js";
 import { PaneFrame } from "#renderer/components/PaneFrame/PaneFrame.js";
 import { ArtifactPayloadSection } from "#renderer/features/repos/artifacts/components/ArtifactPayloadSection.js";
-import { runRow } from "#renderer/features/transcript/event-rows.test-support.js";
-import { RUN_GROUP_VISIBLE_ROW_CAP } from "#renderer/features/transcript/runs/body.js";
-import { RunGroupBody } from "#renderer/features/transcript/runs/components/RunGroupBody.js";
-import { groupRowsByRun } from "#renderer/features/transcript/runs/groups.js";
-import { findRunGroup } from "#renderer/features/transcript/runs/groups.test-support.js";
 import { PayloadRowWindow } from "#renderer/features/workflows/runs/page/step/components/StepPayload/PayloadRowWindow.js";
 import type { ArtifactPayloadReading } from "#renderer/store/artifact-payload.js";
 import { routeForDestination } from "#renderer/layout/NavigationRail/destinations.js";
@@ -59,6 +58,7 @@ import { formatRoute } from "#renderer/routing/routes.js";
 import { nextFrame } from "../helpers/animation-frame.js";
 import { liveBridgeWrapper } from "../helpers/app/frame-fixtures.js";
 import { renderAppSettled } from "../helpers/app/harness.js";
+import { changeLayout } from "../helpers/animation-frame.js";
 import { advanceScenarioUntil } from "../helpers/scenario/manual-clock.js";
 import { untilInsideAct } from "../helpers/settle.js";
 
@@ -90,11 +90,10 @@ const DRAWN_BAR = ".os-scrollbar-visible";
 const AWAITING_OVERLAY_ATTRIBUTE = "data-overlayscrollbars-initialize";
 
 /**
- * The scrollers whose bar waits for a first interaction: a run group's earlier entries, an
- * artifact's payload, a step's payload rows and a pane's body.
+ * The scrollers whose bar waits for a first interaction: an artifact's payload, a step's payload
+ * rows and a pane's body.
  */
 const WAITING_SCROLLERS = [
-  ".meridian-run-group-body__scroller",
   ".meridian-artifact-payload__preview",
   ".meridian-workflow-payload__window",
   ".meridian-pane--inspector > .meridian-pane__body",
@@ -117,6 +116,8 @@ const KEYBOARD_SCROLL_TIMEOUT_MS = 5000;
 
 /** How long a first PageDown may leave a scroller still before the key is pressed again. */
 const KEYBOARD_SCROLL_RETRY_MS = 1000;
+/** Subpixel slack for a bar's edge against its scroller's. */
+const EDGE_TOLERANCE_PX = 0.5;
 
 const SESSION_ROUTE = formatRoute({ kind: "session", sessionId: SESSION_ID });
 
@@ -387,24 +388,13 @@ describe("the overlay scrollbar", () => {
     forced.destroy();
   });
 
-  it("starts no row's, payload's or pane body's bar until a person reaches for it", async () => {
+  it("starts no payload's or pane body's bar until a person reaches for it", async () => {
     installMeridianTokens(document);
     installOverlayScrollbarLibrary(document);
     const BridgeHost = liveBridgeWrapper();
-    const runRows = Array.from({ length: RUN_GROUP_VISIBLE_ROW_CAP * 2 }, (_unused, index) =>
-      runRow({
-        id: `r${String(index + 1)}`,
-        sequence: index + 1,
-        type: "run.running",
-        summary: `entry ${String(index + 1)}`,
-        runId: "run-a",
-        position: index + 1,
-      }),
-    );
     const { container } = render(
       <BridgeHost>
         <div style={{ inlineSize: "30rem" }}>
-          <RunGroupBody runGroup={findRunGroup(groupRowsByRun(runRows), "run-a")} />
           <ArtifactPayloadSection payload={textPayload("a payload line\n".repeat(200))} />
           <PayloadRowWindow
             rowCount={200}
@@ -489,6 +479,32 @@ describe("the overlay scrollbar", () => {
     expect(preview.querySelectorAll(".os-scrollbar").length).toBe(barCount);
   });
 
+  it("holds a bar at its scroller's edges through a scroll, and through a resize partway down", async () => {
+    installMeridianTokens(document);
+    installOverlayScrollbarLibrary(document);
+    await waitForOverlayScrollbarLibrary(document);
+    const { container } = render(<ScrollerUnderTest />);
+    const scroller = requireElement(container, ".scroller-under-test");
+    await untilInsideAct(() =>
+      expect
+        .poll(() => describeStart(scroller), { timeout: OVERLAY_START_TIMEOUT_MS })
+        .toBe("started"),
+    );
+    const bar = requireElement(scroller, ".os-scrollbar-vertical");
+    const resting = barInsetFrom(scroller, bar);
+
+    await changeLayout(() => {
+      scroller.scrollTop = (scroller.scrollHeight - scroller.clientHeight) / 2;
+    });
+    expect(barInsetFrom(scroller, bar), "halfway down").toStrictEqual(resting);
+
+    // Taller, so the same offset sits at a larger share of a shorter range.
+    await changeLayout(() => {
+      scroller.style.blockSize = "8rem";
+    });
+    expect(barInsetFrom(scroller, bar), "once resized").toStrictEqual(resting);
+  });
+
   it("gives the platform's bar back and records one failure when the library cannot load", async () => {
     // A window document whose policy refuses every script, so the library's script fails there.
     const frame = document.createElement("iframe");
@@ -553,6 +569,18 @@ function describeStart(scroller: Element): "started" | "waiting" | "none" {
     return "started";
   }
   return scroller.hasAttribute(AWAITING_OVERLAY_ATTRIBUTE) ? "waiting" : "none";
+}
+
+/** How far a bar's edges sit inside its scroller's, rounded to the edge tolerance. */
+function barInsetFrom(
+  scroller: HTMLElement,
+  bar: HTMLElement,
+): { readonly top: number; readonly bottom: number } {
+  const box = scroller.getBoundingClientRect();
+  const drawn = bar.getBoundingClientRect();
+  const round = (value: number): number =>
+    Math.round(value / EDGE_TOLERANCE_PX) * EDGE_TOLERANCE_PX;
+  return { top: round(drawn.top - box.top), bottom: round(box.bottom - drawn.bottom) };
 }
 
 /** The scenario the app's fixture composition plays, as it hangs it on the page. */
@@ -639,7 +667,7 @@ function keepTheWindowBusy(): { readonly stop: () => void } {
   };
 }
 
-/** A plain scroller drawing its bar through the hook, for a window the library cannot reach. */
+/** A plain scroller drawing its bar through the hook. */
 function ScrollerUnderTest(): React.JSX.Element {
   const scrollbarRef = useDrawOverlayScrollbar<HTMLDivElement>();
   return (

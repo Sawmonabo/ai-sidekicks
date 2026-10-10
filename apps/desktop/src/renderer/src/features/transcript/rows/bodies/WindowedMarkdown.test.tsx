@@ -67,7 +67,7 @@ function mountWindow(text: string, footnotes: FootnoteRegistry): MountedWindow {
         sourceId="reply"
         footnotes={footnotes}
         isComplete
-        offersCodeCopy
+        offersBlockCopy
       />
     </MarkdownWindowViewportContext>,
     {

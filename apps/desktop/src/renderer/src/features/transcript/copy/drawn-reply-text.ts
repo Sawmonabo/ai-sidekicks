@@ -1,8 +1,8 @@
 // What each reply row has drawn, kept while the window holds the row. A reply's foot reads its
 // other rows' text from here once that text is gone from where it came: a live lane the engine
-// retired at the turn's end, or a held body whose row was scrolled out of the window's range and
-// unmounted. So the foot, its time and its Copy stay for the rest of the turn, and the Copy takes
-// every row the reply drew.
+// retired when its row left the window, or a held body whose row was scrolled out of the window's
+// range and unmounted. So the foot, its time and its Copy stay for the rest of the turn, and the
+// Copy takes every row the reply drew.
 
 import { Emitter } from "#renderer/lib/emitter.js";
 import type { Unsubscribe } from "#shared/preload-api.js";

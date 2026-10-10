@@ -36,6 +36,9 @@ const SAMPLE_RUN_ROW_HOVER_LABEL = `[${HOVER_LABEL_TEXT_ATTRIBUTE}="${SAMPLE_RUN
 export const SAMPLE_RUN_ROW_TIME_SELECTOR: string =
   ".meridian-figure--wire" + SAMPLE_RUN_ROW_HOVER_LABEL;
 
+/** The session a sample message's payload names, in the id form its contract parses. */
+const SAMPLE_PAYLOAD_SESSION_ID = "11111111-2222-4333-8444-555555555555";
+
 /** What a caller may vary about a sample row. Everything else is held fixed. */
 export interface SampleRowOverrides {
   readonly id?: string;
@@ -45,7 +48,6 @@ export interface SampleRowOverrides {
    * once is a shape the projection produces and one run id cannot state.
    */
   readonly runId?: string;
-  readonly summary?: string;
   readonly actor?: string;
   readonly timestamp?: string;
   readonly payload?: Readonly<Record<string, unknown>>;
@@ -66,7 +68,6 @@ export function sampleRunRow(overrides: SampleRowOverrides = {}): TranscriptEven
     cursor: "cursor-at-1" as EventCursor,
     category: "run_lifecycle",
     type: overrides.type ?? "assistant.message",
-    summary: overrides.summary ?? "The agent replied.",
     timestamp: overrides.timestamp ?? SAMPLE_RUN_ROW_TIMESTAMP,
     payload: { ...overrides.payload },
     runId: (overrides.runId ?? SAMPLE_RUN_ID) as RunId,
@@ -75,6 +76,17 @@ export function sampleRunRow(overrides: SampleRowOverrides = {}): TranscriptEven
     ...(overrides.actor === undefined ? {} : { actor: overrides.actor }),
     ...(overrides.content === undefined ? {} : { content: overrides.content }),
   };
+}
+
+/** A person's message row, its payload the `user.message` shape the body reads it from. */
+export function sampleUserMessageRow(
+  overrides: Omit<SampleRowOverrides, "payload" | "type"> & { readonly message: string },
+): TranscriptEventRow {
+  return sampleRunRow({
+    ...overrides,
+    type: "user.message",
+    payload: { sessionId: SAMPLE_PAYLOAD_SESSION_ID, actor: "user", message: overrides.message },
+  });
 }
 
 /** A non-run row — the arm a receipt takes. */
@@ -87,7 +99,6 @@ export function sampleGeneralRow(overrides: SampleRowOverrides = {}): Transcript
     cursor: "cursor-at-2" as EventCursor,
     category: "session_lifecycle",
     type: overrides.type ?? "session.created",
-    summary: overrides.summary ?? "The session was created.",
     timestamp: overrides.timestamp ?? "2026-09-02T10:00:01.000Z",
     payload: { ...overrides.payload },
     ...(overrides.actor === undefined ? {} : { actor: overrides.actor }),

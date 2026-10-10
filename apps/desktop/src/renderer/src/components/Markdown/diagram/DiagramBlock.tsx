@@ -5,11 +5,12 @@
 
 import "./DiagramBlock.css";
 
+import { useRef } from "react";
+
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import type { BlockCopyOffer } from "../block-copy-offer.js";
-import type { DrawnDiagram } from "./drawing.js";
 import { encodeDiagramPng } from "./png.js";
-import { useDrawnDiagram } from "./useDrawnDiagram.js";
+import { useDrawnDiagram, type DrawnDiagramView } from "./useDrawnDiagram.js";
 
 /** What one diagram block is drawn from. */
 export interface DiagramBlockProps {
@@ -23,7 +24,12 @@ export interface DiagramBlockProps {
 
 /** A diagram fence: its picture, its source while the picture is made, or why it has none. */
 export function DiagramBlock(props: DiagramBlockProps): React.JSX.Element {
-  const drawing = useDrawnDiagram(props.source, props.isSettled);
+  const frame = useRef<HTMLElement>(null);
+  const { drawing, pictureRef, drawCopyPicture } = useDrawnDiagram(
+    props.source,
+    props.isSettled,
+    frame,
+  );
   const ownerWindow = useOwnerWindow();
   const source = (
     <pre className="meridian-diagram__source">
@@ -31,7 +37,7 @@ export function DiagramBlock(props: DiagramBlockProps): React.JSX.Element {
     </pre>
   );
   return (
-    <figure className="meridian-diagram" data-state={drawing.status}>
+    <figure ref={frame} className="meridian-diagram" data-state={drawing.status}>
       {drawing.status === "failed" ? (
         <>
           <p className="meridian-diagram__failure">
@@ -43,8 +49,8 @@ export function DiagramBlock(props: DiagramBlockProps): React.JSX.Element {
         <div className="meridian-diagram__frame">
           {drawing.status === "drawn" ? (
             <img
+              ref={pictureRef}
               className="meridian-diagram__picture"
-              src={drawing.picture.pictureUrl}
               width={drawing.picture.width}
               height={drawing.picture.height}
               alt="Diagram"
@@ -57,7 +63,7 @@ export function DiagramBlock(props: DiagramBlockProps): React.JSX.Element {
       {props.renderCopy === undefined ? null : (
         <div className="meridian-diagram__actions">
           {drawing.status === "drawn"
-            ? props.renderCopy(pictureCopy(drawing.picture, ownerWindow))
+            ? props.renderCopy(pictureCopy(drawCopyPicture, ownerWindow))
             : null}
           {props.source === ""
             ? null
@@ -68,9 +74,13 @@ export function DiagramBlock(props: DiagramBlockProps): React.JSX.Element {
   );
 }
 
-function pictureCopy(picture: DrawnDiagram, ownerWindow: Window): BlockCopyOffer {
+/** `Copy as picture`: the copy's own picture, drawn when pressed and painted as a PNG. */
+function pictureCopy(
+  drawCopyPicture: DrawnDiagramView["drawCopyPicture"],
+  ownerWindow: Window,
+): BlockCopyOffer {
   return {
     label: "Copy as picture",
-    content: async () => ({ png: await encodeDiagramPng(picture, ownerWindow) }),
+    content: async () => ({ png: await encodeDiagramPng(await drawCopyPicture(), ownerWindow) }),
   };
 }

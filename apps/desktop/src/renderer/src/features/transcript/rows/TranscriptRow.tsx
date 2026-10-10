@@ -71,6 +71,7 @@ export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element {
           isSuperseded={props.isSuperseded}
           density={props.density}
           footnotes={footnotes}
+          {...(props.row.content === undefined ? {} : { content: props.row.content })}
           {...(liveText === undefined ? {} : { liveText })}
           holdControlInPlace={holdPressedControl}
           onDensityToggle={toggleFold}
@@ -87,6 +88,7 @@ export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element {
           isSuperseded={props.isSuperseded}
           density={props.density}
           footnotes={footnotes}
+          {...(props.row.content === undefined ? {} : { content: props.row.content })}
           {...(liveText === undefined ? {} : { liveText })}
           holdControlInPlace={holdPressedControl}
           replyRowIds={props.replyRowIds}

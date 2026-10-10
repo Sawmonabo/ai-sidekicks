@@ -13,23 +13,16 @@
 // session's pending drain. `dispose()` is terminal: a late event cannot re-arm a timer that
 // outlives its pane.
 
-import { APPLY_COALESCE_MS } from "#renderer/lib/reads/refresh/caps.js";
 import { type Clock, type ScheduledHandle } from "#renderer/lib/clock.js";
 import type { ProjectedSessionEvent } from "../entities/vocabulary.js";
 
-/** The drain the queue performs. Exactly one call per coalescing window. */
+/** The drain the queue performs. Exactly one call per frame that held events. */
 export type ApplyDrain = (events: readonly ProjectedSessionEvent[]) => void;
 
 /** Construction inputs for an `ApplyQueue`. */
 export interface ApplyQueueOptions {
   readonly clock: Clock;
   readonly drain: ApplyDrain;
-  /**
-   * The coalescing window, in milliseconds. `0` or less arms `Clock.scheduleFrame` (a paint);
-   * a positive value arms a timeout of that length, for a host with no frame source and for
-   * draining at a named time on frozen clocks. Defaults to `APPLY_COALESCE_MS`.
-   */
-  readonly coalesceMs?: number;
   /**
    * Called when `drain` throws; the batch is kept either way. Unlike `RefreshScheduler.onError`
    * it never re-throws: this drain runs inside a clock callback, and an escaping throw would
@@ -43,7 +36,6 @@ export interface ApplyQueueOptions {
 export class ApplyQueue {
   readonly #clock: Clock;
   readonly #drain: ApplyDrain;
-  readonly #coalesceMs: number;
   readonly #onDrainError: ((error: unknown) => void) | undefined;
   #buffer: ProjectedSessionEvent[] = [];
   #armedHandle: ScheduledHandle | undefined;
@@ -55,11 +47,10 @@ export class ApplyQueue {
   public constructor(options: ApplyQueueOptions) {
     this.#clock = options.clock;
     this.#drain = options.drain;
-    this.#coalesceMs = options.coalesceMs ?? APPLY_COALESCE_MS;
     this.#onDrainError = options.onDrainError;
   }
 
-  /** Drains performed. One per window that held events; the coalescing assertion. */
+  /** Drains performed. One per frame that held events; the coalescing assertion. */
   public get drainCount(): number {
     return this.#drainCount;
   }
@@ -85,7 +76,7 @@ export class ApplyQueue {
     return this.#droppedAfterDisposeCount;
   }
 
-  /** Enqueue one event. Arms a single frame or timeout; never an interval. */
+  /** Enqueue one event. Arms a single frame; never a timeout or an interval. */
   public enqueue(event: ProjectedSessionEvent): void {
     this.enqueueAll([event]);
   }
@@ -154,9 +145,6 @@ export class ApplyQueue {
       this.#armedHandle = undefined;
       this.flush();
     };
-    this.#armedHandle =
-      this.#coalesceMs <= 0
-        ? this.#clock.scheduleFrame(run)
-        : this.#clock.scheduleTimeout(run, this.#coalesceMs);
+    this.#armedHandle = this.#clock.scheduleFrame(run);
   }
 }

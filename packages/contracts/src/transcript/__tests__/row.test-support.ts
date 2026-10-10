@@ -25,7 +25,6 @@ const rowCommon: Readonly<Record<string, unknown>> = {
   cursor: CURSOR,
   category: "run_lifecycle",
   type: "run.started",
-  summary: "Run started",
   timestamp: TIMESTAMP,
   content: { status: "unavailable", reason: "absent" },
   payload: { detail: "opaque" },
@@ -37,7 +36,6 @@ export const generalRow: Readonly<Record<string, unknown>> = {
   kind: "general",
   category: "session_lifecycle",
   type: "session.created",
-  summary: "Session created",
 };
 
 /** A row of one run, at a position in its first epoch. */
@@ -60,7 +58,6 @@ export const rollbackBoundaryRow: Readonly<Record<string, unknown>> = {
   ...rowCommon,
   kind: "rollback_boundary",
   type: TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE,
-  summary: "Run rewound to position 5",
   runId: RUN_ID,
   position: 5,
   epoch: 0,

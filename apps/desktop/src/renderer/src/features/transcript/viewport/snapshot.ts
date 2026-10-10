@@ -28,16 +28,23 @@ export interface ViewportSnapshot {
   readonly lastPrune: PruneOutcome | undefined;
   /** The height of the history line above the first row, which the list starts below, in px. */
   readonly headHeightPx: number;
+  /**
+   * The rows the reader holds, which are drawn wherever the window keeps them, so a render that
+   * draws the rows re-runs when the held set changes. The anchor's own array, by identity.
+   */
+  readonly heldRowKeys: readonly string[];
+  /** How far beyond each edge of the box the rows are drawn, in screen heights. */
+  readonly drawnBandScreenHeights: number;
 }
 
 /** What the surrounding feed tells the frame each render. */
 export interface ViewportConditions {
   readonly rows: readonly ViewportRow[];
   /**
-   * Whether a row is still working: a reply still streaming, a tool call still running, an ask
-   * still open. The window never lets go of one; a new function when the working rows change.
+   * Whether a row's state still moves, so the window keeps it. Memoized by the caller: the
+   * reconcile keys on its identity.
    */
-  readonly isWorkingRow: (rowKey: string) => boolean;
+  readonly isChangingRow: (rowKey: string) => boolean;
 }
 
 /**

@@ -37,6 +37,24 @@ export function runRow(
   };
 }
 
+/**
+ * A person's message on the `general` arm, its payload the `user.message` shape the row's body
+ * and Find read the message from.
+ */
+export function userMessageRow(input: {
+  readonly id: string;
+  readonly sequence: number;
+  readonly message: string;
+}): TranscriptEventRow {
+  return generalRow({
+    id: input.id,
+    sequence: input.sequence,
+    type: "user.message",
+    category: "interactive_request",
+    payload: { sessionId: FIXTURE_SESSION_ID, actor: "user", message: input.message },
+  });
+}
+
 /** The `rollback_boundary` arm, whose payload is the typed `RunRolledBackEvent`. */
 export function rollbackBoundaryRow(
   input: Omit<FixtureRowInput, "type" | "category"> & {
@@ -74,7 +92,6 @@ interface FixtureRowInput {
   readonly type: string;
   readonly category?: EventCategory;
   readonly actor?: string;
-  readonly summary?: string;
   readonly timestamp?: string;
   readonly payload?: Readonly<Record<string, unknown>>;
 }
@@ -95,7 +112,6 @@ function commonFields(input: FixtureRowInput): {
   readonly category: EventCategory;
   readonly type: string;
   readonly actor: string | undefined;
-  readonly summary: string;
   readonly timestamp: string;
 } {
   return {
@@ -106,7 +122,6 @@ function commonFields(input: FixtureRowInput): {
     category: input.category ?? "run_lifecycle",
     type: input.type,
     actor: input.actor,
-    summary: input.summary ?? input.type,
     timestamp: input.timestamp ?? fixtureTimestamp(input.sequence),
   };
 }

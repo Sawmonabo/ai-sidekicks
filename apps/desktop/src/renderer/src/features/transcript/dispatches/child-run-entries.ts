@@ -11,6 +11,7 @@ import { readWireString } from "#renderer/lib/wire/strings.js";
 // The one open-payload reader; it answers the `rollback_boundary` arm's typed payload with an
 // empty record.
 import { projectedPayload } from "#renderer/store/session/events/wire-payload.js";
+import { PublishedKeyedList } from "../window/published-keyed-list.js";
 import { SubagentAnchorIndex } from "./subagent-anchors.js";
 
 /**
@@ -58,125 +59,152 @@ export interface HandoffEntry {
 }
 
 /**
- * Child-run and handoff structure over one loaded window, derived once and asked per row per
- * frame. The derivation is a pure fold that a test can drive with no DOM.
+ * Child-run and handoff structure over one log, asked per row per frame. Rows join one at a time,
+ * in log order, so a log read a stretch at a time costs each stretch its own rows and the entries
+ * they move; each changed entry is a new object and the rest keep theirs.
  */
 export class ChildRunIndex {
-  readonly #rows: readonly TranscriptEventRow[];
-  #childRunEntries: readonly ChildRunEntry[] | undefined;
-  #handoffEntries: readonly HandoffEntry[] | undefined;
-  #childRunEntriesByRowId: ReadonlyMap<string, ChildRunEntry> | undefined;
-  #handoffEntriesByRowId: ReadonlyMap<string, HandoffEntry> | undefined;
+  readonly #subagentAnchors = new SubagentAnchorIndex();
+  /** Every child-run entry, in the order each child's first summarized row arrived. */
+  readonly #childRunEntries = new PublishedKeyedList<ChildRunEntry, ChildRunEntry>(
+    (entry) => entry.rowId,
+    (entry) => entry,
+  );
+  readonly #childRunEntryPositionByChildRunId = new Map<string, number>();
+  readonly #handoffEntries = new PublishedKeyedList<HandoffEntry, HandoffEntry>(
+    (entry) => entry.rowId,
+    (entry) => entry,
+  );
 
-  public constructor(rows: readonly TranscriptEventRow[]) {
-    this.#rows = rows;
+  public constructor(rows: readonly TranscriptEventRow[] = []) {
+    for (const row of rows) {
+      this.admit(row);
+    }
+  }
+
+  /** Fold one row in, after every row admitted before it. */
+  public admit(row: TranscriptEventRow): void {
+    this.#subagentAnchors.admit(row);
+    this.#admitChildRunSummary(row);
+    this.#admitHandoff(row);
+  }
+
+  /**
+   * Take `next`, a row projected again with only its child-run summary moved, in place of the row
+   * of its id admitted before. The child's entry takes the summary when `next` is the newest row
+   * summarizing it.
+   */
+  public replaceRow(next: TranscriptEventRow): void {
+    const summary = next.childRunSummary;
+    const position =
+      summary === undefined
+        ? undefined
+        : this.#childRunEntryPositionByChildRunId.get(summary.runId);
+    const entry = position === undefined ? undefined : this.#childRunEntries.at(position);
+    if (summary !== undefined && position !== undefined && entry !== undefined) {
+      const newestRowId = entry.resummarizedRowIds.at(-1) ?? entry.rowId;
+      if (newestRowId === next.id && entry.summary !== summary) {
+        this.#childRunEntries.set(position, { ...entry, summary });
+      }
+    }
+    const handoffPosition = this.#handoffEntries.positionOf(next.id);
+    if (handoffPosition !== undefined) {
+      this.#handoffEntries.set(handoffPosition, handoffEntryOf(next));
+    }
   }
 
   /** Every summarized child run in the window, in log order. */
   public childRunEntries(): readonly ChildRunEntry[] {
-    this.#childRunEntries ??= deriveChildRunEntries(this.#rows);
-    return this.#childRunEntries;
+    return this.#childRunEntries.list();
   }
 
   /** Every handoff in the window, in log order. */
   public handoffEntries(): readonly HandoffEntry[] {
-    this.#handoffEntries ??= deriveHandoffEntries(this.#rows);
-    return this.#handoffEntries;
+    return this.#handoffEntries.list();
   }
 
-  /** The child-run entry behind a row, for the feed's per-row dispatch. */
+  /** The child-run entry behind a row, for the feed's per-row dispatch. Kept until one moves. */
   public childRunEntryByRowId(): ReadonlyMap<string, ChildRunEntry> {
-    this.#childRunEntriesByRowId ??= new Map(
-      this.childRunEntries().map((entry) => [entry.rowId, entry]),
-    );
-    return this.#childRunEntriesByRowId;
+    return this.#childRunEntries.map();
   }
 
-  /** The handoff entry behind a row, for the same dispatch. */
+  /** The handoff entry behind a row, for the same dispatch. Kept until one moves. */
   public handoffEntryByRowId(): ReadonlyMap<string, HandoffEntry> {
-    this.#handoffEntriesByRowId ??= new Map(
-      this.handoffEntries().map((entry) => [entry.rowId, entry]),
-    );
-    return this.#handoffEntriesByRowId;
+    return this.#handoffEntries.map();
+  }
+
+  // The member is on `TranscriptEventRowBase`, so this reads it without narrowing on `kind`:
+  // dropping a child run on a `general` row would hide background work.
+  #admitChildRunSummary(row: TranscriptEventRow): void {
+    const summary = row.childRunSummary;
+    if (summary === undefined) {
+      return;
+    }
+    const position = this.#childRunEntryPositionByChildRunId.get(summary.runId);
+    const held = position === undefined ? undefined : this.#childRunEntries.at(position);
+    if (position !== undefined && held !== undefined) {
+      // The latest observation is what the card shows, at the first row's anchor. Only the summary
+      // moves; the anchor, actor and timestamp stay the first row's so the card does not travel.
+      this.#childRunEntries.set(position, {
+        ...held,
+        summary,
+        resummarizedRowIds: [...held.resummarizedRowIds, row.id],
+      });
+      return;
+    }
+    const added = this.#childRunEntries.push({
+      rowId: row.id,
+      summary,
+      actorId: row.actor,
+      timestamp: row.timestamp,
+      resummarizedRowIds: [],
+    });
+    this.#childRunEntryPositionByChildRunId.set(summary.runId, added);
+  }
+
+  // A row qualifies on its `type` alone: one carrying handoff members under another type is not a
+  // handoff, since the projection decides the set. A `subagent.started` and its
+  // `subagent.completed` are one handoff observed twice; the anchor index picks the row it is
+  // drawn at, and a row naming no subagent draws its own entry.
+  #admitHandoff(row: TranscriptEventRow): void {
+    // `some` rather than `includes`: `type` is the free-form contract string, the table is the
+    // narrowed union.
+    if (
+      HANDOFF_WIRE_TYPES.some((wireType) => wireType === row.type) &&
+      !this.#subagentAnchors.isAnchoredElsewhere(row.id)
+    ) {
+      this.#handoffEntries.push(handoffEntryOf(row));
+    }
   }
 }
 
 /**
- * Every row carrying a child-run summary, in log order. The member is on `TranscriptEventRowBase`,
- * so this reads it without narrowing on `kind`: dropping a child run on a `general` row would hide
- * background work.
+ * Every row carrying a child-run summary, in log order, for a caller that reads a log once. A
+ * re-summarized child keeps one entry, at its first row.
  */
 export function deriveChildRunEntries(
   rows: readonly TranscriptEventRow[],
 ): readonly ChildRunEntry[] {
-  const entriesByChildRunId = new Map<string, ChildRunEntryUnderConstruction>();
-  const entries: ChildRunEntryUnderConstruction[] = [];
-  for (const row of rows) {
-    if (row.childRunSummary === undefined) {
-      continue;
-    }
-    const held = entriesByChildRunId.get(row.childRunSummary.runId);
-    if (held !== undefined) {
-      held.resummarizedRowIds.push(row.id);
-      // The latest observation is what the card shows, at the first row's anchor. Only the summary
-      // moves; the anchor, actor and timestamp stay the first row's so the card does not travel.
-      held.summary = row.childRunSummary;
-      continue;
-    }
-    const entry: ChildRunEntryUnderConstruction = {
-      rowId: row.id,
-      summary: row.childRunSummary,
-      actorId: row.actor,
-      timestamp: row.timestamp,
-      resummarizedRowIds: [],
-    };
-    entriesByChildRunId.set(row.childRunSummary.runId, entry);
-    entries.push(entry);
-  }
-  return entries;
+  return new ChildRunIndex(rows).childRunEntries();
 }
 
-/**
- * Every handoff in the window, in log order. A row qualifies on its `type` alone: one carrying
- * handoff members under another type is not a handoff, since the projection decides the set.
- */
+/** Every handoff in the window, in log order, for a caller that reads a log once. */
 export function deriveHandoffEntries(rows: readonly TranscriptEventRow[]): readonly HandoffEntry[] {
-  const anchors = new SubagentAnchorIndex(rows);
-  const entries: HandoffEntry[] = [];
-  for (const row of rows) {
-    // `some` rather than `includes`: `type` is the free-form contract string, the table is the
-    // narrowed union.
-    if (!HANDOFF_WIRE_TYPES.some((wireType) => wireType === row.type)) {
-      continue;
-    }
-    // A `subagent.started` and its `subagent.completed` are one handoff observed twice; the anchor
-    // index picks the row it is drawn at. A row naming no subagent draws its own entry.
-    if (!anchors.isAnchoredElsewhere(row.id)) {
-      const payload = projectedPayload(row);
-      entries.push({
-        rowId: row.id,
-        wireType: row.type,
-        fromActor: readWireString(payload["fromActor"]),
-        toActor: readWireString(payload["toActor"]),
-        reason: readWireString(payload["reason"]),
-        timestamp: row.timestamp,
-        childRunId: childRunIdOf(row),
-      });
-    }
-  }
-  return entries;
+  return new ChildRunIndex(rows).handoffEntries();
 }
 
-/**
- * One entry while the fold runs: `summary` is writable here and readonly on {@link ChildRunEntry},
- * so only the fold moves it.
- */
-interface ChildRunEntryUnderConstruction {
-  readonly rowId: string;
-  summary: ChildRunSummary;
-  readonly actorId: string | undefined;
-  readonly timestamp: string;
-  readonly resummarizedRowIds: string[];
+/** One handoff row's entry, its members read off the payload and rendered verbatim. */
+function handoffEntryOf(row: TranscriptEventRow): HandoffEntry {
+  const payload = projectedPayload(row);
+  return {
+    rowId: row.id,
+    wireType: row.type,
+    fromActor: readWireString(payload["fromActor"]),
+    toActor: readWireString(payload["toActor"]),
+    reason: readWireString(payload["reason"]),
+    timestamp: row.timestamp,
+    childRunId: childRunIdOf(row),
+  };
 }
 
 /**

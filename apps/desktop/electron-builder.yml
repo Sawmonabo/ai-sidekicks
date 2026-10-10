@@ -11,6 +11,8 @@ files:
   - "!out/**/*.map"
   # The renderer build's chunk manifest, which only the bundle budget reads.
   - "!out/renderer/.vite/**"
+  # The third-party notices, which ship beside the archive (`extraResources` below).
+  - "!out/third-party-notices/**"
   # `notify-status` loads the binary in its own folder for this system and processor first, so its
   # per-platform packages and the binaries for other targets never load.
   - "!node_modules/notify-status-*/**"
@@ -24,6 +26,11 @@ protocols:
   - name: AI Sidekicks
     schemes:
       - sidekicks
+# Every platform carries the third-party notices the build wrote, one file per bundle, beside the
+# archive in `third-party-notices/`; electron-builder adds each platform's own list below to this one.
+extraResources:
+  - from: out/third-party-notices
+    to: third-party-notices
 # Copies Electron's V8 snapshot as the main process's own, which the snapshot fuse below needs.
 afterPack: ./build/browser-snapshot.ts
 # The hardened fuse wire every packaged app carries. `WasmTrapHandlers` is left at Electron's

@@ -2,7 +2,12 @@
 
 import { describe, expect, it } from "vitest";
 
-import { footnoteDefinitionPreamble, mendVolatileTail, parseSettledBlock } from "./parse.js";
+import {
+  footnoteDefinitionPreamble,
+  holdSettledBlock,
+  mendVolatileTail,
+  parseSettledBlock,
+} from "./parse.js";
 
 describe("parsing a settled block", () => {
   it("two different blocks are two different trees", () => {
@@ -10,6 +15,37 @@ describe("parsing a settled block", () => {
     expect(parseSettledBlock("first\n")).not.toBe(parseSettledBlock("second\n"));
   });
 });
+
+describe("holding a settled block's parse", () => {
+  it("keeps the tree for each holder until that holder lets go, however often it lets go", () => {
+    const first = holdSettledBlock("held block\n");
+    const second = holdSettledBlock("held block\n");
+    expect(second.root).toBe(first.root);
+    // One holder letting go twice must not let go of the other's hold.
+    first.release();
+    first.release();
+    fillCache("first");
+    expect(parseSettledBlock("held block\n")).toBe(second.root);
+    second.release();
+    fillCache("second");
+    expect(parseSettledBlock("held block\n")).not.toBe(second.root);
+  });
+});
+
+/** Parses blocks past the cache's whole cap, each within it, evicting every tree no one holds. */
+function fillCache(tag: string): void {
+  for (let block = 0; block < FILLING_BLOCK_COUNT; block += 1) {
+    const rows = Array.from(
+      { length: FILLING_TABLE_ROWS },
+      (_, index) => `| ${tag} ${String(block)} ${String(index)} | **bold** | \`code\` | text |`,
+    );
+    parseSettledBlock(["| a | b | c | d |", "| - | - | - | - |", ...rows].join("\n"));
+  }
+}
+
+/** Tables of about a quarter of the cache each, and enough of them to pass it. */
+const FILLING_TABLE_ROWS = 100;
+const FILLING_BLOCK_COUNT = 6;
 
 describe("parsing a block against the whole body's definitions", () => {
   it("drops the synthetic definitions and keeps the author's own", () => {

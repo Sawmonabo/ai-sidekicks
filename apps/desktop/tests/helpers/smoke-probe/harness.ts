@@ -179,7 +179,7 @@ export async function spawnElectron(options: SpawnElectronOptions = {}): Promise
   // A private profile makes Electron's `SingletonLock` per-spawn. On the default profile a second
   // Electron on the machine holds the lock, and the loser quits before any window exists and exits
   // 0 with no output, which looks like a failed boot.
-  const profile = createLaunchProfile("sidekicks-smoke-test-");
+  const profile = createLaunchProfile({ directoryPrefix: "sidekicks-smoke-test-" });
 
   // `xvfb-run -a` picks an unused display number; it is the local fallback when no display is
   // set. Chromium switches must precede the entry script so Electron routes them to the browser

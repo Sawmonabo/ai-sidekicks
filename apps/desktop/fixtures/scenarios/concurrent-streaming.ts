@@ -41,16 +41,10 @@
 // reads belong to the machine rather than the session.
 
 import {
-  encodeEventCursor,
-  START_OF_LOG_POSITION,
-} from "@ai-sidekicks/contracts/session/event-cursor";
-
-import {
   composeScenarioInstant,
   composeScriptBeats,
   type ScriptEntry,
   createRunEntryBuilders,
-  findBeatCursor,
   newestBeatInstant,
 } from "../data/script-entries.js";
 import { defineScenario, type Scenario, type ScenarioBeat } from "../scenario.js";
@@ -73,6 +67,7 @@ import { WORKFLOW_RUN_DIFF_REPLIES } from "../data/workflow/run/review-diffs.js"
 import { SESSION_LIST_OPENING_NOTICES, SETTINGS_REPLIES } from "../data/settings-replies.js";
 import { WORKFLOW_OPENING_NOTICES, WORKFLOW_REPLIES } from "../data/workflow/replies.js";
 import { WORKFLOW_FIXTURE_NOW_MS } from "../data/workflow/clock.js";
+import { sessionReadReply } from "../data/session-record.js";
 
 // The cast and its clock: every identifier in one place. Ids are UUID v7 values whose leading
 // bytes are the scenario's start instant.
@@ -597,30 +592,14 @@ export const CONCURRENT_STREAMING_SCENARIO: Scenario = defineScenario(
     return {
       beats,
       replies: [
-        {
-          // The frame's read is `session.read`; nothing in the renderer calls `session.list`.
-          call: "session.read",
-          result: {
-            session: {
-              id: SESSION_ID,
-              state: "active",
-              shape: "project",
-              muted: false,
-              pendingWorkingFolder: null,
-              createdAt: STARTED_AT_ISO,
-              updatedAt: newestBeatInstant(beats),
-              draft: "",
-              tags: [],
-            },
-            transcriptCursors: {
-              earliest: encodeEventCursor(START_OF_LOG_POSITION),
-              latest: findBeatCursor(beats, beats.length - 1),
-            },
-            // The record a read before any beat lands holds: no run has begun.
-            liveRuns: [],
-            standingEvents: [],
-          },
-        },
+        sessionReadReply({
+          sessionId: SESSION_ID,
+          state: "active",
+          shape: "project",
+          createdAt: STARTED_AT_ISO,
+          updatedAt: newestBeatInstant(beats),
+          beats,
+        }),
         ...SETTINGS_REPLIES,
         ...WORKFLOW_REPLIES,
         ...WORKFLOW_RUN_DIFF_REPLIES,

@@ -26,7 +26,6 @@ import { type EventCursor } from "../session/event-cursor.js";
 
 import { ChildRunSummarySchema, type ChildRunSummary } from "./child-run-summary.js";
 import { TranscriptRowContentSchema, type TranscriptRowContent } from "./content.js";
-import { TRANSCRIPT_EVENT_ROW_SUMMARY_MAX_LEN } from "./limits.js";
 import { TRANSCRIPT_RUN_ATTRIBUTION_PAYLOAD_KEYS, transcriptRunIdOf } from "./run-attribution.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 
@@ -153,8 +152,6 @@ export interface TranscriptEventRowBase {
   /** Free-form by contract — narrow on `kind`, never on this. */
   type: string;
   actor?: string | undefined;
-  /** Human-readable summary. */
-  summary: string;
   timestamp: string;
   /** Present when this row is a summarized child-run row. */
   childRunSummary?: ChildRunSummary | undefined;
@@ -178,7 +175,6 @@ const TRANSCRIPT_EVENT_ROW_COMMON_SHAPE = {
   category: EventCategorySchema,
   type: wireFreeFormString(EVENT_FIELD_MAX_LEN, "TranscriptEventRow.type"),
   actor: wireFreeFormString(EVENT_FIELD_MAX_LEN, "TranscriptEventRow.actor").optional(),
-  summary: wireFreeFormString(TRANSCRIPT_EVENT_ROW_SUMMARY_MAX_LEN, "TranscriptEventRow.summary"),
   timestamp: isoDateTimeSchema,
   childRunSummary: ChildRunSummarySchema.optional(),
   omittedPatches: z.array(TranscriptOmittedPatchSchema).min(1).optional(),

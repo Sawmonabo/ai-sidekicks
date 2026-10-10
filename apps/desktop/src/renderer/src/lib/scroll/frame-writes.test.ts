@@ -12,7 +12,7 @@ const geometryAt = (scrollTop: number): ScrollGeometry => ({
   contentHeight: 2000,
   distanceFromTailPx: 1600 - scrollTop,
   isAtTail: false,
-  sampledAt: 0,
+  inputAt: undefined,
   cause: "scroll",
 });
 

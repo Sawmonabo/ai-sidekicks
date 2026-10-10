@@ -25,9 +25,11 @@ import { composeSessionCreatedPayload } from "../data/opening-entries.js";
 import {
   composeScenarioInstant,
   composeScriptBeats,
+  newestBeatInstant,
   type ScriptEntry,
 } from "../data/script-entries.js";
 import { defineScenario, type Scenario } from "../scenario.js";
+import { sessionReadReply } from "../data/session-record.js";
 
 // UUID v7 values whose leading bytes are this scenario's start instant, so a rendered id
 // identifies its fixture. Parsed through the registered schemas, not cast, so a malformed id
@@ -187,13 +189,25 @@ export const APPROVAL_REQUEST_SCENARIO: Scenario = defineScenario(
     sessionId: SESSION_ID,
     startedAtIso: STARTED_AT_ISO,
   },
-  () => ({
-    beats: composeScriptBeats({
+  () => {
+    const beats = composeScriptBeats({
       sessionId: SESSION_ID,
       eventIdStem: EVENT_ID_STEM,
       startedAtMs: STARTED_AT_MS,
       entries: APPROVAL_REQUEST_SCRIPT,
-    }),
-    replies: [],
-  }),
+    });
+    return {
+      beats,
+      replies: [
+        sessionReadReply({
+          sessionId: SESSION_ID,
+          state: "active",
+          shape: "project",
+          createdAt: STARTED_AT_ISO,
+          updatedAt: newestBeatInstant(beats),
+          beats,
+        }),
+      ],
+    };
+  },
 );

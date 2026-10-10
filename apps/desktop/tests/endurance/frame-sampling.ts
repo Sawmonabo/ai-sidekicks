@@ -12,14 +12,24 @@
 // document's that opened it and renders its tree, since an entry is reported to the realm whose
 // script ran it.
 //
+// Each real frame plays one frame of the scenario: the frozen clock is advanced, delivering the
+// beats due by then, and the frame work the app armed on it runs, so a sample holds the app's own
+// frame work as a reader's frame does.
+//
 // The warm-up is a frame count, not seconds: the frozen clock only moves when this sampler moves
 // it, so seconds of frames would deliver the whole script before the first sample. The advance per
 // frame is derived from the script's span.
+//
+// The harness hands Chromium's GPU caches from each launch of a test to the next, so a case's
+// first launch compiles its GPU pipelines from nothing and the ones after it do not. A measured
+// case launches once cold, prints that launch's figures on their own as the first-launch figure,
+// and gates on the median over the warm launches after it (`measureLaunches`).
 
 import { expect } from "vitest";
 
 import type { AppUnderTest } from "../helpers/electron/harness.js";
 import { SCENARIO_FIXTURE_GLOBAL } from "#renderer/app/fixture/global-names.js";
+import type { ScenarioFixtureHandle } from "#renderer/services/daemon/selection.fixture.js";
 import {
   CONCURRENT_STREAMING_LANE_COUNT,
   CONCURRENT_STREAMING_SCENARIO,
@@ -45,6 +55,29 @@ export const MEASURED_RUN_COUNT = 3;
  * initial measurement pass and V8 compilation, which no frame budget bounds.
  */
 const WARM_UP_FRAME_COUNT = 30;
+
+/** A measured case's launches: the cold first one, and the warm ones its gate reads. */
+export interface MeasuredLaunches<TRun> {
+  /** The test's first launch, which started with no GPU caches. */
+  readonly firstLaunch: TRun;
+  /** `MEASURED_RUN_COUNT` launches, each started from the GPU caches the one before closed with. */
+  readonly warmLaunches: readonly TRun[];
+}
+
+/**
+ * Launches once cold and then `MEASURED_RUN_COUNT` times warm, one after another. Called before
+ * the running test's first launch, since only that one starts cold.
+ */
+export async function measureLaunches<TRun>(
+  launchOnce: () => Promise<TRun>,
+): Promise<MeasuredLaunches<TRun>> {
+  const firstLaunch = await launchOnce();
+  const warmLaunches: TRun[] = [];
+  for (let runIndex = 0; runIndex < MEASURED_RUN_COUNT; runIndex += 1) {
+    warmLaunches.push(await launchOnce());
+  }
+  return { firstLaunch, warmLaunches };
+}
 
 /** What one sampled run measured. */
 export interface FrameTimingRun {
@@ -78,10 +111,7 @@ export async function sampleFrameTimings(
       // The scenario's handle is the console document's, which opened this window.
       const consoleRealm = (window.opener ?? globalThis) as typeof globalThis;
       const scenarioControl = (
-        consoleRealm as unknown as Record<
-          string,
-          { advance(milliseconds: number): void; deliveredBeatCount(): number } | undefined
-        >
+        consoleRealm as unknown as Record<string, ScenarioFixtureHandle | undefined>
       )[scenarioGlobalName];
       if (scenarioControl === undefined) {
         return null;
@@ -113,6 +143,7 @@ export async function sampleFrameTimings(
             isSampling = true;
           }
           scenarioControl.advance(advanceMilliseconds);
+          scenarioControl.runFrame();
           if (stallMilliseconds > 0) {
             const stallUntil = performance.now() + stallMilliseconds;
             while (performance.now() < stallUntil) {

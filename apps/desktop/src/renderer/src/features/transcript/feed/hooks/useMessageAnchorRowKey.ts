@@ -4,7 +4,7 @@
 // folded run group has the group opened first, once, so the row is drawn rather than hidden under
 // a header. An event the feed draws nothing for lands on the nearest row it does draw.
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
@@ -12,9 +12,10 @@ import { useSessionStore } from "#renderer/store/session/hooks/useOpenSessionSto
 import { type ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
 import { type SessionStoreState } from "#renderer/store/session/state.js";
-import { readRunGroupKey, type RunGroup } from "../../runs/groups.js";
+import { type RunGroup } from "../../runs/groups.js";
 import { type TranscriptHistory } from "../../history/hooks/useTranscriptHistory.js";
 import { type TranscriptWindowModel } from "../../window/transcript-window.js";
+import { type MessageReadBack } from "../../viewport/controller.js";
 
 /** What the landing row is looked up in. */
 export interface MessageAnchorRowKeyInputs {
@@ -30,17 +31,27 @@ export interface MessageAnchorRowKeyInputs {
   /** Whether the feed draws a row at all. */
   readonly drawsRow: (row: TranscriptEventRow) => boolean;
   /** Open one run group, if it is folded. */
-  readonly openRunGroup: (runId: string) => void;
+  readonly openRunGroup: (runGroupKey: string) => void;
+}
+
+/** Where a link to a message stands: the row it lands on, and how reading back toward it goes. */
+export interface MessageAnchorLanding {
+  /**
+   * The key of the drawn row the message cursor names, or `undefined` while there is none: no
+   * cursor, or a cursor the log does not hold (yet, or at all).
+   */
+  readonly landingRowKey: string | undefined;
+  /** The reading back toward a message the log lacks, or `undefined` when none is owed. */
+  readonly readBack: MessageReadBack | undefined;
 }
 
 /**
- * The key of the drawn row the message cursor names, or `undefined` while there is none: no
- * cursor, or a cursor the log does not hold (yet, or at all). An event the feed draws nothing for
- * lands on the next drawn row after it in log order, else the one before it. While the log lacks
- * the event, this reads back one stretch at a time until it arrives, history starts or a read
- * fails. Nothing stands in for a missing row, so the transcript opens as it would with no link.
+ * The row a link to a message lands on. An event the feed draws nothing for lands on the next
+ * drawn row after it in log order, else the one before it. While the log lacks the event, this
+ * reads back one stretch at a time until it arrives, history starts or a read fails. Nothing
+ * stands in for a missing row, so the transcript opens as it would with no link.
  */
-export function useMessageAnchorRowKey(inputs: MessageAnchorRowKeyInputs): string | undefined {
+export function useMessageAnchorRowKey(inputs: MessageAnchorRowKeyInputs): MessageAnchorLanding {
   const { sessionStore, messageAnchorCursor, unfurledWindow, transcriptWindow, drawsRow } = inputs;
   // The log's oldest event moves when the log is first read and when a page lands: the only
   // times an older message can arrive. Keyed on it, the lookup
@@ -55,7 +66,7 @@ export function useMessageAnchorRowKey(inputs: MessageAnchorRowKeyInputs): strin
             .transcript.find((event) => event.cursor === messageAnchorCursor)?.id,
     [sessionStore, messageAnchorCursor, oldestEvent],
   );
-  useReadBackToMessage(messageAnchorCursor, eventId, inputs.history);
+  const readBack = useReadBackToMessage(messageAnchorCursor, eventId, inputs.history);
   const foldedRunGroup = useMemo(
     () => runGroupFoldingAway(eventId, unfurledWindow, transcriptWindow),
     [eventId, unfurledWindow, transcriptWindow],
@@ -80,11 +91,11 @@ export function useMessageAnchorRowKey(inputs: MessageAnchorRowKeyInputs): strin
     }
     if (foldedRunGroup !== undefined) {
       settledCursor.current = messageAnchorCursor;
-      openRunGroup(foldedRunGroup.runId);
+      openRunGroup(foldedRunGroup.key);
     }
   }, [landingRowKey, foldedRunGroup, messageAnchorCursor, openRunGroup]);
 
-  return landingRowKey;
+  return { landingRowKey, readBack };
 }
 
 /**
@@ -92,29 +103,41 @@ export function useMessageAnchorRowKey(inputs: MessageAnchorRowKeyInputs): strin
  * stretch re-renders with the grown log, so this reads back stretch by stretch and stops on its
  * own: at the message, at the start of history, or at a failed read, which the line at the top
  * shows and offers to try again. Once the message is found the reading back is over for that
- * link, so a row that later leaves the log is not chased back.
+ * link, so a row that later leaves the log is not chased back. Answers how the reading back
+ * stands, or `undefined` when none is owed.
  */
 function useReadBackToMessage(
   messageAnchorCursor: string | undefined,
   eventId: string | undefined,
   history: TranscriptHistory | undefined,
-): void {
-  const reachedCursor = useRef<string | undefined>(undefined);
+): MessageReadBack | undefined {
+  const [reachedCursor, setReachedCursor] = useState<string | undefined>(undefined);
   // Keyed on the history object, which is new after every stretch, so a stretch that lands
   // without the message asks for the next even when no flag reads differently.
   useEffect(() => {
-    if (messageAnchorCursor === undefined || reachedCursor.current === messageAnchorCursor) {
+    if (messageAnchorCursor === undefined || reachedCursor === messageAnchorCursor) {
       return;
     }
     if (eventId !== undefined) {
-      reachedCursor.current = messageAnchorCursor;
+      setReachedCursor(messageAnchorCursor);
       return;
     }
     const earlier = history?.state.earlier;
     if (earlier?.hasMore === true && !earlier.isReading && !earlier.hasFailed) {
       history?.readStretch("head");
     }
-  }, [messageAnchorCursor, eventId, history]);
+  }, [messageAnchorCursor, reachedCursor, eventId, history]);
+  const earlier = history?.state.earlier;
+  if (
+    messageAnchorCursor === undefined ||
+    reachedCursor === messageAnchorCursor ||
+    eventId !== undefined ||
+    earlier === undefined
+  ) {
+    return undefined;
+  }
+  // A failed read leaves the reading back owed: its `Try again` asks for the stretch again.
+  return !earlier.hasMore && !earlier.hasFailed ? "not-in-history" : "reading-back";
 }
 
 /**
@@ -129,9 +152,10 @@ function runGroupFoldingAway(
   if (rowKey === undefined || transcriptWindow.rowsByKey.has(rowKey)) {
     return undefined;
   }
-  const row = unfurledWindow.rowsByKey.get(rowKey);
-  const runId = row === undefined ? undefined : readRunGroupKey(row);
-  return runId === undefined ? undefined : transcriptWindow.runGroupByHeaderKey.get(runId);
+  const runGroupKey = unfurledWindow.runGroupKeyByRowId.get(rowKey);
+  return runGroupKey === undefined
+    ? undefined
+    : transcriptWindow.runGroupByHeaderKey.get(runGroupKey);
 }
 
 /**

@@ -1,7 +1,8 @@
 // Renders TeX with KaTeX: the renderer's one `dangerouslySetInnerHTML` site, because KaTeX only
 // produces a markup string. KaTeX loads lazily, settled blocks only, with `trust: false` (model
 // output must not emit `\href`, `\url` or a class), its HTML output with its MathML beside it, and
-// `strict: false`. A display formula measures its widest unbreakable piece once, so its sheet can
+// `strict: false`. A formula waits for KaTeX's faces in the window it is drawn in, so it is first
+// laid out in them. A display formula measures its widest unbreakable piece once, so its sheet can
 // shrink it to the column, and checks the fit again when its size changes. An unparseable formula,
 // or one whose chunk failed to load, shows its source beside an error state, never KaTeX's red
 // error text.
@@ -14,8 +15,9 @@ import { useLayoutEffect, useMemo, useRef } from "react";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { useChunkLoad } from "#renderer/hooks/useChunkLoad.js";
 import { RealClock, type ScheduledHandle } from "#renderer/lib/clock.js";
+import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { observeElementResize } from "#renderer/lib/element-resize.js";
-import { MemoizedLoad } from "#renderer/lib/memoized-load.js";
+import { typesetterLoadFor } from "./typesetter/load.js";
 
 /** What one formula is drawn from. */
 export interface MathBlockProps {
@@ -36,7 +38,7 @@ export function MathBlock(props: MathBlockProps): React.JSX.Element {
     return (
       <span
         ref={displayRef}
-        className={props.isDisplayMode ? "meridian-math--display" : undefined}
+        className={props.isDisplayMode ? "meridian-math--display" : "meridian-math--inline"}
         data-math=""
         // KaTeX's HTML and MathML output over `trust: false`.
         dangerouslySetInnerHTML={{ __html: state.mathMarkup }}
@@ -69,19 +71,12 @@ const PENDING_FORMULA: MathRenderState = { status: "pending" };
 const UNRENDERABLE_FORMULA: MathRenderState = { status: "unrenderable" };
 
 /**
- * KaTeX's chunk. KaTeX's code, its sheet and its fonts are a large download most sessions never
- * need, so they arrive on their own chunk, which settles only once the fonts are in.
- */
-const typesetterLoader = new MemoizedLoad(
-  async () => (await import("./typesetter.js")).typesetFormula,
-);
-
-/**
- * KaTeX's markup for this source. Once the chunk is in, the loader's kept value typesets on the
- * first render, so a remounted formula is never drawn as its source first. A chunk that failed to
- * load is recorded by the chunk load, and the formula shows its source.
+ * KaTeX's markup for this source. Once the chunk is in for this window, the loader's kept value
+ * typesets on the first render, so a remounted formula is never drawn as its source first. A chunk
+ * that failed to load is recorded by the chunk load, and the formula shows its source.
  */
 function useKatexMarkup(source: string, isDisplayMode: boolean): MathRenderState {
+  const typesetterLoader = typesetterLoadFor(useOwnerWindow().document);
   const { state: chunk } = useChunkLoad(typesetterLoader, "math-typesetter-chunk");
   const typeset = chunk.status === "loaded" ? chunk.module : typesetterLoader.loadedValue;
   const hasFailed = chunk.status === "failed";
@@ -162,8 +157,9 @@ function writeNaturalWidth(span: HTMLSpanElement): boolean {
   const widestPiece = Math.ceil(widestWidthOf(span, ".katex-base"));
   // The line is centered and its number pinned right, so the number needs room on both sides.
   const naturalWidth = widestPiece + 2 * Math.ceil(widestWidthOf(span, ".katex-tag"));
-  // An empty formula has nothing to fit, and a zero ratio would void the sheet's division.
-  if (widestPiece === 0) {
+  // An empty formula has nothing to fit, and a zero ratio would void the sheet's division. A
+  // formula that is only its number has no piece, and still fits by the number's room.
+  if (naturalWidth === 0) {
     return false;
   }
   const fontSize = Number.parseFloat(getComputedStyle(formula).fontSize);

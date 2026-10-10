@@ -4,6 +4,10 @@
 import { vi } from "vitest";
 
 import { ManualClock } from "#renderer/lib/clock.js";
+import {
+  createCountingScrollContainer,
+  type CountingScrollContainer,
+} from "#renderer/lib/scroll/container.test-support.js";
 import type { ViewportRow } from "./snapshot.js";
 import { ViewportController } from "./controller.js";
 
@@ -16,10 +20,28 @@ export function syntheticRows(count: number, runGroupKey?: string): readonly Vie
   }));
 }
 
-/** Reconcile conditions with no row still working. */
-export const CALM: { isWorkingRow: (rowKey: string) => boolean } = {
-  isWorkingRow: () => false,
+/** Reconcile conditions with no row still changing. */
+export const CALM: { isChangingRow: (rowKey: string) => boolean } = {
+  isChangingRow: () => false,
 };
+
+/**
+ * A box at its tail attached to `controller`, which the reader then scrolls up to `offsetPx`: a
+ * transcript opens following, and only the reader's own scroll toward the head reads instead.
+ */
+export function attachReaderAt(
+  controller: ViewportController,
+  box: { readonly offsetPx: number; readonly clientHeight: number; readonly scrollHeight: number },
+): CountingScrollContainer {
+  const scrollContainer = createCountingScrollContainer({
+    initialScrollTop: box.scrollHeight - box.clientHeight,
+    clientHeight: box.clientHeight,
+    scrollHeight: box.scrollHeight,
+  });
+  controller.attach(scrollContainer);
+  scrollContainer.moveTo(box.offsetPx);
+  return scrollContainer;
+}
 
 /** A controller attached to a detached element, with the clock its cases advance. */
 export function attachedController(): {

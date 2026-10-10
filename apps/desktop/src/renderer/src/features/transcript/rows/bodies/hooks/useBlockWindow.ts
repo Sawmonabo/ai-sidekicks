@@ -10,8 +10,9 @@ import {
   type BlockWindowRow,
 } from "../../markdown/block-window/layout.js";
 import { MARKDOWN_BLOCK_INDEX_ATTRIBUTE } from "../../markdown/block-window/markers.js";
-import { withPinnedBlocks } from "../../markdown/block-window/selection-pins.js";
-import { useSelectionPinnedBlocks } from "./useSelectionPinnedBlocks.js";
+import { indexesBetween, withPinnedIndexes } from "../../markdown/block-window/selection-pins.js";
+import { refuseScrollAdjustment } from "../../markdown/scroller-window.js";
+import { useSelectionPins } from "./useSelectionPins.js";
 
 /** A windowed body's elements as one render draws them. */
 export interface BlockWindow {
@@ -19,6 +20,8 @@ export interface BlockWindow {
   readonly rows: readonly BlockWindowRow[];
   /** The body's element, whose width and place in its row the window reads. */
   readonly attachBody: (element: HTMLElement | null) => void;
+  /** The body's layout, which a long table in one of its blocks lays its rows out from. */
+  readonly layout: BlockWindowLayout;
   /** One block wrapper, measured as it mounts and each time it resizes. */
   readonly attachBlock: (element: HTMLElement | null) => void;
 }
@@ -37,19 +40,29 @@ const BLOCK_WINDOW_OVERSCAN_BLOCKS = 6;
  */
 export function useBlockWindow(
   blocks: MarkdownBodyBlocksSnapshot,
+  bodyTextLength: number,
   viewport: MarkdownWindowViewport,
   rowKey: string,
 ): BlockWindow {
-  const [layout] = useState(() => new BlockWindowLayout({ viewport, rowKey, blocks }));
-  layout.setBlocks(blocks);
+  const [layout] = useState(
+    () => new BlockWindowLayout({ viewport, rowKey, blocks, bodyTextLength }),
+  );
+  layout.setBlocks(blocks, bodyTextLength);
   const [, redrawRows] = useReducer(countRedraws, 0);
 
   // The body is the window's element: its children are the wrappers and spacers.
   const readBodyElement = layout.getScrollElement;
   const readBlockCount = useCallback(() => layout.blockCount, [layout]);
-  const pins = useSelectionPinnedBlocks(viewport, readBodyElement, readBlockCount);
+  const pins = useSelectionPins(
+    viewport,
+    readBodyElement,
+    readBlockCount,
+    MARKDOWN_BLOCK_INDEX_ATTRIBUTE,
+  );
+  // Every block between a selection's ends stays drawn, so a copy reads the blocks from the page.
   const rangeExtractor = useCallback(
-    (range: Range) => withPinnedBlocks(defaultRangeExtractor(range), pins, range.count),
+    (range: Range) =>
+      withPinnedIndexes(defaultRangeExtractor(range), indexesBetween(pins), range.count),
     [pins],
   );
   // A new identity whenever a block settles, so the library re-reads every key even where the
@@ -64,6 +77,7 @@ export function useBlockWindow(
       if (layout.differsFromCommittedRows(instance.getVirtualItems(), instance.getTotalSize())) {
         redrawRows();
       }
+      layout.announcePlacementChange("moved");
     },
     [layout],
   );
@@ -91,7 +105,7 @@ export function useBlockWindow(
     directDomUpdates: true,
   });
   // The body follows the conversation's place and never moves it, however a block measures.
-  virtualizer.shouldAdjustScrollPositionOnItemSizeChange = NEVER_ADJUST_SCROLL;
+  virtualizer.shouldAdjustScrollPositionOnItemSizeChange = refuseScrollAdjustment;
 
   useEffect(() => {
     layout.bindVirtualizer(virtualizer);
@@ -102,14 +116,9 @@ export function useBlockWindow(
     layout.commitRows(rows);
   });
 
-  return { rows, attachBody: layout.attachBody, attachBlock: virtualizer.measureElement };
+  return { rows, attachBody: layout.attachBody, attachBlock: virtualizer.measureElement, layout };
 }
 
 function countRedraws(count: number): number {
   return count + 1;
-}
-
-/** The library's compensation for a resized block, refused. */
-function NEVER_ADJUST_SCROLL(): boolean {
-  return false;
 }

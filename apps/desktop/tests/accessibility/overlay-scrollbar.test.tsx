@@ -5,7 +5,7 @@
 // control is a list that is itself the scroller, which axe must report.
 //
 // Every scroller that is a tab stop of its own is a group named for what it holds: a diff, two of
-// them with one name as two cards in a conversation show them, a run group's earlier entries, a
+// them with one name as two cards in a conversation show them, a
 // step's payload rows, a payload's text and the command palette's matches. None is a landmark,
 // which would fill the landmark list with one entry per card, and no bar sits inside the table or
 // listbox a scroller holds.
@@ -33,11 +33,6 @@ import { mountDiffPane } from "./feature-mounts/repos/views.js";
 import { liveBridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { CommandPalette } from "#renderer/layout/CommandPalette/CommandPalette.js";
 import { CommandRegistry } from "#renderer/registries/commands/registry.js";
-import { runRow } from "#renderer/features/transcript/event-rows.test-support.js";
-import { RUN_GROUP_VISIBLE_ROW_CAP } from "#renderer/features/transcript/runs/body.js";
-import { RunGroupBody } from "#renderer/features/transcript/runs/components/RunGroupBody.js";
-import { groupRowsByRun } from "#renderer/features/transcript/runs/groups.js";
-import { findRunGroup } from "#renderer/features/transcript/runs/groups.test-support.js";
 import { PayloadRowWindow } from "#renderer/features/workflows/runs/page/step/components/StepPayload/PayloadRowWindow.js";
 import { describeViolations, runTierAxe } from "./axe-run.js";
 
@@ -163,22 +158,11 @@ describe("accessibility — the overlay scrollbar", () => {
     installOverlayScrollbarLibrary(document);
     const diffPane = await mountDiffPane();
     const BridgeHost = liveBridgeWrapper();
-    const runRows = Array.from({ length: RUN_GROUP_VISIBLE_ROW_CAP * 2 }, (_unused, index) =>
-      runRow({
-        id: `r${String(index + 1)}`,
-        sequence: index + 1,
-        type: "run.running",
-        summary: `entry ${String(index + 1)}`,
-        runId: "run-a",
-        position: index + 1,
-      }),
-    );
     const { container: conversation } = render(
       <BridgeHost>
         {/* Two cards over the same refs, each diff held to a height so its rows overflow. */}
         <DiffRenderer {...diffRendererProps({ label: DIFF_LABEL, heightCapPx: 120 })} />
         <DiffRenderer {...diffRendererProps({ label: DIFF_LABEL, heightCapPx: 120 })} />
-        <RunGroupBody runGroup={findRunGroup(groupRowsByRun(runRows), "run-a")} />
         <PayloadRowWindow
           rowCount={200}
           label={PAYLOAD_ROWS_LABEL}
@@ -203,12 +187,11 @@ describe("accessibility — the overlay scrollbar", () => {
     paneDiff.style.maxBlockSize = "8rem";
     const conversationScrollers = Array.from(
       conversation.querySelectorAll<HTMLElement>(
-        ".meridian-diff, .meridian-run-group-body__scroller, " +
-          ".meridian-workflow-payload__window, .meridian-artifact-payload__preview",
+        ".meridian-diff, .meridian-workflow-payload__window, .meridian-artifact-payload__preview",
       ),
     );
-    expect(conversationScrollers).toHaveLength(5);
-    const [firstCard, secondCard, runEntries, payloadRows, payloadText] = conversationScrollers;
+    expect(conversationScrollers).toHaveLength(4);
+    const [firstCard, secondCard, payloadRows, payloadText] = conversationScrollers;
     await showEveryBar([paneDiff, ...conversationScrollers]);
     expect(barsInsideTableOrListbox(document)).toStrictEqual([]);
     // Nothing here adds a landmark: two diff cards over the same refs would be two landmarks of
@@ -217,17 +200,12 @@ describe("accessibility — the overlay scrollbar", () => {
       expect(describeViolations(await runTierAxe(root, ["landmark-unique"]))).toStrictEqual([]);
     }
     // Each scroller is the group a reader finds by its name, both computed as assistive
-    // technology computes them. A table must carry a name, so each diff's keeps its scroller's; a
-    // list need not, so the run group's carries none of its own.
+    // technology computes them. A table must carry a name, so each diff's keeps its scroller's.
     const groupsNamed = (name: string | RegExp, root: HTMLElement): HTMLElement[] =>
       within(root).getAllByRole("group", { name });
     expect(groupsNamed(/^Diff, \S+ to \S+$/u, diffPane.element)).toStrictEqual([paneDiff]);
     expect(groupsNamed(DIFF_LABEL, conversation)).toStrictEqual([firstCard, secondCard]);
     expect(within(conversation).getAllByRole("table", { name: DIFF_LABEL })).toHaveLength(2);
-    expect(groupsNamed("Earlier entries in this run", conversation)).toStrictEqual([runEntries]);
-    expect(
-      within(conversation).queryByRole("list", { name: "Earlier entries in this run" }),
-    ).toBeNull();
     expect(groupsNamed(PAYLOAD_ROWS_LABEL, conversation)).toStrictEqual([payloadRows]);
     expect(groupsNamed("Payload text", conversation)).toStrictEqual([payloadText]);
 

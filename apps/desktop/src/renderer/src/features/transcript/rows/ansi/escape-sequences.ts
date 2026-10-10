@@ -2,7 +2,7 @@
 // expression: a pattern holding these control bytes trips `no-control-regex`, and each kind of
 // sequence is one branch that can be read against the standard.
 
-import { type PublishedText } from "../../reveal/published-text.js";
+import { publishedTextOf, type PublishedText } from "../../reveal/published-text.js";
 
 /** The one byte every ANSI sequence opens with. */
 const ESCAPE = "\u001b";
@@ -59,6 +59,14 @@ export function withoutResidualEscapes(text: string): string {
     cursor = endOfSequenceAt(text, escapeAt);
   }
   return kept;
+}
+
+/**
+ * A body's text without escape sequences: the same handle for a text that carries none, the usual
+ * case. One that carries some is stripped whole, into a string of its own.
+ */
+export function withoutResidualEscapesOf(text: PublishedText): PublishedText {
+  return carriesAnsiEscapes(text) ? publishedTextOf(withoutResidualEscapes(text.slice(0))) : text;
 }
 
 /** Where the sequence opening at `escapeAt` ends — one past its last byte. */

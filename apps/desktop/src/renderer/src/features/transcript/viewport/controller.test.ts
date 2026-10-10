@@ -11,14 +11,17 @@ import { ManualClock } from "#renderer/lib/clock.js";
 import { createCountingScrollContainer } from "#renderer/lib/scroll/container.test-support.js";
 import { installFakeResizeObserver } from "#test/helpers/element/resize.js";
 import { ViewportController } from "./controller.js";
-import { CALM, attachedController, syntheticRows } from "./controller.test-support.js";
+import {
+  CALM,
+  attachReaderAt,
+  attachedController,
+  syntheticRows,
+} from "./controller.test-support.js";
 
 /** A controller over a box whose reader starts well above the tail, so they read. */
 function readingController(): ViewportController {
   const controller = new ViewportController({ clock: new ManualClock() });
-  controller.attach(
-    createCountingScrollContainer({ initialScrollTop: 400, clientHeight: 100, scrollHeight: 4000 }),
-  );
+  attachReaderAt(controller, { offsetPx: 400, clientHeight: 100, scrollHeight: 4000 });
   return controller;
 }
 
@@ -71,6 +74,20 @@ describe("the viewport controller — holding the reading position", () => {
   });
 });
 
+describe("the viewport controller — a link to a message the history lacks", () => {
+  it("leaves the page where it is once history runs out without the message", () => {
+    const { controller } = attachedController();
+    controller.reconcile({ rows: syntheticRows(20), ...CALM });
+    controller.noteMessageReadBack("reading-back");
+    expect(controller.anchor.state.mode).not.toBe("following");
+
+    controller.noteMessageReadBack("not-in-history");
+
+    expect(controller.scroll.writeCount("jump-to-tail")).toBe(0);
+    expect(controller.anchor.state.mode).not.toBe("following");
+  });
+});
+
 describe("the viewport controller — what a scroll does NOT cost", () => {
   it("does not re-anchor to a position the transcript itself just wrote", () => {
     // Anchoring to a glide's result discards the position the glide was performed to preserve.
@@ -89,14 +106,13 @@ describe("the viewport controller — what a scroll does NOT cost", () => {
 describe("the viewport controller — a pane that changed size", () => {
   it("a reader who had scrolled away is not dragged to the tail", () => {
     const resizeObserver = installFakeResizeObserver();
-    const scrollContainer = createCountingScrollContainer({
-      initialScrollTop: 500,
+    const clock = new ManualClock();
+    const controller = new ViewportController({ clock });
+    const scrollContainer = attachReaderAt(controller, {
+      offsetPx: 500,
       clientHeight: 300,
       scrollHeight: 4000,
     });
-    const clock = new ManualClock();
-    const controller = new ViewportController({ clock });
-    controller.attach(scrollContainer);
     controller.reconcile({ rows: syntheticRows(20), ...CALM });
     controller.anchor.capture({ rowKey: "row-5", offsetWithinViewportPx: -8 });
 
@@ -114,21 +130,25 @@ describe("the viewport controller — where a reconcile holds a reader", () => {
   const VIEWPORT_HEIGHT_PX = 300;
   const CONTENT_HEIGHT_PX = 4000;
 
-  it("holds a reader's anchor during the reconcile itself, deferring nothing", () => {
-    // Only a page landing at the head is deferred: the anchor arm's index lookup is measured in
-    // the pre-render offset space on purpose.
-    const scrollContainer = createCountingScrollContainer({
-      initialScrollTop: 500,
+  it("holds a reader's anchor at the commit of new rows, and during a reconcile of the same", () => {
+    // A row joining above the anchor moves its index, which means something only once the
+    // virtualizer counts the new rows; with the rows unchanged the index is the one laid out.
+    const controller = new ViewportController({ clock: new ManualClock() });
+    attachReaderAt(controller, {
+      offsetPx: 500,
       clientHeight: VIEWPORT_HEIGHT_PX,
       scrollHeight: CONTENT_HEIGHT_PX,
     });
-    const controller = new ViewportController({ clock: new ManualClock() });
-    controller.attach(scrollContainer);
     controller.anchor.capture({ rowKey: "row-5", offsetWithinViewportPx: -8 });
+    const rows = syntheticRows(20);
 
-    controller.reconcile({ rows: syntheticRows(20), ...CALM });
-
+    controller.reconcile({ rows, ...CALM });
+    expect(controller.scroll.writeCount("hold-reading-position")).toBe(0);
+    controller.commitPendingPositionHold(rows);
     expect(controller.scroll.writeCount("hold-reading-position")).toBe(1);
+
+    controller.reconcile({ rows, ...CALM });
+    expect(controller.scroll.writeCount("hold-reading-position")).toBe(2);
     expect(controller.scroll.writeCount("follow-tail")).toBe(0);
   });
 });
@@ -136,9 +156,9 @@ describe("the viewport controller — where a reconcile holds a reader", () => {
 describe("the viewport controller — teardown", () => {
   it("disposes terminally, and arms nothing afterwards", () => {
     const { controller, clock } = attachedController();
-    // An attach owes an overflow pass of its own (`chokepoint.ts` `attach`), so
-    // dispose has an armed frame to clear.
-    expect(clock.pendingCount).toBe(1);
+    // An attach owes an overflow pass of its own (`chokepoint.ts` `attach`) and the drawn band
+    // its first widening step, so dispose has a frame and a task to clear.
+    expect(clock.pendingCount).toBe(2);
     controller.dispose();
     expect(controller.isDisposed).toBe(true);
     expect(clock.pendingCount).toBe(0);

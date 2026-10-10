@@ -15,7 +15,6 @@ import {
   withDaemonSubscribe,
 } from "#test/helpers/fixture/bridge.js";
 import { sessionReadThroughDaemon } from "../daemon/session/read/base-state.js";
-import { APPLY_COALESCE_MS } from "#renderer/lib/reads/refresh/caps.js";
 import { windowTripwires } from "#renderer/lib/tripwires/registry.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { SessionStoreRegistry } from "#renderer/store/session/registry.js";
@@ -56,7 +55,7 @@ describe("SessionEventSubscriber — the console's one subscription to the wire"
 
     // The count above is an admission count and moves before the queue drains; draining proves the
     // events reached the store's chokepoint.
-    engine.advance(APPLY_COALESCE_MS + 1);
+    engine.runFrame();
     expect(registry.applyDrainCountFor(SESSION_ID)).toBeGreaterThan(0);
 
     subscriber.dispose();
@@ -111,7 +110,7 @@ describe("SessionEventSubscriber — the console's one subscription to the wire"
     expect(registry.peek(SESSION_ID)?.snapshot().initialized).toBe(true);
 
     engine.advance(PAST_EVERY_BEAT_MS);
-    engine.advance(APPLY_COALESCE_MS + 1);
+    engine.runFrame();
     expect(registry.peek(SESSION_ID)?.snapshot().transcript).toHaveLength(
       CONCURRENT_STREAMING_SCENARIO.beats.length,
     );
@@ -150,7 +149,7 @@ describe("SessionEventSubscriber — the console's one subscription to the wire"
     subscriber.attach();
     registry.open(sessionId);
     await landReads(engine);
-    engine.advance(APPLY_COALESCE_MS + 1);
+    engine.runFrame();
 
     expect(acknowledged).toBeDefined();
     expect(calls.find((call) => call.method === "transcript.read")?.params).toMatchObject({

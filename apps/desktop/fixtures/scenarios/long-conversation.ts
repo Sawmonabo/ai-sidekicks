@@ -24,15 +24,9 @@
 // turn, agent and reply indices alone, so a reading is comparable across runs and machines.
 
 import {
-  encodeEventCursor,
-  START_OF_LOG_POSITION,
-} from "@ai-sidekicks/contracts/session/event-cursor";
-
-import {
   composeScenarioInstant,
   composeScriptBeats,
   createRunEntryBuilders,
-  findBeatCursor,
   newestBeatInstant,
   type ScriptEntry,
 } from "../data/script-entries.js";
@@ -55,6 +49,7 @@ import {
   blockAt,
   bodyOf,
 } from "../data/transcript-bodies.js";
+import { sessionReadReply } from "../data/session-record.js";
 
 // The session and its id stems. Ids are UUID v7 values whose leading bytes are a fixed instant.
 const SESSION_ID = "019b7c40-0280-75e5-8510-ada11a5a77a5";
@@ -312,29 +307,14 @@ export const LONG_CONVERSATION_SCENARIO: Scenario = defineScenario(
     return {
       beats,
       replies: [
-        {
-          // The frame's read is `session.read`; nothing in the renderer calls `session.list`.
-          call: "session.read",
-          result: {
-            session: {
-              id: SESSION_ID,
-              state: "active",
-              shape: "project",
-              muted: false,
-              pendingWorkingFolder: null,
-              createdAt: STARTED_AT_ISO,
-              updatedAt: newestBeatInstant(beats),
-              draft: "",
-              tags: [],
-            },
-            transcriptCursors: {
-              earliest: encodeEventCursor(START_OF_LOG_POSITION),
-              latest: findBeatCursor(beats, beats.length - 1),
-            },
-            liveRuns: [],
-            standingEvents: [],
-          },
-        },
+        sessionReadReply({
+          sessionId: SESSION_ID,
+          state: "active",
+          shape: "project",
+          createdAt: STARTED_AT_ISO,
+          updatedAt: newestBeatInstant(beats),
+          beats,
+        }),
         ...SETTINGS_REPLIES,
       ],
     };

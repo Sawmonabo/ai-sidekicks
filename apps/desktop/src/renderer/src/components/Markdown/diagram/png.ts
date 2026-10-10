@@ -1,7 +1,8 @@
 // A drawn diagram as PNG bytes, for `Copy as picture`: the picture decoded as an image and painted
 // on its own ground, since a transparent picture pastes onto whatever ground the target has.
 
-import type { DrawnDiagram } from "./drawing.js";
+import { pictureBlobOf } from "./pictures.js";
+import type { DrawnDiagram } from "./worker/messages.js";
 
 /**
  * Encode `picture` as a PNG, at the window's pixel density and never under twice its natural
@@ -13,8 +14,13 @@ export async function encodeDiagramPng(
   ownerWindow: Window,
 ): Promise<Uint8Array<ArrayBuffer>> {
   const image = ownerWindow.document.createElement("img");
-  image.src = picture.pictureUrl;
-  await image.decode();
+  const pictureUrl = URL.createObjectURL(pictureBlobOf(picture));
+  image.src = pictureUrl;
+  try {
+    await image.decode();
+  } finally {
+    URL.revokeObjectURL(pictureUrl);
+  }
   const scale = Math.max(ownerWindow.devicePixelRatio, MINIMUM_COPY_SCALE);
   const canvas = ownerWindow.document.createElement("canvas");
   canvas.width = Math.ceil(picture.width * scale);

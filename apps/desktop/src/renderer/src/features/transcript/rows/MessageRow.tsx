@@ -1,9 +1,9 @@
 // The message card for user, agent and reasoning rows: open body, the author's hue on the edge. A
 // reply's foot stands on its last row once the reply has drawn something to read, and stays for the
 // rest of the turn: its time at rest, its Copy revealed on hover and focus. A user's actions are
-// revealed on hover. A live `liveText` beats the stored body; a user body is the row's `summary`
-// (`user.message` has no payload variant); reasoning is composed by the mount so a policy-withheld
-// body stays distinguishable from an unreadable one.
+// revealed on hover. A live `liveText` beats the stored body; a user body is the message its payload
+// carries; reasoning is composed by the mount so a policy-withheld body stays distinguishable from
+// an unreadable one.
 
 import "./MessageRow.css";
 
@@ -26,6 +26,7 @@ import { useClipboardCopy } from "#renderer/services/platform/hooks/useClipboard
 import { MessageContent } from "./bodies/MessageContent.js";
 import { RecordedBodyLine } from "./RecordedBodyLine.js";
 import { UserBody } from "./bodies/UserBody.js";
+import { userMessageTextOf } from "./user-message.js";
 import { projectedPayload, readWireCount } from "#renderer/store/session/events/wire-payload.js";
 import { replyClipboardContent } from "../copy/clipboard-flavors.js";
 import { COPY_FLAVOR_ATTRIBUTE, type CopyFlavor } from "../copy/conversation-selection.js";
@@ -63,9 +64,7 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
   // The text a Copy takes, as a handle: a stored string is read through one made once per string,
   // and the whole text is built only when Copy is pressed.
   const storedText = isUser
-    ? props.row.summary === ""
-      ? undefined
-      : props.row.summary
+    ? userMessageTextOf(props.row)
     : rowKind.kind === "thinking" || props.liveText !== undefined
       ? undefined
       : props.row.content?.status === "available"

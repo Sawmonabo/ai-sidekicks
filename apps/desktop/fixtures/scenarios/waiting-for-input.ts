@@ -43,10 +43,12 @@ import {
   composeScenarioInstant,
   composeScriptBeats,
   createRunEntryBuilders,
+  newestBeatInstant,
   type ScriptEntry,
 } from "../data/script-entries.js";
 import { defineScenario, type Scenario } from "../scenario.js";
 import type { ScenarioReply } from "#renderer/services/daemon/scenario/reply.fixture.js";
+import { sessionReadReply } from "../data/session-record.js";
 
 // The ids the beats and the scripted replies both name: UUID v7 values whose leading bytes are
 // this scenario's start instant. Parsed through the registered schemas, not cast, so a
@@ -319,13 +321,26 @@ export const WAITING_FOR_INPUT_SCENARIO: Scenario = defineScenario(
     sessionId: SESSION_ID,
     startedAtIso: STARTED_AT_ISO,
   },
-  () => ({
-    beats: composeScriptBeats({
+  () => {
+    const beats = composeScriptBeats({
       sessionId: SESSION_ID,
       eventIdStem: EVENT_ID_STEM,
       startedAtMs: STARTED_AT_MS,
       entries: WAITING_FOR_INPUT_SCRIPT,
-    }),
-    replies: COMPOSER_REPLIES,
-  }),
+    });
+    return {
+      beats,
+      replies: [
+        sessionReadReply({
+          sessionId: SESSION_ID,
+          state: "active",
+          shape: "project",
+          createdAt: STARTED_AT_ISO,
+          updatedAt: newestBeatInstant(beats),
+          beats,
+        }),
+        ...COMPOSER_REPLIES,
+      ],
+    };
+  },
 );

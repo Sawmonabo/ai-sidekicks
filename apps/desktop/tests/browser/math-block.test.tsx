@@ -6,7 +6,9 @@
 // column's edge: the negative control for the fit. Fitting never raises a window error, such as
 // the one the browser raises when a resize watch resizes what it watches in the same pass. Glyph
 // widths round to whole pixels only on Linux, so only the Linux run shows the refit after a resize
-// matters; elsewhere the first measured width already fits.
+// matters; elsewhere the first measured width already fits. A formula that is only its equation
+// number fits too, and an empty one is left unmeasured. A formula inside a sentence is drawn at the
+// sentence's size, while a display formula keeps KaTeX's larger size.
 
 import { cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, onTestFinished } from "vitest";
@@ -29,6 +31,15 @@ const BREAKABLE_CHAIN = Array.from({ length: 24 }, (_, index) => `x_{${String(in
 
 /** One row of letters, too many to fit the narrow columns below side by side. */
 const MATRIX_ROW = [..."abcdefghijklmnop"].join(" & ");
+
+/** A short formula with a relation and an operator. */
+const ROW_COUNT_FORMULA = String.raw`r = e \cdot y`;
+
+/** KaTeX's own size for a formula, against the text around it (`.katex` in its sheet). */
+const KATEX_SIZE_RATIO = 1.21;
+
+/** A column narrower than an equation number drawn at the formula's own size. */
+const NARROWER_THAN_A_NUMBER_PX = 12;
 
 /** The chain, then a matrix no break can split. */
 const WIDE_FORMULA = String.raw`${BREAKABLE_CHAIN} = ${BREAKABLE_CHAIN} = \begin{pmatrix} ${MATRIX_ROW} \end{pmatrix}`;
@@ -116,6 +127,68 @@ describe("browser — a formula drawn by KaTeX", () => {
     });
     expect(piecesOutside(block)).not.toStrictEqual([]);
   });
+
+  it("fits a formula that is only its equation number to a column narrower than the number, and leaves an empty formula unmeasured", async () => {
+    // Neither has an unbreakable piece: the number alone sets the first one's width, and the empty
+    // one has nothing to fit, so no zero ratio reaches the sheet's division.
+    const column = document.createElement("div");
+    column.style.inlineSize = `${String(NARROWER_THAN_A_NUMBER_PX)}px`;
+    document.body.append(column);
+    onTestFinished(() => {
+      column.remove();
+    });
+    const { container } = render(
+      <>
+        <MathBlock source={String.raw`\tag{1}`} isDisplayMode />
+        <MathBlock source="{}" isDisplayMode />
+      </>,
+      { container: column, wrapper: LiveAnnouncerProvider },
+    );
+    const { numberOnly, empty } = await waitFor(
+      () => {
+        const [first, second] = container.querySelectorAll<HTMLElement>(".meridian-math--display");
+        if (first === undefined || second === undefined) {
+          throw new Error("the formulas are not typeset yet");
+        }
+        return { numberOnly: first, empty: second };
+      },
+      { timeout: TYPESET_TIMEOUT_MS },
+    );
+    // The observers answer on the frames after the formulas are drawn.
+    await changeLayout(() => {});
+
+    expect(numberOnly.querySelector(".katex-tag")).not.toBeNull();
+    expect(piecesOutside(numberOnly)).toStrictEqual([]);
+    expect(empty.style.getPropertyValue("--math-natural-width")).toBe("");
+  });
+
+  it("draws a formula inside a sentence at the sentence's size, and a display formula at KaTeX's larger size", async () => {
+    const { container } = render(
+      <div>
+        <p>
+          A row count of <MathBlock source={ROW_COUNT_FORMULA} isDisplayMode={false} /> fills the
+          table.
+        </p>
+        <MathBlock source={ROW_COUNT_FORMULA} isDisplayMode />
+      </div>,
+      { wrapper: LiveAnnouncerProvider },
+    );
+    const { inline, display } = await waitFor(
+      () => {
+        const inlineFormula = container.querySelector<HTMLElement>("p .katex");
+        const displayFormula = container.querySelector<HTMLElement>(".katex-display > .katex");
+        if (inlineFormula === null || displayFormula === null) {
+          throw new Error("the formulas are not typeset yet");
+        }
+        return { inline: inlineFormula, display: displayFormula };
+      },
+      { timeout: TYPESET_TIMEOUT_MS },
+    );
+    const sentenceSize = fontSizeOf(container.querySelector("p"));
+
+    expect(fontSizeOf(inline)).toBe(sentenceSize);
+    expect(fontSizeOf(display)).toBeCloseTo(sentenceSize * KATEX_SIZE_RATIO, 2);
+  });
 });
 
 /** Every KaTeX face the page declares, as its family, weight and style beside its load status. */
@@ -125,9 +198,9 @@ function katexFaces(): { readonly face: string; readonly status: FontFaceLoadSta
     .map((face) => ({ face: `${face.family} ${face.weight} ${face.style}`, status: face.status }));
 }
 
-/** The rects of KaTeX's unbreakable pieces. */
+/** The rects of KaTeX's unbreakable pieces and equation numbers. */
 function pieceRects(block: HTMLElement): DOMRect[] {
-  return Array.from(block.querySelectorAll(".katex-base"), (piece) =>
+  return Array.from(block.querySelectorAll(".katex-base, .katex-tag"), (piece) =>
     piece.getBoundingClientRect(),
   );
 }
@@ -146,4 +219,12 @@ function piecesOutside(block: HTMLElement): string[] {
         piece.right > column.right + EDGE_TOLERANCE_PX,
     )
     .map((piece) => `${String(piece.left)} to ${String(piece.right)}`);
+}
+
+/** An element's computed font size, in pixels. */
+function fontSizeOf(element: Element | null): number {
+  if (element === null) {
+    throw new Error("there is no element to read a font size from");
+  }
+  return Number.parseFloat(getComputedStyle(element).fontSize);
 }

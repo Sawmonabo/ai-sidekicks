@@ -3,7 +3,6 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { ManualClock } from "#renderer/lib/clock.js";
 import {
   SCROLL_TAIL_TOLERANCE_PX,
   ScrollGeometryPublisher,
@@ -11,12 +10,10 @@ import {
 } from "./publisher.js";
 import type { ScrollGeometry } from "./sample.js";
 
-let clock: ManualClock;
 let publisher: ScrollGeometryPublisher;
 
 beforeEach(() => {
-  clock = new ManualClock();
-  publisher = new ScrollGeometryPublisher({ clock });
+  publisher = new ScrollGeometryPublisher({});
 });
 
 function readingAt(

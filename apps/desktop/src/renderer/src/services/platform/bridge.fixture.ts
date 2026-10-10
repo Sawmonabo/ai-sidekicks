@@ -70,6 +70,8 @@ export function createFixtureBridge(options: FixtureBridgeOptions): FixtureBridg
   const app: PlatformBridge["app"] = {
     ...FIXTURE_APP_META,
     subscribeMachineClock: (): Unsubscribe => () => undefined,
+    // A fixture's pictures fill the same caches, but only the preload can empty them.
+    freeUnusedMemory: () => undefined,
   };
   const bridge: PlatformBridge = {
     daemon: createFixtureDaemon(scenarioEngine),

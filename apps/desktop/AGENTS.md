@@ -99,7 +99,7 @@ Held in review; a checker would get both wrong.
 
 ## Styling
 
-Plain CSS on global design tokens in `styles/`. No `*.module.css`. The one Sass file, `components/Markdown/typesetter.scss`, builds KaTeX's sheet from its own source with only the `woff2` faces Chromium loads; nothing else is written in Sass.
+Plain CSS on global design tokens in `styles/`. No `*.module.css`. The one Sass file, `components/Markdown/typesetter/sheet.scss`, builds KaTeX's sheet from its own source with only the `woff2` faces Chromium loads; nothing else is written in Sass.
 
 - A sheet one component owns is named for it and imported by it, beside it (`ChordHint.tsx` imports `./ChordHint.css`); a sheet renamed for a component moves its import to that component.
 - Class families different components own split at that seam. One cohesive concern several components of a feature share stays one sheet, imported by the feature's top view or its lazily-loaded chunk root; a sheet is never split only because several components take part in one concern.

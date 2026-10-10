@@ -1,10 +1,10 @@
-// A user's message body: the row's own summary. `user.message` has no payload variant, so the
-// summary is all a `TranscriptEventRow` carries; it is never captioned as if it were the message.
+// A person's message body: the whole message its row's `user.message` payload carries.
 
 import { useMemo } from "react";
 
 import { publishedTextOf } from "../../reveal/published-text.js";
 import type { TranscriptCardProps } from "../card-props.js";
+import { userMessageTextOf } from "../user-message.js";
 import { StreamingMarkdown } from "./StreamingMarkdown.js";
 
 /** Props for `UserBody`. */
@@ -14,23 +14,26 @@ export interface UserBodyProps {
 }
 
 /**
- * The user's summary through the same markdown pipeline as an assistant body, since a user types
- * markdown. Passed complete: a projected summary is not a stream. An empty summary draws nothing.
+ * The message through the same markdown pipeline as an assistant body, since a person types
+ * markdown. Passed complete: a sent message is not a stream. A row holding no message draws none.
  */
 export function UserBody(props: UserBodyProps): React.JSX.Element | null {
-  const summary = props.row.summary;
-  // One handle per summary, so the segmenter sees the same text across renders.
-  const summaryText = useMemo(() => publishedTextOf(summary), [summary]);
-  if (summary === "") {
+  const message = userMessageTextOf(props.row);
+  // One handle per message, so the segmenter sees the same text across renders.
+  const messageText = useMemo(
+    () => (message === undefined ? undefined : publishedTextOf(message)),
+    [message],
+  );
+  if (messageText === undefined) {
     return null;
   }
   return (
     <StreamingMarkdown
-      publishedText={summaryText}
+      publishedText={messageText}
       sourceId={props.row.id}
       footnotes={props.footnotes}
       isComplete
-      offersCodeCopy={false}
+      offersBlockCopy={false}
     />
   );
 }

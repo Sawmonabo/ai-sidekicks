@@ -45,4 +45,17 @@ describe("the byte-bounded cache", () => {
     expect(cache.get("abcde")).toBeUndefined();
     expect(cache.get("abcd")).not.toBeUndefined();
   });
+
+  it("keeps a held entry of any size until every hold on it is released, then evicts it", () => {
+    // A parse held for a row being prepared outlives the cap until the row lets it go.
+    const cache = new ByteBoundedCache<number>(16);
+    cache.setHeld("a".repeat(64), 1);
+    expect(cache.hold("a".repeat(64))).toBe(true);
+    cache.set("small", 2);
+    expect(cache.get("a".repeat(64))).toBe(1);
+    cache.release("a".repeat(64));
+    expect(cache.get("a".repeat(64))).toBe(1);
+    cache.release("a".repeat(64));
+    expect(cache.get("a".repeat(64))).toBeUndefined();
+  });
 });

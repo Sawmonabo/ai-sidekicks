@@ -7,7 +7,7 @@
 // `chokepoint.ts`'s.
 
 import { type ScrollGeometry } from "#renderer/lib/scroll/geometry/sample.js";
-import { type ReadingAnchor } from "./reading-anchor.js";
+import { type ReadingAnchor, type ReadingAnchorPoint } from "./reading-anchor.js";
 import { type RowMeasurementTable } from "./row-measurement-table.js";
 import { type ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { type TranscriptRowVirtualizer } from "./virtualizer-options.js";
@@ -85,15 +85,38 @@ export class ViewportAnchorCapture {
       // settling. Only the reader's own scroll moves the anchor.
       return;
     }
-    const topItem = this.#virtualizer()?.getVirtualItemForOffset(geometry.scrollTop);
-    const index = topItem?.index ?? 0;
+    const index = this.#topIndexAt(geometry.scrollTop);
     const rowKey = rowKeys[index];
     if (rowKey === undefined) {
       return;
     }
     this.#anchor.capture({
       rowKey,
-      offsetWithinViewportPx: (topItem?.start ?? this.offsetOfIndex(index)) - geometry.scrollTop,
+      offsetWithinViewportPx: this.offsetOfIndex(index) - geometry.scrollTop,
     });
+  }
+
+  /**
+   * The rows a viewport at `scrollTopPx` shows, from the one at its top down, each where it stands
+   * in the viewport. Read before the library lays out a new set of rows, with the `rowKeys` it
+   * still lays out, it is where the reader saw each one.
+   */
+  public rowsInView(scrollTopPx: number, rowKeys: readonly string[]): ReadingAnchorPoint[] {
+    const viewportBottomPx = scrollTopPx + (this.#scroll.geometry?.viewportHeight ?? 0);
+    const rowsInView: ReadingAnchorPoint[] = [];
+    for (let index = this.#topIndexAt(scrollTopPx); index < rowKeys.length; index += 1) {
+      const rowStartPx = this.offsetOfIndex(index);
+      const rowKey = rowKeys[index];
+      if (rowKey === undefined || (rowsInView.length > 0 && rowStartPx >= viewportBottomPx)) {
+        break;
+      }
+      rowsInView.push({ rowKey, offsetWithinViewportPx: rowStartPx - scrollTopPx });
+    }
+    return rowsInView;
+  }
+
+  /** The index of the row at the top of a viewport at `scrollTopPx`, the first before a bind. */
+  #topIndexAt(scrollTopPx: number): number {
+    return this.#virtualizer()?.getVirtualItemForOffset(scrollTopPx)?.index ?? 0;
   }
 }

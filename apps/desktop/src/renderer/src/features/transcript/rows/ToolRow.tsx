@@ -8,29 +8,18 @@ import "./ToolRow.css";
 
 import { useId } from "react";
 
-import { elideText } from "#renderer/lib/elide-text.js";
-import { readWireString } from "#renderer/lib/wire/strings.js";
-import { Chip, type ChipTone } from "#renderer/components/Chip/Chip.js";
+import { Chip } from "#renderer/components/Chip/Chip.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import {
   TranscriptRowLayout,
   hueStepOf,
 } from "../components/TranscriptRowLayout/TranscriptRowLayout.js";
-import { formatDuration } from "#renderer/lib/wire/figures.js";
-import { describeRowKind, isFoldableCall, toolResultState, type ToolResultState } from "./kind.js";
+import { describeRowKind, isFoldableCall } from "./kind.js";
 import type { TranscriptCardProps } from "./card-props.js";
 import { ToolOutput } from "./bodies/ToolOutput.js";
 import { ToolKindBadge } from "./tool-kinds/ToolKindBadge.js";
-import { readDeclaredToolKind } from "./tool-kinds/vocabulary.js";
-import { projectedPayload, readWireCount } from "#renderer/store/session/events/wire-payload.js";
-
-/**
- * Characters of a tool row's one-clause summary before it is elided at a word boundary; at the
- * transcript's measure this is what fits beside the name and elapsed time without wrapping. The
- * wire allows 4096 characters.
- */
-const TOOL_SUMMARY_MAX_CHARACTERS = 96;
+import { ABSENT_TOOL_NAME_LABEL, toolRowHeadingOf } from "./tool-heading.js";
 
 /** What a mount hands a tool card, beyond the row itself. */
 export interface ToolRowProps extends TranscriptCardProps {
@@ -41,28 +30,11 @@ export interface ToolRowProps extends TranscriptCardProps {
   readonly onDensityToggle?: ((control: HTMLElement) => void) | undefined;
 }
 
-/** How each result state reads and which tone it takes; `undefined` draws no chip. */
-const RESULT_STATE_CHIPS: Readonly<
-  Record<ToolResultState, { label: string; tone: ChipTone } | undefined>
-> = {
-  // Red means a failure, amber means a person is needed; truncated and unreadable bodies are
-  // neither, so they take the neutral chip. `ToolOutput` renders the one red body case, a stored
-  // body that does not match its signature.
-  running: { label: "Running", tone: "neutral" },
-  ok: undefined,
-  error: { label: "Error", tone: "failure" },
-  truncated: { label: "Truncated", tone: "neutral" },
-  "body-unavailable": { label: "Body unavailable", tone: "neutral" },
-};
-
 /** A tool-call row: the row kind's glyph and label around its declared arguments and result. */
 export function ToolRow(props: ToolRowProps): React.JSX.Element {
   const kind = describeRowKind("tool-call");
-  const state = toolResultState(props.row.type, props.row.content);
-  const chip = RESULT_STATE_CHIPS[state];
-  const payload = projectedPayload(props.row);
-  const toolName = readWireString(payload["toolName"]);
-  const durationMs = readWireCount(payload, "durationMs");
+  const heading = toolRowHeadingOf(props.row, props.row.content);
+  const { toolName, resultChip: chip } = heading;
   const isFoldable = isFoldableCall(props.row, props.liveText !== undefined);
   const isOpen = isFoldable && props.density === "expanded";
   const onDensityToggle = props.onDensityToggle;
@@ -80,28 +52,27 @@ export function ToolRow(props: ToolRowProps): React.JSX.Element {
             apart in text copied out of it. */}
       <div className="meridian-tool-card__header">
         <Glyph name={kind.glyph} title={kind.label} />
-        {/* Wire-verbatim, in mono. A missing name reads as absent, not "unknown", which the
-              daemon never sent. */}
-        {toolName === undefined ? (
-          <span id={nameId} className="meridian-tool-card__name meridian-tool-card__name--absent">
-            No tool name
-          </span>
-        ) : (
-          <span id={nameId} className="meridian-tool-card__name">
-            {toolName}
-          </span>
-        )}{" "}
-        {/* Before the summary: the badge qualifies which tool ran, the summary says what it did.
-              Draws nothing for a row that declares no tool kind. */}
-        <ToolKindBadge reading={readDeclaredToolKind(payload)} />
-        <span className="meridian-tool-card__summary">
-          {elideText(props.row.summary, TOOL_SUMMARY_MAX_CHARACTERS, { atWordBoundary: true })}
+        {/* Which tool ran. It takes the line's free space, so what follows sits at its end. */}
+        <span className="meridian-tool-card__tool">
+          {/* Wire-verbatim, in mono. A missing name reads as absent, not "unknown", which the
+                daemon never sent. */}
+          {toolName === undefined ? (
+            <span id={nameId} className="meridian-tool-card__name meridian-tool-card__name--absent">
+              {ABSENT_TOOL_NAME_LABEL}
+            </span>
+          ) : (
+            <span id={nameId} className="meridian-tool-card__name">
+              {toolName}
+            </span>
+          )}
+          {/* The badge qualifies the tool; it draws nothing for a row that declares no kind. */}
+          <ToolKindBadge reading={heading.toolKind} />
         </span>
-        {durationMs === undefined ? null : (
+        {heading.elapsed === undefined ? null : (
           <>
             {" "}
             <span className="meridian-tool-card__elapsed">
-              <WireFigure value={formatDuration(durationMs)} />
+              <WireFigure value={heading.elapsed} />
             </span>
           </>
         )}

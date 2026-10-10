@@ -13,6 +13,12 @@
   font-size: min(1em, 100cqi / var(--math-natural-width, 1));
 }
 
+/* KaTeX draws its formulas 1.21 times the text around them; a formula inside a sentence keeps the
+   sentence's size, so it reads as part of the line. */
+.meridian-math--inline > .katex {
+  font-size: 1em;
+}
+
 /* KaTeX ends a piece after each top-level relation and binary operator; letting the line wrap
    between pieces breaks where TeX allows, each line centered by KaTeX's own alignment. */
 .meridian-math--display .katex-display > .katex {

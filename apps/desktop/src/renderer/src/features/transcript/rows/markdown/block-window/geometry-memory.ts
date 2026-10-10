@@ -1,9 +1,11 @@
 // Block geometry remembered across mounts. A long body drawn again, its row scrolled back in, lays
 // its undrawn blocks out at the heights they last measured rather than at estimates, so its height
-// does not jump as they are drawn and measured again. Filed by text, width and whether the block
-// ends its body: the same text at the same width measures the same in any body.
+// does not jump as they are drawn and measured again. Filed by text, the body's type and whether
+// the block ends its body: the same text at the same width and text size measures the same in any
+// body.
 
 import { ByteBoundedCache } from "#renderer/lib/byte-bounded-cache.js";
+import { bodyTypeKeyOf, type MarkdownBodyType } from "../body-type.js";
 import { type BlockGeometry } from "./geometry.js";
 
 /**
@@ -27,8 +29,8 @@ const blockGeometryMemory: ByteBoundedCache<BlockGeometry> = new ByteBoundedCach
 export interface BlockGeometryAddress {
   /** The block text's fingerprint. */
   readonly fingerprint: string;
-  /** The body's content width, in whole CSS pixels: text wraps differently at another. */
-  readonly widthPx: number;
+  /** The body's width and text size: text wraps differently at another. */
+  readonly bodyType: MarkdownBodyType;
   /** Whether the block ends its body, where its last paragraph keeps no margin below it. */
   readonly isFinal: boolean;
 }
@@ -47,5 +49,5 @@ export function rememberBlockGeometry(
 }
 
 function memoryKeyOf(address: BlockGeometryAddress): string {
-  return `${address.fingerprint}@${String(address.widthPx)}${address.isFinal ? "$" : ""}`;
+  return `${address.fingerprint}@${bodyTypeKeyOf(address.bodyType)}${address.isFinal ? "$" : ""}`;
 }

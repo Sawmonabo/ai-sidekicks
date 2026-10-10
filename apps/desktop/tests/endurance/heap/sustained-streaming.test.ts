@@ -4,10 +4,12 @@
 // through the registry's own `evaluateBudget`.
 //
 // The half hour is scenario time. The frozen clock is walked over the sustained-streaming script
-// in stretches, each paced across a few seconds of the window's own frames so the reveal and the
-// viewport run as they do for a reader, and each ending on a beat's own tick, so the wait for that
-// beat ends the stretch exactly where the next one starts. After each stretch the clock is moved
-// past the apply window, so the store holds what was delivered, and the settled heap is read.
+// in stretches, each paced across a few seconds of the window's own frames, every one of which runs
+// the frame work the app armed on the frozen clock after that frame's beats are in, as a reader's
+// frame does, and each ending on a beat's own tick, so the wait for that beat ends the stretch
+// exactly where the next one starts. After each stretch the clock is moved past the refresh
+// debounce inside one more frame, so the store holds what was delivered and the reads it asked for
+// have run, and the settled heap is read.
 //
 // The warm-up lasts until the store first lets go of events: until then it holds every event it
 // was given and the heap grows with the log by design. The first reading after that is the

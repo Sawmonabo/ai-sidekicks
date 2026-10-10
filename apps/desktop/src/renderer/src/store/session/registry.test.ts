@@ -101,7 +101,6 @@ describe("SessionStoreRegistry: applies go through the queue, reads through the 
       read: readsNothing,
       clock,
       projectors,
-      applyCoalesceMs: 0,
     });
     const store = registry.open("session-1");
     store.initialize(emptyBaseState(0));
@@ -138,7 +137,6 @@ describe("SessionStoreRegistry: applies go through the queue, reads through the 
       read: readsNothing,
       clock,
       projectors,
-      applyCoalesceMs: 0,
     });
     const store = registry.open("session-1");
     store.initialize(emptyBaseState(0));
@@ -276,7 +274,6 @@ describe("SessionStoreRegistry — a lossy delivery arms exactly one repair", ()
       offScreenRowLimit,
       clock,
       projectors,
-      applyCoalesceMs: 0,
       refreshDebounceMs: 20,
       read: (_sessionId, reasons) => {
         readCalls.push([...reasons]);

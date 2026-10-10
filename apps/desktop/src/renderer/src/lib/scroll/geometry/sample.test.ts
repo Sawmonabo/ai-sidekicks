@@ -12,7 +12,7 @@ function sample(overrides: Partial<ScrollGeometry> = {}): ScrollGeometry {
     contentHeight: 5000,
     distanceFromTailPx: 4100,
     isAtTail: false,
-    sampledAt: 0,
+    inputAt: undefined,
     cause: "scroll",
     ...overrides,
   };

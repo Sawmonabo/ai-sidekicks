@@ -9,7 +9,14 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import {
+  DiagramPictures,
+  DiagramPicturesContext,
+} from "#renderer/components/Markdown/diagram/pictures.js";
+import { watchDiagramPalette } from "#renderer/components/Markdown/diagram/palette.js";
+import { startDiagramWorker } from "#renderer/components/Markdown/diagram/worker/connection.js";
 import { recordRejectedRequest } from "#renderer/lib/diagnostic-capture/rejected-request-record.js";
+import { pictureCacheByteCap } from "#renderer/lib/picture-cache-cap.js";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { type OpenWindows } from "#renderer/services/window/open-windows.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "#renderer/store/persistence/caps.js";
@@ -57,6 +64,27 @@ export function AppWindows(props: AppWindowsProps): React.JSX.Element {
   const [draftStore] = useState(
     () => new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT }),
   );
+
+  // One for the app, so every window's diagrams share one cache and one worker.
+  const [diagramPictures] = useState(
+    () =>
+      new DiagramPictures(
+        pictureCacheByteCap(bridge.app.physicalMemoryBytes),
+        startDiagramWorker,
+        () => {
+          bridge.app.freeUnusedMemory();
+        },
+      ),
+  );
+  // The faces diagrams label in, warmed in idle time after the first frame and again when the
+  // text size changes them, so a diagram does not pay for loading them.
+  useEffect(() => {
+    const paletteWatch = watchDiagramPalette(window);
+    diagramPictures.warmDefaultFaces(paletteWatch.read());
+    return paletteWatch.subscribe(() => {
+      diagramPictures.warmDefaultFaces(paletteWatch.read());
+    });
+  }, [diagramPictures]);
 
   const sessionStoreRegistry = useSessionStoreRegistry(entityProjectorRegistry, props.readSession);
 
@@ -114,7 +142,7 @@ export function AppWindows(props: AppWindowsProps): React.JSX.Element {
   });
 
   return (
-    <>
+    <DiagramPicturesContext.Provider value={diagramPictures}>
       {windows.map(({ openWindow, store }) => (
         <AppWindow
           key={openWindow.windowId}
@@ -130,6 +158,6 @@ export function AppWindows(props: AppWindowsProps): React.JSX.Element {
           }
         />
       ))}
-    </>
+    </DiagramPicturesContext.Provider>
   );
 }

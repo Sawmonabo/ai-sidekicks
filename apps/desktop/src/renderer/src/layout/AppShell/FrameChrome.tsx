@@ -46,7 +46,12 @@ export interface FrameChromeProps {
 /** The rail, banners and routed screen, with the background made inert under a modal overlay. */
 export function FrameChrome(props: FrameChromeProps): React.JSX.Element {
   useRefusalBannerAnnouncements(props.banners);
-  const screenScrollbarRef = useDrawOverlayScrollbar<HTMLElement>();
+  // The session screen fills the region and scrolls inside its panes, so the region never
+  // overflows there and draws no bar: a bar watches every change beneath it and lays out the page
+  // to measure it, after each row the conversation draws.
+  const screenScrollbarRef = useDrawOverlayScrollbar<HTMLElement>(undefined, {
+    isEnabled: props.route.kind !== "session",
+  });
   const sessionsTrack = useAnimateSessionsTrack(props.sessionsTrack);
   return (
     <div

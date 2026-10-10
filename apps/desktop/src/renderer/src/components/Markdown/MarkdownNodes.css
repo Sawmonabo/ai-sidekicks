@@ -133,6 +133,30 @@
   overflow-wrap: anywhere;
 }
 
+/*
+ * Held columns: the widths automatic layout gave a long table's widest rows, kept while a window
+ * changes which rows are drawn, so no column moves under the reader. Cells still wrap to them.
+ */
+.meridian-markdown__table[data-columns="held"] {
+  table-layout: fixed;
+}
+
+/*
+ * A spacer row holds the room of rows not drawn and looks like them: its cells keep the columns'
+ * borders, and a rule at every row's pitch stands for the borders between the rows it holds. Its
+ * height counts its borders, as the rows' heights it sums do.
+ */
+.meridian-markdown__table [data-table-spacer] > td {
+  box-sizing: border-box;
+  padding: 0;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0 calc(var(--meridian-table-row-pitch, 0px) - 1px),
+    var(--meridian-edge) calc(var(--meridian-table-row-pitch, 0px) - 1px)
+      var(--meridian-table-row-pitch, 0px)
+  );
+}
+
 /* The head reads as the head by weight and a rule under the row, not a second ground. */
 .meridian-markdown__table th {
   border-bottom-width: 2px;

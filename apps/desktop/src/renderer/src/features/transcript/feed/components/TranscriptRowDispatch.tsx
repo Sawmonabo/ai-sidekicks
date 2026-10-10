@@ -1,9 +1,17 @@
-// One key of the viewport's list, dispatched to what it is: a run group header, a system message,
-// a row the window no longer holds, or a projected row for the registered row renderer.
+// One key of the viewport's list, dispatched to what it is: a run group header, an edge of a long
+// run's window, a system message, a row the window no longer holds, or a projected row for the
+// registered row renderer.
 
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { type AgentHueAssignment } from "#renderer/styles/agent-hue.js";
+import {
+  readRunWindowEdgeKey,
+  type RunCallWindows,
+  type RunWindowEdge as RunWindowEdgeName,
+} from "../../runs/call-window.js";
 import { RunGroupHeader } from "../../runs/components/RunGroupHeader.js";
+import { RunWindowEdge } from "../../runs/components/RunWindowEdge.js";
+import { type RunGroup } from "../../runs/groups.js";
 import { SystemMessage } from "../../system-messages/components/SystemMessage.js";
 import { type ViewportRow } from "../../viewport/snapshot.js";
 import { type TranscriptWindowModel } from "../../window/transcript-window.js";
@@ -14,11 +22,15 @@ import { TranscriptFeedRow } from "./TranscriptFeedRow.js";
 /** Everything the dispatch reads beyond the key itself. Each member is stable except the window. */
 export interface TranscriptRowDispatchOptions {
   readonly transcriptWindow: TranscriptWindowModel;
-  readonly foldedRunIds: ReadonlySet<string>;
+  readonly foldedRunGroupKeys: ReadonlySet<string>;
   readonly foldedCallRowIds: ReadonlySet<string>;
   readonly hueForAgent: (actorId: string) => AgentHueAssignment | undefined;
   /** Fold or open a run group, holding its header where it stands. */
-  readonly toggleRunGroup: (runId: string) => void;
+  readonly toggleRunGroup: (runGroupKey: string) => void;
+  /** The windows of the session's long runs, which an edge line counts the calls beyond. */
+  readonly runCallWindows: RunCallWindows;
+  /** Open the next stretch of a long run beyond `edge`, holding the reading position. */
+  readonly openRunStretch: (runGroup: RunGroup, edge: RunWindowEdgeName) => void;
   /** The registered row renderer's body. STABLE across renders, or the row memo moves with it. */
   readonly renderTranscriptRow: TranscriptRowBody;
 }
@@ -31,16 +43,29 @@ export interface TranscriptRowDispatchProps extends TranscriptRowDispatchOptions
 /** Draws one key of the viewport's list as the thing it names. */
 export function TranscriptRowDispatch(props: TranscriptRowDispatchProps): React.JSX.Element {
   const { transcriptWindow, hueForAgent } = props;
-  // A run group header is a row of the list keyed by the run it heads, with no projected row
+  // A run group header is a row of the list keyed by the group it heads, with no projected row
   // behind it, so it is dispatched before the body lookup.
   const runGroup = transcriptWindow.runGroupByHeaderKey.get(props.row.key);
   if (runGroup !== undefined) {
     return (
       <RunGroupHeader
         runGroup={runGroup}
-        isOpen={!props.foldedRunIds.has(runGroup.runId)}
+        isOpen={!props.foldedRunGroupKeys.has(runGroup.key)}
         agentHue={runGroup.actorId === undefined ? undefined : hueForAgent(runGroup.actorId)}
         onToggle={props.toggleRunGroup}
+      />
+    );
+  }
+  const edgeRow = readRunWindowEdgeKey(props.row.key, transcriptWindow.runGroupByHeaderKey);
+  const edgeWindow =
+    edgeRow === undefined ? undefined : props.runCallWindows.resolvedWindowOf(edgeRow.runGroup.key);
+  if (edgeRow !== undefined && edgeWindow !== undefined) {
+    return (
+      <RunWindowEdge
+        runGroup={edgeRow.runGroup}
+        edge={edgeRow.edge}
+        count={edgeRow.edge === "earlier" ? edgeWindow.earlierCount : edgeWindow.laterCount}
+        onOpen={props.openRunStretch}
       />
     );
   }

@@ -133,8 +133,6 @@ function commonRowFieldsOf(
     cursor: encodeEventCursor(event.sequence),
     category: event.category,
     type: event.type,
-    // The event type restated: no registered payload carries a summary.
-    summary: event.type,
     timestamp: event.occurredAt,
     ...(event.actor === null || event.actor === undefined ? {} : { actor: event.actor }),
   };

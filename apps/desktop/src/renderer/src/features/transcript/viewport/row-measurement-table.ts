@@ -122,6 +122,11 @@ export class RowMeasurementTable {
     return true;
   }
 
+  /** The width rows are laid out at, in pixels, as a row last declared it; `undefined` before. */
+  public get rowWidthPx(): number | undefined {
+    return this.#rememberedHeights.rowWidthPx;
+  }
+
   /**
    * Declare the width rows are laid out at, in pixels, as a row's observation reported it. A new
    * width rewraps every row, so the remembered heights and the samples go; the published estimates

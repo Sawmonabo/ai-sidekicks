@@ -1,17 +1,30 @@
-// How a reader's selection inside one row survives that row's own remounts. A settled block becomes
-// a memoized static subtree, which replaces the nodes the selection was anchored in, and the
-// browser drops the selection. A selection inside a row survives; elsewhere it is never touched.
-//   - Endpoints are character offsets into the row, not nodes, which a remount invalidates. This
-//     also preserves a selection spanning the migrated block's boundary whole.
-//   - Endpoints are read from the range and written forwards, because a same-node selection's
+// The coordinates a reader's selection is kept in, so it survives the nodes it was anchored in:
+// a settled block becoming a memoized static subtree, or the row leaving the window and coming
+// back, replaces them and the browser drops the selection.
+//   - An end is a character offset into the text nodes of the innermost windowed element holding
+//     it (a long body's block, a long table's row), found by that element's index, or into the
+//     row's text where none holds it. A window draws a different set of blocks or table rows
+//     around the end as the reader scrolls, so an offset counted from the row's start would shift
+//     with them; an element's own text is drawn the same each time, so its offset names one place.
+//   - Ends are read from the range and written forwards, because a same-node selection's
 //     `focusOffset` can report the start offset while the range reports both ends, and anchor and
 //     focus would then collapse every restore. A backwards drag comes back forwards.
-//   - A restore happens only where a selection was lost.
 
-/** A selection that was wholly inside one row, as character offsets into it, in document order. */
-export interface RowSelectionSnapshot {
-  readonly startCharacterOffset: number;
-  readonly endCharacterOffset: number;
+import { WINDOWED_ELEMENT_INDEX_ATTRIBUTES } from "../../rows/markdown/block-window/markers.js";
+
+/**
+ * Where one end of a selection sits in its row: the windowed elements holding it, outermost
+ * first, and the characters into the innermost one's text, or into the row's when none holds it.
+ */
+export interface RowTextPosition {
+  readonly path: readonly WindowedElementAddress[];
+  readonly characterOffset: number;
+}
+
+/** One windowed element on the way to an end: the index attribute it carries, and its index. */
+export interface WindowedElementAddress {
+  readonly attribute: string;
+  readonly index: number;
 }
 
 /** A resolved position inside a row: the text node, and the offset within it. */
@@ -21,55 +34,7 @@ interface ResolvedTextPosition {
 }
 
 const TEXT_NODE_TYPE = 3;
-
-/**
- * `range` in `rowElement`'s character coordinates, or `undefined` when either end is outside the
- * row: restoring an invented position would recreate a selection the reader never made.
- */
-export function captureRowSelection(
-  rowElement: Node,
-  range: AbstractRange,
-): RowSelectionSnapshot | undefined {
-  const startCharacterOffset = characterOffsetWithin(
-    rowElement,
-    range.startContainer,
-    range.startOffset,
-  );
-  const endCharacterOffset = characterOffsetWithin(rowElement, range.endContainer, range.endOffset);
-  if (startCharacterOffset === undefined || endCharacterOffset === undefined) {
-    return undefined;
-  }
-  return { startCharacterOffset, endCharacterOffset };
-}
-
-/**
- * Puts `snapshot` back as the selection if `rowElement` lost it. Writes nothing, and answers
- * false, while the selection is still in the row or the reader has moved it elsewhere.
- */
-export function restoreRowSelection(
-  rowElement: Node,
-  snapshot: RowSelectionSnapshot,
-  selection: Selection,
-): boolean {
-  const startContainer =
-    selection.rangeCount > 0 ? selection.getRangeAt(0).startContainer : undefined;
-  const isStartInside = startContainer !== undefined && rowElement.contains(startContainer);
-  if (isStartInside && !selection.isCollapsed && startContainer.isConnected) {
-    // Still held: the remount did not reach the selection's nodes.
-    return false;
-  }
-  if (!isStartInside && startContainer !== undefined && startContainer.isConnected) {
-    // The reader is elsewhere now; their selection is theirs.
-    return false;
-  }
-  const start = resolveTextPosition(rowElement, snapshot.startCharacterOffset);
-  const end = resolveTextPosition(rowElement, snapshot.endCharacterOffset);
-  if (start === undefined || end === undefined) {
-    return false;
-  }
-  selection.setBaseAndExtent(start.textNode, start.offsetInNode, end.textNode, end.offsetInNode);
-  return true;
-}
+const ELEMENT_NODE_TYPE = 1;
 
 /**
  * The DOM position a character offset names, or `undefined` when the row has no text. The offset
@@ -101,7 +66,7 @@ export function resolveTextPosition(
  * `undefined` when the position is not inside `root` at all, which is how a selection
  * that has left this row is told from one that is still in it.
  */
-function characterOffsetWithin(
+export function characterOffsetWithin(
   root: Node,
   node: Node | null,
   offsetInNode: number,
@@ -131,6 +96,83 @@ function characterOffsetWithin(
   }
   const leading = characterOffsetWithin(root, node.parentNode, indexOfChild(node));
   return leading === undefined ? offset : leading + offset;
+}
+
+/**
+ * Where a DOM position sits in `row`, anchored to the innermost windowed element holding it, or
+ * `undefined` when the position is not inside `row`.
+ */
+export function rowTextPositionOf(
+  row: Node,
+  node: Node,
+  offsetInNode: number,
+): RowTextPosition | undefined {
+  const path: WindowedElementAddress[] = [];
+  let anchor: Node = row;
+  for (let ancestor: Node | null = node; ancestor !== null && ancestor !== row; ) {
+    const address = windowedAddressOf(ancestor);
+    if (address !== undefined) {
+      path.unshift(address);
+      if (anchor === row) {
+        anchor = ancestor;
+      }
+    }
+    ancestor = ancestor.parentNode;
+  }
+  const characterOffset = characterOffsetWithin(anchor, node, offsetInNode);
+  return characterOffset === undefined ? undefined : { path, characterOffset };
+}
+
+/**
+ * The DOM position a row text position names in `row`, or `undefined` when an element on its
+ * path is not drawn or the element holds no text.
+ */
+export function resolveRowTextPosition(
+  row: Element,
+  position: RowTextPosition,
+): ResolvedTextPosition | undefined {
+  let anchor: Element | undefined = row;
+  for (const address of position.path) {
+    anchor = descendantAt(anchor, address);
+    if (anchor === undefined) {
+      return undefined;
+    }
+  }
+  return resolveTextPosition(anchor, position.characterOffset);
+}
+
+/**
+ * The order of two positions in one row: negative when `first` comes first. Paths compare index
+ * by index, a position outside a windowed element before one inside it, then the offsets.
+ */
+export function compareRowTextPositions(first: RowTextPosition, second: RowTextPosition): number {
+  const depth = Math.max(first.path.length, second.path.length);
+  for (let level = 0; level < depth; level += 1) {
+    const difference = (first.path[level]?.index ?? -1) - (second.path[level]?.index ?? -1);
+    if (difference !== 0) {
+      return difference;
+    }
+  }
+  return first.characterOffset - second.characterOffset;
+}
+
+/** The windowed element at `address` inside `parent`, its nearest one carrying that attribute. */
+function descendantAt(parent: Element, address: WindowedElementAddress): Element | undefined {
+  return parent.querySelector(`[${address.attribute}="${String(address.index)}"]`) ?? undefined;
+}
+
+/** The windowed index a node carries, or `undefined` for a node no window marks. */
+function windowedAddressOf(node: Node): WindowedElementAddress | undefined {
+  if (node.nodeType !== ELEMENT_NODE_TYPE) {
+    return undefined;
+  }
+  for (const attribute of WINDOWED_ELEMENT_INDEX_ATTRIBUTES) {
+    const value = (node as Element).getAttribute(attribute);
+    if (value !== null) {
+      return { attribute, index: Number(value) };
+    }
+  }
+  return undefined;
 }
 
 function isTextNode(node: Node): node is Text {

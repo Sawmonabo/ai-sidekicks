@@ -6,6 +6,10 @@ packages:
 # - minimumReleaseAge: blocks installs of brand-new package versions for the floor below
 # - blockExoticSubdeps: refuses transitive deps that switch to git-tarball/registry-exotic URLs
 minimumReleaseAge: 1440
+# The user took these two stable TanStack releases on their release day.
+minimumReleaseAgeExclude:
+  - "@tanstack/react-virtual@3.14.14"
+  - "@tanstack/virtual-core@3.18.0"
 blockExoticSubdeps: true
 
 # Deprecation warnings muted for two packages our libraries pull in, each the exact version in the
@@ -137,4 +141,5 @@ catalogs:
 patchedDependencies:
   "@xyflow/react@12.12.0": patches/@xyflow__react@12.12.0.patch
   "@xyflow/system@0.0.83": patches/@xyflow__system@0.0.83.patch
+  overlayscrollbars@2.16.0: patches/overlayscrollbars@2.16.0.patch
   signalsmith-stretch@1.3.2: patches/signalsmith-stretch@1.3.2.patch

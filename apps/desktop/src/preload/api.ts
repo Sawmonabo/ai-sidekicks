@@ -1,7 +1,7 @@
 // The object the preload exposes: every member carried over IPC, beside the build facts main
 // passed at start and the machine clock it pushes after.
 
-import { ipcRenderer, webUtils } from "electron";
+import { ipcRenderer, webFrame, webUtils } from "electron";
 
 import { BRIDGE_CHANNELS } from "#shared/bridge-channels.js";
 import { readLastUsedWindowIdSwitch } from "#shared/window/last-used.js";
@@ -56,8 +56,8 @@ export function createPreloadApi(argv: readonly string[]): PreloadApi {
         (await ipcRenderer.invoke(
           BRIDGE_CHANNELS.getNotificationPermission,
         )) as NotificationPermission,
-      copyToClipboard: async (content): Promise<void> => {
-        await ipcRenderer.invoke(BRIDGE_CHANNELS.copyToClipboard, content);
+      copyToClipboard: async (content, clipboard): Promise<void> => {
+        await ipcRenderer.invoke(BRIDGE_CHANNELS.copyToClipboard, { content, clipboard });
       },
       revealInFileExplorer: async (ref): Promise<void> => {
         await ipcRenderer.invoke(BRIDGE_CHANNELS.revealInFileExplorer, ref);
@@ -71,6 +71,12 @@ export function createPreloadApi(argv: readonly string[]): PreloadApi {
         (await ipcRenderer.invoke(BRIDGE_CHANNELS.writeKeyboardMap, map)) as KeyboardMap,
     },
     window: createWindowBridge(ipcRenderer, readLastUsedWindowIdSwitch(argv)),
-    app: createAppBridge(ipcRenderer, argv),
+    app: createAppBridge(
+      ipcRenderer,
+      () => {
+        webFrame.clearCache();
+      },
+      argv,
+    ),
   };
 }

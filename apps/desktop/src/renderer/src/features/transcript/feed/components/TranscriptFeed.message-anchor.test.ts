@@ -1,7 +1,7 @@
 // Opening a session at one message, as a link from a workflow run does: the feed finds the row by
 // its event cursor, keeps it however far back it sits, scrolls to it and puts focus on the log. A
-// message older than the window is reached by reading back. A cursor no read holds opens at the
-// bottom with nothing landed.
+// message older than the window is reached by reading back. A cursor no read holds leaves the page
+// where it is, with nothing landed and one line saying the message was not found.
 
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -13,6 +13,8 @@ import {
 import type { TranscriptReadRow } from "@ai-sidekicks/contracts/transcript/row";
 import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 
+import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
+import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
 import { type TranscriptPageRead } from "#renderer/services/daemon/transcript-page.js";
 import {
@@ -171,8 +173,14 @@ describe("the transcript feed — opened at a message", () => {
 
   it("lands once on a message inside a run group, so a reader who folds the group keeps it", () => {
     withLaidOutViewport();
+    const fixture = createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO });
     const feed = renderFeed(openSessionStoreWithTerminalRunGroup(), undefined, RowIdBody, {
       messageAnchorCursor: transcriptFixtureStreamCursor(1),
+      fixture,
+    });
+    // The land draws the rows on screen; the group's header above them draws in a task after.
+    act(() => {
+      fixture.scenarioEngine.advance(0);
     });
     const disclosure = feed.querySelector<HTMLElement>(".meridian-run-group-header__disclosure");
     expect(disclosure?.getAttribute("aria-expanded")).toBe("true");
@@ -214,10 +222,11 @@ describe("the transcript feed — opened at a message older than the window", ()
       messageAnchorCursor: transcriptFixtureEventId(BEFORE_FIRST_PAGE_INDEX),
       readTranscriptPage: earlierRead.read,
     });
-    // The page that ends history takes the `Load earlier` line away.
+    // The page that ends history puts the one line in place of `Load earlier`.
     await waitFor(() => {
-      expect(feed.querySelector(".meridian-transcript-viewport__load-earlier")).toBeNull();
+      expect(feed.textContent).toContain("Message not found");
     });
+    expect(feed.querySelector(".meridian-transcript-viewport__load-earlier")).toBeNull();
     expect(earlierRead.calls()).toBe(2);
     expect(document.activeElement).not.toBe(scrollContainerOf(feed));
   });
@@ -241,5 +250,8 @@ describe("the transcript feed — opened at a message older than the window", ()
       await Promise.resolve();
     });
     expect(earlierRead.calls()).toBe(1);
+    // The reading back is still owed, so the line offers `Try again` and says nothing is missing.
+    expect(feed.textContent).toContain("Try again");
+    expect(feed.textContent).not.toContain("Message not found");
   });
 });

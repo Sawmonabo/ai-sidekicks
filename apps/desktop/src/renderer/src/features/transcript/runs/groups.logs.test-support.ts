@@ -201,7 +201,7 @@ function openSessionStoreWithRunsAt(positions: RunPositions): SessionStore {
         cursor: transcriptFixtureStreamCursor(index),
         kind: "user.message",
         occurredAt: transcriptFixtureStampAt(index),
-        payload: {},
+        payload: { sessionId: SESSION_ID, actor: "user", message: `Message ${String(index)}` },
       };
     }),
   );

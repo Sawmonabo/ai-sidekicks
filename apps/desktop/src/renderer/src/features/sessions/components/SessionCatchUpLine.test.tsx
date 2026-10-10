@@ -69,7 +69,6 @@ describe("SessionCatchUpLine", () => {
           ? Promise.reject(new Error("the daemon refused the read"))
           : Promise.resolve({ cursor: 0, entities: [] }),
       clock,
-      applyCoalesceMs: 0,
       refreshDebounceMs: 20,
     });
     const container = renderLine(entry.store, clock);
@@ -116,7 +115,6 @@ describe("SessionCatchUpLine", () => {
       offScreenRowLimit,
       read: () => Promise.resolve({ entities: [] }),
       clock,
-      applyCoalesceMs: 0,
       refreshDebounceMs: 20,
       projectors: {
         "run.starting": (event) => {
@@ -198,7 +196,6 @@ describe("SessionCatchUpLine", () => {
       offScreenRowLimit,
       read: () => Promise.resolve({ cursor: 0, entities: [] }),
       clock,
-      applyCoalesceMs: 0,
       refreshDebounceMs: 20,
     });
     const mountsReader = failingRepoMountsReader(entry.store, clock);
@@ -250,7 +247,6 @@ describe("SessionCatchUpLine", () => {
           ? Promise.reject(new Error("the daemon refused the read"))
           : Promise.resolve({ cursor: 0, entities: [] }),
       clock,
-      applyCoalesceMs: 0,
       refreshDebounceMs: 20,
     });
     const mountsReader = failingRepoMountsReader(entry.store, clock);
@@ -310,7 +306,6 @@ describe("SessionCatchUpLine", () => {
       offScreenRowLimit,
       read: () => Promise.reject(new Error("the daemon refused the read")),
       clock,
-      applyCoalesceMs: 0,
       refreshDebounceMs: 20,
     });
     const batches: string[] = [];

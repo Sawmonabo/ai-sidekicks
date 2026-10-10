@@ -56,7 +56,7 @@ export class ScrollController {
    * leave out a horizontal scrollbar), so a scroll event reads no box.
    */
   #viewportHeightPx = 0;
-  #onContainerScroll: (() => void) | undefined;
+  #onContainerScroll: ((event: Event) => void) | undefined;
   #overflowSink: OverflowMeasurementSink | undefined;
   #writeDepth = 0;
   #disposed = false;
@@ -65,7 +65,6 @@ export class ScrollController {
     const controllerGeometry = (): ScrollGeometry | undefined =>
       this.#geometryPublisher.lastGeometry;
     this.#geometryPublisher = new ScrollGeometryPublisher({
-      clock: options.clock,
       tailTolerancePx: options.tailTolerancePx,
     });
     this.#overflowBatch = new OverflowMeasurementBatch({
@@ -105,8 +104,8 @@ export class ScrollController {
     this.#contentHeight = contentHeight;
     // Until the first resize observation, which the platform delivers before the next paint.
     this.#viewportHeightPx = scrollContainer.clientHeight;
-    const onScroll = (): void => {
-      this.#publishGeometry("scroll");
+    const onScroll = (event: Event): void => {
+      this.#publishGeometry("scroll", event.timeStamp);
     };
     this.#onContainerScroll = onScroll;
     scrollContainer.addEventListener("scroll", onScroll, { passive: true });
@@ -276,7 +275,7 @@ export class ScrollController {
    * Read the offset and the heights, publish them, and return the sample; `undefined` when no
    * container is attached. A row rect read here would put a hit test on the scroll path.
    */
-  #publishGeometry(cause: GeometryChangeCause): ScrollGeometry | undefined {
+  #publishGeometry(cause: GeometryChangeCause, inputAt?: number): ScrollGeometry | undefined {
     const scrollContainer = this.#scrollContainer;
     if (scrollContainer === undefined) {
       return undefined;
@@ -284,6 +283,7 @@ export class ScrollController {
     return this.#geometryPublisher.publish(
       { scrollTop: scrollContainer.scrollTop, ...this.#readHeights(scrollContainer) },
       cause,
+      inputAt,
     );
   }
 

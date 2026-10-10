@@ -57,6 +57,7 @@ describe("the transcript feed windows — the body lengths the viewport estimate
           messageAnchorCursor: undefined,
           readTranscriptPage: undefined,
           drawsBody: () => true,
+          prepareRow: () => undefined,
         }),
       {
         // The run group disclosure reads the platform bridge.

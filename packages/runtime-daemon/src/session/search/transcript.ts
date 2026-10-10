@@ -9,14 +9,12 @@ import type { Database, Statement } from "better-sqlite3";
 
 import { countEntriesFittingOneFrame } from "@ai-sidekicks/contracts/jsonrpc/page";
 import { decodeEventCursor, encodeEventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
+import { TRANSCRIPT_READ_LIMIT_MAX } from "@ai-sidekicks/contracts/transcript/limits";
 import {
-  TRANSCRIPT_EVENT_ROW_SUMMARY_MAX_LEN,
-  TRANSCRIPT_READ_LIMIT_MAX,
-} from "@ai-sidekicks/contracts/transcript/limits";
-import type {
-  TranscriptSearchHit,
-  TranscriptSearchRequest,
-  TranscriptSearchResponse,
+  TRANSCRIPT_SEARCH_TEXT_MAX_LEN,
+  type TranscriptSearchHit,
+  type TranscriptSearchRequest,
+  type TranscriptSearchResponse,
 } from "@ai-sidekicks/contracts/transcript/search";
 import type { SearchIndex, SearchQuery, SessionFind } from "@ai-sidekicks/search-index";
 
@@ -52,7 +50,7 @@ export class TranscriptSearchService {
     this.#index = deps.index;
     this.#floorLog = deps.floorLog;
     this.#appliedFloorPosition = deps.appliedFloorPosition;
-    this.#hitLines = new HitLineReader(deps.rows, deps.index, TRANSCRIPT_EVENT_ROW_SUMMARY_MAX_LEN);
+    this.#hitLines = new HitLineReader(deps.rows, deps.index, TRANSCRIPT_SEARCH_TEXT_MAX_LEN);
     this.#sessionKey = deps.reader.prepare<[string], number>(SESSION_KEY_SQL).pluck();
     this.#lastRowidBefore = deps.reader
       .prepare<[string, number], number>(LAST_ROWID_BEFORE_SQL)

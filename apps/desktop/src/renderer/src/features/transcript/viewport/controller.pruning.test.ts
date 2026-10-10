@@ -7,15 +7,14 @@ import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "#renderer/lib/clock.js";
 import { createCountingScrollContainer } from "#renderer/lib/scroll/container.test-support.js";
+import { TRANSCRIPT_GESTURE_GAP_MS } from "./caps.js";
 import { ViewportController } from "./controller.js";
-import { CALM, syntheticRows } from "./controller.test-support.js";
+import { CALM, attachReaderAt, syntheticRows } from "./controller.test-support.js";
 
 /** A log long enough that the window lets go of most of it around a reader in the middle. */
 const LOG_ROW_COUNT = 400;
 const READER_ROW_KEY = "row-200";
 const VIEWPORT_HEIGHT_PX = 300;
-/** The log's first row, still working on the first pass. */
-const WORKING_ROW_KEY = "row-0";
 
 /** Where a row's top edge sits relative to the top of the viewport. */
 function offsetOnScreen(controller: ViewportController, rowKey: string): number | undefined {
@@ -32,16 +31,15 @@ describe("the viewport controller — the row under the reader stays put", () =>
     const rowHeightPx = new ViewportController({ clock: new ManualClock() }).measurements.heightOf(
       "row-0",
     );
-    const scrollContainer = createCountingScrollContainer({
-      initialScrollTop: 200 * rowHeightPx + 12,
+    const controller = new ViewportController({ clock: new ManualClock() });
+    const scrollContainer = attachReaderAt(controller, {
+      offsetPx: 200 * rowHeightPx + 12,
       clientHeight: VIEWPORT_HEIGHT_PX,
       scrollHeight: 400_000,
     });
-    const controller = new ViewportController({ clock: new ManualClock() });
-    controller.attach(scrollContainer);
-    // The first row still works, so the cut above stops at it: the rows above the reader stay
-    // laid out until it settles.
-    controller.reconcile({ rows, isWorkingRow: (rowKey) => rowKey === WORKING_ROW_KEY });
+    // The first row is still changing, so the cut above stops at it: the rows above the reader
+    // stay laid out until it settles.
+    controller.reconcile({ rows, isChangingRow: (rowKey) => rowKey === "row-0" });
     controller.anchor.capture({ rowKey: READER_ROW_KEY, offsetWithinViewportPx: -12 });
     expect(controller.anchor.state.mode).not.toBe("following");
     const readerOffsetBeforeCut = offsetOnScreen(controller, READER_ROW_KEY);
@@ -66,5 +64,44 @@ describe("the viewport controller — the row under the reader stays put", () =>
     controller.commitPendingPositionHold(rows);
 
     expect(offsetOnScreen(controller, firstOnScreenKey)).toBe(firstOnScreenOffset);
+  });
+});
+
+describe("the viewport controller — one stretch per gesture", () => {
+  it("tells gestures apart by the scroll events' own time stamps, whatever the app clock reads", () => {
+    const rows = syntheticRows(LOG_ROW_COUNT);
+    // The app clock never moves, as in a fixture build: only the events' stamps can end a gesture.
+    const controller = new ViewportController({ clock: new ManualClock() });
+    const rowHeightPx = controller.measurements.heightOf("row-0");
+    const scrollContainer = createCountingScrollContainer({
+      initialScrollTop: 200 * rowHeightPx,
+      clientHeight: VIEWPORT_HEIGHT_PX,
+      scrollHeight: 400_000,
+    });
+    controller.attach(scrollContainer);
+    controller.reconcile({ rows, ...CALM });
+    controller.anchor.capture({ rowKey: READER_ROW_KEY, offsetWithinViewportPx: 0 });
+    controller.reconcile({ rows, ...CALM });
+    const firstHeldKey = (): string | undefined => controller.snapshot().rowKeys[0];
+    // Each sample lands at a new offset near the top, since a sample that repeats the last is
+    // never published.
+    const approachTop = (offsetPx: number, inputAtMs: number): void => {
+      scrollContainer.moveTo(offsetPx, inputAtMs);
+      controller.commitPendingPositionHold(rows);
+    };
+
+    const headBeforeGesture = firstHeldKey();
+    approachTop(3 * rowHeightPx, 1_000);
+    const headAfterFirstStretch = firstHeldKey();
+    expect(headAfterFirstStretch).not.toBe(headBeforeGesture);
+
+    // The same gesture: a sample one frame later admits nothing more.
+    approachTop(2 * rowHeightPx, 1_016);
+    expect(firstHeldKey()).toBe(headAfterFirstStretch);
+
+    // A pause as long as the gap ends the gesture, so the next approach brings a stretch of its
+    // own.
+    approachTop(rowHeightPx, 1_016 + TRANSCRIPT_GESTURE_GAP_MS);
+    expect(firstHeldKey()).not.toBe(headAfterFirstStretch);
   });
 });

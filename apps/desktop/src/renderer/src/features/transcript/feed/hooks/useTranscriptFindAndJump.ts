@@ -7,6 +7,8 @@ import { useCallback } from "react";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { type FindStepDirection } from "../../find/matcher.js";
+import { type TranscriptRowRenderer } from "../../rows/renderer.js";
+import { type SystemMessageReading } from "../../system-messages/classifier.js";
 import { type TranscriptFindState, useTranscriptFind } from "../../find/hooks/useTranscriptFind.js";
 
 /** Everything the find field needs, over one transcript. */
@@ -23,18 +25,21 @@ export interface TranscriptFindAndJump {
 export function useTranscriptFindAndJump(inputs: {
   /** What the run group fold reported withholding, for the count beside the field. */
   readonly foldedAwayRows: readonly TranscriptEventRow[];
-  /** Whether the feed draws a row, so a folded row it would not draw is not counted. */
-  readonly drawsRow: (row: TranscriptEventRow) => boolean;
+  /** The unfurled window's system messages, which the feed always draws, folded or not. */
+  readonly systemMessageByRowId: ReadonlyMap<string, SystemMessageReading>;
+  /** The renderer's answer to whether it draws a row, so a folded row it would not is not counted. */
+  readonly drawsBody: TranscriptRowRenderer["drawsBody"];
   /** The rows the feed draws, in log order, whether or not the viewport's window holds them. */
   readonly rows: readonly TranscriptEventRow[];
   /** The transcript's ONE scroll writer, which lands on a row its window let go. */
   readonly jumpToRow: (rowId: string) => void;
   readonly focusTranscriptViewport: () => void;
 }): TranscriptFindAndJump {
-  const { foldedAwayRows, drawsRow, rows, jumpToRow, focusTranscriptViewport } = inputs;
+  const { foldedAwayRows, systemMessageByRowId, drawsBody, rows } = inputs;
+  const { jumpToRow, focusTranscriptViewport } = inputs;
 
   // What the fold withholds is counted as that stage reported it rather than re-derived here.
-  const find = useTranscriptFind({ rows, foldedAwayRows, drawsRow });
+  const find = useTranscriptFind({ rows, foldedAwayRows, systemMessageByRowId, drawsBody });
 
   const onStep = useCallback(
     (direction: FindStepDirection) => {

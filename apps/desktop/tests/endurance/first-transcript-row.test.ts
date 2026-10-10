@@ -13,9 +13,9 @@
 // `performance`'s monotonic transcript, where the end of the interval is also read, so the whole
 // measurement is one clock in one process.
 //
-// The session route is opened, the frozen clock is walked over the concurrent-streaming script, and
-// the first painted transcript row ends the interval, all inside one page function so no driver
-// round trip sits between the steps. The one round trip inside the interval is the gap between the
+// The session route is opened, the frozen clock is walked over the concurrent-streaming script, its
+// frame work runs on each of the window's frames from then on, and the first painted transcript row
+// ends the interval, all inside one page function so no driver round trip sits between the steps. The one round trip inside the interval is the gap between the
 // launch handshake settling and this function starting; it is reported separately rather than
 // subtracted. The clock is walked because a fixture build's clock is frozen: the script's opening
 // beats are what a live daemon would deliver at launch, and a run that never advanced would time a
@@ -28,6 +28,7 @@ import { describe, expect, it } from "vitest";
 import { withLaunchedApp, type AppUnderTest } from "../helpers/electron/harness.js";
 import { fixtureBundleExists } from "../helpers/fixture/bundle.js";
 import { SCENARIO_FIXTURE_GLOBAL } from "#renderer/app/fixture/global-names.js";
+import type { ScenarioFixtureHandle } from "#renderer/services/daemon/selection.fixture.js";
 import {
   ENDURANCE_LAUNCH_OPTIONS,
   CONCURRENT_STREAMING_SESSION_ROUTE,
@@ -166,7 +167,7 @@ async function measureFirstTranscriptRow(
       const scenarioControl = (
         (window.opener ?? globalThis) as unknown as Record<
           string,
-          { advance(milliseconds: number): void; deliveredBeatCount(): number } | undefined
+          ScenarioFixtureHandle | undefined
         >
       )[scenarioGlobalName];
       if (scenarioControl === undefined) {
@@ -227,8 +228,20 @@ async function measureFirstTranscriptRow(
       for (let step = 0; step < advanceCount; step += 1) {
         scenarioControl.advance(advanceMilliseconds);
       }
+      // The frozen clock runs no frame by itself: each of the window's frames runs the frame work
+      // armed on it, as a reader's window does, until the row is painted.
+      let isRowAwaited = true;
+      const runFrozenFrames = (): void => {
+        if (!isRowAwaited) {
+          return;
+        }
+        scenarioControl.runFrame();
+        requestAnimationFrame(runFrozenFrames);
+      };
+      requestAnimationFrame(runFrozenFrames);
 
       const firstRowPaintedAtMs = await firstRowPainted;
+      isRowAwaited = false;
       if (firstRowPaintedAtMs === null) {
         return { unmeasured: "row-never-painted" };
       }

@@ -1,6 +1,6 @@
 /* The tool row. */
 
-/* One line: `min-width: 0` on the summary lets it be the part that gives, not the header wrap. */
+/* One line: `min-width: 0` on the tool lets it be the part that gives, not the header wrap. */
 .meridian-tool-card__header {
   display: flex;
   align-items: center;
@@ -20,13 +20,12 @@
   font-style: italic;
 }
 
-.meridian-tool-card__summary {
+.meridian-tool-card__tool {
+  display: flex;
   flex: 1 1 auto;
+  align-items: center;
+  gap: var(--meridian-space-2);
   min-width: 0;
-  overflow: hidden;
-  color: var(--meridian-text-muted);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .meridian-tool-card__elapsed {

@@ -1,7 +1,7 @@
 // Waiting on a window's animation frames, for the browser tier: a frame to paint, and a layout
 // change a view weighs through its resize and style observers.
 
-import { act } from "@testing-library/react";
+import { act, getConfig } from "@testing-library/react";
 
 /** Waits for `ownerWindow`'s next animation frame, whose callbacks run before its style pass. */
 export async function nextFrame(ownerWindow: Window = window): Promise<void> {
@@ -9,6 +9,19 @@ export async function nextFrame(ownerWindow: Window = window): Promise<void> {
     ownerWindow.requestAnimationFrame(() => {
       resolve();
     });
+  });
+}
+
+/**
+ * Lets `count` animation frames pass with React rendering as it does in the app: outside `act`, as
+ * `waitFor` waits, so an update the frames bring commits on its own frame rather than at the end of
+ * an `act` scope, and is not reported as unwrapped.
+ */
+export async function letFramesPass(count: number): Promise<void> {
+  await getConfig().asyncWrapper(async () => {
+    for (let frame = 0; frame < count; frame += 1) {
+      await nextFrame();
+    }
   });
 }
 

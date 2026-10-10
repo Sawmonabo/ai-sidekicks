@@ -88,7 +88,7 @@ describe("desktop main process boot", () => {
       const contentSecurityPolicy = probe.contentSecurityPolicy ?? "";
       for (const directive of [
         "default-src 'self'",
-        "script-src 'self'",
+        "script-src 'self' 'wasm-unsafe-eval'",
         "connect-src 'self'",
         "frame-src 'none'",
         "object-src 'none'",
@@ -97,9 +97,10 @@ describe("desktop main process boot", () => {
       ]) {
         expect(contentSecurityPolicy).toContain(directive);
       }
-      // Nothing may admit remote script or a wildcard origin; the presence checks above would not
-      // catch a widened directive appended beside them.
-      expect(contentSecurityPolicy).not.toContain("unsafe-eval");
+      // Nothing may admit remote script, JavaScript evaluation or a wildcard origin; the presence
+      // checks above would not catch a widened directive appended beside them. WebAssembly's
+      // `'wasm-unsafe-eval'` is not JavaScript evaluation, so only the quoted keyword is refused.
+      expect(contentSecurityPolicy).not.toContain("'unsafe-eval'");
       expect(contentSecurityPolicy).not.toContain("*");
       expect(contentSecurityPolicy).not.toContain("http://");
 

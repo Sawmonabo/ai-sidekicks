@@ -414,9 +414,10 @@ export interface PreloadApi {
     getNotificationPermission(): Promise<NotificationPermission>;
     /**
      * Put the text, with its formatted flavor where one is given, or the PNG picture on the
-     * clipboard in one write.
+     * clipboard in one write: the system clipboard, or, named `"selection"`, the selection one a
+     * middle-click pastes, which Linux alone keeps and is refused elsewhere.
      */
-    copyToClipboard(content: ClipboardContent): Promise<void>;
+    copyToClipboard(content: ClipboardContent, clipboard?: "selection"): Promise<void>;
     /** Show a file or folder selected in the platform's file manager. */
     revealInFileExplorer(ref: FilePathRef): Promise<void>;
   };
@@ -517,6 +518,11 @@ export interface PreloadApi {
      * this window holds, so a setting changed while the app runs redraws every clock figure.
      */
     subscribeMachineClock(handler: (clock: MachineClock) => void): Unsubscribe;
+    /**
+     * Free the renderer's cached memory nothing draws any more, for every window, once a session's
+     * decoded pictures are released; what a page needs again is loaded again.
+     */
+    freeUnusedMemory(): void;
   };
 }
 
@@ -586,6 +592,10 @@ export function createStubBridge(app: AppFacts, lastUsedWindowId: string): Prelo
       subscribeToUnkeptScheme: () => stubThrow("window.subscribeToUnkeptScheme"),
       subscribeToNavigationRequest: () => stubThrow("window.subscribeToNavigationRequest"),
     },
-    app: { ...app, subscribeMachineClock: () => () => undefined },
+    app: {
+      ...app,
+      subscribeMachineClock: () => () => undefined,
+      freeUnusedMemory: () => stubThrow("app.freeUnusedMemory"),
+    },
   };
 }

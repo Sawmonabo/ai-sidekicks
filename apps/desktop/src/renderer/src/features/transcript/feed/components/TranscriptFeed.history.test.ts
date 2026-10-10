@@ -115,10 +115,6 @@ describe("the transcript feed — reading earlier history", () => {
   it("reads one stretch near the top per gesture, holding the row being read", async () => {
     withLaidOutViewport({ content: "laid-out" });
     const fixture = createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO });
-    const clock = fixture.scenarioEngine.clock;
-    if (!(clock instanceof ManualClock)) {
-      throw new Error("the fixture bridge runs on no frozen clock");
-    }
     const log = scriptedTranscriptLog(DAEMON_LOG_ROWS);
     const headIndex = DAEMON_LOG_ROWS - WINDOW_ROWS - 1;
     const sessionStore = openPagedSessionStore(headIndex + 1, DAEMON_LOG_ROWS - 1, {
@@ -135,10 +131,14 @@ describe("the transcript feed — reading earlier history", () => {
     expectHeldRowsWithinBand(scrollContainer);
     const approachPx = TRANSCRIPT_APPROACH_SCREEN_HEIGHTS * scrollContainer.clientHeight;
 
+    // Every input stands on one timeline, so a slow run cannot stretch the gesture past its gap.
+    const gestureAtMs = 1_000;
+    const inGestureAtMs = gestureAtMs + 1;
+
     // Just outside the approach distance nothing is asked; just inside, one read before the head.
-    readerScrollsTo(scrollContainer, approachPx + 1);
+    readerScrollsTo(scrollContainer, approachPx + 1, gestureAtMs);
     expect(log.requests).toEqual([]);
-    readerScrollsTo(scrollContainer, approachPx - 1);
+    readerScrollsTo(scrollContainer, approachPx - 1, gestureAtMs);
     expect(log.requests).toEqual([
       {
         sessionId: PAGED_SESSION_ID,
@@ -162,17 +162,23 @@ describe("the transcript feed — reading earlier history", () => {
 
     // The rest of the fling reaches the top and a wheel pulls past it, still one gesture: nothing
     // more is read.
-    readerScrollsTo(scrollContainer, 0);
-    fireEvent.wheel(scrollContainer, { deltaY: -100 });
+    readerScrollsTo(scrollContainer, 0, inGestureAtMs);
+    const pullInGesture = new WheelEvent("wheel", { deltaY: -100, bubbles: true });
+    Object.defineProperty(pullInGesture, "timeStamp", { value: inGestureAtMs });
+    fireEvent(scrollContainer, pullInGesture);
     await act(async () => {
       await Promise.resolve();
     });
     expect(log.requests).toHaveLength(1);
 
-    // A pause ends the gesture, and the next pull at the top reads before the new head.
-    clock.advance(TRANSCRIPT_GESTURE_GAP_MS);
+    // A pause ends the gesture, timed by the pulls' own event stamps, and the next pull at the top
+    // reads before the new head.
     const headCursor = sessionStore.snapshot().transcriptHead.cursor;
-    fireEvent.wheel(scrollContainer, { deltaY: -100 });
+    const pullAfterPause = new WheelEvent("wheel", { deltaY: -100, bubbles: true });
+    Object.defineProperty(pullAfterPause, "timeStamp", {
+      value: inGestureAtMs + TRANSCRIPT_GESTURE_GAP_MS,
+    });
+    fireEvent(scrollContainer, pullAfterPause);
     expect(log.requests).toHaveLength(2);
     expect(log.requests[1]?.beforeCursor).toBe(headCursor);
   });
@@ -286,7 +292,6 @@ describe("the transcript feed — a session off screen", () => {
       clock: registryClock,
       openingPageLimit,
       offScreenRowLimit: () => OFF_SCREEN_ROWS,
-      applyCoalesceMs: 0,
       refreshDebounceMs: REFRESH_DEBOUNCE_MS,
     });
     const deliver = (first: number, last: number): void => {

@@ -71,7 +71,6 @@ describe("useSessionEntity — a row re-renders for its own entity and no other"
       openingPageLimit,
       offScreenRowLimit,
       projectors,
-      applyCoalesceMs: 0,
     });
     const store = registry.open("session-1");
     store.initialize({

@@ -5,7 +5,7 @@
 import { useEffect, useRef } from "react";
 
 import { type SessionStore } from "#renderer/store/session/store.js";
-import { type ViewportSnapshot } from "../../viewport/snapshot.js";
+import { type ViewportRow, type ViewportSnapshot } from "../../viewport/snapshot.js";
 import { type PruneOutcome } from "../../viewport/window-cap.js";
 import { type TranscriptWindowModel } from "../../window/transcript-window.js";
 import { keptEventCursors } from "../kept-events.js";
@@ -21,11 +21,13 @@ export interface ReleaseOutsideWindowInputs {
   readonly unfurledWindow: TranscriptWindowModel;
   /** The window the viewport draws: folded by run group, holding only rows the feed draws. */
   readonly transcriptWindow: TranscriptWindowModel;
+  /** The rows held out of that window until they draw whole, whose events wait to be drawn. */
+  readonly preparingRows: readonly ViewportRow[];
 }
 
 /** Lets the store go of the events outside the window once per pass that let rows go. */
 export function useReleaseOutsideWindow(inputs: ReleaseOutsideWindowInputs): void {
-  const { sessionStore, unfurledWindow, transcriptWindow } = inputs;
+  const { sessionStore, unfurledWindow, transcriptWindow, preparingRows } = inputs;
   const canReadAgain = inputs.history !== undefined;
   const { lastPrune, rows } = inputs.snapshot;
   const releasedAfter = useRef<PruneOutcome | undefined>(undefined);
@@ -39,7 +41,8 @@ export function useReleaseOutsideWindow(inputs: ReleaseOutsideWindowInputs): voi
       return;
     }
     releasedAfter.current = lastPrune;
-    const kept = keptEventCursors(lastPrune, rows, {
+    // A held row is about to be drawn, so its events stay however far the window's edges moved.
+    const kept = keptEventCursors(lastPrune, [...rows, ...preparingRows], {
       unfurledWindow,
       transcriptWindow,
       log: sessionStore.snapshot().transcript,
@@ -47,5 +50,13 @@ export function useReleaseOutsideWindow(inputs: ReleaseOutsideWindowInputs): voi
     if (kept !== undefined) {
       sessionStore.releaseOutside(kept.firstKeptCursor, kept.lastKeptCursor);
     }
-  }, [canReadAgain, sessionStore, lastPrune, rows, unfurledWindow, transcriptWindow]);
+  }, [
+    canReadAgain,
+    sessionStore,
+    lastPrune,
+    rows,
+    preparingRows,
+    unfurledWindow,
+    transcriptWindow,
+  ]);
 }

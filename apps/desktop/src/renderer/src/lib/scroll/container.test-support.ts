@@ -7,8 +7,11 @@
 export interface CountingScrollContainer extends HTMLElement {
   /** How many scroll listeners are attached now. */
   scrollListenerCount(): number;
-  /** Move the offset the way a reader does, and notify the scroll listeners. */
-  moveTo(offset: number): void;
+  /**
+   * Move the offset the way a reader does: their wheel, then the scroll it makes, both notified;
+   * `inputAtMs`, where given, is both events' own time stamp.
+   */
+  moveTo(offset: number, inputAtMs?: number): void;
   /**
    * Change the reported box the way a pane resize does. No scroll event fires; the
    * controller's overflow pass on the frozen clock is what notices.
@@ -76,9 +79,17 @@ export function createCountingScrollContainer(
   });
   return Object.assign(element, {
     scrollListenerCount: (): number => scrollListeners.size,
-    moveTo: (offset: number): void => {
+    moveTo: (offset: number, inputAtMs?: number): void => {
+      // A reader's scroll follows their own input; a wheel that turns no line stands in for it.
+      const wheel = new WheelEvent("wheel", { deltaY: 0 });
+      const event = new Event("scroll");
+      if (inputAtMs !== undefined) {
+        Object.defineProperty(wheel, "timeStamp", { value: inputAtMs });
+        Object.defineProperty(event, "timeStamp", { value: inputAtMs });
+      }
+      element.dispatchEvent(wheel);
       scrollOffsetPx = offset;
-      element.dispatchEvent(new Event("scroll"));
+      element.dispatchEvent(event);
     },
     resizeTo: (clientHeight: number, scrollHeight: number): void => {
       viewportHeightPx = clientHeight;

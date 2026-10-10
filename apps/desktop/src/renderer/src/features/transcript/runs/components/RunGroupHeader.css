@@ -1,7 +1,7 @@
 /* A run group's header: the one button that folds it, carrying actor, state and counts. */
 
 /*
- * One run, on one line that folds and opens it, over its body while open. The 2 px inline-start
+ * One run, on one line that folds and opens it, above its rows. The 2 px inline-start
  * edge is the leading edge a transcript row wears, set from the agent hue wheel by the
  * component; the neutral border is the fallback for an unattributed run group.
  */

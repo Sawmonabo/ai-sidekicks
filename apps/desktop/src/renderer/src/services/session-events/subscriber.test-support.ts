@@ -1,7 +1,7 @@
 // The registry, fixture bridge and subscriber the delivery suite drives, and the session and time
 // every subscriber suite shares. The registry takes the engine's clock, not one of its own, so the
-// apply queue's coalescing window and the scenario's beats cannot advance independently. The drop
-// and retry suites build their own harnesses.
+// apply queue's frame and the scenario's beats run on one clock and a case runs the frame itself.
+// The drop and retry suites build their own harnesses.
 import { createFixtureBridge } from "../platform/bridge.fixture.js";
 import type { ScenarioEngine } from "../daemon/engine.fixture.js";
 import type { Scenario } from "#fixtures/scenario.js";

@@ -8,6 +8,7 @@
 import { act } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { SCROLL_TAIL_TOLERANCE_PX } from "#renderer/lib/scroll/geometry/publisher.js";
 import { syntheticRows } from "../controller.test-support.js";
 import {
   MOUNTED_ROW_COUNT,
@@ -88,6 +89,33 @@ describe("the transcript viewport — a follower", () => {
     expect(subject.scrollContainer.scrollTop).toBe(subject.tailOffsetPx());
     expect(subject.binding.result.current.snapshot.reading.mode).toBe("following");
     expect(subject.controller.scroll.writeCount("follow-tail")).toBe(1);
+  });
+});
+
+describe("the transcript viewport — a follower only the reader moves", () => {
+  it("stays on the tail when the stream's end re-keys the last row and the library writes short", async () => {
+    // The last row is replaced at an unchanged count, which the library answers by holding the
+    // row at the top of the viewport; that write can land short of the tail. Only the reader's
+    // own scroll leaves the tail, so the follower is landed back on it.
+    const subject = mountViewport("tail");
+    const rows = syntheticRows(MOUNTED_ROW_COUNT);
+    const lastRow = rows[MOUNTED_ROW_COUNT - 1];
+    if (lastRow === undefined) {
+      throw new Error("the mounted log has no last row");
+    }
+    act(() => {
+      subject.binding.rerender([...rows.slice(0, -1), { ...lastRow, key: "row-replaced" }]);
+    });
+    await act(async () => {
+      subject.virtualizer.scrollToOffset(subject.tailOffsetPx() - 85);
+      await Promise.resolve();
+    });
+    runFrames(SETTLING_FRAMES);
+
+    expect(subject.binding.result.current.snapshot.reading.mode).toBe("following");
+    expect(subject.tailOffsetPx() - subject.scrollContainer.scrollTop).toBeLessThanOrEqual(
+      SCROLL_TAIL_TOLERANCE_PX,
+    );
   });
 });
 

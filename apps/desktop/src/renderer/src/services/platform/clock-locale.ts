@@ -3,7 +3,7 @@
 // so a person who turns on 24-hour time in the operating system sees every figure redraw at once.
 
 import type { PreloadApi, Unsubscribe } from "#shared/preload-api.js";
-import { clockLocaleFor } from "#renderer/lib/wire/figures.js";
+import { clockLocaleFor, prepareTranscriptRowFormatters } from "#renderer/lib/wire/figures.js";
 
 /** The clock locale in force, and the listeners told when the machine's region or clock changes. */
 export class ClockLocale {
@@ -13,6 +13,9 @@ export class ClockLocale {
   /** Starts from `app`'s facts and hears every change main pushes for the life of the window. */
   public constructor(app: PreloadApi["app"]) {
     this.#current = clockLocaleFor(app);
+    // Built while the window starts rather than in the first row's frame. A later change
+    // redraws every row in the same task, so building ahead of it would save nothing.
+    prepareTranscriptRowFormatters(this.#current);
     app.subscribeMachineClock((clock) => {
       const next = clockLocaleFor(clock);
       if (next === this.#current) {

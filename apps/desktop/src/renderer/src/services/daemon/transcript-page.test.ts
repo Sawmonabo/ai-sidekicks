@@ -26,7 +26,6 @@ function rowAt(
     cursor: `cursor-at-${String(sequence)}` as EventCursor,
     category: "session_lifecycle",
     type: "session.created",
-    summary: `row ${String(sequence)}`,
     timestamp: "2026-01-01T11:00:00.000Z",
     payload: { note: sequence },
     content: { status: "unavailable", reason: "absent" },

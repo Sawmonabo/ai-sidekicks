@@ -75,7 +75,11 @@ export async function mountEarlierHistoryFeed(): Promise<EarlierHistoryFeed> {
         >
           <TranscriptFeed
             sessionStore={sessionStore}
-            rowRenderer={{ render: FixedHeightRow, drawsBody: () => true }}
+            rowRenderer={{
+              render: FixedHeightRow,
+              drawsBody: () => true,
+              prepareRow: () => undefined,
+            }}
             feedLabel="Transcript"
             readTranscriptPage={read}
           />
@@ -111,8 +115,6 @@ function FixedHeightRow(props: TranscriptRowProps): React.JSX.Element {
     <p
       data-row-id={props.row.id}
       style={{ margin: 0, height: `${String(EARLIER_HISTORY_ROW_HEIGHT_PX)}px` }}
-    >
-      {props.row.summary}
-    </p>
+    />
   );
 }

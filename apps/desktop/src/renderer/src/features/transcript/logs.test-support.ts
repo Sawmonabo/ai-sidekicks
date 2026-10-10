@@ -3,13 +3,14 @@
 // read from. The harness that mounts a feed is `feed/components/TranscriptFeed.test-support.tsx`.
 // Every event carries a real row id, because the hydrated-event read is keyed by it.
 
+import { CONTENT_LENGTH_PAYLOAD_KEY } from "@ai-sidekicks/contracts/event/declared-variants";
 import { EventCursorSchema, type SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import {
   TranscriptReadResponseSchema,
   type TranscriptReadRequest,
 } from "@ai-sidekicks/contracts/transcript/operations";
-import type { TranscriptReadRow } from "@ai-sidekicks/contracts/transcript/row";
+import type { TranscriptEventRow, TranscriptReadRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { EVENT_ID_STEM } from "#fixtures/scenarios/transcript-states.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
@@ -58,6 +59,9 @@ export function transcriptFixtureStreamCursor(sequence: number): EventCursor {
   return EventCursorSchema.parse(`stream-position-${String(sequence)}`);
 }
 
+/** The length a tool row's unread body is counted at. */
+const TOOL_ROW_BODY_LENGTH = 64;
+
 /** A run that has ENDED, so a case can name the run group it expects a header for. */
 export const TERMINAL_RUN_ID = "019b793b-7b60-740e-8110-d1a4c1150111";
 
@@ -84,6 +88,33 @@ export function openSessionStoreWithFeedLog(count: number): SessionStore {
 }
 
 /**
+ * A log of tool rows outside any run, each named `tool_<position>`, so no run group clips them
+ * and a case can read a drawn row's place in the log from its name. Each counts a body the log has
+ * not read, so each draws its fold control.
+ */
+export function openSessionStoreWithToolRows(count: number): SessionStore {
+  const sessionStore = new SessionStore({ sessionId: SESSION_ID });
+  sessionStore.initialize({ cursor: -1, entities: [] });
+  sessionStore.applyBatch(
+    Array.from({ length: count }, (_unused, index) => ({
+      id: transcriptFixtureEventId(index),
+      sessionId: SESSION_ID,
+      sequence: index,
+      cursor: transcriptFixtureStreamCursor(index),
+      kind: "tool.invoked",
+      occurredAt: transcriptFixtureStampAt(index),
+      payload: {
+        sessionId: SESSION_ID,
+        toolName: `tool_${String(index)}`,
+        toolCallId: `call-${String(index)}`,
+        [CONTENT_LENGTH_PAYLOAD_KEY]: TOOL_ROW_BODY_LENGTH,
+      },
+    })),
+  );
+  return sessionStore;
+}
+
+/**
  * A log of general rows, so no run group is open and the cap may actually apply. Each event
  * carries the cursor the stream delivered it at.
  */
@@ -98,7 +129,7 @@ export function openSessionStoreWithGeneralLog(count: number): SessionStore {
       cursor: transcriptFixtureStreamCursor(index),
       kind: "user.message",
       occurredAt: transcriptFixtureStampAt(index),
-      payload: {},
+      payload: { message: "user.message" },
     })),
   );
   return sessionStore;
@@ -114,11 +145,18 @@ export function transcriptReadRowAt(index: number): TranscriptReadRow {
     cursor: transcriptFixtureStreamCursor(index) as EventCursor,
     category: "interactive_request",
     type: "user.message",
-    summary: "user.message",
     timestamp: transcriptFixtureStampAt(index),
-    payload: {},
+    payload: { message: "user.message" },
     content: { status: "unavailable", reason: "absent" },
   };
+}
+
+/**
+ * A row projected from the log as `transcript.read` serves it: with its event's body, or `absent`
+ * where its event carries none, as the daemon reads an event with nothing stored beside it.
+ */
+export function readRowOf(row: TranscriptEventRow): TranscriptReadRow {
+  return { ...row, content: row.content ?? { status: "unavailable", reason: "absent" } };
 }
 
 /** The message at one log position of the paged session, as the stream delivers it. */
@@ -130,25 +168,27 @@ export function pagedSessionEventAt(index: number): ProjectedSessionEvent {
     cursor: transcriptFixtureStreamCursor(index),
     kind: "user.message",
     occurredAt: transcriptFixtureStampAt(index),
-    payload: {},
+    payload: { message: "user.message" },
   };
 }
 
 /**
- * A real store of the paged session holding its messages from `firstIndex` through `lastIndex`,
- * as an opening read leaves it, with `transcriptHead` before them (none, when not given).
+ * A real store of the paged session holding its rows from `firstIndex` through `lastIndex`, each
+ * as `eventAt` gives it (a message, unless given), as an opening read leaves it, with
+ * `transcriptHead` before them (none, when not given).
  */
 export function openPagedSessionStore(
   firstIndex: number,
   lastIndex: number,
   transcriptHead?: TranscriptWindowEdge,
+  eventAt: (index: number) => ProjectedSessionEvent = pagedSessionEventAt,
 ): SessionStore {
   const sessionStore = new SessionStore({ sessionId: PAGED_SESSION_ID });
   sessionStore.initialize({
     cursor: lastIndex,
     entities: [],
     transcript: Array.from({ length: lastIndex - firstIndex + 1 }, (_unused, offset) =>
-      pagedSessionEventAt(firstIndex + offset),
+      eventAt(firstIndex + offset),
     ),
     ...(transcriptHead === undefined ? {} : { transcriptHead }),
   });
@@ -156,11 +196,14 @@ export function openPagedSessionStore(
 }
 
 /**
- * The paged session's messages at positions `0` through `rowCount - 1`, read as the daemon reads
- * them: up to `limit` rows, oldest to newest, nearest the cursor, with the next cursor and
- * whether rows lie past it.
+ * The paged session's rows at positions `0` through `rowCount - 1`, each as `rowAt` serves it (a
+ * message, unless given), read as the daemon reads them: up to `limit` rows, oldest to newest,
+ * nearest the cursor, with the next cursor and whether rows lie past it.
  */
-export function scriptedTranscriptLog(rowCount: number): ScriptedTranscriptLog {
+export function scriptedTranscriptLog(
+  rowCount: number,
+  rowAt: (index: number) => TranscriptReadRow = transcriptReadRowAt,
+): ScriptedTranscriptLog {
   const indexByCursor = new Map(
     Array.from({ length: rowCount }, (_unused, index) => [
       transcriptFixtureStreamCursor(index),
@@ -188,7 +231,7 @@ export function scriptedTranscriptLog(rowCount: number): ScriptedTranscriptLog {
     const lastIndex =
       beforeIndex === undefined ? Math.min(rowCount - 1, firstIndex + limit - 1) : beforeIndex;
     const entries = Array.from({ length: lastIndex - firstIndex + 1 }, (_unused, offset) =>
-      transcriptReadRowAt(firstIndex + offset),
+      rowAt(firstIndex + offset),
     );
     const hasMore = beforeIndex === undefined ? lastIndex < rowCount - 1 : firstIndex > 0;
     const nextCursor =

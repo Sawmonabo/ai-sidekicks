@@ -31,15 +31,9 @@
 // beside the beat, as `content_payload` holds it, and a read returns it with its row.
 
 import {
-  encodeEventCursor,
-  START_OF_LOG_POSITION,
-} from "@ai-sidekicks/contracts/session/event-cursor";
-
-import {
   composeScenarioInstant,
   composeScriptBeats,
   createRunEntryBuilders,
-  findBeatCursor,
   newestBeatInstant,
   type ScriptEntry,
 } from "../data/script-entries.js";
@@ -59,6 +53,7 @@ import {
   composeResolvedAgent,
   findScenarioMember,
 } from "../data/opening-entries.js";
+import { sessionReadReply } from "../data/session-record.js";
 
 // The cast and its clock: every identifier in one place. Ids are UUID v7 values whose leading
 // bytes are this scenario's start instant.
@@ -506,34 +501,18 @@ export const TRANSCRIPT_STATES_SCENARIO: Scenario = defineScenario(
             ],
           },
         },
-        {
-          // The frame's read is `session.read`; nothing in the renderer calls `session.list`.
-          call: "session.read",
-          result: {
-            session: {
-              id: SESSION_ID,
-              state: "active",
-              shape: "project",
-              muted: false,
-              pendingWorkingFolder: null,
-              createdAt: STARTED_AT_ISO,
-              updatedAt: newestBeatInstant(beats),
-              draft: "",
-              tags: [],
-            },
-            // An acknowledged position beside `latest` makes the resume cycle reachable: the
-            // store submits the acknowledged position on its next read. It sits behind `latest`,
-            // the newest row, as a real one does.
-            transcriptCursors: {
-              earliest: encodeEventCursor(START_OF_LOG_POSITION),
-              latest: findBeatCursor(beats, beats.length - 1),
-              acknowledged: findBeatCursor(beats, ACKNOWLEDGED_LOG_POSITION),
-            },
-            // The record a read before any beat lands holds: no run has begun.
-            liveRuns: [],
-            standingEvents: [],
-          },
-        },
+        // An acknowledged position beside `latest` makes the resume cycle reachable: the store
+        // submits the acknowledged position on its next read. It sits behind `latest`, the newest
+        // row, as a real one does.
+        sessionReadReply({
+          sessionId: SESSION_ID,
+          state: "active",
+          shape: "project",
+          createdAt: STARTED_AT_ISO,
+          updatedAt: newestBeatInstant(beats),
+          beats,
+          acknowledgedPosition: ACKNOWLEDGED_LOG_POSITION,
+        }),
       ],
     };
   },

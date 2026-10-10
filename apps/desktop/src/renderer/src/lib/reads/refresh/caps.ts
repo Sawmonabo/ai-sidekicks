@@ -1,4 +1,4 @@
-// Timing windows for the refresh scheduler and for store apply coalescing.
+// Timing windows for the refresh scheduler.
 
 /**
  * Trailing debounce on the refresh scheduler: long enough that a burst of events costs one
@@ -12,9 +12,3 @@ export const REFRESH_DEBOUNCE_MS = 120;
  * stream cannot starve the trailing debounce forever.
  */
 export const REFRESH_MAX_WAIT_MS = 1000;
-
-/**
- * Coalescing window for store applies: one animation frame at 60 Hz. Events arriving inside it
- * produce one notification, so four streaming lanes cost one render rather than four.
- */
-export const APPLY_COALESCE_MS = 16;

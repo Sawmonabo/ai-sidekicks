@@ -39,7 +39,6 @@ describe("ApplyQueue — a drain that throws", () => {
       clock,
       drain: recorder.drain,
       onDrainError: recorder.recordError,
-      coalesceMs: 0,
     });
     let laterFrameRan = false;
     clock.scheduleFrame(() => {

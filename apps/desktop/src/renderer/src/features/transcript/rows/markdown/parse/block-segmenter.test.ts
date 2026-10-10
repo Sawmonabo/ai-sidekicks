@@ -227,3 +227,90 @@ describe("what the volatile tail strips from its own head", () => {
     );
   });
 });
+
+/**
+ * A text the scan once read with gaps: blank lines holding spaces, an indented first line and a
+ * trailing blank run, streamed a character at a time.
+ */
+const BLANK_LINES_WITH_SPACES = "\t1.     \n   \n#~~~|a|b|\n|-|-|\n  \n \n   \n";
+
+/** Pieces a random reply is built from: blank lines, markers, fences, indents and table rows. */
+const REPLY_PIECES: readonly string[] = [
+  "a",
+  " ",
+  "\n",
+  "\n\n",
+  "- ",
+  "1. ",
+  "> ",
+  "```",
+  "~~~",
+  "    ",
+  "\t",
+  "#",
+  "x y",
+  "[^1]: n",
+  "|a|b|\n|-|-|\n",
+  "  \n",
+  "\n   \n",
+];
+
+/** Replies built at random, from a fixed seed so a failure repeats, and pieces in each. */
+const RANDOM_REPLY_COUNT = 300;
+const PIECES_PER_REPLY = 40;
+const RANDOM_REPLY_SEED = 7;
+
+describe("blocks that cover the text with no gap", () => {
+  it("leaves the tail exactly the text after the last settled block, and drops none at the end", () => {
+    streamAndCheck([...BLANK_LINES_WITH_SPACES]);
+    const random = seededRandom(RANDOM_REPLY_SEED);
+    for (let reply = 0; reply < RANDOM_REPLY_COUNT; reply += 1) {
+      streamAndCheck(
+        Array.from(
+          { length: PIECES_PER_REPLY },
+          () => REPLY_PIECES[Math.floor(random() * REPLY_PIECES.length)] ?? "",
+        ),
+      );
+    }
+  });
+});
+
+/**
+ * Streams the pieces through one segmenter. After each the settled blocks run from the start end
+ * to start and the tail is everything after them, less the blank lines a whole parse ignores at
+ * the start of a document; once final, the blocks hold every character of a text with content.
+ */
+function streamAndCheck(pieces: readonly string[]): void {
+  const segmenter = new MarkdownBlockSegmenter();
+  let text = "";
+  for (const piece of pieces) {
+    text += piece;
+    const segmentation = segmenter.segment(publishedTextOf(text));
+    const settledEnd = expectTouchingFromStart(segmentation, text);
+    expect(segmentation.volatileTail, text).toBe(
+      text.slice(settledEnd).replace(/^(?:[ \t]*\n)+/u, ""),
+    );
+  }
+  const final = segmenter.segment(publishedTextOf(text), { isFinal: true });
+  expectTouchingFromStart(final, text);
+  expect(settledTextsOf(final).join(""), text).toBe(text.trim() === "" ? "" : text);
+}
+
+/** Checks the settled blocks touch from the text's start, and returns where they end. */
+function expectTouchingFromStart(segmentation: MarkdownSegmentation, text: string): number {
+  let end = 0;
+  for (const block of segmentation.settledBlocks) {
+    expect(block.start, text).toBe(end);
+    end = block.end;
+  }
+  return end;
+}
+
+/** A linear congruential generator's draws in [0, 1). */
+function seededRandom(seed: number): () => number {
+  let state = seed;
+  return () => {
+    state = (Math.imul(state, 1_103_515_245) + 12_345) & 0x7f_ff_ff_ff;
+    return state / 0x80_00_00_00;
+  };
+}

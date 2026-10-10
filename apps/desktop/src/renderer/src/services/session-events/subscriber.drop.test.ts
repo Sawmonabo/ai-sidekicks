@@ -16,7 +16,6 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
 import type { Clock } from "#renderer/lib/clock.js";
-import { APPLY_COALESCE_MS } from "#renderer/lib/reads/refresh/caps.js";
 import { windowTripwires } from "#renderer/lib/tripwires/registry.js";
 import { MAX_REPAIRABLE_SEQUENCE_GAP } from "#renderer/store/session/caps.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
@@ -158,7 +157,7 @@ describe("SessionEventSubscriber — the drop mark", () => {
       engine.advance(beat.atMs - elapsedMs);
       elapsedMs = beat.atMs;
     }
-    engine.advance(APPLY_COALESCE_MS + 1);
+    engine.runFrame();
 
     expect(framesOnFirstOpen).toBe(5);
     expect(cursorBeforeDrop).toBeDefined();
@@ -212,7 +211,9 @@ describe("SessionEventSubscriber — the drop mark", () => {
 
     deliver(frameAt([1]));
     deliver(droppedFrame);
-    engine.advance(APPLY_COALESCE_MS + 1);
+    engine.runFrame();
+    // The repair read the drain asked for falls due on the frozen clock.
+    engine.advance(0);
     await crossMacrotaskBoundary();
 
     if (isFilled) {
@@ -224,7 +225,7 @@ describe("SessionEventSubscriber — the drop mark", () => {
       // A frame the closed stream still hands over is not applied, or it would move the
       // position past the hole the new stream is filling.
       deliver(frameAt([2]));
-      engine.advance(APPLY_COALESCE_MS + 1);
+      engine.runFrame();
       expect(reader.state()?.transcript.map((event) => event.sequence)).toEqual([1]);
       expect(reader.state()?.degradedCause).toBeUndefined();
     } else {
@@ -276,9 +277,11 @@ describe("SessionEventSubscriber — the drop mark", () => {
     droppedStream!({ ...frameAt([firstAfterDrop, firstAfterDrop + 1]), dropped: true });
     // Nothing reads the window as whole while the read is still to land.
     expect(dropped.state()?.degradedCause).toBe("stream-diverged");
-    engine.advance(APPLY_COALESCE_MS + 1);
+    engine.runFrame();
+    // The repair read the drain asked for falls due on the frozen clock.
+    engine.advance(0);
     await crossMacrotaskBoundary();
-    engine.advance(APPLY_COALESCE_MS + 1);
+    engine.runFrame();
 
     // Each stream first opened at the floor the first read named; the dropped one opened again
     // after the newest row of its repair read, not after the last change it delivered.

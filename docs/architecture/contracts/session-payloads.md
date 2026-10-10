@@ -530,7 +530,7 @@ type TranscriptSearchResponse =
 interface TranscriptSearchHit {
   rowId: string;
   cursor: EventCursor; // the row's position, which a `transcript.read` around it loads from
-  snippet: string; // the line the match sits in, at most a row summary's length
+  snippet: string; // the line the match sits in, at most TRANSCRIPT_SEARCH_TEXT_MAX_LEN (4096) code units
   // At least one, in UTF-16 code units of `snippet`; they run in order, never overlap, and sit inside it.
   matchRanges: SearchMatchRange[];
 }

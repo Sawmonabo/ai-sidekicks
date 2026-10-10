@@ -47,6 +47,11 @@ export class RememberedRowHeights {
     return this.#display;
   }
 
+  /** The width rows are laid out at, in pixels, or `undefined` before one was declared. */
+  public get rowWidthPx(): number | undefined {
+    return this.#rowWidthPx;
+  }
+
   /** A row's remembered height in pixels, or `undefined` when none is remembered. */
   public heightOf(rowKey: string): number | undefined {
     const layoutUnits = this.#layoutUnitsByRowKey.get(rowKey);

@@ -1,5 +1,6 @@
-// Markdown parsing with `mdast-util-from-markdown` and GFM. `parseSettledBlock` is memoized; a
-// volatile tail is mended with `remend` and parsed uncached, by the transcript's tail parser.
+// Markdown parsing with `mdast-util-from-markdown` and GFM. `parseSettledBlock` is memoized, and
+// `holdSettledBlock` keeps a block's parse past the cache's cap while it is held; a volatile tail
+// is mended with `remend` and parsed uncached, by the transcript's tail parser.
 // Types derive from the library so they follow the pinned version. `micromark` is not a direct
 // dependency: `fromMarkdown` brings it in and no module here imports it.
 
@@ -73,6 +74,16 @@ const FOOTNOTE_PREAMBLE_TERMINATOR = "\n<!---->\n\n";
 const SETTLED_KEY_SEPARATOR = "\u0000";
 
 /**
+ * One settled block's parse, held in the cache whatever its size until `release`, so the body that
+ * draws the block next parses it no second time: `parseSettledBlock` answers this tree.
+ */
+export interface HeldSettledBlock {
+  readonly root: MarkdownRoot;
+  /** Lets the tree go; a second call does nothing, so no holder frees another's hold. */
+  readonly release: () => void;
+}
+
+/**
  * The definitions a block is parsed against, as a minimal document preamble.
  *
  * GFM resolves `[^1]` only against definitions in its own document, and a lone reference
@@ -109,6 +120,31 @@ export function parseSettledBlock(blockSource: string, definitionPreamble = ""):
   const parsed = parseAgainstDefinitions(ownSource, definitionPreamble);
   settledBlockCache.set(settledBlockCacheKey(ownSource, definitionPreamble), parsed);
   return parsed;
+}
+
+/**
+ * Parse one settled block as `parseSettledBlock` does, and hold its tree in the cache until the
+ * hold is released. What bounds the held trees is their holders: the rows being prepared or
+ * listed, each releasing its hold when the window lets the row go.
+ */
+export function holdSettledBlock(blockSource: string, definitionPreamble = ""): HeldSettledBlock {
+  const key = settledBlockCacheKey(blockSource, definitionPreamble);
+  let root = settledBlockCache.get(key);
+  if (root === undefined || !settledBlockCache.hold(key)) {
+    const ownSource = structuredClone(blockSource);
+    root = parseAgainstDefinitions(ownSource, definitionPreamble);
+    settledBlockCache.setHeld(settledBlockCacheKey(ownSource, definitionPreamble), root);
+  }
+  let isReleased = false;
+  return {
+    root,
+    release: () => {
+      if (!isReleased) {
+        isReleased = true;
+        settledBlockCache.release(key);
+      }
+    },
+  };
 }
 
 /**

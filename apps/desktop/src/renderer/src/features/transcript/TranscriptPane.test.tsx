@@ -19,6 +19,7 @@ beforeEach(() => {
   registerTranscriptRowRenderer("transcript-pane-test", {
     render: () => null,
     drawsBody: () => true,
+    prepareRow: () => undefined,
   });
 });
 
@@ -31,9 +32,10 @@ describe("TranscriptPane — the body", () => {
     withLaidOutViewport();
     registerTranscriptRowRenderer("transcript-pane-test", {
       render: (rowProps) => (
-        <article data-row-type={rowProps.row.type}>{rowProps.row.summary}</article>
+        <article data-row-type={rowProps.row.type}>{rowProps.row.type}</article>
       ),
       drawsBody: () => true,
+      prepareRow: () => undefined,
     });
     const sessionStore = openSessionStoreWithPaneLog();
     const pane = renderPane({

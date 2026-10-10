@@ -4,12 +4,8 @@
 // the transcript's empty state. Its one reply is `session.read`; a call it does not answer is
 // refused by name and each view renders that refusal where it happened.
 
-import {
-  encodeEventCursor,
-  START_OF_LOG_POSITION,
-} from "@ai-sidekicks/contracts/session/event-cursor";
-
 import type { Scenario } from "../scenario.js";
+import { sessionReadReply } from "../data/session-record.js";
 
 /** The id of the empty-session scenario. */
 export const EMPTY_SESSION_SCENARIO_ID = "empty-session";
@@ -28,28 +24,13 @@ export const EMPTY_SESSION_SCENARIO: Scenario = {
   startedAtIso: STARTED_AT_ISO,
   beats: [],
   replies: [
-    {
-      call: "session.read",
-      result: {
-        session: {
-          id: SESSION_ID,
-          state: "active",
-          shape: "chat",
-          muted: false,
-          pendingWorkingFolder: null,
-          createdAt: STARTED_AT_ISO,
-          updatedAt: STARTED_AT_ISO,
-          draft: "",
-          tags: [],
-        },
-        transcriptCursors: {
-          earliest: encodeEventCursor(START_OF_LOG_POSITION),
-          latest: encodeEventCursor(START_OF_LOG_POSITION),
-        },
-        // The record a read before any beat lands holds: no run has begun.
-        liveRuns: [],
-        standingEvents: [],
-      },
-    },
+    sessionReadReply({
+      sessionId: SESSION_ID,
+      state: "active",
+      shape: "chat",
+      createdAt: STARTED_AT_ISO,
+      updatedAt: STARTED_AT_ISO,
+      beats: [],
+    }),
   ],
 };
