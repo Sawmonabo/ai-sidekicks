@@ -5,12 +5,12 @@ import { scaleStep } from "#renderer/styles/palette.js";
 import { BODY_LINE_HEIGHT, TYPE_SCALE_REM } from "#renderer/styles/typography.js";
 
 /**
- * The height of one rendered diff row, in rem: one `text-xs` line box at the body line height, so
+ * The height of one rendered diff row, in rem: one `text-12` line box at the body line height, so
  * it follows `Text size`. The sheet gives every row this as its line height and minimum height and
  * a window estimates an unmeasured row at it; a wrapped long line grows its row and reports its
  * measured height.
  */
-export const DIFF_ROW_HEIGHT_REM: number = scaleStep(TYPE_SCALE_REM, "text-xs") * BODY_LINE_HEIGHT;
+export const DIFF_ROW_HEIGHT_REM: number = scaleStep(TYPE_SCALE_REM, "text-12") * BODY_LINE_HEIGHT;
 
 /**
  * Rows rendered above and below the viewport. Enough that a fast flick does not expose the

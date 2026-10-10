@@ -1,6 +1,7 @@
-// The line-number gutters, laid out in Chromium: the flow's one gutter of the new file's numbers
-// and Review's two columns, each as many figures wide as its file's widest number at the current
-// text size, and never under two.
+// The diff's rows laid out in Chromium, in the flow and in Review: both draw one line of the
+// same type on rows of the same height, and their line-number gutters, the flow's one of the new
+// file's numbers and Review's two columns, are each as many figures wide as its file's widest
+// number at the current text size, and never under two.
 
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -29,7 +30,23 @@ afterEach(() => {
   cleanup();
 });
 
-describe("browser — the diff's line-number gutters", () => {
+describe("browser — the diff's rows", () => {
+  it("draws the flow's rows and Review's in one type and rhythm: 12 px lines on 18 px rows", () => {
+    const { card } = drawDiffCard(SHORT_AND_LONG, { heightPx: 600, widthPx: 420 });
+    const scroller = drawReview("unified");
+    const flowRow = card.querySelector<HTMLElement>(".meridian-diff__row--line");
+    const reviewRow = scroller.querySelector<HTMLElement>(".meridian-diff__row--line");
+    if (flowRow === null || reviewRow === null) {
+      throw new Error("a look drew no line row");
+    }
+    // At the default text size, a line of `text-12` at the body line height, as the design sets a
+    // diff in both.
+    for (const row of [flowRow, reviewRow]) {
+      expect(getComputedStyle(row).fontSize).toBe("12px");
+      expect(row.getBoundingClientRect().height).toBe(18);
+    }
+  });
+
   it("draws the flow's one gutter as wide as its widest number, a removed line at its old number", () => {
     const { card } = drawDiffCard(SHORT_AND_LONG, { heightPx: 600, widthPx: 420 });
     const [shortBlock, longBlock] = card.querySelectorAll<HTMLElement>(".meridian-diff-block");
