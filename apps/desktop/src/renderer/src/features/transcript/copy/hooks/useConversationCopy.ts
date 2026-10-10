@@ -1,14 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event/envelope";
+
 import type { TextClipboardContent } from "#shared/preload-api.js";
 import { useAnnounce } from "#renderer/hooks/announce/useAnnounce.js";
 import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
+import { RefusalError } from "#renderer/lib/refusal/contract.js";
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { type TranscriptPageRead } from "#renderer/services/daemon/transcript/page.js";
 import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
 import { primarySelectionFor } from "#renderer/services/platform/primary-selection/host.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
+import { type FullBodyReads } from "../../rows/full-body-reads.js";
 import { readRunWindowEdgeKey } from "../../runs/call-window.js";
 import { type RowSelection } from "../../viewport/selection/record.js";
 import { type ViewportSelectionTracker } from "../../viewport/selection/tracker.js";
@@ -33,11 +37,22 @@ export interface ConversationCopySource {
   readonly selectedRowKeys: () => readonly string[];
   /** The windows the viewport was handed, which the events of a selection's ends are read from. */
   readonly rowSourceWindows: RowSourceWindows;
-  /** A whole row's text from the source it is drawn from, as `transcriptWindow` holds it. */
+  /**
+   * A whole row's text from the source it is drawn from, as `transcriptWindow` holds it, a large
+   * body as `fullBodyOf` read it in full.
+   */
   readonly rowText: (
     rowKey: string,
     transcriptWindow: TranscriptWindowModel,
+    fullBodyOf: (rowId: string) => HydratedSessionEventContent | undefined,
   ) => SelectedPart | undefined;
+  /** The ids of the rows among `rowKeys` whose text reads a large body, read in full first. */
+  readonly largeBodyRowIds: (
+    rowKeys: readonly string[],
+    transcriptWindow: TranscriptWindowModel,
+  ) => readonly string[];
+  /** What a copy reads a large body in full through, or `undefined` where none is read. */
+  readonly fullBodyReads: Pick<FullBodyReads, "readFullBody"> | undefined;
   /** How rows the store let go are read back, or `undefined` for a composition with no history. */
   readonly history: ConversationCopyHistory | undefined;
 }
@@ -59,6 +74,18 @@ interface HistoryCopy {
   readonly held: HeldTranscript;
 }
 
+/** The rows a copy runs across, in log order, and where each is read from. */
+interface RowSpanCopy {
+  readonly selection: RowSelection;
+  readonly rowKeys: readonly string[];
+  readonly transcriptWindow: TranscriptWindowModel;
+  /** An end row as it was drawn, or `undefined` when no drawing of it is kept. */
+  readonly endRowElement: (rowKey: string) => Element | undefined;
+}
+
+/** The large bodies of a copy that reads none. */
+const NO_FULL_BODIES: ReadonlyMap<string, HydratedSessionEventContent> = new Map();
+
 const COPY_FAILED_ANNOUNCEMENT = "Could not copy";
 
 /**
@@ -68,20 +95,24 @@ const COPY_FAILED_ANNOUNCEMENT = "Could not copy";
  * joined in document order. A selection that misses the conversation is left to the platform. The
  * first conversation that writes a copy takes it, so with several open, one write reaches the
  * clipboard. A selection the store let rows of go is read back a page at a time between the
- * events its ends sit in, then written whole in one write, or not at all when a page is refused;
- * the newest copy wins. A selection settled in the conversation, by a drag or the keys, hands the
- * same text to the system's primary selection. A refused write or read is said aloud.
+ * events its ends sit in. A large body the copy takes in is read in full, one at a time, opened or
+ * not. A copy is written whole in one write, or not at all when a page or a body is refused; the
+ * newest copy wins. A selection settled in the conversation, by a drag or the keys, hands the same
+ * text to the system's primary selection. A refused write or read is said aloud.
  */
 export function useConversationCopy(source: ConversationCopySource): void {
   const bridge = usePlatformBridge();
   const announce = useAnnounce();
   const ownerDocument = useOwnerWindow().document;
-  const { selectionTracker, selectedRowKeys, rowText, history } = source;
+  const { selectionTracker, selectedRowKeys, rowText, largeBodyRowIds, fullBodyReads, history } =
+    source;
   const primarySelection = useMemo(() => primarySelectionFor(bridge), [bridge]);
   const rowSourceWindows = useLatestRef(source.rowSourceWindows);
   const [eventSpan] = useState(() => new SelectionEventSpanRecord());
   // Every copy takes the next number; a read back writes only while its number is the newest.
   const copyCount = useRef(0);
+  // So does every settled selection, which puts its text only while its number is the newest.
+  const settleCount = useRef(0);
   useEffect(
     () =>
       selectionTracker.subscribeToRecord(() => {
@@ -97,17 +128,75 @@ export function useConversationCopy(source: ConversationCopySource): void {
     [selectionTracker, rowSourceWindows, eventSpan],
   );
   useEffect(() => {
-    const readHeld = (): TextClipboardContent | undefined => {
+    // The rows the log holds between the selection's ends, read where they are drawn now.
+    const takeHeldCopy = (): RowSpanCopy | undefined => {
       const selection = selectionTracker.selection;
-      const transcriptWindow = rowSourceWindows.current.transcriptWindow;
-      return selection === undefined
+      const rowKeys = selectedRowKeys();
+      return selection === undefined || rowKeys.length === 0
         ? undefined
-        : readRowSpanSelection({
+        : {
             selection,
-            rowKeys: selectedRowKeys(),
+            rowKeys,
+            transcriptWindow: rowSourceWindows.current.transcriptWindow,
             endRowElement: (rowKey) => selectionTracker.endRowElement(rowKey),
-            rowText: (rowKey) => rowText(rowKey, transcriptWindow),
-          });
+          };
+    };
+    // Each end row as it is drawn now, copied, for a copy that waits.
+    const takeEndRows = (selection: RowSelection): ReadonlyMap<string, Element> => {
+      const endRows = new Map<string, Element>();
+      for (const rowKey of [selection.start.rowKey, selection.end.rowKey]) {
+        const endRow = selectionTracker.endRowElement(rowKey);
+        if (endRow !== undefined) {
+          endRows.set(rowKey, endRow.cloneNode(true) as Element);
+        }
+      }
+      return endRows;
+    };
+    const withEndRowsKept = (copy: RowSpanCopy): RowSpanCopy => {
+      const endRows = takeEndRows(copy.selection);
+      return { ...copy, endRowElement: (rowKey) => endRows.get(rowKey) };
+    };
+    const build = (
+      copy: RowSpanCopy,
+      fullBodies: ReadonlyMap<string, HydratedSessionEventContent>,
+    ): TextClipboardContent | undefined =>
+      readRowSpanSelection({
+        selection: copy.selection,
+        rowKeys: copy.rowKeys,
+        endRowElement: copy.endRowElement,
+        rowText: (rowKey) =>
+          rowText(rowKey, copy.transcriptWindow, (rowId) => fullBodies.get(rowId)),
+      });
+    // One body at a time, so a long selection never has every read out at once. `undefined` when a
+    // newer copy took over; throws a `RefusalError` when a read is refused, so nothing is copied.
+    const readFullBodies = async (
+      rowIds: readonly string[],
+      isCurrent: () => boolean,
+    ): Promise<ReadonlyMap<string, HydratedSessionEventContent> | undefined> => {
+      const fullBodies = new Map<string, HydratedSessionEventContent>();
+      if (fullBodyReads === undefined) {
+        return fullBodies;
+      }
+      for (const rowId of rowIds) {
+        const reply = await fullBodyReads.readFullBody(rowId);
+        if (!isCurrent()) {
+          return undefined;
+        }
+        if (reply.status === "refused") {
+          throw new RefusalError(reply.refusal);
+        }
+        fullBodies.set(rowId, reply.value);
+      }
+      return fullBodies;
+    };
+    // The copy's content, its large bodies read in full first; the end rows must be kept copies.
+    const readCopy = async (
+      copy: RowSpanCopy,
+      largeBodyRowIdsOfCopy: readonly string[],
+      isCurrent: () => boolean,
+    ): Promise<TextClipboardContent | undefined> => {
+      const fullBodies = await readFullBodies(largeBodyRowIdsOfCopy, isCurrent);
+      return fullBodies === undefined ? undefined : build(copy, fullBodies);
     };
     // Everything the read back needs is taken here, before anything waits.
     const takeHistoryCopy = (): HistoryCopy | undefined => {
@@ -116,18 +205,11 @@ export function useConversationCopy(source: ConversationCopySource): void {
       if (selection === undefined || span === undefined || history === undefined) {
         return undefined;
       }
-      const endRows = new Map<string, Element>();
-      for (const rowKey of [selection.start.rowKey, selection.end.rowKey]) {
-        const endRow = selectionTracker.endRowElement(rowKey);
-        if (endRow !== undefined) {
-          endRows.set(rowKey, endRow.cloneNode(true) as Element);
-        }
-      }
       const state = history.sessionStore.snapshot();
       return {
         selection,
         span,
-        endRows,
+        endRows: takeEndRows(selection),
         held: {
           events: state.transcript,
           headCursor: state.transcriptHead.hasMore ? state.transcriptHead.cursor : undefined,
@@ -154,41 +236,28 @@ export function useConversationCopy(source: ConversationCopySource): void {
       if (first === -1 || last < first) {
         throw new Error("The rows read back do not hold the selection's ends.");
       }
-      return readRowSpanSelection({
+      const readBackCopy: RowSpanCopy = {
         selection: copy.selection,
         rowKeys: rowKeys.slice(first, last + 1),
+        transcriptWindow,
         endRowElement: (rowKey) => copy.endRows.get(rowKey),
-        rowText: (rowKey) => rowText(rowKey, transcriptWindow),
-      });
+      };
+      return await readCopy(
+        readBackCopy,
+        largeBodyRowIds(readBackCopy.rowKeys, transcriptWindow),
+        isCurrent,
+      );
     };
     const write = (content: TextClipboardContent): void => {
       bridge.native.copyToClipboard(content).catch(() => {
         announce(COPY_FAILED_ANNOUNCEMENT, "assertive");
       });
     };
-    const copySelection = (event: ClipboardEvent): void => {
-      // Another conversation the selection crosses has written it.
-      if (event.defaultPrevented || selectionTracker.selection === undefined) {
-        return;
-      }
-      copyCount.current += 1;
-      const copyNumber = copyCount.current;
-      const isCurrent = (): boolean => copyCount.current === copyNumber;
-      // The log holds both ends, so it holds every row between.
-      if (selectedRowKeys().length > 0) {
-        const content = readHeld();
-        if (content !== undefined) {
-          event.preventDefault();
-          write(content);
-        }
-        return;
-      }
-      const copy = takeHistoryCopy();
-      if (copy === undefined || history === undefined) {
-        return;
-      }
-      event.preventDefault();
-      readBack(copy, history, isCurrent)
+    const writeOnceRead = (
+      reading: Promise<TextClipboardContent | undefined>,
+      isCurrent: () => boolean,
+    ): void => {
+      reading
         .then((content) => {
           if (content !== undefined && isCurrent()) {
             write(content);
@@ -201,12 +270,64 @@ export function useConversationCopy(source: ConversationCopySource): void {
           }
         });
     };
+    const copySelection = (event: ClipboardEvent): void => {
+      // Another conversation the selection crosses has written it.
+      if (event.defaultPrevented || selectionTracker.selection === undefined) {
+        return;
+      }
+      copyCount.current += 1;
+      const copyNumber = copyCount.current;
+      const isCurrent = (): boolean => copyCount.current === copyNumber;
+      // The log holds both ends, so it holds every row between.
+      const heldCopy = takeHeldCopy();
+      if (heldCopy !== undefined) {
+        const heldLargeBodyRowIds = largeBodyRowIds(heldCopy.rowKeys, heldCopy.transcriptWindow);
+        if (heldLargeBodyRowIds.length > 0) {
+          event.preventDefault();
+          writeOnceRead(
+            readCopy(withEndRowsKept(heldCopy), heldLargeBodyRowIds, isCurrent),
+            isCurrent,
+          );
+          return;
+        }
+        const content = build(heldCopy, NO_FULL_BODIES);
+        if (content !== undefined) {
+          event.preventDefault();
+          write(content);
+        }
+        return;
+      }
+      const copy = takeHistoryCopy();
+      if (copy === undefined || history === undefined) {
+        return;
+      }
+      event.preventDefault();
+      writeOnceRead(readBack(copy, history, isCurrent), isCurrent);
+    };
+    // A settled selection's text, its large bodies read in full; only the newest settle's is put.
+    const readSettledText = async (isCurrent: () => boolean): Promise<string | undefined> => {
+      const heldCopy = takeHeldCopy();
+      if (heldCopy === undefined) {
+        return undefined;
+      }
+      const heldLargeBodyRowIds = largeBodyRowIds(heldCopy.rowKeys, heldCopy.transcriptWindow);
+      const content =
+        heldLargeBodyRowIds.length === 0
+          ? build(heldCopy, NO_FULL_BODIES)
+          : await readCopy(withEndRowsKept(heldCopy), heldLargeBodyRowIds, isCurrent);
+      return isCurrent() ? content?.text : undefined;
+    };
     ownerDocument.addEventListener("copy", copySelection);
     const stopHearingSettles = selectionTracker.subscribeToSettledSelection(() => {
+      settleCount.current += 1;
+      const settleNumber = settleCount.current;
+      const isCurrent = (): boolean => settleCount.current === settleNumber;
       primarySelection
-        .takeSettledSelection(() => readHeld()?.text)
+        .takeSettledSelection(() => readSettledText(isCurrent))
         .catch(() => {
-          announce(COPY_FAILED_ANNOUNCEMENT, "assertive");
+          if (isCurrent()) {
+            announce(COPY_FAILED_ANNOUNCEMENT, "assertive");
+          }
         });
     });
     return () => {
@@ -221,6 +342,8 @@ export function useConversationCopy(source: ConversationCopySource): void {
     selectionTracker,
     selectedRowKeys,
     rowText,
+    largeBodyRowIds,
+    fullBodyReads,
     history,
     rowSourceWindows,
     eventSpan,

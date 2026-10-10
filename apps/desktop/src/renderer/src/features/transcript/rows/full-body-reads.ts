@@ -3,13 +3,16 @@
 // row's own event in the store, so the row draws it as it draws any stored body and lets it go
 // with the row. An opened body stays opened: when its row is drawn again carrying its size alone,
 // as it is once the store let it go and read it back, the body is read again through the same
-// client. A context, as the row toggles are, so a body's control reaches the reads without a prop
-// through every card.
+// client. A copy reads a body in full through the same client without opening it or keeping it. A
+// context, as the row toggles are, so a body's control reaches the reads without a prop through
+// every card.
 
 import { createContext, type Context } from "react";
 
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { TranscriptBodyReadResponse } from "@ai-sidekicks/contracts/transcript/content";
 
+import { type DaemonReply } from "#renderer/services/daemon/reply.js";
 import { type TranscriptBodyRead } from "#renderer/services/daemon/transcript/body.js";
 import { heldIdAsWireId } from "#renderer/services/daemon/wire/identifiers.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
@@ -60,6 +63,15 @@ export class FullBodyReads {
     }
   };
 
+  /**
+   * Read one row's large body in full for a copy, which neither opens it nor keeps it: the row
+   * still draws its control. Resolves the refusal in place of a body that could not be read.
+   */
+  public readonly readFullBody = (
+    rowId: string,
+  ): Promise<DaemonReply<TranscriptBodyReadResponse>> =>
+    this.#readBody({ sessionId: heldIdAsWireId<SessionId>(this.#sessionStore.sessionId), rowId });
+
   public constructor(sessionStore: SessionStore, readBody: TranscriptBodyRead) {
     this.#sessionStore = sessionStore;
     this.#readBody = readBody;
@@ -70,10 +82,7 @@ export class FullBodyReads {
       return;
     }
     this.#readingRowIds.add(rowId);
-    void this.#readBody({
-      sessionId: heldIdAsWireId<SessionId>(this.#sessionStore.sessionId),
-      rowId,
-    }).then((reply) => {
+    void this.readFullBody(rowId).then((reply) => {
       this.#readingRowIds.delete(rowId);
       if (reply.status === "served") {
         this.#sessionStore.admitFullBody(rowId, reply.value);

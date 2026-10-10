@@ -4,12 +4,16 @@
 // line, as their layout lays them out; a run group header its line.
 //   - A reply's body is its live lane, else what it drew while the log held it, else the body the
 //     log stores for it; an open tool row's output is its live lane, else its stored body.
+//   - A body the log holds as its size alone is copied whole, as a copy reads it in full before it
+//     builds, whether or not its control was pressed; never the control's words.
 //   - Where the log holds no body for a row, the copy carries the words the row draws in its place
 //     when it comes back, so a row is never dropped from a copy without saying so: an unread body
 //     its badge, a turn recorded without content its sentence. A reasoning row's read is kept
 //     nowhere but its drawing, and a row drawn again shows only its streaming tail, so it copies
 //     that tail, or nothing.
 
+import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event/envelope";
+import type { TranscriptRowContent } from "@ai-sidekicks/contracts/transcript/content";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { formatClockTime, formatWireString } from "#renderer/lib/wire/figures.js";
@@ -28,15 +32,24 @@ import { toolRowHeadingOf, toolRowHeadingText } from "../rows/tool-heading.js";
 import { userMessageTextOf } from "../rows/user-message.js";
 import { runGroupHeadingOf, runGroupHeadingText } from "../runs/heading.js";
 import { type TranscriptWindowModel } from "../window/transcript-window.js";
-import { type SelectedPart } from "./conversation-selection.js";
+import { type CopyFlavor, type SelectedPart } from "./conversation-selection.js";
 import { replyCopyFlavorOf, type DrawnRowText } from "./drawn-reply-text.js";
 
-/** What a row's text is read from: the log's window, the live lanes, and how the list draws it. */
-export interface RowTextSources {
+/** Where a row's body is read from: the log's window, the live lanes, and how the list draws it. */
+export interface RowBodySources {
   readonly transcriptWindow: TranscriptWindowModel;
   readonly reveal: RowRevealContextValue;
   /** A row's fold as the list hands it over, which says whether an open call's output is drawn. */
   readonly densityOf: (rowId: string) => TranscriptRowDensity;
+}
+
+/** What a row's text is read from: where its body is, its large body read in full, its clock. */
+export interface RowTextSources extends RowBodySources {
+  /**
+   * A large body a copy read in full, by its row's id, or `undefined` where none was read, as in
+   * a composition that reads no bodies; the row then copies its unread badge.
+   */
+  readonly fullBodyOf: (rowId: string) => HydratedSessionEventContent | undefined;
   /** The locale a row's time is written in. */
   readonly clockLocale: string;
 }
@@ -73,13 +86,14 @@ export function readRowText(rowKey: string, sources: RowTextSources): SelectedPa
       return message === undefined ? undefined : { flavor: "text", text: message };
     }
     case "agent-message": {
-      const drawn = replyRowTextOf(row.id, sources.reveal);
-      if (drawn !== undefined) {
-        return { flavor: drawn.flavor, text: drawn.text.slice(0) };
+      const body = rowBodyOf(row, sources);
+      if (body?.from === "drawing") {
+        return { flavor: body.flavor, text: body.text.slice(0) };
       }
-      const stored = storedBodyOf(row);
+      const content = loggedContentOf(row, sources);
+      const stored = storedBodyOf(content);
       return stored === undefined
-        ? { flavor: "text", text: unreadBodyTextOf(row) }
+        ? { flavor: "text", text: unreadBodyTextOf(content) }
         : {
             flavor: replyCopyFlavorOf(stored, readWireString(projectedPayload(row)["contentType"])),
             text: stored.slice(0),
@@ -91,18 +105,36 @@ export function readRowText(rowKey: string, sources: RowTextSources): SelectedPa
       return tail.length === 0 ? undefined : plainPart(tail);
     }
     case "tool-call": {
-      const liveText = sources.reveal.publishedTextFor(row.id);
-      const isOpen =
-        isFoldableCall(row, liveText !== undefined) && sources.densityOf(row.id) === "expanded";
+      const body = rowBodyOf(row, sources);
       return plainPart([
         row.actor ?? describeRowKind("tool-call").label,
         clockTimeOf(row.timestamp, sources),
         ...supersededMark(isSuperseded),
         toolRowHeadingText(toolRowHeadingOf(row, row.content)),
-        ...(isOpen ? [toolOutputTextOf(row, liveText)] : []),
+        ...(body === undefined ? [] : [toolOutputTextOf(body, row, sources)]),
       ]);
     }
   }
+}
+
+/**
+ * The ids of the rows among `rowKeys` whose text reads a body the log holds as its size alone, in
+ * order: a reply with no drawing or lane, an open call with no lane. A copy reads each in full
+ * before it builds; a folded call copies no output, so it reads none.
+ */
+export function largeBodyRowIdsOf(
+  rowKeys: readonly string[],
+  sources: RowBodySources,
+): readonly string[] {
+  return rowKeys.flatMap((rowKey) => {
+    const row = sources.transcriptWindow.rowsByKey.get(rowKey);
+    return row !== undefined &&
+      !sources.transcriptWindow.systemMessageByRowId.has(row.id) &&
+      rowBodyOf(row, sources)?.from === "log" &&
+      row.content?.status === "large"
+      ? [row.id]
+      : [];
+  });
 }
 
 /**
@@ -137,23 +169,63 @@ function supersededMark(isSuperseded: boolean): readonly string[] {
 }
 
 /**
- * An open tool row's output without escape sequences: its live lane, else its stored body, else
- * the words its body draws in their place.
+ * Where a reply's body or an open call's output is read from for its text: what it draws, from a
+ * live lane or as a reply last drew it, else the log.
  */
-function toolOutputTextOf(row: TranscriptEventRow, liveText: PublishedText | undefined): string {
-  const output = liveText ?? storedBodyOf(row);
+type RowBody =
+  | { readonly from: "drawing"; readonly text: PublishedText; readonly flavor: CopyFlavor }
+  | { readonly from: "log" };
+
+/** Where `row`'s body is read from, or `undefined` for a folded call or a row with no body. */
+function rowBodyOf(row: TranscriptEventRow, sources: RowBodySources): RowBody | undefined {
+  switch (classifyTranscriptRow(row)?.kind) {
+    case "agent-message": {
+      const drawn = replyRowTextOf(row.id, sources.reveal);
+      return drawn === undefined
+        ? { from: "log" }
+        : { from: "drawing", text: drawn.text, flavor: drawn.flavor };
+    }
+    case "tool-call": {
+      const liveText = sources.reveal.publishedTextFor(row.id);
+      const isOpen =
+        isFoldableCall(row, liveText !== undefined) && sources.densityOf(row.id) === "expanded";
+      return !isOpen
+        ? undefined
+        : liveText === undefined
+          ? { from: "log" }
+          : { from: "drawing", text: liveText, flavor: "text" };
+    }
+    default:
+      return undefined;
+  }
+}
+
+/** A row's body as the log holds it, a large one as the copy read it in full. */
+function loggedContentOf(
+  row: TranscriptEventRow,
+  sources: RowTextSources,
+): TranscriptRowContent | undefined {
+  return row.content?.status === "large"
+    ? (sources.fullBodyOf(row.id) ?? row.content)
+    : row.content;
+}
+
+/** An open tool row's output without escape sequences, else the words drawn in its place. */
+function toolOutputTextOf(body: RowBody, row: TranscriptEventRow, sources: RowTextSources): string {
+  const content = body.from === "log" ? loggedContentOf(row, sources) : undefined;
+  const output = body.from === "drawing" ? body.text : storedBodyOf(content);
   if (output === undefined) {
-    return unreadBodyTextOf(row);
+    return unreadBodyTextOf(content);
   }
   return carriesAnsiEscapes(output) ? withoutResidualEscapes(output.slice(0)) : output.slice(0);
 }
 
-/** The body the log stores for a row, where it was read and holds one. */
-function storedBodyOf(row: TranscriptEventRow): PublishedText | undefined {
-  return row.content?.status === "available" ? publishedTextOf(row.content.body) : undefined;
+/** The body the log stores, where it holds one. */
+function storedBodyOf(content: TranscriptRowContent | undefined): PublishedText | undefined {
+  return content?.status === "available" ? publishedTextOf(content.body) : undefined;
 }
 
 /** The words a row with no body to copy draws in its place. */
-function unreadBodyTextOf(row: TranscriptEventRow): string {
-  return row.content?.status === "unavailable" ? UNAVAILABLE_BODY_TITLE : UNREAD_BODY_TITLE;
+function unreadBodyTextOf(content: TranscriptRowContent | undefined): string {
+  return content?.status === "unavailable" ? UNAVAILABLE_BODY_TITLE : UNREAD_BODY_TITLE;
 }

@@ -25,14 +25,16 @@ describe("the primary selection a settled selection takes", () => {
   it("puts the text on Linux's selection clipboard", async () => {
     const { bridge, writes } = bridgeOn("linux");
 
-    await primarySelectionFor(bridge).takeSettledSelection(() => "rename the reader");
+    await primarySelectionFor(bridge).takeSettledSelection(() =>
+      Promise.resolve("rename the reader"),
+    );
 
     expect(writes).toStrictEqual([[{ text: "rename the reader" }, "selection"]]);
   });
 
   it.each(["darwin", "win32"] as const)("reads and writes nothing on %s", async (platform) => {
     const { bridge, writes } = bridgeOn(platform);
-    const readText = vi.fn(() => "rename the reader");
+    const readText = vi.fn(() => Promise.resolve("rename the reader"));
 
     await primarySelectionFor(bridge).takeSettledSelection(readText);
 

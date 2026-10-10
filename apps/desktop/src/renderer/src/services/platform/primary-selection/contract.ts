@@ -5,8 +5,8 @@
 /** What this operating system does with the text of a selection settled in the conversation. */
 export interface PrimarySelection {
   /**
-   * Puts a settled selection's text, read only where the system keeps a primary selection, on it.
-   * Rejects when main refuses the write.
+   * Puts a settled selection's text, read only where the system keeps a primary selection, on it;
+   * a read that resolves `undefined` puts nothing. Rejects when the read or main's write does.
    */
-  takeSettledSelection(readText: () => string | undefined): Promise<void>;
+  takeSettledSelection(readText: () => Promise<string | undefined>): Promise<void>;
 }

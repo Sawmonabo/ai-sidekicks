@@ -14,6 +14,7 @@ import type { TranscriptRowContent } from "@ai-sidekicks/contracts/transcript/co
 
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { byteFigurePart } from "#renderer/lib/figure-sentence.js";
+import { LARGE_BODY_ATTRIBUTE } from "../../copy/conversation-selection.js";
 import { publishedTextOf, type PublishedText } from "../../reveal/published-text.js";
 import { AnsiOutput } from "../ansi/AnsiOutput.js";
 import { withoutResidualEscapesOf } from "../ansi/escape-sequences.js";
@@ -124,7 +125,10 @@ interface LargeBodyProps {
   readonly holdControlInPlace: ((control: HTMLElement) => void) | undefined;
 }
 
-/** A body its row carries as its size alone: the control that reads it in full. */
+/**
+ * A body its row carries as its size alone: the control that reads it in full, in the place a
+ * selection copies as the body read in full.
+ */
 function LargeBody(props: LargeBodyProps): React.JSX.Element {
   const { fullBodyReads, rowId } = props;
   const reading = useSyncExternalStore(fullBodyReads.subscribe, () =>
@@ -135,14 +139,16 @@ function LargeBody(props: LargeBodyProps): React.JSX.Element {
     fullBodyReads.readOpenedBody(rowId);
   }, [fullBodyReads, rowId]);
   return (
-    <FullOutputControl
-      measure={byteFigurePart("wire", props.contentLength)}
-      reading={reading}
-      onPress={(control) => {
-        props.holdControlInPlace?.(control);
-        fullBodyReads.open(rowId);
-      }}
-    />
+    <div {...{ [LARGE_BODY_ATTRIBUTE]: "" }}>
+      <FullOutputControl
+        measure={byteFigurePart("wire", props.contentLength)}
+        reading={reading}
+        onPress={(control) => {
+          props.holdControlInPlace?.(control);
+          fullBodyReads.open(rowId);
+        }}
+      />
+    </div>
   );
 }
 
