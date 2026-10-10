@@ -54,7 +54,8 @@ pub struct IndexFields {
     /// `prefixes[n - 1]` holds each token's first n characters, or the filler for a shorter token.
     pub prefixes: [Field; PREFIX_FIELD_COUNT],
     /// At each token's place, the token's first four characters, or all of a shorter one, then
-    /// the next place's token's the same way; the filler where no token is next.
+    /// the next place's token's the same way, with frequencies and positions; the filler where no
+    /// token is next.
     pub pair: Field,
     /// The row key, indexed so a replace or a removal deletes by its term.
     pub key: Field,
@@ -86,7 +87,7 @@ pub fn index_schema() -> (Schema, IndexFields) {
     let pair = builder.add_text_field(
         "pair",
         text_options(
-            IndexRecordOption::WithFreqs,
+            IndexRecordOption::WithFreqsAndPositions,
             &tokenizer_name(TokenCut::Pair),
         ),
     );

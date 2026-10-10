@@ -45,6 +45,19 @@ fn find_counts_equal_the_marks_on_every_row() {
         LARGEST_SESSION,
         &format!("{RARE_PREFIX}a {RARE_PREFIX}b {RARE_PREFIX}a"),
     ));
+    // The long prefix after a word, beside a word its first four characters begin but it does not,
+    // so the pair those four characters make holds a place the phrase lacks.
+    rows.push(event(
+        1,
+        LARGEST_SESSION,
+        &format!("zo {RARE_PREFIX}a zo qqqqbz"),
+    ));
+    // Every token of the phrase and the pair of its first two cuts, but never in its order.
+    rows.push(event(
+        2,
+        LARGEST_SESSION,
+        &format!("zo {RARE_PREFIX}b {RARE_PREFIX}a"),
+    ));
     let mut session_rows: Vec<(u64, String)> = rows
         .iter()
         .filter(|row| row.kind == IndexRowKind::Event && row.owner_key as u64 == LARGEST_SESSION)
@@ -140,6 +153,8 @@ fn find_counts_equal_the_marks_on_every_row() {
         query(&[long_first_joined.as_str()], true),
         query(&[three_joined.as_str()], true),
         query(&[RARE_PREFIX], true),
+        query(&[format!("zo-{RARE_PREFIX}").as_str()], true),
+        query(&[format!("zo-{RARE_PREFIX}a").as_str()], false),
     ];
 
     let folder = ScratchFolder::new("find");

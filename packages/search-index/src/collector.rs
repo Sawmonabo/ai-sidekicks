@@ -535,28 +535,40 @@ pub fn top_sessions(
         let alive = segment.alive_bitset();
         let mut frequencies = vec![0u32; cursors.len()];
         let first_cutoff = top.cutoff();
-        // Scores row `doc` exactly when it matches every phrase, and answers the cutoff after.
+        let stored_lengths = segment.get_fieldnorms_reader(version.fields.text)?;
+        // Scores row `doc` exactly when it matches every phrase, and answers the cutoff after. A
+        // row scored below the cutoff ranks below every session held, so it is offered to none, and
+        // its owner is read only when the search is limited. A score falls as length grows, and the
+        // stored length rounds down, so a row scored below the cutoff at its stored length is below
+        // it at its own.
         let mut offer = |cursors: &mut [PhraseCursor], doc: DocId| -> Option<f64> {
-            let owner = columns.owner.get_val(doc);
-            if within.is_none_or(|set| set.holds_owner(owner))
+            let cutoff = top.cutoff();
+            if within.is_none_or(|set| set.holds_owner(columns.owner.get_val(doc)))
                 && alive.is_none_or(|alive| alive.is_alive(doc))
                 && all_on(cursors, doc)
             {
                 frequencies_into(cursors, &mut frequencies);
-                let score = query.score(&frequencies, columns.length.get_val(doc));
-                let row_key = columns.key.get_val(doc);
-                credit_sessions(&version.membership, owner, |session, place| {
-                    if within.is_none_or(|set| set.holds_session(session)) {
-                        top.offer(
-                            session,
-                            RankKey {
-                                score,
-                                row_key,
-                                member_place: place,
-                            },
-                        );
-                    }
-                });
+                let reaches = |score: f64| cutoff.is_none_or(|cutoff| score >= cutoff);
+                let stored_length = u64::from(stored_lengths.fieldnorm(doc));
+                let score = reaches(query.score(&frequencies, stored_length))
+                    .then(|| query.score(&frequencies, columns.length.get_val(doc)))
+                    .filter(|score| reaches(*score));
+                if let Some(score) = score {
+                    let row_key = columns.key.get_val(doc);
+                    let owner = columns.owner.get_val(doc);
+                    credit_sessions(&version.membership, owner, |session, place| {
+                        if within.is_none_or(|set| set.holds_session(session)) {
+                            top.offer(
+                                session,
+                                RankKey {
+                                    score,
+                                    row_key,
+                                    member_place: place,
+                                },
+                            );
+                        }
+                    });
+                }
             }
             top.cutoff()
         };
