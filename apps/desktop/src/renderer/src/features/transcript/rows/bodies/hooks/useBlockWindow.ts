@@ -11,7 +11,6 @@ import {
 } from "../../markdown/block-window/layout.js";
 import { MARKDOWN_BLOCK_INDEX_ATTRIBUTE } from "../../markdown/block-window/markers.js";
 import { indexesBetween, withPinnedIndexes } from "../../markdown/block-window/selection-pins.js";
-import { refuseScrollAdjustment } from "../../markdown/scroller-window.js";
 import { useSelectionPins } from "./useSelectionPins.js";
 
 /** A windowed body's elements as one render draws them. */
@@ -99,8 +98,7 @@ export function useBlockWindow(
     // the drawn range changes; a block that moves a spacer redraws through `onChange`.
     directDomUpdates: true,
   });
-  // The body follows the conversation's place and never moves it, however a block measures.
-  virtualizer.shouldAdjustScrollPositionOnItemSizeChange = refuseScrollAdjustment;
+  virtualizer.shouldAdjustScrollPositionOnItemSizeChange = layout.holdPlaceThroughResizedBlock;
 
   useEffect(() => {
     layout.bindVirtualizer(virtualizer);

@@ -30,7 +30,11 @@ import {
   type ViewportControllerOptions,
 } from "../controller.js";
 import { type ViewportSelectionTracker } from "../selection/tracker.js";
-import { type ViewportConditions, type ViewportSnapshot } from "../snapshot.js";
+import {
+  shouldHoldPlaceInsideRow,
+  type ViewportConditions,
+  type ViewportSnapshot,
+} from "../snapshot.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { type JumpToLogEnd } from "../conversation-edge-jump.js";
 import { type WindowSide } from "../window-cap.js";
@@ -97,6 +101,11 @@ export interface TranscriptViewportBinding {
    * read when called and reading no element; `undefined` when the window does not hold the row.
    */
   readonly rowStartPx: (rowKey: string) => number | undefined;
+  /**
+   * Whether a window nested in a row holds the reader's place for an item it resized above the
+   * fold; see `shouldHoldPlaceInsideRow`. Read when called; stable for the binding's controller.
+   */
+  readonly holdsPlaceInsideRow: (rowKey: string) => boolean;
   /**
    * The height a row the feed has not drawn yet would be laid out at, from its kind and body
    * length; see `RowMeasurementTable.estimatedHeightOf`. Stable for the binding's controller.
@@ -377,6 +386,20 @@ export function useTranscriptViewport(
     }, [controller]),
     scrollController: controller.scroll,
     rowStartPx: useCallback((rowKey: string) => controller.rowStartPx(rowKey), [controller]),
+    holdsPlaceInsideRow: useCallback(
+      (rowKey: string) => {
+        const rowStartPx = controller.rowStartPx(rowKey);
+        return (
+          rowStartPx !== undefined &&
+          shouldHoldPlaceInsideRow(
+            controller.anchor.state.mode,
+            rowStartPx + controller.measurements.heightOf(rowKey),
+            controller.scroll.geometry?.scrollTop ?? 0,
+          )
+        );
+      },
+      [controller],
+    ),
     selectionTracker: controller.selection,
     selectedRowKeys: useCallback(() => controller.selectedRowKeys(), [controller]),
     estimatedRowHeightPx: useCallback(

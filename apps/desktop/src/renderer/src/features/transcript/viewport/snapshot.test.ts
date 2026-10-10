@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   shouldCompensateForInsertion,
+  shouldHoldPlaceInsideRow,
   countAppendedAfter,
   countInsertedBefore,
   type ViewportRow,
@@ -70,5 +71,20 @@ describe("compensating for a row that grew above the fold", () => {
     // this fails even for a row that clears the fold by a mile.
     expect(shouldCompensateForInsertion("following", 0, 400)).toBe(false);
     expect(shouldCompensateForInsertion("following", 400, 400)).toBe(false);
+  });
+});
+
+describe("holding the reader's place inside a row", () => {
+  it("holds inside a row just where the list holds nothing, and never for a follower", () => {
+    // The list holds a row wholly above the fold by its whole change; a window inside it holding
+    // its own change too would move the reader twice, and one holding neither lets the text move.
+    for (const rowEndOffsetPx of [120, 400, 401, 900]) {
+      expect(shouldHoldPlaceInsideRow("reading", rowEndOffsetPx, 400)).toBe(
+        !shouldCompensateForInsertion("reading", rowEndOffsetPx, 400),
+      );
+    }
+    expect(shouldHoldPlaceInsideRow("reading", 401, 400)).toBe(true);
+    // A follower's place is the list's end anchor's.
+    expect(shouldHoldPlaceInsideRow("following", 900, 400)).toBe(false);
   });
 });

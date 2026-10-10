@@ -96,3 +96,16 @@ export function shouldCompensateForInsertion(
 ): boolean {
   return readingMode !== "following" && rowEndOffsetPx <= scrollOffsetPx;
 }
+
+/**
+ * Whether a window nested in a row holds the reader's place for an item of its own that resized
+ * above the fold: only when the reader is not following and the row reaches below the fold, where
+ * `shouldCompensateForInsertion` holds nothing for the row. Holding both would move a reader twice.
+ */
+export function shouldHoldPlaceInsideRow(
+  readingMode: ReadingState["mode"],
+  rowEndOffsetPx: number,
+  scrollOffsetPx: number,
+): boolean {
+  return readingMode !== "following" && rowEndOffsetPx > scrollOffsetPx;
+}

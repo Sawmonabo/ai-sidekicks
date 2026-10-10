@@ -33,6 +33,8 @@ export function suiteWindowViewport(
   return {
     scrollController,
     rowStartPx: () => 0,
+    // The one row spans the scroller, and no reader follows it.
+    holdsPlaceInsideRow: () => true,
     subscribeToSelection: selection.subscribe,
     readSelectionRange: selection.read,
   };

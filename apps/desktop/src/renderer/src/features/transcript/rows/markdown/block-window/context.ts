@@ -15,6 +15,11 @@ export interface MarkdownWindowViewport {
    * element; `undefined` when the viewport does not hold the row.
    */
   readonly rowStartPx: (rowKey: string) => number | undefined;
+  /**
+   * Whether the body holds the reader's place for a block that resized above the scroller's top,
+   * which the conversation holds for a row wholly above it and for a following reader instead.
+   */
+  readonly holdsPlaceInsideRow: (rowKey: string) => boolean;
   /** Hears each selection change that moves what `readSelectionRange` answers. */
   readonly subscribeToSelection: (listener: () => void) => Unsubscribe;
   /**

@@ -27,6 +27,46 @@ const SHORT_BLOCK_COUNT = 2_000;
 /** The screens a fling must travel for its frames to have crossed the window's edge many times. */
 const FLING_MINIMUM_SCREENS = 3;
 
+/** Half-screen steps a reader reads upward in, from the end of a reply drawn cold. */
+const READ_UP_STEPS = 8;
+
+/**
+ * A reply no other case draws, so no block's geometry is remembered from one, of prose and code
+ * whose drawn heights the estimates miss: paragraphs wrap where the estimate does not, and a code
+ * block's frame is not the two lines it counts.
+ */
+/** One sentence of the cold reply's prose, repeated to vary its paragraphs' lengths. */
+const COLD_SENTENCE = "a sentence the reader is reading upward through, ";
+
+function coldReplyMarkdown(): string {
+  const blocks: string[] = [];
+  for (let index = 0; index < 160; index += 1) {
+    const label = String(index);
+    const code = [`const heldPlace${label} = ${label};`, `use(heldPlace${label});`];
+    const sentences = COLD_SENTENCE.repeat(1 + (index % 5));
+    blocks.push(
+      index % 4 === 3
+        ? ["```ts", ...code, "```"].join("\n")
+        : `Held place ${label}: ${sentences}end.`,
+    );
+  }
+  return blocks.join("\n\n");
+}
+
+/** The first drawn block reaching below the middle of the scroller's box. */
+function blockAtMiddleOf(scroller: HTMLElement, windowedBody: HTMLElement): Element {
+  const box = scroller.getBoundingClientRect();
+  const middlePx = box.top + box.height / 2;
+  const block = [...drawnBlocks(windowedBody).entries()]
+    .sort(([index], [otherIndex]) => index - otherIndex)
+    .map(([, wrapper]) => wrapper)
+    .find((wrapper) => wrapper.getBoundingClientRect().bottom > middlePx);
+  if (block === undefined) {
+    throw new Error("no drawn block reaches below the middle of the box");
+  }
+  return block;
+}
+
 /** An element's first line, as its top below the body's top. */
 function firstLineOffsetPx(element: Element | null | undefined, body: HTMLElement): number {
   if (element === null || element === undefined) {
@@ -211,5 +251,31 @@ describe("browser — a long reply drawn as a window over its blocks", () => {
     expect(
       [...drawnAtEnd.values()].reduce((count, wrapper) => count + wrapper.children.length, 0),
     ).toBe(flowBody.children.length);
+  });
+
+  it("keeps the text being read still while blocks above it draw for the first time", async () => {
+    // The reply's row spans the box, so the conversation holds nothing for it: a block drawn above
+    // the reader at another height than its estimate would move every line below it.
+    const { scroller, windowedBody } = await mountBodies(coldReplyMarkdown(), {
+      isComplete: true,
+      drawsFlowBody: false,
+    });
+    await scrollToEnd(scroller);
+    let heldPx = 0;
+    for (let step = 0; step < READ_UP_STEPS; step += 1) {
+      const readAtPx = scroller.scrollTop - SCROLLER_HEIGHT_PX / 2;
+      scroller.scrollTop = readAtPx;
+      const block = blockAtMiddleOf(scroller, windowedBody);
+      const topPx = block.getBoundingClientRect().top;
+      await settleFrames();
+      expect(
+        Math.abs(block.getBoundingClientRect().top - topPx),
+        `step ${String(step)}`,
+      ).toBeLessThanOrEqual(SAME_LINE_TOLERANCE_PX + 0.5);
+      heldPx += scroller.scrollTop - readAtPx;
+    }
+    // The control: blocks above the reader did draw at other heights than estimated, and the
+    // scroller moved by what they changed.
+    expect(Math.abs(heldPx)).toBeGreaterThan(SAME_LINE_TOLERANCE_PX);
   });
 });
