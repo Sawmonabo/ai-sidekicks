@@ -4,7 +4,7 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap, HashSet};
 
-use tantivy::query::{Bm25StatisticsProvider, EnableScoring, Query, TermQuery};
+use tantivy::query::{Bm25StatisticsProvider, EnableScoring, Query, TermQuery, Weight};
 use tantivy::schema::{Field, IndexRecordOption};
 use tantivy::{DocId, DocSet, Score, SegmentReader, TERMINATED, Term};
 
@@ -21,6 +21,11 @@ use crate::version::{IndexVersion, SegmentColumns};
 /// pass instead of skipping blocks.
 pub const FULL_PASS_BELOW: u64 = 50_000;
 
+/// A phrase whose own rows are this many times fewer than its rarest covering term's is walked
+/// itself, every row scored, rather than skipping through that term's blocks: the eighth Lucene's
+/// `IndexOrDocValuesQuery` weighs a row checked against a row read by.
+const COVERING_ROWS_PER_OWN_ROW: u64 = 8;
+
 /// How far below the k-th session's best a skipped block's bound must stay: covers Tantivy's f32
 /// scores against the exact f64 ones.
 const CUTOFF_MARGIN: f64 = 1e-4;
@@ -35,13 +40,12 @@ pub struct PreparedQuery {
     driver: Driver,
 }
 
-// The phrase whose single term Tantivy walks with block-max skipping, the rarest one, and that
-// term: the phrase's own term; or one that holds each of the phrase's rows at least as many times,
-// the longest prefix field's term for a prefix longer than every prefix field and the rarest whole
-// token for a phrase of several tokens.
+// The rarest phrase, and the term Tantivy walks for it with block-max skipping: the phrase's own
+// term, or the rarest term holding each of its rows at least as many times. `None` where the
+// phrase's own rows are far fewer than that term's, so the phrase itself is walked.
 struct Driver {
     phrase: usize,
-    term: Term,
+    term: Option<Term>,
 }
 
 impl PreparedQuery {
@@ -100,16 +104,18 @@ fn choose_driver(
     }
     let mut terms = phrases[phrase].covering_terms(&version.fields).into_iter();
     let mut term = terms.next().expect("every phrase has a covering term");
-    if terms.len() > 0 {
-        let mut fewest = version.searcher.doc_freq(&term)?;
-        for other in terms {
-            let rows = version.searcher.doc_freq(&other)?;
-            if rows < fewest {
-                (term, fewest) = (other, rows);
-            }
+    let mut fewest = version.searcher.doc_freq(&term)?;
+    for other in terms {
+        let rows = version.searcher.doc_freq(&other)?;
+        if rows < fewest {
+            (term, fewest) = (other, rows);
         }
     }
-    Ok(Driver { phrase, term })
+    let is_own_walk = phrase_rows[phrase].saturating_mul(COVERING_ROWS_PER_OWN_ROW) < fewest;
+    Ok(Driver {
+        phrase,
+        term: (!is_own_walk).then_some(term),
+    })
 }
 
 /// What ranks a row for a session: higher score first, then lower row key, then the session's
@@ -491,7 +497,8 @@ fn tantivy_idf(phrase_rows: u64, live_rows: u64) -> f64 {
 }
 
 /// The best `k` sessions in rank order, limited to `within` when given, Tantivy skipping the driver
-/// term's blocks that cannot reach the k-th session's best row.
+/// term's blocks that cannot reach the k-th session's best row, or the rarest phrase's own rows each
+/// scored where it has no driver term.
 pub fn top_sessions(
     version: &IndexVersion,
     query: &PreparedQuery,
@@ -499,59 +506,43 @@ pub fn top_sessions(
     within: Option<&SessionSet>,
 ) -> tantivy::Result<Vec<u64>> {
     let driver = &query.driver;
-    let statistics = LiveStatistics {
-        live_rows: version.live_rows,
-        live_tokens: version.live_tokens,
-        driver_rows: query.phrase_rows[driver.phrase],
+    let pruning = match &driver.term {
+        Some(term) => Some(DriverPruning::new(version, query, term)?),
+        None => None,
     };
-    let scoring = EnableScoring::enabled_from_statistics_provider(&statistics, &version.searcher);
-    let weight =
-        TermQuery::new(driver.term.clone(), IndexRecordOption::WithFreqs).weight(scoring)?;
-    let driver_idf = tantivy_idf(statistics.driver_rows, statistics.live_rows);
-    let ratio = query.idfs[driver.phrase] / driver_idf;
-    let query_average = f64::from(statistics.live_tokens as Score / statistics.live_rows as Score);
-    let others_ceiling: f64 = (0..query.phrases.len())
-        .filter(|index| *index != driver.phrase)
-        .map(|index| phrase_ceiling(query.idfs[index]))
-        .sum();
     let mut top = TopSessions::new(k);
     for (ordinal, segment) in version.searcher.segment_readers().iter().enumerate() {
-        // Each cursor is sought at most at the rows of the driver's term.
-        let driver_rows = segment
-            .inverted_index(driver.term.field())?
-            .doc_freq(&driver.term)?;
+        // Each cursor is sought at most at the rows of the driver's term, or the phrase's own.
+        let asked = match &pruning {
+            Some(pruning) => u64::from(
+                segment
+                    .inverted_index(pruning.term.field())?
+                    .doc_freq(pruning.term)?,
+            ),
+            None => version.phrase_matches_in(ordinal, &query.phrases[driver.phrase])?,
+        };
         let cursors = open_cursors(
             segment,
             &version.fields,
             &query.phrases,
             CursorPurpose::Score,
-            RowsAsked::AtMost(u64::from(driver_rows)),
+            RowsAsked::AtMost(asked),
         )?;
         let Some(mut cursors) = cursors else {
             continue;
         };
         let columns = &version.segments[ordinal].columns;
         let alive = segment.alive_bitset();
-        let drift = average_drift(segment, driver.term.field(), query_average)?;
-        // A row's exact score is at most its driver part plus every other phrase's ceiling, and its
-        // driver part at most `ratio` times Tantivy's score of the driver term: the phrase's count
-        // never exceeds the term's and Tantivy's stored length rounds down. A block's stored bound
-        // was chosen under its segment's average length when written, and under today's average any
-        // row's score moves by at most the two averages' ratio, so the cutoff is divided by that
-        // drift too. Every row Tantivy calls back is scored exactly.
-        let driver_threshold = |cutoff: Option<f64>| -> Score {
-            let Some(cutoff) = cutoff else { return 0.0 };
-            ((cutoff - others_ceiling) / (ratio * drift) * (1.0 - CUTOFF_MARGIN)).max(0.0) as Score
-        };
         let mut frequencies = vec![0u32; cursors.len()];
-        let first_threshold = driver_threshold(top.cutoff());
-        let mut callback = |doc: DocId, _: Score| -> Score {
+        let first_cutoff = top.cutoff();
+        // Scores row `doc` exactly when it matches every phrase, and answers the cutoff after.
+        let mut offer = |cursors: &mut [PhraseCursor], doc: DocId| -> Option<f64> {
             let owner = columns.owner.get_val(doc);
             if within.is_none_or(|set| set.holds_owner(owner))
                 && alive.is_none_or(|alive| alive.is_alive(doc))
-                && all_on(&mut cursors, doc)
+                && all_on(cursors, doc)
             {
-                frequencies_into(&mut cursors, &mut frequencies);
+                frequencies_into(cursors, &mut frequencies);
                 let score = query.score(&frequencies, columns.length.get_val(doc));
                 let row_key = columns.key.get_val(doc);
                 credit_sessions(&version.membership, owner, |session, place| {
@@ -567,11 +558,87 @@ pub fn top_sessions(
                     }
                 });
             }
-            driver_threshold(top.cutoff())
+            top.cutoff()
         };
-        weight.for_each_pruning(first_threshold, segment, &mut callback)?;
+        match &pruning {
+            Some(pruning) => {
+                let threshold = pruning.threshold_in(segment)?;
+                let mut callback = |doc: DocId, _: Score| threshold(offer(&mut cursors, doc));
+                pruning
+                    .weight
+                    .for_each_pruning(threshold(first_cutoff), segment, &mut callback)?;
+            }
+            None => {
+                let mut doc = cursors[driver.phrase].doc();
+                while doc != TERMINATED {
+                    offer(&mut cursors, doc);
+                    doc = cursors[driver.phrase].advance();
+                }
+            }
+        }
     }
     Ok(top.into_sessions())
+}
+
+// What block skipping by the driver term compares each block's stored bound against.
+struct DriverPruning<'a> {
+    term: &'a Term,
+    weight: Box<dyn Weight>,
+    // The driver phrase's IDF over Tantivy's IDF of the driver term.
+    ratio: f64,
+    // The most every other phrase can add to a row's score.
+    others_ceiling: f64,
+    query_average: f64,
+}
+
+impl<'a> DriverPruning<'a> {
+    fn new(
+        version: &IndexVersion,
+        query: &PreparedQuery,
+        term: &'a Term,
+    ) -> tantivy::Result<DriverPruning<'a>> {
+        let driver = &query.driver;
+        let statistics = LiveStatistics {
+            live_rows: version.live_rows,
+            live_tokens: version.live_tokens,
+            driver_rows: query.phrase_rows[driver.phrase],
+        };
+        let scoring =
+            EnableScoring::enabled_from_statistics_provider(&statistics, &version.searcher);
+        let weight = TermQuery::new(term.clone(), IndexRecordOption::WithFreqs).weight(scoring)?;
+        let driver_idf = tantivy_idf(statistics.driver_rows, statistics.live_rows);
+        let others_ceiling = (0..query.phrases.len())
+            .filter(|index| *index != driver.phrase)
+            .map(|index| phrase_ceiling(query.idfs[index]))
+            .sum();
+        Ok(DriverPruning {
+            term,
+            weight,
+            ratio: query.idfs[driver.phrase] / driver_idf,
+            others_ceiling,
+            query_average: f64::from(
+                statistics.live_tokens as Score / statistics.live_rows as Score,
+            ),
+        })
+    }
+
+    // The driver threshold in `segment` for a cutoff. A row's exact score is at most its driver
+    // part plus every other phrase's ceiling, and its driver part at most `ratio` times Tantivy's
+    // score of the driver term: the phrase's count never exceeds the term's and Tantivy's stored
+    // length rounds down. A block's stored bound was chosen under its segment's average length when
+    // written, and under today's average any row's score moves by at most the two averages' ratio,
+    // so the cutoff is divided by that drift too. Every row Tantivy calls back is scored exactly.
+    fn threshold_in(
+        &self,
+        segment: &SegmentReader,
+    ) -> tantivy::Result<impl Fn(Option<f64>) -> Score + use<'_>> {
+        let drift = average_drift(segment, self.term.field(), self.query_average)?;
+        Ok(move |cutoff: Option<f64>| -> Score {
+            let Some(cutoff) = cutoff else { return 0.0 };
+            ((cutoff - self.others_ceiling) / (self.ratio * drift) * (1.0 - CUTOFF_MARGIN)).max(0.0)
+                as Score
+        })
+    }
 }
 
 // How far the live average length has moved from the average `segment` chose its block bounds

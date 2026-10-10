@@ -9,7 +9,7 @@ use tantivy::schema::{Field, IndexRecordOption};
 use tantivy::{DocId, DocSet, InvertedIndexReader, SegmentReader, TERMINATED, Term};
 use tantivy_common::BitSet;
 
-use crate::phrase::Phrase;
+use crate::phrase::{PairRows, Phrase};
 use crate::schema::IndexFields;
 
 /// What a cursor is opened for: scoring needs each phrase's count per row; marking needs where in
@@ -36,24 +36,48 @@ pub fn open_phrase_cursor(
     purpose: CursorPurpose,
     asked: RowsAsked,
 ) -> tantivy::Result<Option<PhraseCursor>> {
+    if purpose == CursorPurpose::Score {
+        if let Some(term) = phrase.single_term(fields) {
+            let token = term_cursor(segment, &term, IndexRecordOption::WithFreqs)?;
+            return Ok(token.map(PhraseCursor::Token));
+        }
+        if let Some(PairRows::Prefix(text)) = phrase.exact_pair_rows(fields) {
+            let token = prefix_cursor(segment, fields.pair, &text, asked)?;
+            return Ok(token.map(PhraseCursor::Token));
+        }
+    }
     if let [part] = phrase.parts.as_slice() {
-        let token = match (purpose, phrase.single_term(fields)) {
-            (CursorPurpose::Score, Some(term)) => {
-                term_cursor(segment, &term, IndexRecordOption::WithFreqs)?
-            }
-            (CursorPurpose::Score, None) => prefix_cursor(segment, fields.text, part, asked)?,
-            (CursorPurpose::Mark, _) => text_cursor(segment, fields, part, phrase.ends_in_prefix)?,
+        let token = match purpose {
+            CursorPurpose::Score => prefix_cursor(segment, fields.text, part, asked)?,
+            CursorPurpose::Mark => text_cursor(segment, fields, part, phrase.ends_in_prefix)?,
         };
         return Ok(token.map(PhraseCursor::Token));
     }
-    let mut parts = Vec::with_capacity(phrase.parts.len());
-    for (index, part) in phrase.parts.iter().enumerate() {
-        match text_cursor(segment, fields, part, phrase.is_prefix_part(index))? {
-            Some(cursor) => parts.push(cursor),
+    // The pairs first: a segment lacking one holds no row of the phrase, and its tokens' cursors
+    // are left unopened.
+    let mut cursors = Vec::with_capacity(phrase.parts.len() * 2 - 1);
+    let mut pairs = Vec::with_capacity(phrase.parts.len() - 1);
+    for rows in phrase.pair_rows(fields) {
+        let pair = match rows {
+            PairRows::Term(term) => term_cursor(segment, &term, IndexRecordOption::Basic)?,
+            PairRows::Prefix(text) => prefix_cursor(segment, fields.pair, &text, asked)?,
+        };
+        match pair {
+            Some(cursor) => pairs.push(cursor),
             None => return Ok(None),
         }
     }
-    Ok(Some(PhraseCursor::Sequence(SequenceCursor::new(parts))))
+    for (index, part) in phrase.parts.iter().enumerate() {
+        match text_cursor(segment, fields, part, phrase.is_prefix_part(index))? {
+            Some(cursor) => cursors.push(cursor),
+            None => return Ok(None),
+        }
+    }
+    let parts = cursors.len();
+    cursors.extend(pairs);
+    Ok(Some(PhraseCursor::Sequence(SequenceCursor::new(
+        cursors, parts,
+    ))))
 }
 
 /// Every phrase's cursor in `segment`, in phrase order, or `None` when no row of the segment can
@@ -108,20 +132,20 @@ fn text_cursor(
 /// than added into an array as long as the segment.
 const SPARSE_POSTINGS_PER_ROW: u64 = 128;
 
-// Every text term `prefix` begins, as one token, its counts in a row summed over its words, read
-// the cheaper of two ways for the rows `asked`. Sought at few rows, each word's postings are sought
-// to each row, merged. Walked, or sought at more rows than seeking every word there costs against
-// reading them whole, each word is read whole, a block of rows at a time, and its counts summed
-// per row, so the prefix's count in a row is a lookup: every word's rows are read once, where
-// merging them costs a heap step per row.
+// Every term of `field` that `prefix` begins, as one token, its counts in a row summed over them,
+// read the cheaper of two ways for the rows `asked`. Sought at few rows, each term's postings are
+// sought to each row, merged. Walked, or sought at more rows than seeking every term there costs
+// against reading them whole, each term is read whole, a block of rows at a time, and its counts
+// summed per row, so the prefix's count in a row is a lookup: every term's rows are read once,
+// where merging them costs a heap step per row.
 fn prefix_cursor(
     segment: &SegmentReader,
-    text: Field,
+    field: Field,
     prefix: &str,
     asked: RowsAsked,
 ) -> tantivy::Result<Option<TokenCursor>> {
-    let term_infos = prefix_term_infos(segment, text, prefix)?;
-    let inverted = segment.inverted_index(text)?;
+    let term_infos = prefix_term_infos(segment, field, prefix)?;
+    let inverted = segment.inverted_index(field)?;
     let postings: u64 = term_infos
         .iter()
         .map(|term_info| u64::from(term_info.doc_freq))
@@ -635,7 +659,7 @@ impl PhraseCursor {
             PhraseCursor::Token(token) => token.positions(marked),
             PhraseCursor::Sequence(sequence) => {
                 marked.clear();
-                let width = sequence.parts.len() as u32;
+                let width = sequence.parts as u32;
                 for start in &sequence.starts {
                     marked.extend(*start..*start + width);
                 }
@@ -649,15 +673,19 @@ impl PhraseCursor {
     pub fn cost(&self) -> u64 {
         match self {
             PhraseCursor::Token(token) => token.cost(),
-            PhraseCursor::Sequence(sequence) => sequence.parts[sequence.leader].cost(),
+            PhraseCursor::Sequence(sequence) => sequence.cursors[sequence.leader].cost(),
         }
     }
 }
 
 /// A typed word of several tokens: the rows where every token sits right after the one before,
-/// walked from its rarest token.
+/// walked from its rarest token or pair of neighbors, a row's positions read only where every
+/// token and pair term is.
 pub struct SequenceCursor {
-    parts: Vec<TokenCursor>,
+    /// Each token's cursor with positions, in order, then each pair of neighbors' pair term.
+    cursors: Vec<TokenCursor>,
+    /// How many of `cursors` are tokens.
+    parts: usize,
     leader: usize,
     doc: DocId,
     starts: Vec<u32>,
@@ -665,24 +693,24 @@ pub struct SequenceCursor {
 }
 
 impl SequenceCursor {
-    fn new(parts: Vec<TokenCursor>) -> SequenceCursor {
-        let leader = (0..parts.len())
-            .min_by_key(|index| parts[*index].cost())
+    fn new(cursors: Vec<TokenCursor>, parts: usize) -> SequenceCursor {
+        let leader = (0..cursors.len())
+            .min_by_key(|index| cursors[*index].cost())
             .unwrap_or(0);
-        let part_positions = vec![Vec::new(); parts.len()];
         let mut sequence = SequenceCursor {
+            cursors,
             parts,
             leader,
             doc: TERMINATED,
             starts: Vec::new(),
-            part_positions,
+            part_positions: vec![Vec::new(); parts],
         };
         sequence.find_match();
         sequence
     }
 
     fn advance(&mut self) -> DocId {
-        self.parts[self.leader].advance();
+        self.cursors[self.leader].advance();
         self.find_match()
     }
 
@@ -690,18 +718,19 @@ impl SequenceCursor {
         if self.doc >= target {
             return self.doc;
         }
-        self.parts[self.leader].seek(target);
+        self.cursors[self.leader].seek(target);
         self.find_match()
     }
 
     // From the leader's row on, the first row holding every part in order.
     fn find_match(&mut self) -> DocId {
-        let mut candidate = self.parts[self.leader].doc();
+        let mut candidate = self.cursors[self.leader].doc();
         'candidates: while candidate != TERMINATED {
-            for index in 0..self.parts.len() {
-                let doc = self.parts[index].seek(candidate);
+            // The pair terms, rarer than the tokens, first.
+            for index in (self.parts..self.cursors.len()).chain(0..self.parts) {
+                let doc = self.cursors[index].seek(candidate);
                 if doc != candidate {
-                    candidate = self.parts[self.leader].seek(doc);
+                    candidate = self.cursors[self.leader].seek(doc);
                     continue 'candidates;
                 }
             }
@@ -709,7 +738,7 @@ impl SequenceCursor {
                 self.doc = candidate;
                 return candidate;
             }
-            candidate = self.parts[self.leader].advance();
+            candidate = self.cursors[self.leader].advance();
         }
         self.starts.clear();
         self.doc = TERMINATED;
@@ -718,7 +747,7 @@ impl SequenceCursor {
 
     // The positions where the first part starts a full run of the parts in the current row.
     fn collect_starts(&mut self) -> bool {
-        for (part, positions) in self.parts.iter_mut().zip(self.part_positions.iter_mut()) {
+        for (part, positions) in self.cursors.iter_mut().zip(self.part_positions.iter_mut()) {
             part.positions(positions);
         }
         self.starts.clear();

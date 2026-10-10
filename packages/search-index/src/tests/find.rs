@@ -94,6 +94,37 @@ fn find_counts_equal_the_marks_on_every_row() {
             })
         })
         .expect("a row holds a word before a long one");
+    // Joined words the pair field cuts: a first token longer than the cut before a one-letter
+    // prefix, and three tokens.
+    let session_words: Vec<Vec<String>> = session_rows
+        .iter()
+        .map(|(_, text)| {
+            tokenize(text)
+                .into_iter()
+                .map(|token| token.folded)
+                .collect()
+        })
+        .collect();
+    let long_first_joined = session_words
+        .iter()
+        .find_map(|words| {
+            words.windows(2).find_map(|pair| {
+                (pair[0].chars().count() > PREFIX_FIELD_COUNT).then(|| {
+                    let letter: String = pair[1].chars().take(1).collect();
+                    format!("{}-{letter}", pair[0])
+                })
+            })
+        })
+        .expect("a row holds a long word before another");
+    let three_joined = session_words
+        .iter()
+        .find_map(|words| {
+            words.windows(3).next().map(|three| {
+                let start: String = three[2].chars().take(2).collect();
+                format!("{}-{}-{start}", three[0], three[1])
+            })
+        })
+        .expect("a row holds three words");
     let queries = vec![
         query(&[first], false),
         query(&[first_letter], true),
@@ -106,6 +137,8 @@ fn find_counts_equal_the_marks_on_every_row() {
         // from both its words in the row.
         query(&[format!("{RARE_PREFIX}a").as_str(), RARE_PREFIX], true),
         query(&[joined_long_prefix.as_str()], true),
+        query(&[long_first_joined.as_str()], true),
+        query(&[three_joined.as_str()], true),
         query(&[RARE_PREFIX], true),
     ];
 
