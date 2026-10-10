@@ -134,7 +134,7 @@ function renderedPath(structuredPatch: StructuredPatch, path: string): string {
 }
 
 /** The extended-header members `DiffFile` carries, as a spreadable partial. */
-type ExtendedHeaderChange = Pick<DiffFile, "change" | "modeChange" | "binary">;
+type ExtendedHeaderChange = Pick<DiffFile, "change" | "modeChanged" | "binary">;
 
 /**
  * What a file's headers declared, read off the parsed structure. Members are spread in rather
@@ -149,7 +149,7 @@ function extendedHeaderChange(structuredPatch: StructuredPatch): ExtendedHeaderC
   return {
     change: fileChangeOf(structuredPatch),
     ...(oldMode !== undefined && newMode !== undefined && oldMode !== newMode
-      ? { modeChange: { from: oldMode, to: newMode } }
+      ? { modeChanged: true }
       : {}),
     ...(structuredPatch.isBinary === true ? { binary: true } : {}),
   };

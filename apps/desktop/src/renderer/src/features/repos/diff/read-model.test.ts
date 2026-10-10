@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { diffFileListReading } from "./file-entries.js";
 import { diffFileChangeNotes } from "./model.js";
 import { diffModelFromRead } from "./read-model.js";
+import { DiffFlowRowsByFile } from "./rows/flow.js";
 
 const RESPONSE: GitflowDiffReadResponse = {
   head: "feature",
@@ -14,6 +15,14 @@ const RESPONSE: GitflowDiffReadResponse = {
   files: [
     { path: "assets/logo.png", kind: "added", binary: true, additions: 0, deletions: 0 },
     { path: "assets/old.png", kind: "deleted", binary: true, additions: 0, deletions: 0 },
+    {
+      path: "bin/tool",
+      kind: "modified",
+      modeChanged: true,
+      binary: true,
+      additions: 0,
+      deletions: 0,
+    },
     {
       path: "src/next.ts",
       oldPath: "src/previous.ts",
@@ -37,12 +46,18 @@ describe("diffModelFromRead", () => {
     const rowNotes = diffFileListReading(model, "")
       .entries.filter((entry) => entry.kind === "file")
       .map((entry) => entry.changeNotes);
-    expect(rowNotes).toStrictEqual([["added"], ["deleted"], ["renamed"], []]);
+    expect(rowNotes).toStrictEqual([["added"], ["deleted"], ["mode changed"], ["renamed"], []]);
     expect(model.files.map((file) => diffFileChangeNotes(file, "header"))).toStrictEqual([
       ["added"],
       ["deleted"],
+      ["mode changed"],
       ["renamed from src/previous.ts"],
       [],
+    ]);
+    // A binary file has no patch to read a mode change from, and the flow still writes both.
+    expect(new DiffFlowRowsByFile(model).rowsOf(2).bodyNotes).toStrictEqual([
+      "mode changed",
+      "binary — contents not shown",
     ]);
   });
 });
