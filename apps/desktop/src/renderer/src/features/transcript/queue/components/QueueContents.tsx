@@ -6,7 +6,7 @@
 
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
-import { useAgesNow } from "#renderer/hooks/useAgesNow.js";
+import { useRelativeTimesNow } from "#renderer/hooks/useRelativeTimesNow.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
 import { refusalWords } from "#renderer/lib/code-words.js";
@@ -32,7 +32,7 @@ export interface QueueContentsProps {
 export function QueueContents(props: QueueContentsProps): React.JSX.Element {
   const { feed } = props;
   const rendered = feed.phase === "reading" ? [] : feed.items.slice(0, QUEUE_ROWS_RENDERED_CAP);
-  const nowMilliseconds = useAgesNow(
+  const nowMilliseconds = useRelativeTimesNow(
     useClock(),
     rendered.flatMap((item) => [item.createdAt, item.updatedAt]),
   );

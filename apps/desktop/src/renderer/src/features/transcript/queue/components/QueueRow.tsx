@@ -9,7 +9,7 @@ import { Chip, type ChipTone } from "#renderer/components/Chip/Chip.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { codeWords } from "#renderer/lib/code-words.js";
-import { formatAge, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
+import { formatRelativeTime, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
 import { type Refusal } from "#renderer/lib/refusal/contract.js";
@@ -44,7 +44,7 @@ export function QueueRow(props: {
   readonly onCancel: (queueItemId: string) => Promise<void>;
   readonly isRetryPending: boolean;
   readonly onRetry: (queueItemId: string) => Promise<void>;
-  /** The instant the row's ages are drawn against, on the list's one beat. */
+  /** The instant the row's relative times are drawn against, on the list's one beat. */
   readonly nowMilliseconds: number;
 }): React.JSX.Element {
   const { item } = props;
@@ -60,7 +60,7 @@ export function QueueRow(props: {
           <dt>Created</dt>
           <dd>
             <WireFigure
-              value={formatAge(item.createdAt, props.nowMilliseconds)}
+              value={formatRelativeTime(item.createdAt, props.nowMilliseconds)}
               hoverLabel={formatZonedDateTime(item.createdAt, clockLocale)}
             />
           </dd>
@@ -69,7 +69,7 @@ export function QueueRow(props: {
           <dt>Updated</dt>
           <dd>
             <WireFigure
-              value={formatAge(item.updatedAt, props.nowMilliseconds)}
+              value={formatRelativeTime(item.updatedAt, props.nowMilliseconds)}
               hoverLabel={formatZonedDateTime(item.updatedAt, clockLocale)}
             />
           </dd>
