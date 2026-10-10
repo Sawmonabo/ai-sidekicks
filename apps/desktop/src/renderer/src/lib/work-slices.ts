@@ -19,8 +19,7 @@ export async function workInSlices(
         if (isStopped()) {
           return undefined;
         }
-        const sliceEnd = performance.now() + SLICE_MS;
-        return work(() => performance.now() < sliceEnd);
+        return work(startSlice());
       },
       { priority: "user-visible" },
     );
@@ -28,6 +27,15 @@ export async function workInSlices(
       return isDone === true;
     }
   }
+}
+
+/**
+ * Starts a slice now, for work that takes its first slice inside the task it is asked in: answers
+ * whether the slice still has time.
+ */
+export function startSlice(): () => boolean {
+  const sliceEnd = performance.now() + SLICE_MS;
+  return () => performance.now() < sliceEnd;
 }
 
 /** The most one slice works, in milliseconds by the wall clock: well inside a frame. */

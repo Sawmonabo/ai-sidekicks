@@ -23,12 +23,8 @@ import { ToolRow } from "../rows/ToolRow.js";
 import { FullBodyReads, FullBodyReadsContext } from "../rows/full-body-reads.js";
 import { FootnoteRegistry } from "../rows/markdown/footnotes/registry.js";
 import { characterOffsetWithin } from "../viewport/selection/preservation.js";
-import {
-  COPY_FLAVOR_ATTRIBUTE,
-  type CopyFlavor,
-  readRowSpanSelection,
-  type RowSpanSelection,
-} from "./conversation-selection.js";
+import { ConversationCopyBuild, type ConversationCopyRows } from "./conversation-copy.js";
+import { COPY_FLAVOR_ATTRIBUTE, type CopyFlavor } from "./conversation-selection.js";
 
 /** A call's output size, too large to travel with its row. */
 const LARGE_OUTPUT_BYTES = 2_000_000;
@@ -53,7 +49,7 @@ function conversationWithFormula(flavor: CopyFlavor, formulaAttributes: string):
 }
 
 /** Row text readers for rows that are all end rows, drawing no long table and no large body. */
-const END_ROWS_ONLY: Pick<RowSpanSelection, "rowText" | "rowBodyText"> = {
+const END_ROWS_ONLY: Pick<ConversationCopyRows, "rowText" | "rowBodyText"> = {
   rowText: () => expect.fail("every row here is an end row"),
   rowBodyText: () => expect.fail("no row here draws a table or a large body"),
 };
@@ -70,9 +66,12 @@ function copyOfDrawnRows(
   const rows = [...conversation.querySelectorAll(`[${WINDOWED_ROW_INDEX_ATTRIBUTE}]`)];
   const rowKeys = rows.map((_, index) => `row-${String(index)}`);
   const lastRow = rows.at(-1) ?? expect.fail("the conversation draws a row");
-  return readRowSpanSelection({
+  const copy = new ConversationCopyBuild({
     selection: {
-      start: { rowKey: rowKeys[0] ?? "", position: { path: [], characterOffset: startOffset } },
+      start: {
+        rowKey: rowKeys[0] ?? "",
+        position: { path: [], characterOffset: startOffset },
+      },
       end: {
         rowKey: rowKeys.at(-1) ?? "",
         position: { path: [], characterOffset: lastRow.textContent.length },
@@ -81,7 +80,10 @@ function copyOfDrawnRows(
     rowKeys,
     endRowElement: (rowKey) => rows[rowKeys.indexOf(rowKey)],
     ...readers,
-  });
+    largeBodyRowIdOf: () => undefined,
+    fullBodyReads: undefined,
+  }).buildWhile(() => true);
+  return copy.isBuilt ? copy.content : expect.fail("a copy reading no body in full builds at once");
 }
 
 describe("a selection across the conversation", () => {

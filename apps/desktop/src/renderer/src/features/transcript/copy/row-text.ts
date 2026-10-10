@@ -5,7 +5,7 @@
 //   - A reply's body is its live lane, else what it drew while the log held it, else the body the
 //     log stores for it; an open tool row's output is its live lane, else its stored body.
 //   - A body the log holds as its size alone is copied whole, as a copy reads it in full before it
-//     builds, whether or not its control was pressed; never the control's words.
+//     reads its row, whether or not its control was pressed; never the control's words.
 //   - Where the log holds no body for a row, the copy carries the words the row draws in its place
 //     when it comes back, so a row is never dropped from a copy without saying so: an unread body
 //     its badge, a turn recorded without content its sentence. A reasoning row's read is kept
@@ -135,23 +135,18 @@ export function readRowBodyText(rowKey: string, sources: RowTextSources): string
 }
 
 /**
- * The ids of the rows among `rowKeys` whose text reads a body the log holds as its size alone, in
- * order: a reply with no drawing or lane, an open call with no lane. A copy reads each in full
- * before it builds; a folded call copies no output, so it reads none.
+ * The id of the row at `rowKey` when its text reads a body the log holds as its size alone: a
+ * reply with no drawing or lane, an open call with no lane. A copy reads it in full before it
+ * reads the row; a folded call copies no output, so it reads none.
  */
-export function largeBodyRowIdsOf(
-  rowKeys: readonly string[],
-  sources: RowBodySources,
-): readonly string[] {
-  return rowKeys.flatMap((rowKey) => {
-    const row = sources.transcriptWindow.rowsByKey.get(rowKey);
-    return row !== undefined &&
-      !sources.transcriptWindow.systemMessageByRowId.has(row.id) &&
-      rowBodyOf(row, sources)?.from === "log" &&
-      row.content?.status === "large"
-      ? [row.id]
-      : [];
-  });
+export function readLargeBodyRowId(rowKey: string, sources: RowBodySources): string | undefined {
+  const row = sources.transcriptWindow.rowsByKey.get(rowKey);
+  return row !== undefined &&
+    !sources.transcriptWindow.systemMessageByRowId.has(row.id) &&
+    rowBodyOf(row, sources)?.from === "log" &&
+    row.content?.status === "large"
+    ? row.id
+    : undefined;
 }
 
 /**

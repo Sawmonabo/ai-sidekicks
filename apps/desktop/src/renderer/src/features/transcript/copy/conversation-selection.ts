@@ -1,30 +1,27 @@
-// What a selection in the conversation copies: each row it runs across, in log order, joined by a
-// blank line. The rows come from the viewport's record of the selection, not from the drawn rows,
-// so rows the window let go between its ends are copied too. Each end row gives the part selected
-// in it as it was drawn, and every row between gives its whole text from the source it is drawn
-// from (`row-text.ts`). A long table's rows the window has not drawn inside an end row's part are
-// read from the text of the row's body, from that same source, through the text range each spacer
-// row names, so a copy never waits for rows to draw. A part inside one table is copied as a table
-// of what was selected. A message row gives only its body, never its author line, stamp or
-// controls: a reply's part as the markdown rebuilt from what was selected, and the person's own
-// message or a reasoning aside as plain text. Any other row gives the text selected in it. Plain
-// text is read the way the screen lays it out, a block's lines on lines of their own, and no
-// control's label is ever part of it. An end row's part that reaches a large body, which draws only
-// its control, holds the body read in full in the control's place, from where the part begins, so
-// the body is never dropped and the control's words never copied; a message's body is its row's
-// text, so its part is the whole. A formula copies as its TeX source, whole, once. A formatted
-// flavor rides beside the text whenever a reply is part of it. A selection crossing the
-// conversation copies only the conversation's part.
+// What a selection in the conversation copies of each row it runs across; `conversation-copy.ts`
+// joins the parts in log order. The rows come from the viewport's record of the selection, not from
+// the drawn rows, so rows the window let go between its ends are copied too. Each end row gives the
+// part selected in it as it was drawn, and every row between gives its whole text from the source
+// it is drawn from (`row-text.ts`). A long table's rows the window has not drawn inside an end
+// row's part are read from the text of the row's body, from that same source, through the text
+// range each spacer row names, so a copy never waits for rows to draw. A part inside one table is
+// copied as a table of what was selected. A message row gives only its body, never its author line,
+// stamp or controls: a reply's part as the markdown rebuilt from what was selected, and the
+// person's own message or a reasoning aside as plain text. Any other row gives the text selected in
+// it. Plain text is read the way the screen lays it out, a block's lines on lines of their own, and
+// no control's label is ever part of it. An end row's part that reaches a large body, which draws
+// only its control, holds the body read in full in the control's place, from where the part begins,
+// so the body is never dropped and the control's words never copied; a message's body is its row's
+// text, so its part is the whole. A formula copies as its TeX source, whole, once. A selection
+// crossing the conversation copies only the conversation's part.
 
 import { isElement } from "@floating-ui/utils/dom";
 import { fromDom } from "hast-util-from-dom";
-import { toHtml } from "hast-util-to-html";
 import { toText } from "hast-util-to-text";
 
-import type { TextClipboardContent } from "#shared/preload-api.js";
 import { resolveRowTextPosition } from "../viewport/selection/preservation.js";
 import { type RowSelection } from "../viewport/selection/record.js";
-import { markdownToHtml, rebuildMarkdown, type DrawnTree } from "./clipboard-flavors.js";
+import { rebuildMarkdown, type DrawnTree } from "./clipboard-flavors.js";
 import { withUndrawnTableRows } from "./undrawn-table-rows.js";
 
 /** One row's share of a copy: its text, and the flavor it copies as. */
@@ -65,18 +62,6 @@ export const LARGE_BODY_ATTRIBUTE = "data-large-body";
 export const PART_SEPARATOR = "\n\n";
 
 /**
- * What a selection across the conversation's rows copies, or `undefined` when it holds no row's
- * copyable text, so the platform's own copy stands.
- */
-export function readRowSpanSelection(span: RowSpanSelection): TextClipboardContent | undefined {
-  const rowParts = span.rowKeys.flatMap((rowKey) => {
-    const part = rowPartOf(span, rowKey);
-    return part === undefined ? [] : [part];
-  });
-  return clipboardContentOf(rowParts);
-}
-
-/**
  * The part of a drawn row that `range` selects. `readBodyText` reads the text of the row's body,
  * which a long table's undrawn rows and a large body drawn as its control are read from; it is
  * read only when the part holds one. Throws when the part holds one and the body has no text.
@@ -95,36 +80,12 @@ export function readSelectedPart(
 }
 
 /**
- * The clipboard's flavors for the parts of a copy, in order, or `undefined` when none holds text.
- * The formatted flavor is made only when a reply's markdown is among them.
+ * One row's part of a selection across the conversation's rows: an end row's selected part as it
+ * was drawn, any other row's whole text, `undefined` for a row with none. An end that lies outside
+ * the scroller takes its row whole, and so does an end row with no drawing kept or a message row
+ * whose part reaches its large body.
  */
-export function clipboardContentOf(
-  selectedParts: readonly SelectedPart[],
-): TextClipboardContent | undefined {
-  const parts = selectedParts.filter((part) => part.text.trim() !== "");
-  if (parts.length === 0) {
-    return undefined;
-  }
-  const text = parts.map((part) => part.text).join(PART_SEPARATOR);
-  if (!parts.some((part) => part.flavor === "markdown")) {
-    return { text };
-  }
-  return {
-    text,
-    html: parts
-      .map((part) =>
-        part.flavor === "markdown" ? markdownToHtml(part.text) : plainHtml(part.text),
-      )
-      .join(""),
-  };
-}
-
-/**
- * One row's part: an end row's selected part as it was drawn, any other row's whole text. An end
- * that lies outside the scroller takes its row whole, and so does an end row with no drawing kept
- * or a message row whose part reaches its large body.
- */
-function rowPartOf(span: RowSpanSelection, rowKey: string): SelectedPart | undefined {
+export function readRowPart(span: RowSpanSelection, rowKey: string): SelectedPart | undefined {
   const { start, end } = span.selection;
   const startAt = rowKey === start.rowKey ? start.position : undefined;
   const endAt = rowKey === end.rowKey ? end.position : undefined;
@@ -298,20 +259,4 @@ function clampedTo(range: Range, element: Element): Range {
     part.setEnd(whole.endContainer, whole.endOffset);
   }
   return part;
-}
-
-/** Plain text as a formatted paragraph, its line breaks kept. */
-function plainHtml(text: string): string {
-  const lines = text.split("\n");
-  return toHtml({
-    type: "element",
-    tagName: "p",
-    properties: {},
-    children: lines.flatMap((line, index) => [
-      ...(index === 0
-        ? []
-        : [{ type: "element" as const, tagName: "br", properties: {}, children: [] }]),
-      { type: "text" as const, value: line },
-    ]),
-  });
 }
