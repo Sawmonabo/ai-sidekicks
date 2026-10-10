@@ -349,7 +349,8 @@ describe.skipIf(process.platform === "win32")("each shell's marks in a real logi
 
           await vi.waitFor(
             () => {
-              expect(markKinds(marks)).toEqual([
+              // On a timeout the shell's output says what it showed instead of a prompt.
+              expect(markKinds(marks), output).toEqual([
                 { kind: "command_end", exitCode: null },
                 { kind: "prompt" },
               ]);

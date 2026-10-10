@@ -463,7 +463,11 @@ describe("ShellTable", () => {
         await table.subscribeOutput(shell, laptop.outlet);
         await vi.waitFor(
           () => {
-            expect(table.isReportingMarks(SESSION_ID, terminalId)).toBe(true);
+            // On a timeout the pane's output says what zsh showed instead of a prompt.
+            expect(
+              table.isReportingMarks(SESSION_ID, terminalId),
+              JSON.stringify(laptop.frames.flatMap((frame) => frame.changes)),
+            ).toBe(true);
           },
           { timeout: REAL_SHELL_TIMEOUT_MS, interval: 20 },
         );
