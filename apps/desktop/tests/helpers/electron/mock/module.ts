@@ -444,6 +444,8 @@ class ElectronMockImpl implements ElectronMock {
       Tray: class {
         public on = vi.fn();
       },
+      // The bridge picks its clipboards when it installs; no suite here writes one.
+      clipboard: { write: vi.fn(), selection: { write: vi.fn() } },
       shell: {
         openExternal: vi.fn((url: string) => {
           this.externalOpens.push(url);
