@@ -114,7 +114,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
   });
   readonly #prompts: ClaudeSentPrompts = new ClaudeSentPrompts();
   // The stored figures of the installed build; replaced when the daemon reads another build.
-  #modelFigures: ClaudeModelFigures = new ClaudeModelFigures(undefined);
+  #modelFigures: ClaudeModelFigures;
   readonly #dispatch: ClaudeDeliveryDispatch;
   readonly #handshakes: ClaudeHandshakeRegister;
   readonly #pendingCompactions: PendingCompactionRegistry;
@@ -136,6 +136,10 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
 
   constructor(dependencies: ClaudeSessionLifecycleDependencies) {
     this.#dependencies = dependencies;
+    this.#modelFigures = new ClaudeModelFigures(
+      undefined,
+      dependencies.operatingSystem.homeVariable,
+    );
     const diagnostics = dependencies.diagnostics;
     const now = dependencies.now ?? Date.now;
     const dispatch = new ClaudeDeliveryDispatch({ inbound: dependencies.inbound, diagnostics });
@@ -483,7 +487,10 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
   /** Starts an empty figure store when the daemon reads a build other than the one held. */
   noteProviderBuild(version: string): void {
     if (version !== this.#modelFigures.buildVersion) {
-      this.#modelFigures = new ClaudeModelFigures(version);
+      this.#modelFigures = new ClaudeModelFigures(
+        version,
+        this.#dependencies.operatingSystem.homeVariable,
+      );
     }
   }
 
@@ -623,7 +630,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
       params,
       this.#dependencies.spawnContext,
       this.#dependencies.providerBaseEnvironment,
-      this.#dependencies.operatingSystem.environmentNameMatch,
+      this.#dependencies.operatingSystem,
     );
   }
 

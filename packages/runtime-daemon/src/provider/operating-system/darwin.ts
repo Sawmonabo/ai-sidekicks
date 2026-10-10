@@ -7,4 +7,5 @@ export const DARWIN_PROVIDER_OPERATING_SYSTEM: ProviderOperatingSystem = {
   claudeManagedSettingsFolder: "/Library/Application Support/ClaudeCode",
   canRunClaudeBashSandbox: true,
   environmentNameMatch: "case-sensitive",
+  homeVariable: "HOME",
 };

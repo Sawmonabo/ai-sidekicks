@@ -94,6 +94,7 @@ export function createDriver(
     providerCommand,
     toolServerRoute,
     diagnostics: driverDependencies.diagnostics,
+    operatingSystem,
   });
   return new ClaudeDriver({
     ...driverDependencies,

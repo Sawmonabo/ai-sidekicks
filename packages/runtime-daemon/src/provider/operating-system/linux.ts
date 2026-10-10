@@ -7,4 +7,5 @@ export const LINUX_PROVIDER_OPERATING_SYSTEM: ProviderOperatingSystem = {
   claudeManagedSettingsFolder: "/etc/claude-code",
   canRunClaudeBashSandbox: true,
   environmentNameMatch: "case-sensitive",
+  homeVariable: "HOME",
 };

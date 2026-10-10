@@ -2,7 +2,8 @@
 // in. Every conversation is tried; the ones that failed throw together after.
 
 import type { PurgeSessionParams } from "../../session-control.js";
-import type { SpawnEnvNameMatch, SpawnEnvPair } from "../../../spawn-env.js";
+import type { ProviderOperatingSystem } from "../../../operating-system/contract.js";
+import type { SpawnEnvPair } from "../../../spawn-env.js";
 import { composeClaudeSpawnEnvironment } from "../spawn/environment.js";
 import { claudeConfigFolderFor, deleteClaudeConversation } from "./conversation-file.js";
 import type { ClaudeSpawnContextResolver } from "./state.js";
@@ -16,7 +17,7 @@ export async function purgeClaudeConversations(
   params: PurgeSessionParams,
   spawnContext: ClaudeSpawnContextResolver,
   providerBaseEnvironment: readonly SpawnEnvPair[],
-  environmentNameMatch: SpawnEnvNameMatch,
+  operatingSystem: Pick<ProviderOperatingSystem, "environmentNameMatch" | "homeVariable">,
 ): Promise<void> {
   const failures: unknown[] = [];
   for (const conversation of params.conversations) {
@@ -27,12 +28,12 @@ export async function purgeClaudeConversations(
       );
       const spawnEnvironment = composeClaudeSpawnEnvironment({
         providerBaseEnvironment,
-        environmentNameMatch,
+        environmentNameMatch: operatingSystem.environmentNameMatch,
         environmentRows: context.environmentRows,
         accountFolders: context.accountFolders,
       });
       await deleteClaudeConversation(
-        claudeConfigFolderFor(spawnEnvironment),
+        claudeConfigFolderFor(spawnEnvironment, operatingSystem.homeVariable),
         context.workingDirectory,
         conversation.resumeHandle,
       );

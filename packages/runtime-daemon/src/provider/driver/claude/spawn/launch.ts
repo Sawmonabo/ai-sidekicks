@@ -13,6 +13,7 @@ import type { RunRefusedCause } from "@ai-sidekicks/contracts/run/failure-cause"
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { mintUuidV7 } from "../../../../uuid-v7.js";
+import type { ProviderOperatingSystem } from "../../../operating-system/contract.js";
 import type { PortRegistration } from "../../../port/registration.js";
 import type { ToolServerRoute } from "../../../port/tool-server-route.js";
 import {
@@ -93,6 +94,8 @@ export interface ClaudeProcessTransportDependencies {
   /** The route to the session's tool servers; while unregistered a session loads none. */
   readonly toolServerRoute: PortRegistration<ToolServerRoute>;
   readonly diagnostics: DriverDiagnosticsEmitter;
+  /** The system fact a conversation file is found by: the variable naming the home folder. */
+  readonly operatingSystem: Pick<ProviderOperatingSystem, "homeVariable">;
 }
 
 /** The reads of one build, on one process that keeps nothing: its version first, then probes. */
@@ -649,7 +652,7 @@ export class ClaudeProcessTransport implements ClaudeSessionTransport {
     providerSessionId: string,
   ): Promise<ClaudeConversationOutline | undefined> {
     const filePath = await findClaudeConversationFile(
-      claudeConfigFolderFor(spawnEnvironment),
+      claudeConfigFolderFor(spawnEnvironment, this.#dependencies.operatingSystem.homeVariable),
       providerSessionId,
     );
     return filePath === undefined ? undefined : await readClaudeConversationOutline(filePath);

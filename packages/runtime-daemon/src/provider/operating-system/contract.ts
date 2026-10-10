@@ -11,4 +11,6 @@ export interface ProviderOperatingSystem {
   readonly canRunClaudeBashSandbox: boolean;
   /** How the system compares environment variable names. */
   readonly environmentNameMatch: SpawnEnvNameMatch;
+  /** The environment variable a provider process reads the person's home folder from. */
+  readonly homeVariable: "HOME" | "USERPROFILE";
 }

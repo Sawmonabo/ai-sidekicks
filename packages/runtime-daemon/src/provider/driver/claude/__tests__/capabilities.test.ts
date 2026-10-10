@@ -428,7 +428,7 @@ describe("Claude model catalog", () => {
   });
 
   it("never fills a row on a home switched to another provider from an Anthropic API read", () => {
-    const figures = new ClaudeModelFigures("2.1.294");
+    const figures = new ClaudeModelFigures("2.1.294", "HOME");
     figures.recordContextReads(
       [["HOME", "/home/person"]],
       [{ requestedModel: "model-y", usage: { model: "model-y", rawMaxTokens: 200_000 } }],
@@ -445,7 +445,7 @@ describe("Claude model catalog", () => {
   });
 
   it("fills a row only from the window read for its own model id", async () => {
-    const figures = new ClaudeModelFigures("2.1.294");
+    const figures = new ClaudeModelFigures("2.1.294", "HOME");
     // What a session's creation-time process read: the larger window's row, and a refused move.
     figures.recordContextReads(
       [],
@@ -505,14 +505,14 @@ describe("Claude model catalog", () => {
         async () => {
           throw transportFailure;
         },
-        new ClaudeModelFigures(undefined),
+        new ClaudeModelFigures(undefined, "HOME"),
         [],
       ),
     ).rejects.toBe(transportFailure);
     await expect(
       resolveClaudeModelCatalog(
         async () => ({ initialize: { notModels: [] }, contextUsage: undefined }),
-        new ClaudeModelFigures(undefined),
+        new ClaudeModelFigures(undefined, "HOME"),
         [],
       ),
     ).rejects.toThrow(ModelCatalogUnreadableError);

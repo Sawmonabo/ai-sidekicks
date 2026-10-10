@@ -10,6 +10,7 @@
 
 import type { SpawnEnvPair } from "../../../spawn-env.js";
 import type { ClaudeCommandChoices } from "./answered-commands.js";
+import type { ProviderOperatingSystem } from "../../../operating-system/contract.js";
 import { claudeConfigFolderFor } from "./conversation-file.js";
 import type { ClaudeReplyReserve } from "./reply-reserve.js";
 import type { ClaudeModelContextRead, ClaudeSessionFolderReadRequest } from "./transport.js";
@@ -50,8 +51,14 @@ function composeModelKey(place: ClaudeSessionFolderReadRequest): string {
   return composeFigureKey(composeEndpointKey(place.spawnEnvironment), place.model);
 }
 
-function composeChoicesKey(place: ClaudeSessionFolderReadRequest): string {
-  return composeFigureKey(place.workingDirectory, claudeConfigFolderFor(place.spawnEnvironment));
+function composeChoicesKey(
+  place: ClaudeSessionFolderReadRequest,
+  homeVariable: ProviderOperatingSystem["homeVariable"],
+): string {
+  return composeFigureKey(
+    place.workingDirectory,
+    claudeConfigFolderFor(place.spawnEnvironment, homeVariable),
+  );
 }
 
 // The model a `get_context_usage` reply names and its whole window (`rawMaxTokens`), or `undefined`
@@ -84,16 +91,21 @@ export class ClaudeModelFigures {
   readonly #commandChoices = new Map<string, Promise<ClaudeCommandChoices>>();
   readonly #replyReserves = new Map<string, Promise<ClaudeReplyReserve>>();
   readonly #contextReads = new Map<string, ClaudeEndpointContextReads>();
+  readonly #homeVariable: ProviderOperatingSystem["homeVariable"];
 
-  constructor(buildVersion: string | undefined) {
+  constructor(
+    buildVersion: string | undefined,
+    homeVariable: ProviderOperatingSystem["homeVariable"],
+  ) {
     this.buildVersion = buildVersion;
+    this.#homeVariable = homeVariable;
   }
 
   /** The style and advisor choices read for `place`'s folder and account, when a read is held. */
   commandChoicesOf(
     place: ClaudeSessionFolderReadRequest,
   ): Promise<ClaudeCommandChoices> | undefined {
-    return this.#commandChoices.get(composeChoicesKey(place));
+    return this.#commandChoices.get(composeChoicesKey(place, this.#homeVariable));
   }
 
   /** Holds the style and advisor choices a read is reading for `place`'s folder and account. */
@@ -101,7 +113,7 @@ export class ClaudeModelFigures {
     place: ClaudeSessionFolderReadRequest,
     commandChoices: Promise<ClaudeCommandChoices>,
   ): void {
-    this.#commandChoices.set(composeChoicesKey(place), commandChoices);
+    this.#commandChoices.set(composeChoicesKey(place, this.#homeVariable), commandChoices);
   }
 
   /** Drops a failed choices read, so the next session reads it again; a later read stays. */
@@ -109,7 +121,7 @@ export class ClaudeModelFigures {
     place: ClaudeSessionFolderReadRequest,
     commandChoices: Promise<ClaudeCommandChoices>,
   ): void {
-    const key = composeChoicesKey(place);
+    const key = composeChoicesKey(place, this.#homeVariable);
     if (this.#commandChoices.get(key) === commandChoices) {
       this.#commandChoices.delete(key);
     }

@@ -11,4 +11,5 @@ export const WINDOWS_PROVIDER_OPERATING_SYSTEM: ProviderOperatingSystem = {
   claudeManagedSettingsFolder: "C:\\Program Files\\ClaudeCode",
   canRunClaudeBashSandbox: false,
   environmentNameMatch: "case-insensitive",
+  homeVariable: "USERPROFILE",
 };
