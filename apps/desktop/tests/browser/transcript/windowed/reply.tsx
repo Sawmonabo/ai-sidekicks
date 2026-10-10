@@ -9,6 +9,8 @@ import { onTestFinished } from "vitest";
 import { liveBridgeWrapper } from "../../../helpers/app/frame-fixtures.js";
 import { renderSettled } from "../../../helpers/app/harness.js";
 import { crossMacrotaskBoundary } from "../../../helpers/macrotask-boundary.js";
+import { PaintedFrameReader } from "../painted-frames.js";
+import { FASTEST_FLICK_SPEED, touchFling } from "../touch-fling.js";
 
 import { installMeridianTokens } from "#renderer/app/token-installation.js";
 import { COPY_FLAVOR_ATTRIBUTE } from "#renderer/features/transcript/copy/conversation-selection.js";
@@ -27,6 +29,8 @@ import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers
 const SCROLLER_WIDTH_PX = 680;
 export const SCROLLER_HEIGHT_PX = 600;
 const BODY_WIDTH_PX = 600;
+/** A fling's travel before the hand lets go, in screens. */
+const FLING_TRAVEL_SCREENS = 3;
 
 /** The key the scroller's one row, the reply, is known to the selection tracker by. */
 const REPLY_ROW_KEY = "reply";
@@ -211,6 +215,43 @@ export function drawnBlocks(windowedBody: HTMLElement): Map<number, HTMLElement>
 export async function scrollTo(scroller: HTMLElement, scrollTop: number): Promise<void> {
   scroller.scrollTop = scrollTop;
   await settleFrames();
+}
+
+/**
+ * Flings the scroller toward its end with the fastest touch flick, three screens of travel and its
+ * momentum, and answers how much of the box showed of the elements `spacersOf` reads in each
+ * frame as it is painted, for the frames that showed any, in pixels. `itemSelector` names the
+ * window's drawn items, which a frame's read waits on as they resize.
+ */
+export async function flingShowingSpacers(
+  scroller: HTMLElement,
+  itemSelector: string,
+  spacersOf: () => readonly Element[],
+): Promise<number[]> {
+  const shownPxByFrame: number[] = [];
+  const frames = new PaintedFrameReader(
+    itemSelector,
+    () => {
+      const box = scroller.getBoundingClientRect();
+      let shownPx = 0;
+      for (const spacer of spacersOf()) {
+        const rect = spacer.getBoundingClientRect();
+        shownPx += Math.max(0, Math.min(rect.bottom, box.bottom) - Math.max(rect.top, box.top));
+      }
+      return shownPx;
+    },
+    (shownPx) => {
+      if (shownPx > 0) {
+        shownPxByFrame.push(shownPx);
+      }
+    },
+  );
+  try {
+    await touchFling(scroller, -FLING_TRAVEL_SCREENS * SCROLLER_HEIGHT_PX, FASTEST_FLICK_SPEED);
+  } finally {
+    frames.stop();
+  }
+  return shownPxByFrame;
 }
 
 /** Scrolls to the end, and again while the blocks measured there move it. */

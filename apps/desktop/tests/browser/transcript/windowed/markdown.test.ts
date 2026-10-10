@@ -8,8 +8,10 @@ import { describe, expect, it } from "vitest";
 
 import { rebuildMarkdown } from "#renderer/features/transcript/copy/clipboard-flavors.js";
 import { longReplyMarkdown } from "#renderer/features/transcript/rows/bodies/WindowedMarkdown.test-support.js";
+import { MARKDOWN_BLOCK_INDEX_ATTRIBUTE } from "#renderer/features/transcript/rows/markdown/block-window/markers.js";
 import {
   drawnBlocks,
+  flingShowingSpacers,
   mountBodies,
   SCROLLER_HEIGHT_PX,
   scrollTo,
@@ -20,6 +22,10 @@ import {
 
 /** How far apart two renderings of one line may land and still be the same pixel. */
 const SAME_LINE_TOLERANCE_PX = 0.5;
+/** A reply of one-line paragraphs, long enough to be windowed, each block a line tall. */
+const SHORT_BLOCK_COUNT = 2_000;
+/** The screens a fling must travel for its frames to have crossed the window's edge many times. */
+const FLING_MINIMUM_SCREENS = 3;
 
 /** An element's first line, as its top below the body's top. */
 function firstLineOffsetPx(element: Element | null | undefined, body: HTMLElement): number {
@@ -27,6 +33,15 @@ function firstLineOffsetPx(element: Element | null | undefined, body: HTMLElemen
     throw new Error("the whole reply drew no element there");
   }
   return element.getBoundingClientRect().top - body.getBoundingClientRect().top;
+}
+
+/** The windowed body's spacers: its children that hold the room of blocks it does not draw. */
+function blockSpacersOf(windowedBody: HTMLElement): HTMLElement[] {
+  return [
+    ...windowedBody.querySelectorAll<HTMLElement>(
+      `:scope > :not([${MARKDOWN_BLOCK_INDEX_ATTRIBUTE}])`,
+    ),
+  ];
 }
 
 describe("browser — a long reply drawn as a window over its blocks", () => {
@@ -86,6 +101,26 @@ describe("browser — a long reply drawn as a window over its blocks", () => {
         windowedBody.getBoundingClientRect().height - flowBody.getBoundingClientRect().height,
       ),
     ).toBeLessThanOrEqual(SAME_LINE_TOLERANCE_PX);
+  });
+
+  it("shows no spacer in any frame of the fastest fling through a reply of one-line blocks", async () => {
+    const reply = Array.from({ length: SHORT_BLOCK_COUNT }, (_, index) => `Line ${String(index)}.`);
+    const { scroller, windowedBody } = await mountBodies(reply.join("\n\n"), {
+      isComplete: true,
+      drawsFlowBody: false,
+    });
+
+    const shownPxByFrame = await flingShowingSpacers(
+      scroller,
+      `[${MARKDOWN_BLOCK_INDEX_ATTRIBUTE}]`,
+      () => blockSpacersOf(windowedBody),
+    );
+
+    // The controls: the fling crossed screens of blocks the window had not drawn, and the window
+    // still holds the room of the blocks it does not draw.
+    expect(scroller.scrollTop).toBeGreaterThan(FLING_MINIMUM_SCREENS * SCROLLER_HEIGHT_PX);
+    expect(blockSpacersOf(windowedBody).length).toBeGreaterThan(0);
+    expect(shownPxByFrame).toEqual([]);
   });
 
   it("keeps its mounted elements bounded as a streaming reply grows from 10 KB to 200 KB", async () => {

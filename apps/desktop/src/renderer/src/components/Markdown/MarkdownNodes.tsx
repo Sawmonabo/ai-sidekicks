@@ -17,7 +17,7 @@ import type {
 import { Fragment } from "react";
 
 import { readDeferredFenceKind } from "./rules.js";
-import type { BlockCopyOffer } from "./block-copy-offer.js";
+import type { BlockCopyRenderer } from "./block-copy-offer.js";
 import {
   TABLE_LINE_KINDS,
   type MarkdownTableFrame,
@@ -50,7 +50,7 @@ export interface MarkdownRenderContext {
    * offer none. Required, so a body that forgot it fails to compile rather than reading as a
    * choice.
    */
-  readonly renderCopy: ((offer: BlockCopyOffer) => React.ReactNode) | undefined;
+  readonly renderCopy: BlockCopyRenderer | undefined;
   /**
    * Draws a table from its offer, choosing which of its rows to draw, or `undefined` for a body
    * that draws every table whole. Required, like `renderCopy`.
@@ -287,29 +287,16 @@ function tableOfferOf(node: Table, context: MarkdownRenderContext): MarkdownTabl
         ? null
         : renderTableRow(bodyRow, index, node.align, "data", context, attributes);
     },
-    drawSpacerRow: (key, heightPx, rowCount, attributes) => (
+    drawSpacerRow: (key, heightPx, attributes) => (
       <tr
         key={key}
         data-table-spacer=""
         aria-hidden="true"
-        style={spacerRowPitchOf(heightPx, rowCount)}
+        style={{ height: `${String(heightPx)}px` }}
         {...attributes}
-      >
-        {Array.from({ length: columnCount }, (_, columnIndex) => (
-          <td key={columnIndex} style={{ height: `${String(heightPx)}px` }} />
-        ))}
-      </tr>
+      />
     ),
   };
-}
-
-/** Carries the pitch of the rows a spacer row stands for into its sheet. */
-interface SpacerRowPitch extends React.CSSProperties {
-  readonly "--meridian-table-row-pitch": string;
-}
-
-function spacerRowPitchOf(heightPx: number, rowCount: number): SpacerRowPitch {
-  return { "--meridian-table-row-pitch": `${String(heightPx / rowCount)}px` };
 }
 
 /** One row whose one cell holds each inline kind whose font a table cell's text can take. */
