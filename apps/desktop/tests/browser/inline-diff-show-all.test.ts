@@ -1,8 +1,8 @@
 // A long diff opened whole in the flow, in Chromium. Show all mounts the rows a step at a time and
 // holds no room for rows not mounted yet, so End pressed right after Show all, a jump the
-// compositor scrolls, never paints a part of the block with no rows: every frame the browser draws
-// meanwhile is read back from a trace and checked. And a reader past the rows the press drew stays
-// where they were as the steps land above them.
+// compositor scrolls, never paints a part of the block with no rows: every frame the browser
+// captures meanwhile is read back from a trace and checked. And a reader past the rows the press
+// drew stays where they were as the steps land above them.
 
 import { cleanup, fireEvent } from "@testing-library/react";
 import { cdp } from "vitest/browser";
@@ -46,9 +46,12 @@ const HELD_TOLERANCE_PX = 1;
 const DRIVE_MARK = "show-all-scroll-driven";
 const FILLED_MARK = "show-all-block-filled";
 
-/** The trace's events for the copy of a frame the page asked for, and its picture. */
-const FRAME_COPIED = "Surface::RequestCopyOfOutput";
+/** The trace's events for the capture of a frame the page drew, and its picture. */
+const FRAME_CAPTURED = "Capture";
 const FRAME_PICTURED = "Screenshot";
+
+/** The result a frame's capture ends with when its picture was taken. */
+const CAPTURE_SUCCEEDED = 1;
 
 beforeEach(() => {
   installMeridianTokens(document);
@@ -143,10 +146,10 @@ describe("browser — Show all on a long diff", () => {
 });
 
 /**
- * A picture of the top page for every frame the browser drew from the driven scroll until the
- * block had every row mounted. A trace's screenshot category copies each frame of the page the
- * display draws out as a picture right after it; a copy in that span with no picture of its own
- * throws, so a frame left unchecked can never read as a pass.
+ * A picture of the top page for every frame the browser captured from the driven scroll until the
+ * block had every row mounted. A trace's screenshot category captures the frames of the page the
+ * display draws and pictures each; a capture in that span that took no picture throws, so a frame
+ * left unchecked can never read as a pass.
  */
 async function framesDrawnUntilFilled(
   block: HTMLElement,
@@ -171,11 +174,15 @@ async function framesDrawnUntilFilled(
   try {
     await session.send("Tracing.start", {
       traceConfig: {
-        includedCategories: ["disabled-by-default-devtools.screenshot", "viz", "blink.user_timing"],
+        includedCategories: [
+          "disabled-by-default-devtools.screenshot",
+          "gpu.capture",
+          "blink.user_timing",
+        ],
       },
       transferMode: "ReportEvents",
     });
-    // The first copies after the trace starts can come in a pair with one picture between them.
+    // Two frames, so the capturer is running before the scroll is driven.
     await nextFrame();
     await nextFrame();
     performance.mark(DRIVE_MARK);
@@ -187,7 +194,7 @@ async function framesDrawnUntilFilled(
       await nextFrame();
     }
     performance.mark(FILLED_MARK);
-    // A picture is copied out after its frame is drawn, so the trace runs on, asking for no frame,
+    // A picture is taken after its frame is drawn, so the trace runs on, asking for no frame,
     // until the last frame's picture is in.
     await new Promise((resolve) => {
       setTimeout(resolve, TRACE_SETTLE_MS);
@@ -205,28 +212,40 @@ async function framesDrawnUntilFilled(
   );
 }
 
-/** One trace event, as far as the cases read it: a picture's event carries its JPEG. */
+/**
+ * One trace event, as far as the cases read it: a picture's event carries its JPEG, and the start
+ * of a frame's capture carries how the capture ended.
+ */
 interface TraceEvent {
   readonly name: string;
+  readonly phase: unknown;
   readonly ts: number;
   readonly snapshot?: string;
+  readonly captureResult?: number;
 }
 
 function traceEventOf(event: Readonly<Record<string, unknown>>): TraceEvent {
-  const { name, ts, args } = event;
+  const { name, ph, ts, args } = event;
   if (typeof name !== "string" || typeof ts !== "number") {
     throw new Error("the trace sent an event with no name or time");
   }
-  const snapshot =
-    typeof args === "object" && args !== null && "snapshot" in args ? args.snapshot : undefined;
-  return typeof snapshot === "string" ? { name, ts, snapshot } : { name, ts };
+  const fields = typeof args === "object" && args !== null ? args : {};
+  const snapshot = "snapshot" in fields ? fields.snapshot : undefined;
+  const result = "result" in fields ? fields.result : undefined;
+  return {
+    name,
+    phase: ph,
+    ts,
+    ...(typeof snapshot === "string" ? { snapshot } : {}),
+    ...(typeof result === "number" ? { captureResult: result } : {}),
+  };
 }
 
 /**
- * The picture of each frame the page asked to have copied between the two marks, in order. The
- * page asks for a copy of each frame of its own the display draws, and the picture comes back
- * before the next copy is asked for; the display's own draws are not read, since it also draws
- * other pages' frames. Throws for a copy with no picture of its own.
+ * The picture of each frame captured between the two marks, in order. The capturer keeps several
+ * frames in flight, so a picture can come after the next frame's capture starts; but it ends its
+ * captures in the order it starts them and pictures each one that succeeds, so the nth succeeded
+ * capture of the trace is its nth picture. Throws for a capture in the span that took no picture.
  */
 function picturedFrames(events: readonly TraceEvent[]): readonly string[] {
   const driveTs = events.find((event) => event.name === DRIVE_MARK)?.ts;
@@ -234,31 +253,32 @@ function picturedFrames(events: readonly TraceEvent[]): readonly string[] {
   if (driveTs === undefined || filledTs === undefined) {
     throw new Error("the trace holds no marks around the driven scroll");
   }
-  const timeline = events
-    .filter((event) => event.name === FRAME_COPIED || event.name === FRAME_PICTURED)
-    .toSorted((left, right) => left.ts - right.ts);
+  const inOrder = (left: TraceEvent, right: TraceEvent): number => left.ts - right.ts;
+  const captures = events
+    .filter((event) => event.name === FRAME_CAPTURED && event.phase === "b")
+    .toSorted(inOrder);
+  const pictures = events.filter((event) => event.name === FRAME_PICTURED).toSorted(inOrder);
   const snapshots: string[] = [];
-  let unpicturedCopyTs: number | undefined;
-  for (const event of timeline) {
-    if (event.name === FRAME_PICTURED) {
-      if (unpicturedCopyTs !== undefined) {
-        if (event.snapshot === undefined) {
-          throw new Error(
-            `the picture of a frame copied at ${String(unpicturedCopyTs)} µs is empty`,
-          );
-        }
-        snapshots.push(event.snapshot);
-        unpicturedCopyTs = undefined;
+  let pictureIndex = 0;
+  for (const capture of captures) {
+    const isInSpan = capture.ts > driveTs && capture.ts < filledTs;
+    if (capture.captureResult !== CAPTURE_SUCCEEDED) {
+      if (isInSpan) {
+        throw new Error(
+          `a frame captured at ${String(capture.ts)} µs took no picture ` +
+            `(capture result ${String(capture.captureResult)})`,
+        );
       }
       continue;
     }
-    if (unpicturedCopyTs !== undefined) {
-      throw new Error(`a frame copied at ${String(unpicturedCopyTs)} µs came back as no picture`);
+    const picture = pictures[pictureIndex];
+    pictureIndex += 1;
+    if (isInSpan) {
+      if (picture?.snapshot === undefined) {
+        throw new Error(`the picture of a frame captured at ${String(capture.ts)} µs is missing`);
+      }
+      snapshots.push(picture.snapshot);
     }
-    unpicturedCopyTs = event.ts > driveTs && event.ts < filledTs ? event.ts : undefined;
-  }
-  if (unpicturedCopyTs !== undefined) {
-    throw new Error(`a frame copied at ${String(unpicturedCopyTs)} µs came back as no picture`);
   }
   if (snapshots.length === 0) {
     throw new Error("no frame was pictured while the block filled");
