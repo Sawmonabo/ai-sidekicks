@@ -10,6 +10,8 @@ import { readFileSync } from "node:fs";
 
 import * as z from "zod/mini";
 
+import { HEX_COLOR_PATTERN } from "@ai-sidekicks/contracts/color";
+
 import {
   DEFAULT_APPEARANCE_RECORD,
   TEXT_SIZES,
@@ -30,7 +32,7 @@ import { writeOwnerOnlyJsonFileSync, writeOwnerOnlyJsonFile } from "../services/
 export const APPEARANCE_FILE_NAME = "appearance.json";
 
 /** A ground as the platform paints it: `#rrggbb`. */
-const groundSchema = z.string().check(z.regex(/^#[0-9a-fA-F]{6}$/));
+const groundSchema = z.string().check(z.regex(HEX_COLOR_PATTERN));
 
 const appearanceChoiceShape = {
   theme: z.enum(APPEARANCE_THEMES),

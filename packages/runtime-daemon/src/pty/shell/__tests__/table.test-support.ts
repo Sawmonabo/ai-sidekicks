@@ -39,6 +39,9 @@ import { DARWIN_TERMINAL_OPERATING_SYSTEM } from "../../operating-system/darwin.
 import { selectTerminalOperatingSystem } from "../../operating-system/selector.js";
 
 /** A second project session, whose shells another session's requests must never reach. */
+/** What every table under test names its terminals' version. */
+export const TERMINAL_VERSION = "sidekicks test";
+
 export const OTHER_SESSION_ID: SessionId = SessionIdSchema.parse(
   "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c9d1f",
 );
@@ -152,6 +155,7 @@ export function openTable(options: TableOptions = {}): TableUnderTest {
     },
     readScreenReaderMode: async () => false,
     readLoginShell: () => options.loginShell ?? "/bin/sh",
+    terminalVersion: TERMINAL_VERSION,
     baseEnvironment: options.baseEnvironment ?? [],
     runFolderPath: scratchRunFolder(),
     operatingSystem: selectTerminalOperatingSystem(process.platform, process.env),

@@ -1,5 +1,6 @@
 // A session's shells as a client addresses them: the live list, opening, closing and ordering,
-// one shell's output stream, writing and resizing, flow control, and the per-shell control lease.
+// one shell's output stream, writing and resizing, the appearance a program's questions about its
+// terminal are answered from, flow control, and the per-shell control lease.
 //
 // Every request names the session and the terminal, and a take or a write names the pane's output
 // subscription it comes through. A request naming a shell its session does not have is refused
@@ -19,6 +20,7 @@
 // by one, so a client keeps whichever reading of the holder is newest.
 import { z } from "zod";
 
+import { HexColorSchema, type HexColor } from "./color.js";
 import { CommandIdSchema, type CommandId } from "./command.js";
 import {
   StreamFrameSchema,
@@ -37,6 +39,9 @@ import { DEVICE_ID_MAX_LEN } from "./trust-statement.js";
 import { RunIdSchema, type RunId } from "./run/id.js";
 import { wireFreeFormString } from "./free-form-string.js";
 import { SessionIdSchema, type SessionId } from "./session/id.js";
+
+/** How many colors a terminal's ANSI palette holds: eight and their eight bright forms. */
+export const TERMINAL_PALETTE_LENGTH = 16;
 
 /** The longest terminal id the daemon accepts. */
 export const TERMINAL_ID_MAX_LEN = 256;
@@ -396,6 +401,68 @@ export const PtyResizeRequestSchema: z.ZodType<PtyResizeRequest, PtyResizeReques
   })
   .strict();
 
+/** The colors a terminal draws with, which a program asking its terminal for them is answered. */
+export interface TerminalColors {
+  foreground: HexColor;
+  background: HexColor;
+  cursor: HexColor;
+  /** The sixteen ANSI colors in their numbered order, black first and bright white last. */
+  palette: HexColor[];
+}
+/** Parses {@link TerminalColors}; the palette holds exactly sixteen colors. */
+export const TerminalColorsSchema: z.ZodType<TerminalColors, TerminalColors> = z
+  .object({
+    foreground: HexColorSchema,
+    background: HexColorSchema,
+    cursor: HexColorSchema,
+    palette: z.array(HexColorSchema).length(TERMINAL_PALETTE_LENGTH),
+  })
+  .strict();
+
+/** One character cell of a pane's grid, in CSS pixels. */
+export interface TerminalCellSize {
+  width: number;
+  height: number;
+}
+/** Parses a {@link TerminalCellSize}; both sides are positive whole pixels. */
+export const TerminalCellSizeSchema: z.ZodType<TerminalCellSize, TerminalCellSize> = z
+  .object({ width: z.number().int().positive(), height: z.number().int().positive() })
+  .strict();
+
+/**
+ * The appearance the daemon answers a program's questions about its terminal from, as no screen
+ * answers them. `console_theme` is the console theme's terminal colors, which the desktop reports
+ * on connecting and at every change of appearance; it serves every shell whose holder reported
+ * none. `holding_pane` is the colors and cell size of the pane holding the shell, which only a
+ * connection the shell's hold is bound to may report, refused as a resize from another is; it
+ * outranks the console theme until the shell changes holder.
+ */
+export type PtyReportTerminalAppearanceRequest =
+  | { source: "console_theme"; colors: TerminalColors }
+  | {
+      source: "holding_pane";
+      sessionId: SessionId;
+      terminalId: TerminalId;
+      colors: TerminalColors;
+      cellSize: TerminalCellSize;
+    };
+/** Parses a {@link PtyReportTerminalAppearanceRequest}. */
+export const PtyReportTerminalAppearanceRequestSchema: z.ZodType<
+  PtyReportTerminalAppearanceRequest,
+  PtyReportTerminalAppearanceRequest
+> = z.discriminatedUnion("source", [
+  z.object({ source: z.literal("console_theme"), colors: TerminalColorsSchema }).strict(),
+  z
+    .object({
+      source: z.literal("holding_pane"),
+      sessionId: SessionIdSchema,
+      terminalId: TerminalIdSchema,
+      colors: TerminalColorsSchema,
+      cellSize: TerminalCellSizeSchema,
+    })
+    .strict(),
+]);
+
 /** The answer to a shell act that reads nothing back. */
 export type PtyActResponse = null;
 const PtyActResponseSchema: z.ZodType<PtyActResponse> = z.null();
@@ -623,6 +690,11 @@ export interface PtyMethodDescriptors {
   >;
   readonly "pty.write": MethodDescriptor<"pty.write", PtyWriteRequest, PtyActResponse>;
   readonly "pty.resize": MethodDescriptor<"pty.resize", PtyResizeRequest, PtyActResponse>;
+  readonly "pty.reportTerminalAppearance": MethodDescriptor<
+    "pty.reportTerminalAppearance",
+    PtyReportTerminalAppearanceRequest,
+    PtyActResponse
+  >;
 }
 /** Every `pty.*` method: its name, how it answers, and its shapes. */
 export const PTY_METHOD_DESCRIPTORS: PtyMethodDescriptors = defineMethodDescriptors({
@@ -675,6 +747,13 @@ export const PTY_METHOD_DESCRIPTORS: PtyMethodDescriptors = defineMethodDescript
     procedureType: "mutation",
     mutating: true,
     requestSchema: PtyResizeRequestSchema,
+    responseSchema: PtyActResponseSchema,
+  },
+  "pty.reportTerminalAppearance": {
+    method: "pty.reportTerminalAppearance",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: PtyReportTerminalAppearanceRequestSchema,
     responseSchema: PtyActResponseSchema,
   },
 });

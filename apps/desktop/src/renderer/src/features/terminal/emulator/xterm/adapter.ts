@@ -1,6 +1,6 @@
 // The app's wrapper over `@xterm/xterm`: one terminal, composed from `addons.ts`
-// (addons and renderer choice), `links.ts` (both link paths, through `link-guard.ts`)
-// and `mount-binding.ts` (size seam and write gate).
+// (addons and renderer choice), `links.ts` (both link paths, through `link-guard.ts`),
+// `mount-binding.ts` (size seam and write gate) and `queries.ts` (the questions it never answers).
 //
 // This class owns the emulator's life: built on first attach, kept across a detach, disposed
 // once. It never decides who may write; the pane hands it the lease's answer.
@@ -18,6 +18,7 @@ import type { Unsubscribe } from "#shared/preload-api.js";
 import { TerminalRendererPool, terminalRendererPool } from "../renderer-pool.js";
 import { TerminalAddonSuite, type TerminalRendererMode } from "./addons.js";
 import { XtermMountBinding } from "./mount-binding.js";
+import { ignoreTerminalQueries } from "./queries.js";
 import { buildTerminalLinkHandler, buildTerminalWebLinksAddon } from "./links.js";
 import { applyDeclaredMonospaceFamily } from "./typeface.js";
 
@@ -194,6 +195,7 @@ export class XtermTerminalAdapter {
       linkHandler: buildTerminalLinkHandler(this.#onActivateLink),
     };
     const terminal = new Terminal(options);
+    ignoreTerminalQueries(terminal);
     this.#addons.loadInto(terminal);
     if (this.#onActivateLink !== undefined) {
       // Gated on the sink: without one, printed URLs would be underlined and their clicks

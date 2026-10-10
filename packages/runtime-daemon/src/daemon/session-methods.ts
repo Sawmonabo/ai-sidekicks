@@ -144,6 +144,8 @@ export interface SessionMethodsDeps {
   readonly terminalOperatingSystem: TerminalOperatingSystem;
   /** Reads the person's login shell, which each shell opens; `null` where the account has none. */
   readonly readLoginShell: () => string | null;
+  /** The service's own release version, which each shell's terminal names when a program asks. */
+  readonly serviceVersion: string;
   /** Writes one line to the service log. */
   readonly writeServiceLog: (line: string) => void;
   /** The terminal host every session's shells run in. */
@@ -412,6 +414,7 @@ export function registerSessionMethods(
     },
     readScreenReaderMode: async () => (await deps.settingsFile.read()).settings.screenReaderMode,
     readLoginShell: deps.readLoginShell,
+    terminalVersion: `sidekicks ${deps.serviceVersion}`,
     baseEnvironment: deps.providerBaseEnvironment,
     runFolderPath: deps.runFolderPath,
     operatingSystem: deps.terminalOperatingSystem,

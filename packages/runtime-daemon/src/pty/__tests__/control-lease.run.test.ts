@@ -55,7 +55,9 @@ describe("ShellControlLease", () => {
         await expect(lease.take(paneOn(deviceId, 1), force)).rejects.toMatchObject(heldByRunA);
       }
     }
-    await expect(lease.admitResize(paneOn(MACHINE, 9), HAND_OFF)).rejects.toMatchObject(heldByRunA);
+    await expect(
+      lease.admitFromHoldingConnection(paneOn(MACHINE, 9), HAND_OFF),
+    ).rejects.toMatchObject(heldByRunA);
     await expect(lease.admitClose(MACHINE, true, HAND_OFF)).rejects.toMatchObject(heldByRunA);
     await expect(
       lease.admitWrite({ kind: "device", ...paneOn(MACHINE, 9) }, HAND_OFF),

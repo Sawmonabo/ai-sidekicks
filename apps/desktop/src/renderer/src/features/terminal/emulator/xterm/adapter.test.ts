@@ -110,6 +110,23 @@ describe("the write gate — watch mode is the default", () => {
   });
 });
 
+describe("questions a program asks its terminal", () => {
+  it("never answers one, so the daemon's answer is the shell's only one", async () => {
+    // An answer here would be typed into the shell beside the daemon's, as input.
+    const onKeystroke = vi.fn<(data: string) => void>();
+    const { adapter } = mountedAdapter({ isWriteEnabled: true, onKeystroke });
+
+    await writeText(
+      adapter,
+      "\x1b[c\x1b[>c\x1b[5n\x1b[6n\x1b[?6n\x1b[4$p\x1b[?2004$p\x1bP$qr\x1b\\" +
+        "\x1b]4;1;?\x07\x1b]10;?\x07\x1b]11;?\x07\x1b]12;?\x07",
+    );
+
+    expect(adapter.isStdinDisabled).toBe(false);
+    expect(onKeystroke).not.toHaveBeenCalled();
+  });
+});
+
 /**
  * Every link provider the adapter registers on its own terminal, in order. xterm.js registers
  * its OSC 8 provider through an internal service, so this records only what the adapter

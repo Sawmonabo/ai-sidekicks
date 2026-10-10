@@ -11,10 +11,13 @@
 // its exit, its close or its session's deletion — the hold bindings they carried are released as
 // closed panes, a close starting that release before the shell leaves its session; a run's hold
 // stays until its command or run ends. An exited shell keeps its record and its scrollback.
+//
+// Each shell's screen copy answers what its program asks the terminal, its colors and cell size
+// from the pane holding it, which a change of holder forgets, or else from the console theme the
+// desktop last reported for every shell.
 
 import type { SubscriptionId } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 import {
-  TerminalIdSchema,
   type PtyCloseRequest,
   type PtyControlChangedPayload,
   type PtyListEntry,
@@ -23,10 +26,12 @@ import {
   type PtyOpenResponse,
   type PtyOutputSubscribeRequest,
   type PtyReorderRequest,
+  type PtyReportTerminalAppearanceRequest,
   type PtyResizeRequest,
   type PtyShellStatus,
   type PtyWriteRequest,
   type SessionSetTerminalFlowControlRequest,
+  type TerminalColors,
   type TerminalId,
 } from "@ai-sidekicks/contracts/pty";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
@@ -36,39 +41,33 @@ import type { OutboundQueue } from "../../ipc/handlers/session/subscribe.js";
 import type { SpawnEnvPair } from "../../provider/spawn-env.js";
 import { sessionNotFound } from "../../session/not-found.js";
 import type { SessionWorkingFolder } from "../../session/working-folder/read.js";
-import { mintUuidV7 } from "../../uuid-v7.js";
 import {
   ShellControlLease,
   type ShellConnection,
   type ShellLeaseCaller,
 } from "../control-lease.js";
-import { ShellFlowControl } from "../flow-control.js";
 import type { PtyHost } from "../host/contract.js";
 import type { FollowPtySession } from "../host/session-events.js";
 import {
   discardMarkNonceFile,
   prepareShellStartupFolders,
-  type ShellMarkNonce,
   type ShellStartupFolders,
 } from "./integration/injection.js";
-import { ShellMarkReader } from "./integration/marks.js";
-import { ShellOutputScanner } from "./output/scanner.js";
 import { ShellOutputStream, type ShellOutputOutlet } from "./output/stream.js";
 import { ShellListFollowers } from "./list.js";
-import { ShellPastes } from "./paste.js";
-import { ShellResizeQueue, type ShellSize } from "./queue/resize.js";
-import { ShellWriteQueue } from "./queue/write.js";
 import {
   PtyChatUnsupportedError,
   PtyNotFoundError,
   PtyOutputSubscriptionNotFoundError,
 } from "./refusals.js";
-import { ScrollbackWindow } from "./scrollback.js";
+import {
+  createShellRecord,
+  INITIAL_SHELL_SIZE,
+  type ShellRecord,
+  type ShellRecordHooks,
+} from "./record.js";
 import type { TerminalOperatingSystem } from "../operating-system/contract.js";
 import { checkWorkingFolder, prepareShellStart } from "./start.js";
-
-/** The size a shell starts at before any pane sizes it: the conventional terminal's. */
-const INITIAL_SHELL_SIZE: ShellSize = { columns: 80, rows: 24 };
 
 // The terminal type a shell's `TERM` names: the one xterm.js, which draws every pane, implements.
 const SHELL_TERMINAL_NAME = "xterm-256color";
@@ -97,46 +96,12 @@ interface ShellTableDeps {
   readonly runFolderPath: string;
   /** What the terminal takes from the operating system it runs on. */
   readonly operatingSystem: TerminalOperatingSystem;
+  /** What each shell's terminal answers a program asking its name and version. */
+  readonly terminalVersion: string;
   /** The connections' outbound queues, which an output stream reads before it sends. */
   readonly outboundQueue: OutboundQueue;
   /** Writes one line to the service log, where work no caller waits on reports its failure. */
   readonly writeServiceLog: (line: string) => void;
-}
-
-// One shell of a session.
-interface ShellRecord {
-  readonly sessionId: SessionId;
-  readonly terminalId: TerminalId;
-  readonly clientIdempotencyKey: string;
-  // The base name of the program started, its title until it sets its own.
-  readonly programName: string;
-  // The terminal host's id for the shell's PTY while it runs.
-  hostSessionId: string | null;
-  // Stops following the host session's output and exit; set while the shell runs.
-  unfollowPtySession: (() => void) | null;
-  status: PtyShellStatus;
-  readonly lease: ShellControlLease;
-  readonly flowControl: ShellFlowControl;
-  readonly scanner: ShellOutputScanner;
-  readonly markReader: ShellMarkReader | null;
-  // The file the shell reads its nonce from, until the shell has read it or never will.
-  markNonce: ShellMarkNonce | null;
-  // Whether a prompt mark carrying the shell's nonce has arrived; a shell without one reports
-  // none.
-  isReportingMarks: boolean;
-  readonly scrollback: ScrollbackWindow;
-  // Bytes of output, its marks taken out, since the shell started.
-  outputOffset: number;
-  // The size the shell was last drawn at, which stays while nobody holds it.
-  size: ShellSize;
-  readonly writeQueue: ShellWriteQueue;
-  readonly pastes: ShellPastes;
-  readonly resizeQueue: ShellResizeQueue;
-  // The write frames awaiting their lease check, one after another in arrival order.
-  admissions: Promise<void>;
-  readonly streams: Map<SubscriptionId, ShellOutputStream>;
-  // Whether a device typed into the shell since its last prompt mark.
-  hasInputSincePrompt: boolean;
 }
 
 // One session's shells, in tab order, and who follows its list.
@@ -177,9 +142,28 @@ export class ShellTable {
   readonly #outputSubscriptions = new Map<SubscriptionId, OutputSubscription>();
   // Prepared once, as the daemon starts, so no nonce file an earlier start left outlives it.
   readonly #startupFolders: Promise<ShellStartupFolders>;
+  // The console theme's terminal colors the desktop last reported, for a shell no holder reported.
+  #consoleColors: TerminalColors | null = null;
+  readonly #recordHooks: ShellRecordHooks;
 
   constructor(deps: ShellTableDeps) {
     this.#deps = deps;
+    this.#recordHooks = {
+      host: deps.host,
+      machineDeviceId: deps.machineDeviceId,
+      terminalVersion: deps.terminalVersion,
+      appendControlChange: deps.appendControlChange,
+      readConsoleColors: () => this.#consoleColors,
+      writeInput: (shell, bytes, failure) => {
+        this.#writeInput(shell, bytes, failure);
+      },
+      refreshList: (sessionId) => {
+        this.#refreshList(sessionId);
+      },
+      refuseEndedCaller: (shell, caller) => {
+        this.#refuseEndedCaller(shell, caller);
+      },
+    };
     this.#startupFolders = prepareShellStartupFolders(deps.runFolderPath);
     // Each open fails with it too; the service log says so even before the first open.
     this.#reportFailure(
@@ -400,16 +384,20 @@ export class ShellTable {
   async write(request: PtyWriteRequest, caller: ShellLeaseCaller): Promise<void> {
     const shell = this.#shellForOutputSubscription(request.sessionId, request.terminalId, caller);
     let delivered: Promise<void> = Promise.resolve();
-    const admitted = shell.admissions.then(() =>
-      shell.lease.admitWrite({ kind: "device", ...caller }, () => {
+    // A paste reads whether the program asked for pasted text marked from all output already come.
+    const admitted = shell.admissions.then(async () => {
+      if (request.kind === "paste") {
+        await shell.screen.settle();
+      }
+      await shell.lease.admitWrite({ kind: "device", ...caller }, () => {
         shell.hasInputSincePrompt = true;
         delivered = shell.writeQueue.enqueue(
           request.kind === "keys"
             ? Buffer.from(request.data, "utf8")
-            : shell.pastes.encodePart(request, () => shell.scanner.isBracketedPasteRequested),
+            : shell.pastes.encodePart(request, () => shell.screen.isBracketedPasteRequested),
         );
-      }),
-    );
+      });
+    });
     // The chain only orders the next frame's check after this one; this frame's outcome reaches
     // its caller below. A refused part ends its paste, so the program is not left inside it.
     shell.admissions = admitted.catch(() => {
@@ -433,11 +421,32 @@ export class ShellTable {
   async resize(request: PtyResizeRequest, caller: ShellConnection): Promise<void> {
     const shell = this.#findShell(request.sessionId, request.terminalId);
     let applied: Promise<void> = Promise.resolve();
-    await shell.lease.admitResize(caller, () => {
+    await shell.lease.admitFromHoldingConnection(caller, () => {
       shell.size = { columns: request.columns, rows: request.rows };
+      shell.screen.resize(request.columns, request.rows);
       applied = shell.resizeQueue.request(shell.size);
     });
     await applied;
+  }
+
+  /**
+   * Keeps the appearance a shell's program is answered from when it asks its terminal: the console
+   * theme's colors for every shell, or the colors and cell size of the pane holding one shell,
+   * which only a connection its hold is bound to may report and which outranks the console theme
+   * until the shell changes holder. A pane's report refuses as a resize does.
+   */
+  async reportTerminalAppearance(
+    request: PtyReportTerminalAppearanceRequest,
+    caller: ShellConnection,
+  ): Promise<void> {
+    if (request.source === "console_theme") {
+      this.#consoleColors = request.colors;
+      return;
+    }
+    const shell = this.#findShell(request.sessionId, request.terminalId);
+    await shell.lease.admitFromHoldingConnection(caller, () => {
+      shell.paneAppearance = { colors: request.colors, cellSize: request.cellSize };
+    });
   }
 
   /**
@@ -518,12 +527,15 @@ export class ShellTable {
     } catch (error) {
       status = { state: "did_not_start", cause: describeError(error) };
     }
-    const shell = this.#createShell(
-      request,
-      start.programName,
-      status,
-      hostSessionId,
-      start.markNonce,
+    const shell = createShellRecord(
+      {
+        request,
+        programName: start.programName,
+        status,
+        hostSessionId,
+        markNonce: start.markNonce,
+      },
+      this.#recordHooks,
     );
     session.shells.set(shell.terminalId, shell);
     session.order.push(shell.terminalId);
@@ -551,79 +563,6 @@ export class ShellTable {
     return { terminalId: shell.terminalId };
   }
 
-  #createShell(
-    request: PtyOpenRequest,
-    programName: string,
-    status: PtyShellStatus,
-    hostSessionId: string | null,
-    markNonce: ShellMarkNonce | null,
-  ): ShellRecord {
-    const { sessionId } = request;
-    const terminalId = TerminalIdSchema.parse(mintUuidV7());
-    const { host } = this.#deps;
-    // Each host call is async, so a shell that stopped running fails the call that named it
-    // rather than the queue that made it. A read or a size has nothing to do once it stopped.
-    const ifRunning = async (call: (hostSession: string) => Promise<void>): Promise<void> => {
-      if (shell.hostSessionId !== null) {
-        await call(shell.hostSessionId);
-      }
-    };
-    const shell: ShellRecord = {
-      sessionId,
-      terminalId,
-      clientIdempotencyKey: request.clientIdempotencyKey,
-      programName,
-      hostSessionId,
-      unfollowPtySession: null,
-      status,
-      lease: new ShellControlLease({
-        sessionId,
-        terminalId,
-        machineDeviceId: this.#deps.machineDeviceId,
-        broadcast: async (change) => {
-          // The new holder's keys never land inside a paste the shell had open before.
-          const closing = shell.pastes.closeAll();
-          if (closing.byteLength > 0) {
-            this.#writeInput(shell, closing, "could not close a paste open as its holder changed");
-          }
-          try {
-            await this.#deps.appendControlChange(change);
-          } finally {
-            this.#refreshList(sessionId);
-          }
-        },
-        refuseEndedCaller: (caller) => {
-          this.#refuseEndedCaller(shell, caller);
-        },
-      }),
-      flowControl: new ShellFlowControl({
-        pause: () => ifRunning((hostSession) => host.pause(hostSession)),
-        resume: () => ifRunning((hostSession) => host.resume(hostSession)),
-      }),
-      scanner: new ShellOutputScanner(),
-      markReader: markNonce === null ? null : new ShellMarkReader(markNonce.nonce),
-      markNonce,
-      isReportingMarks: false,
-      scrollback: new ScrollbackWindow(),
-      outputOffset: 0,
-      size: INITIAL_SHELL_SIZE,
-      writeQueue: new ShellWriteQueue(async (bytes) => {
-        if (shell.hostSessionId === null) {
-          throw new Error(`Shell ${terminalId} stopped running before its input was written`);
-        }
-        await host.write(shell.hostSessionId, bytes);
-      }),
-      pastes: new ShellPastes(),
-      resizeQueue: new ShellResizeQueue((size) =>
-        ifRunning((hostSession) => host.resize(hostSession, size.rows, size.columns)),
-      ),
-      admissions: Promise.resolve(),
-      streams: new Map(),
-      hasInputSincePrompt: false,
-    };
-    return shell;
-  }
-
   #takeOutput(shell: ShellRecord, chunk: Uint8Array): void {
     if (shell.markReader === null) {
       this.#appendOutput(shell, chunk);
@@ -648,9 +587,7 @@ export class ShellTable {
     }
     shell.scrollback.append(output);
     shell.outputOffset += output.byteLength;
-    if (shell.scanner.scan(output)) {
-      this.#refreshList(shell.sessionId);
-    }
+    shell.screen.write(output);
     for (const stream of shell.streams.values()) {
       stream.deliver(output, shell.outputOffset);
     }
@@ -670,8 +607,10 @@ export class ShellTable {
     shell.hostSessionId = null;
     shell.unfollowPtySession = null;
     shell.status = { state: "exited", exitCode };
-    // An exited shell takes no input, so a paste left open has nothing to close.
+    // An exited shell takes no input, so a paste left open has nothing to close and a question its
+    // program left has no one to answer it.
     shell.pastes.clear();
+    shell.screen.dispose();
     this.#discardMarkNonce(shell);
     const end = { exitCode, cursor: shell.outputOffset };
     this.#reportFailure(
@@ -691,6 +630,7 @@ export class ShellTable {
   // leaves its session, then has the host let the shell go.
   #endShell({ session, shell }: { session: SessionShells; shell: ShellRecord }): ShellEnding {
     shell.pastes.clear();
+    shell.screen.dispose();
     const released = this.#endSubscriptions(shell, (stream) => {
       stream.end();
     });
@@ -842,7 +782,7 @@ export class ShellTable {
     const terminals: PtyListEntry[] = await Promise.all(
       shells.map(async (shell) => ({
         terminalId: shell.terminalId,
-        title: shell.scanner.title ?? shell.programName,
+        title: shell.screen.title ?? shell.programName,
         status: shell.status,
         ...(await shell.lease.readHolder()),
       })),

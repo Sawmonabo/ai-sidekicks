@@ -1,5 +1,5 @@
-// One shell's output stream and what a pane sends it: `pty.outputSubscribe`, `pty.write` and
-// `pty.resize`. `pty.outputSubscribe` answers only the `subscriptionId`; its frames follow as
+// One shell's output stream and what a pane sends it: `pty.outputSubscribe`, `pty.write`,
+// `pty.resize` and `pty.reportTerminalAppearance`, which also carries the console theme's colors. `pty.outputSubscribe` answers only the `subscriptionId`; its frames follow as
 // `$/subscription/notify` values through the subscription ack barrier, which holds each until the
 // `{subscriptionId}` response is written. Its end, by the client's cancel or its connection
 // closing, ends what the subscription carried. The registry parses each request before its
@@ -23,16 +23,16 @@ import { shellConnectionOf } from "./caller.js";
 interface PtyInputOutputMethodsDeps {
   readonly shellTable: Pick<
     ShellTable,
-    "subscribeOutput" | "endOutputSubscription" | "write" | "resize"
+    "subscribeOutput" | "endOutputSubscription" | "write" | "resize" | "reportTerminalAppearance"
   >;
   /** The streaming primitive every streaming handler shares, so disconnect cleanup is one map. */
   readonly streamingPrimitive: StreamingPrimitive;
 }
 
 /**
- * Binds `pty.outputSubscribe`, `pty.write` and `pty.resize` onto the registry. A second binding on
- * one registry throws. A call with no stamped device or connection is a daemon wiring fault,
- * thrown as a plain `Error`.
+ * Binds `pty.outputSubscribe`, `pty.write`, `pty.resize` and `pty.reportTerminalAppearance` onto
+ * the registry. A second binding on one registry throws. A call with no stamped device or
+ * connection is a daemon wiring fault, thrown as a plain `Error`.
  */
 export function registerPtyInputOutputMethods(
   registry: MethodRegistry,
@@ -92,4 +92,15 @@ export function registerPtyInputOutputMethods(
     await deps.shellTable.resize(request, shellConnectionOf(ctx, "pty.resize"));
     return null;
   });
+  registerDescribedMethod(
+    registry,
+    PTY_METHOD_DESCRIPTORS["pty.reportTerminalAppearance"],
+    async (request, ctx) => {
+      await deps.shellTable.reportTerminalAppearance(
+        request,
+        shellConnectionOf(ctx, "pty.reportTerminalAppearance"),
+      );
+      return null;
+    },
+  );
 }

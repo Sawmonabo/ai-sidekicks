@@ -320,6 +320,7 @@ export class DaemonProcess {
       runFolderPath: options.runFolder.folderPath,
       terminalOperatingSystem: options.terminalOperatingSystem,
       readLoginShell: options.readLoginShell,
+      serviceVersion: options.serviceVersion,
       refuseSessionWrite: (sessionId, eventType) => {
         refuseSessionEvent(this.#recoveryStatus, sessionId, eventType);
       },

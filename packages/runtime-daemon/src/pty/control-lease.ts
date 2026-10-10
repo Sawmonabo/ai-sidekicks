@@ -288,11 +288,12 @@ export class ShellControlLease {
   }
 
   /**
-   * Hands a resize to `resize`, in the same tick as the check, only from a connection holding the
-   * shell. Another device's or a run's hold refuses it `pty.control_held_by_other`; nobody's, or
-   * another connection of the caller's own device, `pty.control_not_held`.
+   * Hands a resize or a pane's appearance to `admitted`, in the same tick as the check, only from a
+   * connection holding the shell. Another device's or a run's hold refuses it
+   * `pty.control_held_by_other`; nobody's, or another connection of the caller's own device,
+   * `pty.control_not_held`.
    */
-  async admitResize(caller: ShellConnection, resize: () => void): Promise<void> {
+  async admitFromHoldingConnection(caller: ShellConnection, admitted: () => void): Promise<void> {
     while (this.#pendingBroadcast !== undefined) {
       await this.#settled();
     }
@@ -303,7 +304,7 @@ export class ShellControlLease {
     if (current === null || !isBoundTo(current, caller)) {
       throw new PtyControlNotHeldError(this.#terminalId);
     }
-    resize();
+    admitted();
   }
 
   /**
