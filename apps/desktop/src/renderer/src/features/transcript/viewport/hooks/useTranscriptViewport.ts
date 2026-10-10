@@ -22,6 +22,7 @@ import { type RememberedRowHeights } from "#renderer/store/session/remembered-ro
 import { type ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { type TranscriptWindowReading } from "#renderer/lib/transcript-window-diagnostics.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
+import { type AnimationFrameScheduler } from "../../animation-frame-scheduler.js";
 import { type RowHeightKind } from "../../rows/height-kind.js";
 import {
   ViewportController,
@@ -159,6 +160,13 @@ export interface UseTranscriptViewportOptions extends ViewportConditions {
   readonly isRowHeldOut?: ((rowKey: string) => boolean) | undefined;
   readonly holdsRowAfter?: ((rowKey: string | undefined) => boolean) | undefined;
   readonly subscribeToRowWork?: ((listener: () => void) => Unsubscribe) | undefined;
+  /** Whether the feed is still revealing a row's text; see `ViewportControllerOptions`. */
+  readonly isRowRevealing?: ((rowKey: string) => boolean) | undefined;
+  /**
+   * The feed's frame, whose first phase the scroll's reactive writes and eased glides join, ahead
+   * of the reveal's work; without one those writes are refused and every write is placed at once.
+   */
+  readonly frameScheduler?: AnimationFrameScheduler | undefined;
 }
 
 /**
@@ -250,6 +258,16 @@ export function useTranscriptViewport(
     }
     controller.bindVirtualizer(virtualizer);
   }, [controller, virtualizer]);
+
+  // Before paint, so the first write that eases already has a frame to run in. A remount mints
+  // both again, and only the live pair is joined.
+  const frameScheduler = options.frameScheduler;
+  useLayoutEffect(() => {
+    if (controller.isDisposed || frameScheduler === undefined || frameScheduler.isDisposed) {
+      return;
+    }
+    controller.scroll.adoptFrameScheduler(frameScheduler);
+  }, [controller, frameScheduler]);
 
   // A layout effect, so the landing's reading position is set before the passive reconcile below
   // runs: the window would otherwise center on wherever the reader was, not on the row.
@@ -446,7 +464,12 @@ export function useTranscriptViewport(
 function mintViewportController(
   options: Omit<
     ViewportControllerOptions,
-    "readBeyondLogEdge" | "isRowPrepared" | "isRowHeldOut" | "holdsRowAfter" | "subscribeToRowWork"
+    | "readBeyondLogEdge"
+    | "isRowPrepared"
+    | "isRowHeldOut"
+    | "holdsRowAfter"
+    | "subscribeToRowWork"
+    | "isRowRevealing"
   >,
   latestOptions: React.RefObject<UseTranscriptViewportOptions>,
 ): ViewportController {
@@ -458,6 +481,7 @@ function mintViewportController(
     holdsRowAfter: (rowKey) => latestOptions.current.holdsRowAfter?.(rowKey) ?? false,
     subscribeToRowWork: (listener) =>
       latestOptions.current.subscribeToRowWork?.(listener) ?? NO_UNSUBSCRIBE,
+    isRowRevealing: (rowKey) => latestOptions.current.isRowRevealing?.(rowKey) ?? false,
   });
 }
 

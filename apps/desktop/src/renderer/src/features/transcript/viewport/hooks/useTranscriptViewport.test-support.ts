@@ -60,14 +60,18 @@ export interface MountedViewport {
  * the real tree does: the box's ref lands before the library's layout effect, so a render follows
  * the attach. `startAt` is where the reader starts, scrolled up to from the tail;
  * `rememberedRowHeights` is the session's record of its row heights, a fresh one when omitted;
- * `preparation` says which rows draw whole, every row when omitted. It stubs `ResizeObserver` and
- * spies on the controller, so the suite restores with `vi.unstubAllGlobals()` and
- * `vi.restoreAllMocks()`.
+ * `feed` is what the feed hands the binding beyond its rows: which rows draw whole (every row when
+ * omitted), which reveal text, and the frame its writes join (none when omitted). It stubs
+ * `ResizeObserver` and spies on the controller, so the suite restores with `vi.unstubAllGlobals()`
+ * and `vi.restoreAllMocks()`.
  */
 export function mountViewport(
   startAt: "tail" | number,
   rememberedRowHeights?: RememberedRowHeights,
-  preparation?: Pick<UseTranscriptViewportOptions, "isRowPrepared" | "subscribeToRowWork">,
+  feed?: Pick<
+    UseTranscriptViewportOptions,
+    "isRowPrepared" | "subscribeToRowWork" | "isRowRevealing" | "frameScheduler"
+  >,
 ): MountedViewport {
   const resizeObserver = installFakeResizeObserver();
   const boundVirtualizers = vi.spyOn(ViewportController.prototype, "bindVirtualizer");
@@ -81,7 +85,7 @@ export function mountViewport(
         ...CALM,
         rememberedRowHeights,
         heightKindOf: mountedRowKind,
-        ...preparation,
+        ...feed,
       }),
     { initialProps: rows },
   );

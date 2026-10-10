@@ -9,7 +9,9 @@
 // per scroll event. Every offset the library writes reaches the scroll chokepoint through
 // `scrollToFn`, named for whoever it is made for. While a land is on its way the rows are drawn at
 // the offset it ends at, not the one the box stands at, and a band narrowed for it keeps the
-// rows already drawn near it rather than taking them down to draw them again.
+// rows already drawn near it rather than taking them down to draw them again. A follower's tail
+// growing with arriving text is eased after rather than jumped to; every other write is placed at
+// once.
 
 import type { Range, Rect, Virtualizer } from "@tanstack/react-virtual";
 
@@ -20,10 +22,13 @@ import {
 } from "./caps.js";
 import { type DrawnBandScreenHeights } from "./drawn-band.js";
 import { RowMeasurementTable } from "./row-measurement-table.js";
+import { prefersReducedMotion } from "#renderer/lib/reduced-motion.js";
 import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { type ScrollCaller } from "#renderer/lib/scroll/callers.js";
+import { type GlideMotion } from "#renderer/lib/scroll/eased-glide.js";
 import { SCROLL_TAIL_TOLERANCE_PX } from "#renderer/lib/scroll/geometry/publisher.js";
 import { SCROLL_GEOMETRY_EPSILON_PX } from "#renderer/lib/scroll/geometry/sample.js";
+import { MOTION_DURATIONS_MS, settleEasingAt } from "#renderer/styles/motion.js";
 
 /** The virtualizer this frame drives, at the two element types it drives it with. */
 export type TranscriptRowVirtualizer = Virtualizer<HTMLElement, HTMLElement>;
@@ -39,6 +44,8 @@ export interface VirtualizerOptionsInputs {
   readonly virtualKeyAt: (index: number) => string | undefined;
   /** Whether the reader follows the tail, read at each write the library makes. */
   readonly isFollowing: () => boolean;
+  /** Whether the row at an index draws text that is still arriving. */
+  readonly isRowRevealing: (index: number) => boolean;
   /** The indexes of the rows the reader holds that the window keeps, in any order. */
   readonly heldRowIndexes: () => readonly number[];
   /** The virtualizer built with these options, once it is bound. */
@@ -58,6 +65,7 @@ export class VirtualizerOptions {
   readonly #measurements: RowMeasurementTable;
   readonly #virtualKeyAt: (index: number) => string | undefined;
   readonly #isFollowing: () => boolean;
+  readonly #isRowRevealing: (index: number) => boolean;
   readonly #heldRowIndexes: () => readonly number[];
   readonly #virtualizer: () => TranscriptRowVirtualizer | undefined;
   readonly #landingTargetPx: () => number | undefined;
@@ -79,6 +87,8 @@ export class VirtualizerOptions {
   #getItemKey = (index: number): string => this.#keyAt(index);
   /** The keys of the rows the last call of `rangeExtractor` drew. */
   #drawnRowKeys: ReadonlySet<string> = new Set();
+  /** The row the library last measured, whose size change its next adjustment answers. */
+  #measuredIndex: number | undefined;
 
   /**
    * How near its end, in pixels, the library counts the reader as at it: the reading anchor's
@@ -94,7 +104,8 @@ export class VirtualizerOptions {
   /**
    * Every offset the library would write, performed by the one scroll writer and named for whom it
    * is made. `adjustments` is the library's compensation for a row that changed size; the default
-   * adds it too. A re-aim of a retired scroll is not made.
+   * adds it too. A re-aim of a retired scroll is not made, and a follower's tail growing with
+   * arriving text is eased after instead.
    */
   public readonly scrollToFn = (
     offset: number,
@@ -103,6 +114,11 @@ export class VirtualizerOptions {
     const caller = this.#callerOf(writeOptions);
     if (caller === undefined) {
       return;
+    }
+    if (caller === "follow-tail" && this.#jumpCaller === undefined) {
+      if (this.#easesArrivingText(writeOptions.adjustments !== undefined)) {
+        return;
+      }
     }
     this.#scroll.glideTo(caller, offset + (writeOptions.adjustments ?? 0));
   };
@@ -164,6 +180,7 @@ export class VirtualizerOptions {
     instance: TranscriptRowVirtualizer,
   ): number => {
     const index = instance.indexFromElement(element);
+    this.#measuredIndex = index;
     const borderBox = entry?.borderBoxSize[0];
     if (borderBox === undefined) {
       return (
@@ -181,6 +198,7 @@ export class VirtualizerOptions {
     this.#measurements = options.measurements;
     this.#virtualKeyAt = options.virtualKeyAt;
     this.#isFollowing = options.isFollowing;
+    this.#isRowRevealing = options.isRowRevealing;
     this.#heldRowIndexes = options.heldRowIndexes;
     this.#virtualizer = options.virtualizer;
     this.#landingTargetPx = options.landingTargetPx;
@@ -190,16 +208,15 @@ export class VirtualizerOptions {
   /**
    * The rows the library draws: the ones the box intersects, or would at the offset a land on its
    * way ends at, beyond each end the rows within the drawn band's share of the viewport's own
-   * height, counted from the end of that range and including the row that crosses the band's
-   * edge, and every held row the window keeps, so the browser's selection stays anchored in the
-   * rows it starts and ends in. While a land has narrowed the band, a row the last call drew stays
-   * drawn as long as it is within the band's furthest reach, matched by key since a row joining
-   * at the head moves every index: the narrowed band mounts no new row off screen, and takes down
-   * none it would draw again as it widens. The library offers only a row count of its own, so the band is
-   * walked in pixels here, over the sizes it laid the rows out at, or their estimates before it is
-   * bound. The library re-asks only when the intersected range or this function's identity moves,
-   * so a viewport that changed height without moving that range keeps its band until the next
-   * scroll.
+   * height, counted from the end of that range and including the row that crosses the band's edge,
+   * and every held row the window keeps, so the browser's selection stays anchored in the rows it
+   * starts and ends in. While a land has narrowed the band, a row the last call drew stays drawn as
+   * long as it is within the band's furthest reach, matched by key since a row joining at the head
+   * moves every index: the narrowed band mounts no new row off screen, and takes down none it would
+   * draw again as it widens. The library offers only a row count of its own, so the band is walked
+   * in pixels here, over the sizes it laid the rows out at, or their estimates before it is bound.
+   * The library re-asks only when the intersected range or this function's identity moves, so a
+   * viewport that changed height without moving that range keeps its band until the next scroll.
    */
   public get rangeExtractor(): (range: Range) => number[] {
     return this.#rangeExtractor;
@@ -261,6 +278,39 @@ export class VirtualizerOptions {
   /** Points the options at the box the chokepoint just took, or at nothing. */
   public bindScrollContainer(scrollContainer: HTMLElement | undefined): void {
     this.#scrollContainer = scrollContainer;
+  }
+
+  /**
+   * Eases a follower toward the tail when the write the library makes for it answers text arriving
+   * in the log's last row: that row's own size change, or a row appended last, while it reveals.
+   * Answers whether it eased; a write for any other row, under reduced motion or outside a frame
+   * is placed at once. The tail is read each frame from the layout, so text landing mid-glide
+   * re-aims it, and a reader who stops following ends it.
+   */
+  #easesArrivingText(isAdjustment: boolean): boolean {
+    const virtualizer = this.#virtualizer();
+    const ownerWindow = this.#scrollContainer?.ownerDocument.defaultView;
+    if (virtualizer === undefined || ownerWindow === undefined || ownerWindow === null) {
+      return false;
+    }
+    const lastIndex = virtualizer.options.count - 1;
+    const grownIndex = isAdjustment ? this.#measuredIndex : lastIndex;
+    if (
+      lastIndex < 0 ||
+      grownIndex !== lastIndex ||
+      !this.#isRowRevealing(lastIndex) ||
+      prefersReducedMotion(ownerWindow)
+    ) {
+      return false;
+    }
+    return this.#scroll.easeTo(
+      "follow-arriving-text",
+      (geometry) =>
+        this.#isFollowing()
+          ? Math.max(0, virtualizer.getTotalSize() - geometry.viewportHeight)
+          : undefined,
+      ARRIVING_TEXT_GLIDE,
+    );
   }
 
   #keyAt(index: number): string {
@@ -387,3 +437,9 @@ export class VirtualizerOptions {
     return isReaim ? this.#reaimCaller : "measurement-compensation";
   }
 }
+
+/** How a follower is eased after arriving text: the settle duration and the settle curve. */
+const ARRIVING_TEXT_GLIDE: GlideMotion = {
+  durationMs: MOTION_DURATIONS_MS["motion-settle"],
+  easing: settleEasingAt,
+};

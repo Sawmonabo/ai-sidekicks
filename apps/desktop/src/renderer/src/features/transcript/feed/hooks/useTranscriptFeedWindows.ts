@@ -160,8 +160,9 @@ export function useTranscriptFeedWindows(
     [unfurledWindow, drawsBody],
   );
   // The reveal engine is this feed's, minted once and disposed with it. The frame scheduler is
-  // minted above both holders so one object orders the paint: the reveal drain runs in its second
-  // phase, while the viewport writes `scrollTop` at once and submits nothing to the first.
+  // minted above both holders so one object orders the paint: the viewport's reactive writes and
+  // eased glides run in its first phase and the reveal drain in its second, while a write the
+  // reader's own scroll answers is placed at once.
   const frameScheduler = useAnimationFrameScheduler(inputs.clock);
   const reveal = useReveal({ frameScheduler, clock: inputs.clock });
   // A held row's long tables are laid out at the width the viewport's rows are, which it reads
@@ -233,21 +234,49 @@ export function useTranscriptFeedWindows(
     (rowKey: string) => changingRowIds.has(rowKey) || isRevealing(rowKey),
     [changingRowIds, isRevealing, laneRevision],
   );
-  const viewport = useTranscriptViewport({
-    clock: inputs.clock,
-    rows: transcriptWindow.viewportRows,
-    isChangingRow,
-    landingRowKey,
-    messageReadBack: readBack,
-    rememberedRowHeights: inputs.sessionStore.rememberedRowHeights,
-    heightKindOf,
-    bodyLengthOf,
-    readBeyondLogEdge: history?.readStretch,
-    isRowPrepared: preparedRows.isPrepared,
-    isRowHeldOut: preparedRows.isHeldOut,
-    holdsRowAfter: preparedRows.holdsRowAfter,
-    subscribeToRowWork: preparedRows.subscribeToWork,
-  });
+  // One object per change of what it holds, not per render: a frame of arriving text renders the
+  // feed, and a fresh object for each was garbage the viewport only reads through a ref.
+  const clock = inputs.clock;
+  const rememberedRowHeights = inputs.sessionStore.rememberedRowHeights;
+  const readBeyondLogEdge = history?.readStretch;
+  const viewportRows = transcriptWindow.viewportRows;
+  const viewportOptions = useMemo(
+    () => ({
+      clock,
+      rows: viewportRows,
+      isChangingRow,
+      landingRowKey,
+      messageReadBack: readBack,
+      rememberedRowHeights,
+      heightKindOf,
+      bodyLengthOf,
+      readBeyondLogEdge,
+      isRowPrepared: preparedRows.isPrepared,
+      isRowHeldOut: preparedRows.isHeldOut,
+      holdsRowAfter: preparedRows.holdsRowAfter,
+      subscribeToRowWork: preparedRows.subscribeToWork,
+      isRowRevealing: isRevealing,
+      frameScheduler,
+    }),
+    [
+      clock,
+      viewportRows,
+      isChangingRow,
+      landingRowKey,
+      readBack,
+      rememberedRowHeights,
+      heightKindOf,
+      bodyLengthOf,
+      readBeyondLogEdge,
+      preparedRows.isPrepared,
+      preparedRows.isHeldOut,
+      preparedRows.holdsRowAfter,
+      preparedRows.subscribeToWork,
+      isRevealing,
+      frameScheduler,
+    ],
+  );
+  const viewport = useTranscriptViewport(viewportOptions);
   const readRowWidthPx = viewport.readRowWidthPx;
   // After each render, once the scroll container is attached: a table prepared in this render
   // before the width could be read takes it now, at no cost when none waits.

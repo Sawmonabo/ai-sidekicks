@@ -11,6 +11,7 @@ import type { Unsubscribe } from "#shared/preload-api.js";
 import { OverflowMeasurementBatch } from "./overflow-measurement-batch.js";
 import { type ScrollGeometry, type GeometryChangeCause } from "./geometry/sample.js";
 import { type ScrollCaller } from "./callers.js";
+import { EasedGlide, type GlideMotion } from "./eased-glide.js";
 import {
   ScrollFrameWrites,
   type ScrollFrameScheduler,
@@ -46,6 +47,8 @@ export class ScrollController {
   readonly #overflowBatch: OverflowMeasurementBatch;
   /** Reactive writes run in phase one of the frame, ahead of reveal work. */
   readonly #frameWrites: ScrollFrameWrites;
+  /** The one eased glide, a write a frame through the same phase. */
+  readonly #easedGlide: EasedGlide;
 
   #scrollContainer: HTMLElement | undefined;
   /** The caller's content height, read in place of `scrollHeight`; absent, the element's are. */
@@ -84,6 +87,10 @@ export class ScrollController {
       glide: (caller, targetScrollTop) => {
         this.glideTo(caller, targetScrollTop);
       },
+    });
+    this.#easedGlide = new EasedGlide({
+      now: () => options.clock.now(),
+      requestFrame: (caller, computeTarget) => this.#frameWrites.request(caller, computeTarget),
     });
   }
 
@@ -135,6 +142,7 @@ export class ScrollController {
   /** Terminal. A disposed controller attaches nothing and arms nothing. */
   public dispose(): void {
     this.detach();
+    this.#easedGlide.stop();
     this.#frameWrites.release();
     this.#overflowBatch.dispose();
     this.#geometryPublisher.clear();
@@ -216,6 +224,30 @@ export class ScrollController {
    */
   public requestGlide(caller: ScrollCaller, computeTarget: ScrollTargetComputation): boolean {
     return this.#frameWrites.request(caller, computeTarget);
+  }
+
+  /**
+   * Ease toward the offset `computeTarget` answers each frame, one write a frame in phase one,
+   * over `motion`: a target that moves mid-glide restarts the ease from where the box stands, and
+   * a target behind the box is placed at once. A glide for the same caller already under way takes
+   * the new target. Answers whether it runs, which it cannot before a frame is adopted.
+   */
+  public easeTo(
+    caller: ScrollCaller,
+    computeTarget: ScrollTargetComputation,
+    motion: GlideMotion,
+  ): boolean {
+    return this.#easedGlide.start(caller, computeTarget, motion);
+  }
+
+  /** End an eased glide where the box stands. */
+  public stopEasing(): void {
+    this.#easedGlide.stop();
+  }
+
+  /** Whether an eased glide is under way. */
+  public get isEasing(): boolean {
+    return this.#easedGlide.isGliding;
   }
 
   /**

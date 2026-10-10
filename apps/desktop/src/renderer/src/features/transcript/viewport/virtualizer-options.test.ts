@@ -8,6 +8,7 @@ import { act } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ManualClock } from "#renderer/lib/clock.js";
+import { AnimationFrameScheduler } from "../animation-frame-scheduler.js";
 import { createCountingScrollContainer } from "#renderer/lib/scroll/container.test-support.js";
 import { RememberedRowHeights } from "#renderer/store/session/remembered-row-heights.js";
 import { installFakeResizeObserver } from "#test/helpers/element/resize.js";
@@ -18,6 +19,7 @@ import {
   MOUNTED_ROW_COUNT,
   MOUNTED_ROW_ESTIMATE_PX,
   MOUNTED_ROW_WIDTH_PX,
+  type MountedViewport,
   attachRow,
   mountViewport,
   reportRowSize,
@@ -183,5 +185,87 @@ describe("the virtualizer options — the heights a row is laid out at", () => {
     reportRowSize(subject, secondRow, 300, MOUNTED_ROW_WIDTH_PX - 200);
     expect(rememberedRowHeights.heightOf("row-0")).toBeUndefined();
     expect(rememberedRowHeights.heightOf("row-1")).toBe(300);
+  });
+});
+
+describe("the virtualizer options — a follower after arriving text", () => {
+  /** One display frame, in milliseconds. */
+  const FRAME_MS = 16;
+  const LAST_ROW_INDEX = MOUNTED_ROW_COUNT - 1;
+  /** How far the last row grows when its text arrives or its picture lands. */
+  const GROWTH_PX = 120;
+  /** The rows measured before the last one grows. */
+  const MEASURED_ROW_COUNT = 5;
+
+  /**
+   * A following transcript whose last row reveals its text while `isRevealing` says so. Its last
+   * rows are measured and the estimates they publish laid out first, enough of them that the last
+   * row's growth moves no estimate.
+   */
+  async function mountFollowing(isRevealing: boolean): Promise<{
+    readonly subject: MountedViewport;
+    readonly lastRow: HTMLElement;
+    readonly frameClock: ManualClock;
+  }> {
+    // The feed's frame runs on its own clock here; the binding's clock times the glide.
+    const frameClock = new ManualClock();
+    const subject = mountViewport("tail", undefined, {
+      isRowRevealing: (rowKey) => isRevealing && rowKey === `row-${String(LAST_ROW_INDEX)}`,
+      frameScheduler: new AnimationFrameScheduler({ clock: frameClock }),
+    });
+    const lastRows = Array.from({ length: MEASURED_ROW_COUNT }, (_row, offset) =>
+      attachRow(subject, LAST_ROW_INDEX - offset),
+    );
+    for (const row of lastRows) {
+      reportRowSize(subject, row, MOUNTED_ROW_ESTIMATE_PX);
+    }
+    const lastRow = lastRows[0] ?? expect.fail("the last row is attached");
+    // The estimates those rows publish, and the pass the attach armed, are behind it.
+    await act(async () => {
+      await Promise.resolve();
+      subject.clock.runFrame();
+    });
+    return { subject, lastRow, frameClock };
+  }
+
+  /** Lets a queued tail landing run, then one frame, answering where the box stood after it. */
+  async function nextFrame(subject: MountedViewport, frameClock: ManualClock): Promise<number> {
+    await act(async () => {
+      await Promise.resolve();
+      subject.clock.advance(FRAME_MS);
+      frameClock.runFrame();
+    });
+    return subject.scrollContainer.scrollTop;
+  }
+
+  it("eases after text arriving in a revealing last row, never undone by a tail landing", async () => {
+    const { subject, lastRow, frameClock } = await mountFollowing(true);
+    const startPx = subject.scrollContainer.scrollTop;
+
+    reportRowSize(subject, lastRow, MOUNTED_ROW_ESTIMATE_PX + GROWTH_PX);
+    const placedAtOncePx = subject.scrollContainer.scrollTop;
+    const firstFramePx = await nextFrame(subject, frameClock);
+    const offsets = [firstFramePx];
+    for (let frame = 0; frame < 30 && subject.controller.scroll.isEasing; frame += 1) {
+      offsets.push(await nextFrame(subject, frameClock));
+    }
+
+    // Nothing moves until the frame, and the first frame stands part of the way, where a tail
+    // landing queued meanwhile would have put it at the tail.
+    expect(placedAtOncePx).toBe(startPx);
+    expect(firstFramePx).toBeGreaterThan(startPx);
+    expect(firstFramePx).toBeLessThan(subject.tailOffsetPx());
+    expect(new Set(offsets).size).toBeGreaterThan(2);
+    expect(offsets.at(-1)).toBe(subject.tailOffsetPx());
+  });
+
+  it("places a finished last row's growth, such as a late picture, in one write", async () => {
+    const { subject, lastRow } = await mountFollowing(false);
+
+    reportRowSize(subject, lastRow, MOUNTED_ROW_ESTIMATE_PX + GROWTH_PX);
+
+    expect(subject.scrollContainer.scrollTop).toBe(subject.tailOffsetPx());
+    expect(subject.controller.scroll.writeCount("follow-arriving-text")).toBe(0);
+    expect(subject.controller.scroll.isEasing).toBe(false);
   });
 });
