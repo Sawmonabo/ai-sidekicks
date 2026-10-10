@@ -51,8 +51,8 @@ export interface MachineBodyProps {
    * flow until opened, the rest one press away. Absent, as on a reply, the body is drawn whole.
    */
   readonly opening?: OutputOpening | undefined;
-  /** Keep a pressed control where it stands while the body grows; see `TranscriptCardProps`. */
-  readonly holdControlInPlace?: ((control: HTMLElement) => void) | undefined;
+  /** Hold the row where it stands while the body grows; see `TranscriptCardProps`. */
+  readonly holdRowInPlace?: (() => void) | undefined;
 }
 
 /** What a body not yet asked for says in its place, and a copy of it carries. */
@@ -98,7 +98,7 @@ export function MachineBody(props: MachineBodyProps): React.JSX.Element {
           contentLength={props.content.contentLength}
           fullBodyReads={fullBodyReads}
           opening={props.opening}
-          holdControlInPlace={props.holdControlInPlace}
+          holdRowInPlace={props.holdRowInPlace}
         />
       );
     }
@@ -130,7 +130,7 @@ interface LargeBodyProps {
   readonly fullBodyReads: FullBodyReads;
   /** A call's output's opening, which the press opens too, so the body draws whole once read. */
   readonly opening: OutputOpening | undefined;
-  readonly holdControlInPlace: ((control: HTMLElement) => void) | undefined;
+  readonly holdRowInPlace: (() => void) | undefined;
 }
 
 /**
@@ -151,12 +151,12 @@ function LargeBody(props: LargeBodyProps): React.JSX.Element {
       <FullOutputControl
         measure={byteFigurePart("wire", props.contentLength)}
         reading={reading}
-        onPress={(control) => {
-          // Opening the output holds the control in place itself.
+        onPress={() => {
+          // Opening the output holds the row in place itself.
           if (props.opening === undefined) {
-            props.holdControlInPlace?.(control);
+            props.holdRowInPlace?.();
           } else {
-            props.opening.open(control);
+            props.opening.open();
           }
           fullBodyReads.open(rowId);
         }}

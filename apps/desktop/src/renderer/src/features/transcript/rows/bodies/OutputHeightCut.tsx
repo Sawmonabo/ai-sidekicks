@@ -14,8 +14,8 @@ import { useOutputHeightCut } from "./hooks/useOutputHeightCut.js";
 /** Whether a call's output was opened whole, and the press that opens it. */
 export interface OutputOpening {
   readonly isOpened: boolean;
-  /** Draws the output whole, handed the pressed control so it keeps its place. */
-  readonly open: (control: HTMLElement) => void;
+  /** Draws the output whole. */
+  readonly open: () => void;
 }
 
 /** The output to draw, how it is styled, and whether it is cut. */

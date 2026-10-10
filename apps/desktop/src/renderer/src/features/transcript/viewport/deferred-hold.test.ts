@@ -1,7 +1,7 @@
-// What the head hold a reconcile arms writes when it is committed. Runs against a real
-// `ScrollController` over a detached container; the retained key list, the row offsets and the rows
-// the reader saw are the steered seam, so the head hold's arithmetic is assertable without a
-// virtualizer.
+// What the head hold a reconcile arms writes when it is committed, and that a press's hold
+// outranks it. Runs against a real `ScrollController` over a detached container; the retained key
+// list, the row offsets and the rows the reader saw are the steered seam, so the head hold's
+// arithmetic is assertable without a virtualizer.
 
 import { describe, expect, it } from "vitest";
 
@@ -27,7 +27,7 @@ interface HoldUnderTest {
   setRowKeys: (rowKeys: readonly string[]) => void;
 }
 
-function holdUnderTest(): HoldUnderTest {
+function holdUnderTest(holdReadingPosition: () => void = () => undefined): HoldUnderTest {
   const scroll = new ScrollController({ clock: new ManualClock() });
   const scrollContainer = createCountingScrollContainer({ initialScrollTop: 0 });
   scroll.attach(scrollContainer);
@@ -37,8 +37,8 @@ function holdUnderTest(): HoldUnderTest {
     rowKeys: () => rowKeys,
     // A flat row height, so the offset a hold writes is arithmetic a case can state.
     offsetOfIndex: (index) => index * ROW_HEIGHT_PX,
-    // The immediate arm is the controller's; this suite proves the deferred one.
-    holdReadingPosition: () => undefined,
+    // The anchored hold's write is the controller's; a case counts the calls it is owed.
+    holdReadingPosition,
   });
   return {
     hold,
@@ -167,5 +167,28 @@ describe("TranscriptDeferredHold — three windows, two pages, one row under the
     subject.setRowKeys(AFTER_SECOND_PAGE);
     subject.hold.commit(true);
     expect(offsetInViewOf(subject, AFTER_SECOND_PAGE, "r42")).toBe(0);
+  });
+});
+
+describe("TranscriptDeferredHold — a press that brings rows in above the head", () => {
+  it("holds the pressed row, not the rows the reader saw", () => {
+    // Opening a group whose first row sits above its header lands that row at the head; the
+    // press holds its own row, where a head hold would move the reader to the rows in view.
+    let anchoredHoldCount = 0;
+    const subject = holdUnderTest(() => {
+      anchoredHoldCount += 1;
+    });
+    subject.setRowKeys(["earlier", "header", "a", "b"]);
+
+    subject.hold.armAnchoredHoldAtCommit();
+    subject.hold.armAfterReconcile({
+      headInsertedCount: 1,
+      readRowsInView: () => rowsInViewAt(["header", "a", "b"], 0),
+      hasRowSetChanged: true,
+    });
+    subject.hold.commit(true);
+
+    expect(subject.scroll.writeCount("hold-reading-position")).toBe(0);
+    expect(anchoredHoldCount).toBe(1);
   });
 });

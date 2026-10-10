@@ -6,7 +6,7 @@
 
 import { act, cleanup, render, within } from "@testing-library/react";
 import { useState } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { applyAppearance, installMeridianTokens } from "#renderer/app/token-installation.js";
 import { OUTPUT_CUT_FLOW_SHARE } from "#renderer/features/transcript/rows/bodies/hooks/useOutputHeightCut.js";
@@ -101,13 +101,11 @@ function isLineSeen(box: HTMLElement, line: number): boolean {
 function HeldToolOutput(props: {
   readonly body: string;
   readonly liveText?: PublishedText;
-  readonly onOpen?: (control: HTMLElement) => void;
 }): React.JSX.Element {
   const [isOpened, setIsOpened] = useState(false);
   const opening: OutputOpening = {
     isOpened,
-    open: (control) => {
-      props.onOpen?.(control);
+    open: () => {
       setIsOpened(true);
     },
   };
@@ -160,7 +158,6 @@ function renderInScroller(children: React.ReactNode): {
 
 describe("a call's output cut at the visible flow", () => {
   it("cuts at whole lines, paints none of the next, follows the text size, opens in place", async () => {
-    const onOpen = vi.fn<(control: HTMLElement) => void>();
     const coloredOutput = Array.from(
       { length: PRINTED_LINE_COUNT },
       (_line, index) => `${ESCAPE}[32mok${ESCAPE}[39m line ${String(index + 1)}`,
@@ -168,7 +165,7 @@ describe("a call's output cut at the visible flow", () => {
     const { container } = renderInScroller(
       <>
         <div data-call="colored">
-          <HeldToolOutput body={coloredOutput} onOpen={onOpen} />
+          <HeldToolOutput body={coloredOutput} />
         </div>
         <div data-call="plain">
           <HeldToolOutput body={printedLines(PRINTED_LINE_COUNT)} />
@@ -207,13 +204,12 @@ describe("a call's output cut at the visible flow", () => {
     expect(largestCutPx).not.toBeCloseTo(defaultCutPx, 0);
     expect(drawnContentHeightPx(colored)).toBeCloseTo(largestCutPx, 0);
 
-    // The press opens it, handed its control, and the whole output draws where it stands.
+    // The press opens it, and the whole output draws where it stands.
     await act(async () => {
       control.click();
       await Promise.resolve();
     });
     await settleFrames();
-    expect(onOpen).toHaveBeenCalledWith(control);
     expect(colored.scrollHeight).toBe(colored.clientHeight);
     expect(within(coloredCall).queryByRole("button", { name: "Show all" })).toBeNull();
   });

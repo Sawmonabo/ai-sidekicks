@@ -21,8 +21,8 @@ export interface FullOutputControlProps {
   readonly measure?: FigureSentencePart | undefined;
   /** Where the read stands; a caller that opens the rest with no read stays at `rest`. */
   readonly reading: FullOutputReading;
-  /** Brings the rest in, handed the pressed control; called at rest and on a refused read. */
-  readonly onPress: (control: HTMLElement) => void;
+  /** Brings the rest in; called at rest and on a refused read. */
+  readonly onPress: () => void;
 }
 
 /**
@@ -38,9 +38,9 @@ export function FullOutputControl(props: FullOutputControlProps): React.JSX.Elem
       data-reading={reading}
       // A read out is not pressed again; the control keeps its focus and its place.
       aria-disabled={reading === "reading"}
-      onClick={(event) => {
+      onClick={() => {
         if (reading !== "reading") {
-          onPress(event.currentTarget);
+          onPress();
         }
       }}
     >

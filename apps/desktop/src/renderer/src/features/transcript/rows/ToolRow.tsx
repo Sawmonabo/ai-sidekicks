@@ -25,10 +25,10 @@ import { ABSENT_TOOL_NAME_LABEL, toolRowHeadingOf } from "./tool-heading.js";
 /** What a mount hands a tool card, beyond the row itself. */
 export interface ToolRowProps extends TranscriptCardProps {
   /**
-   * Fold or open this call, handed the chevron that was pressed. Optional because density belongs
-   * to the list: without it the card renders a state rather than a control.
+   * Fold or open this call. Optional because density belongs to the list: without it the card
+   * renders a state rather than a control.
    */
-  readonly onDensityToggle?: ((control: HTMLElement) => void) | undefined;
+  readonly onDensityToggle?: (() => void) | undefined;
   /**
    * The call's output's opening, held by the list so an opened output stays whole when the row
    * scrolls out and back; without it the output is drawn whole.
@@ -97,8 +97,8 @@ export function ToolRow(props: ToolRowProps): React.JSX.Element {
             className="meridian-tool-card__disclosure meridian-transcript-row-layout__revealed"
             aria-expanded={isOpen}
             aria-labelledby={nameId}
-            onClick={(event) => {
-              onDensityToggle(event.currentTarget);
+            onClick={() => {
+              onDensityToggle();
             }}
           >
             <Glyph name={isOpen ? "chevron-down" : "chevron-right"} />
@@ -116,7 +116,7 @@ export function ToolRow(props: ToolRowProps): React.JSX.Element {
           footnotes={props.footnotes}
           label={`Output of ${toolName ?? "an unnamed tool"}`}
           opening={props.outputOpening}
-          holdControlInPlace={props.holdControlInPlace}
+          holdRowInPlace={props.holdRowInPlace}
         />
       ) : null}
     </TranscriptRowLayout>

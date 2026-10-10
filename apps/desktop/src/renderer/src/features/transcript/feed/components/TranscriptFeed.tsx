@@ -159,15 +159,15 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
   );
   const rowToggle = useMemo<RowToggle>(
     () => ({
-      toggleCallFold: (rowId, control) => {
-        holdRowInPlace(rowId, control);
+      toggleCallFold: (rowId) => {
+        holdRowInPlace(rowId);
         toggleCall(rowId);
       },
-      openOutput: (rowId, control) => {
-        holdRowInPlace(rowId, control);
+      openOutput: (rowId) => {
+        holdRowInPlace(rowId);
         openOutput(rowId);
       },
-      holdControlInPlace: holdRowInPlace,
+      holdRowInPlace,
     }),
     [holdRowInPlace, toggleCall, openOutput],
   );

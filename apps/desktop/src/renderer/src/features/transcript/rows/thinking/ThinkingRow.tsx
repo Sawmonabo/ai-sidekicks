@@ -30,8 +30,8 @@ export interface ThinkingRowProps {
   /** The entry the row a read returned carries, its tail drawn at rest. */
   readonly storedText: PublishedText | undefined;
   readonly reading: ReasoningReading;
-  /** Ask the daemon for this run's reasoning; handed the control that was pressed. */
-  readonly onExpand: (control: HTMLElement) => void;
+  /** Ask the daemon for this run's reasoning. */
+  readonly onExpand: () => void;
 }
 
 /** The reasoning body: the tail, the read's result and the expand control. */
@@ -141,7 +141,7 @@ function renderReasoningEntries(entries: readonly ReasoningEntry[]): React.React
 function renderExpandControl(
   runId: RunId | undefined,
   reading: ReasoningReading,
-  onExpand: (control: HTMLElement) => void,
+  onExpand: () => void,
 ): React.ReactNode {
   if (runId === undefined || reading.status === "reading" || reading.status === "read") {
     return null;
@@ -150,8 +150,8 @@ function renderExpandControl(
     <button
       type="button"
       className="meridian-reasoning-surface__expand"
-      onClick={(event) => {
-        onExpand(event.currentTarget);
+      onClick={() => {
+        onExpand();
       }}
     >
       {reading.status === "refused" ? "Try the read again" : "Show reasoning"}

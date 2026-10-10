@@ -19,8 +19,8 @@ export interface TranscriptCardProps extends Omit<TranscriptRowProps, "isOutputO
   /** Where this message's footnote definitions are registered. */
   readonly footnotes: FootnoteRegistry;
   /**
-   * Keep a pressed control inside the body where it stands while the row's height changes, called
-   * before the change; absent where the card is drawn outside a transcript's list.
+   * Hold this row where it stands while a press inside the body changes its height, called before
+   * the change; absent where the card is drawn outside a transcript's list.
    */
-  readonly holdControlInPlace?: ((control: HTMLElement) => void) | undefined;
+  readonly holdRowInPlace?: (() => void) | undefined;
 }
