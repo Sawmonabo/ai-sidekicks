@@ -152,7 +152,7 @@ A file several units edit (a `package.json`, the daemon's schema, the handler re
 | Unit | What it builds | Waits on | Plan tasks it discharges |
 | --- | --- | --- | --- |
 | `cli-account` | sidekicks sign-in, sign-out, delete-account, users, relay repin | account-name, every macOS unit | Plan-005 Phase R3: T-005r-3-13, T-005r-3-19, T-005r-3-21, T-005r-3-10; Plan-015 Phase 4: T4.1, T4.2 |
-| `cli-daemon` | sidekicks daemon start/stop/restart/status/install/uninstall, open, crash list, export-data, erase-data, db restore | every macOS unit | Plan-005 Phase R3: T-005r-3-4, T-005r-3-5, T-005r-3-7, T-005r-3-10, T-005r-3-11, T-005r-3-15, T-005r-3-16, T-005r-3-17, T-005r-3-18, T-005r-3-20 |
+| `cli-daemon` | sidekicks daemon start/stop/restart/status/install/uninstall, open, crash list, export-data, erase-data, db restore. Also: `daemon stop` during a repair, where the hello answers `daemon.repairing`: it sends `daemon.stop` on the token-carrying connection the repairing socket serves, which ends the repair, and exits 0 | every macOS unit | Plan-005 Phase R3: T-005r-3-4, T-005r-3-5, T-005r-3-7, T-005r-3-10, T-005r-3-11, T-005r-3-15, T-005r-3-16, T-005r-3-17, T-005r-3-18, T-005r-3-20 |
 | `cli-features` | sidekicks workflow, mcp, provider accounts, sidekick-definition (and their typed clients) | every macOS unit | Plan-014 Phase 5: T5.6; Plan-014 Phase 5B: T5.23; Plan-022 Phase 5: T22.5.5, T22.5.6; Plan-023 Phase 4: T4.2; Plan-024 Phase 2: T2.3 |
 
 ### Other platforms, release and email
