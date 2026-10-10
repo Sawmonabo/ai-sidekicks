@@ -27,6 +27,7 @@ import {
 } from "../../window/transcript-window.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { drawnText } from "#test/helpers/live-region.js";
+import { runEntitiesOf } from "#test/helpers/transcript/run-facts.js";
 
 /** A viewport row is a key and its place in the list; the dispatch reads the key. */
 function viewportRowFor(transcriptWindow: TranscriptWindowModel, key: string): ViewportRow {
@@ -61,7 +62,10 @@ describe("the feed's row dispatch — a key the window no longer holds", () => {
   function runGroupWindow(): TranscriptWindowModel {
     const sessionStore = openSessionStoreWithTerminalRunGroup();
     return new RunGroupFold().fold(
-      deriveTranscriptWindow(sessionStore.snapshot().transcript),
+      deriveTranscriptWindow(
+        sessionStore.snapshot().transcript,
+        sessionStore.snapshot().partitions.run,
+      ),
       new Set<string>(),
       wholeRunWindowInputs(),
     ).window;
@@ -80,7 +84,9 @@ describe("the feed's row dispatch — a key the window no longer holds", () => {
       <TranscriptRowDispatch
         row={vanished}
         // A window with neither the header nor any projected row under that key.
-        {...rendererOptions(deriveTranscriptWindow([]), { renderTranscriptRow: rowRendererCalls })}
+        {...rendererOptions(deriveTranscriptWindow([], {}), {
+          renderTranscriptRow: rowRendererCalls,
+        })}
       />,
       { wrapper: LiveAnnouncerProvider },
     );
@@ -93,7 +99,7 @@ describe("the feed's row dispatch — a key the window no longer holds", () => {
 describe("the feed's row dispatch — the edges of a long run's window", () => {
   it("counts the run's calls beyond each edge, and not the rows that draw nothing", () => {
     const events = longRunEvents(120);
-    const model = deriveTranscriptWindow(events);
+    const model = deriveTranscriptWindow(events, runEntitiesOf(events));
     const runGroup = onlyRunGroupOf(model);
     // Ten pixels a call on a hundred-pixel screen, so the window holds fifty calls.
     const measure = { screenHeightPx: () => 100, rowHeightPx: () => 10 };

@@ -9,6 +9,7 @@
 //     re-derived from the daemon on reconnect.
 import type { TranscriptRowContent } from "@ai-sidekicks/contracts/transcript/content";
 import type { TranscriptRunStamp } from "@ai-sidekicks/contracts/transcript/row";
+import type { TranscriptRunFactsFold } from "@ai-sidekicks/contracts/transcript/run-facts";
 
 import { ENTITY_KINDS, type EntityKind, type EntityRef } from "#renderer/lib/entity-kinds.js";
 
@@ -31,6 +32,11 @@ export interface StoredEntity {
   readonly attributedTo?: string;
   /** Kind-specific body, owned by the feature that registered the projector. */
   readonly body?: Readonly<Record<string, unknown>>;
+  /**
+   * A run's facts, on a run entity only: written with its `state` by `events/run/facts.ts`, the
+   * one writer of both.
+   */
+  readonly runFacts?: TranscriptRunFactsFold;
 }
 
 /** Upsert one entity. The projector's normal output. */

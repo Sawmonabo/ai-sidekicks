@@ -34,7 +34,11 @@ function openStore(): SessionStore {
 describe("SessionStore.prependEarlierEvents — growing the log at its head", () => {
   it("grows the log at the head and counts what it admitted", () => {
     const store = openStore();
-    const merge = store.prependEarlierEvents(eventsAt([15, 16, 17]), EARLIER_EDGE);
+    const merge = store.prependEarlierEvents({
+      events: eventsAt([15, 16, 17]),
+      edge: EARLIER_EDGE,
+      runs: [],
+    });
 
     expect(merge.admitted).toBe(3);
     expect(store.snapshot().transcript.map((event) => event.sequence)).toStrictEqual([
@@ -45,10 +49,11 @@ describe("SessionStore.prependEarlierEvents — growing the log at its head", ()
 
   it("refuses an event belonging to another session", () => {
     const store = openStore();
-    const merge = store.prependEarlierEvents(
-      [eventOfKind("some-other-session", "run.running", 5)],
-      EARLIER_EDGE,
-    );
+    const merge = store.prependEarlierEvents({
+      events: [eventOfKind("some-other-session", "run.running", 5)],
+      edge: EARLIER_EDGE,
+      runs: [],
+    });
 
     expect(merge.admitted).toBe(0);
     expect(store.snapshot().transcript).toHaveLength(3);

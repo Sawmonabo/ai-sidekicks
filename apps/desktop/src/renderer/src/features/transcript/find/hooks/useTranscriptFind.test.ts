@@ -16,6 +16,7 @@ import {
   transcriptFixtureStampAt,
   transcriptFixtureStreamCursor,
 } from "../../logs.test-support.js";
+import { runEntitiesOf } from "#test/helpers/transcript/run-facts.js";
 
 /** Long enough to walk past a shorter window, short enough to enumerate. */
 const LOG_EVENT_COUNT = 10;
@@ -56,7 +57,7 @@ describe("the walk when the result moves under it", () => {
     );
   }
 
-  const wholeLog = deriveTranscriptWindow(syntheticEventLog(LOG_EVENT_COUNT)).rows;
+  const wholeLog = windowOfSyntheticLog(LOG_EVENT_COUNT).rows;
 
   /**
    * Two stages of one pipeline, the folded one a prefix of the other. The fold reports what
@@ -67,8 +68,7 @@ describe("the walk when the result moves under it", () => {
     readonly folded: number;
     readonly drawsBody: (row: TranscriptEventRow) => boolean;
   }): RenderHookResult<TranscriptFindState, unknown> {
-    const modelOf = (count: number): TranscriptWindowModel =>
-      deriveTranscriptWindow(syntheticEventLog(count));
+    const modelOf = (count: number): TranscriptWindowModel => windowOfSyntheticLog(count);
     const foldedWindow = modelOf(stages.folded);
     const unfurledWindow = modelOf(stages.unfurled);
     return renderHook(() =>
@@ -161,7 +161,7 @@ describe("the walk when the result moves under it", () => {
 
 describe("the find field's own open act", () => {
   function findOverWholeLog(): RenderHookResult<TranscriptFindState, void> {
-    const transcriptWindow = deriveTranscriptWindow(syntheticEventLog(LOG_EVENT_COUNT));
+    const transcriptWindow = windowOfSyntheticLog(LOG_EVENT_COUNT);
     return renderHook(() =>
       useTranscriptFind({
         rows: transcriptWindow.rows,
@@ -191,3 +191,9 @@ describe("the find field's own open act", () => {
     expect(result.current.currentMatchIndex).toBe(walkedIndex);
   });
 });
+
+// The window of a synthetic log of `count` events, its run groups reading the log's own facts.
+function windowOfSyntheticLog(count: number): TranscriptWindowModel {
+  const events = syntheticEventLog(count);
+  return deriveTranscriptWindow(events, runEntitiesOf(events));
+}

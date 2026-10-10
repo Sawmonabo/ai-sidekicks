@@ -1,7 +1,8 @@
 // The run engine's inbound dispatch: where each provider delivery is attributed to its execution
 // before anything is written. A lifecycle event or permission ask from the execution before an
-// undo's cut is absorbed there; a lifecycle event for a run already ended is absorbed by the refusal
-// of its own write; any other row is appended, stamped with its source pair when it is late.
+// undo's cut is absorbed there; a lifecycle event for a run already ended is absorbed by the
+// refusal of its own write; any other row is appended, stamped with its source pair when it is
+// late.
 
 import {
   EventEnvelopeVersionSchema,
@@ -11,6 +12,7 @@ import {
 } from "@ai-sidekicks/contracts/event/envelope";
 import type { SessionEvent } from "@ai-sidekicks/contracts/event/variant-types";
 import type { EpochPosition } from "@ai-sidekicks/contracts/transcript/turn-attribution";
+import { isTerminalState } from "@ai-sidekicks/contracts/run/state";
 
 import {
   SessionEventAppender,
@@ -22,7 +24,6 @@ import type { RunEngine, RunTransitionRequest } from "./engine.js";
 import type { DeliveryAttribution, DeliveryOperation, ExecutionEpochs } from "./epochs.js";
 import type { RunRead } from "./read.js";
 import { RunAlreadyEndedError, RunInvalidTransitionError } from "./refusals.js";
-import { isTerminalState } from "./transitions.js";
 
 const INBOUND_EVENT_VERSION: EventEnvelopeVersion = EventEnvelopeVersionSchema.parse("1.0");
 

@@ -8,7 +8,7 @@
 // row's body rides onto the event too, so a reply read from history draws its text. The decode is
 // total: every member the log holds is required on the row except an optional `actor`, so no row
 // is dropped. Whether more rows lie beyond the window is the reply's `hasMore`, never
-// inferred from a short page.
+// inferred from a short page. The facts of the runs the rows name ride with the page verbatim.
 
 import type {
   TranscriptReadRequest,
@@ -17,7 +17,7 @@ import type {
 import type { TranscriptReadRow, TranscriptRunStamp } from "@ai-sidekicks/contracts/transcript/row";
 
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
-import type { TranscriptWindowEdge } from "#renderer/store/session/state.js";
+import type { TranscriptWindowPage } from "#renderer/store/session/transcript-window.js";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { callDaemon, type DaemonCallOptions, type DaemonReply } from "../reply.js";
 
@@ -30,21 +30,6 @@ export type TranscriptPageRead = (
   options?: DaemonCallOptions,
 ) => Promise<DaemonReply<TranscriptReadResponse>>;
 
-/** One read window, in the shape the store's log speaks. */
-export interface TranscriptPage {
-  /**
-   * The window's rows as app events, oldest to newest as the response schema orders them. Not
-   * re-sorted: the store's merges order what they admit.
-   */
-  readonly events: readonly ProjectedSessionEvent[];
-  /**
-   * The far edge of the window: the reply's `nextCursor`, relayed verbatim, which the next read in
-   * the same direction is asked with, and its `hasMore`, verbatim. `hasMore` is never derived from
-   * the cursor, because the terminal arm may carry a cursor too.
-   */
-  readonly edge: TranscriptWindowEdge;
-}
-
 /** The `transcript.read` page call through one bridge. */
 export function transcriptPageReadThroughDaemon(bridge: PlatformBridge): TranscriptPageRead {
   return (request, options) => callDaemon(bridge, "transcript.read", request, options);
@@ -52,12 +37,16 @@ export function transcriptPageReadThroughDaemon(bridge: PlatformBridge): Transcr
 
 /**
  * Reads one `transcript.read` window into the app's event log. It takes the parsed response
- * because `callDaemon` has already held the reply to the registered schema.
+ * because `callDaemon` has already held the reply to the registered schema. The rows are not
+ * re-sorted, since the store's merges order what they admit; the edge relays `nextCursor` and
+ * `hasMore` verbatim, `hasMore` never derived from the cursor, since the terminal arm may carry
+ * one too.
  */
-export function readTranscriptPage(response: TranscriptReadResponse): TranscriptPage {
+export function readTranscriptPage(response: TranscriptReadResponse): TranscriptWindowPage {
   return {
     events: response.entries.map(readTranscriptReadRowAsEvent),
     edge: { cursor: response.nextCursor, hasMore: response.hasMore },
+    runs: response.runs,
   };
 }
 

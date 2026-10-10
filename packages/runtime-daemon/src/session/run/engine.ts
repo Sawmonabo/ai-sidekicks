@@ -13,7 +13,7 @@ import type { ProcessExit, RunSetupFailedCause } from "@ai-sidekicks/contracts/r
 import type { InterruptReason } from "@ai-sidekicks/contracts/orchestration";
 import type { InterventionEventPayload } from "@ai-sidekicks/contracts/run/events";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
-import type { RunState } from "@ai-sidekicks/contracts/run/state";
+import { type RunState, isTerminalState } from "@ai-sidekicks/contracts/run/state";
 import type { QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
 import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import type { ProviderOutputSpeedState } from "@ai-sidekicks/contracts/provider/driver/output-speed";
@@ -47,7 +47,6 @@ import {
   type RunStateChange,
   type RunStateChangeCompanions,
 } from "./state-change.js";
-import { isTerminalState } from "./transitions.js";
 
 // Parsed at load so a bad literal throws at import, not at the first change.
 const RUN_ENGINE_EVENT_VERSION: EventEnvelopeVersion = EventEnvelopeVersionSchema.parse("1.0");
@@ -363,8 +362,8 @@ export class RunEngine {
     );
   }
 
-  // A run that ends while no driver has it: an entry still settling learns it ended; a claimable one
-  // has nothing left to claim.
+  // A run that ends while no driver has it: an entry still settling learns it ended; a claimable
+  // one has nothing left to claim.
   #markStartingRunEnded(runId: RunId): void {
     const startingRun = this.#startingRuns.get(runId);
     if (startingRun === undefined) {

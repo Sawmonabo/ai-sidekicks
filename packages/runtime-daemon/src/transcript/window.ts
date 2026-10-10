@@ -4,12 +4,16 @@
 // both together the events between them, read forward. Rows run oldest to newest either way.
 //
 // A page stops at the caller's limit or the page byte budget, whichever trips first, and says
-// whether more remain. One candidate past the limit is read to learn that, never projected.
+// whether more remain. One candidate past the limit is read to learn that, never projected. Each
+// page carries the facts of the runs its rows name, folded from the whole log through the head,
+// which share the page's budget with its rows.
 
 import type { Database } from "better-sqlite3";
 
 import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
-import { countEntriesFittingOneFrame } from "@ai-sidekicks/contracts/jsonrpc/page";
+import { jsonUtf8ByteLength } from "@ai-sidekicks/contracts/jsonrpc/byte-length";
+import { PAGE_MAX_BYTES, countEntriesFittingOneFrame } from "@ai-sidekicks/contracts/jsonrpc/page";
+import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import { encodeEventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { TRANSCRIPT_READ_LIMIT_MAX } from "@ai-sidekicks/contracts/transcript/limits";
@@ -17,6 +21,8 @@ import type {
   TranscriptReadRequest,
   TranscriptReadResponse,
 } from "@ai-sidekicks/contracts/transcript/operations";
+import type { TranscriptReadRow } from "@ai-sidekicks/contracts/transcript/row";
+import type { TranscriptRunFacts } from "@ai-sidekicks/contracts/transcript/run-facts";
 
 import {
   prepareSessionEventReads,
@@ -26,6 +32,7 @@ import {
 } from "../events/session/read.js";
 import { sessionNotFound } from "../session/not-found.js";
 import type { TranscriptProjector } from "./projector.js";
+import { TranscriptRunFactsReader } from "./run-facts.js";
 
 /**
  * The head a transcript read checks its cursors against, `undefined` for a session whose history is
@@ -49,6 +56,7 @@ export class TranscriptWindowReader {
   readonly #reader: Database;
   readonly #reads: SessionEventReads;
   readonly #projector: Pick<TranscriptProjector, "projectWindow">;
+  readonly #runFacts: TranscriptRunFactsReader;
   readonly #readDamagedFromSequence: DamagedFromSequenceReader;
 
   // `readDamagedFromSequence` stops every read at a damaged session's last good point.
@@ -60,6 +68,7 @@ export class TranscriptWindowReader {
     this.#reader = reader;
     this.#reads = prepareSessionEventReads(reader, readDamagedFromSequence);
     this.#projector = projector;
+    this.#runFacts = new TranscriptRunFactsReader(reader, readDamagedFromSequence);
     this.#readDamagedFromSequence = readDamagedFromSequence;
   }
 
@@ -85,14 +94,15 @@ export class TranscriptWindowReader {
         : resolveEventCursor(request.beforeCursor, head);
     const limit = request.limit ?? TRANSCRIPT_READ_LIMIT_MAX;
     if (beforePosition !== undefined && request.afterCursor === undefined) {
-      return this.#readBackward(sessionId, beforePosition, limit);
+      return this.#readBackward(sessionId, head, beforePosition, limit);
     }
-    return this.#readForward(sessionId, afterPosition, beforePosition, limit);
+    return this.#readForward(sessionId, head, afterPosition, beforePosition, limit);
   }
 
   // The oldest rows after `afterPosition`, up to `beforePosition` when one bounds the window.
   #readForward(
     sessionId: SessionId,
+    head: number | undefined,
     afterPosition: number,
     beforePosition: number | undefined,
     limit: number,
@@ -108,38 +118,85 @@ export class TranscriptWindowReader {
     }
     const stretch = candidates.slice(0, limit);
     const rows = this.#projector.projectWindow(sessionId, stretch);
+    const stretchRuns = this.#runFactsOf(sessionId, head, rows);
     // Counted from the oldest end, so a budget cut keeps the rows nearest `afterCursor`, whether
     // or not `beforeCursor` bounds the window.
-    const pageCount = countEntriesFittingOneFrame(rows, limit);
+    const pageCount = countEntriesFittingOneFrame(rows, limit, rowBudgetBeside(stretchRuns));
     const entries = rows.slice(0, pageCount);
+    const runs = runsNamedBy(entries, stretchRuns);
     const newestKept = stretch[pageCount - 1];
     // An empty page leaves the reader where it asked to read after.
     const nextCursor = encodeEventCursor(
       newestKept === undefined ? afterPosition : newestKept.sequence,
     );
     return pageCount < candidates.length
-      ? { entries, hasMore: true, nextCursor }
-      : { entries, hasMore: false, nextCursor };
+      ? { entries, runs, hasMore: true, nextCursor }
+      : { entries, runs, hasMore: false, nextCursor };
   }
 
   // The newest rows at or below `beforePosition`, returned oldest first.
   #readBackward(
     sessionId: SessionId,
+    head: number | undefined,
     beforePosition: number,
     limit: number,
   ): TranscriptReadResponse {
     const candidates = this.#reads.readBefore(sessionId, beforePosition, limit + 1);
     const stretch = candidates.slice(-limit);
     const rows = this.#projector.projectWindow(sessionId, stretch);
+    const stretchRuns = this.#runFactsOf(sessionId, head, rows);
     // Counted from the newest end, so a budget cut drops the rows farthest from the cursor.
-    const pageCount = countEntriesFittingOneFrame([...rows].reverse(), limit);
+    const pageCount = countEntriesFittingOneFrame(
+      [...rows].reverse(),
+      limit,
+      rowBudgetBeside(stretchRuns),
+    );
     const entries = rows.slice(rows.length - pageCount);
+    const runs = runsNamedBy(entries, stretchRuns);
     const oldestKept = stretch[stretch.length - pageCount];
     // Every candidate made the page (an empty one included, where `oldestKept` is undefined): the
     // page reached the start of the log, so no earlier window remains to name.
     if (pageCount === candidates.length || oldestKept === undefined) {
-      return { entries, hasMore: false };
+      return { entries, runs, hasMore: false };
     }
-    return { entries, hasMore: true, nextCursor: encodeEventCursor(oldestKept.sequence - 1) };
+    return {
+      entries,
+      runs,
+      hasMore: true,
+      nextCursor: encodeEventCursor(oldestKept.sequence - 1),
+    };
   }
+
+  // The facts of every run `rows` name, in the order each is first named. A head that is absent
+  // reads no rows, so it names no run.
+  #runFactsOf(
+    sessionId: SessionId,
+    head: number | undefined,
+    rows: readonly TranscriptReadRow[],
+  ): TranscriptRunFacts[] {
+    const runIds = new Set<RunId>();
+    for (const row of rows) {
+      if (row.kind !== "general") {
+        runIds.add(row.runId);
+      }
+    }
+    return head === undefined ? [] : this.#runFacts.read(sessionId, [...runIds], head);
+  }
+}
+
+// The bytes a page's rows may take beside the facts of every run its stretch names, which the kept
+// rows' facts never exceed.
+function rowBudgetBeside(stretchRuns: readonly TranscriptRunFacts[]): number {
+  return PAGE_MAX_BYTES - jsonUtf8ByteLength(stretchRuns);
+}
+
+// The facts of the runs `entries` name, from those of the stretch they were cut from.
+function runsNamedBy(
+  entries: readonly TranscriptReadRow[],
+  stretchRuns: readonly TranscriptRunFacts[],
+): TranscriptRunFacts[] {
+  const namedRunIds = new Set(
+    entries.flatMap((row) => (row.kind === "general" ? [] : [row.runId])),
+  );
+  return stretchRuns.filter((facts) => namedRunIds.has(facts.runId));
 }

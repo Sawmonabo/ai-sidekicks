@@ -8,19 +8,26 @@
 // with no card draws nothing, so it is published only once its first card arrives, and its header
 // stands above that card. Whether a person folded a group is `feed/fold-state.ts`'s, never this
 // module's. This module renders nothing; `RunGroupHeader.tsx` draws the model.
+//
+// What a header says of its run (who acts for it, the account it is billed to, its state) and
+// whether the run has ended are the run's facts from the session store, which the daemon folded
+// over the whole log, never the window's rows: a run whose naming row lies outside the window
+// reads the same as one whose rows are all held.
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
+import {
+  isTranscriptRunEnded,
+  transcriptRunHeaderStateOf,
+  type TranscriptRunFactsFold,
+} from "@ai-sidekicks/contracts/transcript/run-facts";
 
+import type { StoredEntity } from "#renderer/store/session/entities/vocabulary.js";
 import { classifyTranscriptRow } from "../rows/kind.js";
 import { SystemMessageClassifier } from "../system-messages/classifier.js";
 import { PublishedKeyedList } from "../window/published-keyed-list.js";
-import {
-  isReopeningEventType,
-  isRunStateEventType,
-  isTerminalEventType,
-  payingAccountIdOf,
-  type RunTerminalEventType,
-} from "./lifecycle-events.js";
+
+/** The session store's run entities by run id, whose facts each run group reads. */
+export type RunEntitiesByRunId = Readonly<Record<string, StoredEntity>>;
 
 /** One stretch of one run's rows, folded. */
 export interface RunGroup {
@@ -42,18 +49,15 @@ export interface RunGroup {
    * counts and the calls a long run's window is cut in.
    */
   readonly drawnRowPositions: readonly number[];
-  /** The actor the run's rows are attributed to, wire-verbatim, or `undefined` if none. */
+  /** Who acts for the run, wire-verbatim, or `undefined` where no event of it names anyone. */
   readonly actorId: string | undefined;
   /**
    * The newest run state the log reported for the run, wire-verbatim, on its newest group only:
-   * an earlier stretch's header no longer says what the run is doing. `undefined` there, where no
-   * row carried a state, and after a rewind that cleared it.
+   * an earlier stretch's header no longer says what the run is doing. `undefined` there, where the
+   * run has no state, and after a rewind.
    */
   readonly runStateEventType: string | undefined;
-  /**
-   * The provider account the run was admitted under, wire-verbatim, or `undefined` where no row
-   * in the window named one.
-   */
+  /** The provider account the run was admitted under, wire-verbatim, or `undefined` for none. */
   readonly payingAccountId: string | undefined;
 }
 
@@ -83,6 +87,12 @@ export class RunGroupIndex {
   #lastCardGroup: GroupAccumulator | undefined;
   readonly #liveRunIds = new Set<string>();
   #publishedLiveRunIds: ReadonlySet<string> | undefined;
+  #runEntities: RunEntitiesByRunId;
+
+  /** `runEntities` are the session store's run entities, whose facts each run's groups read. */
+  public constructor(runEntities: RunEntitiesByRunId) {
+    this.#runEntities = runEntities;
+  }
 
   /**
    * Fold one row in, in log order, and answer the key of the group it joined, or `undefined` for
@@ -96,9 +106,6 @@ export class RunGroupIndex {
       return undefined;
     }
     const run = row.kind === "general" ? undefined : this.#runOf(row.runId);
-    if (run !== undefined) {
-      this.#absorbRunFacts(run, row);
-    }
     if (isNotification) {
       const group = this.#lastCardGroup;
       if (group === undefined || (run !== undefined && group.run !== run)) {
@@ -158,6 +165,23 @@ export class RunGroupIndex {
     }
   }
 
+  /**
+   * Read each run's facts from `runEntities`, the store's newer run entities, sealing again the
+   * groups whose header they changed and moving a run that started or ended; answers whether
+   * either moved. A run whose facts keep their object costs nothing.
+   */
+  public admitRunEntities(runEntities: RunEntitiesByRunId): boolean {
+    if (runEntities === this.#runEntities) {
+      return false;
+    }
+    this.#runEntities = runEntities;
+    const publishedLiveRunIds = this.liveRunIds();
+    for (const run of this.#runsByRunId.values()) {
+      this.#takeFacts(run, runEntities[run.runId]?.runFacts);
+    }
+    return this.#touchedGroups.size > 0 || this.liveRunIds() !== publishedLiveRunIds;
+  }
+
   /** The groups with a card a row joined or changed in since the last call, each sealed afresh. */
   public sealTouched(): readonly RunGroup[] {
     const sealed = [...this.#touchedGroups].flatMap(sealDrawnRunGroup);
@@ -187,17 +211,10 @@ export class RunGroupIndex {
   #runOf(runId: string): RunAccumulator {
     let run = this.#runsByRunId.get(runId);
     if (run === undefined) {
-      run = {
-        runId,
-        groups: [],
-        newestGroup: undefined,
-        actorId: undefined,
-        terminalEventType: undefined,
-        runStateEventType: undefined,
-        payingAccountId: undefined,
-      };
+      const facts = this.#runEntities[runId]?.runFacts;
+      run = { runId, groups: [], newestGroup: undefined, facts };
       this.#runsByRunId.set(runId, run);
-      this.#setLive(runId, true);
+      this.#setLive(runId, !isRunEnded(facts));
     }
     return run;
   }
@@ -236,7 +253,7 @@ export class RunGroupIndex {
       headerRowId: undefined,
       lastCardCount: undefined,
     };
-    if (run.newestGroup !== undefined && run.runStateEventType !== undefined) {
+    if (run.newestGroup !== undefined && headerStateOf(run.facts) !== undefined) {
       // The run's state moves to the new group's header.
       this.#touchedGroups.add(run.newestGroup);
     }
@@ -272,37 +289,22 @@ export class RunGroupIndex {
     this.#touchedGroups.add(group);
   }
 
-  #absorbRunFacts(run: RunAccumulator, row: TranscriptEventRow): void {
-    const isFirstNaming =
-      (run.payingAccountId === undefined && payingAccountIdOf(row) !== undefined) ||
-      (run.actorId === undefined && row.actor !== undefined);
-    const stateBefore = run.runStateEventType;
-    // The account is settled at admission, so the first naming wins.
-    run.payingAccountId ??= payingAccountIdOf(row);
-    // The first actor wins: the run is attributed to whoever its first row names.
-    run.actorId ??= row.actor;
-    if (isRunStateEventType(row.type)) {
-      // The newest state wins: a state is what the run is now.
-      run.runStateEventType = row.type;
-    } else if (row.type === "run.rolled_back") {
-      // A rewind says the run came back, not into what state, so the state is cleared rather than
-      // kept.
-      run.runStateEventType = undefined;
+  #takeFacts(run: RunAccumulator, facts: TranscriptRunFactsFold | undefined): void {
+    const held = run.facts;
+    if (facts === held) {
+      return;
     }
-    if (isTerminalEventType(row.type)) {
-      // The last terminal wins.
-      run.terminalEventType = row.type;
-    } else if (isReopeningEventType(row.type)) {
-      // A run that came back clears its ending; a later ending seals it again.
-      run.terminalEventType = undefined;
-    }
-    this.#setLive(run.runId, run.terminalEventType === undefined);
-    if (isFirstNaming) {
+    run.facts = facts;
+    this.#setLive(run.runId, !isRunEnded(facts));
+    if (
+      facts?.actor !== held?.actor ||
+      facts?.admittedProviderAccountId !== held?.admittedProviderAccountId
+    ) {
       // Every header of the run names its actor and account, so each group is sealed again.
       for (const group of run.groups) {
         this.#touchedGroups.add(group);
       }
-    } else if (run.newestGroup !== undefined && run.runStateEventType !== stateBefore) {
+    } else if (run.newestGroup !== undefined && headerStateOf(facts) !== headerStateOf(held)) {
       this.#touchedGroups.add(run.newestGroup);
     }
   }
@@ -321,8 +323,11 @@ export class RunGroupIndex {
 }
 
 /** Partition one loaded window into run groups, for a caller that folds a log once. */
-export function groupRowsByRun(rows: readonly TranscriptEventRow[]): readonly RunGroup[] {
-  const runGroupIndex = new RunGroupIndex();
+export function groupRowsByRun(
+  rows: readonly TranscriptEventRow[],
+  runEntities: RunEntitiesByRunId,
+): readonly RunGroup[] {
+  const runGroupIndex = new RunGroupIndex(runEntities);
   const classifier = new SystemMessageClassifier();
   for (const row of rows) {
     runGroupIndex.admit(row, classifier.classify(row) !== undefined);
@@ -336,10 +341,8 @@ interface RunAccumulator {
   readonly groups: GroupAccumulator[];
   /** The group the run's next row joins unless a card from outside broke it. */
   newestGroup: GroupAccumulator | undefined;
-  actorId: string | undefined;
-  terminalEventType: RunTerminalEventType | undefined;
-  runStateEventType: string | undefined;
-  payingAccountId: string | undefined;
+  /** The run's facts its groups were last sealed with, `undefined` while the store holds none. */
+  facts: TranscriptRunFactsFold | undefined;
 }
 
 /** A run group under construction. Mutable only inside the fold. */
@@ -350,7 +353,9 @@ interface GroupAccumulator {
   /** The row the group opened at, which its minted key is made from. */
   readonly firstRowId: string;
   readonly rowIds: string[];
-  /** The group's cards, in log order: the rows whose stretch is settled, which `adoptKeys` reads. */
+  /**
+   * The group's cards, in log order: the rows whose stretch is settled, which `adoptKeys` reads.
+   */
   readonly cardRowIds: string[];
   /** Where its rows that draw something stand: its cards and the notifications that joined it. */
   readonly drawnRowPositions: number[];
@@ -382,9 +387,18 @@ function sealDrawnRunGroup(group: GroupAccumulator): readonly RunGroup[] {
       rowIds: group.rowIds.slice(),
       rowCount: group.rowIds.length,
       drawnRowPositions: group.drawnRowPositions.slice(),
-      actorId: run.actorId,
-      runStateEventType: run.newestGroup === group ? run.runStateEventType : undefined,
-      payingAccountId: run.payingAccountId,
+      actorId: run.facts?.actor,
+      runStateEventType: run.newestGroup === group ? headerStateOf(run.facts) : undefined,
+      payingAccountId: run.facts?.admittedProviderAccountId,
     },
   ];
+}
+
+// A run the store holds no facts for has not been seen to end.
+function isRunEnded(facts: TranscriptRunFactsFold | undefined): boolean {
+  return facts !== undefined && isTranscriptRunEnded(facts);
+}
+
+function headerStateOf(facts: TranscriptRunFactsFold | undefined): string | undefined {
+  return facts === undefined ? undefined : transcriptRunHeaderStateOf(facts);
 }

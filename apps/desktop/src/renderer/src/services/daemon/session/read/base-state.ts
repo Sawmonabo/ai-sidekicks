@@ -2,31 +2,32 @@
 // one `transcript.read` window of the log, and the stream opened after the window's newest row. A
 // window opens where the resume rule says, `acknowledged ?? latest`; a snapshot opens it at
 // `latest`. A repair keeps the window and reads only the record, the stream reopened where the
-// opening says. The record's live runs become the run entities, since a window opened below a
-// run's events never reads the events that set its state, and its standing events become the
-// store's, for the facts they carry. Every position is relayed as the daemon issued it and never
-// read for a sequence: the window's rows carry their own.
+// opening says. The record's live runs become the run entities, their facts holding through the
+// record's newest position, since a window opened below a run's events never reads the events that
+// set its state; the window's reply serves the facts of the runs its rows name; and the record's
+// standing events become the store's, for the facts they carry. Every other position is relayed as
+// the daemon issued it and never read for a sequence: the window's rows carry their own.
 
-import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
+import { decodeEventCursor, type EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import type { SessionReadResponse } from "@ai-sidekicks/contracts/session/methods";
 
 import { callDaemon, unwrapDaemonReply } from "../../reply.js";
-import {
-  readTranscriptPage,
-  transcriptPageReadThroughDaemon,
-  type TranscriptPage,
-} from "../../transcript/page.js";
+import { readTranscriptPage, transcriptPageReadThroughDaemon } from "../../transcript/page.js";
 import { readSessionId } from "../../wire/identifiers.js";
 import { projectSessionEvent } from "../event/payload.js";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { RefusalError, refuse } from "#renderer/lib/refusal/contract.js";
-import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
+import type {
+  ProjectedSessionEvent,
+  StoredEntity,
+} from "#renderer/store/session/entities/vocabulary.js";
 import { projectLiveRun } from "#renderer/store/session/events/run/lifecycle-projector.js";
 import {
   heldRowCursor,
   type RepairReopening,
   type SessionBaseState,
 } from "#renderer/store/session/state.js";
+import type { TranscriptWindowPage } from "#renderer/store/session/transcript-window.js";
 import {
   type SessionBaseStateReader,
   type SessionWindowOpening,
@@ -93,7 +94,7 @@ function openingCursorOf(
  */
 function windowBaseStateOf(
   record: SessionReadResponse,
-  page: TranscriptPage,
+  page: TranscriptWindowPage,
   refusedCursors: ReadonlySet<EventCursor>,
 ): SessionBaseState {
   const newest = page.events.at(-1);
@@ -103,7 +104,8 @@ function windowBaseStateOf(
   );
   return {
     ...(newest === undefined ? {} : { cursor: newest.sequence }),
-    entities: record.liveRuns.map(projectLiveRun),
+    entities: liveRunEntitiesOf(record),
+    runs: page.runs,
     transcript: page.events,
     standingEvents: standingEventsOf(record),
     streamAfterCursor,
@@ -126,10 +128,16 @@ function repairBaseStateOf(
       ? reopening.rowCursor
       : (reopening.headCursor ?? record.transcriptCursors.earliest);
   return {
-    entities: record.liveRuns.map(projectLiveRun),
+    entities: liveRunEntitiesOf(record),
     standingEvents: standingEventsOf(record),
     streamAfterCursor: openableCursor(position, refusedCursors),
   };
+}
+
+/** The record's live runs as run entities, their facts holding through its newest position. */
+function liveRunEntitiesOf(record: SessionReadResponse): StoredEntity[] {
+  const readThroughSequence = decodeEventCursor(record.transcriptCursors.latest);
+  return record.liveRuns.map((run) => projectLiveRun(run, readThroughSequence));
 }
 
 /**

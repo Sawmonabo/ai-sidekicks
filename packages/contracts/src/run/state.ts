@@ -24,3 +24,27 @@ const RUN_STATE_VALUES = [
 export type RunState = (typeof RUN_STATE_VALUES)[number];
 /** Parses a {@link RunState}. */
 export const RunStateSchema: z.ZodType<RunState, RunState> = z.enum(RUN_STATE_VALUES);
+
+/**
+ * The state a run is created in. No state change enters it, so the event entering it creates a run.
+ */
+export const RUN_INITIAL_STATE: "queued" = "queued" satisfies RunState;
+
+/** The states a run ends in; the event entering one is the terminal record of its run version. */
+export const RUN_TERMINAL_STATES: readonly RunTerminalState[] = [
+  "completed",
+  "interrupted",
+  "stopped",
+  "failed",
+];
+
+/** A state a run ends in. */
+export type RunTerminalState = Extract<
+  RunState,
+  "completed" | "interrupted" | "stopped" | "failed"
+>;
+
+/** Whether `state` is one a run ends in. */
+export function isTerminalState(state: RunState): state is RunTerminalState {
+  return (RUN_TERMINAL_STATES as readonly RunState[]).includes(state);
+}

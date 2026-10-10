@@ -30,7 +30,7 @@ export function openSessionStoreWithTerminalRunGroup(): SessionStore {
       cursor: transcriptFixtureStreamCursor(0),
       kind: "run.running",
       occurredAt: transcriptFixtureStampAt(0),
-      payload: { sessionId: SESSION_ID, runId: TERMINAL_RUN_ID },
+      payload: { sessionId: SESSION_ID, runId: TERMINAL_RUN_ID, newState: "running" },
       runStamp: { position: 0, epoch: 0 },
     },
     {
@@ -50,7 +50,7 @@ export function openSessionStoreWithTerminalRunGroup(): SessionStore {
       cursor: transcriptFixtureStreamCursor(2),
       kind: "run.paused",
       occurredAt: transcriptFixtureStampAt(2),
-      payload: { sessionId: SESSION_ID, runId: TERMINAL_RUN_ID },
+      payload: { sessionId: SESSION_ID, runId: TERMINAL_RUN_ID, newState: "paused" },
       runStamp: { position: 2, epoch: 0 },
     },
     {
@@ -60,7 +60,7 @@ export function openSessionStoreWithTerminalRunGroup(): SessionStore {
       cursor: transcriptFixtureStreamCursor(3),
       kind: "run.completed",
       occurredAt: transcriptFixtureStampAt(3),
-      payload: { sessionId: SESSION_ID, runId: TERMINAL_RUN_ID },
+      payload: { sessionId: SESSION_ID, runId: TERMINAL_RUN_ID, newState: "completed" },
       runStamp: { position: 3, epoch: 0 },
     },
     {
@@ -70,7 +70,7 @@ export function openSessionStoreWithTerminalRunGroup(): SessionStore {
       cursor: transcriptFixtureStreamCursor(4),
       kind: "run.running",
       occurredAt: transcriptFixtureStampAt(4),
-      payload: { sessionId: SESSION_ID, runId: LIVE_RUN_ID },
+      payload: { sessionId: SESSION_ID, runId: LIVE_RUN_ID, newState: "running" },
       runStamp: { position: 0, epoch: 0 },
     },
     {
@@ -99,7 +99,7 @@ export function openSessionStoreWithSystemMessage(): SessionStore {
       cursor: transcriptFixtureStreamCursor(0),
       kind: "run.running",
       occurredAt: transcriptFixtureStampAt(0),
-      payload: { sessionId: SESSION_ID, runId: LIVE_RUN_ID },
+      payload: { sessionId: SESSION_ID, runId: LIVE_RUN_ID, newState: "running" },
       runStamp: { position: 0, epoch: 0 },
     },
     {
@@ -222,7 +222,10 @@ function runEventAt(
     cursor: transcriptFixtureStreamCursor(index),
     kind,
     occurredAt: transcriptFixtureStampAt(index),
-    payload: { sessionId: SESSION_ID, runId },
+    // A state change names the state its kind announces, as the daemon's always does.
+    payload: kind.startsWith("run.")
+      ? { sessionId: SESSION_ID, runId, newState: kind.slice("run.".length) }
+      : { sessionId: SESSION_ID, runId },
     runStamp: { position, epoch: 0 },
   };
 }

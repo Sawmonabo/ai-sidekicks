@@ -17,6 +17,7 @@ import type { ProjectedSessionEvent } from "#renderer/store/session/entities/voc
 import type { TranscriptWindowEdge } from "#renderer/store/session/state.js";
 import { SessionStore } from "#renderer/store/session/store.js";
 import { type TranscriptPageRead } from "#renderer/services/daemon/transcript/page.js";
+import { runFactsOpenedWith, runFactsServedFor } from "#test/helpers/transcript/run-facts.js";
 
 /** The paged session's whole log as the daemon holds it, and every read it was asked. */
 export interface ScriptedTranscriptLog {
@@ -175,7 +176,8 @@ export function pagedSessionEventAt(index: number): ProjectedSessionEvent {
 /**
  * A real store of the paged session holding its rows from `firstIndex` through `lastIndex`, each
  * as `eventAt` gives it (a message, unless given), as an opening read leaves it, with
- * `transcriptHead` before them (none, when not given).
+ * `transcriptHead` before them (none, when not given) and the facts of the runs they name, folded
+ * over every event through `lastIndex`.
  */
 export function openPagedSessionStore(
   firstIndex: number,
@@ -184,13 +186,14 @@ export function openPagedSessionStore(
   eventAt: (index: number) => ProjectedSessionEvent = pagedSessionEventAt,
 ): SessionStore {
   const sessionStore = new SessionStore({ sessionId: PAGED_SESSION_ID });
+  const log = Array.from({ length: lastIndex + 1 }, (_unused, index) => eventAt(index));
+  const transcript = log.slice(firstIndex);
   sessionStore.initialize({
     cursor: lastIndex,
     streamAfterCursor: transcriptFixtureStreamCursor(lastIndex),
     entities: [],
-    transcript: Array.from({ length: lastIndex - firstIndex + 1 }, (_unused, offset) =>
-      eventAt(firstIndex + offset),
-    ),
+    transcript,
+    runs: runFactsOpenedWith(transcript, log),
     ...(transcriptHead === undefined ? {} : { transcriptHead }),
   });
   return sessionStore;
@@ -199,8 +202,8 @@ export function openPagedSessionStore(
 /**
  * The paged session's rows at positions `0` through `rowCount - 1`, each as `rowAt` serves it (a
  * message, unless given), read as the daemon reads them: up to `limit` rows, oldest to newest,
- * nearest the cursor, or from the log's start with no cursor, with the next cursor and whether
- * rows lie past it. A cursor naming no row is refused.
+ * nearest the cursor, or from the log's start with no cursor, with the next cursor, whether rows
+ * lie past it and the facts of the runs the page names. A cursor naming no row is refused.
  */
 export function scriptedTranscriptLog(
   rowCount: number,
@@ -212,6 +215,7 @@ export function scriptedTranscriptLog(
       index,
     ]),
   );
+  const wholeLog = Array.from({ length: rowCount }, (_unused, index) => rowAt(index));
   const requests: TranscriptReadRequest[] = [];
   let refusesNextRead = false;
   const read: TranscriptPageRead = (request) => {
@@ -239,9 +243,8 @@ export function scriptedTranscriptLog(
           : afterIndex + 1;
     const lastIndex =
       beforeIndex === undefined ? Math.min(rowCount - 1, firstIndex + limit - 1) : beforeIndex;
-    const entries = Array.from({ length: lastIndex - firstIndex + 1 }, (_unused, offset) =>
-      rowAt(firstIndex + offset),
-    );
+    const entries = wholeLog.slice(firstIndex, lastIndex + 1);
+    const runs = runFactsServedFor(entries, wholeLog);
     const hasMore = beforeIndex === undefined ? lastIndex < rowCount - 1 : firstIndex > 0;
     const nextCursor =
       beforeIndex === undefined
@@ -250,7 +253,7 @@ export function scriptedTranscriptLog(
     return Promise.resolve({
       status: "served",
       value: TranscriptReadResponseSchema.parse(
-        hasMore ? { entries, hasMore, nextCursor } : { entries, hasMore },
+        hasMore ? { entries, runs, hasMore, nextCursor } : { entries, runs, hasMore },
       ),
     });
   };

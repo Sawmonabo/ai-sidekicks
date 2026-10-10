@@ -27,6 +27,7 @@ import { type ProjectedSessionEvent } from "#renderer/store/session/entities/voc
 import { SessionStore } from "#renderer/store/session/store.js";
 import { type WaitingOnPersonRecords } from "#renderer/store/session/waiting-on-person/register.js";
 import { DrawnRowFilter } from "../feed/drawn-rows.js";
+import { type RunEntitiesByRunId } from "../runs/groups.js";
 import { RunGroupFold } from "../feed/run-group-fold.js";
 import {
   fixedRunWindowInputs,
@@ -104,10 +105,11 @@ class HeldWindows {
 
   public derive(
     transcript: readonly ProjectedSessionEvent[],
+    runEntities: RunEntitiesByRunId,
     foldedRunIds: ReadonlySet<string>,
     waitingOnPerson: WaitingOnPersonRecords,
   ): Windows {
-    const unfurled = this.#derivation.derive(transcript);
+    const unfurled = this.#derivation.derive(transcript, runEntities);
     // A person folds every group of a run, as `Fold every run` does, so a run's new stretch is
     // folded too.
     const foldedRunGroupKeys = [...unfurled.runGroupByHeaderKey.values()]
@@ -163,13 +165,18 @@ describe("the transcript windows held across a session's revisions", () => {
     };
 
     const check = (): CheckedStep => {
-      const transcript = store.snapshot().transcript;
-      const windows = held.derive(transcript, foldedRunIds, store.waitingOnPersonRecords);
+      const { transcript, partitions } = store.snapshot();
+      const windows = held.derive(
+        transcript,
+        partitions.run,
+        foldedRunIds,
+        store.waitingOnPersonRecords,
+      );
       // The whole derivation holds each run's window where the held one put it, from a copy, so
       // it shares no state the held path could have got wrong.
       const whole = new HeldWindows(
         fixedRunWindowInputs(runWindowPositionsOf(heldRunWindowInputs.windows, windows.unfurled)),
-      ).derive(transcript, foldedRunIds, store.waitingOnPersonRecords);
+      ).derive(transcript, partitions.run, foldedRunIds, store.waitingOnPersonRecords);
       const probeKeys = [
         ...whole.unfurled.rows.map((row) => row.id),
         ...whole.unfurled.runGroupByHeaderKey.keys(),
@@ -252,10 +259,11 @@ describe("the transcript windows held across a session's revisions", () => {
       check();
     }
     // Read back as a page arrives from the daemon: equal events in new objects.
-    store.prependEarlierEvents(
-      releasedEvents.map((event) => ({ ...event })),
-      { cursor: undefined, hasMore: false },
-    );
+    store.prependEarlierEvents({
+      events: releasedEvents.map((event) => ({ ...event })),
+      edge: { cursor: undefined, hasMore: false },
+      runs: [],
+    });
     const restored = check();
     // A row the window let go and read back is a new object, never the one held before.
     for (const event of releasedEvents) {
@@ -272,9 +280,9 @@ describe("the transcript windows held across a session's revisions", () => {
     expect(check().transcript.at(-1)).toBe(keptLast);
 
     // The script reaches every path the held windows take: a rollback and the release and read
-    // rewrite the log, an open run past its window lets rows go, a child restamps its row, each find
-    // has matches the fold withholds, other rows break a run into stretches, and a header stands at
-    // its group's first card below rows that draw nothing.
+    // rewrite the log, an open run past its window lets rows go, a child restamps its row, each
+    // find has matches the fold withholds, other rows break a run into stretches, and a header
+    // stands at its group's first card below rows that draw nothing.
     expect(coverage.splitRuns).toBeGreaterThan(0);
     expect(coverage.headersBelowUndrawnRows).toBeGreaterThan(0);
     expect(coverage.rebuilds).toBeGreaterThanOrEqual(3);

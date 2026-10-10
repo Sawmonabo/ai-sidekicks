@@ -58,11 +58,12 @@ const RUN_BODY_MEMBER_READERS = {
 
 /**
  * The members `run.queued` declares beyond the two stream shapes. `resolvedAgent` is the
- * agent's record, not the run's; only its id reaches the body, as `agentId`.
+ * agent's record, not the run's; only its id reaches the body, as `agentId`. The admitted account
+ * is one of the run's facts, which `facts.ts` keeps.
  */
 type RunQueuedOwnMemberName = Exclude<
   keyof RunQueuedPayload,
-  RegisteredRunMemberName | "sessionId" | "agentId" | "resolvedAgent"
+  RegisteredRunMemberName | "sessionId" | "agentId" | "resolvedAgent" | "admittedProviderAccountId"
 >;
 
 /**
@@ -91,7 +92,6 @@ const PER_TYPE_RUN_BODY_MEMBER_READERS: Readonly<
     admittedModelFamily: "string",
     reachedBy: "string",
     effectiveRunConfig: "object",
-    admittedProviderAccountId: "string",
   } satisfies Record<RunQueuedOwnMemberName, WireMemberReaderName>),
   // The provider's initialization report, which names the provider and model the run uses.
   "run.provider_initialized": Object.freeze({ provider: "string", model: "string" }),

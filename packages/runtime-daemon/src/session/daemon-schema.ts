@@ -11,11 +11,15 @@
 // search index's in `session/search/index/schema.ts` and the workflow tables in
 // `workflow/schema.ts`. There are no numbered migrations.
 
+import { sqlListOf } from "../database/sql-list.js";
 import { DAMAGED_EVENTS_SKIPPED_TYPE } from "../events/session/skipped-ranges.js";
 import { WORKFLOW_SCHEMA_SQL } from "../workflow/schema.js";
 import { WORKTREE_SCHEMA_SQL } from "../git/worktree/schema.js";
 import { WORKSPACE_SCHEMA_SQL } from "../workspace/schema.js";
 import { SEARCH_INDEX_SCHEMA_SQL } from "./search/index/schema.js";
+import { RUN_TERMINAL_EVENT_TYPES } from "./run/transitions.js";
+
+const TERMINAL_EVENT_TYPES_SQL = sqlListOf(RUN_TERMINAL_EVENT_TYPES);
 
 /**
  * The whole daemon schema. `applyMigrations` executes it once, in one
@@ -66,6 +70,10 @@ CREATE INDEX idx_session_events_skipped ON session_events(session_id)
 -- comparing run_id to a value implies the IS NOT NULL predicate.
 CREATE INDEX idx_session_events_run ON session_events(session_id, type, run_id, sequence)
   WHERE run_id IS NOT NULL;
+-- One run's events that name an actor, in log order, for the read that finds who acts for a run.
+-- Few rows of a run name one, so the index stays small.
+CREATE INDEX idx_session_events_run_actor ON session_events(session_id, run_id, sequence)
+  WHERE run_id IS NOT NULL AND actor IS NOT NULL;
 CREATE INDEX idx_session_events_correlation ON session_events(correlation_id)
   WHERE correlation_id IS NOT NULL;
 -- At most one terminal event per (runId, runVersion). The key lives in the JSON
@@ -73,13 +81,13 @@ CREATE INDEX idx_session_events_correlation ON session_events(correlation_id)
 CREATE UNIQUE INDEX idx_session_events_run_terminal_once
   ON session_events(json_extract(payload, '$.runId'), json_extract(payload, '$.runVersion'))
   WHERE category = 'run_lifecycle'
-    AND type IN ('run.completed', 'run.failed', 'run.interrupted', 'run.stopped');
+    AND type IN (${TERMINAL_EVENT_TYPES_SQL});
 
 -- A UNIQUE index treats NULLs as distinct, and "7" and 7 as different keys: a
 -- terminal insert must carry a text runId and an integer runVersion.
 CREATE TRIGGER trg_run_terminal_key_insert BEFORE INSERT ON session_events
 WHEN NEW.category = 'run_lifecycle'
-  AND NEW.type IN ('run.completed', 'run.failed', 'run.interrupted', 'run.stopped')
+  AND NEW.type IN (${TERMINAL_EVENT_TYPES_SQL})
   AND (json_extract(NEW.payload, '$.runId') IS NULL
     OR json_type(NEW.payload, '$.runId') <> 'text'
     OR json_extract(NEW.payload, '$.runVersion') IS NULL
@@ -94,7 +102,7 @@ END;
 CREATE TRIGGER trg_run_terminal_key_update
 BEFORE UPDATE OF payload, category, type ON session_events
 WHEN OLD.category = 'run_lifecycle'
-  AND OLD.type IN ('run.completed', 'run.failed', 'run.interrupted', 'run.stopped')
+  AND OLD.type IN (${TERMINAL_EVENT_TYPES_SQL})
   AND (json_extract(NEW.payload, '$.runId') IS NULL
     OR json_type(NEW.payload, '$.runId') <> 'text'
     OR json_extract(NEW.payload, '$.runVersion') IS NULL
@@ -111,9 +119,9 @@ END;
 -- Terminal rows are insert-only: no update may promote a row into the index.
 CREATE TRIGGER trg_run_terminal_key_promote BEFORE UPDATE OF category, type ON session_events
 WHEN NOT (OLD.category = 'run_lifecycle'
-    AND OLD.type IN ('run.completed', 'run.failed', 'run.interrupted', 'run.stopped'))
+    AND OLD.type IN (${TERMINAL_EVENT_TYPES_SQL}))
   AND NEW.category = 'run_lifecycle'
-  AND NEW.type IN ('run.completed', 'run.failed', 'run.interrupted', 'run.stopped')
+  AND NEW.type IN (${TERMINAL_EVENT_TYPES_SQL})
 BEGIN
   SELECT RAISE(ABORT,
     'a row cannot be promoted to terminal run_lifecycle by UPDATE; terminal rows are insert-only');

@@ -6,7 +6,8 @@
 // A log the store grew at its end is derived a stretch at a time: the appended events are projected
 // and joined to every index, and only what they touched is published anew. Anything else the store
 // does to its log (a rollback marking held rows, a page read before the head, a release, a fresh
-// read) derives the window again from the whole log.
+// read) derives the window again from the whole log. The run groups' headers read the store's run
+// entities, so new run facts over the same log seal again only the groups whose header they move.
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
@@ -17,7 +18,7 @@ import {
   type HandoffEntry,
 } from "../dispatches/child-run-entries.js";
 import { TranscriptRowProjector } from "../projection/rows.js";
-import { RunGroupIndex, type RunGroup } from "../runs/groups.js";
+import { RunGroupIndex, type RunEntitiesByRunId, type RunGroup } from "../runs/groups.js";
 import {
   SystemMessageClassifier,
   type SystemMessageReading,
@@ -81,54 +82,62 @@ export interface TranscriptWindowModel {
   readonly replyRowIdsByFootRowId: ReadonlyMap<string, readonly string[]>;
   /** The rows in log order, for find and the run group fold. */
   readonly rows: readonly TranscriptEventRow[];
-  /** The runs the log has not seen end, by run id: the log is busy while one stands. */
+  /** The runs the log names that have not ended, by run id: the log is busy while one stands. */
   readonly liveRunIds: ReadonlySet<string>;
 }
 
 /**
  * The window over one session's log, kept across the store's revisions. Each `derive` answers the
- * window of the log it is handed; a log that only grew at its end costs its new events and the
- * rows and run groups they touched, and any other log is derived whole.
+ * window of the log it is handed with the store's run entities; a log that only grew at its end
+ * costs its new events and the rows and run groups they touched, new run entities over the same
+ * log cost the groups whose header they move, and any other log is derived whole.
  */
 export class TranscriptWindowDerivation {
   #transcript: readonly ProjectedSessionEvent[] = [];
+  #runEntities: RunEntitiesByRunId | undefined;
   /** The row each held event was last published as, kept across whole derivations. */
   readonly #rowByEvent = new WeakMap<ProjectedSessionEvent, TranscriptEventRow>();
   /** The last window published, and the indexes it was published from. */
-  #held:
-    | { readonly model: TranscriptWindowModel; readonly accumulation: WindowAccumulation }
-    | undefined;
+  #held: { model: TranscriptWindowModel; readonly accumulation: WindowAccumulation } | undefined;
 
-  /** The window of `transcript`, which may be any log: grown, rewritten or another altogether. */
-  public derive(transcript: readonly ProjectedSessionEvent[]): TranscriptWindowModel {
+  /**
+   * The window of `transcript`, which may be any log: grown, rewritten or another altogether, its
+   * run groups reading `runEntities`, the store's run entities.
+   */
+  public derive(
+    transcript: readonly ProjectedSessionEvent[],
+    runEntities: RunEntitiesByRunId,
+  ): TranscriptWindowModel {
     const held = this.#held;
-    if (held !== undefined && transcript === this.#transcript) {
-      return held.model;
-    }
+    const isSameRunEntities = runEntities === this.#runEntities;
+    this.#runEntities = runEntities;
     const appended =
-      held === undefined ? undefined : appendedStretchOf(this.#transcript, transcript);
+      held === undefined
+        ? undefined
+        : transcript === this.#transcript
+          ? []
+          : appendedStretchOf(this.#transcript, transcript);
     this.#transcript = transcript;
-    if (held !== undefined && appended?.length === 0) {
-      return held.model;
-    }
     if (held === undefined || appended === undefined) {
-      const accumulation = new WindowAccumulation(this.#rowByEvent);
+      const accumulation = new WindowAccumulation(this.#rowByEvent, runEntities);
       this.#held = { model: accumulation.admitWholeLog(transcript, held?.model), accumulation };
-    } else {
-      this.#held = {
-        model: held.accumulation.admitStretch(appended, held.model),
-        accumulation: held.accumulation,
-      };
+      return this.#held.model;
     }
-    return this.#held.model;
+    if (appended.length > 0) {
+      held.model = held.accumulation.admitStretch(appended, runEntities, held.model);
+    } else if (!isSameRunEntities) {
+      held.model = held.accumulation.admitRunEntities(runEntities, held.model);
+    }
+    return held.model;
   }
 }
 
-/** Derive the whole window from one log, for a caller that derives a log once. */
+/** Derive the whole window from one log and its run entities, for a caller that derives once. */
 export function deriveTranscriptWindow(
   transcript: readonly ProjectedSessionEvent[],
+  runEntities: RunEntitiesByRunId,
 ): TranscriptWindowModel {
-  return new TranscriptWindowDerivation().derive(transcript);
+  return new TranscriptWindowDerivation().derive(transcript, runEntities);
 }
 
 /**
@@ -143,7 +152,7 @@ class WindowAccumulation {
   );
   /** The identity list under construction, or `undefined` while the published one stands. */
   #viewportRows: ViewportRow[] | undefined;
-  readonly #runGroupIndex = new RunGroupIndex();
+  readonly #runGroupIndex: RunGroupIndex;
   readonly #runGroups = new PublishedKeyedList<RunGroup, RunGroup>(
     (runGroup) => runGroup.key,
     (runGroup) => runGroup,
@@ -161,9 +170,16 @@ class WindowAccumulation {
   /** The superseded set this stretch is adding to, copied from the published one on first need. */
   #growingSupersededRowIds: Set<string> | undefined;
 
-  /** `rowByEvent` holds the row each event was last published as, across accumulations. */
-  public constructor(rowByEvent: WeakMap<ProjectedSessionEvent, TranscriptEventRow>) {
+  /**
+   * `rowByEvent` holds the row each event was last published as, across accumulations;
+   * `runEntities` are the store's run entities the run groups first read.
+   */
+  public constructor(
+    rowByEvent: WeakMap<ProjectedSessionEvent, TranscriptEventRow>,
+    runEntities: RunEntitiesByRunId,
+  ) {
     this.#projector = new TranscriptRowProjector(rowByEvent);
+    this.#runGroupIndex = new RunGroupIndex(runEntities);
   }
 
   /**
@@ -202,11 +218,17 @@ class WindowAccumulation {
     return this.#publish(undefined);
   }
 
-  /** The window after `events` joined the end of the log `previous` was published from. */
+  /**
+   * The window after `events` joined the end of the log `previous` was published from, its run
+   * groups reading `runEntities`.
+   */
   public admitStretch(
     events: readonly ProjectedSessionEvent[],
+    runEntities: RunEntitiesByRunId,
     previous: TranscriptWindowModel,
   ): TranscriptWindowModel {
+    // Read first, so a run the stretch first names takes its facts as they stand now.
+    this.#runGroupIndex.admitRunEntities(runEntities);
     const batch = this.#projector.project(events);
     // A child run the stretch moved restamps its creation row, which an earlier stretch projected.
     for (const eventId of batch.movedSummaryEventIds) {
@@ -224,6 +246,17 @@ class WindowAccumulation {
       this.#viewportRows.push(identityOf(row, this.#admitRow(row), undefined));
     }
     return this.#publish(previous);
+  }
+
+  /**
+   * The window `previous` was published as, its run groups reading `runEntities`: `previous`
+   * itself when no header and no run's ending moved.
+   */
+  public admitRunEntities(
+    runEntities: RunEntitiesByRunId,
+    previous: TranscriptWindowModel,
+  ): TranscriptWindowModel {
+    return this.#runGroupIndex.admitRunEntities(runEntities) ? this.#publish(previous) : previous;
   }
 
   /** Join `row` to every index, answering the key of the run group it joined, if any. */

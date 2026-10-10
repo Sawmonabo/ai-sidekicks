@@ -3,6 +3,7 @@
 // writing class would force every reader to import the writer.
 
 import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
+import type { TranscriptRunFacts } from "@ai-sidekicks/contracts/transcript/run-facts";
 
 import { worstDegradedCause, type SessionDegradedCause } from "./degradation.js";
 import {
@@ -146,6 +147,11 @@ export interface SessionBaseState {
   readonly cursor?: number;
   /** Entities the read response carried. */
   readonly entities: readonly StoredEntity[];
+  /**
+   * The facts of each run the read's window names, as its reply served them, which stand over
+   * `entities`' runs where they hold through a later position.
+   */
+  readonly runs?: readonly TranscriptRunFacts[];
   /** Events the read response carried, ordered by sequence. */
   readonly transcript?: readonly ProjectedSessionEvent[];
   /** The standing events the read response carried, which may lie outside its window. */

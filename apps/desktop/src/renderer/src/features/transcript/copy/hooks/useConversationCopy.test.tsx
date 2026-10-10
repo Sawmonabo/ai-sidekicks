@@ -57,7 +57,7 @@ const LONG_ROWS = [
 ];
 
 /** No log behind the rows: the store holds both, so nothing is read back. */
-const NO_WINDOW = deriveTranscriptWindow([]);
+const NO_WINDOW = deriveTranscriptWindow([], {});
 
 function Conversation(props: { readonly rows: typeof ROWS }): React.JSX.Element {
   const rowKeys = props.rows.map((row) => row.id);

@@ -49,9 +49,11 @@ import {
   type LaterWindowMerge,
   type LogEndPageMerge,
   type TranscriptPageDependencies,
+  type TranscriptWindowPage,
 } from "./transcript-window.js";
 import { EntityProjectionRunner } from "./entities/projection-runner.js";
 import { mergeUpsert, type SessionPartitions } from "./entities/partitions.js";
+import { admitKeptRunFacts, admitServedRunFacts } from "./events/run/facts.js";
 import {
   emptyPartitions,
   type EntityProjectorTable,
@@ -86,7 +88,6 @@ import {
   type RepairResumePoint,
   type SessionBaseState,
   type SessionStoreState,
-  type TranscriptWindowEdge,
 } from "./state.js";
 import { NOTHING_APPLIED, type ApplyOutcome } from "./apply/outcome.js";
 
@@ -356,20 +357,16 @@ export class SessionStore {
 
   /**
    * Adds a backward `transcript.read` page before the head; returns what it admitted. The head
-   * takes `edge`, the page's own, once the page admitted rows or carried none.
+   * takes the page's own edge once the page admitted rows or carried none.
    *
    * Not a second apply chokepoint: no sequence reconciled, no projector run, no stream cursor
-   * moved, and the degraded flag neither set nor cleared. It does advance the waiting-on-person
-   * register, since a recovered row is what a page is worth to it.
+   * moved, and the degraded flag neither set nor cleared. It does admit the page's run facts, and
+   * advance the waiting-on-person register, since a recovered row is what a page is worth to it.
    */
-  public prependEarlierEvents(
-    events: readonly ProjectedSessionEvent[],
-    edge: TranscriptWindowEdge,
-  ): EarlierWindowMerge {
+  public prependEarlierEvents(page: TranscriptWindowPage): EarlierWindowMerge {
     const { merge, nextState } = foldEarlierWindowPage(
       this.#store.getState(),
-      events,
-      edge,
+      page,
       this.#pageDependencies,
     );
     if (nextState !== undefined) {
@@ -379,19 +376,15 @@ export class SessionStore {
   }
 
   /**
-   * Adds a forward page after a detached tail; returns what it admitted. When `edge.hasMore` is
-   * false, or the window reaches what the stream has delivered, the tail goes live again; the
+   * Adds a forward page after a detached tail; returns what it admitted. When its edge has no more
+   * beyond it, or the window reaches what the stream has delivered, the tail goes live again; the
    * open session then reopens the stream after the newest row when the stream ran past it.
    * Not a second apply chokepoint, on the terms of {@link prependEarlierEvents}.
    */
-  public appendLaterEvents(
-    events: readonly ProjectedSessionEvent[],
-    edge: TranscriptWindowEdge,
-  ): LaterWindowMerge {
+  public appendLaterEvents(page: TranscriptWindowPage): LaterWindowMerge {
     const { merge, nextState } = foldLaterWindowPage(
       this.#store.getState(),
-      events,
-      edge,
+      page,
       this.#pageDependencies,
     );
     if (nextState !== undefined) {
@@ -402,20 +395,18 @@ export class SessionStore {
 
   /**
    * Puts a page read at one end of the log, its start or its end, in place of the whole window;
-   * returns what it admitted. At the start the head closes; at the end the head takes `edge`, the
-   * page's own, and the tail goes live when the page reaches what the stream has delivered. Not a
+   * returns what it admitted. At the start the head closes; at the end the head takes the page's
+   * own edge, and the tail goes live when the page reaches what the stream has delivered. Not a
    * second apply chokepoint, on the terms of {@link prependEarlierEvents}.
    */
   public replaceWithLogEndPage(
     logEnd: "start" | "end",
-    events: readonly ProjectedSessionEvent[],
-    edge: TranscriptWindowEdge,
+    page: TranscriptWindowPage,
   ): LogEndPageMerge {
     const { merge, nextState } = foldLogEndPage(
       this.#store.getState(),
-      events,
+      page,
       logEnd,
-      edge,
       this.#pageDependencies,
     );
     if (nextState !== undefined) {
@@ -499,7 +490,7 @@ export class SessionStore {
     return establishedState({
       sessionId: this.#sessionId,
       baseState,
-      partitions,
+      partitions: admitServedRunFacts(partitions, baseState.runs ?? []),
       isProjectionFailed,
       cursor: this.#reconciler.cursor,
       orderedTranscript: transcript,
@@ -538,7 +529,9 @@ export class SessionStore {
   /**
    * Replay from the window's head: the stream reopened before the window's oldest row sends every
    * row it holds again, folded onto the read's entities, which stand for the runs no row of the
-   * window touches. A read naming no sequence places the replay at the first row it sends.
+   * window touches, and the run facts the window holds, which the rows sent again cannot restore
+   * where a run was named outside the window. A read naming no sequence places the replay at the
+   * first row it sends.
    */
   #replayFromHead(window: SessionStoreState, baseState: SessionBaseState): void {
     const reconciler = new SequenceReconciler();
@@ -546,7 +539,10 @@ export class SessionStore {
     this.#startReplay(window, reconciler, {
       ...window,
       ...REPLAY_START,
-      partitions: this.#projectedPartitions([], baseState.entities).partitions,
+      partitions: admitKeptRunFacts(
+        this.#projectedPartitions([], baseState.entities).partitions,
+        window.partitions,
+      ),
       transcript: [],
       transcriptTail: liveTailAfter([]),
       cursor: reconciler.cursor,
@@ -556,8 +552,9 @@ export class SessionStore {
 
   /**
    * Replay from a checkpoint of the window or of the replay under way: its rows through the
-   * checkpoint, the partitions as they stood there, and the stream reopened after its row. The tail
-   * grows from there when the checkpoint's row is held, else it stays where `source` had it.
+   * checkpoint, the partitions as they stood there with the run facts the window holds since, and
+   * the stream reopened after its row. The tail grows from there when the checkpoint's row is held,
+   * else it stays where `source` had it.
    */
   #replayFromCheckpoint(
     window: SessionStoreState,
@@ -570,7 +567,7 @@ export class SessionStore {
     this.#startReplay(window, reconciler, {
       ...source,
       ...REPLAY_START,
-      partitions: point.partitions,
+      partitions: admitKeptRunFacts(point.partitions, window.partitions),
       // A replay under way lacks what the window took since it started and what the read carried.
       standingEvents: mergeStandingEvents(source.standingEvents, window.standingEvents),
       transcript,

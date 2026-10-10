@@ -26,10 +26,10 @@ import {
   type RunFailureCause,
 } from "./control.js";
 import { RunIdSchema, type RunId } from "./id.js";
-import { RunStateSchema, type RunState } from "./state.js";
+import { type RUN_INITIAL_STATE, RunStateSchema, type RunState } from "./state.js";
 
 /** A run state with a state-change event of its own: every state but `queued`, the run's birth. */
-export type RunStateChangeState = Exclude<RunState, "queued">;
+export type RunStateChangeState = Exclude<RunState, typeof RUN_INITIAL_STATE>;
 
 // A daemon-initiated close marks its terminal so a reader never takes it for a crash.
 interface RunTerminalMembers {

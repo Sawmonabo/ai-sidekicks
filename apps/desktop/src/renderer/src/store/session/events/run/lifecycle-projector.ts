@@ -1,18 +1,18 @@
-// The `run` partition's projector: run-lifecycle events folded into run entities, and the entity a
-// read's record of a live run seeds in their place. It sits below every feature because it reads
-// wire member names, and the composition root registers it.
+// The `run` partition's projector: run-lifecycle events folded into run entities' bodies, and the
+// entity a read's record of a live run seeds in their place. It sits below every feature because
+// it reads wire member names, and the composition root registers it.
 //
 // The claimed kinds and the body's members are derived from the contract, so a new run event or
-// member fails to compile until it is classified. `state` is written only where the payload
-// names `newState`, and a recognized transition must name exactly the state it announces. The
-// projector is pure, because the apply path rebuilds from prefixes; a run event naming no `runId`
-// yields no mutation rather than a throw.
+// member fails to compile until it is classified. A run's `state` is no member here: it is written
+// with the run's facts by `facts.ts`, and a state change naming another state than it announces
+// changes nothing. The projector is pure, because the apply path rebuilds from prefixes; a run
+// event naming no `runId` yields no mutation rather than a throw.
 
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/session";
 import type { SessionLiveRun } from "@ai-sidekicks/contracts/session/methods";
-import { runStateForTransitionKind } from "#renderer/store/session/events/run/state-kinds.js";
+import { transcriptOwnRunIdOf } from "@ai-sidekicks/contracts/transcript/run-attribution";
+import { isMisstatedStateChange } from "@ai-sidekicks/contracts/transcript/run-facts";
 import { payloadNamesSession } from "#renderer/lib/wire/session-attribution.js";
-import { readWireString } from "#renderer/lib/wire/strings.js";
 import type {
   ProjectedSessionEvent,
   EntityMutation,
@@ -21,6 +21,7 @@ import type {
   StoredEntity,
 } from "../../entities/vocabulary.js";
 import { readRunEntityBody } from "./entity-body.js";
+import { runEntityOfFacts } from "./facts.js";
 
 /** The event kinds this projector claims, derived from the shipped event-type taxonomy. */
 export const RUN_LIFECYCLE_EVENT_KINDS: readonly string[] = [...SESSION_EVENT_CATEGORY_BY_TYPE]
@@ -28,8 +29,8 @@ export const RUN_LIFECYCLE_EVENT_KINDS: readonly string[] = [...SESSION_EVENT_CA
   .map(([eventType]) => eventType);
 
 /**
- * Fold one run-lifecycle event into the run it names. Pure and total: a payload naming another
- * session, one it cannot key on, or one missing the state its kind announces yields no
+ * Fold one run-lifecycle event into the body of the run it names. Pure and total: a payload naming
+ * another session, one it cannot key on, or one missing the state its kind announces yields no
  * mutations.
  */
 export const projectRunLifecycleEvent: EntityProjector = (
@@ -40,12 +41,11 @@ export const projectRunLifecycleEvent: EntityProjector = (
   if (!payloadNamesSession(payload, event.sessionId)) {
     return [];
   }
-  const runId = readWireString(payload?.["runId"]);
+  const runId = transcriptOwnRunIdOf(payload);
   if (runId === undefined) {
     return [];
   }
-  const newState = readWireString(payload?.["newState"]);
-  if (statedStateFailsKind(event.kind, newState)) {
+  if (isMisstatedStateChange({ type: event.kind, payload })) {
     return [];
   }
   const body = readRunEntityBody(event.kind, payload);
@@ -55,10 +55,8 @@ export const projectRunLifecycleEvent: EntityProjector = (
       entity: {
         kind: "run",
         id: runId,
-        // A spread merge treats a present `undefined` as an erasure, so leave `state` off.
-        ...(newState === undefined ? {} : { state: newState }),
         touchedAt: event.occurredAt,
-        ...(event.actorId === undefined ? {} : { attributedTo: event.actorId }),
+        // A spread merge treats a present `undefined` as an erasure, so leave `body` off.
         ...(body === undefined ? {} : { body }),
       },
     },
@@ -72,16 +70,18 @@ export const RUN_LIFECYCLE_PROJECTORS: EntityProjectorTable = buildRunLifecycleP
 export const RUN_LIFECYCLE_PROJECTOR_OWNER = "session";
 
 /**
- * The run entity a read's record of a run not yet ended establishes, shaped as this projector
- * folds it: the state the run is in now, when its newest run event occurred, and the body members
- * the record carries, its agent among them. A window opened below a run's events learns these here
- * rather than from the events it never read.
+ * The run entity a read's record of a run not yet ended establishes: the state the run is in now,
+ * as facts holding through `readThroughSequence`, the log position the record was read at; when its
+ * newest run event occurred; and the body members the record carries, its agent among them. A
+ * window opened below a run's events learns these here rather than from the events it never read.
  */
-export function projectLiveRun(run: SessionLiveRun): StoredEntity {
+export function projectLiveRun(run: SessionLiveRun, readThroughSequence: number): StoredEntity {
   return {
-    kind: "run",
-    id: run.runId,
-    state: run.state,
+    ...runEntityOfFacts(run.runId, {
+      stateEventType: `run.${run.state}`,
+      isRewound: false,
+      foldedThroughSequence: readThroughSequence,
+    }),
     touchedAt: run.touchedAt,
     body: {
       runVersion: run.runVersion,
@@ -97,17 +97,4 @@ function buildRunLifecycleProjectors(): EntityProjectorTable {
     projectors[eventKind] = projectRunLifecycleEvent;
   }
   return projectors;
-}
-
-/**
- * Does this payload fail to carry the run state its own kind announces?
- *
- * The payload schemas are tolerant, so a `run.running` beat carrying `newState: "failed"`, or
- * no readable state at all, arrives well-formed; the second would upsert the run while keeping
- * its previous state. A recognized kind therefore demands a string equal to what it announces.
- * Kinds that announce no transition are not checked.
- */
-function statedStateFailsKind(eventKind: string, statedState: string | undefined): boolean {
-  const announcedState = runStateForTransitionKind(eventKind);
-  return announcedState !== undefined && statedState !== announcedState;
 }

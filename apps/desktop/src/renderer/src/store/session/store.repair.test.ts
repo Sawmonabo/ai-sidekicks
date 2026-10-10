@@ -3,6 +3,7 @@
 // the rows and the partitions the window ends with, since a repair that reads whole over a missing
 // row, a lost page or a lost projection is the failure guarded here.
 
+import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import { describe, expect, it } from "vitest";
 
@@ -266,7 +267,11 @@ describe("what a window keeps across its repair", () => {
       transcriptHead: { cursor: WINDOW_HEAD, hasMore: true },
     });
     store.applyBatch(eventsAt([11, 12, 14]));
-    store.prependEarlierEvents(eventsAt([8, 9]), { cursor: cursorAt(7), hasMore: true });
+    store.prependEarlierEvents({
+      events: eventsAt([8, 9]),
+      edge: { cursor: cursorAt(7), hasMore: true },
+      runs: [],
+    });
 
     // The read carries a shell's lease from below the window, and a page during the replay another.
     const repairRead: SessionBaseState = {
@@ -275,9 +280,10 @@ describe("what a window keeps across its repair", () => {
     };
     store.repair(repairRead, scenario.reopening);
     expect(store.snapshot().isReplaying).toBe(true);
-    store.prependEarlierEvents([leaseChangeAt(6, "shell-2"), eventAt(7)], {
-      cursor: cursorAt(5),
-      hasMore: true,
+    store.prependEarlierEvents({
+      events: [leaseChangeAt(6, "shell-2"), eventAt(7)],
+      edge: { cursor: cursorAt(5), hasMore: true },
+      runs: [],
     });
     store.applyBatch(eventsAt(scenario.sentAgain));
 
@@ -289,6 +295,59 @@ describe("what a window keeps across its repair", () => {
     expect(sequencesOf(store.snapshot())).toStrictEqual([6, 7, 8, 9, 11, 12, 13, 14, 15]);
     expect(store.snapshot().standingEvents.map((event) => event.sequence)).toStrictEqual([3, 6]);
   });
+
+  it.each([
+    {
+      repair: "from the row before the hole",
+      read: readAfterRow(3),
+      reopening: afterRow(3),
+      sentAgain: [4, 5],
+    },
+    {
+      repair: "from the window's head",
+      read: REPAIR_READ,
+      reopening: AT_HEAD,
+      sentAgain: [1, 2, 3, 4, 5],
+    },
+  ])(
+    "keeps who acts for an ended run a page named outside the window, across a repair $repair",
+    (scenario) => {
+      const runId = "11111111-2222-4333-8444-555555555555";
+      // The run's rows name no one, so only the facts the page served say who acts for it.
+      const runRowAt = (sequence: number): ProjectedSessionEvent =>
+        eventOfKind(SESSION_ID, "assistant.message", sequence, { sessionId: SESSION_ID, runId });
+      const store = new SessionStore({ sessionId: SESSION_ID });
+      store.initialize({
+        cursor: 2,
+        entities: [],
+        transcript: [runRowAt(2)],
+        transcriptHead: { cursor: cursorAt(1), hasMore: true },
+      });
+      store.applyBatch([runRowAt(3), runRowAt(5)]);
+      store.prependEarlierEvents({
+        events: [runRowAt(1)],
+        edge: { cursor: undefined, hasMore: false },
+        runs: [
+          {
+            runId: runId as RunId,
+            actor: "agent-1",
+            stateEventType: "run.completed",
+            isRewound: false,
+            foldedThroughSequence: 5,
+          },
+        ],
+      });
+
+      store.repair(scenario.read, scenario.reopening);
+      store.applyBatch(scenario.sentAgain.map(runRowAt));
+
+      expect(store.snapshot()).toMatchObject({ degradedCause: undefined, isReplaying: false });
+      expect(store.snapshot().partitions.run[runId]).toMatchObject({
+        state: "completed",
+        runFacts: { actor: "agent-1", stateEventType: "run.completed" },
+      });
+    },
+  );
 
   it("folds a replay past a detached tail into the entities and holds none of its rows", () => {
     const store = new SessionStore({ sessionId: SESSION_ID, projectors: runPerRow() });
@@ -321,7 +380,11 @@ describe("what a window keeps across its repair", () => {
     store.repair(readAfterRow(4), afterRow(4));
 
     // The page reaches the newest row the stream had sent, so the window's tail goes live.
-    store.appendLaterEvents(eventsAt([3, 4, 5, 6]), { cursor: cursorAt(6), hasMore: false });
+    store.appendLaterEvents({
+      events: eventsAt([3, 4, 5, 6]),
+      edge: { cursor: cursorAt(6), hasMore: false },
+      runs: [],
+    });
     expect(store.snapshot().transcriptTail.following).toBe("live");
     // The replay passes row 6 and folds row 7, which neither the page nor the replay holds.
     store.applyBatch(eventsAt([5, 6, 7]));

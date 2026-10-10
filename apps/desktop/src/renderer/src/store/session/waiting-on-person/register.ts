@@ -13,7 +13,7 @@
 // lifecycles have no base-state carrier, so a request raised below the window's head is
 // unreadable from here; {@link WaitingOnPersonRecords.isWindowHeadUnread} reports that.
 
-import { RUN_STATE_KINDS } from "#renderer/store/session/events/run/state-kinds.js";
+import { runStateOfEventType } from "@ai-sidekicks/contracts/transcript/run-facts";
 import type { StoredEntity, ProjectedSessionEvent } from "../entities/vocabulary.js";
 import {
   RUN_STATE_EVENT_PREFIX,
@@ -127,7 +127,7 @@ export class WaitingOnPersonRegister {
   }
 
   #admitOne(event: ProjectedSessionEvent): void {
-    if (RUN_STATE_KINDS.includes(event.kind)) {
+    if (runStateOfEventType(event.kind) !== undefined) {
       this.#recordRunState({
         runId: runIdOf(event) ?? uncorrelatedKey(event),
         atSequence: event.sequence,

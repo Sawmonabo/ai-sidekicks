@@ -17,6 +17,7 @@ import type {
 } from "@ai-sidekicks/contracts/session/directory";
 import { SessionIdSchema } from "@ai-sidekicks/contracts/session/id";
 import { SESSION_WORKING_FOLDER_UNAVAILABLE_CODE } from "@ai-sidekicks/contracts/session/methods";
+import { RUN_TERMINAL_STATES } from "@ai-sidekicks/contracts/run/state";
 
 import type { DatabaseConnections } from "../database/connection/lifecycle.js";
 import type { WriteStatement } from "../database/statement.js";
@@ -29,7 +30,6 @@ import { SessionNotFoundError } from "../ipc/session-errors.js";
 import { RepoMountManagedError, RepoRootResolutionError } from "../workspace/repo/errors.js";
 import { CHECKOUT_ROOT_METADATA_PATH } from "../workspace/row-guards.js";
 import type { ExecutionRootService } from "../workspace/execution-root-service.js";
-import { RUN_TERMINAL_STATES } from "./run/transitions.js";
 
 interface SessionPendingRow {
   readonly pending_working_folder: string | null;

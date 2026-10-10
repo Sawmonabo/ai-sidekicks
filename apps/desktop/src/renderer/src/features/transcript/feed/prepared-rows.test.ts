@@ -76,7 +76,10 @@ function keysOf(rows: readonly { readonly key: string }[]): string[] {
 describe("PreparedRowGate", () => {
   it("lists the rows below a held row at once, the held row once its work lands, and refreshes the listed", () => {
     const store = openPagedSessionStore(0, 5);
-    const model = deriveTranscriptWindow(store.snapshot().transcript);
+    const model = deriveTranscriptWindow(
+      store.snapshot().transcript,
+      store.snapshot().partitions.run,
+    );
     const heldRowId = transcriptFixtureEventId(2);
     const preparations = new HeldPreparations([heldRowId]);
     const gate = new PreparedRowGate();
@@ -125,13 +128,15 @@ describe("PreparedRowGate", () => {
 
   it("holds a page read back above the list with its last held row, so that row joins at the head", () => {
     const gate = new PreparedRowGate();
-    const tail = deriveTranscriptWindow(openPagedSessionStore(6, 9).snapshot().transcript);
+    const tailSnapshot = openPagedSessionStore(6, 9).snapshot();
+    const tail = deriveTranscriptWindow(tailSnapshot.transcript, tailSnapshot.partitions.run);
     const heldRowId = transcriptFixtureEventId(2);
     const preparations = new HeldPreparations([heldRowId]);
     gate.filter(tail, preparations.prepareRow, SOURCES);
 
     // The page of rows 0 to 5 arrives above the listed rows; row 2 still waits on its work.
-    const withPage = deriveTranscriptWindow(openPagedSessionStore(0, 9).snapshot().transcript);
+    const pagedSnapshot = openPagedSessionStore(0, 9).snapshot();
+    const withPage = deriveTranscriptWindow(pagedSnapshot.transcript, pagedSnapshot.partitions.run);
     const held = gate.filter(withPage, preparations.prepareRow, SOURCES);
     expect(keysOf(held.preparingRows)).toEqual(
       [0, 1, 2].map((index) => transcriptFixtureEventId(index)),
@@ -148,7 +153,10 @@ describe("PreparedRowGate", () => {
 
   it("withdraws a row's preparation when the window lets the row go, and keeps the rest", () => {
     const store = openPagedSessionStore(0, 5);
-    const model = deriveTranscriptWindow(store.snapshot().transcript);
+    const model = deriveTranscriptWindow(
+      store.snapshot().transcript,
+      store.snapshot().partitions.run,
+    );
     const heldRowId = transcriptFixtureEventId(1);
     const preparations = new HeldPreparations([heldRowId]);
     const gate = new PreparedRowGate();
@@ -169,7 +177,10 @@ describe("PreparedRowGate", () => {
     // A jump read the page of rows 0 to 2, which waits on a diagram, while the window still holds
     // rows 6 to 9 and lets rows 3 to 5 go above the reader.
     const store = openPagedSessionStore(0, 9);
-    const unfurledWindow = deriveTranscriptWindow(store.snapshot().transcript);
+    const unfurledWindow = deriveTranscriptWindow(
+      store.snapshot().transcript,
+      store.snapshot().partitions.run,
+    );
     const heldPage = [0, 1, 2].map((index) => transcriptFixtureEventId(index));
     const prepared = new PreparedRowGate().filter(
       unfurledWindow,

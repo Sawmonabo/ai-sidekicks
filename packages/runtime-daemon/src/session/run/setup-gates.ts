@@ -4,8 +4,7 @@
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
-
-import type { RunTerminalState } from "./transitions.js";
+import type { RunTerminalState } from "@ai-sidekicks/contracts/run/state";
 
 /** The run a setup gate checks; its workspace is read from its session, never from the item. */
 export interface RunSetupContext {
@@ -40,7 +39,9 @@ export class RunSetupGates {
     this.#gates.push(gate);
   }
 
-  /** Runs every gate in registration order; the first gate's throw stops the rest and is rethrown. */
+  /**
+   * Runs every gate in registration order; the first gate's throw stops the rest and is rethrown.
+   */
   async assertRunReady(context: RunSetupContext): Promise<void> {
     for (const gate of this.#gates) {
       await gate.assertRunReady(context);

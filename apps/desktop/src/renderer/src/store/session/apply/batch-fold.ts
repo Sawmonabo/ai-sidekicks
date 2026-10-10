@@ -14,6 +14,9 @@
 // stream sends again rows it already folded; those join the transcript, in order, and fold nowhere
 // else, and the rows past them join once the window has caught up.
 //
+// Every admitted row of a run also folds into that run's facts, whatever its kind, since a run's
+// actor can first be named by a row no run projector claims.
+//
 // A row fault (a hole, a refused sequence, a projector that threw) records where a repair can take
 // the stream up again: the newest row folded whole before it, with the partitions as they stood
 // there. An admitted rollback marks the held rows it supersedes.
@@ -25,6 +28,7 @@ import { worstDegradedCause } from "../degradation.js";
 import type { ProjectedSessionEvent } from "../entities/vocabulary.js";
 import type { SessionPartitions } from "../entities/partitions.js";
 import { EntityProjectionRunner } from "../entities/projection-runner.js";
+import { foldRunFactsOfEvent } from "../events/run/facts.js";
 import { markSupersededByRollback } from "../events/run/superseded.js";
 import { WaitingOnPersonRegister } from "../waiting-on-person/register.js";
 import { PreInitializationBuffer } from "../pre-initialization-buffer.js";
@@ -155,6 +159,7 @@ export function foldAppliedBatch(
     } else {
       partitions = projected;
     }
+    partitions = foldRunFactsOfEvent(partitions, event);
     streamAfterCursor = heldRowCursor(event);
 
     admitToHueWheel(dependencies.hueAllocator, event);

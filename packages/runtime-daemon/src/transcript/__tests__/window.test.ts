@@ -1,7 +1,8 @@
 // `transcript.read` windows over a scratch log: the cursors a page is read from and the one it
 // names next, the default row limit, the byte cut kept at the cursor's end with one row as its
 // floor, every row's body with it but a large one, and a session whose history is damaged before
-// its first event read as an empty log.
+// its first event read as an empty log, and the facts of each run a page names, folded from the
+// whole log.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -30,6 +31,7 @@ import { TranscriptProjector } from "../projector.js";
 import { TranscriptWindowReader } from "../window.js";
 
 const SESSION_ID = "0190f9b0-1c2d-7e3f-8a4b-5c6d7e8f9a01" as SessionId;
+const RUN_ID = "0190f9b0-1c2d-7e3f-8a4b-5c6d7e8f9b01";
 const UNKNOWN_SESSION_ID = "0190f9b0-1c2d-7e3f-8a4b-5c6d7e8f9aff" as SessionId;
 
 // A name long enough that two rows fit the page byte budget and three do not.
@@ -67,6 +69,43 @@ async function seedRenames(names: readonly string[]): Promise<void> {
     ),
   );
 }
+
+/** One stored event of a seeded log, at the sequence its place in the log gives it. */
+interface SeededEvent {
+  readonly category: string;
+  readonly type: string;
+  readonly actor?: string;
+  readonly payload: Readonly<Record<string, unknown>>;
+}
+
+async function seedLog(events: readonly SeededEvent[]): Promise<void> {
+  // Queued together, as `seedRenames` queues its rows.
+  await Promise.all(
+    events.map((event, sequence) =>
+      insertStoredEvent(scratch.writer, {
+        id: `event-${String(sequence)}`,
+        sessionId: SESSION_ID,
+        sequence,
+        occurredAt: "2026-10-09T12:00:00.000Z",
+        monotonicNs: BigInt(sequence),
+        category: event.category,
+        type: event.type,
+        actor: event.actor ?? null,
+        payload: { sessionId: SESSION_ID, ...event.payload },
+        correlationId: null,
+        causationId: null,
+        version: "1.0",
+      }),
+    ),
+  );
+}
+
+// One `run.<state>` beat of the seeded run, naming the state its type announces.
+const runStateBeat = (state: string, newState: string = state): SeededEvent => ({
+  category: "run_lifecycle",
+  type: `run.${state}`,
+  payload: { runId: RUN_ID, runVersion: 1, newState },
+});
 
 /** One stored event's body, `null` for none, and the payload members that describe it. */
 interface StoredBody {
@@ -255,5 +294,71 @@ describe("TranscriptWindowReader — one transcript.read window", () => {
       { status: "large", contentLength: inlineMax },
       { status: "unavailable", reason: "absent" },
     ]);
+  });
+
+  it("serves the facts of each run a page names, folded from the whole log through its head", async () => {
+    await seedLog([
+      {
+        category: "run_lifecycle",
+        type: "run.queued",
+        payload: {
+          runId: RUN_ID,
+          runVersion: 1,
+          newState: "queued",
+          admittedProviderAccountId: "acct-1",
+        },
+      },
+      // A person's message steering the run does not name who acts for it.
+      {
+        category: "interactive_request",
+        type: "user.message",
+        actor: "user-1",
+        payload: { runId: RUN_ID, message: "go on" },
+      },
+      {
+        category: "approval_flow",
+        type: "approval.requested",
+        actor: "agent-1",
+        payload: { runId: RUN_ID },
+      },
+      runStateBeat("running"),
+      runStateBeat("completed"),
+      // Names another state than its type announces, so the run stays completed.
+      runStateBeat("running", "failed"),
+      {
+        category: "session_lifecycle",
+        type: "session.renamed",
+        payload: { name: "after the run", origin: "user" },
+      },
+      // Names the run it targets, and so the page names that run, but is not the run's own.
+      {
+        category: "interactive_request",
+        type: "intervention.requested",
+        actor: "device-1",
+        payload: { targetRunId: RUN_ID, interventionId: "intervention-1" },
+      },
+    ]);
+    const reply = windowReader().read({
+      sessionId: SESSION_ID,
+      beforeCursor: encodeEventCursor(7),
+      limit: 2,
+    });
+    expect(TranscriptReadResponseSchema.safeParse(reply).success).toBe(true);
+    expect(reply.entries.map((row) => row.sequence)).toStrictEqual([6, 7]);
+    expect(reply.runs).toStrictEqual([
+      {
+        runId: RUN_ID,
+        actor: "agent-1",
+        admittedProviderAccountId: "acct-1",
+        stateEventType: "run.completed",
+        isRewound: false,
+        foldedThroughSequence: 7,
+      },
+    ]);
+    // A page naming no run carries no facts.
+    expect(
+      windowReader().read({ sessionId: SESSION_ID, beforeCursor: encodeEventCursor(6), limit: 1 })
+        .runs,
+    ).toStrictEqual([]);
   });
 });

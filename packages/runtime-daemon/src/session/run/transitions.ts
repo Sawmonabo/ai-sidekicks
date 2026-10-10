@@ -1,14 +1,8 @@
 // Every move a run's state may make, as data: the one table the engine checks a change against
-// before it writes, and the states a run ends in.
+// before it writes, and the event types that end a run.
 
 import type { RunStateChangeState } from "@ai-sidekicks/contracts/run/events";
-import type { RunState } from "@ai-sidekicks/contracts/run/state";
-
-/** The states a run ends in; the event entering one is the terminal record of its run version. */
-export const RUN_TERMINAL_STATES = ["completed", "interrupted", "stopped", "failed"] as const;
-
-/** A state a run ends in. */
-export type RunTerminalState = (typeof RUN_TERMINAL_STATES)[number];
+import { RUN_TERMINAL_STATES, type RunState } from "@ai-sidekicks/contracts/run/state";
 
 /** The event types that enter a terminal state, one per state: `run.completed` and the rest. */
 export const RUN_TERMINAL_EVENT_TYPES: ReadonlySet<string> = new Set(
@@ -38,11 +32,6 @@ const NEXT_STATES_BY_STATE: { readonly [From in RunState]: readonly RunStateChan
   stopped: ["running"],
   failed: [],
 };
-
-/** Whether `state` is one a run ends in. */
-export function isTerminalState(state: RunState): state is RunTerminalState {
-  return (RUN_TERMINAL_STATES as readonly RunState[]).includes(state);
-}
 
 /** The states from which a run may move to `to`. */
 export function statesThatMayEnter(to: RunStateChangeState): RunState[] {
