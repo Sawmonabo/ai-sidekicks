@@ -84,10 +84,11 @@ export function InlineDiffBlock(props: InlineDiffBlockProps): React.JSX.Element 
   );
 
   return (
-    <section className="meridian-diff-block" ref={setBlockElement} aria-label={props.file.path}>
+    // No section or footer: either can be a landmark, one per file in the conversation.
+    <div className="meridian-diff-block" ref={setBlockElement}>
       <div
         ref={setRowsElement}
-        className={`meridian-diff-block__rows${isCut ? " meridian-diff-block__rows--cut" : ""}`}
+        className={`meridian-diff-block__rows meridian-focus-inset${isCut ? " meridian-diff-block__rows--cut" : ""}`}
         role="table"
         aria-label={`Diff of ${props.file.path}`}
         aria-rowcount={index.rowCount}
@@ -102,7 +103,7 @@ export function InlineDiffBlock(props: InlineDiffBlockProps): React.JSX.Element 
       >
         {rows}
       </div>
-      <footer className="meridian-diff-block__footer">
+      <div className="meridian-diff-block__footer">
         <span>{`${formatCount(drawnLineCount)} of ${formatCount(lineCount)} ${lineCount === 1 ? "line" : "lines"}`}</span>
         {isCut ? (
           <>
@@ -124,8 +125,8 @@ export function InlineDiffBlock(props: InlineDiffBlockProps): React.JSX.Element 
           </>
         ) : null}
         {props.file.patch === undefined ? null : <PatchCopy patch={props.file.patch} />}
-      </footer>
-    </section>
+      </div>
+    </div>
   );
 }
 
