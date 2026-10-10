@@ -74,7 +74,7 @@ export interface TranscriptStretchMeasure {
  */
 export class TranscriptHistoryReader {
   readonly #sessionStore: SessionStore;
-  /** The clock a failure the reader could not settle is stamped with. */
+  /** The clock a walk waits a frame on between pages, and stamps a failure it could not settle. */
   readonly #clock: Clock;
   /**
    * The line every read goes out on, ended by {@link abandonReads} when the transcript holding
@@ -176,7 +176,9 @@ export class TranscriptHistoryReader {
   /**
    * Reads one page after another past an edge, starting with `pending`, until the stretch is
    * paid, the edge has no more, the edge moved or a read failed. The stretch is paid once the held
-   * transcript, derived whole, is estimated `pending.owedHeightPx` taller than at the start.
+   * transcript, derived whole, is estimated `pending.owedHeightPx` taller than at the start. Each
+   * page after the first is asked a frame after the last landed, so however fast pages answer, no
+   * one task merges and derives a whole stretch.
    */
   async #walk(
     pending: PendingRead,
@@ -216,6 +218,13 @@ export class TranscriptHistoryReader {
           return;
         }
         next = this.#pendingRead(side, edge.cursor, owedHeightPx, measure);
+        await this.#nextFrame();
+        if (
+          this.#readLine.isAbandoned ||
+          this.#edgeOf(side).cursor !== cursorOf(side, next.request)
+        ) {
+          return;
+        }
       }
     } finally {
       this.#readingSide = undefined;
@@ -261,6 +270,12 @@ export class TranscriptHistoryReader {
       },
       owedHeightPx,
     };
+  }
+
+  #nextFrame(): Promise<void> {
+    return new Promise((resolve) => {
+      this.#clock.scheduleFrame(resolve);
+    });
   }
 
   /** The estimated height of the whole transcript the store holds, drawn as the feed draws it. */
