@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 
 import { RememberedRowHeights } from "#renderer/store/session/remembered-row-heights.js";
-import { ROW_HEIGHT_SEED_REM, type RowHeightKind } from "../rows/height-kind.js";
+import { ROW_HEIGHT_SEED_REM, cutCallHeightPx, type RowHeightKind } from "../rows/height-kind.js";
 import { RowMeasurementTable } from "./row-measurement-table.js";
 
 /** The root font size the table converts seeds at until a display is declared. */
@@ -72,6 +72,39 @@ describe("the measurement table — a kind's estimate", () => {
   });
 });
 
+describe("the measurement table — a row still revealing", () => {
+  it("holds its growth out of its kind's estimate, and samples it once when it settles", () => {
+    // With few rows measured, each step of a reply streaming in would move the median and have
+    // the viewport lay every row out again.
+    const revealingRowKeys = new Set(["agent-live"]);
+    const table = new RowMeasurementTable({
+      heightKindOf: kindOfPrefixedKey,
+      isRowRevealing: (rowKey) => revealingRowKeys.has(rowKey),
+    });
+    table.acceptedHeight("agent-a", 160);
+    table.acceptedHeight("agent-b", 300);
+    expect(table.publishEstimates()).toBe(true);
+    expect(table.heightOf("agent-unmeasured")).toBe(160);
+
+    // Its own heights are remembered, so it lays out where it stands. Its first height equals
+    // agent-b's, which it never put in the sample and so must not take out.
+    table.acceptedHeight("agent-live", 300);
+    expect(table.acceptedHeight("agent-live", 400)).toBe(400);
+    expect(table.heightOf("agent-live")).toBe(400);
+    expect(table.publishEstimates()).toBe(false);
+    expect(table.heightOf("agent-unmeasured")).toBe(160);
+
+    // Settled, it joins at its last height, once: a later height replaces it.
+    revealingRowKeys.delete("agent-live");
+    expect(table.publishEstimates()).toBe(true);
+    expect(table.heightOf("agent-unmeasured")).toBe(300);
+    expect(table.publishEstimates()).toBe(false);
+    table.acceptedHeight("agent-live", 500);
+    expect(table.publishEstimates()).toBe(false);
+    expect(table.heightOf("agent-unmeasured")).toBe(300);
+  });
+});
+
 describe("the measurement table — a line of height on body length", () => {
   /** A row reports the body length its key ends in, `agent-a-200`; `agent-a` reports none. */
   function bodyLengthOfSuffixedKey(rowKey: string): number | undefined {
@@ -122,6 +155,42 @@ describe("the measurement table — a line of height on body length", () => {
     negativeSlope.acceptedHeight("agent-c-500", 200);
     negativeSlope.publishEstimates();
     expect(negativeSlope.heightOf("agent-unmeasured-5000")).toBe(200);
+  });
+
+  it("estimates an open call no taller than it draws with its output cut, once published", () => {
+    // A call's output is cut at a share of the visible flow, so a longer body past the cut draws
+    // no taller; on its line alone, a long call read above the reader would land far too tall.
+    let viewportHeightPx: number | undefined;
+    const table = new RowMeasurementTable({
+      heightKindOf: () => "tool-call-expanded",
+      bodyLengthOf: bodyLengthOfSuffixedKey,
+      viewportHeightPx: () => viewportHeightPx,
+    });
+    table.acceptedHeight("call-a-200", 200);
+    table.acceptedHeight("call-b-400", 300);
+    table.acceptedHeight("call-c-600", 400);
+    // Before the flow is measured there is no cut to cap at, so the line stands.
+    table.publishEstimates();
+    expect(table.heightOf("call-unmeasured-100000")).toBe(50_100);
+
+    viewportHeightPx = 800;
+    const cutAt800Px = cutCallHeightPx(800, INITIAL_ROOT_FONT_SIZE_PX);
+    expect(cutAt800Px).toBeGreaterThan(200);
+    // Laid out rows keep their estimate until it is published, and the cap is a move.
+    expect(table.heightOf("call-unmeasured-100000")).toBe(50_100);
+    expect(table.publishEstimates()).toBe(true);
+    expect(table.heightOf("call-unmeasured-100000")).toBe(cutAt800Px);
+    expect(table.estimatedHeightOf("call-new", "tool-call-expanded", 100_000)).toBe(cutAt800Px);
+    // A call short of the cut keeps its line.
+    expect(table.heightOf("call-unmeasured-0")).toBe(200);
+    expect(table.smallestEstimatePx).toBeLessThanOrEqual(cutAt800Px);
+
+    // A taller flow cuts lower, once published.
+    viewportHeightPx = 1_600;
+    expect(table.publishEstimates()).toBe(true);
+    expect(table.heightOf("call-unmeasured-100000")).toBe(
+      cutCallHeightPx(1_600, INITIAL_ROOT_FONT_SIZE_PX),
+    );
   });
 });
 
