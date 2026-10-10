@@ -4,15 +4,10 @@
 // attributed from what the binding delivered before it.
 
 import type { SourceEpoch, SourcePosition } from "@ai-sidekicks/contracts/event/envelope";
+import type { EpochPosition } from "@ai-sidekicks/contracts/transcript/turn-attribution";
 
 import type { DriverDiagnosticsEmitter } from "../../provider/driver/diagnostics.js";
 import type { RuntimeBinding } from "../../provider/runtime-binding-store.js";
-
-/** An execution epoch and a turn position within it. */
-export interface EpochPosition {
-  readonly epoch: SourceEpoch;
-  readonly position: SourcePosition;
-}
 
 /** The runtime binding a cursor counts deliveries for. */
 export type EpochBinding = Pick<RuntimeBinding, "id" | "runId" | "driverName">;

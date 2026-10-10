@@ -7,7 +7,7 @@
 
 import type { ChildRunExpandResponse } from "@ai-sidekicks/contracts/transcript/operations";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
+import type { TranscriptReadRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { callDaemon, type DaemonReply } from "#renderer/services/daemon/reply.js";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
@@ -24,7 +24,7 @@ export type ChildRunExpansionStatus = "summarized" | "expanding" | "expanded" | 
 export interface ChildRunExpansion {
   readonly status: ChildRunExpansionStatus;
   /** The entries the expansion returned, in the order the daemon sent them. */
-  readonly entries: readonly TranscriptEventRow[];
+  readonly entries: readonly TranscriptReadRow[];
   /** Whether the daemon has more entries than this expansion read. */
   readonly hasUnreadEntries: boolean;
   /** Why the expansion failed, on the `expand-failed` arm only. */

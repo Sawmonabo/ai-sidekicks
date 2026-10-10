@@ -74,10 +74,11 @@ export interface SessionSubscribeDeps {
    * Follows a session's stored events (`EventLogService.follow`): catches up with those after
    * `afterCursor` (all of them when absent), handing each over only while the listener has room,
    * calls `onCaughtUp` once they are all delivered, then follows new ones, calling `onChange` with
-   * each event and its cursor, and `onFailure` once if the follow ends on an error. Returns the
-   * detach the handler runs when the subscription ends. `onChange` may run synchronously during
-   * this call, and the detach may run from inside `onChange`, so the source must tolerate being
-   * detached mid-emit. A session that does not exist, or a cursor it cannot read, throws.
+   * each event, its cursor and, for an event of a run, its run stamp, and `onFailure` once if the
+   * follow ends on an error. Returns the detach the handler runs when the subscription ends.
+   * `onChange` may run synchronously during this call, and the detach may run from inside
+   * `onChange`, so the source must tolerate being detached mid-emit. A session that does not
+   * exist, or a cursor it cannot read, throws.
    */
   readonly subscribeToSession: (
     sessionId: SessionId,

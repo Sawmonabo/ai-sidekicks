@@ -23,9 +23,10 @@ import {
 export const SCROLL_TAIL_TOLERANCE_PX = 24;
 
 /**
- * The three numbers a scroll container read produces, before anything is derived.
- * Only the sampled members of `ScrollGeometry`; the derived and provenance members are
- * this module's to compute.
+ * The three numbers a sample is made of, before anything is derived: the offset, read from the
+ * container, and the viewport and content heights, read from it or supplied beside it. Only the
+ * sampled members of `ScrollGeometry`; the derived and provenance members are this module's to
+ * compute.
  */
 export interface ScrollGeometryReading {
   readonly scrollTop: number;

@@ -23,7 +23,7 @@ import { FootnoteRegistry } from "./markdown/footnotes/registry.js";
 import {
   SAMPLE_RUN_ROW_TIME_SELECTOR,
   sampleRunRow,
-} from "#test/helpers/transcript-event-row-samples.js";
+} from "#test/helpers/transcript/event-row-samples.js";
 import { FIRST_RUN_SCENARIO } from "#fixtures/scenarios/first-run.js";
 import {
   RowRevealContext,
@@ -33,12 +33,17 @@ import { useReveal } from "../reveal/hooks/useReveal.js";
 import { useAnimationFrameScheduler } from "../hooks/useAnimationFrameScheduler.js";
 import { replyRowIdsByFootRowId } from "../window/reply-rows.js";
 import { DrawnReplyText } from "../copy/drawn-reply-text.js";
+import { REVEAL_TEXT_CHUNK_CHARACTERS } from "../reveal/caps.js";
+import { publishedTextOf } from "../reveal/published-text.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 
 /** A channel that draws `liveTextByRowId` and keeps its own record of what reply rows drew. */
 function channelDrawing(liveTextByRowId: ReadonlyMap<string, string>): RowRevealContextValue {
   return {
-    publishedTextFor: (rowId) => liveTextByRowId.get(rowId),
+    publishedTextFor: (rowId) => {
+      const liveText = liveTextByRowId.get(rowId);
+      return liveText === undefined ? undefined : publishedTextOf(liveText);
+    },
     drawnReplyText: new DrawnReplyText(),
     subscribe: () => () => undefined,
   };
@@ -63,6 +68,7 @@ function renderMessageCard(
     type: overrides.type ?? "assistant.message",
     ...(overrides.summary === undefined ? {} : { summary: overrides.summary }),
     ...(overrides.payload === undefined ? {} : { payload: overrides.payload }),
+    ...(overrides.content === undefined ? {} : { content: overrides.content }),
   });
   const rowKind = classifyTranscriptRow(row);
   if (rowKind === undefined) {
@@ -81,8 +87,9 @@ function renderMessageCard(
           density="expanded"
           footnotes={new FootnoteRegistry()}
           thinkingRow={undefined}
-          {...(overrides.content === undefined ? {} : { content: overrides.content })}
-          {...(overrides.liveText === undefined ? {} : { liveText: overrides.liveText })}
+          {...(overrides.liveText === undefined
+            ? {}
+            : { liveText: publishedTextOf(overrides.liveText) })}
           {...(overrides.inlineCards === undefined ? {} : { inlineCards: overrides.inlineCards })}
           {...(overrides.replyRowIds === undefined ? {} : { replyRowIds: overrides.replyRowIds })}
           editControl={undefined}
@@ -283,18 +290,25 @@ describe("a reply's foot", () => {
     ).toHaveLength(1);
 
     // The reply's text was drawn and then dropped, as when its row leaves the window or folds into
-    // its run group: the foot keeps its time and its Copy, which still takes the dropped text.
+    // its run group: the foot keeps its time and its Copy, which still takes the dropped text,
+    // every character of it, though the lane held it in several chunks.
+    const droppedReply = Array.from({ length: 3 * 128 }, (_, index) => `word${String(index)}`).join(
+      " ",
+    );
+    expect(droppedReply.length).toBeGreaterThan(REVEAL_TEXT_CHUNK_CHARACTERS * 2);
     const clock = new ManualClock();
     const reveal = renderHook(() =>
       useReveal({ frameScheduler: useAnimationFrameScheduler(clock), clock }),
     );
     act(() => {
-      reveal.result.current.ingest({ laneId: "reply-closing", mode: "direct", text: "Rename it." });
+      reveal.result.current.ingest({ laneId: "reply-closing", mode: "direct", text: droppedReply });
       while (clock.pendingFrameCount > 0) {
         clock.runFrame();
       }
     });
-    expect(reveal.result.current.channel.publishedTextFor("reply-closing")).toBe("Rename it.");
+    expect(reveal.result.current.channel.publishedTextFor("reply-closing")?.slice(0)).toBe(
+      droppedReply,
+    );
     act(() => {
       reveal.result.current.retireLanes(
         (laneId) => laneId === "reply-closing",
@@ -322,7 +336,7 @@ describe("a reply's foot", () => {
       fireEvent.click(copyAfterDrop ?? closingAfterDrop);
       await Promise.resolve();
     });
-    expect(copied).toStrictEqual([{ text: "Rename it.", html: "<p>Rename it.</p>" }]);
+    expect(copied).toStrictEqual([{ text: droppedReply, html: `<p>${droppedReply}</p>` }]);
   });
 
   it("keeps the foot on a new empty last row when the earlier row holds only a stored body", () => {

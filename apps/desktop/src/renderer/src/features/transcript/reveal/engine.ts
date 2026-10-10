@@ -16,6 +16,7 @@ import {
 } from "./caps.js";
 import { safeRevealCeiling } from "./gate.js";
 import { RevealLane } from "./lane.js";
+import { type PublishedText } from "./published-text.js";
 import type {
   RevealDelta,
   RevealDiagnostic,
@@ -51,6 +52,8 @@ export class RevealEngine {
   /** Insertion order is the queue order the catch-up remainder is offered in. */
   readonly #lanesById = new Map<string, RevealLane>();
 
+  /** Bumped whenever a lane is first held or retired, the only changes `holdsLane` sees. */
+  #laneRevision = 0;
   #frameSubmitted = false;
   #disposed = false;
 
@@ -78,9 +81,22 @@ export class RevealEngine {
     this.#armFrame();
   }
 
-  /** The text a consumer may render for this lane. Empty for a lane never seen. */
-  public publishedText(laneId: string): string {
-    return this.#lanesById.get(laneId)?.publishedText ?? "";
+  /**
+   * The text a consumer may render for this lane: the same handle for the lane's life, or
+   * `undefined` for a lane never seen.
+   */
+  public publishedText(laneId: string): PublishedText | undefined {
+    return this.#lanesById.get(laneId)?.publishedText;
+  }
+
+  /** Whether a lane by this name is held: seen and not yet retired. A map lookup. */
+  public holdsLane(laneId: string): boolean {
+    return this.#lanesById.has(laneId);
+  }
+
+  /** A count that moves exactly when the set of held lanes does, so a reader can re-ask cheaply. */
+  public get laneRevision(): number {
+    return this.#laneRevision;
   }
 
   public laneState(laneId: string): RevealLaneState | undefined {
@@ -125,9 +141,15 @@ export class RevealEngine {
     return this.#diagnosticEmitter.subscribe(sink);
   }
 
-  /** Drop a lane whose run ended, so a finished turn stops costing memory. */
+  /**
+   * Drop a lane whose run ended, so a finished turn stops costing memory. A reader still holding
+   * its text keeps only what was revealed: the rest is released first.
+   */
   public retireLane(laneId: string): void {
-    this.#lanesById.delete(laneId);
+    this.#lanesById.get(laneId)?.quarantine();
+    if (this.#lanesById.delete(laneId)) {
+      this.#laneRevision += 1;
+    }
   }
 
   /** Terminal. A disposed engine arms nothing and reaches nobody. */
@@ -146,6 +168,7 @@ export class RevealEngine {
     }
     const lane = new RevealLane(laneId);
     this.#lanesById.set(laneId, lane);
+    this.#laneRevision += 1;
     return lane;
   }
 

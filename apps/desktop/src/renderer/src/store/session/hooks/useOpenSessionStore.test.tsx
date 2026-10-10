@@ -2,17 +2,24 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { useOpenSessionStore } from "./useOpenSessionStore.js";
-import { type SessionBaseStateReader } from "../open/entry.js";
+import {
+  openingPageLimit,
+  offScreenRowLimit,
+  readsNothing,
+} from "#test/helpers/session/store/fixtures.js";
 import { SessionStoreRegistry } from "../registry.js";
 import type { SessionStore } from "../store.js";
 import { ManualClock } from "#renderer/lib/clock.js";
 
-const readsNothing: SessionBaseStateReader = () => Promise.resolve(undefined);
-
 describe("useOpenSessionStore — components resolve a store, never construct one", () => {
   it("follows the registry as a session opens and closes", () => {
     const clock = new ManualClock(0);
-    const registry = new SessionStoreRegistry({ read: readsNothing, clock });
+    const registry = new SessionStoreRegistry({
+      read: readsNothing,
+      clock,
+      openingPageLimit,
+      offScreenRowLimit,
+    });
     const resolved: (SessionStore | undefined)[] = [];
 
     function StoreProbe(): React.JSX.Element {

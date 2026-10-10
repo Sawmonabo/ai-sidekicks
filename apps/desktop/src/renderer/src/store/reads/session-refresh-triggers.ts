@@ -90,7 +90,9 @@ export class SessionRefreshTriggers {
     if (!previous.initialized || state.cursor <= previous.cursor) {
       return;
     }
-    const admitted = state.transcript.filter((event) => event.sequence > previous.cursor);
+    // The batch's own arrivals, not the transcript: a detached tail admits rows the window does
+    // not hold.
+    const admitted = state.lastAdmittedEvents.filter((event) => event.sequence > previous.cursor);
     // The declaration is read off the target on every transition, not copied at construction,
     // so a getter over something that moves is compared against what it declares now. A
     // projected frame's `kind` is a plain string, so the declared set is `ReadonlySet<string>`.

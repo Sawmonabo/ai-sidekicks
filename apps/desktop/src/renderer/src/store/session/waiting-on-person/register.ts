@@ -1,9 +1,9 @@
 // What is still waiting on a person, held outside the window it was learned from.
 //
-// Not a fold over the store's `transcript`: a resumed read starts mid-log and the transcript is
-// capped, so an approval's opening row can be gone while the run is still blocked. The register
-// is advanced by every admitted event and recovered backward page, seeded from each read's base
-// state, and cleared by nothing that replaces or prunes the window.
+// Not a fold over the store's `transcript`: the transcript is a window of the log that lets go of
+// rows far from the reader, so an approval's opening row can be gone while the run is still
+// blocked. The register is advanced by every admitted event and recovered page, seeded from each
+// read's base state, and cleared by nothing that replaces or prunes the window.
 //
 // It keeps two positions per lifecycle (the opener and the newest terminal), so rows in any order
 // give the same answer. A backward page delivers an opener after its terminal, and a register that
@@ -16,9 +16,8 @@
 import { RUN_STATE_KINDS } from "#renderer/store/session/events/run/state-kinds.js";
 import type { StoredEntity, ProjectedSessionEvent } from "../entities/vocabulary.js";
 import {
-  ATTENTION_RUN_STATE_KINDS,
+  RUN_STATE_EVENT_PREFIX,
   identifiedRequestKeyOf,
-  isAttentionRunState,
   lifecycleFor,
   runIdOf,
   uncorrelatedKey,
@@ -35,11 +34,14 @@ export interface WaitingRequestRecord {
   readonly closedAtSequence: number | undefined;
 }
 
-/** One run's newest known state, as the position it was read at and what it means. */
+/** One run's newest known state and the position it was read at. */
 export interface WaitingRunRecord {
   readonly atSequence: number;
-  /** Whether that state is one a person has to act on. */
-  readonly needsAttention: boolean;
+  /**
+   * The state, wire-verbatim, or `undefined` where the base state named none. Whether a person
+   * has to act on it is `isAttentionRunState`'s call.
+   */
+  readonly state: string | undefined;
 }
 
 /** Everything the register knows, as one immutable reading. */
@@ -48,8 +50,9 @@ export interface WaitingOnPersonRecords {
   readonly runsByRunId: ReadonlyMap<string, WaitingRunRecord>;
   /**
    * Whether requests raised below this window's head may exist that were never read here.
-   * True while the read that established the base state submitted a position, since the window
-   * then starts partway through the log. Run states are seeded, so they are not what this reports.
+   * True while the read that established the base state carried a window with rows before it,
+   * since the window then starts partway through the log. Run states are seeded, so they are not
+   * what this reports.
    */
   readonly isWindowHeadUnread: boolean;
 }
@@ -62,8 +65,8 @@ export interface WaitingOnPersonSeed {
    * An event at or below it is already folded into the seed and must not supersede it.
    */
   readonly cursor: number;
-  /** The position the read was performed FROM, or `undefined` for the log's beginning. */
-  readonly windowHeadCursor: string | undefined;
+  /** Whether rows sit before the window the read carried, which the register never saw. */
+  readonly isWindowHeadUnread: boolean;
 }
 
 /**
@@ -83,7 +86,7 @@ export class WaitingOnPersonRegister {
    * window-head fact is replaced.
    */
   public seedFrom(seed: WaitingOnPersonSeed): void {
-    this.#isWindowHeadUnread = seed.windowHeadCursor !== undefined;
+    this.#isWindowHeadUnread = seed.isWindowHeadUnread;
     this.#revision += 1;
     for (const entity of seed.entities) {
       if (entity.kind !== "run") {
@@ -92,7 +95,7 @@ export class WaitingOnPersonRegister {
       this.#recordRunState({
         runId: entity.id,
         atSequence: seed.cursor,
-        needsAttention: isAttentionRunState(entity.state),
+        state: entity.state,
       });
     }
   }
@@ -128,7 +131,7 @@ export class WaitingOnPersonRegister {
       this.#recordRunState({
         runId: runIdOf(event) ?? uncorrelatedKey(event),
         atSequence: event.sequence,
-        needsAttention: ATTENTION_RUN_STATE_KINDS.includes(event.kind),
+        state: event.kind.slice(RUN_STATE_EVENT_PREFIX.length),
       });
       return;
     }
@@ -154,7 +157,7 @@ export class WaitingOnPersonRegister {
     }
     this.#runsByRunId.set(record.runId, {
       atSequence: record.atSequence,
-      needsAttention: record.needsAttention,
+      state: record.state,
     });
     this.#revision += 1;
   }

@@ -22,6 +22,7 @@ const ON_SESSION: WhenClauseContext = {
   onSession: true,
   onWorkflows: false,
   onSettings: false,
+  transcriptHoldsRunGroup: false,
 };
 
 /** Where the route moves to underneath the open palette; every command above is hidden here. */

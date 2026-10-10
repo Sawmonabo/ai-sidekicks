@@ -8,7 +8,7 @@ import "./MarkdownNodes.css";
 import type { AlignType, Nodes, PhrasingContent, RootContent, Table, TableRow } from "mdast";
 import { Fragment } from "react";
 
-import { isDeferredFenceLanguage } from "./rules.js";
+import { readDeferredFenceKind } from "./rules.js";
 import type { CodeSpanReader } from "./highlight/code-span-reader.js";
 import { CodeBlock } from "./highlight/CodeBlock.js";
 import { FootnoteReference } from "./footnotes/FootnoteReference.js";
@@ -269,8 +269,9 @@ function renderFence(
   language: string | null,
   context: MarkdownRenderContext,
 ): React.ReactNode {
-  if (isDeferredFenceLanguage(language)) {
-    return context.isSettled && isMathFence(language) ? (
+  const deferredFenceKind = readDeferredFenceKind(language);
+  if (deferredFenceKind !== undefined) {
+    return context.isSettled && deferredFenceKind === "math" ? (
       <MathBlock source={source} isDisplayMode />
     ) : (
       <CodeBlock
@@ -291,9 +292,4 @@ function renderFence(
       renderCopy={context.renderCodeCopy}
     />
   );
-}
-
-/** Whether a deferred fence is math rather than a diagram. */
-function isMathFence(language: string | null): boolean {
-  return language === "math" || language === "latex" || language === "tex";
 }

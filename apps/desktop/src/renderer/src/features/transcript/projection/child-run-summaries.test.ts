@@ -9,7 +9,9 @@ const SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5a44a5";
 const PARENT_RUN = "019b793b-7b60-740e-8110-d1a4c1150111";
 const CHILD_RUN = "019b793b-7b60-740e-8140-d1a4c1150114";
 const OTHER_RUN = "019b793b-7b60-740e-8120-d1a4c1150112";
+const CHILD_AGENT = "019b793b-7b60-7a6e-8140-d1a4c1150104";
 
+/** An event of a run, stamped by the daemon at the turn position its sequence names. */
 function event(
   sequence: number,
   kind: string,
@@ -23,6 +25,7 @@ function event(
     kind,
     occurredAt: `2026-01-01T11:0${String(sequence % 10)}:00.000Z`,
     payload,
+    runStamp: { position: sequence, epoch: 0 },
   };
 }
 
@@ -35,6 +38,7 @@ function childBirth(
     runId: CHILD_RUN,
     runVersion: 1,
     newState: "queued",
+    agentId: CHILD_AGENT,
     ...linkage,
   });
 }

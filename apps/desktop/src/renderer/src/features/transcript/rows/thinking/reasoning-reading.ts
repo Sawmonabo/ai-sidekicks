@@ -6,6 +6,7 @@ import type { Refusal } from "#renderer/lib/refusal/contract.js";
 import type { ReasoningSurfaceReadResponse } from "@ai-sidekicks/contracts/transcript/operations";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
+import { type PublishedText } from "../../reveal/published-text.js";
 
 /** One arm of the contract's closed availability discriminant. */
 export type ReasoningAvailability = ReasoningSurfaceReadResponse["availability"];
@@ -43,18 +44,29 @@ export interface ReasoningAvailabilityCopy {
  * The newest lines of a streaming reasoning body.
  *
  * The window is taken from the end so a long turn shows what is arriving. Blank lines are
- * dropped before the window is taken and each line's trailing whitespace is trimmed. Pure, so
- * a caller can memoize on the text.
+ * dropped before the window is taken and each line's trailing whitespace is trimmed. Only the
+ * end of the text is read: a span from the end, doubled until it holds enough whole lines or
+ * reaches the start.
  */
-export function reasoningTailOf(text: string): readonly string[] {
-  const lines: string[] = [];
-  for (const line of text.split("\n")) {
-    const trimmed = line.trimEnd();
-    if (trimmed.length > 0) {
-      lines.push(trimmed);
+export function reasoningTailOf(text: PublishedText): readonly string[] {
+  for (let spanLength = REASONING_TAIL_READ_CHARACTERS; ; spanLength *= 2) {
+    const start = Math.max(0, text.length - spanLength);
+    const lines = text.slice(start).split("\n");
+    if (start > 0) {
+      // The span opened mid-line; only the lines after its first break are whole.
+      lines.shift();
+    }
+    const kept: string[] = [];
+    for (const line of lines) {
+      const trimmed = line.trimEnd();
+      if (trimmed.length > 0) {
+        kept.push(trimmed);
+      }
+    }
+    if (start === 0 || kept.length >= REASONING_TAIL_LINE_COUNT) {
+      return kept.slice(-REASONING_TAIL_LINE_COUNT);
     }
   }
-  return lines.slice(-REASONING_TAIL_LINE_COUNT);
 }
 
 /**
@@ -84,3 +96,9 @@ export const REASONING_AVAILABILITY_COPY: Readonly<
 export function reasoningRunIdOf(row: TranscriptEventRow): RunId | undefined {
   return row.kind === "run" ? row.runId : undefined;
 }
+
+/**
+ * Characters read from the end of a reasoning body for its tail at first: a few lines' worth, so
+ * the usual frame reads one span.
+ */
+const REASONING_TAIL_READ_CHARACTERS = 512;

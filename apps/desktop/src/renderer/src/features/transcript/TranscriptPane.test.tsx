@@ -16,7 +16,10 @@ import {
 beforeEach(() => {
   // The lazily loaded body registers the renderer before the pane renders, so each case
   // starts with one registered.
-  registerTranscriptRowRenderer("transcript-pane-test", () => null);
+  registerTranscriptRowRenderer("transcript-pane-test", {
+    render: () => null,
+    drawsBody: () => true,
+  });
 });
 
 afterEach(() => {
@@ -26,9 +29,12 @@ afterEach(() => {
 describe("TranscriptPane — the body", () => {
   it("mounts the transcript and renders one row per admitted event", () => {
     withLaidOutViewport();
-    registerTranscriptRowRenderer("transcript-pane-test", (rowProps) => (
-      <article data-row-type={rowProps.row.type}>{rowProps.row.summary}</article>
-    ));
+    registerTranscriptRowRenderer("transcript-pane-test", {
+      render: (rowProps) => (
+        <article data-row-type={rowProps.row.type}>{rowProps.row.summary}</article>
+      ),
+      drawsBody: () => true,
+    });
     const sessionStore = openSessionStoreWithPaneLog();
     const pane = renderPane({
       context: transcriptPaneContext(sessionStore),

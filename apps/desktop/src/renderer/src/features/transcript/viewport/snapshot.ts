@@ -7,7 +7,7 @@ import { type RowKeyProjection } from "./row-measurement-table.js";
 import { type WindowRow, type PruneOutcome } from "./window-cap.js";
 
 /**
- * One row, as the viewport addresses it. An alias of the window's row type, so the cap and the
+ * One row, as the viewport addresses it. An alias of the window's row type, so the window and the
  * list agree on what a row is.
  */
 export type ViewportRow = WindowRow;
@@ -26,22 +26,25 @@ export interface ViewportSnapshot {
   readonly keyProjection: RowKeyProjection;
   readonly reading: ReadingState;
   readonly lastPrune: PruneOutcome | undefined;
+  /** The height of the history line above the first row, which the list starts below, in px. */
+  readonly headHeightPx: number;
 }
 
 /** What the surrounding feed tells the frame each render. */
 export interface ViewportConditions {
   readonly rows: readonly ViewportRow[];
-  /** A turn is mid-flight, so prune waits rather than moving rows under a stream. */
-  readonly hasActiveTurn: boolean;
-  /** The reveal engine still has characters queued for this frame. */
-  readonly isRevealDraining: boolean;
+  /**
+   * Whether a row is still working: a reply still streaming, a tool call still running, an ask
+   * still open. The window never lets go of one; a new function when the working rows change.
+   */
+  readonly isWorkingRow: (rowKey: string) => boolean;
 }
 
 /**
  * How many rows arrived after the row that used to be last.
  *
- * Zero when there was no previous window or the previous tail was pruned: nothing is owed to a
- * reader who was not there, and a vanished key has no origin to count from.
+ * Zero when there was no previous set or its last row is gone: nothing is owed to a reader who
+ * was not there, and a vanished key has no origin to count from.
  */
 export function countAppendedAfter(
   rows: readonly ViewportRow[],
@@ -73,9 +76,10 @@ export function countInsertedBefore(
 
 /**
  * Whether the virtualizer may subtract a measurement's delta from the offset: only when the
- * reader is not following (the tail glide would fight it) and the measured row sits entirely
- * above the fold. A visible row grows below the reader's eyes, and compensating for it would
- * drag the viewport every frame of a stream and loop through the anchor's change notification.
+ * reader is not following (the library's end anchor already holds a follower on the tail) and the
+ * measured row sits entirely above the fold. A visible row grows below the reader's eyes, and
+ * compensating for it would drag the viewport every frame of a stream and loop through the
+ * anchor's change notification.
  */
 export function shouldCompensateForInsertion(
   readingMode: ReadingState["mode"],

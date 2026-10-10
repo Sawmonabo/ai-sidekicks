@@ -22,6 +22,7 @@
 // in-flight phase. The settlement is asserted ({@link requireNoReadInFlight}) because an audit of
 // a skeleton is a green case.
 
+import { START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/event-cursor";
 import type { ReactElement } from "react";
 
 import { renderSettled } from "../../helpers/app/harness.js";
@@ -55,7 +56,8 @@ function composerSessionStore(throughKind: string): SessionStore {
     sessionId: WAITING_FOR_INPUT_SCENARIO.sessionId,
     projectors: COMPOSED_ENTITY_PROJECTORS,
   });
-  store.initialize({ cursor: 0, entities: [] });
+  // The scenario numbers its beats from 0, so the store starts before the first.
+  store.initialize({ cursor: START_OF_LOG_POSITION, entities: [] });
   const lastIndex = WAITING_FOR_INPUT_SCENARIO.beats.findLastIndex(
     (beat) => beat.event.kind === throughKind,
   );

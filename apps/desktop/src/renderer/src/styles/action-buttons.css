@@ -1,5 +1,5 @@
 /*
- * Two button treatments several features share, each a class a control wears beside its own.
+ * Three button treatments several features share, each a class a control wears beside its own.
  *
  * `meridian-action-button` is a button that does something. The base holds only what every such
  * button shares: the inherited font, a one-pixel solid edge, the small corner and the pointer,
@@ -15,10 +15,14 @@
  * `meridian-disclosure-trigger` is a quiet text control that opens or acts on the content beside
  * it (a details toggle, a message's Copy) and holds the whole treatment.
  *
- * The base and modifiers sit inside `:where()` so they carry no specificity: a control's own
- * class, state and variant win whichever sheet loads first. A global sheet, loaded through
- * `global-sheets.ts`; every value is a Meridian token but the 1px hairline, which stays a pixel
- * at every text size.
+ * `meridian-clickable-word` is a faint word in the line's own type with no box, border or icon,
+ * underlined under the pointer while it can be pressed: every try-again, and the transcript's
+ * `Load earlier`.
+ *
+ * The action button's base and modifiers and the clickable word sit inside `:where()` so they
+ * carry no specificity: a control's own class, state and variant win whichever sheet loads first.
+ * A global sheet, loaded through `global-sheets.ts`; every value is a Meridian token but the 1px
+ * hairline, which stays a pixel at every text size.
  */
 
 /* --- the action button ------------------------------------------------------- */
@@ -105,4 +109,23 @@
 
 .meridian-disclosure-trigger:hover {
   color: var(--meridian-text);
+}
+
+/* --- the clickable word ------------------------------------------------------ */
+
+:where(.meridian-clickable-word) {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--meridian-text-faint);
+  font: inherit;
+  cursor: pointer;
+}
+
+:where(.meridian-clickable-word:is(:disabled, [aria-disabled="true"])) {
+  cursor: default;
+}
+
+:where(.meridian-clickable-word:hover:not(:disabled, [aria-disabled="true"])) {
+  text-decoration: underline;
 }

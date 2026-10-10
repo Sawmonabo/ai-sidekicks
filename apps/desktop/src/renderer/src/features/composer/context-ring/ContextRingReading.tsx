@@ -5,7 +5,7 @@ import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
 import type { ContextWindowSource } from "@ai-sidekicks/contracts/context-window";
-import type { ContextWindowReading } from "./context-window-reading.js";
+import type { ContextWindowReading } from "#renderer/store/session/events/context-window-reading.js";
 
 /**
  * What each provenance grade means for a person reading the bar. Total over the closed set, so a

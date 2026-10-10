@@ -1,7 +1,8 @@
-// `session.read`: one session's record and its transcript cursors. The session's facts, tags and
-// cursors come from the session's directory row and log through `readSession`; the unsent composer
-// draft comes from the draft store that `session.draftUpdate` writes. The descriptor is not
-// `mutating`, so a read-only client can still read across a protocol version mismatch.
+// `session.read`: one session's record, its transcript cursors, its runs not yet ended and its
+// standing events. The session's facts, tags, runs, standing events and cursors come from the
+// session's directory row, run rows and log through `readSession`; the unsent composer draft comes
+// from the draft store that `session.draftUpdate` writes. The descriptor is not `mutating`, so a
+// read-only client can still read across a protocol version mismatch.
 
 import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import type { SessionReadRequest } from "@ai-sidekicks/contracts/session/methods";
@@ -31,6 +32,8 @@ export function registerSessionRead(registry: MethodRegistry, deps: SessionReadD
     return {
       session: { ...logRead.session, draft: deps.draftStore.read(request.sessionId) },
       transcriptCursors: logRead.transcriptCursors,
+      liveRuns: logRead.liveRuns,
+      standingEvents: logRead.standingEvents,
     };
   });
 }

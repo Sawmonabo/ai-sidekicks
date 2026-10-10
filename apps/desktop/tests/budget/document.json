@@ -1,7 +1,7 @@
 {
   "schemaVersion": 3,
   "description": "The single source of truth for every numeric budget the app is gated on, except the renderer bundle sizes, which size-limit checks against the budgets in `apps/desktop/.size-limit.ts`. Rows carry a `scope`. A `product` row is one of the app's own product figures, written here whether or not this revision can measure it, because a budget silently omitted is a budget nobody notices is ungated. A `harness` row is a bound the scaffolding applies to itself or to what the endurance tier reads off the app, with no product figure behind it, so its `specTarget` states the bound in its own terms while `harnessBudgetDerivation` states, once for the whole set, why those figures and not others. Both kinds live here for the same reason: one value, one home. An entry whose `status` is \"n/a\" is not measurable at this revision and names, in `notMeasurableReason`, what is missing.",
-  "harnessBudgetDerivation": "A `harness` row has no product figure behind it, so this field says, once for the whole set, where its number comes from; a derivation copied into each row would have as many places to drift as there are rows. There are two groups. THE FIVE `launch-*` AND `endurance-body` ROWS are the slices of ONE tier timeout. Three bound the launch: `tests/helpers/launch/deadline.ts` mints one deadline per launch and divides it into readiness, the frame paint probe and cleanup, so a launch that overruns produces its own diagnostic instead of Vitest's undiagnosable kill. The other two bound the caller's test body between a settled launch and its cleanup, so Vitest never kills a body mid-poll, before the poll's own message or the cleanup settles, leaving an Electron alive. A launching tier's `testTimeout` is derived from these rows rather than written as a literal: `tierTimeoutFor()` in `tests/helpers/launch/deadline.ts` sums the launch budget, the body allowance that tier applies, and a 2 000 ms settlement residual — a floor rather than a ceiling, which is why it is a constant beside these rows and not a row among them, since every row here is a ceiling. The `launch-cleanup` row is reserved TWICE inside the launch budget (`CLEANUP_PHASES` in `tests/helpers/launch/deadline.ts`), because one cleanup spends it in two phases: the close it races, and then the termination loop that restarts the same figure when the close had to be abandoned. The body allowance is per tier because the two tiers' bodies are different subjects — a driven interaction against a sustained workload — and a tier that states none gets the shorter one, so a new tier fails inside its own bound rather than quietly under Vitest's. The figures are generous on purpose: a cold CI runner with no warm Electron cache is the case these must not flake on, and each is a ceiling for a wedged phase rather than an expectation. THE SEVEN ENDURANCE DETECTION ROWS (`steady-heap-growth`, `detached-node-retention`, `transcript-fold-cost-ratio`, `transcript-fold-retention`, `transcript-repair-fold-cost-ratio`, `overlay-scrollbars-started-streaming` and `overlay-scrollbars-started-wheeling`) bound what the endurance tier reads off the app over a workload no product figure names: a growth, a retention, a cost ratio or a count of started overlay scrollbars rather than a product ceiling. Each sits below what the defect it hunts would produce and above the noise a clean run carries, and its row's `notes` says how.",
+  "harnessBudgetDerivation": "A `harness` row has no product figure behind it, so this field says, once for the whole set, where its number comes from; a derivation copied into each row would have as many places to drift as there are rows. There are two groups. THE FIVE `launch-*` AND `endurance-body` ROWS are the slices of ONE tier timeout. Three bound the launch: `tests/helpers/launch/deadline.ts` mints one deadline per launch and divides it into readiness, the frame paint probe and cleanup, so a launch that overruns produces its own diagnostic instead of Vitest's undiagnosable kill. The other two bound the caller's test body between a settled launch and its cleanup, so Vitest never kills a body mid-poll, before the poll's own message or the cleanup settles, leaving an Electron alive. A launching tier's `testTimeout` is derived from these rows rather than written as a literal: `tierTimeoutFor()` in `tests/helpers/launch/deadline.ts` sums the launch budget, the body allowance that tier applies, and a 2 000 ms settlement residual — a floor rather than a ceiling, which is why it is a constant beside these rows and not a row among them, since every row here is a ceiling. The `launch-cleanup` row is reserved TWICE inside the launch budget (`CLEANUP_PHASES` in `tests/helpers/launch/deadline.ts`), because one cleanup spends it in two phases: the close it races, and then the termination loop that restarts the same figure when the close had to be abandoned. The body allowance is per tier because the two tiers' bodies are different subjects — a driven interaction against a sustained workload — and a tier that states none gets the shorter one, so a new tier fails inside its own bound rather than quietly under Vitest's. The figures are generous on purpose: a cold CI runner with no warm Electron cache is the case these must not flake on, and each is a ceiling for a wedged phase rather than an expectation. THE SIX ENDURANCE DETECTION ROWS (`steady-heap-growth`, `detached-node-retention`, `transcript-fold-cost-ratio`, `transcript-fold-retention`, `overlay-scrollbars-started-streaming` and `overlay-scrollbars-started-wheeling`) bound what the endurance tier reads off the app over a workload no product figure names: a growth, a retention, a cost ratio or a count of started overlay scrollbars rather than a product ceiling. Each sits below what the defect it hunts would produce and above the noise a clean run carries, and its row's `notes` says how.",
   "enduranceTierNotGatedReason": "Every row the endurance tier's harnesses measure is `n/a` for one shared reason, stated here once rather than copied into each row: the tier runs only by name (`test:endurance`). It is in no CI job and outside the aggregate `test` script until the endurance reference run makes it a gate on every PR. Each such row's `notMeasurableReason` names its harness and the symbol that harness holds, and points here.",
   "unitConventions": {
     "MB": "1000000 bytes (SI). The spec writes `MB`; the SI reading is also the stricter one (120 MB = 120000000 B, against 120 MiB = 125829120 B), so taking it costs the budget nothing and cannot make a passing measurement out of a failing one.",
@@ -9,12 +9,13 @@
     "ms": "milliseconds",
     "refresh": "one refresh of the display a reading was taken on: the unthrottled vsync interval the window's compositor recorded on its begin-frames in the reading's own trace (`tests/endurance/trace/refresh.ts`). A duration in refreshes is its milliseconds divided by that interval, and a gap between presented frames counts the whole refreshes it spans. A trace with no such record fails the reading; it never passes it.",
     "ratio": "a plain quotient of two readings taken in the same unit",
+    "percent": "one hundredth of the whole the row's `subject` names; a share the spec states in percent is compared as its `ratio`",
     "percentOfOneCore": "percent of a single core, averaged over the window the budget's `specTarget` names",
     "count": "a whole number of things the row's `subject` names, counted at one moment"
   },
   "measurementProtocol": {
     "deterministic": "Heap at rest, steady heap, and first-transcript-row latency against the fixture's frozen clock gate on any runner.",
-    "hardwareDependent": "Frame time, scrolling and CPU are measured from the built bundle running in Electron against the fixture bridge's concurrent-streaming scenario with the frozen clock, ten warm-up seconds discarded, the metric taken as the median of three runs, on the pinned CI runner class the desktop workflow names by label, with thresholds calibrated on that class at first landing with 25 % headroom and one automatic re-run before a failure counts. A threshold in refreshes is compared against one refresh of the runner's own display, as `referenceProfile` states.",
+    "hardwareDependent": "Frame time, scrolling and CPU are measured from the built bundle running in Electron against the fixture bridge's concurrent-streaming scenario with the frozen clock (the conversation's scrolling against the long-conversation scenario, which plays the same four lanes after its history), ten warm-up seconds discarded, the metric taken as the median of three runs, on the pinned CI runner class the desktop workflow names by label, with thresholds calibrated on that class at first landing with 25 % headroom and one automatic re-run before a failure counts. A threshold in refreshes is compared against one refresh of the runner's own display, as `referenceProfile` states.",
     "referenceProfile": "The `limit` figures are the product targets on the laptop-class reference profile — eight cores, integrated GPU, one 120 Hz display. A limit stated in refreshes is compared against one refresh of the display the reading was taken on (`unitConventions.refresh`), so a 60 Hz runner and a 120 Hz laptop compare against the same figure. The runner-calibrated thresholds are stated apart from them, so a runner regression and a product regression stay distinguishable."
   },
   "budgets": [
@@ -52,7 +53,7 @@
       "status": "n/a",
       "measuredBy": null,
       "subjectSymbol": null,
-      "notMeasurableReason": "`tests/endurance/scrolling.test.ts` measures it, through `readScrollTrace` (`tests/endurance/trace/scroll.ts`), when the endurance tier is run by name (`test:endurance`). Why that tier gates nothing yet is stated once in `enduranceTierNotGatedReason`.",
+      "notMeasurableReason": "`tests/endurance/scrolling/scrollers.test.ts` measures it, through `readScrollTrace` (`tests/endurance/trace/scroll.ts`), when the endurance tier is run by name (`test:endurance`). Why that tier gates nothing yet is stated once in `enduranceTierNotGatedReason`.",
       "notes": "Hardware-dependent: the frame gaps gate on the pinned CI runner class as `frame-time-p95-four-lanes` does (`tests/endurance/pinned-runner-class.ts`); off that class the harness still runs and prints them and the comparison is withheld. No runner-calibrated threshold is recorded yet, so on that class the comparison is against this row's own product limit, in refreshes of the runner's display. The hit-test clause is not a timing — whether the compositor finds a scroller depends on how the window is painted — so it holds on every machine. The figure is the worst scroller's median of three fresh launches' p95 gap between presented frames, in whole refreshes, from the frame that drew the fling's first update that moved the content to the frame that drew its last, whether an update moved the content being Chromium's `ScrollJankV4` damage type. The fling is a synthesized quick touch drag followed by its momentum, the one fling the DevTools protocol can make. The diff pane shows the digest run's review, whose added review note runs several window heights so the fling ends inside it. The command palette's list is shorter than a fling's travel, so its fling reaches the end and its momentum is the shorter sample. A gesture's scroller is found on the compositor unless the renderer posts the gesture's hit test to the main thread (`PostingHitTestToMainThread`), which Chromium does for a point under a rounded clip: a scroller with rounded corners of its own, or one inside a box that clips its content to rounded corners. Once found, the scroll still runs on the compositor; the gesture's start waits for the main thread. The frame records' own scroll-thread labels are not read, because the test driver listens for touches on the window with a handler that may cancel them, which labels every touch scroll as the main thread's. The negative controls: 48 blurring layers stacked over the screen region, which the display redraws on every frame the content moves, must fail the ceiling; and a pane clipping its rounded corners must fail the hit-test clause. Measured on an eight-core Apple M1 Pro at 120 Hz at a one-minute load under 8: one refresh at p95 through every fling on all four scrollers, every fling and wheel gesture found on the compositor, ten refreshes at p95 under the blurring layers, and the clipping pane's fling hit-tested on the main thread. A plain page with nothing streaming, flung the same way on the same display, also reads one refresh at p95.",
       "scope": "product"
     },
@@ -71,8 +72,84 @@
       "status": "n/a",
       "measuredBy": null,
       "subjectSymbol": null,
-      "notMeasurableReason": "`tests/endurance/scrolling.test.ts` measures it, through `readScrollTrace` (`tests/endurance/trace/scroll.ts`), when the endurance tier is run by name (`test:endurance`). Why that tier gates nothing yet is stated once in `enduranceTierNotGatedReason`.",
+      "notMeasurableReason": "`tests/endurance/scrolling/scrollers.test.ts` measures it, through `readScrollTrace` (`tests/endurance/trace/scroll.ts`), when the endurance tier is run by name (`test:endurance`). Why that tier gates nothing yet is stated once in `enduranceTierNotGatedReason`.",
       "notes": "Gated on the same runner class as `scrolling-four-lanes`, whose notes say why. Two refreshes is the first frame after the input: an input that arrives just after a frame began waits at most one refresh for the next frame to begin, and that frame submits within the refresh after. The figure is the slowest update that moved the content across three fresh launches of each gesture on each scroller, in refreshes. Each is timed from the input it was made from, a wheel turn or a touch move, reaching the renderer's compositor, to the submit of the frame its `display_trace_id` names; that input arrives before the update the browser makes of it and shares its time stamp, so an input a handler holds is timed from when it arrived. An update that moved the content and that no presented frame drew fails outright. Whether an update moved the content is Chromium's `ScrollJankV4` damage type: an update that arrives once the content is at its end moves nothing, and Chromium closes its record on whatever frame the window submits next, so it is counted apart rather than timed. The wheel scroll is notches turned several frames apart, as many as fit the scroller's travel up to ten, since a notch turned at the end moves nothing. The negative control holds every wheel turn in a wheel handler for half as long again as this ceiling on a 60 Hz display, and requires the ceiling to fail. Measured on an eight-core Apple M1 Pro at 120 Hz at a one-minute load under 8: the slowest wait was 1.12 refreshes on the screen region, 1.12 on the draft box, 1.11 on the diff pane and 1.07 on the command palette's list, each an inertial update of a fling, and no update went undrawn; the negative control's 50 ms hold read 7.16 refreshes. A plain page with nothing streaming, scrolled the same way on the same display, read 1.12 refreshes at its slowest.",
+      "scope": "product"
+    },
+    {
+      "id": "scrolling-conversation-frame-gap",
+      "label": "Scrolling the conversation, frame gap",
+      "subject": "The 95th-percentile gap between the frames the window presents while a series of flings moves the long conversation up from its tail, less one refresh of the display, idle and with four lanes streaming, read from a DevTools trace of the built bundle running in Electron against the fixture bridge's long-conversation scenario with the frozen clock: a history of twenty-four turns of four agents' thinking, replies and tool calls, every run finished and its group folded to its header and receipt, then the four concurrent-streaming lanes.",
+      "specTarget": "a fling at 8,000 px/s through a long conversation, idle and with four lanes streaming, on the reference machine: while the fling moves the content, p95 ≤ one refresh and 1 ms between presented frames (9.4 ms at 120 Hz)",
+      "limit": {
+        "comparison": "<=",
+        "value": 1,
+        "unit": "ms",
+        "canonicalValue": 1,
+        "canonicalUnit": "ms"
+      },
+      "status": "n/a",
+      "measuredBy": null,
+      "subjectSymbol": null,
+      "notMeasurableReason": "`tests/endurance/scrolling/conversation.test.ts` measures it, through `readScrollTrace` (`tests/endurance/trace/scroll.ts`), when the endurance tier is run by name (`test:endurance`). Why that tier gates nothing yet is stated once in `enduranceTierNotGatedReason`.",
+      "notes": "Hardware-dependent: gated on the pinned CI runner class as `scrolling-four-lanes` is (`tests/endurance/pinned-runner-class.ts`); off that class the harness runs and prints the figure and the comparison is withheld. The figure is, for each load, the median of three fresh launches' 95th-percentile gap in milliseconds between the frames presented while each fling moved the content, from the frame that drew its first moving update to the frame that drew its last, less the trace's own refresh interval; the pause between two flings is never a gap. Each fling is wheel input the DevTools protocol synthesizes at 8,000 px/s over two screen heights of the conversation, sixty flings to a series, spaced twice the transcript's gesture gap apart so each is a gesture of its own; the transcript admits one stretch of three screen heights past an edge per gesture, so a fling shorter than a stretch never meets the window's edge. Idle, the clock stops at the end of the history; streaming, it moves through the four concurrent-streaming lanes' stretch at a steady pace across the series, and the run fails unless four lanes are mid-turn from the first fling to the last. Every run also fails unless each fling reached the window as its own gesture and moved the content. The scenario's beats carry each body's media type and length and never the body, and the renderer reads no stored body and the fixture reveals no live text, so every reply, thought and tool result draws as its unread body: the conversation flung is its rows' frames, run groups and recorded-body lines, not their markdown, code, tables, math or diagrams, and the lanes stream beats, not text. The negative control stacks 48 blurring layers over the conversation and requires the ceiling to fail. Measured: TBD by the lead.",
+      "scope": "product"
+    },
+    {
+      "id": "scrolling-conversation-janky-frames",
+      "label": "Scrolling the conversation, janky frames",
+      "subject": "The share of the frames that moved the long conversation which Chromium judged janky, through the same series of flings and traces as `scrolling-conversation-frame-gap`, idle and with four lanes streaming.",
+      "specTarget": "a fling at 8,000 px/s through a long conversation, idle and with four lanes streaming, on the reference machine: at most 0.1 % janky frames",
+      "limit": {
+        "comparison": "<=",
+        "value": 0.1,
+        "unit": "percent",
+        "canonicalValue": 0.001,
+        "canonicalUnit": "ratio"
+      },
+      "status": "n/a",
+      "measuredBy": null,
+      "subjectSymbol": null,
+      "notMeasurableReason": "`tests/endurance/scrolling/conversation.test.ts` measures it, through `readScrollTrace` (`tests/endurance/trace/scroll.ts`), when the endurance tier is run by name (`test:endurance`). Why that tier gates nothing yet is stated once in `enduranceTierNotGatedReason`.",
+      "notes": "Gated on the same runner class as `scrolling-conversation-frame-gap`, whose notes describe the series. The figure is, for each load, the median of three fresh launches' share of the frames whose `ScrollJankV4` record has the damage type `DAMAGING`, a frame that moved the content, that the record marks `is_janky`: Chromium's own verdict that the frame came later than the input delivered before it allowed. The negative control's blurring layers must cross the ceiling. Measured: TBD by the lead.",
+      "scope": "product"
+    },
+    {
+      "id": "scrolling-conversation-unrastered-frames",
+      "label": "Scrolling the conversation, unrastered frames",
+      "subject": "The frames presented while the series of flings moved the long conversation that were drawn with content not yet rastered or recorded, through the same traces as `scrolling-conversation-frame-gap`, idle and with four lanes streaming.",
+      "specTarget": "a fling at 8,000 px/s through a long conversation, idle and with four lanes streaming, on the reference machine: no frame drawn with unrastered content",
+      "limit": {
+        "comparison": "<=",
+        "value": 0,
+        "unit": "count",
+        "canonicalValue": 0,
+        "canonicalUnit": "count"
+      },
+      "status": "n/a",
+      "measuredBy": null,
+      "subjectSymbol": null,
+      "notMeasurableReason": "`tests/endurance/scrolling/conversation.test.ts` measures it, through `readScrollTrace` (`tests/endurance/trace/scroll.ts`), when the endurance tier is run by name (`test:endurance`). Why that tier gates nothing yet is stated once in `enduranceTierNotGatedReason`.",
+      "notes": "Gated on the same runner class as `scrolling-conversation-frame-gap`: whether raster keeps up with a fling depends on how fast the machine rasters, not on how the window is painted alone. The figure is, for each load, the sum over three fresh launches of the presentations, while a fling moved the content, whose frame report says `checkerboarded_needs_raster`, `checkerboarded_needs_record` or `has_missing_content`. No negative control: nothing a page plants reliably outruns raster. Measured: TBD by the lead.",
+      "scope": "product"
+    },
+    {
+      "id": "scrolling-conversation-first-moved-frame",
+      "label": "Scrolling the conversation, first moved frame",
+      "subject": "How much later than a plain page the long conversation's median fling first moves the content, from the fling's input to the presentation of the frame that drew its first update that moved the content, through the same series of flings as `scrolling-conversation-frame-gap`, idle and with four lanes streaming, against the same series over a plain page in the same window.",
+      "specTarget": "a fling at 8,000 px/s through a long conversation, idle and with four lanes streaming, on the reference machine: the median time from an input to the first frame that moves the content no more than 1 ms over a plain page's on the same harness",
+      "limit": {
+        "comparison": "<=",
+        "value": 1,
+        "unit": "ms",
+        "canonicalValue": 1,
+        "canonicalUnit": "ms"
+      },
+      "status": "n/a",
+      "measuredBy": null,
+      "subjectSymbol": null,
+      "notMeasurableReason": "`tests/endurance/scrolling/conversation.test.ts` measures it, through `readScrollTrace` (`tests/endurance/trace/scroll.ts`), when the endurance tier is run by name (`test:endurance`). Why that tier gates nothing yet is stated once in `enduranceTierNotGatedReason`.",
+      "notes": "Gated on the same runner class as `scrolling-conversation-frame-gap`. Each fling's first moved frame is the `EventLatency` span of its first update that moved the content, from the input's own time stamp to the presentation of the frame that drew it, the latency Chromium itself reports. The plain page is taken in each launch after the conversation's series: the window's markup and sheets are replaced by static paragraphs and code blocks taller than the series' travel, scrolled to its end, and flung the same way with nothing streaming; the window's own listeners stay, so the difference is what the conversation costs. The figure is, for each load, the median of three launches' difference between the conversation's median first moved frame and the plain page's. The negative control holds every wheel turn over the conversation for three refreshes of a 60 Hz display in a wheel handler and requires the ceiling to fail. Measured: TBD by the lead.",
       "scope": "product"
     },
     {
@@ -95,9 +172,9 @@
       "scope": "product"
     },
     {
-      "id": "steady-heap-concurrent-streaming",
-      "label": "Steady heap, concurrent-streaming live stream",
-      "subject": "Renderer heap over thirty minutes of the concurrent-streaming scenario streaming live on the scenario clock — both its ceiling and its slope, since a heap that stays under the ceiling while climbing monotonically is still a leak.",
+      "id": "steady-heap-sustained-streaming",
+      "label": "Steady heap, sustained-streaming live stream",
+      "subject": "Renderer heap over thirty minutes of the sustained-streaming scenario streaming live on the scenario clock — agents' turns streaming one after another with every run left live while the reader follows the live tail — both its ceiling and its flatness, since a heap that stays under the ceiling while climbing is still a leak.",
       "specTarget": "flat over thirty minutes; ≤ 250 MB renderer heap",
       "limit": {
         "comparison": "<=",
@@ -109,8 +186,8 @@
       "status": "n/a",
       "measuredBy": null,
       "subjectSymbol": null,
-      "notMeasurableReason": "`tests/endurance/heap/instrument.ts` forces a collection over a CDP `HeapProfiler` session, `steady-state.test.ts` bounds heap GROWTH across 200 churn cycles that stream the in-tree concurrent-streaming script through the fixture bridge once, and `endurance/heap/at-rest.test.ts` measures the at-rest ceiling when the endurance tier is run by name — and none of the three conditions THIS row states is met by those. No run holds the app for thirty minutes: the `endurance-body` allowance is nine. No snapshot SERIES is analyzed for slope: `endurance/heap/snapshot-analysis.ts` reads a single snapshot by constructor with `memlab`, which answers what one heap is holding rather than whether a run's heap climbed, so the flat-over-thirty-minutes criterion has no verdict behind it. And there is no dated endurance record to log a refutation in.",
-      "notes": "Not wired: no task yet holds the app for thirty minutes and reads its heap for slope.",
+      "notMeasurableReason": "`tests/endurance/heap/sustained-streaming.test.ts` measures it, through `RendererHeapProbe`, when the endurance tier is run by name (`test:endurance`). Why that tier gates nothing yet is stated once in `enduranceTierNotGatedReason`.",
+      "notes": "The ceiling is this row's; flatness is judged against `steady-heap-growth`'s allowance, so no number has two owners. The thirty minutes are scenario time on the frozen clock, played inside the `endurance-body` allowance: half of it is spread over stretches of half the in-window step bound, each paced across the window's own frames so the reveal and the viewport run as they do for a reader, each ending on a beat's own tick, and each followed by a settled reading behind a forced collection, which the other half pays for. The ceiling is compared against the largest reading of the run. Flat means every reading after the warm-up sits within `steady-heap-growth`'s allowance of the first reading after it; the warm-up lasts until the store first lets go of events, since until then it holds every event it was given and the heap grows with the log by design. Over the script's 68 turns a leak of about 120 kB a turn reaches the allowance; a smaller one is below what this run can see. The run fails rather than passing over an idle app when the beats delivered stop growing between readings, the stream reaches no store through a subscription, or the store never lets go of events or stops letting go after the warm-up. The figure is `performance.memory.usedJSHeapSize` at precise precision, the minimum over settling samples, which counts allocated and not yet collected bytes and so sits at or above the retained heap, the safe direction for a ceiling.",
       "scope": "product"
     },
     {
@@ -281,8 +358,8 @@
     },
     {
       "id": "steady-heap-growth",
-      "label": "Steady-state heap growth across route churn",
-      "subject": "How much the renderer heap grows between the settled reading after warm-up and the settled reading after the endurance tier's churn cycles over the concurrent-streaming workload, each behind a forced collection.",
+      "label": "Steady-state heap growth after warm-up",
+      "subject": "How much the renderer heap grows from the settled reading after warm-up, each reading behind a forced collection: to the settled reading after the endurance tier's churn cycles over the concurrent-streaming workload, and to each settled reading while the sustained-streaming session streams for half an hour.",
       "specTarget": "≤ 8 MiB of growth across the run",
       "limit": {
         "comparison": "<=",
@@ -295,8 +372,8 @@
       "status": "n/a",
       "measuredBy": null,
       "subjectSymbol": null,
-      "notMeasurableReason": "`tests/endurance/steady-state.test.ts` measures it, through `RendererHeapProbe`, when the endurance tier is run by name (`test:endurance`). Why that tier gates nothing yet is stated once in `enduranceTierNotGatedReason`.",
-      "notes": "Not zero, because V8 keeps caches, code objects and deoptimization data alive across a run. Not a percentage, because a percentage of a large baseline is a large absolute allowance and a leak's size does not depend on the application's. Over the run's 200 cycles a leak of about 40 kB a cycle reaches it; a smaller leak is below what this instrument can see. It bounds a difference of two readings, never the heap itself: the ceiling at rest is `renderer-heap-at-rest`'s and the thirty-minute slope is `steady-heap-concurrent-streaming`'s, so no number has two owners."
+      "notMeasurableReason": "`tests/endurance/steady-state.test.ts` and `tests/endurance/heap/sustained-streaming.test.ts` measure it, through `RendererHeapProbe`, when the endurance tier is run by name (`test:endurance`). Why that tier gates nothing yet is stated once in `enduranceTierNotGatedReason`.",
+      "notes": "Not zero, because V8 keeps caches, code objects and deoptimization data alive across a run. Not a percentage, because a percentage of a large baseline is a large absolute allowance and a leak's size does not depend on the application's. Over the churn run's 200 cycles a leak of about 40 kB a cycle reaches it, and over the half-hour stream's 68 turns one of about 120 kB a turn; a smaller leak is below what this instrument can see. It bounds a difference of two readings, never the heap itself: the ceiling at rest is `renderer-heap-at-rest`'s and the ceiling over the half-hour stream is `steady-heap-sustained-streaming`'s, so no number has two owners."
     },
     {
       "id": "detached-node-retention",
@@ -392,25 +469,6 @@
       "subjectSymbol": null,
       "notMeasurableReason": "`tests/endurance/overlay-scrollbar/instances.test.ts` measures it, through `readOverlayScrollbars`, when the endurance tier is run by name (`test:endurance`). Why that tier gates nothing yet is stated once in `enduranceTierNotGatedReason`.",
       "notes": "Three is the frame's screen region and the composer draft's box, started once idle, and the transcript pane's body, started by the pointer resting over it; the conversation itself draws no bar. A bar started per mounted row would grow with the walk, and the walk mounts and unmounts every row of the log. The concurrent-streaming script carries no machine output, table, math or payload row, so the per-row scrollers are not mounted by this walk; the count bounds the scrollers the session screen always holds. Deterministic against the fixture's frozen clock, so it compares on any runner. The negative control starts bars on planted scrollers past the ceiling after the walk and requires the reading to cross it."
-    },
-    {
-      "id": "transcript-repair-fold-cost-ratio",
-      "label": "Session store repair fold cost over the live delivery",
-      "subject": "How many times longer a session store's repair folds, replaying a generated ten-thousand-row window from its head after a fifty-row hole, than the live delivery of the same window, each in frames of the stream's fifty-change cap and each the fastest of several passes.",
-      "specTarget": "≤ 2 times the live delivery's fold",
-      "limit": {
-        "comparison": "<=",
-        "value": 2,
-        "unit": "ratio",
-        "canonicalValue": 2,
-        "canonicalUnit": "ratio"
-      },
-      "scope": "harness",
-      "status": "n/a",
-      "measuredBy": null,
-      "subjectSymbol": null,
-      "notMeasurableReason": "`tests/endurance/transcript/long-log.test.ts` measures it, through `SessionStore`, when the endurance tier is run by name (`test:endurance`). Why that tier gates nothing yet is stated once in `enduranceTierNotGatedReason`.",
-      "notes": "A ratio against the same window's live delivery rather than a wall-clock ceiling, so a slower machine does not break it. The replay folds the frames the live delivery folded and takes each row the window already holds as the window's own object, by a walk over the held rows that only moves forward, so a linear replay lands near 1. Measured between 0.78 and 1.51 over four runs (the head replay folds in 5.1 to 7.7 ms against 3.7 to 9.9 ms live, best of five on an eight-core laptop). A replay that searched the held window for each row it folds measured 11.4. 2 sits a third above the worst clean reading and far below a replay that grows with the square of the window."
     }
   ]
 }

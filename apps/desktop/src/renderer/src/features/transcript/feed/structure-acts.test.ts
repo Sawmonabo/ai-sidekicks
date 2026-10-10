@@ -21,7 +21,6 @@ function recordingFindState(trace: ActTrace, walkedRowId?: string): TranscriptFi
     isOpen: false,
     query: "",
     result: emptyFindResult(0),
-    beyondWindowMatchCount: 0,
     foldedAwayMatchCount: 0,
     currentMatchIndex: -1,
     setQuery: () => {
@@ -57,8 +56,11 @@ function actInputs(
     jumpToTail: () => {
       trace.push("jumpToTail");
     },
-    collapseAllTerminalRunGroups: () => {
-      trace.push("collapseAllTerminalRunGroups");
+    foldEveryRun: () => {
+      trace.push("foldEveryRun");
+    },
+    unfoldEveryRun: () => {
+      trace.push("unfoldEveryRun");
     },
   };
 }

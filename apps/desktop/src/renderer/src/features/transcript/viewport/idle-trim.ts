@@ -1,8 +1,7 @@
 // Returns memory a quiet transcript no longer needs: measurement priors for rows the window
-// dropped, and parked states. No timer runs: the pass happens on the next activity after a gap of
-// at least the dwell, because a settled frame arms nothing. It never takes what the frame is
-// using: priors go only for rows the window does not hold at that moment, and parked states
-// belong to rows the window already dropped.
+// dropped. No timer runs: the pass happens on the next activity after a gap of at least the
+// dwell, because a settled frame arms nothing. It never takes what the frame is using: priors go
+// only for rows the window does not hold at that moment.
 
 import { TRANSCRIPT_IDLE_TRIM_DWELL_MS } from "./caps.js";
 import { type RowMeasurementTable } from "./row-measurement-table.js";
@@ -48,6 +47,5 @@ export class IdleMemoryTrim {
 
   #runPass(): void {
     this.#measurements.forgetAllExcept(this.#window.rows().map((row) => row.key));
-    this.#window.releaseParkedStates();
   }
 }

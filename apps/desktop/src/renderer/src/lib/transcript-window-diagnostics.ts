@@ -38,9 +38,16 @@ export interface TranscriptWindowReading {
    */
   readonly visibleRowCount: number;
   /**
-   * The height the log occupies: the virtualizer's `getTotalSize()`. The library writes it to the
-   * sizer's inline height under `directDomUpdates`, so against `viewportScrollHeightPx` it says
-   * whether the scrollbar describes the log.
+   * The taller of the two bands drawn beyond the rows the box intersects, in pixels, each summed
+   * without its outermost row, which may cross the band's edge: at most the band the transcript
+   * draws ahead, a share of `rangedAgainstClientHeightPx`.
+   */
+  readonly drawnBandPx: number;
+  /**
+   * The height the log occupies: the history line above the rows plus the virtualizer's
+   * `getTotalSize()`, which the library writes to the sizer's inline height under
+   * `directDomUpdates`, so against `viewportScrollHeightPx` it says whether the scrollbar
+   * describes the log.
    */
   readonly totalContentHeightPx: number;
   /** The scroll element's `clientHeight` — the box the virtualizer ranges against. */

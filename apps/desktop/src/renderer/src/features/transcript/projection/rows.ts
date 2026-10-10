@@ -1,24 +1,30 @@
-// The log-derived row projection: this window's event log read as `TranscriptEventRow`s. The app
-// receives raw events, not the daemon's read projection, so rows carry what the log supports
-// (id, sequence, cursor, `type`, `actor` and `payload` verbatim) and `summary` is the wire type
-// restated, since no registered payload carries one. The id is the daemon's opaque one, carried not
-// composed: the hydrated-event read keys on {sessionId, eventId} and a row jump finds a row by it,
-// so a `session:sequence` key would resolve for no caller.
+// The log-derived row projection: this window's event log read as `TranscriptEventRow`s. Rows
+// carry what the log supports (id, sequence, cursor, `type`, `actor`, `payload` verbatim and the
+// body a read brought with the event), a run's turn position, epoch and superseded marker as the
+// daemon stamped them, and `summary` as the wire type restated, since no registered payload
+// carries one. The stamps are the daemon's because the
+// window holds a share of the log: an ordinal counted here would change with what was loaded. The
+// id is the daemon's opaque one, carried not composed: the hydrated-event read keys on
+// {sessionId, eventId} and a row jump finds a row by it, so a `session:sequence` key would resolve
+// for no caller.
 
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/session";
 import {
   TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE,
   TRANSCRIPT_RUN_LIFECYCLE_CATEGORY,
+  type SupersededMarker,
   type TranscriptEventRow,
+  type TranscriptRunStamp,
 } from "@ai-sidekicks/contracts/transcript/row";
 import type { EventCategory } from "@ai-sidekicks/contracts/event/envelope";
+import type { TranscriptRowContent } from "@ai-sidekicks/contracts/transcript/content";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
+import { transcriptRunIdOf } from "@ai-sidekicks/contracts/transcript/run-attribution";
 
 import { readRollbackBoundaryPayload } from "#renderer/services/daemon/payload/rollback-boundary.js";
 import { type ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
-import { attributedRunIdOf } from "./run-attribution.js";
 import { deriveChildRunSummaries } from "./child-run-summaries.js";
 
 /**
@@ -42,10 +48,9 @@ const EMPTY_PROJECTION: TranscriptRowProjection = { rows: [] };
  * Reads this window's event log as transcript rows.
  *
  * A pure fold in log order, so the same log gives the same rows and the caller can memoize on
- * the log's identity. An event kind with no registered category is dropped,
- * since a guessed category would mis-filter every view downstream. `position` is the row's
- * ordinal within its run in this window, and `epoch` counts the rollback boundaries seen
- * before it, since re-execution reuses ordinals.
+ * the log's identity. An event kind with no registered category is dropped, since a guessed
+ * category would mis-filter every view downstream. An event is a run's when the daemon stamped
+ * it; its run is the one its payload names.
  */
 export function projectTranscriptRows(
   events: readonly ProjectedSessionEvent[],
@@ -54,7 +59,6 @@ export function projectTranscriptRows(
     return EMPTY_PROJECTION;
   }
 
-  const progressionByRunId = new Map<string, RunProgression>();
   // A pass of its own: a child run's summary states where the child got to, which is not
   // known at the row the summary is stamped on.
   const childRunSummaryByEventId = deriveChildRunSummaries(events);
@@ -66,8 +70,9 @@ export function projectTranscriptRows(
       continue;
     }
 
-    const runId = attributedRunIdOf(event.payload);
-    if (runId === undefined) {
+    const runStamp = event.runStamp;
+    const runId = runStamp === undefined ? undefined : transcriptRunIdOf(event.payload);
+    if (runStamp === undefined || runId === undefined) {
       rows.push({
         ...commonRowFields(event, category),
         kind: "general",
@@ -76,25 +81,11 @@ export function projectTranscriptRows(
       continue;
     }
 
-    const existing = progressionByRunId.get(runId);
-    const progression = existing ?? { nextPosition: 0, epoch: 0 };
-    if (existing === undefined) {
-      progressionByRunId.set(runId, progression);
-    }
-
     if (event.kind === TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE) {
-      const boundary = projectRollbackBoundary(event, progression);
-      if (boundary === undefined) {
-        continue;
+      const boundary = projectRollbackBoundary(event, runStamp);
+      if (boundary !== undefined) {
+        rows.push(boundary);
       }
-      rows.push(boundary);
-      // Later rows are a later execution of the same run; the increment lands after the boundary
-      // is pushed because the boundary belongs to the epoch it ended.
-      progression.epoch += 1;
-      // The count returns to the anchor the rewind landed on, so the first re-executed row takes
-      // the boundary's position in the new epoch; running on instead would let a second rewind to
-      // the same anchor find every row of the new epoch above its cutoff and dim it all.
-      progression.nextPosition = boundary.position;
       continue;
     }
 
@@ -103,23 +94,15 @@ export function projectTranscriptRows(
       ...commonRowFields(event, category),
       kind: "run",
       runId: runId as RunId,
-      position: progression.nextPosition,
-      epoch: progression.epoch,
+      ...stampFields(runStamp),
       // Present on one row per child run (see `child-run-summaries.ts`), and absent rather than
       // `undefined`: the retention table compares own keys and would read the two as different.
       ...(childRunSummary === undefined ? {} : { childRunSummary }),
       payload: event.payload ?? {},
     });
-    progression.nextPosition += 1;
   }
 
   return { rows };
-}
-
-/** How far one run has got: its next ordinal, and how many rewinds it has taken. */
-interface RunProgression {
-  nextPosition: number;
-  epoch: number;
 }
 
 /**
@@ -127,6 +110,22 @@ interface RunProgression {
  * claim about what a boundary row carries.
  */
 type RollbackBoundaryRow = Extract<TranscriptEventRow, { readonly kind: "rollback_boundary" }>;
+
+/**
+ * The stamp's members as a row carries them, the superseded marker absent rather than
+ * `undefined` for the same reason as the child-run summary.
+ */
+function stampFields(runStamp: TranscriptRunStamp): {
+  readonly position: number;
+  readonly epoch: number;
+  readonly superseded?: SupersededMarker;
+} {
+  return {
+    position: runStamp.position,
+    epoch: runStamp.epoch,
+    ...(runStamp.superseded === undefined ? {} : { superseded: runStamp.superseded }),
+  };
+}
 
 /** The members every arm spreads, all of them wire-verbatim but `summary`. */
 function commonRowFields(
@@ -142,6 +141,7 @@ function commonRowFields(
   readonly summary: string;
   readonly timestamp: string;
   readonly actor?: string;
+  readonly content?: TranscriptRowContent;
 } {
   return {
     id: event.id,
@@ -154,6 +154,8 @@ function commonRowFields(
     summary: event.kind,
     timestamp: event.occurredAt,
     ...(event.actorId === undefined ? {} : { actor: event.actorId }),
+    // Absent on a streamed event, which carries no body, rather than a stand-in for one.
+    ...(event.content === undefined ? {} : { content: event.content }),
   };
 }
 
@@ -166,7 +168,7 @@ function commonRowFields(
  */
 function projectRollbackBoundary(
   event: ProjectedSessionEvent,
-  progression: RunProgression,
+  runStamp: TranscriptRunStamp,
 ): RollbackBoundaryRow | undefined {
   const boundary = readRollbackBoundaryPayload(event.payload);
   if (boundary === undefined) {
@@ -178,9 +180,7 @@ function projectRollbackBoundary(
     category: TRANSCRIPT_RUN_LIFECYCLE_CATEGORY,
     type: TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE,
     runId: boundary.runId as RunId,
-    // Wire-verbatim, and the one the arm's own refinement compares against.
-    position: boundary.targetPosition,
-    epoch: progression.epoch,
+    ...stampFields(runStamp),
     payload: boundary,
   };
 }

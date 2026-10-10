@@ -6,12 +6,16 @@
 
 import { Emitter } from "#renderer/lib/emitter.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
+import { type PublishedText } from "../reveal/published-text.js";
 import { outputKindOf } from "../rows/bodies/output-kinds.js";
 import { type CopyFlavor } from "./conversation-selection.js";
 
-/** One reply row's drawn text and the flavor it copies as. */
+/**
+ * One reply row's drawn text and the flavor it copies as. The text is the handle the row drew
+ * from, a retired lane's included, so the record shares that text rather than copying it.
+ */
 export interface DrawnRowText {
-  readonly text: string;
+  readonly text: PublishedText;
   readonly flavor: CopyFlavor;
 }
 
@@ -30,9 +34,12 @@ export class DrawnReplyText {
     return this.#revision;
   }
 
-  /** Records what one reply row drew; an empty text records nothing. */
+  /**
+   * Records what one reply row drew, in place of what it drew before, which the record then lets
+   * go; an empty text records nothing.
+   */
   public note(rowId: string, drawn: DrawnRowText): void {
-    if (drawn.text === "") {
+    if (drawn.text.length === 0) {
       return;
     }
     const before = this.#drawnByRowId.get(rowId);
@@ -76,7 +83,7 @@ export class DrawnReplyText {
  * `declaredMediaType` is the producer's `contentType`, absent for a row whose payload is not read.
  */
 export function replyCopyFlavorOf(
-  text: string,
+  text: PublishedText,
   declaredMediaType?: string | undefined,
 ): CopyFlavor {
   return outputKindOf(text, declaredMediaType) === "prose" ? "markdown" : "text";

@@ -5,7 +5,7 @@ import type { ProjectedSessionEvent } from "../../session/entities/vocabulary.js
 import { useSessionDegradedCause } from "../../session/hooks/useSessionInitialized.js";
 import { useSessionStore } from "../../session/hooks/useOpenSessionStore.js";
 import { type SessionStore } from "../../session/store.js";
-import { selectTranscript } from "../../session/selectors.js";
+import { selectLastAdmittedEvents, selectTranscript } from "../../session/selectors.js";
 
 /**
  * The two triggers that are properties of one session: the repair edge and the transcript.
@@ -35,11 +35,15 @@ export function useSessionReadTriggers(
   // moves.
   const { triggeringEventKinds } = reader;
   const transcript = useSessionStore(sessionStore, selectTranscript);
+  const lastAdmittedEvents = useSessionStore(sessionStore, selectLastAdmittedEvents);
   useEffect(() => {
-    if (memory.observeTranscript(transcript, reader)) {
+    // The transcript first, then the newest batch's arrivals, which a detached tail holds outside
+    // the transcript; examining them in that order keeps the examined sequence rising.
+    const owesRead = memory.observeTranscript(transcript, reader);
+    if (memory.observeTranscript(lastAdmittedEvents, reader) || owesRead) {
       reader.requestRead("terminal-event");
     }
-  }, [memory, reader, transcript, triggeringEventKinds]);
+  }, [memory, reader, transcript, lastAdmittedEvents, triggeringEventKinds]);
 }
 
 /**

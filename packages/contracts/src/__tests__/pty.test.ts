@@ -9,12 +9,11 @@ import {
   PtyListUpdateSchema,
   PtyReorderRequestSchema,
 } from "../pty.js";
+import { PTY_CONTROL_TAKEN_PAYLOAD, SESSION_ID, SHELL_CHANGE } from "./pty.test-support.js";
 
-const SESSION_ID = "11111111-1111-4111-8111-111111111111";
 const RUN_ID = "22222222-2222-4222-8222-222222222222";
 const COMMAND_ID = "command-1";
 const RUN_HOLD = { holderRunId: RUN_ID, holderCommandId: COMMAND_ID };
-const SHELL_CHANGE = { sessionId: SESSION_ID, terminalId: "term-1", leaseVersion: 1 };
 
 describe("pty.list", () => {
   const running = {
@@ -62,12 +61,7 @@ describe("pty.reorder", () => {
 
 describe("the per-shell lease", () => {
   it("accepts a take by a device and a take by a run's command", () => {
-    const byDevice = {
-      ...SHELL_CHANGE,
-      holderDeviceId: "desktop",
-      previousHolderDeviceId: "laptop",
-      reason: "taken",
-    };
+    const byDevice = PTY_CONTROL_TAKEN_PAYLOAD;
     expect(PtyControlChangedPayloadSchema.safeParse(byDevice).success).toBe(true);
     expect(PtyControlChangedPayloadSchema.safeParse({ ...byDevice, ...RUN_HOLD }).success).toBe(
       true,

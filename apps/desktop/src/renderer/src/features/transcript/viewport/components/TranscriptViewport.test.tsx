@@ -1,7 +1,8 @@
 // What the viewport draws and refuses to mount. `happy-dom` answers zero for every geometry read,
 // so geometry-dependent states (the tail pill, the anchor holding across an append) are asserted in
 // `reading-anchor.test.ts` and `features/transcript/viewport/controller.test.ts`. Here: the feed is
-// named, only a slice of the log is in the document, and a settled viewport has no timer armed.
+// named, only a slice of the log is in the document, a settled viewport has no timer armed, and
+// mounting rows reads no selection.
 // `withLaidOutViewport` stands in for the layout engine only; every module in the assertion path is
 // the shipped one.
 
@@ -16,7 +17,7 @@ import {
   type TranscriptViewportBinding,
 } from "../hooks/useTranscriptViewport.js";
 import type { ViewportRow } from "../snapshot.js";
-import { syntheticRows, withLaidOutViewport } from "../controller.test-support.js";
+import { CALM, syntheticRows, withLaidOutViewport } from "../controller.test-support.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { spiedAnnouncer } from "#test/helpers/spied-announcer.js";
@@ -47,8 +48,7 @@ function ComposedTranscriptViewport(props: ComposedTranscriptViewportProps): Rea
   const binding = useTranscriptViewport({
     clock: props.clock,
     rows: props.rows,
-    hasActiveTurn: false,
-    isRevealDraining: false,
+    ...CALM,
   });
   const { holder } = props;
   useEffect(() => {
@@ -76,7 +76,7 @@ function renderRow(row: ViewportRow): React.ReactNode {
 
 describe("the transcript viewport — the feed", () => {
   it("names the feed, and mounts far fewer rows than the log holds", () => {
-    withLaidOutViewport({ scrollable: false });
+    withLaidOutViewport({ content: "none" });
     const { container } = render(
       <ComposedTranscriptViewport
         clock={new ManualClock()}
@@ -92,8 +92,34 @@ describe("the transcript viewport — the feed", () => {
     expect(mounted.length).toBeLessThan(LONG_LOG_ROW_COUNT / 4);
   });
 
+  it("mounts its rows without reading the selection, behind one selection listener", () => {
+    withLaidOutViewport({ content: "none" });
+    // React puts its own `selectionchange` listener on the document with the first root it makes,
+    // so one root goes up first and the count below is the transcript's alone.
+    render(<p />);
+    const addEventListener = vi.spyOn(document, "addEventListener");
+    const getSelection = vi.spyOn(document, "getSelection");
+    const { container } = render(
+      <ComposedTranscriptViewport
+        clock={new ManualClock()}
+        rows={syntheticRows(LONG_LOG_ROW_COUNT)}
+        renderRow={renderRow}
+        feedLabel="Transcript"
+      />,
+      { wrapper: LiveAnnouncerProvider },
+    );
+    expect(container.querySelectorAll(".meridian-transcript-viewport__row").length).toBeGreaterThan(
+      1,
+    );
+    expect(getSelection).not.toHaveBeenCalled();
+    const selectionListeners = addEventListener.mock.calls.filter(
+      ([type]) => type === "selectionchange",
+    );
+    expect(selectionListeners).toHaveLength(1);
+  });
+
   it("arms no timer once the first paint has settled", () => {
-    withLaidOutViewport({ scrollable: false });
+    withLaidOutViewport({ content: "none" });
     const clock = new ManualClock();
     render(
       <ComposedTranscriptViewport
@@ -112,7 +138,7 @@ describe("the transcript viewport — the feed", () => {
   });
 
   it("draws both rows of a projection that repeated a key", () => {
-    withLaidOutViewport({ scrollable: false });
+    withLaidOutViewport({ content: "none" });
     const rows: readonly ViewportRow[] = [
       { key: "row-0", parentKey: undefined, rootCursor: "cursor-0" },
       { key: "row-0", parentKey: undefined, rootCursor: "cursor-1" },

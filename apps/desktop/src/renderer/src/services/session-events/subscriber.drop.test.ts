@@ -1,8 +1,8 @@
 // A frame carrying the daemon's drop mark, and the repair it takes, on its two arms. A hole within
 // the repairable bound is filled by opening the stream again after the last change delivered. A
-// wider one is repaired by a read: the stream after it sends every row again, and the window keeps
-// its rows and stays degraded until that replay passes them. Either way the store ends with the
-// rows a reader that was never dropped holds. No scenario drops, so the cases set frames aside
+// wider one is repaired by a read: the window is replaced with the log's newest rows and the
+// stream opened after the newest of them, so the store ends holding the window a reader that was
+// never dropped holds at the log's newest end. No scenario drops, so the cases set frames aside
 // and stamp the mark through the fixture bridge's subscribe arm.
 
 import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
@@ -19,10 +19,16 @@ import type { Clock } from "#renderer/lib/clock.js";
 import { APPLY_COALESCE_MS } from "#renderer/lib/reads/refresh/caps.js";
 import { windowTripwires } from "#renderer/lib/tripwires/registry.js";
 import { MAX_REPAIRABLE_SEQUENCE_GAP } from "#renderer/store/session/caps.js";
+import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { SessionStoreRegistry } from "#renderer/store/session/registry.js";
 import { type SessionStoreState } from "#renderer/store/session/state.js";
 import { withDaemonSubscribe } from "#test/helpers/fixture/bridge.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
+import {
+  OPENING_PAGE_LIMIT,
+  openingPageLimit,
+  offScreenRowLimit,
+} from "#test/helpers/session/store/fixtures.js";
 import { composeScenarioEventEnvelope } from "../daemon/event/envelope.fixture.js";
 import { sessionReadThroughDaemon } from "../daemon/session/read/base-state.js";
 import { createFixtureBridge } from "../platform/bridge.fixture.js";
@@ -59,16 +65,25 @@ function openSessionReader(
         : Promise.resolve({ entities: [] });
     },
     clock,
+    openingPageLimit,
+    offScreenRowLimit,
     refreshDebounceMs: 0,
   });
   const subscriber = new SessionEventSubscriber({ registry, bridge, clock });
   subscriber.attach();
   registry.open(SESSION_ID);
+  // On screen, so the store follows the whole stream rather than an off-screen share of it.
+  registry.markOnScreen(SESSION_ID);
   return { registry, subscriber, reasonsSeen, state: () => registry.peek(SESSION_ID)?.snapshot() };
 }
 
 /** The scenario's first beat, re-numbered for frames no scenario plays. */
 const TEMPLATE_EVENT = CONCURRENT_STREAMING_SCENARIO.beats[0]!.event;
+
+/** The scenario's first beat at `sequence`, at the cursor its position encodes. */
+function loggedEventAt(sequence: number): ProjectedSessionEvent {
+  return { ...TEMPLATE_EVENT, sequence, cursor: encodeEventCursor(sequence) };
+}
 
 /** The sequences from `first` to `last`, both included. */
 function sequencesFrom(first: number, last: number): number[] {
@@ -88,7 +103,7 @@ function frameAt(sequences: readonly number[]): SessionStreamFrame<unknown> {
   return {
     changes: sequences.map((sequence) => ({
       cursor: encodeEventCursor(sequence),
-      event: composeScenarioEventEnvelope({ ...TEMPLATE_EVENT, sequence }),
+      event: composeScenarioEventEnvelope(loggedEventAt(sequence)),
     })),
   };
 }
@@ -213,31 +228,37 @@ describe("SessionEventSubscriber — the drop mark", () => {
       expect(reader.state()?.transcript.map((event) => event.sequence)).toEqual([1]);
       expect(reader.state()?.degradedCause).toBeUndefined();
     } else {
-      // The stream opens again after the read's position, not after the last change, and the
-      // window keeps its row, still behind, until the stream sends the rows again.
+      // The read replaces the window with the log's newest rows, here none, and the stream opens
+      // again after the read's position, not after the last change.
       expect(opens).toEqual([{ sessionId: SESSION_ID }, { sessionId: SESSION_ID }]);
       expect(reader.reasonsSeen).toEqual(["gap-repull"]);
-      expect(reader.state()?.transcript.map((event) => event.sequence)).toEqual([1]);
-      expect(reader.state()?.degradedCause).toBe("stream-diverged");
-      expect(reader.state()?.isReplaying).toBe(true);
+      expect(reader.state()?.transcript).toEqual([]);
+      expect(reader.state()?.degradedCause).toBeUndefined();
     }
 
     reader.subscriber.dispose();
   });
 
-  it("re-reads past a hole too wide to fill, ending with a whole reader's rows", async () => {
-    // The log holds sequences 0 to 1,105. The dropped reader receives 0 to 2, then a frame whose
-    // drop mark opens a hole of 1,100; its repair read reopens the stream at the floor, which
-    // sends every row again. The whole reader receives everything once.
+  it("re-reads past a hole too wide to fill, ending with a whole reader's newest window", async () => {
+    // The log holds sequences 0 to 1,105, all logged after the first reads landed on an empty log.
+    // The dropped reader receives 0 to 2, then a frame whose drop mark opens a hole of 1,100; its
+    // repair read takes the log's newest rows. The whole reader receives everything once.
     const lastBeforeDrop = 2;
     const firstAfterDrop = lastBeforeDrop + MAX_REPAIRABLE_SEQUENCE_GAP + 77;
     const newestRow = firstAfterDrop + 2;
     const { bridge: base, scenarioEngine: engine } = createFixtureBridge({
-      scenario: { ...CONCURRENT_STREAMING_SCENARIO, id: "drop-mark-reread-probe", beats: [] },
+      scenario: {
+        ...CONCURRENT_STREAMING_SCENARIO,
+        id: "drop-mark-reread-probe",
+        beats: sequencesFrom(0, newestRow).map((sequence) => ({
+          atMs: 1,
+          event: loggedEventAt(sequence),
+        })),
+      },
     });
     const opens: unknown[] = [];
     const handlers: ((frame: unknown) => void)[] = [];
-    // Every frame is one the case hands over; no open reaches the fixture's empty log.
+    // Every frame is one the case hands over; no open reaches the fixture's stream.
     const bridge = withDaemonSubscribe(base, (_passThrough, handler, request) => {
       opens.push(request);
       handlers.push(handler);
@@ -247,6 +268,7 @@ describe("SessionEventSubscriber — the drop mark", () => {
     const dropped = openSessionReader(bridge, engine.clock, true);
     engine.advance(0);
     await crossMacrotaskBoundary();
+    engine.advance(1);
     const [wholeStream, droppedStream] = handlers;
 
     deliverInFrames(wholeStream!, 0, newestRow);
@@ -256,22 +278,22 @@ describe("SessionEventSubscriber — the drop mark", () => {
     expect(dropped.state()?.degradedCause).toBe("stream-diverged");
     engine.advance(APPLY_COALESCE_MS + 1);
     await crossMacrotaskBoundary();
-    deliverInFrames(handlers[2]!, 0, newestRow);
     engine.advance(APPLY_COALESCE_MS + 1);
 
-    // Each stream first opened at the floor the first read named; the dropped one opened there
-    // again after its one repair read, not after the last change it delivered.
+    // Each stream first opened at the floor the first read named; the dropped one opened again
+    // after the newest row of its repair read, not after the last change it delivered.
     const floor = encodeEventCursor(START_OF_LOG_POSITION);
     expect(opens).toEqual([
       { sessionId: SESSION_ID, afterCursor: floor },
       { sessionId: SESSION_ID, afterCursor: floor },
-      { sessionId: SESSION_ID, afterCursor: floor },
+      { sessionId: SESSION_ID, afterCursor: encodeEventCursor(newestRow) },
     ]);
     expect(dropped.reasonsSeen).toEqual(["subscribe", "gap-repull"]);
     const sequencesHeld = (reader: SessionReader): number[] | undefined =>
       reader.state()?.transcript.map((event) => event.sequence);
     expect(sequencesHeld(whole)).toEqual(sequencesFrom(0, newestRow));
-    expect(sequencesHeld(dropped)).toEqual(sequencesFrom(0, newestRow));
+    expect(sequencesHeld(dropped)).toEqual(sequencesHeld(whole)?.slice(-OPENING_PAGE_LIMIT));
+    expect(dropped.state()?.transcriptHead.hasMore).toBe(true);
     expect(dropped.state()?.gaps).toEqual([]);
     expect(dropped.state()?.cursor).toBe(newestRow);
     expect(dropped.state()?.degradedCause).toBeUndefined();

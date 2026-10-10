@@ -12,6 +12,11 @@ import { revealProse as prose } from "./prose.test-support.js";
 import { RevealEngine } from "./engine.js";
 import type { RevealDiagnostic, RevealFrame } from "./model.js";
 
+/** What the engine publishes for a lane, read whole for comparison. Empty for a lane never seen. */
+function publishedTextIn(engine: RevealEngine, laneId: string): string {
+  return engine.publishedText(laneId)?.slice(0) ?? "";
+}
+
 function engineOn(clock: ManualClock): RevealEngine {
   // Every drain is submitted to the frame scheduler's second phase, so `clock.runFrame()` runs
   // the scheduler's frame and the scheduler runs the drain.
@@ -30,7 +35,7 @@ describe("the reveal engine — the frame budget", () => {
 
     clock.runFrame();
     expect(engine.state).toBe("settled");
-    expect(engine.publishedText("lane-1")).toHaveLength(40);
+    expect(publishedTextIn(engine, "lane-1")).toHaveLength(40);
     // The claim the idle-CPU budget rests on: a settled engine has no timer at all.
     expect(clock.pendingCount).toBe(0);
   });
@@ -60,7 +65,7 @@ describe("the reveal engine — four lanes", () => {
       engine.ingest({ laneId, mode: "direct", text: prose(REVEAL_FRAME_CHARACTER_BUDGET * 2) });
     }
     clock.runFrame();
-    const lengths = laneIds.map((laneId) => engine.publishedText(laneId).length);
+    const lengths = laneIds.map((laneId) => publishedTextIn(engine, laneId).length);
     expect(lengths.every((length) => length > 0)).toBe(true);
     // Every lane got its fair share and no lane got the whole frame.
     expect(Math.max(...lengths) - Math.min(...lengths)).toBeLessThanOrEqual(1);
@@ -74,7 +79,7 @@ describe("the reveal engine — four lanes", () => {
     clock.runFrame();
 
     const fairShare = Math.floor(REVEAL_FRAME_CHARACTER_BUDGET / 2);
-    const behind = engine.publishedText("behind").length;
+    const behind = publishedTextIn(engine, "behind").length;
     expect(behind).toBeGreaterThan(fairShare);
     expect(behind).toBeLessThanOrEqual(fairShare * REVEAL_CATCH_UP_MULTIPLIER);
     expect(engine.laneState("behind")?.isCatchingUp).toBe(true);
@@ -111,7 +116,7 @@ describe("the reveal engine — the visible text never regresses", () => {
       (length, index) => index > 0 && length < (lengths[index - 1] ?? 0),
     );
     expect(regressions).toStrictEqual([]);
-    expect(engine.publishedText("lane-1")).toHaveLength(2400);
+    expect(publishedTextIn(engine, "lane-1")).toHaveLength(2400);
   });
 
   it("never leaves a published prefix ending on half a character", () => {
@@ -128,11 +133,11 @@ describe("the reveal engine — the visible text never regresses", () => {
     engine.ingest({ laneId: "lane-1", mode: "direct", text: emojiLane });
     while (!(engine.laneState("lane-1")?.isSettled ?? true)) {
       clock.runFrame();
-      const published = engine.publishedText("lane-1");
+      const published = publishedTextIn(engine, "lane-1");
       expect(published.endsWith(leadUnit)).toBe(false);
       expect(emojiLane.startsWith(published)).toBe(true);
     }
-    expect(engine.publishedText("lane-1")).toBe(emojiLane);
+    expect(publishedTextIn(engine, "lane-1")).toBe(emojiLane);
   });
 
   it("appends an authoritative commit that extends what it holds", () => {
@@ -142,7 +147,7 @@ describe("the reveal engine — the visible text never regresses", () => {
     clock.runFrame();
     engine.ingest({ laneId: "lane-1", mode: "authoritative", text: "The run started" });
     clock.runFrame();
-    expect(engine.publishedText("lane-1")).toBe("The run started");
+    expect(publishedTextIn(engine, "lane-1")).toBe("The run started");
   });
 
   it("reports a source that changed out of band, and keeps the agreed prefix", () => {
@@ -161,12 +166,12 @@ describe("the reveal engine — the visible text never regresses", () => {
     ]);
     // Rebased on what the two sources agree on, not on the published length, which would swap
     // "started at noon" for "failed to start, " in one frame with no budget spent.
-    expect(engine.publishedText("lane-1")).toBe("The run ");
+    expect(publishedTextIn(engine, "lane-1")).toBe("The run ");
     expect(diagnostics[0]?.detail).toContain("8 characters both sources agree on");
     expect(diagnostics[0]?.detail).toContain("15 characters were retracted");
     // The rest of the rewritten source arrives through the ordinary frame budget.
     clock.runFrame();
-    expect(engine.publishedText("lane-1")).toBe(rewritten);
+    expect(publishedTextIn(engine, "lane-1")).toBe(rewritten);
   });
 
   it("keeps the agreed prefix when the rewrite is SHORTER than what was published", () => {
@@ -180,11 +185,11 @@ describe("the reveal engine — the visible text never regresses", () => {
     clock.runFrame();
 
     engine.ingest({ laneId: "lane-1", mode: "authoritative", text: "The run failed" });
-    expect(engine.publishedText("lane-1")).toBe("The run ");
+    expect(publishedTextIn(engine, "lane-1")).toBe("The run ");
     expect(diagnostics[0]?.detail).toContain("8 characters both sources agree on");
     expect(diagnostics[0]?.detail).toContain("15 characters were retracted");
     clock.runFrame();
-    expect(engine.publishedText("lane-1")).toBe("The run failed");
+    expect(publishedTextIn(engine, "lane-1")).toBe("The run failed");
   });
 
   it("re-reveals a divergent rewrite through the frame budget instead of swapping it", () => {
@@ -194,7 +199,7 @@ describe("the reveal engine — the visible text never regresses", () => {
     const original = prose(REVEAL_FRAME_CHARACTER_BUDGET * 3);
     engine.ingest({ laneId: "lane-1", mode: "direct", text: original });
     clock.runFrame();
-    expect(engine.publishedText("lane-1").length).toBeGreaterThan(sharedCharacterCount);
+    expect(publishedTextIn(engine, "lane-1").length).toBeGreaterThan(sharedCharacterCount);
 
     // Same length, diverging at character 40: the case where holding the published
     // length would have looked correct and shown different characters.
@@ -202,10 +207,10 @@ describe("the reveal engine — the visible text never regresses", () => {
       prose(sharedCharacterCount) + prose(original.length - sharedCharacterCount).toUpperCase();
     expect(rewritten).toHaveLength(original.length);
     engine.ingest({ laneId: "lane-1", mode: "authoritative", text: rewritten });
-    expect(engine.publishedText("lane-1")).toBe(prose(sharedCharacterCount));
+    expect(publishedTextIn(engine, "lane-1")).toBe(prose(sharedCharacterCount));
 
     clock.runFrame();
-    const afterOneFrame = engine.publishedText("lane-1");
+    const afterOneFrame = publishedTextIn(engine, "lane-1");
     expect(afterOneFrame.length).toBeGreaterThan(sharedCharacterCount);
     expect(afterOneFrame.length).toBeLessThanOrEqual(
       sharedCharacterCount + REVEAL_FRAME_CHARACTER_BUDGET,
@@ -221,7 +226,7 @@ describe("the reveal engine — the visible text never regresses", () => {
     const withOpenEmphasis = `${prose(477)} **${prose(100)}`;
     engine.ingest({ laneId: "lane-1", mode: "direct", text: withOpenEmphasis });
     clock.runFrame();
-    const published = engine.publishedText("lane-1");
+    const published = publishedTextIn(engine, "lane-1");
     expect(published).toHaveLength(478);
     expect(published.endsWith("*")).toBe(false);
   });

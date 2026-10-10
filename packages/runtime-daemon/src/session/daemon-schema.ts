@@ -44,6 +44,15 @@ CREATE TABLE session_events (
   -- the writer parses the real shape. TEXT, because comparison parses the parts.
   version           TEXT NOT NULL DEFAULT '1.0'
                     CHECK(version GLOB '[0-9]*.[0-9]*'),
+  -- The payload's text run id, NULL when it names none. Computed only from well-formed JSON, so a
+  -- damaged payload can still be written over and healed.
+  run_id            TEXT GENERATED ALWAYS AS (
+                      CASE WHEN json_valid(payload) THEN
+                        CASE json_type(payload, '$.runId')
+                          WHEN 'text' THEN json_extract(payload, '$.runId')
+                        END
+                      END
+                    ) VIRTUAL,
   UNIQUE (session_id, sequence)
 ) STRICT;
 
@@ -52,6 +61,11 @@ CREATE INDEX idx_session_events_type ON session_events(session_id, type);
 -- sessions' rows probes the skipped ranges of those sessions alone.
 CREATE INDEX idx_session_events_skipped ON session_events(session_id)
   WHERE type = '${DAMAGED_EVENTS_SKIPPED_TYPE}';
+-- One run's events of one type in log order, for the reads that seed a run's turns and that find
+-- a live run's agent, newest touch, newest measured context window and newest compaction. A read
+-- comparing run_id to a value implies the IS NOT NULL predicate.
+CREATE INDEX idx_session_events_run ON session_events(session_id, type, run_id, sequence)
+  WHERE run_id IS NOT NULL;
 CREATE INDEX idx_session_events_correlation ON session_events(correlation_id)
   WHERE correlation_id IS NOT NULL;
 -- At most one terminal event per (runId, runVersion). The key lives in the JSON

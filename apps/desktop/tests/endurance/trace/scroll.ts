@@ -1,6 +1,7 @@
-// What one trace says about one scroll gesture: the gaps between the frames the window presented
-// while the gesture moved the content, each moving update's wait for the frame that drew it, and
-// whether the compositor found the scroller on its own.
+// What one trace says about the scroll gestures in it: the gaps between the frames the window
+// presented while a gesture moved the content, each moving update's wait for the frame that drew
+// it, the frames Chromium judged janky or drew unrastered, how soon each gesture first moved the
+// content, and whether the compositor found the scroller on its own.
 //
 // An update moved the content when Chromium's `ScrollJankV4` record for it says so: an update that
 // arrives once the content is at its end moves nothing, and Chromium closes its record on whatever
@@ -17,6 +18,18 @@
 // A frame the compositor presented without the main thread's update for it
 // (`STATE_PRESENTED_PARTIAL`) moved the content on its own: whatever the main thread places as the
 // content scrolls, such as an overlay bar's track, is drawn where it stood a frame before.
+//
+// A trace may hold several gestures, as a series of flings does. Frame gaps are taken within each
+// gesture, from the frame that drew its first moving update to the frame that drew its last, so
+// the pause between two gestures is never read as a missed frame. Each gesture's first moving
+// update is also timed the way Chromium times a scroll's latency (`EventLatency`): from the input's
+// own time stamp to the presentation of the frame that drew it.
+//
+// Two of Chromium's own verdicts are counted as they come: whether a frame that moved the content
+// was janky (`ScrollJankV4`'s `is_janky`, a frame later than the input delivery that preceded it
+// allowed), and whether a frame was drawn with content not yet rastered or recorded, the
+// checkerboarding a fling outrunning raster shows (the frame report's `checkerboarded_needs_*` and
+// `has_missing_content`).
 
 import type { TraceEvent } from "./recording.js";
 import { readRefreshIntervalMs } from "./refresh.js";
@@ -24,13 +37,17 @@ import { readRefreshIntervalMs } from "./refresh.js";
 /** The categories a scroll reading needs recorded. */
 export const SCROLL_TRACE_CATEGORIES: readonly string[] = ["benchmark", "input"];
 
-/** What one trace says about one gesture. */
+/** What one trace says about the gestures in it. */
 export interface ScrollReading {
   /** One refresh of the display the window presented on, in milliseconds. */
   readonly refreshIntervalMs: number;
-  /** The gaps between presented frames while the gesture moved the content, in whole refreshes. */
+  /**
+   * The gaps between presented frames while each gesture moved the content, in whole refreshes.
+   */
   readonly presentedFrameGapsInRefreshes: readonly number[];
-  /** Frames presented while the gesture moved the content, one per presentation. */
+  /** The same gaps in milliseconds, as presented. */
+  readonly presentedFrameGapsMs: readonly number[];
+  /** Frames presented while a gesture moved the content, one per presentation. */
   readonly presentedFrameCount: number;
   /** Of those, the frames presented without the main thread's update for them. */
   readonly mainThreadMissedFrameCount: number;
@@ -41,7 +58,22 @@ export interface ScrollReading {
   readonly stillUpdateCount: number;
   /** Each moving update that no presented frame drew. */
   readonly undrawnUpdates: readonly string[];
+  /**
+   * Frames that moved the content, by Chromium's scroll jank record of them, and of those the ones
+   * it judged janky.
+   */
+  readonly movingFrameCount: number;
+  readonly jankyFrameCount: number;
+  /** Frames presented while a gesture moved the content that were drawn with unrastered content. */
+  readonly unrasteredFrameCount: number;
+  /**
+   * For each gesture that moved the content, the time from its first moving update's input to the
+   * presentation of the frame that drew it, in milliseconds.
+   */
+  readonly firstMovedFrameLatenciesMs: readonly number[];
   readonly gestureCount: number;
+  /** Gestures in which at least one update moved the content. */
+  readonly movingGestureCount: number;
   /** Gestures whose scroller the compositor asked the main thread to find. */
   readonly mainThreadHitTestCount: number;
   /** The moving update that waited longest for the frame that drew it. */
@@ -75,6 +107,18 @@ interface SubmittedFrame {
   readonly presentedAtUs: number | undefined;
   /** Whether it was presented without the main thread's update for it. */
   readonly isMissingMainThreadUpdate: boolean;
+  /** Whether it was drawn with content not yet rastered or recorded. */
+  readonly isUnrastered: boolean;
+}
+
+/** A frame that was presented, at the instant it was. */
+type PresentedFrame = SubmittedFrame & { readonly presentedAtUs: number };
+
+/** What one gesture's moving updates came to. */
+interface GestureDrawing {
+  readonly drawnPresentationsUs: number[];
+  /** The gesture's earliest moving update that a presented frame drew, and its latency. */
+  firstMovedFrame: { readonly inputAtUs: number; readonly latencyMs: number } | undefined;
 }
 
 const SCROLL_UPDATE_TYPES: ReadonlySet<string> = new Set([
@@ -97,8 +141,15 @@ const MOVING_DAMAGE_TYPE = "DAMAGING";
 /** The instant the compositor records when it hands a gesture's hit test to the main thread. */
 const MAIN_THREAD_HIT_TEST_RECORD = "PostingHitTestToMainThread";
 
+/** The frame report's flags for a frame drawn with content not yet rastered or recorded. */
+const UNRASTERED_CONTENT_FLAGS: readonly string[] = [
+  "checkerboarded_needs_raster",
+  "checkerboarded_needs_record",
+  "has_missing_content",
+];
+
 /**
- * Reads one gesture from the records of the renderer it scrolled. Throws when no gesture reached
+ * Reads the gestures in the records of the renderer they scrolled. Throws when no gesture reached
  * the window, when nothing moved the content, or when the trace holds no refresh interval.
  */
 export function readScrollTrace(events: readonly TraceEvent[]): ScrollReading {
@@ -114,11 +165,17 @@ export function readScrollTrace(events: readonly TraceEvent[]): ScrollReading {
   const refreshIntervalMs = readRefreshIntervalMs(
     events.filter((event) => event.pid === rendererPid),
   );
+  const gestureStartsUs = scrollBegins
+    .filter((span) => span.begin.pid === rendererPid)
+    .map((span) => span.begin.ts)
+    .sort((left, right) => left - right);
   // An update's stages share its async id and sit inside its span; ids are reused, so a stage is
   // matched by id and by falling inside the span.
   const stageTimesByKey = new Map<string, StageTimes>();
   const damageByResultId = new Map<string, string>();
   let mainThreadHitTestCount = 0;
+  let movingFrameCount = 0;
+  let jankyFrameCount = 0;
   for (const event of events) {
     if (event.pid !== rendererPid) {
       continue;
@@ -134,6 +191,10 @@ export function readScrollTrace(events: readonly TraceEvent[]): ScrollReading {
     if (event.name === "ScrollJankV4" && event.ph === "b") {
       const result = recordOf(event, "scroll_jank_v4");
       damageByResultId.set(String(result["result_id"]), String(result["damage_type"]));
+      if (result["damage_type"] === MOVING_DAMAGE_TYPE) {
+        movingFrameCount += 1;
+        jankyFrameCount += result["is_janky"] === true ? 1 : 0;
+      }
     }
     if (event.name === MAIN_THREAD_HIT_TEST_RECORD) {
       mainThreadHitTestCount += 1;
@@ -173,6 +234,7 @@ export function readScrollTrace(events: readonly TraceEvent[]): ScrollReading {
       submittedUs,
       presentedAtUs: PRESENTED_FRAME_STATES.has(String(report["state"])) ? end.ts : undefined,
       isMissingMainThreadUpdate: report["state"] === PRESENTED_WITHOUT_MAIN_THREAD_STATE,
+      isUnrastered: UNRASTERED_CONTENT_FLAGS.some((flag) => report[flag] === true),
     };
     frames.push(frame);
     frameByDisplayTraceId.set(String(report["display_trace_id"]), frame);
@@ -180,10 +242,10 @@ export function readScrollTrace(events: readonly TraceEvent[]): ScrollReading {
 
   const undrawnUpdates: string[] = [];
   const inputToSubmits: InputToSubmit[] = [];
-  const drawnPresentationsUs: number[] = [];
+  const drawingByGesture = new Map<number, GestureDrawing>();
   let movingUpdateCount = 0;
   let stillUpdateCount = 0;
-  for (const { begin } of latencies) {
+  for (const { begin, end } of latencies) {
     const latency = latencyOf(begin);
     const updateType = String(latency["event_type"]);
     if (begin.pid !== rendererPid || !SCROLL_UPDATE_TYPES.has(updateType)) {
@@ -204,48 +266,78 @@ export function readScrollTrace(events: readonly TraceEvent[]): ScrollReading {
     }
     const durationMs = (drawingFrame.submittedUs - inputArrivedUs) / 1000;
     inputToSubmits.push({ update, durationMs, refreshes: durationMs / refreshIntervalMs });
-    drawnPresentationsUs.push(drawingFrame.presentedAtUs);
+    const gestureIndex = gestureIndexAt(gestureStartsUs, begin.ts);
+    const drawing = drawingByGesture.get(gestureIndex) ?? {
+      drawnPresentationsUs: [],
+      firstMovedFrame: undefined,
+    };
+    drawing.drawnPresentationsUs.push(drawingFrame.presentedAtUs);
+    if (drawing.firstMovedFrame === undefined || begin.ts < drawing.firstMovedFrame.inputAtUs) {
+      drawing.firstMovedFrame = { inputAtUs: begin.ts, latencyMs: (end.ts - begin.ts) / 1000 };
+    }
+    drawingByGesture.set(gestureIndex, drawing);
   }
   if (inputToSubmits.length === 0) {
     throw new Error("no scroll update in the trace moved the content");
   }
 
-  const firstDrawnUs = Math.min(...drawnPresentationsUs);
-  const lastDrawnUs = Math.max(...drawnPresentationsUs);
-  const framesWhileMoving = frames.filter(
-    (frame): frame is SubmittedFrame & { readonly presentedAtUs: number } =>
-      frame.presentedAtUs !== undefined &&
-      frame.presentedAtUs >= firstDrawnUs &&
-      frame.presentedAtUs <= lastDrawnUs,
+  const presentedFrames = frames.filter(
+    (frame): frame is PresentedFrame => frame.presentedAtUs !== undefined,
   );
-  const presentationsUs = [...new Set(framesWhileMoving.map((frame) => frame.presentedAtUs))].sort(
-    (left, right) => left - right,
-  );
-  // A presentation whose every report lacks the main thread's update moved the content alone.
-  const mainThreadMissedFrameCount = presentationsUs.filter((atUs) =>
-    framesWhileMoving
-      .filter((frame) => frame.presentedAtUs === atUs)
-      .every((frame) => frame.isMissingMainThreadUpdate),
-  ).length;
-  // Presentation stamps land a few microseconds either side of a vsync, so each gap is counted in
-  // the whole refreshes it spans.
-  const presentedFrameGapsInRefreshes = presentationsUs
-    .slice(1)
-    .map((atUs, index) =>
-      Math.round((atUs - (presentationsUs[index] ?? atUs)) / 1000 / refreshIntervalMs),
+  const presentedFrameGapsMs: number[] = [];
+  const firstMovedFrameLatenciesMs: number[] = [];
+  let presentedFrameCount = 0;
+  let mainThreadMissedFrameCount = 0;
+  let unrasteredFrameCount = 0;
+  for (const drawing of drawingByGesture.values()) {
+    const firstDrawnUs = Math.min(...drawing.drawnPresentationsUs);
+    const lastDrawnUs = Math.max(...drawing.drawnPresentationsUs);
+    const framesWhileMoving = presentedFrames.filter(
+      (frame) => frame.presentedAtUs >= firstDrawnUs && frame.presentedAtUs <= lastDrawnUs,
     );
-  if (presentedFrameGapsInRefreshes.length === 0) {
-    throw new Error("the gesture moved the content in a single presented frame");
+    const presentationsUs = [
+      ...new Set(framesWhileMoving.map((frame) => frame.presentedAtUs)),
+    ].sort((left, right) => left - right);
+    presentedFrameCount += presentationsUs.length;
+    for (const atUs of presentationsUs) {
+      const reports = framesWhileMoving.filter((frame) => frame.presentedAtUs === atUs);
+      // A presentation whose every report lacks the main thread's update moved the content alone.
+      mainThreadMissedFrameCount += reports.every((frame) => frame.isMissingMainThreadUpdate)
+        ? 1
+        : 0;
+      unrasteredFrameCount += reports.some((frame) => frame.isUnrastered) ? 1 : 0;
+    }
+    presentedFrameGapsMs.push(
+      ...presentationsUs
+        .slice(1)
+        .map((atUs, index) => (atUs - (presentationsUs[index] ?? atUs)) / 1000),
+    );
+    if (drawing.firstMovedFrame !== undefined) {
+      firstMovedFrameLatenciesMs.push(drawing.firstMovedFrame.latencyMs);
+    }
+  }
+  if (presentedFrameGapsMs.length === 0) {
+    throw new Error("each gesture moved the content in a single presented frame");
   }
   return {
     refreshIntervalMs,
-    presentedFrameGapsInRefreshes,
-    presentedFrameCount: presentationsUs.length,
+    // Presentation stamps land a few microseconds either side of a vsync, so each gap is counted
+    // in the whole refreshes it spans.
+    presentedFrameGapsInRefreshes: presentedFrameGapsMs.map((gapMs) =>
+      Math.round(gapMs / refreshIntervalMs),
+    ),
+    presentedFrameGapsMs,
+    presentedFrameCount,
     mainThreadMissedFrameCount,
     movingUpdateCount,
     stillUpdateCount,
     undrawnUpdates,
-    gestureCount: scrollBegins.filter((span) => span.begin.pid === rendererPid).length,
+    movingFrameCount,
+    jankyFrameCount,
+    unrasteredFrameCount,
+    firstMovedFrameLatenciesMs,
+    gestureCount: gestureStartsUs.length,
+    movingGestureCount: drawingByGesture.size,
     mainThreadHitTestCount,
     slowestInputToSubmit: slowestOf(inputToSubmits),
   };
@@ -261,6 +353,18 @@ export function slowestOf(waits: readonly InputToSubmit[]): InputToSubmit {
     (slowest, candidate) => (candidate.refreshes > slowest.refreshes ? candidate : slowest),
     first,
   );
+}
+
+/** The gesture an update belongs to: the last one that began at or before it. */
+function gestureIndexAt(gestureStartsUs: readonly number[], updateAtUs: number): number {
+  let gestureIndex = 0;
+  for (const [index, startUs] of gestureStartsUs.entries()) {
+    if (startUs > updateAtUs) {
+      break;
+    }
+    gestureIndex = index;
+  }
+  return gestureIndex;
 }
 
 /** When the input or update a latency record follows reached the window, if the trace has it. */

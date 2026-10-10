@@ -6,6 +6,10 @@
  * Every subsystem allowed to move a scroll container. Closed.
  *
  * A caller not on this list has not decided how it arbitrates against the ones that are.
+ * `follow-tail` is the transcript keeping a following reader on its last row: the list window's
+ * end anchor as rows measure, its landing on each appended row, and a tail jump's re-aims once the
+ * reader follows again. `jump-to-tail` and `jump-to-head` are the transcript's jumps to its last
+ * and first row: the pill, the palette and End, and Home.
  * `message-anchor` is the landing on the message a link names, when a session opens at it.
  * `measurement-compensation` is a list window's: when a row above the fold measures differently
  * than estimated, the library offers to subtract the difference from the offset. In the transcript
@@ -20,6 +24,7 @@
 export const SCROLL_CALLERS = [
   "follow-tail",
   "jump-to-tail",
+  "jump-to-head",
   "hold-reading-position",
   "find-match",
   "message-anchor",

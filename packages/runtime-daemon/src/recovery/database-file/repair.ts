@@ -179,6 +179,10 @@ async function takeRicherSessionsFromBackup(
   }
 }
 
+// The stored columns of an event; SQLite computes a generated column and refuses a value for it.
+const STORED_EVENT_COLUMNS = `id, session_id, sequence, occurred_at, monotonic_ns, category, type,
+  actor, payload, content_payload, correlation_id, causation_id, version`;
+
 // A snapshot names the event it reflects, so the session's snapshots go and come with its events.
 // Its events are inserted in sequence order, so their rowids keep the log's order in the session.
 function takeSessionFromBackup(fresh: DatabaseType, sessionId: string): void {
@@ -186,8 +190,9 @@ function takeSessionFromBackup(fresh: DatabaseType, sessionId: string): void {
   fresh.prepare("DELETE FROM main.session_events WHERE session_id = ?").run(sessionId);
   fresh
     .prepare(
-      "INSERT INTO main.session_events SELECT * FROM backup.session_events WHERE session_id = ? " +
-        "ORDER BY sequence",
+      `INSERT INTO main.session_events (${STORED_EVENT_COLUMNS})
+         SELECT ${STORED_EVENT_COLUMNS} FROM backup.session_events WHERE session_id = ?
+         ORDER BY sequence`,
     )
     .run(sessionId);
   fresh

@@ -34,6 +34,8 @@ export interface ScriptEntry {
    */
   readonly actorId?: string;
   readonly payload?: Readonly<Record<string, unknown>>;
+  /** The body stored beside the event, which a read returns with its row. */
+  readonly body?: string;
 }
 
 /** What a script needs beyond its entries to become beats. */
@@ -113,6 +115,7 @@ export function composeScriptBeats(options: ScriptOptions): readonly ScenarioBea
         ...(entry.actorId === undefined ? {} : { actorId: entry.actorId }),
         payload: entry.payload ?? {},
       },
+      ...(entry.body === undefined ? {} : { storedBody: entry.body }),
     };
   });
 }
@@ -156,8 +159,8 @@ interface AssistantOutputInput {
   readonly kind: string;
   /** Media type of the body, which the producer sets and the codec does not. */
   readonly contentType: string;
-  /** Pre-truncation UTF-8 byte length of the stored body. */
-  readonly contentLength: number;
+  /** The stored body, whose UTF-8 byte length the payload carries. */
+  readonly body: string;
 }
 
 /** What one tool-activity beat says. */
@@ -172,7 +175,8 @@ interface ToolActivityInput {
   /** Pairs an invocation with its settlement, which is what a tool card renders. */
   readonly toolCallId: string;
   readonly durationMs?: number;
-  readonly contentLength?: number;
+  /** The output stored beside a settlement, whose UTF-8 byte length the payload carries. */
+  readonly body?: string;
 }
 
 /** What one provider-native subagent beat says. */
@@ -245,10 +249,10 @@ export function runTransitionEntry(input: RunTransitionInput): ScriptEntry {
 }
 
 /**
- * One assistant turn, carrying its body's media type and length and never the body.
+ * One assistant turn, its payload carrying the body's media type and length and never the body.
  *
- * The body lives in `session_events.content_payload`, and the strict
- * schema rejects prose on the payload.
+ * The body is stored beside the event, as `session_events.content_payload` holds it, and the
+ * strict schema rejects prose on the payload.
  */
 export function assistantOutputEntry(input: AssistantOutputInput): ScriptEntry {
   return {
@@ -258,8 +262,9 @@ export function assistantOutputEntry(input: AssistantOutputInput): ScriptEntry {
       sessionId: input.sessionId,
       runId: input.runId,
       contentType: input.contentType,
-      contentLength: input.contentLength,
+      contentLength: new TextEncoder().encode(input.body).byteLength,
     },
+    body: input.body,
   };
 }
 
@@ -274,8 +279,11 @@ export function toolActivityEntry(input: ToolActivityInput): ScriptEntry {
       toolName: input.toolName,
       toolCallId: input.toolCallId,
       ...(input.durationMs === undefined ? {} : { durationMs: input.durationMs }),
-      ...(input.contentLength === undefined ? {} : { contentLength: input.contentLength }),
+      ...(input.body === undefined
+        ? {}
+        : { contentLength: new TextEncoder().encode(input.body).byteLength }),
     },
+    ...(input.body === undefined ? {} : { body: input.body }),
   };
 }
 

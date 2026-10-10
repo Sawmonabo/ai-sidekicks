@@ -2,10 +2,10 @@
 // literal (`run`, `rollback_boundary`, `general`). `type` is a free-form string so a row
 // projected from a newer producer's event still parses; consumers narrow on `kind`, never on it.
 // Every row is parsed on read, so each arm is a flat `.strict()` object with cheap refinements.
+// `TranscriptRunStamp` is the run arm's attribution alone, for an event delivered without its row.
 import { z } from "zod";
 
 import {
-  ASSISTANT_OUTPUT_EVENT_TYPES,
   INTERACTIVE_REQUEST_EVENT_TYPES,
   RUN_LIFECYCLE_EVENT_TYPES,
   TOOL_ACTIVITY_EVENT_TYPES,
@@ -25,7 +25,9 @@ import { EventCursorSchema, SessionIdSchema, type SessionId } from "../session/i
 import { type EventCursor } from "../session/event-cursor.js";
 
 import { ChildRunSummarySchema, type ChildRunSummary } from "./child-run-summary.js";
+import { TranscriptRowContentSchema, type TranscriptRowContent } from "./content.js";
 import { TRANSCRIPT_EVENT_ROW_SUMMARY_MAX_LEN } from "./limits.js";
+import { TRANSCRIPT_RUN_ATTRIBUTION_PAYLOAD_KEYS, transcriptRunIdOf } from "./run-attribution.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 
 /** The event type the `rollback_boundary` arm pins, as registered in `SessionEventType`. */
@@ -36,16 +38,6 @@ export const TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE = "run.rolled_back" as const;
  * type in it is run-scoped, which is why the `general` arm refuses the category outright.
  */
 export const TRANSCRIPT_RUN_LIFECYCLE_CATEGORY = "run_lifecycle" as const;
-
-/**
- * The payload keys that name a run: `runId` everywhere, and `targetRunId` on interventions.
- * Both are checked, since a guard reading only `runId` would let intervention rows through the
- * `general` arm.
- */
-export const TRANSCRIPT_RUN_ATTRIBUTION_PAYLOAD_KEYS: readonly string[] = Object.freeze([
-  "runId",
-  "targetRunId",
-] as const);
 
 /**
  * The `interactive_request` types whose payload does not always name a run: queue events
@@ -94,13 +86,13 @@ const APPROVAL_FLOW_TYPES_WITH_REQUIRED_RUN: readonly string[] = Object.freeze([
 
 /**
  * Every event type whose payload always names a run, built from the run-scoped category arrays in
- * `../event/registry.js` so a type added there joins on its own. The `general` arm refuses these
- * by type because a projected payload is a summary that may omit `runId`, as a `tool.result`
- * row's can.
+ * `../event/registry.js` so a type added there joins on its own. The `assistant_output` types are
+ * left to the payload: a voice call's spoken answer comes outside any run. The `general` arm
+ * refuses these by type because a projected payload is a summary that may omit `runId`, as a
+ * `tool.result` row's can.
  */
 export const TRANSCRIPT_RUN_SCOPED_EVENT_TYPES: ReadonlySet<string> = new Set<string>([
   ...RUN_LIFECYCLE_EVENT_TYPES,
-  ...ASSISTANT_OUTPUT_EVENT_TYPES,
   ...TOOL_ACTIVITY_EVENT_TYPES,
   ...INTERACTIVE_REQUEST_EVENT_TYPES.filter(
     (eventType) => !INTERACTIVE_REQUEST_TYPES_WITHOUT_REQUIRED_RUN.has(eventType),
@@ -168,11 +160,17 @@ export interface TranscriptEventRowBase {
   childRunSummary?: ChildRunSummary | undefined;
   /** Present on a tool call's row that left out one or more patches. */
   omittedPatches?: TranscriptOmittedPatch[] | undefined;
+  /**
+   * The row's body, required on a {@link TranscriptReadRow}. Absent on a row a client projects
+   * from a stream change, which carries no body, so a stand-in would claim one it never lacked.
+   */
+  content?: TranscriptRowContent | undefined;
   payload: Record<string, unknown>;
 }
 
-// Every arm spreads this shape. A function, so each arm gets its own schema instances.
-const buildTranscriptEventRowCommonShape = () => ({
+// Every arm spreads this shape; its field schemas are built once and shared, since Zod schemas
+// are immutable.
+const TRANSCRIPT_EVENT_ROW_COMMON_SHAPE = {
   id: wireFreeFormString(EVENT_FIELD_MAX_LEN, "TranscriptEventRow.id"),
   sessionId: SessionIdSchema,
   sequence: countSchema.max(EVENT_ENVELOPE_SEQUENCE_MAX),
@@ -184,7 +182,8 @@ const buildTranscriptEventRowCommonShape = () => ({
   timestamp: isoDateTimeSchema,
   childRunSummary: ChildRunSummarySchema.optional(),
   omittedPatches: z.array(TranscriptOmittedPatchSchema).min(1).optional(),
-});
+  content: TranscriptRowContentSchema,
+};
 
 // The open payload of the two non-boundary arms. It omits the `__proto__` pre-guard the event
 // envelope applies: that guard protects what the log stores, and a transcript row is a read
@@ -314,10 +313,11 @@ const refuseRunScopedRowOnGeneralArm = (
     });
     return;
   }
+  const carriedRunId = transcriptRunIdOf(row.payload);
   const carriedRunKey = TRANSCRIPT_RUN_ATTRIBUTION_PAYLOAD_KEYS.find(
-    (payloadKey) => row.payload[payloadKey] !== undefined,
+    (payloadKey) => row.payload[payloadKey] === carriedRunId,
   );
-  if (carriedRunKey !== undefined) {
+  if (carriedRunId !== undefined && carriedRunKey !== undefined) {
     issueContext.addIssue({
       code: "custom",
       path: ["payload", carriedRunKey],
@@ -395,7 +395,7 @@ const requirePayloadAttributionToAgree = (
 
 const transcriptGeneralArmSchema = z
   .object({
-    ...buildTranscriptEventRowCommonShape(),
+    ...TRANSCRIPT_EVENT_ROW_COMMON_SHAPE,
     kind: z.literal("general"),
     payload: projectedPayloadSchema,
   })
@@ -407,7 +407,7 @@ const transcriptGeneralArmSchema = z
 
 const runScopedTranscriptArmSchema = z
   .object({
-    ...buildTranscriptEventRowCommonShape(),
+    ...TRANSCRIPT_EVENT_ROW_COMMON_SHAPE,
     kind: z.literal("run"),
     runId: RunIdSchema,
     position: countSchema,
@@ -426,7 +426,7 @@ const transcriptRollbackBoundaryArmSchema = z
   .object({
     // `category` and `type` below replace the base parsers by spread order: this arm carries
     // exactly one registered event. The base has no `payload`; each arm declares its own.
-    ...buildTranscriptEventRowCommonShape(),
+    ...TRANSCRIPT_EVENT_ROW_COMMON_SHAPE,
     kind: z.literal("rollback_boundary"),
     category: z.literal(TRANSCRIPT_RUN_LIFECYCLE_CATEGORY),
     runId: RunIdSchema,
@@ -474,8 +474,9 @@ const transcriptRollbackBoundaryArmSchema = z
   });
 
 /**
- * The row union every transcript read returns, discriminated on the literal `kind`. Consumers
- * narrow on `kind`, never on the free-form `type` and never by casting.
+ * A transcript row, discriminated on the literal `kind`: as a read returns it, or as a client
+ * projects it from a stream change, which carries no body. Consumers narrow on `kind`, never on
+ * the free-form `type` and never by casting.
  */
 export type TranscriptEventRow =
   | TranscriptRollbackBoundary
@@ -483,10 +484,46 @@ export type TranscriptEventRow =
   | TranscriptEntry;
 
 /**
- * Parses a {@link TranscriptEventRow}. The arm is chosen by `kind`, so a failure is reported
+ * A {@link TranscriptEventRow} as a read returns it, its body required: every row a read window
+ * or an expansion carries, so a row built for one without its body fails to compile.
+ */
+export type TranscriptReadRow = TranscriptEventRow extends infer Row
+  ? Row extends TranscriptEventRow
+    ? Row & { content: TranscriptRowContent }
+    : never
+  : never;
+
+/**
+ * Parses a {@link TranscriptReadRow}. The arm is chosen by `kind`, so a failure is reported
  * against that arm and never retried against a sibling.
  */
-export const TranscriptEventRowSchema: z.ZodType<TranscriptEventRow> = z.discriminatedUnion(
-  "kind",
-  [transcriptRollbackBoundaryArmSchema, runScopedTranscriptArmSchema, transcriptGeneralArmSchema],
-);
+export const TranscriptReadRowSchema: z.ZodType<TranscriptReadRow> = z.discriminatedUnion("kind", [
+  transcriptRollbackBoundaryArmSchema,
+  runScopedTranscriptArmSchema,
+  transcriptGeneralArmSchema,
+]);
+
+/**
+ * The run attribution the daemon stamps on one event of a run: its turn position, its execution
+ * epoch and, when the turn was rolled back, the superseded marker.
+ */
+export interface TranscriptRunStamp {
+  readonly position: number;
+  readonly epoch: number;
+  readonly superseded?: SupersededMarker | undefined;
+}
+
+/**
+ * Parses a {@link TranscriptRunStamp} with the run arm's own rules, so a stamp and the row it
+ * describes refuse the same marker: one at or above the stamped position.
+ */
+export const TranscriptRunStampSchema: z.ZodType<TranscriptRunStamp> = z
+  .object({
+    position: countSchema,
+    epoch: countSchema,
+    superseded: SupersededMarkerSchema.optional(),
+  })
+  .strict()
+  .superRefine((stamp, issueContext) => {
+    requireMarkerToOutrankRow(stamp, issueContext);
+  });

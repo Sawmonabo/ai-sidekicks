@@ -19,6 +19,7 @@ function namedActs(name: string, fired: string[]): TranscriptActs {
     stepFindPrevious: () => fired.push(`${name}:stepFindPrevious`),
     jumpToLatest: () => fired.push(`${name}:jumpToLatest`),
     foldEveryRun: () => fired.push(`${name}:foldEveryRun`),
+    unfoldEveryRun: () => fired.push(`${name}:unfoldEveryRun`),
   };
 }
 
@@ -26,7 +27,7 @@ describe("mounted transcript — which feed an act reaches", () => {
   it("performs on the mounted transcript and says so", () => {
     const fired: string[] = [];
     const mountedTranscript = new MountedTranscript();
-    mountedTranscript.adopt(namedActs("pane", fired), document);
+    mountedTranscript.adopt(namedActs("pane", fired), document, false);
     expect(mountedTranscript.perform("openFind", document)).toStrictEqual({
       status: "performed",
       act: "openFind",
@@ -39,11 +40,12 @@ describe("mounted transcript — which feed an act reaches", () => {
     // A feed in another window, mounted later still, never takes this window's chord.
     const fired: string[] = [];
     const mountedTranscript = new MountedTranscript();
-    mountedTranscript.adopt(namedActs("first", fired), document);
-    mountedTranscript.adopt(namedActs("second", fired), document);
+    mountedTranscript.adopt(namedActs("first", fired), document, false);
+    mountedTranscript.adopt(namedActs("second", fired), document, false);
     mountedTranscript.adopt(
       namedActs("another window", fired),
       document.implementation.createHTMLDocument(),
+      false,
     );
     mountedTranscript.perform("jumpToLatest", document);
     expect(fired).toStrictEqual(["second:jumpToLatest"]);
@@ -52,9 +54,9 @@ describe("mounted transcript — which feed an act reaches", () => {
   it("releases by identity, so an unmount drops its own adoption", () => {
     const fired: string[] = [];
     const mountedTranscript = new MountedTranscript();
-    const releaseFirst = mountedTranscript.adopt(namedActs("first", fired), document);
-    mountedTranscript.adopt(namedActs("second", fired), document);
-    releaseFirst();
+    const first = mountedTranscript.adopt(namedActs("first", fired), document, false);
+    mountedTranscript.adopt(namedActs("second", fired), document, false);
+    first.release();
     mountedTranscript.perform("foldEveryRun", document);
     expect(fired).toStrictEqual(["second:foldEveryRun"]);
   });
@@ -75,7 +77,7 @@ describe("mounted transcript — a component fills the holder for its lifetime",
     readonly fired: string[];
     readonly mountedTranscript: MountedTranscript;
   }): null {
-    useMountedTranscript(namedActs(props.name, props.fired), props.mountedTranscript);
+    useMountedTranscript(namedActs(props.name, props.fired), false, props.mountedTranscript);
     return null;
   }
 

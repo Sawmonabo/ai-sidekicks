@@ -17,6 +17,11 @@
 // pair dropped by a discarded render, which no effect closed over.
 
 import { useEffect } from "react";
+import {
+  transcriptOffScreenRowLimit,
+  transcriptOpeningPageLimit,
+} from "#renderer/features/transcript/index.js";
+import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { type Clock } from "#renderer/lib/clock.js";
 import { useBridgeClock } from "#renderer/services/platform/hooks/useClock.js";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
@@ -46,12 +51,13 @@ export function useSessionStoreRegistry(
   // Resolved from context so every caller gets the bridge the rest of the frame renders against.
   const bridge = usePlatformBridge();
   const clock = useBridgeClock();
-  // The bridge alone is the subject: the projector table is snapshotted at construction and
-  // the read call is taken once, so neither is read live.
+  const ownerWindow = useOwnerWindow();
+  // The bridge alone is the subject: the projector table is snapshotted at construction, the read
+  // call is taken once and the window stays this one, so none of them is read live.
   const { value: plumbing } = useSubjectScopedResource<WindowSessionPlumbing>(
     bridge,
     undefined,
-    () => createWindowSessionPlumbing(bridge, clock, projectorRegistry, readSession),
+    () => createWindowSessionPlumbing(bridge, clock, ownerWindow, projectorRegistry, readSession),
     WINDOW_SESSION_PLUMBING_DISPOSAL,
   );
   // Keyed on the plumbing alone: the holder rebuilds it when the bridge moves.
@@ -83,11 +89,13 @@ interface WindowSessionPlumbing {
  * The clock comes from the bridge: the registry's default is the wall clock, so under the
  * fixture coalescing windows and refresh deadlines would run on `setTimeout` while the
  * scenario's beats move on frozen time, and a step taken right after `advance()` could see
- * either side of a drain.
+ * either side of a drain. The window sizes each session's opening read, before any transcript in
+ * it is laid out, and the share of its log a session keeps off screen.
  */
 function createWindowSessionPlumbing(
   bridge: PlatformBridge,
   clock: Clock,
+  ownerWindow: Window,
   projectorRegistry: EntityProjectorRegistry,
   readSession: SessionBaseStateReader,
 ): WindowSessionPlumbing {
@@ -99,6 +107,9 @@ function createWindowSessionPlumbing(
     // features register at module scope before any window renders and a table that changed under
     // an open store would fold two events of one kind two ways.
     projectors: projectorRegistry.snapshot(),
+    // Sized when each session opens, from the window as it stands then.
+    openingPageLimit: () => transcriptOpeningPageLimit(ownerWindow),
+    offScreenRowLimit: () => transcriptOffScreenRowLimit(ownerWindow),
   });
   return { registry, subscriber: new SessionEventSubscriber({ registry, bridge, clock }) };
 }

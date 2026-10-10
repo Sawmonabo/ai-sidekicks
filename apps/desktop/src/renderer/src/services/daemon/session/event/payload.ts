@@ -1,6 +1,7 @@
-// Decodes one `session.subscribe` frame into app events, the daemon's drop mark and the cursor a
-// re-opened stream resumes after, or refuses it. This is the only place that reads fields off the
-// `unknown` the bridge delivers.
+// Decodes one `session.subscribe` frame into app events, each with the run stamp the daemon gave
+// it, the daemon's drop mark and the cursor a re-opened stream resumes after, or refuses it. This
+// is the only place that reads fields off the `unknown` the bridge delivers. The session read's
+// standing events are narrowed into app events by the same projection.
 //
 // The frame is parsed once here with the contract's frame builder over the tolerant
 // `EventEnvelope`, so a higher-minor event type still reaches the app. The tolerant layer does
@@ -10,7 +11,11 @@
 import { EventEnvelopeSchema, type EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/session";
 import { SessionStreamFrameSchema } from "@ai-sidekicks/contracts/session/methods";
-import { type EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
+import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
+import {
+  TranscriptRunStampSchema,
+  type TranscriptRunStamp,
+} from "@ai-sidekicks/contracts/transcript/row";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
@@ -37,7 +42,10 @@ export interface SessionStreamFrameReading {
  * The `session.subscribe` frame over the tolerant envelope, so an event type this app does not
  * know yet still parses.
  */
-const SESSION_STREAM_FRAME_SCHEMA = SessionStreamFrameSchema(EventEnvelopeSchema);
+const SESSION_STREAM_FRAME_SCHEMA = SessionStreamFrameSchema(
+  EventEnvelopeSchema,
+  TranscriptRunStampSchema,
+);
 
 /**
  * Reads one delivered frame, or returns `undefined` when it is not the registered shape.
@@ -55,7 +63,7 @@ export function readSessionStreamFrame(delivered: unknown): SessionStreamFrameRe
   const events: ProjectedSessionEvent[] = [];
   let unreadableEventCount = 0;
   for (const change of parsed.data.changes) {
-    const event = projectSessionEvent(change.event, change.cursor);
+    const event = projectSessionEvent(change.event, change.cursor, change.runStamp);
     if (event === undefined) {
       unreadableEventCount += 1;
     } else {
@@ -73,17 +81,19 @@ export function readSessionStreamFrame(delivered: unknown): SessionStreamFrameRe
 }
 
 /**
- * Narrows one parsed envelope and the cursor it was delivered at into the app's event shape, or
- * `undefined` when its category disagrees with the census for its type.
+ * Narrows one parsed envelope, the cursor it was delivered at and the run stamp it came with into
+ * the app's event shape, or `undefined` when its category disagrees with the census for its type.
  *
  * `type` becomes `kind` and `actor` becomes `actorId`; a `null` or absent actor is left unset
  * because the wire does not say whether an id is a user or an agent. `category` is checked but not
  * carried, since no reader uses it. A type the census does not know passes unchanged, which keeps
- * higher-minor events readable.
+ * higher-minor events readable. The run stamp is carried as the daemon sent it, absent when it
+ * sent none.
  */
-function projectSessionEvent(
+export function projectSessionEvent(
   envelope: EventEnvelope,
   cursor: string,
+  runStamp: TranscriptRunStamp | undefined,
 ): ProjectedSessionEvent | undefined {
   // The envelope's `type` is a free-form string; a `ReadonlyMap` returns `undefined` for an
   // unregistered key, including prototype-chain names, which is the "unknown type" case.
@@ -100,5 +110,6 @@ function projectSessionEvent(
     occurredAt: envelope.occurredAt,
     ...(envelope.actor === undefined || envelope.actor === null ? {} : { actorId: envelope.actor }),
     payload: envelope.payload,
+    ...(runStamp === undefined ? {} : { runStamp }),
   };
 }

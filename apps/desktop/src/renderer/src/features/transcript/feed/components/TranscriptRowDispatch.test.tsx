@@ -4,7 +4,6 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { type RetainedRowState } from "../../viewport/retained-row-state-table.js";
 import { type ViewportRow } from "../../viewport/snapshot.js";
 import { foldRunGroupHeaders } from "../run-group-fold.js";
 import {
@@ -29,25 +28,25 @@ function viewportRowFor(transcriptWindow: TranscriptWindowModel, key: string): V
   return row;
 }
 
-/** The options every case starts from, over one folded window. */
+/** The options every case starts from, over one window. */
 function rendererOptions(
   transcriptWindow: TranscriptWindowModel,
   overrides: Partial<TranscriptRowDispatchOptions> = {},
 ): TranscriptRowDispatchOptions {
   return {
     transcriptWindow,
-    openedTerminalRunIds: new Set<string>(),
+    foldedRunIds: new Set<string>(),
+    foldedCallRowIds: new Set<string>(),
     hueForAgent: () => undefined,
     toggleRunGroup: () => undefined,
-    retainedRowState: (): RetainedRowState | undefined => undefined,
     renderTranscriptRow: () => <output data-rendered-row="yes" />,
     ...overrides,
   };
 }
 
 describe("the feed's row dispatch — a key the window no longer holds", () => {
-  /** The run-grouped fixture, shut, which is what puts a header key in the list. */
-  function foldedRunGroupWindow(): TranscriptWindowModel {
+  /** The run-grouped fixture, whose group puts a header key in the list. */
+  function runGroupWindow(): TranscriptWindowModel {
     const sessionStore = openSessionStoreWithTerminalRunGroup();
     return foldRunGroupHeaders(
       deriveTranscriptWindow(sessionStore.snapshot().transcript),
@@ -58,7 +57,7 @@ describe("the feed's row dispatch — a key the window no longer holds", () => {
   it("names a row the window no longer holds rather than drawing a blank band", () => {
     // The window moved under the viewport between its reconcile and this paint; a blank would
     // read as an empty row, and this is a fact about the cap.
-    const transcriptWindow = foldedRunGroupWindow();
+    const transcriptWindow = runGroupWindow();
     const vanished = viewportRowFor(transcriptWindow, TERMINAL_RUN_ID);
     const rowRendererCalls = vi.fn(() => <output data-rendered-row="yes" />);
     const { container } = render(

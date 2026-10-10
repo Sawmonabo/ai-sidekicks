@@ -3,7 +3,9 @@
 // This is the session behind the `frame-time-p95-four-lanes` row in
 // `tests/budget/document.json`, so its concurrency is the property measured: four runs are
 // mid-turn at the same tick, interleaved beat by beat, and `tests/endurance/streaming-lanes.ts`
-// reads that back off these beats.
+// reads that back off these beats. The lanes are composed apart from the session's opening
+// (`composeConcurrentStreamingLanes`), so `long-conversation.ts` plays the same four lanes after
+// a history of its own.
 //
 // The session, in order:
 //
@@ -32,7 +34,8 @@
 //
 // Ids are UUIDs, as the strict layer requires. `session.created` carries no title, because
 // its `.strict()` payload rejects one. Assistant and tool payloads describe their body and
-// never carry it; the body is stored in `content_payload`.
+// never carry it; the body is stored beside the beat, as `content_payload` holds it, and a read
+// returns it with its row.
 //
 // Beside the session's own read it answers the MCP servers and Providers settings pages, whose
 // reads belong to the machine rather than the session.
@@ -50,7 +53,16 @@ import {
   findBeatCursor,
   newestBeatInstant,
 } from "../data/script-entries.js";
-import type { Scenario } from "../scenario.js";
+import { defineScenario, type Scenario, type ScenarioBeat } from "../scenario.js";
+import {
+  BODY_BLOCKS,
+  CODE_BLOCKS,
+  COMMAND_OUTPUT,
+  EDIT_OUTPUT,
+  PROSE_BLOCKS,
+  blockAt,
+  bodyOf,
+} from "../data/transcript-bodies.js";
 import {
   type ScenarioAgent,
   composeOpeningEntry,
@@ -88,10 +100,12 @@ const startedAtMs: number = WORKFLOW_FIXTURE_NOW_MS;
 
 const STARTED_AT_ISO: string = new Date(startedAtMs).toISOString();
 
-// The four lanes, as the `agents` projection carries them, in one table that the lead and
-// every provider-naming beat read. Drivers and models are mixed so a view sees a
-// two-provider session.
-const CONCURRENT_STREAMING_AGENTS: readonly ScenarioAgent[] = [
+/**
+ * The four lanes' agents, as the `agents` projection carries them, in one table that the lead and
+ * every provider-naming beat read. Drivers and models are mixed so a view sees a two-provider
+ * session.
+ */
+export const CONCURRENT_STREAMING_AGENTS: readonly ScenarioAgent[] = [
   {
     agentId: AGENT_ARCHITECT,
     name: "Architect",
@@ -121,21 +135,26 @@ const CONCURRENT_STREAMING_AGENTS: readonly ScenarioAgent[] = [
   },
 ];
 
-// Two entry builders only this scenario needs: no other scenario meters a cost or raises an
-// approval, so they move to `fixtures/data/` on a second use.
+/** The lanes' lead, the architect, born with the session that plays them. */
+export const CONCURRENT_STREAMING_LEAD: ScenarioAgent = findScenarioMember(
+  CONCURRENT_STREAMING_AGENTS,
+  AGENT_ARCHITECT,
+);
+
+// Two entry builders only these lanes need: no other script meters a cost or raises an approval,
+// so they move to `fixtures/data/` on a second use.
 
 // `usage.cost_update` has no strict payload variant in `packages/contracts`, so nothing but
 // this builder checks the row's members.
-function costUpdateEntry(input: {
-  readonly atMs: number;
-  readonly runId: string;
-  readonly costUsdMicros: number;
-}): ScriptEntry {
+function costUpdateEntry(
+  sessionId: string,
+  input: { readonly atMs: number; readonly runId: string; readonly costUsdMicros: number },
+): ScriptEntry {
   return {
     atMs: input.atMs,
     kind: "usage.cost_update",
     payload: {
-      sessionId: SESSION_ID,
+      sessionId,
       runId: input.runId,
       costUsdMicros: input.costUsdMicros,
       costSource: "provider_reported",
@@ -143,30 +162,33 @@ function costUpdateEntry(input: {
   };
 }
 
-// The one approval this session raises. The request and its grant share its id, since two
-// ids would be two approvals.
+// The one approval the lanes raise. The request and its grant share its id, since two ids would
+// be two approvals.
 const APPROVAL_REQUEST_ID = "019b79ee-0280-7b12-8150-a11a0c150001";
 
 // What was asked for; the approval contract types scope as free text.
 const APPROVAL_SCOPE = "run";
 
-// The provider account this session's lanes are admitted against.
+// The provider account the lanes are admitted against.
 const PROVIDER_ACCOUNT_ID = "019b79ee-0280-7c34-8160-b21a0c150001";
 
 // One approval row. The caller supplies the members that differ: `requestedBy` and
 // `resourceDescriptor` on a request, `effectiveScope` on a resolution.
-function approvalEntry(input: {
-  readonly atMs: number;
-  readonly kind: string;
-  readonly actorId?: string;
-  readonly members: Readonly<Record<string, unknown>>;
-}): ScriptEntry {
+function approvalEntry(
+  sessionId: string,
+  input: {
+    readonly atMs: number;
+    readonly kind: string;
+    readonly actorId?: string;
+    readonly members: Readonly<Record<string, unknown>>;
+  },
+): ScriptEntry {
   return {
     atMs: input.atMs,
     kind: input.kind,
     ...(input.actorId === undefined ? {} : { actorId: input.actorId }),
     payload: {
-      sessionId: SESSION_ID,
+      sessionId,
       runId: RUN_IMPLEMENTER,
       approvalRequestId: APPROVAL_REQUEST_ID,
       // The wire's closed-set category for a write to the working tree.
@@ -177,337 +199,351 @@ function approvalEntry(input: {
   };
 }
 
-// What the four lanes do, beat by beat.
-const lane = createRunEntryBuilders(SESSION_ID);
+/** Where the four lanes play: the session, its clock, and whether the lanes bring their agents. */
+export interface ConcurrentStreamingLanesInput {
+  readonly sessionId: string;
+  /** The instant tick zero stands for, in epoch milliseconds. */
+  readonly startedAtMs: number;
+  /** Scenario time the lanes' own first tick lands at. */
+  readonly offsetMs: number;
+  /**
+   * Whether each lane's birth beat brings its agent into the session from its saved definition,
+   * or names an agent an earlier run already brought in.
+   */
+  readonly isAgentsFirstRun: boolean;
+}
 
-const CONCURRENT_STREAMING_SCRIPT: readonly ScriptEntry[] = [
-  // The opening: the room born with its lead, the architect, and the implementer's run
-  // opened by the signed-in user.
-  composeOpeningEntry({
-    sessionId: SESSION_ID,
-    shape: "project",
-    openedBy: USER_YOU,
-    lead: findScenarioMember(CONCURRENT_STREAMING_AGENTS, AGENT_ARCHITECT),
-    createdAt: STARTED_AT_ISO,
-  }),
-  lane.transition(RUN_IMPLEMENTER, {
-    atMs: 400,
-    runVersion: 1,
-    newState: "queued",
-    resolvedAgent: composeResolvedAgent({
-      agent: findScenarioMember(CONCURRENT_STREAMING_AGENTS, AGENT_IMPLEMENTER),
-      lead: findScenarioMember(CONCURRENT_STREAMING_AGENTS, AGENT_ARCHITECT),
-      resolvedAt: composeScenarioInstant(startedAtMs, 400),
+/**
+ * What the four lanes do, beat by beat, from the first run's birth to the helper run's start,
+ * without the session's opening. The concurrent-streaming session plays them alone; a longer
+ * session plays them after its own history.
+ */
+export function composeConcurrentStreamingLanes(
+  input: ConcurrentStreamingLanesInput,
+): readonly ScriptEntry[] {
+  const lane = createRunEntryBuilders(input.sessionId);
+  const at = (laneMs: number): number => input.offsetMs + laneMs;
+  // The lead is in the session from its opening; every other lane either starts its agent or
+  // names the one an earlier run started.
+  const joining = (agentId: string, atMs: number): Readonly<Record<string, unknown>> =>
+    input.isAgentsFirstRun
+      ? {
+          resolvedAgent: composeResolvedAgent({
+            agent: findScenarioMember(CONCURRENT_STREAMING_AGENTS, agentId),
+            lead: CONCURRENT_STREAMING_LEAD,
+            resolvedAt: composeScenarioInstant(input.startedAtMs, atMs),
+          }),
+        }
+      : { agentId };
+  return [
+    lane.transition(RUN_IMPLEMENTER, {
+      atMs: at(400),
+      runVersion: 1,
+      newState: "queued",
+      ...joining(AGENT_IMPLEMENTER, at(400)),
+      actorId: USER_YOU,
     }),
-    actorId: USER_YOU,
-  }),
-  lane.transition(RUN_IMPLEMENTER, {
-    atMs: 500,
-    runVersion: 2,
-    previousState: "queued",
-    newState: "starting",
-  }),
-
-  // The lanes spin up staggered: each reaches `running` before the next is queued, so the
-  // transcript draws them arriving.
-  lane.transition(RUN_IMPLEMENTER, {
-    atMs: 550,
-    runVersion: 3,
-    previousState: "starting",
-    newState: "running",
-  }),
-  lane.transition(RUN_REVIEWER, {
-    atMs: 600,
-    runVersion: 1,
-    newState: "queued",
-    resolvedAgent: composeResolvedAgent({
-      agent: findScenarioMember(CONCURRENT_STREAMING_AGENTS, AGENT_REVIEWER),
-      lead: findScenarioMember(CONCURRENT_STREAMING_AGENTS, AGENT_ARCHITECT),
-      resolvedAt: composeScenarioInstant(startedAtMs, 600),
+    lane.transition(RUN_IMPLEMENTER, {
+      atMs: at(500),
+      runVersion: 2,
+      previousState: "queued",
+      newState: "starting",
     }),
-    actorId: USER_YOU,
-  }),
-  lane.transition(RUN_REVIEWER, {
-    atMs: 650,
-    runVersion: 2,
-    previousState: "queued",
-    newState: "starting",
-  }),
-  lane.transition(RUN_REVIEWER, {
-    atMs: 700,
-    runVersion: 3,
-    previousState: "starting",
-    newState: "running",
-  }),
-  lane.transition(RUN_SCOUT, {
-    atMs: 750,
-    runVersion: 1,
-    newState: "queued",
-    resolvedAgent: composeResolvedAgent({
-      agent: findScenarioMember(CONCURRENT_STREAMING_AGENTS, AGENT_SCOUT),
-      lead: findScenarioMember(CONCURRENT_STREAMING_AGENTS, AGENT_ARCHITECT),
-      resolvedAt: composeScenarioInstant(startedAtMs, 750),
+
+    // The lanes spin up staggered: each reaches `running` before the next is queued, so the
+    // transcript draws them arriving.
+    lane.transition(RUN_IMPLEMENTER, {
+      atMs: at(550),
+      runVersion: 3,
+      previousState: "starting",
+      newState: "running",
     }),
-    actorId: USER_YOU,
-  }),
-  lane.transition(RUN_SCOUT, {
-    atMs: 800,
-    runVersion: 2,
-    previousState: "queued",
-    newState: "starting",
-  }),
-  lane.transition(RUN_SCOUT, {
-    atMs: 850,
-    runVersion: 3,
-    previousState: "starting",
-    newState: "running",
-  }),
-  lane.transition(RUN_ARCHITECT, {
-    atMs: 900,
-    runVersion: 1,
-    newState: "queued",
-    agentId: AGENT_ARCHITECT,
-    actorId: USER_YOU,
-  }),
-  lane.transition(RUN_ARCHITECT, {
-    atMs: 950,
-    runVersion: 2,
-    previousState: "queued",
-    newState: "starting",
-  }),
-  lane.transition(RUN_ARCHITECT, {
-    atMs: 1_000,
-    runVersion: 3,
-    previousState: "starting",
-    newState: "running",
-  }),
+    lane.transition(RUN_REVIEWER, {
+      atMs: at(600),
+      runVersion: 1,
+      newState: "queued",
+      ...joining(AGENT_REVIEWER, at(600)),
+      actorId: USER_YOU,
+    }),
+    lane.transition(RUN_REVIEWER, {
+      atMs: at(650),
+      runVersion: 2,
+      previousState: "queued",
+      newState: "starting",
+    }),
+    lane.transition(RUN_REVIEWER, {
+      atMs: at(700),
+      runVersion: 3,
+      previousState: "starting",
+      newState: "running",
+    }),
+    lane.transition(RUN_SCOUT, {
+      atMs: at(750),
+      runVersion: 1,
+      newState: "queued",
+      ...joining(AGENT_SCOUT, at(750)),
+      actorId: USER_YOU,
+    }),
+    lane.transition(RUN_SCOUT, {
+      atMs: at(800),
+      runVersion: 2,
+      previousState: "queued",
+      newState: "starting",
+    }),
+    lane.transition(RUN_SCOUT, {
+      atMs: at(850),
+      runVersion: 3,
+      previousState: "starting",
+      newState: "running",
+    }),
+    lane.transition(RUN_ARCHITECT, {
+      atMs: at(900),
+      runVersion: 1,
+      newState: "queued",
+      agentId: AGENT_ARCHITECT,
+      actorId: USER_YOU,
+    }),
+    lane.transition(RUN_ARCHITECT, {
+      atMs: at(950),
+      runVersion: 2,
+      previousState: "queued",
+      newState: "starting",
+    }),
+    lane.transition(RUN_ARCHITECT, {
+      atMs: at(1_000),
+      runVersion: 3,
+      previousState: "starting",
+      newState: "running",
+    }),
 
-  // From here on four runs are mid-turn at every tick. Beats rotate through the lanes rather
-  // than grouping by lane, since the overlap is what is measured.
-  lane.output(RUN_IMPLEMENTER, {
-    atMs: 1_050,
-    kind: "assistant.thinking_update",
-    contentType: "text/plain",
-    contentLength: 412,
-  }),
-  lane.output(RUN_REVIEWER, {
-    atMs: 1_100,
-    kind: "assistant.thinking_update",
-    contentType: "text/plain",
-    contentLength: 268,
-  }),
-  lane.output(RUN_SCOUT, {
-    atMs: 1_150,
-    kind: "assistant.thinking_update",
-    contentType: "text/plain",
-    contentLength: 194,
-  }),
-  lane.output(RUN_ARCHITECT, {
-    atMs: 1_200,
-    kind: "assistant.thinking_update",
-    contentType: "text/plain",
-    contentLength: 522,
-  }),
-  lane.output(RUN_IMPLEMENTER, {
-    atMs: 1_250,
-    kind: "assistant.message",
-    contentType: "text/markdown",
-    contentLength: 1_284,
-  }),
-  lane.tool(RUN_REVIEWER, {
-    atMs: 1_300,
-    kind: "tool.invoked",
-    toolName: "run_tests",
-    toolCallId: "call-reviewer-1",
-  }),
-  lane.output(RUN_SCOUT, {
-    atMs: 1_350,
-    kind: "assistant.message",
-    contentType: "text/markdown",
-    contentLength: 640,
-  }),
-  lane.output(RUN_ARCHITECT, {
-    atMs: 1_400,
-    kind: "assistant.message",
-    contentType: "text/markdown",
-    contentLength: 1_960,
-  }),
-  lane.tool(RUN_IMPLEMENTER, {
-    atMs: 1_450,
-    kind: "tool.invoked",
-    toolName: "edit_file",
-    toolCallId: "call-implementer-1",
-  }),
-  costUpdateEntry({
-    atMs: 1_500,
-    runId: RUN_IMPLEMENTER,
-    costUsdMicros: 340_000,
-  }),
-  lane.tool(RUN_REVIEWER, {
-    atMs: 1_550,
-    kind: "tool.result",
-    toolName: "run_tests",
-    toolCallId: "call-reviewer-1",
-    durationMs: 180,
-    contentLength: 244,
-  }),
+    // From here on four runs are mid-turn at every tick. Beats rotate through the lanes rather
+    // than grouping by lane, since the overlap is what is measured.
+    lane.output(RUN_IMPLEMENTER, {
+      atMs: at(1_050),
+      kind: "assistant.thinking_update",
+      contentType: "text/plain",
+      body: blockAt(PROSE_BLOCKS, 0),
+    }),
+    lane.output(RUN_REVIEWER, {
+      atMs: at(1_100),
+      kind: "assistant.thinking_update",
+      contentType: "text/plain",
+      body: blockAt(PROSE_BLOCKS, 1),
+    }),
+    lane.output(RUN_SCOUT, {
+      atMs: at(1_150),
+      kind: "assistant.thinking_update",
+      contentType: "text/plain",
+      body: blockAt(PROSE_BLOCKS, 2),
+    }),
+    lane.output(RUN_ARCHITECT, {
+      atMs: at(1_200),
+      kind: "assistant.thinking_update",
+      contentType: "text/plain",
+      body: blockAt(PROSE_BLOCKS, 3),
+    }),
+    lane.output(RUN_IMPLEMENTER, {
+      atMs: at(1_250),
+      kind: "assistant.message",
+      contentType: "text/markdown",
+      body: bodyOf([blockAt(PROSE_BLOCKS, 4), blockAt(BODY_BLOCKS, 12)]),
+    }),
+    lane.tool(RUN_REVIEWER, {
+      atMs: at(1_300),
+      kind: "tool.invoked",
+      toolName: "run_tests",
+      toolCallId: "call-reviewer-1",
+    }),
+    lane.output(RUN_SCOUT, {
+      atMs: at(1_350),
+      kind: "assistant.message",
+      contentType: "text/markdown",
+      body: bodyOf([blockAt(PROSE_BLOCKS, 5), blockAt(BODY_BLOCKS, 15)]),
+    }),
+    lane.output(RUN_ARCHITECT, {
+      atMs: at(1_400),
+      kind: "assistant.message",
+      contentType: "text/markdown",
+      body: bodyOf([blockAt(PROSE_BLOCKS, 6), blockAt(BODY_BLOCKS, 18)]),
+    }),
+    lane.tool(RUN_IMPLEMENTER, {
+      atMs: at(1_450),
+      kind: "tool.invoked",
+      toolName: "edit_file",
+      toolCallId: "call-implementer-1",
+    }),
+    costUpdateEntry(input.sessionId, {
+      atMs: at(1_500),
+      runId: RUN_IMPLEMENTER,
+      costUsdMicros: 340_000,
+    }),
+    lane.tool(RUN_REVIEWER, {
+      atMs: at(1_550),
+      kind: "tool.result",
+      toolName: "run_tests",
+      toolCallId: "call-reviewer-1",
+      durationMs: 180,
+      body: COMMAND_OUTPUT,
+    }),
 
-  // The approval lands mid-stream: one lane blocks while the other three keep talking. Four
-  // beats, not two: the request and grant are `approval_flow` rows, the block and release
-  // are `run_lifecycle` rows, and they are different facts about one moment.
-  approvalEntry({
-    atMs: 1_590,
-    kind: "approval.requested",
-    members: {
-      requestedBy: AGENT_IMPLEMENTER,
-      resourceDescriptor: { path: "packages/runtime-daemon/src/session/lifecycle.ts" },
+    // The approval lands mid-stream: one lane blocks while the other three keep talking. Four
+    // beats, not two: the request and grant are `approval_flow` rows, the block and release
+    // are `run_lifecycle` rows, and they are different facts about one moment.
+    approvalEntry(input.sessionId, {
+      atMs: at(1_590),
+      kind: "approval.requested",
+      members: {
+        requestedBy: AGENT_IMPLEMENTER,
+        resourceDescriptor: { path: "packages/runtime-daemon/src/session/lifecycle.ts" },
+      },
+    }),
+    lane.transition(RUN_IMPLEMENTER, {
+      atMs: at(1_600),
+      runVersion: 4,
+      previousState: "running",
+      newState: "waiting_for_approval",
+    }),
+    lane.output(RUN_REVIEWER, {
+      atMs: at(1_650),
+      kind: "assistant.message",
+      contentType: "text/markdown",
+      body: bodyOf([blockAt(PROSE_BLOCKS, 8), blockAt(BODY_BLOCKS, 24)]),
+    }),
+    lane.output(RUN_SCOUT, {
+      atMs: at(1_700),
+      kind: "assistant.thinking_update",
+      contentType: "text/plain",
+      body: blockAt(PROSE_BLOCKS, 9),
+    }),
+    lane.output(RUN_ARCHITECT, {
+      atMs: at(1_750),
+      kind: "assistant.thinking_update",
+      contentType: "text/plain",
+      body: blockAt(PROSE_BLOCKS, 10),
+    }),
+    costUpdateEntry(input.sessionId, {
+      atMs: at(1_800),
+      runId: RUN_REVIEWER,
+      costUsdMicros: 210_000,
+    }),
+    approvalEntry(input.sessionId, {
+      atMs: at(1_840),
+      kind: "approval.approved",
+      actorId: USER_YOU,
+      members: {
+        effectiveScope: APPROVAL_SCOPE,
+        deviceId: "019b79ee-0280-7d02-8110-d1a4c1150041",
+        clientResolutionId: "019b79ee-0280-7c01-8110-d1a4c1150031",
+      },
+    }),
+    lane.transition(RUN_IMPLEMENTER, {
+      atMs: at(1_850),
+      runVersion: 5,
+      previousState: "waiting_for_approval",
+      newState: "running",
+      actorId: USER_YOU,
+    }),
+    lane.tool(RUN_IMPLEMENTER, {
+      atMs: at(1_900),
+      kind: "tool.result",
+      toolName: "edit_file",
+      toolCallId: "call-implementer-1",
+      durationMs: 140,
+      body: EDIT_OUTPUT,
+    }),
+
+    // All four still going; the meter moves on two more lanes.
+    lane.output(RUN_ARCHITECT, {
+      atMs: at(1_950),
+      kind: "assistant.message",
+      contentType: "text/markdown",
+      body: bodyOf([blockAt(PROSE_BLOCKS, 12), blockAt(BODY_BLOCKS, 36)]),
+    }),
+    costUpdateEntry(input.sessionId, { atMs: at(2_000), runId: RUN_SCOUT, costUsdMicros: 90_000 }),
+    lane.output(RUN_REVIEWER, {
+      atMs: at(2_050),
+      kind: "assistant.thinking_update",
+      contentType: "text/plain",
+      body: blockAt(PROSE_BLOCKS, 13),
+    }),
+    lane.tool(RUN_SCOUT, {
+      atMs: at(2_100),
+      kind: "tool.invoked",
+      toolName: "read_file",
+      toolCallId: "call-scout-1",
+    }),
+    lane.output(RUN_IMPLEMENTER, {
+      atMs: at(2_150),
+      kind: "assistant.message",
+      contentType: "text/markdown",
+      body: bodyOf([blockAt(PROSE_BLOCKS, 14), blockAt(BODY_BLOCKS, 42)]),
+    }),
+    lane.tool(RUN_SCOUT, {
+      atMs: at(2_200),
+      kind: "tool.result",
+      toolName: "read_file",
+      toolCallId: "call-scout-1",
+      durationMs: 62,
+      body: blockAt(CODE_BLOCKS, 15),
+    }),
+    // The park: a quota reading lands with the instant it resets, and the scout's run pauses.
+    // Two beats because the reading is account-plane and carries no `runId`, while the pause is
+    // one run's. The countdown comes from `resetsAt`.
+    {
+      atMs: at(2_225),
+      kind: "usage.rate_limit_update",
+      payload: {
+        sessionId: input.sessionId,
+        provider: "claude",
+        providerAccountId: PROVIDER_ACCOUNT_ID,
+        credentialGeneration: 1,
+        limitId: "five-hour",
+        windowMins: 300,
+        usedPercent: 100,
+        resetsAt: "2026-01-01T18:32:00.000Z",
+      },
     },
-  }),
-  lane.transition(RUN_IMPLEMENTER, {
-    atMs: 1_600,
-    runVersion: 4,
-    previousState: "running",
-    newState: "waiting_for_approval",
-  }),
-  lane.output(RUN_REVIEWER, {
-    atMs: 1_650,
-    kind: "assistant.message",
-    contentType: "text/markdown",
-    contentLength: 806,
-  }),
-  lane.output(RUN_SCOUT, {
-    atMs: 1_700,
-    kind: "assistant.thinking_update",
-    contentType: "text/plain",
-    contentLength: 232,
-  }),
-  lane.output(RUN_ARCHITECT, {
-    atMs: 1_750,
-    kind: "assistant.thinking_update",
-    contentType: "text/plain",
-    contentLength: 388,
-  }),
-  costUpdateEntry({
-    atMs: 1_800,
-    runId: RUN_REVIEWER,
-    costUsdMicros: 210_000,
-  }),
-  approvalEntry({
-    atMs: 1_840,
-    kind: "approval.approved",
-    actorId: USER_YOU,
-    members: {
-      effectiveScope: APPROVAL_SCOPE,
-      deviceId: "019b79ee-0280-7d02-8110-d1a4c1150041",
-      clientResolutionId: "019b79ee-0280-7c01-8110-d1a4c1150031",
-    },
-  }),
-  lane.transition(RUN_IMPLEMENTER, {
-    atMs: 1_850,
-    runVersion: 5,
-    previousState: "waiting_for_approval",
-    newState: "running",
-    actorId: USER_YOU,
-  }),
-  lane.tool(RUN_IMPLEMENTER, {
-    atMs: 1_900,
-    kind: "tool.result",
-    toolName: "edit_file",
-    toolCallId: "call-implementer-1",
-    durationMs: 140,
-    contentLength: 96,
-  }),
+    lane.transition(RUN_SCOUT, {
+      atMs: at(2_235),
+      runVersion: 4,
+      previousState: "running",
+      newState: "paused",
+    }),
+    costUpdateEntry(input.sessionId, {
+      atMs: at(2_250),
+      runId: RUN_ARCHITECT,
+      costUsdMicros: 570_000,
+    }),
+    lane.output(RUN_REVIEWER, {
+      atMs: at(2_300),
+      kind: "assistant.message",
+      contentType: "text/markdown",
+      body: bodyOf([blockAt(PROSE_BLOCKS, 16), blockAt(BODY_BLOCKS, 48)]),
+    }),
+    lane.output(RUN_ARCHITECT, {
+      atMs: at(2_350),
+      kind: "assistant.thinking_update",
+      contentType: "text/plain",
+      body: blockAt(PROSE_BLOCKS, 17),
+    }),
 
-  // All four still going; the meter moves on two more lanes.
-  lane.output(RUN_ARCHITECT, {
-    atMs: 1_950,
-    kind: "assistant.message",
-    contentType: "text/markdown",
-    contentLength: 1_412,
-  }),
-  costUpdateEntry({ atMs: 2_000, runId: RUN_SCOUT, costUsdMicros: 90_000 }),
-  lane.output(RUN_REVIEWER, {
-    atMs: 2_050,
-    kind: "assistant.thinking_update",
-    contentType: "text/plain",
-    contentLength: 176,
-  }),
-  lane.tool(RUN_SCOUT, {
-    atMs: 2_100,
-    kind: "tool.invoked",
-    toolName: "read_file",
-    toolCallId: "call-scout-1",
-  }),
-  lane.output(RUN_IMPLEMENTER, {
-    atMs: 2_150,
-    kind: "assistant.message",
-    contentType: "text/markdown",
-    contentLength: 1_012,
-  }),
-  lane.tool(RUN_SCOUT, {
-    atMs: 2_200,
-    kind: "tool.result",
-    toolName: "read_file",
-    toolCallId: "call-scout-1",
-    durationMs: 62,
-    contentLength: 2_048,
-  }),
-  // The park: a quota reading lands with the instant it resets, and the scout's run pauses.
-  // Two beats because the reading is account-plane and carries no `runId`, while the pause is
-  // one run's. The countdown comes from `resetsAt`.
-  {
-    atMs: 2_225,
-    kind: "usage.rate_limit_update",
-    payload: {
-      sessionId: SESSION_ID,
-      provider: "claude",
-      providerAccountId: PROVIDER_ACCOUNT_ID,
-      credentialGeneration: 1,
-      limitId: "five-hour",
-      windowMins: 300,
-      usedPercent: 100,
-      resetsAt: "2026-01-01T18:32:00.000Z",
-    },
-  },
-  lane.transition(RUN_SCOUT, {
-    atMs: 2_235,
-    runVersion: 4,
-    previousState: "running",
-    newState: "paused",
-  }),
-  costUpdateEntry({
-    atMs: 2_250,
-    runId: RUN_ARCHITECT,
-    costUsdMicros: 570_000,
-  }),
-  lane.output(RUN_REVIEWER, {
-    atMs: 2_300,
-    kind: "assistant.message",
-    contentType: "text/markdown",
-    contentLength: 742,
-  }),
-  lane.output(RUN_ARCHITECT, {
-    atMs: 2_350,
-    kind: "assistant.thinking_update",
-    contentType: "text/plain",
-    contentLength: 296,
-  }),
-
-  // The thread between two runs: the child-run link members ride the birth beat (`run.queued`)
-  // only, and the shared builder enforces that.
-  lane.transition(RUN_ARCHITECT_HELPER, {
-    atMs: 2_400,
-    runVersion: 1,
-    newState: "queued",
-    parentRunId: RUN_ARCHITECT,
-  }),
-  lane.transition(RUN_ARCHITECT_HELPER, {
-    atMs: 2_450,
-    runVersion: 2,
-    previousState: "queued",
-    newState: "starting",
-  }),
-];
+    // The thread between two runs: the child-run link members ride the birth beat (`run.queued`)
+    // only, and the shared builder enforces that.
+    lane.transition(RUN_ARCHITECT_HELPER, {
+      atMs: at(2_400),
+      runVersion: 1,
+      newState: "queued",
+      agentId: AGENT_ARCHITECT,
+      parentRunId: RUN_ARCHITECT,
+    }),
+    lane.transition(RUN_ARCHITECT_HELPER, {
+      atMs: at(2_450),
+      runVersion: 2,
+      previousState: "queued",
+      newState: "starting",
+    }),
+  ];
+}
 
 /** The id of the concurrent-streaming scenario. */
 export const CONCURRENT_STREAMING_SCENARIO_ID = "concurrent-streaming";
@@ -518,49 +554,77 @@ export const CONCURRENT_STREAMING_SCENARIO_ID = "concurrent-streaming";
  */
 export const CONCURRENT_STREAMING_LANE_COUNT: number = CONCURRENT_STREAMING_AGENTS.length;
 
-const CONCURRENT_STREAMING_BEATS = composeScriptBeats({
-  sessionId: SESSION_ID,
-  eventIdStem: EVENT_ID_STEM,
-  startedAtMs,
-  entries: CONCURRENT_STREAMING_SCRIPT,
-});
+function composeConcurrentStreamingBeats(): readonly ScenarioBeat[] {
+  return composeScriptBeats({
+    sessionId: SESSION_ID,
+    eventIdStem: EVENT_ID_STEM,
+    startedAtMs,
+    entries: [
+      // The opening: the room born with its lead, the architect; the lanes then open the
+      // implementer's run for the signed-in user.
+      composeOpeningEntry({
+        sessionId: SESSION_ID,
+        shape: "project",
+        openedBy: USER_YOU,
+        lead: CONCURRENT_STREAMING_LEAD,
+        createdAt: STARTED_AT_ISO,
+      }),
+      ...composeConcurrentStreamingLanes({
+        sessionId: SESSION_ID,
+        startedAtMs,
+        offsetMs: 0,
+        isAgentsFirstRun: true,
+      }),
+    ],
+  });
+}
 
 /** Four agents streaming at once, with a mid-stream approval, a parked lane and a helper run. */
-export const CONCURRENT_STREAMING_SCENARIO: Scenario = {
-  id: CONCURRENT_STREAMING_SCENARIO_ID,
-  label: "Four lanes",
-  purpose:
-    "A live session with four agents streaming at once — interleaved turns on four run " +
-    "groups, an approval landing mid-stream while the other three carry on, the cost " +
-    "meter moving on every lane, and a helper run threaded to the turn that spawned it.",
-  sessionId: SESSION_ID,
-  startedAtIso: STARTED_AT_ISO,
-  beats: CONCURRENT_STREAMING_BEATS,
-  replies: [
-    {
-      // The frame's read is `session.read`; nothing in the renderer calls `session.list`.
-      call: "session.read",
-      result: {
-        session: {
-          id: SESSION_ID,
-          state: "active",
-          shape: "project",
-          muted: false,
-          pendingWorkingFolder: null,
-          createdAt: STARTED_AT_ISO,
-          updatedAt: newestBeatInstant(CONCURRENT_STREAMING_BEATS),
-          draft: "",
-          tags: [],
+export const CONCURRENT_STREAMING_SCENARIO: Scenario = defineScenario(
+  {
+    id: CONCURRENT_STREAMING_SCENARIO_ID,
+    label: "Four lanes",
+    purpose:
+      "A live session with four agents streaming at once — interleaved turns on four run " +
+      "groups, an approval landing mid-stream while the other three carry on, the cost " +
+      "meter moving on every lane, and a helper run threaded to the turn that spawned it.",
+    sessionId: SESSION_ID,
+    startedAtIso: STARTED_AT_ISO,
+    openingNotices: [...WORKFLOW_OPENING_NOTICES, ...SESSION_LIST_OPENING_NOTICES],
+  },
+  () => {
+    const beats = composeConcurrentStreamingBeats();
+    return {
+      beats,
+      replies: [
+        {
+          // The frame's read is `session.read`; nothing in the renderer calls `session.list`.
+          call: "session.read",
+          result: {
+            session: {
+              id: SESSION_ID,
+              state: "active",
+              shape: "project",
+              muted: false,
+              pendingWorkingFolder: null,
+              createdAt: STARTED_AT_ISO,
+              updatedAt: newestBeatInstant(beats),
+              draft: "",
+              tags: [],
+            },
+            transcriptCursors: {
+              earliest: encodeEventCursor(START_OF_LOG_POSITION),
+              latest: findBeatCursor(beats, beats.length - 1),
+            },
+            // The record a read before any beat lands holds: no run has begun.
+            liveRuns: [],
+            standingEvents: [],
+          },
         },
-        transcriptCursors: {
-          earliest: encodeEventCursor(START_OF_LOG_POSITION),
-          latest: findBeatCursor(CONCURRENT_STREAMING_BEATS, CONCURRENT_STREAMING_BEATS.length - 1),
-        },
-      },
-    },
-    ...SETTINGS_REPLIES,
-    ...WORKFLOW_REPLIES,
-    ...WORKFLOW_RUN_DIFF_REPLIES,
-  ],
-  openingNotices: [...WORKFLOW_OPENING_NOTICES, ...SESSION_LIST_OPENING_NOTICES],
-};
+        ...SETTINGS_REPLIES,
+        ...WORKFLOW_REPLIES,
+        ...WORKFLOW_RUN_DIFF_REPLIES,
+      ],
+    };
+  },
+);

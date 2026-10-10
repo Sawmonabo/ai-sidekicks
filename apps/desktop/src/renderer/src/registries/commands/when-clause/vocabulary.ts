@@ -5,9 +5,9 @@ import type { CommandDefinition } from "../definition.js";
 import type { Keybinding } from "../keybinding.js";
 
 /**
- * The `when`-clause keys the window publishes: one per main-window route kind plus
- * `sessionActive`. The types below derive from it, so a new key is a compile error until every
- * context builder supplies it.
+ * The `when`-clause keys the window publishes: one per main-window route kind, `sessionActive`,
+ * and `transcriptHoldsRunGroup`, whether the window's transcript holds a run group. The types
+ * below derive from it, so a new key is a compile error until every context builder supplies it.
  */
 export const WHEN_CLAUSE_KEYS = [
   "sessionActive",
@@ -15,6 +15,7 @@ export const WHEN_CLAUSE_KEYS = [
   "onSession",
   "onWorkflows",
   "onSettings",
+  "transcriptHoldsRunGroup",
 ] as const;
 
 /** One key of the window's `when` vocabulary. */

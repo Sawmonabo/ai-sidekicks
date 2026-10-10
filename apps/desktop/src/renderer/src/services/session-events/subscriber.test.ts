@@ -19,6 +19,11 @@ import { APPLY_COALESCE_MS } from "#renderer/lib/reads/refresh/caps.js";
 import { windowTripwires } from "#renderer/lib/tripwires/registry.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { SessionStoreRegistry } from "#renderer/store/session/registry.js";
+import {
+  OPENING_PAGE_LIMIT,
+  openingPageLimit,
+  offScreenRowLimit,
+} from "#test/helpers/session/store/fixtures.js";
 import { SessionEventSubscriber } from "./subscriber.js";
 import {
   PAST_EVERY_BEAT_MS,
@@ -88,6 +93,8 @@ describe("SessionEventSubscriber — the console's one subscription to the wire"
         return Promise.resolve({ entities: [] });
       },
       clock: engine.clock,
+      openingPageLimit,
+      offScreenRowLimit,
       refreshDebounceMs: 0,
     });
     const subscriber = new SessionEventSubscriber({ registry, bridge });
@@ -112,14 +119,14 @@ describe("SessionEventSubscriber — the console's one subscription to the wire"
     subscriber.dispose();
   });
 
-  it("opens the first stream after the acknowledged position the read named", async () => {
+  it("opens the window at the acknowledged position and the stream after it", async () => {
     // Every beat has fallen due before the session opens, so the acknowledged row is in the log.
     const { bridge: base, scenarioEngine: engine } = createFixtureBridge({
       scenario: TRANSCRIPT_STATES_SCENARIO,
     });
     engine.advance(lastScriptedBeatMs(TRANSCRIPT_STATES_SCENARIO) + 1);
     let acknowledged: string | undefined;
-    const { bridge: reading } = withDaemonCall(base, async (call, passThrough) => {
+    const { bridge: reading, calls } = withDaemonCall(base, async (call, passThrough) => {
       const reply = await passThrough();
       if (call.method === "session.read") {
         acknowledged = (reply as SessionReadResponse).transcriptCursors.acknowledged;
@@ -135,6 +142,8 @@ describe("SessionEventSubscriber — the console's one subscription to the wire"
     const registry = new SessionStoreRegistry({
       read: sessionReadThroughDaemon(bridge),
       clock: engine.clock,
+      openingPageLimit,
+      offScreenRowLimit,
       refreshDebounceMs: 0,
     });
     const subscriber = new SessionEventSubscriber({ registry, bridge, clock: engine.clock });
@@ -144,14 +153,17 @@ describe("SessionEventSubscriber — the console's one subscription to the wire"
     engine.advance(APPLY_COALESCE_MS + 1);
 
     expect(acknowledged).toBeDefined();
+    expect(calls.find((call) => call.method === "transcript.read")?.params).toMatchObject({
+      beforeCursor: acknowledged,
+      limit: OPENING_PAGE_LIMIT,
+    });
     expect(opens).toEqual([{ sessionId, afterCursor: acknowledged }]);
-    // The window starts after the acknowledged row, which heads it, and holds every row after it.
-    const beats = TRANSCRIPT_STATES_SCENARIO.beats;
-    const acknowledgedIndex = beats.findIndex((beat) => beat.event.cursor === acknowledged);
+    // The window ends at the acknowledged row and the stream sends every row after it, so the
+    // store holds the whole log, which is shorter than one page, once.
     const store = registry.peek(sessionId)?.snapshot();
-    expect(store?.windowHeadCursor).toBe(acknowledged);
+    expect(store?.transcriptHead.hasMore).toBe(false);
     expect(store?.transcript.map((event) => event.sequence)).toEqual(
-      beats.slice(acknowledgedIndex + 1).map((beat) => beat.event.sequence),
+      TRANSCRIPT_STATES_SCENARIO.beats.map((beat) => beat.event.sequence),
     );
     expect(store?.gaps).toEqual([]);
 

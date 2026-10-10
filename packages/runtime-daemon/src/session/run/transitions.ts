@@ -10,6 +10,11 @@ export const RUN_TERMINAL_STATES = ["completed", "interrupted", "stopped", "fail
 /** A state a run ends in. */
 export type RunTerminalState = (typeof RUN_TERMINAL_STATES)[number];
 
+/** The event types that enter a terminal state, one per state: `run.completed` and the rest. */
+export const RUN_TERMINAL_EVENT_TYPES: ReadonlySet<string> = new Set(
+  RUN_TERMINAL_STATES.map((state) => `run.${state}`),
+);
+
 // The states each state may move to. A move several triggers share, such as `running -> failed`
 // on an error during execution or at a restart, is one entry.
 const NEXT_STATES_BY_STATE: { readonly [From in RunState]: readonly RunStateChangeState[] } = {

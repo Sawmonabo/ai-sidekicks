@@ -1,8 +1,8 @@
 // Run groups: the fold that makes parallel runs read as parallel stories. A row joins a run
 // group by its carried `runId` only (a `general` row has none), rows keep the log's order inside
 // a run group, and run groups keep the order their first row arrived in: the fold partitions and
-// never sorts. Whether a group is open lives in `fold-state.ts`, so the live run group
-// never collapses. This module renders nothing; `RunGroupHeader.tsx` draws the model.
+// never sorts. Whether a person folded a group is `feed/fold-state.ts`'s, never this module's.
+// This module renders nothing; `RunGroupHeader.tsx` draws the model.
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
@@ -15,7 +15,7 @@ import {
   type RunTerminalEventType,
 } from "./lifecycle-events.js";
 
-/** Whether a run group is still being written: a terminal one folds, a live one stays open. */
+/** Whether a run group is still being written or has ended. */
 export const RUN_GROUP_LIFECYCLES = ["live", "terminal"] as const;
 
 /** One lifecycle value of a run group. */
@@ -54,11 +54,6 @@ export interface RunGroup {
    * bounds has older rows than these.
    */
   readonly clippedHeadRows: readonly TranscriptEventRow[];
-  /**
-   * The row that ended it, or `undefined` while live. Carried as an id so a folded run group
-   * renders its header and that row without scanning for its receipt.
-   */
-  readonly terminalRowId: string | undefined;
 }
 
 /**
@@ -80,11 +75,6 @@ export class RunGroupIndex {
   public runGroups(): readonly RunGroup[] {
     this.#runGroups ??= groupRowsByRun(this.#rows);
     return this.#runGroups;
-  }
-
-  /** Run groups that have ended. The input to "collapse all terminal run groups". */
-  public terminalRunGroups(): readonly RunGroup[] {
-    return this.runGroups().filter((runGroup) => runGroup.lifecycle === "terminal");
   }
 }
 
@@ -128,7 +118,6 @@ interface RunGroupAccumulator {
   readonly rowIds: string[];
   actorId: string | undefined;
   terminalEventType: RunTerminalEventType | undefined;
-  terminalRowId: string | undefined;
   runStateEventType: string | undefined;
   payingAccountId: string | undefined;
   /** The bounded head this run group's body will draw. Fed one row at a time. */
@@ -141,7 +130,6 @@ function newAccumulator(runId: string): RunGroupAccumulator {
     rowIds: [],
     actorId: undefined,
     terminalEventType: undefined,
-    terminalRowId: undefined,
     runStateEventType: undefined,
     payingAccountId: undefined,
     bodyRows: new RunGroupBodyRowWindow(),
@@ -165,13 +153,11 @@ function absorbRow(accumulator: RunGroupAccumulator, row: TranscriptEventRow): v
     accumulator.runStateEventType = undefined;
   }
   if (isTerminalEventType(row.type)) {
-    // The last terminal wins, set with its row so the two never name different rows.
+    // The last terminal wins.
     accumulator.terminalEventType = row.type;
-    accumulator.terminalRowId = row.id;
   } else if (isReopeningEventType(row.type)) {
     // A run that came back clears its ending; a later ending seals it again.
     accumulator.terminalEventType = undefined;
-    accumulator.terminalRowId = undefined;
   }
 }
 
@@ -187,6 +173,5 @@ function sealRunGroup(accumulator: RunGroupAccumulator): RunGroup {
     runStateEventType: accumulator.runStateEventType,
     payingAccountId: accumulator.payingAccountId,
     clippedHeadRows: accumulator.bodyRows.headRows,
-    terminalRowId: accumulator.terminalRowId,
   };
 }

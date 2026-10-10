@@ -2,8 +2,8 @@
  * `viewport/components/` and the head control in `history/`.
  */
 
-/* One track: the head and tail affordances are out of flow, so the scroll container is the only
-   child in flow and takes the viewport's whole height, which the virtualizer ranges against. */
+/* One track: the tail affordance is out of flow, so the scroll container is the only child in
+   flow and takes the viewport's whole height, which the virtualizer ranges against. */
 .meridian-transcript-viewport {
   display: grid;
   grid-template-rows: minmax(0, 1fr);
@@ -16,11 +16,14 @@
  * The one scroll container in the transcript; a second scrolling box would give the chokepoint
  * a rival `scrollTop`. `overscroll-behavior: contain` stops a flick at the end of the log from
  * scrolling the window behind it, which reads as the transcript moving on its own. It draws no
- * bar in any state; the wheel, the keys and the chokepoint still scroll it.
+ * bar in any state; the wheel, the keys and the chokepoint still scroll it. The browser's own
+ * scroll anchoring is off, following or not: the virtualizer holds the reading position, and two
+ * mechanisms moving one scroller would rock the column when a row above the reader resizes.
  */
 .meridian-transcript-viewport__scroll-container {
   position: relative;
   overflow-y: auto;
+  overflow-anchor: none;
   overscroll-behavior: contain;
   scrollbar-width: none;
   min-height: 0;
@@ -62,35 +65,24 @@
   pointer-events: none;
 }
 
-/* The head affordance, floating over the top of the feed for the same reason as the tail strip. */
+/* The history line's place: in the flow above the first row, and no height once it is empty. */
 .meridian-transcript-viewport__head {
   display: flex;
-  align-items: center;
   justify-content: center;
-  gap: var(--meridian-space-2);
-  position: absolute;
-  inset-inline: 0;
-  top: var(--meridian-space-3);
-  pointer-events: none;
 }
 
+/* The history line: a clickable word (`styles/action-buttons.css`) at the smallest text step. */
 .meridian-transcript-viewport__load-earlier {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--meridian-space-2);
-  padding: var(--meridian-space-1) var(--meridian-space-3);
-  border: 1px solid var(--meridian-edge-strong);
-  border-radius: var(--meridian-radius-lg);
-  background: var(--meridian-surface-raised);
-  color: var(--meridian-text-muted);
+  margin-block: var(--meridian-space-3);
   font-size: var(--meridian-text-xs);
-  cursor: pointer;
-  pointer-events: auto;
 }
 
-.meridian-transcript-viewport__load-earlier:disabled {
-  cursor: default;
+/* The failed read's line, in the history line's look and pressable at its `Try again`. */
+.meridian-transcript-viewport__load-earlier-failed {
+  margin-block: var(--meridian-space-3);
   color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+  text-align: center;
 }
 
 /* The one primary act the viewport offers, and the only filled control in the transcript. */

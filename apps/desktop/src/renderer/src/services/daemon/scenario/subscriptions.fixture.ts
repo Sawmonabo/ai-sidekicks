@@ -3,14 +3,14 @@
 // subscription registers. `services/daemon/session/event/streams.ts` routes,
 // `projection.fixture.ts` projects and `event/envelope.fixture.ts` composes. The whole-session
 // stream is catch up, then follow, so a store opened mid-scenario does not read the next beat as a
-// sequence gap, and one re-opened after a cursor catches up only past it. `wire.fixture.ts`
-// composes this function.
+// sequence gap, and one re-opened after a cursor catches up only past it; each change carries the
+// run stamp `turn-attribution.fixture.ts` folds. `wire.fixture.ts` composes this function.
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import {
-  EVENT_CURSOR_UNRESOLVABLE_CODE,
   encodeEventCursor,
+  EVENT_CURSOR_UNRESOLVABLE_CODE,
   START_OF_LOG_POSITION,
 } from "@ai-sidekicks/contracts/session/event-cursor";
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 
 import type { DaemonSubscriptionEnd } from "#shared/daemon/forwarding.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
@@ -25,6 +25,7 @@ import {
   composeScenarioSessionFrames,
 } from "../event/envelope.fixture.js";
 import { sessionEventStreamFor, subscriptionDeliversEventKind } from "../session/event/streams.js";
+import { ScenarioTurnAttribution } from "./turn-attribution.fixture.js";
 
 const START_OF_LOG_CURSOR = encodeEventCursor(START_OF_LOG_POSITION);
 
@@ -96,11 +97,16 @@ export function subscribeToScenario(
       return () => undefined;
     }
     // The catch-up is the first delivery, made before `subscribe` returns; it starts past the
-    // cursor.
+    // cursor. Only the beats this stream delivers are folded for their run stamps, as the
+    // daemon's stamper is fed, each run seeded from the delivered log on first sight.
     let skippedCount = resumeAt;
+    const attribution = new ScenarioTurnAttribution(() => engine.deliveredEvents());
     return engine.subscribe(
       (events) => {
-        const following = events.slice(skippedCount);
+        const following = events.slice(skippedCount).map((event) => {
+          const runStamp = attribution.attribute(event)?.stamp;
+          return runStamp === undefined ? event : { ...event, runStamp };
+        });
         skippedCount = 0;
         for (const frame of composeScenarioSessionFrames(following)) {
           deliver(frame);

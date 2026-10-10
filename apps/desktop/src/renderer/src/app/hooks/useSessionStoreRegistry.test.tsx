@@ -23,6 +23,9 @@ import {
 /** A session id the daemon admits, so the subscriber opens a stream for it. */
 const BOUND_SESSION_ID = "019b7a44-4400-75e5-8510-ada11a5a66a5";
 
+/** The agent every queued run in these cases is created for. */
+const AGENT_ID = "019b7a44-4400-7a6e-8110-d1a4c1150001";
+
 /** One run beat, payload-shaped as the run-lifecycle taxonomy spells it. */
 function queuedRunEvent(sessionId: string, sequence: number, runId: string): ProjectedSessionEvent {
   return {
@@ -32,7 +35,7 @@ function queuedRunEvent(sessionId: string, sequence: number, runId: string): Pro
     cursor: `cursor-at-${String(sequence)}`,
     kind: "run.queued",
     occurredAt: new Date(sequence).toISOString(),
-    payload: { sessionId, runId, runVersion: 1, newState: "queued" },
+    payload: { sessionId, runId, runVersion: 1, newState: "queued", agentId: AGENT_ID },
   };
 }
 

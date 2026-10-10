@@ -16,7 +16,7 @@ import type { SessionEventAppender, SessionEventDraft } from "../../events/sessi
 import { swapRunStateStatement } from "./projection.js";
 import type { RunRead, RunStateReader } from "./read.js";
 import { RunAlreadyEndedError, RunInvalidTransitionError, RunNotFoundError } from "./refusals.js";
-import { RUN_TERMINAL_STATES, isTerminalState, isTransitionAllowed } from "./transitions.js";
+import { RUN_TERMINAL_EVENT_TYPES, isTerminalState, isTransitionAllowed } from "./transitions.js";
 
 type RunStateChangeMembers<TState extends RunStateChangeState> = Omit<
   RunStateChangePayload<TState>,
@@ -38,7 +38,7 @@ export type RunStateChange = {
 // Spelled as the unique index on terminal records spells its predicate, so the read uses it.
 const SELECT_TERMINAL_RECORD_SQL = `SELECT 1 FROM session_events
   WHERE category = 'run_lifecycle'
-    AND type IN (${RUN_TERMINAL_STATES.map((state) => `'run.${state}'`).join(", ")})
+    AND type IN (${[...RUN_TERMINAL_EVENT_TYPES].map((type) => `'${type}'`).join(", ")})
     AND json_extract(payload, '$.runId') = @run_id
     AND json_extract(payload, '$.runVersion') = @run_version
   LIMIT 1`;

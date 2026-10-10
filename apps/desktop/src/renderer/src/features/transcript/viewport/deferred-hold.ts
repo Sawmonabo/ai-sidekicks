@@ -1,40 +1,43 @@
-// The position work a reconcile arms and a layout effect performs.
+// The position work a reconcile or a press arms and a layout effect performs.
 //
 // `reconcile` runs in a passive effect, before the rows it took have rendered, so the sizer and
-// the virtualizer's offsets are still in the previous space. The tail glide (which would land
-// short of the new entry) and the head hold (which needs post-insert offsets) are armed here and
-// performed once the new height is committed; the anchored hold runs immediately, in the
-// pre-render space its offset was measured in. The head hold does not read the reading anchor,
-// which captures nothing while a reader is at the tail; it uses where the head row was.
+// the virtualizer's offsets are still in the previous space. The head hold needs post-insert
+// offsets, so it is armed here and performed once the new height is committed; the anchored hold
+// runs immediately, in the pre-render space its offset was measured in. A press on a control in
+// the log arms the anchored hold for the commit instead: the press changes the rows, and the row's
+// index means something only once the virtualizer has them. A follower is owed nothing here: the
+// virtualizer's end anchor and its landing on appended rows move the offset once the rows render.
+// The head hold does not read the reading anchor, which captures nothing while a reader is at the
+// tail; it uses where the head row was.
 
-import { type ReadingAnchor } from "./reading-anchor.js";
 import { type ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 
 /** Dependencies of a `ViewportDeferredHold`; `rowKeys` is read when the hold is performed. */
 export interface ViewportDeferredHoldOptions {
-  readonly anchor: ReadingAnchor;
   readonly scroll: ScrollController;
   /** The retained row keys as they stand when the hold is performed. */
   readonly rowKeys: () => readonly string[];
   /** Where a row's top edge sits, from the measurements the library holds. */
   readonly offsetOfIndex: (index: number) => number;
-  /** Put the reader back on their anchored row — the immediate arm. */
-  readonly holdReadingPosition: () => void;
+  /**
+   * Put a reader who is not following back on their anchored row, moved further by how far a
+   * pressed control moved inside its row, in pixels.
+   */
+  readonly holdReadingPosition: (controlDisplacementPx: number) => void;
 }
 
-/** The two pending arms, and the rule that picks between them and the third. */
+/** The pending holds, and the rule that picks between them and the immediate anchored hold. */
 export class ViewportDeferredHold {
-  readonly #anchor: ReadingAnchor;
   readonly #scroll: ScrollController;
   readonly #rowKeys: () => readonly string[];
   readonly #offsetOfIndex: (index: number) => number;
-  readonly #holdReadingPosition: () => void;
+  readonly #holdReadingPosition: (controlDisplacementPx: number) => void;
 
-  #tailGlidePending = false;
   #headHoldPending: PendingHeadHold | undefined;
+  /** How far the pressed control moved inside its row, read when the press's hold is performed. */
+  #anchoredHoldPending: (() => number) | undefined;
 
   public constructor(options: ViewportDeferredHoldOptions) {
-    this.#anchor = options.anchor;
     this.#scroll = options.scroll;
     this.#rowKeys = options.rowKeys;
     this.#offsetOfIndex = options.offsetOfIndex;
@@ -42,60 +45,78 @@ export class ViewportDeferredHold {
   }
 
   /**
-   * Decides what this reconcile owes the reading position. The head hold outranks the tail
-   * glide: a backward page landing with an append would otherwise glide a following reader to
-   * the tail and discard the history they asked for.
+   * Decides what this reconcile owes the reading position. A page landing at the head is held
+   * at the commit, even for a reader who was following, since landing it is the reader's ask for
+   * history; a press's hold whose rows changed waits for the commit too; anything else holds the
+   * anchored row now.
    */
   public armAfterReconcile(input: {
     readonly headInsertedCount: number;
     readonly previousHeadKey: string | undefined;
+    /** Where that head row's top edge sat before the pass, below the history line. */
+    readonly previousHeadStartPx: number;
     readonly scrollTopPx: number;
+    /** Whether the reconcile changed the rows the viewport holds, so a render is coming. */
+    readonly hasRowSetChanged: boolean;
   }): void {
     if (input.headInsertedCount > 0 && input.previousHeadKey !== undefined) {
-      this.#tailGlidePending = false;
-      this.#headHoldPending = { rowKey: input.previousHeadKey, scrollTopPx: input.scrollTopPx };
+      this.#headHoldPending = {
+        rowKey: input.previousHeadKey,
+        startPx: input.previousHeadStartPx,
+        scrollTopPx: input.scrollTopPx,
+      };
       return;
     }
-    if (this.#anchor.state.mode === "following") {
-      this.#tailGlidePending = true;
+    if (this.#anchoredHoldPending !== undefined && input.hasRowSetChanged) {
+      // A press's hold waits for the commit that lays the new rows out.
       return;
     }
-    this.#holdReadingPosition();
+    this.#performAnchoredHold();
   }
 
   /**
-   * Performs whatever was armed, now that the new height is committed. Cheap when nothing is
-   * armed, since the binding calls it after every render; each arm clears its flag before acting.
+   * Arms the anchored hold for the next commit whose rows the window has reconciled, for a press
+   * that is about to change the rows. `readControlDisplacementPx` is read once, then.
    */
-  public commit(): void {
+  public armAnchoredHoldAtCommit(readControlDisplacementPx: () => number): void {
+    this.#anchoredHoldPending = readControlDisplacementPx;
+  }
+
+  /**
+   * Performs what was armed, now that the new height is committed: the head hold, and a press's
+   * anchored hold once `isRenderReconciled` says the window has taken the rows this render drew.
+   * Cheap when nothing is armed, since the binding calls it after every render; each arm clears
+   * before acting.
+   */
+  public commit(isRenderReconciled: boolean): void {
     const headHold = this.#headHoldPending;
     this.#headHoldPending = undefined;
     if (headHold !== undefined) {
       this.#performHeadHold(headHold);
-      return;
     }
-    if (!this.#tailGlidePending) {
-      return;
+    if (isRenderReconciled && this.#anchoredHoldPending !== undefined) {
+      this.#performAnchoredHold();
     }
-    this.#tailGlidePending = false;
-    // Re-checked: a reader who scrolled away since the reconcile must not be dragged to the tail.
-    if (this.#anchor.state.mode !== "following") {
-      return;
-    }
-    this.#scroll.glideToTail("follow-tail");
   }
 
   /** Terminal, and called on disposal: a disposed frame owes no position. */
   public disarm(): void {
-    this.#tailGlidePending = false;
     this.#headHoldPending = undefined;
+    this.#anchoredHoldPending = undefined;
+  }
+
+  /** Holds the anchored row, moved by a pressed control's displacement when a press armed it. */
+  #performAnchoredHold(): void {
+    const readControlDisplacementPx = this.#anchoredHoldPending;
+    this.#anchoredHoldPending = undefined;
+    this.#holdReadingPosition(readControlDisplacementPx?.() ?? 0);
   }
 
   /**
    * Puts the row that used to be first back at its previous distance from the top of the
-   * viewport. That row sat at offset zero, so the offset that restores it is its new offset (the
-   * height inserted above it) plus the reader's `scrollTop`. A key the window no longer holds, or
-   * an index of zero, leaves the offset alone rather than anchoring to whichever row now holds it.
+   * viewport: the reader's `scrollTop` moved on by how far that row's top edge moved, the height
+   * inserted above it. A key the window no longer holds, or an index of zero, leaves the offset
+   * alone rather than anchoring to whichever row now holds it.
    */
   #performHeadHold(headHold: PendingHeadHold): void {
     const index = this.#rowKeys().indexOf(headHold.rowKey);
@@ -104,7 +125,7 @@ export class ViewportDeferredHold {
     }
     this.#scroll.glideTo(
       "hold-reading-position",
-      this.#offsetOfIndex(index) + headHold.scrollTopPx,
+      this.#offsetOfIndex(index) - headHold.startPx + headHold.scrollTopPx,
     );
   }
 }
@@ -113,6 +134,8 @@ export class ViewportDeferredHold {
 interface PendingHeadHold {
   /** The row that was first before the page landed. */
   readonly rowKey: string;
+  /** Where that row's top edge sat then. */
+  readonly startPx: number;
   /** The offset the scroll container was at when the page landed. */
   readonly scrollTopPx: number;
 }

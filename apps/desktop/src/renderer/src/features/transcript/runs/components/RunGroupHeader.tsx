@@ -1,17 +1,17 @@
-// The run group header: one finished run folded to a line that opens. Its only control is the
-// disclosure; the lifecycle, counts and row membership are the model's, never recomputed here.
-// It shows the run's newest state (a terminal is one of its values) and mounts `RunGroupBody`
-// underneath while open, so the clipped rows are reachable.
+// The run group header: one run on a line, live or ended, which is also the group's fold control.
+// The whole line is one button; the lifecycle, counts and row membership are the model's, never
+// recomputed here. It shows the run's newest state (a terminal is one of its values) and mounts
+// `RunGroupBody` beside the button while open, so the clipped rows are reachable and the body's
+// own scroller is never inside a control.
 
 import "./RunGroupHeader.css";
 
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
-import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
 import { RunGroupBody } from "./RunGroupBody.js";
-import { HUE_WHEEL_STEPS } from "#renderer/styles/palette.js";
+import { isHueWheelStep } from "#renderer/styles/palette.js";
 import { formatHueWheelTokenName, tokenReference } from "#renderer/styles/tokens.js";
 import { type AgentHueAssignment } from "#renderer/styles/agent-hue.js";
 import { type RunGroup } from "../groups.js";
@@ -23,10 +23,11 @@ export interface RunGroupHeaderProps {
   readonly isOpen: boolean;
   /** The actor's allocated hue, or `undefined` where the wheel never admitted them. */
   readonly agentHue?: AgentHueAssignment | undefined;
-  readonly onToggle: (runGroup: RunGroup) => void;
+  /** Fold the group or open it, by its run id. */
+  readonly onToggle: (runId: string) => void;
 }
 
-/** One run's run group, as a header. */
+/** One run's run group, as a header that folds and opens it. */
 export function RunGroupHeader(props: RunGroupHeaderProps): React.JSX.Element {
   const { runGroup } = props;
   const hueStep = props.agentHue?.step ?? -1;
@@ -34,56 +35,63 @@ export function RunGroupHeader(props: RunGroupHeaderProps): React.JSX.Element {
     <div
       className="meridian-run-group-header"
       style={
-        hueStep < 0 || hueStep >= HUE_WHEEL_STEPS
-          ? undefined
-          : {
+        isHueWheelStep(hueStep)
+          ? {
               // The same 2 px leading edge every transcript row wears, so a run group and
               // its rows are attributed by the same wheel. An edge, not a tint: a hue never
               // sits behind text.
               borderInlineStartColor: tokenReference(formatHueWheelTokenName(hueStep)),
             }
+          : undefined
       }
     >
+      {/* The header's own text is the button's name. A space between two parts draws nothing in
+          the flex row; it keeps them apart in that name and in text copied out of it. */}
       <button
         type="button"
         className="meridian-run-group-header__disclosure"
         aria-expanded={props.isOpen}
         onClick={() => {
-          props.onToggle(runGroup);
+          props.onToggle(runGroup.runId);
         }}
       >
         <Glyph name={props.isOpen ? "chevron-down" : "chevron-right"} />
-        {props.isOpen ? "Fold" : "Open"}
-      </button>
-      {runGroup.actorId === undefined ? (
-        <Nothing kind="empty" placement="inline" title="No row named an actor." />
-      ) : (
-        <span className="meridian-run-group-header__actor">{runGroup.actorId}</span>
-      )}
-      {/* The daemon's own word for what the run is doing, verbatim; nothing where the log has
-          reported no state since the last rewind. */}
-      {runGroup.runStateEventType === undefined ? null : (
-        <span className="meridian-run-group-header__state">{runGroup.runStateEventType}</span>
-      )}
-      {/* The account the run was admitted under, where the log named one. */}
-      {runGroup.payingAccountId === undefined ? null : (
-        <span className="meridian-run-group-header__account">
-          {"billed to "}
-          <WireFigure value={runGroup.payingAccountId} />
-        </span>
-      )}
-      <span className="meridian-run-group-header__counts">
-        <DerivedFigure text={formatCount(runGroup.rowCount)} />
-        {runGroup.rowCount === 1 ? " entry" : " entries"}
-        {runGroup.clippedRowCount === 0 ? null : (
+        {runGroup.actorId === undefined ? null : (
           <>
-            {", "}
-            <DerivedFigure text={formatCount(runGroup.clippedRowCount)} />
-            {" clipped"}
+            <span className="meridian-run-group-header__actor">{runGroup.actorId}</span>{" "}
           </>
         )}
-      </span>
-      {/* Only while open: a folded run group draws its header and receipt and nothing else. */}
+        {/* The daemon's own word for what the run is doing, verbatim; nothing where the log has
+            reported no state since the last rewind. */}
+        {runGroup.runStateEventType === undefined ? null : (
+          <>
+            <span className="meridian-run-group-header__state">
+              {runGroup.runStateEventType}
+            </span>{" "}
+          </>
+        )}
+        {/* The account the run was admitted under, where the log named one. */}
+        {runGroup.payingAccountId === undefined ? null : (
+          <>
+            <span className="meridian-run-group-header__account">
+              {"billed to "}
+              <WireFigure value={runGroup.payingAccountId} />
+            </span>{" "}
+          </>
+        )}
+        <span className="meridian-run-group-header__counts">
+          <DerivedFigure text={formatCount(runGroup.rowCount)} />
+          {runGroup.rowCount === 1 ? " entry" : " entries"}
+          {runGroup.clippedRowCount === 0 ? null : (
+            <>
+              {", "}
+              <DerivedFigure text={formatCount(runGroup.clippedRowCount)} />
+              {" clipped"}
+            </>
+          )}
+        </span>
+      </button>
+      {/* Only while open: a folded run group draws its header line and nothing else. */}
       {props.isOpen ? <RunGroupBody runGroup={runGroup} /> : null}
     </div>
   );

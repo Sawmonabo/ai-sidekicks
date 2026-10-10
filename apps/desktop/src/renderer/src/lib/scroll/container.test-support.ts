@@ -36,15 +36,17 @@ export function createCountingScrollContainer(
   let scrollOffsetPx = options.initialScrollTop ?? DEFAULT_INITIAL_SCROLL_TOP_PX;
   let viewportHeightPx = options.clientHeight ?? DEFAULT_CLIENT_HEIGHT_PX;
   let contentHeightPx = options.scrollHeight ?? DEFAULT_SCROLL_HEIGHT_PX;
+  // Configurable, so a test can spy on a read or stand in the platform's clamp for the write.
   Object.defineProperties(element, {
     scrollTop: {
+      configurable: true,
       get: () => scrollOffsetPx,
       set: (next: number) => {
         scrollOffsetPx = next;
       },
     },
-    clientHeight: { get: () => viewportHeightPx },
-    scrollHeight: { get: () => contentHeightPx },
+    clientHeight: { configurable: true, get: () => viewportHeightPx },
+    scrollHeight: { configurable: true, get: () => contentHeightPx },
   });
   Object.defineProperties(element, {
     addEventListener: {

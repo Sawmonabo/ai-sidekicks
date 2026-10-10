@@ -6,7 +6,7 @@ import { refusesAt } from "../../__tests__/safe-parse.test-support.js";
 import {
   TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE,
   TRANSCRIPT_RUN_LIFECYCLE_CATEGORY,
-  TranscriptEventRowSchema,
+  TranscriptReadRowSchema,
 } from "../row.js";
 import {
   OTHER_SESSION_ID,
@@ -31,7 +31,7 @@ describe("rollback projection keeps every row's run attribution", () => {
     const withoutUndefinedKeys = Object.fromEntries(
       Object.entries(row).filter(([, value]) => value !== undefined),
     );
-    const result = TranscriptEventRowSchema.safeParse(withoutUndefinedKeys);
+    const result = TranscriptReadRowSchema.safeParse(withoutUndefinedKeys);
     expect(result.success).toBe(false);
     // A fallthrough would show as `invalid_union` at `kind` or as `unrecognized_keys` from the
     // general arm, which would strip the attribution the rollback rule keys on.
@@ -54,7 +54,6 @@ describe("rollback projection keeps every row's run attribution", () => {
       [{ ...generalRow, runId: RUN_ID, position: 7, epoch: 0 }, ""],
       [{ ...generalRow, runId: RUN_ID }, ""],
       [{ ...generalRow, category: TRANSCRIPT_RUN_LIFECYCLE_CATEGORY }, "category"],
-      [{ ...generalRow, category: "assistant_output", type: "assistant.message" }, "type"],
       [{ ...generalRow, category: "assistant_output", type: "tool.result" }, "type"],
       [{ ...generalRow, category: "assistant_output", type: "intervention.applied" }, "type"],
       // `artifact.published` is session-scoped on one row and run-scoped on the next, so the
@@ -64,13 +63,13 @@ describe("rollback projection keeps every row's run attribution", () => {
     ];
     for (const [row, path] of misfiled) {
       if (path === "") {
-        expect(TranscriptEventRowSchema.safeParse(row).success).toBe(false);
+        expect(TranscriptReadRowSchema.safeParse(row).success).toBe(false);
       } else {
-        refusesAt(TranscriptEventRowSchema, row, path);
+        refusesAt(TranscriptReadRowSchema, row, path);
       }
     }
-    expect(TranscriptEventRowSchema.safeParse(generalRow).success).toBe(true);
-    expect(TranscriptEventRowSchema.safeParse(artifactRow).success).toBe(true);
+    expect(TranscriptReadRowSchema.safeParse(generalRow).success).toBe(true);
+    expect(TranscriptReadRowSchema.safeParse(artifactRow).success).toBe(true);
   });
 
   it("only the boundary arm carries the rollback event type", () => {
@@ -78,23 +77,23 @@ describe("rollback projection keeps every row's run attribution", () => {
     // row, with the rewind cutoff unread in its untyped payload.
     for (const row of [runScopedRow, generalRow]) {
       refusesAt(
-        TranscriptEventRowSchema,
+        TranscriptReadRowSchema,
         { ...row, type: TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE },
         "type",
       );
-      expect(TranscriptEventRowSchema.safeParse(row).success).toBe(true);
+      expect(TranscriptReadRowSchema.safeParse(row).success).toBe(true);
     }
-    expect(TranscriptEventRowSchema.safeParse(rollbackBoundaryRow).success).toBe(true);
+    expect(TranscriptReadRowSchema.safeParse(rollbackBoundaryRow).success).toBe(true);
   });
 
   it("a boundary row agrees with its payload, and a broken payload fails without throwing", () => {
-    refusesAt(TranscriptEventRowSchema, { ...rollbackBoundaryRow, runId: OTHER_RUN_ID }, "runId");
+    refusesAt(TranscriptReadRowSchema, { ...rollbackBoundaryRow, runId: OTHER_RUN_ID }, "runId");
     refusesAt(
-      TranscriptEventRowSchema,
+      TranscriptReadRowSchema,
       { ...rollbackBoundaryRow, sessionId: OTHER_SESSION_ID },
       "sessionId",
     );
-    refusesAt(TranscriptEventRowSchema, { ...rollbackBoundaryRow, position: 9 }, "position");
+    refusesAt(TranscriptReadRowSchema, { ...rollbackBoundaryRow, position: 9 }, "position");
     // None may escape the cross-field refinement as a TypeError.
     for (const payload of [
       { detail: "opaque" },
@@ -104,11 +103,11 @@ describe("rollback projection keeps every row's run attribution", () => {
       null,
       "run.rolled_back",
     ]) {
-      expect(TranscriptEventRowSchema.safeParse({ ...rollbackBoundaryRow, payload }).success).toBe(
+      expect(TranscriptReadRowSchema.safeParse({ ...rollbackBoundaryRow, payload }).success).toBe(
         false,
       );
     }
-    const parsed = TranscriptEventRowSchema.parse(rollbackBoundaryRow);
+    const parsed = TranscriptReadRowSchema.parse(rollbackBoundaryRow);
     expect(parsed.kind === "rollback_boundary" && parsed.payload.targetPosition).toBe(5);
   });
 
@@ -122,7 +121,7 @@ describe("rollback projection keeps every row's run attribution", () => {
       ["sourcePosition", runScopedRow.position + 1],
     ] as const) {
       refusesAt(
-        TranscriptEventRowSchema,
+        TranscriptReadRowSchema,
         { ...runScopedRow, payload: { detail: "opaque", [payloadKey]: payloadValue } },
         `payload.${payloadKey}`,
       );
@@ -131,8 +130,8 @@ describe("rollback projection keeps every row's run attribution", () => {
       ...runScopedRow,
       payload: { runId: RUN_ID, sourceEpoch: 0, sourcePosition: 7 },
     };
-    expect(TranscriptEventRowSchema.safeParse(agreeing).success).toBe(true);
-    expect(TranscriptEventRowSchema.safeParse(runScopedRow).success).toBe(true);
+    expect(TranscriptReadRowSchema.safeParse(agreeing).success).toBe(true);
+    expect(TranscriptReadRowSchema.safeParse(runScopedRow).success).toBe(true);
   });
 
   it("a superseded marker must rank below the row it marks", () => {
@@ -141,8 +140,8 @@ describe("rollback projection keeps every row's run attribution", () => {
       position,
       superseded: { targetPosition: 7 },
     });
-    refusesAt(TranscriptEventRowSchema, marked(7), "superseded.targetPosition");
-    expect(TranscriptEventRowSchema.safeParse(marked(6)).success).toBe(false);
-    expect(TranscriptEventRowSchema.safeParse(marked(8)).success).toBe(true);
+    refusesAt(TranscriptReadRowSchema, marked(7), "superseded.targetPosition");
+    expect(TranscriptReadRowSchema.safeParse(marked(6)).success).toBe(false);
+    expect(TranscriptReadRowSchema.safeParse(marked(8)).success).toBe(true);
   });
 });

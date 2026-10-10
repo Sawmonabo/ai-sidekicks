@@ -16,16 +16,10 @@ export function syntheticRows(count: number, runGroupKey?: string): readonly Vie
   }));
 }
 
-/** Reconcile conditions with nothing in flight — no turn, no reveal draining. */
-export const CALM: { hasActiveTurn: boolean; isRevealDraining: boolean } = {
-  hasActiveTurn: false,
-  isRevealDraining: false,
+/** Reconcile conditions with no row still working. */
+export const CALM: { isWorkingRow: (rowKey: string) => boolean } = {
+  isWorkingRow: () => false,
 };
-
-/** Rows named by key, for the cases about which END of the window a set grew at. */
-export function rowsFrom(keys: readonly string[]): readonly ViewportRow[] {
-  return keys.map((key) => ({ key, parentKey: undefined, rootCursor: `cursor-${key}` }));
-}
 
 /** A controller attached to a detached element, with the clock its cases advance. */
 export function attachedController(): {
@@ -39,24 +33,40 @@ export function attachedController(): {
 }
 
 /** The box height the laid-out viewport reports. */
-export const LAID_OUT_VIEWPORT_HEIGHT_PX = 400;
+const LAID_OUT_VIEWPORT_HEIGHT_PX = 400;
 
 /** The content height the laid-out viewport reports, taller than the box. */
-export const LAID_OUT_CONTENT_HEIGHT_PX = 10_000;
+const LAID_OUT_CONTENT_HEIGHT_PX = 10_000;
 
 /**
  * Give every element a laid-out box for one case: `happy-dom` reports zero, and the virtualizer
- * treats a zero outer size as no range at all. Content taller than the box comes too unless
- * `scrollable` is false, because the chokepoint clamps every write to
- * `scrollHeight - clientHeight`.
+ * treats a zero outer size as no range at all. `content` says how tall the scroll content reads:
+ * `"tall"` (the default) taller than the box from the first read, because the chokepoint clamps
+ * every write to `scrollHeight - clientHeight`; `"laid-out"` the sizer's height as the library
+ * writes it, so a transcript opens at its tail as it does in the app; `"none"` no taller than the
+ * box.
  */
-export function withLaidOutViewport(options: { readonly scrollable?: boolean } = {}): void {
+export function withLaidOutViewport(
+  options: { readonly content?: "tall" | "laid-out" | "none" } = {},
+): void {
   vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(
     LAID_OUT_VIEWPORT_HEIGHT_PX,
   );
-  if (options.scrollable ?? true) {
+  const content = options.content ?? "tall";
+  if (content === "tall") {
     vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(
       LAID_OUT_CONTENT_HEIGHT_PX,
     );
+  }
+  if (content === "laid-out") {
+    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      // The sizer, beside the history line the box also holds, which lays out at no height here.
+      const sizer = this.querySelector(":scope > .meridian-transcript-viewport__sizer");
+      const sizedHeightPx =
+        sizer instanceof HTMLElement ? Number.parseFloat(sizer.style.height) : 0;
+      return Math.max(LAID_OUT_VIEWPORT_HEIGHT_PX, Number.isNaN(sizedHeightPx) ? 0 : sizedHeightPx);
+    });
   }
 }

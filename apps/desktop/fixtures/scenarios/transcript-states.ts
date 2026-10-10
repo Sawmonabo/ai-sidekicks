@@ -26,8 +26,9 @@
 //     part of that story the log tells; the card belongs to the approvals view.
 //   - A cost or token reading. No meter is on the transcript frame, the run groups or the
 //     seams; `concurrent-streaming.ts` moves the meter.
-//   - A machine body. `assistant.*` and `tool.*` payloads describe their body and never carry
-//     it; the body is stored in `content_payload`.
+//
+// `assistant.*` and `tool.*` payloads describe their body and never carry it; the body is stored
+// beside the beat, as `content_payload` holds it, and a read returns it with its row.
 
 import {
   encodeEventCursor,
@@ -42,7 +43,16 @@ import {
   newestBeatInstant,
   type ScriptEntry,
 } from "../data/script-entries.js";
-import type { Scenario } from "../scenario.js";
+import { defineScenario, type Scenario, type ScenarioBeat } from "../scenario.js";
+import {
+  BODY_BLOCKS,
+  CODE_BLOCKS,
+  COMMAND_OUTPUT,
+  EDIT_OUTPUT,
+  PROSE_BLOCKS,
+  blockAt,
+  bodyOf,
+} from "../data/transcript-bodies.js";
 import {
   type ScenarioAgent,
   composeOpeningEntry,
@@ -183,13 +193,13 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
     atMs: 520,
     kind: "assistant.thinking_update",
     contentType: "text/plain",
-    contentLength: 412,
+    body: blockAt(PROSE_BLOCKS, 0),
   }),
   lane.output(RUN_IMPLEMENTER, {
     atMs: 640,
     kind: "assistant.message",
     contentType: "text/markdown",
-    contentLength: 1_284,
+    body: bodyOf([blockAt(PROSE_BLOCKS, 1), blockAt(BODY_BLOCKS, 3)]),
   }),
   lane.tool(RUN_IMPLEMENTER, {
     atMs: 760,
@@ -203,7 +213,7 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
     toolName: "edit_file",
     toolCallId: "call-implementer-1",
     durationMs: 140,
-    contentLength: 96,
+    body: EDIT_OUTPUT,
   }),
 
   // Lane two — the reviewer.
@@ -234,7 +244,7 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
     atMs: 1_180,
     kind: "assistant.message",
     contentType: "text/markdown",
-    contentLength: 806,
+    body: bodyOf([blockAt(PROSE_BLOCKS, 3), blockAt(BODY_BLOCKS, 9)]),
   }),
   lane.tool(RUN_REVIEWER, {
     atMs: 1_240,
@@ -267,7 +277,7 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
     toolName: "run_tests",
     toolCallId: REVIEWER_TOOL_CALL_ID,
     durationMs: 180,
-    contentLength: 244,
+    body: COMMAND_OUTPUT,
   }),
 
   // A wait for approval and its return: the run enters `waiting_for_approval` and
@@ -325,7 +335,7 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
     atMs: 2_540,
     kind: "assistant.thinking_update",
     contentType: "text/plain",
-    contentLength: 318,
+    body: blockAt(PROSE_BLOCKS, 5),
   }),
 
   // The child run is born here and nowhere else: this is the only beat naming both it and its
@@ -368,13 +378,13 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
     atMs: 2_700,
     kind: "assistant.message",
     contentType: "text/markdown",
-    contentLength: 1_012,
+    body: bodyOf([blockAt(PROSE_BLOCKS, 6), blockAt(BODY_BLOCKS, 18)]),
   }),
   lane.output(RUN_ARCHITECT_CHILD, {
     atMs: 2_740,
     kind: "assistant.thinking_update",
     contentType: "text/plain",
-    contentLength: 284,
+    body: blockAt(PROSE_BLOCKS, 7),
   }),
   lane.tool(RUN_IMPLEMENTER, {
     atMs: 2_820,
@@ -395,7 +405,7 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
     toolName: "read_file",
     toolCallId: "call-implementer-2",
     durationMs: 62,
-    contentLength: 2_048,
+    body: blockAt(CODE_BLOCKS, 8),
   }),
   lane.transition(RUN_ARCHITECT_CHILD, {
     atMs: 2_940,
@@ -415,7 +425,7 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
     atMs: 3_060,
     kind: "assistant.message",
     contentType: "text/markdown",
-    contentLength: 1_640,
+    body: bodyOf([blockAt(PROSE_BLOCKS, 9), blockAt(BODY_BLOCKS, 27)]),
   }),
 
   // The open question is the last beat: an agent blocked on a question needs an answer from a
@@ -441,12 +451,14 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
   },
 ];
 
-const TRANSCRIPT_STATES_BEATS = composeScriptBeats({
-  sessionId: SESSION_ID,
-  eventIdStem: EVENT_ID_STEM,
-  startedAtMs,
-  entries: TRANSCRIPT_STATES_SCRIPT,
-});
+function composeTranscriptStatesBeats(): readonly ScenarioBeat[] {
+  return composeScriptBeats({
+    sessionId: SESSION_ID,
+    eventIdStem: EVENT_ID_STEM,
+    startedAtMs,
+    entries: TRANSCRIPT_STATES_SCRIPT,
+  });
+}
 
 /** The acknowledged log position: the implementer's answer after its rewind. */
 const ACKNOWLEDGED_LOG_POSITION = 29;
@@ -455,63 +467,74 @@ const ACKNOWLEDGED_LOG_POSITION = 29;
 export const TRANSCRIPT_STATES_SCENARIO_ID = "transcript-states";
 
 /** Three runs ending in three conditions at once: finished behind a rewind, parked, streaming. */
-export const TRANSCRIPT_STATES_SCENARIO: Scenario = {
-  id: TRANSCRIPT_STATES_SCENARIO_ID,
-  label: "Three lanes",
-  purpose:
-    "A session whose three runs end in three different conditions at once — " +
-    "one finished behind a rewind boundary, one parked, one still streaming " +
-    "— so the run groups and the seams all have something to render.",
-  sessionId: SESSION_ID,
-  startedAtIso: STARTED_AT_ISO,
-  beats: TRANSCRIPT_STATES_BEATS,
-  replies: [
-    // The run-scoped reasoning read, on its `available` arm with a bounded page. The empty arms
-    // need no scripted entries (a run this reply does not name gets the fixture's refusal),
-    // while the entries are what no beat in this session produces.
-    {
-      call: "transcript.reasoningSurfaceRead",
-      result: {
-        availability: "available",
-        hasMore: false,
-        reasoningEntries: [
-          {
-            sequence: 12,
-            content: "The two storage backends differ in who owns the row, not in what it holds.",
-            timestamp: composeScenarioInstant(startedAtMs, 2_500),
+export const TRANSCRIPT_STATES_SCENARIO: Scenario = defineScenario(
+  {
+    id: TRANSCRIPT_STATES_SCENARIO_ID,
+    label: "Three lanes",
+    purpose:
+      "A session whose three runs end in three different conditions at once — " +
+      "one finished behind a rewind boundary, one parked, one still streaming " +
+      "— so the run groups and the seams all have something to render.",
+    sessionId: SESSION_ID,
+    startedAtIso: STARTED_AT_ISO,
+  },
+  () => {
+    const beats = composeTranscriptStatesBeats();
+    return {
+      beats,
+      replies: [
+        // The run-scoped reasoning read, on its `available` arm with a bounded page. The empty arms
+        // need no scripted entries (a run this reply does not name gets the fixture's refusal),
+        // while the entries are what no beat in this session produces.
+        {
+          call: "transcript.reasoningSurfaceRead",
+          result: {
+            availability: "available",
+            hasMore: false,
+            reasoningEntries: [
+              {
+                sequence: 12,
+                content:
+                  "The two storage backends differ in who owns the row, not in what it holds.",
+                timestamp: composeScenarioInstant(startedAtMs, 2_500),
+              },
+              {
+                sequence: 13,
+                content: "An answer kept on this machine is reversible; a hosted answer is not.",
+                timestamp: composeScenarioInstant(startedAtMs, 2_520),
+              },
+            ],
           },
-          {
-            sequence: 13,
-            content: "An answer kept on this machine is reversible; a hosted answer is not.",
-            timestamp: composeScenarioInstant(startedAtMs, 2_520),
+        },
+        {
+          // The frame's read is `session.read`; nothing in the renderer calls `session.list`.
+          call: "session.read",
+          result: {
+            session: {
+              id: SESSION_ID,
+              state: "active",
+              shape: "project",
+              muted: false,
+              pendingWorkingFolder: null,
+              createdAt: STARTED_AT_ISO,
+              updatedAt: newestBeatInstant(beats),
+              draft: "",
+              tags: [],
+            },
+            // An acknowledged position beside `latest` makes the resume cycle reachable: the
+            // store submits the acknowledged position on its next read. It sits behind `latest`,
+            // the newest row, as a real one does.
+            transcriptCursors: {
+              earliest: encodeEventCursor(START_OF_LOG_POSITION),
+              latest: findBeatCursor(beats, beats.length - 1),
+              acknowledged: findBeatCursor(beats, ACKNOWLEDGED_LOG_POSITION),
+            },
+            // The record a read before any beat lands holds: no run has begun.
+            liveRuns: [],
+            standingEvents: [],
           },
-        ],
-      },
-    },
-    {
-      // The frame's read is `session.read`; nothing in the renderer calls `session.list`.
-      call: "session.read",
-      result: {
-        session: {
-          id: SESSION_ID,
-          state: "active",
-          shape: "project",
-          muted: false,
-          pendingWorkingFolder: null,
-          createdAt: STARTED_AT_ISO,
-          updatedAt: newestBeatInstant(TRANSCRIPT_STATES_BEATS),
-          draft: "",
-          tags: [],
         },
-        // An acknowledged position beside `latest` makes the resume cycle reachable: the store
-        // submits the acknowledged position on its next read. It sits behind `latest`, the newest
-        // row, as a real one does.
-        transcriptCursors: {
-          earliest: encodeEventCursor(START_OF_LOG_POSITION),
-          latest: findBeatCursor(TRANSCRIPT_STATES_BEATS, TRANSCRIPT_STATES_BEATS.length - 1),
-          acknowledged: findBeatCursor(TRANSCRIPT_STATES_BEATS, ACKNOWLEDGED_LOG_POSITION),
-        },
-      },
-    },
-  ],
-};
+      ],
+    };
+  },
+);

@@ -79,9 +79,29 @@ interface SessionReadRequest {
 }
 interface SessionReadResponse {
   session: SessionRecord;
-  // `earliest` is required: the position just before the oldest surviving row, where a reader with
-  // no acknowledged cursor resumes (Plan-004 T4.1).
+  // `earliest` is required: the position just before the oldest surviving row. A reader opens its
+  // window at `acknowledged ?? latest` with a `transcript.read` window and follows the stream after
+  // that window's newest row (Plan-004 T4.1, Plan-010 T2.4).
   transcriptCursors: { earliest: EventCursor; latest: EventCursor; acknowledged?: EventCursor };
+  // Every run of the session not yet ended, with its state now, so a window opened below a run's
+  // earlier events still knows whether the run is working or waiting.
+  liveRuns: Array<{
+    runId: RunId;
+    parentRunId?: RunId;
+    state: RunState;
+    runVersion: number;
+    agentId: AgentId; // the agent the run was created for, as its `run.queued` names it
+    touchedAt: string; // ISO 8601: when the run's newest `run_lifecycle` event occurred
+  }>;
+  // The newest event of each kind a reader keeps a standing fact from, whole, at the cursor the stream
+  // delivers it at, in sequence order, so a window opened below them still reads those facts: for each
+  // run not yet ended, its newest `usage.context_window_update` that measures the window (both counts,
+  // a window above zero) and its newest `usage.context_compacted`; for each shell, its newest
+  // `pty.control_changed`, and the newest naming no shell; every event that brought an agent into the
+  // session, `session.created` and each `run.queued` carrying `resolvedAgent`; and for each agent, its
+  // newest `agent.provider_binding_changed`. A reader holds them apart from its window, advancing each
+  // by every newer event of its kind and subject it admits.
+  standingEvents: Array<{ cursor: EventCursor; event: EventEnvelope }>;
 }
 
 // SessionSubscribe
@@ -97,17 +117,24 @@ type SubscriptionId = string & { readonly __brand: "SubscriptionId" }; // alloca
 interface SessionSubscribeResponse {
   subscriptionId: SubscriptionId;
 }
-// Each notify's value. The daemon coalesces the session's events into one frame per 16 ms or 50
-// events, whichever comes first, the window opening on the first event so nothing waits longer than it.
-// A frame carries changes, never the whole transcript, oldest first, and every change carries its cursor.
-// The daemon never waits for a subscriber: changes that do not fit are dropped for it and `dropped` rides
-// the next frame that fits; the subscriber then repairs from the daemon's record by cursor, and past a gap
-// of 1,024 events reads `session.read` and resumes from its latest cursor instead of filling. When a
-// subscriber that fell behind has caught up, the daemon sends it one frame with no changes, carrying
-// `dropped` and the newest cursor, so a session that goes quiet right after a drop still tells the
-// subscriber it is behind.
+// Each notify's value. The daemon coalesces the session's events into one frame per 16 ms or 50 events,
+// whichever comes first, the window opening on the first event so nothing waits longer than it. A frame
+// carries changes, never the whole transcript, oldest first, and every change carries its cursor. The
+// daemon never waits for a subscriber: changes that do not fit are dropped for it and `dropped` rides the
+// next frame that fits; the subscriber then repairs from the daemon's record by cursor, and past a gap of
+// 1,024 events reads `session.read`, then the `transcript.read` window at its latest cursor, and resumes
+// after that window instead of filling. When a subscriber that fell behind has caught up, the daemon
+// sends it one frame with no changes, carrying `dropped` and the newest cursor, so a session that goes
+// quiet right after a drop still tells the subscriber it is behind.
 interface SessionStreamFrame {
-  changes: Array<{ cursor: EventCursor; event: EventEnvelope }>; // at most 50; EventEnvelope: session-event-payloads.md §Plan-004 — Session Event Taxonomy
+  // At most 50. EventEnvelope: session-event-payloads.md §Plan-004 — Session Event Taxonomy. `runStamp`
+  // is present exactly on an event of a run: the daemon's turn position, execution epoch and superseded
+  // marker for it, the same stamp a `transcript.read` row of that event carries, because the daemon
+  // stamps a live change and a window row from one fold. A client marks the rows it already holds when
+  // a `run.rolled_back` boundary arrives: a held row of that run at the rollback's epoch or an earlier
+  // one is superseded above the lowest cut of every rollback of the run at its epoch or later, the rule
+  // the daemon's fold applies (`addSupersedingCut` in `packages/contracts/src/transcript/turn-attribution.ts`).
+  changes: Array<{ cursor: EventCursor; event: EventEnvelope; runStamp?: TranscriptRunStamp }>;
   dropped?: true;
   // Present only on the frame with no changes, which always carries `dropped`: the newest cursor the
   // daemon holds for the session. A frame with changes carries no frame cursor.
@@ -225,6 +252,10 @@ interface SessionTokensPerRunUpdateRequest {
 // a managed workspace of its own, and involves no worktree. Parentage is recorded on the forked session's
 // OWN session-created record (`SessionCreatedPayload.parent`) and NOT as a second event: one read of the
 // new session answers where it came from, and the parent's own history is untouched.
+// The fork's `mainAgent` carries the parent main agent's `resolvedConfiguration`, its `accentHue`
+// included, and every copied row keeps its payload unchanged. So the fork's own
+// `session.created.mainAgent`, then the copied prefix's `run.queued` rows with their `resolvedAgent`,
+// admit every agent in the parent's join order, and a forked session keeps its agents' hues.
 interface SessionForkRequest {
   sessionId: SessionId;
   // The anchored message, addressed in the same cursor vocabulary session.subscribe and

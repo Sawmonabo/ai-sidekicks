@@ -23,6 +23,7 @@ import { LIVE_ANNOUNCEMENT_HOLD_MS } from "#renderer/components/LiveAnnouncer/ca
 import { drawnText, liveRegionText } from "#test/helpers/live-region.js";
 import { spiedAnnouncer } from "#test/helpers/spied-announcer.js";
 import { SessionCatchUpLine } from "./SessionCatchUpLine.js";
+import { openingPageLimit, offScreenRowLimit } from "#test/helpers/session/store/fixtures.js";
 
 const SESSION_ID = "session-catching-up";
 
@@ -61,6 +62,8 @@ describe("SessionCatchUpLine", () => {
     let readRejects = false;
     // Its own session, so the capture case below reads only its own records.
     const entry = new OpenSessionEntry("session-gap-repair", {
+      openingPageLimit,
+      offScreenRowLimit,
       read: () =>
         readRejects
           ? Promise.reject(new Error("the daemon refused the read"))
@@ -109,6 +112,8 @@ describe("SessionCatchUpLine", () => {
   it("says it couldn't catch up each time a replay fails on the same row", async () => {
     const clock = new ManualClock(0);
     const entry = new OpenSessionEntry("session-failing-row", {
+      openingPageLimit,
+      offScreenRowLimit,
       read: () => Promise.resolve({ entities: [] }),
       clock,
       applyCoalesceMs: 0,
@@ -189,6 +194,8 @@ describe("SessionCatchUpLine", () => {
   it("says it couldn't catch up if the mounts read fails after a good session read", async () => {
     const clock = new ManualClock(0);
     const entry = new OpenSessionEntry("session-mounts-failed", {
+      openingPageLimit,
+      offScreenRowLimit,
       read: () => Promise.resolve({ cursor: 0, entities: [] }),
       clock,
       applyCoalesceMs: 0,
@@ -236,6 +243,8 @@ describe("SessionCatchUpLine", () => {
     const clock = new ManualClock(0);
     let readRejects = true;
     const entry = new OpenSessionEntry("session-read-lands", {
+      openingPageLimit,
+      offScreenRowLimit,
       read: () =>
         readRejects
           ? Promise.reject(new Error("the daemon refused the read"))
@@ -297,6 +306,8 @@ describe("SessionCatchUpLine", () => {
   it("sends the cause to the diagnostic capture and never to the screen", async () => {
     const clock = new ManualClock(0);
     const entry = new OpenSessionEntry(SESSION_ID, {
+      openingPageLimit,
+      offScreenRowLimit,
       read: () => Promise.reject(new Error("the daemon refused the read")),
       clock,
       applyCoalesceMs: 0,

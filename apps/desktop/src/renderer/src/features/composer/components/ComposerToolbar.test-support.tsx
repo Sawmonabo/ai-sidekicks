@@ -16,7 +16,7 @@ import {
 import type { PaneAddress } from "#renderer/routing/panes/address.js";
 import { ComposerToolbar } from "./ComposerToolbar.js";
 import { agentPane } from "../Composer.test-support.js";
-import { CONTEXT_WINDOW_EVENT_KIND } from "../context-ring/context-window-reading.js";
+import { CONTEXT_WINDOW_EVENT_KIND } from "#renderer/store/session/events/context-window-reading.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 
 /** The toolbar's session, as a registered `SessionId`: a UUID, not a readable name. */

@@ -10,9 +10,8 @@ import type { Unsubscribe } from "#shared/preload-api.js";
 import { Emitter } from "#renderer/lib/emitter.js";
 
 /**
- * Footnote definitions one transcript's registry retains. A definition belongs to a message
- * and a log holds `TRANSCRIPT_WINDOW_ROW_CAP` rows, so a few per retained row is everything
- * that can be opened.
+ * Footnote definitions one registry retains. A registry belongs to one row's message, so this
+ * bounds what a single message can make it hold, well past what a reply declares.
  */
 export const FOOTNOTE_DEFINITION_CAP = 2048;
 

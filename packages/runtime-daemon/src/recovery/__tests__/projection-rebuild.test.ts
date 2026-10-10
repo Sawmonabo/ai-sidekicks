@@ -186,7 +186,7 @@ describe("projection rebuild over the session log", () => {
       runEvent(`run.${newState}`, { runVersion, previousState, newState });
     const fold = RUNS_PROJECTION.createFold(sessionId);
     for (const event of [
-      runEvent("run.queued", { runVersion: 0, newState: "queued" }),
+      runEvent("run.queued", { runVersion: 0, newState: "queued", agentId: randomUUID() }),
       change(1, "queued", "starting"),
       change(2, "starting", "running"),
     ]) {

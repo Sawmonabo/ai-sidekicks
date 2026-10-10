@@ -4,6 +4,8 @@
 // conversion's skipped files. The events those verbs append are in `./events.ts`.
 import { z } from "zod";
 
+import { AgentIdSchema, type AgentId } from "../agent/definition.js";
+import { EventEnvelopeSchema, type EventEnvelope } from "../event/envelope.js";
 import { FILE_PATH_MAX_LEN, wireFreeFormString } from "../free-form-string.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 import { requireMemberToRideOneFrame } from "../jsonrpc/page.js";
@@ -14,7 +16,10 @@ import {
   type SubscribeAckResponse,
 } from "../jsonrpc/streaming.js";
 import { defineMethodDescriptors, type MethodDescriptor } from "../method-descriptor.js";
+import { RunIdSchema, type RunId } from "../run/id.js";
+import { RunStateSchema, type RunState } from "../run/state.js";
 import { TagListSchema } from "../tag.js";
+import type { TranscriptRunStamp } from "../transcript/row.js";
 import {
   SessionConvertSkippedFileListRequestSchema,
   SessionConvertSkippedFileListResponseSchema,
@@ -122,9 +127,46 @@ export const SessionReadRequestSchema: z.ZodType<SessionReadRequest, SessionRead
   })
   .strict();
 
+/** One run of the session not yet ended, as the daemon's run record holds it now. */
+export interface SessionLiveRun {
+  runId: RunId;
+  /** The run that started it; absent on a lead run. */
+  parentRunId?: RunId | undefined;
+  state: RunState;
+  runVersion: number;
+  /** The agent the run was created for, as its `run.queued` names it. */
+  agentId: AgentId;
+  /** When the run's newest `run_lifecycle` event occurred. */
+  touchedAt: string;
+}
+/** Parses a {@link SessionLiveRun}. */
+export const SessionLiveRunSchema: z.ZodType<SessionLiveRun> = z
+  .object({
+    runId: RunIdSchema,
+    parentRunId: RunIdSchema.optional(),
+    state: RunStateSchema,
+    runVersion: countSchema,
+    agentId: AgentIdSchema,
+    touchedAt: isoDateTimeSchema,
+  })
+  .strict();
+
 /**
- * The `session.read` result: the session and its transcript cursors. A reader with no
- * acknowledged position resumes from `earliest`.
+ * One event of the session's log a `session.read` carries whole, at the position the stream
+ * delivers it at.
+ */
+export interface SessionStandingEvent {
+  cursor: EventCursor;
+  event: EventEnvelope;
+}
+const SessionStandingEventSchema: z.ZodType<SessionStandingEvent> = z
+  .object({ cursor: EventCursorSchema, event: EventEnvelopeSchema })
+  .strict();
+
+/**
+ * The `session.read` result: the session, its transcript cursors, its runs not yet ended and its
+ * standing events. A reader with no acknowledged position opens its window at `latest`; the live
+ * runs and the standing events give it what the events above that window settled.
  */
 export interface SessionReadResponse {
   session: SessionRecord;
@@ -134,6 +176,21 @@ export interface SessionReadResponse {
     latest: EventCursor;
     acknowledged?: EventCursor | undefined;
   };
+  /**
+   * Every run of the session not yet ended, with the state it is in now, so a window opened
+   * below a run's earlier events still knows whether that run is working or waiting.
+   */
+  liveRuns: SessionLiveRun[];
+  /**
+   * The newest event of each kind a reader keeps a standing fact from, in sequence order: for
+   * each run not yet ended, its newest `usage.context_window_update` that measures the window
+   * (both counts, a window above zero) and its newest `usage.context_compacted`; for each shell,
+   * its newest `pty.control_changed`, and the newest naming no shell; every event that brought
+   * an agent into the session, `session.created` and each `run.queued` carrying `resolvedAgent`;
+   * and for each agent, its newest `agent.provider_binding_changed`. A window opened below them
+   * still reads those facts.
+   */
+  standingEvents: SessionStandingEvent[];
 }
 /** Parses a {@link SessionReadResponse}. */
 export const SessionReadResponseSchema: z.ZodType<SessionReadResponse> = z
@@ -146,6 +203,8 @@ export const SessionReadResponseSchema: z.ZodType<SessionReadResponse> = z
         acknowledged: EventCursorSchema.optional(),
       })
       .strict(),
+    liveRuns: z.array(SessionLiveRunSchema),
+    standingEvents: z.array(SessionStandingEventSchema),
   })
   .strict();
 
@@ -174,23 +233,32 @@ export type SessionSubscribeResponse = SubscribeAckResponse;
 export const SessionSubscribeResponseSchema: z.ZodType<SessionSubscribeResponse> =
   SubscribeAckResponseSchema;
 
-/** One change on a session's stream: an event of the session's log and the cursor it sits at. */
+/**
+ * One change on a session's stream: an event of the session's log, the cursor it sits at and,
+ * exactly when the event belongs to a run, the daemon's run stamp for it; a session-level event
+ * carries none.
+ */
 export interface SessionStreamChange<Event> {
   readonly cursor: EventCursor;
   readonly event: Event;
+  readonly runStamp?: TranscriptRunStamp | undefined;
 }
 
 /** The value of each `session.subscribe` notify: a batch of changes, or the caught-up frame. */
 export type SessionStreamFrame<Event> = StreamFrame<SessionStreamChange<Event>, EventCursor>;
 
 /**
- * Builds the `session.subscribe` frame schema over the session event union. The union lives in
- * the event contract, which imports this file at load, so it is passed in rather than imported.
+ * Builds the `session.subscribe` frame schema over the session event union and the run stamp
+ * (`TranscriptRunStampSchema`). Both live in modules that import this file at load, so they are
+ * passed in rather than imported.
  */
 export function SessionStreamFrameSchema<Event>(
   eventSchema: z.ZodType<Event>,
+  runStampSchema: z.ZodType<TranscriptRunStamp>,
 ): z.ZodType<SessionStreamFrame<Event>> {
-  const changeSchema = z.object({ cursor: EventCursorSchema, event: eventSchema }).strict();
+  const changeSchema = z
+    .object({ cursor: EventCursorSchema, event: eventSchema, runStamp: runStampSchema.optional() })
+    .strict();
   return StreamFrameSchema(changeSchema, EventCursorSchema);
 }
 

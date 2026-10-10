@@ -11,7 +11,7 @@ import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers
 import {
   SAMPLE_RUN_ROW_TIME_SELECTOR,
   sampleRunRow,
-} from "#test/helpers/transcript-event-row-samples.js";
+} from "#test/helpers/transcript/event-row-samples.js";
 import { classifyTranscriptRow } from "../rows/kind.js";
 import { MessageRow } from "../rows/MessageRow.js";
 import { ToolRow } from "../rows/ToolRow.js";
@@ -80,13 +80,13 @@ describe("a selection across the conversation", () => {
               type: "tool.result",
               actor: "Claude",
               summary: "Ran pnpm test",
-              payload: { toolName: "bash" },
+              payload: { toolName: "bash", contentLength: "first line\n  second line".length },
+              content: { status: "available", body: "first line\n  second line" },
             })}
             agentHue={undefined}
             isSuperseded={false}
             density="expanded"
             footnotes={new FootnoteRegistry()}
-            content={{ status: "available", body: "first line\n  second line" }}
             onDensityToggle={() => undefined}
           />
         </div>
@@ -107,7 +107,11 @@ describe("a selection across the conversation", () => {
   });
 
   it("rebuilds a reply's code block as its fence, with no word from the block's corner", () => {
-    const reply = sampleRunRow({ id: "replies", type: "assistant.message" });
+    const reply = sampleRunRow({
+      id: "replies",
+      type: "assistant.message",
+      content: { status: "available", body: "Run it:\n\n```ts\nconst a = 1;\n```\n" },
+    });
     const replyKind = classifyTranscriptRow(reply);
     if (replyKind === undefined) {
       throw new Error("an agent message is a message kind");
@@ -124,7 +128,6 @@ describe("a selection across the conversation", () => {
             footnotes={new FootnoteRegistry()}
             thinkingRow={undefined}
             editControl={undefined}
-            content={{ status: "available", body: "Run it:\n\n```ts\nconst a = 1;\n```\n" }}
             replyRowIds={["replies"]}
           />
         </div>

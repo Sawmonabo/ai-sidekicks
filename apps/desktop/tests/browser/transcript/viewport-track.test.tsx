@@ -1,6 +1,7 @@
 // Which grid track the transcript's scroll container lands in. `transcript-viewport.css` gives
-// `.meridian-transcript-viewport` one track, `minmax(0, 1fr)`, and the head and tail affordances
-// are `position: absolute`, so the scroll container is the only in-flow child.
+// `.meridian-transcript-viewport` one track, `minmax(0, 1fr)`, the tail affordance is
+// `position: absolute` and the history line sits inside the scroll container, so the scroll
+// container is the only in-flow child.
 //
 // That matters because the scroll container is what the virtualizer ranges against: a
 // content-sized one gives the window a height unrelated to the pane, and with no rows the

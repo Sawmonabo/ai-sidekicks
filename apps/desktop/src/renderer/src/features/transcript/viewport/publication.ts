@@ -5,7 +5,8 @@
 //     effects, which can move the offset and notify again, a loop that never settles.
 // The comparison lives here rather than in `snapshot.ts` because it encodes which
 // members the controller rebuilds on change (rows, row keys, key projection and prune outcome,
-// compared by identity) and which it re-reads (the three reading fields, compared by value).
+// compared by identity) and which it re-reads (the two reading fields and the head height,
+// compared by value).
 
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { Emitter } from "#renderer/lib/emitter.js";
@@ -64,6 +65,6 @@ function sameViewportSnapshot(left: ViewportSnapshot, right: ViewportSnapshot): 
     left.lastPrune === right.lastPrune &&
     left.reading.mode === right.reading.mode &&
     left.reading.newRowCount === right.reading.newRowCount &&
-    left.reading.pinnedRootCursor === right.reading.pinnedRootCursor
+    left.headHeightPx === right.headHeightPx
   );
 }

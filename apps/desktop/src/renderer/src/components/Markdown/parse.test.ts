@@ -1,8 +1,8 @@
-// Parsing a settled block, a block against the body's definitions, and the volatile tail.
+// Parsing a settled block, a block against the body's definitions, and mending the volatile tail.
 
 import { describe, expect, it } from "vitest";
 
-import { footnoteDefinitionPreamble, parseSettledBlock, parseVolatileTail } from "./parse.js";
+import { footnoteDefinitionPreamble, mendVolatileTail, parseSettledBlock } from "./parse.js";
 
 describe("parsing a settled block", () => {
   it("two different blocks are two different trees", () => {
@@ -33,11 +33,9 @@ describe("parsing a block against the whole body's definitions", () => {
   });
 });
 
-describe("parsing the volatile tail", () => {
-  it("a lone dollar sign is NOT closed into a formula", () => {
-    // `inlineKatex` is off because "it cost $5" is prose, not the start of a formula.
-    const rendered = JSON.stringify(parseVolatileTail("it cost $5 and then"));
-    expect(rendered).not.toContain("inlineMath");
-    expect(rendered).toContain("it cost $5 and then");
+describe("mending the volatile tail", () => {
+  it("leaves a lone dollar sign unclosed", () => {
+    // "it cost $5" is prose, not the start of a formula, so no closing `$` is written after it.
+    expect(mendVolatileTail("it cost $5 and then")).toBe("it cost $5 and then");
   });
 });

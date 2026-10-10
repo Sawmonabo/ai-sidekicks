@@ -15,21 +15,22 @@ export interface OverflowMeasurementBatchOptions {
   /** Run once per batched frame. Composed by the caller, opaque here. */
   readonly runPass: () => void;
   /**
-   * Runs synchronously on each resize observation, before the frame is armed.
+   * Runs synchronously on each resize observation, before the frame is armed, with the observed
+   * content box's height in CSS pixels, taken from the observation rather than a layout read.
    *
    * Re-measuring clamped rows may coalesce, but publishing the box may not: it is the only
    * way the viewport height reaches the library's rect, and a manual clock never runs a frame
-   * unless told to, so a publication waiting on one would never arrive. A read and a notify
-   * only, and a publication of an unchanged box wakes nobody.
+   * unless told to, so a publication waiting on one would never arrive. A notify only, and a
+   * publication of an unchanged box wakes nobody.
    */
-  readonly publishOnResize: () => void;
+  readonly publishOnResize: (contentBoxHeightPx: number) => void;
 }
 
 /** Coalesces every trigger inside one frame into a single overflow re-measurement pass. */
 export class OverflowMeasurementBatch {
   readonly #clock: Clock;
   readonly #runPass: () => void;
-  readonly #publishOnResize: () => void;
+  readonly #publishOnResize: (contentBoxHeightPx: number) => void;
 
   #stopObservingResize: Unsubscribe | undefined;
   #armedFrame: ScheduledHandle | undefined;
@@ -57,10 +58,13 @@ export class OverflowMeasurementBatch {
     if (this.#disposed) {
       return;
     }
-    this.#stopObservingResize = observeElementResize(element, () => {
+    this.#stopObservingResize = observeElementResize(element, (entries) => {
       // Publish first, then arm: the window ranges against the publication, so it must not
-      // wait on a frame.
-      this.#publishOnResize();
+      // wait on a frame. One element is observed, so a delivery carries one entry; its
+      // `contentRect` is the content box on the physical axis `clientHeight` reads.
+      for (const entry of entries) {
+        this.#publishOnResize(entry.contentRect.height);
+      }
       this.request();
     });
   }

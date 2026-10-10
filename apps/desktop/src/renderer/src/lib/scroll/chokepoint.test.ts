@@ -2,7 +2,7 @@
 // zero for every geometry read, so a test against a bare element would pass whether or not the
 // controller touched anything. The controller under test is real.
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ManualClock } from "#renderer/lib/clock.js";
 import {
@@ -33,6 +33,69 @@ describe("the scroll chokepoint — writes", () => {
     expect(write?.appliedScrollTop).toBe(4500);
     expect(controller.glideTo("find-match", -40)?.appliedScrollTop).toBe(0);
     expect(controller.glideTo("find-match", Number.NaN)?.appliedScrollTop).toBe(0);
+  });
+});
+
+describe("the scroll chokepoint — a supplied content height", () => {
+  // The element says 5000 px of content; the supplied height differs, so a sample, clamp or
+  // glide computed from `scrollHeight` is told apart.
+
+  it("costs a scroll event one read, the offset, and samples the supplied height", () => {
+    const scrollHeightRead = vi.spyOn(scrollContainer, "scrollHeight", "get");
+    const clientHeightRead = vi.spyOn(scrollContainer, "clientHeight", "get");
+    // Negative control: attached without a supplied height, a scroll reads both boxes.
+    controller.attach(scrollContainer);
+    scrollContainer.moveTo(100);
+    expect(scrollHeightRead).toHaveBeenCalled();
+    expect(clientHeightRead).toHaveBeenCalled();
+
+    let suppliedHeightPx = 3000;
+    controller.attach(scrollContainer, () => suppliedHeightPx);
+    scrollHeightRead.mockClear();
+    clientHeightRead.mockClear();
+    scrollContainer.moveTo(900);
+    expect(scrollHeightRead).not.toHaveBeenCalled();
+    expect(clientHeightRead).not.toHaveBeenCalled();
+    expect(controller.geometry).toMatchObject({
+      scrollTop: 900,
+      viewportHeight: 500,
+      contentHeight: 3000,
+      distanceFromTailPx: 1600,
+      cause: "scroll",
+    });
+
+    // A log shorter than its box reports the box, as `scrollHeight` would.
+    suppliedHeightPx = 200;
+    scrollContainer.moveTo(0);
+    expect(controller.geometry?.contentHeight).toBe(500);
+  });
+
+  it("clamps a glide and finds the tail against the supplied height", () => {
+    controller.attach(scrollContainer, () => 8000);
+    expect(controller.glideTo("find-match", 999_999)?.requestedScrollTop).toBe(7500);
+    controller.glideTo("find-match", 0);
+    expect(controller.glideToTail("jump-to-tail")?.requestedScrollTop).toBe(7500);
+  });
+
+  it("learns no rounding from a write the platform clamped at its own whole-pixel end", () => {
+    // A display that keeps fractional offsets, whose end is 2500 px while the supplied height
+    // puts it at 2500.4: a tail glide lands on a whole pixel because it was clamped.
+    let offsetPx = 0;
+    Object.defineProperty(scrollContainer, "scrollTop", {
+      get: () => offsetPx,
+      set: (next: number) => {
+        offsetPx = Math.min(Math.max(0, next), 2500);
+      },
+    });
+    controller.attach(scrollContainer, () => 3000.4);
+    controller.glideToTail("follow-tail");
+    controller.glideToTail("follow-tail");
+    controller.glideTo("hold-reading-position", 1000);
+
+    const subPixelWrite = controller.glideTo("hold-reading-position", 1000.3);
+
+    expect(subPixelWrite?.wasSkipped).toBe(false);
+    expect(subPixelWrite?.appliedScrollTop).toBe(1000.3);
   });
 });
 

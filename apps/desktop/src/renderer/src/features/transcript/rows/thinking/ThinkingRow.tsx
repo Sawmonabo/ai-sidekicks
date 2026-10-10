@@ -1,5 +1,8 @@
-// The reasoning row's body: the streaming tail, the read's result, and the one expand control.
-// The tail and the read are not ranked: a turn expanded mid-stream shows both, tail first.
+// The reasoning row's body: the tail, the read's result, and the one expand control. The tail is
+// the streaming text, or at rest the entry the row carries; the whole reasoning, every entry of
+// the turn joined, comes from the read. A streaming tail and the read are not ranked: a turn
+// expanded mid-stream shows both, tail first. A stored tail gives way once the whole is read, so
+// nothing is shown twice.
 // The control is absent, not disabled, on a row with no run attribution: the read is run-scoped,
 // and a disabled control would claim an action that exists but is not permitted.
 
@@ -9,6 +12,7 @@ import type {
   ReasoningSurfaceReadResponse,
 } from "@ai-sidekicks/contracts/transcript/operations";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
+import { type PublishedText } from "../../reveal/published-text.js";
 import {
   REASONING_AVAILABILITY_COPY,
   reasoningTailOf,
@@ -22,17 +26,21 @@ export interface ThinkingRowProps {
   /** The run this row's reasoning belongs to, or `undefined` where none is attributed. */
   readonly runId: RunId | undefined;
   /** Text the reveal engine is publishing for this row right now, while it streams. */
-  readonly liveText: string | undefined;
+  readonly liveText: PublishedText | undefined;
+  /** The entry the row a read returned carries, its tail drawn at rest. */
+  readonly storedText: PublishedText | undefined;
   readonly reading: ReasoningReading;
-  /** Ask the daemon for this run's reasoning. */
-  readonly onExpand: () => void;
+  /** Ask the daemon for this run's reasoning; handed the control that was pressed. */
+  readonly onExpand: (control: HTMLElement) => void;
 }
 
-/** The reasoning body: the streaming tail, the read's result and the expand control. */
+/** The reasoning body: the tail, the read's result and the expand control. */
 export function ThinkingRow(props: ThinkingRowProps): React.JSX.Element {
+  const tailText =
+    props.liveText ?? (props.reading.status === "read" ? undefined : props.storedText);
   return (
     <div className="meridian-reasoning-surface">
-      {renderReasoningTail(props.liveText)}
+      {renderReasoningTail(tailText)}
       {renderReasoningReading(props.reading)}
       {renderExpandControl(props.runId, props.reading, props.onExpand)}
     </div>
@@ -40,16 +48,16 @@ export function ThinkingRow(props: ThinkingRowProps): React.JSX.Element {
 }
 
 /**
- * The newest lines of a turn that is still streaming, or nothing.
+ * The newest lines of the reasoning, or nothing.
  *
  * `aria-live` is deliberately absent: the lines change many times a second, and a live region
  * would read a reasoning trace aloud over whatever a person was doing.
  */
-function renderReasoningTail(liveText: string | undefined): React.ReactNode {
-  if (liveText === undefined) {
+function renderReasoningTail(tailText: PublishedText | undefined): React.ReactNode {
+  if (tailText === undefined) {
     return null;
   }
-  const lines = reasoningTailOf(liveText);
+  const lines = reasoningTailOf(tailText);
   if (lines.length === 0) {
     return null;
   }
@@ -133,13 +141,19 @@ function renderReasoningEntries(entries: readonly ReasoningEntry[]): React.React
 function renderExpandControl(
   runId: RunId | undefined,
   reading: ReasoningReading,
-  onExpand: () => void,
+  onExpand: (control: HTMLElement) => void,
 ): React.ReactNode {
   if (runId === undefined || reading.status === "reading" || reading.status === "read") {
     return null;
   }
   return (
-    <button type="button" className="meridian-reasoning-surface__expand" onClick={onExpand}>
+    <button
+      type="button"
+      className="meridian-reasoning-surface__expand"
+      onClick={(event) => {
+        onExpand(event.currentTarget);
+      }}
+    >
       {reading.status === "refused" ? "Try the read again" : "Show reasoning"}
     </button>
   );

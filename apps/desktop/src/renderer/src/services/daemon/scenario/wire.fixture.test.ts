@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import { EventEnvelopeSchema } from "@ai-sidekicks/contracts/event/envelope";
 import { STREAM_FRAME_MAX_CHANGES } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 import { SessionStreamFrameSchema } from "@ai-sidekicks/contracts/session/methods";
+import { TranscriptRunStampSchema } from "@ai-sidekicks/contracts/transcript/row";
 
 import {
   createFixture,
@@ -18,7 +19,10 @@ import type { Scenario, ScenarioBeat } from "#fixtures/scenario.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "#fixtures/scenarios/concurrent-streaming.js";
 
 /** The `session.subscribe` frame as the contract registers it, over the tolerant envelope. */
-const SESSION_FRAME_SCHEMA = SessionStreamFrameSchema(EventEnvelopeSchema);
+const SESSION_FRAME_SCHEMA = SessionStreamFrameSchema(
+  EventEnvelopeSchema,
+  TranscriptRunStampSchema,
+);
 
 /** Past the concurrent-streaming script's last beat, read off the script so it cannot go stale. */
 const PAST_EVERY_BEAT_MS = lastScriptedBeatMs(CONCURRENT_STREAMING_SCENARIO) + 100;

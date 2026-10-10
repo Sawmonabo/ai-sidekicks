@@ -1,14 +1,18 @@
 // The transcript's row renderer: one row through the card its kind names. It holds no state: a
-// disclosure press writes density to the list's retained row state, because the virtualizer
-// unmounts rows scrolled out of range. A `TranscriptEventRow` carries no body, so machine rows
-// render the empty state `MessageContent` and `ToolOutput` draw for an unread body. A type the kind
-// table does not name draws nothing.
+// call's fold press goes to the feed's fold, because the virtualizer unmounts rows scrolled out of
+// range, and every press that changes the row's height asks the feed to keep the pressed control
+// where it stands. A row read from history carries its body, which the cards draw; a streamed row
+// and a large body carry none, and the cards draw the state `MessageContent` and `ToolOutput` give
+// an unread body. A type the kind table does not name has no card, and `drawsTranscriptRowBody`
+// says so before the feed lists it.
 
 import { useCallback, useState } from "react";
 
-import { useRetainedRowState } from "../viewport/hooks/useRetainedRowState.js";
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
+
 import { useRowReveal } from "../reveal/hooks/useRowReveal.js";
-import { type TranscriptRowDensity, type TranscriptRowProps } from "./renderer.js";
+import { useRowToggle } from "./hooks/useRowToggle.js";
+import { type TranscriptRowProps } from "./renderer.js";
 import { findTranscriptRowFooterRenderer } from "./footer-renderer.js";
 import { FootnoteRegistry } from "./markdown/footnotes/registry.js";
 import { MessageRow } from "./MessageRow.js";
@@ -19,22 +23,27 @@ import { ToolRow } from "./ToolRow.js";
 
 /**
  * One row, through the card its kind names. The classifier decides once and this switch spends
- * the answer, so the glyph, label and layout match what the cards read anywhere else.
+ * the answer, so the glyph and label match what the cards read anywhere else. Throws for a row
+ * with no card, which `drawsTranscriptRowBody` keeps out of the list.
  */
-export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element | null {
+export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element {
   const [footnotes] = useState(() => new FootnoteRegistry());
-  const retainedRowState = useRetainedRowState();
+  const { toggleCallFold, holdControlInPlace } = useRowToggle();
   const rowId = props.row.id;
-  const density: TranscriptRowDensity = props.density;
-  // The toggle inverts the density the row was handed (the list's answer with the retained state
-  // overlaid) and writes it to the list, not to local state, which would die when the virtualizer
-  // unmounts the row. `innerScrollTopPx` is zero because this row keeps no inner scroll of its own.
-  const toggleDensity = useCallback(() => {
-    retainedRowState.setRetainedState(rowId, {
-      density: density === "expanded" ? "collapsed" : "expanded",
-      innerScrollTopPx: 0,
-    });
-  }, [density, rowId, retainedRowState]);
+  // The fold goes to the feed, not to local state, which would die when the virtualizer unmounts
+  // the row.
+  const toggleFold = useCallback(
+    (control: HTMLElement) => {
+      toggleCallFold(rowId, control);
+    },
+    [rowId, toggleCallFold],
+  );
+  const holdPressedControl = useCallback(
+    (control: HTMLElement) => {
+      holdControlInPlace(rowId, control);
+    },
+    [rowId, holdControlInPlace],
+  );
 
   const rowKind = classifyTranscriptRow(props.row);
   // The reasoning read is armed in the component that renders it, not here: an ordinary row would
@@ -44,11 +53,14 @@ export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element | nu
   const attributedRunId = reasoningRunIdOf(props.row);
   // The live-text lane is the row, matching `MessageContent`'s `liveText`: keying on the run
   // would give two machine rows of one turn one body. It arrives through the per-row reveal
-  // channel, not the renderer's props, and is `undefined` for every row of a settled log.
+  // channel, not the renderer's props, as the lane's handle rather than its text, and is
+  // `undefined` for every row of a settled log.
   const liveText = useRowReveal(rowId);
 
   if (rowKind === undefined) {
-    return null;
+    // The feed leaves such a row out of its list, so reaching here is a broken composition, not a
+    // row to draw as a blank band.
+    throw new Error(`TranscriptRow has no card for a ${props.row.type} row.`);
   }
   switch (rowKind.kind) {
     case "tool-call":
@@ -57,10 +69,11 @@ export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element | nu
           row={props.row}
           agentHue={props.agentHue}
           isSuperseded={props.isSuperseded}
-          density={density}
+          density={props.density}
           footnotes={footnotes}
           {...(liveText === undefined ? {} : { liveText })}
-          onDensityToggle={toggleDensity}
+          holdControlInPlace={holdPressedControl}
+          onDensityToggle={toggleFold}
         />
       );
     case "user-message":
@@ -72,19 +85,35 @@ export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element | nu
           rowKind={rowKind}
           agentHue={props.agentHue}
           isSuperseded={props.isSuperseded}
-          density={density}
+          density={props.density}
           footnotes={footnotes}
           {...(liveText === undefined ? {} : { liveText })}
+          holdControlInPlace={holdPressedControl}
           replyRowIds={props.replyRowIds}
           editControl={editControlOf(props)}
           thinkingRow={
             rowKind.kind === "thinking" ? (
-              <ThinkingRowWithRead runId={attributedRunId} liveText={liveText} />
+              <ThinkingRowWithRead
+                runId={attributedRunId}
+                liveText={liveText}
+                storedBody={
+                  props.row.content?.status === "available" ? props.row.content.body : undefined
+                }
+                holdControlInPlace={holdPressedControl}
+              />
             ) : undefined
           }
         />
       );
   }
+}
+
+/**
+ * Whether `TranscriptRow` draws a card for this row: only a row the kind table names has one. The
+ * same classification the row's own switch spends, so the two cannot disagree.
+ */
+export function drawsTranscriptRowBody(row: TranscriptEventRow): boolean {
+  return classifyTranscriptRow(row) !== undefined;
 }
 
 /** The edit control the footer renderer draws, or nothing. */

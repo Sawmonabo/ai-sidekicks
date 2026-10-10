@@ -7,6 +7,7 @@ import { INTERVENTION_STATES } from "@ai-sidekicks/contracts/run/control";
 
 import { WaitingOnPersonRegister, type WaitingOnPersonRecords } from "./register.js";
 import { eventOfKind } from "#test/helpers/session/events.js";
+import { heldRowCursor } from "../state.js";
 import { SessionStore } from "../store.js";
 import type { ProjectedSessionEvent } from "../entities/vocabulary.js";
 
@@ -22,16 +23,11 @@ function rowOf(
   return actorId === undefined ? base : { ...base, actorId };
 }
 
-/** How many lifecycles the records hold open — an opening with no terminal after it. */
+/** How many requests the records hold open — an opening with no terminal after it. */
 function openCountOf(records: WaitingOnPersonRecords): number {
   let open = 0;
   for (const request of records.requestsByKey.values()) {
     if (request.openedAtSequence !== undefined && request.closedAtSequence === undefined) {
-      open += 1;
-    }
-  }
-  for (const run of records.runsByRunId.values()) {
-    if (run.needsAttention) {
       open += 1;
     }
   }
@@ -45,21 +41,23 @@ describe("WaitingOnPersonRegister — what a base state establishes", () => {
     const register = new WaitingOnPersonRegister();
     register.seedFrom({
       cursor: 12,
-      windowHeadCursor: "cursor-12",
+      isWindowHeadUnread: true,
       entities: [
         { kind: "run", id: "run-a", state: "waiting_for_approval", attributedTo: "agent-scout" },
       ],
     });
 
-    expect(openCountOf(register.records)).toBe(1);
-    expect(register.records.runsByRunId.get("run-a")?.atSequence).toBe(12);
+    expect(register.records.runsByRunId.get("run-a")).toStrictEqual({
+      atSequence: 12,
+      state: "waiting_for_approval",
+    });
   });
 
   it("keeps what it already held when a later read re-establishes the window", () => {
     // A read says nothing about a request it did not carry; clearing here would lose older asks.
     const register = new WaitingOnPersonRegister();
     register.admit([rowOf(3, "approval.requested", { approvalRequestId: "req-1" })]);
-    register.seedFrom({ cursor: 40, windowHeadCursor: "cursor-40", entities: [] });
+    register.seedFrom({ cursor: 40, isWindowHeadUnread: true, entities: [] });
 
     expect(openCountOf(register.records)).toBe(1);
   });
@@ -68,14 +66,14 @@ describe("WaitingOnPersonRegister — what a base state establishes", () => {
     const register = new WaitingOnPersonRegister();
     register.seedFrom({
       cursor: 12,
-      windowHeadCursor: undefined,
+      isWindowHeadUnread: false,
       entities: [{ kind: "run", id: "run-a", state: "waiting_for_approval" }],
     });
     register.admit([rowOf(12, "run.running", { runId: "run-a" })]);
-    expect(openCountOf(register.records)).toBe(1);
+    expect(register.records.runsByRunId.get("run-a")?.state).toBe("waiting_for_approval");
 
     register.admit([rowOf(13, "run.running", { runId: "run-a" })]);
-    expect(openCountOf(register.records)).toBe(0);
+    expect(register.records.runsByRunId.get("run-a")?.state).toBe("running");
   });
 });
 
@@ -107,28 +105,25 @@ describe("WaitingOnPersonRegister — rows in any order", () => {
     register.admit([rowOf(8, "run.running", { runId: "run-a" })]);
     register.admit([rowOf(3, "run.waiting_for_approval", { runId: "run-a" })]);
 
-    expect(openCountOf(register.records)).toBe(0);
-  });
-
-  it("stops counting a run once it moves on to pausing", () => {
-    const register = new WaitingOnPersonRegister();
-    register.admit([rowOf(3, "run.waiting_for_approval", { runId: "run-a" })]);
-    register.admit([rowOf(4, "run.pausing", { runId: "run-a" })]);
-
-    expect(openCountOf(register.records)).toBe(0);
+    expect(register.records.runsByRunId.get("run-a")).toStrictEqual({
+      atSequence: 8,
+      state: "running",
+    });
   });
 });
 
 describe("SessionStore — the register outlives the window", () => {
-  it("still counts an approval whose opening row the cap has dropped", () => {
-    // The cap drops the row that opened this approval from the transcript, yet it is still open.
-    const store = new SessionStore({ sessionId: SESSION_ID, transcriptCap: 2 });
+  it("still counts an approval whose opening row the window has let go", () => {
+    // The release drops the row that opened this approval from the window, yet it is still open.
+    const store = new SessionStore({ sessionId: SESSION_ID });
     store.initialize({ cursor: 0, entities: [] });
-    store.applyBatch([
+    const rows = [
       rowOf(1, "approval.requested", { approvalRequestId: "req-1" }, "agent-scout"),
       rowOf(2, "tool.invoked", { runId: "run-a" }, "agent-scout"),
       rowOf(3, "tool.result", { runId: "run-a" }, "agent-scout"),
-    ]);
+    ];
+    store.applyBatch(rows);
+    store.releaseOutside(heldRowCursor(rows[1]!), heldRowCursor(rows[2]!));
 
     expect(store.snapshot().transcript.map((event) => event.sequence)).toStrictEqual([2, 3]);
     expect(openCountOf(store.waitingOnPersonRecords)).toBe(1);

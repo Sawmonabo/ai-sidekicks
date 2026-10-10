@@ -504,7 +504,8 @@ interface AgentListEntry {
 // the admission-resolved OrchestrationRunConfig (request override else session default), kept so the
 // token-limit enforcement rebuilds the same even if session defaults change mid-run (D-013-5).
 //
-// The run's agent is named ONE way, never both: `agentId` for an agent already in the projection, or
+// Every run names its agent exactly ONE way: `agentId` for an agent already in the projection (the lead's
+// own run names the session's lead, the `mainAgent` of its `session.created`, this way), or
 // `resolvedAgent` where the request that created the run named a saved definition instead — a peer
 // invocation's own run included. `resolvedAgent` is the CREATING RECORD of that agent's row, in the one shape
 // `agent.list` describes an agent: `session.created` mints a session's lead and this member mints an agent
@@ -536,7 +537,7 @@ type RunQueuedPayload = {
   // and resume rebinds to this stamp rather than re-resolving the current default.
   admittedProviderAccountId?: ProviderAccountId;
 } & (
-  | { agentId?: AgentId; resolvedAgent?: never }
+  | { agentId: AgentId; resolvedAgent?: never }
   | {
       agentId?: never;
       resolvedAgent: AgentListEntry & { resolvedConfiguration: AgentResolvedConfiguration };

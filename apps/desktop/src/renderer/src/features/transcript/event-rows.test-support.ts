@@ -25,23 +25,16 @@ export function runRow(
   input: FixtureRowInput & {
     readonly runId: string;
     readonly position: number;
-    readonly epoch?: number;
-    readonly supersededTargetPosition?: number;
   },
 ): TranscriptEventRow {
-  const base = {
+  return {
     ...commonFields(input),
     kind: "run",
     runId: input.runId as RunId,
     position: input.position,
-    epoch: input.epoch ?? 0,
+    epoch: 0,
     payload: input.payload ?? {},
-  } as const;
-  const superseded =
-    input.supersededTargetPosition === undefined
-      ? {}
-      : { superseded: { targetPosition: input.supersededTargetPosition } };
-  return { ...base, ...superseded } as TranscriptEventRow;
+  };
 }
 
 /** The `rollback_boundary` arm, whose payload is the typed `RunRolledBackEvent`. */
@@ -49,7 +42,6 @@ export function rollbackBoundaryRow(
   input: Omit<FixtureRowInput, "type" | "category"> & {
     readonly runId: string;
     readonly position: number;
-    readonly epoch?: number;
     readonly runVersion?: number;
     /**
      * The rewind cutoff, which is not the boundary row's own position. Defaults to the row's
@@ -65,7 +57,7 @@ export function rollbackBoundaryRow(
     kind: "rollback_boundary",
     runId: input.runId as RunId,
     position: input.position,
-    epoch: input.epoch ?? 0,
+    epoch: 0,
     payload: {
       sessionId: FIXTURE_SESSION_ID,
       runId: input.runId as RunId,

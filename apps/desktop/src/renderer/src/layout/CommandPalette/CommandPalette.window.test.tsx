@@ -49,6 +49,7 @@ function renderOpenPalette(): void {
         onSession: false,
         onWorkflows: false,
         onSettings: false,
+        transcriptHoldsRunGroup: false,
       }}
       open
       onOpenChange={() => undefined}

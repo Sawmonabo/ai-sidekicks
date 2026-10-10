@@ -10,7 +10,11 @@ import {
   SourcePositionSchema,
   withEpochStamp,
 } from "../envelope.js";
-import { SessionEventSchema } from "../session.js";
+import {
+  SESSION_EVENT_CATEGORY_BY_TYPE,
+  SESSION_EVENT_TYPES,
+  SESSION_EVENT_VARIANT_SCHEMAS,
+} from "../session.js";
 
 const RUN_ID = "990e8400-e29b-41d4-a716-446655440004";
 
@@ -178,19 +182,12 @@ describe("withEpochStamp pairing refinement", () => {
   });
 });
 
-// The union's exported type is `z.ZodType`, which erases the discriminated-union surface, so the
-// walk re-widens it. A branch payload is one object schema or a union of them (`session.notice`
-// nests two), so each branch is flattened to its object arms.
-type LiteralView = { readonly def: { readonly values: readonly string[] } };
+// A payload schema's exported type is `z.ZodType`, which erases the object surface, so the walk
+// re-widens it. A payload is one object schema or a union of them (`session.notice` nests two), so
+// each is flattened to its object arms.
 type PayloadView = {
   readonly shape?: Readonly<Record<string, unknown>>;
   readonly options?: readonly PayloadView[];
-};
-type BranchView = {
-  readonly shape: {
-    readonly category: LiteralView;
-    readonly payload: PayloadView;
-  };
 };
 
 const payloadArms = (payload: PayloadView): readonly Readonly<Record<string, unknown>>[] => {
@@ -201,20 +198,23 @@ const payloadArms = (payload: PayloadView): readonly Readonly<Record<string, unk
     return [payload.shape];
   }
   throw new Error(
-    "a branch payload is neither an object schema nor a union of them, so its keys cannot be read",
+    "a variant payload is neither an object schema nor a union of them, so its keys cannot be read",
   );
 };
 
-describe("stamp admission over the live SessionEventSchema union", () => {
-  it("no run_lifecycle branch admits the stamp — a straggler is absorbed, never appended", () => {
-    const lifecycleBranches = (
-      SessionEventSchema as unknown as { readonly options: readonly BranchView[] }
-    ).options.filter((branch) => branch.shape.category.def.values[0] === "run_lifecycle");
-    // A broken read would find no branch and pass vacuously.
-    expect(lifecycleBranches.length).toBeGreaterThan(0);
-    for (const branch of lifecycleBranches) {
+describe("stamp admission over the registered session event variants", () => {
+  it("no run_lifecycle variant admits the stamp — a straggler is absorbed, never appended", () => {
+    const lifecycleTypes = SESSION_EVENT_TYPES.filter(
+      (type) => SESSION_EVENT_CATEGORY_BY_TYPE.get(type) === "run_lifecycle",
+    );
+    // A broken read would find no variant and pass vacuously.
+    expect(lifecycleTypes.length).toBeGreaterThan(0);
+    for (const type of lifecycleTypes) {
+      const variantSchema = SESSION_EVENT_VARIANT_SCHEMAS.resolve(type);
+      expect(variantSchema).toBeDefined();
+      const arms = payloadArms(variantSchema?.shape.payload as PayloadView);
       const stampKeyCount = [SOURCE_EPOCH_PAYLOAD_KEY, SOURCE_POSITION_PAYLOAD_KEY].filter((key) =>
-        payloadArms(branch.shape.payload).some((arm) => Object.hasOwn(arm, key)),
+        arms.some((arm) => Object.hasOwn(arm, key)),
       ).length;
       expect(stampKeyCount).toBe(0);
     }

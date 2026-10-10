@@ -1,8 +1,8 @@
-/* A run group's header: disclosure, actor, state and counts. */
+/* A run group's header: the one button that folds it, carrying actor, state and counts. */
 
 /*
- * One finished run, on one line, with the disclosure that opens it. The 2 px inline-start edge
- * is the leading edge a transcript row wears, set from the agent hue wheel by the
+ * One run, on one line that folds and opens it, over its body while open. The 2 px inline-start
+ * edge is the leading edge a transcript row wears, set from the agent hue wheel by the
  * component; the neutral border is the fallback for an unattributed run group.
  */
 .meridian-run-group-header {
@@ -18,15 +18,19 @@
   font-size: var(--meridian-text-sm);
 }
 
+/* The whole line is the button: a full row of the header, its parts wrapping inside it. */
 .meridian-run-group-header__disclosure {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--meridian-space-1);
+  display: flex;
+  flex: 1 0 100%;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
   padding: 0;
   border: 0;
   background: none;
   color: inherit;
   font: inherit;
+  text-align: start;
   cursor: pointer;
 }
 

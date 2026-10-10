@@ -5,7 +5,8 @@
 // advancing to an exact tick) and cannot reach the network or the clock.
 //
 // `services/daemon/engine.fixture.ts` plays a scenario, and
-// `services/daemon/scenario/reply.fixture.ts` owns how one reply settles.
+// `services/daemon/scenario/reply.fixture.ts` owns how one reply settles. A scenario's script is
+// composed when it is first read, so a launch builds only the script it plays.
 
 import type { UpdateState } from "#shared/preload-api.js";
 
@@ -19,6 +20,11 @@ import type {
 export interface ScenarioBeat {
   readonly atMs: number;
   readonly event: ProjectedSessionEvent;
+  /**
+   * The body the daemon stores beside the event, which a read returns with the event's row and
+   * the stream never carries.
+   */
+  readonly storedBody?: string;
 }
 
 /** A scripted session: the beats it plays and the replies it answers with. */
@@ -43,4 +49,42 @@ export interface Scenario {
   readonly updaterState?: UpdateState;
   /** Wall-clock instant the frozen clock reports as "now" at tick zero. */
   readonly startedAtIso: string;
+}
+
+// A scenario's beats and the replies it answers with, some of which read the beats.
+type ScenarioScript = Pick<Scenario, "beats" | "replies">;
+
+/**
+ * A scenario whose script is composed the first time its beats or replies are read, and kept, so
+ * a launch builds the script of the scenario it plays and no other. A spread reads both.
+ */
+export function defineScenario(
+  description: Omit<Scenario, "beats" | "replies">,
+  composeScript: () => ScenarioScript,
+): Scenario {
+  const script = new ComposedScenarioScript(composeScript);
+  return {
+    ...description,
+    get beats(): readonly ScenarioBeat[] {
+      return script.read().beats;
+    },
+    get replies(): readonly ScenarioReply[] {
+      return script.read().replies;
+    },
+  };
+}
+
+// A scenario's script, composed on its first read and kept for every later one.
+class ComposedScenarioScript {
+  readonly #composeScript: () => ScenarioScript;
+  #script: ScenarioScript | undefined;
+
+  constructor(composeScript: () => ScenarioScript) {
+    this.#composeScript = composeScript;
+  }
+
+  read(): ScenarioScript {
+    this.#script ??= this.#composeScript();
+    return this.#script;
+  }
 }

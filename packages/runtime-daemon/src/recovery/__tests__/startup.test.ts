@@ -13,6 +13,7 @@ import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 
+import { AgentIdSchema } from "@ai-sidekicks/contracts/agent/definition";
 import {
   DAEMON_SCOPE_SENTINEL_SESSION_ID,
   EventEnvelopeVersionSchema,
@@ -40,6 +41,8 @@ import { RecoveryStatusTracker } from "../status.js";
 import { RecoveryWriteGate } from "../write-gate.js";
 
 const OCCURRED_AT = "2026-10-07T12:00:00.000Z";
+// The agent every queued run is created for.
+const QUEUED_AGENT_ID = AgentIdSchema.parse(randomUUID());
 
 describe("the recovery pass at a restart", () => {
   let fixture: RunEngineFixture;
@@ -89,7 +92,13 @@ describe("the recovery pass at a restart", () => {
     return [
       {
         type: "run.queued",
-        payload: JSON.stringify({ sessionId, runId, runVersion: 0, newState: "queued" }),
+        payload: JSON.stringify({
+          sessionId,
+          runId,
+          runVersion: 0,
+          newState: "queued",
+          agentId: QUEUED_AGENT_ID,
+        }),
       },
       change(1, "queued", "starting"),
       change(2, "starting", "running"),
@@ -107,7 +116,13 @@ describe("the recovery pass at a restart", () => {
       const runId = RunIdSchema.parse(randomUUID());
       rows.push({
         type: "run.queued",
-        payload: JSON.stringify({ sessionId, runId, runVersion: 0, newState: "queued" }),
+        payload: JSON.stringify({
+          sessionId,
+          runId,
+          runVersion: 0,
+          newState: "queued",
+          agentId: QUEUED_AGENT_ID,
+        }),
       });
     }
     const unqueuedRunId = RunIdSchema.parse(randomUUID());
@@ -267,7 +282,13 @@ describe("the recovery pass at a restart", () => {
     sessionId: SessionId,
   ): Promise<RunId> {
     const runId = RunIdSchema.parse(randomUUID());
-    const payload = { sessionId, runId, runVersion: 0, newState: "queued" as const };
+    const payload = {
+      sessionId,
+      runId,
+      runVersion: 0,
+      newState: "queued" as const,
+      agentId: QUEUED_AGENT_ID,
+    };
     await new SessionEventAppender(
       { sessionEvents },
       EventEnvelopeVersionSchema.parse("1.0"),

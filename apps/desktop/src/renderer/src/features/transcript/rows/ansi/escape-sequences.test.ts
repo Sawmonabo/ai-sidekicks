@@ -3,6 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
+import { publishedTextOf } from "../../reveal/published-text.js";
 import { carriesAnsiEscapes, withoutResidualEscapes } from "./escape-sequences.js";
 
 const ESCAPE = "\u001b";
@@ -23,7 +24,9 @@ const STRING_CONTROLS = [
 describe("whether a body is command output", () => {
   it("ordinary prose is not command output", () => {
     // Otherwise every body would read as ANSI.
-    expect(carriesAnsiEscapes("an ordinary **reply**\nover two lines\twith a tab")).toBe(false);
+    expect(
+      carriesAnsiEscapes(publishedTextOf("an ordinary **reply**\nover two lines\twith a tab")),
+    ).toBe(false);
   });
 });
 

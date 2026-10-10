@@ -30,7 +30,7 @@ const RevealProbe = memo(function RevealProbe(props: {
   const liveText = useRowReveal(props.laneId);
   return (
     <p data-lane={props.laneId} data-renders={renderCount.current}>
-      {liveText ?? ""}
+      {liveText?.slice(0) ?? ""}
     </p>
   );
 });

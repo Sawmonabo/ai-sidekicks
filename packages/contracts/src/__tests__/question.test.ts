@@ -3,30 +3,17 @@
 import { describe, expect, it } from "vitest";
 
 import { QuestionAskedPayloadSchema, QuestionResolveRequestSchema } from "../question.js";
+import {
+  PICK_ONE,
+  QUESTION_ASKED_ON_RUN_PAYLOAD,
+  QUESTION_ID,
+  RUN_ID,
+} from "./question.test-support.js";
 
-const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
-const RUN_ID = "6ba7b810-9dad-41d1-80b4-00c04fd430c8";
-const QUESTION_ID = "1f2b4d5e-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const WAIT_ID = "2f2b4d5e-cccc-4ccc-8ccc-cccccccccccc";
 
-const PICK_ONE = {
-  header: "Auth",
-  text: "Which login flow should the service use?",
-  options: [
-    { label: "OAuth", description: "Sign in with the hosting service" },
-    { label: "Token", description: "A pasted access token" },
-  ],
-  severalAnswers: false,
-  secret: false,
-};
-
 describe("QuestionAskedPayloadSchema", () => {
-  const base = {
-    questionId: QUESTION_ID,
-    sessionId: SESSION_ID,
-    isAgentWaiting: true,
-    questions: [PICK_ONE],
-  };
+  const { runId: _runId, ...base } = QUESTION_ASKED_ON_RUN_PAYLOAD;
 
   it("accepts an agent's question on its run and a workflow step's question on its wait", () => {
     expect(QuestionAskedPayloadSchema.safeParse({ ...base, runId: RUN_ID }).success).toBe(true);

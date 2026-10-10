@@ -1,4 +1,4 @@
-// The backward window's decode, asserted against the contract's own types rather than a
+// A read window's decode, asserted against the contract's own types rather than a
 // hand-written record, so a row the daemon may send and this boundary drops fails here.
 
 import { describe, expect, it } from "vitest";
@@ -6,14 +6,18 @@ import { describe, expect, it } from "vitest";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import type { TranscriptReadResponse } from "@ai-sidekicks/contracts/transcript/operations";
-import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
+import type { TranscriptRowContent } from "@ai-sidekicks/contracts/transcript/content";
+import type { TranscriptReadRow } from "@ai-sidekicks/contracts/transcript/row";
 import { TranscriptReadResponseSchema } from "@ai-sidekicks/contracts/transcript/operations";
 
-import { readEarlierTranscriptPage } from "./transcript-page.js";
+import { readTranscriptPage } from "./transcript-page.js";
 
 const SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5a44a5" as SessionId;
 
-function rowAt(sequence: number, overrides: Partial<TranscriptEventRow> = {}): TranscriptEventRow {
+function rowAt(
+  sequence: number,
+  overrides: { readonly actor?: string; readonly content?: TranscriptRowContent } = {},
+): TranscriptReadRow {
   return {
     kind: "general",
     id: `event-${String(sequence)}`,
@@ -25,18 +29,24 @@ function rowAt(sequence: number, overrides: Partial<TranscriptEventRow> = {}): T
     summary: `row ${String(sequence)}`,
     timestamp: "2026-01-01T11:00:00.000Z",
     payload: { note: sequence },
+    content: { status: "unavailable", reason: "absent" },
     ...overrides,
-  } as TranscriptEventRow;
+  };
 }
 
-describe("readEarlierTranscriptPage — one window, read as the store's own log", () => {
+describe("readTranscriptPage — one window, read as the store's own log", () => {
   it("carries every member the log holds, renaming exactly two", () => {
     const response = TranscriptReadResponseSchema.parse({
-      entries: [rowAt(7, { actor: "user-a" })],
+      entries: [
+        rowAt(7, {
+          actor: "user-a",
+          content: { status: "available", body: "Done.", contentLength: 5 },
+        }),
+      ],
       hasMore: false,
     } satisfies TranscriptReadResponse);
 
-    const page = readEarlierTranscriptPage(response);
+    const page = readTranscriptPage(response);
 
     expect(page.events).toStrictEqual([
       {
@@ -48,6 +58,7 @@ describe("readEarlierTranscriptPage — one window, read as the store's own log"
         occurredAt: "2026-01-01T11:00:00.000Z",
         actorId: "user-a",
         payload: { note: 7 },
+        content: { status: "available", body: "Done.", contentLength: 5 },
       },
     ]);
   });
@@ -59,22 +70,20 @@ describe("readEarlierTranscriptPage — one window, read as the store's own log"
       nextCursor: "cursor-6" as EventCursor,
     } satisfies TranscriptReadResponse);
 
-    const continuingPage = readEarlierTranscriptPage(continuing);
+    const continuingPage = readTranscriptPage(continuing);
 
-    expect(continuingPage.hasEarlierRows).toBe(true);
-    expect(continuingPage.nextBeforeCursor).toBe("cursor-6");
+    expect(continuingPage.edge).toStrictEqual({ cursor: "cursor-6", hasMore: true });
 
     // `nextCursor` is permitted on the terminal arm, so a boundary reading its presence would
-    // report earlier rows behind every final page.
+    // report more rows beyond every final page.
     const terminal = TranscriptReadResponseSchema.parse({
       entries: [rowAt(7)],
       hasMore: false,
       nextCursor: "cursor-6" as EventCursor,
     } satisfies TranscriptReadResponse);
 
-    const terminalPage = readEarlierTranscriptPage(terminal);
+    const terminalPage = readTranscriptPage(terminal);
 
-    expect(terminalPage.hasEarlierRows).toBe(false);
-    expect(terminalPage.nextBeforeCursor).toBe("cursor-6");
+    expect(terminalPage.edge).toStrictEqual({ cursor: "cursor-6", hasMore: false });
   });
 });

@@ -244,70 +244,56 @@ export type ToolActivityPayload = MachineContentDescriptor & {
   sourcePosition?: SourcePosition | undefined;
 };
 
-/** The append-path members shared by the five payload schemas and the union. */
-export const buildMachineContentDescriptorShape = (): {
-  contentLength: z.ZodOptional<z.ZodNumber>;
-  contentTruncated: z.ZodOptional<z.ZodLiteral<true>>;
-} => ({
+/** The append-path members every body-bearing payload schema shares, built once. */
+export const MACHINE_CONTENT_DESCRIPTOR_SHAPE: {
+  readonly contentLength: z.ZodOptional<z.ZodNumber>;
+  readonly contentTruncated: z.ZodOptional<z.ZodLiteral<true>>;
+} = {
   contentLength: countSchema.optional(),
   // `z.literal(true)`, not `z.boolean()`: a `false` on the wire would canonicalize into bytes a
   // complete row must not have, so omit-never-false is enforced at parse.
   contentTruncated: z.literal(true).optional(),
+};
+
+/**
+ * Strict payload schema of `assistant.message` and `assistant.thinking_update`, with the epoch
+ * stamp. A run carries every assistant row but a voice call's answer, which comes outside any run.
+ */
+export const assistantOutputPayloadSchema: z.ZodType<AssistantOutputPayload> = withEpochStamp(
+  z
+    .object({
+      sessionId: SessionIdSchema,
+      // A bounded free-form guard like `EventEnvelope.id`, not the branded `RunIdSchema` that
+      // `usage.model_rerouted` uses.
+      runId: wireFreeFormString(EVENT_FIELD_MAX_LEN, "assistant output payload runId").optional(),
+      contentType: wireFreeFormString(
+        EVENT_FIELD_MAX_LEN,
+        "assistant output payload contentType",
+      ).optional(),
+      origin: MessageOriginSchema.optional(),
+      ...MACHINE_CONTENT_DESCRIPTOR_SHAPE,
+    })
+    .strict(),
+).refine((payload) => (payload.runId === undefined) === (payload.origin === "voice"), {
+  path: ["runId"],
+  message: "An assistant row carries a run id exactly when it is not a voice call's answer.",
 });
 
-const buildAssistantOutputPayloadShape = () => ({
-  sessionId: SessionIdSchema,
-  // A bounded free-form guard like `EventEnvelope.id`, not the branded `RunIdSchema` that
-  // `usage.model_rerouted` uses.
-  runId: wireFreeFormString(EVENT_FIELD_MAX_LEN, "assistant output payload runId").optional(),
-  contentType: wireFreeFormString(
-    EVENT_FIELD_MAX_LEN,
-    "assistant output payload contentType",
-  ).optional(),
-  origin: MessageOriginSchema.optional(),
-  ...buildMachineContentDescriptorShape(),
-});
-
-const buildToolActivityPayloadShape = () => ({
-  sessionId: SessionIdSchema,
-  runId: wireFreeFormString(EVENT_FIELD_MAX_LEN, "tool activity payload runId"),
-  toolName: wireFreeFormString(EVENT_FIELD_MAX_LEN, "tool activity payload toolName"),
-  toolCallId: wireFreeFormString(
-    EVENT_FIELD_MAX_LEN,
-    "tool activity payload toolCallId",
-  ).optional(),
-  durationMs: countSchema.optional(),
-  ...buildMachineContentDescriptorShape(),
-});
-
-// A run carries every assistant row but a voice call's answer, which comes outside any run.
-const buildAssistantOutputPayloadSchema = () =>
-  withEpochStamp(z.object(buildAssistantOutputPayloadShape()).strict()).refine(
-    (payload) => (payload.runId === undefined) === (payload.origin === "voice"),
-    {
-      path: ["runId"],
-      message: "An assistant row carries a run id exactly when it is not a voice call's answer.",
-    },
-  );
-
-/** Strict payload schema of `assistant.message`, with the epoch stamp. */
-export const assistantMessagePayloadSchema: z.ZodType<AssistantMessageEvent["payload"]> =
-  buildAssistantOutputPayloadSchema();
-/** Strict payload schema of `assistant.thinking_update`, with the epoch stamp. */
-export const assistantThinkingUpdatePayloadSchema: z.ZodType<
-  AssistantThinkingUpdateEvent["payload"]
-> = buildAssistantOutputPayloadSchema();
-/** Strict payload schema of `tool.invoked`, with the epoch stamp. */
-export const toolInvokedPayloadSchema: z.ZodType<ToolInvokedEvent["payload"]> = withEpochStamp(
-  z.object(buildToolActivityPayloadShape()).strict(),
-);
-/** Strict payload schema of `tool.result`, with the epoch stamp. */
-export const toolResultPayloadSchema: z.ZodType<ToolResultEvent["payload"]> = withEpochStamp(
-  z.object(buildToolActivityPayloadShape()).strict(),
-);
-/** Strict payload schema of `tool.error`, with the epoch stamp. */
-export const toolErrorPayloadSchema: z.ZodType<ToolErrorEvent["payload"]> = withEpochStamp(
-  z.object(buildToolActivityPayloadShape()).strict(),
+/** Strict payload schema of the three tool rows, with the epoch stamp. */
+export const toolActivityPayloadSchema: z.ZodType<ToolActivityPayload> = withEpochStamp(
+  z
+    .object({
+      sessionId: SessionIdSchema,
+      runId: wireFreeFormString(EVENT_FIELD_MAX_LEN, "tool activity payload runId"),
+      toolName: wireFreeFormString(EVENT_FIELD_MAX_LEN, "tool activity payload toolName"),
+      toolCallId: wireFreeFormString(
+        EVENT_FIELD_MAX_LEN,
+        "tool activity payload toolCallId",
+      ).optional(),
+      durationMs: countSchema.optional(),
+      ...MACHINE_CONTENT_DESCRIPTOR_SHAPE,
+    })
+    .strict(),
 );
 
 /** Emitted when the assistant produces a message; its body is kept apart from the payload. */

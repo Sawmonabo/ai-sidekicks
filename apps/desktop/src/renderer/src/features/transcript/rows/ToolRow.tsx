@@ -1,9 +1,12 @@
-// The tool card: one line until opened. The list owns the collapse state through `density`, so
-// two rows cannot disagree about it. The result chip sits outside the disclosure so a collapsed
-// error stays visible; a call that succeeded draws no chip, since success is shown by absence.
+// The tool card: a call with a body is open until a person folds it, and one without a body is its
+// one line with no chevron. The list owns the fold through `density`, so two rows cannot disagree
+// about it. The result chip sits outside the fold so a folded error stays visible; a call that
+// succeeded draws no chip, since success is shown by absence.
 // No tool kind is read from the tool's name; `ToolKindBadge` draws what a row declares.
 
 import "./ToolRow.css";
+
+import { useId } from "react";
 
 import { elideText } from "#renderer/lib/elide-text.js";
 import { readWireString } from "#renderer/lib/wire/strings.js";
@@ -15,8 +18,8 @@ import {
   hueStepOf,
 } from "../components/TranscriptRowLayout/TranscriptRowLayout.js";
 import { formatDuration } from "#renderer/lib/wire/figures.js";
-import { describeRowKind, toolResultState, type ToolResultState } from "./kind.js";
-import type { HydratedRowProps } from "./hydrated-props.js";
+import { describeRowKind, isFoldableCall, toolResultState, type ToolResultState } from "./kind.js";
+import type { TranscriptCardProps } from "./card-props.js";
 import { ToolOutput } from "./bodies/ToolOutput.js";
 import { ToolKindBadge } from "./tool-kinds/ToolKindBadge.js";
 import { readDeclaredToolKind } from "./tool-kinds/vocabulary.js";
@@ -30,12 +33,12 @@ import { projectedPayload, readWireCount } from "#renderer/store/session/events/
 const TOOL_SUMMARY_MAX_CHARACTERS = 96;
 
 /** What a mount hands a tool card, beyond the row itself. */
-export interface ToolRowProps extends HydratedRowProps {
+export interface ToolRowProps extends TranscriptCardProps {
   /**
-   * Open or close this row. Optional because density belongs to the list: without it the card
-   * renders a state rather than a control.
+   * Fold or open this call, handed the chevron that was pressed. Optional because density belongs
+   * to the list: without it the card renders a state rather than a control.
    */
-  readonly onDensityToggle?: (() => void) | undefined;
+  readonly onDensityToggle?: ((control: HTMLElement) => void) | undefined;
 }
 
 /** How each result state reads and which tone it takes; `undefined` draws no chip. */
@@ -55,12 +58,16 @@ const RESULT_STATE_CHIPS: Readonly<
 /** A tool-call row: the row kind's glyph and label around its declared arguments and result. */
 export function ToolRow(props: ToolRowProps): React.JSX.Element {
   const kind = describeRowKind("tool-call");
-  const state = toolResultState(props.row.type, props.content);
+  const state = toolResultState(props.row.type, props.row.content);
   const chip = RESULT_STATE_CHIPS[state];
   const payload = projectedPayload(props.row);
   const toolName = readWireString(payload["toolName"]);
   const durationMs = readWireCount(payload, "durationMs");
-  const isOpen = props.density === "expanded";
+  const isFoldable = isFoldableCall(props.row, props.liveText !== undefined);
+  const isOpen = isFoldable && props.density === "expanded";
+  const onDensityToggle = props.onDensityToggle;
+  // The chevron carries no words of its own: it is named by the tool's name beside it.
+  const nameId = useId();
 
   return (
     <TranscriptRowLayout
@@ -76,11 +83,13 @@ export function ToolRow(props: ToolRowProps): React.JSX.Element {
         {/* Wire-verbatim, in mono. A missing name reads as absent, not "unknown", which the
               daemon never sent. */}
         {toolName === undefined ? (
-          <span className="meridian-tool-card__name meridian-tool-card__name--absent">
+          <span id={nameId} className="meridian-tool-card__name meridian-tool-card__name--absent">
             No tool name
           </span>
         ) : (
-          <span className="meridian-tool-card__name">{toolName}</span>
+          <span id={nameId} className="meridian-tool-card__name">
+            {toolName}
+          </span>
         )}{" "}
         {/* Before the summary: the badge qualifies which tool ran, the summary says what it did.
               Draws nothing for a row that declares no tool kind. */}
@@ -102,23 +111,26 @@ export function ToolRow(props: ToolRowProps): React.JSX.Element {
             <Chip label={chip.label} tone={chip.tone} />
           </>
         )}
-        {props.onDensityToggle === undefined ? null : (
+        {/* A call with no body has nothing to fold, so it draws no chevron and no tab stop. */}
+        {!isFoldable || onDensityToggle === undefined ? null : (
           <button
             type="button"
             // The second class is the row layout's reveal class: the layout owns when a
             // secondary control appears and this card owns what it is.
             className="meridian-tool-card__disclosure meridian-transcript-row-layout__revealed"
             aria-expanded={isOpen}
-            onClick={props.onDensityToggle}
+            aria-labelledby={nameId}
+            onClick={(event) => {
+              onDensityToggle(event.currentTarget);
+            }}
           >
             <Glyph name={isOpen ? "chevron-down" : "chevron-right"} />
-            {isOpen ? "Close" : "Open"}
           </button>
         )}
       </div>
       {isOpen ? (
         <ToolOutput
-          content={props.content}
+          content={props.row.content}
           {...(props.liveText === undefined ? {} : { liveText: props.liveText })}
           // No shape is passed: the payload has no tool kind or content type, so any fixed answer
           // (ANSI or prose) would misread some results. `ToolOutput` reads the bytes, and a
@@ -126,6 +138,7 @@ export function ToolRow(props: ToolRowProps): React.JSX.Element {
           sourceId={props.row.id}
           footnotes={props.footnotes}
           label={`Output of ${toolName ?? "an unnamed tool"}`}
+          holdControlInPlace={props.holdControlInPlace}
         />
       ) : null}
     </TranscriptRowLayout>

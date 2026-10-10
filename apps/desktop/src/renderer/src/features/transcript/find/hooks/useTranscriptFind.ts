@@ -1,7 +1,7 @@
-// The find field's state and the walk over the window the viewport shows. It searches the
-// visible window, not the log, because the viewport performs the jump and a match outside
-// it would land nowhere. Matches outside are counted in two figures, one per stage that
-// removed rows (the cap and the run fold), since each has a different exit.
+// The find field's state and the walk over the rows the feed draws. It searches every row the
+// store holds, whether or not the viewport's window holds it: a step to a row the window let go
+// lands on it, as a link does. Matches inside folded run groups are counted apart, since opening
+// the group is their exit.
 
 import { useCallback, useMemo, useState } from "react";
 
@@ -14,21 +14,18 @@ import {
   type FindStepDirection,
   type FindResult,
 } from "../matcher.js";
-import { type VisibleTranscriptWindow } from "../../window/hooks/useVisibleTranscriptWindow.js";
 
 /** The find field's state, and the walk over one window's matches. */
 export interface TranscriptFindState {
   readonly isOpen: boolean;
   readonly query: string;
   readonly result: FindResult;
-  /** Matches in rows the cap took out of this window. Named, never hidden. */
-  readonly beyondWindowMatchCount: number;
   /** Matches inside folded terminal run groups; finished runs fold by default. */
   readonly foldedAwayMatchCount: number;
   /**
    * Where the walk is in the current result, or `-1` with nothing selected.
    *
-   * Derived from the selected row, not held as an ordinal: the result recomputes as the window
+   * Derived from the selected row, not held as an ordinal: the result recomputes as the log
    * moves, and a held ordinal could outlive a shorter list.
    */
   readonly currentMatchIndex: number;
@@ -47,26 +44,31 @@ export interface TranscriptFindState {
   readonly step: (direction: FindStepDirection) => ReturnType<typeof stepFindMatch>;
 }
 
-/** Every stage between the loaded log and the rows on screen. */
+/** The rows the walk searches, and what the run fold withheld from them. */
 export interface TranscriptFindInputs {
-  /** The rows the walk searches — the only ones a step can land on. */
-  readonly visible: VisibleTranscriptWindow;
+  /** The rows the feed draws, in log order: every one a step can land on. */
+  readonly rows: readonly TranscriptEventRow[];
   /**
    * The rows the run fold withheld, as that stage reported them. Re-deriving them would walk
    * the whole projection on every appended row while a query is set.
    */
   readonly foldedAwayRows: readonly TranscriptEventRow[];
+  /**
+   * Whether the feed draws a row. A folded row it draws nothing for stays hidden when its group
+   * opens, so it is no match a person could reach.
+   */
+  readonly drawsRow: (row: TranscriptEventRow) => boolean;
 }
 
 /**
- * Searches the window on screen and counts what lies outside it.
+ * Searches the rows the feed draws and counts the matches the run fold withholds.
  *
- * The three sets are disjoint (a row the fold took never reaches the viewport), so every match
- * is in `result` or in exactly one count. The walk is held by row, not ordinal, because the
- * result recomputes as the window moves.
+ * The two sets are disjoint (a row the fold took is not drawn), so every match is in `result` or
+ * in the count. The walk is held by row, not ordinal, because the result recomputes as the log
+ * moves.
  */
 export function useTranscriptFind(inputs: TranscriptFindInputs): TranscriptFindState {
-  const { visible, foldedAwayRows } = inputs;
+  const { rows, foldedAwayRows, drawsRow } = inputs;
   const [isOpen, setIsOpen] = useState(false);
   const [openRequestCount, setOpenRequestCount] = useState(0);
   const [query, setQueryValue] = useState("");
@@ -74,23 +76,13 @@ export function useTranscriptFind(inputs: TranscriptFindInputs): TranscriptFindS
 
   const result = useMemo(
     () =>
-      query.trim().length === 0
-        ? emptyFindResult(visible.rows.length)
-        : findInTranscript(visible.rows, query),
-    [visible, query],
-  );
-
-  const beyondWindowMatchCount = useMemo(
-    () =>
-      query.trim().length === 0
-        ? 0
-        : findInTranscript(visible.prunedAwayRows, query).totalMatchCount,
-    [visible, query],
+      query.trim().length === 0 ? emptyFindResult(rows.length) : findInTranscript(rows, query),
+    [rows, query],
   );
 
   const foldedAwayMatchCount = useMemo(
-    () => matchesAmong(foldedAwayRows, query),
-    [foldedAwayRows, query],
+    () => matchesAmong(foldedAwayRows, query, drawsRow),
+    [foldedAwayRows, query, drawsRow],
   );
 
   // Looked up, not remembered, so a recomputed result reports where the walk actually is.
@@ -138,7 +130,6 @@ export function useTranscriptFind(inputs: TranscriptFindInputs): TranscriptFindS
     isOpen,
     query,
     result,
-    beyondWindowMatchCount,
     foldedAwayMatchCount,
     currentMatchIndex,
     setQuery,
@@ -150,12 +141,16 @@ export function useTranscriptFind(inputs: TranscriptFindInputs): TranscriptFindS
 }
 
 /**
- * Matches in one stage's removals. A stage that removed nothing hands back the shared empty
- * set the memo keys on, so an appended row never reaches this.
+ * Matches among the folded rows the feed would draw once opened. A stage that removed nothing
+ * hands back the shared empty set, which answers before any row is read.
  */
-function matchesAmong(rows: readonly TranscriptEventRow[], query: string): number {
+function matchesAmong(
+  rows: readonly TranscriptEventRow[],
+  query: string,
+  drawsRow: (row: TranscriptEventRow) => boolean,
+): number {
   if (rows.length === 0 || query.trim().length === 0) {
     return 0;
   }
-  return findInTranscript(rows, query).totalMatchCount;
+  return findInTranscript(rows.filter(drawsRow), query).totalMatchCount;
 }

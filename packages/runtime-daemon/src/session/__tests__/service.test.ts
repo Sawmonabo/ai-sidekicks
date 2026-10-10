@@ -1,8 +1,8 @@
 // SessionService over SQLite: the read `session.read` answers from the session's row with its
-// cursors, the rebuild from the log in sequence order and across a restart, and schema
-// idempotency including a concurrent-boot race across worker threads. Each test gets its own
-// database file under os.tmpdir(), opened as the daemon opens it: writes through the database
-// writer, reads on a read-only connection.
+// cursors, live runs and standing events, the rebuild from the log in sequence order and across a
+// restart, and schema idempotency including a concurrent-boot race across worker threads. Each
+// test gets its own database file under os.tmpdir(), opened as the daemon opens it: writes
+// through the database writer, reads on a read-only connection.
 
 import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -14,8 +14,11 @@ import Database from "better-sqlite3";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { AgentIdSchema } from "@ai-sidekicks/contracts/agent/definition";
 import { EventEnvelopeVersionSchema } from "@ai-sidekicks/contracts/event/envelope";
 import { type SessionId } from "@ai-sidekicks/contracts/session/id";
+import { RunIdSchema } from "@ai-sidekicks/contracts/run/id";
+import type { RunQueuedPayload } from "@ai-sidekicks/contracts/run/queued";
 import {
   encodeEventCursor,
   START_OF_LOG_POSITION,
@@ -30,6 +33,7 @@ import { EventLogService } from "../../events/log-service.js";
 import { SessionNotFoundError } from "../../ipc/session-errors.js";
 import { directoryStatementsFor } from "../directory/row.js";
 import { applyMigrations, applyPragmas } from "../migration-runner.js";
+import { insertQueuedRunStatement } from "../run/projection.js";
 import { SessionService } from "../service.js";
 import {
   insertStoredEvent,
@@ -69,6 +73,30 @@ function storedRenamedEvent(sequence: number, monotonicNs: bigint, name: string)
     correlationId: null,
     causationId: null,
     version: "1.0",
+  };
+}
+
+// The lead `makeCreatedEvent` brings in, and a second agent of the session.
+const LEAD_AGENT_ID = "44444444-4444-4444-8444-444444444444";
+const HELPER_AGENT_ID = "55555555-5555-4555-8555-555555555555";
+
+// An `agent.provider_binding_changed` payload: `agentId` moved from Claude Code to Codex.
+function bindingChangedPayload(agentId: string, switchId: string): Record<string, unknown> {
+  return {
+    sessionId: SESSION_ID,
+    agentId,
+    switchId,
+    actor: "device-laptop",
+    from: {
+      driverName: "claude",
+      modelId: "claude-sonnet-5",
+      providerAccountId: null,
+      effort: null,
+    },
+    to: { driverName: "codex", modelId: "gpt-5.5", providerAccountId: null, effort: null },
+    landedProviderAccountId: "codex-personal",
+    continuity: "brief",
+    declaredLosses: ["conversation_history_summarized", "provider_private_reasoning"],
   };
 }
 
@@ -124,32 +152,82 @@ afterEach(async () => {
   rmSync(ctx.tmpDir, { recursive: true, force: true });
 });
 
+const EVENT_VERSION = EventEnvelopeVersionSchema.parse("1.0");
+
+// The event log over this test's database, keeping the session's directory row in step.
+function openSessionEventLog(): EventLogService {
+  return new EventLogService({
+    writer: ctx.connections.writer,
+    reader: ctx.connections.reader,
+    projectionStatements: directoryStatementsFor,
+    writeServiceLog: (line) => {
+      throw new Error(`unexpected service log line: ${line}`);
+    },
+  });
+}
+
+// Appends the session's birth through the log, and returns it.
+async function appendSessionCreated(events: EventLogService): Promise<StoredEvent> {
+  const created = storedCreatedEvent(1n);
+  await events.append({
+    id: randomUUID(),
+    sessionId: SESSION_ID,
+    occurredAt: created.occurredAt,
+    category: "session_lifecycle",
+    type: "session.created",
+    actor: null,
+    payload: created.payload,
+    version: EVENT_VERSION,
+  });
+  return created;
+}
+
+// Appends a run's `run.queued` with its `runs` row, as admission does.
+async function appendRunQueued(
+  events: EventLogService,
+  payload: RunQueuedPayload,
+  occurredAt: string,
+): Promise<void> {
+  await events.append(
+    {
+      id: randomUUID(),
+      sessionId: SESSION_ID,
+      occurredAt,
+      category: "run_lifecycle",
+      type: "run.queued",
+      actor: null,
+      payload,
+      version: EVENT_VERSION,
+    },
+    { transactionalPrelude: [insertQueuedRunStatement(payload)] },
+  );
+}
+
 // ----------------------------------------------------------------------------
 // session.read
 // ----------------------------------------------------------------------------
 
 describe("SessionService — readSession", () => {
-  it("answers the session's row and tags, the start of the log as earliest and its head as latest", async () => {
-    const events = new EventLogService({
-      writer: ctx.connections.writer,
-      reader: ctx.connections.reader,
-      projectionStatements: directoryStatementsFor,
-      writeServiceLog: (line) => {
-        throw new Error(`unexpected service log line: ${line}`);
-      },
-    });
-    const version = EventEnvelopeVersionSchema.parse("1.0");
-    const created = storedCreatedEvent(1n);
-    await events.append({
-      id: randomUUID(),
-      sessionId: SESSION_ID,
-      occurredAt: created.occurredAt,
-      category: "session_lifecycle",
-      type: "session.created",
-      actor: null,
-      payload: created.payload,
-      version,
-    });
+  it("answers the session's row, tags, cursors and the events its standing facts are read from", async () => {
+    const events = openSessionEventLog();
+    const created = await appendSessionCreated(events);
+    // The lead switches twice and a second agent once; each agent's newest switch stands.
+    for (const [agentId, switchId] of [
+      [LEAD_AGENT_ID, "switch-1"],
+      [HELPER_AGENT_ID, "switch-2"],
+      [LEAD_AGENT_ID, "switch-3"],
+    ] as const) {
+      await events.append({
+        id: randomUUID(),
+        sessionId: SESSION_ID,
+        occurredAt: "2026-04-27T12:01:00.000Z",
+        category: "session_lifecycle",
+        type: "agent.provider_binding_changed",
+        actor: null,
+        payload: bindingChangedPayload(agentId, switchId),
+        version: EVENT_VERSION,
+      });
+    }
     await events.append({
       id: randomUUID(),
       sessionId: SESSION_ID,
@@ -158,7 +236,7 @@ describe("SessionService — readSession", () => {
       type: "session.muted",
       actor: null,
       payload: { sessionId: SESSION_ID, at: "2026-04-27T12:05:00.000Z" },
-      version,
+      version: EVENT_VERSION,
     });
     await ctx.connections.writer.write([
       {
@@ -181,8 +259,31 @@ describe("SessionService — readSession", () => {
       },
       transcriptCursors: {
         earliest: encodeEventCursor(START_OF_LOG_POSITION),
-        latest: encodeEventCursor(1),
+        latest: encodeEventCursor(4),
       },
+      liveRuns: [],
+      // The birth row brought the lead in, and each agent's newest switch says the binding it is
+      // on, so they stand whatever window a reader opens.
+      standingEvents: [
+        {
+          cursor: encodeEventCursor(0),
+          event: expect.objectContaining({ sequence: 0, type: "session.created" }),
+        },
+        {
+          cursor: encodeEventCursor(2),
+          event: expect.objectContaining({
+            sequence: 2,
+            payload: expect.objectContaining({ agentId: HELPER_AGENT_ID }),
+          }),
+        },
+        {
+          cursor: encodeEventCursor(3),
+          event: expect.objectContaining({
+            sequence: 3,
+            payload: expect.objectContaining({ agentId: LEAD_AGENT_ID, switchId: "switch-3" }),
+          }),
+        },
+      ],
     });
   });
 
@@ -214,6 +315,87 @@ describe("SessionService — readSession", () => {
         latest: encodeEventCursor(START_OF_LOG_POSITION),
       },
     );
+  });
+
+  it("stands on an agent's newest readable switch when a newer one lies past the damaged point", async () => {
+    const events = openSessionEventLog();
+    await appendSessionCreated(events);
+    for (const switchId of ["switch-1", "switch-2"]) {
+      await events.append({
+        id: randomUUID(),
+        sessionId: SESSION_ID,
+        occurredAt: "2026-04-27T12:01:00.000Z",
+        category: "session_lifecycle",
+        type: "agent.provider_binding_changed",
+        actor: null,
+        payload: bindingChangedPayload(LEAD_AGENT_ID, switchId),
+        version: EVENT_VERSION,
+      });
+    }
+    // The second switch, at sequence 2, is where the session's history is damaged.
+    const damagedFromSecondSwitch = new SessionService(ctx.connections.reader, () => 2);
+
+    expect(
+      damagedFromSecondSwitch.readSession({ sessionId: SESSION_ID }).standingEvents,
+    ).toStrictEqual([
+      expect.objectContaining({ cursor: encodeEventCursor(0) }),
+      {
+        cursor: encodeEventCursor(1),
+        event: expect.objectContaining({
+          payload: expect.objectContaining({ switchId: "switch-1" }),
+        }),
+      },
+    ]);
+  });
+
+  it("names each live run's agent as its creation names it", async () => {
+    const events = openSessionEventLog();
+    await appendSessionCreated(events);
+    const leadRunId = RunIdSchema.parse(randomUUID());
+    const helperRunId = RunIdSchema.parse(randomUUID());
+    // The lead's run names the lead and no parent; the run it starts names its agent and parent.
+    await appendRunQueued(
+      events,
+      {
+        sessionId: SESSION_ID,
+        runId: leadRunId,
+        runVersion: 0,
+        newState: "queued",
+        agentId: AgentIdSchema.parse(LEAD_AGENT_ID),
+      },
+      "2026-04-27T12:01:00.000Z",
+    );
+    await appendRunQueued(
+      events,
+      {
+        sessionId: SESSION_ID,
+        runId: helperRunId,
+        runVersion: 0,
+        newState: "queued",
+        agentId: AgentIdSchema.parse(HELPER_AGENT_ID),
+        parentRunId: leadRunId,
+        reachedBy: "bridge_run",
+      },
+      "2026-04-27T12:02:00.000Z",
+    );
+
+    expect(ctx.service.readSession({ sessionId: SESSION_ID }).liveRuns).toStrictEqual([
+      {
+        runId: leadRunId,
+        state: "queued",
+        runVersion: 0,
+        agentId: LEAD_AGENT_ID,
+        touchedAt: "2026-04-27T12:01:00.000Z",
+      },
+      {
+        runId: helperRunId,
+        parentRunId: leadRunId,
+        state: "queued",
+        runVersion: 0,
+        agentId: HELPER_AGENT_ID,
+        touchedAt: "2026-04-27T12:02:00.000Z",
+      },
+    ]);
   });
 
   it("refuses a session this daemon holds no row for with session.not_found", () => {

@@ -1,8 +1,10 @@
 // The only module that writes a scroll offset, the transcript's and every windowed list's; each
 // write names its caller so competing writers can be arbitrated.
-// Geometry is published, never polled, from three reads (`scrollTop`, `clientHeight`,
-// `scrollHeight`) and no hit test. A no-op write is skipped only once the display is known
-// to round offsets.
+// Geometry is published, never polled, and with no hit test. A container attached with its
+// content height (a virtualizer's total size) costs a scroll event one read, `scrollTop`: the
+// viewport height comes from the resize observation. One attached without it reads
+// `clientHeight` and `scrollHeight` beside the offset. A no-op write is skipped only once the
+// display is known to round offsets.
 
 import { type Clock } from "#renderer/lib/clock.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
@@ -14,7 +16,7 @@ import {
   type ScrollFrameScheduler,
   type ScrollTargetComputation,
 } from "./frame-writes.js";
-import { ScrollGeometryPublisher } from "./geometry/publisher.js";
+import { ScrollGeometryPublisher, type ScrollGeometryReading } from "./geometry/publisher.js";
 import { WholePixelQuantizationLearner } from "./quantization.js";
 
 /** What one glide did, including the arm that did nothing. */
@@ -46,6 +48,14 @@ export class ScrollController {
   readonly #frameWrites: ScrollFrameWrites;
 
   #scrollContainer: HTMLElement | undefined;
+  /** The caller's content height, read in place of `scrollHeight`; absent, the element's are. */
+  #contentHeight: (() => number) | undefined;
+  /**
+   * The viewport height read beside a supplied content height: `clientHeight` on attach, then each
+   * resize observation's content box, which is `clientHeight` less the vertical padding (both
+   * leave out a horizontal scrollbar), so a scroll event reads no box.
+   */
+  #viewportHeightPx = 0;
   #onContainerScroll: (() => void) | undefined;
   #overflowSink: OverflowMeasurementSink | undefined;
   #writeDepth = 0;
@@ -63,7 +73,8 @@ export class ScrollController {
       runPass: () => {
         this.#runOverflowPass();
       },
-      publishOnResize: () => {
+      publishOnResize: (contentBoxHeightPx) => {
+        this.#viewportHeightPx = contentBoxHeightPx;
         this.#publishGeometry("resize");
       },
     });
@@ -78,17 +89,22 @@ export class ScrollController {
   }
 
   /**
-   * Take ownership of a scroll container, detaching any previous one first.
+   * Take ownership of a scroll container, detaching any previous one first, and arm an overflow
+   * pass, since the detach canceled the one the previous attachment armed.
    *
-   * Arms an overflow pass too: the detach canceled the pass the previous attachment armed,
-   * and the new container would otherwise wait for its first resize.
+   * `contentHeight`, in CSS pixels, stands in for `scrollHeight` and the observed content box for
+   * `clientHeight`, so a scroll event reads only `scrollTop`. It measures the content inside the
+   * container's vertical padding, which the content box leaves out too.
    */
-  public attach(scrollContainer: HTMLElement): void {
+  public attach(scrollContainer: HTMLElement, contentHeight?: () => number): void {
     if (this.#disposed) {
       return;
     }
     this.detach();
     this.#scrollContainer = scrollContainer;
+    this.#contentHeight = contentHeight;
+    // Until the first resize observation, which the platform delivers before the next paint.
+    this.#viewportHeightPx = scrollContainer.clientHeight;
     const onScroll = (): void => {
       this.#publishGeometry("scroll");
     };
@@ -113,6 +129,7 @@ export class ScrollController {
     }
     this.#onContainerScroll = undefined;
     this.#scrollContainer = undefined;
+    this.#contentHeight = undefined;
     this.#overflowBatch.release();
   }
 
@@ -147,7 +164,8 @@ export class ScrollController {
     if (scrollContainer === undefined || this.#disposed) {
       return undefined;
     }
-    const requestedScrollTop = this.#clampToContent(scrollContainer, targetScrollTop);
+    const maximumScrollTop = this.#maximumScrollTop(scrollContainer);
+    const requestedScrollTop = clampToContent(targetScrollTop, maximumScrollTop);
     const currentScrollTop = scrollContainer.scrollTop;
     this.#writeCountByCaller.set(caller, (this.#writeCountByCaller.get(caller) ?? 0) + 1);
     if (this.#quantization.isNoOpWrite(requestedScrollTop, currentScrollTop)) {
@@ -159,7 +177,13 @@ export class ScrollController {
     try {
       scrollContainer.scrollTop = requestedScrollTop;
       const appliedScrollTop = scrollContainer.scrollTop;
-      this.#quantization.observe(requestedScrollTop, appliedScrollTop);
+      // A supplied content height knows the platform's whole-pixel maximum only to within a
+      // pixel, so a write that near the edge may have been clamped, and a clamp reads as rounding.
+      const isNearSuppliedEdge =
+        this.#contentHeight !== undefined && requestedScrollTop > maximumScrollTop - 1;
+      if (!isNearSuppliedEdge) {
+        this.#quantization.observe(requestedScrollTop, appliedScrollTop);
+      }
       this.#publishGeometry("scroll");
       return { caller, requestedScrollTop, appliedScrollTop, wasSkipped: false };
     } finally {
@@ -173,7 +197,7 @@ export class ScrollController {
     if (scrollContainer === undefined) {
       return undefined;
     }
-    return this.glideTo(caller, scrollContainer.scrollHeight - scrollContainer.clientHeight);
+    return this.glideTo(caller, this.#maximumScrollTop(scrollContainer));
   }
 
   /**
@@ -226,18 +250,30 @@ export class ScrollController {
     return this.#writeCountByCaller.get(caller) ?? 0;
   }
 
-  #clampToContent(scrollContainer: HTMLElement, targetScrollTop: number): number {
-    const maximum = Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight);
-    if (!Number.isFinite(targetScrollTop)) {
-      // Fail closed: the platform silently turns `NaN` into zero, which would teleport the
-      // reader to the top of the log.
-      return 0;
-    }
-    return Math.min(Math.max(0, targetScrollTop), maximum);
+  #maximumScrollTop(scrollContainer: HTMLElement): number {
+    const { contentHeight, viewportHeight } = this.#readHeights(scrollContainer);
+    return Math.max(0, contentHeight - viewportHeight);
   }
 
   /**
-   * Read the three numbers, publish them, and return the sample; `undefined` when no
+   * The content and viewport heights: the supplied content height over the observed viewport,
+   * which reads no element, or else the element's `scrollHeight` and `clientHeight`.
+   */
+  #readHeights(scrollContainer: HTMLElement): Omit<ScrollGeometryReading, "scrollTop"> {
+    const contentHeight = this.#contentHeight;
+    if (contentHeight === undefined) {
+      return {
+        viewportHeight: scrollContainer.clientHeight,
+        contentHeight: scrollContainer.scrollHeight,
+      };
+    }
+    const viewportHeight = this.#viewportHeightPx;
+    // `scrollHeight` is never smaller than the viewport, so neither is what stands in for it.
+    return { viewportHeight, contentHeight: Math.max(contentHeight(), viewportHeight) };
+  }
+
+  /**
+   * Read the offset and the heights, publish them, and return the sample; `undefined` when no
    * container is attached. A row rect read here would put a hit test on the scroll path.
    */
   #publishGeometry(cause: GeometryChangeCause): ScrollGeometry | undefined {
@@ -246,11 +282,7 @@ export class ScrollController {
       return undefined;
     }
     return this.#geometryPublisher.publish(
-      {
-        scrollTop: scrollContainer.scrollTop,
-        viewportHeight: scrollContainer.clientHeight,
-        contentHeight: scrollContainer.scrollHeight,
-      },
+      { scrollTop: scrollContainer.scrollTop, ...this.#readHeights(scrollContainer) },
       cause,
     );
   }
@@ -286,4 +318,13 @@ export function scrollForReorderDrag(
   const maximum = Math.max(0, container.scrollHeight - container.clientHeight);
   container.scrollTop = Math.min(Math.max(0, offset), maximum);
   return container.scrollTop;
+}
+
+function clampToContent(targetScrollTop: number, maximumScrollTop: number): number {
+  if (!Number.isFinite(targetScrollTop)) {
+    // Fail closed: the platform silently turns `NaN` into zero, which would teleport the reader
+    // to the top of the log.
+    return 0;
+  }
+  return Math.min(Math.max(0, targetScrollTop), maximumScrollTop);
 }

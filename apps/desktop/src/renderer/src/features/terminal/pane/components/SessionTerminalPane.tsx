@@ -2,9 +2,10 @@
 //
 // Split from `TerminalPane.tsx` because the store hooks may only be called when there is a
 // store. The pane shows the shell keyed by the session's id, and its write gate opens on the
-// lease folded from the session log against this device's id, which main's connection to the
-// service was given; until that id is known another device's hold, or this device's own, reads as
-// not yet read and the body stays read-only.
+// lease folded from the session's standing events against this device's id, which main's
+// connection to the service was given; until that id is known another device's hold, or this
+// device's own, reads as not yet read and the body stays read-only. The standing events hold the
+// shell's newest change of holder whatever rows the transcript's window holds.
 
 import { useMemo } from "react";
 
@@ -12,7 +13,7 @@ import type { TerminalId } from "@ai-sidekicks/contracts/pty";
 
 import { useSessionStore } from "#renderer/store/session/hooks/useOpenSessionStore.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
-import { selectTranscript } from "#renderer/store/session/selectors.js";
+import { selectStandingEvents } from "#renderer/store/session/selectors.js";
 import { useMainProcessState } from "#renderer/store/window/hooks/useMainProcessState.js";
 import { type WindowStore } from "#renderer/store/window/store.js";
 import { XtermMountPoint } from "../../emulator/components/XtermMountPoint.js";
@@ -35,13 +36,14 @@ export interface SessionTerminalPaneProps {
 export function SessionTerminalPane(props: SessionTerminalPaneProps): React.JSX.Element {
   const { sessionStore, frameStore } = props;
   const sessionId = sessionStore.sessionId;
-  const transcript = useSessionStore(sessionStore, selectTranscript);
+  const standingEvents = useSessionStore(sessionStore, selectStandingEvents);
   const thisDeviceId = useMainProcessState(frameStore).negotiation?.deviceId;
 
   // The selector returns the stored array, so the fold reruns only when its identity changes.
   const lease: TerminalLeaseState = useMemo(
-    () => projectTerminalLease(transcript, { terminalId: sessionId as TerminalId, thisDeviceId }),
-    [sessionId, thisDeviceId, transcript],
+    () =>
+      projectTerminalLease(standingEvents, { terminalId: sessionId as TerminalId, thisDeviceId }),
+    [sessionId, thisDeviceId, standingEvents],
   );
 
   return (

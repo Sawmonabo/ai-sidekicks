@@ -85,7 +85,7 @@ export type AppliedChordRecording = Exclude<
 
 /**
  * Compose the rows a person reads, ordered by group then title as the palette orders the same
- * commands. Pure over its inputs.
+ * commands; a command no chord may claim has no row. Pure over its inputs.
  */
 export function composeKeybindingRows(options: {
   readonly commands: readonly CommandDefinition[];
@@ -100,7 +100,8 @@ export function composeKeybindingRows(options: {
 }): readonly KeybindingRow[] {
   const platform = options.platform ?? HOST_CHORD_PLATFORM;
   const overrides = options.overrides ?? {};
-  return [...options.commands]
+  return options.commands
+    .filter((command) => command.takesChord !== false)
     .sort(
       (left, right) =>
         left.group.localeCompare(right.group) || left.title.localeCompare(right.title),

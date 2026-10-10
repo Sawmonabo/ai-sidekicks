@@ -34,4 +34,9 @@ export interface CommandDefinition {
    * typed. Use `when` for an act that does not exist in this scope.
    */
   readonly unavailable?: string | undefined;
+  /**
+   * `false` for a palette-only act no chord may claim: Settings › Keyboard lists no row for it.
+   * Absent for every other command.
+   */
+  readonly takesChord?: false;
 }

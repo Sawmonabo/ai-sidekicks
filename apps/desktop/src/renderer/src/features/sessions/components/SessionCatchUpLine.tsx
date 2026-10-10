@@ -109,7 +109,6 @@ function standingWords(facts: CatchUpFacts): CatchUpWords | undefined {
     : "catching-up";
 }
 
-/** Whether a repair's replay is still folding toward the window's rows. */
 function readIsReplaying(state: SessionStoreState): boolean {
   return state.isReplaying;
 }

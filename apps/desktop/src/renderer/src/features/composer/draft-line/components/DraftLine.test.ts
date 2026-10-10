@@ -141,7 +141,7 @@ describe("DraftLine — a rejected steer keeps the message in the line", () => {
     expect(bar.line().value).toBe("keep going on the parser");
     const line = bar.result.container.querySelector(".meridian-composer__not-delivered");
     expect(line?.textContent).toBe("Not delivered · Retry");
-    const retry = line?.querySelector(".meridian-try-again");
+    const retry = line?.querySelector(".meridian-clickable-word");
     await act(async () => {
       (retry as HTMLButtonElement).click();
     });

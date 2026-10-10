@@ -25,6 +25,12 @@ import { TRANSCRIPT_OWNER } from "./screens.js";
 export const TRANSCRIPT_COMMAND_GROUP = "Transcript";
 
 /**
+ * The clause the fold rows are offered under: a session is open and its transcript holds a run
+ * group, so a person is never offered a fold with nothing to fold.
+ */
+const WHEN_TRANSCRIPT_HOLDS_RUN_GROUP = "sessionActive && transcriptHoldsRunGroup";
+
+/**
  * Build this window's transcript commands. A function of the acts, not a constant, because
  * every `run` closes over one window's transcript.
  */
@@ -61,12 +67,22 @@ export function createTranscriptCommands(acts: TranscriptActs): readonly Command
       run: acts.jumpToLatest,
     },
     {
-      id: "transcript.collapseTerminalRunGroups",
-      title: "Fold every finished run",
+      id: "transcript.foldEveryRun",
+      title: "Fold every run",
       group: TRANSCRIPT_COMMAND_GROUP,
-      when: WHEN_SESSION_ACTIVE,
+      when: WHEN_TRANSCRIPT_HOLDS_RUN_GROUP,
       keywords: ["fold", "collapse", "runs"],
       run: acts.foldEveryRun,
+      takesChord: false,
+    },
+    {
+      id: "transcript.unfoldEveryRun",
+      title: "Unfold every run",
+      group: TRANSCRIPT_COMMAND_GROUP,
+      when: WHEN_TRANSCRIPT_HOLDS_RUN_GROUP,
+      keywords: ["unfold", "expand", "open", "runs"],
+      run: acts.unfoldEveryRun,
+      takesChord: false,
     },
   ];
 }

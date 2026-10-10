@@ -31,7 +31,7 @@ export interface SessionRegistryChange {
   readonly change: "opened" | "closed";
 }
 
-/** Where one open session's stream opens, named each time a read moves its window. */
+/** Where one open session's stream opens, named each time a read or a rejoined tail moves it. */
 export interface SessionStreamOpening extends SessionStreamPosition {
   readonly sessionId: string;
 }
@@ -86,6 +86,19 @@ export class SessionStoreRegistry {
     this.#forgetOpenSessionIds();
     this.#changes.emit({ sessionId, change: "opened" });
     return entry.store;
+  }
+
+  /**
+   * Marks an open session shown on one screen until the returned call; a session no mark holds
+   * keeps a bounded share of its log. Throws a `RefusalError` for a session that is not open.
+   */
+  public markOnScreen(sessionId: string): Unsubscribe {
+    const entry = this.#entriesBySessionId.get(sessionId);
+    if (entry === undefined) {
+      // The caller is owed the call that ends the mark, so a refusal travels as a throw.
+      throw new RefusalError(this.#sessionNotOpen(sessionId, "mark on screen"));
+    }
+    return entry.markOnScreen();
   }
 
   /** The store for an open session, or `undefined`. Never opens one as a side effect. */
@@ -169,8 +182,8 @@ export class SessionStoreRegistry {
   }
 
   /**
-   * Where an open session's stream opens, as its last read that moved the window named it, or
-   * `undefined` when no read has, or the session is not open.
+   * Where an open session's stream opens, as the last read or rejoined tail that moved it named
+   * it, or `undefined` when none has, or the session is not open.
    */
   public streamPositionFor(sessionId: string): SessionStreamPosition | undefined {
     return this.#entriesBySessionId.get(sessionId)?.streamPosition;
@@ -250,7 +263,8 @@ export class SessionStoreRegistry {
 
   /**
    * Subscribe to where each session's stream opens: once its first read places the window, and
-   * again whenever a read moves it. Through the shared emitter, for `subscribe`'s reasons.
+   * again whenever a read or a rejoined tail moves it. Through the shared emitter, for
+   * `subscribe`'s reasons.
    */
   public subscribeToStreamOpenings(listener: (opening: SessionStreamOpening) => void): Unsubscribe {
     return this.#streamOpenings.subscribe(listener);

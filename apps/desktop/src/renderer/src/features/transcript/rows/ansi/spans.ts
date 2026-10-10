@@ -1,5 +1,6 @@
-// Maps `anser` runs onto spans that name palette colors. Only `ansiToJson` is used: an HTML string
-// built from tool output would have to be injected, which the transcript never does.
+// Maps `anser` runs onto spans that name palette colors, and parses a growing output a part at a
+// time. Only `ansiToJson` is used: an HTML string built from tool output would have to be
+// injected, which the transcript never does.
 // Colors are names (`use_classes: true` reports `ansi-red`), not the tool's RGB values. Blink and
 // conceal are not reproduced; 256-color and true-color runs render in the inherited foreground.
 // Extended colors carry the tool's own palette and the app has no honest mapping onto its
@@ -7,13 +8,14 @@
 
 import Anser from "anser";
 
+import { type PublishedText } from "../../reveal/published-text.js";
 import { withoutResidualEscapes } from "./escape-sequences.js";
 
 /**
  * ANSI chunks one command-output body renders before the rest is folded away. `anser` yields
  * one entry per style run, so the cap is on the mapped spans, which become DOM nodes. It is
  * the first render's cap, not a ceiling: `AnsiOutput` offers a control that re-parses the
- * source under a cap admitting every run, because reopening re-parses the same capped sequence.
+ * text under a cap admitting every run, because reopening re-parses the same capped sequence.
  */
 export const ANSI_SPAN_RENDER_CAP = 4096;
 
@@ -97,41 +99,85 @@ export interface AnsiSpanSequence {
   readonly elidedSpanCount: number;
 }
 
+/**
+ * Parses one command output into styled spans as it grows, reading only the text past what it
+ * already parsed. The result is the same as one parse of the whole text: the same spans, classes,
+ * text and counts. Up to `spanCap` spans are built; the rest are counted, not built.
+ *
+ * The parsed part always ends where an `ESC [` begins. `anser` splits its input there, and every
+ * run between two of them is one entry, so a cut anywhere else would split one run into two
+ * spans, or end inside a sequence. Everything before the last `ESC [` is parsed once, on one
+ * `anser` instance that carries the style (colors, decorations) from one part to the next exactly
+ * as one whole-text parse carries it. The run from the last `ESC [` to the end can still grow, so
+ * it is parsed again on each revision, from a copy of that instance's state.
+ */
+export class AnsiSpanParser {
+  /** The spans of the parsed part, up to the cap. */
+  readonly #parsedSpans: AnsiSpan[] = [];
+  /** The `anser` instance standing where the parsed part ends, its style state carried. */
+  #anser = new Anser();
+  #parsedElidedSpanCount = 0;
+  #parsed: ParsedText | undefined;
+  #spanCap = ANSI_SPAN_RENDER_CAP;
+
+  /**
+   * The spans of `text` as it stands. The parsed part is kept while `text` is the handle last read
+   * and still begins with it and the `ESC [` after it; a different handle, a rewrite below that or
+   * a different cap parses from the start.
+   */
+  public read(text: PublishedText, spanCap: number = ANSI_SPAN_RENDER_CAP): AnsiSpanSequence {
+    if (!this.#continues(text, spanCap)) {
+      this.#reset(spanCap);
+    }
+    const parsedLength = this.#parsed?.length ?? 0;
+    const unparsed = text.slice(parsedLength);
+    // With no `ESC [` past its first character, the unparsed text is one run and none of it final.
+    const runStart = Math.max(0, unparsed.lastIndexOf(CONTROL_SEQUENCE_INTRODUCER));
+    if (runStart > 0) {
+      this.#parsedElidedSpanCount += appendSpans(
+        this.#anser.ansiToJson(unparsed.slice(0, runStart), anserOptions()),
+        this.#parsedSpans,
+        this.#spanCap,
+      );
+    }
+    this.#parsed = { text, revision: text.revision, length: parsedLength + runStart };
+
+    const spans = [...this.#parsedSpans];
+    const lastRunElidedSpanCount = appendSpans(
+      copyOf(this.#anser).ansiToJson(unparsed.slice(runStart), anserOptions()),
+      spans,
+      this.#spanCap,
+    );
+    return { spans, elidedSpanCount: this.#parsedElidedSpanCount + lastRunElidedSpanCount };
+  }
+
+  /** Whether the parsed part still stands for `text` under `spanCap`. */
+  #continues(text: PublishedText, spanCap: number): boolean {
+    const parsed = this.#parsed;
+    return (
+      parsed !== undefined &&
+      parsed.text === text &&
+      spanCap === this.#spanCap &&
+      // The `ESC [` the parsed part ends before must stand too: the next part is parsed as
+      // starting with it, so a rewrite of those two characters alone still parses from the start.
+      text.keepsPrefix(parsed.revision, parsed.length + CONTROL_SEQUENCE_INTRODUCER.length)
+    );
+  }
+
+  #reset(spanCap: number): void {
+    this.#anser = new Anser();
+    this.#parsedSpans.length = 0;
+    this.#parsedElidedSpanCount = 0;
+    this.#parsed = undefined;
+    this.#spanCap = spanCap;
+  }
+}
+
 const COLOR_NAMES_BY_ANSER_CLASS: ReadonlyMap<string, AnsiColorName> = new Map(
   ANSI_COLOR_NAMES.map((name) => [`ansi-${name}`, name] as const),
 );
 
 const REPRODUCED_DECORATIONS: ReadonlySet<string> = new Set<string>(ANSI_DECORATIONS);
-
-/**
- * Parses ANSI text into styled spans, up to `spanCap`; the remainder is counted, not built.
- *
- * `remove_empty` drops the zero-length runs anser emits around a bare escape sequence. The cap
- * is a parameter so a caller can re-parse the same source under a wider one.
- */
-export function parseAnsiSpans(
-  source: string,
-  spanCap: number = ANSI_SPAN_RENDER_CAP,
-): AnsiSpanSequence {
-  const entries = Anser.ansiToJson(source, { json: true, use_classes: true, remove_empty: true });
-  const spans: AnsiSpan[] = [];
-  let elidedSpanCount = 0;
-
-  for (const entry of entries) {
-    if (entry.content === "") {
-      continue;
-    }
-    if (spans.length >= spanCap) {
-      elidedSpanCount += 1;
-      continue;
-    }
-    const span = toSpan(entry);
-    // Anser leaves OSC and two-byte escapes inside a chunk; strip them before they become text.
-    spans.push({ ...span, text: withoutResidualEscapes(span.text) });
-  }
-
-  return { spans, elidedSpanCount };
-}
 
 /** The class name a foreground or background color renders under. */
 export function ansiColorClassName(channel: "fg" | "bg", color: AnsiRenderedColor): string {
@@ -221,4 +267,56 @@ function resolveColor(anserClass: string | null | undefined): AnsiColorName | un
     return undefined;
   }
   return COLOR_NAMES_BY_ANSER_CLASS.get(anserClass);
+}
+
+/** The handle last read, at the revision it was read at, and how much of it is parsed. */
+interface ParsedText {
+  readonly text: PublishedText;
+  readonly revision: number;
+  readonly length: number;
+}
+
+/** Where `anser` splits its input: every run of output starts after one of these. */
+const CONTROL_SEQUENCE_INTRODUCER = "\u001b[";
+
+/**
+ * The options every `anser` call takes, as a new object each time: `anser` writes into the
+ * object it is given. `remove_empty` drops the zero-length runs anser emits around a bare escape.
+ */
+function anserOptions(): { json: true; use_classes: true; remove_empty: true } {
+  return { json: true, use_classes: true, remove_empty: true };
+}
+
+/**
+ * Appends the spans of `entries` to `spans` until it holds `spanCap`, and returns how many more
+ * there were. Only runs that would become spans are counted: an empty entry is skipped.
+ */
+function appendSpans(
+  entries: readonly AnserJsonEntry[],
+  spans: AnsiSpan[],
+  spanCap: number,
+): number {
+  let elidedSpanCount = 0;
+  for (const entry of entries) {
+    if (entry.content === "") {
+      continue;
+    }
+    if (spans.length >= spanCap) {
+      elidedSpanCount += 1;
+      continue;
+    }
+    const span = toSpan(entry);
+    // Anser leaves OSC and two-byte escapes inside a chunk; strip them before they become text.
+    spans.push({ ...span, text: withoutResidualEscapes(span.text) });
+  }
+  return elidedSpanCount;
+}
+
+/**
+ * A new `anser` instance in the same style state, so parsing the last run leaves the original
+ * where the parsed part ends. `anser` keeps that state in the instance's own fields and changes
+ * its decorations list in place, so the copy is deep.
+ */
+function copyOf(anser: Anser): Anser {
+  return Object.assign(new Anser(), structuredClone(anser));
 }

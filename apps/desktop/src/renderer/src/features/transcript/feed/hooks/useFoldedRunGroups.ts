@@ -10,12 +10,12 @@ import {
 import { foldRunGroupHeaders } from "../run-group-fold.js";
 
 /**
- * Fold the finished run groups of the projected window. Its own hook so a disclosure toggle
- * re-folds without re-deriving the projection.
+ * Put the run group headers into the projected window and fold the groups a person folded. Its
+ * own hook so a press re-folds without re-deriving the projection.
  */
 export function useFoldedRunGroups(
   model: TranscriptWindowModel,
-  openedTerminalRunIds: ReadonlySet<string>,
+  foldedRunIds: ReadonlySet<string>,
   sessionId: string,
 ): TranscriptPipelineStage {
   // One retention table per session, not per mount, as the projection hook does: this pane
@@ -25,7 +25,7 @@ export function useFoldedRunGroups(
   const retention = useSubjectScopedState(bridge, sessionId, () => new TranscriptRowRetention());
   const heldRetention = retention.value;
   return useMemo(
-    () => foldRunGroupHeaders(model, openedTerminalRunIds, heldRetention),
-    [model, openedTerminalRunIds, heldRetention],
+    () => foldRunGroupHeaders(model, foldedRunIds, heldRetention),
+    [model, foldedRunIds, heldRetention],
   );
 }

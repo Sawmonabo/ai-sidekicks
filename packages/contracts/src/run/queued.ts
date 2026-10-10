@@ -24,10 +24,11 @@ const ChildRunProvenanceSchema: z.ZodType<ChildRunProvenance> = z.enum([
 ]);
 
 /**
- * A run created and placed in the queue. It carries `agentId` (an agent already in the session)
- * or `resolvedAgent` (one minted from a saved definition with this run), never both, and neither
- * for the lead's run. `effectiveRunConfig` holds the limits admission resolved, the request's own
- * else the session's default, so a rebuild restores them even if the defaults change mid-run.
+ * A run created and placed in the queue. It names its agent exactly once: `agentId` for an agent
+ * already in the session, the lead's run naming the session's lead this way, or `resolvedAgent`
+ * for one minted from a saved definition with this run. `effectiveRunConfig` holds the limits
+ * admission resolved, the request's own else the session's default, so a rebuild restores them
+ * even if the defaults change mid-run.
  */
 export type RunQueuedPayload = {
   sessionId: SessionId;
@@ -61,10 +62,9 @@ export const RunQueuedPayloadSchema: z.ZodType<RunQueuedPayload> = z
     admittedProviderAccountId: ProviderAccountIdSchema.optional(),
   })
   .strict()
-  .refine((payload) => payload.agentId === undefined || payload.resolvedAgent === undefined, {
-    path: ["resolvedAgent"],
-    message:
-      "A run names an agent already in the session or one resolved from a definition, never both.",
+  .refine((payload) => (payload.agentId === undefined) !== (payload.resolvedAgent === undefined), {
+    path: ["agentId"],
+    message: "A run names exactly one agent: one in the session or one resolved from a definition.",
   })
   .refine(
     (payload) =>

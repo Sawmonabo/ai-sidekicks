@@ -1,10 +1,11 @@
-// The transcript row renderer: the one body every transcript row is drawn with. The transcript
-// feature registers it (`contributions/rows.ts`, under `TRANSCRIPT_ROW_OWNER`) and
-// the pane reads it back through `findTranscriptRowRenderer`. One renderer, owner-scoped: the
-// same owner may re-register (a hot reload), a different owner is refused by name.
+// The transcript row renderer: the one body every transcript row is drawn with, and which rows it
+// draws one for. The transcript feature registers it (`contributions/rows.ts`, under
+// `TRANSCRIPT_ROW_OWNER`) and the pane reads it back through `findTranscriptRowRenderer`. One
+// renderer, owner-scoped: the same owner may re-register (a hot reload), a different owner is
+// refused by name.
 // The props carry decisions the list makes, not facts a row holds: `agentHue` comes from
-// `AgentHueAllocator` over the session log, `isSuperseded` ranks against rollback boundaries
-// around the row, and `density` is the list's collapse state.
+// `AgentHueAllocator` over the session log, `isSuperseded` is the row's superseded mark read by
+// the list, and `density` is whether a person folded the row.
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
@@ -12,12 +13,12 @@ import { type AgentHueAssignment } from "#renderer/styles/agent-hue.js";
 import { SingleEntryRegistry } from "#renderer/lib/single-entry-registry.js";
 
 /**
- * A row's collapse state: tool rows render as one line until opened; run groups collapse once
- * terminal and the live run group stays open. Two values, not a spacing scale.
+ * Whether a row is folded: a call with a body is open until a person folds it, and nothing folds
+ * itself. Two values, not a spacing scale.
  */
 export const TRANSCRIPT_ROW_DENSITIES = ["collapsed", "expanded"] as const;
 
-/** One row's collapse state. Derived from the enumeration, never restated. */
+/** Whether one row is folded. Derived from the enumeration, never restated. */
 export type TranscriptRowDensity = (typeof TRANSCRIPT_ROW_DENSITIES)[number];
 
 /** What the transcript list hands each row. */
@@ -42,7 +43,17 @@ export interface TranscriptRowProps {
 }
 
 /** The row body. Returns `React.ReactNode` so the list can render it directly. */
-export type TranscriptRowRenderer = (props: TranscriptRowProps) => React.ReactNode;
+export type TranscriptRowBody = (props: TranscriptRowProps) => React.ReactNode;
+
+/** The registered row renderer: the body it draws a row with, and which rows it has one for. */
+export interface TranscriptRowRenderer {
+  readonly render: TranscriptRowBody;
+  /**
+   * Whether `render` draws anything for this row. The feed asks before a row reaches the list, so
+   * a row with no body takes no place and no height there.
+   */
+  readonly drawsBody: (row: TranscriptEventRow) => boolean;
+}
 
 const transcriptRowRegistry = new SingleEntryRegistry<TranscriptRowRenderer>(
   "transcript row",
@@ -50,11 +61,14 @@ const transcriptRowRegistry = new SingleEntryRegistry<TranscriptRowRenderer>(
 );
 
 /** Register the transcript's row renderer; a second owner is refused by name. */
-export function registerTranscriptRowRenderer(owner: string, render: TranscriptRowRenderer): void {
-  transcriptRowRegistry.register({ owner, render });
+export function registerTranscriptRowRenderer(
+  owner: string,
+  renderer: TranscriptRowRenderer,
+): void {
+  transcriptRowRegistry.register({ owner, render: renderer });
 }
 
-/** The row body, or `undefined` while nothing is registered. */
+/** The row renderer, or `undefined` while nothing is registered. */
 export function findTranscriptRowRenderer(): TranscriptRowRenderer | undefined {
   return transcriptRowRegistry.renderer();
 }

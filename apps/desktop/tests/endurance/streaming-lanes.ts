@@ -34,20 +34,37 @@ export function peakConcurrentStreamingRuns(
   fromIndex: number,
   toIndex: number,
 ): number {
+  return peakOverSpans(collectRunningSpans(beats), beats.length, fromIndex, toIndex);
+}
+
+/** The first stretch of a script during which a number of lanes stream at once. */
+export interface StreamingStretch {
+  /** The delivered-beat count at which that many lanes first stream at once. */
+  readonly fromBeatCount: number;
+  /** The last delivered-beat count of the stretch before fewer stream. */
+  readonly toBeatCount: number;
+}
+
+/**
+ * The first stretch of the script with `laneCount` lanes streaming at once, in delivered-beat
+ * counts. Throws when the script never has that many streaming together.
+ */
+export function findStreamingStretch(
+  beats: readonly ScenarioBeat[],
+  laneCount: number,
+): StreamingStretch {
   const spans = collectRunningSpans(beats);
-  const firstIndex = Math.max(0, fromIndex);
-  const lastIndex = Math.min(beats.length, toIndex);
-  let peak = 0;
-  for (let beatIndex = firstIndex; beatIndex < lastIndex; beatIndex += 1) {
-    let concurrent = 0;
-    for (const span of spans) {
-      if (isStreamingAt(span, beatIndex)) {
-        concurrent += 1;
-      }
-    }
-    peak = Math.max(peak, concurrent);
+  const isFull = (beatCount: number): boolean =>
+    peakOverSpans(spans, beats.length, beatCount, beatCount + 1) === laneCount;
+  const fromBeatCount = beats.findIndex((_, beatCount) => isFull(beatCount));
+  if (fromBeatCount === -1) {
+    throw new Error(`the script never has ${String(laneCount)} lanes streaming at once`);
   }
-  return peak;
+  let toBeatCount = fromBeatCount;
+  while (toBeatCount + 1 < beats.length && isFull(toBeatCount + 1)) {
+    toBeatCount += 1;
+  }
+  return { fromBeatCount, toBeatCount };
 }
 
 /**
@@ -123,6 +140,28 @@ function collectRunningSpans(beats: readonly ScenarioBeat[]): readonly RunningSp
     }
   }
   return spans;
+}
+
+/** The most spans streaming at one point within the half-open range of points. */
+function peakOverSpans(
+  spans: readonly RunningSpan[],
+  beatCount: number,
+  fromIndex: number,
+  toIndex: number,
+): number {
+  const firstIndex = Math.max(0, fromIndex);
+  const lastIndex = Math.min(beatCount, toIndex);
+  let peak = 0;
+  for (let beatIndex = firstIndex; beatIndex < lastIndex; beatIndex += 1) {
+    let concurrent = 0;
+    for (const span of spans) {
+      if (isStreamingAt(span, beatIndex)) {
+        concurrent += 1;
+      }
+    }
+    peak = Math.max(peak, concurrent);
+  }
+  return peak;
 }
 
 /** Whether this span still has output ahead of the given point. */

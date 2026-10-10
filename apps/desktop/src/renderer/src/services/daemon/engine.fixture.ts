@@ -144,10 +144,14 @@ export class ScenarioEngine {
     // script is written in. A filter would skip an earlier beat and re-emit a later one.
     // `tests/helpers/scenario/contract-check/beat/order.ts` holds shipped scripts to
     // nondecreasing `atMs`; this makes a disordered script cost a late beat, not a duplicate.
-    const remainingBeats = this.#scenario.beats.slice(this.#deliveredBeatCount);
-    const firstNotYetDueIndex = remainingBeats.findIndex((beat) => beat.atMs > target);
-    const due =
-      firstNotYetDueIndex === -1 ? remainingBeats : remainingBeats.slice(0, firstNotYetDueIndex);
+    // The scan runs from the first undelivered beat to the first not yet due, so an advance never
+    // copies the rest of the script.
+    const beats = this.#scenario.beats;
+    let dueEnd = this.#deliveredBeatCount;
+    while ((beats[dueEnd]?.atMs ?? Number.POSITIVE_INFINITY) <= target) {
+      dueEnd += 1;
+    }
+    const due = beats.slice(this.#deliveredBeatCount, dueEnd);
     this.#elapsedMs = target;
     if (this.#clock.advance !== undefined) {
       this.#clock.advance(deltaMs);

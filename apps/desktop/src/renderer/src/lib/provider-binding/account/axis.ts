@@ -3,9 +3,9 @@
 // choices, and a driver name is matched against the provider set, never assumed to be one.
 // Readiness is per account, never per provider. Nothing here gates: the spawn probe decides.
 
-import {
-  type ProviderAccount,
-  type ProviderReadiness,
+import type {
+  ProviderAccount,
+  ProviderReadiness,
 } from "@ai-sidekicks/contracts/provider/account/record";
 import { PROVIDER_NAMES, type ProviderName } from "@ai-sidekicks/contracts/provider/name";
 

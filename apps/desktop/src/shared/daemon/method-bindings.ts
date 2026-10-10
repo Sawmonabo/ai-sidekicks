@@ -4,9 +4,9 @@
 // this module names the closed set and binds each name to its namespace's descriptor.
 //
 // The set is closed at compile time. The table is built from `REGISTERED_DAEMON_METHODS` alone,
-// each entry looked up in its namespace's descriptor table, so a name no table holds is a type
-// error. Subscriptions are not in it: a stream has no reply to bind, and `streams.ts` names
-// the ones the app opens.
+// each entry picked from the namespaces' merged descriptor tables, so a name no table holds is a
+// type error; only the picked descriptors are kept. Subscriptions are not in it: a stream has no
+// reply to bind, and `streams.ts` names the ones the app opens.
 
 import { ARTIFACT_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/artifacts/methods";
 import { DRIVER_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/provider/driver/methods";
@@ -44,6 +44,7 @@ export const REGISTERED_DAEMON_METHODS = [
   "driver.listProviderCommands",
   "driver.listCapabilities",
   "driver.listModels",
+  "transcript.read",
   "transcript.reasoningSurfaceRead",
   "transcript.childRunExpand",
   "session.create",
@@ -117,8 +118,11 @@ export type DaemonMethodBindings = {
   };
 };
 
-/** The namespaces the app calls into, merged so one lookup finds any of their methods. */
-const DAEMON_NAMESPACE_DESCRIPTORS = {
+/**
+ * The method-to-descriptor table, built from the method list so a method is named once and frozen
+ * so no module can re-point an entry.
+ */
+export const DAEMON_METHOD_BINDINGS: DaemonMethodBindings = bindRegisteredMethods({
   ...DRIVER_METHOD_DESCRIPTORS,
   ...TRANSCRIPT_METHOD_DESCRIPTORS,
   ...SESSION_METHOD_DESCRIPTORS,
@@ -138,18 +142,7 @@ const DAEMON_NAMESPACE_DESCRIPTORS = {
   ...WORKFLOW_RUN_CONTROL_METHOD_DESCRIPTORS,
   ...WORKFLOW_STEP_METHOD_DESCRIPTORS,
   ...WORKFLOW_SUBSCRIPTION_METHOD_DESCRIPTORS,
-};
-
-/**
- * The method-to-descriptor table, built from the method list so a method is named once and frozen
- * so no module can re-point an entry. The one cast widens `Object.fromEntries`' string-keyed
- * record to the mapped type; each entry is the descriptor its own method's table holds.
- */
-export const DAEMON_METHOD_BINDINGS: DaemonMethodBindings = Object.freeze(
-  Object.fromEntries(
-    REGISTERED_DAEMON_METHODS.map((method) => [method, DAEMON_NAMESPACE_DESCRIPTORS[method]]),
-  ) as DaemonMethodBindings,
-);
+});
 
 /**
  * The descriptor for one method name known only at runtime, or `undefined`.
@@ -160,4 +153,17 @@ export function daemonMethodBindingFor(method: string): AnyMethodDescriptor | un
   return Object.hasOwn(DAEMON_METHOD_BINDINGS, method)
     ? DAEMON_METHOD_BINDINGS[method as RegisteredDaemonMethod]
     : undefined;
+}
+
+// The merged tables arrive as an argument so they are garbage once the registered entries are
+// picked. Kept in a module-scope binding that a closure reads, they would live as long as the
+// module, and with them every descriptor and schema of the methods the app never calls.
+function bindRegisteredMethods(namespaceDescriptors: DaemonMethodBindings): DaemonMethodBindings {
+  // The one cast widens `Object.fromEntries`' string-keyed record to the mapped type; each entry is
+  // the descriptor its own method's table holds.
+  return Object.freeze(
+    Object.fromEntries(
+      REGISTERED_DAEMON_METHODS.map((method) => [method, namespaceDescriptors[method]]),
+    ) as DaemonMethodBindings,
+  );
 }

@@ -1,45 +1,49 @@
 // The row a link to a message lands on. The link names the message by its event cursor, which the
 // store's log carries on every event, streamed or read back. A message older than the window is
-// reached by paging back through the feed's walk until the log holds it; a message inside a
-// finished run group is opened out of its fold first, once, so the row is drawn rather than
-// hidden under a header.
+// reached by reading stretches back through the feed's history until the log holds it; one inside a
+// folded run group has the group opened first, once, so the row is drawn rather than hidden under
+// a header. An event the feed draws nothing for lands on the nearest row it does draw.
 
 import { useEffect, useMemo, useRef } from "react";
+
+import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { useSessionStore } from "#renderer/store/session/hooks/useOpenSessionStore.js";
 import { type ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
 import { type SessionStoreState } from "#renderer/store/session/state.js";
 import { readRunGroupKey, type RunGroup } from "../../runs/groups.js";
-import { type EarlierHistoryPaging } from "../../history/hooks/useEarlierHistory.js";
+import { type TranscriptHistory } from "../../history/hooks/useTranscriptHistory.js";
 import { type TranscriptWindowModel } from "../../window/transcript-window.js";
-import { type RunGroupDisclosure } from "../run-group-fold.js";
 
 /** What the landing row is looked up in. */
 export interface MessageAnchorRowKeyInputs {
   readonly sessionStore: SessionStore;
   /** The cursor of the message to land on, or `undefined` for an ordinary open. */
   readonly messageAnchorCursor: string | undefined;
-  /** The backward walk that reaches a message older than the window, or none to page with. */
-  readonly earlierHistory: EarlierHistoryPaging | undefined;
+  /** The history a message older than the window is read back through, or none to read with. */
+  readonly history: TranscriptHistory | undefined;
   /** Every row of every run group, before any fold. */
   readonly unfurledWindow: TranscriptWindowModel;
-  /** The window the viewport draws: folded by run group. */
+  /** The window the viewport draws: folded by run group, its lists holding only drawn rows. */
   readonly transcriptWindow: TranscriptWindowModel;
-  readonly runGroupDisclosure: RunGroupDisclosure;
+  /** Whether the feed draws a row at all. */
+  readonly drawsRow: (row: TranscriptEventRow) => boolean;
+  /** Open one run group, if it is folded. */
+  readonly openRunGroup: (runId: string) => void;
 }
 
 /**
  * The key of the drawn row the message cursor names, or `undefined` while there is none: no
- * cursor, a cursor the log does not hold (yet, or at all), or an event that draws no row. While
- * the log lacks it, this pages back one page per render until the message arrives, history
- * starts or a page is refused. Nothing stands in for a missing row, so the transcript opens as
- * it would with no link.
+ * cursor, or a cursor the log does not hold (yet, or at all). An event the feed draws nothing for
+ * lands on the next drawn row after it in log order, else the one before it. While the log lacks
+ * the event, this reads back one stretch at a time until it arrives, history starts or a read
+ * fails. Nothing stands in for a missing row, so the transcript opens as it would with no link.
  */
 export function useMessageAnchorRowKey(inputs: MessageAnchorRowKeyInputs): string | undefined {
-  const { sessionStore, messageAnchorCursor, unfurledWindow, transcriptWindow } = inputs;
-  // The log's oldest event moves when the log is first read, when a page lands and when the cap
-  // lets rows go: the only times an older message can arrive or leave. Keyed on it, the lookup
+  const { sessionStore, messageAnchorCursor, unfurledWindow, transcriptWindow, drawsRow } = inputs;
+  // The log's oldest event moves when the log is first read and when a page lands: the only
+  // times an older message can arrive. Keyed on it, the lookup
   // runs then and not on every streamed append, and stops at the message.
   const oldestEvent = useSessionStore(sessionStore, selectOldestEvent);
   const eventId = useMemo(
@@ -51,41 +55,52 @@ export function useMessageAnchorRowKey(inputs: MessageAnchorRowKeyInputs): strin
             .transcript.find((event) => event.cursor === messageAnchorCursor)?.id,
     [sessionStore, messageAnchorCursor, oldestEvent],
   );
-  usePageBackToMessage(messageAnchorCursor, eventId, inputs.earlierHistory);
+  useReadBackToMessage(messageAnchorCursor, eventId, inputs.history);
   const foldedRunGroup = useMemo(
     () => runGroupFoldingAway(eventId, unfurledWindow, transcriptWindow),
     [eventId, unfurledWindow, transcriptWindow],
   );
 
-  // Opened once per link, so a reader who folds the group again is not overruled on the next
-  // append.
-  const toggleRunGroup = inputs.runGroupDisclosure.toggle;
-  const openedForCursor = useRef<string | undefined>(undefined);
+  const landingRowKey = useMemo(
+    () => landingRowKeyFor(eventId, unfurledWindow, transcriptWindow, drawsRow),
+    [eventId, unfurledWindow, transcriptWindow, drawsRow],
+  );
+
+  // Settled once per link, when the row is first drawn or its group first opened, so a reader
+  // who folds the group afterwards is not overruled on the next append.
+  const openRunGroup = inputs.openRunGroup;
+  const settledCursor = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (foldedRunGroup === undefined || openedForCursor.current === messageAnchorCursor) {
+    if (messageAnchorCursor === undefined || settledCursor.current === messageAnchorCursor) {
       return;
     }
-    openedForCursor.current = messageAnchorCursor;
-    toggleRunGroup(foldedRunGroup);
-  }, [foldedRunGroup, messageAnchorCursor, toggleRunGroup]);
+    if (landingRowKey !== undefined) {
+      settledCursor.current = messageAnchorCursor;
+      return;
+    }
+    if (foldedRunGroup !== undefined) {
+      settledCursor.current = messageAnchorCursor;
+      openRunGroup(foldedRunGroup.runId);
+    }
+  }, [landingRowKey, foldedRunGroup, messageAnchorCursor, openRunGroup]);
 
-  return eventId !== undefined && transcriptWindow.rowsByKey.has(eventId) ? eventId : undefined;
+  return landingRowKey;
 }
 
 /**
- * Asks for the page before the window while the linked message is not in the log. Each landed
- * page re-renders with the grown log, so this walks page by page and stops on its own: at the
- * message, at the start of history (`canLoadEarlier` false), or at a refusal, which the head
- * control shows and offers to retry. Once the message is found the walk is over for that link,
- * so a row the window cap later lets go of is not chased back.
+ * Asks for the stretch before the window while the linked message is not in the log. Each landed
+ * stretch re-renders with the grown log, so this reads back stretch by stretch and stops on its
+ * own: at the message, at the start of history, or at a failed read, which the line at the top
+ * shows and offers to try again. Once the message is found the reading back is over for that
+ * link, so a row that later leaves the log is not chased back.
  */
-function usePageBackToMessage(
+function useReadBackToMessage(
   messageAnchorCursor: string | undefined,
   eventId: string | undefined,
-  earlierHistory: EarlierHistoryPaging | undefined,
+  history: TranscriptHistory | undefined,
 ): void {
   const reachedCursor = useRef<string | undefined>(undefined);
-  // Keyed on the walk's state object, which is new after every page, so a page that lands
+  // Keyed on the history object, which is new after every stretch, so a stretch that lands
   // without the message asks for the next even when no flag reads differently.
   useEffect(() => {
     if (messageAnchorCursor === undefined || reachedCursor.current === messageAnchorCursor) {
@@ -95,16 +110,16 @@ function usePageBackToMessage(
       reachedCursor.current = messageAnchorCursor;
       return;
     }
-    if (earlierHistory?.canLoadEarlier === true && earlierHistory.refusal === undefined) {
-      earlierHistory.loadEarlier();
+    const earlier = history?.state.earlier;
+    if (earlier?.hasMore === true && !earlier.isReading && !earlier.hasFailed) {
+      history?.readStretch("head");
     }
-  }, [messageAnchorCursor, eventId, earlierHistory]);
+  }, [messageAnchorCursor, eventId, history]);
 }
 
 /**
- * The finished run group whose fold hides the row, or `undefined` when the row is drawn, is in no
- * folded group, or is not in the log. The fold keeps a group's terminal row, so only its other
- * rows can be hidden.
+ * The run group a row is hidden in, or `undefined` when the window draws the row, it is in no run
+ * group, or it is not in the log.
  */
 function runGroupFoldingAway(
   rowKey: string | undefined,
@@ -117,6 +132,44 @@ function runGroupFoldingAway(
   const row = unfurledWindow.rowsByKey.get(rowKey);
   const runId = row === undefined ? undefined : readRunGroupKey(row);
   return runId === undefined ? undefined : transcriptWindow.runGroupByHeaderKey.get(runId);
+}
+
+/**
+ * The drawn row a link to `rowKey` lands on: that row when the feed draws it, else the next drawn
+ * row after it in log order, else the one before it. `undefined` while the fold hides the row or
+ * the window does not hold it. The walk runs only for a row the feed draws nothing for.
+ */
+function landingRowKeyFor(
+  rowKey: string | undefined,
+  unfurledWindow: TranscriptWindowModel,
+  transcriptWindow: TranscriptWindowModel,
+  drawsRow: (row: TranscriptEventRow) => boolean,
+): string | undefined {
+  // `rowsByKey` still joins a row the feed draws nothing for, so it says only what the fold kept.
+  const row = rowKey === undefined ? undefined : transcriptWindow.rowsByKey.get(rowKey);
+  if (row === undefined) {
+    return undefined;
+  }
+  if (drawsRow(row)) {
+    return row.id;
+  }
+  const isOnScreen = (candidate: TranscriptEventRow): boolean =>
+    transcriptWindow.rowsByKey.has(candidate.id) && drawsRow(candidate);
+  const logRows = unfurledWindow.rows;
+  const position = logRows.findIndex((candidate) => candidate.id === row.id);
+  for (let after = position + 1; after < logRows.length; after += 1) {
+    const candidate = logRows[after];
+    if (candidate !== undefined && isOnScreen(candidate)) {
+      return candidate.id;
+    }
+  }
+  for (let before = position - 1; before >= 0; before -= 1) {
+    const candidate = logRows[before];
+    if (candidate !== undefined && isOnScreen(candidate)) {
+      return candidate.id;
+    }
+  }
+  return undefined;
 }
 
 function selectOldestEvent(state: SessionStoreState): ProjectedSessionEvent | undefined {

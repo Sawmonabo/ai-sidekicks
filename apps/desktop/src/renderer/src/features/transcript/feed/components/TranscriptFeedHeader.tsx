@@ -1,6 +1,6 @@
-// Everything the transcript says above its rows: the find field and the two counts of matches a
-// person can still act on. It derives nothing: each value is a reading the feed already holds, so
-// a count computed here would be a second answer to `useVisibleTranscriptWindow.ts`.
+// Everything the transcript says above its rows: the find field and the count of matches folded
+// run groups hold. It derives nothing: each value is a reading the feed already holds, so a count
+// computed here would be a second answer to `useTranscriptFind.ts`.
 
 import { FindBox } from "../../find/components/FindBox.js";
 import { PartialRead } from "#renderer/components/PartialRead/PartialRead.js";
@@ -13,7 +13,7 @@ export interface TranscriptFeedHeaderProps {
   readonly findAndJump: TranscriptFindAndJump;
 }
 
-/** The find field and the counts of matches the window could not reach. */
+/** The find field and the count of matches the folded run groups hold. */
 export function TranscriptFeedHeader(props: TranscriptFeedHeaderProps): React.JSX.Element {
   const { find } = props.findAndJump;
   return (
@@ -29,12 +29,7 @@ export function TranscriptFeedHeader(props: TranscriptFeedHeaderProps): React.JS
           onClose={props.findAndJump.onClose}
         />
       ) : null}
-      {/* Two mounts, two exits: nothing brings a pruned row back, and opening a run group
-          header brings the folded ones. */}
-      <PartialRead
-        states={[matchWalkReading(find.result.totalMatchCount, find.beyondWindowMatchCount)]}
-        subject="this window"
-      />
+      {/* Opening a run group header brings the folded matches into the walk. */}
       <PartialRead
         states={[matchWalkReading(find.result.totalMatchCount, find.foldedAwayMatchCount)]}
         subject="the run groups this transcript has folded"

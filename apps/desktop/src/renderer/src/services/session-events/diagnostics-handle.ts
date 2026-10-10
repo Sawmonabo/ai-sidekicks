@@ -4,8 +4,16 @@
 
 import { type TranscriptWindowReading } from "#renderer/lib/transcript-window-diagnostics.js";
 
+/** What one session's store holds of its transcript at one instant. */
+export interface HeldTranscriptReading {
+  /** Events the store's window holds. */
+  readonly eventCount: number;
+  /** The log position of the oldest event it holds, or `null` when it holds none. */
+  readonly firstSequence: number | null;
+}
+
 /**
- * What a fixture build exposes to the endurance tier: four reads, no writes and no handles, so a
+ * What a fixture build exposes to the endurance tier: five reads, no writes and no handles, so a
  * tier driving a real window from outside cannot open a session, close one or apply an event.
  */
 export interface SessionDiagnostics {
@@ -21,6 +29,12 @@ export interface SessionDiagnostics {
   appliedEventCountFor: (sessionId: string) => number;
   /** Sessions the subscriber currently holds a wire subscription for. */
   boundSessionIds: () => readonly string[];
+  /**
+   * What one session's store holds of its transcript, or `null` where no store is open for it.
+   * The store lets go of events far from the reader, so a session streaming for hours holds a
+   * bounded stretch whose oldest position moves on.
+   */
+  heldTranscriptFor: (sessionId: string) => HeldTranscriptReading | null;
   /**
    * What one session's transcript viewport is showing, or `null` where none is mounted. A row
    * count off the document cannot tell a window that mounted its rows from one with nothing to

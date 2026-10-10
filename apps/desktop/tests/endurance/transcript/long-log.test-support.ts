@@ -230,7 +230,7 @@ function enduranceBodyEntry(atMs: number, runId: string, bodyIndex: number): Scr
         runId,
         kind: "assistant.thinking_update",
         contentType: "text/plain",
-        contentLength: 256 + (bodyIndex % 64),
+        body: enduranceBody(256 + (bodyIndex % 64)),
       });
     case 1:
     case 4:
@@ -240,7 +240,7 @@ function enduranceBodyEntry(atMs: number, runId: string, bodyIndex: number): Scr
         runId,
         kind: "assistant.message",
         contentType: "text/markdown",
-        contentLength: 512 + (bodyIndex % 512),
+        body: enduranceBody(512 + (bodyIndex % 512)),
       });
     case 2:
     case 5:
@@ -261,7 +261,7 @@ function enduranceBodyEntry(atMs: number, runId: string, bodyIndex: number): Scr
         toolName: "edit_file",
         toolCallId: `call-endurance-${String(bodyIndex - 1)}`,
         durationMs: 40 + (bodyIndex % 200),
-        contentLength: 128 + (bodyIndex % 1_024),
+        body: enduranceBody(128 + (bodyIndex % 1_024)),
       });
     case 6:
       return toolActivityEntry({
@@ -272,7 +272,7 @@ function enduranceBodyEntry(atMs: number, runId: string, bodyIndex: number): Scr
         toolName: "edit_file",
         toolCallId: `call-endurance-${String(bodyIndex - 1)}`,
         durationMs: 20 + (bodyIndex % 80),
-        contentLength: 96,
+        body: enduranceBody(96),
       });
     default:
       return {
@@ -284,6 +284,11 @@ function enduranceBodyEntry(atMs: number, runId: string, bodyIndex: number): Scr
         payload: { sessionId: SESSION_ID, runId },
       };
   }
+}
+
+/** A body of `byteLength` ASCII bytes, so its size is a function of the row index alone. */
+function enduranceBody(byteLength: number): string {
+  return "x".repeat(byteLength);
 }
 
 /** How many body beats each run gets, and how many the last run absorbs. */

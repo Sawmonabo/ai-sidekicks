@@ -7,6 +7,10 @@
 
 import "./MessageRow.css";
 
+import { useMemo } from "react";
+
+import { CONTENT_LENGTH_PAYLOAD_KEY } from "@ai-sidekicks/contracts/event/declared-variants";
+
 import { readWireString } from "#renderer/lib/wire/strings.js";
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import {
@@ -15,7 +19,7 @@ import {
 } from "../components/TranscriptRowLayout/TranscriptRowLayout.js";
 import { type InlineCardProps } from "#renderer/registries/inline-cards/registry.js";
 import { type RowKindDescriptor } from "./kind.js";
-import type { HydratedRowProps } from "./hydrated-props.js";
+import type { TranscriptCardProps } from "./card-props.js";
 import { InlineCards } from "./InlineCards.js";
 import { CopyButton } from "#renderer/components/CopyButton/CopyButton.js";
 import { useClipboardCopy } from "#renderer/services/platform/hooks/useClipboardCopy.js";
@@ -27,9 +31,10 @@ import { replyClipboardContent } from "../copy/clipboard-flavors.js";
 import { COPY_FLAVOR_ATTRIBUTE, type CopyFlavor } from "../copy/conversation-selection.js";
 import { replyCopyFlavorOf } from "../copy/drawn-reply-text.js";
 import { useReplyText } from "../copy/hooks/useReplyText.js";
+import { publishedTextOf, type PublishedText } from "../reveal/published-text.js";
 
 /** What a mount hands a message card, beyond the row itself. */
-export interface MessageRowProps extends HydratedRowProps {
+export interface MessageRowProps extends TranscriptCardProps {
   /** The row's kind, as the dispatcher classified it: one of the three message kinds. */
   readonly rowKind: RowKindDescriptor;
   /** The inline cards this message carries, handed down rather than derived from the payload. */
@@ -55,14 +60,23 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
   const payload = projectedPayload(props.row);
   // Read once for both readers below: the body's renderer and the receipt's own line.
   const assistantMediaType = readWireString(payload["contentType"]);
-  const copyText = isUser
+  // The text a Copy takes, as a handle: a stored string is read through one made once per string,
+  // and the whole text is built only when Copy is pressed.
+  const storedText = isUser
     ? props.row.summary === ""
       ? undefined
       : props.row.summary
-    : rowKind.kind === "thinking"
+    : rowKind.kind === "thinking" || props.liveText !== undefined
       ? undefined
-      : (props.liveText ??
-        (props.content?.status === "available" ? props.content.body : undefined));
+      : props.row.content?.status === "available"
+        ? props.row.content.body
+        : undefined;
+  const storedCopyText = useMemo(
+    () => (storedText === undefined ? undefined : publishedTextOf(storedText)),
+    [storedText],
+  );
+  const copyText: PublishedText | undefined =
+    isUser || rowKind.kind === "thinking" ? storedCopyText : (props.liveText ?? storedCopyText);
   // A reply drawn as markdown copies as markdown with a formatted flavor beside it; the person's
   // own message, and a reply drawn as text, copy as plain text and nothing else.
   const copyFlavor: CopyFlavor =
@@ -78,7 +92,7 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
   );
   const clipboardCopy = useClipboardCopy(() => {
     if (!isReply) {
-      return { text: copyText ?? "" };
+      return { text: copyText?.slice(0) ?? "" };
     }
     const wholeReply = replyText.read();
     return replyText.flavor === "markdown"
@@ -127,7 +141,7 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
             props.thinkingRow
           ) : (
             <MessageContent
-              content={props.content}
+              content={props.row.content}
               {...(props.liveText === undefined ? {} : { liveText: props.liveText })}
               // The media type is the producer-set `contentType` on the payload, and the same
               // reading feeds the receipt below, so the renderer and the printed type agree.
@@ -135,6 +149,7 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
               sourceId={props.row.id}
               footnotes={props.footnotes}
               label={rowKind.label}
+              holdControlInPlace={props.holdControlInPlace}
             />
           )}
         </div>
@@ -142,7 +157,7 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
         {isUser || rowKind.kind === "thinking" || props.liveText !== undefined ? null : (
           <RecordedBodyLine
             contentType={assistantMediaType}
-            contentLength={readWireCount(payload, "contentLength")}
+            contentLength={readWireCount(payload, CONTENT_LENGTH_PAYLOAD_KEY)}
           />
         )}
       </div>

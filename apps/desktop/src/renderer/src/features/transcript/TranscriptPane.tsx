@@ -1,7 +1,11 @@
-// The transcript pane: the address it hands the shared pane chrome, and the registered row
-// renderer its rows are drawn with. The close control is not defaulted: a control nobody can
-// perform is left out, so a close prop is forwarded only where the caller owns the pane.
+// The transcript pane: the address it hands the shared pane chrome, the registered row renderer
+// its rows are drawn with, and the `transcript.read` its history is read through. The close
+// control is not defaulted: a control nobody can perform is left out, so a close prop is
+// forwarded only where the caller owns the pane.
 
+import { useMemo } from "react";
+
+import { transcriptPageReadThroughDaemon } from "#renderer/services/daemon/transcript-page.js";
 import { routeSessionId, sessionMessageAnchorCursor } from "#renderer/routing/readers.js";
 import { useWindowStore } from "#renderer/store/window/hooks/useWindowStore.js";
 import { PaneFrame } from "#renderer/components/PaneFrame/PaneFrame.js";
@@ -25,6 +29,8 @@ export function TranscriptPane(props: TranscriptPaneProps): React.JSX.Element {
 
   // Read through the store's selector so the pane follows a navigation to another session.
   const route = useWindowStore(context.frameStore, (state) => state.route);
+  const { bridge } = context;
+  const readTranscriptPage = useMemo(() => transcriptPageReadThroughDaemon(bridge), [bridge]);
 
   return (
     <PaneFrame
@@ -35,9 +41,10 @@ export function TranscriptPane(props: TranscriptPaneProps): React.JSX.Element {
       {...(props.onClose === undefined ? {} : { onClose: props.onClose })}
     >
       <TranscriptPaneBody
-        renderTranscriptRow={registeredTranscriptRowRenderer()}
+        rowRenderer={registeredTranscriptRowRenderer()}
         sessionStore={context.sessionStore}
         messageAnchorCursor={sessionMessageAnchorCursor(route)}
+        readTranscriptPage={readTranscriptPage}
       />
     </PaneFrame>
   );

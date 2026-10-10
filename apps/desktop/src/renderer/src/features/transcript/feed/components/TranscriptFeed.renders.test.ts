@@ -5,7 +5,7 @@ import { act, fireEvent } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type SessionStore } from "#renderer/store/session/store.js";
 import {
-  RetainingRowBody,
+  CallFoldingRowBody,
   SHORT_LOG_EVENT_COUNT,
   renderFeed,
 } from "./TranscriptFeed.test-support.js";
@@ -63,9 +63,9 @@ describe("the transcript feed — what one admitted event costs the rows", () =>
   });
 
   it("draws again exactly the row whose density the list changed", () => {
-    // The other half, separating this memo from one that never updates: the retained-state write
-    // moves the renderer's identity, so every mounted row is compared and only the row whose
-    // density moved is drawn.
+    // The other half, separating this memo from one that never updates: a fold moves the
+    // renderer's identity, so every mounted row is compared and only the row whose density moved
+    // is drawn.
     withLaidOutViewport();
     const drawsByRowId = new Map<string, number>();
     const feed = renderFeed(
@@ -73,12 +73,12 @@ describe("the transcript feed — what one admitted event costs the rows", () =>
       (mount) => {
         drawsByRowId.set(mount.row.id, (drawsByRowId.get(mount.row.id) ?? 0) + 1);
       },
-      RetainingRowBody,
+      CallFoldingRowBody,
     );
     const drawsBeforeThePress = new Map(drawsByRowId);
-    const pressedRow = feed.querySelector<HTMLElement>(".retaining-row");
+    const pressedRow = feed.querySelector<HTMLElement>(".call-folding-row");
     if (pressedRow === null) {
-      throw new Error("the feed drew no retaining row to press");
+      throw new Error("the feed drew no folding row to press");
     }
 
     fireEvent.click(pressedRow);

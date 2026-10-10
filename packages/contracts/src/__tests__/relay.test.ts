@@ -3,23 +3,21 @@
 import { describe, expect, it } from "vitest";
 
 import { RelayPinRefusedPayloadSchema } from "../relay.js";
+import { RELAY_PIN_REFUSED_PAYLOAD } from "./relay.test-support.js";
 
 const HASH = "3f".repeat(32);
 
 describe("relay.pin_refused", () => {
-  const payload = {
-    relayHost: "relay.example.com",
-    pinnedSpkiPrefix: HASH.slice(0, 16),
-    presentedSpkiPrefix: "0123456789abcdef",
-  };
-
   it("accepts the host and the two 8-byte prefixes", () => {
-    expect(RelayPinRefusedPayloadSchema.safeParse(payload).success).toBe(true);
+    expect(RelayPinRefusedPayloadSchema.safeParse(RELAY_PIN_REFUSED_PAYLOAD).success).toBe(true);
   });
 
   it("refuses a whole hash where a prefix belongs", () => {
     expect(
-      RelayPinRefusedPayloadSchema.safeParse({ ...payload, presentedSpkiPrefix: HASH }).success,
+      RelayPinRefusedPayloadSchema.safeParse({
+        ...RELAY_PIN_REFUSED_PAYLOAD,
+        presentedSpkiPrefix: HASH,
+      }).success,
     ).toBe(false);
   });
 });

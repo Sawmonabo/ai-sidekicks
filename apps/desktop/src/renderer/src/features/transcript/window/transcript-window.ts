@@ -13,7 +13,6 @@ import {
 } from "../dispatches/child-run-entries.js";
 import { projectTranscriptRows } from "../projection/rows.js";
 import { RunGroupIndex, readRunGroupKey, type RunGroup } from "../runs/groups.js";
-import { SupersededIndex } from "../superseded-turns.js";
 import {
   SystemMessageClassifier,
   type SystemMessageReading,
@@ -46,11 +45,9 @@ export interface TranscriptWindowModel {
   readonly rowsByKey: ReadonlyMap<string, TranscriptEventRow>;
   /** Which rows a rollback boundary later in the log supersedes. */
   readonly supersededRowIds: ReadonlySet<string>;
-  /** Which rows are collapsed, under the fold that closes every finished run group. */
-  readonly collapsedRowIds: ReadonlySet<string>;
   /**
-   * The run group behind each header row, keyed by the run id the header is. Every terminal run
-   * group has an entry, folded or open; a live one has none, since it draws no header.
+   * The run group behind each header row, keyed by the run id the header is. Every run group has
+   * an entry, live or ended, folded or open.
    */
   readonly runGroupByHeaderKey: ReadonlyMap<string, RunGroup>;
   /**
@@ -72,8 +69,11 @@ export interface TranscriptWindowModel {
   readonly replyRowIdsByFootRowId: ReadonlyMap<string, readonly string[]>;
   /** The rows in log order, for find and the run group fold. */
   readonly rows: readonly TranscriptEventRow[];
-  /** A run is mid-flight, so the viewport defers pruning rather than moving rows. */
-  readonly hasActiveTurn: boolean;
+  /**
+   * The runs the log has not seen end, by run id, which is the key their rows hang from: the log
+   * is busy while one stands, and only a live run's rows can still be working.
+   */
+  readonly liveRunGroupKeys: ReadonlySet<string>;
 }
 
 /**
@@ -89,7 +89,6 @@ export function deriveTranscriptWindow(
   retention.beginPass();
   const rows = projection.rows.map((row) => retention.retainRow(row));
   const runGroupIndex = new RunGroupIndex(rows);
-  const supersededIndex = new SupersededIndex(rows);
   // One classifier reads the whole log; its pass is a local and reaches the model only as the map
   // below, so a narrowing and the feed share one classification.
   const systemMessages = new SystemMessageClassifier().systemMessages(rows);
@@ -100,7 +99,7 @@ export function deriveTranscriptWindow(
   for (const row of rows) {
     rowsByKey.set(row.id, row);
     viewportRows.push(retention.retainRowIdentity(row, readRunGroupKey(row)));
-    if (supersededIndex.isSuperseded(row.id)) {
+    if (row.kind !== "general" && row.superseded !== undefined) {
       supersededRowIds.add(row.id);
     }
   }
@@ -108,9 +107,8 @@ export function deriveTranscriptWindow(
     viewportRows,
     rowsByKey,
     supersededRowIds,
-    collapsedRowIds: collapsedRowIdsOf(runGroupIndex),
     runGroupByHeaderKey: new Map(
-      runGroupIndex.terminalRunGroups().map((runGroup) => [runGroup.runId, runGroup]),
+      runGroupIndex.runGroups().map((runGroup) => [runGroup.runId, runGroup]),
     ),
     systemMessageByRowId: new Map(
       systemMessages.map((systemMessage) => [systemMessage.rowId, systemMessage]),
@@ -124,22 +122,12 @@ export function deriveTranscriptWindow(
       ]),
     ),
     rows,
-    // A run group with no terminal is a run the log has not seen end; the viewport asks the same
-    // question before it prunes.
-    hasActiveTurn: runGroupIndex.runGroups().length > runGroupIndex.terminalRunGroups().length,
+    // A run group with no terminal is a run the log has not seen end.
+    liveRunGroupKeys: new Set(
+      runGroupIndex
+        .runGroups()
+        .filter((runGroup) => runGroup.lifecycle === "live")
+        .map((runGroup) => runGroup.runId),
+    ),
   };
-}
-
-/**
- * Every row of a run group that has reached a terminal, asked of `terminalRunGroups()` so the fold
- * that decides a group is over and the one that collapses its rows are one fold.
- */
-function collapsedRowIdsOf(runGroupIndex: RunGroupIndex): ReadonlySet<string> {
-  const collapsed = new Set<string>();
-  for (const runGroup of runGroupIndex.terminalRunGroups()) {
-    for (const rowId of runGroup.rowIds) {
-      collapsed.add(rowId);
-    }
-  }
-  return collapsed;
 }

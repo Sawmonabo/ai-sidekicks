@@ -40,6 +40,17 @@ export interface RevealBinding {
   ) => void;
   /** Forgets what every row the window no longer holds drew. */
   readonly forgetDrawnTextOutside: (isHeld: (rowId: string) => boolean) => void;
+  /**
+   * Whether the engine still holds a lane for this row, so the row draws live text that may still
+   * grow, until the lane is retired. A map lookup; the same function for the engine's life.
+   */
+  readonly isRevealing: (rowId: string) => boolean;
+  /**
+   * Moves whenever `isRevealing` would answer differently for some row: a lane first held or
+   * retired. A drained frame leaves it, so a reader keyed on it re-asks once per lane, not per
+   * frame.
+   */
+  readonly laneRevision: number;
 }
 
 /** Inputs to `useReveal`. */
@@ -100,7 +111,7 @@ export function useReveal(options: UseRevealOptions): RevealBinding {
     () => ({
       publishedTextFor: (laneId: string) => {
         const published = engine.publishedText(laneId);
-        return published === "" ? undefined : published;
+        return published === undefined || published.length === 0 ? undefined : published;
       },
       drawnReplyText,
       subscribe: (sink: () => void) =>
@@ -125,12 +136,14 @@ export function useReveal(options: UseRevealOptions): RevealBinding {
     ),
     retireLanes: useCallback(
       (shouldRetire: (laneId: string) => boolean, isReplyRow: (laneId: string) => boolean) => {
+        const laneRevision = engine.laneRevision;
         for (const lane of engine.lanes()) {
           if (!shouldRetire(lane.laneId)) {
             continue;
           }
           if (isReplyRow(lane.laneId)) {
-            const text = engine.publishedText(lane.laneId);
+            // The lane's own handle, so the record shares the lane's text rather than copying it.
+            const text = lane.publishedText;
             drawnReplyText.note(lane.laneId, {
               text,
               // The row's own flavor, where it drew and noted one; the bytes' otherwise.
@@ -138,6 +151,10 @@ export function useReveal(options: UseRevealOptions): RevealBinding {
             });
           }
           engine.retireLane(lane.laneId);
+        }
+        // Retiring runs in an effect and drains no frame, so nothing else renders the change.
+        if (engine.laneRevision !== laneRevision) {
+          setFrameRevision((current) => current + 1);
         }
       },
       [engine, drawnReplyText],
@@ -148,5 +165,7 @@ export function useReveal(options: UseRevealOptions): RevealBinding {
       },
       [drawnReplyText],
     ),
+    isRevealing: useCallback((rowId: string) => engine.holdsLane(rowId), [engine]),
+    laneRevision: engine.laneRevision,
   };
 }

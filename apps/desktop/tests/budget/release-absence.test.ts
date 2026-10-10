@@ -65,9 +65,9 @@ const RENDERER_PRESENCE_MARKER = "meridian-frame";
 
 /**
  * The perf-meter kinds a release renderer must not carry, named rather than derived. Not every kind
- * in the tuple: `"reveal-drain"` is also a `window-cap.ts` reason code and a
- * `features/transcript/viewport/prune-cycle.ts` case label, and `"frame-time"` is a string other
- * product code carries, so sweeping the tuple whole would fail on a correct bundle.
+ * in the tuple: `"reveal-drain"` is also inside the reveal engine's frame task key
+ * (`features/transcript/reveal/engine.ts`), and `"frame-time"` is a string other product code
+ * carries, so sweeping the tuple whole would fail on a correct bundle.
  * `"apply-latency"` and `"store-size"` are the meters' own words, so their absence is evidence of
  * the fold.
  *

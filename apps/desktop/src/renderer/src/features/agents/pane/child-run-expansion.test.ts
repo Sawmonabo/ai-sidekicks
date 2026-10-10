@@ -4,7 +4,10 @@
 import { describe, expect, it } from "vitest";
 
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
+import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { ChildRunExpandResponse } from "@ai-sidekicks/contracts/transcript/operations";
+import type { TranscriptReadRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { bridgeAnswering } from "#test/helpers/fixture/bridge.js";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
@@ -17,34 +20,39 @@ const PARENT_RUN_ID = "019b79ee-0280-740e-8110-d1a4c1150092" as RunId;
 /** A second child of the same parent, for the cases about two lines at once. */
 const SECOND_CHILD_RUN_ID = "019b79ee-0280-740e-8110-d1a4c1150093" as RunId;
 
-/** One registered `ChildRunExpandResponse`, on the terminal arm. */
+/** One registered `ChildRunExpandResponse`, on the arm `hasMore` names. */
 function expansionReply(
   entryCount: number,
   hasMore = false,
   childRunId: RunId = CHILD_RUN_ID,
-): Record<string, unknown> {
-  return {
+): ChildRunExpandResponse {
+  const base = {
     runId: childRunId,
     parentRunId: PARENT_RUN_ID,
     state: "running",
-    hasMore,
-    ...(hasMore ? { nextCursor: "cursor-next" } : {}),
-    entries: Array.from({ length: entryCount }, (_unused, index) => ({
-      id: `child-${String(index)}`,
-      sessionId: SESSION_ID,
-      sequence: index,
-      cursor: `cursor-at-${String(index)}`,
-      category: "run_lifecycle",
-      type: "run.started",
-      summary: "the child ran",
-      timestamp: new Date(Date.UTC(2026, 0, 1, 9, 0, index)).toISOString(),
-      kind: "run",
-      runId: childRunId,
-      position: index,
-      epoch: 0,
-      payload: {},
-    })),
-  };
+    entries: Array.from(
+      { length: entryCount },
+      (_unused, index): TranscriptReadRow => ({
+        id: `child-${String(index)}`,
+        sessionId: SESSION_ID,
+        sequence: index,
+        cursor: `cursor-at-${String(index)}` as EventCursor,
+        category: "run_lifecycle",
+        type: "run.started",
+        summary: "the child ran",
+        timestamp: new Date(Date.UTC(2026, 0, 1, 9, 0, index)).toISOString(),
+        kind: "run",
+        runId: childRunId,
+        position: index,
+        epoch: 0,
+        payload: {},
+        content: { status: "unavailable", reason: "absent" },
+      }),
+    ),
+  } as const;
+  return hasMore
+    ? { ...base, hasMore: true, nextCursor: "cursor-next" as EventCursor }
+    : { ...base, hasMore: false };
 }
 
 /** What a case holds a scripted expansion with, and the act that lets it answer. */

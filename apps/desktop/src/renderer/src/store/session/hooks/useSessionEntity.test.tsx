@@ -8,12 +8,14 @@ import { describe, expect, it } from "vitest";
 import { ManualClock } from "#renderer/lib/clock.js";
 import type { ProjectedSessionEvent, EntityProjectorTable } from "../entities/vocabulary.js";
 import { useSessionEntity } from "./useOpenSessionStore.js";
-import { type SessionBaseStateReader } from "../open/entry.js";
+import {
+  openingPageLimit,
+  offScreenRowLimit,
+  readsNothing,
+} from "#test/helpers/session/store/fixtures.js";
 import { eventOfKind } from "#test/helpers/session/events.js";
 import { SessionStoreRegistry } from "../registry.js";
 import type { SessionStore } from "../store.js";
-
-const readsNothing: SessionBaseStateReader = () => Promise.resolve(undefined);
 
 function runIdOf(event: ProjectedSessionEvent): string {
   const raw = event.payload?.["runId"];
@@ -66,6 +68,8 @@ describe("useSessionEntity — a row re-renders for its own entity and no other"
     const registry = new SessionStoreRegistry({
       read: readsNothing,
       clock,
+      openingPageLimit,
+      offScreenRowLimit,
       projectors,
       applyCoalesceMs: 0,
     });
