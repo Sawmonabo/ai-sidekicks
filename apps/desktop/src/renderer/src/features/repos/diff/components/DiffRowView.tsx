@@ -67,13 +67,11 @@ export const DiffRowView: React.MemoExoticComponent<
 
   if (row.kind === "file-header") {
     const file = index.model.files[row.fileIndex];
-    // The patch's extended-header kind words. A rename-only, copy-only or mode-only file has no
-    // hunks, so in Review this row is the only place its change appears; the flow writes such a
-    // file's notes where its lines would be instead (`InlineDiffBlock.tsx`).
+    // What happened to the file. A rename-only or mode-only file has no hunks, so in Review this
+    // row is the only place its change appears; the flow draws a header only for a file with no
+    // lines, and writes its notes where its lines would be instead (`InlineDiffBlock.tsx`).
     const changeNotes =
-      file === undefined || (props.look === "flow" && file.hunks.length === 0)
-        ? []
-        : diffFileChangeNotes(file, "header");
+      file === undefined || props.look === "flow" ? [] : diffFileChangeNotes(file, "header");
     return (
       <div {...rowProps} className="meridian-diff__row meridian-diff__row--file">
         <span className="meridian-diff__file-path" role="cell">
@@ -216,14 +214,21 @@ interface RowElementProps {
 }
 
 /**
+ * Three middle dots, the skipped-lines mark: a midline ellipsis drawn in the app's own face, which
+ * has no midline ellipsis of its own. Set in sans, three of them span what one midline ellipsis
+ * does.
+ */
+const SKIPPED_LINES_MARK = "\u00B7\u00B7\u00B7";
+
+/**
  * The flow's quiet separator where the file's lines are skipped: no number, no wash and nothing to
  * press, and never the hunk's own `@@` spelling.
  */
 function FlowSeparatorRow(props: { readonly rowProps: RowElementProps }): React.JSX.Element {
   return (
-    <div {...props.rowProps} className="meridian-diff__row meridian-diff__row--separator">
+    <div {...props.rowProps} className="meridian-diff__row">
       <span className="meridian-diff__separator" role="cell">
-        <span aria-hidden="true">⋯</span>
+        <span aria-hidden="true">{SKIPPED_LINES_MARK}</span>
         <span className="meridian-visually-hidden">Lines skipped</span>
       </span>
     </div>

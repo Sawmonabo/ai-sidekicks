@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 
 import { WORKFLOW_OWN_SESSION, WORKFLOW_RUN_IDS } from "#fixtures/data/workflow/run/records.js";
 import { bridgeWrapper, withAnnouncer } from "#test/helpers/app/frame-fixtures.js";
+import { withAlignmentWorker } from "#test/helpers/diff/alignment-worker.js";
 import { bridgeAnswering, type RecordedDaemonCall } from "#test/helpers/fixture/bridge.js";
 import type { ScenarioEngine } from "#renderer/services/daemon/engine.fixture.js";
 import { paneContext } from "#test/helpers/pane-context.js";
@@ -52,7 +53,7 @@ async function renderRunReview(
         { bridge, sessionStore: new SessionStore({ sessionId: WORKFLOW_OWN_SESSION }) },
       )}
     />,
-    { wrapper: withAnnouncer(bridgeWrapper(bridge, engine.clock)) },
+    { wrapper: withAlignmentWorker(withAnnouncer(bridgeWrapper(bridge, engine.clock))) },
   );
   await advanceScenarioUntil(engine, settled);
   return { calls, engine };

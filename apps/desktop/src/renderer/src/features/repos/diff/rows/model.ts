@@ -14,7 +14,7 @@ export interface DiffFileHeaderRow {
   readonly fileIndex: number;
 }
 
-/** The line under a file's header saying why its contents are not drawn, where its lines would be. */
+/** The line under a file's header saying why its contents are not drawn, in place of its lines. */
 export interface DiffUnshownReasonRow {
   readonly kind: "unshown-reason";
   readonly fileIndex: number;

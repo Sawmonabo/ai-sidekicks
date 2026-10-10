@@ -12,13 +12,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { installMeridianTokens } from "#renderer/app/token-installation.js";
 import {
-  DIFF_CARD,
   diffOf,
   drawDiffCard,
   filePatch,
 } from "#renderer/features/repos/diff/components/InlineDiffCard.test-support.js";
-import type { DiffInlineCardProps } from "#renderer/registries/inline-cards/registry.js";
 import type { DiffModel } from "#renderer/features/repos/diff/model.js";
+import { diffModelFromRead } from "#renderer/features/repos/diff/read-model.js";
 import { letObserversAnswer } from "../helpers/animation-frame.js";
 
 /** The flow's visible height, in CSS pixels, standing in for the transcript's scroller. */
@@ -41,7 +40,7 @@ afterEach(() => {
 
 describe("browser — the transcript's diff card", () => {
   it("draws a third of the flow in the flow, faded at the cut, under the footer", async () => {
-    const { card, block } = renderCard(DIFF_CARD, diffOf([longFile()]));
+    const { card, block } = renderCard(diffOf([longFile()]));
     const rowsBox = block.querySelector<HTMLElement>(".meridian-diff-block__rows");
     const footer = block.querySelector<HTMLElement>(".meridian-diff-block__footer");
     if (rowsBox === null || footer === null) {
@@ -125,7 +124,7 @@ describe("browser — the transcript's diff card", () => {
 
   it("cuts at as many rows as a third of the flow holds at the current text size", async () => {
     document.documentElement.style.fontSize = "20px";
-    const { block } = renderCard(DIFF_CARD, diffOf([longFile()]));
+    const { block } = renderCard(diffOf([longFile()]));
     const rowsBox = block.querySelector<HTMLElement>(".meridian-diff-block__rows") as HTMLElement;
     const rowHeightsPx: number[] = [];
     for (const textSizePx of [20, 12]) {
@@ -147,20 +146,30 @@ describe("browser — the transcript's diff card", () => {
   });
 
   it("keeps a file with no lines its header, and writes what changed where its lines would be", () => {
-    const binaryPatch = [
-      "diff --git a/assets/logo.png b/assets/logo.png",
-      "index 1a2b3c4..5d6e7f8 100644",
-      "Binary files a/assets/logo.png and b/assets/logo.png differ",
-      "",
-    ].join("\n");
-    const renamePatch = [
-      "diff --git a/docs/before.md b/docs/after.md",
-      "similarity index 100%",
-      "rename from docs/before.md",
-      "rename to docs/after.md",
-      "",
-    ].join("\n");
-    const { card } = renderCard(DIFF_CARD, diffOf([binaryPatch, renamePatch]));
+    // As the daemon sends them: a binary file carries no patch, so it has nothing to copy.
+    const { card } = renderCard(
+      diffModelFromRead({
+        head: "feature",
+        base: "main",
+        files: [
+          { path: "assets/logo.png", kind: "added", binary: true, additions: 0, deletions: 0 },
+          {
+            path: "docs/after.md",
+            oldPath: "docs/before.md",
+            kind: "renamed",
+            additions: 0,
+            deletions: 0,
+            patch: [
+              "diff --git a/docs/before.md b/docs/after.md",
+              "similarity index 100%",
+              "rename from docs/before.md",
+              "rename to docs/after.md",
+              "",
+            ].join("\n"),
+          },
+        ],
+      }),
+    );
     const blocks = [...card.querySelectorAll<HTMLElement>(".meridian-diff-block")];
     expect(
       blocks.map((block) => ({
@@ -173,8 +182,8 @@ describe("browser — the transcript's diff card", () => {
       {
         header: "assets/logo.png",
         rows: 1,
-        note: "binary — contents not shown",
-        footer: "Copy patch",
+        note: "added, binary — contents not shown",
+        footer: undefined,
       },
       {
         header: "docs/after.md",
@@ -187,7 +196,6 @@ describe("browser — the transcript's diff card", () => {
 
   it("stands a separator where lines are skipped, and never shows the hunk's own spelling", () => {
     const { block } = renderCard(
-      DIFF_CARD,
       diffOf([
         filePatch("two-hunks.ts", "@@ -1,2 +1,2 @@", [" a", "-b", "+B"], "@@ -40,2 +40,2 @@", [
           " y",
@@ -198,7 +206,7 @@ describe("browser — the transcript's diff card", () => {
     );
     const rows = [...block.querySelectorAll<HTMLElement>('[role="row"]')];
     // Three lines, the separator, three lines: the first hunk opens on its first line.
-    expect(rows.map((row) => row.classList.contains("meridian-diff__row--separator"))).toEqual([
+    expect(rows.map((row) => row.querySelector(".meridian-diff__separator") !== null)).toEqual([
       false,
       false,
       false,
@@ -218,7 +226,7 @@ describe("browser — the transcript's diff card", () => {
     const files = Array.from({ length: fileCount }, (_unused, ordinal) =>
       filePatch(`handlers/file-${String(ordinal)}.ts`, "@@ -7,3 +7,3 @@", [" a", "-b", "+c", " d"]),
     );
-    const { card } = renderCard(DIFF_CARD, diffOf(files));
+    const { card } = renderCard(diffOf(files));
     const blocks = [...card.querySelectorAll<HTMLElement>(".meridian-diff-block")];
     const fold = card.querySelector<HTMLElement>(".meridian-diff-card__fold");
     if (fold === null) {
@@ -237,28 +245,11 @@ describe("browser — the transcript's diff card", () => {
     expect(last.bottom - first.top).toBeLessThanOrEqual(2 * FLOW_HEIGHT_PX);
     expect(last.bottom - first.top + blockPitchPx).toBeGreaterThan(2 * FLOW_HEIGHT_PX);
   });
-
-  it("draws a compared pair in the flow too, with no scroller of its own", () => {
-    const { card } = renderCard(
-      { ...DIFF_CARD, baseRef: "main", headRef: "feature" },
-      diffOf([longFile()]),
-    );
-    expect(card.querySelectorAll(".meridian-diff-block")).toHaveLength(1);
-    expect(card.querySelector(".meridian-diff-pane")).toBeNull();
-    expectNoInnerScroller(card);
-  });
 });
 
 /** Draw the card in a flow of `FLOW_HEIGHT_PX`, and hand back the card and its first block. */
-function renderCard(
-  cardProps: DiffInlineCardProps,
-  diff: DiffModel,
-): { readonly card: HTMLElement; readonly block: HTMLElement } {
-  const { card, block } = drawDiffCard(diff, {
-    heightPx: FLOW_HEIGHT_PX,
-    widthPx: 420,
-    card: cardProps,
-  });
+function renderCard(diff: DiffModel): { readonly card: HTMLElement; readonly block: HTMLElement } {
+  const { card, block } = drawDiffCard(diff, { heightPx: FLOW_HEIGHT_PX, widthPx: 420 });
   return { card, block };
 }
 

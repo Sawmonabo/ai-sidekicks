@@ -2,7 +2,8 @@
 // scroller of their own: cut at the height of as many rows as a third of the visible flow holds
 // and faded there, with a footer counting the lines drawn, lifting the cut, and copying the
 // file's whole patch. A file inside the cut is drawn whole and its footer has nothing to lift. A
-// file with no lines to draw keeps its header and writes what changed where its lines would be.
+// file with no lines to draw keeps its header and writes what changed where its lines would be,
+// with a footer only where it has a patch to copy.
 //
 // The rows are drawn in steps of a fixed count, each step one box. Whether a block is open whole
 // is its host's to hold, so it stays open while its row scrolls out and back. Show all mounts the
@@ -11,8 +12,10 @@
 // mounted rows as each step lands, so no scroll, however the browser runs it, can reach a part of
 // the block with no rows drawn, and the reader stays still as the block grows above them.
 
-// The rows' own sheet, shared with Review's renderer so a change reads the same in both.
+// The rows' own sheet, shared with Review's renderer so a change reads the same in both, then the
+// block's and the flow's look.
 import "./DiffRenderer.css";
+import "./InlineDiffBlock.css";
 
 import { memo, useState } from "react";
 
@@ -20,7 +23,7 @@ import { CopyButton } from "#renderer/components/CopyButton/CopyButton.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
 import { useClipboardCopy } from "#renderer/services/platform/hooks/useClipboardCopy.js";
 import { useIntralineSegmentCache } from "../hooks/useIntralineSegmentCache.js";
-import { useReaderHeldOverSteps } from "../hooks/useReaderHeldOverSteps.js";
+import { useHoldReaderOverSteps } from "../hooks/useHoldReaderOverSteps.js";
 import { useRowsCut } from "../hooks/useRowsCut.js";
 import { useRowsMountedInSteps } from "../hooks/useRowsMountedInSteps.js";
 import type { IntralineSegmentCache } from "../intraline/segment-cache.js";
@@ -66,7 +69,7 @@ export function InlineDiffBlock(props: InlineDiffBlockProps): React.JSX.Element 
     flowRows.lineCount,
     drawnRowCount < rowCount,
   );
-  useReaderHeldOverSteps(rowsElement, isOpen, mountedRowCount);
+  useHoldReaderOverSteps(rowsElement, isOpen, mountedRowCount);
 
   // One element per step, so a step mounts its own rows and every other step's memo holds.
   const rowSteps: React.JSX.Element[] = [];
@@ -119,33 +122,33 @@ export function InlineDiffBlock(props: InlineDiffBlockProps): React.JSX.Element 
       {flowRows.bodyNotes.length === 0 ? null : (
         <p className="meridian-diff-block__note">{flowRows.bodyNotes.join(", ")}</p>
       )}
-      <div className="meridian-diff-block__footer">
-        {flowRows.lineCount === 0 ? null : (
-          <span>{`${formatCount(drawnLineCount)} of ${formatCount(flowRows.lineCount)} ${flowRows.lineCount === 1 ? "line" : "lines"}`}</span>
-        )}
-        {isCut ? (
-          <>
-            <span className="meridian-diff-block__separator" aria-hidden="true">
-              ·
-            </span>
-            <button
-              type="button"
-              className="meridian-link-button"
-              onClick={() => {
-                props.onOpen();
-                // The control leaves with the cut, so focus goes to the rows it opened rather
-                // than to the page; `preventScroll` keeps the rows above where they were.
-                rowsElement?.focus({ preventScroll: true });
-              }}
-            >
-              Show all
-            </button>
-          </>
-        ) : null}
-        {props.file.patch === undefined ? null : (
-          <PatchCopy patch={props.file.patch} hasSeparator={flowRows.lineCount > 0 || isCut} />
-        )}
-      </div>
+      {flowRows.hasFooter ? (
+        <div className="meridian-diff-block__footer">
+          {flowRows.lineCount === 0 ? null : (
+            <span>{`${formatCount(drawnLineCount)} of ${formatCount(flowRows.lineCount)} ${flowRows.lineCount === 1 ? "line" : "lines"}`}</span>
+          )}
+          {isCut ? (
+            <>
+              <span aria-hidden="true">·</span>
+              <button
+                type="button"
+                className="meridian-link-button"
+                onClick={() => {
+                  props.onOpen();
+                  // The control leaves with the cut, so focus goes to the rows it opened rather
+                  // than to the page; `preventScroll` keeps the rows above where they were.
+                  rowsElement?.focus({ preventScroll: true });
+                }}
+              >
+                Show all
+              </button>
+            </>
+          ) : null}
+          {props.file.patch === undefined ? null : (
+            <PatchCopy patch={props.file.patch} hasSeparator={flowRows.lineCount > 0} />
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -193,11 +196,7 @@ function PatchCopy(props: {
   const clipboardCopy = useClipboardCopy({ text: props.patch });
   return (
     <>
-      {props.hasSeparator ? (
-        <span className="meridian-diff-block__separator" aria-hidden="true">
-          ·
-        </span>
-      ) : null}
+      {props.hasSeparator ? <span aria-hidden="true">·</span> : null}
       <CopyButton label="Copy patch" clipboardCopy={clipboardCopy} look="link" />
     </>
   );

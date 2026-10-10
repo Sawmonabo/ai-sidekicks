@@ -30,7 +30,7 @@ const LONG_LINE_COUNT = 5000;
 /** Frames a fill of the diffs here may take before a case gives up on it. */
 const FILL_FRAME_LIMIT = 600;
 
-/** How far a picture's color may sit from the block's ground and still be it, per channel (JPEG). */
+/** How far a picture's color may sit from the block's ground and still match it, per channel. */
 const GROUND_TOLERANCE = 4;
 
 /** How long the trace runs on after the block fills, so the last frames' pictures arrive. */

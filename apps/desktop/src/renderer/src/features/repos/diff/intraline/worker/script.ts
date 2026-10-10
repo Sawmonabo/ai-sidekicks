@@ -1,7 +1,7 @@
 // What runs inside the intraline alignment worker: one alignment per request, answered with the
 // request's id so the window matches each reply to its pair.
 
-import { intralineSegments, type IntralineSegmentPair } from "./word-alignment.js";
+import { intralineSegments, type IntralineSegmentPair } from "../word-alignment.js";
 
 /** One pair to align, as the window posts it. */
 export interface AlignmentRequest {

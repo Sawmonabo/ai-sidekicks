@@ -59,7 +59,7 @@ import sansRomanPiUrl from "@ibm/plex-sans-variable/fonts/split/woff2/IBM Plex S
 /** The `font-style` a face is selected for; the two the foundry cuts and no third. */
 type TypefaceStyle = "normal" | "italic";
 
-/** One self-hosted split: a family, a style, the axes its file carries, its characters, its bytes. */
+/** One self-hosted split: its family, style, axes, characters and bytes. */
 interface TypefaceFace {
   /** The family name the `FONT_STACKS` entry in `styles/typography.ts` names first. */
   readonly family: string;

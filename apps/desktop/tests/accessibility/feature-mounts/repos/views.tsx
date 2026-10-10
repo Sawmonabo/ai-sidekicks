@@ -25,6 +25,7 @@ import { WORKFLOW_OWN_SESSION, WORKFLOW_RUN_IDS } from "#fixtures/data/workflow/
 import { ManualClock } from "#renderer/lib/clock.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { DiffPane } from "#renderer/features/repos/diff/components/DiffPane.js";
+import { AlignmentWorkerProvider } from "#renderer/features/repos/index.js";
 import { DiffCardWithOpenState } from "#renderer/features/repos/diff/components/InlineDiffCard.test-support.js";
 import { paneContext } from "#test/helpers/pane-context.js";
 import {
@@ -78,15 +79,17 @@ export async function mountDiffPane(): Promise<MountedView> {
   const { container } = await renderSettled(
     // The provider carries the clock the row window schedules its scroll writes on.
     <PlatformBridgeProvider bridge={bridge} clock={clock}>
-      <DiffPane
-        context={paneContext(
-          // The session's own workspace, named from the mounts fixture so the subject the audit
-          // reads and the workspace the list states cannot drift.
-          { kind: "diff", entity: { kind: "workspace", id: HEALTHY_WORKSPACE_ID } },
-          { paneId: "pane-diff", bridge, sessionStore },
-        )}
-        diff={extendedHeaderChangeSet()}
-      />
+      <AlignmentWorkerProvider>
+        <DiffPane
+          context={paneContext(
+            // The session's own workspace, named from the mounts fixture so the subject the audit
+            // reads and the workspace the list states cannot drift.
+            { kind: "diff", entity: { kind: "workspace", id: HEALTHY_WORKSPACE_ID } },
+            { paneId: "pane-diff", bridge, sessionStore },
+          )}
+          diff={extendedHeaderChangeSet()}
+        />
+      </AlignmentWorkerProvider>
     </PlatformBridgeProvider>,
   );
   // Anchored at the kind: the chrome names the pane by its trail, so the full name carries the
@@ -102,18 +105,20 @@ export async function mountInlineDiffCard(): Promise<MountedView> {
   const { bridge, clock } = scenarioBridgeAndStore();
   const { container } = await renderSettled(
     <PlatformBridgeProvider bridge={bridge} clock={clock}>
-      <div style={{ blockSize: INLINE_DIFF_FLOW_HEIGHT_PX, overflowY: "auto" }}>
-        <DiffCardWithOpenState
-          card={{
-            kind: "diff",
-            runId: "run-inline-diff",
-            diffArtifactId: "diff-artifact-inline",
-            artifactManifestId: "artifact-manifest-inline",
-          }}
-          diff={extendedHeaderChangeSet()}
-          isCardMounted
-        />
-      </div>
+      <AlignmentWorkerProvider>
+        <div style={{ blockSize: INLINE_DIFF_FLOW_HEIGHT_PX, overflowY: "auto" }}>
+          <DiffCardWithOpenState
+            card={{
+              kind: "diff",
+              runId: "run-inline-diff",
+              diffArtifactId: "diff-artifact-inline",
+              artifactManifestId: "artifact-manifest-inline",
+            }}
+            diff={extendedHeaderChangeSet()}
+            isCardMounted
+          />
+        </div>
+      </AlignmentWorkerProvider>
     </PlatformBridgeProvider>,
   );
   const card = container.querySelector<HTMLElement>(".meridian-diff-card");
@@ -136,24 +141,26 @@ export async function mountWorkflowRunReview(): Promise<MountedView> {
   const workflowRunId = WORKFLOW_RUN_IDS.succeeded as WorkflowRunId;
   const { container } = await renderSettled(
     <PlatformBridgeProvider bridge={bridge} clock={engine.clock}>
-      <DiffPane
-        context={paneContext(
-          {
-            kind: "diff",
-            entity: {
-              kind: "workflow-run",
-              id: workflowRunId,
-              from: { epoch: 1, point: "start" },
-              to: { epoch: 1, point: "end" },
+      <AlignmentWorkerProvider>
+        <DiffPane
+          context={paneContext(
+            {
+              kind: "diff",
+              entity: {
+                kind: "workflow-run",
+                id: workflowRunId,
+                from: { epoch: 1, point: "start" },
+                to: { epoch: 1, point: "end" },
+              },
             },
-          },
-          {
-            paneId: "pane-diff",
-            bridge,
-            sessionStore: new SessionStore({ sessionId: WORKFLOW_OWN_SESSION }),
-          },
-        )}
-      />
+            {
+              paneId: "pane-diff",
+              bridge,
+              sessionStore: new SessionStore({ sessionId: WORKFLOW_OWN_SESSION }),
+            },
+          )}
+        />
+      </AlignmentWorkerProvider>
     </PlatformBridgeProvider>,
   );
   await advanceScenarioUntil(engine, () => {

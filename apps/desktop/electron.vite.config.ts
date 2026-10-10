@@ -1,6 +1,6 @@
 // electron-vite configuration: three build targets (main, preload, renderer), and the renderer's
-// workers (markdown, diagram, PNG), which the renderer build bundles apart from the page, each by
-// the name `WORKER_BUNDLE_NAMES` gives it.
+// workers (markdown, diagram, PNG, diff word alignment), which the renderer build bundles apart
+// from the page, each by the name `WORKER_BUNDLE_NAMES` gives it.
 //
 // The renderer loads over a custom protocol, not file://. Source maps are "hidden": readable for a
 // crash report's stack but not referenced from the shipped bundle. The release fixture gate
@@ -137,6 +137,7 @@ const WORKER_BUNDLE_NAMES: Readonly<Record<string, string>> = {
   "components/Markdown/worker/entry.ts": "markdown-worker",
   [DIAGRAM_WORKER_ENTRY]: DIAGRAM_WORKER_BUNDLE_NAME,
   "components/Markdown/diagram/png/entry.ts": "png-worker",
+  "features/repos/diff/intraline/worker/script.ts": "alignment-worker",
 };
 
 /** A worker's bundle name, by its entry module. Throws for a worker the table does not name. */
