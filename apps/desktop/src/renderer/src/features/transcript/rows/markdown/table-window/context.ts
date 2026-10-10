@@ -8,7 +8,7 @@ import { createContext, type Context } from "react";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { type MarkdownWindowViewport } from "../block-window/context.js";
 import { type MarkdownBodyType } from "../body-type.js";
-import { type TableFingerprints } from "./table-text.js";
+import { type StreamingTableGeometries } from "./geometry-memory.js";
 
 /**
  * Why a body told its tables they may have moved: `"moved"`, a block above measured or the drawn
@@ -26,10 +26,14 @@ export interface TableBodyPlacement {
    * before the body mounts.
    */
   readonly ownerDocument: Document | undefined;
-  /** How long the definitions are that every parsed offset in the body counts. */
-  readonly definitionPreambleLength: number;
+  /** The definitions every block of the body is parsed after, whose length each offset counts. */
+  readonly definitionPreamble: string;
+  /** The key of the transcript row the body is drawn in. */
+  readonly rowKey: string;
   /** Where block `index` starts in the body's text, in UTF-16 code units. */
   blockSourceStart(index: number): number;
+  /** The fingerprint of settled block `index`'s text; `undefined` for the streaming tail. */
+  blockFingerprint(index: number): string | undefined;
   /** The element a table measures its own place from: its block's wrapper, or the body. */
   anchorOf(element: Element): Element | null;
   /**
@@ -66,8 +70,11 @@ export interface ListedBodies {
    * read it; `undefined` before one is read at that width.
    */
   readonly listedBodyType: () => MarkdownBodyType | undefined;
-  /** The window's tables' fingerprints, read once for a table measured off the list and listed. */
-  readonly tableFingerprints: TableFingerprints;
+  /**
+   * The window's streaming tables' geometry, handed from one mount of a table to the next, which
+   * outlives its row leaving the list and its body's mount.
+   */
+  readonly streamingTables: StreamingTableGeometries;
 }
 
 /**

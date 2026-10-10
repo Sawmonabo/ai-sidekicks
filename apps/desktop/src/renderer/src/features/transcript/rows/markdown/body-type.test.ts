@@ -40,7 +40,7 @@ describe("geometry remembered at one text size", () => {
     expect(recallBlockGeometry({ ...block, bodyType: LARGER_TEXT })).toBeUndefined();
 
     rememberTableGeometry(
-      { fingerprint: "table", bodyType: MEASURED_AT },
+      { tableKey: "table", bodyType: MEASURED_AT },
       {
         columns: { widthsPx: [300, 300], tableWidthPx: 600 },
         cellType: CELL_TYPE,
@@ -48,7 +48,7 @@ describe("geometry remembered at one text size", () => {
         sampleRowIndexes: [0],
       },
     );
-    expect(recallTableGeometry({ fingerprint: "table", bodyType: MEASURED_AT })).toBeDefined();
-    expect(recallTableGeometry({ fingerprint: "table", bodyType: LARGER_TEXT })).toBeUndefined();
+    expect(recallTableGeometry({ tableKey: "table", bodyType: MEASURED_AT })).toBeDefined();
+    expect(recallTableGeometry({ tableKey: "table", bodyType: LARGER_TEXT })).toBeUndefined();
   });
 });

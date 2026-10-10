@@ -29,7 +29,7 @@ describe("accessibility — the frames long tables are measured in off the list"
     installMeridianTokens(document);
     const offList = new OffListTables(document, () => 680);
     const table = longTablesOf(parseMarkdown(LONG_TABLE))[0] ?? expect.fail("a long table");
-    const withdraw = offList.measure(table, new Set(), () => undefined);
+    const withdraw = offList.measure(table, "table", new Set(), () => undefined);
     const Wrapper = liveBridgeWrapper();
     await renderSettled(
       <Wrapper>

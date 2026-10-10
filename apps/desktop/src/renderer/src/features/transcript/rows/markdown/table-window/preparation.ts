@@ -5,6 +5,7 @@
 import type { Table } from "mdast";
 
 import { holdSettledBlock, type HeldSettledBlock } from "#renderer/components/Markdown/parse.js";
+import { settledTableKeyOf } from "./geometry-memory.js";
 import { longTablesOf, mayHoldLongTable } from "./long-tables.js";
 import { type OffListTables } from "./off-list.js";
 
@@ -19,6 +20,8 @@ export interface TableWindowPreparation {
 /** A settled block as its body draws it. */
 export interface PreparedBlock {
   readonly source: string;
+  /** The fingerprint of its text, which its tables' geometry is filed by. */
+  readonly fingerprint: string;
   /** The definitions the block is parsed against. */
   readonly definitionPreamble: string;
   /** The footnote identifiers the whole body declares. */
@@ -45,13 +48,7 @@ export function prepareTableWindows(
     held.release();
     return undefined;
   }
-  return new LongTablesPreparation(
-    held,
-    tables,
-    block.definedFootnoteIdentifiers,
-    offList,
-    onReady,
-  );
+  return new LongTablesPreparation(held, tables, block, offList, onReady);
 }
 
 /** One block's long tables being measured, and the block's tree held until they are released. */
@@ -64,14 +61,15 @@ class LongTablesPreparation implements TableWindowPreparation {
   public constructor(
     held: HeldSettledBlock,
     tables: readonly Table[],
-    definedFootnoteIdentifiers: ReadonlySet<string>,
+    block: PreparedBlock,
     offList: OffListTables,
     onReady: () => void,
   ) {
     this.#held = held;
     for (const table of tables) {
       let hasLanded = false;
-      const withdraw = offList.measure(table, definedFootnoteIdentifiers, () => {
+      const tableKey = settledTableKeyOf(block.fingerprint, block.definitionPreamble, table);
+      const withdraw = offList.measure(table, tableKey, block.definedFootnoteIdentifiers, () => {
         if (hasLanded || this.#isReleased) {
           return;
         }

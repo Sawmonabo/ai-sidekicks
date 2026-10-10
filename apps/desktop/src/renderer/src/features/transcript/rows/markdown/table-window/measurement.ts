@@ -1,10 +1,9 @@
 // One long table's geometry, measured with no read inside a commit and no long task. Its sample
 // rows are drawn hidden, then read in the resize observation that follows the browser's own layout
 // of them, so reading them lays nothing out; its rows are ranked and their heights estimated a
-// slice at a time, each slice a task of its own ending by the wall clock, the table's fingerprint
-// read beside the estimates. It ends, in a task of its own, with what the table window draws from:
-// the columns automatic layout gives the whole table, the cells' type, and every row's height
-// estimated at those columns.
+// slice at a time, each slice a task of its own ending by the wall clock. It ends, in a task of its
+// own, with what the table window draws from: the columns automatic layout gives the whole table,
+// the cells' type, and every row's height estimated at those columns.
 
 import type { Table, TableRow } from "mdast";
 
@@ -13,7 +12,6 @@ import { workInSlices } from "#renderer/lib/work-slices.js";
 import { TableCellMeasure, readTableCellType, type TableCellType } from "./cell-measure.js";
 import { type TableGeometry } from "./geometry-memory.js";
 import { measureTableColumns } from "./measured-columns.js";
-import { type TableFingerprints } from "./table-text.js";
 import { WidestCells } from "./widest-cells.js";
 
 /**
@@ -39,7 +37,6 @@ export interface TableCellMeasurer {
 export class TableMeasurement {
   readonly #table: Table;
   readonly #ownerDocument: Document;
-  readonly #tableFingerprints: TableFingerprints;
   readonly #view: Window;
   readonly #onChange: () => void;
   #cellMeasurer: TableCellMeasurer | undefined;
@@ -51,14 +48,11 @@ export class TableMeasurement {
 
   /**
    * Starts measuring `table` in `ownerDocument`, its own: a window's fonts load in its document
-   * alone. The table's fingerprint, unless `tableFingerprints` holds it, is read there beside the
-   * row estimates. With the cells' type already read, and the rows ranked so far, it starts from
-   * them.
+   * alone. With the cells' type already read, and the rows ranked so far, it starts from them.
    */
   public constructor(
     table: Table,
     ownerDocument: Document,
-    tableFingerprints: TableFingerprints,
     onChange: () => void,
     known?: { readonly cellMeasurer: TableCellMeasurer; readonly widestCells?: WidestCells },
   ) {
@@ -68,7 +62,6 @@ export class TableMeasurement {
     }
     this.#table = table;
     this.#ownerDocument = ownerDocument;
-    this.#tableFingerprints = tableFingerprints;
     this.#view = view;
     this.#onChange = onChange;
     if (known === undefined) {
@@ -160,17 +153,11 @@ export class TableMeasurement {
     );
   }
 
-  /**
-   * Estimates every row's height at `columns` in slices, reading the table's fingerprint beside
-   * them unless it is held, then holds the geometry.
-   */
+  /** Estimates every row's height at `columns` in slices, then holds the geometry. */
   #estimateRows(columns: HeldTableColumns, sampleRowIndexes: readonly number[]): void {
     const cellMeasurer = this.#requireCellMeasurer();
     const rowCount = Math.max(0, this.#table.children.length - 1);
     const rowHeightsPx = new Float32Array(rowCount);
-    const fingerprintReading = this.#tableFingerprints.startReading(this.#table);
-    // The head row, then each body row beside its estimate.
-    fingerprintReading?.readRow();
     let nextIndex = 0;
     this.#workInSlices(
       (hasTime) => {
@@ -178,7 +165,6 @@ export class TableMeasurement {
           const row = this.#table.children[nextIndex + 1];
           rowHeightsPx[nextIndex] =
             row === undefined ? 0 : estimatedRowHeightPx(row, columns, cellMeasurer);
-          fingerprintReading?.readRow();
           nextIndex += 1;
         }
         return nextIndex >= rowCount;

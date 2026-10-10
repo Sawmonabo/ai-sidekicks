@@ -183,6 +183,10 @@ export function useTranscriptFeedWindows(
   const [offListTables] = useState(
     () => new OffListTables(ownerDocument, () => readRowWidthPxRef.current()),
   );
+  // A row the log lets go takes its streaming tables' handed geometry with it.
+  useEffect(() => {
+    offListTables.streamingTables.retainRows(unfurledWindow.rowsByKey);
+  }, [offListTables, unfurledWindow]);
   // After the reveal engine, whose live text a held reply is read through.
   const preparedRows = usePreparedRows(
     drawnWindow,
