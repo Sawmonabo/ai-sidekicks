@@ -28,6 +28,7 @@ import { type ScrollCaller } from "#renderer/lib/scroll/callers.js";
 import { type GlideMotion } from "#renderer/lib/scroll/eased-glide.js";
 import { SCROLL_TAIL_TOLERANCE_PX } from "#renderer/lib/scroll/geometry/publisher.js";
 import { SCROLL_GEOMETRY_EPSILON_PX } from "#renderer/lib/scroll/geometry/sample.js";
+import { widenRangeByPixels } from "#renderer/lib/scroll/item-band.js";
 import { MOTION_DURATIONS_MS, settleEasingAt } from "#renderer/styles/motion.js";
 
 /** The virtualizer this frame drives, at the two element types it drives it with. */
@@ -85,6 +86,9 @@ export class VirtualizerOptions {
   #rangeExtractor = (range: Range): number[] => this.#drawnIndexesOf(range);
   /** The current identity of `getItemKey`, replaced by `rekeyRows`. */
   #getItemKey = (index: number): string => this.#keyAt(index);
+  /** The size the library laid a row out at, or the estimate it would lay the row out at. */
+  readonly #laidOutSizeOf = (index: number): number =>
+    this.#virtualizer()?.measurementsCache[index]?.size ?? this.estimateSize(index);
   /** The keys of the rows the last call of `rangeExtractor` drew. */
   #drawnRowKeys: ReadonlySet<string> = new Set();
   /** The row the library last measured, whose size change its next adjustment answers. */
@@ -325,10 +329,11 @@ export class VirtualizerOptions {
     const viewportHeightPx = this.#scroll.geometry?.viewportHeight ?? 0;
     const range = this.#landedRangeOf(libraryRange, viewportHeightPx);
     const bandScreenHeights = this.#drawnBandScreenHeights();
-    const { startIndex, endIndex } = this.#bandAround(
+    const { startIndex, endIndex } = widenRangeByPixels(
       range,
       viewportHeightPx * bandScreenHeights.head,
       viewportHeightPx * bandScreenHeights.tail,
+      this.#laidOutSizeOf,
     );
     const outsideIndexes = this.#heldRowIndexes().filter(
       (index) => (index < startIndex || index > endIndex) && index < range.count,
@@ -338,7 +343,7 @@ export class VirtualizerOptions {
       TRANSCRIPT_DRAWN_BAND_SCREEN_HEIGHTS
     ) {
       const reachPx = viewportHeightPx * TRANSCRIPT_LEADING_BAND_SCREEN_HEIGHTS;
-      const reach = this.#bandAround(range, reachPx, reachPx);
+      const reach = widenRangeByPixels(range, reachPx, reachPx, this.#laidOutSizeOf);
       for (let index = reach.startIndex; index <= reach.endIndex; index += 1) {
         if (
           (index < startIndex || index > endIndex) &&
@@ -364,28 +369,6 @@ export class VirtualizerOptions {
   }
 
   /**
-   * The first and last index of `range` widened by the rows within `headPx` before it and
-   * `tailPx` after it, each side including the row that crosses its edge.
-   */
-  #bandAround(
-    range: Range,
-    headPx: number,
-    tailPx: number,
-  ): { readonly startIndex: number; readonly endIndex: number } {
-    let startIndex = range.startIndex;
-    for (let drawnPx = 0; startIndex > 0 && drawnPx < headPx; ) {
-      startIndex -= 1;
-      drawnPx += this.#laidOutSizeAt(startIndex);
-    }
-    let endIndex = range.endIndex;
-    for (let drawnPx = 0; endIndex < range.count - 1 && drawnPx < tailPx; ) {
-      endIndex += 1;
-      drawnPx += this.#laidOutSizeAt(endIndex);
-    }
-    return { startIndex, endIndex };
-  }
-
-  /**
    * The rows the box intersects at the offset a land on its way ends at, so the render that lays
    * the land out mounts the rows the reader will see rather than the rows at the old offset; the
    * library's own range with no land on its way.
@@ -403,11 +386,6 @@ export class VirtualizerOptions {
     return startIndex === undefined || endIndex === undefined
       ? libraryRange
       : { ...libraryRange, startIndex, endIndex };
-  }
-
-  /** The size the library laid a row out at, or the estimate it would lay the row out at. */
-  #laidOutSizeAt(index: number): number {
-    return this.#virtualizer()?.measurementsCache[index]?.size ?? this.estimateSize(index);
   }
 
   /**
