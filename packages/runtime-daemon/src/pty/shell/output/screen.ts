@@ -38,8 +38,8 @@ const LAST_COLOR_INDEX = 255;
 const CUBE_LEVELS = [0, 95, 135, 175, 215, 255] as const;
 const GRAPHEME_SEGMENTER = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
-/** What a shell's terminal looks like to a program that asks: its colors and its cell size. */
-export interface ShellScreenAppearance {
+// What a shell's terminal looks like to a program that asks: its colors and its cell size.
+interface ShellScreenAppearance {
   readonly colors: TerminalColors | null;
   readonly cellSize: TerminalCellSize | null;
 }
