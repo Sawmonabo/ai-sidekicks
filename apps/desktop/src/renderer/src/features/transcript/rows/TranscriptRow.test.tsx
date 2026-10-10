@@ -15,7 +15,13 @@ import { sampleRunRow, sampleUserMessageRow } from "#test/helpers/transcript/eve
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 
 function rowRendererProps(row: TranscriptRowProps["row"]): TranscriptRowProps {
-  return { row, agentHue: undefined, isSuperseded: false, density: "collapsed" };
+  return {
+    row,
+    agentHue: undefined,
+    isSuperseded: false,
+    density: "collapsed",
+    isOutputOpened: false,
+  };
 }
 
 /**
@@ -34,6 +40,7 @@ function InBridge(props: { readonly children: React.ReactNode }): React.JSX.Elem
 /** The toggles of a list no case here presses. */
 const UNPRESSED_ROW_TOGGLE: RowToggle = {
   toggleCallFold: () => undefined,
+  openOutput: () => undefined,
   holdControlInPlace: () => undefined,
 };
 

@@ -28,6 +28,7 @@ export const TranscriptFeedRow: React.NamedExoticComponent<TranscriptFeedRowProp
       agentHue: props.agentHue,
       isSuperseded: props.isSuperseded,
       density: props.density,
+      isOutputOpened: props.isOutputOpened,
       replyRowIds: props.replyRowIds,
     }),
 );

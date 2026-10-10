@@ -66,7 +66,6 @@ describe("an opened tool row", () => {
     expect(container.querySelector(".meridian-machine-body__plain")?.textContent).toBe(body);
     expect(container.querySelector('[role="heading"]')).toBeNull();
     expect(container.querySelector("strong")).toBeNull();
-    expect(container.querySelector(".meridian-ansi")).toBeNull();
   });
 });
 

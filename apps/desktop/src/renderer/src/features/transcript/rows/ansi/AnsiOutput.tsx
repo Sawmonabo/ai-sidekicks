@@ -1,12 +1,11 @@
 // Command output: the spans `spans.ts` parses from the output's handle, as elements in one output
-// box, which a call's output takes cut at the visible flow with the rest one press away. The block
+// box, which a call's output takes cut at the visible flow until its opening is pressed. The block
 // keeps one parser, so a streaming output is parsed only past what earlier revisions parsed.
 
 import { useMemo, useState } from "react";
 
 import { type PublishedText } from "../../reveal/published-text.js";
-import { OutputHeightCut } from "../bodies/OutputHeightCut.js";
-import { countPrintedLines } from "../bodies/printed-lines.js";
+import { OutputHeightCut, type OutputOpening } from "../bodies/OutputHeightCut.js";
 import { AnsiSpanParser, ansiSpanClassNames } from "./spans.js";
 
 import "./AnsiOutput.css";
@@ -17,13 +16,10 @@ export interface AnsiOutputProps {
   readonly publishedText: PublishedText;
   /** What a screen reader calls this block. */
   readonly label: string;
-  /** Whether the output is a call's, cut at the visible flow with the rest one press away. */
-  readonly isCutAtFlowHeight: boolean;
-  /**
-   * Keep `Show full output` where it stands while the lines it opens grow below it, called before
-   * they do; absent where the block is drawn outside a transcript's list.
-   */
-  readonly holdControlInPlace?: ((control: HTMLElement) => void) | undefined;
+  /** A call's output's opening, cut at the visible flow until opened; absent, drawn whole. */
+  readonly opening?: OutputOpening | undefined;
+  /** The bytes a running command's output holds so far; absent once it settled. */
+  readonly liveByteLength?: number | undefined;
 }
 
 /** Renders ANSI-styled command output in one output box. */
@@ -41,9 +37,8 @@ export function AnsiOutput(props: AnsiOutputProps): React.JSX.Element {
     <OutputHeightCut
       className="meridian-ansi__body"
       label={props.label}
-      isCutAtFlowHeight={props.isCutAtFlowHeight}
-      readPrintedLineCount={() => countPrintedLines(spans.map((span) => span.text))}
-      holdControlInPlace={props.holdControlInPlace}
+      opening={props.opening}
+      liveByteLength={props.liveByteLength}
     >
       {spans.map((span, index) => {
         const classNames = ansiSpanClassNames(span);

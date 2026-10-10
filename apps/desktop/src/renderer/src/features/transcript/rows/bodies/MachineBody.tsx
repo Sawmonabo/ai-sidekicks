@@ -3,7 +3,8 @@
 // truncated body renders its prefix and says so; an unreadable one keeps the turn at its position
 // with the unavailable marker, because an empty body or a dropped row would misreport the turn.
 // `MessageContent` and `ToolOutput` differ only in how a body's shape is read and in that a
-// call's output is cut at a share of the visible flow. A live body is read through its lane's
+// call's output is cut at a share of the visible flow until opened, a large one opened by the
+// press that reads it, so it draws whole once read. A live body is read through its lane's
 // handle and a stored one through a handle over its string, so neither is copied whole on a frame.
 
 import "./MachineBody.css";
@@ -21,12 +22,12 @@ import { withoutResidualEscapesOf } from "../ansi/escape-sequences.js";
 import { FullBodyReadsContext, type FullBodyReads } from "../full-body-reads.js";
 import { type FootnoteRegistry } from "../markdown/footnotes/registry.js";
 import { FullOutputControl } from "./FullOutputControl.js";
-import { OutputHeightCut } from "./OutputHeightCut.js";
+import { OutputHeightCut, type OutputOpening } from "./OutputHeightCut.js";
 import { type OutputKind } from "./output-kinds.js";
-import { countPrintedLines } from "./printed-lines.js";
 import { StreamingMarkdown } from "./StreamingMarkdown.js";
 import { TruncationNotice } from "./TruncationNotice.js";
 import { UnavailableBody } from "./UnavailableBody.js";
+import { useLiveOutputByteLength } from "./hooks/useLiveOutputByteLength.js";
 
 /** What a machine-authored body is drawn from, and how its shape is read. */
 export interface MachineBodyProps {
@@ -46,10 +47,10 @@ export interface MachineBodyProps {
   /** What a screen reader calls a command-output block. */
   readonly label: string;
   /**
-   * Whether the body is a call's output, whose plain or command-output box is cut at a share of
-   * the visible flow with the rest one press away; a reply's is drawn whole.
+   * A call's output's opening: its plain or command-output box is cut at a share of the visible
+   * flow until opened, the rest one press away. Absent, as on a reply, the body is drawn whole.
    */
-  readonly isCutAtFlowHeight: boolean;
+  readonly opening?: OutputOpening | undefined;
   /** Keep a pressed control where it stands while the body grows; see `TranscriptCardProps`. */
   readonly holdControlInPlace?: ((control: HTMLElement) => void) | undefined;
 }
@@ -81,6 +82,10 @@ export function MachineBody(props: MachineBodyProps): React.JSX.Element {
   );
 
   const fullBodyReads = useContext(FullBodyReadsContext);
+  // Only a call's output names its running size; a streaming reply is never cut.
+  const liveByteLength = useLiveOutputByteLength(
+    props.opening === undefined ? undefined : props.liveText,
+  );
 
   if (bodyText === undefined || kind === undefined || drawnText === undefined) {
     if (props.content?.status === "unavailable") {
@@ -92,6 +97,7 @@ export function MachineBody(props: MachineBodyProps): React.JSX.Element {
           rowId={props.sourceId}
           contentLength={props.content.contentLength}
           fullBodyReads={fullBodyReads}
+          opening={props.opening}
           holdControlInPlace={props.holdControlInPlace}
         />
       );
@@ -101,11 +107,11 @@ export function MachineBody(props: MachineBodyProps): React.JSX.Element {
   }
 
   if (props.liveText !== undefined || props.content?.status !== "available") {
-    return renderBodyText(props, kind, drawnText, false);
+    return renderBodyText(props, kind, drawnText, false, liveByteLength);
   }
   return (
     <div className="meridian-machine-body">
-      {renderBodyText(props, kind, drawnText, true)}
+      {renderBodyText(props, kind, drawnText, true, undefined)}
       {props.content.contentTruncated === true ? (
         <TruncationNotice
           storedBody={props.content.body}
@@ -122,6 +128,8 @@ interface LargeBodyProps {
   /** The whole body's UTF-8 byte length. */
   readonly contentLength: number;
   readonly fullBodyReads: FullBodyReads;
+  /** A call's output's opening, which the press opens too, so the body draws whole once read. */
+  readonly opening: OutputOpening | undefined;
   readonly holdControlInPlace: ((control: HTMLElement) => void) | undefined;
 }
 
@@ -144,7 +152,12 @@ function LargeBody(props: LargeBodyProps): React.JSX.Element {
         measure={byteFigurePart("wire", props.contentLength)}
         reading={reading}
         onPress={(control) => {
-          props.holdControlInPlace?.(control);
+          // Opening the output holds the control in place itself.
+          if (props.opening === undefined) {
+            props.holdControlInPlace?.(control);
+          } else {
+            props.opening.open(control);
+          }
           fullBodyReads.open(rowId);
         }}
       />
@@ -153,14 +166,16 @@ function LargeBody(props: LargeBodyProps): React.JSX.Element {
 }
 
 /**
- * The body's text through the renderer its kind names. Escapes were stripped for the markdown and
- * plain arms but not the ANSI one, where `anser` parses the styling out first.
+ * The body's text through the renderer its kind names, a running command's output with the bytes
+ * arrived so far. Escapes were stripped for the markdown and plain arms but not the ANSI one, where
+ * `anser` parses the styling out first.
  */
 function renderBodyText(
   props: MachineBodyProps,
   kind: OutputKind,
   drawnText: PublishedText,
   isComplete: boolean,
+  liveByteLength: number | undefined,
 ): React.JSX.Element {
   if (kind === "command-output") {
     // Read through the handle: the block parses only the text past what it already parsed.
@@ -168,8 +183,8 @@ function renderBodyText(
       <AnsiOutput
         publishedText={drawnText}
         label={props.label}
-        isCutAtFlowHeight={props.isCutAtFlowHeight}
-        holdControlInPlace={props.holdControlInPlace}
+        opening={props.opening}
+        liveByteLength={liveByteLength}
       />
     );
   }
@@ -179,9 +194,8 @@ function renderBodyText(
     return (
       <OutputHeightCut
         className="meridian-machine-body__plain"
-        isCutAtFlowHeight={props.isCutAtFlowHeight}
-        readPrintedLineCount={() => countPrintedLines(drawnText.chunks())}
-        holdControlInPlace={props.holdControlInPlace}
+        opening={props.opening}
+        liveByteLength={liveByteLength}
       >
         {drawnText.chunks()}
       </OutputHeightCut>

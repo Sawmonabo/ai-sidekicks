@@ -1,17 +1,18 @@
 // The transcript's row renderer: one row through the card its kind names. It holds no state: a
-// call's fold press goes to the feed's fold, because the virtualizer unmounts rows scrolled out of
-// range, and every press that changes the row's height asks the feed to keep the pressed control
-// where it stands. A row read from history carries its body, which the cards draw; a streamed row
-// and a large body carry none, and the cards draw the state `MessageContent` and `ToolOutput` give
-// an unread body. A type the kind table does not name has no card, and `drawsTranscriptRowBody`
-// says so before the feed lists it.
+// call's fold press and its output's `Show all` go to the feed's folds, because the virtualizer
+// unmounts rows scrolled out of range, and every press that changes the row's height asks the feed
+// to keep the pressed control where it stands. A row read from history carries its body, which the
+// cards draw; a streamed row and a large body carry none, and the cards draw the state
+// `MessageContent` and `ToolOutput` give an unread body. A type the kind table does not name has no
+// card, and `drawsTranscriptRowBody` says so before the feed lists it.
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { useRowReveal } from "../reveal/hooks/useRowReveal.js";
 import { useRowToggle } from "./hooks/useRowToggle.js";
+import { type OutputOpening } from "./bodies/OutputHeightCut.js";
 import { type TranscriptRowProps } from "./renderer.js";
 import { findTranscriptRowFooterRenderer } from "./footer-renderer.js";
 import { FootnoteRegistry } from "./markdown/footnotes/registry.js";
@@ -28,7 +29,7 @@ import { ToolRow } from "./ToolRow.js";
  */
 export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element {
   const [footnotes] = useState(() => new FootnoteRegistry());
-  const { toggleCallFold, holdControlInPlace } = useRowToggle();
+  const { toggleCallFold, openOutput, holdControlInPlace } = useRowToggle();
   const rowId = props.row.id;
   // The fold goes to the feed, not to local state, which would die when the virtualizer unmounts
   // the row.
@@ -37,6 +38,16 @@ export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element {
       toggleCallFold(rowId, control);
     },
     [rowId, toggleCallFold],
+  );
+  const isOutputOpened = props.isOutputOpened;
+  const outputOpening = useMemo<OutputOpening>(
+    () => ({
+      isOpened: isOutputOpened,
+      open: (control) => {
+        openOutput(rowId, control);
+      },
+    }),
+    [isOutputOpened, openOutput, rowId],
   );
   const holdPressedControl = useCallback(
     (control: HTMLElement) => {
@@ -75,6 +86,7 @@ export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element {
           {...(liveText === undefined ? {} : { liveText })}
           holdControlInPlace={holdPressedControl}
           onDensityToggle={toggleFold}
+          outputOpening={outputOpening}
         />
       );
     case "user-message":

@@ -7,10 +7,7 @@ import { MachineBody, type MachineBodyProps } from "./MachineBody.js";
 import { outputKindOf, type OutputKind } from "./output-kinds.js";
 
 /** What the reply's body is drawn from. */
-export interface MessageContentProps extends Omit<
-  MachineBodyProps,
-  "readOutputKind" | "isCutAtFlowHeight"
-> {
+export interface MessageContentProps extends Omit<MachineBodyProps, "readOutputKind" | "opening"> {
   /**
    * The media type the producer declared (`AssistantOutputPayload.contentType`), a
    * free-form wire string.
@@ -25,5 +22,5 @@ export function MessageContent(props: MessageContentProps): React.JSX.Element {
     (body: PublishedText): OutputKind => outputKindOf(body, contentType),
     [contentType],
   );
-  return <MachineBody {...bodyProps} readOutputKind={readOutputKind} isCutAtFlowHeight={false} />;
+  return <MachineBody {...bodyProps} readOutputKind={readOutputKind} />;
 }

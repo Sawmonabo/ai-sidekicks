@@ -1,7 +1,8 @@
-// The one control that brings in the rest of an output: it names how much there is before the
-// press, says the read is out while one runs, and offers the press again when the read failed. A
-// caller that opens the rest without a read never leaves the first state. A copy never takes its
-// words: a selection's part drops every button drawn among it.
+// The one control that brings in the rest of an output. A body read in full when pressed names how
+// much there is before the press, says the read is out while one runs, and offers the press again
+// when the read failed; an output already held, cut at the visible flow, reads `Show all` and never
+// leaves that state. A copy never takes its words: a selection's part drops every button drawn
+// among it.
 
 import "./FullOutputControl.css";
 
@@ -13,15 +14,21 @@ export type FullOutputReading = "rest" | "reading" | "refused";
 
 /** What the control says and does. */
 export interface FullOutputControlProps {
-  /** What the rest measures, drawn as the figure in `Show full output (<measure>)`. */
-  readonly measure: FigureSentencePart;
+  /**
+   * What a body read when pressed measures, drawn as the figure in `Show full output (<measure>)`;
+   * absent for an output already held, which reads `Show all`.
+   */
+  readonly measure?: FigureSentencePart | undefined;
   /** Where the read stands; a caller that opens the rest with no read stays at `rest`. */
   readonly reading: FullOutputReading;
   /** Brings the rest in, handed the pressed control; called at rest and on a refused read. */
   readonly onPress: (control: HTMLElement) => void;
 }
 
-/** `Show full output (840 KiB)`, `Loading the full output…`, or the refused read's retry. */
+/**
+ * `Show all`, `Show full output (840 KiB)`, `Loading the full output…`, or the refused read's
+ * retry.
+ */
 export function FullOutputControl(props: FullOutputControlProps): React.JSX.Element {
   const { onPress, reading } = props;
   return (
@@ -41,6 +48,8 @@ export function FullOutputControl(props: FullOutputControlProps): React.JSX.Elem
         "Loading the full output…"
       ) : reading === "refused" ? (
         "Couldn't load the full output · Retry"
+      ) : props.measure === undefined ? (
+        "Show all"
       ) : (
         <>
           Show full output (<FigureSentence parts={[props.measure]} />)

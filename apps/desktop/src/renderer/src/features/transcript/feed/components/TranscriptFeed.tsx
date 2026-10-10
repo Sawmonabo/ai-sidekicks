@@ -128,6 +128,8 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
     foldedRunGroupKeys,
     foldedCallRowIds,
     toggleCall,
+    openedOutputRowIds,
+    openOutput,
     foldEveryRunGroup,
     unfoldEveryRunGroup,
   } = folds;
@@ -161,9 +163,13 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
         holdRowInPlace(rowId, control);
         toggleCall(rowId);
       },
+      openOutput: (rowId, control) => {
+        holdRowInPlace(rowId, control);
+        openOutput(rowId);
+      },
       holdControlInPlace: holdRowInPlace,
     }),
-    [holdRowInPlace, toggleCall],
+    [holdRowInPlace, toggleCall, openOutput],
   );
   // Named off the props object because the callback below keys on it and `props` is a fresh
   // object every render; depending on the whole object rebuilt `renderRow` on every render and
@@ -173,6 +179,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
     transcriptWindow,
     foldedRunGroupKeys,
     foldedCallRowIds,
+    openedOutputRowIds,
     hueForAgent,
     toggleRunGroup,
     runCallWindows,

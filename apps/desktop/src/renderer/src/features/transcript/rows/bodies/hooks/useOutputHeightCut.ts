@@ -1,6 +1,6 @@
 // Cuts a call's output at a share of the visible flow: the flow's height from the scroll
-// controller's geometry, whether the output runs past the cut, and the press that draws it whole.
-// The cut itself is CSS, whole lines of the output's own type, so a text size step moves it.
+// controller's geometry, and whether the output runs past the cut. The cut itself is CSS, whole
+// lines of the output's own type, so a text size step moves it.
 
 import {
   useCallback,
@@ -31,8 +31,6 @@ export interface OutputHeightCut {
   readonly cutHeightPx: number | undefined;
   /** Whether the output runs past the cut, so the rest is one press away. */
   readonly isCut: boolean;
-  /** Draws the whole output in place, for as long as the block is mounted. */
-  readonly open: () => void;
 }
 
 /**
@@ -42,11 +40,10 @@ export interface OutputHeightCut {
 export function useOutputHeightCut(isCutAtFlowHeight: boolean): OutputHeightCut {
   const bodyRef = useRef<HTMLPreElement>(null);
   const contentRef = useRef<HTMLSpanElement>(null);
-  const [isOpen, setIsOpen] = useState(false);
   const [runsPastCut, setRunsPastCut] = useState(false);
   const flowHeightPx = useVisibleFlowHeight();
   const cutHeightPx =
-    isCutAtFlowHeight && !isOpen && flowHeightPx !== undefined
+    isCutAtFlowHeight && flowHeightPx !== undefined
       ? flowHeightPx * OUTPUT_CUT_FLOW_SHARE
       : undefined;
   const isArmed = cutHeightPx !== undefined;
@@ -59,11 +56,28 @@ export function useOutputHeightCut(isCutAtFlowHeight: boolean): OutputHeightCut 
     }
     // The box stops growing at the cut while its content grows on, so both are watched: the
     // content for output arriving, the box for the cut moving with the flow or the text size.
+    // The content is read against the box's own content height, since a tail's lines run past
+    // its top, where the box's scroll height does not count them. Read once here, so the first
+    // frame already draws `Show all` or not, and then from the observer's entries, which force no
+    // layout.
+    const style = getComputedStyle(body);
+    let boxHeightPx =
+      body.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+    let contentHeightPx = content.getBoundingClientRect().height;
     const readRunsPastCut = (): void => {
-      setRunsPastCut(body.scrollHeight > body.clientHeight);
+      setRunsPastCut(contentHeightPx - boxHeightPx > CUT_TOLERANCE_PX);
     };
     readRunsPastCut();
-    const observer = new ResizeObserver(readRunsPastCut);
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.target === body) {
+          boxHeightPx = entry.contentRect.height;
+        } else {
+          contentHeightPx = entry.contentRect.height;
+        }
+      }
+      readRunsPastCut();
+    });
     observer.observe(body);
     observer.observe(content);
     return () => {
@@ -71,11 +85,11 @@ export function useOutputHeightCut(isCutAtFlowHeight: boolean): OutputHeightCut 
     };
   }, [isArmed]);
 
-  const open = useCallback(() => {
-    setIsOpen(true);
-  }, []);
-  return { bodyRef, contentRef, cutHeightPx, isCut: isArmed && runsPastCut, open };
+  return { bodyRef, contentRef, cutHeightPx, isCut: isArmed && runsPastCut };
 }
+
+/** Under half a pixel is the layout's rounding, not a line past the cut. */
+const CUT_TOLERANCE_PX = 0.5;
 
 /**
  * The visible flow's height in CSS pixels, from the scroll controller's published geometry;
