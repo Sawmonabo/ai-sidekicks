@@ -7,6 +7,7 @@
 // drives. Each "shell" here is a small script run the way the login shell is,
 // `<shell> -lic <script>`.
 
+import { existsSync } from "node:fs";
 import { chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -120,6 +121,27 @@ describe("captureLoginShellEnvironment", () => {
     expect(serviceLog).toStrictEqual([]);
     // The temporary folder is read only for the fallback.
     expect(temporaryDirectoryReads).toBe(0);
+  });
+
+  it("keeps an environment that came in while the main thread was held past the deadline", async () => {
+    const printedFile = path.join(scratch, "printed");
+    const shell = await writeFakeShell(
+      ["export FROM_LOGIN_SHELL=read", '/bin/sh -c "$2"', `touch '${printedFile}'`].join("\n"),
+    );
+
+    const deadlineMs = 50;
+    const deadlinePassedAt = Date.now() + deadlineMs * 4;
+    const pending = capture(shell, deadlineMs);
+    // Holds the main thread, as a long synchronous step of the start does, until the shell has
+    // printed and the deadline has passed.
+    const giveUpAt = Date.now() + 10_000;
+    while ((!existsSync(printedFile) || Date.now() < deadlinePassedAt) && Date.now() < giveUpAt) {
+      // Busy on purpose: no timer or read may run in between.
+    }
+    const pairs = await pending;
+
+    expect(new Map(pairs).get("FROM_LOGIN_SHELL")).toBe("read");
+    expect(serviceLog).toStrictEqual([]);
   });
 
   it("drops the search path's folders on the Windows drives inside WSL", async () => {
