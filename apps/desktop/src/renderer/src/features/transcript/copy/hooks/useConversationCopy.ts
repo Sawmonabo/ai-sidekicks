@@ -1,12 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event/envelope";
-
 import type { TextClipboardContent } from "#shared/preload-api.js";
 import { useAnnounce } from "#renderer/hooks/announce/useAnnounce.js";
 import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
-import { RefusalError } from "#renderer/lib/refusal/contract.js";
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
+import { startSlice } from "#renderer/lib/work-slices.js";
 import { type TranscriptPageRead } from "#renderer/services/daemon/transcript/page.js";
 import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
 import { primarySelectionFor } from "#renderer/services/platform/primary-selection/host.js";
@@ -18,7 +16,13 @@ import { type RowSelection } from "../../viewport/selection/record.js";
 import { type ViewportSelectionTracker } from "../../viewport/selection/tracker.js";
 import { rowSourceSpanReader, type RowSourceWindows } from "../../window/row-sources.js";
 import { type TranscriptWindowModel } from "../../window/transcript-window.js";
-import { readRowSpanSelection, type SelectedPart } from "../conversation-selection.js";
+import {
+  ConversationCopyBuild,
+  type ConversationCopyRows,
+  type ConversationCopyStep,
+  type FullBodyOf,
+} from "../conversation-copy.js";
+import { type SelectedPart } from "../conversation-selection.js";
 import {
   readSelectedEvents,
   SelectionEventSpanRecord,
@@ -44,19 +48,19 @@ export interface ConversationCopySource {
   readonly rowText: (
     rowKey: string,
     transcriptWindow: TranscriptWindowModel,
-    fullBodyOf: (rowId: string) => HydratedSessionEventContent | undefined,
+    fullBodyOf: FullBodyOf,
   ) => SelectedPart | undefined;
   /** The text of a row's body alone, read as `rowText` reads it. */
   readonly rowBodyText: (
     rowKey: string,
     transcriptWindow: TranscriptWindowModel,
-    fullBodyOf: (rowId: string) => HydratedSessionEventContent | undefined,
+    fullBodyOf: FullBodyOf,
   ) => string | undefined;
-  /** The ids of the rows among `rowKeys` whose text reads a large body, read in full first. */
-  readonly largeBodyRowIds: (
-    rowKeys: readonly string[],
+  /** The id of the row at `rowKey` when its text reads a large body, read in full first. */
+  readonly largeBodyRowIdOf: (
+    rowKey: string,
     transcriptWindow: TranscriptWindowModel,
-  ) => readonly string[];
+  ) => string | undefined;
   /** What a copy reads a large body in full through, or `undefined` where none is read. */
   readonly fullBodyReads: Pick<FullBodyReads, "readFullBody"> | undefined;
   /** How rows the store let go are read back, or `undefined` for a composition with no history. */
@@ -89,8 +93,10 @@ interface RowSpanCopy {
   readonly endRowElement: (rowKey: string) => Element | undefined;
 }
 
-/** The large bodies of a copy that reads none. */
-const NO_FULL_BODIES: ReadonlyMap<string, HydratedSessionEventContent> = new Map();
+/** A copy built at once, or the read of one still building in slices. */
+type CopyBuilding =
+  | Extract<ConversationCopyStep, { isBuilt: true }>
+  | { readonly isBuilt: false; readonly reading: Promise<TextClipboardContent | undefined> };
 
 const COPY_FAILED_ANNOUNCEMENT = "Could not copy";
 
@@ -100,22 +106,23 @@ const COPY_FAILED_ANNOUNCEMENT = "Could not copy";
  * of it, while focus may sit in the message box; the page's text around a crossing selection is
  * joined in document order. A selection that misses the conversation is left to the platform. The
  * first conversation that writes a copy takes it, so with several open, one write reaches the
- * clipboard. A selection the store let rows of go is read back a page at a time between the
- * events its ends sit in. A large body the copy takes in is read in full, one at a time, opened or
- * not. A copy is written whole in one write, or not at all when a page or a body is refused; the
- * newest copy wins. A selection settled in the conversation, by a drag or the keys, hands the same
- * text to the system's primary selection. A refused write or read is said aloud.
+ * clipboard. A selection the store let rows of go is read back a page at a time between the events
+ * its ends sit in. A copy is built a slice at a time, so it holds no frame however long, and a
+ * large body it takes in is read in full just before its row, opened or not. A copy is written
+ * whole in one write, or not at all when a page or a body is refused; the newest copy wins. A
+ * selection settled in the conversation, by a drag or the keys, hands the same text to the system's
+ * primary selection. A refused write or read is said aloud.
  */
 export function useConversationCopy(source: ConversationCopySource): void {
   const bridge = usePlatformBridge();
   const announce = useAnnounce();
-  const ownerDocument = useOwnerWindow().document;
+  const ownerWindow = useOwnerWindow();
   const {
     selectionTracker,
     selectedRowKeys,
     rowText,
     rowBodyText,
-    largeBodyRowIds,
+    largeBodyRowIdOf,
     fullBodyReads,
     history,
   } = source;
@@ -154,64 +161,43 @@ export function useConversationCopy(source: ConversationCopySource): void {
             endRowElement: (rowKey) => selectionTracker.endRowElement(rowKey),
           };
     };
-    // Each end row as it is drawn now, copied, for a copy that waits.
-    const takeEndRows = (selection: RowSelection): ReadonlyMap<string, Element> => {
+    // Each end row as `endRowElement` draws it now, copied, for a copy that waits.
+    const keptEndRows = (
+      selection: RowSelection,
+      endRowElement: (rowKey: string) => Element | undefined,
+    ): ReadonlyMap<string, Element> => {
       const endRows = new Map<string, Element>();
       for (const rowKey of [selection.start.rowKey, selection.end.rowKey]) {
-        const endRow = selectionTracker.endRowElement(rowKey);
+        const endRow = endRowElement(rowKey);
         if (endRow !== undefined) {
           endRows.set(rowKey, endRow.cloneNode(true) as Element);
         }
       }
       return endRows;
     };
-    const withEndRowsKept = (copy: RowSpanCopy): RowSpanCopy => {
-      const endRows = takeEndRows(copy.selection);
-      return { ...copy, endRowElement: (rowKey) => endRows.get(rowKey) };
-    };
-    const build = (
-      copy: RowSpanCopy,
-      fullBodies: ReadonlyMap<string, HydratedSessionEventContent>,
-    ): TextClipboardContent | undefined =>
-      readRowSpanSelection({
-        selection: copy.selection,
-        rowKeys: copy.rowKeys,
-        endRowElement: copy.endRowElement,
-        rowText: (rowKey) =>
-          rowText(rowKey, copy.transcriptWindow, (rowId) => fullBodies.get(rowId)),
-        rowBodyText: (rowKey) =>
-          rowBodyText(rowKey, copy.transcriptWindow, (rowId) => fullBodies.get(rowId)),
-      });
-    // One body at a time, so a long selection never has every read out at once. `undefined` when a
-    // newer copy took over; throws a `RefusalError` when a read is refused, so nothing is copied.
-    const readFullBodies = async (
-      rowIds: readonly string[],
-      isCurrent: () => boolean,
-    ): Promise<ReadonlyMap<string, HydratedSessionEventContent> | undefined> => {
-      const fullBodies = new Map<string, HydratedSessionEventContent>();
-      if (fullBodyReads === undefined) {
-        return fullBodies;
+    const rowsOf = (copy: RowSpanCopy): ConversationCopyRows => ({
+      selection: copy.selection,
+      rowKeys: copy.rowKeys,
+      endRowElement: copy.endRowElement,
+      rowText: (rowKey, fullBodyOf) => rowText(rowKey, copy.transcriptWindow, fullBodyOf),
+      rowBodyText: (rowKey, fullBodyOf) => rowBodyText(rowKey, copy.transcriptWindow, fullBodyOf),
+      largeBodyRowIdOf: (rowKey) => largeBodyRowIdOf(rowKey, copy.transcriptWindow),
+      fullBodyReads,
+    });
+    // A copy of rows drawn now, built at once when the slice taken now holds it all; otherwise the
+    // rest is built in slices from its end rows copied now, as their drawing may change meanwhile.
+    const buildHeldCopy = (copy: RowSpanCopy, isCurrent: () => boolean): CopyBuilding => {
+      let endRowElement = copy.endRowElement;
+      const build = new ConversationCopyBuild(
+        rowsOf({ ...copy, endRowElement: (rowKey) => endRowElement(rowKey) }),
+      );
+      const firstSlice = build.buildWhile(startSlice());
+      if (firstSlice.isBuilt) {
+        return firstSlice;
       }
-      for (const rowId of rowIds) {
-        const reply = await fullBodyReads.readFullBody(rowId);
-        if (!isCurrent()) {
-          return undefined;
-        }
-        if (reply.status === "refused") {
-          throw new RefusalError(reply.refusal);
-        }
-        fullBodies.set(rowId, reply.value);
-      }
-      return fullBodies;
-    };
-    // The copy's content, its large bodies read in full first; the end rows must be kept copies.
-    const readCopy = async (
-      copy: RowSpanCopy,
-      largeBodyRowIdsOfCopy: readonly string[],
-      isCurrent: () => boolean,
-    ): Promise<TextClipboardContent | undefined> => {
-      const fullBodies = await readFullBodies(largeBodyRowIdsOfCopy, isCurrent);
-      return fullBodies === undefined ? undefined : build(copy, fullBodies);
+      const endRows = keptEndRows(copy.selection, copy.endRowElement);
+      endRowElement = (rowKey) => endRows.get(rowKey);
+      return { isBuilt: false, reading: build.finish(ownerWindow, isCurrent) };
     };
     // Everything the read back needs is taken here, before anything waits.
     const takeHistoryCopy = (): HistoryCopy | undefined => {
@@ -224,7 +210,7 @@ export function useConversationCopy(source: ConversationCopySource): void {
       return {
         selection,
         span,
-        endRows: takeEndRows(selection),
+        endRows: keptEndRows(selection, (rowKey) => selectionTracker.endRowElement(rowKey)),
         held: {
           events: state.transcript,
           headCursor: state.transcriptHead.hasMore ? state.transcriptHead.cursor : undefined,
@@ -257,11 +243,7 @@ export function useConversationCopy(source: ConversationCopySource): void {
         transcriptWindow,
         endRowElement: (rowKey) => copy.endRows.get(rowKey),
       };
-      return await readCopy(
-        readBackCopy,
-        largeBodyRowIds(readBackCopy.rowKeys, transcriptWindow),
-        isCurrent,
-      );
+      return await new ConversationCopyBuild(rowsOf(readBackCopy)).finish(ownerWindow, isCurrent);
     };
     const write = (content: TextClipboardContent): void => {
       bridge.native.copyToClipboard(content).catch(() => {
@@ -296,19 +278,15 @@ export function useConversationCopy(source: ConversationCopySource): void {
       // The log holds both ends, so it holds every row between.
       const heldCopy = takeHeldCopy();
       if (heldCopy !== undefined) {
-        const heldLargeBodyRowIds = largeBodyRowIds(heldCopy.rowKeys, heldCopy.transcriptWindow);
-        if (heldLargeBodyRowIds.length > 0) {
+        const building = buildHeldCopy(heldCopy, isCurrent);
+        if (!building.isBuilt) {
           event.preventDefault();
-          writeOnceRead(
-            readCopy(withEndRowsKept(heldCopy), heldLargeBodyRowIds, isCurrent),
-            isCurrent,
-          );
+          writeOnceRead(building.reading, isCurrent);
           return;
         }
-        const content = build(heldCopy, NO_FULL_BODIES);
-        if (content !== undefined) {
+        if (building.content !== undefined) {
           event.preventDefault();
-          write(content);
+          write(building.content);
         }
         return;
       }
@@ -325,14 +303,11 @@ export function useConversationCopy(source: ConversationCopySource): void {
       if (heldCopy === undefined) {
         return undefined;
       }
-      const heldLargeBodyRowIds = largeBodyRowIds(heldCopy.rowKeys, heldCopy.transcriptWindow);
-      const content =
-        heldLargeBodyRowIds.length === 0
-          ? build(heldCopy, NO_FULL_BODIES)
-          : await readCopy(withEndRowsKept(heldCopy), heldLargeBodyRowIds, isCurrent);
+      const building = buildHeldCopy(heldCopy, isCurrent);
+      const content = building.isBuilt ? building.content : await building.reading;
       return isCurrent() ? content?.text : undefined;
     };
-    ownerDocument.addEventListener("copy", copySelection);
+    ownerWindow.document.addEventListener("copy", copySelection);
     const stopHearingSettles = selectionTracker.subscribeToSettledSelection(() => {
       settleCount.current += 1;
       const settleNumber = settleCount.current;
@@ -346,19 +321,19 @@ export function useConversationCopy(source: ConversationCopySource): void {
         });
     });
     return () => {
-      ownerDocument.removeEventListener("copy", copySelection);
+      ownerWindow.document.removeEventListener("copy", copySelection);
       stopHearingSettles();
     };
   }, [
     bridge,
     announce,
-    ownerDocument,
+    ownerWindow,
     primarySelection,
     selectionTracker,
     selectedRowKeys,
     rowText,
     rowBodyText,
-    largeBodyRowIds,
+    largeBodyRowIdOf,
     fullBodyReads,
     history,
     rowSourceWindows,

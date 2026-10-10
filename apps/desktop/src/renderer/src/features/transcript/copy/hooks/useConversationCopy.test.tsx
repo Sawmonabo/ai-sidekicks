@@ -58,7 +58,7 @@ function Conversation(): React.JSX.Element {
     rowSourceWindows: { unfurledWindow: NO_WINDOW, transcriptWindow: NO_WINDOW },
     rowText: () => expect.fail("both rows are end rows"),
     rowBodyText: () => expect.fail("neither row draws a table or a large body"),
-    largeBodyRowIds: () => [],
+    largeBodyRowIdOf: () => undefined,
     fullBodyReads: undefined,
     history: undefined,
   });
@@ -115,6 +115,10 @@ function renderSession(): {
   const sessionWindow =
     document.body.appendChild(document.createElement("iframe")).contentWindow ??
     expect.fail("the frame has a window");
+  // happy-dom schedules no tasks; a copy that outlasts the slice it starts in builds on in them.
+  Object.defineProperty(sessionWindow, "scheduler", {
+    value: { postTask: async (task: () => unknown) => task() },
+  });
   const sessionDocument = sessionWindow.document;
   const fixture = createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO });
   const copied: TextClipboardContent[] = [];
@@ -148,7 +152,7 @@ function textNodeHolding(ownerDocument: Document, text: string): Text {
 }
 
 describe("⌘C in a session", () => {
-  it("copies the conversation's selection in reading order while the message box holds none", () => {
+  it("copies the conversation's selection in reading order while the message box holds none", async () => {
     const { copied, box, sessionDocument } = renderSession();
     box.focus();
     box.setSelectionRange(0, 0);
@@ -159,7 +163,9 @@ describe("⌘C in a session", () => {
     const event = fireEvent.copy(start);
 
     expect(event).toBe(false);
-    expect(copied).toHaveLength(1);
+    await vi.waitFor(() => {
+      expect(copied).toHaveLength(1);
+    });
     const [content] = copied;
     // The author lines, stamps and Copy controls between the bodies are left out; the reply's
     // part is the markdown that drew it, cut where the selection ended.

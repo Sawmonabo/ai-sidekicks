@@ -40,7 +40,7 @@ import { useTranscriptStructureActs } from "../hooks/useTranscriptStructureActs.
 import { useTypefacesSettled } from "../../hooks/useTypefacesSettled.js";
 import { useConversationCopy } from "../../copy/hooks/useConversationCopy.js";
 import {
-  largeBodyRowIdsOf,
+  readLargeBodyRowId,
   readRowBodyText,
   readRowText,
   type RowTextSources,
@@ -242,9 +242,9 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
     ) => readRowBodyText(rowKey, rowTextSources(rowTextWindow, fullBodyOf)),
     [rowTextSources],
   );
-  const largeBodyRowIds = useCallback(
-    (rowKeys: readonly string[], rowTextWindow: TranscriptWindowModel) =>
-      largeBodyRowIdsOf(rowKeys, {
+  const largeBodyRowIdOf = useCallback(
+    (rowKey: string, rowTextWindow: TranscriptWindowModel) =>
+      readLargeBodyRowId(rowKey, {
         transcriptWindow: rowTextWindow,
         reveal: revealChannel,
         densityOf: (rowId) => densityFor(rowId, foldedCallRowIds),
@@ -266,7 +266,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
     rowSourceWindows: { unfurledWindow: windows.unfurledWindow, transcriptWindow },
     rowText,
     rowBodyText,
-    largeBodyRowIds,
+    largeBodyRowIdOf,
     fullBodyReads,
     history: copyHistory,
   });
