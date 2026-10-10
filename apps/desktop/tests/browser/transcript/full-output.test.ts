@@ -147,7 +147,7 @@ describe("a reply whose body is too large to travel with its row", () => {
       const wheel = async (deltaPx: number, steps: number): Promise<void> => {
         for (let step = 0; step < steps; step += 1) {
           await userEvent.wheel(scroller, { delta: { y: deltaPx } });
-          await endGesture();
+          await endGesture(scroller);
         }
       };
       const stepsPastLetGo = Math.ceil(

@@ -110,7 +110,7 @@ describe("a call's output opened whole", () => {
       const wheelUntil = async (deltaPx: number, isDone: () => boolean): Promise<void> => {
         for (let step = 0; step < MAX_WHEEL_STEPS && !isDone(); step += 1) {
           await userEvent.wheel(scroller, { delta: { y: deltaPx } });
-          await endGesture();
+          await endGesture(scroller);
         }
       };
 

@@ -81,7 +81,7 @@ async function turnTowardHead(scroller: HTMLElement, turn: string): Promise<bool
     attributeFilter: ["style"],
   });
   await userEvent.wheel(scroller, { delta: { y: -FEED_HEIGHT_PX } });
-  await endGesture();
+  await endGesture(scroller);
   isSampling = false;
   changes.disconnect();
 
@@ -124,7 +124,7 @@ describe("reading back over a window that takes rows back at its head", () => {
       // Down again, so the window lets its head go, then back over it.
       for (let screen = 0; screen < SCREEN_COUNT; screen += 1) {
         await userEvent.wheel(scroller, { delta: { y: FEED_HEIGHT_PX } });
-        await endGesture();
+        await endGesture(scroller);
       }
       for (let screen = 0; screen < SCREEN_COUNT; screen += 1) {
         if (await turnTowardHead(scroller, `second read back, screen ${String(screen)}`)) {

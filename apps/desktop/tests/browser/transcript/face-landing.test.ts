@@ -190,11 +190,11 @@ describe("a face landing while a session is open", () => {
       screen += 1
     ) {
       await userEvent.wheel(scroller, { delta: { y: -FEED_HEIGHT_PX } });
-      await endGesture();
+      await endGesture(scroller);
       headerBottomPx = runHeaderBottomBelowBoxTop(scroller);
     }
     await userEvent.wheel(scroller, { delta: { y: headerBottomPx + HEADER_ABOVE_BOX_PX } });
-    await endGesture();
+    await endGesture(scroller);
     const reference = rowAtBoxTop(scroller, positionOfRow);
     const heightBeforePx = scroller.scrollHeight;
 
@@ -238,7 +238,7 @@ describe("a symbol's split landing while a session is open", () => {
     await document.fonts.ready;
     for (let screen = 0; screen < READ_BACK_SCREEN_COUNT; screen += 1) {
       await userEvent.wheel(scroller, { delta: { y: -FEED_HEIGHT_PX } });
-      await endGesture();
+      await endGesture(scroller);
     }
     const reference = rowAtBoxTop(scroller, positionOfMessage);
     const heightBeforePx = scroller.scrollHeight;
