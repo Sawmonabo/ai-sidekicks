@@ -153,6 +153,25 @@
       "scope": "product"
     },
     {
+      "id": "transcript-read-back-longest-task",
+      "label": "Reading a long history back, longest task",
+      "subject": "The longest task the window's renderer main thread runs from the press of `Show full output` on a session's first reply, after a reader flicked back from the session's tail to that first message stretch after stretch, until the reply's 800-row markdown table is drawn: the large body's read, its parse and the table's first draw. Measured from the built bundle running in Electron against the fixture bridge's long-table-history scenario, its clock moved and its frame work run on every frame of the window, read from the window's own task records in a DevTools trace.",
+      "specTarget": "≤ 204 ms on the reference machine, for opening an 800-row table's reply after reading back",
+      "limit": {
+        "comparison": "<=",
+        "value": 204,
+        "unit": "ms",
+        "canonicalValue": 204,
+        "canonicalUnit": "ms"
+      },
+      "status": "n/a",
+      "measuredBy": null,
+      "subjectSymbol": null,
+      "notMeasurableReason": "`tests/endurance/transcript/read-back.test.ts` measures it, through `readLongestTasks`, when the endurance tier is run by name (`test:endurance`). Why that tier gates nothing yet is stated once in `enduranceTierNotGatedReason`.",
+      "notes": "Hardware-dependent: the harness compares it on the pinned CI runner class only, per `measurementProtocol.hardwareDependent`, and prints the figure everywhere else, which `tests/endurance/pinned-runner-class.ts` decides for the whole tier. The reply's body is too large to travel with its row, so the read-back brings its size and the reader presses `Show full output`, as a person would; a trace marker set just before the press splits the run, and the figure is the longest task from the marker on, while the read-back's own longest task before it is printed beside it. The renderer main thread is the one that ran the most animation frames. The run fails unless the session opened without its first message held, the read-back reached it, and the press drew the table. The negative control plants a task 100 ms past the ceiling as the press lands and requires the reading to cross it, so a trace read from the wrong thread, or one that dropped the task records, fails. Measured: TBD by the lead.",
+      "scope": "product"
+    },
+    {
       "id": "renderer-heap-at-rest",
       "label": "Renderer heap, one session open at rest",
       "subject": "Retained JavaScript heap with one session open and nothing streaming — the app's stores, projections, and persistence layer settled, after a forced garbage collection.",
