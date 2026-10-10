@@ -262,7 +262,7 @@ export function assistantOutputEntry(input: AssistantOutputInput): ScriptEntry {
       sessionId: input.sessionId,
       runId: input.runId,
       contentType: input.contentType,
-      contentLength: utf8ByteLength(input.body),
+      contentLength: new TextEncoder().encode(input.body).byteLength,
     },
     body: input.body,
   };
@@ -279,7 +279,9 @@ export function toolActivityEntry(input: ToolActivityInput): ScriptEntry {
       toolName: input.toolName,
       toolCallId: input.toolCallId,
       ...(input.durationMs === undefined ? {} : { durationMs: input.durationMs }),
-      ...(input.body === undefined ? {} : { contentLength: utf8ByteLength(input.body) }),
+      ...(input.body === undefined
+        ? {}
+        : { contentLength: new TextEncoder().encode(input.body).byteLength }),
     },
     ...(input.body === undefined ? {} : { body: input.body }),
   };
@@ -323,13 +325,3 @@ function creationRowMembers(input: RunTransitionInput): Readonly<Record<string, 
     ...(input.resolvedAgent === undefined ? {} : { resolvedAgent: input.resolvedAgent }),
   };
 }
-
-/**
- * A body's UTF-8 byte length, as a producer stores it beside the payload. Measured here because
- * fixture data takes only types from the app, so it cannot import the app's own measure.
- */
-function utf8ByteLength(body: string): number {
-  return utf8Encoder.encode(body).byteLength;
-}
-
-const utf8Encoder = new TextEncoder();
