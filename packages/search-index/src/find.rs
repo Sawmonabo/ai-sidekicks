@@ -5,7 +5,8 @@ use napi::bindgen_prelude::{Float64Array, Uint32Array};
 use tantivy::TERMINATED;
 use tantivy::schema::IndexRecordOption;
 
-use crate::cursor::{CursorPurpose, GatedCursors, PhraseCursor, RowMatch, term_cursor};
+use crate::cursor::token::term_cursor;
+use crate::cursor::{CursorPurpose, GatedCursors, PhraseCursor, RowMatch};
 use crate::phrase::{Phrase, query_phrases};
 use crate::schema::{EVENT_KIND, Owner, owner_term};
 use crate::tokenizer::tokenize;

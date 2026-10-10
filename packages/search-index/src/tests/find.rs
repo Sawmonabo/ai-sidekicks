@@ -1,8 +1,15 @@
 //! The find box's counts are the marks: on every log row of a session, the count `findInSession`
 //! gives equals the number of stretches `markMatches` marks, and it finds exactly the rows every
-//! phrase of the query occurs in.
+//! phrase of the query occurs in. A ranking's count of a typed word of several tokens is how often
+//! the tokens sit in order in a row, on exactly the rows where they do.
 
+use std::collections::BTreeMap;
+
+use tantivy::TERMINATED;
+
+use crate::cursor::{CursorPurpose, RowsAsked, open_phrase_cursor};
 use crate::find::{find_in_session, mark_matches};
+use crate::phrase::{Phrase, query_phrases};
 use crate::schema::PREFIX_FIELD_COUNT;
 use crate::tokenizer::tokenize;
 use crate::{IndexRow, IndexRowKind, SearchQuery};
@@ -109,7 +116,7 @@ fn find_counts_equal_the_marks_on_every_row() {
         .expect("a row holds a word before a long one");
     // Joined words the pair field cuts: a first token longer than the cut before a one-letter
     // prefix, and three tokens.
-    let session_words: Vec<Vec<String>> = session_rows
+    let row_words: Vec<Vec<String>> = session_rows
         .iter()
         .map(|(_, text)| {
             tokenize(text)
@@ -118,7 +125,7 @@ fn find_counts_equal_the_marks_on_every_row() {
                 .collect()
         })
         .collect();
-    let long_first_joined = session_words
+    let long_first_joined = row_words
         .iter()
         .find_map(|words| {
             words.windows(2).find_map(|pair| {
@@ -129,7 +136,7 @@ fn find_counts_equal_the_marks_on_every_row() {
             })
         })
         .expect("a row holds a long word before another");
-    let three_joined = session_words
+    let three_joined = row_words
         .iter()
         .find_map(|words| {
             words.windows(3).next().map(|three| {
@@ -180,5 +187,116 @@ fn find_counts_equal_the_marks_on_every_row() {
             .map(|(key, count)| (*key as u64, *count))
             .collect();
         assert_eq!(counted, expected, "{:?}", query.words);
+    }
+}
+
+// How many times `phrase`'s tokens sit in order in `text`, by the index's own tokens.
+fn occurrences(text: &str, phrase: &Phrase) -> u32 {
+    let tokens = tokenize(text);
+    let occurs_at = |start: usize| {
+        (0..phrase.parts.len()).all(|offset| {
+            tokens.get(start + offset).is_some_and(|token| {
+                token.position == tokens[start].position + offset as u32
+                    && phrase.part_matches(offset, &token.folded)
+            })
+        })
+    };
+    (0..tokens.len()).filter(|start| occurs_at(*start)).count() as u32
+}
+
+#[test]
+fn a_ranked_typed_word_counts_each_place_its_tokens_sit_in_order() {
+    let mut rows: Vec<IndexRow> = Vec::new();
+    generate(SIZE, |row| rows.push(row));
+    // Look-alikes the pair field also holds beside the words: `pushed` begins with `push`, `login`
+    // with `log`, `command` with `comm` and `файлы` with `файл`.
+    let texts = [
+        "git push origin",
+        "git pushed origin",
+        "git log, git login",
+        "git commit, git command",
+        "файл да",
+        "файлы да",
+    ];
+    for (offset, text) in texts.into_iter().enumerate() {
+        let key = (SIZE.messages as u64 + 1 + offset as u64) * 4;
+        rows.push(event(key, LARGEST_SESSION, text));
+    }
+    // Two-letter, four- and six-letter prefixes and three- and four-letter whole words after a
+    // short token; after a four-letter one a prefix and a whole word; a seeded long first token
+    // and three tokens.
+    let row_words: Vec<Vec<String>> = rows
+        .iter()
+        .map(|row| {
+            tokenize(&row.text)
+                .into_iter()
+                .map(|token| token.folded)
+                .collect()
+        })
+        .collect();
+    let seeded = |width: usize, is_long_first: bool| {
+        row_words
+            .iter()
+            .find_map(|words| {
+                words
+                    .windows(width)
+                    .find(|run| is_long_first == (run[0].chars().count() > PREFIX_FIELD_COUNT))
+            })
+            .map(|run| run.join("-"))
+            .expect("a seeded row holds the run")
+    };
+    let words = [
+        ("git.co".to_string(), true),
+        ("git.comm".to_string(), true),
+        ("git.commit".to_string(), true),
+        ("git.log".to_string(), false),
+        ("git.push".to_string(), false),
+        ("push.or".to_string(), true),
+        ("push.origin".to_string(), false),
+        ("файл.да".to_string(), false),
+        ("git.push.or".to_string(), true),
+        (seeded(2, true), false),
+        (seeded(2, true), true),
+        (seeded(3, false), true),
+    ];
+
+    let folder = ScratchFolder::new("ranked-counts");
+    let engine = open_engine(folder.path());
+    engine
+        .apply(&batch(1, rows.clone()))
+        .expect("the set applies");
+    let version = engine.current_version();
+    for (word, is_prefix) in &words {
+        let phrase = query_phrases(&query(&[word.as_str()], *is_prefix)).remove(0);
+        let expected: BTreeMap<u64, u32> = rows
+            .iter()
+            .map(|row| (row.key as u64, occurrences(&row.text, &phrase)))
+            .filter(|(_, count)| *count > 0)
+            .collect();
+        assert!(!expected.is_empty(), "{word:?} occurs in a row");
+        // Walked, and sought at few rows, a prefix's words are read two ways.
+        for asked in [RowsAsked::Every, RowsAsked::AtMost(1)] {
+            let mut counted = BTreeMap::new();
+            for (ordinal, segment) in version.searcher.segment_readers().iter().enumerate() {
+                let opened = open_phrase_cursor(
+                    segment,
+                    &version.fields,
+                    &phrase,
+                    CursorPurpose::Score,
+                    asked,
+                )
+                .expect("the cursor opens");
+                let Some(mut cursor) = opened else {
+                    continue;
+                };
+                let keys = &version.segments[ordinal].columns.key;
+                let mut doc = cursor.doc();
+                while doc != TERMINATED {
+                    counted.insert(keys.get_val(doc), cursor.frequency());
+                    doc = cursor.advance();
+                }
+            }
+            assert_eq!(counted, expected, "{word:?} asked {asked:?}");
+        }
     }
 }

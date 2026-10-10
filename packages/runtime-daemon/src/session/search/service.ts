@@ -81,6 +81,11 @@ interface ShownHit {
 const FIRST_READ_BATCH_SIZE = 16;
 const READ_BATCH_GROWTH = 4;
 
+// How many sessions a search's first ranking holds: a page of the most hits, one a session, reads
+// that many sessions and the one after them, which tells where the next page starts, so such a
+// first page ranks once.
+const FIRST_RANKED_SESSIONS = SESSION_SEARCH_PAGE_LIMIT_MAX + 1;
+
 // A title, group or tag hit names no row of the session's log, so it opens the session at its
 // start.
 const SESSION_START_CURSOR = encodeEventCursor(START_OF_LOG_POSITION);
@@ -184,7 +189,7 @@ export class SessionSearchService {
     }
     // Read before the view opens, so it is never newer than the view.
     const floorPosition = this.#appliedFloorPosition();
-    const view = this.#index.openSearch([...tagFolds], searchQuery);
+    const view = this.#index.openSearch([...tagFolds], FIRST_RANKED_SESSIONS, searchQuery);
     return { queryKey, query, view, floorPosition };
   }
 

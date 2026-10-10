@@ -210,33 +210,25 @@ impl IndexVersion {
     /// for a one-term phrase, and any other phrase's walked once and kept with the segment.
     pub fn phrase_matches_in(&self, ordinal: usize, phrase: &Phrase) -> tantivy::Result<u64> {
         let segment = &self.searcher.segment_readers()[ordinal];
-        let facts = &self.segments[ordinal];
-        if let Some(term) = phrase.single_term(&self.fields) {
-            return Ok(u64::from(
-                segment.inverted_index(term.field())?.doc_freq(&term)?,
-            ));
-        }
-        match facts.matches.get(phrase) {
-            Some(matches) => Ok(matches),
-            None => Ok(self.walk_matches(segment, facts, phrase)?.matches),
-        }
+        Ok(
+            match self.segment_matches(segment, &self.segments[ordinal], phrase)? {
+                SegmentMatches::Counted(matches) => matches,
+                SegmentMatches::Walked(walked) => walked.matches,
+            },
+        )
     }
 
     // The rows the phrase matches, deleted rows included, less the deleted rows it matches, found
-    // by seeking its cursor to each one. A one-term phrase's count is Tantivy's; any other phrase's
-    // is walked the first time the segment is asked, counting its live rows on the way.
+    // by seeking its cursor to each one; a walk counted the live rows on the way.
     fn phrase_rows_in(
         &self,
         segment: &SegmentReader,
         facts: &SegmentFacts,
         phrase: &Phrase,
     ) -> tantivy::Result<u64> {
-        let matches = match phrase.single_term(&self.fields) {
-            Some(term) => u64::from(segment.inverted_index(term.field())?.doc_freq(&term)?),
-            None => match facts.matches.get(phrase) {
-                Some(matches) => matches,
-                None => return Ok(self.walk_matches(segment, facts, phrase)?.live_rows),
-            },
+        let matches = match self.segment_matches(segment, facts, phrase)? {
+            SegmentMatches::Counted(matches) => matches,
+            SegmentMatches::Walked(walked) => return Ok(walked.live_rows),
         };
         let deleted = &facts.deletions.docs;
         if deleted.is_empty() {
@@ -259,6 +251,25 @@ impl IndexVersion {
             }
         }
         Ok(matches - deleted_matches)
+    }
+
+    // The rows the phrase matches in the segment, deleted rows included: Tantivy's count for a
+    // one-term phrase, the count kept with the segment for any other, or, the first time the
+    // segment is asked, a walk of every row.
+    fn segment_matches(
+        &self,
+        segment: &SegmentReader,
+        facts: &SegmentFacts,
+        phrase: &Phrase,
+    ) -> tantivy::Result<SegmentMatches> {
+        if let Some(term) = phrase.single_term(&self.fields) {
+            let matches = segment.inverted_index(term.field())?.doc_freq(&term)?;
+            return Ok(SegmentMatches::Counted(u64::from(matches)));
+        }
+        Ok(match facts.matches.get(phrase) {
+            Some(matches) => SegmentMatches::Counted(matches),
+            None => SegmentMatches::Walked(self.walk_matches(segment, facts, phrase)?),
+        })
     }
 
     // Walks every row the phrase matches in the segment, keeping the count with the segment.
@@ -295,4 +306,10 @@ impl IndexVersion {
 struct WalkedMatches {
     matches: u64,
     live_rows: u64,
+}
+
+// A phrase's rows in one segment: counted, or walked just now with the live rows among them.
+enum SegmentMatches {
+    Counted(u64),
+    Walked(WalkedMatches),
 }

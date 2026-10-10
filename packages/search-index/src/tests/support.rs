@@ -17,6 +17,9 @@ use crate::{GroupMembers, IndexBatch, IndexRow, IndexRowKind, SearchQuery};
 /// An arena just above Tantivy's 15 MB floor.
 pub const TEST_ARENA_BYTES: usize = 16 * 1024 * 1024;
 
+/// How many sessions a test search first ranks; a ranking orders sessions the same at any size.
+pub const FIRST_RANKED_SESSIONS: usize = 16;
+
 static NEXT_FOLDER: AtomicU64 = AtomicU64::new(0);
 
 /// A fresh folder under the system's temporary folder, removed when dropped.

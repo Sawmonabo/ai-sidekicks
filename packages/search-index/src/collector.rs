@@ -21,9 +21,9 @@ use crate::version::{IndexVersion, SegmentColumns};
 /// pass instead of skipping blocks.
 pub const FULL_PASS_BELOW: u64 = 50_000;
 
-/// A phrase whose own rows are this many times fewer than its rarest covering term's is walked
-/// itself, every row scored, rather than skipping through that term's blocks: the eighth Lucene's
-/// `IndexOrDocValuesQuery` weighs a row checked against a row read by.
+/// A phrase with fewer than one row for every this many rows of its rarest covering term is walked
+/// itself, each of its rows scored, rather than skipped through by that term's blocks: the same
+/// eighth by which Lucene's `IndexOrDocValuesQuery` picks between reading a set and checking rows.
 const COVERING_ROWS_PER_OWN_ROW: u64 = 8;
 
 /// How far below the k-th session's best a skipped block's bound must stay: covers Tantivy's f32
@@ -497,8 +497,8 @@ fn tantivy_idf(phrase_rows: u64, live_rows: u64) -> f64 {
 }
 
 /// The best `k` sessions in rank order, limited to `within` when given, Tantivy skipping the driver
-/// term's blocks that cannot reach the k-th session's best row, or the rarest phrase's own rows each
-/// scored where it has no driver term.
+/// term's blocks that cannot reach the k-th session's best row, or the rarest phrase's own rows
+/// each scored where it has no driver term.
 pub fn top_sessions(
     version: &IndexVersion,
     query: &PreparedQuery,

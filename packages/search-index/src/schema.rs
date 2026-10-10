@@ -3,9 +3,9 @@
 //! and the tokenizers registered here split them again as the field is indexed, so a document
 //! waiting for the indexing thread holds one short string per field. Besides each token and its
 //! prefixes, each token's start is indexed with the next token's, so the rows where two tokens sit
-//! in order are one term's. A tag row also holds its
-//! tag's fold in the tag field, cut at each `/` so a `tag:` term finds the tags nested under it,
-//! and its session's last activity, which orders a search by tag alone.
+//! in order are one term's. A tag row also holds its tag's fold in the tag field, cut at each `/`
+//! so a `tag:` term finds the tags nested under it, and its session's last activity, which orders
+//! a search by tag alone.
 
 use std::iter::Peekable;
 use std::str::Split;
@@ -129,7 +129,7 @@ fn text_options(record: IndexRecordOption, tokenizer: &str) -> TextOptions {
     )
 }
 
-// The tokenizer a prefix or pair field is indexed with.
+// The tokenizer the text, a prefix or the pair field is indexed with.
 fn tokenizer_name(cut: TokenCut) -> String {
     match cut {
         TokenCut::Whole => TOKENS_TOKENIZER.to_string(),
