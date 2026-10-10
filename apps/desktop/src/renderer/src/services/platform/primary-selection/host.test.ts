@@ -1,5 +1,6 @@
 // A selection settled in the conversation reaches the system's primary selection on Linux, the
-// one system that keeps one, and writes nothing elsewhere.
+// one system that keeps one, against what it held when the selection settled, and writes nothing
+// elsewhere.
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -15,9 +16,15 @@ function bridgeOn(platform: PlatformBridge["app"]["platform"]): {
 } {
   const fixture = createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO });
   const writes: unknown[][] = [];
-  vi.spyOn(fixture.bridge.native, "copyToClipboard").mockImplementation(async (...request) => {
-    writes.push(request);
-  });
+  vi.spyOn(fixture.bridge.native, "takeClipboardSnapshot").mockImplementation(async (clipboard) =>
+    clipboard === "selection" ? { clipboard, digest: "held" } : expect.fail("the selection one"),
+  );
+  vi.spyOn(fixture.bridge.native, "copyToClipboardUnlessChanged").mockImplementation(
+    async (...request) => {
+      writes.push(request);
+      return true;
+    },
+  );
   return { bridge: { ...fixture.bridge, app: { ...fixture.bridge.app, platform } }, writes };
 }
 
@@ -29,7 +36,9 @@ describe("the primary selection a settled selection takes", () => {
       Promise.resolve("rename the reader"),
     );
 
-    expect(writes).toStrictEqual([[{ text: "rename the reader" }, "selection"]]);
+    expect(writes).toStrictEqual([
+      [{ text: "rename the reader" }, { clipboard: "selection", digest: "held" }],
+    ]);
   });
 
   it.each(["darwin", "win32"] as const)("reads and writes nothing on %s", async (platform) => {

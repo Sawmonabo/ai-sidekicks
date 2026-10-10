@@ -12,13 +12,29 @@ import { useClipboardCopy } from "./useClipboardCopy.js";
 
 const MESSAGE_TEXT = "Rename `readFrozenRecord` and keep its callers.\n\nTwo files.";
 
+/**
+ * A bridge writing each copy through `copyToClipboard`, a late one only while `isUnchanged`
+ * answers that no newer copy took the clipboard.
+ */
 function bridgeCopyingWith(
   copyToClipboard: (content: ClipboardContent) => Promise<void>,
+  isUnchanged = () => true,
 ): PlatformBridge {
   const bridge = createLiveBridge(createStubBridge({ ...FIXTURE_APP_META }, FIXTURE_WINDOW_ID));
   return {
     ...bridge,
-    native: { ...bridge.native, copyToClipboard },
+    native: {
+      ...bridge.native,
+      copyToClipboard,
+      takeClipboardSnapshot: async () => ({ digest: "held" }),
+      copyToClipboardUnlessChanged: async (content) => {
+        if (!isUnchanged()) {
+          return false;
+        }
+        await copyToClipboard(content);
+        return true;
+      },
+    },
   };
 }
 
@@ -103,5 +119,22 @@ describe("a Copy control whose content is built after the press", () => {
 
     expect(copied).toHaveLength(1);
     expect(screen.getByRole("button").textContent).toBe("Could not copy");
+  });
+
+  it("writes nothing and says nothing once a newer copy took the clipboard", async () => {
+    const copied: ClipboardContent[] = [];
+    const bridge = bridgeCopyingWith(
+      async (content) => {
+        copied.push(content);
+      },
+      () => false,
+    );
+    await pressCopy(bridge, async () => ({ png: Uint8Array.of(0x89, 0x50, 0x4e, 0x47) }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(copied).toStrictEqual([]);
+    expect(screen.getByRole("button").textContent).toBe("Copy");
   });
 });

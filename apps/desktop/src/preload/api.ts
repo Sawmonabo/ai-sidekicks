@@ -6,6 +6,7 @@ import { ipcRenderer, webFrame, webUtils } from "electron";
 import { BRIDGE_CHANNELS } from "#shared/bridge-channels.js";
 import { readLastUsedWindowIdSwitch } from "#shared/window/last-used.js";
 import {
+  type ClipboardSnapshot,
   type EditorEntry,
   type FilePathRef,
   type KeyboardMap,
@@ -59,6 +60,15 @@ export function createPreloadApi(argv: readonly string[]): PreloadApi {
       copyToClipboard: async (content, clipboard): Promise<void> => {
         await ipcRenderer.invoke(BRIDGE_CHANNELS.copyToClipboard, { content, clipboard });
       },
+      takeClipboardSnapshot: async (clipboard): Promise<ClipboardSnapshot> =>
+        (await ipcRenderer.invoke(BRIDGE_CHANNELS.takeClipboardSnapshot, {
+          clipboard,
+        })) as ClipboardSnapshot,
+      copyToClipboardUnlessChanged: async (content, since): Promise<boolean> =>
+        (await ipcRenderer.invoke(BRIDGE_CHANNELS.copyToClipboardUnlessChanged, {
+          content,
+          since,
+        })) as boolean,
       addClipboardFormatting: async (content): Promise<boolean> =>
         (await ipcRenderer.invoke(BRIDGE_CHANNELS.addClipboardFormatting, content)) as boolean,
       revealInFileExplorer: async (ref): Promise<void> => {

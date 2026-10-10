@@ -1,6 +1,7 @@
 // A copy reaches the clipboard as one write carrying every flavor, and the selection clipboard
 // only where the system keeps one. A formatted flavor added after a copy's text joins it only while
-// the clipboard still holds that text.
+// the clipboard still holds that text, and a copy written after it was asked for lands only while
+// the clipboard holds what it held then.
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -8,6 +9,8 @@ import {
   addClipboardFormatting,
   clipboardHostsFor,
   copyToClipboard,
+  copyToClipboardUnlessChanged,
+  takeClipboardSnapshot,
   type ClipboardFlavors,
   type ClipboardHost,
   type ClipboardHosts,
@@ -21,7 +24,11 @@ vi.mock("electron", () => ({
 }));
 
 function recordingClipboard(): ClipboardHost & { readonly write: ReturnType<typeof vi.fn> } {
-  return { write: vi.fn(() => Promise.resolve()), readText: () => Promise.resolve("") };
+  return {
+    write: vi.fn(() => Promise.resolve()),
+    readText: () => Promise.resolve(""),
+    readHeld: () => Promise.resolve([]),
+  };
 }
 
 /** A clipboard holding what was last written to it, as a system clipboard does. */
@@ -35,6 +42,20 @@ function holdingClipboard(): ClipboardHost & { held: ClipboardFlavors | undefine
       clipboard.held !== undefined && "text/plain" in clipboard.held
         ? clipboard.held["text/plain"]
         : "",
+    readHeld: async () => {
+      const held: Partial<Record<string, string | Blob>> = { ...clipboard.held };
+      return clipboard.held === undefined
+        ? []
+        : [
+            {
+              types: Object.keys(held),
+              readText: async (type) => {
+                const flavor = held[type];
+                return typeof flavor === "string" ? flavor : expect.fail(`${type} is no text`);
+              },
+            },
+          ];
+    },
   };
   return clipboard;
 }
@@ -115,5 +136,29 @@ describe("a formatted flavor added after a copy's text", () => {
     await clipboard.write({ "text/plain": "a newer copy" });
     await expect(addClipboardFormatting(clipboards, formatting)).resolves.toBe(false);
     expect(clipboard.held).toStrictEqual({ "text/plain": "a newer copy" });
+  });
+});
+
+describe("a copy written after it was asked for", () => {
+  it("lands while the clipboard holds what it held then, and leaves a newer copy standing", async () => {
+    const clipboard = holdingClipboard();
+    const clipboards = systemOnly(clipboard);
+    await clipboard.write({ "text/plain": "the person's older copy" });
+    const content = { text: "a long selection, read" };
+
+    const since = await takeClipboardSnapshot(clipboards, {});
+    await expect(copyToClipboardUnlessChanged(clipboards, { content, since })).resolves.toBe(true);
+    expect(clipboard.held).toStrictEqual({ "text/plain": "a long selection, read" });
+
+    const later = await takeClipboardSnapshot(clipboards, {});
+    // Another app copies while the selection's text is read; its copy carries formatting too.
+    await clipboard.write({ "text/plain": "a long selection, read", "text/html": "<b>theirs</b>" });
+    await expect(copyToClipboardUnlessChanged(clipboards, { content, since: later })).resolves.toBe(
+      false,
+    );
+    expect(clipboard.held).toStrictEqual({
+      "text/plain": "a long selection, read",
+      "text/html": "<b>theirs</b>",
+    });
   });
 });
