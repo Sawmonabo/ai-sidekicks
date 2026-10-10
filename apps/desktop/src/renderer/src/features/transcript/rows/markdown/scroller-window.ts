@@ -13,7 +13,7 @@ import type { Unsubscribe } from "#shared/preload-api.js";
 import { type ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { widenRangeByPixels } from "#renderer/lib/scroll/item-band.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
-import { TRANSCRIPT_DRAWN_BAND_SCREEN_HEIGHTS } from "../../viewport/caps.js";
+import { type DrawnBandScreenHeights } from "../../viewport/drawn-band.js";
 
 /** The scroller-facing members of one nested window, read through `topPx` for its place. */
 export class ScrollerWindowMembers {
@@ -76,13 +76,21 @@ export class ScrollerWindowMembers {
 
   /**
    * The items the window draws for the library's `range`: those the scroller shows and those within
-   * the conversation's drawn band past each edge, reached in the scroller's own height, ascending.
+   * `bandScreenHeights` past each edge, reached in the scroller's own height, ascending.
    * `sizeAtPx` answers an item's laid-out size, measured or estimated.
    */
-  public drawnIndexesOf(range: Range, sizeAtPx: (index: number) => number): number[] {
+  public drawnIndexesOf(
+    range: Range,
+    bandScreenHeights: DrawnBandScreenHeights,
+    sizeAtPx: (index: number) => number,
+  ): number[] {
     const viewportHeightPx = this.#scrollController.geometry?.viewportHeight ?? 0;
-    const bandPx = viewportHeightPx * TRANSCRIPT_DRAWN_BAND_SCREEN_HEIGHTS;
-    const { startIndex, endIndex } = widenRangeByPixels(range, bandPx, bandPx, sizeAtPx);
+    const { startIndex, endIndex } = widenRangeByPixels(
+      range,
+      viewportHeightPx * bandScreenHeights.head,
+      viewportHeightPx * bandScreenHeights.tail,
+      sizeAtPx,
+    );
     return Array.from(
       { length: endIndex - startIndex + 1 },
       (_unused, offset) => startIndex + offset,

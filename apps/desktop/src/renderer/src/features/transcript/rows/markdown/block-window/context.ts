@@ -5,6 +5,7 @@ import { createContext, type Context } from "react";
 
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { type ScrollController } from "#renderer/lib/scroll/chokepoint.js";
+import { type DrawnBandScreenHeights } from "#renderer/features/transcript/viewport/drawn-band.js";
 
 /** The conversation scroller as a windowed body lays its blocks against it. */
 export interface MarkdownWindowViewport {
@@ -20,6 +21,13 @@ export interface MarkdownWindowViewport {
    * which the conversation holds for a row wholly above it and for a following reader instead.
    */
   readonly holdsPlaceInsideRow: (rowKey: string) => boolean;
+  /**
+   * How far beyond each edge of the scroller the body draws its items, in screen heights, read
+   * when called; the same object until a side changes.
+   */
+  readonly drawnBandScreenHeights: () => DrawnBandScreenHeights;
+  /** Hears each change that may move what `drawnBandScreenHeights` answers. */
+  readonly subscribeToDrawnBand: (listener: () => void) => Unsubscribe;
   /** Hears each selection change that moves what `readSelectionRange` answers. */
   readonly subscribeToSelection: (listener: () => void) => Unsubscribe;
   /**

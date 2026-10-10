@@ -61,6 +61,7 @@ export function TranscriptViewport(props: TranscriptViewportProps): React.JSX.El
   const { snapshot } = binding;
   const { scrollController, rowStartPx, holdsPlaceInsideRow, noteShown } = binding;
   const tracker = binding.selectionTracker;
+  const { nestedBandScreenHeights, subscribeToNestedBand } = binding;
   // A layout effect, so a landing the same commit asks for knows the viewport is hidden.
   useLayoutEffect(() => {
     noteShown(props.isShown);
@@ -71,10 +72,19 @@ export function TranscriptViewport(props: TranscriptViewportProps): React.JSX.El
       scrollController,
       rowStartPx,
       holdsPlaceInsideRow,
+      drawnBandScreenHeights: nestedBandScreenHeights,
+      subscribeToDrawnBand: subscribeToNestedBand,
       subscribeToSelection: (listener) => tracker.subscribe(listener),
       readSelectionRange: () => tracker.selectionRange,
     }),
-    [scrollController, rowStartPx, holdsPlaceInsideRow, tracker],
+    [
+      scrollController,
+      rowStartPx,
+      holdsPlaceInsideRow,
+      nestedBandScreenHeights,
+      subscribeToNestedBand,
+      tracker,
+    ],
   );
 
   return (

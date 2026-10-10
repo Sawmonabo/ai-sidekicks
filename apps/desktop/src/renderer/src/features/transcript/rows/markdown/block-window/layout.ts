@@ -12,6 +12,7 @@ import { Emitter } from "#renderer/lib/emitter.js";
 import { observeElementResize } from "#renderer/lib/element-resize.js";
 import { blockSourceStartOf, type SettledMarkdownBlock } from "../body-blocks.js";
 import { isSameBodyType, readMarkdownBodyType, type MarkdownBodyType } from "../body-type.js";
+import { type DrawnBandScreenHeights } from "#renderer/features/transcript/viewport/drawn-band.js";
 import { ReaderPlaceHold } from "../reader-place-hold.js";
 import { offsetInRowPx, ScrollerWindowMembers } from "../scroller-window.js";
 import { type TableBodyPlacement, type TablePlacementChange } from "../table-window/context.js";
@@ -265,10 +266,11 @@ export class BlockWindowLayout implements TableBodyPlacement {
     this.#placementChanges.emit(change);
   }
 
-  /** The blocks drawn for the library's `range`: those on screen and the drawn band past them. */
-  public drawnIndexesOf(range: Range): number[] {
+  /** The blocks drawn for the library's `range`: on screen, and `bandScreenHeights` past them. */
+  public drawnIndexesOf(range: Range, bandScreenHeights: DrawnBandScreenHeights): number[] {
     return this.#scroller.drawnIndexesOf(
       range,
+      bandScreenHeights,
       (index) => this.#virtualizer?.measurementsCache[index]?.size ?? this.estimateSize(index),
     );
   }

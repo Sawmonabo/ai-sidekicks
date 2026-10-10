@@ -7,6 +7,7 @@ import {
   useReducer,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import { flushSync } from "react-dom";
 
@@ -114,17 +115,21 @@ export function useTableWindow(offer: MarkdownTableOffer): TableWindow {
     MARKDOWN_TABLE_ROW_INDEX_ATTRIBUTE,
   );
   const [revealedRowIndex, setRevealedRowIndex] = useState<number | undefined>(undefined);
-  // The rows the scroller shows and a band past each edge as tall as the scroller, so a fling meets
-  // drawn rows rather than a spacer while the next ones mount. The rows holding a selection's ends
-  // stay drawn too; the rows between are copied from the text.
+  // The rows the scroller shows and the conversation's band past each edge, so a fling meets drawn
+  // rows rather than a spacer while the next ones mount. The rows holding a selection's ends stay
+  // drawn too; the rows between are copied from the text.
+  const bandScreenHeights = useSyncExternalStore(
+    body.viewport.subscribeToDrawnBand,
+    body.viewport.drawnBandScreenHeights,
+  );
   const rangeExtractor = useCallback(
     (range: Range) =>
       withPinnedIndexes(
-        layout.drawnIndexesOf(range),
+        layout.drawnIndexesOf(range, bandScreenHeights),
         revealedRowIndex === undefined ? rangeEnds(pins) : [...rangeEnds(pins), revealedRowIndex],
         range.count,
       ),
-    [layout, pins, revealedRowIndex],
+    [layout, bandScreenHeights, pins, revealedRowIndex],
   );
   const onChange = useCallback(
     (instance: TableRowVirtualizer) => {

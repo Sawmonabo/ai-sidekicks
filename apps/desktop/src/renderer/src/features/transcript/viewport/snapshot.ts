@@ -36,6 +36,11 @@ export interface ViewportSnapshot {
   readonly heldRowKeys: readonly string[];
   /** How far beyond each edge of the box the rows are drawn, in screen heights, by identity. */
   readonly drawnBandScreenHeights: DrawnBandScreenHeights;
+  /**
+   * How far beyond each edge of the box a window nested in a row draws its items, in screen
+   * heights, by identity.
+   */
+  readonly nestedBandScreenHeights: DrawnBandScreenHeights;
 }
 
 /** What the surrounding feed tells the frame each render. */

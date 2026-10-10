@@ -844,6 +844,7 @@ export class ViewportController {
       headHeightPx: this.historyLine.heightPx,
       heldRowKeys: this.anchor.heldRowKeys(),
       drawnBandScreenHeights: this.#drawnBand.screenHeights,
+      nestedBandScreenHeights: this.#drawnBand.nestedScreenHeights,
     };
   }
 }
