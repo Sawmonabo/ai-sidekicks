@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { type MarkdownWindowViewport } from "../../markdown/block-window/context.js";
+import { type TranscriptBodyViewport } from "#renderer/components/TranscriptBodyViewport/context.js";
 import {
   pinnedBlockRangeOf,
   type PinnedBlockRange,
@@ -12,7 +12,7 @@ import {
  * same, so a selection that only moves inside them re-renders nothing.
  */
 export function useSelectionPinnedBlocks(
-  viewport: MarkdownWindowViewport,
+  viewport: TranscriptBodyViewport,
   readWindowElement: () => Element | null,
   readBlockCount: () => number,
 ): PinnedBlockRange | undefined {

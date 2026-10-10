@@ -8,7 +8,7 @@ import * as markdownParse from "#renderer/components/Markdown/parse.js";
 import { ManualClock } from "#renderer/lib/clock.js";
 import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { liveBridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
-import { MarkdownWindowViewportContext } from "../markdown/block-window/context.js";
+import { TranscriptBodyViewportContext } from "#renderer/components/TranscriptBodyViewport/context.js";
 import { MARKDOWN_BLOCK_INDEX_ATTRIBUTE } from "../markdown/block-window/markers.js";
 import { FootnoteRegistry } from "../markdown/footnotes/registry.js";
 import { MarkdownBlockSegmenter } from "../markdown/parse/block-segmenter.js";
@@ -61,7 +61,7 @@ function mountWindow(text: string, footnotes: FootnoteRegistry): MountedWindow {
     read: () => undefined,
   });
   const { container, unmount } = render(
-    <MarkdownWindowViewportContext value={viewport}>
+    <TranscriptBodyViewportContext value={viewport}>
       <StreamingMarkdown
         publishedText={publishedTextOf(text)}
         sourceId="reply"
@@ -69,7 +69,7 @@ function mountWindow(text: string, footnotes: FootnoteRegistry): MountedWindow {
         isComplete
         offersCodeCopy
       />
-    </MarkdownWindowViewportContext>,
+    </TranscriptBodyViewportContext>,
     {
       wrapper: liveBridgeWrapper(),
       container: scroller.appendChild(document.createElement("div")),

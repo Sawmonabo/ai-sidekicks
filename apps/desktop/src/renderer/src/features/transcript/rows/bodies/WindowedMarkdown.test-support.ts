@@ -4,7 +4,7 @@
 
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { type ScrollController } from "#renderer/lib/scroll/chokepoint.js";
-import { type MarkdownWindowViewport } from "../markdown/block-window/context.js";
+import { type TranscriptBodyViewport } from "#renderer/components/TranscriptBodyViewport/context.js";
 
 /** A reply of at least `minimumCharacters`, cycle after cycle of every kind of block. */
 export function longReplyMarkdown(minimumCharacters: number): string {
@@ -29,7 +29,7 @@ export function suiteWindowViewport(
     readonly subscribe: (listener: () => void) => Unsubscribe;
     readonly read: () => AbstractRange | undefined;
   },
-): MarkdownWindowViewport {
+): TranscriptBodyViewport {
   return {
     scrollController,
     rowStartPx: () => 0,

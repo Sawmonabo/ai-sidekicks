@@ -6,7 +6,7 @@
 import { type MarkdownRenderContexts } from "./hooks/useMarkdownRenderContexts.js";
 import { useBlockWindow } from "./hooks/useBlockWindow.js";
 import { type MarkdownBodyBlocksSnapshot } from "../markdown/body-blocks.js";
-import { type MarkdownWindowViewport } from "../markdown/block-window/context.js";
+import { type TranscriptBodyViewport } from "#renderer/components/TranscriptBodyViewport/context.js";
 import {
   MARKDOWN_BLOCK_INDEX_ATTRIBUTE,
   MARKDOWN_FINAL_BLOCK_ATTRIBUTE,
@@ -19,7 +19,7 @@ export interface WindowedMarkdownProps {
   readonly blocks: MarkdownBodyBlocksSnapshot;
   readonly contexts: MarkdownRenderContexts;
   /** The viewport the body is drawn in; held for the body's life. */
-  readonly viewport: MarkdownWindowViewport;
+  readonly viewport: TranscriptBodyViewport;
   /** The row the body belongs to; held for the body's life. */
   readonly rowKey: string;
 }

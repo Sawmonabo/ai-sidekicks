@@ -114,7 +114,7 @@ export function RunHeader(props: RunHeaderProps): React.JSX.Element {
               {" · "}
               <button
                 type="button"
-                className="meridian-workflow-run__link"
+                className="meridian-workflow-run__link meridian-link-button"
                 onClick={() => {
                   props.onOpenRun(run.chainRoot.runId);
                 }}
@@ -235,7 +235,11 @@ function HeaderLink(props: {
   readonly onPress: () => void;
 }): React.JSX.Element {
   return (
-    <button type="button" className="meridian-workflow-run__link" onClick={props.onPress}>
+    <button
+      type="button"
+      className="meridian-workflow-run__link meridian-link-button"
+      onClick={props.onPress}
+    >
       {props.label}
     </button>
   );

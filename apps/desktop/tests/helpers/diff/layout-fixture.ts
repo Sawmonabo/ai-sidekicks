@@ -13,7 +13,7 @@
 import { ElementHeightShim } from "../element/height-shim.js";
 import {
   DIFF_FILE_ROW_HEIGHT_PX,
-  DIFF_ROW_HEIGHT_PX,
+  DIFF_ROW_HEIGHT_REM,
 } from "#renderer/features/repos/diff/measures.js";
 
 /** A row a wrapped line grew, and how tall it turned out. */
@@ -28,6 +28,12 @@ export interface DiffLayoutFixtureOptions {
   /** Absent, every row is one row tall. */
   readonly grownRow?: DiffGrownRow;
 }
+
+/**
+ * One diff row's height in the shim's document, in CSS pixels: the row's rem height at the 16 px
+ * root happy-dom reports.
+ */
+export const DIFF_FIXTURE_ROW_HEIGHT_PX: number = DIFF_ROW_HEIGHT_REM * 16;
 
 /**
  * The viewport the diff cases measure against, in CSS pixels.
@@ -77,5 +83,5 @@ function laidOutHeightPx(element: HTMLElement, options: DiffLayoutFixtureOptions
   const rowIndex = Number(element.getAttribute("data-index"));
   return options.grownRow !== undefined && options.grownRow.rowIndex === rowIndex
     ? options.grownRow.heightPx
-    : DIFF_ROW_HEIGHT_PX;
+    : DIFF_FIXTURE_ROW_HEIGHT_PX;
 }

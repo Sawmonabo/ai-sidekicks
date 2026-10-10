@@ -20,9 +20,9 @@ import { type TranscriptViewportBinding } from "../hooks/useTranscriptViewport.j
 import { useTrackViewportSelection } from "../hooks/selection/useTrackViewportSelection.js";
 import { ViewportSelectionTrackerContext } from "../selection/context.js";
 import {
-  MarkdownWindowViewportContext,
-  type MarkdownWindowViewport,
-} from "../../rows/markdown/block-window/context.js";
+  TranscriptBodyViewportContext,
+  type TranscriptBodyViewport,
+} from "#renderer/components/TranscriptBodyViewport/context.js";
 
 /** Props for `TranscriptViewport`. */
 export interface TranscriptViewportProps {
@@ -59,7 +59,7 @@ export function TranscriptViewport(props: TranscriptViewportProps): React.JSX.El
   const { tracker } = selection;
   const { scrollController, rowStartPx } = binding;
   // One value for the viewport's life: each windowed body holds it while it is mounted.
-  const markdownWindowViewport = useMemo<MarkdownWindowViewport>(
+  const transcriptBodyViewport = useMemo<TranscriptBodyViewport>(
     () => ({
       scrollController,
       rowStartPx,
@@ -71,7 +71,7 @@ export function TranscriptViewport(props: TranscriptViewportProps): React.JSX.El
 
   return (
     <ViewportSelectionTrackerContext value={tracker}>
-      <MarkdownWindowViewportContext value={markdownWindowViewport}>
+      <TranscriptBodyViewportContext value={transcriptBodyViewport}>
         <div className="meridian-transcript-viewport">
           <div
             className="meridian-transcript-viewport__scroll-container meridian-focus-inset"
@@ -128,7 +128,7 @@ export function TranscriptViewport(props: TranscriptViewportProps): React.JSX.El
           </div>
           <JumpToLatest snapshot={snapshot} onJumpToTail={binding.jumpToTail} />
         </div>
-      </MarkdownWindowViewportContext>
+      </TranscriptBodyViewportContext>
     </ViewportSelectionTrackerContext>
   );
 }

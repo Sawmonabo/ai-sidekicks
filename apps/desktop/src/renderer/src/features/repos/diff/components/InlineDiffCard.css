@@ -39,12 +39,35 @@
   pointer-events: none;
 }
 
-/* A block opened whole: a row off the screen skips its layout and paint until it nears the
-   screen, at a row's height until it has been drawn once and at its drawn height after. Only when
-   whole, since a row the cut hides would otherwise stand at that height and miscount the cut. */
-.meridian-diff-block__rows--whole > [role="row"] {
+/* One step of a block's rows. A step not mounted yet holds its rows' room at a row's height each,
+   so nothing below it moves as its rows land. */
+.meridian-diff-block__step--held {
+  block-size: calc(var(--meridian-diff-step-rows) * var(--meridian-diff-row-height));
+}
+
+/* A block opened whole: a step off the screen skips its layout and paint until it nears the
+   screen, at a row's height for each of its rows until it has been drawn once and at its drawn
+   height after. Only
+   when whole, since a row the cut hides would otherwise stand at that height and miscount the cut.
+   A step the flow brought near is laid out at once, never a frame after the engine notices it. */
+.meridian-diff-block__rows--whole > .meridian-diff-block__step {
   content-visibility: auto;
-  contain-intrinsic-block-size: auto var(--meridian-diff-row-height);
+  contain-intrinsic-block-size: auto
+    calc(var(--meridian-diff-step-rows) * var(--meridian-diff-row-height));
+}
+
+.meridian-diff-block__rows--whole > .meridian-diff-block__step--near {
+  content-visibility: visible;
+}
+
+/* A file with no lines to draw: what changed, where its lines would be. */
+.meridian-diff-block__note {
+  margin: 0;
+  padding-inline: var(--meridian-space-3);
+  color: var(--meridian-text-muted);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-xs);
+  line-height: var(--meridian-diff-row-height);
 }
 
 .meridian-diff-block__footer,
@@ -66,18 +89,4 @@
 /* The files past two screens, folded into one line at a block's indent. */
 .meridian-diff-card__fold {
   margin-inline-start: var(--meridian-space-3);
-}
-
-.meridian-diff-block__control {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--meridian-accent-text);
-  font-family: var(--meridian-font-sans);
-  font-size: var(--meridian-text-xs);
-  cursor: pointer;
-}
-
-.meridian-diff-block__control:hover {
-  text-decoration: underline;
 }

@@ -16,7 +16,7 @@ import {
   longReplyMarkdown,
   suiteWindowViewport,
 } from "#renderer/features/transcript/rows/bodies/WindowedMarkdown.test-support.js";
-import { MarkdownWindowViewportContext } from "#renderer/features/transcript/rows/markdown/block-window/context.js";
+import { TranscriptBodyViewportContext } from "#renderer/components/TranscriptBodyViewport/context.js";
 import { MARKDOWN_BLOCK_INDEX_ATTRIBUTE } from "#renderer/features/transcript/rows/markdown/block-window/markers.js";
 import { FootnoteRegistry } from "#renderer/features/transcript/rows/markdown/footnotes/registry.js";
 import { ViewportSelectionTracker } from "#renderer/features/transcript/viewport/selection/tracker.js";
@@ -104,7 +104,7 @@ async function mountBodies(
               {...{ [WINDOWED_ROW_INDEX_ATTRIBUTE]: 0 }}
               style={{ width: `${String(BODY_WIDTH_PX)}px` }}
             >
-              <MarkdownWindowViewportContext value={viewport}>
+              <TranscriptBodyViewportContext value={viewport}>
                 <StreamingMarkdown
                   publishedText={publishedTextOf(text)}
                   sourceId="reply"
@@ -112,7 +112,7 @@ async function mountBodies(
                   isComplete={options.isComplete}
                   offersCodeCopy
                 />
-              </MarkdownWindowViewportContext>
+              </TranscriptBodyViewportContext>
             </div>
           </div>
           {options.drawsFlowBody ? (

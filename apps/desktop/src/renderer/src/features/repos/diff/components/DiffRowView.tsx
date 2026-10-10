@@ -22,6 +22,8 @@ export type DiffRowLook =
       readonly look: "review";
       /** Reveal one more band of this row's gap. Only a `gap` row calls it. */
       readonly onExpandGap: (fileIndex: number, hunkIndex: number) => void;
+      /** Figures each line-number column of this row's file is wide. */
+      readonly gutterDigitCount: number;
     }
   | { readonly look: "flow" };
 
@@ -66,8 +68,12 @@ export const DiffRowView: React.MemoExoticComponent<
   if (row.kind === "file-header") {
     const file = index.model.files[row.fileIndex];
     // The patch's extended-header notes. A rename-only, copy-only, mode-only or binary file has
-    // no hunks, so this row is the only place its change appears.
-    const changeNotes = file === undefined ? [] : diffFileChangeNotes(file);
+    // no hunks, so in Review this row is the only place its change appears; the flow writes such a
+    // file's notes where its lines would be instead (`InlineDiffBlock.tsx`).
+    const changeNotes =
+      file === undefined || (props.look === "flow" && file.hunks.length === 0)
+        ? []
+        : diffFileChangeNotes(file);
     return (
       <div {...rowProps} className="meridian-diff__row meridian-diff__row--file">
         <span className="meridian-diff__file-path" role="cell">
@@ -137,6 +143,10 @@ export const DiffRowView: React.MemoExoticComponent<
       </div>
     );
   }
+  // The file's gutter width, which the columns' sheet reads; both halves of a split row take it.
+  const gutterStyle = {
+    "--meridian-diff-gutter-digits": String(props.gutterDigitCount),
+  } as React.CSSProperties;
   if (props.viewMode === "split") {
     // The flattening paired the row: a deletion fills the base side and carries its paired
     // insertion, if any, on the head side; an unpaired insertion fills the head alone; context
@@ -149,7 +159,11 @@ export const DiffRowView: React.MemoExoticComponent<
         ? undefined
         : props.intraline.readingFor(row, row.pairedLineIndex);
     return (
-      <div {...rowProps} className="meridian-diff__row meridian-diff__row--line">
+      <div
+        {...rowProps}
+        className="meridian-diff__row meridian-diff__row--line"
+        style={gutterStyle}
+      >
         <DiffSplitCell
           line={line.kind === "insert" ? undefined : line}
           reading={reading}
@@ -165,7 +179,7 @@ export const DiffRowView: React.MemoExoticComponent<
   }
 
   return (
-    <div {...rowProps} className="meridian-diff__row meridian-diff__row--line">
+    <div {...rowProps} className="meridian-diff__row meridian-diff__row--line" style={gutterStyle}>
       {/* One cell, not three: `role="row"` admits only cells, and the gutters belong to the
           line. */}
       <span

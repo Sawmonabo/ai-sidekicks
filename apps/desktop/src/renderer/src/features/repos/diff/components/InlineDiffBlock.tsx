@@ -1,12 +1,16 @@
 // One file of a diff in the flow. Its rows are drawn in the conversation itself, never in a
 // scroller of their own: cut at the height of as many rows as a third of the visible flow holds
 // and faded there, with a footer counting the lines drawn, lifting the cut, and copying the
-// file's whole patch. A file inside the cut is drawn whole and its footer has nothing to lift.
+// file's whole patch. A file inside the cut is drawn whole and its footer has nothing to lift. A
+// file with no lines to draw keeps its header and writes what changed where its lines would be.
 //
-// Show all mounts what the flow can show at once in the press itself and the rest a step per
-// task, below the screen, over space already held for it, so the rows above never move and no
-// task mounts thousands of rows. Rows past the screen skip their layout and paint until they near
-// it (`content-visibility`), which also keeps a whole long diff cheap to lay out again.
+// The rows are drawn in steps of a fixed count, each step one box. Show all mounts the steps the
+// flow can show in the press itself and the rest one step per task, each step holding its room
+// until its rows land, so the rows above never move and no task mounts thousands of rows. A
+// scroll that brings a held step near the screen mounts it and lays it out before that frame
+// paints, so a person never sees the room held for it, and the reader stays still as steps above
+// them take their real heights. Steps away from the screen skip their layout and paint
+// (`content-visibility`), which also keeps a whole long diff cheap to lay out again.
 
 // The rows' own sheet, shared with Review's renderer so a change reads the same in both.
 import "./DiffRenderer.css";
@@ -17,52 +21,62 @@ import { CopyButton } from "#renderer/components/CopyButton/CopyButton.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
 import { useClipboardCopy } from "#renderer/services/platform/hooks/useClipboardCopy.js";
 import { useIntralineSegmentCache } from "../hooks/useIntralineSegmentCache.js";
+import { useReaderHeldOverSteps } from "../hooks/useReaderHeldOverSteps.js";
 import { useRowsCut } from "../hooks/useRowsCut.js";
-import { useRowsMountedInSteps } from "../hooks/useRowsMountedInSteps.js";
+import { useRowsMountedInSteps, type RowStepRange } from "../hooks/useRowsMountedInSteps.js";
+import { useStepsNearView } from "../hooks/useStepsNearView.js";
 import type { IntralineSegmentCache } from "../intraline/segment-cache.js";
-import { DIFF_FLOW_FILL_STEP_ROWS, DIFF_ROW_HEIGHT_PX } from "../measures.js";
+import { DIFF_FLOW_FILL_STEP_ROWS, DIFF_ROW_HEIGHT_REM } from "../measures.js";
 import type { DiffFile } from "../model.js";
-import { diffFlowCutRowCount, type DiffFlowRows } from "../rows/flow.js";
+import { DIFF_FLOW_STEP_ATTRIBUTE, diffFlowCutRowCount, type DiffFlowRows } from "../rows/flow.js";
 import { DiffRowView } from "./DiffRowView.js";
 
-/** What one file's block is drawn from: the file, its rows in the flow, and the flow's height. */
+/** What one file's block is drawn from: the file, its rows in the flow, and the flow's measures. */
 export interface InlineDiffBlockProps {
   readonly file: DiffFile;
   readonly flowRows: DiffFlowRows;
   /** The visible flow's height, in CSS pixels, which the cut is read from. */
   readonly flowHeightPx: number;
+  /** One row's height at the current text size, in CSS pixels. */
+  readonly rowHeightPx: number;
 }
 
 /** One file's rows in the flow, cut at a third of the visible flow, and its footer. */
 export function InlineDiffBlock(props: InlineDiffBlockProps): React.JSX.Element {
-  const { flowRows } = props;
+  const { flowRows, flowHeightPx, rowHeightPx } = props;
   const rowCount = flowRows.rows.length;
+  const stepCount = Math.ceil(rowCount / DIFF_FLOW_FILL_STEP_ROWS);
   const intraline = useIntralineSegmentCache(flowRows.index.model);
-  const { mountedRowCount, mountAll } = useRowsMountedInSteps(rowCount);
+  const { steps, mountAll, bringNear } = useRowsMountedInSteps(rowCount);
   const [rowsElement, setRowsElement] = useState<HTMLDivElement | null>(null);
 
-  const isShowingAll = mountedRowCount !== undefined;
-  const cutRowCount = diffFlowCutRowCount(props.flowHeightPx);
-  const drawnRowCount = mountedRowCount ?? Math.min(rowCount, cutRowCount);
-  const cutHeightPx = isShowingAll ? undefined : cutRowCount * DIFF_ROW_HEIGHT_PX;
+  const isShowingAll = steps !== undefined;
+  const cutRowCount = diffFlowCutRowCount(flowHeightPx, rowHeightPx);
+  const drawnRowCount = isShowingAll ? rowCount : Math.min(rowCount, cutRowCount);
+  const cutHeightPx = isShowingAll ? undefined : cutRowCount * rowHeightPx;
   const { isCut, drawnLineCount } = useRowsCut(
     rowsElement,
     cutHeightPx,
     flowRows.lineCount,
     drawnRowCount < rowCount,
   );
+  // Half a screen past each edge of the flow, so a quick scroll meets rows already laid out.
+  useStepsNearView(rowsElement, isShowingAll, flowHeightPx / 2, bringNear);
+  useReaderHeldOverSteps(rowsElement, isShowingAll, stepCount);
 
-  // One element per step of rows, so a step mounts its own rows and every earlier step's memo
-  // holds.
+  // One element per step, so a step mounts its own rows and every other step's memo holds.
   const rowSteps: React.JSX.Element[] = [];
-  for (let start = 0; start < drawnRowCount; start += DIFF_FLOW_FILL_STEP_ROWS) {
+  for (let step = 0; step * DIFF_FLOW_FILL_STEP_ROWS < drawnRowCount; step += 1) {
+    const start = step * DIFF_FLOW_FILL_STEP_ROWS;
     rowSteps.push(
       <FlowRowStep
-        key={start}
+        key={step}
         flowRows={flowRows}
         intraline={intraline}
-        start={start}
+        step={step}
         end={Math.min(drawnRowCount, start + DIFF_FLOW_FILL_STEP_ROWS)}
+        isMounted={steps?.mounted[step] ?? true}
+        isNear={isWithin(steps?.near, step)}
       />,
     );
   }
@@ -77,7 +91,13 @@ export function InlineDiffBlock(props: InlineDiffBlockProps): React.JSX.Element 
 
   return (
     // No section or footer: either can be a landmark, one per file in the conversation.
-    <div className="meridian-diff-block">
+    <div
+      className="meridian-diff-block"
+      // The row height has one home, `measures.ts`; the block's sheets read it from here.
+      style={
+        { "--meridian-diff-row-height": `${String(DIFF_ROW_HEIGHT_REM)}rem` } as React.CSSProperties
+      }
+    >
       <div
         ref={setRowsElement}
         className={rowsClassName}
@@ -85,11 +105,9 @@ export function InlineDiffBlock(props: InlineDiffBlockProps): React.JSX.Element 
         aria-label={`Diff of ${props.file.path}`}
         aria-rowcount={rowCount}
         tabIndex={-1}
-        // The row height has one home, `measures.ts`; the rows' sheet reads it from here, and the
-        // gutter's width from the widest number this file shows.
+        // The gutter is as wide as the widest number this file shows.
         style={
           {
-            "--meridian-diff-row-height": `${String(DIFF_ROW_HEIGHT_PX)}px`,
             "--meridian-diff-gutter-digits": String(flowRows.gutterDigitCount),
             ...(cutHeightPx === undefined ? {} : { maxBlockSize: cutHeightPx }),
           } as React.CSSProperties
@@ -97,13 +115,9 @@ export function InlineDiffBlock(props: InlineDiffBlockProps): React.JSX.Element 
       >
         {rowSteps}
       </div>
-      {isShowingAll && drawnRowCount < rowCount ? (
-        // The rows still to mount hold their place, so nothing below the block moves as they land.
-        <div
-          aria-hidden="true"
-          style={{ blockSize: (rowCount - drawnRowCount) * DIFF_ROW_HEIGHT_PX }}
-        />
-      ) : null}
+      {flowRows.bodyNotes.length === 0 ? null : (
+        <p className="meridian-diff-block__note">{flowRows.bodyNotes.join(", ")}</p>
+      )}
       <div className="meridian-diff-block__footer">
         {flowRows.lineCount === 0 ? null : (
           <span>{`${formatCount(drawnLineCount)} of ${formatCount(flowRows.lineCount)} ${flowRows.lineCount === 1 ? "line" : "lines"}`}</span>
@@ -115,11 +129,11 @@ export function InlineDiffBlock(props: InlineDiffBlockProps): React.JSX.Element 
             </span>
             <button
               type="button"
-              className="meridian-diff-block__control"
+              className="meridian-link-button"
               onClick={() => {
                 // The rows from the cut to a screen past it land with the press, so whatever
                 // the screen shows is drawn in its first frame.
-                mountAll(cutRowCount + Math.ceil(props.flowHeightPx / DIFF_ROW_HEIGHT_PX));
+                mountAll(cutRowCount + Math.ceil(flowHeightPx / rowHeightPx));
                 // The control leaves with the cut, so focus goes to the rows it opened rather
                 // than to the page; `preventScroll` keeps the rows above where they were.
                 rowsElement?.focus({ preventScroll: true });
@@ -137,15 +151,21 @@ export function InlineDiffBlock(props: InlineDiffBlockProps): React.JSX.Element 
   );
 }
 
-/** One step of a block's rows, `start` to before `end`, numbered by their place in the block. */
+/**
+ * One step of a block's rows, from `step`'s first row to before `end`, numbered by their place in
+ * the block. A step whose rows are not mounted yet holds their room at a row's height each.
+ */
 const FlowRowStep = memo(function FlowRowStep(props: {
   readonly flowRows: DiffFlowRows;
   readonly intraline: IntralineSegmentCache;
-  readonly start: number;
+  readonly step: number;
   readonly end: number;
+  readonly isMounted: boolean;
+  readonly isNear: boolean;
 }): React.JSX.Element {
+  const start = props.step * DIFF_FLOW_FILL_STEP_ROWS;
   const rows: React.JSX.Element[] = [];
-  for (let rowIndex = props.start; rowIndex < props.end; rowIndex += 1) {
+  for (let rowIndex = start; props.isMounted && rowIndex < props.end; rowIndex += 1) {
     const row = props.flowRows.rows[rowIndex];
     if (row !== undefined) {
       rows.push(
@@ -161,7 +181,24 @@ const FlowRowStep = memo(function FlowRowStep(props: {
       );
     }
   }
-  return <>{rows}</>;
+  const className = [
+    "meridian-diff-block__step",
+    props.isMounted ? "" : "meridian-diff-block__step--held",
+    props.isNear ? "meridian-diff-block__step--near" : "",
+  ]
+    .filter((part) => part !== "")
+    .join(" ");
+  return (
+    <div
+      className={className}
+      {...{ [DIFF_FLOW_STEP_ATTRIBUTE]: props.step }}
+      // A held step is room, not rows, so it is no group of the table's.
+      {...(props.isMounted ? { role: "rowgroup" } : { "aria-hidden": true })}
+      style={{ "--meridian-diff-step-rows": String(props.end - start) } as React.CSSProperties}
+    >
+      {rows}
+    </div>
+  );
 });
 
 /** The footer's copy of the file's whole patch, after its separator where words precede it. */
@@ -177,7 +214,11 @@ function PatchCopy(props: {
           ·
         </span>
       ) : null}
-      <CopyButton label="Copy patch" clipboardCopy={clipboardCopy} />
+      <CopyButton label="Copy patch" clipboardCopy={clipboardCopy} look="link" />
     </>
   );
+}
+
+function isWithin(range: RowStepRange | undefined, step: number): boolean {
+  return range !== undefined && step >= range.first && step <= range.last;
 }
