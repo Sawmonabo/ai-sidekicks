@@ -121,9 +121,10 @@ function Conversation(props: { readonly rows: typeof ROWS }): React.JSX.Element 
   );
 }
 
-/** The text a clipboard holds, as main reads it for a copy's snapshot. */
+/** What a clipboard holds: its text, which main reads for a copy's snapshot, and its html. */
 interface HeldClipboard {
   text: string;
+  html: string | undefined;
 }
 
 /**
@@ -148,12 +149,13 @@ function renderSession(rows = ROWS): {
   });
   const sessionDocument = sessionWindow.document;
   const fixture = createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO });
-  const clipboard: HeldClipboard = { text: "the person's older copy" };
+  const clipboard: HeldClipboard = { text: "the person's older copy", html: undefined };
   const copied: TextClipboardContent[] = [];
   const land = (content: ClipboardContent): void => {
     const text = "text" in content ? content : expect.fail("the conversation copies text");
     copied.push(text);
     clipboard.text = text.text;
+    clipboard.html = text.html;
   };
   vi.spyOn(fixture.bridge.native, "copyToClipboard").mockImplementation(async (content) => {
     land(content);
@@ -176,8 +178,13 @@ function renderSession(rows = ROWS): {
     Promise.resolve(drawnTreeText(tree, flavor)),
   );
   const formatted: TextClipboardContent[] = [];
+  // The formatted flavor joins the text only while the clipboard still holds it, as main's does.
   vi.spyOn(fixture.bridge.native, "addClipboardFormatting").mockImplementation(async (content) => {
     formatted.push(content);
+    if (clipboard.text !== content.text) {
+      return false;
+    }
+    clipboard.html = content.html;
     return true;
   });
   const { container } = render(
@@ -212,7 +219,7 @@ afterEach(() => {
 
 describe("⌘C in a session", () => {
   it("copies the selection in reading order while the message box holds none", async () => {
-    const { copied, box, sessionDocument } = renderSession();
+    const { clipboard, copied, box, sessionDocument } = renderSession();
     box.focus();
     box.setSelectionRange(0, 0);
     const start = textNodeHolding(sessionDocument, USER_MESSAGE);
@@ -222,17 +229,19 @@ describe("⌘C in a session", () => {
     const event = fireEvent.copy(start);
 
     expect(event).toBe(false);
+    // A copy built within its first slice writes both flavors at once; one that outlasts it, as
+    // under load, writes its text, then adds the formatted flavor beside it.
     await vi.waitFor(() => {
-      expect(copied).toHaveLength(1);
+      expect(clipboard.html).toBeDefined();
     });
-    const [content] = copied;
     // The author lines, stamps and Copy controls between the bodies are left out; the reply's
     // part is the markdown that drew it, cut where the selection ended.
-    expect(content?.text).toBe(
+    expect(copied.map((content) => content.text)).toStrictEqual([
       `${USER_MESSAGE}\n\nHere is **the plan**:\n\n- rename the reader\n- keep`,
-    );
-    expect(content?.html).toContain("<strong>the plan</strong>");
-    expect(content?.html).toContain(`<p>${USER_MESSAGE}</p>`);
+    ]);
+    expect(clipboard.text).toBe(copied[0]?.text);
+    expect(clipboard.html).toContain("<strong>the plan</strong>");
+    expect(clipboard.html).toContain(`<p>${USER_MESSAGE}</p>`);
   });
 
   it("writes a long part's text at once, and adds its formatting unless a newer copy took over", async () => {
