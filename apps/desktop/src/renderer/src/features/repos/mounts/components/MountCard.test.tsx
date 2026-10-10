@@ -1,19 +1,21 @@
 // The mount card: the resolved root in its head, and an unreachable mount withholding its bind
 // controls.
 
-import { render } from "@testing-library/react";
+import { render, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { bridgeOnClock } from "#test/helpers/fixture/bridge.js";
 import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
+import { OUTSIDE_LIVE_REGIONS } from "#test/helpers/live-region.js";
 import { scriptedRepoOperations } from "../../operations.test-support.js";
+import { readBindControlAvailability } from "../bind-control-availability.js";
 import { MountCard } from "./MountCard.js";
 import type { RepoWorkspaceRow } from "../reading.js";
 import { CANONICAL_ROOT, buildMount, workspaceRow } from "../repo-mounts.test-support.js";
 import { HOVER_LABEL_TEXT_ATTRIBUTE } from "#renderer/components/HoverLabel/HoverLabel.js";
 
-/** The card's own state sentence; each prepare form repeats a held reason in its disclosure. */
+/** The card's own state sentence. */
 function withheldLine(container: HTMLElement): string | null {
   return container.querySelector(".meridian-mount-card__withheld")?.textContent ?? null;
 }
@@ -64,5 +66,38 @@ describe("MountCard — an unreachable mount", () => {
     });
     expect(container.querySelector(".meridian-mount-card--withheld")).not.toBeNull();
     expect(withheldLine(container)).toMatch(/could not be probed/u);
+  });
+
+  it("states the held reason once, as the description of each workspace's Prepare", () => {
+    const mount = buildMount({
+      health: { status: "unreachable", checkedAt: "2026-01-01T09:05:01.000Z" },
+    });
+    const availability = readBindControlAvailability(mount);
+    if (availability.available) {
+      throw new Error("an unreachable mount offered its bind controls");
+    }
+    const reason = availability.unavailableBecause;
+    const { container } = renderCard({
+      mount,
+      workspaces: [
+        workspaceRow({ id: "workspace-first" }),
+        workspaceRow({ id: "workspace-second" }),
+      ],
+    });
+    // The forms sit in collapsed disclosures, so their controls are reached with `hidden`.
+    const describingLinesPerPrepare = within(container)
+      .getAllByRole("button", { name: "Prepare", hidden: true })
+      .map((prepare) =>
+        (prepare.getAttribute("aria-describedby") ?? "")
+          .split(" ")
+          .map((lineId) => container.ownerDocument.getElementById(lineId)),
+      );
+
+    const drawnReasons = within(container).getAllByText(reason, { ignore: OUTSIDE_LIVE_REGIONS });
+    expect(drawnReasons).toHaveLength(1);
+    // Compared by identity: each control must cite the very line the card draws.
+    expect(
+      describingLinesPerPrepare.map((lines) => lines.some((line) => line === drawnReasons[0])),
+    ).toStrictEqual([true, true]);
   });
 });

@@ -9,14 +9,24 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { settle } from "#test/helpers/settle.js";
 import { drawnText } from "#test/helpers/live-region.js";
+import { bridgeOnClock } from "#test/helpers/fixture/bridge.js";
+import { paneContext } from "#test/helpers/pane-context.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { windowTripwires } from "#renderer/lib/tripwires/registry.js";
 import { ErrorBoundary } from "#renderer/components/ErrorBoundary/ErrorBoundary.js";
 import { PaneFrame } from "#renderer/components/PaneFrame/PaneFrame.js";
 import { type LazyBodyModule } from "#renderer/components/LazyBody/loader.js";
-import { countingLoader, syntheticPaneContextAt } from "./registry.lazy-body.test-support.js";
+import { countingLoader } from "./registry.lazy-body.test-support.js";
 import { type PaneContext } from "./context.js";
 import { PaneRegistry } from "./registry.js";
+
+/** The context a loader-form case mounts the diff pane with: over one workspace, no session. */
+function diffPaneContext(): PaneContext {
+  return paneContext(
+    { kind: "diff", entity: { kind: "workspace", id: "workspace-pane-registry" } },
+    { bridge: bridgeOnClock("pane-registry").bridge, sessionStore: undefined },
+  );
+}
 
 /** A pane body of the shape features ship: its own chrome around its content. */
 function chromedBody(
@@ -39,7 +49,7 @@ describe("the pane layout's board — a loader-form registration", () => {
       owner: "repos",
       body: countingLoader(chromedBody("diff", "the diff body")).load,
     });
-    const context = syntheticPaneContextAt("diff");
+    const context = diffPaneContext();
     const { container } = render(<>{registry.descriptorFor("diff")?.render(context)}</>);
 
     // Before: the chrome is painted and the body is not.
@@ -63,10 +73,10 @@ describe("the pane layout's board — a loader-form registration", () => {
       body: countingLoader<PaneContext>(() => null).load,
     });
     const descriptor = registry.descriptorFor("diff");
-    const first = descriptor?.render(syntheticPaneContextAt("diff")) as React.ReactElement<{
+    const first = descriptor?.render(diffPaneContext()) as React.ReactElement<{
       readonly Body: unknown;
     }>;
-    const second = descriptor?.render(syntheticPaneContextAt("diff")) as React.ReactElement<{
+    const second = descriptor?.render(diffPaneContext()) as React.ReactElement<{
       readonly Body: unknown;
     }>;
     expect(second.props.Body).toBe(first.props.Body);
@@ -107,8 +117,11 @@ function diffBody(): React.ReactNode {
  * The router's mount shape, a component that resolves the descriptor as it renders, so a retry
  * does not remount a pre-built element.
  */
-function MountedDiffPane(props: { readonly registry: PaneRegistry }): React.ReactNode {
-  return props.registry.descriptorFor("diff")?.render(syntheticPaneContextAt("diff"));
+function MountedDiffPane(props: {
+  readonly registry: PaneRegistry;
+  readonly context: PaneContext;
+}): React.ReactNode {
+  return props.registry.descriptorFor("diff")?.render(props.context);
 }
 
 describe("a rejected body load — the error boundary's retry reaches it", () => {
@@ -136,7 +149,7 @@ describe("a rejected body load — the error boundary's retry reaches it", () =>
 
     const { container } = render(
       <ErrorBoundary regionName="The diff pane">
-        <MountedDiffPane registry={registry} />
+        <MountedDiffPane registry={registry} context={diffPaneContext()} />
       </ErrorBoundary>,
       { wrapper: LiveAnnouncerProvider },
     );

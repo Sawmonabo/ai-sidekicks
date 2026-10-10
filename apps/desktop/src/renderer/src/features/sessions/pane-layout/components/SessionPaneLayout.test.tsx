@@ -7,29 +7,16 @@ import { describe, expect, it } from "vitest";
 import { PANE_LAYOUT_RESTORED_PANE_CAP } from "../store.js";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
+import { layoutPaneContext } from "#test/helpers/pane-context.js";
 import { FIRST_RUN_SCENARIO } from "#fixtures/scenarios/first-run.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { PaneRegistry } from "#renderer/registries/panes/registry.js";
-import { type PaneContext } from "#renderer/registries/panes/context.js";
 import { SessionPaneLayout } from "./SessionPaneLayout.js";
 import { PaneLayoutStore } from "../store.js";
 import type { SessionPane } from "../state.js";
 
 function emptyLayout(): PaneLayoutStore {
   return new PaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });
-}
-
-/**
- * The pane context, cast. Every body below renders a marker and reads nothing from the
- * context, so constructing four stores to fill fields nothing reads would make the setup the
- * subject.
- */
-function paneContextFor(pane: SessionPane): PaneContext {
-  return {
-    kind: pane.kind,
-    entity: pane.entity,
-    paneId: pane.paneId,
-  } as unknown as PaneContext;
 }
 
 /** A registry whose bodies say which pane they are, and nothing else. */
@@ -55,23 +42,24 @@ function registryWith(
 }
 
 /**
- * The pane layout under the two providers the frame mounts above every view. `useAnnounce`
- * and `useClock` throw outside their provider by design, so a bare render would be a mount
- * shape production never has.
+ * The pane layout under the two providers the frame mounts above every view, each pane's context
+ * built from its address the way the session screen builds it, over the same bridge. `useAnnounce` and `useClock` throw
+ * outside their provider by design, so a bare render would be a mount shape production never has.
  */
-function PaneLayoutWindow(props: { readonly children: React.ReactNode }): React.JSX.Element {
-  return (
-    <FixtureBridgeProvider fixture={createFixtureBridge({ scenario: FIRST_RUN_SCENARIO })}>
-      <LiveAnnouncerProvider>{props.children}</LiveAnnouncerProvider>
-    </FixtureBridgeProvider>
-  );
-}
-
 function renderPaneLayout(layout: PaneLayoutStore, registry: PaneRegistry): HTMLElement {
+  const fixture = createFixtureBridge({ scenario: FIRST_RUN_SCENARIO });
   const { container } = render(
-    <PaneLayoutWindow>
-      <SessionPaneLayout layout={layout} registry={registry} paneContextFor={paneContextFor} />
-    </PaneLayoutWindow>,
+    <FixtureBridgeProvider fixture={fixture}>
+      <LiveAnnouncerProvider>
+        <SessionPaneLayout
+          layout={layout}
+          registry={registry}
+          paneContextFor={(pane) =>
+            layoutPaneContext(pane, { bridge: fixture.bridge, sessionStore: undefined })
+          }
+        />
+      </LiveAnnouncerProvider>
+    </FixtureBridgeProvider>,
   );
   const paneLayoutElement = container.querySelector(".meridian-pane-layout");
   if (!(paneLayoutElement instanceof HTMLElement)) {

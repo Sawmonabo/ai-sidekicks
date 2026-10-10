@@ -1,6 +1,7 @@
 // Puts an execution root on disk for one workspace ahead of any run: name the branch, then
 // Prepare. The form is collapsed and held by the mount's bind availability, since a prepare is a
-// bind; held, not withheld, so the sentence says what is holding it.
+// bind. The mount card states why once; the form draws no second copy, and its `Prepare` button
+// is described by the card's line instead.
 
 import "./PrepareExecutionRoot.css";
 
@@ -14,10 +15,7 @@ import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { codeWords } from "#renderer/lib/code-words.js";
 import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { BUTTON_CLASS_NAME } from "../../button-class.js";
-import {
-  controlHoldSentence,
-  type BindControlAvailability,
-} from "../../bind-control-availability.js";
+import { type BindControlAvailability } from "../../bind-control-availability.js";
 import { usePrepareController } from "./hooks/usePrepareController.js";
 import type { PrepareOperations, PrepareReading } from "./controller.js";
 import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
@@ -39,6 +37,8 @@ export interface PrepareExecutionRootProps {
   readonly executionMode: ExecutionMode;
   /** Whether the owning mount admits binds. Derived once by the mount card. */
   readonly availability: BindControlAvailability;
+  /** The id of the mount card's line saying why binds are held, which describes `Prepare`. */
+  readonly heldReasonLineId: string;
   /** Read the section again, so a prepared root appears in the roots list. */
   readonly onPrepared: () => void;
 }
@@ -61,16 +61,13 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
   );
   const isBranchNamed = branchName.trim().length > 0;
   const { onPrepared } = props;
-  const unavailableBecause = controlHoldSentence(props.availability);
-  // The held and branch lines are standing guidance, read with the controls they describe rather
-  // than spoken: the form is collapsed, so a spoken line would be heard for text nobody sees.
-  const heldLineId = useId();
+  const isHeld = !props.availability.available;
+  // The branch line is standing guidance, read with the controls it describes rather than
+  // spoken: the form is collapsed, so a spoken line would be heard for text nobody sees. The held
+  // reason is the mount card's own line, which `Prepare` cites.
   const branchLineId = useId();
   const prepareDescribedBy =
-    [
-      unavailableBecause === undefined ? undefined : heldLineId,
-      isBranchNamed ? undefined : branchLineId,
-    ]
+    [isHeld ? props.heldReasonLineId : undefined, isBranchNamed ? undefined : branchLineId]
       .filter((lineId) => lineId !== undefined)
       .join(" ") || undefined;
 
@@ -105,7 +102,7 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
           value={branchName}
           spellCheck={false}
           autoComplete="off"
-          disabled={unavailableBecause !== undefined}
+          disabled={isHeld}
           aria-describedby={isBranchNamed ? undefined : branchLineId}
           onChange={(event) => {
             nameBranch(event.target.value);
@@ -118,20 +115,12 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
       <button
         type="button"
         className={BUTTON_CLASS_NAME}
-        disabled={
-          unavailableBecause !== undefined || !isBranchNamed || reading.status === "sending"
-        }
+        disabled={isHeld || !isBranchNamed || reading.status === "sending"}
         aria-describedby={prepareDescribedBy}
         onClick={submit}
       >
         Prepare
       </button>
-      {unavailableBecause === undefined ? null : (
-        // The mount's own sentence; never a second wording.
-        <p className="meridian-prepare-root__held" id={heldLineId}>
-          {unavailableBecause}
-        </p>
-      )}
       {isBranchNamed ? null : (
         <p className="meridian-form__blocked" id={branchLineId}>
           {BRANCH_REQUIRED_COPY}

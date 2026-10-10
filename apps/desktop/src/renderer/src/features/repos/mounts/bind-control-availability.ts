@@ -34,8 +34,3 @@ export function readBindControlAvailability(mount: RepoMountReadResponse): BindC
   }
   return BIND_CONTROLS_AVAILABLE;
 }
-
-/** The sentence a workspace's binding controls are closed with, or `undefined` while open. */
-export function controlHoldSentence(availability: BindControlAvailability): string | undefined {
-  return availability.available ? undefined : availability.unavailableBecause;
-}

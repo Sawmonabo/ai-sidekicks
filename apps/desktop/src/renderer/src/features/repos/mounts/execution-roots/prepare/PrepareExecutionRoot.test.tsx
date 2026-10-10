@@ -35,6 +35,7 @@ function renderForm(): FormUnderTest {
       workspaceId="workspace-sidekicks"
       executionMode={mode}
       availability={CONTROLS_LIVE}
+      heldReasonLineId="mount-held-reason"
       onPrepared={() => undefined}
     />
   );
