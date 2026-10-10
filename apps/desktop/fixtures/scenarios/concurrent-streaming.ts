@@ -34,7 +34,8 @@
 //
 // Ids are UUIDs, as the strict layer requires. `session.created` carries no title, because
 // its `.strict()` payload rejects one. Assistant and tool payloads describe their body and
-// never carry it; the body is stored in `content_payload`.
+// never carry it; the body is stored beside the beat, as `content_payload` holds it, and a read
+// returns it with its row.
 //
 // Beside the session's own read it answers the MCP servers and Providers settings pages, whose
 // reads belong to the machine rather than the session.
@@ -53,6 +54,15 @@ import {
   newestBeatInstant,
 } from "../data/script-entries.js";
 import { defineScenario, type Scenario, type ScenarioBeat } from "../scenario.js";
+import {
+  BODY_BLOCKS,
+  CODE_BLOCKS,
+  COMMAND_OUTPUT,
+  EDIT_OUTPUT,
+  PROSE_BLOCKS,
+  blockAt,
+  bodyOf,
+} from "../data/transcript-bodies.js";
 import {
   type ScenarioAgent,
   composeOpeningEntry,
@@ -312,31 +322,31 @@ export function composeConcurrentStreamingLanes(
       atMs: at(1_050),
       kind: "assistant.thinking_update",
       contentType: "text/plain",
-      contentLength: 412,
+      body: blockAt(PROSE_BLOCKS, 0),
     }),
     lane.output(RUN_REVIEWER, {
       atMs: at(1_100),
       kind: "assistant.thinking_update",
       contentType: "text/plain",
-      contentLength: 268,
+      body: blockAt(PROSE_BLOCKS, 1),
     }),
     lane.output(RUN_SCOUT, {
       atMs: at(1_150),
       kind: "assistant.thinking_update",
       contentType: "text/plain",
-      contentLength: 194,
+      body: blockAt(PROSE_BLOCKS, 2),
     }),
     lane.output(RUN_ARCHITECT, {
       atMs: at(1_200),
       kind: "assistant.thinking_update",
       contentType: "text/plain",
-      contentLength: 522,
+      body: blockAt(PROSE_BLOCKS, 3),
     }),
     lane.output(RUN_IMPLEMENTER, {
       atMs: at(1_250),
       kind: "assistant.message",
       contentType: "text/markdown",
-      contentLength: 1_284,
+      body: bodyOf([blockAt(PROSE_BLOCKS, 4), blockAt(BODY_BLOCKS, 12)]),
     }),
     lane.tool(RUN_REVIEWER, {
       atMs: at(1_300),
@@ -348,13 +358,13 @@ export function composeConcurrentStreamingLanes(
       atMs: at(1_350),
       kind: "assistant.message",
       contentType: "text/markdown",
-      contentLength: 640,
+      body: bodyOf([blockAt(PROSE_BLOCKS, 5), blockAt(BODY_BLOCKS, 15)]),
     }),
     lane.output(RUN_ARCHITECT, {
       atMs: at(1_400),
       kind: "assistant.message",
       contentType: "text/markdown",
-      contentLength: 1_960,
+      body: bodyOf([blockAt(PROSE_BLOCKS, 6), blockAt(BODY_BLOCKS, 18)]),
     }),
     lane.tool(RUN_IMPLEMENTER, {
       atMs: at(1_450),
@@ -373,7 +383,7 @@ export function composeConcurrentStreamingLanes(
       toolName: "run_tests",
       toolCallId: "call-reviewer-1",
       durationMs: 180,
-      contentLength: 244,
+      body: COMMAND_OUTPUT,
     }),
 
     // The approval lands mid-stream: one lane blocks while the other three keep talking. Four
@@ -397,19 +407,19 @@ export function composeConcurrentStreamingLanes(
       atMs: at(1_650),
       kind: "assistant.message",
       contentType: "text/markdown",
-      contentLength: 806,
+      body: bodyOf([blockAt(PROSE_BLOCKS, 8), blockAt(BODY_BLOCKS, 24)]),
     }),
     lane.output(RUN_SCOUT, {
       atMs: at(1_700),
       kind: "assistant.thinking_update",
       contentType: "text/plain",
-      contentLength: 232,
+      body: blockAt(PROSE_BLOCKS, 9),
     }),
     lane.output(RUN_ARCHITECT, {
       atMs: at(1_750),
       kind: "assistant.thinking_update",
       contentType: "text/plain",
-      contentLength: 388,
+      body: blockAt(PROSE_BLOCKS, 10),
     }),
     costUpdateEntry(input.sessionId, {
       atMs: at(1_800),
@@ -439,7 +449,7 @@ export function composeConcurrentStreamingLanes(
       toolName: "edit_file",
       toolCallId: "call-implementer-1",
       durationMs: 140,
-      contentLength: 96,
+      body: EDIT_OUTPUT,
     }),
 
     // All four still going; the meter moves on two more lanes.
@@ -447,14 +457,14 @@ export function composeConcurrentStreamingLanes(
       atMs: at(1_950),
       kind: "assistant.message",
       contentType: "text/markdown",
-      contentLength: 1_412,
+      body: bodyOf([blockAt(PROSE_BLOCKS, 12), blockAt(BODY_BLOCKS, 36)]),
     }),
     costUpdateEntry(input.sessionId, { atMs: at(2_000), runId: RUN_SCOUT, costUsdMicros: 90_000 }),
     lane.output(RUN_REVIEWER, {
       atMs: at(2_050),
       kind: "assistant.thinking_update",
       contentType: "text/plain",
-      contentLength: 176,
+      body: blockAt(PROSE_BLOCKS, 13),
     }),
     lane.tool(RUN_SCOUT, {
       atMs: at(2_100),
@@ -466,7 +476,7 @@ export function composeConcurrentStreamingLanes(
       atMs: at(2_150),
       kind: "assistant.message",
       contentType: "text/markdown",
-      contentLength: 1_012,
+      body: bodyOf([blockAt(PROSE_BLOCKS, 14), blockAt(BODY_BLOCKS, 42)]),
     }),
     lane.tool(RUN_SCOUT, {
       atMs: at(2_200),
@@ -474,7 +484,7 @@ export function composeConcurrentStreamingLanes(
       toolName: "read_file",
       toolCallId: "call-scout-1",
       durationMs: 62,
-      contentLength: 2_048,
+      body: blockAt(CODE_BLOCKS, 15),
     }),
     // The park: a quota reading lands with the instant it resets, and the scout's run pauses.
     // Two beats because the reading is account-plane and carries no `runId`, while the pause is
@@ -508,13 +518,13 @@ export function composeConcurrentStreamingLanes(
       atMs: at(2_300),
       kind: "assistant.message",
       contentType: "text/markdown",
-      contentLength: 742,
+      body: bodyOf([blockAt(PROSE_BLOCKS, 16), blockAt(BODY_BLOCKS, 48)]),
     }),
     lane.output(RUN_ARCHITECT, {
       atMs: at(2_350),
       kind: "assistant.thinking_update",
       contentType: "text/plain",
-      contentLength: 296,
+      body: blockAt(PROSE_BLOCKS, 17),
     }),
 
     // The thread between two runs: the child-run link members ride the birth beat (`run.queued`)

@@ -26,8 +26,9 @@
 //     part of that story the log tells; the card belongs to the approvals view.
 //   - A cost or token reading. No meter is on the transcript frame, the run groups or the
 //     seams; `concurrent-streaming.ts` moves the meter.
-//   - A machine body. `assistant.*` and `tool.*` payloads describe their body and never carry
-//     it; the body is stored in `content_payload`.
+//
+// `assistant.*` and `tool.*` payloads describe their body and never carry it; the body is stored
+// beside the beat, as `content_payload` holds it, and a read returns it with its row.
 
 import {
   encodeEventCursor,
@@ -43,6 +44,15 @@ import {
   type ScriptEntry,
 } from "../data/script-entries.js";
 import { defineScenario, type Scenario, type ScenarioBeat } from "../scenario.js";
+import {
+  BODY_BLOCKS,
+  CODE_BLOCKS,
+  COMMAND_OUTPUT,
+  EDIT_OUTPUT,
+  PROSE_BLOCKS,
+  blockAt,
+  bodyOf,
+} from "../data/transcript-bodies.js";
 import {
   type ScenarioAgent,
   composeOpeningEntry,
@@ -183,13 +193,13 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
     atMs: 520,
     kind: "assistant.thinking_update",
     contentType: "text/plain",
-    contentLength: 412,
+    body: blockAt(PROSE_BLOCKS, 0),
   }),
   lane.output(RUN_IMPLEMENTER, {
     atMs: 640,
     kind: "assistant.message",
     contentType: "text/markdown",
-    contentLength: 1_284,
+    body: bodyOf([blockAt(PROSE_BLOCKS, 1), blockAt(BODY_BLOCKS, 3)]),
   }),
   lane.tool(RUN_IMPLEMENTER, {
     atMs: 760,
@@ -203,7 +213,7 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
     toolName: "edit_file",
     toolCallId: "call-implementer-1",
     durationMs: 140,
-    contentLength: 96,
+    body: EDIT_OUTPUT,
   }),
 
   // Lane two — the reviewer.
@@ -234,7 +244,7 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
     atMs: 1_180,
     kind: "assistant.message",
     contentType: "text/markdown",
-    contentLength: 806,
+    body: bodyOf([blockAt(PROSE_BLOCKS, 3), blockAt(BODY_BLOCKS, 9)]),
   }),
   lane.tool(RUN_REVIEWER, {
     atMs: 1_240,
@@ -267,7 +277,7 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
     toolName: "run_tests",
     toolCallId: REVIEWER_TOOL_CALL_ID,
     durationMs: 180,
-    contentLength: 244,
+    body: COMMAND_OUTPUT,
   }),
 
   // A wait for approval and its return: the run enters `waiting_for_approval` and
@@ -325,7 +335,7 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
     atMs: 2_540,
     kind: "assistant.thinking_update",
     contentType: "text/plain",
-    contentLength: 318,
+    body: blockAt(PROSE_BLOCKS, 5),
   }),
 
   // The child run is born here and nowhere else: this is the only beat naming both it and its
@@ -368,13 +378,13 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
     atMs: 2_700,
     kind: "assistant.message",
     contentType: "text/markdown",
-    contentLength: 1_012,
+    body: bodyOf([blockAt(PROSE_BLOCKS, 6), blockAt(BODY_BLOCKS, 18)]),
   }),
   lane.output(RUN_ARCHITECT_CHILD, {
     atMs: 2_740,
     kind: "assistant.thinking_update",
     contentType: "text/plain",
-    contentLength: 284,
+    body: blockAt(PROSE_BLOCKS, 7),
   }),
   lane.tool(RUN_IMPLEMENTER, {
     atMs: 2_820,
@@ -395,7 +405,7 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
     toolName: "read_file",
     toolCallId: "call-implementer-2",
     durationMs: 62,
-    contentLength: 2_048,
+    body: blockAt(CODE_BLOCKS, 8),
   }),
   lane.transition(RUN_ARCHITECT_CHILD, {
     atMs: 2_940,
@@ -415,7 +425,7 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
     atMs: 3_060,
     kind: "assistant.message",
     contentType: "text/markdown",
-    contentLength: 1_640,
+    body: bodyOf([blockAt(PROSE_BLOCKS, 9), blockAt(BODY_BLOCKS, 27)]),
   }),
 
   // The open question is the last beat: an agent blocked on a question needs an answer from a

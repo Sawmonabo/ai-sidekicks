@@ -37,10 +37,16 @@ function runEvent(sequence: number, runId: string, kind = "run.running"): Projec
 }
 
 describe("the log-derived row projection", () => {
-  it("produces rows the contract's own validator accepts", () => {
+  it("produces rows the contract's own validator accepts, a read event's body carried", () => {
+    // Read from history, so each event carries the body its row does; a streamed event has none.
     const projection = projectTranscriptRows([
-      event({ sequence: 1, kind: "session.created", payload: { sessionId: SESSION_ID } }),
-      runEvent(2, RUN_ONE),
+      event({
+        sequence: 1,
+        kind: "session.created",
+        payload: { sessionId: SESSION_ID },
+        content: { status: "unavailable", reason: "absent" },
+      }),
+      { ...runEvent(2, RUN_ONE), content: { status: "large", contentLength: 40_000 } },
     ]);
 
     expect(projection.rows).toHaveLength(2);

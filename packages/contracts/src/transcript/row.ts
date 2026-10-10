@@ -25,6 +25,7 @@ import { EventCursorSchema, SessionIdSchema, type SessionId } from "../session/i
 import { type EventCursor } from "../session/event-cursor.js";
 
 import { ChildRunSummarySchema, type ChildRunSummary } from "./child-run-summary.js";
+import { TranscriptRowContentSchema, type TranscriptRowContent } from "./content.js";
 import { TRANSCRIPT_EVENT_ROW_SUMMARY_MAX_LEN } from "./limits.js";
 import { TRANSCRIPT_RUN_ATTRIBUTION_PAYLOAD_KEYS, transcriptRunIdOf } from "./run-attribution.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
@@ -159,6 +160,12 @@ export interface TranscriptEventRowBase {
   childRunSummary?: ChildRunSummary | undefined;
   /** Present on a tool call's row that left out one or more patches. */
   omittedPatches?: TranscriptOmittedPatch[] | undefined;
+  /**
+   * The row's body. Every row a read returns carries it, which the schema requires; it is
+   * optional here only because a client projects stream changes into this type too, and a stream
+   * change carries no body, so a stand-in would claim one the row never said it lacked.
+   */
+  content?: TranscriptRowContent | undefined;
   payload: Record<string, unknown>;
 }
 
@@ -176,6 +183,7 @@ const TRANSCRIPT_EVENT_ROW_COMMON_SHAPE = {
   timestamp: isoDateTimeSchema,
   childRunSummary: ChildRunSummarySchema.optional(),
   omittedPatches: z.array(TranscriptOmittedPatchSchema).min(1).optional(),
+  content: TranscriptRowContentSchema,
 };
 
 // The open payload of the two non-boundary arms. It omits the `__proto__` pre-guard the event

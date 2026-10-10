@@ -1,5 +1,6 @@
 // The log-derived row projection: this window's event log read as `TranscriptEventRow`s. Rows carry
-// what the log supports (id, sequence, cursor, `type`, `actor` and `payload` verbatim), a run's
+// what the log supports (id, sequence, cursor, `type`, `actor`, `payload` verbatim and the body a
+// read brought with the event), a run's
 // turn position, epoch and superseded marker as the daemon stamped them, and `summary` as the wire
 // type restated, since no registered payload carries one. The stamps are the daemon's because the
 // window holds a share of the log: an ordinal counted here would change with what was loaded. The
@@ -16,6 +17,7 @@ import {
   type TranscriptRunStamp,
 } from "@ai-sidekicks/contracts/transcript/row";
 import type { EventCategory } from "@ai-sidekicks/contracts/event/envelope";
+import type { TranscriptRowContent } from "@ai-sidekicks/contracts/transcript/content";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
@@ -139,6 +141,7 @@ function commonRowFields(
   readonly summary: string;
   readonly timestamp: string;
   readonly actor?: string;
+  readonly content?: TranscriptRowContent;
 } {
   return {
     id: event.id,
@@ -151,6 +154,8 @@ function commonRowFields(
     summary: event.kind,
     timestamp: event.occurredAt,
     ...(event.actorId === undefined ? {} : { actor: event.actorId }),
+    // Absent on a streamed event, which carries no body, rather than a stand-in for one.
+    ...(event.content === undefined ? {} : { content: event.content }),
   };
 }
 

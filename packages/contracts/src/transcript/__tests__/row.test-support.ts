@@ -27,6 +27,7 @@ const rowCommon: Readonly<Record<string, unknown>> = {
   type: "run.started",
   summary: "Run started",
   timestamp: TIMESTAMP,
+  content: { status: "unavailable", reason: "absent" },
   payload: { detail: "opaque" },
 };
 

@@ -43,6 +43,7 @@ function expansionReply(
       position: index,
       epoch: 0,
       payload: {},
+      content: { status: "unavailable", reason: "absent" },
     })),
   };
 }

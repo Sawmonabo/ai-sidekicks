@@ -47,21 +47,25 @@ export function makeCreatedEvent(): StoredEvent {
   };
 }
 
-/** Inserts one event row as given through `writer`; rejects on a duplicate (session, sequence). */
+/**
+ * Inserts one event row as given through `writer`, with `contentPayload` as the body its
+ * `content_payload` column holds (none by default); rejects on a duplicate (session, sequence).
+ */
 export async function insertStoredEvent(
   writer: Pick<DatabaseWriter, "write">,
   event: StoredEvent,
+  contentPayload: string | null = null,
 ): Promise<void> {
   await writer.write([
     {
       sql: `INSERT INTO session_events (
               id, session_id, sequence, occurred_at, monotonic_ns,
               category, type, actor, payload,
-              correlation_id, causation_id, version
+              correlation_id, causation_id, version, content_payload
             ) VALUES (
               @id, @session_id, @sequence, @occurred_at, @monotonic_ns,
               @category, @type, @actor, @payload,
-              @correlation_id, @causation_id, @version
+              @correlation_id, @causation_id, @version, @content_payload
             )`,
       bindings: {
         id: event.id,
@@ -76,6 +80,7 @@ export async function insertStoredEvent(
         correlation_id: event.correlationId,
         causation_id: event.causationId,
         version: event.version,
+        content_payload: contentPayload,
       },
     },
   ]);

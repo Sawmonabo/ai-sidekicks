@@ -117,6 +117,7 @@ export function transcriptReadRowAt(index: number): TranscriptEventRow {
     summary: "user.message",
     timestamp: transcriptFixtureStampAt(index),
     payload: {},
+    content: { status: "unavailable", reason: "absent" },
   };
 }
 

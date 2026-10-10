@@ -1,6 +1,7 @@
 // `transcript.read` windows over a scratch log: the cursors a page is read from and the one it
 // names next, the default row limit, the byte cut kept at the cursor's end with one row as its
-// floor, and a session whose history is damaged before its first event read as an empty log.
+// floor, every row's body with it but a large one, and a session whose history is damaged before
+// its first event read as an empty log.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -10,7 +11,10 @@ import {
   START_OF_LOG_POSITION,
 } from "@ai-sidekicks/contracts/session/event-cursor";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
-import { TRANSCRIPT_READ_LIMIT_MAX } from "@ai-sidekicks/contracts/transcript/limits";
+import {
+  TRANSCRIPT_READ_LIMIT_MAX,
+  TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES,
+} from "@ai-sidekicks/contracts/transcript/limits";
 import type {
   TranscriptReadRequest,
   TranscriptReadResponse,
@@ -41,22 +45,25 @@ afterEach(async () => {
 
 // Appends one rename per name, at sequences 0, 1, 2 and on.
 async function seedRenames(names: readonly string[]): Promise<void> {
-  for (const [sequence, name] of names.entries()) {
-    await insertStoredEvent(scratch.writer, {
-      id: `event-${String(sequence)}`,
-      sessionId: SESSION_ID,
-      sequence,
-      occurredAt: "2026-10-09T12:00:00.000Z",
-      monotonicNs: BigInt(sequence),
-      category: "session_lifecycle",
-      type: "session.renamed",
-      actor: null,
-      payload: { sessionId: SESSION_ID, name, origin: "user" },
-      correlationId: null,
-      causationId: null,
-      version: "1.0",
-    });
-  }
+  // Queued together, so the writer commits them in its batches rather than one commit a row.
+  await Promise.all(
+    names.map((name, sequence) =>
+      insertStoredEvent(scratch.writer, {
+        id: `event-${String(sequence)}`,
+        sessionId: SESSION_ID,
+        sequence,
+        occurredAt: "2026-10-09T12:00:00.000Z",
+        monotonicNs: BigInt(sequence),
+        category: "session_lifecycle",
+        type: "session.renamed",
+        actor: null,
+        payload: { sessionId: SESSION_ID, name, origin: "user" },
+        correlationId: null,
+        causationId: null,
+        version: "1.0",
+      }),
+    ),
+  );
 }
 
 function windowReader(
@@ -171,5 +178,49 @@ describe("TranscriptWindowReader — one transcript.read window", () => {
     expect(() => windowReader().read({ sessionId: UNKNOWN_SESSION_ID })).toThrow(
       SessionNotFoundError,
     );
+  });
+
+  it("carries each row's body, and keeps a page of outputs over the frame whole as their sizes", async () => {
+    // Twenty outputs of 200,000 bytes each are four times a frame: carried whole, a page would hold
+    // four of them. Each comes back as its size instead, beside a reply that travels with its row
+    // and a row with no body.
+    const largeLength = 200_000;
+    const bodies: (string | null)[] = [
+      ...Array.from({ length: 20 }, () => "x".repeat(largeLength)),
+      "y".repeat(TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES - 2),
+      null,
+    ];
+    for (const [sequence, body] of bodies.entries()) {
+      await insertStoredEvent(
+        scratch.writer,
+        {
+          id: `event-${String(sequence)}`,
+          sessionId: SESSION_ID,
+          sequence,
+          occurredAt: "2026-10-09T12:00:00.000Z",
+          monotonicNs: BigInt(sequence),
+          category: "assistant_output",
+          type: "assistant.message",
+          actor: null,
+          payload: body === null ? {} : { contentType: "text/plain", contentLength: body.length },
+          correlationId: null,
+          causationId: null,
+          version: "1.0",
+        },
+        body,
+      );
+    }
+
+    const page = windowReader().read({ sessionId: SESSION_ID });
+
+    expect(page.entries).toHaveLength(bodies.length);
+    expect(page.hasMore).toBe(false);
+    expect(page.entries[0]?.content).toStrictEqual({ status: "large", contentLength: largeLength });
+    expect(page.entries[20]?.content).toStrictEqual({
+      status: "available",
+      body: bodies[20],
+      contentLength: TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES - 2,
+    });
+    expect(page.entries[21]?.content).toStrictEqual({ status: "unavailable", reason: "absent" });
   });
 });

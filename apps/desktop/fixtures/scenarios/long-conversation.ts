@@ -14,10 +14,11 @@
 // `sustained-streaming.ts` plays the same turns with their beats spaced out.
 //
 // Assistant and tool payloads describe their body and never carry it, so each beat carries its
-// body's media type and UTF-8 length. The lengths are those of the markdown and command output
-// such a history holds, composed from a fixed set of blocks (prose, headings, lists, quotes, code
-// in several languages, tables, math and diagrams), so the transcript's length-based height
-// estimates see a real conversation's spread.
+// body's media type and UTF-8 length, and the body is stored beside the beat for a read to return
+// with its row. The bodies are the markdown and command output such a history holds, composed from
+// a fixed set of blocks (prose, headings, lists, quotes, code in several languages, tables, math
+// and diagrams), so the transcript draws, and its length-based height estimates see, a real
+// conversation's spread.
 //
 // Determinism is the contract: every identifier, instant, block and length is a function of the
 // turn, agent and reply indices alone, so a reading is comparable across runs and machines.
@@ -45,6 +46,15 @@ import {
   USER_YOU,
   composeConcurrentStreamingLanes,
 } from "./concurrent-streaming.js";
+import {
+  BODY_BLOCKS,
+  CODE_BLOCKS,
+  COMMAND_OUTPUT,
+  EDIT_OUTPUT,
+  PROSE_BLOCKS,
+  blockAt,
+  bodyOf,
+} from "../data/transcript-bodies.js";
 
 // The session and its id stems. Ids are UUID v7 values whose leading bytes are a fixed instant.
 const SESSION_ID = "019b7c40-0280-75e5-8510-ada11a5a77a5";
@@ -78,157 +88,6 @@ export const LONG_CONVERSATION_HISTORY_END_MS: number =
 /** Scenario time the four lanes' own first tick lands at, after the history. */
 const LANES_OFFSET_MS = 1_000;
 
-// The blocks a reply's markdown is composed of. Each is the text a reply would carry; only its
-// length reaches a beat.
-
-const PROSE_BLOCKS: readonly string[] = [
-  "The session store keeps each lane moving while the reviewer reads the diff. Every run group " +
-    "stays open, and the transcript draws prose, code, tables, math and diagrams in one column.",
-  "I split the window cap from the reconcile pass, so a row that leaves the window keeps its " +
-    "measured height and the reader's row keeps its place when rows above it come and go. The " +
-    "tests cover the cut, the admission and the anchor across a fling.",
-  "The `ScrollController` writes every offset through one chokepoint, and each write names its " +
-    "caller, so a jump is traceable. **Nothing** else writes `scrollTop`.",
-];
-
-const CODE_BLOCKS: readonly string[] = [
-  [
-    "```typescript",
-    "export async function readWindow(store: SessionStore, cursor: string): Promise<Row[]> {",
-    "  const page = await store.read({ before: cursor, limit: 200 });",
-    "  const rows = page.entries.map((entry) => ({ id: entry.id, kind: entry.type }));",
-    "  if (rows.length === 0) {",
-    "    throw new RangeError(`no rows before ${cursor}`);",
-    "  }",
-    '  return rows.filter((row) => row.kind !== "session.heartbeat");',
-    "}",
-    "```",
-  ].join("\n"),
-  [
-    "```python",
-    "def percentile(samples: list[float], fraction: float) -> float:",
-    '    """Nearest-rank percentile of frame samples."""',
-    "    ordered = sorted(samples)",
-    "    rank = max(1, math.ceil(fraction * len(ordered)))",
-    "    return ordered[rank - 1]",
-    "```",
-  ].join("\n"),
-  [
-    "```rust",
-    "pub fn spawn_pty(command: &CommandSpec, size: PtySize) -> Result<PtyHandle, PtyError> {",
-    "    let pair = native_pty_system().openpty(size).map_err(PtyError::Open)?;",
-    "    let child = pair.slave.spawn_command(builder(command)).map_err(PtyError::Spawn)?;",
-    "    Ok(PtyHandle { master: pair.master, child })",
-    "}",
-    "```",
-  ].join("\n"),
-  [
-    "```bash",
-    "set -euo pipefail",
-    "pnpm --filter @ai-sidekicks/desktop build:fixtures",
-    'rg -n "dropped" results/*.log | sort | uniq -c | head -20',
-    "```",
-  ].join("\n"),
-  [
-    "```json",
-    "{",
-    '  "lanes": 4,',
-    '  "frames": { "p50": 4.1, "p95": 8.25 },',
-    '  "rows": [{ "index": 0, "kind": "prose" }, { "index": 1, "kind": "tool" }]',
-    "}",
-    "```",
-  ].join("\n"),
-  [
-    "```sql",
-    "SELECT e.session_id, count(*) AS rows, max(e.sequence) AS newest",
-    "FROM session_events AS e",
-    "WHERE e.session_id = $1 AND e.sequence > $2",
-    "GROUP BY e.session_id;",
-    "```",
-  ].join("\n"),
-  [
-    "```diff",
-    "-  readonly #rows: Row[] = [];",
-    "+  readonly #rows = new RowRing(800);",
-    "   public admit(row: Row): void {",
-    '+    this.#emitter.emit({ kind: "admitted", rowId: row.id });',
-    "   }",
-    "```",
-  ].join("\n"),
-];
-
-const TABLE_BLOCK = [
-  "| Lane | State | Rows | p95 (ms) |",
-  "| --- | --- | ---: | ---: |",
-  "| Architect | running | 412 | 8.25 |",
-  "| Implementer | waiting | 288 | 8.91 |",
-  "| Reviewer | running | 640 | 7.80 |",
-  "| Scout | done | 96 | 8.02 |",
-].join("\n");
-
-const MATH_BLOCK = [
-  "```math",
-  "\\Delta t_{frame} = \\frac{1}{f_{display}} = \\frac{1}{120\\,\\text{Hz}} \\approx 8.33\\,\\text{ms}",
-  "```",
-].join("\n");
-
-const DIAGRAM_BLOCKS: readonly string[] = [
-  [
-    "```mermaid",
-    "flowchart LR",
-    "  daemon[Daemon] -->|session.subscribe| main[Main]",
-    "  main --> renderer[Renderer]",
-    "  renderer --> viewport{Viewport}",
-    "  viewport -->|follow| tail[Tail]",
-    "  viewport -->|read| anchor[Reading anchor]",
-    "```",
-  ].join("\n"),
-  [
-    "```mermaid",
-    "sequenceDiagram",
-    "  participant P as Person",
-    "  participant R as Renderer",
-    "  participant D as Daemon",
-    "  P->>R: fling",
-    "  R->>D: transcript.read before cursor",
-    "  D-->>R: rows",
-    "  R-->>P: frame",
-    "```",
-  ].join("\n"),
-  [
-    "```mermaid",
-    "stateDiagram-v2",
-    "  [*] --> queued",
-    "  queued --> starting",
-    "  starting --> running",
-    "  running --> completed",
-    "  completed --> [*]",
-    "```",
-  ].join("\n"),
-];
-
-const LIST_BLOCK = [
-  "- Measure the rows the fling mounts, not the ones it skips.",
-  "- Keep the reader's row in place when the window admits a stretch.",
-  "  - Let go of rows past the far edge only once the gesture ends.",
-  "- Keep a settled row's measured height when it scrolls back.",
-].join("\n");
-
-const QUOTE_BLOCK =
-  "> A reader who scrolls back mid-turn should find every row where they left it, drawn as it " +
-  "was when it settled.";
-
-/** The blocks after a reply's opening prose, cycled through so every kind recurs. */
-const BODY_BLOCKS: readonly string[] = [
-  ...CODE_BLOCKS,
-  TABLE_BLOCK,
-  ...DIAGRAM_BLOCKS,
-  MATH_BLOCK,
-  LIST_BLOCK,
-  QUOTE_BLOCK,
-  ...PROSE_BLOCKS,
-];
-
 const USER_MESSAGES: readonly string[] = [
   "Split the session store and keep each lane's run moving.",
   "Read the scroll trace again and tell me which frames missed their deadline.",
@@ -237,32 +96,6 @@ const USER_MESSAGES: readonly string[] = [
 ];
 
 const TOOL_NAMES: readonly string[] = ["read_file", "edit_file", "run_command"];
-
-const COMMAND_OUTPUT = [
-  "\u001b[32m✓\u001b[0m transcript/viewport/window-cap.test.ts (24 tests) 112ms",
-  "\u001b[32m✓\u001b[0m transcript/reveal/text-rope.test.ts (18 tests) 64ms",
-  "\u001b[31m✗\u001b[0m transcript/feed/structure-acts.test.ts > folds a terminal group",
-  "  expected 3 rows to be 2",
-  "Test Files  1 failed | 2 passed (3)",
-].join("\n");
-
-const EDIT_OUTPUT = `Edited 2 files, 14 lines.\n${CODE_BLOCKS[6] ?? ""}`;
-
-const encoder = new TextEncoder();
-
-/** One body block from a cycle, by any whole index. */
-function blockAt(blocks: readonly string[], index: number): string {
-  const block = blocks[index % blocks.length];
-  if (block === undefined) {
-    throw new RangeError("a body block cycle is empty");
-  }
-  return block;
-}
-
-/** The UTF-8 length of a body composed of these blocks, as a producer stores it. */
-function bodyByteLength(blocks: readonly string[]): number {
-  return encoder.encode(blocks.join("\n\n")).byteLength;
-}
 
 /** One reply's markdown blocks: an optional heading, its prose, then two to five more blocks. */
 function replyBlocks(turnIndex: number, agentIndex: number, replyIndex: number): string[] {
@@ -369,7 +202,7 @@ export function composeConversationTurn(input: ConversationTurnInput): readonly 
         atMs: nextAtMs(),
         kind: "assistant.thinking_update",
         contentType: "text/plain",
-        contentLength: bodyByteLength([
+        body: bodyOf([
           blockAt(PROSE_BLOCKS, turnIndex + agentIndex),
           blockAt(PROSE_BLOCKS, turnIndex + agentIndex + 1),
         ]),
@@ -382,7 +215,7 @@ export function composeConversationTurn(input: ConversationTurnInput): readonly 
           atMs: nextAtMs(),
           kind: "assistant.message",
           contentType: "text/markdown",
-          contentLength: bodyByteLength(replyBlocks(turnIndex, agentIndex, replyIndex)),
+          body: bodyOf(replyBlocks(turnIndex, agentIndex, replyIndex)),
         }),
       );
       const toolCallCount = 2 + ((turnIndex + agentIndex + replyIndex) % 3);
@@ -400,7 +233,7 @@ export function composeConversationTurn(input: ConversationTurnInput): readonly 
             toolName,
             toolCallId,
             durationMs: 40 + ((seed * 37) % 900),
-            contentLength: bodyByteLength([toolOutput(toolName, seed)]),
+            body: toolOutput(toolName, seed),
           }),
         );
       }

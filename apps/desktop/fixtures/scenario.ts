@@ -20,6 +20,11 @@ import type {
 export interface ScenarioBeat {
   readonly atMs: number;
   readonly event: ProjectedSessionEvent;
+  /**
+   * The body the daemon stores beside the event, which a read returns with the event's row and
+   * the stream never carries.
+   */
+  readonly storedBody?: string;
 }
 
 /** A scripted session: the beats it plays and the replies it answers with. */

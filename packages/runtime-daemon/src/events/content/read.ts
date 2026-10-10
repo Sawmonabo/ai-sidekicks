@@ -15,10 +15,7 @@ import type {
   HydratedSessionEvent,
   HydratedSessionEventContent,
 } from "@ai-sidekicks/contracts/event/envelope";
-import {
-  CONTENT_LENGTH_PAYLOAD_KEY,
-  CONTENT_TRUNCATED_PAYLOAD_KEY,
-} from "@ai-sidekicks/contracts/event/declared-variants";
+import { storedBodyContentOf } from "@ai-sidekicks/contracts/transcript/content";
 
 /**
  * One stored row, as the caller read it. `contentPayload` is `unknown` because it arrives straight
@@ -31,14 +28,6 @@ export interface StoredEventContentRow {
   readonly contentPayload: unknown;
 }
 
-function readPayloadMember(envelope: EventEnvelope, key: string): unknown {
-  const payload: unknown = envelope.payload;
-  if (typeof payload !== "object" || payload === null) {
-    return undefined;
-  }
-  return (payload as Record<string, unknown>)[key];
-}
-
 /**
  * Pairs one stored row with its body. Throws when the column holds something other than text or
  * NULL, which only a write outside the append path can leave.
@@ -48,24 +37,12 @@ export function hydrateStoredEvent(row: StoredEventContentRow): HydratedSessionE
 }
 
 function readContent(row: StoredEventContentRow): HydratedSessionEventContent {
-  if (row.contentPayload == null) {
-    return { status: "unavailable", reason: "absent" };
-  }
-  if (typeof row.contentPayload !== "string") {
+  if (row.contentPayload != null && typeof row.contentPayload !== "string") {
     throw new Error(
       `session_events.content_payload for event ${row.envelope.id} holds a value of type ` +
         `${typeof row.contentPayload}, not text: the append path writes text or NULL, so the row ` +
         "was written outside it.",
     );
   }
-  // Echoed from the stored payload, not recomputed from the body: a recomputed length would
-  // equal the truncated length and hide that anything was cut.
-  const storedLength: unknown = readPayloadMember(row.envelope, CONTENT_LENGTH_PAYLOAD_KEY);
-  const storedTruncated: unknown = readPayloadMember(row.envelope, CONTENT_TRUNCATED_PAYLOAD_KEY);
-  return {
-    status: "available",
-    body: row.contentPayload,
-    ...(typeof storedLength === "number" ? { contentLength: storedLength } : {}),
-    ...(storedTruncated === true ? { contentTruncated: true as const } : {}),
-  };
+  return storedBodyContentOf(row.envelope.payload, row.contentPayload ?? undefined);
 }

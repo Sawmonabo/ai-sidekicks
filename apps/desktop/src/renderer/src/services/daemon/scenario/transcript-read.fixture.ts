@@ -3,7 +3,8 @@
 // cursor is a log position: `afterCursor` reads the rows after it forward, `beforeCursor` the rows
 // at or below it backward, nearest the cursor first chosen, and both the rows between them, read
 // forward. Rows run oldest to newest either way and carry the turn stamps
-// `turn-attribution.fixture.ts` folds. A page stops at the limit or the page byte budget, whichever
+// `turn-attribution.fixture.ts` folds and the body each beat stores, a large one as its size, as
+// the daemon reads `content_payload` beside the event. A page stops at the limit or the page byte budget, whichever
 // trips first; a cursor past the newest delivered row is refused, as the daemon refuses it.
 //
 // A scenario scripts its `session.read` record once, for the whole script, while the playback has
@@ -22,6 +23,10 @@ import {
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts/event/session";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 import { countEntriesFittingOneFrame } from "@ai-sidekicks/contracts/jsonrpc/page";
+import {
+  storedBodyContentOf,
+  transcriptRowContentOf,
+} from "@ai-sidekicks/contracts/transcript/content";
 import { TRANSCRIPT_READ_LIMIT_MAX } from "@ai-sidekicks/contracts/transcript/limits";
 import { TranscriptReadRequestSchema } from "@ai-sidekicks/contracts/transcript/operations";
 import {
@@ -47,6 +52,7 @@ import {
 export function readScenarioTranscript(engine: ScenarioEngine, request: unknown): unknown {
   const { afterCursor, beforeCursor, limit } = TranscriptReadRequestSchema.parse(request);
   const log = engine.deliveredEvents();
+  const storedBodies = storedBodiesOf(engine);
   const head = log.at(-1)?.sequence ?? START_OF_LOG_POSITION;
   const afterPosition =
     afterCursor === undefined ? START_OF_LOG_POSITION : positionWithin(afterCursor, head);
@@ -54,9 +60,9 @@ export function readScenarioTranscript(engine: ScenarioEngine, request: unknown)
     beforeCursor === undefined ? undefined : positionWithin(beforeCursor, head);
   const pageLimit = limit ?? TRANSCRIPT_READ_LIMIT_MAX;
   if (beforePosition !== undefined && afterCursor === undefined) {
-    return readBackward(log, beforePosition, pageLimit);
+    return readBackward(log, storedBodies, beforePosition, pageLimit);
   }
-  return readForward(log, afterPosition, beforePosition, pageLimit);
+  return readForward(log, storedBodies, afterPosition, beforePosition, pageLimit);
 }
 
 /**
@@ -87,9 +93,23 @@ export function withDeliveredLog(engine: ScenarioEngine, record: unknown): unkno
   };
 }
 
+/** The body each scripted event stores, by event id. */
+function storedBodiesOf(engine: ScenarioEngine): StoredBodies {
+  const storedBodies = new Map<string, string>();
+  for (const beat of engine.scenario.beats) {
+    if (beat.storedBody !== undefined) {
+      storedBodies.set(beat.event.id, beat.storedBody);
+    }
+  }
+  return storedBodies;
+}
+
+type StoredBodies = ReadonlyMap<string, string>;
+
 /** The oldest rows after `afterPosition`, up to `beforePosition` when one bounds the window. */
 function readForward(
   log: readonly ProjectedSessionEvent[],
+  storedBodies: StoredBodies,
   afterPosition: number,
   beforePosition: number | undefined,
   limit: number,
@@ -99,7 +119,7 @@ function readForward(
     .slice(0, limit + 1)
     .filter((event) => beforePosition === undefined || event.sequence <= beforePosition);
   const stretch = candidates.slice(0, limit);
-  const rows = rowsOf(log, stretch);
+  const rows = rowsOf(log, storedBodies, stretch);
   // Counted from the oldest end, so a budget cut keeps the rows nearest `afterCursor`.
   const pageCount = countEntriesFittingOneFrame(rows, limit);
   const newestKept = stretch[pageCount - 1];
@@ -114,12 +134,13 @@ function readForward(
 /** The newest rows at or below `beforePosition`, returned oldest first. */
 function readBackward(
   log: readonly ProjectedSessionEvent[],
+  storedBodies: StoredBodies,
   beforePosition: number,
   limit: number,
 ): unknown {
   const candidates = log.filter((event) => event.sequence <= beforePosition).slice(-(limit + 1));
   const stretch = candidates.slice(-limit);
-  const rows = rowsOf(log, stretch);
+  const rows = rowsOf(log, storedBodies, stretch);
   // Counted from the newest end, so a budget cut drops the rows farthest from the cursor.
   const pageCount = countEntriesFittingOneFrame([...rows].reverse(), limit);
   const entries = rows.slice(rows.length - pageCount);
@@ -162,16 +183,20 @@ function decodedPosition(cursor: EventCursor): number | undefined {
  */
 function rowsOf(
   log: readonly ProjectedSessionEvent[],
+  storedBodies: StoredBodies,
   stretch: readonly ProjectedSessionEvent[],
 ): readonly unknown[] {
   const attribution = new ScenarioTurnAttribution(() => log);
-  return stretch.map((event) => rowOf(event, attribution.attribute(event)));
+  return stretch.map((event) =>
+    rowOf(event, attribution.attribute(event), storedBodies.get(event.id)),
+  );
 }
 
 /** One delivered event as the daemon projects it into a row: general, run or rollback boundary. */
 function rowOf(
   event: ProjectedSessionEvent,
   attributed: ScenarioRunAttribution | undefined,
+  storedBody: string | undefined,
 ): Readonly<Record<string, unknown>> {
   const category = SESSION_EVENT_CATEGORY_BY_TYPE.get(event.kind as SessionEventType);
   const common = {
@@ -186,6 +211,7 @@ function rowOf(
     timestamp: event.occurredAt,
     ...(event.actorId === undefined ? {} : { actor: event.actorId }),
     payload: event.payload ?? {},
+    content: transcriptRowContentOf(storedBodyContentOf(event.payload, storedBody)),
   };
   if (attributed === undefined) {
     return { ...common, kind: "general" };

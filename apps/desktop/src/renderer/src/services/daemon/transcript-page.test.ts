@@ -25,6 +25,7 @@ function rowAt(sequence: number, overrides: Partial<TranscriptEventRow> = {}): T
     summary: `row ${String(sequence)}`,
     timestamp: "2026-01-01T11:00:00.000Z",
     payload: { note: sequence },
+    content: { status: "unavailable", reason: "absent" },
     ...overrides,
   } as TranscriptEventRow;
 }
@@ -32,7 +33,12 @@ function rowAt(sequence: number, overrides: Partial<TranscriptEventRow> = {}): T
 describe("readTranscriptPage — one window, read as the store's own log", () => {
   it("carries every member the log holds, renaming exactly two", () => {
     const response = TranscriptReadResponseSchema.parse({
-      entries: [rowAt(7, { actor: "user-a" })],
+      entries: [
+        rowAt(7, {
+          actor: "user-a",
+          content: { status: "available", body: "Done.", contentLength: 5 },
+        }),
+      ],
       hasMore: false,
     } satisfies TranscriptReadResponse);
 
@@ -48,6 +54,7 @@ describe("readTranscriptPage — one window, read as the store's own log", () =>
         occurredAt: "2026-01-01T11:00:00.000Z",
         actorId: "user-a",
         payload: { note: 7 },
+        content: { status: "available", body: "Done.", contentLength: 5 },
       },
     ]);
   });

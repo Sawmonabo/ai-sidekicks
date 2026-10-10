@@ -49,8 +49,22 @@ interface TranscriptEventRowBase {
   // row draws like one whose patch traveled, and `transcript.patchRead` fetches every left-out
   // patch of the call in one read.
   omittedPatches?: TranscriptOmittedPatch[];
+  // The row's body, read for the whole window in one statement beside its events. Required on every
+  // row a read returns; a client that projects stream changes into this type leaves it out, since a
+  // stream change carries no body.
+  content: TranscriptRowContent;
   payload: Record<string, unknown>;
 }
+// A body travels with its row up to TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES, 32 KiB of JSON; a larger
+// one comes back as its size and waits for `transcript.bodyRead`. A page of rows whose bodies all
+// sit at the ceiling still holds 29 of them under PAGE_MAX_BYTES (26 with every summary at its
+// limit), so one huge output never crowds its neighbors out of a page. The figure is above what
+// chat services hold a single message to (a few thousand characters recommended, 40,000 before a
+// message is cut, 65,535 bytes for a whole event), so an ordinary reply always travels whole.
+type TranscriptRowContent =
+  | { status: "available"; body: string; contentLength?: number; contentTruncated?: true }
+  | { status: "unavailable"; reason: HydratedContentUnavailableReason }
+  | { status: "large"; contentLength: number }; // the body's size in bytes, its bytes left out
 interface TranscriptOmittedPatch {
   path: string;
   size: number; // the patch's size in bytes
@@ -195,9 +209,9 @@ type ChildRunExpandResponse = {
   entries: TranscriptEventRow[]; // bounded by PAGE_MAX_BYTES as well as by the row cap
 } & ({ hasMore: true; nextCursor: EventCursor } | { hasMore: false; nextCursor?: EventCursor });
 
-// TranscriptBodyRead — transcript.bodyRead. A row's large body or whole output, read only when the
-// row's control is pressed (`Show full output`, with its size), and the whole a copy from the row
-// lifts.
+// TranscriptBodyRead — transcript.bodyRead. A row's large body (the `large` arm of its `content`) or
+// whole output, read only when the row's control is pressed (`Show full output`, with its size),
+// and the whole a copy from the row lifts.
 // `rowId` is the row's `id`, the id of the event it renders. A session id the daemon does not hold
 // is refused with `session.not_found`; a row id the session does not hold is refused on the `rowId`
 // path, so it never reads like a row that carries no body.

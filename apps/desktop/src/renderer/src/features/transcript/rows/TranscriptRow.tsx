@@ -1,9 +1,10 @@
 // The transcript's row renderer: one row through the card its kind names. It holds no state: a
 // call's fold press goes to the feed's fold, because the virtualizer unmounts rows scrolled out of
 // range, and every press that changes the row's height asks the feed to keep the pressed control
-// where it stands. A `TranscriptEventRow` carries no body, so machine rows render the empty state
-// `MessageContent` and `ToolOutput` draw for an unread body. A type the kind table does not name
-// has no card, and `drawsTranscriptRowBody` says so before the feed lists it.
+// where it stands. A row read from history carries its body, which the cards draw; a streamed row
+// and a large body carry none, and the cards draw the state `MessageContent` and `ToolOutput` give
+// an unread body. A type the kind table does not name has no card, and `drawsTranscriptRowBody`
+// says so before the feed lists it.
 
 import { useCallback, useState } from "react";
 
@@ -66,6 +67,7 @@ export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element {
       return (
         <ToolRow
           row={props.row}
+          content={props.row.content}
           agentHue={props.agentHue}
           isSuperseded={props.isSuperseded}
           density={props.density}
@@ -81,6 +83,7 @@ export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element {
       return (
         <MessageRow
           row={props.row}
+          content={props.row.content}
           rowKind={rowKind}
           agentHue={props.agentHue}
           isSuperseded={props.isSuperseded}

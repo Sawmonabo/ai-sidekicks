@@ -1,7 +1,7 @@
-// The one body a machine-authored row draws, in its three states: not asked for, unavailable,
-// available. A truncated body renders its prefix and says so; an unreadable one keeps the turn at
-// its position with the unavailable marker, because an empty body or a dropped row would misreport
-// the turn. `MessageContent` and `ToolOutput` differ only in how a body's shape is read. A live
+// The one body a machine-authored row draws, in its three states: not read (a streamed row, or a
+// large body that waits for its control), unavailable, available. A truncated body renders its
+// prefix and says so; an unreadable one keeps the turn at its position with the unavailable
+// marker, because an empty body or a dropped row would misreport the turn. `MessageContent` and `ToolOutput` differ only in how a body's shape is read. A live
 // body is read through its lane's handle and a stored one through a handle over its string, so
 // neither is copied whole on a frame.
 
@@ -9,7 +9,7 @@ import "./MachineBody.css";
 
 import { useMemo } from "react";
 
-import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event/envelope";
+import type { TranscriptRowContent } from "@ai-sidekicks/contracts/transcript/content";
 
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { publishedTextOf, type PublishedText } from "../../reveal/published-text.js";
@@ -23,11 +23,8 @@ import { UnavailableBody } from "./UnavailableBody.js";
 
 /** What a machine-authored body is drawn from, and how its shape is read. */
 export interface MachineBodyProps {
-  /**
-   * The hydrated body as the read projection reports it, or `undefined` when it has not
-   * been asked for.
-   */
-  readonly content: HydratedSessionEventContent | undefined;
+  /** The body the row carries, or `undefined` when the row was streamed without one. */
+  readonly content: TranscriptRowContent | undefined;
   /**
    * Text the reveal engine is publishing while the body streams, as the lane's handle. It takes
    * precedence over `content`, because a live body has no stored copy yet and nothing has been

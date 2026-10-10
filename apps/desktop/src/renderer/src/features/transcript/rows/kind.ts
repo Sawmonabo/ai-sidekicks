@@ -4,7 +4,7 @@
 // Inline cards (diff, attachment, artifact) are not row kinds; `MessageRow` renders them.
 
 import { CONTENT_LENGTH_PAYLOAD_KEY } from "@ai-sidekicks/contracts/event/declared-variants";
-import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event/envelope";
+import type { TranscriptRowContent } from "@ai-sidekicks/contracts/transcript/content";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { projectedPayload, readWireCount } from "#renderer/store/session/events/wire-payload.js";
@@ -130,7 +130,7 @@ export type ToolResultState = (typeof TOOL_RESULT_STATES)[number];
  */
 export function toolResultState(
   eventType: string,
-  content: HydratedSessionEventContent | undefined,
+  content: TranscriptRowContent | undefined,
 ): ToolResultState {
   if (eventType === "tool.error") {
     return "error";
@@ -144,5 +144,5 @@ export function toolResultState(
   if (content.status === "unavailable") {
     return "body-unavailable";
   }
-  return content.contentTruncated === true ? "truncated" : "ok";
+  return content.status === "available" && content.contentTruncated === true ? "truncated" : "ok";
 }

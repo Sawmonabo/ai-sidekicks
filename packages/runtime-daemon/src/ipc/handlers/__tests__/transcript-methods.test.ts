@@ -55,6 +55,7 @@ const transcriptEventRow: TranscriptEventRow = {
   summary: "session created",
   timestamp: "2026-09-01T00:00:00.000Z",
   payload: {},
+  content: { status: "unavailable", reason: "absent" },
 };
 
 describe("transcript replies are scoped to the request", () => {
