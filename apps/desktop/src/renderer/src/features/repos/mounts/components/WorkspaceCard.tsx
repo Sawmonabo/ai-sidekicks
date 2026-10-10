@@ -40,8 +40,8 @@ export interface WorkspaceCardProps {
   /** Read the section again, because a prepare put a root on disk the list has not seen. */
   readonly onRequestRead: () => void;
   /**
-   * The owning mount's bind availability, handed down rather than re-read. The withheld arm carries
-   * the sentence the mount card already renders, so this row composes no second wording.
+   * The owning mount's bind availability, handed down rather than re-read. It decides whether the
+   * row's root preparation is held; the mount card draws the reason.
    */
   readonly bindControls: BindControlAvailability;
   /** The id of the mount card's line saying why binds are held, which the prepare form cites. */

@@ -77,15 +77,27 @@ describe("MountCard — an unreachable mount", () => {
       throw new Error("an unreachable mount offered its bind controls");
     }
     const reason = availability.unavailableBecause;
-    const { container } = renderCard({ mount });
-    // The form sits in a collapsed disclosure, so its control is reached with `hidden`.
-    const prepare = within(container).getByRole("button", { name: "Prepare", hidden: true });
-    const describingLines = (prepare.getAttribute("aria-describedby") ?? "")
-      .split(" ")
-      .map((lineId) => container.ownerDocument.getElementById(lineId));
+    const { container } = renderCard({
+      mount,
+      workspaces: [
+        workspaceRow({ id: "workspace-first" }),
+        workspaceRow({ id: "workspace-second" }),
+      ],
+    });
+    // The forms sit in collapsed disclosures, so their controls are reached with `hidden`.
+    const describingLinesPerPrepare = within(container)
+      .getAllByRole("button", { name: "Prepare", hidden: true })
+      .map((prepare) =>
+        (prepare.getAttribute("aria-describedby") ?? "")
+          .split(" ")
+          .map((lineId) => container.ownerDocument.getElementById(lineId)),
+      );
 
     const drawnReasons = within(container).getAllByText(reason, { ignore: OUTSIDE_LIVE_REGIONS });
     expect(drawnReasons).toHaveLength(1);
-    expect(describingLines).toContain(drawnReasons[0]);
+    // Compared by identity: each control must cite the very line the card draws.
+    expect(
+      describingLinesPerPrepare.map((lines) => lines.some((line) => line === drawnReasons[0])),
+    ).toStrictEqual([true, true]);
   });
 });

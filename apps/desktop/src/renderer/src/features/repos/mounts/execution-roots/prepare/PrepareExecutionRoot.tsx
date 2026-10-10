@@ -15,10 +15,7 @@ import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { codeWords } from "#renderer/lib/code-words.js";
 import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { BUTTON_CLASS_NAME } from "../../button-class.js";
-import {
-  controlHoldSentence,
-  type BindControlAvailability,
-} from "../../bind-control-availability.js";
+import { type BindControlAvailability } from "../../bind-control-availability.js";
 import { usePrepareController } from "./hooks/usePrepareController.js";
 import type { PrepareOperations, PrepareReading } from "./controller.js";
 import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.js";
@@ -64,16 +61,13 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
   );
   const isBranchNamed = branchName.trim().length > 0;
   const { onPrepared } = props;
-  const unavailableBecause = controlHoldSentence(props.availability);
-  // The held reason and the branch line are standing guidance, read with the controls they
-  // describe rather than spoken: the form is collapsed, so a spoken line would be heard for text
-  // nobody sees.
+  const isHeld = !props.availability.available;
+  // The branch line is standing guidance, read with the controls it describes rather than
+  // spoken: the form is collapsed, so a spoken line would be heard for text nobody sees. The held
+  // reason is the mount card's own line, which `Prepare` cites.
   const branchLineId = useId();
   const prepareDescribedBy =
-    [
-      unavailableBecause === undefined ? undefined : props.heldReasonLineId,
-      isBranchNamed ? undefined : branchLineId,
-    ]
+    [isHeld ? props.heldReasonLineId : undefined, isBranchNamed ? undefined : branchLineId]
       .filter((lineId) => lineId !== undefined)
       .join(" ") || undefined;
 
@@ -108,7 +102,7 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
           value={branchName}
           spellCheck={false}
           autoComplete="off"
-          disabled={unavailableBecause !== undefined}
+          disabled={isHeld}
           aria-describedby={isBranchNamed ? undefined : branchLineId}
           onChange={(event) => {
             nameBranch(event.target.value);
@@ -121,9 +115,7 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
       <button
         type="button"
         className={BUTTON_CLASS_NAME}
-        disabled={
-          unavailableBecause !== undefined || !isBranchNamed || reading.status === "sending"
-        }
+        disabled={isHeld || !isBranchNamed || reading.status === "sending"}
         aria-describedby={prepareDescribedBy}
         onClick={submit}
       >

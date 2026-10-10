@@ -42,8 +42,8 @@ function registryWith(
 }
 
 /**
- * The pane layout under the two providers the frame mounts above every view, each pane given the
- * context the session screen gives it over the same bridge. `useAnnounce` and `useClock` throw
+ * The pane layout under the two providers the frame mounts above every view, each pane's context
+ * built from its address the way the session screen builds it, over the same bridge. `useAnnounce` and `useClock` throw
  * outside their provider by design, so a bare render would be a mount shape production never has.
  */
 function renderPaneLayout(layout: PaneLayoutStore, registry: PaneRegistry): HTMLElement {
