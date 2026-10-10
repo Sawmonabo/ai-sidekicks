@@ -382,34 +382,40 @@ describe("the standing events stand whatever rows the window holds", () => {
 });
 
 describe("the hue wheel follows the order agents joined", () => {
-  it("draws the same hues for a session opened at its tail and at its head", () => {
-    const actedBy = (event: ProjectedSessionEvent, actorId: string): ProjectedSessionEvent => ({
-      ...event,
-      actorId,
-    });
-    // The person opens the session with the lead, then brings in a helper from its definition.
-    const joins = [
-      actedBy(
-        eventOfKind("session-1", "session.created", 1, {
-          sessionId: "session-1",
-          mainAgent: { agentId: "agent-lead" },
-        }),
-        "person-1",
-      ),
-      actedBy(
-        eventOfKind("session-1", "run.queued", 2, {
-          runId: "run-helper",
-          resolvedAgent: { agentId: "agent-helper" },
-        }),
-        "person-1",
-      ),
-    ];
+  const actedBy = (event: ProjectedSessionEvent, actorId: string): ProjectedSessionEvent => ({
+    ...event,
+    actorId,
+  });
+  /** A helper's arrival from a definition, choosing `accentHue` or none. */
+  const helperJoins = (
+    sequence: number,
+    agentId: string,
+    accentHue: string | null,
+  ): ProjectedSessionEvent =>
+    actedBy(
+      eventOfKind("session-1", "run.queued", sequence, {
+        runId: `run-${agentId}`,
+        resolvedAgent: { agentId, resolvedConfiguration: { accentHue } },
+      }),
+      "person-1",
+    );
+  // The person opens the session with the lead, then brings in a helper from its definition.
+  const opens = actedBy(
+    eventOfKind("session-1", "session.created", 1, {
+      sessionId: "session-1",
+      mainAgent: { agentId: "agent-lead" },
+    }),
+    "person-1",
+  );
+
+  it("draws the same hues for a session opened at its tail and at its head, none for the person", () => {
+    const joins = [opens, helperJoins(2, "agent-helper", null)];
     const atHead = new SessionStore({ sessionId: "session-1" });
     atHead.initialize({
       cursor: 4,
       entities: [],
       standingEvents: joins,
-      transcript: [...joins, actedBy(eventAt(3), "agent-lead"), actedBy(eventAt(4), "agent-lead")],
+      transcript: [...joins, actedBy(eventAt(3), "agent-lead"), actedBy(eventAt(4), "person-1")],
     });
     // The tail holds only the helper's rows, the lead's lying above the window.
     const atTail = new SessionStore({ sessionId: "session-1" });
@@ -417,15 +423,37 @@ describe("the hue wheel follows the order agents joined", () => {
       cursor: 91,
       entities: [],
       standingEvents: joins,
-      transcript: [actedBy(eventAt(90), "agent-helper"), actedBy(eventAt(91), "agent-helper")],
+      transcript: [actedBy(eventAt(90), "person-1"), actedBy(eventAt(91), "agent-helper")],
     });
 
     for (const store of [atHead, atTail]) {
       const stepOf = (actorId: string): number | undefined =>
         store.hueAllocator.assignmentFor(actorId)?.step;
       expect([stepOf("person-1"), stepOf("agent-lead"), stepOf("agent-helper")]).toStrictEqual([
-        0, 1, 2,
+        undefined,
+        0,
+        1,
       ]);
     }
+  });
+
+  it("puts an agent whose definition chose a hue on that step, and the next one past it", () => {
+    const store = new SessionStore({ sessionId: "session-1" });
+    const joins = [
+      opens,
+      helperJoins(2, "agent-chosen", "hue-07"),
+      helperJoins(3, "agent-unchosen", null),
+    ];
+    store.initialize({ cursor: 3, entities: [], standingEvents: joins, transcript: joins });
+    // A stream's helper choosing the lead's step wears it too, and says it shares it.
+    store.applyBatch([helperJoins(4, "agent-sharing", "hue-00")]);
+
+    const assignmentOf = (agentId: string) => store.hueAllocator.assignmentFor(agentId);
+    expect(assignmentOf("agent-chosen")?.step).toBe(7);
+    expect(assignmentOf("agent-unchosen")?.step).toBe(1);
+    expect(assignmentOf("agent-sharing")).toMatchObject({
+      step: 0,
+      sharesStepWithEarlierAgent: true,
+    });
   });
 });

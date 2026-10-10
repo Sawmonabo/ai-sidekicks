@@ -260,7 +260,10 @@ export interface AgentDefinition {
   description: string;
   /** A glyph key from the app's icon set; null is the generic agent mark. */
   icon: string | null;
-  /** One step of the app's twelve-step hue wheel; null is no chosen hue. */
+  /**
+   * One step of the app's twelve-step hue wheel, by its token name, `hue-00` through `hue-11`;
+   * null is no chosen hue.
+   */
   accentHue: string | null;
   bindings: AgentDefinitionBindings;
   instructions: string;
@@ -418,6 +421,8 @@ export const AgentDefinitionListEntrySchema: z.ZodType<AgentDefinitionListEntry>
 export interface AgentResolvedConfiguration {
   resolvedFromDefinitionId: AgentDefinitionId;
   resolvedBinding: AgentProviderBinding;
+  /** The definition's chosen hue, which the agent wears for the session's life. */
+  accentHue: string | null;
   toolAllowlist: string[] | null;
   instructions: string;
   goal: string | null;
@@ -427,6 +432,7 @@ export const AgentResolvedConfigurationSchema: z.ZodType<AgentResolvedConfigurat
   .object({
     resolvedFromDefinitionId: AgentDefinitionIdSchema,
     resolvedBinding: AgentProviderBindingSchema,
+    accentHue: agentDefinitionFields.accentHue,
     toolAllowlist: agentDefinitionFields.toolAllowlist,
     instructions: agentDefinitionFields.instructions,
     goal: agentDefinitionFields.goal,

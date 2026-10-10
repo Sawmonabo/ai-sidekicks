@@ -47,7 +47,8 @@ interface AgentDefinition {
   // A glyph key from the console's own icon set. Icon and color are separate fields rather than one theme,
   // so a person can change either without the other. null = the generic agent mark.
   icon: string | null;
-  // One step of the console's twelve-step hue wheel. null = no chosen hue, and the card draws the generic mark's own.
+  // One step of the console's twelve-step hue wheel, by its token name, `hue-00` through `hue-11`. null = no
+  // chosen hue, and the card draws the generic mark's own.
   accentHue: string | null;
   // The provider bindings. `overrides` is present on a stored row and may be empty, so a reader never has
   // to tell an empty set from a missing one.
@@ -96,11 +97,13 @@ type AgentHooks = Record<
 // the registry, which is the live-view read I-024-2 forbids. The goal is echoed as the definition set it;
 // the agent also starts with it as its own goal command, which `session.goal_updated` records. Where the
 // definition is bound plural the echo carries the RESOLVED BINDING in place of the folded axes, so a
-// reader is told which side of the per-field merge won rather than which axes existed to merge.
+// reader is told which side of the per-field merge won rather than which axes existed to merge. The hue is
+// echoed so every client tints the agent with the step its definition chose, read off the event that
+// brought the agent in rather than off a registry row that may since have moved.
 type AgentResolvedConfiguration = {
   resolvedFromDefinitionId: AgentDefinitionId;
   resolvedBinding: AgentProviderBinding;
-} & Pick<AgentDefinition, "toolAllowlist" | "instructions" | "goal">;
+} & Pick<AgentDefinition, "accentHue" | "toolAllowlist" | "instructions" | "goal">;
 
 // agent.definitionList — node-local and unfiltered: every definition from the four origins — ours
 // (`.ai-sidekicks/agents/`, global or in a project), Claude Code's own agent files, Codex's own, and a

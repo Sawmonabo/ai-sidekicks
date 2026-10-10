@@ -1,9 +1,10 @@
 // The agent hue wheel: which of the twelve steps each agent is drawn in. Hue answers "who"
 // (leading edges, diff-gutter marks) and never "how urgent".
 //
-// An agent takes the next unused step in the order the session log admitted it, so the same log
-// gives the same wheel on every rebuild. Past twelve agents the allocator takes the step with the
-// fewest occupants, walking clockwise from the first, and the assignment says it shares its step.
+// An agent whose definition chose a step wears it. Any other agent takes the next unused step in
+// the order the session log admitted it, so the same log gives the same wheel on every rebuild.
+// Past twelve agents the allocator takes the step with the fewest occupants, walking clockwise
+// from the first, and the assignment says it shares its step.
 // Departures free nothing: reusing a step would rewrite the meaning of every row its first agent
 // already wrote.
 
@@ -34,16 +35,16 @@ export class AgentHueAllocator {
   readonly #occupantCountByStep: number[] = new Array<number>(HUE_WHEEL_STEPS).fill(0);
 
   /**
-   * Admit an identity in log order and return its assignment. Idempotent, so a re-join keeps its
-   * color. The store keys the wheel on each event's `actorId`.
+   * Admit an agent in log order and return its assignment: `chosenStep` where its definition
+   * chose one, else the least worn step. Idempotent, so a re-join keeps its color.
    */
-  public admit(agentId: string): AgentHueAssignment {
+  public admit(agentId: string, chosenStep?: number): AgentHueAssignment {
     const existing = this.#assignmentsByAgentId.get(agentId);
     if (existing !== undefined) {
       return existing;
     }
 
-    const step = this.#leastOccupiedStep();
+    const step = chosenStep ?? this.#leastOccupiedStep();
     const occupantCount = this.#occupantCountByStep[step] ?? 0;
 
     const assignment: AgentHueAssignment = {

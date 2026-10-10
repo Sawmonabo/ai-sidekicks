@@ -68,8 +68,8 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
   });
   const find = findAndJump.find;
 
-  // The store's wheel, which the session header also reads, so one person wears one color
-  // everywhere. `assignmentFor` never allocates: an actor the wheel has never admitted gets
+  // The store's wheel, so one agent wears one color on every row. `assignmentFor` never
+  // allocates: an actor the wheel never admitted, the person or a device among them, gets
   // `undefined` and the row renders unattributed.
   const hueForAgent = useCallback(
     (actorId: string) => props.sessionStore.hueAllocator.assignmentFor(actorId),

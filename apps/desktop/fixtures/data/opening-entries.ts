@@ -109,6 +109,7 @@ export function composeResolvedAgent(input: ResolvedAgentInput): AgentListEntry 
     resolvedConfiguration: {
       resolvedFromDefinitionId: agent.definitionId,
       resolvedBinding: binding,
+      accentHue: null,
       toolAllowlist: null,
       instructions: "",
       goal: null,

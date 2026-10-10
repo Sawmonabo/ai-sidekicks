@@ -18,6 +18,7 @@ export const RESOLVED_AGENT: Readonly<Record<string, unknown>> = {
   resolvedConfiguration: {
     resolvedFromDefinitionId: "11111111-1111-4111-8111-111111111111",
     resolvedBinding: BINDING,
+    accentHue: null,
     toolAllowlist: null,
     instructions: "Review the change.",
     goal: null,

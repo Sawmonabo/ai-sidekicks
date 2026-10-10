@@ -60,7 +60,7 @@ import {
 } from "./waiting-on-person/register.js";
 import { PreInitializationBuffer } from "./pre-initialization-buffer.js";
 import { mergeStandingEvents } from "./standing-events.js";
-import { admitJoinsToHueWheel, admitToHueWheel } from "./hue-admission.js";
+import { admitToHueWheel } from "./hue-admission.js";
 import { FailedDependentReads } from "./failed-dependent-reads.js";
 import { RememberedRowHeights } from "./remembered-row-heights.js";
 import { toReadableStore, type ReadableStore } from "../readable-store.js";
@@ -427,7 +427,7 @@ export class SessionStore {
    * The state a read establishes over `current`, with the reconciler re-based onto it. The read's
    * rows project the entities they imply, and the read's records then stand over them, since they
    * are the newest. The hue wheel takes the agents in the order they joined, from the read's
-   * standing events, before the rows; the rows advance it and the register as a page's do; the
+   * standing events, before any its rows bring; the rows advance the register as a page's do; the
    * register keeps the older asks this read did not carry, and the seed moves only the window-head
    * fact. The standing events take the read's own and its rows over the ones held. A base with no
    * sequence seeds below every row the stream delivers after it.
@@ -438,8 +438,7 @@ export class SessionStore {
       baseState.cursor,
       transcript.map((event) => event.sequence),
     );
-    admitJoinsToHueWheel(this.#hueAllocator, baseState.standingEvents ?? []);
-    for (const event of transcript) {
+    for (const event of [...(baseState.standingEvents ?? []), ...transcript]) {
       admitToHueWheel(this.#hueAllocator, event);
     }
     this.#waitingOnPersonRegister.seedFrom({

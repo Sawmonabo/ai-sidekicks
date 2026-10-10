@@ -95,6 +95,16 @@ export function formatHueWheelTokenName(step: number): string {
   return `hue-${String(step).padStart(2, "0")}`;
 }
 
+/** The wheel step a token name names, or `undefined` for a name that is no step of the wheel. */
+export function readHueWheelStep(tokenName: string): number | undefined {
+  for (let step = 0; step < HUE_WHEEL_STEPS; step += 1) {
+    if (formatHueWheelTokenName(step) === tokenName) {
+      return step;
+    }
+  }
+  return undefined;
+}
+
 /**
  * The twelve agent hues, resolved and scheme-independent. Index is the wheel step;
  * `AgentHueAllocator` alone decides which step an agent gets.
