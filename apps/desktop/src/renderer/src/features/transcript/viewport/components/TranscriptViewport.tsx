@@ -1,14 +1,15 @@
-// The transcript viewport: the virtualized feed, the reading anchor's pill, and the row box every
-// row body is mounted in. It only turns `features/transcript/viewport/controller.ts`'s snapshot
-// into elements; the caller owns the one binding, so the find walk and the rows read the same
-// virtualizer. Markup invariants: one scroll container (a nested scroller would rival the
-// chokepoint's `scrollTop`); the sizer and each row's transform are written by the virtualizer
-// under `directDomUpdates`, so no style here sets them; `role="feed"` is declared on the scroll
-// container and its article children by `VirtualRow`, so the relationship does not rest on whatever
-// a registered row renderer draws; the sizer is `role="presentation"`. Attention is steered by
-// luminance, never motion: the only transition is the pill's hover color. The viewport's one
-// selection tracker lives with the scroll container and reaches the rows through context, beside
-// what a long markdown body reads to draw only the blocks near the reader.
+// The transcript viewport: the virtualized feed with the history line above its first row, the
+// reading anchor's pill, and the row box every row body is mounted in. It only turns
+// `features/transcript/viewport/controller.ts`'s snapshot into elements; the caller owns the one
+// binding, so the find walk and the rows read the same virtualizer. Markup invariants: one scroll
+// container (a nested scroller would rival the chokepoint's `scrollTop`); the sizer and each
+// row's transform are written by the virtualizer under `directDomUpdates`, so no style here sets
+// them; `role="feed"` is declared on the sizer and its article children by `VirtualRow`, so the
+// relationship does not rest on whatever a registered row renderer draws, and the history line
+// above the sizer is no entry of it. Attention is steered by luminance, never motion: the only
+// transition is the pill's hover color. The viewport's one selection tracker lives with the
+// scroll container and reaches the rows through context, beside what a long markdown body reads
+// to draw only the blocks near the reader.
 
 import { useMemo } from "react";
 
@@ -44,8 +45,8 @@ export interface TranscriptViewportProps {
   /** A run is still being written, which marks the log busy for a screen reader. */
   readonly hasActiveTurn?: boolean;
   /**
-   * The head control that walks back into the rows before this window's head, where the caller
-   * has a read to give it. Absent, nothing renders at the head.
+   * The head control that walks back into the rows before this window's head, drawn above the
+   * first row where the caller has a read to give it. Absent, nothing renders at the head.
    */
   readonly earlierHistoryControl?: React.ReactNode;
 }
@@ -72,32 +73,35 @@ export function TranscriptViewport(props: TranscriptViewportProps): React.JSX.El
     <ViewportSelectionTrackerContext value={tracker}>
       <MarkdownWindowViewportContext value={markdownWindowViewport}>
         <div className="meridian-transcript-viewport">
-          {/*
-           * Floats over the top of the scroll container as the tail affordance floats over the
-           * bottom; both sit outside the scroll box because a control in the flow changes the
-           * content height the reading position is measured against.
-           */}
-          {props.earlierHistoryControl}
           <div
             className="meridian-transcript-viewport__scroll-container meridian-focus-inset"
             ref={selection.attachScrollContainer}
-            // The feed role is claimed only while there are rows, since `feed` requires owned
-            // articles (`VirtualRow`'s half) and an empty one is invalid, which is worse for a
-            // screen reader than a plain scroll container. The label and busy state go with it.
-            {...(snapshot.rows.length === 0
-              ? {}
-              : {
-                  role: "feed",
-                  "aria-label": props.feedLabel,
-                  "aria-busy": props.hasActiveTurn ?? false,
-                })}
             // Focusable so the log is reachable and scrollable from the keyboard.
             tabIndex={0}
           >
+            {/*
+             * In the flow, above the rows: the virtualizer counts its height as the space before
+             * the list, and the viewport holds the reader's row when that height changes.
+             */}
+            {props.earlierHistoryControl === undefined ? null : (
+              <div className="meridian-transcript-viewport__head" ref={binding.attachHead}>
+                {props.earlierHistoryControl}
+              </div>
+            )}
             <div
               className="meridian-transcript-viewport__sizer"
               ref={binding.attachSizer}
-              role="presentation"
+              // The feed role is claimed only while there are rows, since `feed` requires owned
+              // articles (`VirtualRow`'s half) and an empty one is invalid, which is worse for a
+              // screen reader than none. The label and busy state go with it. On the row box
+              // rather than the scroll container, so the history line above it is no feed entry.
+              {...(snapshot.rows.length === 0
+                ? { role: "presentation" }
+                : {
+                    role: "feed",
+                    "aria-label": props.feedLabel,
+                    "aria-busy": props.hasActiveTurn ?? false,
+                  })}
             >
               {binding.virtualItems.map((virtualItem) => {
                 const row = snapshot.rows[virtualItem.index];

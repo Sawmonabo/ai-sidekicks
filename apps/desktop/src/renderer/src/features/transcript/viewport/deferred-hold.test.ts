@@ -55,6 +55,7 @@ describe("TranscriptDeferredHold — the head hold", () => {
     subject.hold.armAfterReconcile({
       headInsertedCount: 2,
       previousHeadKey: "c",
+      previousHeadStartPx: 0,
       scrollTopPx: 80,
       hasRowSetChanged: true,
     });
@@ -70,6 +71,7 @@ describe("TranscriptDeferredHold — the head hold", () => {
     subject.hold.armAfterReconcile({
       headInsertedCount: 2,
       previousHeadKey: "gone",
+      previousHeadStartPx: 0,
       scrollTopPx: 80,
       hasRowSetChanged: true,
     });
@@ -84,6 +86,7 @@ describe("TranscriptDeferredHold — the head hold", () => {
     subject.hold.armAfterReconcile({
       headInsertedCount: 1,
       previousHeadKey: "b",
+      previousHeadStartPx: 0,
       scrollTopPx: 0,
       hasRowSetChanged: true,
     });
@@ -118,6 +121,7 @@ describe("TranscriptDeferredHold — three windows, two pages, one row under the
     subject.hold.armAfterReconcile({
       headInsertedCount: 3,
       previousHeadKey: "r40",
+      previousHeadStartPx: 0,
       scrollTopPx: subject.scrollContainer.scrollTop,
       hasRowSetChanged: true,
     });
@@ -128,6 +132,7 @@ describe("TranscriptDeferredHold — three windows, two pages, one row under the
     subject.hold.armAfterReconcile({
       headInsertedCount: 2,
       previousHeadKey: "r35",
+      previousHeadStartPx: 0,
       scrollTopPx: subject.scrollContainer.scrollTop,
       hasRowSetChanged: true,
     });

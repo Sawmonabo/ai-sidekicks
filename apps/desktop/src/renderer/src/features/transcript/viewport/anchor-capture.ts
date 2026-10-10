@@ -57,7 +57,8 @@ export class ViewportAnchorCapture {
       }
     }
     const rowKeys = this.#rowKeys();
-    let offset = 0;
+    // The list starts below the history line, as the library's own starts do.
+    let offset = virtualizer?.options.scrollMargin ?? 0;
     for (let cursor = 0; cursor < index; cursor += 1) {
       offset += this.#measurements.heightOf(rowKeys[cursor] ?? "");
     }

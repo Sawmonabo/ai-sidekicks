@@ -14,7 +14,7 @@ import type { ViewportRow } from "../snapshot.js";
 
 /**
  * What a transcript row is in the accessibility tree: the other half of the `feed` role
- * `TranscriptViewport` claims on the scroll container, which requires owned articles.
+ * `TranscriptViewport` claims on the sizer, which requires owned articles.
  */
 const TRANSCRIPT_ROW_ROLE = "article" as const;
 

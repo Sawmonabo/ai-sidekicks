@@ -35,6 +35,11 @@ export interface TranscriptViewportBinding {
   readonly attachScrollContainer: (element: HTMLElement | null) => void;
   /** The size container the virtualizer writes the total height onto. */
   readonly attachSizer: (element: HTMLElement | null) => void;
+  /**
+   * The box of the history line above the first row, whose height the list starts below; see
+   * `ViewportController.attachHead`. Returns its own detach, as a React ref callback may.
+   */
+  readonly attachHead: (element: HTMLElement | null) => (() => void) | undefined;
   /** One row's element, handed to the library's own measurement observer. */
   readonly attachRow: (element: HTMLElement | null) => void;
   readonly jumpToTail: () => void;
@@ -199,6 +204,8 @@ export function useTranscriptViewport(
     observeElementOffset: controller.virtualizerOptions.observeElementOffset,
     observeElementRect: controller.virtualizerOptions.observeElementRect,
     measureElement: controller.virtualizerOptions.measureElement,
+    // The history line sits above the sizer in the box, so the rows start below it.
+    scrollMargin: snapshot.headHeightPx,
     // While the reader follows, the library holds the tail as rows measure and lands on each
     // appended row; otherwise the reading anchor holds the position and the library holds none.
     anchorTo: isFollowing ? "end" : "start",
@@ -301,6 +308,11 @@ export function useTranscriptViewport(
       scrollContainerRef.current?.focus();
     }, []),
     attachSizer: virtualizer.containerRef,
+    attachHead: useCallback(
+      (element: HTMLElement | null) =>
+        element === null ? undefined : controller.attachHead(element),
+      [controller],
+    ),
     attachRow: virtualizer.measureElement,
     jumpToTail: useCallback(() => {
       controller.jumpToTail();
@@ -362,7 +374,7 @@ export function useTranscriptViewport(
             ? 0
             : Math.max(0, lastDrawn.start - lastVisible.end),
         ),
-        totalContentHeightPx: virtualizer.getTotalSize(),
+        totalContentHeightPx: virtualizer.options.scrollMargin + virtualizer.getTotalSize(),
         viewportClientHeightPx: scrollContainer?.clientHeight ?? 0,
         viewportScrollHeightPx: scrollContainer?.scrollHeight ?? 0,
         rangedAgainstClientHeightPx: controller.scroll.geometry?.viewportHeight ?? 0,

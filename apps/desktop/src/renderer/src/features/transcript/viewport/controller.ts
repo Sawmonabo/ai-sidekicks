@@ -8,6 +8,7 @@
 // publication, deferred hold and anchor capture each have a module beside this one.
 
 import { type Clock } from "#renderer/lib/clock.js";
+import { observeElementResize } from "#renderer/lib/element-resize.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
 import { type RememberedRowHeights } from "#renderer/store/session/remembered-row-heights.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
@@ -99,6 +100,13 @@ export class ViewportController {
   #isPassRunning = false;
   /** Where the reader's touch on the log started, so the direction of a drag is told. */
   #touchStartYPx: number | undefined;
+  /** The history line's height above the first row, as the last resize observation read it. */
+  #headHeightPx = 0;
+  /**
+   * The part of the line's last change the offset could not move by: it moves in whole pixels and
+   * the line's height need not be one, so the fraction left over is moved with the next change.
+   */
+  #headShiftOwedPx = 0;
   #disposed = false;
 
   /**
@@ -249,12 +257,13 @@ export class ViewportController {
       return;
     }
     this.detach();
-    // What `scrollHeight` would read, from no element: the sizer is the box's one child in flow,
-    // unpadded, and the library sizes it to its total. Before the library is bound, at the first
-    // attach, the box answers once itself.
-    this.scroll.attach(
-      scrollContainer,
-      () => this.#virtualizer?.getTotalSize() ?? scrollContainer.scrollHeight,
+    // What `scrollHeight` would read, from no element: the box holds the history line and the
+    // sizer in flow, unpadded, and the library sizes the sizer to its total. Before the library is
+    // bound, at the first attach, the box answers once itself.
+    this.scroll.attach(scrollContainer, () =>
+      this.#virtualizer === undefined
+        ? scrollContainer.scrollHeight
+        : this.#headHeightPx + this.#virtualizer.getTotalSize(),
     );
     this.virtualizerOptions.bindScrollContainer(scrollContainer);
     scrollContainer.addEventListener("keydown", this.#onScrollContainerKeyDown);
@@ -277,6 +286,25 @@ export class ViewportController {
     this.#scrollContainer?.removeEventListener("touchstart", this.#onScrollContainerTouchStart);
     this.#scrollContainer?.removeEventListener("touchmove", this.#onScrollContainerTouchMove);
     this.#scrollContainer = undefined;
+  }
+
+  /**
+   * Follows the height of the history line above the first row until the returned call. The list
+   * starts below it, and a change in it moves every row by as much, so the offset moves with them
+   * and the reader's row stays where it stands on screen. The observation lands after layout and
+   * before paint, so the moved rows are never drawn.
+   */
+  public attachHead(head: HTMLElement): Unsubscribe {
+    const stopObserving = observeElementResize(head, (entries) => {
+      const heightPx = entries[0]?.borderBoxSize[0]?.blockSize;
+      if (heightPx !== undefined) {
+        this.#takeHeadHeight(heightPx);
+      }
+    });
+    return () => {
+      stopObserving();
+      this.#takeHeadHeight(0);
+    };
   }
 
   /**
@@ -549,6 +577,7 @@ export class ViewportController {
     this.#isPassRunning = true;
     try {
       const previousHeadKey = this.#rowKeys[0];
+      const previousHeadStartPx = this.#anchorCapture.offsetOfIndex(0);
       const previousVirtualKeys = this.#virtualKeys;
       const scrollTopPx = this.scroll.geometry?.scrollTop ?? 0;
       // Counted on the log, not the window: a row appended past a tail the window let go is still
@@ -587,6 +616,7 @@ export class ViewportController {
         this.#deferredHold.armAfterReconcile({
           headInsertedCount: countInsertedBefore(retained, previousHeadKey),
           previousHeadKey,
+          previousHeadStartPx,
           scrollTopPx,
           hasRowSetChanged,
         });
@@ -691,7 +721,29 @@ export class ViewportController {
       keyProjection: this.measurements.projectKeys(this.#rowKeys),
       reading: { mode, newRowCount },
       lastPrune: this.#pruneCycle.lastOutcome,
+      headHeightPx: this.#headHeightPx,
     };
+  }
+
+  /** Moves the offset by what the history line grew, and tells the list where its rows start. */
+  #takeHeadHeight(heightPx: number): void {
+    const grownPx = heightPx - this.#headHeightPx;
+    if (this.#disposed || grownPx === 0) {
+      return;
+    }
+    this.#headHeightPx = heightPx;
+    const scrollTopPx = this.scroll.geometry?.scrollTop;
+    const write =
+      scrollTopPx === undefined
+        ? undefined
+        : this.scroll.glideTo(
+            "hold-reading-position",
+            scrollTopPx + this.#headShiftOwedPx + grownPx,
+          );
+    const unmovedPx = write === undefined ? 0 : write.requestedScrollTop - write.appliedScrollTop;
+    // A whole pixel or more unmoved is the box's edge stopping the offset, which owes nothing.
+    this.#headShiftOwedPx = Math.abs(unmovedPx) < 1 ? unmovedPx : 0;
+    this.#publication.publish();
   }
 }
 

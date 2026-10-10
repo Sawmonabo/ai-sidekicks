@@ -62,7 +62,8 @@ export function withLaidOutViewport(
     vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (
       this: HTMLElement,
     ) {
-      const sizer = this.firstElementChild;
+      // The sizer, beside the history line the box also holds, which lays out at no height here.
+      const sizer = this.querySelector(":scope > .meridian-transcript-viewport__sizer");
       const sizedHeightPx =
         sizer instanceof HTMLElement ? Number.parseFloat(sizer.style.height) : 0;
       return Math.max(LAID_OUT_VIEWPORT_HEIGHT_PX, Number.isNaN(sizedHeightPx) ? 0 : sizedHeightPx);

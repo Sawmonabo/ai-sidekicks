@@ -53,12 +53,18 @@ export class ViewportDeferredHold {
   public armAfterReconcile(input: {
     readonly headInsertedCount: number;
     readonly previousHeadKey: string | undefined;
+    /** Where that head row's top edge sat before the pass, below the history line. */
+    readonly previousHeadStartPx: number;
     readonly scrollTopPx: number;
     /** Whether the reconcile changed the rows the viewport holds, so a render is coming. */
     readonly hasRowSetChanged: boolean;
   }): void {
     if (input.headInsertedCount > 0 && input.previousHeadKey !== undefined) {
-      this.#headHoldPending = { rowKey: input.previousHeadKey, scrollTopPx: input.scrollTopPx };
+      this.#headHoldPending = {
+        rowKey: input.previousHeadKey,
+        startPx: input.previousHeadStartPx,
+        scrollTopPx: input.scrollTopPx,
+      };
       return;
     }
     if (this.#anchoredHoldPending !== undefined && input.hasRowSetChanged) {
@@ -108,9 +114,9 @@ export class ViewportDeferredHold {
 
   /**
    * Puts the row that used to be first back at its previous distance from the top of the
-   * viewport. That row sat at offset zero, so the offset that restores it is its new offset (the
-   * height inserted above it) plus the reader's `scrollTop`. A key the window no longer holds, or
-   * an index of zero, leaves the offset alone rather than anchoring to whichever row now holds it.
+   * viewport: the reader's `scrollTop` moved on by how far that row's top edge moved, the height
+   * inserted above it. A key the window no longer holds, or an index of zero, leaves the offset
+   * alone rather than anchoring to whichever row now holds it.
    */
   #performHeadHold(headHold: PendingHeadHold): void {
     const index = this.#rowKeys().indexOf(headHold.rowKey);
@@ -119,7 +125,7 @@ export class ViewportDeferredHold {
     }
     this.#scroll.glideTo(
       "hold-reading-position",
-      this.#offsetOfIndex(index) + headHold.scrollTopPx,
+      this.#offsetOfIndex(index) - headHold.startPx + headHold.scrollTopPx,
     );
   }
 }
@@ -128,6 +134,8 @@ export class ViewportDeferredHold {
 interface PendingHeadHold {
   /** The row that was first before the page landed. */
   readonly rowKey: string;
+  /** Where that row's top edge sat then. */
+  readonly startPx: number;
   /** The offset the scroll container was at when the page landed. */
   readonly scrollTopPx: number;
 }

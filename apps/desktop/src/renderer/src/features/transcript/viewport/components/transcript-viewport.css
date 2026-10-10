@@ -2,8 +2,8 @@
  * `viewport/components/` and the head control in `history/`.
  */
 
-/* One track: the head and tail affordances are out of flow, so the scroll container is the only
-   child in flow and takes the viewport's whole height, which the virtualizer ranges against. */
+/* One track: the tail affordance is out of flow, so the scroll container is the only child in
+   flow and takes the viewport's whole height, which the virtualizer ranges against. */
 .meridian-transcript-viewport {
   display: grid;
   grid-template-rows: minmax(0, 1fr);
@@ -65,30 +65,24 @@
   pointer-events: none;
 }
 
-/* The head affordance, floating over the top of the feed for the same reason as the tail strip. */
+/* The history line's place: in the flow above the first row, and no height once it is empty. */
 .meridian-transcript-viewport__head {
   display: flex;
-  align-items: center;
   justify-content: center;
-  gap: var(--meridian-space-2);
-  position: absolute;
-  inset-inline: 0;
-  top: var(--meridian-space-3);
-  pointer-events: none;
 }
 
 /* The history line: a clickable word (`styles/action-buttons.css`) at the smallest text step. */
 .meridian-transcript-viewport__load-earlier {
+  margin-block: var(--meridian-space-3);
   font-size: var(--meridian-text-xs);
-  pointer-events: auto;
 }
 
 /* The failed read's line, in the history line's look and pressable at its `Try again`. */
 .meridian-transcript-viewport__load-earlier-failed {
-  margin: 0;
+  margin-block: var(--meridian-space-3);
   color: var(--meridian-text-faint);
   font-size: var(--meridian-text-xs);
-  pointer-events: auto;
+  text-align: center;
 }
 
 /* The one primary act the viewport offers, and the only filled control in the transcript. */

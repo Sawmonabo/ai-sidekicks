@@ -26,6 +26,8 @@ export interface ViewportSnapshot {
   readonly keyProjection: RowKeyProjection;
   readonly reading: ReadingState;
   readonly lastPrune: PruneOutcome | undefined;
+  /** The height of the history line above the first row, which the list starts below, in px. */
+  readonly headHeightPx: number;
 }
 
 /** What the surrounding feed tells the frame each render. */
