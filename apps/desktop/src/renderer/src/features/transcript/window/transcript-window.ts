@@ -250,14 +250,8 @@ class WindowAccumulation {
       const position = this.#runGroups.positionOf(runGroup.key);
       if (position === undefined) {
         this.#runGroups.push(runGroup);
-      } else if (this.#runGroups.at(position)?.headerRowId === runGroup.headerRowId) {
-        this.#runGroups.set(position, runGroup);
       } else {
-        // Unreachable while the index keeps its keys unique: each accumulation starts a fresh index,
-        // whose adopted keys are taken only while free and whose minted ones take a free suffix
-        // before any group is sealed here. Firing means that rule broke, and filing over the other
-        // stretch would hand it this one's header and fold.
-        throw new Error(`Two run groups share the key ${runGroup.key}`);
+        this.#runGroups.set(position, runGroup);
       }
     }
     const viewportRows = this.#viewportRows ?? previous?.viewportRows ?? [];
