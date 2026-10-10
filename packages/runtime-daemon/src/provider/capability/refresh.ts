@@ -107,23 +107,27 @@ export interface CapabilityRefresherDependencies {
   readonly onDiagnostic?: (diagnostic: CapabilityRefreshDiagnostic) => void;
 }
 
-/** One read's settlement under the refresher's liveness backstop. */
-type RefreshReadOutcome =
-  | { readonly settled: "fulfilled" }
+/** One read's settlement under the liveness backstop, with the value a fulfilled read gave. */
+type RefreshReadOutcome<Value> =
+  | { readonly settled: "fulfilled"; readonly value: Value }
   | { readonly settled: "rejected"; readonly reason: unknown }
   | { readonly settled: "timed-out" };
 
-// On timeout the read's promise is abandoned, not canceled. Both settlement paths attach before the
-// race, so a late rejection is never unhandled.
-async function settleReadWithinDeadline(
-  runRead: () => Promise<unknown>,
+/**
+ * Runs one capability read and settles within `deadlineMs`: fulfilled with the read's value,
+ * rejected with its reason, or timed out. On timeout the read's promise is abandoned, not
+ * canceled, so a caller acts on the value only from the fulfilled outcome; both settlement paths
+ * attach before the race, so a late rejection is never unhandled.
+ */
+export async function settleReadWithinDeadline<Value>(
+  runRead: () => Promise<Value>,
   deadlineMs: number,
-): Promise<RefreshReadOutcome> {
-  let readPromise: Promise<RefreshReadOutcome>;
+): Promise<RefreshReadOutcome<Value>> {
+  let readPromise: Promise<RefreshReadOutcome<Value>>;
   try {
     readPromise = runRead().then(
-      (): RefreshReadOutcome => ({ settled: "fulfilled" }),
-      (reason: unknown): RefreshReadOutcome => ({ settled: "rejected", reason }),
+      (value): RefreshReadOutcome<Value> => ({ settled: "fulfilled", value }),
+      (reason: unknown): RefreshReadOutcome<Value> => ({ settled: "rejected", reason }),
     );
   } catch (cause) {
     // A seam that throws synchronously produced no promise to race.
@@ -131,7 +135,7 @@ async function settleReadWithinDeadline(
   }
 
   let deadlineTimer: NodeJS.Timeout | undefined;
-  const deadlinePromise = new Promise<RefreshReadOutcome>((resolve) => {
+  const deadlinePromise = new Promise<RefreshReadOutcome<Value>>((resolve) => {
     deadlineTimer = setTimeout(() => {
       resolve({ settled: "timed-out" });
     }, deadlineMs);
@@ -148,9 +152,9 @@ async function settleReadWithinDeadline(
 }
 
 /**
- * Re-reads every driver's capabilities when asked: at daemon start and on each refresh trigger,
- * never on a timer. A refresh asked for while one is running is dropped, not stacked, and nothing
- * is read after `shutdown`.
+ * Re-reads every driver's capabilities when asked: on each refresh trigger, never on a timer and
+ * never at the daemon's start, where each driver's registration takes the first read. A refresh
+ * asked for while one is running is dropped, not stacked, and nothing is read after `shutdown`.
  */
 export class CapabilityRefresher {
   readonly #drivers: readonly CapabilityRefreshDriverEntry[];
@@ -195,7 +199,7 @@ export class CapabilityRefresher {
 
   #reportFailure(
     driverName: ProviderName,
-    outcome: Exclude<RefreshReadOutcome, { readonly settled: "fulfilled" }>,
+    outcome: Exclude<RefreshReadOutcome<unknown>, { readonly settled: "fulfilled" }>,
   ): void {
     const timedOut = outcome.settled === "timed-out";
     const reason = outcome.settled === "rejected" ? outcome.reason : undefined;

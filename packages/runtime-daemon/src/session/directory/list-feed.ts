@@ -45,6 +45,7 @@ import type { EventLogService } from "../../events/log-service.js";
 import { PURGE_RECEIPT_TYPE } from "../../events/session/purge.js";
 import { sessionProjectSql } from "./lookups.js";
 import { sessionActivitySql } from "./run-activity.js";
+import { describeRejection } from "../../rejection.js";
 
 /** What the feed reads and follows. */
 export interface SessionListFeedDeps {
@@ -389,7 +390,7 @@ export class SessionListFeed {
   #fail(error: unknown): void {
     this.#writeServiceLog(
       "sessions list: reading a changed session's row failed, so every listener was ended: " +
-        (error instanceof Error ? error.message : String(error)),
+        describeRejection(error),
     );
     const listeners = [...this.#listeners];
     for (const listener of listeners) {

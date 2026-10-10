@@ -27,9 +27,9 @@ const CLAUDE_CAPABILITY_DETECTION_TABLE: DriverCapabilityDetectionTable = Object
     detectionSource: "static",
     failingConjuncts: ["decisive-at-consumption-granularity"],
     rationale:
-      "FALSE on this driver: it sends no steer to the provider, and the steer intervention " +
-      "degrades to queue-plus-interrupt as a REPORTED degradation. A probe cannot grant a " +
-      "flag anyway (resolution is withdraw-only), so the channel has nothing to decide here.",
+      "Delivered as a user message written into the running turn, which the stream-json input " +
+      "takes at any time; the control-request channel cannot interrogate a turn that is not " +
+      "running, so the channel cannot decide this flag.",
   },
   interactive_requests: {
     detectionSource: "static",
@@ -88,9 +88,9 @@ const CLAUDE_CAPABILITY_DETECTION_TABLE: DriverCapabilityDetectionTable = Object
     detectionSource: "static",
     failingConjuncts: ["decisive-at-consumption-granularity"],
     rationale:
-      "Composed from launch-time resume-at plus `--fork-session`. The conversation-rewind " +
-      "subtype is absent from the control-request census, and the file-side `rewind_files` " +
-      "sibling restores files, a different capability, so the channel cannot decide this flag.",
+      "Delivered by the `rewind_conversation` control request, which cuts a live conversation " +
+      "and so cannot be sent without changing one; the file-side `rewind_files` sibling " +
+      "restores files, a different capability, so the channel cannot decide this flag.",
   },
   session_fork: {
     detectionSource: "static",
@@ -103,8 +103,8 @@ const CLAUDE_CAPABILITY_DETECTION_TABLE: DriverCapabilityDetectionTable = Object
     detectionSource: "static",
     failingConjuncts: ["decisive-at-consumption-granularity"],
     rationale:
-      "FALSE on this driver, which exposes no goal operation. A probe cannot grant a flag " +
-      "(resolution is withdraw-only), so the channel has nothing to decide here.",
+      "Delivered by the provider's own `/goal` command, which the session handshake lists as " +
+      "part of a turn-bearing exchange; each send is checked against that list instead.",
   },
   callback_tools: {
     detectionSource: "static",
@@ -117,7 +117,9 @@ const CLAUDE_CAPABILITY_DETECTION_TABLE: DriverCapabilityDetectionTable = Object
     detectionSource: "static",
     failingConjuncts: ["decisive-at-consumption-granularity"],
     rationale:
-      "Delivered by the `agents` map on the session's `initialize` request, which the " +
+      "Delivered by the provider's own helper tool, with the session's helper definitions " +
+      "declared as the `initialize` request's `agents` and held to the session's " +
+      "helpers-at-once limit by a hook registered on that same request, which the " +
       "control-request channel cannot interrogate afterward.",
   },
   context_compaction: {
@@ -157,22 +159,20 @@ const CLAUDE_CAPABILITY_DETECTION_TABLE: DriverCapabilityDetectionTable = Object
 const CLAUDE_UNSUPPORTED_SUBTYPE_PREFIX = "Unsupported control request subtype:";
 
 /**
- * Classifies one `control_response`, given the full envelope or the inner response object. The
- * refusal is name-level already; the probe name is read only for the fast-mode probe, whose
- * acceptance counts only when the reply carries the state.
+ * Classifies one control response as the process settles it, `{ subtype: "success", response }`
+ * or `{ subtype: "error", error }`. The refusal is name-level already; the probe name is read only
+ * for the fast-mode probe, whose acceptance counts only when the reply carries the state.
  */
 function classifyClaudeProbeReply(payload: unknown, probeName: string): ProbeAnswer {
   if (!isPlainObject(payload)) {
     return "unrecognized";
   }
-  const inner = payload["response"];
-  const response = isPlainObject(inner) ? inner : payload;
-  const subtype = response["subtype"];
+  const subtype = payload["subtype"];
   if (subtype === "success") {
     if (probeName !== CLAUDE_FAST_MODE_PROBE_NAME) {
       return "accepted";
     }
-    const body = response["response"];
+    const body = payload["response"];
     return isPlainObject(body) && typeof body["fast_mode_state"] === "string"
       ? "accepted"
       : "unrecognized";
@@ -180,7 +180,7 @@ function classifyClaudeProbeReply(payload: unknown, probeName: string): ProbeAns
   if (subtype !== "error") {
     return "unrecognized";
   }
-  const error = response["error"];
+  const error = payload["error"];
   if (typeof error !== "string") {
     // An error without a string reason cannot be told from a name-level refusal.
     return "unrecognized";
@@ -205,6 +205,7 @@ export const CLAUDE_STANDARD_OUTPUT_SPEED = "off";
 
 /** Claude Code's static facts. */
 export const CLAUDE_DRIVER_DESCRIPTOR: ProviderDriverDescriptor = Object.freeze({
+  command: "claude",
   capabilityDetectionTable: CLAUDE_CAPABILITY_DETECTION_TABLE,
   capabilityProbeChannel: "control_request",
   capabilityProbeNegativeControl: "zzq_nonexistent_subtype",

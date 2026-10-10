@@ -4,6 +4,11 @@
 // of the session store or the event envelope.
 
 import type { RunQueuedPayload } from "@ai-sidekicks/contracts/run/queued";
+import type {
+  RunProviderInitializedPayload,
+  RunTurnStartedPayload,
+  RunWorkerShutdownPayload,
+} from "@ai-sidekicks/contracts/run/events";
 import type { RunRolledBackEvent, RunStateChangeEvent } from "@ai-sidekicks/contracts/run/control";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 
@@ -65,6 +70,12 @@ type RunQueuedOwnMemberName = Exclude<
   RegisteredRunMemberName | "sessionId" | "agentId" | "resolvedAgent"
 >;
 
+/** The members a provider marker's payload declares beyond the run identity. */
+type RunMarkerOwnMemberName<TPayload> = Exclude<
+  keyof TPayload,
+  RegisteredRunMemberName | "sessionId"
+>;
+
 /**
  * The registered kinds whose durable payload names members of its own. `Extract`ed from the
  * event types, so a misspelled kind fails to compile.
@@ -75,17 +86,16 @@ type RunKindWithPerTypeMembers = Extract<
 >;
 
 /**
- * The per-type members those four kinds register, and the reader for each.
+ * The per-type members those four kinds register, and the reader for each, each row keyed by the
+ * contract's own payload, so a member it gains or loses fails to compile.
  *
  * Per type rather than merged into the table above: each row has its own payload shape, so a
  * flat table would read `provider` or `position` off any run beat that spelled it. A member
- * either `run.subscribeState` shape declares belongs in the derived table, and the co-located
- * test refuses a second spelling here.
+ * either `run.subscribeState` shape declares belongs in the derived table.
  */
 const PER_TYPE_RUN_BODY_MEMBER_READERS: Readonly<
   Record<RunKindWithPerTypeMembers, Readonly<Record<string, WireMemberReaderName>>>
 > = Object.freeze({
-  // Keyed by the contract's own payload, so a member it gains or loses fails to compile.
   "run.queued": Object.freeze({
     parentRunId: "string",
     admittedModelFamily: "string",
@@ -94,11 +104,18 @@ const PER_TYPE_RUN_BODY_MEMBER_READERS: Readonly<
     admittedProviderAccountId: "string",
   } satisfies Record<RunQueuedOwnMemberName, WireMemberReaderName>),
   // The provider's initialization report, which names the provider and model the run uses.
-  "run.provider_initialized": Object.freeze({ provider: "string", model: "string" }),
+  "run.provider_initialized": Object.freeze({
+    provider: "string",
+    model: "string",
+  } satisfies Record<RunMarkerOwnMemberName<RunProviderInitializedPayload>, WireMemberReaderName>),
   // The normalized session position, absent where the provider wire supplies none.
-  "run.turn_started": Object.freeze({ position: "number" }),
+  "run.turn_started": Object.freeze({
+    position: "number",
+  } satisfies Record<RunMarkerOwnMemberName<RunTurnStartedPayload>, WireMemberReaderName>),
   // The sanitized shutdown reason a mid-run worker signal carries.
-  "run.worker_shutdown": Object.freeze({ reason: "string" }),
+  "run.worker_shutdown": Object.freeze({
+    reason: "string",
+  } satisfies Record<RunMarkerOwnMemberName<RunWorkerShutdownPayload>, WireMemberReaderName>),
 });
 
 /** The reader table for a kind that registers no members of its own. */

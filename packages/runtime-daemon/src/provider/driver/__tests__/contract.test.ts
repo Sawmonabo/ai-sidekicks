@@ -14,9 +14,9 @@ import {
 } from "../contract.js";
 
 // `DriverResumeResult` is a `status`-discriminated union. `failed` carries the recovery condition
-// and failure detail but no `bindingId` or `sessionPosition`; `resumed` carries those two and
-// neither failure member. A failed resume must surface the failure, never quietly create a
-// replacement session under the same run.
+// and failure detail but no `bindingId` or `sessionPosition`; `resumed` carries those two and its
+// `resumeHandle`, and neither failure member. A failed resume must surface the failure, never
+// quietly create a replacement session under the same run.
 describe("DriverResumeResult: a failed resume cannot carry a binding", () => {
   it("rejects silent replacement — a `failed` object carrying a bindingId", () => {
     const result = DriverResumeResultSchema.safeParse({

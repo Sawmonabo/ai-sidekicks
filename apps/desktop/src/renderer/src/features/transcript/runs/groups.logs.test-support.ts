@@ -40,7 +40,11 @@ export function openSessionStoreWithTerminalRunGroup(): SessionStore {
       cursor: transcriptFixtureStreamCursor(1),
       kind: "assistant.message",
       occurredAt: transcriptFixtureStampAt(1),
-      payload: { sessionId: SESSION_ID, runId: TERMINAL_RUN_ID },
+      payload: {
+        sessionId: SESSION_ID,
+        runId: TERMINAL_RUN_ID,
+        providerMessageId: "msg_reply_1",
+      },
       runStamp: { position: 1, epoch: 0 },
     },
     {
@@ -80,7 +84,11 @@ export function openSessionStoreWithTerminalRunGroup(): SessionStore {
       cursor: transcriptFixtureStreamCursor(5),
       kind: "assistant.message",
       occurredAt: transcriptFixtureStampAt(5),
-      payload: { sessionId: SESSION_ID, runId: LIVE_RUN_ID },
+      payload: {
+        sessionId: SESSION_ID,
+        runId: LIVE_RUN_ID,
+        providerMessageId: "msg_reply_5",
+      },
       runStamp: { position: 1, epoch: 0 },
     },
   ]);
@@ -119,7 +127,11 @@ export function openSessionStoreWithSystemMessage(): SessionStore {
       cursor: transcriptFixtureStreamCursor(2),
       kind: "assistant.message",
       occurredAt: transcriptFixtureStampAt(2),
-      payload: { sessionId: SESSION_ID, runId: LIVE_RUN_ID },
+      payload: {
+        sessionId: SESSION_ID,
+        runId: LIVE_RUN_ID,
+        providerMessageId: "msg_reply_2",
+      },
       runStamp: { position: 2, epoch: 0 },
     },
   ]);

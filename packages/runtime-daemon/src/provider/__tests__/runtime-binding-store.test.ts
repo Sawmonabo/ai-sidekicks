@@ -25,6 +25,7 @@ import {
 } from "../runtime-binding-store.js";
 import {
   readSpawnedProviderVersion,
+  resolveProviderExecutable,
   toBindingVersionCarriers,
   type ProviderVersionHandshakeRequest,
 } from "../spawned-version.js";
@@ -72,6 +73,10 @@ const FULL_SPAWN_CONFIG: RuntimeBindingSpawnConfig = {
     { name: "ask_human", description: "Ask the person", inputSchema: { type: "object" } },
   ],
   subagentPolicy: { enabled: false },
+  toolServers: [
+    { serverName: "sidekicks", enabled: true },
+    { serverName: "github", enabled: false },
+  ],
   outputSchema: { type: "object", properties: { answer: { type: "string" } } },
   providerAccountId: "acct-01J0ND0000NN5J5J5J5J5J5J",
   resolvedExecutablePath: "/opt/homebrew/bin/claude",
@@ -704,10 +709,10 @@ describe("RuntimeBindingStore — spawned-version carriers", () => {
 
   async function claudeHandshake(request: ProviderVersionHandshakeRequest): Promise<unknown> {
     const reportedVersion: string | undefined = REPORTED_VERSION_BY_PATH.get(
-      request.resolvedExecutablePath,
+      request.executable.resolvedExecutablePath,
     );
     if (reportedVersion === undefined) {
-      throw new Error(`no fixture build installed at ${request.resolvedExecutablePath}`);
+      throw new Error(`no fixture build installed at ${request.executable.resolvedExecutablePath}`);
     }
     return { version: reportedVersion, buildTime: "2026-08-20T00:00:00Z" };
   }
@@ -724,10 +729,16 @@ describe("RuntimeBindingStore — spawned-version carriers", () => {
   it("records the BUILD's version and path under launcher drift", async () => {
     const reading = await readSpawnedProviderVersion({
       driverName: "claude",
-      requestedCommand: LAUNCHER_PATH,
+      resolveCommand: async (spawnEnvironment) =>
+        await resolveProviderExecutable(
+          "claude",
+          LAUNCHER_PATH,
+          spawnEnvironment,
+          DRIFTING_RESOLVER,
+        ),
       handshake: claudeHandshake,
+      environmentNameMatch: "case-sensitive",
       baseEnv: [],
-      resolver: DRIFTING_RESOLVER,
     });
 
     const store = makeStore();
@@ -756,12 +767,13 @@ describe("RuntimeBindingStore — spawned-version carriers", () => {
 describe("composeResumeSessionParams", () => {
   const SESSION_ID = "11111111-1111-4111-8111-111111111111" as SessionId;
   const SESSION_MODEL = "claude-sonnet-4-5";
+  const SESSION_LARGER_WINDOW = 1_000_000;
   const NO_FUNCTION_LEGS = {
     onCallbackToolCall: undefined,
     onMcpServerStatus: undefined,
   };
 
-  it("re-realizes every spawn-bound leg from the durable row", async () => {
+  it("re-realizes every spawn-bound leg from the durable row, and never the recorded executable", async () => {
     const store = makeStore();
     const binding = await store.create({
       runId: RUN_ID,
@@ -771,15 +783,26 @@ describe("composeResumeSessionParams", () => {
       resumeHandle: "opaque-handle-abc",
     });
 
-    const params = composeResumeSessionParams(SESSION_ID, binding, SESSION_MODEL, NO_FUNCTION_LEGS);
+    const params = composeResumeSessionParams(
+      SESSION_ID,
+      binding,
+      SESSION_MODEL,
+      SESSION_LARGER_WINDOW,
+      "build",
+      NO_FUNCTION_LEGS,
+    );
 
+    // Strict, so the recorded executable path cannot ride along: every start resolves it again.
     expect(params).toStrictEqual({
       sessionId: SESSION_ID,
       resumeHandle: "opaque-handle-abc",
       model: SESSION_MODEL,
+      largerWindow: SESSION_LARGER_WINDOW,
+      mode: "build",
       executionPosture: EXECUTION_POSTURE,
       callbackTools: FULL_SPAWN_CONFIG.callbackTools,
       subagentPolicy: FULL_SPAWN_CONFIG.subagentPolicy,
+      toolServers: FULL_SPAWN_CONFIG.toolServers,
       outputSchema: FULL_SPAWN_CONFIG.outputSchema,
       providerAccountId: FULL_SPAWN_CONFIG.providerAccountId,
       outputSpeed: "on",
@@ -807,8 +830,14 @@ describe("composeResumeSessionParams", () => {
     expect(readRawSpawnConfig(binding.id)).not.toContain("providerAccountId");
     expect(binding.spawnConfig.providerAccountId).toBeUndefined();
     expect(
-      composeResumeSessionParams(SESSION_ID, binding, SESSION_MODEL, NO_FUNCTION_LEGS)
-        .providerAccountId,
+      composeResumeSessionParams(
+        SESSION_ID,
+        binding,
+        SESSION_MODEL,
+        SESSION_LARGER_WINDOW,
+        "build",
+        NO_FUNCTION_LEGS,
+      ).providerAccountId,
     ).toBeUndefined();
   });
 
@@ -824,10 +853,14 @@ describe("composeResumeSessionParams", () => {
     const onCallbackToolCall = async (): Promise<CallbackToolResult> =>
       await Promise.resolve({ status: "completed" });
 
-    const params = composeResumeSessionParams(SESSION_ID, binding, SESSION_MODEL, {
-      onCallbackToolCall,
-      onMcpServerStatus: undefined,
-    });
+    const params = composeResumeSessionParams(
+      SESSION_ID,
+      binding,
+      SESSION_MODEL,
+      SESSION_LARGER_WINDOW,
+      "build",
+      { onCallbackToolCall, onMcpServerStatus: undefined },
+    );
 
     expect(params.onCallbackToolCall).toBe(onCallbackToolCall);
   });
@@ -844,7 +877,14 @@ describe("composeResumeSessionParams", () => {
     });
 
     const thrown = captureThrow(() => {
-      composeResumeSessionParams(SESSION_ID, binding, SESSION_MODEL, NO_FUNCTION_LEGS);
+      composeResumeSessionParams(
+        SESSION_ID,
+        binding,
+        SESSION_MODEL,
+        SESSION_LARGER_WINDOW,
+        "build",
+        NO_FUNCTION_LEGS,
+      );
     });
 
     expect(thrown).toBeInstanceOf(RuntimeBindingNotResumableError);

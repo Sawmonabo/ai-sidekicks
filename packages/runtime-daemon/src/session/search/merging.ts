@@ -6,6 +6,7 @@
 
 import type { ServiceLogWriter } from "../../daemon/service-log.js";
 import { retryWaitMs } from "../../retry-waits.js";
+import { describeRejection } from "../../rejection.js";
 
 /** What the index's merging needs from the daemon. */
 export interface SearchIndexMergingDeps {
@@ -77,8 +78,7 @@ export class SearchIndexMerging {
       const waitMs = retryWaitMs(this.#failedPassesInRow);
       this.#failedPassesInRow += 1;
       this.#deps.writeServiceLog(
-        `search_index_merge_failed, retrying in ${String(waitMs)} ms: ` +
-          (error instanceof Error ? error.message : String(error)),
+        `search_index_merge_failed, retrying in ${String(waitMs)} ms: ` + describeRejection(error),
       );
       // Unref'd, so a retry still waiting never keeps the process alive.
       this.#retryTimer = setTimeout(() => {

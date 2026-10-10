@@ -1,73 +1,165 @@
-// How the Codex driver dispatches turns: a turn the provider may have taken is never sent twice
-// nor reported as delivered without proof, a swallowed message condemns its process, posture is
-// never caller-overridable, and a rewind forks exactly where it was asked to.
+// How the Codex driver dispatches turns: a turn the provider may have taken is never sent twice,
+// a turn's route lives exactly as long as the turn, posture is never caller-overridable, a profile
+// Codex reports that was never asked for is put back, steers go out in order without waiting for a
+// step's end and never into a retired turn, and a rewind forks exactly where it was asked to.
 
 import { describe, expect, it } from "vitest";
 
-import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
-import { TextNeutralizationRefusedError } from "../../../outbound-frame.js";
-import type { SubagentPolicy } from "../../contract.js";
 import {
   CodexDriverConfigError,
   CodexProviderRequestError,
   CodexRequestTimeoutError,
+  CodexRequestTooLargeError,
   CodexRewindBoundaryUnsupportedError,
   CodexTransportError,
-} from "../index.js";
-import { assertRealizedTurnPostureMembers } from "../session/config.js";
+} from "../session/errors.js";
+import { drainMicrotasks } from "../../../__fixtures__/drain-microtasks.js";
 import {
   type Harness,
-  type ManagerHarness,
-  type ManagerHarnessOptions,
+  DEFAULT_CODEX_HOME,
   RUN_ID,
-  SECOND_RUN_ID,
   SESSION_ID,
-  TEST_MODEL,
+  TEST_POSTURE,
   THREAD_ID,
   TURN_ID,
   createHarness,
-  createManagerHarness,
   createdSession,
-  modelOutputItemFrame,
-  threadStartResult,
+  runConfig,
+  threadReply,
   turnCompletedFrame,
-  zeroTurnCompletedFrame,
 } from "../__fixtures__/app-server-doubles.js";
-import { CREATE_PARAMS } from "./lifecycle.test-support.js";
+import { CREATE_PARAMS, RESUME_PARAMS } from "./lifecycle.test-support.js";
 import { captureRejection } from "../../../../__fixtures__/capture-failure.js";
-import { drainMicrotasks } from "../../../__fixtures__/drain-microtasks.js";
 
-/** A manager harness with one live session. */
-async function liveSession(options: ManagerHarnessOptions = {}): Promise<ManagerHarness> {
-  const harness = createManagerHarness(options);
-  await harness.manager.createSession(CREATE_PARAMS);
+/** A harness with one live session. */
+async function liveSession(): Promise<Harness> {
+  const harness = createHarness();
+  await createdSession(harness);
   return harness;
 }
 
-function startRun(
-  harness: ManagerHarness,
-  input = "go",
-  extra: { runId?: typeof RUN_ID; frameOrigin?: string } = {},
-): Promise<void> {
-  return harness.manager.startRun({
-    runId: extra.runId ?? RUN_ID,
-    agentConfig: {
-      sessionId: SESSION_ID,
-      input,
-      ...(extra.frameOrigin === undefined ? {} : { frameOrigin: extra.frameOrigin }),
-    },
+function startRun(harness: Harness, input = "go"): Promise<void> {
+  return harness.driver.startRun({ runId: RUN_ID, agentConfig: runConfig(input) });
+}
+
+// Hands the run a steer the way the run queue does.
+function steer(
+  harness: Harness,
+  clientIdempotencyKey: string,
+  content = "focus on the failing test",
+): ReturnType<Harness["driver"]["applyIntervention"]> {
+  return harness.driver.applyIntervention({
+    type: "steer",
+    targetRunId: RUN_ID,
+    expectedRunVersion: 1,
+    clientIdempotencyKey,
+    payload: { content, expectedTurnId: TURN_ID },
   });
 }
 
-const SIGKILLED = [{ sessionId: "pty-session-1", signal: "SIGKILL" }];
+/** Whether the run still has a live turn here, read by whether an interrupt reaches it. */
+async function takesInterrupt(harness: Harness): Promise<boolean> {
+  harness.server.on("turn/interrupt", () => ({ result: {} }));
+  try {
+    await harness.driver.interruptRun({ runId: RUN_ID });
+    return true;
+  } catch (e) {
+    if (e instanceof CodexTransportError) {
+      return false;
+    }
+    throw e;
+  }
+}
 
 describe("Codex turn posture", () => {
-  it("refuses every declared posture field, and any turn member it cannot realize", async () => {
+  it.each([
+    ["readonly", "user", "writes"],
+    ["ask", "user", "writes"],
+    ["reviewed", "auto_review", "writes"],
+    ["sandboxed", "user", "writes"],
+    ["yolo", "user", "approve"],
+  ] as const)(
+    "sends a %s session's reviewer on its thread and turns, and its connectors' defaults",
+    async (level, reviewer, connectorApprovalMode) => {
+      // Codex reads a connector ask's reviewer from `apps` before the conversation's, and a turn's
+      // reviewer routes every later turn; only `apps._default` is set, so the person's own value
+      // for one app or tool keeps winning for it.
+      const harness = createHarness();
+      harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+      await createdSession(harness, { posture: { ...TEST_POSTURE, mode: level } });
+      await startRun(harness);
+
+      const threadStart = harness.server.paramsFor("thread/start")[0];
+      expect(threadStart?.["approvalsReviewer"]).toBe(reviewer);
+      expect(threadStart?.["config"]).toMatchObject({
+        "apps._default.approvals_reviewer": reviewer,
+        "apps._default.default_tools_approval_mode": connectorApprovalMode,
+      });
+      expect(harness.server.paramsFor("turn/start")[0]?.["approvalsReviewer"]).toBe(reviewer);
+    },
+  );
+
+  it("asks again for the session's posture when Codex reports a profile it never asked for", async () => {
     const harness = createHarness();
-    await createdSession(harness);
+    await createdSession(harness, { posture: { ...TEST_POSTURE, mode: "ask" } });
+    const askProfile = harness.server.paramsFor("thread/start")[0]?.["permissions"];
+    const reportProfile = (id: unknown): void => {
+      harness.server.emitFrame({
+        jsonrpc: "2.0",
+        method: "thread/settings/updated",
+        params: { threadId: THREAD_ID, threadSettings: { activePermissionProfile: { id } } },
+      });
+    };
+    const drifts = () =>
+      harness.diagnostics.filter((diagnostic) => diagnostic.kind === "permission-profile-drifted");
+
+    // The profile the conversation started on is no drift, and a move into Plan keeps it.
+    await harness.driver.updateSessionMode({ sessionId: SESSION_ID, mode: "plan" });
+    // Plan is Codex's own plan mode alone: no profile or approval rule of the daemon's rides it.
+    expect(harness.server.paramsFor("thread/settings/update")).toStrictEqual([
+      {
+        threadId: THREAD_ID,
+        collaborationMode: {
+          mode: "plan",
+          settings: {
+            model: harness.server.paramsFor("thread/start")[0]?.["model"],
+            reasoning_effort: null,
+            developer_instructions: null,
+          },
+        },
+      },
+    ]);
+    reportProfile(askProfile);
+    await drainMicrotasks();
+    expect(drifts()).toHaveLength(0);
+    const sentBeforeDrift = harness.server.paramsFor("thread/settings/update").length;
+
+    reportProfile(":danger-full-access");
+    await drainMicrotasks();
+
+    expect(drifts()).toStrictEqual([
+      {
+        kind: "permission-profile-drifted",
+        threadId: THREAD_ID,
+        activeProfile: ":danger-full-access",
+        expectedProfile: askProfile,
+      },
+    ]);
+    expect(
+      harness.server
+        .paramsFor("thread/settings/update")
+        .slice(sentBeforeDrift)
+        .map((params) => params?.["permissions"]),
+    ).toStrictEqual([askProfile]);
+    expect(askProfile).toMatch(/^sidekicks-ask-/);
+  });
+
+  it("refuses every declared posture field before the wire", async () => {
+    const harness = await liveSession();
 
     for (const field of [
       "cwd",
+      "sandbox",
       "sandboxPolicy",
       "permissions",
       "permissionProfile",
@@ -77,60 +169,87 @@ describe("Codex turn posture", () => {
       await expect(
         harness.driver.startRun({
           runId: RUN_ID,
-          agentConfig: { sessionId: SESSION_ID, input: "review the diff", [field]: "anything" },
+          agentConfig: { ...runConfig("review the diff"), [field]: "anything" },
         }),
       ).rejects.toBeInstanceOf(CodexDriverConfigError);
     }
     // Refused before the wire, not filtered on it.
     expect(harness.server.framesForMethod("turn/start")).toHaveLength(0);
-
-    // The guard every turn composer calls: an unrealized member, the pair the provider accepts
-    // with no documented precedence, and the member the provider build refuses.
-    for (const members of [
-      { permissions: "profile-id" },
-      { sandboxPolicy: { mode: "workspace-write" }, permissions: "profile-id" },
-      { permissionProfile: "profile-id" },
-    ]) {
-      expect(() => assertRealizedTurnPostureMembers({ threadId: THREAD_ID, ...members })).toThrow(
-        CodexDriverConfigError,
-      );
-    }
   });
 
-  it("refuses a run whose config declares a frame origin, before any byte is written", async () => {
-    // The origin is minted at the boundary; the exempt one would deliver command-shaped words
-    // verbatim to the provider's command layer and excuse a swallowed turn from the tripwire.
+  it("sends steers mid-step in order, each once Codex answered the one before", async () => {
     const harness = await liveSession();
     harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    harness.server.on("turn/steer", () => ({ result: { turnId: TURN_ID } }));
+    await startRun(harness, "one");
+    // A step is in flight, and no `item/completed` ends it during this test.
+    harness.server.emitFrame({
+      jsonrpc: "2.0",
+      method: "item/started",
+      params: {
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+        item: { type: "commandExecution", id: "i-1", command: "pnpm test", status: "inProgress" },
+      },
+    });
 
-    await expect(startRun(harness, "/compact", { frameOrigin: "driver_command" })).rejects.toThrow(
-      CodexDriverConfigError,
+    // The run queue hands every waiting message over at once, before Codex echoed any of them.
+    const keys = [
+      "9a1d8f30-0000-4000-8000-0000000000aa",
+      "9a1d8f30-0000-4000-8000-0000000000ab",
+      "9a1d8f30-0000-4000-8000-0000000000ac",
+    ];
+    const releaseAnswers = harness.server.holdAnswers("turn/steer");
+    const sent = keys.map((key, index) => steer(harness, key, `message ${String(index + 1)}`));
+    await drainMicrotasks();
+    // The first is on the wire before the step ends; the next wait for Codex to answer it.
+    expect(harness.server.paramsFor("turn/steer")).toHaveLength(1);
+    releaseAnswers();
+    expect(await Promise.all(sent)).toEqual(keys.map(() => ({ status: "applied" })));
+    // Each goes out once, in the order it came, carrying its own key for Codex's echo.
+    expect(
+      harness.server.paramsFor("turn/steer").map((params) => ({
+        key: params?.["clientUserMessageId"],
+        input: params?.["input"],
+      })),
+    ).toStrictEqual(
+      keys.map((key, index) => ({
+        key,
+        input: [{ type: "text", text: `message ${String(index + 1)}`, text_elements: [] }],
+      })),
     );
-    expect(harness.server.framesForMethod("turn/start")).toStrictEqual([]);
-    expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(false);
+
+    // A send Codex refuses fails the steer rather than leaving it answered as taken, and the
+    // steer after it still goes out.
+    harness.server.on("turn/steer", () => ({ error: { code: -32600, message: "no active turn" } }));
+    const refused = captureRejection(steer(harness, "9a1d8f30-0000-4000-8000-0000000000bb"));
+    expect(await refused).toBeInstanceOf(CodexProviderRequestError);
+    harness.server.on("turn/steer", () => ({ result: { turnId: TURN_ID } }));
+    expect(await steer(harness, "9a1d8f30-0000-4000-8000-0000000000bc")).toEqual({
+      status: "applied",
+    });
   });
 
-  it("carries the steer's idempotency key verbatim, so a retry is deduplicated", async () => {
-    const harness = createHarness();
-    await createdSession(harness);
+  it("fails a steer that waited behind another once an interrupt retired its turn", async () => {
+    const harness = await liveSession();
     harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
     harness.server.on("turn/steer", () => ({ result: { turnId: TURN_ID } }));
-    await harness.driver.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "one" },
-    });
+    harness.server.on("turn/interrupt", () => ({ result: {} }));
+    await startRun(harness, "one");
+    const releaseAnswers = harness.server.holdAnswers("turn/steer");
+    const first = steer(harness, "9a1d8f30-0000-4000-8000-0000000000da");
+    const waiting = captureRejection(steer(harness, "9a1d8f30-0000-4000-8000-0000000000db"));
+    await drainMicrotasks();
 
-    await harness.driver.applyIntervention({
-      type: "steer",
-      targetRunId: RUN_ID,
-      expectedRunVersion: 1,
-      clientIdempotencyKey: "9a1d8f30-0000-4000-8000-0000000000aa",
-      payload: { content: "focus on the failing test", expectedTurnId: TURN_ID },
-    });
+    await harness.driver.interruptRun({ runId: RUN_ID });
+    releaseAnswers();
 
-    expect(harness.server.framesForMethod("turn/steer")[0]?.["params"]).toMatchObject({
-      clientUserMessageId: "9a1d8f30-0000-4000-8000-0000000000aa",
-    });
+    expect(await first).toEqual({ status: "applied" });
+    expect(await waiting).toBeInstanceOf(CodexTransportError);
+    // Only the steer sent while its turn was live reached Codex.
+    expect(
+      harness.server.paramsFor("turn/steer").map((params) => params?.["clientUserMessageId"]),
+    ).toStrictEqual(["9a1d8f30-0000-4000-8000-0000000000da"]);
   });
 });
 
@@ -140,32 +259,33 @@ describe("Codex ambiguous turn/start", () => {
     // An answer with no addressable turn id leaves the same question open as no answer.
     ["is answered with no usable turn id", { result: { turn: {} } }, CodexTransportError],
   ] as const)(
-    "kills the child, sends nothing again and frees the slot when turn/start %s",
+    "lets the conversation go, sends nothing again and keeps the service when turn/start %s",
     async (_label, answer, errorClass) => {
-      // With no clean answer the turn may have landed.
+      // With no clean answer the turn may have landed, and no route could ever reach it.
       const harness = await liveSession();
-      harness.server.uniqueSpawnSessionIds = true;
       if (answer !== undefined) {
         harness.server.on("turn/start", () => answer);
       }
 
       const failure = captureRejection(startRun(harness));
+      await drainMicrotasks();
       if (answer === undefined) {
         harness.scheduler.fireAll();
       }
 
       expect(await failure).toBeInstanceOf(errorClass);
-      // Killed, not merely closed: an accepted turn keeps executing tools.
-      expect(harness.server.killedSessions).toEqual(SIGKILLED);
+      await drainMicrotasks();
       expect(harness.server.framesForMethod("turn/start")).toHaveLength(1);
-      expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(false);
-      await harness.manager.createSession(CREATE_PARAMS);
-      expect(harness.server.spawnRequests).toHaveLength(2);
+      expect(harness.server.paramsFor("thread/unsubscribe")).toEqual([{ threadId: THREAD_ID }]);
+      // One conversation's fault never ends the account's service, which other sessions share.
+      await createdSession(harness);
+      expect(harness.server.launchCountFor(DEFAULT_CODEX_HOME)).toBe(1);
+      expect(harness.server.runningProcessCount()).toBe(1);
     },
   );
 
   it("keeps the session when the provider answers turn/start with a refusal", async () => {
-    // The refusal proves the turn never started, so there is nothing to kill.
+    // The refusal proves the turn never started, so there is nothing to let go.
     const harness = await liveSession();
     harness.server.on("turn/start", () => ({
       error: { code: -32600, message: "Invalid request" },
@@ -174,30 +294,30 @@ describe("Codex ambiguous turn/start", () => {
     const outcome = await captureRejection(startRun(harness));
 
     expect(outcome).toBeInstanceOf(CodexProviderRequestError);
-    expect(harness.server.killedSessions).toEqual([]);
+    expect(harness.server.framesForMethod("thread/unsubscribe")).toHaveLength(0);
     harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
     await startRun(harness);
-    expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(true);
+    expect(await takesInterrupt(harness)).toBe(true);
+  });
+
+  it("refuses a turn past the size Codex takes before sending it, keeping the session", async () => {
+    // Codex closes its socket on a message past the limit it names, which would end every
+    // conversation on the account's service, so the request never goes out.
+    const harness = await liveSession();
+    harness.server.sentMessageByteLimit = 4096;
+
+    const outcome = await captureRejection(startRun(harness, "x".repeat(4096)));
+
+    expect(outcome).toBeInstanceOf(CodexRequestTooLargeError);
+    expect(harness.server.framesForMethod("turn/start")).toHaveLength(0);
+    expect(harness.server.framesForMethod("thread/unsubscribe")).toHaveLength(0);
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    await startRun(harness);
+    expect(await takesInterrupt(harness)).toBe(true);
   });
 });
 
-describe("Codex turn route and the swallowed-message tripwire", () => {
-  /** A live session whose run has a started turn. */
-  async function runningTurn(
-    extra: { input?: string; frameOrigin?: string } = {},
-  ): Promise<ManagerHarness> {
-    const harness = await liveSession();
-    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-    await startRun(harness, extra.input ?? "go", extra);
-    return harness;
-  }
-
-  const SWALLOWED = {
-    sessionId: SESSION_ID,
-    runId: RUN_ID,
-    providerFailureDetail: "driver.text_neutralization_failed origin=human_text",
-  };
-
+describe("Codex turn route", () => {
   // `turn/completed` is the only terminal notification; a failure or an interrupt arrives on it
   // too. A finished turn left active would take interventions aimed at a retired turn id, and one
   // retired mid-flight would refuse a live steer or interrupt.
@@ -207,12 +327,14 @@ describe("Codex turn route and the swallowed-message tripwire", () => {
     ["failed", false],
     ["inProgress", true],
   ] as const)("on a %s terminal, leaves the turn active: %s", async (status, stillActive) => {
-    const harness = await runningTurn();
+    const harness = await liveSession();
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    await startRun(harness);
 
     harness.server.emitFrame(turnCompletedFrame(TURN_ID, status));
-    await Promise.resolve();
+    await drainMicrotasks();
 
-    expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(stillActive);
+    expect(await takesInterrupt(harness)).toBe(stillActive);
   });
 
   it("does not let a stale terminal retire a newer turn for the same run", async () => {
@@ -221,171 +343,77 @@ describe("Codex turn route and the swallowed-message tripwire", () => {
     harness.server.on("turn/start", () => ({ result: { turn: { id: nextTurnId } } }));
     await startRun(harness, "one");
     harness.server.emitFrame(turnCompletedFrame(TURN_ID, "completed"));
-    await Promise.resolve();
+    await drainMicrotasks();
     nextTurnId = "turn-02";
     await startRun(harness, "two");
 
     harness.server.emitFrame(turnCompletedFrame(TURN_ID, "completed"));
-    await Promise.resolve();
+    await drainMicrotasks();
 
-    expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(true);
+    expect(await takesInterrupt(harness)).toBe(true);
   });
 
-  it("trips when a swallowed turn ends in the same read chunk as its start response", async () => {
-    // The chunk is drained before `startRun` resumes, so the terminal settles a turn no frame is
-    // correlated with yet; a memory holding only turn ids would report the swallow as completed.
+  it("gives no route to a turn that ended in the same read chunk as its start answer", async () => {
+    // The terminal arrives before `startRun` resumes, so a route installed after it would hold a
+    // dead turn active, which nothing retires.
     const harness = await liveSession();
     harness.server.on("turn/start", () => ({
       result: { turn: { id: TURN_ID } },
-      trailingFrames: [zeroTurnCompletedFrame(TURN_ID)],
+      trailingFrames: [turnCompletedFrame(TURN_ID, "completed")],
     }));
 
-    await startRun(harness, "/status please", { frameOrigin: "human_text" });
+    await startRun(harness, "/status please");
 
-    expect(harness.textNeutralizationFailures).toStrictEqual([SWALLOWED]);
-    expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(false);
-  });
-
-  it("spares a real turn that settles in the same chunk with an unloaded item list", async () => {
-    // A false trip condemns a healthy session. The in-flight item is the evidence.
-    const harness = await liveSession();
-    harness.server.on("turn/start", () => ({
-      result: { turn: { id: TURN_ID } },
-      trailingFrames: [modelOutputItemFrame(TURN_ID), zeroTurnCompletedFrame(TURN_ID)],
-    }));
-
-    await startRun(harness, "review the diff", { frameOrigin: "human_text" });
-
-    expect(harness.textNeutralizationFailures).toStrictEqual([]);
-    expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(false);
-  });
-
-  it(
-    "condemns the binding a trip was seen on, and " +
-      "admits a fresh spawn under the same session id",
-    async () => {
-      const harness = await runningTurn({ input: "/status please", frameOrigin: "human_text" });
-      harness.server.uniqueSpawnSessionIds = true;
-      harness.server.emitFrame(zeroTurnCompletedFrame(TURN_ID));
-      await Promise.resolve();
-
-      // A run-keyed quarantine would hand the next run back to the process that swallowed the
-      // user's words; this one is refused before the provider is asked anything.
-      const writtenAfterTrip = harness.server.writtenLines.length;
-      await expect(startRun(harness, "carry on", { runId: SECOND_RUN_ID })).rejects.toThrow(
-        TextNeutralizationRefusedError,
-      );
-      expect(harness.server.writtenLines).toHaveLength(writtenAfterTrip);
-
-      // The quarantine names the binding, not the id, so recovery on a fresh process runs.
-      await drainMicrotasks();
-      await harness.manager.createSession(CREATE_PARAMS);
-      await expect(
-        startRun(harness, "carry on", { runId: SECOND_RUN_ID }),
-      ).resolves.toBeUndefined();
-    },
-  );
-
-  it("keeps the frame of a steer that timed out after its bytes were written", async () => {
-    // The provider may have intercepted the command-shaped message and be heading for a zero-turn
-    // success; withdrawing the frame is how that swallow would escape.
-    const harness = await runningTurn({ input: "review the diff", frameOrigin: "human_text" });
-    harness.server.emitFrame(modelOutputItemFrame(TURN_ID));
-    await Promise.resolve();
-
-    const steer = harness.manager.steerRun({
-      runId: RUN_ID,
-      content: "/clear and start over",
-      clientIdempotencyKey: "steer-1",
-      frameOrigin: "system_narration",
-    });
-    await drainMicrotasks();
-    expect(harness.server.framesForMethod("turn/steer")).toHaveLength(1);
-    harness.scheduler.fireAll();
-    await expect(steer).rejects.toBeInstanceOf(CodexRequestTimeoutError);
-
-    // Every item this terminal carries precedes the steer, so none of them is evidence for it.
-    harness.server.emitFrame(turnCompletedFrame(TURN_ID, "completed"));
-    await drainMicrotasks();
-
-    expect(
-      harness.textNeutralizationFailures.map((failure) => failure.providerFailureDetail),
-    ).toEqual(["driver.text_neutralization_failed origin=system_narration"]);
-    await expect(startRun(harness, "carry on", { runId: SECOND_RUN_ID })).rejects.toThrow(
-      TextNeutralizationRefusedError,
-    );
-  });
-
-  it("reports a trip on the run whose route an interrupt had already retired", async () => {
-    // The interrupt resolves on acceptance and the terminal still follows; without a correlation
-    // across that gap the run's subscribers would hear nothing while its process is condemned.
-    const harness = await runningTurn({ input: "/status please", frameOrigin: "human_text" });
-    harness.server.on("turn/interrupt", () => ({ result: {} }));
-    await harness.manager.interruptRun({ runId: RUN_ID });
-    expect(harness.manager.hasActiveTurn(RUN_ID)).toBe(false);
-
-    harness.server.emitFrame(zeroTurnCompletedFrame(TURN_ID));
-    await drainMicrotasks();
-
-    expect(harness.textNeutralizationFailures).toStrictEqual([SWALLOWED]);
-    await expect(startRun(harness, "carry on", { runId: SECOND_RUN_ID })).rejects.toThrow(
-      TextNeutralizationRefusedError,
-    );
+    expect(await takesInterrupt(harness)).toBe(false);
   });
 });
 
-describe("Codex rewind and re-realization", () => {
-  const WORKSPACE_POSTURE: ExecutionPosture = {
-    mode: "ask",
-    credentialPolicyRef: "policy://default",
-    writableRoots: ["/work/session"],
-  };
-  const FORKED = {
-    result: {
-      thread: { id: "thread-forked", sessionId: "session-tree-1", turns: [{ id: "turn-0" }] },
-    },
-  };
-  const APPLIED = { status: "applied", sessionPosition: 1, bindingId: "binding-abc" };
+describe("Codex rewind", () => {
+  const RESTARTED_THREAD_ID = "thread-restarted";
+  const APPLIED = { status: "applied", sessionPosition: 1 };
 
-  function paramsOf(harness: Harness, method: string): Record<string, unknown> {
-    return (harness.server.framesForMethod(method)[0]?.["params"] ?? {}) as Record<string, unknown>;
-  }
-
-  /** A live session resumed with two turns of history, the axis a rewind indexes. */
-  async function resumedWithTurns(
-    harness: Harness,
-    extra: Partial<Parameters<Harness["driver"]["resumeSession"]>[0]> = {},
-  ): Promise<void> {
-    harness.server.on("thread/resume", () => threadStartResult(2));
-    await harness.driver.resumeSession({
-      model: TEST_MODEL,
-      sessionId: SESSION_ID,
-      resumeHandle: THREAD_ID,
-      ...extra,
+  /**
+   * A session reopened onto two turns of history, served newest first over two pages; the rewind's
+   * fork holds the first turn alone.
+   */
+  async function resumedWithTurns(harness: Harness): Promise<void> {
+    harness.server.on("thread/turns/list", (params) => {
+      const request = params as Record<string, unknown>;
+      if (request["threadId"] !== RESTARTED_THREAD_ID) {
+        return { result: { data: [{ id: "turn-0" }], nextCursor: null } };
+      }
+      return request["cursor"] === undefined
+        ? { result: { data: [{ id: "turn-1" }], nextCursor: "page-2" } }
+        : { result: { data: [{ id: "turn-0" }], nextCursor: null } };
     });
+    // The restart forks the whole conversation; a rewind forks at a boundary.
+    harness.server.on("thread/fork", (params) =>
+      (params as Record<string, unknown>)["lastTurnId"] === undefined
+        ? threadReply(RESTARTED_THREAD_ID, params)
+        : threadReply("thread-forked", params, 1),
+    );
+    await harness.driver.resumeSession(RESUME_PARAMS);
   }
 
-  it("reports the minted binding, not the caller's, on an applied rewind", async () => {
-    // The daemon rebinds the run onto the new thread; echoing the predecessor's binding would
-    // route it to a dead one.
+  it("forks at the oldest-first boundary", async () => {
+    // A boundary read newest first would cut the wrong turn.
     const harness = createHarness();
     await resumedWithTurns(harness);
-    harness.server.on("thread/fork", () => FORKED);
 
     await expect(
-      harness.driver.forkConversation({
+      harness.driver.moveSessionToFork({
         sessionId: SESSION_ID,
         bindingId: "binding-predecessor",
         position: 1,
       }),
     ).resolves.toStrictEqual(APPLIED);
+    expect(harness.server.paramsFor("thread/fork").at(-1)?.["lastTurnId"]).toBe("turn-0");
   });
 
   it("refuses a position naming no recorded boundary, never forking the whole thread", async () => {
-    const harness = createHarness();
-    await createdSession(harness);
+    const harness = await liveSession();
 
-    const result = await harness.driver.forkConversation({
+    const result = await harness.driver.moveSessionToFork({
       sessionId: SESSION_ID,
       bindingId: "binding-abc",
       position: 0,
@@ -412,7 +440,7 @@ describe("Codex rewind and re-realization", () => {
       }));
 
       const refused = await captureRejection(
-        harness.driver.forkConversation({ sessionId: SESSION_ID, bindingId: "b", position: 1 }),
+        harness.driver.moveSessionToFork({ sessionId: SESSION_ID, bindingId: "b", position: 1 }),
       );
 
       expect(refused).toBeInstanceOf(CodexRewindBoundaryUnsupportedError);
@@ -420,302 +448,23 @@ describe("Codex rewind and re-realization", () => {
         "driver.capability_unsupported",
       );
       // A leaked slot would leave the session unable to rewind, resume or close again.
-      harness.server.on("thread/fork", () => FORKED);
+      harness.server.on("thread/fork", (params) => threadReply("thread-forked", params, 1));
       await expect(
-        harness.driver.forkConversation({ sessionId: SESSION_ID, bindingId: "b", position: 1 }),
+        harness.driver.moveSessionToFork({ sessionId: SESSION_ID, bindingId: "b", position: 1 }),
       ).resolves.toStrictEqual(APPLIED);
     },
   );
+});
 
-  it.each(["thread/resume", "thread/fork"])(
-    "re-sends posture and subagent caps on %s, which establishes a fresh thread",
-    async (method) => {
-      // Omitted, the thread runs under whatever the provider persisted, not what was declared.
-      const harness = createHarness();
-      await resumedWithTurns(harness, {
-        executionPosture: WORKSPACE_POSTURE,
-        subagentPolicy: { enabled: true, maxConcurrent: 3, maxDepth: 1, definitions: [] },
-      });
-      if (method === "thread/fork") {
-        harness.server.on("thread/fork", () => FORKED);
-        await harness.driver.forkConversation({
-          sessionId: SESSION_ID,
-          bindingId: "binding-abc",
-          position: 1,
-        });
-      }
-
-      const params = paramsOf(harness, method);
-      expect(params["sandbox"]).toBe("workspace-write");
-      expect(params["config"]).toStrictEqual({
-        "apps._default.default_tools_approval_mode": "writes",
-        "apps._default.approvals_reviewer": "user",
-        "agents.max_concurrent_threads_per_session": 3,
-        "agents.max_depth": 1,
-      });
-    },
-  );
-
-  it("hands a reviewed thread and its turns to Codex's own reviewer, and moves it per turn", async () => {
-    // A turn's reviewer routes that turn and every later one, so one turn sent to the person would
-    // undo the level for the thread; a run at another level moves the reviewer from its turn on.
-    const reviewed: ExecutionPosture = { ...WORKSPACE_POSTURE, mode: "reviewed" };
-    const created = createHarness();
-    created.server.on("thread/start", () => threadStartResult());
-    await created.driver.createSession({ ...CREATE_PARAMS, executionPosture: reviewed });
+describe("Codex helper limit", () => {
+  it("switches helpers off for a disabled policy", async () => {
     const harness = createHarness();
-    await resumedWithTurns(harness, { executionPosture: reviewed });
-    harness.server.on("thread/fork", () => FORKED);
-    await harness.driver.forkConversation({
-      sessionId: SESSION_ID,
-      bindingId: "binding-abc",
-      position: 1,
-    });
-    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-    await harness.driver.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "one" },
-    });
-    await harness.driver.startRun({
-      runId: SECOND_RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "two" },
-      executionPosture: WORKSPACE_POSTURE,
-    });
 
-    // A connector ask takes the `apps` table's reviewer before the conversation's.
-    for (const params of [
-      paramsOf(created, "thread/start"),
-      paramsOf(harness, "thread/resume"),
-      paramsOf(harness, "thread/fork"),
-    ]) {
-      expect(params["approvalsReviewer"]).toBe("auto_review");
-      expect(params["config"]).toMatchObject({ "apps._default.approvals_reviewer": "auto_review" });
-    }
-    const turnReviewers = harness.server
-      .framesForMethod("turn/start")
-      .map((frame) => (frame["params"] as Record<string, unknown>)["approvalsReviewer"]);
-    expect(turnReviewers).toStrictEqual(["auto_review", "user"]);
+    await harness.driver.createSession({ ...CREATE_PARAMS, subagentPolicy: { enabled: false } });
 
-    // A run at reviewed on a session at ask moves its turn to Codex's own reviewer.
-    const asking = createHarness();
-    asking.server.on("thread/start", () => threadStartResult());
-    asking.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-    await asking.driver.createSession({ ...CREATE_PARAMS, executionPosture: WORKSPACE_POSTURE });
-    await asking.driver.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "one" },
-      executionPosture: reviewed,
-    });
-    expect(paramsOf(asking, "turn/start")["approvalsReviewer"]).toBe("auto_review");
-  });
-
-  it("starts a yolo thread asking on request to the person, every connector on Codex's approve", async () => {
-    // With approvals off Codex refuses a forced `rm` instead of asking; under its own reviewer a
-    // removal would be answered in the person's place; without the connector default every
-    // connector call would ask.
-    const harness = createHarness();
-    harness.server.on("thread/start", () => threadStartResult());
-
-    await harness.driver.createSession({
-      ...CREATE_PARAMS,
-      executionPosture: { mode: "yolo", credentialPolicyRef: "policy://yolo", writableRoots: [] },
-      subagentPolicy: { enabled: true, maxConcurrent: 3, maxDepth: 1, definitions: [] },
-    });
-
-    const params = paramsOf(harness, "thread/start");
-    expect(params["sandbox"]).toBe("danger-full-access");
-    expect(params["approvalPolicy"]).toBe("on-request");
-    expect(params["approvalsReviewer"]).toBe("user");
-    expect(params["config"]).toStrictEqual({
-      "apps._default.default_tools_approval_mode": "approve",
-      "apps._default.approvals_reviewer": "user",
-      "agents.max_concurrent_threads_per_session": 3,
-      "agents.max_depth": 1,
+    expect(harness.server.paramsFor("thread/start")[0]?.["config"]).toMatchObject({
+      "features.multi_agent_v2": false,
+      "agents.enabled": false,
     });
   });
-
-  it("starts a sandboxed thread with approvals off, every connector write asking", async () => {
-    // The level just below yolo: a connector write not marked read-only asks, which approvals off
-    // refuses, rather than running in place of a write outside the worktree.
-    const harness = createHarness();
-    harness.server.on("thread/start", () => threadStartResult());
-
-    await harness.driver.createSession({
-      ...CREATE_PARAMS,
-      executionPosture: { ...WORKSPACE_POSTURE, mode: "sandboxed" },
-    });
-
-    const params = paramsOf(harness, "thread/start");
-    expect(params["approvalPolicy"]).toBe("never");
-    expect(params["config"]).toStrictEqual({
-      "apps._default.default_tools_approval_mode": "writes",
-      "apps._default.approvals_reviewer": "user",
-    });
-  });
-
-  /** A thread reply whose realized sandbox is the workspace one, reporting `networkAccess`. */
-  function workspaceThreadReply(
-    id: string,
-    turnCount: number,
-    networkAccess: boolean,
-  ): ReturnType<typeof threadStartResult> {
-    return {
-      result: {
-        thread: {
-          id,
-          sessionId: "session-tree-1",
-          turns: Array.from({ length: turnCount }, (_unused, index) => ({ id: `turn-${index}` })),
-        },
-        sandbox: { type: "workspaceWrite", writableRoots: [], networkAccess },
-      },
-    };
-  }
-
-  it.each(
-    (["thread/start", "thread/resume", "thread/fork"] as const).flatMap((method) =>
-      [true, false].map((networkAccess) => ({ method, networkAccess })),
-    ),
-  )(
-    "echoes the network access the $method reply reports ($networkAccess) on the next turn",
-    async ({ method, networkAccess }) => {
-      // The person's own Codex config decides the network; omitting the member would turn it off.
-      // The fork's thread reports the opposite of the one it left, so the turn must carry its own.
-      const harness = createHarness();
-      harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-      if (method === "thread/start") {
-        harness.server.on("thread/start", () => workspaceThreadReply(THREAD_ID, 0, networkAccess));
-        await harness.driver.createSession({
-          ...CREATE_PARAMS,
-          executionPosture: WORKSPACE_POSTURE,
-        });
-      } else {
-        const resumedNetworkAccess = method === "thread/fork" ? !networkAccess : networkAccess;
-        harness.server.on("thread/resume", () =>
-          workspaceThreadReply(THREAD_ID, 2, resumedNetworkAccess),
-        );
-        await harness.driver.resumeSession({
-          model: TEST_MODEL,
-          sessionId: SESSION_ID,
-          resumeHandle: THREAD_ID,
-          executionPosture: WORKSPACE_POSTURE,
-        });
-      }
-      if (method === "thread/fork") {
-        harness.server.on("thread/fork", () =>
-          workspaceThreadReply("thread-forked", 1, networkAccess),
-        );
-        await expect(
-          harness.driver.forkConversation({
-            sessionId: SESSION_ID,
-            bindingId: "binding-abc",
-            position: 1,
-          }),
-        ).resolves.toStrictEqual(APPLIED);
-      }
-
-      await harness.driver.startRun({
-        runId: RUN_ID,
-        agentConfig: { sessionId: SESSION_ID, input: "go" },
-      });
-
-      expect(paramsOf(harness, "turn/start")["sandboxPolicy"]).toMatchObject({
-        type: "workspaceWrite",
-        networkAccess,
-      });
-    },
-  );
-
-  it.each([
-    { label: "a Read Only session", mode: "readonly" },
-    { label: "a workspace session Codex realized as Read Only", mode: "ask" },
-  ] as const)(
-    "takes no network access from a Read Only thread reply, on $label",
-    async ({ mode }) => {
-      // The person's network setting drives only the workspace sandbox; a Read Only reply's member
-      // is Codex's own and says nothing about it.
-      const harness = createHarness();
-      harness.server.on("thread/start", () => ({
-        result: {
-          thread: { id: THREAD_ID, sessionId: "session-tree-1", turns: [] },
-          sandbox: { type: "readOnly", networkAccess: true },
-        },
-      }));
-      harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-      await harness.driver.createSession({
-        ...CREATE_PARAMS,
-        executionPosture: { ...WORKSPACE_POSTURE, mode },
-      });
-
-      await harness.driver.startRun({
-        runId: RUN_ID,
-        agentConfig: { sessionId: SESSION_ID, input: "go" },
-      });
-
-      expect(paramsOf(harness, "turn/start")["sandboxPolicy"]).not.toHaveProperty("networkAccess");
-    },
-  );
-
-  it.each([
-    { label: "a readonly run on a workspace session", session: WORKSPACE_POSTURE, run: "readonly" },
-    { label: "a yolo run on a workspace session", session: WORKSPACE_POSTURE, run: "yolo" },
-    {
-      label: "a posture-declaring run on a session started with none",
-      session: undefined,
-      run: "ask",
-    },
-  ] as const)("refuses $label before sending a turn", async ({ session, run }) => {
-    // The person's network setting is known only for the thread's own sandbox, and moving a
-    // conversation's level is a thread-level change, not a turn override.
-    const harness = createHarness();
-    harness.server.on("thread/start", () => workspaceThreadReply(THREAD_ID, 0, true));
-    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-    await harness.driver.createSession({
-      ...CREATE_PARAMS,
-      ...(session === undefined ? {} : { executionPosture: session }),
-    });
-
-    await expect(
-      harness.driver.startRun({
-        runId: RUN_ID,
-        agentConfig: { sessionId: SESSION_ID, input: "go" },
-        executionPosture: { ...WORKSPACE_POSTURE, mode: run },
-      }),
-    ).rejects.toBeInstanceOf(CodexTransportError);
-    expect(harness.server.framesForMethod("turn/start")).toStrictEqual([]);
-
-    // The session still takes a run its own sandbox admits: another level in the same mode, or
-    // none declared on a session started with none.
-    await harness.driver.startRun({
-      runId: SECOND_RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "go" },
-      ...(session === undefined ? {} : { executionPosture: { ...session, mode: "sandboxed" } }),
-    });
-    expect(harness.server.framesForMethod("turn/start")).toHaveLength(1);
-  });
-
-  const disablingPolicies: ReadonlyArray<readonly [string, SubagentPolicy]> = [
-    ["a disabled policy", { enabled: false }],
-    // Clamping up would grant a subagent slot to a caller who asked for none.
-    [
-      "an enabled policy below the provider floor",
-      { enabled: true, maxConcurrent: 0, maxDepth: 3, definitions: [] },
-    ],
-  ];
-
-  it.each(disablingPolicies)(
-    "disables subagents on the depth axis for %s",
-    async (_label, subagentPolicy) => {
-      // A zero concurrency cap is refused by the provider, which would fail every such session.
-      const harness = createHarness();
-      harness.server.on("thread/start", () => threadStartResult());
-
-      await harness.driver.createSession({ ...CREATE_PARAMS, subagentPolicy });
-
-      expect(paramsOf(harness, "thread/start")["config"]).toStrictEqual({
-        "apps._default.approvals_reviewer": "user",
-        "agents.max_concurrent_threads_per_session": 1,
-        "agents.max_depth": 0,
-      });
-    },
-  );
 });

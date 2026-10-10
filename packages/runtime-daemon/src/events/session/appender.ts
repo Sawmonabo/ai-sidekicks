@@ -14,6 +14,8 @@ import type { WriteStatement } from "../../database/statement.js";
 import type {
   EventLogAppendOptions,
   EventLogAppendReceipt,
+  ThinkingUpdateAppendOptions,
+  ThinkingUpdateReceipt,
   UnsequencedEventEnvelope,
 } from "../log-service.js";
 import { mintUuidV7 } from "../../uuid-v7.js";
@@ -21,13 +23,18 @@ import { mintUuidV7 } from "../../uuid-v7.js";
 /**
  * The durable append seam, typed against the append path's own signature. A table write that must
  * commit atomically with the event row is passed as `transactionalPrelude`, statements the append
- * path commits in the same write, just before the row.
+ * path commits in the same write, just before the row. An assistant's thinking update takes its
+ * own append, which a full write queue drops rather than waits on.
  */
 export interface SessionEventLog {
   append(
     envelope: UnsequencedEventEnvelope,
     options?: EventLogAppendOptions,
   ): Promise<EventLogAppendReceipt>;
+  appendThinkingUpdate(
+    envelope: UnsequencedEventEnvelope,
+    options?: ThinkingUpdateAppendOptions,
+  ): Promise<ThinkingUpdateReceipt>;
 }
 
 /** Dependencies of a session event producer; every member but `sessionEvents` has a default. */
@@ -138,6 +145,26 @@ export class SessionEventAppender {
       ...(linkage.content !== undefined ? { content: linkage.content } : {}),
       ...(precedingEvents.length > 0 ? { precedingEvents } : {}),
     });
+  }
+
+  /**
+   * Appends one `assistant.thinking_update` with its body through the log's drop-when-full append,
+   * resolving with whether it was stored. Throws as {@link append} does.
+   */
+  async appendThinkingUpdate(
+    payload: AppendedPayload,
+    content: NonNullable<ThinkingUpdateAppendOptions["content"]>,
+  ): Promise<ThinkingUpdateReceipt> {
+    return this.#sessionEvents.appendThinkingUpdate(
+      this.#envelopeOf(
+        "assistant.thinking_update",
+        payload.sessionId,
+        payload.actor ?? null,
+        payload,
+        {},
+      ),
+      { monotonicNs: this.#monotonicNow(), content },
+    );
   }
 
   #envelopeOf(

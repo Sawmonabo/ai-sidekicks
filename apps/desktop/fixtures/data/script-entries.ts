@@ -11,10 +11,9 @@
 //   - `atMs` is non-decreasing: the engine delivers the contiguous due prefix, so a beat that
 //     goes back in time would be delivered late or never. The builder throws instead.
 //
-// The payload builders carry the registered shapes and nothing else. `run.queued`,
-// `assistant.*` and `tool.*` have `.strict()` variants in `@ai-sidekicks/contracts`,
-// so an extra member is rejected on the wire; the other run transitions and `subagent.*` have
-// none.
+// The payload builders carry the registered shapes and nothing else. The run transitions,
+// `assistant.*`, `tool.*` and `subagent.*` have `.strict()` variants in `@ai-sidekicks/contracts`,
+// so an extra member is rejected on the wire.
 
 import type { AgentListEntry } from "@ai-sidekicks/contracts/agent/methods";
 import type { RunCompletionKind } from "@ai-sidekicks/contracts/run/control";
@@ -157,6 +156,8 @@ interface AssistantOutputInput {
   readonly runId: string;
   /** `assistant.message` or `assistant.thinking_update`. */
   readonly kind: string;
+  /** The provider's own id of the message this piece belongs to, shared by its other pieces. */
+  readonly providerMessageId: string;
   /** Media type of the body, which the producer sets and the codec does not. */
   readonly contentType: string;
   /** The stored body, whose UTF-8 byte length the payload carries. */
@@ -261,6 +262,7 @@ export function assistantOutputEntry(input: AssistantOutputInput): ScriptEntry {
     payload: {
       sessionId: input.sessionId,
       runId: input.runId,
+      providerMessageId: input.providerMessageId,
       contentType: input.contentType,
       contentLength: new TextEncoder().encode(input.body).byteLength,
     },

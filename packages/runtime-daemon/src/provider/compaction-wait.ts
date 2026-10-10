@@ -3,16 +3,17 @@
  * is done (an empty acknowledgement, or no answer to the command frame at all), so `applied` is
  * admitted only by the provider's typed compaction frame: dispatch, then wait for it.
  *
- * - The wait ends when the driver's bound elapses (one timer per waiter, no polling) or the
- *   binding stops being live (pushed in from the driver's disposal paths).
+ * - The wait has no time limit of its own: it ends when the frame arrives, when the provider ends
+ *   the compaction's turn without one, or when the binding stops being live (pushed in from the
+ *   driver's disposal paths).
  * - `observeBoundary` taps the frame's ordinary route; a late frame still normalizes into
  *   `usage.context_compacted` whether or not anyone waits.
  * - Settlement is per key; withdrawal is per waiter and is not a settlement.
  */
 
-// `observed` alone admits `applied`; the caller maps the other two onto its own
+// `observed` alone admits `applied`; the caller maps `not_compacted` and `binding_lost` onto its own
 // `DriverCompactionResult` failure reasons.
-type CompactionWaitTerminal = "observed" | "wait_expired" | "binding_lost";
+type CompactionWaitTerminal = "observed" | "not_compacted" | "binding_lost";
 
 /** The settlement handed back to one waiter; `boundaryPosition` is `null` unless observed. */
 export interface CompactionWaitSettlement {
@@ -20,17 +21,7 @@ export interface CompactionWaitSettlement {
   readonly boundaryPosition: number | null;
 }
 
-/**
- * How long a user-triggered compaction waits for typed evidence before it is reported failed: a
- * bound the daemon publishes, not a provider figure, and longer than a request deadline because
- * compaction is model work. The provider is never canceled; a late frame keeps its ordinary route.
- */
-export const COMPACTION_WAIT_MS = 120_000;
-
-/** Schedules a one-shot callback and returns its canceler; injected so tests skip real waits. */
-export type CompactionWaitScheduler = (callback: () => void, delayMs: number) => () => void;
-
-// Carries `settle` alone, so a key-wide pass cannot cancel a sibling's timer.
+// One waiter's registration, through which a key-wide pass settles it.
 interface RegisteredCompactionWait {
   readonly settle: (settlement: CompactionWaitSettlement) => void;
 }
@@ -42,9 +33,17 @@ interface RegisteredCompactionWait {
 export interface ArmedCompactionWait {
   /** Resolves on the wait's terminal; never rejects, never settles once withdrawn. */
   readonly settled: Promise<CompactionWaitSettlement>;
-  /** Cancels this waiter's timer and registration. Idempotent; touches no sibling waiter. */
+  /** Cancels this waiter's registration. Idempotent; touches no sibling waiter. */
   abandon(): void;
 }
+
+/** Why a wait settled with no compaction, in words for the driver's diagnostic. */
+export const COMPACTION_WAIT_FAILURE_DETAIL: Readonly<
+  Record<Exclude<CompactionWaitTerminal, "observed">, string>
+> = {
+  not_compacted: "the provider ended the compaction's turn without a compaction frame",
+  binding_lost: "the binding stopped being live before a compaction frame arrived",
+};
 
 /**
  * The pending compactions of one driver, keyed by the driver's own address for a live binding.
@@ -55,18 +54,13 @@ export interface ArmedCompactionWait {
  */
 export class PendingCompactionRegistry {
   readonly #waitsByKey: Map<string, Set<RegisteredCompactionWait>> = new Map();
-  readonly #scheduleTimeout: CompactionWaitScheduler;
-
-  constructor(scheduleTimeout: CompactionWaitScheduler) {
-    this.#scheduleTimeout = scheduleTimeout;
-  }
 
   /**
    * Arms a wait for `key`. Arm before dispatching: a frame delivered between the request resolving
-   * and the registration would hit an empty registry and the caller would wait out the full bound.
+   * and the registration would hit an empty registry and the wait would see no frame.
    * `settled` never rejects.
    */
-  arm(key: string, boundMs: number): ArmedCompactionWait {
+  arm(key: string): ArmedCompactionWait {
     // Assigned inside the executor (which runs synchronously) to share its `closed` flag.
     let abandon!: () => void;
     const settled = new Promise<CompactionWaitSettlement>((resolve) => {
@@ -80,24 +74,13 @@ export class PendingCompactionRegistry {
         resolve(settlement);
       };
 
-      const cancelTimer = this.#scheduleTimeout(() => {
-        settleOnce({ terminal: "wait_expired", boundaryPosition: null });
-      }, boundMs);
-
-      const registration: RegisteredCompactionWait = {
-        settle: (settlement) => {
-          cancelTimer();
-          settleOnce(settlement);
-        },
-      };
+      const registration: RegisteredCompactionWait = { settle: settleOnce };
 
       abandon = (): void => {
         if (closed) {
           return;
         }
-        // Close first: a canceler that fails to stop its timer must not settle a withdrawn wait.
         closed = true;
-        cancelTimer();
         this.#forget(key, registration);
       };
 
@@ -114,6 +97,14 @@ export class PendingCompactionRegistry {
   /** A typed compaction frame arrived on `key`: settles every waiter; a no-op with none armed. */
   observeBoundary(key: string, boundaryPosition: number | null): void {
     this.#settleAll(key, { terminal: "observed", boundaryPosition });
+  }
+
+  /**
+   * The provider ended the turn that ran the compaction on `key`, which delivers its frame before
+   * that end: settles every waiter still armed, the frame having not come. A no-op with none.
+   */
+  observeTurnEnd(key: string): void {
+    this.#settleAll(key, { terminal: "not_compacted", boundaryPosition: null });
   }
 
   /** The binding behind `key` is gone (teardown, quarantine): settles every waiter. Idempotent. */

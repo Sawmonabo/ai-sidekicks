@@ -1,7 +1,8 @@
 // The run engine: every run state change goes through it, each checked against the table and
 // written with the run's row, and each terminal followed by the terminal hooks of the setup gates.
-// It also tells a session when a run's provider does not run it at the fast output level it
-// carried.
+// It also starts the runs of the turns the daemon starts on a session itself and of a provider's
+// own subagents, records the markers a provider reports on a live run, and tells a session when a
+// run's provider does not run it at the fast output level it carried.
 
 import type { Database } from "better-sqlite3";
 
@@ -9,30 +10,45 @@ import {
   EventEnvelopeVersionSchema,
   type EventEnvelopeVersion,
 } from "@ai-sidekicks/contracts/event/envelope";
-import type { ProcessExit, RunSetupFailedCause } from "@ai-sidekicks/contracts/run/control";
+import type { ProcessExit } from "@ai-sidekicks/contracts/run/control";
+import type { RunSetupFailedCause } from "@ai-sidekicks/contracts/run/failure-cause";
 import type { InterruptReason } from "@ai-sidekicks/contracts/orchestration";
-import type { InterventionEventPayload } from "@ai-sidekicks/contracts/run/events";
-import type { RunId } from "@ai-sidekicks/contracts/run/id";
+import type {
+  InterventionEventPayload,
+  RunProviderInitializedPayload,
+  RunTurnStartedPayload,
+  RunWorkerShutdownPayload,
+} from "@ai-sidekicks/contracts/run/events";
+import { RunIdSchema, type RunId } from "@ai-sidekicks/contracts/run/id";
+import type { RunQueuedPayload } from "@ai-sidekicks/contracts/run/queued";
 import type { RunState } from "@ai-sidekicks/contracts/run/state";
 import type { QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
 import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
+import { ProviderAccountIdSchema } from "@ai-sidekicks/contracts/provider/account/record";
 import type { ProviderOutputSpeedState } from "@ai-sidekicks/contracts/provider/driver/output-speed";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import type { SessionNoticePayload } from "@ai-sidekicks/contracts/session/controls/events";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
+import type { WriteStatement } from "../../database/statement.js";
+import { WriteRefusedError } from "../../database/writer.js";
 import { DaemonDomainError } from "../../ipc/domain-error.js";
 import {
   SessionEventAppender,
   type SessionEventAppenderDeps,
+  type SessionEventDraft,
 } from "../../events/session/appender.js";
-import { moveInterventionStatement } from "../../interventions/store.js";
+import { moveInterventionStatement, runAtVersionStatement } from "../../interventions/store.js";
+import type { ExecutionPostureService } from "../../policy/execution-posture-service.js";
 import {
   boundFailureDetail,
   type ProviderDriver,
   type StartRunParams,
 } from "../../provider/driver/contract.js";
 import { PROVIDER_DRIVER_DESCRIPTORS } from "../../provider/driver/descriptor.js";
+import { mintUuidV7 } from "../../uuid-v7.js";
+import { insertQueuedRunStatement } from "./projection.js";
+import { RunAgentReader } from "./agent.js";
 import { RunStateReader, type LiveRun, type RunRead } from "./read.js";
 import { RunAlreadyEndedError, RunInvalidTransitionError, RunNotFoundError } from "./refusals.js";
 import {
@@ -48,6 +64,7 @@ import {
   type RunStateChangeCompanions,
 } from "./state-change.js";
 import { isTerminalState } from "./transitions.js";
+import { describeRejection } from "../../rejection.js";
 
 // Parsed at load so a bad literal throws at import, not at the first change.
 const RUN_ENGINE_EVENT_VERSION: EventEnvelopeVersion = EventEnvelopeVersionSchema.parse("1.0");
@@ -56,6 +73,10 @@ const DRIVER_START_FAILURE_FALLBACK = "The provider could not start the run";
 const RESTART_FAILURE_FALLBACK = "The run could not be resumed after the service restarted";
 const SETUP_FAILURE_FALLBACK = "The run's setup failed";
 const RESTART_INTERRUPT_TRIGGER: InterruptReason = "daemon_restart";
+// Reads of a live run before a guarded append gives up on a run that keeps moving under it.
+const LIVE_APPEND_ATTEMPTS = 3;
+// The guard on the version a live append was built from is the first statement of its write.
+const LIVE_APPEND_VERSION_GUARD_INDEX = 0;
 
 /**
  * Where an interrupt of a run goes: `claimed` by the engine for a run no driver has, whose end is
@@ -83,6 +104,28 @@ export type RunTransitionRequest =
   | Exclude<RunStateChange, { newState: "running" }>
   | Omit<Extract<RunStateChange, { newState: "running" }>, "executionPosture">;
 
+type RunMarkerPayloadByType = {
+  "run.provider_initialized": RunProviderInitializedPayload;
+  "run.turn_started": RunTurnStartedPayload;
+  "run.worker_shutdown": RunWorkerShutdownPayload;
+};
+
+/**
+ * A marker a provider reports on a live run, which changes no state. Its payload leaves out the
+ * session and run version, which the engine reads from the run when it records the marker.
+ */
+export type RunMarker = {
+  [Type in keyof RunMarkerPayloadByType]: {
+    readonly type: Type;
+    readonly payload: Omit<RunMarkerPayloadByType[Type], "sessionId" | "runVersion">;
+  };
+}[keyof RunMarkerPayloadByType];
+
+// A row a live append writes, with the statements that go in its write after the version guard.
+interface LiveAppend extends SessionEventDraft {
+  readonly statements?: readonly WriteStatement[] | undefined;
+}
+
 /** What {@link RunEngine.startRun} needs: the admitted item, the driver, and what it is handed. */
 export interface RunStartRequest {
   readonly runId: RunId;
@@ -91,23 +134,59 @@ export interface RunStartRequest {
   readonly provider: ProviderName;
   readonly driver: Pick<ProviderDriver, "startRun">;
   readonly driverParams: Omit<StartRunParams, "runId" | "executionPosture">;
-  /** The run's effective posture: handed to the driver and stamped on `run.running` as is. */
+  /**
+   * The posture the run was requested at; the posture gate checks it, and its resolved form is what
+   * the driver is handed and `run.running` is stamped with.
+   */
   readonly executionPosture: ExecutionPosture;
+}
+
+/**
+ * What {@link RunEngine.startDaemonTurn} needs: the session whose own run the turn is, the account
+ * its process was admitted against, the posture it runs at, and the driver's start of the turn.
+ */
+export interface DaemonTurnStartRequest {
+  readonly sessionId: SessionId;
+  readonly provider: ProviderName;
+  /** The account the session's process was admitted against, or `null` for none. */
+  readonly admittedProviderAccountId: string | null;
+  /** The session's current level and roots, which the turn runs at like any run. */
+  readonly executionPosture: ExecutionPosture;
+  /**
+   * The driver's start of the turn under the new run's id: it binds the run and writes the turn's
+   * opening, and resolves once it is written. A throw ends the run `failed`.
+   */
+  readonly startTurn: (runId: RunId) => Promise<void>;
+}
+
+// How one start reaches its driver, handed the run's resolved posture, and the posture requested.
+interface RunStartPath {
+  readonly provider: ProviderName;
+  readonly outputSpeed: string | undefined;
+  readonly executionPosture: ExecutionPosture;
+  readonly startDriver: (resolvedPosture: ExecutionPosture) => Promise<void>;
 }
 
 /** What the run engine reads and writes through. */
 export interface RunEngineDeps extends SessionEventAppenderDeps {
   /** The daemon's read-only connection. */
   readonly reader: Database;
+  /**
+   * The posture gate, registered as the first setup gate; every start reads the run's resolved
+   * posture from it.
+   */
+  readonly executionPostures: ExecutionPostureService;
 }
 
 /** Owns every run state change and the setup gates a run passes before its provider starts it. */
 export class RunEngine {
   readonly #runs: RunStateReader;
+  readonly #agents: RunAgentReader;
   readonly #pendingInterrupts: PendingInterruptReader;
   readonly #changes: RunStateChangeWriter;
   readonly #appender: SessionEventAppender;
   readonly #gates = new RunSetupGates();
+  readonly #executionPostures: ExecutionPostureService;
   // The runs no driver has yet; an entry goes once the driver has its run or the run ends.
   readonly #startingRuns = new Map<RunId, StartingRun>();
   // The fast output level each started run carried, until its settled state is reported or it
@@ -116,9 +195,12 @@ export class RunEngine {
 
   constructor(deps: RunEngineDeps) {
     this.#runs = new RunStateReader(deps.reader);
+    this.#agents = new RunAgentReader(deps.reader);
     this.#pendingInterrupts = new PendingInterruptReader(deps.reader);
     this.#appender = new SessionEventAppender(deps, RUN_ENGINE_EVENT_VERSION);
     this.#changes = new RunStateChangeWriter(this.#runs, this.#appender);
+    this.#executionPostures = deps.executionPostures;
+    this.#gates.register(deps.executionPostures);
   }
 
   /**
@@ -151,24 +233,79 @@ export class RunEngine {
   }
 
   /**
-   * Moves the run as `request` asks and resolves with the run as the change left it. A terminal
-   * runs every terminal hook once it has committed; a hook's failure is thrown after all have run,
-   * as an `AggregateError`, with the change kept. Refuses as {@link RunStateChangeWriter.write}.
+   * Moves the run as `request` asks, with `companions` in the same write, and resolves with the run
+   * as the change left it. A terminal runs every terminal hook once it has committed; a hook's
+   * failure is thrown after all have run, as an `AggregateError`, with the change kept. Refuses as
+   * {@link RunStateChangeWriter.write}, a companion guard by its `WriteRefusedError`.
    */
-  async transition(request: RunTransitionRequest): Promise<RunRead> {
-    return this.#change(request);
+  async transition(
+    request: RunTransitionRequest,
+    companions?: RunStateChangeCompanions,
+  ): Promise<RunRead> {
+    return this.#change(request, companions);
   }
 
   /**
-   * Starts a queued run: `starting`, every setup gate in order, the driver's start, then `running`
-   * stamped with the posture the driver was handed. A gate's throw ends the run `failed` with the
-   * gate's error as its cause, unless an interrupt claimed or ended it first, and is rethrown; a
-   * run interrupted in its gates is never handed to the driver; a driver's throw ends the run
-   * `failed` and is rethrown. An interrupt that arrives after the gates is routed once the start
-   * settles (see {@link routeInterrupt}).
+   * Starts a queued run: `starting`, every setup gate in order, the driver's start with the posture
+   * the posture gate resolved, then `running` stamped with that posture. A gate's throw ends the
+   * run `failed` with the gate's error as its cause, unless an interrupt claimed or ended it first,
+   * and is rethrown; a run interrupted in its gates is never handed to the driver; a driver's throw
+   * ends the run `failed` and is rethrown. An interrupt that arrives after the gates is routed once
+   * the start settles (see {@link routeInterrupt}).
    */
   async startRun(request: RunStartRequest): Promise<RunRead> {
     const { runId, queueItem, provider, driver, driverParams, executionPosture } = request;
+    return await this.#start(runId, queueItem, {
+      provider,
+      outputSpeed: driverParams.outputSpeedForTurn ?? driverParams.outputSpeed,
+      executionPosture,
+      startDriver: async (resolvedPosture) => {
+        await driver.startRun({ ...driverParams, runId, executionPosture: resolvedPosture });
+      },
+    });
+  }
+
+  /**
+   * Starts a turn the daemon starts on a session itself, such as a goal or a review, as the
+   * session's own run: `run.queued` naming the session's lead and no parent, then the start
+   * {@link startRun} makes, its
+   * setup gates given no queue item, and resolves with the new run's id once it is `running`.
+   * Throws as {@link startRun} does.
+   */
+  async startDaemonTurn(request: DaemonTurnStartRequest): Promise<RunId> {
+    const runId = RunIdSchema.parse(mintUuidV7());
+    const accountId = request.admittedProviderAccountId;
+    const queued: RunQueuedPayload = {
+      sessionId: request.sessionId,
+      runId,
+      runVersion: 0,
+      newState: "queued",
+      agentId: this.#agents.readLeadAgent(request.sessionId),
+      ...(accountId === null
+        ? {}
+        : { admittedProviderAccountId: ProviderAccountIdSchema.parse(accountId) }),
+    };
+    await this.#appender.append("run.queued", queued, {
+      transactionalPrelude: [insertQueuedRunStatement(queued)],
+    });
+    await this.#start(runId, undefined, {
+      provider: request.provider,
+      outputSpeed: undefined,
+      executionPosture: request.executionPosture,
+      startDriver: async () => {
+        await request.startTurn(runId);
+      },
+    });
+    return runId;
+  }
+
+  // `starting`, every setup gate, the driver's start, then `running`; see {@link startRun}.
+  async #start(
+    runId: RunId,
+    queueItem: QueueItemSummary | undefined,
+    startPath: RunStartPath,
+  ): Promise<RunRead> {
+    const { provider, executionPosture } = startPath;
     const starting = await this.#change({ runId, expectedState: "queued", newState: "starting" });
     const settled = Promise.withResolvers<boolean>();
     const startingRun: StartingRun = {
@@ -181,7 +318,12 @@ export class RunEngine {
     let hasDriverRun = false;
     try {
       try {
-        await this.#gates.assertRunReady({ runId, sessionId: starting.sessionId, queueItem });
+        await this.#gates.assertRunReady({
+          runId,
+          sessionId: starting.sessionId,
+          queueItem,
+          executionPosture,
+        });
       } catch (gateError) {
         startingRun.phase = "settling";
         if (!startingRun.isInterrupted) {
@@ -199,9 +341,16 @@ export class RunEngine {
       if (startingRun.isInterrupted || afterGates.state !== "starting") {
         throw new RunInvalidTransitionError(runId, afterGates.state, "running");
       }
+      // The driver runs at, and the run records, the posture the gate checked and resolved.
+      const resolvedPosture = this.#executionPostures.resolvedPostureFor(runId);
+      if (resolvedPosture === undefined) {
+        const missing = new Error(`Run ${runId} passed its gates with no resolved posture`);
+        await this.#failSetup(runId, missing);
+        throw missing;
+      }
 
       // Held before the driver starts, since the driver may report the settled state at once.
-      const carriedOutputSpeed = driverParams.outputSpeed;
+      const carriedOutputSpeed = startPath.outputSpeed;
       if (
         carriedOutputSpeed !== undefined &&
         carriedOutputSpeed !== PROVIDER_DRIVER_DESCRIPTORS[provider].standardOutputSpeed
@@ -209,7 +358,7 @@ export class RunEngine {
         this.#carriedOutputSpeedByRun.set(runId, carriedOutputSpeed);
       }
       try {
-        await driver.startRun({ ...driverParams, runId, executionPosture });
+        await startPath.startDriver(resolvedPosture);
       } catch (driverError) {
         await this.#failStart(runId, driverError);
         throw driverError;
@@ -221,7 +370,7 @@ export class RunEngine {
         runId,
         expectedState: "starting",
         newState: "running",
-        executionPosture,
+        executionPosture: resolvedPosture,
       });
     } finally {
       // After a failed start's end is written or its write failed: a run left live without a
@@ -239,14 +388,67 @@ export class RunEngine {
    * Moves the run as a provider reported, as {@link transition} does, unless the run has already
    * ended: then a terminal is refused with {@link RunAlreadyEndedError} and any other change with
    * {@link RunInvalidTransitionError} from the ended state, whether the run read ended or ended
-   * inside the write. A send's re-open of an ended run is the daemon's, never a provider's.
+   * inside the write. A change for a run whose driver is still starting it waits until that start
+   * has settled, since a provider can answer before `running` is written; so a driver's start never
+   * waits on its own run's change. A send's re-open of an ended run is the daemon's, never a
+   * provider's.
    */
   async applyProviderStateChange(change: RunTransitionRequest): Promise<RunRead> {
+    const startingRun = this.#startingRuns.get(change.runId);
+    if (startingRun?.phase === "settling") {
+      await startingRun.settled;
+    }
     const run = this.#runs.getRun(change.runId);
     if (run !== undefined && isTerminalState(run.state)) {
       throw endedRunRefusal(change, run.state);
     }
     return this.#change(change);
+  }
+
+  /**
+   * Starts the run of a subagent the provider started beneath `parentRunId`, sharing its process:
+   * `run.queued` naming the parent and the parent's agent, which asked its provider for the
+   * subagent, then `starting` and `running`, and resolves with the new run's
+   * id. Resolves `undefined` with nothing written when the parent has ended, and throws
+   * {@link RunNotFoundError} for a parent the daemon has no run for.
+   */
+  async startProviderSubagentRun(parentRunId: RunId): Promise<RunId | undefined> {
+    const runId = RunIdSchema.parse(mintUuidV7());
+    const parent = await this.#appendWhileLive(parentRunId, (parentRun) => {
+      const queued: RunQueuedPayload = {
+        sessionId: parentRun.sessionId,
+        runId,
+        runVersion: 0,
+        newState: "queued",
+        agentId: this.#agents.readAgent(parentRun.sessionId, parentRunId),
+        parentRunId,
+        reachedBy: "provider_subagent",
+      };
+      return {
+        type: "run.queued",
+        payload: queued,
+        statements: [insertQueuedRunStatement(queued)],
+      };
+    });
+    if (parent === undefined) {
+      return undefined;
+    }
+    await this.#change({ runId, expectedState: "queued", newState: "starting" });
+    await this.#change({ runId, expectedState: "starting", newState: "running" });
+    return runId;
+  }
+
+  /**
+   * Records `marker` on its run at the run's current version and resolves with the id of the event
+   * written. Resolves `undefined` with nothing written when the run has ended, and throws
+   * {@link RunNotFoundError} for a run the daemon has no row for.
+   */
+  async appendRunMarker(marker: RunMarker): Promise<string | undefined> {
+    const recorded = await this.#appendWhileLive(marker.payload.runId, (run) => ({
+      type: marker.type,
+      payload: { ...marker.payload, sessionId: run.sessionId, runVersion: run.version },
+    }));
+    return recorded?.eventId;
   }
 
   /**
@@ -363,6 +565,38 @@ export class RunEngine {
     );
   }
 
+  // Appends the row `build` makes from the run as it reads now, guarded on that read's version so
+  // a move in between reads the run again. Resolves with the read it appended at and the event's
+  // id, or `undefined` with nothing written once the run has ended.
+  async #appendWhileLive(
+    runId: RunId,
+    build: (run: RunRead) => LiveAppend,
+  ): Promise<{ readonly run: RunRead; readonly eventId: string } | undefined> {
+    for (let attempt = 1; ; attempt += 1) {
+      const run = this.#runs.getRun(runId);
+      if (run === undefined) {
+        throw new RunNotFoundError(runId);
+      }
+      if (isTerminalState(run.state)) {
+        return undefined;
+      }
+      const { type, payload, statements = [] } = build(run);
+      try {
+        const receipt = await this.#appender.append(type, payload, {
+          transactionalPrelude: [runAtVersionStatement(runId, run.version), ...statements],
+        });
+        return { run, eventId: receipt.id };
+      } catch (error) {
+        const hasRunMoved =
+          error instanceof WriteRefusedError &&
+          error.statementIndex === LIVE_APPEND_VERSION_GUARD_INDEX;
+        if (!hasRunMoved || attempt === LIVE_APPEND_ATTEMPTS) {
+          throw error;
+        }
+      }
+    }
+  }
+
   // A run that ends while no driver has it: an entry still settling learns it ended; a claimable one
   // has nothing left to claim.
   #markStartingRunEnded(runId: RunId): void {
@@ -415,7 +649,7 @@ export class RunEngine {
   }
 
   async #failStart(runId: RunId, driverError: unknown): Promise<void> {
-    const detail = driverError instanceof Error ? driverError.message : String(driverError);
+    const detail = describeRejection(driverError);
     try {
       await this.#change({
         runId,
@@ -460,10 +694,7 @@ function appliedInterruptOf(
 
 // The cause a gate's throw records: a coded daemon error's code, and the error's own words.
 function setupFailedCause(gateError: unknown): RunSetupFailedCause {
-  const message = boundFailureDetail(
-    gateError instanceof Error ? gateError.message : String(gateError),
-    SETUP_FAILURE_FALLBACK,
-  );
+  const message = boundFailureDetail(describeRejection(gateError), SETUP_FAILURE_FALLBACK);
   return gateError instanceof DaemonDomainError
     ? { cause: "setup-failed", origin: "daemon", code: gateError.code, message }
     : { cause: "setup-failed", origin: "daemon", message };

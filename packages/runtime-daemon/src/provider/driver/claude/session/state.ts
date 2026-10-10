@@ -4,16 +4,27 @@
  */
 
 import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
-import type { RunId } from "@ai-sidekicks/contracts/run/id";
+import type { SessionMode } from "@ai-sidekicks/contracts/session/controls/methods";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
-import { type CompactionWaitScheduler } from "../../../compaction-wait.js";
-import type { RunOutputSpeedSettledListener } from "../../../declared-output-speed.js";
+import type { StagedChangesWorktree } from "../../../../git/worktree/staged-changes.js";
+import type { ExecutionPostureService } from "../../../../policy/execution-posture-service.js";
+import type { RunEngine } from "../../../../session/run/engine.js";
+import type { RunInboundDispatch } from "../../../../session/run/inbound.js";
+import type { PermissionAskPort } from "../../../port/permission-ask.js";
+import type { QuestionPort } from "../../../port/question.js";
+import type { PortRegistration } from "../../../port/registration.js";
+import type { ReviewerDenialPort } from "../../../port/reviewer-denial.js";
+import type { RuntimeBindingRebind } from "../../../runtime-binding-store.js";
 import type { DriverDiagnosticsEmitter } from "../../diagnostics.js";
-import type { SpawnEnvPair } from "../../../spawn-env.js";
+import type { ProviderOperatingSystem } from "../../../operating-system/contract.js";
+import type {
+  ClaudeAccountFolders,
+  SessionEnvironmentRows,
+  SpawnEnvPair,
+} from "../../../spawn-env.js";
 import {
   ThreadFrameRouter,
   type RoutableProviderFrame,
-  type SubagentLifecycleEmission,
   type ThreadFrameRoute,
   type ThreadFrameRouterConfig,
 } from "../../../thread-frame-router.js";
@@ -22,13 +33,13 @@ import {
   type CumulativeAxisReadings,
   type MeteredUsageDelta,
 } from "../../../usage-delta-accountant.js";
-import {
-  type TextNeutralityMechanismGrade,
-  type TextNeutralizationRunFailure,
-} from "../../../outbound-frame.js";
+import type { DriverResumeResult } from "../../contract.js";
+import type { ClaudeAttachedAdvisor, ClaudeCommandChoices } from "./answered-commands.js";
+import type { ClaudeDeadlineScheduler } from "./control-requests.js";
 import type {
   ClaudeHandshakeDeclaration,
   ClaudeInboundFrameObservation,
+  ClaudeInitializeDeclaration,
   ClaudeRunDispatchResolver,
   ClaudeProviderProcess,
   ClaudeSessionTransport,
@@ -60,6 +71,57 @@ export interface ClaudeSpawnBinding {
   readonly outputSchemaDigest: string | undefined;
 }
 
+/** Where and as whom one session's process runs, resolved by the daemon at every spawn. */
+interface ClaudeSessionSpawnContext {
+  /** The session's working folder, absolute. */
+  readonly workingDirectory: string;
+  readonly environmentRows: SessionEnvironmentRows | undefined;
+  /** The account home the app manages, or `undefined` for the person's own Claude Code home. */
+  readonly accountFolders: ClaudeAccountFolders | undefined;
+  /** The agent's memory folder and its link, absolute; empty where the agent keeps none. */
+  readonly memoryFolders: readonly string[];
+  /**
+   * The session's own advisor model as last stored, each change `/advisor` made included, or
+   * `null` when it is off; never the app's default once the session exists.
+   */
+  readonly advisorModel: string | null;
+  /**
+   * The session's own output style as last stored, each change `/output-style` made included, or
+   * `null` where it chose none and Claude Code's own setting holds.
+   */
+  readonly outputStyle: string | null;
+}
+
+/** Resolves a session's spawn context, wired by the daemon. */
+export interface ClaudeSpawnContextResolver {
+  resolveSpawnContext(
+    sessionId: SessionId,
+    providerAccountId: string | undefined,
+  ): Promise<ClaudeSessionSpawnContext>;
+}
+
+/**
+ * The run engine's own operations the driver calls: the start of a turn the daemon starts on a
+ * session itself, the end of a turn whose process ended on its own, and the comparison of a run's
+ * settled output speed with the level it asked for.
+ */
+export type ClaudeRunEnginePort = Pick<
+  RunEngine,
+  "startDaemonTurn" | "endTurnOnProcessExit" | "recordSettledOutputSpeed"
+>;
+
+/**
+ * Where every delivery from a Claude Code process goes, in the order its binding delivered it:
+ * rows, run moves, child runs, markers, asks and session notices.
+ */
+export type ClaudeInboundDispatchPort = Pick<RunInboundDispatch, "dispatch">;
+
+/** Opens the temporary worktree a staged review runs in; wired by the daemon's git service. */
+export interface ClaudeStagedChangesSource {
+  /** Throws when the folder is no git working tree or the worktree cannot be made. */
+  openStagedWorktree(workingDirectory: string): Promise<StagedChangesWorktree>;
+}
+
 /** A session whose provider process is running, with the legs it was spawned with. */
 export interface LiveClaudeSession {
   readonly sessionId: SessionId;
@@ -71,6 +133,42 @@ export interface LiveClaudeSession {
    * and a guess that omits the posture relaunches the session unsandboxed.
    */
   readonly spawnBoundLegs: ClaudeSpawnBoundLegs;
+  /**
+   * The posture the session runs at now: the spawn's, until a live level move replaces it. A
+   * relaunch spawns at this one.
+   */
+  executionPosture: ExecutionPosture | undefined;
+  /** Whether the session's next turns build or plan; a fresh process builds. */
+  sessionMode: SessionMode;
+  /**
+   * The session's advisor model now, or `null` when it is off: the spawn's, until `/advisor`
+   * changes it. Every process started for the session carries this one.
+   */
+  advisorModel: string | null;
+  /**
+   * The session's own output style now, or `null` where it chose none and Claude Code's own
+   * setting holds: the spawn's, until `/output-style` changes it. Every process started for the
+   * session carries this one.
+   */
+  outputStyle: string | null;
+  /**
+   * The model the session runs on now: the spawn's, until Claude Code switches it for the rest of
+   * the session. A relaunch and a fork pass this one as `--model`.
+   */
+  runningModel: string;
+  /** What the process's `initialize` reply declared. */
+  readonly initialize: ClaudeInitializeDeclaration;
+  /**
+   * The style descriptions and advisors Claude Code offers, read by the control-only process run
+   * beside the first spawn on the session's model and reused for every later session on it, kept
+   * across a rewind; never rejects, an unreadable reading holding why.
+   */
+  readonly commandChoices: Promise<ClaudeCommandChoices>;
+  /**
+   * The advisor Claude Code says it attaches to this process's requests, read after the spawn and
+   * after every advisor change; an answer names no advisor this says will not attach.
+   */
+  attachedAdvisor: ClaudeAttachedAdvisor;
   /**
    * The output-speed level this process last accepted with `apply_flag_settings`, or `undefined`
    * when it accepted none. A rewind applies it to the forked process; a run asking for it sends
@@ -133,9 +231,44 @@ export function readAdmittedProviderAccountId(requested: string | undefined): st
 /** What a Claude session lifecycle needs from the daemon: the transport, sinks and id sources. */
 export interface ClaudeSessionLifecycleDependencies {
   readonly transport: ClaudeSessionTransport;
-  /** The base every spawn's environment is built from, captured at the daemon's start. */
+  /** The login shell's environment captured at the daemon's start, every spawn's base. */
   readonly providerBaseEnvironment: readonly SpawnEnvPair[];
+  readonly spawnContext: ClaudeSpawnContextResolver;
+  /** Resolves the curated credential list a posture names into the paths every spawn denies. */
+  readonly credentialPolicy: Pick<ExecutionPostureService, "resolveCredentialPolicy">;
   readonly runDispatchResolver: ClaudeRunDispatchResolver;
+  readonly runEngine: ClaudeRunEnginePort;
+  readonly inbound: ClaudeInboundDispatchPort;
+  /**
+   * The approval pipeline's intake of the permission asks the run engine admitted; until it is
+   * registered an ask stays pending at Claude Code.
+   */
+  readonly permissionAsks: PortRegistration<PermissionAskPort>;
+  /** The questions card's intake; until it is registered a question stays pending. */
+  readonly questions: PortRegistration<QuestionPort>;
+  /** The approval service's intake of the blocks Claude Code's reviewer made at Reviewed. */
+  readonly reviewerDenials: PortRegistration<ReviewerDenialPort>;
+  /** Opens the temporary worktree a review of the staged changes runs in. */
+  readonly stagedChanges: ClaudeStagedChangesSource;
+  /**
+   * Receives the result of each resume the driver starts itself, after a process ended on its own
+   * or on a provider build change, so the daemon records the binding it minted or the failure.
+   */
+  readonly onSessionRelaunched: (sessionId: SessionId, result: DriverResumeResult) => void;
+  /**
+   * Points the session's binding at the session a rewind forked, so a later resume opens that one,
+   * and records in the same write the session it left. Rejects when it was not recorded.
+   */
+  readonly rebindRuntimeBinding: (rebind: RuntimeBindingRebind) => Promise<void>;
+  /** The operating system the daemon runs on, chosen where the daemon is composed. */
+  readonly operatingSystem: ProviderOperatingSystem;
+  /**
+   * Schedules a restart wait and answers its cancel; an unref'd timer by default, injectable to
+   * skip the wait.
+   */
+  readonly restartScheduler?: ClaudeDeadlineScheduler | undefined;
+  /** The clock the crash window reads, in milliseconds; `Date.now` by default. */
+  readonly now?: (() => number) | undefined;
   /** The daemon-wide diagnostic band; required, since each fail-closed path owes a record. */
   readonly diagnostics: DriverDiagnosticsEmitter;
   /**
@@ -147,33 +280,9 @@ export interface ClaudeSessionLifecycleDependencies {
     | undefined;
   /** Receives each metered usage delta; the emission pipeline mints `usage_telemetry`. */
   readonly onMeteredUsage?: ((sessionId: SessionId, delta: MeteredUsageDelta) => void) | undefined;
-  /** Text-neutrality grade (default `emulated`), injectable for a `native` upgrade. */
-  readonly textNeutralityMechanismGrade?: TextNeutralityMechanismGrade | undefined;
-  /** Correlation minting for outbound text frames. Injectable for tests. */
-  readonly mintOutboundFrameCorrelationId?: (() => string) | undefined;
-  /**
-   * Receives the run terminal a text-neutralization trip produces. Required: a trip raises no
-   * JSON-RPC error, so without it a neutralized turn ends with no terminal the person can read.
-   */
-  readonly onTextNeutralizationFailure: (
-    sessionId: SessionId,
-    runId: RunId,
-    failure: TextNeutralizationRunFailure,
-  ) => void;
-  /**
-   * Receives each child's `subagent.started`/`subagent.completed` pair, its only transcript mark.
-   */
-  readonly onSubagentLifecycle?:
-    | ((sessionId: SessionId, emission: SubagentLifecycleEmission) => void)
-    | undefined;
-  /**
-   * Receives each run's settled declared fast-mode state, read from the handshake of the turn the
-   * run starts, after any `apply_flag_settings` it sent.
-   */
-  readonly onRunOutputSpeedSettled?: RunOutputSpeedSettledListener | undefined;
   /**
    * Receives the routing decision for a frame released from a hold, when no observer call can
-   * answer for it. Only `carve-out-usage` and `suppress-child-transcript` occur; interactive
+   * answer for it. Only `carve-out-usage` and `child-transcript` occur; interactive
    * requests are connection-scoped and never held.
    */
   readonly onReleasedFrameRoute?:
@@ -187,8 +296,6 @@ export interface ClaudeSessionLifecycleDependencies {
   readonly mintProviderSessionId?: (() => string) | undefined;
   // The opaque session-binding handle the `resumed` arm carries; the default needs no database.
   readonly mintBindingId?: (() => string) | undefined;
-  /** Schedules the compaction bound; an unref'd timer by default, injectable to skip the wait. */
-  readonly compactionWaitScheduler?: CompactionWaitScheduler | undefined;
   /**
    * The daemon account registry's answer, cross-checking the account captured at establishment:
    * the record wins over a silent port, differing accounts refuse the call, and `null` is stamped

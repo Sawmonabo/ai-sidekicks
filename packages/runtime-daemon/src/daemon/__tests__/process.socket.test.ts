@@ -6,7 +6,8 @@
 // cannot stop it. The machine's settings file is read and written over the socket: one client's
 // change reaches the file and another client's subscription, and a closed connection's
 // subscription lets go of the file. A stop waits for a write under way and leaves it on disk, and
-// ends within its drain bound while a write hangs.
+// ends within its drain bound while a write hangs. A daemon whose providers cannot be read still
+// starts, with neither driver registered and the log saying why.
 
 import { execFileSync } from "node:child_process";
 import { constants as fsConstants } from "node:fs";
@@ -28,6 +29,7 @@ import {
 
 import { DatabaseWriter } from "../../database/writer.js";
 import type { Client } from "../../ipc/__fixtures__/local-socket-client.js";
+import type { FakeProviderDriver } from "../../provider/driver/__fixtures__/contract-doubles.js";
 import { MachineSettingsFile } from "../machine/settings/file.js";
 import { DaemonProcess } from "../process.js";
 import {
@@ -62,6 +64,16 @@ vi.mock("node:net", async (importOriginal) => {
       return server;
     },
   };
+});
+
+// Each driver these daemons build refuses its capability read, since no provider is part of these
+// tests, so neither registers.
+vi.mock("../../provider/driver/factories.js", async () => {
+  const { FakeProviderDriver: Driver } =
+    await import("../../provider/driver/__fixtures__/contract-doubles.js");
+  const build = (): FakeProviderDriver =>
+    new Driver(() => Promise.reject(new Error("no provider is part of this test")));
+  return { PROVIDER_DRIVER_FACTORIES: { claude: build, codex: build } };
 });
 
 useDaemonFolders();
@@ -136,6 +148,31 @@ describe("the lifecycle verbs over the socket", () => {
       result: { processState: "degraded" },
     });
     expect(serviceLog).toContain("The search thread failed: unable to open database file");
+    await client.close();
+  });
+
+  it("starts with no driver registered when no provider's build can be read", async () => {
+    const serviceLog: string[] = [];
+    await startDaemon(DRAIN_NOTHING, {}, (options) =>
+      DaemonProcess.start({
+        ...options,
+        writeServiceLog: (line) => {
+          serviceLog.push(line);
+        },
+      }),
+    );
+    const { client, call } = await openSession();
+
+    // The drivers register once the search index has opened, after the start answers ready.
+    await vi.waitFor(() => {
+      expect(serviceLog).toEqual(
+        expect.arrayContaining([
+          "The claude driver was not registered: no provider is part of this test",
+          "The codex driver was not registered: no provider is part of this test",
+        ]),
+      );
+    });
+    expect(await call("driver.listModes")).toMatchObject({ result: { drivers: [] } });
     await client.close();
   });
 

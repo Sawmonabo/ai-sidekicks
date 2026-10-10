@@ -43,13 +43,37 @@ const DAEMON_RANDOM_UUID_IMPORT_PATHS = [
   },
 ];
 
-/** A relative import through a provider's folder; only the descriptor table may make one. */
+/**
+ * A relative import through a provider's folder; only the descriptor table and the driver factory
+ * table may make one.
+ */
 const DAEMON_PROVIDER_FOLDER_IMPORT_PATTERN = {
   regex: "^\\.\\.?/(?:.*/)?(?:claude|codex)/",
   message:
     "A provider's folder is imported only by the " +
-    "provider-driver descriptor table; shared daemon code " +
-    "reads a provider through the table and names none.",
+    "provider-driver descriptor table and the driver factory " +
+    "table; shared daemon code reads a provider through them " +
+    "and names none.",
+};
+
+/** A relative import of the driver factory table; only the daemon's startup may make one. */
+const DAEMON_DRIVER_FACTORY_IMPORT_PATTERN = {
+  regex: "^\\.\\.?/(?:.*/)?driver/factories\\.js$",
+  message:
+    "The driver factory table is imported only by the daemon's " +
+    "startup, which builds each driver once; a driver or shared " +
+    "module that imported it would close an import cycle.",
+};
+
+/**
+ * The factory table's own import of a provider's folder: through the folder's public index only,
+ * so the table reaches each driver's factory and nothing deeper.
+ */
+const DRIVER_FACTORY_PROVIDER_IMPORT_PATTERN = {
+  regex: "^\\./(?:claude|codex)/(?!index\\.js$)",
+  message:
+    "The driver factory table imports a provider only through " +
+    "its folder's index, which exports the provider's factory.",
 };
 
 /**
@@ -457,9 +481,10 @@ const repositoryConfig = defineConfig(
   //
   // The same `no-restricted-imports` entry keeps each provider's folder (`provider/driver/claude/`,
   // `provider/driver/codex/`) private: shared daemon code names no provider, so only the descriptor
-  // registry imports from one. The pattern matches a relative path with a `claude/` or `codex/`
-  // segment; a provider's own files reach their siblings by `./` and shared code by `../` paths
-  // that never spell one, and no other daemon folder carries either name.
+  // table and the driver factory table import from one. The pattern matches a relative path with a
+  // `claude/` or `codex/` segment; a provider's own files reach their siblings by `./` and shared
+  // code by `../` paths that never spell one, and no other daemon folder carries either name. A
+  // second pattern keeps the factory table itself for the daemon's startup alone.
   {
     files: ["packages/runtime-daemon/src/**/*.ts"],
     ignores: ["packages/runtime-daemon/src/**/__tests__/**"],
@@ -469,7 +494,7 @@ const repositoryConfig = defineConfig(
         "error",
         {
           paths: DAEMON_RANDOM_UUID_IMPORT_PATHS,
-          patterns: [DAEMON_PROVIDER_FOLDER_IMPORT_PATTERN],
+          patterns: [DAEMON_PROVIDER_FOLDER_IMPORT_PATTERN, DAEMON_DRIVER_FACTORY_IMPORT_PATTERN],
         },
       ],
     },
@@ -478,29 +503,63 @@ const repositoryConfig = defineConfig(
   {
     files: ["packages/runtime-daemon/src/provider/driver/descriptor.ts"],
     rules: {
-      "no-restricted-imports": ["error", { paths: DAEMON_RANDOM_UUID_IMPORT_PATHS }],
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: DAEMON_RANDOM_UUID_IMPORT_PATHS,
+          patterns: [DAEMON_DRIVER_FACTORY_IMPORT_PATTERN],
+        },
+      ],
     },
   },
-  // The four daemon modules that mint an ephemeral token (a correlation id, a subscription handle,
-  // a PTY handle, a scratch filename): no row or event stores it and nothing sorts a set of them,
-  // so uniqueness is the whole requirement and v4 supplies it. Each is exempt as a file, the
-  // granularity a lint rule has, so a second mint added inside one of them passes lint and is
-  // caught in review; that is why the set stays at four. Only the `randomUUID` bans are lifted:
-  // the provider-folder ban still applies, and the test-seeding guard is unaffected.
+  // The driver factory table is the one shared module that imports each driver's factory, and it
+  // reaches a provider's folder through that folder's index alone.
+  {
+    files: ["packages/runtime-daemon/src/provider/driver/factories.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: DAEMON_RANDOM_UUID_IMPORT_PATHS,
+          patterns: [DRIVER_FACTORY_PROVIDER_IMPORT_PATTERN],
+        },
+      ],
+    },
+  },
+  // The daemon's startup is the one module that imports the driver factory table.
+  {
+    files: ["packages/runtime-daemon/src/daemon/providers.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: DAEMON_RANDOM_UUID_IMPORT_PATHS,
+          patterns: [DAEMON_PROVIDER_FOLDER_IMPORT_PATTERN],
+        },
+      ],
+    },
+  },
+  // The three daemon modules that mint an ephemeral token (a subscription handle, a PTY handle, a
+  // scratch filename): no row or event stores it and nothing sorts a set of them, so uniqueness is
+  // the whole requirement and v4 supplies it. Each is exempt as a file, the granularity a lint
+  // rule has, so a second mint added inside one of them passes lint and is caught in review; that
+  // is why the set stays at three. Only the `randomUUID` bans are lifted: the provider-folder ban
+  // still applies, and the test-seeding guard is unaffected.
   {
     files: [
       // Scratch git-index filename, unlinked in the same call.
       "packages/runtime-daemon/src/git/turn-snapshot/service.ts",
       // In-memory subscription id, alive for one transport connection.
       "packages/runtime-daemon/src/ipc/streaming-primitive.ts",
-      // In-flight correlation token for one outbound frame.
-      "packages/runtime-daemon/src/provider/outbound-frame.ts",
       // Host-local PTY handle; the Rust sidecar backend mints `s-{n}` here.
       "packages/runtime-daemon/src/pty/host/node-pty.ts",
     ],
     rules: {
       "no-restricted-properties": "off",
-      "no-restricted-imports": ["error", { patterns: [DAEMON_PROVIDER_FOLDER_IMPORT_PATTERN] }],
+      "no-restricted-imports": [
+        "error",
+        { patterns: [DAEMON_PROVIDER_FOLDER_IMPORT_PATTERN, DAEMON_DRIVER_FACTORY_IMPORT_PATTERN] },
+      ],
     },
   },
   // The two read-side projectors are pure: no database, no temp directory, no clock; each is a
@@ -559,7 +618,7 @@ const repositoryConfig = defineConfig(
             {
               regex:
                 "^(?!(?:@ai-sidekicks/contracts/[\\w-]+(?:/[\\w-]+)*|" +
-                "\\.\\./transform-pipeline\\.js|\\.\\./\\.\\./driver/contract\\.js)$).*$",
+                "\\.\\./transform-pipeline\\.js|\\.\\./canonical-transcript\\.js)$).*$",
               message:
                 "The brief projection floor is pure: it folds an already-read " +
                 "canonical projection into a turn and persists nothing, so its " +

@@ -1,7 +1,10 @@
 // The run engine's refusals, each projected onto the wire by its code.
 
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
-import { RUN_INVALID_TRANSITION_CODE } from "@ai-sidekicks/contracts/run/control";
+import {
+  RUN_INVALID_TRANSITION_CODE,
+  RUN_VERSION_STALE_CODE,
+} from "@ai-sidekicks/contracts/run/control";
 import type { RunStateChangeState } from "@ai-sidekicks/contracts/run/events";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { RunState } from "@ai-sidekicks/contracts/run/state";
@@ -15,6 +18,20 @@ export class RunNotFoundError extends DaemonDomainError {
       code: "run.not_found",
       jsonRpcCode: JsonRpcErrorCode.InvalidParams,
       detail: { runId },
+    });
+  }
+}
+
+/**
+ * A `run.pause` or `run.resume` whose expected version is not the run's current one, older or
+ * newer (`run.version_stale`); nothing was written and the run is as it was.
+ */
+export class RunVersionStaleError extends DaemonDomainError {
+  constructor(runId: RunId, expectedRunVersion: number, runVersion: number) {
+    super(`The run is at version ${String(runVersion)}, not ${String(expectedRunVersion)}`, {
+      code: RUN_VERSION_STALE_CODE,
+      jsonRpcCode: JsonRpcErrorCode.InvalidRequest,
+      detail: { runId, expectedRunVersion, runVersion },
     });
   }
 }

@@ -224,6 +224,8 @@ export type MachineContentDescriptor = {
 export type AssistantOutputPayload = MachineContentDescriptor & {
   sessionId: SessionId;
   runId?: string | undefined;
+  /** The provider's own id of the message this piece belongs to, the same on every piece. */
+  providerMessageId: string;
   /** Media type of the body, set by the producer and not by the append path. */
   contentType?: string | undefined;
   /** Present only on the answer a voice call spoke. */
@@ -266,6 +268,12 @@ export const assistantOutputPayloadSchema: z.ZodType<AssistantOutputPayload> = w
       // A bounded free-form guard like `EventEnvelope.id`, not the branded `RunIdSchema` that
       // `usage.model_rerouted` uses.
       runId: wireFreeFormString(EVENT_FIELD_MAX_LEN, "assistant output payload runId").optional(),
+      // The provider's own id of the message a piece belongs to, the same on every piece, so a
+      // reader can rejoin a message the wire delivered in pieces.
+      providerMessageId: wireFreeFormString(
+        EVENT_FIELD_MAX_LEN,
+        "assistant output payload providerMessageId",
+      ),
       contentType: wireFreeFormString(
         EVENT_FIELD_MAX_LEN,
         "assistant output payload contentType",

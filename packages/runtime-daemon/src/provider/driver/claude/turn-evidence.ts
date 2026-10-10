@@ -5,12 +5,12 @@ import {
   observedTurnEvidence,
   type TurnEvidenceClass,
   type TurnEvidenceClassification,
-} from "../../outbound-frame.js";
+} from "../../turn-evidence.js";
 import { isPlainObject } from "../../record-readers.js";
 import { CLAUDE_WIRE_FRAME_KINDS } from "./event-normalizer.js";
 
 // Derived from the census so a new subtype joins without a second edit. `success` is excluded:
-// it is the subtype a swallowed turn wears.
+// a zero-turn command reply wears it too.
 const CLAUDE_DECLARED_FAILURE_RESULT_SUBTYPES: ReadonlySet<string> = new Set(
   CLAUDE_WIRE_FRAME_KINDS.filter((kind) => kind.startsWith("result/error_")).map((kind) =>
     kind.slice("result/".length),

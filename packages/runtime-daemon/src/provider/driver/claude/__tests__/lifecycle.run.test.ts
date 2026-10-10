@@ -1,25 +1,25 @@
-// `lifecycle.ts` runs: the spawn-bound sandbox and schema guard, interrupts that can only reach
-// their own turn, and the tripwire that fails a run whose command-shaped text the provider
-// swallowed.
+// `lifecycle.ts` runs: the spawn-bound sandbox and schema guard, the one turn a session holds,
+// interrupts that can only reach their own turn, text sent as typed, the words the daemon answers
+// itself with no run, and the run a rewind supersedes.
 
 import { Writable } from "node:stream";
 
 import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { TextNeutralizationRefusedError } from "../../../outbound-frame.js";
 import type { CreateSessionParams, StartRunParams } from "../../contract.js";
-import { drainMicrotasks } from "../../../__fixtures__/drain-microtasks.js";
-import {
-  CLAUDE_ORDINARY_TURN_RESULT_FRAME,
-  CLAUDE_ZERO_TURN_RESULT_FRAME,
-} from "../__fixtures__/turn-evidence-transcripts.js";
+import type { SessionCommandAnswer } from "../../session-control.js";
 import { ClaudeRequestTimeoutError, ClaudeSessionUnavailableError } from "../session/errors.js";
 import { writeStdinLine } from "../session/stdin-write.js";
-import { ClaudeControlRequestRefusedError, type ClaudeRunDispatch } from "../session/transport.js";
+import {
+  ClaudeControlRequestRefusedError,
+  composeClaudeUserFrame,
+  type ClaudeUserFrame,
+} from "../session/transport.js";
 import {
   buildStartRunParams,
   type FakeClaudeProviderProcess,
+  TEST_BINDING_ID,
   TEST_RUN_ID,
   TEST_SECOND_RUN_ID,
   TEST_SESSION_ID,
@@ -31,14 +31,9 @@ import {
   rewindTestSession,
   spawnedChannel,
   startLiveRun,
+  TEST_MESSAGE_ID,
   type LifecycleHarness,
 } from "./lifecycle.test-support.js";
-
-const SWALLOWED_RUN_FAILURE = {
-  sessionId: TEST_SESSION_ID,
-  runId: TEST_RUN_ID,
-  providerFailureDetail: "driver.text_neutralization_failed origin=human_text",
-};
 
 async function startSecondRun(harness: LifecycleHarness, openingText: string): Promise<void> {
   armRunDispatch(harness, TEST_SECOND_RUN_ID, openingText);
@@ -61,7 +56,7 @@ describe("ClaudeSessionLifecycle.startRun spawn-bound guard", () => {
     required: ["verdict", "score"],
   };
 
-  // A run is admitted only into a process spawned with the same sandbox on every axis and the
+  // A run is admitted only into a process spawned with the same roots and credential list and the
   // same schema by canonical digest (key order is not semantic in JSON, array order is). The
   // admitted rows catch a guard that refuses too much, which would refuse every real run.
   const SPAWN_BOUND_RUNS: ReadonlyArray<{
@@ -71,10 +66,11 @@ describe("ClaudeSessionLifecycle.startRun spawn-bound guard", () => {
     readonly refusal: string | null;
   }> = [
     {
-      label: "a run whose sandbox level differs",
+      // A live level move changes the level in the running process, so no relaunch is owed.
+      label: "a run at another level",
       spawn: { executionPosture: SPAWN_POSTURE },
       run: { executionPosture: { ...SPAWN_POSTURE, mode: "yolo" } },
-      refusal: "execution_posture_mismatch",
+      refusal: null,
     },
     {
       label: "a run that adds a writable root",
@@ -162,21 +158,22 @@ describe("ClaudeSessionLifecycle.startRun spawn-bound guard", () => {
 
     if (refusal === null) {
       await starting;
-      expect(channel.sentWireTexts).toStrictEqual(["review the diff"]);
+      expect(channel.sentTexts).toStrictEqual(["review the diff"]);
     } else {
       await expect(starting).rejects.toMatchObject({
         code: "driver.unavailable",
         fields: { reason: refusal },
       });
-      expect(channel.sentWireTexts).toStrictEqual([]);
+      expect(channel.sentTexts).toStrictEqual([]);
     }
   });
 });
 
 describe("ClaudeSessionLifecycle run dispatch and interrupt", () => {
-  it("refuses a second dispatch until the opening frame settles, then admits it", async () => {
-    // The tripwire attributes one frame per run key, so a duplicate dispatch would quarantine
-    // the session.
+  it("refuses a second dispatch until the opening turn settles, then admits it", async () => {
+    // Claude Code takes one turn at a time and its terminal names no run, so a second turn on the
+    // session could not be told from the first. A refused run gets no route either: the interrupt
+    // is channel-scoped, so a route left for it would stop the older turn.
     const harness = buildHarness();
     const channel = await startLiveRun(harness);
 
@@ -184,12 +181,145 @@ describe("ClaudeSessionLifecycle run dispatch and interrupt", () => {
       code: "driver.unavailable",
       fields: { reason: "run_already_dispatched" },
     });
-    expect(channel.sentWireTexts).toStrictEqual(["review the diff"]);
-    channel.emitStreamFrame("result/success");
-    expect(harness.textNeutralizationFailures).toStrictEqual([]);
+    await expect(startSecondRun(harness, "one more")).rejects.toMatchObject({
+      code: "driver.unavailable",
+      fields: { reason: "session_turn_in_flight" },
+    });
+    expect(channel.sentTexts).toStrictEqual(["review the diff"]);
+    await expect(
+      harness.lifecycle.interruptRun({ runId: TEST_SECOND_RUN_ID, reason: "user_stop" }),
+    ).rejects.toThrow(ClaudeSessionUnavailableError);
+    expect(channel.controlRequests).toStrictEqual([]);
 
-    await startTestRun(harness);
-    expect(channel.sentWireTexts).toStrictEqual(["review the diff", "review the diff"]);
+    channel.emitStreamFrame("result/success");
+    await startSecondRun(harness, "one more");
+    expect(channel.sentTexts).toStrictEqual(["review the diff", "one more"]);
+  });
+
+  it("sends the person's words as typed and marks only daemon-composed text", async () => {
+    // `client_composed` stops a command from running and an `@path` from expanding, so it rides
+    // only text the daemon wrote itself; a leading `/` the person typed goes to Claude Code as is.
+    const harness = buildHarness();
+    const channel = await startLiveRun(harness, "/status please");
+
+    // Stamped with the person's message id, so a later cut can name it.
+    const typed: ClaudeUserFrame = {
+      type: "user",
+      uuid: TEST_MESSAGE_ID,
+      message: { role: "user", content: "/status please" },
+    };
+    expect(channel.sentUserFrames).toStrictEqual([typed]);
+    expect(
+      composeClaudeUserFrame({ text: "/goal ship it", origin: "driver_command" }, "goal-id"),
+    ).toStrictEqual({
+      type: "user",
+      uuid: "goal-id",
+      message: { role: "user", content: "/goal ship it" },
+    });
+    expect(
+      composeClaudeUserFrame(
+        { text: "/earlier conversation", origin: "system_narration" },
+        "narration-id",
+      ),
+    ).toStrictEqual({
+      type: "user",
+      uuid: "narration-id",
+      message: { role: "user", content: "/earlier conversation" },
+      client_composed: true,
+    });
+  });
+
+  it("answers `/output-style` and `/advisor` with no message and no run", async () => {
+    // Claude Code's own commands would save the choice in the project or for the whole machine.
+    const harness = buildHarness();
+    harness.transport.initializeOutputStyles = ["default", "Explanatory"];
+    harness.transport.initializeModels = [
+      { value: "opus", resolvedModel: "claude-opus-5-5", displayName: "Opus 5.5" },
+    ];
+    const channel = await createLiveSession(harness);
+    const answer = async (text: string): Promise<SessionCommandAnswer> =>
+      await harness.lifecycle.answerSessionCommand({ sessionId: TEST_SESSION_ID, text });
+
+    // Claude Code shows the style in effect, and takes the advisor but says none attaches, as on a
+    // model it cannot advise.
+    channel.controlResponseBySubtype.set("get_settings", {
+      subtype: "success",
+      response: { effective: { outputStyle: "Explanatory" }, applied: { advisor: null } },
+    });
+
+    expect(await answer("/output-style explanatory")).toStrictEqual({
+      answered: true,
+      line: "Output style set to Explanatory.",
+    });
+    expect(await answer("/advisor opus")).toStrictEqual({ answered: true, line: null });
+    expect(await answer("/advisor")).toStrictEqual({
+      answered: true,
+      line: "Advisor: off\nUsage: /advisor <fable|opus|sonnet|off>",
+    });
+    // Once Claude Code names that advisor as the one it attaches, the line says it is set.
+    channel.controlResponseBySubtype.set("get_settings", {
+      subtype: "success",
+      response: { applied: { advisor: "claude-opus-5-5" } },
+    });
+    expect(await answer("/advisor opus")).toStrictEqual({
+      answered: true,
+      line: "Advisor set to Opus 5.5.",
+    });
+    // An argument the session cannot take is answered with the listing and never sent as typed,
+    // where Claude Code's own command would save it for the machine or the project.
+    expect(await answer("/advisor haiku")).toStrictEqual({
+      answered: true,
+      line: "Advisor: Opus 5.5\nUsage: /advisor <fable|opus|sonnet|off>",
+    });
+    expect(await answer("/output-style nonexistent")).toStrictEqual({
+      answered: true,
+      line: [
+        "Output style: Explanatory",
+        "",
+        "Available styles:",
+        "- default",
+        "- Explanatory (current)",
+        "",
+        "Usage: /output-style <style>",
+      ].join("\n"),
+    });
+    expect(await answer("/status")).toStrictEqual({ answered: false });
+
+    expect(channel.sentUserFrames).toStrictEqual([]);
+    expect(harness.daemonTurnRuns).toStrictEqual([]);
+    expect(harness.runMoves).toStrictEqual([]);
+    expect(channel.controlRequests).toContainEqual({
+      subtype: "apply_flag_settings",
+      settings: { outputStyle: "Explanatory" },
+    });
+    expect(channel.controlRequests).toContainEqual({
+      subtype: "apply_flag_settings",
+      settings: { advisorModel: "opus" },
+    });
+  });
+
+  it("turns the advisor off with Claude Code's empty advisor, never `null`", async () => {
+    // `null` removes the session's own value and lets the person's machine-wide advisor through.
+    const harness = buildHarness();
+    const channel = await createLiveSession(harness);
+
+    expect(
+      await harness.lifecycle.answerSessionCommand({
+        sessionId: TEST_SESSION_ID,
+        text: "/advisor off",
+      }),
+    ).toStrictEqual({ answered: true, line: null });
+    expect(channel.controlRequests).toContainEqual({
+      subtype: "apply_flag_settings",
+      settings: { advisorModel: "" },
+    });
+    expect(harness.deliveries).toContainEqual({
+      kind: "session_event",
+      row: {
+        type: "session.advisor_changed",
+        payload: { sessionId: TEST_SESSION_ID, advisorModel: null, at: expect.any(String) },
+      },
+    });
   });
 
   it("throws rather than reporting success when the CLI refuses the interrupt", async () => {
@@ -203,6 +333,11 @@ describe("ClaudeSessionLifecycle run dispatch and interrupt", () => {
     await expect(harness.lifecycle.interruptRun({ runId: TEST_RUN_ID })).rejects.toBeInstanceOf(
       ClaudeControlRequestRefusedError,
     );
+    // The refused interrupt stopped nothing: the turn's end goes as Claude Code sends it.
+    channel.emitStreamFrame("result/success", undefined, { type: "result", subtype: "success" });
+    expect(harness.runMoves.filter((change) => change.runId === TEST_RUN_ID)).toStrictEqual([
+      { runId: TEST_RUN_ID, newState: "completed", completionKind: "turn" },
+    ]);
   });
 
   // Claude's interrupt is channel-level, so a route outliving its turn would aim a late
@@ -245,313 +380,141 @@ describe("ClaudeSessionLifecycle run dispatch and interrupt", () => {
   });
 });
 
-describe("ClaudeSessionLifecycle provider-bound text tripwire", () => {
-  it("neutralizes command-shaped text on the wire only, not in the daemon's record", async () => {
-    const harness = buildHarness();
-    const channel = await startLiveRun(harness, "/status please");
-
-    expect(channel.sentWireTexts).toStrictEqual(["\n/status please"]);
-    expect(channel.sentAuthoredTexts).toStrictEqual(["/status please"]);
-    // The dispatch record feeds the persisted event row and any rollback target.
-    expect(harness.runDispatchResolver.dispatchByRunId.get(TEST_RUN_ID)?.openingText).toBe(
-      "/status please",
-    );
-  });
-
-  it("ignores an exempt origin smuggled onto the dispatch record", async () => {
-    // `driver_command` delivers bytes verbatim and excuses the turn from the tripwire, so a
-    // dispatch record carrying it would run the person's words as a provider command.
-    const harness = buildHarness();
-    const channel = await createLiveSession(harness);
-    harness.runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
-      sessionId: TEST_SESSION_ID,
-      openingText: "/compact",
-      frameOrigin: "driver_command",
-    } as ClaudeRunDispatch);
-    await startTestRun(harness);
-
-    expect(channel.sentWireTexts).toStrictEqual(["\n/compact"]);
-    channel.terminalFrameBody = CLAUDE_ZERO_TURN_RESULT_FRAME;
-    channel.emitStreamFrame("result/success");
-    expect(harness.textNeutralizationFailures).toStrictEqual([SWALLOWED_RUN_FAILURE]);
-  });
-
-  it("fails a swallowed turn, tears down and quarantines its session; a new one runs", async () => {
-    const harness = buildHarness();
-    const channel = await startLiveRun(harness, "/status please");
-
-    channel.terminalFrameBody = CLAUDE_ZERO_TURN_RESULT_FRAME;
-    channel.emitStreamFrame("result/success");
-    await drainMicrotasks();
-
-    expect(harness.textNeutralizationFailures).toStrictEqual([SWALLOWED_RUN_FAILURE]);
-    // Refused rather than `undefined`, which would read as "no channel" and invite a retry into
-    // the same swallow.
-    expect(() => harness.lifecycle.findProcessForRun(TEST_RUN_ID)).toThrow(
-      TextNeutralizationRefusedError,
-    );
-    expect(channel.disposals).toStrictEqual(["session_closed"]);
-    await expect(startSecondRun(harness, "carry on")).rejects.toThrow(
-      TextNeutralizationRefusedError,
-    );
-    expect(channel.sentWireTexts).toStrictEqual(["\n/status please"]);
-
-    // The quarantine names a binding, not the session id, so recovery is a fresh session.
-    await createLiveSession(harness);
-    await expect(startSecondRun(harness, "carry on")).resolves.toBeUndefined();
-  });
-
-  it("still fails a swallowed turn that was interrupted before its terminal arrived", async () => {
-    const harness = buildHarness();
-    const channel = await startLiveRun(harness, "/status please");
-
-    await harness.lifecycle.interruptRun({ runId: TEST_RUN_ID, reason: "user_stop" });
-    channel.terminalFrameBody = CLAUDE_ZERO_TURN_RESULT_FRAME;
-    channel.emitStreamFrame("result/success");
-    await drainMicrotasks();
-
-    expect(harness.textNeutralizationFailures).toStrictEqual([SWALLOWED_RUN_FAILURE]);
-    await expect(startSecondRun(harness, "carry on")).rejects.toThrow(
-      TextNeutralizationRefusedError,
-    );
-  });
-
-  it("refuses a busy session's second run before writing; it gets no interrupt route", async () => {
-    // The interrupt is channel-scoped, so a route left for the refused run would stop the older
-    // turn still running on the session.
-    const harness = buildHarness();
-    const channel = await startLiveRun(harness, "first turn");
-
-    await expect(startSecondRun(harness, "one more")).rejects.toMatchObject({
-      code: "driver.unavailable",
-      fields: { reason: "session_turn_in_flight" },
-    });
-
-    expect(channel.sentWireTexts).toHaveLength(1);
-    await expect(
-      harness.lifecycle.interruptRun({ runId: TEST_SECOND_RUN_ID, reason: "user_stop" }),
-    ).rejects.toThrow(ClaudeSessionUnavailableError);
-    expect(channel.controlRequests).toStrictEqual([]);
-    channel.terminalFrameBody = CLAUDE_ORDINARY_TURN_RESULT_FRAME;
-    channel.emitStreamFrame("result/success");
-    expect(harness.textNeutralizationFailures).toStrictEqual([]);
-  });
-
-  // An ambiguous write is retained for the turn's own terminal to rule, never retried (the bytes
-  // may have reached the provider) and never assumed sent cleanly. A transport that rejects
-  // instead of reporting makes no claim about bytes, so it lands on the same arm.
-  const WRITE_OUTCOMES: ReadonlyArray<{
+describe("ClaudeSessionLifecycle failed opening writes", () => {
+  // A failed write is never re-sent. Bytes that may have been taken can still start a turn, so
+  // the run keeps the session's turn and its interrupt route until that turn's terminal; a write
+  // that provably never left, or a channel that can deliver no terminal, frees both at once. A
+  // transport that rejects instead of reporting makes no claim about bytes, so it holds too.
+  const WRITE_FAILURES: ReadonlyArray<{
     readonly label: string;
     readonly breakWrite: (channel: FakeClaudeProviderProcess) => void;
-    readonly writeFails: boolean;
-    readonly terminalFrameBody: Readonly<Record<string, unknown>>;
-    readonly trips: boolean;
+    readonly holdsTurn: boolean;
   }> = [
     {
-      label: "a clean write followed by a genuine model turn",
-      breakWrite: () => undefined,
-      writeFails: false,
-      terminalFrameBody: CLAUDE_ORDINARY_TURN_RESULT_FRAME,
-      trips: false,
-    },
-    {
-      label: "an indeterminate write followed by a zero-turn terminal",
+      label: "holds the turn after an indeterminate write on a live channel",
       breakWrite: (channel) => {
         channel.sendUserTextFailure = new Error("the provider stream is closed");
         channel.sendUserTextDelivery = "indeterminate";
       },
-      writeFails: true,
-      terminalFrameBody: CLAUDE_ZERO_TURN_RESULT_FRAME,
-      trips: true,
+      holdsTurn: true,
     },
     {
-      label: "an indeterminate write followed by a genuine model turn",
-      breakWrite: (channel) => {
-        channel.sendUserTextFailure = new Error("the provider stream is closed");
-        channel.sendUserTextDelivery = "indeterminate";
-      },
-      writeFails: true,
-      terminalFrameBody: CLAUDE_ORDINARY_TURN_RESULT_FRAME,
-      trips: false,
-    },
-    {
-      label: "a rejected write followed by a zero-turn terminal",
+      label: "holds the turn after a write the transport rejected",
       breakWrite: (channel) => {
         channel.sendUserTextRejection = new Error("the transport threw instead of reporting");
       },
-      writeFails: true,
-      terminalFrameBody: CLAUDE_ZERO_TURN_RESULT_FRAME,
-      trips: true,
+      holdsTurn: true,
+    },
+    {
+      label: "frees the turn after a write that provably never left",
+      breakWrite: (channel) => {
+        channel.sendUserTextFailure = new Error("the provider stream is closed");
+        channel.sendUserTextDelivery = "unsent";
+      },
+      holdsTurn: false,
+    },
+    {
+      label: "frees the turn after an indeterminate write on a channel past its last terminal",
+      breakWrite: (channel) => {
+        channel.sendUserTextFailure = new Error("the provider stream is closed");
+        channel.sendUserTextDelivery = "indeterminate";
+        channel.isClosed = true;
+      },
+      holdsTurn: false,
     },
   ];
 
-  it.each(WRITE_OUTCOMES)("rules $label", async (row) => {
+  it.each(WRITE_FAILURES)("$label", async ({ breakWrite, holdsTurn }) => {
     const harness = buildHarness();
     const channel = await createLiveSession(harness);
-    row.breakWrite(channel);
-    armRunDispatch(harness, TEST_RUN_ID, "/status please");
+    breakWrite(channel);
+    armRunDispatch(harness);
 
-    const starting = startTestRun(harness);
-    await (row.writeFails ? expect(starting).rejects.toThrow() : starting);
+    await expect(startTestRun(harness)).rejects.toThrow();
     expect(channel.sendUserTextAttempts).toBe(1);
-    channel.terminalFrameBody = row.terminalFrameBody;
-    channel.emitStreamFrame("result/success");
-    await drainMicrotasks();
+    channel.sendUserTextFailure = undefined;
+    channel.sendUserTextRejection = undefined;
 
-    if (row.trips) {
-      expect(harness.textNeutralizationFailures).toStrictEqual([SWALLOWED_RUN_FAILURE]);
-      expect(() => harness.lifecycle.findProcessForRun(TEST_RUN_ID)).toThrow(
-        TextNeutralizationRefusedError,
-      );
-    } else {
-      expect(harness.textNeutralizationFailures).toStrictEqual([]);
-      expect(() => harness.lifecycle.findProcessForRun(TEST_RUN_ID)).not.toThrow();
+    expect(harness.lifecycle.findProcessForRun(TEST_RUN_ID)).toBe(holdsTurn ? channel : undefined);
+    if (holdsTurn) {
+      await expect(startSecondRun(harness, "second turn")).rejects.toMatchObject({
+        fields: { reason: "session_turn_in_flight" },
+      });
+      channel.emitStreamFrame("result/success");
     }
-  });
-
-  it("rules an ambiguous write now when the channel can no longer deliver a terminal", async () => {
-    const harness = buildHarness();
-    const channel = await createLiveSession(harness);
-    channel.sendUserTextFailure = new Error("the provider stream is closed");
-    channel.sendUserTextDelivery = "indeterminate";
-    channel.isClosed = true;
-    armRunDispatch(harness, TEST_RUN_ID, "/status please");
-
-    await expect(startTestRun(harness)).rejects.toThrow("the provider stream is closed");
-    await drainMicrotasks();
-
-    expect(harness.textNeutralizationFailures).toStrictEqual([SWALLOWED_RUN_FAILURE]);
-    expect(() => harness.lifecycle.findProcessForRun(TEST_RUN_ID)).toThrow(
-      TextNeutralizationRefusedError,
-    );
-    expect(channel.disposals).toStrictEqual(["session_closed"]);
-    await expect(startSecondRun(harness, "carry on")).rejects.toThrow(
-      TextNeutralizationRefusedError,
-    );
+    await startSecondRun(harness, "second turn");
+    expect(channel.sentTexts).toStrictEqual(["second turn"]);
   });
 
   it("fails the start when its stdin write outlasts the request deadline or the process exits under it", async () => {
     // A stdin that takes one chunk and never drains, as a process that stopped reading.
     const stalledStdin = (): Writable => new Writable({ highWaterMark: 1, write: () => undefined });
+    const frameLine = (text: Parameters<typeof composeClaudeUserFrame>[0], uuid: string): string =>
+      `${JSON.stringify(composeClaudeUserFrame(text, uuid))}\n`;
 
     const stalledHarness = buildHarness();
     const stalledChannel = await createLiveSession(stalledHarness);
     const stalled = stalledStdin();
-    stalledChannel.sendUserText = (frame) => writeStdinLine(stalled, `${frame.wireText}\n`, 20);
+    stalledChannel.sendUserText = (text, uuid) =>
+      writeStdinLine(stalled, frameLine(text, uuid), 20);
     armRunDispatch(stalledHarness, TEST_RUN_ID, "/status please");
     await expect(startTestRun(stalledHarness)).rejects.toThrow(ClaudeRequestTimeoutError);
 
     const exitingHarness = buildHarness();
     const exitingChannel = await createLiveSession(exitingHarness);
     const exiting = stalledStdin();
-    exitingChannel.sendUserText = (frame) => {
-      const attempt = writeStdinLine(exiting, `${frame.wireText}\n`);
+    exitingChannel.sendUserText = (text, uuid) => {
+      const attempt = writeStdinLine(exiting, frameLine(text, uuid));
       exiting.destroy();
       return attempt;
     };
     armRunDispatch(exitingHarness, TEST_RUN_ID, "/status please");
     await expect(startTestRun(exitingHarness)).rejects.toThrow("stdin closed");
   });
-
-  it("drops a provably unsent frame and its route, so neither reaches a later run", async () => {
-    const harness = buildHarness();
-    const channel = await createLiveSession(harness);
-    channel.sendUserTextFailure = new Error("the provider stream is closed");
-    channel.sendUserTextDelivery = "unsent";
-    armRunDispatch(harness, TEST_RUN_ID, "/status please");
-    await expect(startTestRun(harness)).rejects.toThrow("the provider stream is closed");
-
-    await expect(
-      harness.lifecycle.interruptRun({ runId: TEST_RUN_ID, reason: "user_stop" }),
-    ).rejects.toThrow(ClaudeSessionUnavailableError);
-    expect(channel.controlRequests).toStrictEqual([]);
-
-    // A stale registration would consume this run's evidence and fail it.
-    channel.sendUserTextFailure = undefined;
-    await startSecondRun(harness, "second turn");
-    channel.terminalFrameBody = CLAUDE_ORDINARY_TURN_RESULT_FRAME;
-    channel.emitStreamFrame("result/success");
-    expect(harness.textNeutralizationFailures).toStrictEqual([]);
-  });
-
-  it("keeps the predecessor's pending frame ruled when a rewind's adoption fails", async () => {
-    // The restored predecessor is still mid-turn; dropping its correlation would let its
-    // evidence-free terminal pass as a completed turn.
-    const harness = buildHarness();
-    const predecessorChannel = await startLiveRun(harness, "/status please");
-    harness.transport.onTurnTerminalFailure = new Error("the transport refused the terminal hook");
-
-    const rollback = await rewindTestSession(harness);
-
-    expect(rollback.status).toBe("degraded");
-    expect(harness.lifecycle.findProcessForRun(TEST_RUN_ID)).toBe(predecessorChannel);
-    expect(spawnedChannel(harness, 1).disposals).toStrictEqual(["establishment_failed"]);
-    predecessorChannel.terminalFrameBody = CLAUDE_ZERO_TURN_RESULT_FRAME;
-    predecessorChannel.emitStreamFrame("result/success");
-    expect(harness.textNeutralizationFailures).toStrictEqual([SWALLOWED_RUN_FAILURE]);
-  });
-
-  it("quarantines the run and records the throw even if the failure consumer throws", async () => {
-    const harness = buildHarness({
-      onTextNeutralizationFailure: () => {
-        throw new Error("the emission pipeline is unavailable");
-      },
-    });
-    const channel = await startLiveRun(harness, "/status please");
-
-    channel.terminalFrameBody = CLAUDE_ZERO_TURN_RESULT_FRAME;
-    expect(() => channel.emitStreamFrame("result/success")).not.toThrow();
-    expect(() => harness.lifecycle.findProcessForRun(TEST_RUN_ID)).toThrow(
-      TextNeutralizationRefusedError,
-    );
-    expect(
-      harness.diagnostics.recentRecordsOfKind("text_neutralization_trip_report_failed"),
-    ).toMatchObject([{ details: { sessionId: TEST_SESSION_ID, runId: TEST_RUN_ID } }]);
-  });
 });
 
-// A pending opening frame is ruled on every transition that takes its binding: a rewind owes the
-// run a visible failure, a daemon-initiated close owes none because the daemon asked for it.
-describe("ClaudeSessionLifecycle pending frames across rewind and close", () => {
+// A run whose turn a rewind took is owed a visible failure, since no terminal can end it any more;
+// a daemon-initiated close owes none because the daemon asked for it.
+describe("ClaudeSessionLifecycle runs a rewind supersedes", () => {
   const TRANSITIONS: ReadonlyArray<{
     readonly label: string;
-    readonly frame: "pending" | "settled" | "none";
+    readonly turn: "in-flight" | "settled" | "none";
     readonly transition: "rewind" | "close";
-    readonly reportedDetail: string | null;
+    readonly isRunFailed: boolean;
   }> = [
     {
-      label: "fails the run on a rewind that supersedes its pending frame",
-      frame: "pending",
+      label: "fails the run on a rewind that supersedes its turn in flight",
+      turn: "in-flight",
       transition: "rewind",
-      reportedDetail: "was superseded by a fresh spawn",
+      isRunFailed: true,
     },
     {
       label: "reports nothing on a daemon-initiated close",
-      frame: "pending",
+      turn: "in-flight",
       transition: "close",
-      reportedDetail: null,
+      isRunFailed: false,
     },
     {
       label: "reports nothing on a rewind of an idle session",
-      frame: "none",
+      turn: "none",
       transition: "rewind",
-      reportedDetail: null,
+      isRunFailed: false,
     },
     {
-      label: "reports nothing on a rewind after the turn's own terminal settled the frame",
-      frame: "settled",
+      label: "reports nothing on a rewind after the turn's own terminal",
+      turn: "settled",
       transition: "rewind",
-      reportedDetail: null,
+      isRunFailed: false,
     },
   ];
 
-  it.each(TRANSITIONS)("$label", async ({ frame, transition, reportedDetail }) => {
+  it.each(TRANSITIONS)("$label", async ({ turn, transition, isRunFailed }) => {
     const harness = buildHarness();
-    if (frame === "none") {
+    if (turn === "none") {
       await createLiveSession(harness);
     } else {
       const channel = await startLiveRun(harness, "/compact the thread please");
-      if (frame === "settled") {
+      if (turn === "settled") {
         channel.emitStreamFrame("result/success");
       }
     }
@@ -560,30 +523,61 @@ describe("ClaudeSessionLifecycle pending frames across rewind and close", () => 
       ? rewindTestSession(harness)
       : harness.lifecycle.closeSession({ sessionId: TEST_SESSION_ID }));
 
-    expect(harness.textNeutralizationFailures).toMatchObject(
-      reportedDetail === null
-        ? []
-        : [
+    expect(harness.supersededRunFailures).toMatchObject(
+      isRunFailed
+        ? [
             {
-              sessionId: TEST_SESSION_ID,
               runId: TEST_RUN_ID,
-              providerFailureDetail: expect.stringContaining(reportedDetail),
+              providerFailureDetail: expect.stringContaining("superseded by a rewind"),
             },
-          ],
+          ]
+        : [],
     );
   });
 
-  it("leaves a superseded run attachable and the rewound session startable", async () => {
-    // A quarantine condemns a binding, and the superseded one is already gone; refusing the run
-    // would strip its interrupt and intervention controls.
+  it("frees the session's turn on a rewind, so the next run starts on the fork", async () => {
     const harness = buildHarness();
     await startLiveRun(harness, "/compact the thread please");
     await rewindTestSession(harness);
 
-    expect(() => harness.lifecycle.findProcessForRun(TEST_RUN_ID)).not.toThrow();
+    expect(harness.lifecycle.findProcessForRun(TEST_RUN_ID)).toBeUndefined();
     await startSecondRun(harness, "carry on from the fork");
     expect(harness.lifecycle.findProcessForRun(TEST_SECOND_RUN_ID)).toBe(
       spawnedChannel(harness, 1),
     );
+  });
+
+  it("fails no run when a rewind's adoption fails, leaving the predecessor's turn running", async () => {
+    // The restored predecessor is still mid-turn, so its own terminal still ends the run.
+    const harness = buildHarness();
+    const predecessorChannel = await startLiveRun(harness, "/status please");
+    harness.transport.onTurnTerminalFailure = new Error("the transport refused the terminal hook");
+
+    const rollback = await rewindTestSession(harness);
+
+    expect(rollback.status).toBe("degraded");
+    expect(spawnedChannel(harness, 1).disposals).toStrictEqual(["establishment_failed"]);
+    expect(harness.supersededRunFailures).toStrictEqual([]);
+    expect(harness.lifecycle.findProcessForRun(TEST_RUN_ID)).toBe(predecessorChannel);
+    predecessorChannel.emitStreamFrame("result/success");
+    expect(harness.lifecycle.findProcessForRun(TEST_RUN_ID)).toBeUndefined();
+  });
+
+  it("records the refusal and still applies the rewind when the run engine refuses the end", async () => {
+    const harness = buildHarness();
+    await startLiveRun(harness, "/status please");
+    harness.answerDelivery = async () => {
+      await Promise.resolve();
+      throw new Error("the emission pipeline is unavailable");
+    };
+
+    expect((await rewindTestSession(harness)).status).toBe("applied");
+    await vi.waitFor(() => {
+      expect(harness.diagnostics.recentRecordsOfKind("delivery_dispatch_failed")).toContainEqual(
+        expect.objectContaining({
+          details: { deliveryKind: "run_lifecycle", sessionId: null, bindingId: TEST_BINDING_ID },
+        }),
+      );
+    });
   });
 });

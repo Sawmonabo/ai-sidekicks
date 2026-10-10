@@ -140,7 +140,7 @@ function buildDriverEvent(): SessionEvent {
     type: "assistant.message",
     actor: null,
     version: EVENT_VERSION,
-    payload: { sessionId: TEST_SESSION_ID, runId: TEST_RUN_ID },
+    payload: { sessionId: TEST_SESSION_ID, runId: TEST_RUN_ID, providerMessageId: "msg_reply_1" },
   };
 }
 

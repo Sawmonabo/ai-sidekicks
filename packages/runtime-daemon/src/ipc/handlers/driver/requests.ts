@@ -43,19 +43,18 @@ import { DRIVER_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/provider/driv
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 
 import type { DriverCapabilityCache } from "../../../provider/capability/cache.js";
-import {
-  DriverUnavailableError,
-  type ProviderRegistry,
-} from "../../../provider/driver/registry.js";
+import type { RunBindingResolution } from "../../../provider/live-run-bindings.js";
+import type { ProviderRegistry } from "../../../provider/driver/registry.js";
 import { DaemonDomainError } from "../../domain-error.js";
 import { RunNotFoundError } from "../../../session/run/refusals.js";
-import { SessionNotFoundError } from "../../session-errors.js";
 
 import { registerDescribedMethod } from "../register-described-method.js";
 import {
-  DRIVER_CAPABILITY_UNSUPPORTED_MESSAGE,
-  type ProviderDriver,
-} from "../../../provider/driver/contract.js";
+  lookupDriverOrThrow,
+  refuseSessionNotFound,
+  resolveDriverForRunOrThrow,
+  type DriverDispatchDeps,
+} from "./resolution.js";
 
 /** The registry surface a roster read needs; it excludes `checkCapability`, which is a gate. */
 type DriverRosterSource = Pick<ProviderRegistry, "listAvailable" | "lookup">;
@@ -73,24 +72,9 @@ export interface DriverCatalogDeps {
   readonly providerRegistry: DriverRosterSource;
 }
 
-/**
- * Dependencies for the two run-addressed verbs. `resolveDriverForRun` names the driver bound to a
- * run, or `undefined` when the run is unknown or not live; the handler does not judge liveness.
- */
-export interface DriverDispatchDeps {
-  readonly providerRegistry: Pick<ProviderRegistry, "lookup">;
-  readonly resolveDriverForRun: (runId: RunId) => ProviderName | undefined;
-}
-
-// The resolution unions never throw: a resolver hands back address and liveness as data so the
-// handler can put the permission check between them, and a denied caller's answer does not
-// vary with binding state.
-
-/** One run's live-binding resolution, scoped to the addressed session. */
-type RunBindingResolution =
-  | { readonly kind: "unknown-run" }
-  | { readonly kind: "no-live-binding" }
-  | { readonly kind: "bound"; readonly driverName: ProviderName; readonly bindingId: string };
+// The resolution unions, here and `RunBindingResolution`, never throw: a resolver hands back
+// address and liveness as data, and the handler answers each arm with its own refusal after the
+// session's access check.
 
 /**
  * One live binding as the daemon resolves it. `providerAccountId` is the daemon's own record
@@ -120,12 +104,7 @@ export interface DriverCompactContextDeps {
    * refusals keeps the masked throw byte-identical.
    */
   readonly resolveSessionAccess: (sessionId: SessionId) => boolean;
-  /**
-   * The run-control permission decision; required so an omitted one fails typecheck. Fail-closed:
-   * anything but `"permit"` settles as `not_permitted`.
-   */
-  readonly evaluateInterveneAction: (sessionId: SessionId, runId: RunId) => "permit" | "deny";
-  /** Resolves the run to its live binding, as data; see the note above the unions. */
+  /** Resolves the run to its live binding, as data that never throws. */
   readonly resolveRunBinding: (sessionId: SessionId, runId: RunId) => RunBindingResolution;
 }
 
@@ -136,35 +115,6 @@ export interface DriverListProviderCommandsDeps {
   readonly resolveSessionAccess: (sessionId: SessionId) => boolean;
   /** Resolves an agent to its live bindings in the session; the wire schema checks the UUID. */
   readonly resolveAgentBindings: (sessionId: SessionId, agentId: string) => AgentBindingsResolution;
-}
-
-/**
- * Resolves the driver bound to a run, or refuses: the address fails first (`run.not_found`), then
- * availability, so a run id that never existed is not reported as a driver problem.
- */
-function resolveDriverForRunOrThrow(
-  deps: DriverDispatchDeps,
-  runId: RunId,
-): { readonly driverName: ProviderName; readonly driver: ProviderDriver } {
-  // Called once: the resolver reads live binding state, so a second call could disagree.
-  const driverName = deps.resolveDriverForRun(runId);
-  if (driverName === undefined) {
-    throw new RunNotFoundError(runId);
-  }
-  const driver = deps.providerRegistry.lookup(driverName);
-  if (driver === undefined) {
-    // The run names a driver this node has not loaded; reuse the registry's error class.
-    throw new DriverUnavailableError(driverName);
-  }
-  return { driverName, driver };
-}
-
-/**
- * The only throw site for the session mask: constant message and no fields, so a session not
- * bound here is indistinguishable from an unknown one.
- */
-function refuseSessionNotFound(): never {
-  throw new SessionNotFoundError("Session does not exist or is not accessible");
 }
 
 function refuseAgentNotFound(agentId: string): never {
@@ -187,29 +137,10 @@ function refuseNoLiveBinding(): never {
 }
 
 /**
- * Asserts a resolved driver implements the operation. Neither shipped driver implements every
- * one (both omit `listModes`), and a missing method would be a `TypeError` mapped to `-32603`;
- * `InvalidRequest` tells the caller not to retry. It names an operation because no capability
- * flag governs it.
- */
-function requireDriverOperation(
-  driver: ProviderDriver,
-  driverName: ProviderName,
-  operation: keyof ProviderDriver,
-): void {
-  if (typeof driver[operation] !== "function") {
-    throw new DaemonDomainError(DRIVER_CAPABILITY_UNSUPPORTED_MESSAGE, {
-      code: "driver.capability_unsupported",
-      jsonRpcCode: JsonRpcErrorCode.InvalidRequest,
-      detail: { driverId: driverName, operation },
-    });
-  }
-}
-
-/**
  * Refuses a steer with attachment references before any driver method runs: nothing downstream
  * resolves an id to bytes (the Codex dispatcher builds `steerRun` without them), so the steer
- * would answer `applied` with them dropped. Same shape as `requireDriverOperation`.
+ * would answer `applied` with them dropped. It names the operation, since no capability flag
+ * governs it.
  */
 function refuseAttachmentDeliveryUnsupported(driverName: ProviderName): never {
   throw new DaemonDomainError(
@@ -257,12 +188,8 @@ export function registerDriverListModels(registry: MethodRegistry, deps: DriverC
     const drivers = await Promise.all(
       sortedDriverNames(deps.providerRegistry).map(
         async (driverName): Promise<DriverModelReport> => {
-          const driver = deps.providerRegistry.lookup(driverName);
-          if (driver === undefined) {
-            // The roster and lookup disagree only if a driver was removed between them.
-            throw new DriverUnavailableError(driverName);
-          }
-          requireDriverOperation(driver, driverName, "listModels");
+          // The roster and lookup disagree only if a driver was removed between them.
+          const driver = lookupDriverOrThrow(deps.providerRegistry, driverName);
           return { driverName, models: await driver.listModels() };
         },
       ),
@@ -279,11 +206,7 @@ export function registerDriverListModes(registry: MethodRegistry, deps: DriverCa
     const drivers = await Promise.all(
       sortedDriverNames(deps.providerRegistry).map(
         async (driverName): Promise<DriverModeReport> => {
-          const driver = deps.providerRegistry.lookup(driverName);
-          if (driver === undefined) {
-            throw new DriverUnavailableError(driverName);
-          }
-          requireDriverOperation(driver, driverName, "listModes");
+          const driver = lookupDriverOrThrow(deps.providerRegistry, driverName);
           return { driverName, modes: await driver.listModes() };
         },
       ),
@@ -303,8 +226,7 @@ export function registerDriverInterruptRun(
   deps: DriverDispatchDeps,
 ): void {
   const handler: Handler<InterruptRunParams, EmptyPayload> = async (params) => {
-    const { driverName, driver } = resolveDriverForRunOrThrow(deps, params.runId);
-    requireDriverOperation(driver, driverName, "interruptRun");
+    const { driver } = resolveDriverForRunOrThrow(deps, params.runId);
     await driver.interruptRun(params);
     return {};
   };
@@ -323,7 +245,6 @@ export function registerDriverApplyIntervention(
 ): void {
   const handler: Handler<ApplyInterventionParams, DriverInterventionResult> = async (params) => {
     const { driverName, driver } = resolveDriverForRunOrThrow(deps, params.targetRunId);
-    requireDriverOperation(driver, driverName, "applyIntervention");
     if (params.type === "steer" && (params.payload.attachments?.length ?? 0) > 0) {
       refuseAttachmentDeliveryUnsupported(driverName);
     }
@@ -334,9 +255,9 @@ export function registerDriverApplyIntervention(
 }
 
 /**
- * Binds `driver.compactContext`. Refusal order: session mask, `run.not_found`, run-control
- * permission (before liveness so a deny cannot vary with binding state; it answers `refused` as
- * data), `driver.unavailable`, capability gate, then the driver's result verbatim.
+ * Binds `driver.compactContext`. Refusal order: session mask, `run.not_found`, the live binding,
+ * `driver.unavailable`, capability gate, then the driver's result verbatim. The session's one user
+ * may compact any run in it, so session access is the whole permission.
  */
 export function registerDriverCompactContext(
   registry: MethodRegistry,
@@ -352,21 +273,12 @@ export function registerDriverCompactContext(
       throw new RunNotFoundError(params.runId);
     }
 
-    if (deps.evaluateInterveneAction(params.sessionId, params.runId) !== "permit") {
-      return { status: "refused", reason: "not_permitted" };
-    }
-
     if (resolution.kind === "no-live-binding") {
       refuseNoLiveBinding();
     }
 
-    const driver = deps.providerRegistry.lookup(resolution.driverName);
-    if (driver === undefined) {
-      // The binding names a driver this node has not loaded.
-      throw new DriverUnavailableError(resolution.driverName);
-    }
+    const driver = lookupDriverOrThrow(deps.providerRegistry, resolution.driverName);
     deps.providerRegistry.checkCapability(resolution.driverName, "context_compaction");
-    requireDriverOperation(driver, resolution.driverName, "compactContext");
     // The driver's params are binding-addressed; the daemon has already resolved the run.
     return driver.compactContext({
       sessionId: params.sessionId,
@@ -432,12 +344,8 @@ export function registerDriverListProviderCommands(
 
     // Admit every binding before any dispatch starts, so a refusal means zero dispatches.
     const admitted = resolution.bindings.map((resolvedBinding) => {
-      const driver = deps.providerRegistry.lookup(resolvedBinding.driverName);
-      if (driver === undefined) {
-        throw new DriverUnavailableError(resolvedBinding.driverName);
-      }
+      const driver = lookupDriverOrThrow(deps.providerRegistry, resolvedBinding.driverName);
       deps.providerRegistry.checkCapability(resolvedBinding.driverName, "provider_commands");
-      requireDriverOperation(driver, resolvedBinding.driverName, "listProviderCommands");
       return { driver, resolvedBinding };
     });
 

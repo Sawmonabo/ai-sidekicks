@@ -1,5 +1,5 @@
-// The canonical transcript fold: a provider session's content as ordered turns, rebuilt from the
-// session log on every call.
+// The canonical transcript and its fold: a provider session's content as ordered turns, rebuilt
+// from the session log on every call.
 //
 // - The transcript is a projection, not a store. `CanonicalTranscriptFold.build()` keeps nothing
 //   between calls, so it cannot disagree with the log; `builtAtPosition` lets a caller see the
@@ -14,13 +14,128 @@ import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
-import type {
-  CanonicalReasoningDisclosure,
-  CanonicalTranscriptProjection,
-  CanonicalTranscriptRole,
-  CanonicalTranscriptSegment,
-  CanonicalTranscriptTurn,
-} from "../driver/contract.js";
+// The canonical transcript is a projection the daemon folds from the session event log, so its
+// shapes are daemon-constructed and plain TypeScript. Content is bounded, normalized taxonomy:
+// anything a provider held that never became an event is absent by construction, which is what
+// the declared-loss rule surfaces.
+
+/** Who authored a turn. The transcript carries no third author. */
+type CanonicalTranscriptRole = "user" | "assistant";
+
+/**
+ * Whether a reasoning block was ever visible to the user. The strip keys on this, not on
+ * `reasoningKind`, because a filter matching one kind name would leave that kind's redacted
+ * sibling behind and break the multi-turn protocol. Summaries are user-visible, hence canonical.
+ */
+type CanonicalReasoningDisclosure = "private" | "summary";
+
+/**
+ * Whether a tool result came from the provider or was minted by the pairing repair. A repaired
+ * result is a declared loss, and a consumer that cannot tell the two apart cannot honor that.
+ */
+type CanonicalToolResultProvenance = "provider" | "repaired";
+
+/**
+ * One unit of turn content. Every arm carries `position`, the session-log sequence of the event
+ * that contributed it: derived provenance projected from the log, never a second record of the
+ * session's order. It is required on every arm because a bound filters on it, and an absent
+ * position would exempt its segment from every bound. Steps that re-home a segment keep the value,
+ * so positions within a turn ascend as the fold builds them but need not once the pairing repair
+ * moves a result behind its call. A `tool_call` carries no enclosing-block member while a
+ * `tool_result` does, so the strip can never drop a call yet can orphan a result, which is what the
+ * pairing repair answers; hence the repair must run after the strip.
+ */
+export type CanonicalTranscriptSegment =
+  | {
+      kind: "text";
+      position: number;
+      text: string;
+      // Set when the row's body was unavailable at fold time. `text` is then empty, because the
+      // fold never invents content, and the segment is kept so the turn survives with its
+      // position. Every projection carrying one owes the matching declared loss.
+      contentUnavailable?: boolean | undefined;
+      // Set on the stand-in emitted for an id-less tool result whose enclosing reasoning block
+      // resolved `private` at turn close. The body was read and withheld, so `text` is empty and
+      // `contentUnavailable` stays absent (setting it would claim a read failure that never
+      // happened). It is a `text` arm rather than a `tool_result` because that arm requires
+      // `toolCallId`, and a synthetic id would give the pairing repair a call no provider made. It
+      // rides the segment it governs and survives any positional bound the segment survives;
+      // without it, a bound between the result and its later-logged private reasoning row would
+      // leave the transcript declaring nothing. Never rendered: the strip drops the segment and
+      // declares `provider_private_reasoning`. One literal because only `private` withholds a
+      // read body; an `unknown` enclosure keeps its placeholder on the `contentUnavailable` path.
+      withheldEnclosure?: "private" | undefined;
+    }
+  | {
+      kind: "reasoning";
+      position: number;
+      blockId: string;
+      // The provider's own block-kind label, carried verbatim for diagnostics; the strip keys on
+      // `disclosure`, not on this.
+      reasoningKind: string;
+      disclosure: CanonicalReasoningDisclosure;
+      text: string;
+    }
+  | {
+      kind: "tool_call";
+      position: number;
+      toolCallId: string;
+      toolName: string;
+      // The arguments as the provider serialized them; re-encoding a parsed object would change
+      // bytes the target may hash or echo.
+      argumentsJson: string;
+      // As on the `text` arm. An unreadable body leaves `argumentsJson` empty rather than dropping
+      // the call, whose id the pairing repair needs.
+      contentUnavailable?: boolean | undefined;
+    }
+  | {
+      kind: "tool_result";
+      position: number;
+      toolCallId: string;
+      outcome: "succeeded" | "failed";
+      provenance: CanonicalToolResultProvenance;
+      text: string;
+      // Present when the provider emitted this result inside a reasoning block; stripping that
+      // block removes the result and orphans its call, the only way an orphan arises from a
+      // well-formed transcript.
+      enclosingReasoningBlockId?: string | undefined;
+      // How the fold resolved that enclosure at turn close, and the only carrier of that
+      // resolution that survives a positional bound: the block id names a sibling segment a bound
+      // may cut away, while this member rides the result. Recorded only for the two dispositions
+      // that withhold; a portable (`summary`) enclosure and a citation of a block from another turn
+      // leave it absent, since nothing branches on either.
+      //   `private`  the enclosing block was read and is not portable;
+      //   `unknown`  the enclosure could not be established portable (the turn's reasoning row was
+      //              unreadable, or the block carried a disclosure this fold does not classify).
+      //              Fail-closed: content that might be private travels with the block.
+      enclosureDisclosure?: "private" | "unknown" | undefined;
+      // As on the `text` arm.
+      contentUnavailable?: boolean | undefined;
+    };
+
+/** One ordered turn of the canonical transcript. */
+export interface CanonicalTranscriptTurn {
+  // The session-log sequence of the event that opened this turn (its first segment). Turns ascend
+  // strictly in it. Consecutive same-role events coalesce into an open turn and keep their own,
+  // higher, positions on their segments, so this member bounds nothing: a filter on it would admit
+  // every later event folded into a turn that opened early.
+  position: number;
+  role: CanonicalTranscriptRole;
+  segments: readonly CanonicalTranscriptSegment[];
+}
+
+/**
+ * The daemon-side fold of a run's normalized events into ordered turns; it never crosses a wire and
+ * is never persisted.
+ */
+export interface CanonicalTranscriptProjection {
+  sessionId: SessionId;
+  runId: RunId;
+  // The log position this fold was taken at: two folds at one position render identically, and one
+  // taken after an appended event does not.
+  builtAtPosition: number;
+  turns: readonly CanonicalTranscriptTurn[];
+}
 
 /**
  * The slice of the session store the fold reads: every logged event of one session, in sequence
@@ -278,7 +393,7 @@ export interface CanonicalTranscriptFoldRequest {
   readonly runId: RunId;
   /**
    * Fold up to and including this normalized session position, the vocabulary
-   * `ForkConversationParams.position` uses. Absent means the whole run. Applied by
+   * `MoveSessionToForkParams.position` uses. Absent means the whole run. Applied by
    * {@link boundProjectionToPosition} to the finished fold, not by skipping rows while walking
    * the log.
    */

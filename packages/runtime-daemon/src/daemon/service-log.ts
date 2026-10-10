@@ -10,6 +10,8 @@ import { chmodSync, closeSync, fchmodSync, mkdirSync, openSync, writeSync } from
 import * as path from "node:path";
 import type { Writable } from "node:stream";
 
+import { describeRejection } from "../rejection.js";
+
 // The folder in the data folder that holds the service log files.
 const SERVICE_LOG_FOLDER_NAME = "logs";
 
@@ -48,7 +50,7 @@ export function openServiceLog(options: {
       fileDescriptor = undefined;
       writeStandardError(
         `The service log file ${filePath} could not be written, so the service log goes to ` +
-          `standard error alone from here: ${describeFailure(failure)}\n`,
+          `standard error alone from here: ${describeRejection(failure)}\n`,
       );
     }
   };
@@ -62,7 +64,7 @@ export function openServiceLog(options: {
     isStandardErrorOpen = false;
     writeFile(
       `Standard error failed, so the service log goes to its file alone from here: ` +
-        `${describeFailure(failure)}\n`,
+        `${describeRejection(failure)}\n`,
     );
   });
 
@@ -82,7 +84,7 @@ export function openServiceLog(options: {
   } catch (failure) {
     writeStandardError(
       `The service log file ${filePath} could not be opened, so the service log goes to ` +
-        `standard error alone: ${describeFailure(failure)}\n`,
+        `standard error alone: ${describeRejection(failure)}\n`,
     );
   }
   return (line) => {
@@ -96,8 +98,4 @@ export function openServiceLog(options: {
 // a file name.
 function formatFileSafeTime(time: Date): string {
   return `${time.toISOString().slice(0, 19).replaceAll(":", "-")}Z`;
-}
-
-function describeFailure(failure: unknown): string {
-  return failure instanceof Error ? failure.message : String(failure);
 }

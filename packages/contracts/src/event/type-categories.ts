@@ -79,6 +79,7 @@ export const SESSION_EVENT_CATEGORY_RECORD = {
   "session.spend_limit_reached": "session_lifecycle",
   "session.restore_finished": "session_lifecycle",
   "session.advisor_changed": "session_lifecycle",
+  "session.output_style_changed": "session_lifecycle",
   "agent.provider_binding_changed": "session_lifecycle",
   "agent.provider_binding_change_failed": "session_lifecycle",
   "workspace.preparing": "session_lifecycle",

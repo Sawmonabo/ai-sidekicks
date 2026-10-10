@@ -202,13 +202,15 @@ describe("damage met while the daemon runs", () => {
     await damaged.write(Buffer.alloc(PAGE_SIZE, 0xa5), 0, PAGE_SIZE, (leafPage - 1) * PAGE_SIZE);
     await damaged.close();
     // A clean stop's record, so the start writes at once; a check that never answers and a search
-    // thread that reads nothing, so only the recovery pass meets the damage.
+    // thread that reads nothing and never opens, so only the recovery pass meets the damage and no
+    // provider starts.
     await recordCleanStop(databasePath());
     standInChecks(() => new Promise(() => {}));
     useSearchThreads(
       () =>
         ({
           whenWorkerFailed: new Promise(() => {}),
+          whenOpenSettled: () => new Promise(() => {}),
           followIndexCommits: () => () => {},
           mergeSegments: () => Promise.resolve(false),
           close: () => Promise.resolve(),

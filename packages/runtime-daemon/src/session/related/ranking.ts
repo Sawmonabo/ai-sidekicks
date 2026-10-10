@@ -29,6 +29,7 @@ import {
   sessionLinkWeight,
   type SessionLinkEnd,
 } from "./score.js";
+import { describeRejection } from "../../rejection.js";
 
 // The most sessions one stored write replaces, so a burst of link changes never makes one huge
 // write; the rest wait for the next round.
@@ -268,7 +269,7 @@ export class SessionRelatedRanking {
       this.#failedRoundsInRow += 1;
       this.#writeServiceLog(
         `related sessions: a re-score round failed, retrying in ${String(waitMs)} ms: ` +
-          (error instanceof Error ? error.message : String(error)),
+          describeRejection(error),
       );
       this.#retryLater(waitMs);
     } finally {
@@ -385,9 +386,7 @@ export class SessionRelatedRanking {
   }
 
   #reportSendFailure(what: string, error: unknown): void {
-    this.#writeServiceLog(
-      `related sessions: ${what} failed: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    this.#writeServiceLog(`related sessions: ${what} failed: ${describeRejection(error)}`);
   }
 
   #linkEndsOf(sessionId: SessionId): SessionLinkEnd[] {

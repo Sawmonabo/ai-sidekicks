@@ -1,419 +1,627 @@
-// The Codex establishment legs: spawning or relaunching a session's process and starting,
-// resuming or forking its thread, then installing the record and rebinding the routing band. A
-// failed resume never becomes a new session: it returns the typed `recovery-needed` failure.
+// The Codex establishment legs: starting a session's conversation on its account's service,
+// reopening it at a daemon restart by forking it there with every setting the session holds, and
+// resuming a held one in place after its service came back or moved; then installing the record
+// and rebinding the routing band. A failed resume never becomes a new conversation: it returns the
+// typed `recovery-needed` failure.
 
+import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
+import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { PendingCompactionRegistry } from "../../../compaction-wait.js";
-import type { UsageDeltaAccountant } from "../../../usage-delta-accountant.js";
-import type { RuntimeBindingQuarantine } from "../../../outbound-frame.js";
+import { composeCodexShellEnvironmentPolicy } from "../../../spawn-env.js";
+import type { DriverDiagnosticsEmitter } from "../../diagnostics.js";
+import { CODEX_DRIVER_NAME } from "../capabilities.js";
+import type { CodexProviderCommandCache } from "../commands.js";
+import { createCodexDeliveryMemory } from "../delivery/memory.js";
+import { readCodexLargerWindow } from "../model-windows.js";
+import type { CodexNotificationRouting } from "../notification-routing.js";
+import { composeCodexServiceTier, type CodexOutputSpeed } from "../output-speed.js";
+import type { CodexRunRoutes } from "../run/routes.js";
+import type { CodexServiceRegistry } from "../service/registry.js";
+import type { CodexService } from "../service/supervisor.js";
+import { composeCodexThreadParams, type CodexThreadSettings } from "../thread/settings.js";
+import { composeCodexThreadPermissionProfiles } from "../thread/permission-profiles.js";
+import { assertCodexThreadProfile, readThread, readThreadReasoningEffort } from "../thread/view.js";
+import { reportDiagnosticFromDetachedFrame } from "../transport/diagnostics.js";
+import { classifyResumeRecoveryCondition } from "../auth-status.js";
+import { readCodexRoleFileWithheldFields, writeCodexHelperRoles } from "./helper-roles.js";
 import {
-  codexCompactionWaitKey,
-  type CodexLifecycleOptions,
-  type CodexSessionRecord,
-} from "./state.js";
-import { CodexAppServerConnection, type CodexConnectionOptions } from "../app-server-connection.js";
+  type CodexConversationRelease,
+  unsubscribeCodexThreadQuietly,
+} from "./conversation-release.js";
+import { updateCodexSessionMode } from "./controls.js";
 import {
-  classifyRewindForkFailure,
+  CODEX_INVALID_REQUEST_CODE,
+  CodexDriverConfigError,
+  CodexLargerWindowUnavailableError,
+  CodexProviderRequestError,
   CodexTransportError,
   normalizeProviderFailureDetail,
 } from "./errors.js";
-import { readThread, readThreadNetworkAccess, readThreadTurnIds } from "../thread-view.js";
-import { classifyResumeRecoveryCondition } from "../auth-status.js";
+import type { CodexConversationForks } from "./fork.js";
+import { type CodexListedTurn, readCodexTurns } from "./history.js";
+import type { CodexSessionSlots } from "./slots.js";
 import {
-  type CodexDiagnosticSink,
-  reportDiagnosticFromDetachedFrame,
-} from "../transport/diagnostics.js";
-import type { CodexSpawnPosture } from "../spawn-posture.js";
-import { composeCodexServiceTier, type CodexOutputSpeed } from "../output-speed.js";
-import type { CodexNotificationRouting } from "../notification-routing.js";
-import type { CodexProviderCommandCache } from "../commands.js";
-import type { CodexTextNeutralization } from "../text-neutralization.js";
-import type { CodexRunRoutes } from "../run-routes.js";
+  codexCompactionWaitKey,
+  type CodexLifecycleOptions,
+  type CodexLostRunFailure,
+  type CodexSessionRecord,
+} from "./state.js";
 import {
   DriverResumeResultSchema,
-  ForkConversationResultSchema,
   type CreateSessionParams,
   type DriverResumeResult,
-  type ForkConversationParams,
-  type ForkConversationResult,
   type ProviderSessionHandle,
   type ResumeSessionParams,
+  type SubagentDefinition,
 } from "../../contract.js";
-
-/**
- * Closes an abandoned connection, killing the child first under `kill-and-close`, and reports a
- * teardown fault (an injected disposer is caller code) rather than letting it change the outcome
- * of the operation that abandoned it. `closeSession` does not use it: a close has no other outcome
- * to protect.
- */
-export async function releaseAbandonedConnection(
-  connection: CodexAppServerConnection,
-  reportDiagnostic: CodexDiagnosticSink,
-  release: "close" | "kill-and-close" = "close",
-): Promise<void> {
-  try {
-    await (release === "kill-and-close" ? connection.killAndClose() : connection.close());
-  } catch (cause) {
-    // `close()` throws only its disposer's fault; the transport is released either way.
-    reportDiagnosticFromDetachedFrame(reportDiagnostic, {
-      kind: "subscription-dispose-failed",
-      detail: normalizeProviderFailureDetail(cause),
-    });
-  }
-}
 
 /** The record for a just-established thread; every per-turn register starts empty. */
 function composeSessionRecord(
+  diagnostics: DriverDiagnosticsEmitter,
   established: Pick<
     CodexSessionRecord,
     | "sessionId"
-    | "connection"
+    | "service"
     | "threadId"
+    | "bindingId"
+    | "providerAccountId"
     | "turnBoundaries"
+    | "threadSettings"
     | "executionPosture"
-    | "providerNetworkAccess"
-    | "subagentPolicy"
-    | "spawnConfig"
-    | "model"
+    | "sessionMode"
     | "outputSpeedRequest"
     | "declaredOutputSpeed"
+    | "reasoningEffort"
   >,
 ): CodexSessionRecord {
   return {
     ...established,
+    permissionProfiles: composeCodexThreadPermissionProfiles(established.threadSettings),
+    isConfigForkOwed: false,
+    leftThreadIdsAwaitingBinding: [],
+    turnIdByClientMessageId: new Map(),
     runIdByActiveTurnId: new Map(),
-    bufferedTurnEvidence: new Map(),
-    inFlightTurnStarts: 0,
     settledTurnIds: new Set(),
-    inFlightSteers: 0,
     interruptedRunIdByTurnId: new Map(),
     unsettledOutputSpeedRuns: new Map(),
+    lastSteerSend: Promise.resolve(),
+    pauseRunIdByTurnId: new Map(),
+    pausedRunIdByInterruptedTurnId: new Map(),
+    continuesAwaitingPause: new Map(),
+    turnInputByTurnId: new Map(),
+    delivery: createCodexDeliveryMemory(diagnostics),
   };
 }
 
-/** The session records, dependencies and lifecycle accessors the establishment legs write into. */
+/** A conversation resumed in place, and its turns as Codex listed them; none when it failed. */
+export interface CodexInPlaceResume {
+  readonly result: DriverResumeResult;
+  readonly listedTurns: readonly CodexListedTurn[];
+}
+
+// What a resume reads back: the conversation's turns, its declared tier and its effort.
+interface CodexResumedThread {
+  readonly listedTurns: CodexListedTurn[];
+  readonly declaredOutputSpeed: CodexSessionRecord["declaredOutputSpeed"];
+  readonly reasoningEffort: CodexSessionRecord["reasoningEffort"];
+}
+
+// Codex's refusal to resume a conversation another runtime still writes.
+const CODEX_ACTIVE_WRITER_MESSAGE = "active writer";
+
+function isActiveWriterRefusal(cause: unknown): boolean {
+  return (
+    cause instanceof CodexProviderRequestError &&
+    cause.providerErrorCode === CODEX_INVALID_REQUEST_CODE &&
+    cause.providerMessage.includes(CODEX_ACTIVE_WRITER_MESSAGE)
+  );
+}
+
+/** The dependencies and lifecycle owners the establishment legs write into. */
 export interface CodexSessionEstablishmentDependencies {
-  readonly options: Pick<CodexLifecycleOptions, "reportDiagnostic">;
-  readonly sessions: Map<SessionId, CodexSessionRecord>;
+  readonly options: Pick<
+    CodexLifecycleOptions,
+    | "reportDiagnostic"
+    | "diagnostics"
+    | "onLostRunFailure"
+    | "spawnContext"
+    | "credentialPolicy"
+    | "providerBaseEnvironment"
+    | "operatingSystem"
+    | "toolServerRoute"
+    | "helperRolesFolder"
+  >;
   readonly newBindingId: () => string;
-  readonly runtimeBindingQuarantine: RuntimeBindingQuarantine;
+  readonly slots: CodexSessionSlots;
+  readonly services: CodexServiceRegistry;
   readonly pendingCompactions: PendingCompactionRegistry;
-  readonly spawnPosture: CodexSpawnPosture;
   readonly outputSpeed: CodexOutputSpeed;
   readonly notificationRouting: CodexNotificationRouting;
   readonly providerCommands: CodexProviderCommandCache;
-  readonly textNeutralization: CodexTextNeutralization;
   readonly runRoutes: CodexRunRoutes;
-  readonly connectionOptionsFor: (sessionId: SessionId) => CodexConnectionOptions;
-  readonly usageAccountantFor: (sessionId: SessionId) => UsageDeltaAccountant;
+  readonly forks: CodexConversationForks;
+  readonly release: CodexConversationRelease;
 }
 
 /**
- * Runs the create, resume and rewind legs inside the slot the lifecycle claimed for them. A failed
- * create or resume closes the connection it opened, so no owned process outlives its slot.
+ * Runs the create and resume legs inside the slot the lifecycle claimed for them. The service
+ * stays up whatever a leg does to its own conversation.
  */
 export class CodexSessionEstablishment {
+  readonly #dependencies: CodexSessionEstablishmentDependencies;
   readonly #options: CodexSessionEstablishmentDependencies["options"];
-  readonly #sessions: Map<SessionId, CodexSessionRecord>;
-  readonly #newBindingId: () => string;
-  readonly #runtimeBindingQuarantine: RuntimeBindingQuarantine;
-  readonly #pendingCompactions: PendingCompactionRegistry;
-  readonly #spawnPosture: CodexSpawnPosture;
-  readonly #outputSpeed: CodexOutputSpeed;
-  readonly #notificationRouting: CodexNotificationRouting;
-  readonly #providerCommands: CodexProviderCommandCache;
-  readonly #textNeutralization: CodexTextNeutralization;
-  readonly #runRoutes: CodexRunRoutes;
-  readonly #connectionOptionsFor: (sessionId: SessionId) => CodexConnectionOptions;
-  readonly #usageAccountantFor: (sessionId: SessionId) => UsageDeltaAccountant;
 
   constructor(dependencies: CodexSessionEstablishmentDependencies) {
+    this.#dependencies = dependencies;
     this.#options = dependencies.options;
-    this.#sessions = dependencies.sessions;
-    this.#newBindingId = dependencies.newBindingId;
-    this.#runtimeBindingQuarantine = dependencies.runtimeBindingQuarantine;
-    this.#pendingCompactions = dependencies.pendingCompactions;
-    this.#spawnPosture = dependencies.spawnPosture;
-    this.#outputSpeed = dependencies.outputSpeed;
-    this.#notificationRouting = dependencies.notificationRouting;
-    this.#providerCommands = dependencies.providerCommands;
-    this.#textNeutralization = dependencies.textNeutralization;
-    this.#runRoutes = dependencies.runRoutes;
-    this.#connectionOptionsFor = dependencies.connectionOptionsFor;
-    this.#usageAccountantFor = dependencies.usageAccountantFor;
   }
 
-  /** Spawns a process and starts a fresh thread; a failure closes the process and rethrows. */
+  /** Starts a fresh conversation on the account's service; a failure leaves nothing installed. */
   async establishCreatedSession(params: CreateSessionParams): Promise<ProviderSessionHandle> {
-    // Composed before the connection exists, so an unresolvable posture costs no process. Create
-    // has no result type, so it raises the same `CodexDriverConfigError` as its config parse.
-    const config = await this.#spawnPosture.composeCreateSpawnConfig(params);
-    // Before the connection exists too, so a level the model does not list reaches no provider.
-    const outputSpeed = await this.#outputSpeed.resolveLevel(params.model, params.outputSpeed);
-    const connection = new CodexAppServerConnection(this.#connectionOptionsFor(params.sessionId));
+    // Composed before the service is touched, so an unresolvable context costs nothing.
+    const threadSettings = await this.#composeThreadSettings(params);
+    const service = await this.#dependencies.services.serviceFor(params.providerAccountId);
+    await service.ensureStarted();
+    if (params.largerWindow !== undefined) {
+      await this.#confirmLargerWindow(service, params.model, params.largerWindow);
+    }
+    // Before the service is asked, so a level the model does not list reaches no conversation.
+    const outputSpeed = await this.#dependencies.outputSpeed.resolveLevel(
+      service,
+      params.model,
+      params.outputSpeed,
+    );
+    const closeClaim = service.beginThreadClaim();
+    let startedThreadId: string | undefined;
     try {
-      // Inside the guard: `open()` tears down only the paths it owns, not a throwing
-      // caller-supplied subscriber, and `close()` is idempotent.
-      await connection.open(config);
-      const response = await connection.request("thread/start", {
-        cwd: config.cwd,
-        // Spread so a session with no declared posture gets no sandbox or approval policy (an
-        // invented one would refuse admitted tool calls or grant what was not) and the person as
-        // its reviewer, its connectors' included.
-        ...this.#spawnPosture.composeThreadEstablishmentLegs(
-          params.executionPosture,
-          params.subagentPolicy,
-        ),
-        model: params.model,
+      const response = await service.request("thread/start", {
+        ...composeCodexThreadParams(threadSettings, this.#options.toolServerRoute.port),
         ...composeCodexServiceTier(outputSpeed),
       });
       const thread = readThread(response, "thread/start");
-      this.#spawnPosture.reportWithheldCallbackTools(params.sessionId, params.callbackTools);
-      this.#sessions.set(
-        params.sessionId,
-        composeSessionRecord({
+      startedThreadId = thread.id;
+      assertCodexThreadProfile(response, threadSettings, "thread/start");
+      this.#dependencies.slots.install(
+        composeSessionRecord(this.#options.diagnostics, {
           sessionId: params.sessionId,
-          connection,
+          service,
           threadId: thread.id,
+          // Named by the session's first run.
+          bindingId: undefined,
+          providerAccountId: params.providerAccountId,
           turnBoundaries: [],
-          executionPosture: params.executionPosture,
-          providerNetworkAccess: readThreadNetworkAccess(response),
-          subagentPolicy: params.subagentPolicy,
-          spawnConfig: config,
-          model: params.model,
+          threadSettings,
+          executionPosture: requireExecutionPosture(params),
+          sessionMode: "build",
           outputSpeedRequest: params.outputSpeed,
-          declaredOutputSpeed: this.#outputSpeed.readDeclaredTier(params.sessionId, response),
+          declaredOutputSpeed: this.#dependencies.outputSpeed.readDeclaredTier(
+            params.sessionId,
+            response,
+          ),
+          reasoningEffort: readThreadReasoningEffort(response),
         }),
       );
-      // A fresh process now answers for this session id, so a prior trip's refusal is released.
-      this.#runtimeBindingQuarantine.releaseSession(params.sessionId);
       // Bases at zero: the provider's counter starts there, so the first turn is real spend.
-      this.#notificationRouting.bindSessionThread(params.sessionId, thread.id, { mode: "fresh" });
-      // `id` is the resume key; `sessionId` groups a thread tree (fork and subagent threads share
+      this.#dependencies.notificationRouting.bindSessionThread(params.sessionId, thread.id, {
+        mode: "fresh",
+      });
+      service.registerThread(thread.id, params.sessionId);
+      // `id` is the resume key; `sessionId` groups a thread tree (fork and helper threads share
       // it), so the two are not interchangeable.
       return { providerSessionId: thread.sessionId, resumeHandle: thread.id };
     } catch (cause) {
-      // Contained so a throwing disposer in `close()` cannot replace the spawn or handshake error.
-      await releaseAbandonedConnection(connection, this.#options.reportDiagnostic);
+      // A conversation that started under the wrong level is let go before the fault surfaces.
+      if (startedThreadId !== undefined) {
+        await unsubscribeCodexThreadQuietly(
+          service,
+          startedThreadId,
+          this.#options.reportDiagnostic,
+        );
+      }
       throw cause;
+    } finally {
+      closeClaim();
     }
   }
 
-  /** Relaunches the session's process and resumes its thread; every failure returns `failed`. */
+  /**
+   * Refuses a create whose larger window the service's catalog does not offer `model` at that
+   * figure now, so a picker row read before the catalog changed starts no conversation. A failed
+   * catalog read, or an unreadable row for the model, propagates.
+   */
+  async #confirmLargerWindow(
+    service: CodexService,
+    model: string,
+    largerWindow: number,
+  ): Promise<void> {
+    const offeredLargerWindow = readCodexLargerWindow(await service.readModelCatalogDump(), model);
+    if (offeredLargerWindow !== largerWindow) {
+      throw new CodexLargerWindowUnavailableError(model, largerWindow, offeredLargerWindow);
+    }
+  }
+
+  /**
+   * Reopens a conversation from its handle on the account's service by forking it there with every
+   * setting the session holds, since its config reaches a conversation only through a start, resume
+   * or fork, and a resume of one another client holds applies none of it. The session runs on the
+   * fork, which the result names; a live record the session held is superseded. Every failure
+   * returns `failed`.
+   */
   async establishResumedSession(params: ResumeSessionParams): Promise<DriverResumeResult> {
     // Read inside the claimed establishment, after any predecessor installed its record.
-    const existing = this.#sessions.get(params.sessionId);
-    const connection = new CodexAppServerConnection(this.#connectionOptionsFor(params.sessionId));
+    const existing = this.#dependencies.slots.recordFor(params.sessionId);
+    let service: CodexService | undefined;
     try {
-      // Composed inside the `try` so a posture refusal arrives as the typed `failed` result, not as
-      // an exception out of `resumeSession`.
-      const spawnConfig = await this.#spawnPosture.composeResumeSpawnConfig(existing, params);
-      // The level rebuilt from the spawn record; one the model no longer lists resumes the
-      // conversation at standard rather than failing it.
-      const outputSpeed = await this.#outputSpeed.resolveLevel(params.model, params.outputSpeed);
-      await connection.open(spawnConfig);
-      const response = await connection.request("thread/resume", {
-        threadId: params.resumeHandle,
-        // A resume is a fresh spawn, so the spawn-bound legs are re-realized; otherwise the
-        // provider would apply caps reloaded from the thread's persisted config.
-        ...this.#spawnPosture.composeThreadEstablishmentLegs(
-          params.executionPosture,
-          params.subagentPolicy,
-        ),
-        model: params.model,
-        // Re-realized like the posture: a resume without it relaunches at the provider's tier.
-        ...composeCodexServiceTier(outputSpeed),
-      });
-      const thread = readThread(response, "thread/resume");
-      // Checked before the position: Codex may answer an unhonorable resume with a different
-      // thread, and a zero-turn one has `turns: []`, like a genuine resume.
-      if (thread.id !== params.resumeHandle) {
-        throw new CodexTransportError(
-          `Resume handle ${params.resumeHandle} was answered by thread ${thread.id}; the ` +
-            `provider started a replacement thread rather than resuming.`,
-          {
-            method: "thread/resume",
-            requestedThreadId: params.resumeHandle,
-            answeredThreadId: thread.id,
-          },
-        );
-      }
-      if (!Array.isArray(thread.turns)) {
-        // Populated on `thread/resume` by contract; a fabricated 0 would make a fresh thread look
-        // resumed.
-        throw new CodexTransportError(
-          "The Codex app-server resume response carried no turn history, so the session " +
-            "position is unknown.",
-          { threadId: thread.id },
-        );
-      }
-      // Built before the swap: the caller's minter can throw, and after the install that would
-      // leave the session mapped to a closed connection. Parsed because the schema is the only
-      // check of the minted `bindingId` (length cap, no blank, no NUL) before it is persisted.
-      const resumedResult = DriverResumeResultSchema.parse({
-        status: "resumed",
-        bindingId: this.#newBindingId(),
-        sessionPosition: thread.turns.length,
-      });
-      // Re-reported on resume: this leg offers the provider no callback-tool registry either.
-      this.#spawnPosture.reportWithheldCallbackTools(params.sessionId, params.callbackTools);
-      this.#sessions.set(
-        params.sessionId,
-        composeSessionRecord({
+      const threadSettings = await this.#composeThreadSettings(params);
+      service = await this.#dependencies.services.serviceFor(params.providerAccountId);
+      await service.ensureStarted();
+      const closeClaim = service.beginThreadClaim();
+      try {
+        const forked = await this.#dependencies.forks.forkThread(service, params.resumeHandle, {
           sessionId: params.sessionId,
-          connection,
-          threadId: thread.id,
-          // Seeded from the thread's own history so a rewind indexes the same axis as before
-          // restart.
-          turnBoundaries: readThreadTurnIds(thread.turns),
-          executionPosture: params.executionPosture,
-          providerNetworkAccess: readThreadNetworkAccess(response),
-          subagentPolicy: params.subagentPolicy,
-          spawnConfig,
-          model: params.model,
+          threadSettings,
           outputSpeedRequest: params.outputSpeed,
-          declaredOutputSpeed: this.#outputSpeed.readDeclaredTier(params.sessionId, response),
-        }),
-      );
-      // Discarded: the held enumeration is a read from the replaced process, and its
-      // `skills/changed` cue would arrive on a dead connection.
-      this.#providerCommands.discardProviderCommandEnumeration(params.sessionId);
-      this.#runtimeBindingQuarantine.releaseSession(params.sessionId);
-      // Bases at the daemon's prior-emitted sum: the provider's counter survives a resume, so a
-      // zero base would re-meter the whole history onto the first turn.
-      this.#notificationRouting.bindSessionThread(params.sessionId, thread.id, {
-        mode: "resume",
-        priorEmittedThreadId: thread.id,
-      });
-      // Fails the predecessor's unsettled frames on their runs before routes are swept
-      // (`runIdForAbandonedFrame` reads the run routes). Not ruled swallowed, not dropped,
-      // not quarantined: the runs keep their interrupt and intervention controls.
-      this.#textNeutralization.failSupersededDeliveries(existing, params.sessionId);
-      // A compaction wait armed against the superseded leg can never get its evidence, so
-      // `binding_lost` is owed now. Keyed on the superseded record's thread; no wait exists yet
-      // against the replacement, as installation and this release are one synchronous run.
-      if (existing !== undefined) {
-        this.#pendingCompactions.releaseBinding(
-          codexCompactionWaitKey(params.sessionId, existing.threadId),
+          sessionMode: params.mode,
+        });
+        // Built before the swap: the minter can throw, and after the install that would leave the
+        // session on a conversation no binding names. Parsed because the schema is the only check
+        // of the minted `bindingId` before it is persisted.
+        let bindingId: string;
+        let resumedResult: DriverResumeResult;
+        try {
+          bindingId = this.#dependencies.newBindingId();
+          resumedResult = DriverResumeResultSchema.parse({
+            status: "resumed",
+            bindingId,
+            sessionPosition: forked.turnIds.length,
+            resumeHandle: forked.threadId,
+          });
+        } catch (cause) {
+          await unsubscribeCodexThreadQuietly(
+            service,
+            forked.threadId,
+            this.#options.reportDiagnostic,
+          );
+          throw cause;
+        }
+        if (existing !== undefined) {
+          this.#releaseSuperseded(existing);
+        }
+        this.#dependencies.slots.install(
+          composeSessionRecord(this.#options.diagnostics, {
+            sessionId: params.sessionId,
+            service,
+            threadId: forked.threadId,
+            bindingId,
+            providerAccountId: params.providerAccountId,
+            turnBoundaries: forked.turnIds,
+            threadSettings,
+            executionPosture: requireExecutionPosture(params),
+            sessionMode: params.mode,
+            outputSpeedRequest: params.outputSpeed,
+            declaredOutputSpeed: this.#dependencies.outputSpeed.readDeclaredTier(
+              params.sessionId,
+              forked.response,
+            ),
+            reasoningEffort: readThreadReasoningEffort(forked.response),
+          }),
         );
+        // Based on the thread it was forked from, the only key the earlier spend exists under.
+        this.#bindResumedThread(params.sessionId, forked.threadId, params.resumeHandle);
+        service.registerThread(forked.threadId, params.sessionId);
+        return resumedResult;
+      } finally {
+        closeClaim();
       }
-      // Every route to the superseded leg is dead. Swept here because `closeSession` reads the live
-      // record and would leak one entry per in-flight run per resume.
-      this.#runRoutes.forgetRunRoutes(params.sessionId);
-      // Usually a no-op, as `failSupersededDeliveries` consumed the registrations; kept as the
-      // budget release's one home.
-      this.#textNeutralization.releaseOutboundFrameBudget(params.sessionId);
-      // Released after the install so a failed resume leaves the prior leg live.
-      if (existing !== undefined) {
-        await releaseAbandonedConnection(existing.connection, this.#options.reportDiagnostic);
-      }
-      return resumedResult;
     } catch (cause) {
-      // Classified before the release: it asks this connection whether the credential is still
-      // good, and a refused resume leaves the transport open. The release is contained so its
-      // fault cannot escape the typed result.
-      const recoveryCondition = await classifyResumeRecoveryCondition(
-        connection,
-        cause,
-        this.#options.reportDiagnostic,
-      );
-      await releaseAbandonedConnection(connection, this.#options.reportDiagnostic);
       return {
         status: "failed",
-        recoveryCondition,
+        recoveryCondition:
+          service === undefined
+            ? "recovery-needed"
+            : await classifyResumeRecoveryCondition(service, cause, this.#options.reportDiagnostic),
         providerFailureDetail: normalizeProviderFailureDetail(cause),
       };
     }
   }
 
-  /** Forks the thread at a recorded boundary and re-points the session's record at the fork. */
-  async establishRewoundSession(
-    params: ForkConversationParams,
+  /**
+   * Resumes a held record's conversation on `service` in place: after its service crashed or its
+   * connection came back, or once it left the old service for a new build. The resume carries the
+   * settings the record holds now, and the conversation's turns come back with the result, so a
+   * caller can end the ones that ended unseen. A resume refused while another runtime still writes
+   * the conversation is tried again each time `awaitWriterLeft` answers `true`. Every failure
+   * returns `failed`.
+   */
+  async resumeInPlace(
     record: CodexSessionRecord,
-    boundaryTurnId: string,
-  ): Promise<ForkConversationResult> {
-    // Resolved afresh against the model's tier list, before the thread id is read, so the fork
-    // runs at the requested speed where the model still lists it. The fork holds the session's
-    // slot, so no resume or close replaces this record during the read.
-    const outputSpeed = await this.#outputSpeed.resolveLevel(
-      record.model,
-      record.outputSpeedRequest,
-    );
-    // One read of the mutable field: both the fork source and the usage-base key.
-    const preForkThreadId = record.threadId;
-    // Wraps the dispatch alone: a malformed result from `readThread` is not a missing capability.
-    let response: unknown;
+    service: CodexService,
+    awaitWriterLeft?: () => Promise<boolean>,
+  ): Promise<CodexInPlaceResume> {
     try {
-      response = await record.connection.request("thread/fork", {
-        threadId: preForkThreadId,
-        lastTurnId: boundaryTurnId,
-        // A new thread must re-realize the posture and caps, as a resume does.
-        ...this.#spawnPosture.composeThreadEstablishmentLegs(
-          record.executionPosture,
-          record.subagentPolicy,
-        ),
-        model: record.model,
+      // Asked for before the resume, so no report of it can arrive ahead of the record knowing.
+      record.permissionProfiles = composeCodexThreadPermissionProfiles(record.threadSettings);
+      let resumed: CodexResumedThread;
+      for (;;) {
+        try {
+          resumed = await this.#resumeThread(service, record.threadId, record);
+          break;
+        } catch (cause) {
+          if (
+            awaitWriterLeft === undefined ||
+            !isActiveWriterRefusal(cause) ||
+            !(await awaitWriterLeft())
+          ) {
+            throw cause;
+          }
+        }
+      }
+      const bindingId = this.#dependencies.newBindingId();
+      const resumedResult = DriverResumeResultSchema.parse({
+        status: "resumed",
+        bindingId,
+        sessionPosition: resumed.listedTurns.length,
+        resumeHandle: record.threadId,
+      });
+      record.service = service;
+      record.bindingId = bindingId;
+      record.turnBoundaries.splice(
+        0,
+        record.turnBoundaries.length,
+        ...resumed.listedTurns.map((listed) => listed.id),
+      );
+      record.declaredOutputSpeed = resumed.declaredOutputSpeed;
+      record.reasoningEffort = resumed.reasoningEffort;
+      await updateCodexSessionMode(record, record.sessionMode);
+      this.#bindResumedThread(record.sessionId, record.threadId, record.threadId);
+      return { result: resumedResult, listedTurns: resumed.listedTurns };
+    } catch (cause) {
+      reportDiagnosticFromDetachedFrame(this.#options.reportDiagnostic, {
+        kind: "conversation-resume-failed",
+        threadId: record.threadId,
+        detail: normalizeProviderFailureDetail(cause),
+      });
+      return {
+        result: {
+          status: "failed",
+          recoveryCondition: await classifyResumeRecoveryCondition(
+            service,
+            cause,
+            this.#options.reportDiagnostic,
+          ),
+          providerFailureDetail: normalizeProviderFailureDetail(cause),
+        },
+        listedTurns: [],
+      };
+    }
+  }
+
+  /**
+   * The settings a session's conversation runs with, resolved afresh at every start and resume,
+   * with its helpers' role files written again. Throws `CodexDriverConfigError` with no posture,
+   * since every conversation runs at a level, and for a helper no role file can carry.
+   */
+  async #composeThreadSettings(
+    params: CreateSessionParams | ResumeSessionParams,
+  ): Promise<CodexThreadSettings> {
+    const posture = requireExecutionPosture(params);
+    const context = await this.#options.spawnContext.resolveSpawnContext(
+      params.sessionId,
+      params.providerAccountId,
+    );
+    const credentialPolicy = await this.#options.credentialPolicy.resolveCredentialPolicy(
+      posture.credentialPolicyRef,
+    );
+    const definitions =
+      params.subagentPolicy?.enabled === true ? params.subagentPolicy.definitions : [];
+    const helperRoles = await writeCodexHelperRoles(
+      this.#options.helperRolesFolder,
+      params.sessionId,
+      definitions,
+    );
+    this.#reportWithheldDefinitionFields(definitions);
+    return {
+      sessionId: params.sessionId,
+      workingDirectory: context.workingDirectory,
+      model: params.model,
+      // A resume sends the recorded figure whatever the catalog offers now; Codex refuses one it
+      // cannot run, and that failure surfaces like any other.
+      modelContextWindow: params.largerWindow,
+      level: posture.mode,
+      profileFolders: {
+        workingDirectory: context.workingDirectory,
+        gitCommonFolder: context.gitCommonFolder,
+        writableRoots: posture.writableRoots,
+        denyPaths: credentialPolicy.denyPaths,
+      },
+      shellEnvironment: composeCodexShellEnvironmentPolicy({
+        baseEnv: this.#options.providerBaseEnvironment,
+        environmentRows: context.environmentRows,
+        hostEnvNameMatch: this.#options.operatingSystem.environmentNameMatch,
+      }),
+      subagentPolicy: params.subagentPolicy,
+      helperRoles,
+      toolServers: params.toolServers ?? [],
+      baseInstructions: context.baseInstructions,
+    };
+  }
+
+  /** `thread/resume` with every setting, then the turn history read back page by page. */
+  async #resumeThread(
+    service: CodexService,
+    threadId: string,
+    session: Pick<CodexSessionRecord, "sessionId" | "threadSettings" | "outputSpeedRequest">,
+  ): Promise<CodexResumedThread> {
+    // The level rebuilt from the record; one the model no longer lists resumes at standard.
+    const outputSpeed = await this.#dependencies.outputSpeed.resolveLevel(
+      service,
+      session.threadSettings.model,
+      session.outputSpeedRequest,
+    );
+    const closeClaim = service.beginThreadClaim();
+    try {
+      const response = await service.request("thread/resume", {
+        threadId,
+        // The history is paged afterwards instead of arriving on one reply.
+        excludeTurns: true,
+        ...composeCodexThreadParams(session.threadSettings, this.#options.toolServerRoute.port),
         ...composeCodexServiceTier(outputSpeed),
       });
-    } catch (cause) {
-      // A build without `ThreadForkParams.lastTurnId` becomes `driver.capability_unsupported`;
-      // any other failure is rethrown as it arrived. Nothing has mutated yet.
-      throw classifyRewindForkFailure(cause);
+      const thread = readThread(response, "thread/resume");
+      // Codex may answer an unhonorable resume with a different thread.
+      if (thread.id !== threadId) {
+        throw new CodexTransportError(
+          `Resume handle ${threadId} was answered by thread ${thread.id}; the provider started a ` +
+            `replacement conversation rather than resuming.`,
+          { method: "thread/resume", requestedThreadId: threadId, answeredThreadId: thread.id },
+        );
+      }
+      assertCodexThreadProfile(response, session.threadSettings, "thread/resume");
+      const wasHeld = service.threads.sessionFor(threadId) === session.sessionId;
+      // Registered before the history read, so the thread's frames reach the session from now.
+      service.registerThread(threadId, session.sessionId);
+      try {
+        return {
+          listedTurns: await readCodexTurns(service, threadId),
+          declaredOutputSpeed: this.#dependencies.outputSpeed.readDeclaredTier(
+            session.sessionId,
+            response,
+          ),
+          reasoningEffort: readThreadReasoningEffort(response),
+        };
+      } catch (cause) {
+        if (!wasHeld) {
+          service.threads.release(threadId);
+        }
+        throw cause;
+      }
+    } finally {
+      closeClaim();
     }
-    const forkedThread = readThread(response, "thread/fork");
-    // Answering with the thread it was handed means no fork happened; adopting it would report
-    // `applied` with no surviving pre-rewind thread.
-    if (forkedThread.id === preForkThreadId) {
-      return { status: "degraded", fallbackAction: "rewind-not-forked" };
-    }
-    // A thread this session already meters would have its spend registers reset. Ordered after the
-    // fork check because the pre-fork thread is itself registered.
-    if (this.#usageAccountantFor(params.sessionId).hasThread(forkedThread.id)) {
-      return { status: "degraded", fallbackAction: "rewind-target-thread-already-registered" };
-    }
-    // Re-read after the await, before the first mutation; rebinding under a live turn would strand
-    // the turn.
-    if (record.runIdByActiveTurnId.size > 0) {
-      return { status: "degraded", fallbackAction: "rewind-deferred-turn-in-progress" };
-    }
-    record.threadId = forkedThread.id;
-    record.providerNetworkAccess = readThreadNetworkAccess(response);
-    record.declaredOutputSpeed = this.#outputSpeed.readDeclaredTier(params.sessionId, response);
-    // The routing and metering band moves with the record. Based like a resume on the pre-fork
-    // thread, the only key the earlier spend exists under. The wire reference does not say whether
-    // the counter continues across a fork: if it restarts, the decrease floor gives loud
-    // under-metering, whereas `fresh` would silently double-count.
-    this.#notificationRouting.bindSessionThread(params.sessionId, forkedThread.id, {
-      mode: "resume",
-      priorEmittedThreadId: preForkThreadId,
-    });
-    // The router retires the old thread in the registration above; the accountant holds one set
-    // per thread. Released only after the successor exists, so a refused fork can still meter.
-    this.#usageAccountantFor(params.sessionId).releaseThread(preForkThreadId);
-    // Compaction waits on the predecessor settle `binding_lost`, their honest terminal.
-    this.#pendingCompactions.releaseBinding(
-      codexCompactionWaitKey(params.sessionId, preForkThreadId),
+  }
+
+  /**
+   * Lets a superseded record go: the runs its turns held fail, since no terminal can end them
+   * now, their routes and waits are swept, and its conversation, which the session no longer runs
+   * on, is let go once no command of it runs.
+   */
+  #releaseSuperseded(superseded: CodexSessionRecord): void {
+    this.#failLostRuns(superseded);
+    this.#dependencies.pendingCompactions.releaseBinding(
+      codexCompactionWaitKey(superseded.sessionId, superseded.threadId),
     );
-    const forkedTurnIds = readThreadTurnIds(forkedThread.turns);
-    // An absent or unreadable turn list reads as zero turns, which also disagrees.
-    if (forkedTurnIds.length !== params.position) {
-      reportDiagnosticFromDetachedFrame(this.#options.reportDiagnostic, {
-        kind: "fork-turn-ledger-unconfirmed",
-        expectedTurnCount: params.position,
-        confirmedTurnCount: forkedTurnIds.length,
-      });
-    }
-    if (forkedTurnIds.length > 0) {
-      // The provider's account of the forked history wins over the local ordinal.
-      record.turnBoundaries.splice(0, record.turnBoundaries.length, ...forkedTurnIds);
-    } else {
-      record.turnBoundaries.length = params.position;
-    }
-    // Parsed for the minted `bindingId`, which the schema alone caps before it is persisted.
-    return ForkConversationResultSchema.parse({
-      status: "applied",
-      sessionPosition: params.position,
-      bindingId: this.#newBindingId(),
+    this.#dependencies.runRoutes.forgetRunRoutes(superseded.sessionId);
+    superseded.runIdByActiveTurnId.clear();
+    superseded.interruptedRunIdByTurnId.clear();
+    superseded.pauseRunIdByTurnId.clear();
+    superseded.pausedRunIdByInterruptedTurnId.clear();
+    superseded.continuesAwaitingPause.clear();
+    // Its helpers' threads too; the release holds its own thread while a command of it runs.
+    this.#dependencies.release.releaseSessionThreads(superseded.service, superseded.sessionId);
+    void this.#dependencies.release.letGo(
+      superseded.service,
+      superseded.threadId,
+      superseded.sessionId,
+    );
+  }
+
+  // `priorEmittedThreadId` is the thread the earlier spend was emitted under: the same one for a
+  // resume in place, the source of a fork.
+  #bindResumedThread(sessionId: SessionId, threadId: string, priorEmittedThreadId: string): void {
+    // The held enumeration was read before the resume; a fresh read follows the next request.
+    this.#dependencies.providerCommands.discardProviderCommandEnumeration(sessionId);
+    // Bases at the daemon's prior-emitted sum: the provider's counter survives a resume, so a
+    // zero base would re-meter the whole history onto the first turn.
+    this.#dependencies.notificationRouting.bindSessionThread(sessionId, threadId, {
+      mode: "resume",
+      priorEmittedThreadId,
     });
   }
+
+  /**
+   * Fails each run once whose turn a lost record still held, live or interrupted with its
+   * terminal still owed. A throwing consumer is recorded and the remaining runs still reported.
+   */
+  #failLostRuns(lost: CodexSessionRecord): void {
+    const runIds = new Set<RunId>([
+      ...lost.runIdByActiveTurnId.values(),
+      ...lost.interruptedRunIdByTurnId.values(),
+    ]);
+    const failure = composeSupersededRunFailure();
+    for (const runId of runIds) {
+      try {
+        this.#options.onLostRunFailure(lost.sessionId, runId, failure);
+      } catch (cause) {
+        this.#options.diagnostics.emit({
+          provider: CODEX_DRIVER_NAME,
+          kind: "superseded_run_report_failed",
+          rawWireType: null,
+          dispositionReason: normalizeProviderFailureDetail(cause),
+          details: {
+            sessionId: lost.sessionId,
+            runId,
+            providerFailureDetail: failure.providerFailureDetail,
+          },
+        });
+      }
+    }
+  }
+
+  /**
+   * Records each field of a helper definition its role file cannot carry, the tool list and the
+   * turn cap, so the helper is known to run without it.
+   */
+  #reportWithheldDefinitionFields(definitions: readonly SubagentDefinition[]): void {
+    for (const definition of definitions) {
+      for (const field of readCodexRoleFileWithheldFields(definition)) {
+        const reason =
+          `a Codex role file has no place for the helper's ${field}, so the helper runs ` +
+          `without it`;
+        reportDiagnosticFromDetachedFrame(this.#options.reportDiagnostic, {
+          kind: "subagent-definition-field-withheld",
+          definitionName: definition.name,
+          field,
+        });
+        this.#options.diagnostics.emit({
+          provider: CODEX_DRIVER_NAME,
+          kind: "subagent_definition_field_withheld",
+          rawWireType: null,
+          dispositionReason: reason,
+          // Untrusted caller-supplied text, carried verbatim as data.
+          details: { definitionName: definition.name, field },
+        });
+      }
+    }
+  }
+}
+
+/**
+ * The session's posture. Throws `CodexDriverConfigError` with none: every conversation runs at a
+ * level.
+ */
+function requireExecutionPosture(
+  params: CreateSessionParams | ResumeSessionParams,
+): ExecutionPosture {
+  if (params.executionPosture === undefined) {
+    throw new CodexDriverConfigError(
+      "A Codex conversation always runs at a permission level, so the session needs an " +
+        "execution posture.",
+      "executionPosture",
+    );
+  }
+  return params.executionPosture;
+}
+
+/** The run terminal for a run whose turn a resume superseded before Codex settled it. */
+function composeSupersededRunFailure(): CodexLostRunFailure {
+  return {
+    eventType: "run.failed",
+    failureCategory: "provider failure",
+    recoveryCondition: "recovery-needed",
+    providerFailureDetail:
+      "The runtime binding carrying a user's text for this run was superseded by a resume " +
+      "before the provider settled the turn, so whether those words reached the model was " +
+      "never established.",
+  };
 }

@@ -1,12 +1,18 @@
 // The Codex leg's routing and metering band: binding a session's thread at each establishment,
 // routing every inbound notification through the session's thread-frame router, and applying each
-// decision (usage metering, compaction boundaries, child completion, the normalize hand-off).
+// decision (usage metering, the context meter's reading, compaction boundaries, a helper's start
+// and end, the delivery).
 
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { CODEX_DRIVER_NAME } from "./capabilities.js";
 import type { PendingCompactionRegistry } from "../../compaction-wait.js";
 import type { ThreadFrameRouter, ThreadFrameRoute } from "../../thread-frame-router.js";
-import type { CumulativeAxisReadings, UsageDeltaAccountant } from "../../usage-delta-accountant.js";
+import {
+  type CumulativeAxisReadings,
+  type CumulativeUsageReading,
+  deriveWindowTelemetry,
+  type UsageDeltaAccountant,
+} from "../../usage-delta-accountant.js";
 import {
   CODEX_THREAD_COMPACTED_METHOD,
   CODEX_THREAD_STARTED_METHOD,
@@ -22,10 +28,12 @@ import {
   readCodexChildThreadAnnouncement,
   readCodexCumulativeUsageReading,
   readCodexFrameThreadId,
+  readCodexModelContextWindow,
   readCodexTerminalTurnStatus,
 } from "./session/state.js";
 import { normalizeProviderFailureDetail } from "./session/errors.js";
 import { readCodexCompactionBoundaryPosition } from "./compaction.js";
+import type { CodexFrameDelivery } from "./delivery/frames.js";
 import { reportDiagnosticFromDetachedFrame } from "./transport/diagnostics.js";
 
 /** The consumers the band feeds, and the per-session router and accountant it reads live. */
@@ -36,9 +44,10 @@ export interface CodexNotificationRoutingDependencies {
     | "reportDiagnostic"
     | "readPriorEmittedUsage"
     | "onMeteredUsage"
-    | "onSubagentLifecycle"
-    | "onServerNotification"
+    | "onContextWindowReading"
   >;
+  /** Where each kept frame, and each helper's start and end, is delivered. */
+  readonly delivery: Pick<CodexFrameDelivery, "deliver" | "startChild" | "completeChild">;
   readonly pendingCompactions: PendingCompactionRegistry;
   readonly frameRouterFor: (sessionId: SessionId) => ThreadFrameRouter<CodexRoutableFrame>;
   readonly usageAccountantFor: (sessionId: SessionId) => UsageDeltaAccountant;
@@ -47,12 +56,14 @@ export interface CodexNotificationRoutingDependencies {
 /** Routes and meters the notifications of every session through the lifecycle's routing band. */
 export class CodexNotificationRouting {
   readonly #options: CodexNotificationRoutingDependencies["options"];
+  readonly #delivery: CodexNotificationRoutingDependencies["delivery"];
   readonly #pendingCompactions: PendingCompactionRegistry;
   readonly #frameRouterFor: (sessionId: SessionId) => ThreadFrameRouter<CodexRoutableFrame>;
   readonly #usageAccountantFor: (sessionId: SessionId) => UsageDeltaAccountant;
 
   constructor(dependencies: CodexNotificationRoutingDependencies) {
     this.#options = dependencies.options;
+    this.#delivery = dependencies.delivery;
     this.#pendingCompactions = dependencies.pendingCompactions;
     this.#frameRouterFor = dependencies.frameRouterFor;
     this.#usageAccountantFor = dependencies.usageAccountantFor;
@@ -142,7 +153,7 @@ export class CodexNotificationRouting {
 
   /**
    * Routes one inbound notification and delivers what it releases. Must not throw: it runs inside
-   * the transport's `#ingest` drain. A child is registered before its announcement is routed.
+   * the connection's message handler. A child is registered before its announcement is routed.
    */
   routeInboundNotification(sessionId: SessionId, method: string, params: unknown): void {
     const router = this.#frameRouterFor(sessionId);
@@ -166,13 +177,16 @@ export class CodexNotificationRouting {
             });
           } else {
             accountant.establishThread(registration.childThreadId, { mode: "fresh" });
-            // A provider-internal child (a compaction thread) has no subagent identity.
-            if (registration.attribution.kind === "subagent") {
-              this.#options.onSubagentLifecycle?.(sessionId, {
-                eventType: "subagent.started",
-                subagentId: registration.attribution.subagentId,
-                parentReference: announcement.declaredParentThreadId,
-              });
+            // A provider-internal child (a compaction thread) has no subagent identity; a
+            // registered child always names its parent.
+            const parentThreadId = announcement.declaredParentThreadId;
+            if (registration.attribution.kind === "subagent" && parentThreadId !== null) {
+              this.#delivery.startChild(
+                sessionId,
+                registration.childThreadId,
+                parentThreadId,
+                registration.attribution.subagentId,
+              );
             }
           }
           this.#deliverRoutedFrames(sessionId, registration.releasedFrames);
@@ -190,8 +204,8 @@ export class CodexNotificationRouting {
   }
 
   /**
-   * Applies the router's decision to each frame. A child's usage still meters and its interactive
-   * request still routes, though its transcript never projects.
+   * Applies the router's decision to each frame: a child's usage meters, its interactive request
+   * routes, and its transcript goes on its own child run.
    */
   #deliverRoutedFrames(sessionId: SessionId, frames: readonly CodexRoutableFrame[]): void {
     const router = this.#frameRouterFor(sessionId);
@@ -209,22 +223,29 @@ export class CodexNotificationRouting {
   ): void {
     switch (route.decision) {
       case "project":
-      case "route-connection-scoped":
+      case "route-connection-scoped": {
         // Metering first, so the normalize band never forwards a cumulative counter as per-turn.
-        this.#meterUsageFrame(sessionId, frame);
+        const usage = this.#meterUsageFrame(sessionId, frame);
+        // Only the session's own conversation fills its meter.
+        if (usage !== null && route.decision === "project") {
+          this.#reportContextWindow(sessionId, usage, frame.params);
+        }
         this.#observeCompactionBoundary(sessionId, frame);
         this.#completeChildOnTerminal(sessionId, frame);
-        this.#handOffToNormalizeBand(frame);
+        this.#deliver(sessionId, frame, route);
         return;
+      }
       case "carve-out-usage":
         this.#meterUsageFrame(sessionId, frame);
         return;
       case "carve-out-interactive-request":
         // Same pipeline as the parent's, on the child's own correlation identity; suppressing it
         // would hang the child.
-        this.#handOffToNormalizeBand(frame);
+        this.#deliver(sessionId, frame, route);
         return;
-      case "suppress-child-transcript":
+      case "child-transcript":
+        // A helper's own rows go on its child run, which its last turn's end then closes.
+        this.#deliver(sessionId, frame, route);
         this.#completeChildOnTerminal(sessionId, frame);
         return;
       case "held-pending-registration":
@@ -249,9 +270,10 @@ export class CodexNotificationRouting {
     );
   }
 
-  #meterUsageFrame(sessionId: SessionId, frame: CodexRoutableFrame): void {
+  /** Meters a usage frame and returns its reading; `null` for any other frame or no reading. */
+  #meterUsageFrame(sessionId: SessionId, frame: CodexRoutableFrame): CumulativeUsageReading | null {
     if (frame.rawWireType !== CODEX_THREAD_TOKEN_USAGE_METHOD) {
-      return;
+      return null;
     }
     const reading = readCodexCumulativeUsageReading(frame.params);
     if (reading === null) {
@@ -265,12 +287,43 @@ export class CodexNotificationRouting {
           "at the pinned payload shape; nothing was metered for this reading",
         details: { sessionId, threadId: frame.threadId },
       });
-      return;
+      return null;
     }
     const metered = this.#usageAccountantFor(sessionId).meterReading(reading);
     if (metered !== null) {
       this.#options.onMeteredUsage?.(sessionId, metered);
     }
+    return reading;
+  }
+
+  /**
+   * Hands the context meter its reading: the last request's total against the usable window the
+   * frame reports. A frame missing either count gives no reading, never a guessed figure.
+   */
+  #reportContextWindow(sessionId: SessionId, usage: CumulativeUsageReading, params: unknown): void {
+    const onReading = this.#options.onContextWindowReading;
+    const windowMaxTokens = readCodexModelContextWindow(params);
+    const lastRequest = usage.declaredPerTurn;
+    if (
+      onReading === undefined ||
+      windowMaxTokens === null ||
+      lastRequest === null ||
+      lastRequest === undefined ||
+      lastRequest.total === undefined
+    ) {
+      return;
+    }
+    onReading(sessionId, {
+      threadId: usage.threadId,
+      turnId: usage.namedTurnId,
+      window: deriveWindowTelemetry({
+        windowSource: "provider_reported",
+        windowUsedTokens: lastRequest.total,
+        windowMaxTokens,
+        exceededWhenCountsAbsent: false,
+      }),
+      breakdown: lastRequest,
+    });
   }
 
   /**
@@ -292,25 +345,14 @@ export class CodexNotificationRouting {
     }
     this.#usageAccountantFor(sessionId).releaseThread(frame.threadId);
     if (attribution?.kind === "subagent") {
-      this.#options.onSubagentLifecycle?.(sessionId, {
-        eventType: "subagent.completed",
-        subagentId: attribution.subagentId,
-        parentReference: null,
-      });
+      this.#delivery.completeChild(sessionId, frame.threadId, frame.params);
     }
   }
 
-  #handOffToNormalizeBand(frame: CodexRoutableFrame): void {
-    const delegate = this.#options.onServerNotification;
-    if (delegate === undefined) {
-      reportDiagnosticFromDetachedFrame(this.#options.reportDiagnostic, {
-        kind: "unconsumed-server-notification",
-        method: frame.rawWireType,
-      });
-      return;
-    }
+  // The delivery hand-off: every frame the band keeps leaves here for the run engine.
+  #deliver(sessionId: SessionId, frame: CodexRoutableFrame, route: ThreadFrameRoute): void {
     try {
-      delegate(frame.rawWireType, frame.params);
+      this.#delivery.deliver(sessionId, frame, route);
     } catch (cause) {
       // Guarded here so this class does not depend on the transport's own containment.
       reportDiagnosticFromDetachedFrame(this.#options.reportDiagnostic, {

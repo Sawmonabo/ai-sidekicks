@@ -1,47 +1,50 @@
-// Thread routing and usage metering, driven through the real ingest path: raw JSON-RPC
-// notifications go into the fake provider's byte channel and the assertions read what comes out of
-// the manager. A frame routed to the wrong transcript leaks one conversation into another, and a
-// misbased meter bills spend twice or not at all.
+// Thread routing and usage metering, driven through the real ingest path: notifications go into
+// the fake service's connection and the assertions read what comes out of the driver. A frame
+// routed to the wrong transcript leaks one conversation into another, and a misbased meter bills
+// spend twice or not at all.
 
 import { describe, expect, it } from "vitest";
 
+import { captureRejection } from "../../../../__fixtures__/capture-failure.js";
+import { drainMicrotasks } from "../../../__fixtures__/drain-microtasks.js";
 import type { CumulativeAxisReadings } from "../../../usage-delta-accountant.js";
-import { CodexTransportError, type CodexLifecycleManager } from "../index.js";
+import type { MoveSessionToForkResult } from "../../contract.js";
 import {
-  type ManagerHarness,
-  type ManagerHarnessOptions,
+  announceChildThread,
+  CHILD_THREAD_ID,
+  childRunId,
+  createHarness,
+  forkedThreadId,
+  type Harness,
+  type HarnessOptions,
   RUN_ID,
+  runConfig,
   SECOND_RUN_ID,
   SESSION_ID,
   THREAD_ID,
+  threadReply,
   TURN_ID,
-  createManagerHarness,
-  threadStartResult,
   turnCompletedFrame,
 } from "../__fixtures__/app-server-doubles.js";
+import { CodexTransportError } from "../session/errors.js";
 import { CREATE_PARAMS, RESUME_PARAMS } from "./lifecycle.test-support.js";
-import { captureRejection } from "../../../../__fixtures__/capture-failure.js";
-import { drainMicrotasks } from "../../../__fixtures__/drain-microtasks.js";
 
-const CHILD_THREAD_ID = "01a04202-0148-7ae2-8560-child0000001";
 const FORKED_THREAD_ID = "01a04202-0148-7ae2-8560-f04bed000001";
 
 // Per-thread running totals, so `last` is the per-turn figure a real provider would send and the
 // accountant's cross-check stays quiet.
 const emittedCumulativeByThreadId = new Map<string, number>();
 
-async function managerWithSession(
-  options: ManagerHarnessOptions = { onServerNotification: true },
-): Promise<ManagerHarness> {
-  const harness = createManagerHarness(options);
+async function driverWithSession(options: HarnessOptions = {}): Promise<Harness> {
+  const harness = createHarness(options);
   // A fresh accountant starts its base registers at zero, so the fixture's totals restart with it.
   emittedCumulativeByThreadId.clear();
-  await harness.manager.createSession(CREATE_PARAMS);
+  await harness.driver.createSession(CREATE_PARAMS);
   return harness;
 }
 
 /** Emits one token-usage notification with every axis populated on both `total` and `last`. */
-function emitUsage(harness: ManagerHarness, threadId: string, totalInputTokens: number): void {
+function emitUsage(harness: Harness, threadId: string, totalInputTokens: number): void {
   const priorCumulative = emittedCumulativeByThreadId.get(threadId) ?? 0;
   emittedCumulativeByThreadId.set(threadId, totalInputTokens);
   const breakdown = (value: number): Record<string, number> => ({
@@ -66,47 +69,57 @@ function emitUsage(harness: ManagerHarness, threadId: string, totalInputTokens: 
   });
 }
 
-function emitQueueChanged(harness: ManagerHarness, threadId: string): void {
+function emitTaskList(harness: Harness, threadId: string): void {
   harness.server.emitFrame({
     jsonrpc: "2.0",
-    method: "thread/queue/changed",
-    params: { threadId },
+    method: "turn/plan/updated",
+    params: { threadId, turnId: "child-turn", plan: [] },
   });
 }
 
-function announceChild(harness: ManagerHarness, threadSourceKind: string): void {
-  harness.server.emitFrame({
-    jsonrpc: "2.0",
-    method: "thread/started",
-    params: { thread: { id: CHILD_THREAD_ID, parentThreadId: THREAD_ID, threadSourceKind } },
-  });
+/** Starts the test run, whose live turn a helper the conversation announces belongs to. */
+async function startLeadRun(harness: Harness): Promise<void> {
+  harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+  await harness.driver.startRun({ runId: RUN_ID, agentConfig: runConfig("go") });
 }
 
-function meteredInputs(harness: ManagerHarness): Array<{ threadId: string; input: unknown }> {
+/** The kinds of deliveries made since `from`, each row named by its type. */
+function deliveredSince(harness: Harness, from: number): string[] {
+  return harness.deliveries
+    .slice(from)
+    .map((delivery) =>
+      delivery.kind === "session_row" ? `${delivery.kind}:${delivery.row.type}` : delivery.kind,
+    );
+}
+
+function meteredInputs(harness: Harness): Array<{ threadId: string; input: unknown }> {
   return harness.meteredUsage.map((entry) => ({
     threadId: entry.delta.threadId,
     input: entry.delta.axisDeltas.input,
   }));
 }
 
-function heldFrameCount(harness: ManagerHarness): number {
-  return harness.manager.frameRouterFor(SESSION_ID).pendingHeldFrameCount();
+function unroutedThreads(harness: Harness): string[] {
+  return harness.diagnostics.flatMap((diagnostic) =>
+    diagnostic.kind === "unrouted-thread-frame" ? [diagnostic.threadId] : [],
+  );
 }
 
 describe("Codex thread routing and usage metering", () => {
-  it("holds a frame naming a foreign thread instead of projecting it", async () => {
-    // An unannounced thread may be a child racing its announcement, or another session entirely.
-    const harness = await managerWithSession();
+  it("never projects a frame naming a thread no session here holds", async () => {
+    // A shared service carries other conversations; one of them must not reach this transcript.
+    const harness = await driverWithSession();
+    const before = harness.deliveries.length;
 
-    emitQueueChanged(harness, "some-other-session-thread");
+    emitTaskList(harness, "some-other-session-thread");
     await Promise.resolve();
 
-    expect(harness.notifications).toStrictEqual([]);
-    expect(heldFrameCount(harness)).toBe(1);
+    expect(deliveredSince(harness, before)).toStrictEqual([]);
+    expect(unroutedThreads(harness)).toStrictEqual(["some-other-session-thread"]);
   });
 
   it("meters a per-turn delta on every axis, never the cumulative counter", async () => {
-    const harness = await managerWithSession();
+    const harness = await driverWithSession();
 
     emitUsage(harness, THREAD_ID, 100);
     emitUsage(harness, THREAD_ID, 150);
@@ -128,28 +141,44 @@ describe("Codex thread routing and usage metering", () => {
     ]);
   });
 
-  it("keeps a subagent's content off the parent transcript while metering its spend", async () => {
-    const harness = await managerWithSession();
+  it("writes a helper's own rows on its child run, never the parent's, and meters its spend", async () => {
+    const harness = await driverWithSession();
+    await startLeadRun(harness);
+    const before = harness.deliveries.length;
 
-    announceChild(harness, "subAgent");
-    emitQueueChanged(harness, CHILD_THREAD_ID);
+    announceChildThread(harness, "subAgent");
+    harness.server.emitFrame({
+      jsonrpc: "2.0",
+      method: "item/completed",
+      params: {
+        threadId: CHILD_THREAD_ID,
+        turnId: "child-turn",
+        item: { type: "agentMessage", id: "child-reply", text: "Found it in the parser." },
+      },
+    });
     emitUsage(harness, CHILD_THREAD_ID, 40);
-    await Promise.resolve();
+    await drainMicrotasks();
 
-    expect(harness.notifications).toStrictEqual([]);
-    expect(harness.subagentLifecycle.map((entry) => entry.emission.eventType)).toEqual([
-      "subagent.started",
+    expect(deliveredSince(harness, before)).toStrictEqual([
+      "child_run",
+      "session_row:subagent.started",
+      "session_row:assistant.message",
     ]);
+    // On the run the engine minted for the helper, so its reply never lands on the lead's.
+    expect(harness.deliveries.at(-1)).toMatchObject({
+      row: { payload: { runId: childRunId(1) } },
+      content: { body: "Found it in the parser." },
+    });
     expect(meteredInputs(harness)).toEqual([{ threadId: CHILD_THREAD_ID, input: 40 }]);
   });
 
   it("keeps a re-announced child's usage base rather than re-basing it", async () => {
-    const harness = await managerWithSession();
+    const harness = await driverWithSession();
 
-    announceChild(harness, "subAgent");
+    announceChildThread(harness, "subAgent");
     emitUsage(harness, CHILD_THREAD_ID, 100);
     await Promise.resolve();
-    announceChild(harness, "subAgent");
+    announceChildThread(harness, "subAgent");
     emitUsage(harness, CHILD_THREAD_ID, 150);
     await Promise.resolve();
 
@@ -158,70 +187,55 @@ describe("Codex thread routing and usage metering", () => {
   });
 
   it("still charges a provider-internal child's spend, with no subagent events", async () => {
-    const harness = await managerWithSession();
+    const harness = await driverWithSession();
+    await startLeadRun(harness);
+    const before = harness.deliveries.length;
 
-    announceChild(harness, "compaction");
+    announceChildThread(harness, "compaction");
     emitUsage(harness, CHILD_THREAD_ID, 25);
-    await Promise.resolve();
+    await drainMicrotasks();
 
-    expect(harness.subagentLifecycle).toStrictEqual([]);
+    expect(deliveredSince(harness, before)).toStrictEqual([]);
     expect(harness.meteredUsage.map((entry) => entry.delta.axisDeltas.input)).toEqual([25]);
   });
 
-  it(
-    "keeps a fully suppressed child visible through " +
-      "its started/completed pair and releases it",
-    async () => {
-      const harness = await managerWithSession();
+  it("keeps a fully suppressed child visible through its started and completed pair", async () => {
+    const harness = await driverWithSession();
+    await startLeadRun(harness);
+    const before = harness.deliveries.length;
 
-      announceChild(harness, "subAgentReview");
-      emitQueueChanged(harness, CHILD_THREAD_ID);
-      harness.server.emitFrame({
-        jsonrpc: "2.0",
-        method: "turn/completed",
-        params: { threadId: CHILD_THREAD_ID, turn: { id: "child-turn", status: "completed" } },
-      });
-      await Promise.resolve();
-
-      expect(harness.notifications).toStrictEqual([]);
-      expect(harness.subagentLifecycle.map((entry) => entry.emission.eventType)).toEqual([
-        "subagent.started",
-        "subagent.completed",
-      ]);
-      // The child's registers go with its terminal rather than accumulating per child.
-      expect(harness.manager.usageAccountantFor(SESSION_ID).hasThread(CHILD_THREAD_ID)).toBe(false);
-    },
-  );
-
-  it("meters only the excess over a resumed session's prior-emitted sum", async () => {
-    const harness = createManagerHarness({
-      onServerNotification: true,
-      readPriorEmittedUsage: () => ({ input: 500 }),
+    announceChildThread(harness, "subAgentReview");
+    emitTaskList(harness, CHILD_THREAD_ID);
+    harness.server.emitFrame({
+      jsonrpc: "2.0",
+      method: "turn/completed",
+      params: { threadId: CHILD_THREAD_ID, turn: { id: "child-turn", status: "completed" } },
     });
-    harness.server.on("thread/resume", () => threadStartResult(1));
-    await harness.manager.resumeSession(RESUME_PARAMS);
+    await drainMicrotasks();
 
-    emitUsage(harness, THREAD_ID, 520);
+    expect(deliveredSince(harness, before)).toStrictEqual([
+      "child_run",
+      "session_row:subagent.started",
+      "session_row:subagent.completed",
+      "run_lifecycle",
+    ]);
+  });
+
+  it("meters only the excess over a reopened session's prior-emitted sum", async () => {
+    const harness = createHarness({ readPriorEmittedUsage: () => ({ input: 500 }) });
+    emittedCumulativeByThreadId.clear();
+    await harness.driver.resumeSession(RESUME_PARAMS);
+
+    // The restart moved the session onto its fork.
+    emitUsage(harness, forkedThreadId(1), 520);
     await Promise.resolve();
 
     expect(harness.meteredUsage[0]?.delta.axisDeltas.input).toBe(20);
   });
-
-  it("releases the session's router and accountant on close", async () => {
-    const harness = await managerWithSession();
-    emitUsage(harness, THREAD_ID, 10);
-    await Promise.resolve();
-
-    await harness.manager.closeSession({ sessionId: SESSION_ID });
-
-    // The accessor creates on demand, so an empty thread proves the old accountant did not survive.
-    expect(harness.manager.usageAccountantFor(SESSION_ID).hasThread(THREAD_ID)).toBe(false);
-    expect(heldFrameCount(harness)).toBe(0);
-  });
 });
 
 // `thread/fork` mints a new thread the session continues on, so the router and accountant must
-// move to it. A router left on the pre-fork thread holds then sheds every post-rewind frame.
+// move to it. A router left on the pre-fork thread sheds every post-rewind frame.
 describe("Codex rewind rebind", () => {
   function priorEmittedBreakdown(value: number): CumulativeAxisReadings {
     return {
@@ -235,23 +249,16 @@ describe("Codex rewind rebind", () => {
   }
 
   /** A session with one finished, metered turn, whose prior-emitted reader records its lookups. */
-  async function meteredSession(): Promise<{
-    harness: ManagerHarness;
-    readerCalls: string[];
-  }> {
+  async function meteredSession(): Promise<{ harness: Harness; readerCalls: string[] }> {
     const readerCalls: string[] = [];
-    const harness = await managerWithSession({
-      onServerNotification: true,
+    const harness = await driverWithSession({
       readPriorEmittedUsage: (_sessionId, threadId) => {
         readerCalls.push(threadId);
         return threadId === THREAD_ID ? priorEmittedBreakdown(100) : undefined;
       },
     });
     harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-    await harness.manager.startRun({
-      runId: RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "go" },
-    });
+    await harness.driver.startRun({ runId: RUN_ID, agentConfig: runConfig("go") });
     emitUsage(harness, THREAD_ID, 100);
     // A fork through a live turn is refused, so the boundary turn ends first.
     harness.server.emitFrame(turnCompletedFrame(TURN_ID, "completed"));
@@ -259,25 +266,27 @@ describe("Codex rewind rebind", () => {
     return { harness, readerCalls };
   }
 
-  function rewind(harness: ManagerHarness): ReturnType<CodexLifecycleManager["forkConversation"]> {
-    return harness.manager.forkConversation({
+  async function rewind(harness: Harness): Promise<MoveSessionToForkResult> {
+    return await harness.driver.moveSessionToFork({
       sessionId: SESSION_ID,
       bindingId: "binding-predecessor",
       position: 1,
     });
   }
 
-  function forkAnswer(threadId: string): Record<string, unknown> {
-    return { thread: { id: threadId, sessionId: "session-tree-1", turns: [{ id: TURN_ID }] } };
+  function answerForksWith(harness: Harness, threadId: string): void {
+    harness.server.on("thread/fork", (params) => threadReply(threadId, params, 1));
   }
 
   /** A rewind suspended at its `thread/fork` request, with the answer left to the test. */
   async function rewindSuspendedAtFork(): Promise<{
-    harness: ManagerHarness;
-    rewinding: ReturnType<CodexLifecycleManager["forkConversation"]>;
+    harness: Harness;
+    rewinding: Promise<MoveSessionToForkResult>;
     answerFork: () => Promise<void>;
   }> {
     const { harness } = await meteredSession();
+    answerForksWith(harness, FORKED_THREAD_ID);
+    const release = harness.server.holdAnswers("thread/fork");
     const rewinding = rewind(harness);
     await drainMicrotasks();
     expect(harness.server.framesForMethod("thread/fork")).toHaveLength(1);
@@ -285,11 +294,7 @@ describe("Codex rewind rebind", () => {
       harness,
       rewinding,
       answerFork: async (): Promise<void> => {
-        harness.server.emitFrame({
-          jsonrpc: "2.0",
-          id: harness.server.framesForMethod("thread/fork")[0]?.["id"],
-          result: forkAnswer(FORKED_THREAD_ID),
-        });
+        release();
         await drainMicrotasks();
       },
     };
@@ -297,7 +302,7 @@ describe("Codex rewind rebind", () => {
 
   it("moves routing and metering to the forked thread, from the pre-fork sum", async () => {
     const { harness, readerCalls } = await meteredSession();
-    harness.server.on("thread/fork", () => ({ result: forkAnswer(FORKED_THREAD_ID) }));
+    answerForksWith(harness, FORKED_THREAD_ID);
 
     expect((await rewind(harness)).status).toBe("applied");
     // Keyed on the forked thread the sum resolves to nothing and the session re-bills from zero.
@@ -305,28 +310,28 @@ describe("Codex rewind rebind", () => {
 
     emittedCumulativeByThreadId.set(FORKED_THREAD_ID, 100);
     emitUsage(harness, FORKED_THREAD_ID, 150);
-    emitQueueChanged(harness, FORKED_THREAD_ID);
+    emitTaskList(harness, FORKED_THREAD_ID);
     await Promise.resolve();
-    expect(harness.notifications.map((entry) => entry.method)).toContain("thread/queue/changed");
-    expect(heldFrameCount(harness)).toBe(0);
+    expect(unroutedThreads(harness)).toStrictEqual([]);
     expect(meteredInputs(harness)).toStrictEqual([
       { threadId: THREAD_ID, input: 100 },
       { threadId: FORKED_THREAD_ID, input: 50 },
     ]);
+    // The abandoned thread was unsubscribed and let go.
+    expect(harness.server.paramsFor("thread/unsubscribe")).toEqual([{ threadId: THREAD_ID }]);
 
-    // A late frame from the abandoned thread waits instead of projecting into the rewound
-    // transcript.
-    const projectedBeforeStaleFrame = harness.notifications.length;
-    emitQueueChanged(harness, THREAD_ID);
+    // A late frame from the abandoned thread never reaches the rewound transcript.
+    const before = harness.deliveries.length;
+    emitTaskList(harness, THREAD_ID);
     await Promise.resolve();
-    expect(harness.notifications).toHaveLength(projectedBeforeStaleFrame);
-    expect(heldFrameCount(harness)).toBe(1);
+    expect(deliveredSince(harness, before)).toStrictEqual([]);
+    expect(unroutedThreads(harness)).toStrictEqual([THREAD_ID]);
   });
 
   it("refuses a rewind the provider did not fork, and keeps metering on its thread", async () => {
     // Answered with the thread it was handed: not a fork, so the pre-rewind conversation is lost.
     const { harness, readerCalls } = await meteredSession();
-    harness.server.on("thread/fork", () => ({ result: forkAnswer(THREAD_ID) }));
+    answerForksWith(harness, THREAD_ID);
 
     expect(await rewind(harness)).toStrictEqual({
       status: "degraded",
@@ -336,7 +341,6 @@ describe("Codex rewind rebind", () => {
     expect(readerCalls).toStrictEqual([]);
     emitUsage(harness, THREAD_ID, 150);
     await Promise.resolve();
-    expect(heldFrameCount(harness)).toBe(0);
     expect(meteredInputs(harness)).toStrictEqual([
       { threadId: THREAD_ID, input: 100 },
       { threadId: THREAD_ID, input: 50 },
@@ -346,9 +350,9 @@ describe("Codex rewind rebind", () => {
   it("refuses a fork answered with an already-metered thread, leaving both registers", async () => {
     // Adopting a live child would reset the registers carrying its spend.
     const { harness, readerCalls } = await meteredSession();
-    announceChild(harness, "subAgent");
+    announceChildThread(harness, "subAgent");
     await drainMicrotasks();
-    harness.server.on("thread/fork", () => ({ result: forkAnswer(CHILD_THREAD_ID) }));
+    answerForksWith(harness, CHILD_THREAD_ID);
 
     expect(await rewind(harness)).toStrictEqual({
       status: "degraded",
@@ -373,40 +377,32 @@ describe("Codex rewind rebind", () => {
     const turnStartsBefore = harness.server.framesForMethod("turn/start").length;
 
     const refusal = await captureRejection(
-      harness.manager.startRun({
-        runId: SECOND_RUN_ID,
-        agentConfig: { sessionId: SESSION_ID, input: "second" },
-      }),
+      harness.driver.startRun({ runId: SECOND_RUN_ID, agentConfig: runConfig("second") }),
     );
 
     expect(refusal).toBeInstanceOf(CodexTransportError);
     expect(harness.server.framesForMethod("turn/start")).toHaveLength(turnStartsBefore);
-    expect(harness.manager.hasActiveTurn(SECOND_RUN_ID)).toBe(false);
     await answerFork();
     await expect(rewinding).resolves.toMatchObject({ status: "applied" });
   });
 
-  it(
-    "meters a forked-thread frame held across the " +
-      "fork against the base the rebind establishes",
-    async () => {
-      const { harness, rewinding, answerFork } = await rewindSuspendedAtFork();
+  it("meters a forked-thread frame held across the fork against the rebind's base", async () => {
+    const { harness, rewinding, answerFork } = await rewindSuspendedAtFork();
 
-      // The provider has forked and the new thread is already emitting before the daemon knows it.
-      emittedCumulativeByThreadId.set(FORKED_THREAD_ID, 100);
-      emitUsage(harness, FORKED_THREAD_ID, 150);
-      await drainMicrotasks();
-      expect(heldFrameCount(harness)).toBe(1);
+    // The provider has forked and the new thread is already emitting before the daemon knows it.
+    emittedCumulativeByThreadId.set(FORKED_THREAD_ID, 100);
+    emitUsage(harness, FORKED_THREAD_ID, 150);
+    await drainMicrotasks();
+    expect(meteredInputs(harness)).toStrictEqual([{ threadId: THREAD_ID, input: 100 }]);
 
-      await answerFork();
-      await expect(rewinding).resolves.toMatchObject({ status: "applied" });
+    await answerFork();
+    await expect(rewinding).resolves.toMatchObject({ status: "applied" });
 
-      // Released after the base is established; released before, the reading would be dropped.
-      expect(heldFrameCount(harness)).toBe(0);
-      expect(meteredInputs(harness)).toStrictEqual([
-        { threadId: THREAD_ID, input: 100 },
-        { threadId: FORKED_THREAD_ID, input: 50 },
-      ]);
-    },
-  );
+    // Released after the base is established; released before, the reading would be dropped.
+    expect(meteredInputs(harness)).toStrictEqual([
+      { threadId: THREAD_ID, input: 100 },
+      { threadId: FORKED_THREAD_ID, input: 50 },
+    ]);
+    expect(unroutedThreads(harness)).toStrictEqual([]);
+  });
 });

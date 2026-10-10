@@ -133,7 +133,7 @@ async function readUserTempDirectoryOrLog(
     }
     reason = "it printed nothing";
   } catch (error) {
-    reason = error instanceof Error ? error.message : String(error);
+    reason = describeRejection(error);
   }
   options.writeServiceLog(
     `The account's temporary folder could not be read (${reason}), so providers start with no ` +
@@ -206,11 +206,15 @@ function runLoginShell(
       );
     };
 
+    // A main thread held past the deadline by another step of the start runs this timer before it
+    // reads the output that came in meanwhile, so the failure waits one turn for that output.
     const deadline = setTimeout(() => {
-      settle(
-        { kind: "failed", reason: `did not finish within ${String(options.deadlineMs)} ms` },
-        true,
-      );
+      setImmediate(() => {
+        settle(
+          { kind: "failed", reason: `did not finish within ${String(options.deadlineMs)} ms` },
+          true,
+        );
+      });
     }, options.deadlineMs);
     options.signal.addEventListener("abort", abandon);
 

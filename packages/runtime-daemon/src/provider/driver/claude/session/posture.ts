@@ -1,17 +1,16 @@
 /**
- * Compares the permission posture a session was started with against the one a resume asks for,
- * and digests the output schema so a change is noticed.
+ * Compares the posture a session was started with against the one a run asks for, and digests the
+ * output schema so a change is noticed.
  */
 
 import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import { createHash } from "node:crypto";
 import { canonicalizeJson } from "../../../../events/canonicalizer.js";
 
-// The `ExecutionPosture` axes a spawn realizes, in mismatch-report order; `startRun` refuses a run
-// differing on any (see `assertClaudeSpawnBoundRealization`). Enumerated from the contract type,
-// not sampled: a skipped axis would admit a run into a process whose sandbox differs from its
-// posture. Set axes compare order-insensitively, scalars strictly.
-const CLAUDE_POSTURE_SCALAR_AXES = ["mode", "credentialPolicyRef"] as const;
+// The `ExecutionPosture` axes a spawn binds, in mismatch-report order; `startRun` refuses a run
+// differing on any (see `assertClaudeSpawnBoundRealization`). `mode` is not one: a live level move
+// changes it in the running process. Set axes compare order-insensitively, scalars strictly.
+const CLAUDE_POSTURE_SCALAR_AXES = ["credentialPolicyRef"] as const;
 
 const CLAUDE_POSTURE_SET_AXES = ["writableRoots"] as const;
 

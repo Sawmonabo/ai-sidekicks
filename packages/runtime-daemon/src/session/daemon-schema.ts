@@ -242,6 +242,9 @@ CREATE TABLE session_console_state (
                       CHECK (max_steps_per_turn IS NULL OR max_steps_per_turn >= 1),
   -- A Claude Code session's own advisor model, NULL when it is off.
   advisor_model       TEXT,
+  -- The composer's Build or Plan mode the provider last took; a restart resumes in it.
+  session_mode        TEXT NOT NULL DEFAULT 'build'
+                      CHECK (session_mode IN ('build', 'plan')),
   updated_at          TEXT NOT NULL
 ) STRICT;
 
@@ -342,6 +345,25 @@ CREATE TABLE runtime_bindings (
 
 CREATE INDEX idx_runtime_bindings_run ON runtime_bindings(run_id);
 
+-- Each conversation a session left on its provider: the one a fork moved it off,
+-- or the one a daemon restart's resume forked away from. The provider keeps each
+-- on disk, so the whole-session purge deletes them all: a Codex conversation
+-- through the service's own thread/delete once the thread is unloaded, a Claude
+-- Code transcript from the account's config folder. Written in the same write as
+-- the binding's new resume handle.
+CREATE TABLE left_conversations (
+  session_id           TEXT NOT NULL,
+  driver_name          TEXT NOT NULL,           -- 'claude' or 'codex'
+  provider_account_id  TEXT,                    -- NULL on the node's default home
+  conversation_id      TEXT NOT NULL            -- provider-owned, as a resume handle
+    CHECK(length(conversation_id) > 0 AND length(conversation_id) <= 4096
+      AND instr(conversation_id, char(0)) = 0),
+  left_at              TEXT NOT NULL,
+  PRIMARY KEY (driver_name, conversation_id)
+) STRICT;
+
+CREATE INDEX idx_left_conversations_session ON left_conversations(session_id);
+
 -- One row per driver and flag. The hydrator refuses a cache whose row set is not
 -- exactly the flag union, so a refresh writes every flag.
 CREATE TABLE driver_capabilities (
@@ -441,6 +463,8 @@ CREATE TABLE interventions (
   fallback_action         TEXT,
   -- What a failed dispatch threw, so a retry's saved reply carries the same reason.
   failure_reason          TEXT,
+  -- The run an applied steer's message went to when that is not its target; NULL otherwise.
+  delivered_run_id        TEXT,
   created_at              TEXT NOT NULL,
   resolved_at             TEXT,
   -- An identical retry returns the saved result; a reused key with a

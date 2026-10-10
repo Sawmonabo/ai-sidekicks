@@ -4,13 +4,11 @@
 // sending is `SendButton.tsx`'s.
 
 import { useCallback, useEffect, useRef } from "react";
-import { RefusalCard } from "#renderer/components/Refusal/RefusalCard.js";
 import { TextBox } from "#renderer/components/TextBox/TextBox.js";
 import { subscribeToComposerFocus } from "../../focus-requests.js";
 import { type ComposerProps } from "#renderer/registries/composer/registry.js";
 import { COMPOSER_DRAFT_MAX_ROWS } from "../../bounds.js";
 import { useComposerAddress } from "../../hooks/useComposerAddress.js";
-import { readTextNeutralization } from "../text-neutralization.js";
 import { useComposerDraftText } from "../../hooks/useComposerDraftText.js";
 import { DRAFT_PLACEHOLDER } from "../caret.js";
 import { composerDraftKey } from "../draft-key.js";
@@ -40,10 +38,6 @@ export function DraftLine(props: DraftLineProps): React.JSX.Element {
     }
   }, []);
 
-  const neutralization = readTextNeutralization(
-    target.path === "provider-bound" ? target.providerFailureDetail : undefined,
-  );
-
   // Lets a view elsewhere in the window ask for the caret. The ask carries nothing, and one
   // arriving while no composer is mounted reaches nobody.
   const lineRef = useRef<HTMLTextAreaElement | null>(null);
@@ -70,9 +64,6 @@ export function DraftLine(props: DraftLineProps): React.JSX.Element {
         onChange={onChange}
         onKeyDown={onKeyDown}
       />
-      {neutralization === undefined ? null : (
-        <RefusalCard code={neutralization.code} detail={neutralization.wireDetail} />
-      )}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 // Claude capability declaration: a reporter that carries the spawned build's version and its
 // output-speed levels and refuses a foreign one before the writer sees it; and the model catalog
-// read from the recorded `list_models` reply.
+// read from the recorded model list.
 
 import { describe, expect, it } from "vitest";
 
@@ -12,6 +12,7 @@ import {
   claudeDefaultProbeReply,
   claudeSuccessReply,
 } from "../__fixtures__/capability-probe-replies.js";
+import type { SpawnEnvPair } from "../../../spawn-env.js";
 import type { SpawnedProviderVersionReading } from "../../../spawned-version.js";
 import {
   CLAUDE_DRIVER_NAME,
@@ -21,6 +22,7 @@ import {
 } from "../capabilities.js";
 import { makeSilentDriverDiagnostics } from "../../../__fixtures__/silent-driver-diagnostics.js";
 import { DriverCapabilityCache } from "../../../capability/cache.js";
+import { ClaudeModelFigures } from "../session/model-figures.js";
 import {
   type DriverCliVersionReport,
   type GetCapabilitiesResult,
@@ -51,10 +53,13 @@ function makeReporter(
   ),
 ): ClaudeCapabilityReporter {
   return new ClaudeCapabilityReporter({
-    readSpawnedVersion: async () => claudeReading(await readCliVersion()),
-    // The default double answers every probed subtype and refuses the negative control; the probe
-    // itself is tested in `provider/capability/__tests__/probe.test.ts`.
-    probe: probe.exchange,
+    readBuild: async (read) =>
+      await read({
+        readSpawnedVersion: async () => claudeReading(await readCliVersion()),
+        // The default double answers every probed subtype and refuses the negative control; the
+        // probe itself is tested in `provider/capability/__tests__/probe.test.ts`.
+        probe: probe.exchange,
+      }),
     // Silent: these assertions are about the declaration, not the diagnostics.
     diagnostics: makeSilentDriverDiagnostics(),
   });
@@ -133,8 +138,11 @@ describe("Claude composition is bound to the spawned build", () => {
       report: { rawVersion: "0.149.1", parsedVersion: "0.149.1" },
     };
     const reporter = new ClaudeCapabilityReporter({
-      readSpawnedVersion: () => Promise.resolve(foreign),
-      probe: new RecordingCapabilityProbeTransport(claudeDefaultProbeReply).exchange,
+      readBuild: async (read) =>
+        await read({
+          readSpawnedVersion: () => Promise.resolve(foreign),
+          probe: new RecordingCapabilityProbeTransport(claudeDefaultProbeReply).exchange,
+        }),
       diagnostics: makeSilentDriverDiagnostics(),
     });
     await expect(reporter.getCapabilities()).rejects.toThrow(/driver 'codex'/);
@@ -374,6 +382,24 @@ describe("Claude model catalog", () => {
     expect(models[0]?.effortLevels).toBeUndefined();
   });
 
+  it("marks the larger window from Claude Code's `[1m]` id, keeping the id verbatim", () => {
+    const models = normalizeClaudeModelCatalog({
+      models: [
+        { value: "sonnet", resolvedModel: "claude-sonnet-5-5", displayName: "Sonnet" },
+        {
+          value: "sonnet[1m]",
+          resolvedModel: "claude-sonnet-5-5[1m]",
+          displayName: "Sonnet (1M context)",
+        },
+      ],
+    });
+
+    expect(models.map((model) => [model.id, model.largerWindow])).toEqual([
+      ["claude-sonnet-5-5", false],
+      ["claude-sonnet-5-5[1m]", true],
+    ]);
+  });
+
   it.each([
     ["a non-object reply", null, /not an object/],
     ["a reply with no models array", { models: "many" }, /no `models` array/],
@@ -401,12 +427,73 @@ describe("Claude model catalog", () => {
     expect(() => normalizeClaudeModelCatalog(payload)).toThrow(message);
   });
 
-  it("prefers a bound exchange over the declaration", async () => {
-    const models = await resolveClaudeModelCatalog(async () => ({
-      models: [{ value: "z", resolvedModel: "model-z", displayName: "Z" }],
-    }));
+  it("never fills a row on a home switched to another provider from an Anthropic API read", () => {
+    const figures = new ClaudeModelFigures("2.1.294", "HOME");
+    figures.recordContextReads(
+      [["HOME", "/home/person"]],
+      [{ requestedModel: "model-y", usage: { model: "model-y", rawMaxTokens: 200_000 } }],
+    );
+    // The same model id on Amazon Bedrock is another endpoint, whose window may differ.
+    const bedrockHome: SpawnEnvPair[] = [
+      ["HOME", "/home/person"],
+      ["CLAUDE_CODE_USE_BEDROCK", "1"],
+    ];
 
-    expect(models).toEqual([{ id: "model-z", name: "Z", capabilities: [], fast: false }]);
+    expect(figures.contextWindowOf([["HOME", "/home/person"]], "model-y")).toBe(200_000);
+    expect(figures.contextWindowOf(bedrockHome, "model-y")).toBeUndefined();
+    expect(figures.contextReadModels(bedrockHome)).toEqual(new Set());
+  });
+
+  it("fills a row only from the window read for its own model id", async () => {
+    const figures = new ClaudeModelFigures("2.1.294", "HOME");
+    // What a session's creation-time process read: the larger window's row, and a refused move.
+    figures.recordContextReads(
+      [],
+      [
+        {
+          requestedModel: "model-y[1m]",
+          usage: { model: "model-y[1m]", rawMaxTokens: 1_000_000 },
+        },
+        { requestedModel: "model-w", usage: undefined },
+      ],
+    );
+    const models = await resolveClaudeModelCatalog(
+      async () => ({
+        initialize: {
+          models: [
+            { value: "z", resolvedModel: "model-z", displayName: "Z" },
+            { value: "y", resolvedModel: "model-y", displayName: "Y" },
+            { value: "y[1m]", resolvedModel: "model-y[1m]", displayName: "Y 1M" },
+            { value: "w", resolvedModel: "model-w", displayName: "W" },
+          ],
+        },
+        contextUsage: { model: "model-z", rawMaxTokens: 200_000 },
+      }),
+      figures,
+      [],
+    );
+
+    // A row no read reached, or whose read was refused, carries no window, never a guessed one.
+    expect(models).toEqual([
+      {
+        id: "model-z",
+        name: "Z",
+        capabilities: [],
+        fast: false,
+        largerWindow: false,
+        contextWindow: 200_000,
+      },
+      { id: "model-y", name: "Y", capabilities: [], fast: false, largerWindow: false },
+      {
+        id: "model-y[1m]",
+        name: "Y 1M",
+        capabilities: [],
+        fast: false,
+        largerWindow: true,
+        contextWindow: 1_000_000,
+      },
+      { id: "model-w", name: "W", capabilities: [], fast: false, largerWindow: false },
+    ]);
   });
 
   it("never falls back to the declaration when a bound exchange fails", async () => {
@@ -414,12 +501,20 @@ describe("Claude model catalog", () => {
 
     // A stale catalog must never be served as if it were a live read.
     await expect(
-      resolveClaudeModelCatalog(async () => {
-        throw transportFailure;
-      }),
+      resolveClaudeModelCatalog(
+        async () => {
+          throw transportFailure;
+        },
+        new ClaudeModelFigures(undefined, "HOME"),
+        [],
+      ),
     ).rejects.toBe(transportFailure);
-    await expect(resolveClaudeModelCatalog(async () => ({ notModels: [] }))).rejects.toThrow(
-      ModelCatalogUnreadableError,
-    );
+    await expect(
+      resolveClaudeModelCatalog(
+        async () => ({ initialize: { notModels: [] }, contextUsage: undefined }),
+        new ClaudeModelFigures(undefined, "HOME"),
+        [],
+      ),
+    ).rejects.toThrow(ModelCatalogUnreadableError);
   });
 });

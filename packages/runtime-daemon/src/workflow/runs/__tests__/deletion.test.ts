@@ -300,6 +300,7 @@ describe("deleting runs older than an instant", () => {
         envelope.sessionId === FIXTURE_SESSION_ID
           ? Promise.reject(appendFailure)
           : sessionEvents.append(envelope, options),
+      appendThinkingUpdate: (envelope) => sessionEvents.appendThinkingUpdate(envelope),
     };
     const failingDeletion = new WorkflowRunDeletion(database, failingSessionEvents);
 

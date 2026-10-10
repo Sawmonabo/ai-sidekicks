@@ -78,10 +78,7 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
     providerGroups: addressedGroup === undefined ? [] : [addressedGroup],
   });
   const entries = filterCommandList(catalog, prefix);
-  // A group cut by the cap cannot show what is missing, so the empty claim is withheld.
-  const isEnumerationTruncated = addressedGroup !== undefined && !addressedGroup.complete;
-  const isServedEmpty =
-    entries.length === 0 && haveAllSourcesAnswered(enumeration) && !isEnumerationTruncated;
+  const isServedEmpty = entries.length === 0 && haveAllSourcesAnswered(enumeration);
 
   const executor = useMemo(
     () =>

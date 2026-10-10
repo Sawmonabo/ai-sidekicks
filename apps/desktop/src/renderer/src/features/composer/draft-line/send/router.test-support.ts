@@ -60,7 +60,6 @@ export const RUN_TARGET: ComposerRunTarget = {
   driverName: "claude",
   targetRunId: RUN_ID,
   expectedRunVersion: 7,
-  providerFailureDetail: undefined,
 };
 
 /** Stub send calls that answer as the case says; `answer` gets the method and request. */

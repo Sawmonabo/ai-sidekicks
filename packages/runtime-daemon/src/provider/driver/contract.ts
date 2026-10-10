@@ -47,10 +47,36 @@ import {
 } from "@ai-sidekicks/contracts/provider/driver/recovery";
 import { wireFreeFormString } from "@ai-sidekicks/contracts/free-form-string";
 import { SessionIdSchema, type SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { SessionMode } from "@ai-sidekicks/contracts/session/controls/methods";
 import type { DriverCompactionResult } from "@ai-sidekicks/contracts/provider/driver/compaction";
 import type { ProviderCommandListResult } from "@ai-sidekicks/contracts/provider/driver/commands";
 import type { ProviderOutputSpeedState } from "@ai-sidekicks/contracts/provider/driver/output-speed";
 import { z } from "zod";
+
+import type { RewindConversationParams, RewindConversationResult } from "./rewind.js";
+import type {
+  AnswerProviderChoiceParams,
+  AnswerProviderChoiceResult,
+  FasterModelRetryOutcome,
+  FasterModelRetryParams,
+  OverrideDenialParams,
+  PauseRunParams,
+  ResumeRunParams,
+  WithdrawQueuedMessageParams,
+  WithdrawQueuedMessageResult,
+} from "./run-control.js";
+import type {
+  AnswerSessionCommandParams,
+  AskSideQuestionParams,
+  ProviderBuildChange,
+  ProviderCommandsListener,
+  PurgeSessionParams,
+  StartReviewParams,
+  SessionCommandAnswer,
+  SubscribeProviderCommandsParams,
+  UpdatePermissionLevelParams,
+  UpdateSessionModeParams,
+} from "./session-control.js";
 
 // ---- ProviderDriver ----
 
@@ -65,11 +91,52 @@ export interface ProviderDriver {
   startRun(params: StartRunParams): Promise<void>;
   interruptRun(params: InterruptRunParams): Promise<void>;
   applyIntervention(params: ApplyInterventionParams): Promise<DriverInterventionResult>;
-  // Gated on `rollback`: an undeclared flag refuses with `driver.capability_unsupported` before
-  // dispatch. `degraded` is the outcome of a driver that was invoked and reported its fallback.
-  forkConversation(params: ForkConversationParams): Promise<ForkConversationResult>;
+  // Gated on `session_fork`: an undeclared flag refuses with `driver.capability_unsupported`
+  // before dispatch. `degraded` is the outcome of a driver that was invoked and reported its
+  // fallback.
+  moveSessionToFork(params: MoveSessionToForkParams): Promise<MoveSessionToForkResult>;
+  // Gated on `rollback`, refused before dispatch like `moveSessionToFork`. Cuts the bound
+  // conversation in place and never touches files; a running turn is stopped first.
+  rewindConversation(params: RewindConversationParams): Promise<RewindConversationResult>;
   respondToRequest(params: RespondToRequestParams): Promise<void>;
-  // Both goal operations are gated on `session_goals`, like `forkConversation`. A provider that
+  // Not gated. `Allow once` on a block the provider's own reviewer made at Reviewed, carried by
+  // the provider's own means: it reaches a running turn at once and starts a turn when none runs,
+  // and retries nothing itself. Called only for a block the driver reported as one a person may
+  // overrule.
+  overrideDenial(params: OverrideDenialParams): Promise<void>;
+  // Not gated, on the lead run or a provider subagent's child run. The pause stops the run after
+  // the step in flight by the provider's own hooks, or a boundary interrupt where it has none; the
+  // continue goes on from where it stopped with nothing repeated, delivering the waiting messages.
+  // Each resolves once the provider has the request. The run engine writes `pausing` and
+  // `running` itself; the driver delivers `paused` as a `run_lifecycle` delivery only once its hold
+  // has taken effect, and never `running`. A resume before the pause took effect drops the pause,
+  // and no `paused` follows.
+  pauseRun(params: PauseRunParams): Promise<void>;
+  resumeRun(params: ResumeRunParams): Promise<void>;
+  // Gated on `steer`. Takes back a steer the provider has not read yet; edit is withdraw and send
+  // again.
+  withdrawQueuedMessage(params: WithdrawQueuedMessageParams): Promise<WithdrawQueuedMessageResult>;
+  // Not gated. Answers a choice the provider holds the run on; a provider that never asks one
+  // answers `not_pending`.
+  answerProviderChoice(params: AnswerProviderChoiceParams): Promise<AnswerProviderChoiceResult>;
+  // Not gated. Stops the held turn and sends its message again on the named model, adding no row;
+  // a provider that never holds a turn for a safety check answers `rejected`.
+  retryTurnOnFasterModel(params: FasterModelRetryParams): Promise<FasterModelRetryOutcome>;
+  // Not gated and required of every driver: moves the live session to another permission level
+  // from its next request, never by relaunch.
+  updatePermissionLevel(params: UpdatePermissionLevelParams): Promise<void>;
+  // Gated on `resume`. Starts a session whose provider process ended and stayed down, and resumes
+  // it as `resumeSession` does; where one process serves several sessions, it restarts that
+  // process and resumes every conversation it held.
+  restartSession(params: ResumeSessionParams): Promise<DriverResumeResult>;
+  // Not gated and required of every driver: moves every live session onto the provider build that
+  // replaced the running one, each when its running reply ends or at once while idle.
+  moveToProviderBuild(change: ProviderBuildChange): Promise<void>;
+  // Not gated and required of every driver: deletes the provider's own copy of each conversation
+  // the session opened, from every account home it ran in. A conversation that fails to delete
+  // throws after the rest were tried.
+  purgeSession(params: PurgeSessionParams): Promise<void>;
+  // Both goal operations are gated on `session_goals`, like `moveSessionToFork`. A provider that
   // did not take the goal answers `degraded` rather than throwing an opaque failure.
   setSessionGoal(params: SetSessionGoalParams): Promise<DriverGoalResult>;
   clearSessionGoal(params: ClearSessionGoalParams): Promise<DriverGoalResult>;
@@ -97,6 +164,29 @@ export interface ProviderDriver {
   // which means unread, never off. A synchronous read of state the driver already holds, never a
   // request, and never the requested level, which may differ.
   observedOutputSpeedFor(sessionId: SessionId): ProviderOutputSpeedState | undefined;
+  // Moves the session between Build and Plan from its next turn.
+  updateSessionMode(params: UpdateSessionModeParams): Promise<void>;
+  /**
+   * Not gated and required of every driver: answers, before any run is made, a command whose
+   * provider command would change more than this session, applying it to the session alone; a
+   * driver with no such command answers `{answered: false}` for every text.
+   *
+   * @consumedBy the composer's send path
+   */
+  answerSessionCommand(params: AnswerSessionCommandParams): Promise<SessionCommandAnswer>;
+  // Asks a side question on a throwaway copy of the conversation; resolves once it is asked.
+  askSideQuestion(params: AskSideQuestionParams): Promise<void>;
+  // Starts the provider's own review; resolves once it has started.
+  startReview(params: StartReviewParams): Promise<void>;
+  // Follows the session's live command list: the listener gets the current list and each change
+  // until the returned function is called. Gated on `provider_commands`.
+  subscribeProviderCommands(
+    params: SubscribeProviderCommandsParams,
+    listener: ProviderCommandsListener,
+  ): () => void;
+  // Stops every provider process and service this driver started, as a deliberate stop; the
+  // daemon calls it once while it stops. Never stops a service the person runs themselves.
+  shutdown(): Promise<void>;
 }
 
 /**
@@ -104,6 +194,12 @@ export interface ProviderDriver {
  * text and interrupts the running turn.
  */
 export const STEER_FALLBACK_ACTION = "queue_and_interrupt";
+
+/**
+ * The refusal code of a session created on a larger window its model's catalog does not offer at
+ * that figure now: the request was made against a catalog that has since changed.
+ */
+export const LARGER_WINDOW_UNAVAILABLE_CODE = "driver.larger_window_unavailable";
 
 /** A provider's model-list reply that could not be read as a catalog (a provider fault). */
 export class ModelCatalogUnreadableError extends Error {
@@ -124,6 +220,10 @@ export interface CreateSessionParams {
   // usage-credits prompt to this session alone, never to the account's saved default; a provider
   // that takes the model per turn reads it there.
   model: string;
+  // The larger window the session chose for its model, in tokens, as recorded when it was picked;
+  // `undefined` runs the model's default window. A provider whose model id names the window refuses
+  // a defined figure.
+  largerWindow: number | undefined;
   // The legs below are spawn-bound: a leg that binds at process spawn and receives nothing here
   // launches without it. Per-run carriers are `StartRunParams`; `ResumeSessionParams` repeats
   // these because resume is a fresh spawn.
@@ -140,6 +240,9 @@ export interface CreateSessionParams {
   callbackTools?: SessionCallbackTool[] | undefined;
   // Gated on the `subagents` flag.
   subagentPolicy?: SubagentPolicy | undefined;
+  // Gated on `mcp`. Every tool server the session can reach, each switched on or off by the
+  // person; the driver hands the provider each one as an entry on the daemon's route.
+  toolServers?: readonly SessionToolServer[] | undefined;
   // Gated on `structured_output`. A normalized JSON Schema constraining the final output, for a
   // provider that binds it per session; one that binds it per turn reads
   // `StartRunParams.outputSchema`.
@@ -175,6 +278,11 @@ export interface ResumeSessionParams {
   // The session's current model, supplied by the caller rather than read from `spawn_config`: a
   // model switch after the spawn moves the session, so the spawn-time value would be stale.
   model: string;
+  // The session's recorded larger window, sent as recorded whatever the catalog offers now; refused
+  // as on create by a provider whose model id names the window.
+  largerWindow: number | undefined;
+  // Build or Plan, which the resumed provider runs in from its first turn.
+  mode: SessionMode;
   // Resume is a fresh process spawn, so every spawn-bound member of `CreateSessionParams` must be
   // re-realized here or the resumed leg silently sheds it: a posture-less resume relaunches
   // unsandboxed, a schema-less one unconstrained. The data legs are rebuilt by the daemon from the
@@ -187,6 +295,7 @@ export interface ResumeSessionParams {
   outputSpeed?: string | undefined;
   callbackTools?: SessionCallbackTool[] | undefined;
   subagentPolicy?: SubagentPolicy | undefined;
+  toolServers?: readonly SessionToolServer[] | undefined;
   outputSchema?: Record<string, unknown> | undefined;
   // Read back from the durable `spawn_config` record, never re-resolved: resolving "whichever
   // account is default now" would move a live run's spend onto an account it was not admitted
@@ -215,6 +324,9 @@ export interface StartRunParams {
   // applied; a provider that takes it per turn sends it as this turn's setting. Absent, the process
   // stays on the level it holds.
   outputSpeed?: string | undefined;
+  // A level for this run's turn alone, resolved like `outputSpeed`, which the agent's level does not
+  // follow: the next run carries the agent's own level again.
+  outputSpeedForTurn?: string | undefined;
   // The per-run effective posture, the same object the daemon stamps on `run.running`. A provider
   // that takes posture per turn realizes it there; a provider that binds posture at spawn
   // realizes it at session boundaries, and a mid-session change there resolves by session
@@ -329,12 +441,20 @@ export type CapabilityDetectionSource = "static" | "probed";
  * `RecoveryCondition` and `providerFailureDetail` and has no `bindingId`, and a failed resume must
  * never silently create a replacement provider session under the same run. The `resumed` arm's
  * required `sessionPosition` is the driver's normalized monotonic position (a turn or event
- * ordinal, as in `ForkConversationResult`); the daemon compares it with its recorded position,
+ * ordinal, as in `MoveSessionToForkResult`); the daemon compares it with its recorded position,
  * which catches a provider answering a resume with a fresh session (as on a working-directory
- * mismatch). Timestamps live on `runtime_bindings.updated_at`.
+ * mismatch). Its `resumeHandle` names the conversation the session runs on now, for the daemon to
+ * record on the binding: the handle it was given, or a new one where the provider continued the
+ * conversation in a new thread, as Codex does by forking it. Timestamps live on
+ * `runtime_bindings.updated_at`.
  */
 export type DriverResumeResult =
-  | { status: "resumed"; bindingId: string; sessionPosition: number }
+  | {
+      status: "resumed";
+      bindingId: string;
+      sessionPosition: number;
+      resumeHandle: string;
+    }
   | {
       status: "failed";
       recoveryCondition: RecoveryCondition;
@@ -350,10 +470,12 @@ export const DriverResumeResultSchema: z.ZodType<DriverResumeResult, DriverResum
         // `wireFreeFormString` guards (non-blank, no NUL) defend a stored untrusted value against
         // storage and log-injection hazards. The cap is sized for a short session-binding handle.
         bindingId: wireFreeFormString(DRIVER_BINDING_ID_MAX_LEN, "DriverResumeResult.bindingId"),
-        // Shape only (integer >= 0), as in `ForkConversationResultSchema`. Comparing the position
+        // Shape only (integer >= 0), as in `MoveSessionToForkResultSchema`. Comparing the position
         // with the daemon's recorded one, and reconciling a mismatch, need session state this shape
         // does not carry, so they belong to the daemon.
         sessionPosition: z.number().int().min(0),
+        // Bounded where it is persisted, as the create's handle is.
+        resumeHandle: z.string().min(1),
       })
       .strict(),
     z
@@ -388,44 +510,41 @@ export function boundFailureDetail(detail: string, emptyFallback: string): strin
     : trimmed;
 }
 
-// ---- Conversation fork ----
+// ---- Moving a session onto a fork ----
 
 /**
- * Params of `forkConversation` (gated on `rollback`): fork the provider conversation at a recorded
- * `position` (the driver's normalized monotonic session position, a turn or event ordinal) into a
- * new provider session; touches no files. `bindingId` is the leg key: a run has many bindings (a
- * capped or posture relaunch mints a new one), so `sessionId` cannot name the target leg. The
- * daemon resolves the run's live binding at dispatch; clients address the run, not the leg.
+ * Params of `moveSessionToFork` (gated on `session_fork`): fork the provider conversation at a
+ * recorded `position` (the driver's normalized monotonic session position, a turn or event
+ * ordinal) and move the session onto the fork; touches no files. `bindingId` is the leg key: a
+ * run has many bindings (a capped or posture relaunch mints a new one), so `sessionId` cannot name
+ * the target leg. The daemon resolves the run's live binding at dispatch; clients address the run,
+ * not the leg.
  */
-export interface ForkConversationParams {
+export interface MoveSessionToForkParams {
   sessionId: SessionId;
   position: number;
   bindingId: string;
 }
 
 /**
- * Return of `ProviderDriver.forkConversation()`, parsed from untrusted provider output.
+ * Return of `ProviderDriver.moveSessionToFork()`, parsed from untrusted provider output.
  * Discriminated on `status` like `DriverResumeResult`: `sessionPosition` is required on `applied`
  * and absent from `degraded`, so a fork without a confirmed position is unrepresentable. The schema
  * bounds shape only (integer >= 0); domain checks need session state and belong to the daemon.
- * `bindingId` is the binding the fork minted, a store-minted surrogate and never a resume handle.
+ * An applied fork has already rewritten the session's own binding to the new conversation.
  */
-export type ForkConversationResult =
-  | { status: "applied"; sessionPosition: number; bindingId?: string | undefined }
+export type MoveSessionToForkResult =
+  | { status: "applied"; sessionPosition: number }
   | { status: "degraded"; fallbackAction?: string | undefined };
-/** Validates a {@link ForkConversationResult}; both arms are `.strict()`. */
-export const ForkConversationResultSchema: z.ZodType<
-  ForkConversationResult,
-  ForkConversationResult
+/** Validates a {@link MoveSessionToForkResult}; both arms are `.strict()`. */
+export const MoveSessionToForkResultSchema: z.ZodType<
+  MoveSessionToForkResult,
+  MoveSessionToForkResult
 > = z.discriminatedUnion("status", [
   z
     .object({
       status: z.literal("applied"),
       sessionPosition: z.number().int().min(0),
-      bindingId: wireFreeFormString(
-        DRIVER_BINDING_ID_MAX_LEN,
-        "ForkConversationResult.bindingId",
-      ).optional(),
     })
     .strict(),
   z
@@ -433,7 +552,7 @@ export const ForkConversationResultSchema: z.ZodType<
       status: z.literal("degraded"),
       fallbackAction: wireFreeFormString(
         DRIVER_FALLBACK_ACTION_MAX_LEN,
-        "ForkConversationResult.fallbackAction",
+        "MoveSessionToForkResult.fallbackAction",
       ).optional(),
     })
     .strict(),
@@ -455,7 +574,7 @@ export type DriverGoalResult =
  * `session.goal_updated` and `session.goal_cleared` events, so driver-held state is never the
  * recovery source and neither operation returns the goal it applied. A resume never sets the goal
  * again, because both providers keep a conversation's goal across one. `bindingId` is the leg key,
- * as on `ForkConversationParams`: the goal goes to the target agent's live binding. `runId` rides
+ * as on `MoveSessionToForkParams`: the goal goes to the target agent's live binding. `runId` rides
  * along for context and telemetry.
  */
 export interface SetSessionGoalParams {
@@ -517,131 +636,6 @@ export function buildAuthProbeResult(
       : detail;
   const parsed = DriverAuthProbeResultSchema.safeParse({ status, detail: bounded });
   return parsed.success ? parsed.data : DriverAuthProbeResultSchema.parse({ status });
-}
-
-// ---- Canonical transcript ----
-
-// The canonical transcript is a projection the daemon folds from the session event log, so its
-// shapes are daemon-constructed and plain TypeScript. Content is bounded, normalized taxonomy:
-// anything a provider held that never became an event is absent by construction, which is what
-// the declared-loss rule surfaces.
-
-/** Who authored a turn. The transcript carries no third author. */
-export type CanonicalTranscriptRole = "user" | "assistant";
-
-/**
- * Whether a reasoning block was ever visible to the user. The strip keys on this, not on
- * `reasoningKind`, because a filter matching one kind name would leave that kind's redacted
- * sibling behind and break the multi-turn protocol. Summaries are user-visible, hence canonical.
- */
-export type CanonicalReasoningDisclosure = "private" | "summary";
-
-/**
- * Whether a tool result came from the provider or was minted by the pairing repair. A repaired
- * result is a declared loss, and a consumer that cannot tell the two apart cannot honor that.
- */
-type CanonicalToolResultProvenance = "provider" | "repaired";
-
-/**
- * One unit of turn content. Every arm carries `position`, the session-log sequence of the event
- * that contributed it: derived provenance projected from the log, never a second record of the
- * session's order. It is required on every arm because a bound filters on it, and an absent
- * position would exempt its segment from every bound. Steps that re-home a segment keep the value,
- * so positions within a turn ascend as the fold builds them but need not once the pairing repair
- * moves a result behind its call. A `tool_call` carries no enclosing-block member while a
- * `tool_result` does, so the strip can never drop a call yet can orphan a result, which is what the
- * pairing repair answers; hence the repair must run after the strip.
- */
-export type CanonicalTranscriptSegment =
-  | {
-      kind: "text";
-      position: number;
-      text: string;
-      // Set when the row's body was unavailable at fold time. `text` is then empty, because the
-      // fold never invents content, and the segment is kept so the turn survives with its
-      // position. Every projection carrying one owes the matching declared loss.
-      contentUnavailable?: boolean | undefined;
-      // Set on the stand-in emitted for an id-less tool result whose enclosing reasoning block
-      // resolved `private` at turn close. The body was read and withheld, so `text` is empty and
-      // `contentUnavailable` stays absent (setting it would claim a read failure that never
-      // happened). It is a `text` arm rather than a `tool_result` because that arm requires
-      // `toolCallId`, and a synthetic id would give the pairing repair a call no provider made. It
-      // rides the segment it governs and survives any positional bound the segment survives;
-      // without it, a bound between the result and its later-logged private reasoning row would
-      // leave the transcript declaring nothing. Never rendered: the strip drops the segment and
-      // declares `provider_private_reasoning`. One literal because only `private` withholds a
-      // read body; an `unknown` enclosure keeps its placeholder on the `contentUnavailable` path.
-      withheldEnclosure?: "private" | undefined;
-    }
-  | {
-      kind: "reasoning";
-      position: number;
-      blockId: string;
-      // The provider's own block-kind label, carried verbatim for diagnostics; the strip keys on
-      // `disclosure`, not on this.
-      reasoningKind: string;
-      disclosure: CanonicalReasoningDisclosure;
-      text: string;
-    }
-  | {
-      kind: "tool_call";
-      position: number;
-      toolCallId: string;
-      toolName: string;
-      // The arguments as the provider serialized them; re-encoding a parsed object would change
-      // bytes the target may hash or echo.
-      argumentsJson: string;
-      // As on the `text` arm. An unreadable body leaves `argumentsJson` empty rather than dropping
-      // the call, whose id the pairing repair needs.
-      contentUnavailable?: boolean | undefined;
-    }
-  | {
-      kind: "tool_result";
-      position: number;
-      toolCallId: string;
-      outcome: "succeeded" | "failed";
-      provenance: CanonicalToolResultProvenance;
-      text: string;
-      // Present when the provider emitted this result inside a reasoning block; stripping that
-      // block removes the result and orphans its call, the only way an orphan arises from a
-      // well-formed transcript.
-      enclosingReasoningBlockId?: string | undefined;
-      // How the fold resolved that enclosure at turn close, and the only carrier of that
-      // resolution that survives a positional bound: the block id names a sibling segment a bound
-      // may cut away, while this member rides the result. Recorded only for the two dispositions
-      // that withhold; a portable (`summary`) enclosure and a citation of a block from another turn
-      // leave it absent, since nothing branches on either.
-      //   `private`  the enclosing block was read and is not portable;
-      //   `unknown`  the enclosure could not be established portable (the turn's reasoning row was
-      //              unreadable, or the block carried a disclosure this fold does not classify).
-      //              Fail-closed: content that might be private travels with the block.
-      enclosureDisclosure?: "private" | "unknown" | undefined;
-      // As on the `text` arm.
-      contentUnavailable?: boolean | undefined;
-    };
-
-/** One ordered turn of the canonical transcript. */
-export interface CanonicalTranscriptTurn {
-  // The session-log sequence of the event that opened this turn (its first segment). Turns ascend
-  // strictly in it. Consecutive same-role events coalesce into an open turn and keep their own,
-  // higher, positions on their segments, so this member bounds nothing: a filter on it would admit
-  // every later event folded into a turn that opened early.
-  position: number;
-  role: CanonicalTranscriptRole;
-  segments: readonly CanonicalTranscriptSegment[];
-}
-
-/**
- * The daemon-side fold of a run's normalized events into ordered turns; it never crosses a wire and
- * is never persisted.
- */
-export interface CanonicalTranscriptProjection {
-  sessionId: SessionId;
-  runId: RunId;
-  // The log position this fold was taken at: two folds at one position render identically, and one
-  // taken after an appended event does not.
-  builtAtPosition: number;
-  turns: readonly CanonicalTranscriptTurn[];
 }
 
 // ---- Compaction and provider-command params ----
@@ -764,24 +758,36 @@ export type McpServerStatusProducer = (emission: McpServerStatusEmission) => voi
  * Provider-native subagent policy, daemon-constructed and gated on `subagents`. The daemon is the
  * only cross-session supervisor, so provider subagents run in-session only: their usage aggregates
  * into the run's own budgets and their tool calls flow through the same approval pipeline.
- * Discriminated on `enabled` so a disabled policy carries no limits or definitions ("off but
- * configured" is unrepresentable) and the daemon sends the full arm on enable.
+ * `helpersAtOnce` is the person's `Helpers at once`: how many helpers run at once, at least one, or
+ * `null` for no limit; a setting of `0` is `{enabled: false}`, which withholds the provider's helper
+ * tool. Nothing bounds how deep helpers nest. Discriminated on `enabled` so a disabled policy
+ * carries no limit or definitions.
  */
 export type SubagentPolicy =
   | { enabled: false }
-  | { enabled: true; maxDepth: number; maxConcurrent: number; definitions: SubagentDefinition[] };
+  | { enabled: true; helpersAtOnce: number | null; definitions: SubagentDefinition[] };
 
 /**
- * The unified per-subagent definition each driver maps onto its provider's own form. Every field
- * beyond `name` is optional because each leg maps what its provider supports and ignores the
- * rest, which the capability matrix grades.
+ * The unified per-subagent definition each driver maps onto its provider's own form. The fields
+ * beyond `name`, `prompt` and `description` are optional because each leg maps what its provider
+ * supports and ignores the rest, which the capability matrix grades.
  */
 export interface SubagentDefinition {
   name: string;
-  description?: string | undefined;
+  /** The helper's own instructions, which its provider runs it under. */
+  prompt: string;
+  /** When the lead should hand work to this helper; both providers require it. */
+  description: string;
   model?: string | undefined;
   tools?: string[] | undefined;
-  permissionMode?: string | undefined;
   effort?: string | undefined;
   maxTurns?: number | undefined;
+}
+
+// ---- Tool servers ----
+
+/** One tool server a session can reach, by its name, and whether the person switched it on. */
+export interface SessionToolServer {
+  serverName: string;
+  enabled: boolean;
 }

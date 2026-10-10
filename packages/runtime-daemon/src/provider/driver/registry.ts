@@ -1,9 +1,9 @@
 // In-memory registry of live `ProviderDriver` instances and the capability-flag gate.
 //
-// Registering a driver caches its capability snapshot once. The gate (`checkCapability`) reads
-// that snapshot; it never calls the driver and never reads the database. The registry takes no
-// store: capability persistence (`DriverCapabilitiesWriter`) and `RuntimeBindingStore` are
-// separate components.
+// Registering a driver caches the capability snapshot its read reported. The gate
+// (`checkCapability`) reads that snapshot; it never calls the driver and never reads the database.
+// The registry takes no store: capability persistence (`DriverCapabilitiesWriter`) and
+// `RuntimeBindingStore` are separate components.
 //
 // The gate fails closed: a flag is supported only when its cached value is exactly `true`.
 // `applyIntervention` is not gated here, because its degraded fallback must reach the driver.
@@ -59,7 +59,7 @@ export class DriverCapabilityUnsupportedError extends DaemonDomainError {
   }
 }
 
-/** The driver instance plus the capability snapshot resolved once at registration. */
+/** The driver instance plus the capability snapshot it was registered with. */
 interface RegisteredDriver {
   readonly driver: ProviderDriver;
   readonly capabilities: DriverCapabilities;
@@ -69,37 +69,15 @@ interface RegisteredDriver {
 export class ProviderRegistry {
   readonly #drivers: Map<ProviderName, RegisteredDriver> = new Map();
 
-  // Per-driver registration token; a superseded `register` sees a newer token and drops its
-  // result (see `register`).
-  readonly #registrationSeq: Map<ProviderName, number> = new Map();
-
   /**
-   * Registers a driver under `driverId`, or refreshes it: awaits `driver.getCapabilities()` once
-   * and caches the snapshot with the driver. Re-registering replaces the snapshot.
-   *
-   * The latest-initiated call wins when two calls for the same id overlap, whichever
-   * `getCapabilities()` resolves first, because a later call carries newer provider state.
+   * Registers a driver under `driverId`, or refreshes it, with the capabilities its read reported;
+   * the registry keeps its own copy, so a later change to the caller's object changes no gate.
+   * Re-registering replaces the snapshot.
    */
-  async register(driverId: ProviderName, driver: ProviderDriver): Promise<void> {
-    // Claim the token before the await so a later call can supersede this one.
-    const token: number = (this.#registrationSeq.get(driverId) ?? 0) + 1;
-    this.#registrationSeq.set(driverId, token);
-
-    const result = await driver.getCapabilities();
-
-    // A newer `register` superseded this call while it awaited; drop the stale snapshot.
-    if (this.#registrationSeq.get(driverId) !== token) {
-      return;
-    }
-
-    // Cache a copy of `result.capabilities` and its `flags`, not an alias, so a later
-    // driver-side mutation of its own `flags` object cannot change what the gate enforces.
+  register(driverId: ProviderName, driver: ProviderDriver, capabilities: DriverCapabilities): void {
     this.#drivers.set(driverId, {
       driver,
-      capabilities: {
-        ...result.capabilities,
-        flags: { ...result.capabilities.flags },
-      },
+      capabilities: { ...capabilities, flags: { ...capabilities.flags } },
     });
   }
 

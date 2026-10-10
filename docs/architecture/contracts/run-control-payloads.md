@@ -41,6 +41,11 @@ interface QueueItemCreateRequest {
   // The daemon copies it onto the `user.message` row it writes, the mark that settles the question
   // on every device. Absent on a send that answers no question.
   answersQuestionId?: QuestionId;
+  // The output-speed level this send's turn alone runs at, the agent's own level unchanged: `Use
+  // standard` on a turn that failed for want of flex capacity resends the same words with the
+  // provider's standard level here, which Codex takes as `turn/start.serviceTierForTurn`, and the
+  // next turn runs on the agent's level again. Absent on every other send.
+  outputSpeedForTurn?: string;
 }
 interface QueueItemCreateResponse {
   queueItemId: QueueItemId;
@@ -236,11 +241,12 @@ interface RunStateChangeEvent {
   recoveryCondition?: RecoveryCondition; // named type in provider-driver-payloads.md §Plan-003: 'recovery-needed' | 'reauth-required'
   // The run's typed failure cause, present only on a `run.failed` (Spec-005 §Run Lifecycle):
   // `failureCause: { cause, origin }`, a named, closed failure-cause union in `packages/contracts`
-  // (`run/control.ts`); each provider's own causes are normalized into it by its driver. The refusal
+  // (`run/failure-cause.ts`); each provider's own causes are normalized into it by its driver. The refusal
   // carries the refusing model and the provider's words; the usage limit carries the driver's
   // usage-limit signal (provider-driver-payloads.md §Plan-003) as it stood when the turn failed, so `Limit reached · resets
   // at <time>` is redrawn after a reload from this record alone; the spent retries draw
-  // `<Provider> did not answer`; a setup gate's failure carries the gate's own error. `origin` is
+  // `<Provider> did not answer`; a setup gate's failure carries the gate's own error; a turn too
+  // long for the window returns its message; no flex capacity draws `Use standard` beside `Try again`. `origin` is
   // `provider` where the driver normalized the provider's own cause and `daemon` where the app's own
   // refusal or failure ended the run.
   failureCause?:
@@ -270,6 +276,19 @@ interface RunStateChangeEvent {
         origin: "daemon";
         code?: string; // the gate's error code, such as "workspace.execution_root_unresolved"
         message: string; // the gate's own words
+      }
+    | {
+        // A turn too long for the context window even after compaction, cut back out of the
+        // conversation; the person's message goes back to the composer as a failed send.
+        cause: "context-window-exceeded";
+        origin: "provider";
+        returnedMessageId: string;
+      }
+    | {
+        // A turn sent on the flex speed that the provider failed for want of flex capacity, which it
+        // does not retry: `Flex capacity unavailable · Try again · Use standard`.
+        cause: "flex-capacity-unavailable";
+        origin: "provider";
       };
   // The provider's own failure prose on a `run.failed` with failureCategory "provider failure",
   // shown as given; a typed cause is `failureCause`, never this text.

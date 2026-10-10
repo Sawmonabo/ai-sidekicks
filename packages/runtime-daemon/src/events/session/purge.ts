@@ -1,5 +1,6 @@
-// The whole-session purge: for each session a person deletes, removes a chat's managed workspace
-// folder, then deletes every row naming the session outright in one write, re-scores the related
+// The whole-session purge: for each session a person deletes, deletes the provider's own copy of
+// every conversation it ran on and removes a chat's managed workspace folder, then deletes every
+// row naming the session outright in one write, re-scores the related
 // lists of the sessions it was linked to, appends one receipt naming every session that lost rows,
 // then truncates the write-ahead log.
 //
@@ -25,9 +26,10 @@
 //   - Each session is purged under its session lock, so no conversion copies out of a folder being
 //     removed, and its rows under one hold of its append lock. The receipt is appended after every
 //     session, outside every hold, because the append takes its own lock.
-//   - The folder goes before the rows: a removal that fails refuses the session with every row
-//     kept, and a row write that fails after it keeps the rows naming a folder already gone, so
-//     either way purging the session again finishes it.
+//   - The provider's conversations go first, while the rows naming them and the folder they ran in
+//     are still there, then the folder, then the rows: a deletion that fails refuses the session
+//     with every row kept, and a row write that fails after it keeps the rows naming files already
+//     gone, so either way purging the session again finishes it.
 //   - The live sessions list is told of each session whose rows went as soon as they commit, so a
 //     receipt that fails after them never leaves a purged session on screen.
 //   - The sessions a purged one was linked to are read in the write that deletes its links, and
@@ -52,6 +54,7 @@ import type { CheckpointResult } from "../../database/checkpoint.js";
 import { sqlListOf } from "../../database/sql-list.js";
 import type { WriteStatement } from "../../database/statement.js";
 import { WriteRefusedError, type DatabaseWriter } from "../../database/writer.js";
+import { describeRejection } from "../../rejection.js";
 import type {
   EventLogAppendOptions,
   EventLogAppendReceipt,
@@ -59,6 +62,7 @@ import type {
 } from "../log-service.js";
 import { sessionAppendLock } from "./append-lock.js";
 import type { KeyedLock } from "../../keyed-lock.js";
+import type { ProviderConversationPurge } from "../../provider/conversation-purge.js";
 import { RETRY_WAITS_MS } from "../../retry-waits.js";
 import type { SessionListFeed } from "../../session/directory/list-feed.js";
 import { removeEmptyGroupsOfSessionProjectStatement } from "../../session/groups/store.js";
@@ -98,8 +102,9 @@ export interface SessionPurgeOutcome {
   readonly fromSequence?: number | undefined;
   readonly toSequence?: number | undefined;
   /**
-   * Present iff this session was refused; a refused session lost no row, though a chat's managed
-   * workspace folder may be gone, and purging it again finishes it.
+   * Present iff this session was refused; a refused session lost no row, though its provider
+   * conversations or a chat's managed workspace folder may be gone, and purging it again finishes
+   * it.
    */
   readonly refusedReason?: string | undefined;
 }
@@ -140,6 +145,8 @@ export interface SessionPurgeDeps {
   readonly eventLog: SessionPurgeEventLog;
   /** Removes a chat's managed workspace folder; a session with none removes nothing. */
   readonly managedWorkspaces: Pick<ManagedWorkspaceService, "deleteFolder">;
+  /** Deletes the provider's own copy of every conversation a session ran on. */
+  readonly providerConversations: Pick<ProviderConversationPurge, "deleteConversations">;
   /**
    * The session lock every session-wide transition holds for its whole run, keyed by session id.
    */
@@ -201,6 +208,7 @@ export class SessionPurge {
   readonly #nodeId: NodeId;
   readonly #eventLog: SessionPurgeEventLog;
   readonly #managedWorkspaces: Pick<ManagedWorkspaceService, "deleteFolder">;
+  readonly #providerConversations: Pick<ProviderConversationPurge, "deleteConversations">;
   readonly #sessionLock: Pick<KeyedLock<SessionId>, "run">;
   readonly #sessionList: Pick<SessionListFeed, "refresh">;
   readonly #relatedRanking: Pick<SessionRelatedRanking, "rescoreAround">;
@@ -215,6 +223,7 @@ export class SessionPurge {
     this.#nodeId = deps.nodeId;
     this.#eventLog = deps.eventLog;
     this.#managedWorkspaces = deps.managedWorkspaces;
+    this.#providerConversations = deps.providerConversations;
     this.#sessionLock = deps.sessionLock;
     this.#sessionList = deps.sessionList;
     this.#relatedRanking = deps.relatedRanking;
@@ -226,7 +235,8 @@ export class SessionPurge {
   }
 
   /**
-   * Removes a chat's managed workspace folder and deletes every purgeable row of each session in
+   * Deletes the provider's copy of each conversation, removes a chat's managed workspace folder
+   * and deletes every purgeable row of each session in
    * `sessionIds`, queues the related lists of the sessions they were linked to for re-scoring,
    * appends one receipt naming every session that lost rows, and truncates the write-ahead log
    * once the start's check of the file has ended. With the default retry waits, a reader that
@@ -286,7 +296,7 @@ export class SessionPurge {
       } catch (error) {
         failures.push(
           `purge receipt append failed after rows of ${String(removedSessions.length)} ` +
-            `sessions were deleted: ${describeError(error)}`,
+            `sessions were deleted: ${describeRejection(error)}`,
         );
       }
     }
@@ -306,10 +316,16 @@ export class SessionPurge {
   async #purgeSession(sessionId: SessionId): Promise<SessionRowsDeletion> {
     try {
       return await this.#sessionLock.run(sessionId, async () => {
+        await this.#providerConversations.deleteConversations(sessionId).catch((error: unknown) => {
+          throw new SessionPurgeRefusal(
+            "the provider's copy of a conversation could not be deleted, so no row was " +
+              `deleted: ${describeRejection(error)}`,
+          );
+        });
         await this.#managedWorkspaces.deleteFolder({ sessionId }).catch((error: unknown) => {
           throw new SessionPurgeRefusal(
             "the managed workspace could not be removed, so no row was deleted: " +
-              describeError(error),
+              describeRejection(error),
           );
         });
         const deletion = await sessionAppendLock.run(sessionId, () =>
@@ -320,7 +336,7 @@ export class SessionPurge {
       });
     } catch (error) {
       return {
-        outcome: { sessionId, rowsDeleted: 0, refusedReason: describeError(error) },
+        outcome: { sessionId, rowsDeleted: 0, refusedReason: describeRejection(error) },
         linkedSessionIds: [],
       };
     }
@@ -394,7 +410,7 @@ export class SessionPurge {
         checkpoint = await this.#writer.checkpoint("TRUNCATE");
       } catch (error) {
         return (
-          "the write-ahead log could not be truncated after the purge: " + describeError(error)
+          "the write-ahead log could not be truncated after the purge: " + describeRejection(error)
         );
       }
       if (!checkpoint.isBusy) {
@@ -521,6 +537,7 @@ function deleteSessionRowsStatements(
     { sql: "DELETE FROM runs WHERE session_id = ?", bindings: [sessionId] },
     { sql: "DELETE FROM projection_cursors WHERE session_id = ?", bindings: [sessionId] },
     { sql: "DELETE FROM session_console_state WHERE session_id = ?", bindings: [sessionId] },
+    { sql: "DELETE FROM left_conversations WHERE session_id = ?", bindings: [sessionId] },
     {
       sql: "DELETE FROM session_links WHERE source_session_id = ? OR target_session_id = ?",
       bindings: [sessionId, sessionId],
@@ -552,8 +569,4 @@ function deleteSessionRowsStatements(
     { sql: "DELETE FROM workspaces WHERE session_id = ?", bindings: [sessionId] },
     ...managedMountDeletionStatements(sessionId),
   ];
-}
-
-function describeError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

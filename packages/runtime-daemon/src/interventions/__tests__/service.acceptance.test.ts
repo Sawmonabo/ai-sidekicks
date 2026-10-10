@@ -24,6 +24,8 @@ import { makeSilentDriverDiagnostics } from "../../provider/__fixtures__/silent-
 import { CodexRequestTimeoutError } from "../../provider/driver/codex/session/errors.js";
 import { STEER_FALLBACK_ACTION } from "../../provider/driver/contract.js";
 import type { DriverDiagnosticsEmitter } from "../../provider/driver/diagnostics.js";
+import { PortRegistration } from "../../provider/port/registration.js";
+import type { RunStatePublisher } from "../../provider/port/run-state-publisher.js";
 import type { InterruptRoute } from "../../session/run/engine.js";
 import { ExecutionEpochs } from "../../session/run/epochs.js";
 import { RunInboundDispatch } from "../../session/run/inbound.js";
@@ -172,6 +174,7 @@ describe("intervention service with the run engine and inbound dispatch", () => 
       device_id: deviceId,
     });
     expect(readSessionEventTypes()).toEqual([
+      "session.created",
       "run.queued",
       "run.starting",
       "run.running",
@@ -205,6 +208,7 @@ describe("intervention service with the run engine and inbound dispatch", () => 
       epochs,
       diagnostics,
       sessionEvents: fixture.sessionEvents,
+      runStatePublisher: new PortRegistration<RunStatePublisher>("run state publisher"),
     });
     const bindingId = randomUUID();
     epochs.openBinding({ id: bindingId, runId, driverName: "claude" }, { epoch: 0, position: 1 });

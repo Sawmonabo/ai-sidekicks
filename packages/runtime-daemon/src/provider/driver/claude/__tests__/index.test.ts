@@ -1,73 +1,54 @@
-// Covers `index.ts`, the composition root: a session driven end to end through one driver object,
-// and an intervention reaching the channel the lifecycle bound the run to.
+// Covers `index.ts`, the composition root: a steer sent through the driver is the newest message
+// a later conversation cut names as seen, since Claude Code refuses a cut past a prompt it was not
+// told about.
 
 import { describe, expect, it } from "vitest";
 
 import { ClaudeDriver } from "../index.js";
 import {
   buildCreateSessionParams,
-  buildInterruptParams,
   buildStartRunParams,
-  FakeClaudeRunDispatchResolver,
-  FakeClaudeSessionTransport,
+  buildSteerParams,
   TEST_BINDING_ID,
-  TEST_PINNED_PROVIDER_SESSION_ID,
-  TEST_RUN_ID,
   TEST_SESSION_ID,
 } from "../__fixtures__/transport-doubles.js";
-import { makeSilentDriverDiagnostics } from "../../../__fixtures__/silent-driver-diagnostics.js";
-
-interface DriverHarness {
-  readonly driver: ClaudeDriver;
-  readonly transport: FakeClaudeSessionTransport;
-}
-
-function buildHarness(): DriverHarness {
-  const transport = new FakeClaudeSessionTransport();
-  const runDispatchResolver = new FakeClaudeRunDispatchResolver();
-  runDispatchResolver.dispatchByRunId.set(TEST_RUN_ID, {
-    sessionId: TEST_SESSION_ID,
-    openingText: "review the diff",
-  });
-  const driver = new ClaudeDriver({
-    transport,
-    providerBaseEnvironment: [],
-    modelCatalogExchange: () => Promise.resolve({ models: [] }),
-    runDispatchResolver,
-    diagnostics: makeSilentDriverDiagnostics(),
-    mintProviderSessionId: () => TEST_PINNED_PROVIDER_SESSION_ID,
-    mintBindingId: () => TEST_BINDING_ID,
-    onTextNeutralizationFailure: () => undefined,
-  });
-  return { driver, transport };
-}
+import {
+  armRunDispatch,
+  buildHarness,
+  spawnedChannel,
+  TEST_MESSAGE_ID,
+} from "./lifecycle.test-support.js";
 
 describe("ClaudeDriver", () => {
-  it("drives a session from create through run start to close", async () => {
+  it("names the newest message sent, a steer included, on a conversation cut", async () => {
     const harness = buildHarness();
+    const driver = new ClaudeDriver({
+      ...harness.dependencies,
+      readBuild: () => Promise.reject(new Error("no build is read here")),
+    });
+    await driver.createSession(buildCreateSessionParams());
+    const channel = spawnedChannel(harness);
+    armRunDispatch(harness);
+    await driver.startRun(buildStartRunParams());
+    const steer = buildSteerParams("and the tests");
+    await driver.applyIntervention(steer);
+    channel.controlResponse = {
+      subtype: "success",
+      response: { rewound: true, prefillText: "review the diff" },
+    };
 
-    const handle = await harness.driver.createSession(buildCreateSessionParams());
-    await harness.driver.startRun(buildStartRunParams());
-    await harness.driver.interruptRun({ runId: TEST_RUN_ID });
-    await harness.driver.closeSession({ sessionId: TEST_SESSION_ID });
+    const cut = await driver.rewindConversation({
+      sessionId: TEST_SESSION_ID,
+      bindingId: TEST_BINDING_ID,
+      targetMessageId: TEST_MESSAGE_ID,
+    });
 
-    expect(handle.resumeHandle).toBe(TEST_PINNED_PROVIDER_SESSION_ID);
-    const channel = harness.transport.spawnedChannels[0];
-    expect(channel?.sentWireTexts).toStrictEqual(["review the diff"]);
-    expect(channel?.controlRequests).toStrictEqual([{ subtype: "interrupt", cancelQueued: false }]);
-    expect(channel?.disposals).toStrictEqual(["session_closed"]);
-  });
-
-  it("sends a native interrupt to the channel the lifecycle band bound the run to", async () => {
-    const harness = buildHarness();
-    await harness.driver.createSession(buildCreateSessionParams());
-    await harness.driver.startRun(buildStartRunParams());
-
-    const result = await harness.driver.applyIntervention(buildInterruptParams());
-
-    expect(result).toStrictEqual({ status: "applied" });
-    expect(harness.transport.spawnedChannels[0]?.controlRequests).toStrictEqual([
-      { subtype: "interrupt", cancelQueued: false },
-    ]);
+    expect(channel.controlRequests.at(-1)).toStrictEqual({
+      subtype: "rewind_conversation",
+      target_message_uuid: TEST_MESSAGE_ID,
+      last_seen_user_message_uuid: steer.clientIdempotencyKey,
+      interrupt_if_running: true,
+    });
+    expect(cut).toStrictEqual({ status: "applied", cutMessageText: "review the diff" });
   });
 });

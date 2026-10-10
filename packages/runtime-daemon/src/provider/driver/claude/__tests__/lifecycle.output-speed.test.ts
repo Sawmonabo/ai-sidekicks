@@ -35,14 +35,14 @@ interface SettledReport {
   readonly state: ProviderOutputSpeedState;
 }
 
-function settledHarness(): { harness: LifecycleHarness; settled: SettledReport[] } {
-  const settled: SettledReport[] = [];
-  const harness = buildHarness({
-    onRunOutputSpeedSettled: (sessionId, runId, state) => {
+// The settled output speeds the run engine was told of, read when called.
+function settledHarness(): { harness: LifecycleHarness; settled: () => SettledReport[] } {
+  const harness = buildHarness();
+  const settled = (): SettledReport[] =>
+    harness.settledOutputSpeeds.map(({ sessionId, runId, state }) => {
       expect(sessionId).toBe(TEST_SESSION_ID);
-      settled.push({ runId, state });
-    },
-  });
+      return { runId, state };
+    });
   return { harness, settled };
 }
 
@@ -64,7 +64,14 @@ function publishHandshake(
   fastMode: Pick<ClaudeHandshakeDeclaration, "fastModeState" | "fastModeDisabledReason">,
 ): void {
   channel.emitStreamFrame("system/init", {
-    handshake: { slashCommands: [], skills: [], terminalSlashCommands: [], ...fastMode },
+    handshake: {
+      slashCommands: [],
+      skills: [],
+      terminalSlashCommands: [],
+      capabilities: [],
+      permissionMode: null,
+      ...fastMode,
+    },
   });
 }
 
@@ -73,7 +80,7 @@ describe("Claude output speed carriers", () => {
     const harness = buildHarness();
     const created = await createLiveSession(harness, { outputSpeed: "on" });
     expect(created.controlRequests).toEqual([FAST_MODE_ON]);
-    expect(created.sentTextFrames).toHaveLength(0);
+    expect(created.sentUserFrames).toHaveLength(0);
 
     // The forked process holds no flag setting until it is told the level the session runs at.
     await rewindTestSession(harness);
@@ -96,7 +103,7 @@ describe("Claude output speed carriers", () => {
     const channel = await createLiveSession(harness);
 
     expect(channel.controlRequests).toEqual([]);
-    expect(channel.sentTextFrames).toEqual([]);
+    expect(channel.sentUserFrames).toEqual([]);
     expect(harness.lifecycle.observedOutputSpeedFor(TEST_SESSION_ID)).toStrictEqual({
       declared: "off",
       reason: "sdk_opt_in_required",
@@ -115,7 +122,7 @@ describe("Claude output speed carriers", () => {
     await startRunAt(harness, THIRD_RUN_ID, "on");
 
     expect(channel.controlRequests).toEqual([FAST_MODE_OFF, FAST_MODE_ON]);
-    expect(channel.sentTextFrames).toHaveLength(3);
+    expect(channel.sentUserFrames).toHaveLength(3);
   });
 
   it("runs on the held level when the provider refuses one, and asks again next run", async () => {
@@ -125,9 +132,9 @@ describe("Claude output speed carriers", () => {
 
     await startRunAt(harness, TEST_RUN_ID, "on");
     // The turn still runs, and its handshake says what it runs at.
-    expect(channel.sentTextFrames).toHaveLength(1);
+    expect(channel.sentUserFrames).toHaveLength(1);
     publishHandshake(channel, OPT_IN_REQUIRED);
-    expect(settled).toStrictEqual([
+    expect(settled()).toStrictEqual([
       { runId: TEST_RUN_ID, state: { declared: "off", reason: "sdk_opt_in_required" } },
     ]);
     expect(harness.diagnostics.recentRecordsOfKind("output_speed_apply_refused")).toHaveLength(2);
@@ -152,21 +159,24 @@ describe("Claude output speed per run", () => {
     publishHandshake(channel, OPT_IN_REQUIRED);
     publishHandshake(channel, { fastModeState: "on", fastModeDisabledReason: null });
     channel.emitStreamFrame("result/success");
-    expect(settled).toStrictEqual([
+    expect(settled()).toStrictEqual([
       { runId: TEST_RUN_ID, state: { declared: "off", reason: "sdk_opt_in_required" } },
     ]);
 
     // A turn that ends with no handshake settles on the state the process holds.
     await startRunAt(harness, TEST_SECOND_RUN_ID);
     channel.emitStreamFrame("result/success");
-    expect(settled.at(-1)).toStrictEqual({ runId: TEST_SECOND_RUN_ID, state: { declared: "on" } });
+    expect(settled().at(-1)).toStrictEqual({
+      runId: TEST_SECOND_RUN_ID,
+      state: { declared: "on" },
+    });
 
     // A turn never written reports nothing.
     channel.sendUserTextFailure = new Error("pipe closed");
     channel.sendUserTextDelivery = "unsent";
     await expect(startRunAt(harness, THIRD_RUN_ID)).rejects.toThrow("pipe closed");
     publishHandshake(channel, OPT_IN_REQUIRED);
-    expect(settled).toHaveLength(2);
+    expect(settled()).toHaveLength(2);
   });
 });
 
@@ -199,7 +209,7 @@ describe("Claude output speed while the session changes", () => {
     await expect(started).rejects.toMatchObject({ fields: { reason: "no_live_session" } });
     await closed;
     expect(channel.sendUserTextAttempts).toBe(0);
-    expect(harness.textNeutralizationFailures).toStrictEqual([]);
+    expect(harness.supersededRunFailures).toStrictEqual([]);
   });
 
   it("writes nothing and fails the run once when a rewind lands while the level is applied", async () => {
@@ -212,8 +222,6 @@ describe("Claude output speed while the session changes", () => {
     await expect(started).rejects.toMatchObject({ fields: { reason: "no_live_session" } });
     expect(channel.sendUserTextAttempts).toBe(0);
     expect(spawnedChannel(harness, 1).sendUserTextAttempts).toBe(0);
-    expect(harness.textNeutralizationFailures.map(({ runId }) => runId)).toStrictEqual([
-      TEST_RUN_ID,
-    ]);
+    expect(harness.supersededRunFailures.map(({ runId }) => runId)).toStrictEqual([TEST_RUN_ID]);
   });
 });

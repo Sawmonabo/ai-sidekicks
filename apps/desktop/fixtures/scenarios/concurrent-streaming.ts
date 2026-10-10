@@ -321,30 +321,35 @@ export function composeConcurrentStreamingLanes(
     lane.output(RUN_IMPLEMENTER, {
       atMs: at(1_050),
       kind: "assistant.thinking_update",
+      providerMessageId: "msg_implementer_1",
       contentType: "text/plain",
       body: blockAt(PROSE_BLOCKS, 0),
     }),
     lane.output(RUN_REVIEWER, {
       atMs: at(1_100),
       kind: "assistant.thinking_update",
+      providerMessageId: "item-reviewer-reasoning-1",
       contentType: "text/plain",
       body: blockAt(PROSE_BLOCKS, 1),
     }),
     lane.output(RUN_SCOUT, {
       atMs: at(1_150),
       kind: "assistant.thinking_update",
+      providerMessageId: "item-scout-reasoning-1",
       contentType: "text/plain",
       body: blockAt(PROSE_BLOCKS, 2),
     }),
     lane.output(RUN_ARCHITECT, {
       atMs: at(1_200),
       kind: "assistant.thinking_update",
+      providerMessageId: "msg_architect_1",
       contentType: "text/plain",
       body: blockAt(PROSE_BLOCKS, 3),
     }),
     lane.output(RUN_IMPLEMENTER, {
       atMs: at(1_250),
       kind: "assistant.message",
+      providerMessageId: "msg_implementer_1",
       contentType: "text/markdown",
       body: bodyOf([blockAt(PROSE_BLOCKS, 4), blockAt(BODY_BLOCKS, 12)]),
     }),
@@ -357,12 +362,14 @@ export function composeConcurrentStreamingLanes(
     lane.output(RUN_SCOUT, {
       atMs: at(1_350),
       kind: "assistant.message",
+      providerMessageId: "item-scout-message-1",
       contentType: "text/markdown",
       body: bodyOf([blockAt(PROSE_BLOCKS, 5), blockAt(BODY_BLOCKS, 15)]),
     }),
     lane.output(RUN_ARCHITECT, {
       atMs: at(1_400),
       kind: "assistant.message",
+      providerMessageId: "msg_architect_1",
       contentType: "text/markdown",
       body: bodyOf([blockAt(PROSE_BLOCKS, 6), blockAt(BODY_BLOCKS, 18)]),
     }),
@@ -406,18 +413,21 @@ export function composeConcurrentStreamingLanes(
     lane.output(RUN_REVIEWER, {
       atMs: at(1_650),
       kind: "assistant.message",
+      providerMessageId: "item-reviewer-message-1",
       contentType: "text/markdown",
       body: bodyOf([blockAt(PROSE_BLOCKS, 8), blockAt(BODY_BLOCKS, 24)]),
     }),
     lane.output(RUN_SCOUT, {
       atMs: at(1_700),
       kind: "assistant.thinking_update",
+      providerMessageId: "item-scout-reasoning-2",
       contentType: "text/plain",
       body: blockAt(PROSE_BLOCKS, 9),
     }),
     lane.output(RUN_ARCHITECT, {
       atMs: at(1_750),
       kind: "assistant.thinking_update",
+      providerMessageId: "msg_architect_2",
       contentType: "text/plain",
       body: blockAt(PROSE_BLOCKS, 10),
     }),
@@ -456,6 +466,7 @@ export function composeConcurrentStreamingLanes(
     lane.output(RUN_ARCHITECT, {
       atMs: at(1_950),
       kind: "assistant.message",
+      providerMessageId: "msg_architect_2",
       contentType: "text/markdown",
       body: bodyOf([blockAt(PROSE_BLOCKS, 12), blockAt(BODY_BLOCKS, 36)]),
     }),
@@ -463,6 +474,7 @@ export function composeConcurrentStreamingLanes(
     lane.output(RUN_REVIEWER, {
       atMs: at(2_050),
       kind: "assistant.thinking_update",
+      providerMessageId: "item-reviewer-reasoning-2",
       contentType: "text/plain",
       body: blockAt(PROSE_BLOCKS, 13),
     }),
@@ -475,6 +487,7 @@ export function composeConcurrentStreamingLanes(
     lane.output(RUN_IMPLEMENTER, {
       atMs: at(2_150),
       kind: "assistant.message",
+      providerMessageId: "msg_implementer_2",
       contentType: "text/markdown",
       body: bodyOf([blockAt(PROSE_BLOCKS, 14), blockAt(BODY_BLOCKS, 42)]),
     }),
@@ -517,12 +530,14 @@ export function composeConcurrentStreamingLanes(
     lane.output(RUN_REVIEWER, {
       atMs: at(2_300),
       kind: "assistant.message",
+      providerMessageId: "item-reviewer-message-2",
       contentType: "text/markdown",
       body: bodyOf([blockAt(PROSE_BLOCKS, 16), blockAt(BODY_BLOCKS, 48)]),
     }),
     lane.output(RUN_ARCHITECT, {
       atMs: at(2_350),
       kind: "assistant.thinking_update",
+      providerMessageId: "msg_architect_3",
       contentType: "text/plain",
       body: blockAt(PROSE_BLOCKS, 17),
     }),

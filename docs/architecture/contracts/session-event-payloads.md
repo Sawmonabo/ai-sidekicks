@@ -148,6 +148,8 @@ interface UsageModelReroutedPayload {
 interface AssistantMessagePayload {
   sessionId: SessionId;
   runId?: RunId;
+  // The provider's own message id, the same on every piece of one message.
+  providerMessageId: string;
   contentType?: string;
   contentLength?: number;
   origin?: "voice";

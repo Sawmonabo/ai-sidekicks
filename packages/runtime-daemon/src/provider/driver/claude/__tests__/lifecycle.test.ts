@@ -1,14 +1,15 @@
 // `lifecycle.ts` session establishment: one provider process per canonical session, held across
 // every create, resume, close and rewind, with no process left running that the daemon cannot
-// reach, and every spawn built on the environment the daemon captured at start.
+// reach, and every spawn built on the environment the daemon captured at start, credentials out.
 
 import { describe, expect, it } from "vitest";
 
+import { withScratchBindingStore } from "../../../__fixtures__/binding-store.js";
+import { readLeftConversations } from "../../../left-conversations.js";
 import { DriverResumeResultSchema } from "../../contract.js";
 import { ClaudeAuthenticationRequiredError } from "../session/errors.js";
 import {
   buildCreateSessionParams,
-  TEST_BINDING_ID,
   TEST_PINNED_PROVIDER_SESSION_ID,
   TEST_RUN_ID,
   TEST_SESSION_ID,
@@ -19,6 +20,7 @@ import {
   openGate,
   resumeTestSession,
   rewindTestSession,
+  SANDBOXED_POSTURE,
   startLiveRun,
   type LifecycleHarness,
 } from "./lifecycle.test-support.js";
@@ -421,19 +423,39 @@ function withTerminalHookRefused(harness: LifecycleHarness): LifecycleHarness {
   return harness;
 }
 
-describe("ClaudeSessionLifecycle.forkConversation", () => {
-  it("reports the rebinding `bindingId`, not the binding of the process it replaced", async () => {
-    const harness = buildHarness();
-    await createLiveSession(harness);
+describe("ClaudeSessionLifecycle.moveSessionToFork", () => {
+  it("points the session's binding at the fork and records the session it left", async () => {
+    // A daemon restart resumes from the binding, so one still naming the session the rewind left
+    // would bring back the conversation from before it.
+    await withScratchBindingStore(async (bindings, database) => {
+      const { id: bindingId } = await bindings.create({
+        runId: TEST_RUN_ID,
+        driverName: "claude",
+        contractVersion: "1.0.0",
+        resumeHandle: TEST_PINNED_PROVIDER_SESSION_ID,
+        spawnConfig: { executionPosture: SANDBOXED_POSTURE },
+      });
+      const harness = buildHarness({
+        rebindRuntimeBinding: async (rebind) => {
+          await bindings.rebind(rebind);
+        },
+      });
+      await createLiveSession(harness);
 
-    // The helper passes a binding that is not the minted one, so echoing the caller's binding
-    // (the process just replaced) fails here.
-    const result = await rewindTestSession(harness);
+      const result = await harness.lifecycle.moveSessionToFork({
+        sessionId: TEST_SESSION_ID,
+        bindingId,
+        position: 4,
+      });
 
-    expect(result).toStrictEqual({
-      status: "applied",
-      sessionPosition: 4,
-      bindingId: TEST_BINDING_ID,
+      expect(result).toStrictEqual({ status: "applied", sessionPosition: 4 });
+      expect(bindings.findById(bindingId)?.resumeHandle).toBe("forked-1");
+      expect(
+        readLeftConversations(database.reader, TEST_SESSION_ID).map((left) => [
+          left.driverName,
+          left.conversationId,
+        ]),
+      ).toStrictEqual([["claude", TEST_PINNED_PROVIDER_SESSION_ID]]);
     });
   });
 
@@ -478,12 +500,16 @@ describe("ClaudeSessionLifecycle.probeAuth", () => {
 });
 
 describe("ClaudeSessionLifecycle spawn environment", () => {
-  it("hands the captured base to every create, rewind, resume and auth probe", async () => {
-    const providerBaseEnvironment = [
-      ["HOME", "/Users/person"],
-      ["HTTPS_PROXY", "http://proxy.internal:3128"],
-    ] as const;
-    const harness = buildHarness({ providerBaseEnvironment });
+  it("strips a credential the login shell leaked from every spawn and the auth probe", async () => {
+    // The base the daemon captured from the person's login shell, with a curated token in it.
+    const leakedName = "GITHUB_TOKEN";
+    const harness = buildHarness({
+      providerBaseEnvironment: [
+        ["HOME", "/Users/person"],
+        ["HTTPS_PROXY", "http://proxy.internal:3128"],
+        [leakedName, "fake-token-for-the-strip-test"],
+      ],
+    });
 
     await createLiveSession(harness);
     await rewindTestSession(harness);
@@ -491,14 +517,17 @@ describe("ClaudeSessionLifecycle spawn environment", () => {
     await resumeTestSession(harness);
     await harness.lifecycle.probeAuth();
 
-    const requests = [
+    const environments = [
       ...harness.transport.spawnRequests,
       ...harness.transport.rewindRequests,
       ...harness.transport.resumeRequests,
       ...harness.transport.probeAuthRequests,
-    ];
-    expect(requests.map((request) => request.providerBaseEnvironment)).toStrictEqual(
-      Array.from({ length: 4 }, () => providerBaseEnvironment),
-    );
+    ].map((request) => new Map(request.spawnEnvironment));
+    expect(environments).toHaveLength(4);
+    for (const environment of environments) {
+      expect(environment.has(leakedName)).toBe(false);
+      expect(environment.get("HOME")).toBe("/Users/person");
+      expect(environment.get("HTTPS_PROXY")).toBe("http://proxy.internal:3128");
+    }
   });
 });

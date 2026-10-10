@@ -1,6 +1,6 @@
-// The Codex ask responder: a routed `item/tool/call` becomes an adjudicated callback-tool
-// invocation answered with content items, an approval ask with no responder is refused by name,
-// and the content items always match the provider's declared union.
+// The Codex callback-tool responder: a routed `item/tool/call` becomes an adjudicated callback-tool
+// invocation answered with content items, and the content items always match the provider's
+// declared union.
 
 import { describe, expect, it } from "vitest";
 
@@ -22,7 +22,7 @@ import type { CodexSessionServerRequest } from "../server-requests.js";
 const TOOL_CALL_METHOD = "item/tool/call";
 
 function buildAskResponder(harness: CallbackToolHostHarness) {
-  return createCallbackToolAskResponder({ host: harness.host, approvalAskResponder: null });
+  return createCallbackToolAskResponder(harness.host);
 }
 
 function makeToolCallAsk(
@@ -40,6 +40,7 @@ function makeToolCallAsk(
     },
     sessionId: TEST_SESSION_ID,
     runId: TEST_RUN_ID,
+    requestId: "request-1",
     ...overrides,
   };
 }
@@ -91,27 +92,6 @@ describe("createCallbackToolAskResponder — the callback-tool arm", () => {
       decision: "refuse",
       reason: "workspace search is not permitted",
     });
-  });
-});
-
-describe("createCallbackToolAskResponder — the approval arm", () => {
-  it("refuses an approval ask with no responder bound, naming the method", async () => {
-    const harness = buildCallbackToolHostHarness();
-
-    const decision = await buildAskResponder(harness).answer({
-      method: "item/fileChange/requestApproval",
-      askKind: "approval",
-      params: {},
-      sessionId: TEST_SESSION_ID,
-      runId: TEST_RUN_ID,
-    });
-
-    expect(decision.decision).toBe("refuse");
-    expect(decision.decision === "refuse" && decision.reason).toContain(
-      "item/fileChange/requestApproval",
-    );
-    // Not a callback-tool diagnostic: those kinds name this host's conditions.
-    expect(harness.emittedDiagnostics).toHaveLength(0);
   });
 });
 

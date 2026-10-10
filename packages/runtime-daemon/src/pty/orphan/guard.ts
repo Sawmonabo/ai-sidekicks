@@ -8,6 +8,7 @@ import type { ProcessIdentity } from "@ai-sidekicks/contracts/process-identity";
 import pidtree from "pidtree";
 
 import { withCleanupFailures } from "../../cleanup-failures.js";
+import { describeRejection } from "../../rejection.js";
 import type { OrphanOperatingSystem, ProcessExitWatch } from "./operating-system.js";
 import { OrphanRegistry } from "./registry.js";
 import { sweepOrphans, type OrphanSweepResult } from "./sweep.js";
@@ -74,7 +75,7 @@ export class OrphanGuard {
       // The registry already holds the child, so the next start's sweep still finds it.
       this.#writeServiceLog(
         `The kernel would not watch terminal child ${String(processId)} for its exit: ` +
-          describeError(error),
+          describeRejection(error),
       );
     }
   }
@@ -83,7 +84,7 @@ export class OrphanGuard {
   retire(nonce: string): void {
     this.#registry.retire(nonce).catch((error: unknown) => {
       this.#writeServiceLog(
-        `The orphan registry could not forget an ended terminal child: ${describeError(error)}`,
+        `The orphan registry could not forget an ended terminal child: ${describeRejection(error)}`,
       );
     });
   }
@@ -154,8 +155,4 @@ async function listDescendantProcesses(processId: number): Promise<number[]> {
     }
     throw error;
   }
-}
-
-function describeError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

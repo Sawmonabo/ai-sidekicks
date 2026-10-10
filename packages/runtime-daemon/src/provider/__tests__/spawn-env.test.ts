@@ -1,27 +1,38 @@
-// The provider child environment: a session's rows replace the captured base's pair of the same
-// name, denied credential names never reach the child (under the host's name matching), no ambient
-// daemon variable is inherited, and nothing can re-enable a provider's auto-updater or drop the
-// Codex build pin.
+// The child environments: rows replace the captured base's pair of the same name, a project row
+// beats an `Every project` row, no curated credential variable or never-set Claude Code name
+// reaches a provider child or a Codex conversation's commands (under the host's name matching)
+// while a project's setup command keeps the person's credential variables,
+// no ambient daemon variable is inherited, and nothing can re-enable a provider's auto-updater,
+// lower a Claude Code process variable or point a process at an empty account folder.
 
 import { describe, expect, it } from "vitest";
 
-import { captureThrow } from "../../__fixtures__/capture-failure.js";
+import type { EnvironmentRow } from "@ai-sidekicks/contracts/machine-settings";
 import { PROVIDER_NAMES, type ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
+import { captureThrow } from "../../__fixtures__/capture-failure.js";
+import { CURATED_CREDENTIAL_ENV_VARS } from "../../policy/execution-posture-service.js";
 import { PROVIDER_DRIVER_DESCRIPTORS } from "../driver/descriptor.js";
 import {
+  ProviderAccountFolderError,
   ProviderSpawnEnvConflictError,
-  ProviderSpawnEnvNameMatchMismatchError,
+  buildCommandSpawnEnv,
   buildProviderSpawnEnv,
-  hostEnvNameMatchForPlatform,
-  type CredentialEnvPolicy,
+  composeCodexShellEnvironmentPolicy,
   type SpawnEnvPair,
 } from "../spawn-env.js";
+import { selectProviderOperatingSystem } from "../operating-system/selection.js";
 
 const CAPTURED_BASE: readonly SpawnEnvPair[] = [
   ["HOME", "/home/agent"],
   ["PATH", "/usr/bin"],
 ];
+
+const CLAUDE_PROCESS_ENVIRONMENT = {
+  CLAUDE_AUTO_BACKGROUND_TASKS: "1",
+  CLAUDE_CODE_USER_DIALOG_TIMEOUT_MS: "0",
+  BASH_MAX_TIMEOUT_MS: "2147483647",
+};
 
 function namesOf(env: readonly SpawnEnvPair[]): string[] {
   return env.map(([name]) => name);
@@ -35,6 +46,10 @@ function occurrencesOf(env: readonly SpawnEnvPair[], name: string): number {
   return namesOf(env).filter((entryName) => entryName === name).length;
 }
 
+function row(name: string, value: string): EnvironmentRow {
+  return { name, value };
+}
+
 describe("provider spawn environment — rows over the captured base", () => {
   it("lets a row replace the base pair its name matches under the host's rule, once", () => {
     const built = buildProviderSpawnEnv({
@@ -43,7 +58,7 @@ describe("provider spawn environment — rows over the captured base", () => {
         ["Path", "C:\\Windows\\System32"],
         ["HTTPS_PROXY", "http://proxy.internal:3128"],
       ],
-      environmentRows: [["PATH", "C:\\Tools"]],
+      environmentRows: { everyProject: [row("PATH", "C:\\Tools")], project: [] },
       hostEnvNameMatch: "case-insensitive",
     });
 
@@ -53,9 +68,96 @@ describe("provider spawn environment — rows over the captured base", () => {
     ]);
     expect(built.filter(([name]) => name.toUpperCase() === "PATH")).toHaveLength(1);
   });
+
+  it("lets a project row win over the Every project row and drops a name the app sets", () => {
+    const built = buildProviderSpawnEnv({
+      driverName: "codex",
+      baseEnv: CAPTURED_BASE,
+      environmentRows: {
+        everyProject: [row("REGION", "us"), row("DISABLE_UPDATES", "0")],
+        project: [row("REGION", "eu"), row("CODEX_APP_SERVER_BIN", "/tmp/elsewhere")],
+      },
+      hostEnvNameMatch: "case-sensitive",
+    });
+
+    expect(valueOf(built, "REGION")).toBe("eu");
+    expect(occurrencesOf(built, "REGION")).toBe(1);
+    expect(namesOf(built)).not.toContain("DISABLE_UPDATES");
+    expect(namesOf(built)).not.toContain("CODEX_APP_SERVER_BIN");
+  });
 });
 
-describe("provider spawn environment — auto-update suppression", () => {
+describe("provider spawn environment — the curated credential variables", () => {
+  const secretPairs: SpawnEnvPair[] = CURATED_CREDENTIAL_ENV_VARS.map((name) => [name, "secret"]);
+
+  it("never hands a curated variable to any provider, from the base or from a row", () => {
+    for (const driverName of PROVIDER_NAMES) {
+      const built = buildProviderSpawnEnv({
+        driverName,
+        baseEnv: [...CAPTURED_BASE, ...secretPairs],
+        environmentRows: {
+          everyProject: secretPairs.map(([name]) => row(name, "from every project")),
+          project: secretPairs.map(([name]) => row(name, "from the project")),
+        },
+        hostEnvNameMatch: "case-sensitive",
+      });
+
+      for (const name of CURATED_CREDENTIAL_ENV_VARS) {
+        expect(namesOf(built)).not.toContain(name);
+      }
+      expect(built.slice(0, CAPTURED_BASE.length)).toStrictEqual(CAPTURED_BASE);
+    }
+  });
+
+  it("keeps the person's NPM_TOKEN for a setup command and never for a provider child", () => {
+    // A setup `pnpm install` from a private registry reads it; a provider child never may. A row
+    // naming a credential home, which only the daemon sets, reaches neither.
+    const request = {
+      baseEnv: [...CAPTURED_BASE, ["NPM_TOKEN", "secret"] as const],
+      environmentRows: { everyProject: [row("CODEX_HOME", "/tmp/elsewhere")], project: [] },
+      hostEnvNameMatch: "case-sensitive" as const,
+    };
+
+    const setupCommand = buildCommandSpawnEnv(request);
+    const providerChild = buildProviderSpawnEnv({ ...request, driverName: "claude" });
+
+    expect(setupCommand).toStrictEqual([...CAPTURED_BASE, ["NPM_TOKEN", "secret"]]);
+    expect(namesOf(providerChild)).not.toContain("NPM_TOKEN");
+    expect(namesOf(providerChild)).not.toContain("CODEX_HOME");
+  });
+
+  it("strips a case variant on a case-insensitive host", () => {
+    const variants: SpawnEnvPair[] = CURATED_CREDENTIAL_ENV_VARS.map((name) => [
+      name.toLowerCase(),
+      "secret",
+    ]);
+    const built = buildProviderSpawnEnv({
+      driverName: "claude",
+      baseEnv: [...CAPTURED_BASE, ...variants],
+      hostEnvNameMatch: "case-insensitive",
+    });
+
+    for (const [variant] of variants) {
+      expect(namesOf(built)).not.toContain(variant);
+    }
+  });
+
+  it("gives a Codex conversation's commands its project rows and no curated variable", () => {
+    const policy = composeCodexShellEnvironmentPolicy({
+      baseEnv: [...CAPTURED_BASE, ...secretPairs],
+      environmentRows: {
+        everyProject: [row("REGION", "us")],
+        project: [row("REGION", "eu"), ...secretPairs.map(([name]) => row(name, "secret"))],
+      },
+      hostEnvNameMatch: "case-sensitive",
+    });
+
+    expect(policy.inherit).toBe("none");
+    expect(policy.set).toStrictEqual({ HOME: "/home/agent", PATH: "/usr/bin", REGION: "eu" });
+  });
+});
+
+describe("provider spawn environment — what the app sets on a provider process", () => {
   it("realizes each driver's declared opt-out, across the whole driver union", () => {
     // The table is total, but the builder could still read it for one driver and not another.
     const realized = new Map<ProviderName, readonly SpawnEnvPair[]>();
@@ -73,93 +175,60 @@ describe("provider spawn environment — auto-update suppression", () => {
     expect([...realized.keys()].sort()).toStrictEqual([...PROVIDER_NAMES].sort());
     for (const driverName of PROVIDER_NAMES) {
       const built = realized.get(driverName) ?? [];
-      const declared = Object.entries(
+      for (const [name, value] of Object.entries(
         PROVIDER_DRIVER_DESCRIPTORS[driverName].autoUpdateOptOutEnvironment,
-      );
-      for (const [name, value] of declared) {
+      )) {
         expect(valueOf(built, name)).toBe(value);
       }
-      // The base survives whole: no policy was supplied, so nothing is pruned.
-      expect(built.slice(0, CAPTURED_BASE.length)).toEqual(CAPTURED_BASE);
-      expect(built).toHaveLength(CAPTURED_BASE.length + declared.length);
     }
   });
 
-  it("overrides a base that would re-enable the updater, rather than appending beside it", () => {
+  it("sets Claude Code's process variables over a base that would lower them, once each", () => {
     const built = buildProviderSpawnEnv({
       driverName: "claude",
-      baseEnv: [...CAPTURED_BASE, ["DISABLE_AUTOUPDATER", "0"]],
+      baseEnv: [
+        ...CAPTURED_BASE,
+        ["DISABLE_AUTOUPDATER", "0"],
+        ["BASH_MAX_TIMEOUT_MS", "600000"],
+        ["CLAUDE_CODE_USER_DIALOG_TIMEOUT_MS", "30000"],
+      ],
+      environmentRows: { everyProject: [row("CLAUDE_AUTO_BACKGROUND_TASKS", "0")], project: [] },
       hostEnvNameMatch: "case-sensitive",
     });
 
     // Duplicate names resolve at the discretion of whatever execs the process, so the wrong
     // value must be absent, not just the right one present.
-    expect(occurrencesOf(built, "DISABLE_AUTOUPDATER")).toBe(1);
-    expect(valueOf(built, "DISABLE_AUTOUPDATER")).toBe("1");
-    expect(namesOf(built)).toStrictEqual([
-      "HOME",
-      "PATH",
-      "DISABLE_AUTOUPDATER",
-      "DISABLE_UPDATES",
-    ]);
-  });
-});
-
-describe("provider spawn environment — credential-policy deny strip", () => {
-  const DENY_SECRET: CredentialEnvPolicy = {
-    denyEnvVars: ["ANTHROPIC_API_KEY"],
-    envNameMatch: "case-sensitive",
-  };
-
-  it("strips a denied name that the captured base carried", () => {
-    const built = buildProviderSpawnEnv({
-      driverName: "codex",
-      baseEnv: [...CAPTURED_BASE, ["ANTHROPIC_API_KEY", "sk-live"]],
-      hostEnvNameMatch: "case-sensitive",
-      credentialEnvPolicy: DENY_SECRET,
+    expect(Object.fromEntries(built)).toStrictEqual({
+      HOME: "/home/agent",
+      PATH: "/usr/bin",
+      ...PROVIDER_DRIVER_DESCRIPTORS.claude.autoUpdateOptOutEnvironment,
+      ...CLAUDE_PROCESS_ENVIRONMENT,
     });
-
-    expect(namesOf(built)).not.toContain("ANTHROPIC_API_KEY");
-    expect(built).toEqual(CAPTURED_BASE);
+    expect(built).toHaveLength(Object.keys(Object.fromEntries(built)).length);
   });
 
-  it("keeps the denied name stripped while the opt-out survives the same strip", () => {
-    // Strip, then set: the order is the contract.
+  it("never hands Claude Code a name it must not receive, even from the person's shell", () => {
+    const neverSet = [
+      "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB",
+      "CLAUDE_CODE_EXIT_AFTER_STOP_DELAY",
+      "CLAUDE_CODE_DISABLE_DANGEROUS_RM_TIMEOUT",
+      "CLAUDE_CODE_REMOTE_MEMORY_DIR",
+    ];
     const built = buildProviderSpawnEnv({
       driverName: "claude",
-      baseEnv: [...CAPTURED_BASE, ["ANTHROPIC_API_KEY", "sk-live"]],
+      baseEnv: [...CAPTURED_BASE, ...neverSet.map((name): SpawnEnvPair => [name, "1"])],
+      environmentRows: { everyProject: [], project: neverSet.map((name) => row(name, "1")) },
       hostEnvNameMatch: "case-sensitive",
-      credentialEnvPolicy: {
-        denyEnvVars: ["ANTHROPIC_API_KEY", "DISABLE_AUTOUPDATER", "DISABLE_UPDATES"],
-        envNameMatch: "case-sensitive",
-      },
     });
 
-    expect(namesOf(built)).not.toContain("ANTHROPIC_API_KEY");
-    // A deny list has no authority over auto-updater suppression.
-    expect(valueOf(built, "DISABLE_AUTOUPDATER")).toBe("1");
-    expect(valueOf(built, "DISABLE_UPDATES")).toBe("1");
+    for (const name of neverSet) {
+      expect(namesOf(built)).not.toContain(name);
+    }
   });
 
-  it("honors a case-insensitive host's match mode", () => {
-    const built = buildProviderSpawnEnv({
-      driverName: "codex",
-      baseEnv: [...CAPTURED_BASE, ["Anthropic_Api_Key", "sk-live"]],
-      hostEnvNameMatch: "case-insensitive",
-      credentialEnvPolicy: {
-        denyEnvVars: ["ANTHROPIC_API_KEY"],
-        envNameMatch: "case-insensitive",
-      },
-    });
-
-    expect(namesOf(built)).not.toContain("Anthropic_Api_Key");
-  });
-
-  it("replaces a case-variant of a mandated name rather than shipping both", () => {
+  it("replaces a case variant of a mandated name rather than shipping both", () => {
     // On a case-insensitive host, appending `DISABLE_UPDATES` beside an inherited
-    // `disable_updates=0` would leave the winner to the process launcher. No policy is supplied
-    // (a spawn with no declared posture, on Windows), so the fold must key on the host's mode,
-    // not the policy's.
+    // `disable_updates=0` would leave the winner to the process launcher.
     const built = buildProviderSpawnEnv({
       driverName: "claude",
       baseEnv: [["disable_updates", "0"]],
@@ -172,32 +241,73 @@ describe("provider spawn environment — credential-policy deny strip", () => {
   });
 });
 
-describe("provider spawn environment — per-connection mandated pairs", () => {
-  const CODEX_BIN = "AI_SIDEKICKS_CODEX_APP_SERVER_BIN";
-
-  it("keeps a per-connection mandated pair that a deny list names", () => {
-    // The exact-build-path pin stands in for codex-cli's absent opt-out; if a deny list could
-    // strip it, the child would fall back to a floating build.
-    const built = buildProviderSpawnEnv({
+describe("provider spawn environment — account folders", () => {
+  it("pins each provider's account folders over the base", () => {
+    const claude = buildProviderSpawnEnv({
+      driverName: "claude",
+      baseEnv: [...CAPTURED_BASE, ["CLAUDE_CONFIG_DIR", "/home/agent/.claude"]],
+      accountFolders: {
+        configFolder: "/var/lib/sidekicks/sessions/s1/claude",
+        credentialStoreFolder: "/var/lib/sidekicks/accounts/a1/claude",
+      },
+      hostEnvNameMatch: "case-sensitive",
+    });
+    const codex = buildProviderSpawnEnv({
       driverName: "codex",
       baseEnv: CAPTURED_BASE,
+      codexHome: "/var/lib/sidekicks/accounts/a2/codex",
       hostEnvNameMatch: "case-sensitive",
-      credentialEnvPolicy: { denyEnvVars: [CODEX_BIN], envNameMatch: "case-sensitive" },
-      additionalMandatedPairs: [[CODEX_BIN, "/opt/codex/bin/codex"]],
     });
 
-    expect(valueOf(built, CODEX_BIN)).toBe("/opt/codex/bin/codex");
+    expect(occurrencesOf(claude, "CLAUDE_CONFIG_DIR")).toBe(1);
+    expect(valueOf(claude, "CLAUDE_CONFIG_DIR")).toBe("/var/lib/sidekicks/sessions/s1/claude");
+    expect(valueOf(claude, "CLAUDE_SECURESTORAGE_CONFIG_DIR")).toBe(
+      "/var/lib/sidekicks/accounts/a1/claude",
+    );
+    expect(valueOf(codex, "CODEX_HOME")).toBe("/var/lib/sidekicks/accounts/a2/codex");
   });
 
-  // A per-connection pair may not decide the value of a declared opt-out. The cases include a
-  // differing value (a silent last-wins merge would lower suppression) and a verbatim
-  // restatement (the refusal is about authority over the name, not the value).
+  it("refuses an empty or relative account folder, given or inherited", () => {
+    // An empty Claude Code credential store runs the process on the person's own sign-in.
+    expect(() =>
+      buildProviderSpawnEnv({
+        driverName: "claude",
+        baseEnv: [...CAPTURED_BASE, ["CLAUDE_SECURESTORAGE_CONFIG_DIR", ""]],
+        hostEnvNameMatch: "case-sensitive",
+      }),
+    ).toThrow(ProviderAccountFolderError);
+    expect(() =>
+      buildProviderSpawnEnv({
+        driverName: "claude",
+        baseEnv: CAPTURED_BASE,
+        accountFolders: { configFolder: "/var/lib/a/claude", credentialStoreFolder: "" },
+        hostEnvNameMatch: "case-sensitive",
+      }),
+    ).toThrow(ProviderAccountFolderError);
+    expect(() =>
+      buildProviderSpawnEnv({
+        driverName: "codex",
+        baseEnv: CAPTURED_BASE,
+        codexHome: "accounts/a2/codex",
+        hostEnvNameMatch: "case-sensitive",
+      }),
+    ).toThrow(ProviderAccountFolderError);
+  });
+});
+
+describe("provider spawn environment — per-process mandated pairs", () => {
+  const CODEX_BIN = "CODEX_APP_SERVER_BIN";
+
+  // A per-process pair may not decide the value of a declared opt-out or a process variable. The
+  // cases include a differing value (a silent last-wins merge would lower suppression) and a
+  // verbatim restatement (the refusal is about authority over the name, not the value).
   const CONFLICTING_MANDATES: readonly {
     readonly label: string;
     readonly pairs: readonly SpawnEnvPair[];
   }[] = [
     { label: "lowers a declared opt-out", pairs: [["DISABLE_UPDATES", "0"]] },
     { label: "restates a declared opt-out verbatim", pairs: [["DISABLE_UPDATES", "1"]] },
+    { label: "lowers a process variable", pairs: [["BASH_MAX_TIMEOUT_MS", "600000"]] },
     {
       label: "claims one name twice within the same array",
       pairs: [
@@ -218,6 +328,24 @@ describe("provider spawn environment — per-connection mandated pairs", () => {
     ).toThrow(ProviderSpawnEnvConflictError);
   });
 
+  it("names the conflicting variables but never their values, which can hold a credential", () => {
+    const error = captureThrow(() =>
+      buildProviderSpawnEnv({
+        driverName: "claude",
+        baseEnv: CAPTURED_BASE,
+        hostEnvNameMatch: "case-sensitive",
+        additionalMandatedPairs: [
+          ["OTEL_EXPORTER_OTLP_HEADERS", "Authorization=Bearer first-secret-token"],
+          ["OTEL_EXPORTER_OTLP_HEADERS", "Authorization=Bearer second-secret-token"],
+        ],
+      }),
+    );
+
+    expect(error).toBeInstanceOf(ProviderSpawnEnvConflictError);
+    expect((error as Error).message).toContain("OTEL_EXPORTER_OTLP_HEADERS");
+    expect((error as Error).message).not.toContain("secret-token");
+  });
+
   it("refuses a case-variant collision on a case-insensitive host", () => {
     // A host that cannot tell `disable_updates` from `DISABLE_UPDATES` must not be handed both.
     expect(() =>
@@ -232,45 +360,18 @@ describe("provider spawn environment — per-connection mandated pairs", () => {
 });
 
 describe("provider spawn environment — host name-matching semantics", () => {
-  it("derives the host's mode from the platform, and only Windows is case-insensitive", () => {
-    expect(hostEnvNameMatchForPlatform("win32")).toBe("case-insensitive");
-    for (const platform of ["darwin", "linux", "freebsd"] as const) {
-      expect(hostEnvNameMatchForPlatform(platform)).toBe("case-sensitive");
+  it("picks the host's mode by platform, and only Windows is case-insensitive", () => {
+    expect(selectProviderOperatingSystem("win32").environmentNameMatch).toBe("case-insensitive");
+    for (const platform of ["darwin", "linux"] as const) {
+      expect(selectProviderOperatingSystem(platform).environmentNameMatch).toBe("case-sensitive");
     }
-  });
-
-  it.each([
-    { host: "case-sensitive", policy: "case-insensitive" },
-    { host: "case-insensitive", policy: "case-sensitive" },
-  ] as const)("REFUSES a policy declaring $policy matching on a $host host", ({ host, policy }) => {
-    // A policy written for another host's semantics is a wiring fault. Honoring the policy would
-    // leave `path` in a child on a case-insensitive host; honoring the host would apply a deny
-    // list under semantics its author never assumed.
-    const error = captureThrow(() =>
-      buildProviderSpawnEnv({
-        driverName: "claude",
-        baseEnv: CAPTURED_BASE,
-        hostEnvNameMatch: host,
-        credentialEnvPolicy: { denyEnvVars: ["ANTHROPIC_API_KEY"], envNameMatch: policy },
-      }),
-    );
-    expect(error).toBeInstanceOf(ProviderSpawnEnvNameMatchMismatchError);
-    // Both values ride the error as members, so the person knows which side to fix.
-    expect((error as ProviderSpawnEnvNameMatchMismatchError).hostEnvNameMatch).toBe(host);
-    expect((error as ProviderSpawnEnvNameMatchMismatchError).policyEnvNameMatch).toBe(policy);
   });
 });
 
-describe("bound-account child environment carries no ambient credential inheritance", () => {
-  /**
-   * A credential-bearing name a provider CLI would read if it were inherited. Seeded into the
-   * daemon's own `process.env` during the test, the only inheritance path that could exist:
-   * the builder composes only from the `baseEnv` it is handed.
-   */
+describe("provider child environment carries no ambient inheritance", () => {
+  // Seeded into the daemon's own `process.env` during the test, the only inheritance path that
+  // could exist: the builder composes only from the `baseEnv` it is handed.
   const AMBIENT_CREDENTIAL_NAME = "AI_SIDEKICKS_TEST_AMBIENT_PROVIDER_TOKEN";
-
-  /** The credential home the daemon pinned for the bound account. */
-  const BOUND_ACCOUNT_CREDENTIAL_HOME = "/var/lib/ai-sidekicks/accounts/acct-01J0ND/claude";
 
   function withAmbientCredential<Result>(run: () => Result): Result {
     const previous = process.env[AMBIENT_CREDENTIAL_NAME];
@@ -286,47 +387,20 @@ describe("bound-account child environment carries no ambient credential inherita
     }
   }
 
-  it("composes EXACTLY the captured base plus the mandated pairs, and nothing else", () => {
-    // Asserted over the whole variable set: probing for one absent name cannot report a
-    // variable nobody anticipated.
-    const { composed, ambientDuringBuild } = withAmbientCredential(() => ({
-      composed: buildProviderSpawnEnv({
-        driverName: "claude",
-        baseEnv: [
-          ["PATH", "/usr/bin:/bin"],
-          ["HOME", "/var/empty"],
-          ["CLAUDE_CONFIG_DIR", BOUND_ACCOUNT_CREDENTIAL_HOME],
-        ],
-        hostEnvNameMatch: hostEnvNameMatchForPlatform(process.platform),
-      }),
-      // Read inside the seeded window; the restore runs before the assertions.
-      ambientDuringBuild: process.env[AMBIENT_CREDENTIAL_NAME],
-    }));
-
-    expect(Object.fromEntries(composed)).toStrictEqual({
-      PATH: "/usr/bin:/bin",
-      HOME: "/var/empty",
-      CLAUDE_CONFIG_DIR: BOUND_ACCOUNT_CREDENTIAL_HOME,
-      ...PROVIDER_DRIVER_DESCRIPTORS.claude.autoUpdateOptOutEnvironment,
-    });
-    // The ambient credential existed while the environment was composed and reached no child.
-    expect(ambientDuringBuild).toBeDefined();
-    expect(composed.map(([name]) => name)).not.toContain(AMBIENT_CREDENTIAL_NAME);
-  });
-
-  it("never reads the daemon's own environment for either provider", () => {
-    // Total over the driver union. An empty base yields exactly the mandated pairs, so any leak
-    // would show here.
+  it("composes exactly the mandated pairs from an empty base, for either provider", () => {
+    // Asserted over the whole variable set: probing for one absent name cannot report a variable
+    // nobody anticipated.
     for (const driverName of PROVIDER_NAMES) {
       const composed = withAmbientCredential(() =>
         buildProviderSpawnEnv({
           driverName,
           baseEnv: [],
-          hostEnvNameMatch: hostEnvNameMatchForPlatform(process.platform),
+          hostEnvNameMatch: selectProviderOperatingSystem(process.platform).environmentNameMatch,
         }),
       );
       expect(Object.fromEntries(composed)).toStrictEqual({
         ...PROVIDER_DRIVER_DESCRIPTORS[driverName].autoUpdateOptOutEnvironment,
+        ...(driverName === "claude" ? CLAUDE_PROCESS_ENVIRONMENT : {}),
       });
     }
   });

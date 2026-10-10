@@ -250,11 +250,13 @@ CREATE TABLE session_console_state (
   max_steps_per_turn  INTEGER
                       CHECK (max_steps_per_turn IS NULL OR max_steps_per_turn >= 1),  -- this session's OWN bound on how many steps one turn may take. NULL = no session override, so the machine's own Runtime value applies, and where that is unset each provider does what it does on its own ([Spec-003 §The Step Bound On A Turn](../../specs/003-queue-steer-pause-resume.md#the-step-bound-on-a-turn)). The floor is 1 because a bound of zero would forbid the turn it bounds; the ceiling is the person's, since neither provider publishes one. The MACHINE-wide value is not here: it belongs to the Runtime settings page, so one number has one home on each side of the override
   advisor_model       TEXT,  -- a Claude Code session's own advisor: the model, or NULL when it is off. Copied at `session.create` from the machine settings file's `advisorModel` and changed only by `/advisor` in this session, each change appending `session.advisor_changed`; a later change to the default never reaches it
+  session_mode        TEXT NOT NULL DEFAULT 'build'
+                      CHECK (session_mode IN ('build', 'plan')),  -- the composer's Build or Plan mode, written once the provider has taken a `session.modeUpdate`; a restart's resume opens in it
   updated_at          TEXT NOT NULL
 );
 ```
 
-The number is carried onto a spawn through `runtime_bindings.spawn_config` and realized by the driver, `--max-turns` on one leg and the daemon's own per-turn count on the other; a change reaches the session's next turn and never the turn in flight. The advisor rides the same path: every Claude Code process started for the session (after a restart, a resume or a provider switch, and a helper the bridge starts) reads `advisor_model` at launch.
+The number is carried onto a spawn through `runtime_bindings.spawn_config` and realized by the driver, `--max-turns` on one leg and the daemon's own per-turn count on the other; a change reaches the session's next turn and never the turn in flight. The mode is read when a restart resumes the session, so a session left in Plan comes back in Plan. The advisor rides the same path: every Claude Code process started for the session (after a restart, a resume or a provider switch, and a helper the bridge starts) reads `advisor_model` at launch.
 
 ---
 
@@ -329,6 +331,7 @@ CREATE TABLE interventions (
   rejection_reason       TEXT,                       -- machine-readable rejected cause (driver.capability_unsupported foremost) — durable across a retry: the reply carries no result, so a retry that returns the saved reply reconstructs rejectionReason from this column (Plan-002 T1.4/T3.13)
   fallback_action        TEXT,                       -- the fallback a degraded intervention took; NULL in every other state
   failure_reason         TEXT,                       -- what a failed dispatch threw (a daemon error's code, else its message), so a retry's saved reply carries the same failureReason; NULL in every other state
+  delivered_run_id       TEXT,                       -- the run an applied steer's message went to when that is not its target (settling a choice the target was held on ended it, so the message started the session's next turn as a run of its own); NULL otherwise. The `intervention.applied` event carries the same id
   created_at             TEXT NOT NULL,
   resolved_at            TEXT,
   UNIQUE(target_run_id, client_idempotency_key),     -- identical retry returns the saved result; key reuse with a differing payload rejects as intervention.idempotency_conflict (Spec-003 §Interfaces And Contracts) — distinct grain from command_receipts.command_id (per-command crash-recovery dedupe)
@@ -418,6 +421,25 @@ CREATE TABLE runtime_bindings (
 );
 
 CREATE INDEX idx_runtime_bindings_run ON runtime_bindings(run_id);
+
+-- Owner: Plan-003
+-- Each conversation a session left on its provider: the one a fork moved it off,
+-- or the one a daemon restart's resume forked away from. Written in the same
+-- write as the binding's new resume_handle. The whole-session purge deletes every
+-- row's conversation: a Codex conversation through the service's own
+-- `thread/delete` once the thread is unloaded, a Claude Code transcript from the
+-- account's config folder.
+CREATE TABLE left_conversations (
+  session_id           TEXT NOT NULL,
+  driver_name          TEXT NOT NULL,           -- 'claude' or 'codex'
+  provider_account_id  TEXT,                    -- NULL on the node's default home
+  conversation_id      TEXT NOT NULL            -- provider-owned, bounded as resume_handle is
+                       CHECK (length(conversation_id) > 0 AND length(conversation_id) <= 4096 AND instr(conversation_id, char(0)) = 0),
+  left_at              TEXT NOT NULL,
+  PRIMARY KEY (driver_name, conversation_id)
+);
+
+CREATE INDEX idx_left_conversations_session ON left_conversations(session_id);
 
 -- Owner: Plan-003
 CREATE TABLE driver_capabilities (

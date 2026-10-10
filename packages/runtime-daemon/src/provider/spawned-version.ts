@@ -14,14 +14,19 @@ import { isAbsolute } from "node:path";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
 import { findExecutables, type ExecutableSearchDependencies } from "../executable/search.js";
+import { describeRejection } from "../rejection.js";
 import { parseCliVersionReport } from "./capability/refresh.js";
+import type { ProviderCommandSearch } from "./command-search.js";
 import type { SpawnedVersionBindingCarriers } from "./runtime-binding-store.js";
 import type { DriverCliVersionReport } from "./driver/contract.js";
 import { PROVIDER_DRIVER_DESCRIPTORS } from "./driver/descriptor.js";
+import type { ProviderOperatingSystem, ProviderProgramStart } from "./operating-system/contract.js";
+import { selectProviderOperatingSystem } from "./operating-system/selection.js";
 import { assertValidCliVersionReport } from "./output-validation.js";
 import {
   buildProviderSpawnEnv,
-  hostEnvNameMatchForPlatform,
+  placeFolderFirstOnSearchPath,
+  type SpawnEnvNameMatch,
   type SpawnEnvPair,
 } from "./spawn-env.js";
 
@@ -50,21 +55,43 @@ type ExecutableRealpathResolver = (candidate: string) => Promise<string>;
 /** The search's seams, and the `realpath` that turns a launcher into the exact build path. */
 export interface ProviderExecutableResolverDependencies extends ExecutableSearchDependencies {
   readonly realpath: ExecutableRealpathResolver;
+  /** Where a bare command is looked for once the `PATH` holds none. */
+  readonly commandSearch: Pick<ProviderCommandSearch, "find">;
+  /** How the system compares variable names and starts a build; the platform's own by default. */
+  readonly operatingSystem: Pick<
+    ProviderOperatingSystem,
+    "environmentNameMatch" | "startProviderBuild"
+  >;
 }
 
 /** The one executable a spawn and its binding row both name; only the build describes it. */
 export interface ResolvedProviderExecutable {
   /** The command as configured — a bare name, or a relative/absolute path. */
   readonly requestedCommand: string;
-  /** Absolute and symlink-dereferenced; this is what gets spawned and stored. */
+  /** Absolute and symlink-dereferenced: the build, recorded as what ran. */
   readonly resolvedExecutablePath: string;
+  /** What the system starts to run the build, with no shell. */
+  readonly start: ProviderProgramStart;
+  /**
+   * The environment the build starts in: the spawn environment, with the folder the command
+   * search found the build in first on its `PATH`.
+   */
+  readonly environment: readonly SpawnEnvPair[];
 }
 
 /**
- * Resolves a configured command to the exact build path to spawn: a command with a separator is
- * anchored, a bare one is searched along the spawn environment's `PATH` (never the daemon's own),
- * and the winner is `realpath`ed. Throws {@link ProviderExecutableUnresolvableError} when nothing
- * resolves.
+ * Resolves the provider's command along one spawn environment to the build to start. Throws
+ * {@link ProviderExecutableUnresolvableError} when nothing resolves.
+ */
+export type ProviderCommandResolver = (
+  spawnEnvironment: readonly SpawnEnvPair[],
+) => Promise<ResolvedProviderExecutable>;
+
+/**
+ * Resolves a configured command to the exact build path to spawn and how the system starts it: a
+ * command with a separator is anchored, a bare one is searched along the spawn environment's
+ * `PATH` (never the daemon's own) and then through the command search, and the winner is
+ * `realpath`ed. Throws {@link ProviderExecutableUnresolvableError} when nothing resolves.
  */
 export async function resolveProviderExecutable(
   driverName: ProviderName,
@@ -89,20 +116,88 @@ export async function resolveProviderExecutable(
       // Vanished between probe and dereference: try the next, never the unresolved launcher path.
       continue;
     }
-    if (!isAbsolute(resolvedExecutablePath)) {
-      throw new ProviderExecutableUnresolvableError(
-        driverName,
-        requestedCommand,
-        "the resolved provider executable path is not absolute",
-      );
-    }
-    return { requestedCommand, resolvedExecutablePath };
+    return await checkedResolution(
+      driverName,
+      requestedCommand,
+      resolvedExecutablePath,
+      spawnEnvironment,
+      dependencies,
+    );
+  }
+  const found = await dependencies.commandSearch?.find(requestedCommand, spawnEnvironment);
+  if (found !== undefined) {
+    const operatingSystem = operatingSystemOf(dependencies);
+    return await checkedResolution(
+      driverName,
+      requestedCommand,
+      found.build,
+      placeFolderFirstOnSearchPath(
+        spawnEnvironment,
+        found.folder,
+        operatingSystem.environmentNameMatch,
+      ),
+      dependencies,
+    );
   }
   throw new ProviderExecutableUnresolvableError(
     driverName,
     requestedCommand,
     "the configured provider command names no executable file",
   );
+}
+
+/**
+ * How the system starts `build` in `environment`, a program it names found along that
+ * environment's `PATH`. Throws for a build the system cannot start without a shell.
+ */
+export async function startResolvedBuild(
+  build: string,
+  environment: readonly SpawnEnvPair[],
+  dependencies: Partial<ProviderExecutableResolverDependencies>,
+): Promise<ProviderProgramStart> {
+  return await operatingSystemOf(dependencies).startProviderBuild(build, async (program) => {
+    for await (const candidate of findExecutables(program, environment, dependencies)) {
+      return candidate;
+    }
+    return undefined;
+  });
+}
+
+function operatingSystemOf(
+  dependencies: Partial<ProviderExecutableResolverDependencies>,
+): ProviderExecutableResolverDependencies["operatingSystem"] {
+  return (
+    dependencies.operatingSystem ??
+    selectProviderOperatingSystem(dependencies.platform ?? process.platform)
+  );
+}
+
+// A resolution that names an absolute build path; a relative one cannot be spawned or recorded.
+async function checkedResolution(
+  driverName: ProviderName,
+  requestedCommand: string,
+  resolvedExecutablePath: string,
+  environment: readonly SpawnEnvPair[],
+  dependencies: Partial<ProviderExecutableResolverDependencies>,
+): Promise<ResolvedProviderExecutable> {
+  if (!isAbsolute(resolvedExecutablePath)) {
+    throw new ProviderExecutableUnresolvableError(
+      driverName,
+      requestedCommand,
+      "the resolved provider executable path is not absolute",
+    );
+  }
+  let start: ProviderProgramStart;
+  try {
+    start = await startResolvedBuild(resolvedExecutablePath, environment, dependencies);
+  } catch (error) {
+    throw new ProviderExecutableUnresolvableError(
+      driverName,
+      requestedCommand,
+      describeRejection(error),
+    );
+  }
+  return { requestedCommand, resolvedExecutablePath, start, environment };
 }
 
 /**
@@ -114,17 +209,18 @@ export const DEFAULT_PROVIDER_VERSION_CLIENT_NAME: string = "ai-sidekicks-daemon
 /** What the transport needs in order to run one zero-turn version handshake. */
 export interface ProviderVersionHandshakeRequest {
   readonly driverName: ProviderName;
-  /** Absolute, symlink-dereferenced; spawn this, never the configured name. */
-  readonly resolvedExecutablePath: string;
-  /** Auto-update suppression already applied ({@link buildProviderSpawnEnv}). */
-  readonly environment: Readonly<Record<string, string | undefined>>;
+  /**
+   * The build to spawn, never the configured name, in its environment, the auto-update
+   * suppression already applied ({@link buildProviderSpawnEnv}).
+   */
+  readonly executable: ResolvedProviderExecutable;
   /** The client name to send; one value for the transport and the version reader to compare. */
   readonly clientName: string;
 }
 
 // Runs one zero-turn in-band version handshake and returns the reply unadjudicated (`unknown`:
-// provider output). The implementer owns the process lifetime and deadline and must spawn
-// `request.resolvedExecutablePath` with `request.environment`.
+// provider output). The implementer owns the process lifetime and deadline and must start
+// `request.executable` as resolved.
 type ProviderVersionHandshake = (request: ProviderVersionHandshakeRequest) => Promise<unknown>;
 
 /**
@@ -141,8 +237,8 @@ export interface SpawnedProviderVersionReading {
 /** Everything one spawned-version reading needs. */
 export interface SpawnedProviderVersionReadRequest {
   readonly driverName: ProviderName;
-  /** The configured provider command: a bare name, or a path. */
-  readonly requestedCommand: string;
+  /** Resolves the configured provider command along the version read's spawn environment. */
+  readonly resolveCommand: ProviderCommandResolver;
   /** The transport that spawns and performs the handshake; it has no default. */
   readonly handshake: ProviderVersionHandshake;
   /**
@@ -150,38 +246,28 @@ export interface SpawnedProviderVersionReadRequest {
    * the opt-out is applied over it, and a bare command is searched along its `PATH`.
    */
   readonly baseEnv: readonly SpawnEnvPair[];
+  /** How this system compares environment variable names. */
+  readonly environmentNameMatch: SpawnEnvNameMatch;
   /** Defaults to {@link DEFAULT_PROVIDER_VERSION_CLIENT_NAME}. */
   readonly clientName?: string;
-  readonly resolver?: Partial<ProviderExecutableResolverDependencies>;
 }
 
 /** Resolves the configured command to one build, spawns it and reads its version in-band. */
 export async function readSpawnedProviderVersion(
   request: SpawnedProviderVersionReadRequest,
 ): Promise<SpawnedProviderVersionReading> {
-  const { driverName, requestedCommand } = request;
+  const { driverName } = request;
   const clientName = request.clientName ?? DEFAULT_PROVIDER_VERSION_CLIENT_NAME;
   // The same builder as a session spawn, so the opt-out wins under the host's name matching.
   const spawnEnvironment = buildProviderSpawnEnv({
     driverName,
     baseEnv: request.baseEnv,
-    hostEnvNameMatch: hostEnvNameMatchForPlatform(request.resolver?.platform ?? process.platform),
+    hostEnvNameMatch: request.environmentNameMatch,
   });
   // Searched along the child's own environment, so the version read and the spawn find one build.
-  const resolved = await resolveProviderExecutable(
-    driverName,
-    requestedCommand,
-    spawnEnvironment,
-    request.resolver ?? {},
-  );
-  const environment = Object.fromEntries(spawnEnvironment);
+  const resolved = await request.resolveCommand(spawnEnvironment);
 
-  const payload = await request.handshake({
-    driverName,
-    resolvedExecutablePath: resolved.resolvedExecutablePath,
-    environment,
-    clientName,
-  });
+  const payload = await request.handshake({ driverName, executable: resolved, clientName });
 
   const reading = PROVIDER_DRIVER_DESCRIPTORS[driverName].readReportedVersion(payload, clientName);
   // A reply that carried no version text keeps that text as the printed version, unparsed: its

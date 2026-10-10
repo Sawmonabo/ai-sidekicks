@@ -12,6 +12,7 @@
 // next page or session, and leaves every session it had not finished to the next pass.
 
 import { randomUUID } from "node:crypto";
+import { tmpdir } from "node:os";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -31,6 +32,7 @@ import { SessionEventAppender } from "../../events/session/appender.js";
 import { SessionPurge } from "../../events/session/purge.js";
 import { MethodRegistryImpl } from "../../ipc/registry.js";
 import { KeyedLock } from "../../keyed-lock.js";
+import { ExecutionPostureService } from "../../policy/execution-posture-service.js";
 import {
   openRunEngineFixture,
   type RunEngineFixture,
@@ -214,7 +216,11 @@ describe("the recovery pass at a restart", () => {
       },
     });
     // The restart's engine appends through the refusing log, as the daemon's does.
-    const runEngine = new RunEngine({ reader, sessionEvents });
+    const runEngine = new RunEngine({
+      reader,
+      sessionEvents,
+      executionPostures: new ExecutionPostureService({ homeDirectory: tmpdir() }),
+    });
     const projectionRebuild = new ProjectionRebuildService({
       reader,
       writer,
@@ -227,12 +233,14 @@ describe("the recovery pass at a restart", () => {
       sessionEvents: new SessionService(reader),
       eventLog: sessionEvents,
       projectionRebuild,
-      // The purge's folder removal, list refresh and re-scoring have nothing to act on here.
+      // The purge's provider and folder removals, list refresh and re-scoring have nothing to act
+      // on here.
       purge: new SessionPurge({
         writer,
         nodeId,
         eventLog: sessionEvents,
         managedWorkspaces: { deleteFolder: () => Promise.resolve() },
+        providerConversations: { deleteConversations: () => Promise.resolve() },
         sessionLock: new KeyedLock<SessionId>(),
         sessionList: { refresh: () => {} },
         relatedRanking: { rescoreAround: () => {} },

@@ -12,9 +12,21 @@ describe("agent.configUpdate", () => {
       agentId: AGENT_ID,
       driverName: "claude",
       modelId: "opus",
+      largerWindow: null,
       interruptAndSwitch: true,
     };
     expect(AgentConfigUpdateRequestSchema.safeParse(request).success).toBe(true);
+  });
+
+  it("counts a move back to the default window as a move", () => {
+    // `null` is the move to the default window, never an unset member.
+    expect(
+      AgentConfigUpdateRequestSchema.safeParse({ agentId: AGENT_ID, largerWindow: null }).success,
+    ).toBe(true);
+    // A model move names its window, so an omitted one only ever means unchanged.
+    expect(
+      AgentConfigUpdateRequestSchema.safeParse({ agentId: AGENT_ID, modelId: "opus" }).success,
+    ).toBe(false);
   });
 
   it("refuses an update that moves nothing", () => {

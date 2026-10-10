@@ -1,6 +1,7 @@
 // The checks a run passes between admission and its provider's start, and the hooks that release
 // what they hold once the run ends.
 
+import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
@@ -11,7 +12,10 @@ import type { RunTerminalState } from "./transitions.js";
 export interface RunSetupContext {
   readonly runId: RunId;
   readonly sessionId: SessionId;
-  readonly queueItem: QueueItemSummary;
+  /** The queue item the run was admitted from; absent for a turn the daemon started itself. */
+  readonly queueItem: QueueItemSummary | undefined;
+  /** The posture the run runs at: the one it was requested at, or a daemon turn's session's. */
+  readonly executionPosture: ExecutionPosture;
 }
 
 /** How a run ended, handed to every terminal hook as the cause of what it releases. */

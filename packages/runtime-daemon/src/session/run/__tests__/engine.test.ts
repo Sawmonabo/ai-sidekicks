@@ -1,9 +1,13 @@
 // The run engine over a real database: the setup gates around a run's start, the terminal hooks,
 // a provider process that ends on its own, a run that waits and comes back on its own id, the
 // notice a run gets when its provider does not run it at the fast output level it carried, and
-// the interrupt a restart's settle writes for a held child or for the person's pending one.
+// the interrupt a restart's settle writes for a held child or for the person's pending one, and a
+// turn the daemon starts itself, run as the session's own run.
 
 import { randomUUID } from "node:crypto";
+import { mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -64,11 +68,17 @@ describe("run engine", () => {
   }
 
   describe("setup gates", () => {
-    it("starts a run with no gate, then runs gates in order before the driver and stamps its posture", async () => {
+    it("runs gates in order before the driver, handing it and stamping the resolved posture", async () => {
       const ungated = await fixture.queueRun();
       await startRun(ungated);
       expect(fixture.runs.getRun(ungated)?.state).toBe("running");
 
+      // A writable root reached through a link, which only the posture gate resolves.
+      const scratch = await mkdtemp(path.join(tmpdir(), "engine-posture-"));
+      const realRoot = path.join(scratch, "worktree");
+      const linkedRoot = path.join(scratch, "worktree-link");
+      await mkdir(realRoot);
+      await symlink(realRoot, linkedRoot);
       const log: string[] = [];
       fixture.engine.registerSetupGate(recordingGate("first", log));
       fixture.engine.registerSetupGate(recordingGate("second", log));
@@ -86,14 +96,16 @@ describe("run engine", () => {
           },
         },
         driverParams: { agentConfig: {} },
-        executionPosture: TEST_EXECUTION_POSTURE,
+        executionPosture: { ...TEST_EXECUTION_POSTURE, writableRoots: [linkedRoot] },
       });
 
+      const resolved = { ...TEST_EXECUTION_POSTURE, writableRoots: [await realpath(realRoot)] };
+      await rm(scratch, { recursive: true, force: true });
       expect(log).toEqual(["first ready", "second ready", "driver"]);
       const running = fixture.readRunEvents(gated).at(-1);
       expect(running?.type).toBe("run.running");
-      expect(running?.payload["executionPosture"]).toEqual(driver.startedRuns[0]?.executionPosture);
-      expect(driver.startedRuns[0]?.executionPosture).toBe(TEST_EXECUTION_POSTURE);
+      expect(running?.payload["executionPosture"]).toEqual(resolved);
+      expect(driver.startedRuns[0]?.executionPosture).toEqual(resolved);
     });
 
     it("ends a run failed with a gate's error as its cause, starting no later gate or driver", async () => {
@@ -428,6 +440,46 @@ describe("run engine", () => {
     expect(fixture.database.reader.prepare("SELECT COUNT(*) AS runs FROM runs").get()).toEqual({
       runs: 1,
     });
+  });
+
+  it("starts a daemon turn as the session's own run, a change its start reports landing after running", async () => {
+    const reported: Promise<unknown>[] = [];
+    const startedRunIds: RunId[] = [];
+
+    await fixture.engine.startDaemonTurn({
+      sessionId: fixture.sessionId,
+      provider: "claude",
+      admittedProviderAccountId: null,
+      executionPosture: TEST_EXECUTION_POSTURE,
+      startTurn: async (runId) => {
+        startedRunIds.push(runId);
+        // A turn that ends at once reports its end before the engine has written `running`.
+        reported.push(
+          fixture.engine.applyProviderStateChange({
+            runId,
+            expectedState: "running",
+            newState: "completed",
+            completionKind: "turn",
+          }),
+        );
+        await Promise.resolve();
+      },
+    });
+    await Promise.all(reported);
+
+    const [startedRunId] = startedRunIds;
+    if (startedRunId === undefined) {
+      throw new Error("expected the turn to start under a run id");
+    }
+    const runEvents = fixture.readRunEvents(startedRunId);
+    expect(runEvents.map((event) => event.type)).toEqual([
+      "run.queued",
+      "run.starting",
+      "run.running",
+      "run.completed",
+    ]);
+    // The session's own run is the lead's.
+    expect(runEvents[0]?.payload["agentId"]).toBe(fixture.agentId);
   });
 
   describe("fast output notice", () => {

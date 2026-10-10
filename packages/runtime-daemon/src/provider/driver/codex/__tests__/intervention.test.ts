@@ -1,6 +1,6 @@
 // Codex intervention dispatcher: each intervention type maps onto a native provider operation, or
-// degrades with no provider operation when its capability is not declared, when a steer is
-// acknowledged on a different turn, or when its text was ruled swallowed.
+// degrades with no provider operation when its capability is not declared, or when a steer is
+// acknowledged on a different turn.
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -9,10 +9,9 @@ import {
   type DriverCapabilities,
   type DriverCapabilityFlag,
 } from "@ai-sidekicks/contracts/provider/driver/capabilities";
-import {
-  DriverInterventionResultSchema,
-  type ApplyInterventionParams,
-  type InterruptRunParams,
+import type {
+  ApplyInterventionParams,
+  InterruptRunParams,
 } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import { type RunId } from "@ai-sidekicks/contracts/run/id";
 
@@ -22,7 +21,7 @@ import {
   type CodexSteerAcknowledgement,
   type CodexSteerRunRequest,
 } from "../intervention.js";
-import { TEXT_NEUTRALIZATION_REFUSAL_CODE } from "../../../outbound-frame.js";
+import { drainMicrotasks } from "../../../__fixtures__/drain-microtasks.js";
 import { STEER_FALLBACK_ACTION } from "../../contract.js";
 
 const RUN_ID = "22222222-2222-4222-8222-222222222222" as RunId;
@@ -64,17 +63,8 @@ function createHarness(
     },
   );
   const interruptRun = vi.fn(async (_params: InterruptRunParams): Promise<void> => {});
-  // Default is "no refusal known": the turn a steer joins is still running when the steer resolves.
-  const textNeutralizationDecisionForTurn = vi.fn(
-    (_turnId: string): { readonly refused: boolean } => ({ refused: false }),
-  );
   const capabilities = makeCapabilities(overrides);
-  const runtime: CodexInterventionRuntime = {
-    steerRun,
-    interruptRun,
-    textNeutralizationDecisionForTurn,
-    ...runtimeOverrides,
-  };
+  const runtime: CodexInterventionRuntime = { steerRun, interruptRun, ...runtimeOverrides };
   return {
     dispatcher: new CodexInterventionDispatcher({
       runtime,
@@ -107,7 +97,7 @@ function interruptParams(): ApplyInterventionParams {
     targetRunId: RUN_ID,
     expectedRunVersion: 4,
     clientIdempotencyKey: "idem-2",
-    payload: { reason: "the person paused the run" },
+    payload: { pending: "nextTurn", reason: "the person paused the run" },
   };
 }
 
@@ -122,10 +112,34 @@ describe("CodexInterventionDispatcher native routing", () => {
       content: "focus on the failing test",
       expectedTurnId: "turn-01",
       clientIdempotencyKey: "idem-1",
-      // A steer message is user text; the absent-origin default would report `origin=unknown`.
-      frameOrigin: "human_text",
     });
     expect(result).toEqual({ status: "applied" });
+  });
+
+  it("answers a steer once it was sent, and fails one that was not", async () => {
+    const sent = Promise.withResolvers<CodexSteerAcknowledgement>();
+    const harness = createHarness({}, { steerRun: vi.fn(async () => await sent.promise) });
+    let isSettled = false;
+    const result = harness.dispatcher.applyIntervention(steerParams()).finally(() => {
+      isSettled = true;
+    });
+    await drainMicrotasks();
+    // A steer Codex has not answered yet is not yet applied.
+    expect(isSettled).toBe(false);
+    sent.resolve({ targetedTurnId: "turn-01", acknowledgedTurnId: "turn-01" });
+    await expect(result).resolves.toEqual({ status: "applied" });
+
+    const failing = createHarness(
+      {},
+      {
+        steerRun: vi.fn(async (): Promise<CodexSteerAcknowledgement> => {
+          throw new Error("the turn ended before the steer was sent");
+        }),
+      },
+    );
+    await expect(failing.dispatcher.applyIntervention(steerParams())).rejects.toThrow(
+      "the turn ended before the steer was sent",
+    );
   });
 
   it("routes interrupt onto the provider's turn interrupt", async () => {
@@ -198,49 +212,5 @@ describe("CodexInterventionDispatcher ambiguous steer acknowledgement", () => {
       status: "degraded",
       fallbackAction: STEER_FALLBACK_ACTION,
     });
-  });
-});
-
-describe("CodexInterventionDispatcher steer under a text-neutralization refusal", () => {
-  function harnessRuling(refused: boolean): {
-    readonly harness: Harness;
-    readonly decisionReads: string[];
-  } {
-    const decisionReads: string[] = [];
-    const harness = createHarness(
-      {},
-      {
-        textNeutralizationDecisionForTurn: (turnId: string): { readonly refused: boolean } => {
-          decisionReads.push(turnId);
-          return { refused };
-        },
-      },
-    );
-    return { harness, decisionReads };
-  }
-
-  it("settles degraded with the refusal code and no fallbackAction", async () => {
-    const { harness } = harnessRuling(true);
-
-    const result = await harness.dispatcher.applyIntervention(
-      steerParams({ content: "/status please", expectedTurnId: "turn-01" }),
-    );
-
-    // Parsed through the real envelope schema so its `.strict()` guarantee is exercised.
-    const parsed = DriverInterventionResultSchema.parse(result);
-    expect(parsed.status).toBe("degraded");
-    expect(parsed.refusalCode).toBe(TEXT_NEUTRALIZATION_REFUSAL_CODE);
-    // No `fallbackAction`: `queue_and_interrupt` would re-queue the same text into the same
-    // swallow.
-    expect("fallbackAction" in parsed).toBe(false);
-    expect(Object.keys(parsed).sort()).toStrictEqual(["refusalCode", "status"]);
-  });
-
-  it("asks about the turn that actually went on the wire", async () => {
-    const { harness, decisionReads } = harnessRuling(false);
-
-    await harness.dispatcher.applyIntervention(steerParams({ content: "keep going" }));
-
-    expect(decisionReads).toStrictEqual([LIVE_TURN_ID]);
   });
 });

@@ -57,6 +57,8 @@
     "jsonata": "2.2.2",
     "koffi": "^3.3.2",
     "lru-cache": "^11.5.3",
+    "mdast-util-from-markdown": "2.1.0",
+    "mdast-util-to-string": "4.0.0",
     "node-gyp": "13.1.0",
     "node-pty": "^1.2.0-beta.15",
     "nodemailer": "10.0.13",
@@ -71,14 +73,17 @@
     "sharp": "0.35.5",
     "shiki": "4.5.0",
     "web-push": "3.6.7",
+    "ws": "^8.22.0",
     "yaml": "2.9.1",
     "zod": "catalog:"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",
+    "@types/mdast": "4.0.4",
     "@types/node": "^24.19.0",
     "@types/pidusage": "2.0.5",
     "@types/semver": "^7.8.0",
+    "@types/ws": "^8.18.2",
     "@vitest/coverage-v8": "catalog:testing",
     "rolldown": "1.2.12",
     "vitest": "catalog:testing"

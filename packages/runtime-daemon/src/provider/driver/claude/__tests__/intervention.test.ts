@@ -1,117 +1,150 @@
-// `intervention.ts`: a steer degrades to `queue_and_interrupt` and writes nothing, because the
-// daemon queues it and a written steer would apply twice; an interrupt maps onto the interrupt
-// control request and keeps queued input.
+// `intervention.ts`: a steer is one user message written into the running turn; an interrupt drops
+// the waiting messages only when they return to the draft and the process can drop them, and its
+// receipt says whether it did.
 
-import { DriverInterventionResultSchema } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import { describe, expect, it } from "vitest";
 
-import { ClaudeInterventionDispatcher } from "../intervention.js";
-import { STEER_FALLBACK_ACTION } from "../../contract.js";
+import {
+  ClaudeInterventionDispatcher,
+  type ClaudeInterventionSettlement,
+} from "../intervention.js";
 import { ClaudeSessionUnavailableError } from "../session/errors.js";
-import { type ClaudeRunProcessLookup, type ClaudeProviderProcess } from "../session/transport.js";
+import type { ClaudeProviderProcess, ClaudeRunProcessLookup } from "../session/transport.js";
 import {
   buildInterruptParams,
   buildSteerParams,
   FakeClaudeProviderProcess,
 } from "../__fixtures__/transport-doubles.js";
 
+const CANCEL_QUEUED_CAPABILITY = "interrupt_cancel_queued_v1";
+
 class StubRunProcessLookup implements ClaudeRunProcessLookup {
   readonly channel: FakeClaudeProviderProcess | undefined;
+  readonly capabilities: ReadonlySet<string>;
 
-  constructor(channel: FakeClaudeProviderProcess | undefined) {
+  constructor(channel: FakeClaudeProviderProcess | undefined, capabilities: readonly string[]) {
     this.channel = channel;
+    this.capabilities = new Set(capabilities);
   }
 
   findProcessForRun(): ClaudeProviderProcess | undefined {
     return this.channel;
   }
+
+  advertisedCapabilitiesForRun(): ReadonlySet<string> {
+    return this.capabilities;
+  }
 }
+
+// No choice is held, and each interrupt's turn end is the stream's to settle.
+const SETTLEMENT_WITH_NO_CHOICE: ClaudeInterventionSettlement = {
+  settleChoiceForInterrupt: async () => await Promise.resolve(false),
+  settleChoiceForMessage: async () => await Promise.resolve(undefined),
+  sendAsNextTurn: async () =>
+    await Promise.reject(new Error("no choice is held, so no message starts a next turn")),
+  holdTurnEndForInterrupt: () => undefined,
+  settleInterrupt: () => undefined,
+  stopApartRun: () => false,
+};
 
 interface InterventionHarness {
   readonly dispatcher: ClaudeInterventionDispatcher;
   readonly channel: FakeClaudeProviderProcess;
+  readonly steersSent: { readonly runId: RunId; readonly messageUuid: string }[];
 }
 
-function buildHarness(): InterventionHarness {
+function buildHarness(
+  capabilities: readonly string[] = [CANCEL_QUEUED_CAPABILITY],
+): InterventionHarness {
   const channel = new FakeClaudeProviderProcess("provider-session-live");
+  const steersSent: InterventionHarness["steersSent"] = [];
   const dispatcher = new ClaudeInterventionDispatcher({
-    channelLookup: new StubRunProcessLookup(channel),
+    channelLookup: new StubRunProcessLookup(channel, capabilities),
+    settlement: SETTLEMENT_WITH_NO_CHOICE,
+    onSteerSent: (runId, messageUuid) => {
+      steersSent.push({ runId, messageUuid });
+    },
   });
-  return { dispatcher, channel };
-}
-
-function buildDispatcherWithoutLiveRun(): ClaudeInterventionDispatcher {
-  return new ClaudeInterventionDispatcher({ channelLookup: new StubRunProcessLookup(undefined) });
+  return { dispatcher, channel, steersSent };
 }
 
 describe("ClaudeInterventionDispatcher steer", () => {
-  it("degrades to the queue_and_interrupt fallback and sends the provider nothing", async () => {
+  it("writes one user frame under the steer's own key and applies it", async () => {
     const harness = buildHarness();
+    const params = buildSteerParams("try the other fix");
 
-    const result = await harness.dispatcher.applyIntervention(
-      buildSteerParams("try the other fix"),
-    );
-
-    expect(result).toStrictEqual({
-      status: "degraded",
-      fallbackAction: STEER_FALLBACK_ACTION,
+    await expect(harness.dispatcher.applyIntervention(params)).resolves.toStrictEqual({
+      status: "applied",
     });
-    expect(DriverInterventionResultSchema.safeParse(result).success).toBe(true);
-    // The degrade is never a partial application.
-    expect(harness.channel.sentWireTexts).toStrictEqual([]);
+
+    // The key is the message's id, so a withdraw can name the same message.
+    expect(harness.channel.sentUserFrames).toStrictEqual([
+      {
+        type: "user",
+        uuid: params.clientIdempotencyKey,
+        message: { role: "user", content: "try the other fix" },
+      },
+    ]);
     expect(harness.channel.controlRequests).toStrictEqual([]);
-    expect(harness.channel.outboundCallCount).toBe(0);
+    expect(harness.steersSent).toStrictEqual([
+      { runId: params.targetRunId, messageUuid: params.clientIdempotencyKey },
+    ]);
   });
 });
 
-describe("ClaudeInterventionDispatcher native interrupt", () => {
-  it("routes an interrupt to the interrupt control request, keeping queued input", async () => {
-    const harness = buildHarness();
+describe("ClaudeInterventionDispatcher interrupt", () => {
+  it("drops waiting messages only when they return to the draft and the process can", async () => {
+    const cases = [
+      { pending: "returnToDraft", capabilities: [CANCEL_QUEUED_CAPABILITY], cancels: true },
+      { pending: "nextTurn", capabilities: [CANCEL_QUEUED_CAPABILITY], cancels: false },
+      { pending: "returnToDraft", capabilities: [], cancels: false },
+    ] as const;
+    for (const { pending, capabilities, cancels } of cases) {
+      const harness = buildHarness(capabilities);
+      // Survivors after an interrupt that keeps its waiting messages are what it promises.
+      harness.channel.controlResponse = {
+        subtype: "success",
+        response: { still_queued: ["3f1b0c22-0000-4000-8000-000000000001"] },
+      };
 
-    const result = await harness.dispatcher.applyIntervention(buildInterruptParams());
+      const result = await harness.dispatcher.applyIntervention(buildInterruptParams(pending));
 
-    expect(result).toStrictEqual({ status: "applied" });
-    expect(harness.channel.controlRequests).toStrictEqual([
-      { subtype: "interrupt", cancelQueued: false },
-    ]);
-    expect(harness.channel.sentWireTexts).toStrictEqual([]);
-    expect(DriverInterventionResultSchema.safeParse(result).success).toBe(true);
+      expect(harness.channel.controlRequests).toStrictEqual([
+        cancels ? { subtype: "interrupt", cancel_queued: true } : { subtype: "interrupt" },
+      ]);
+      expect(result).toStrictEqual(cancels ? { status: "degraded" } : { status: "applied" });
+    }
   });
 
-  it("degrades, never throws, when the CLI answers with a typed control refusal", async () => {
+  it("applies a cancel whose receipt lists no survivors or an unreadable list", async () => {
+    for (const receipt of [{ still_queued: [] }, { still_queued: "not-a-list" }, {}]) {
+      const harness = buildHarness();
+      harness.channel.controlResponse = { subtype: "success", response: receipt };
+
+      await expect(
+        harness.dispatcher.applyIntervention(buildInterruptParams("returnToDraft")),
+      ).resolves.toStrictEqual({ status: "applied" });
+    }
+  });
+
+  it("degrades with no fallback on a typed refusal and throws with no live channel", async () => {
     const harness = buildHarness();
     harness.channel.controlResponse = {
       subtype: "error",
       error: "Unsupported control request subtype: interrupt",
     };
-
-    const result = await harness.dispatcher.applyIntervention(buildInterruptParams());
-
-    expect(result).toStrictEqual({ status: "degraded" });
-    expect(result.fallbackAction).toBeUndefined();
-    expect(DriverInterventionResultSchema.safeParse(result).success).toBe(true);
-  });
-
-  it("refuses an interrupt on a run with no live channel, never claiming a degrade", async () => {
-    const dispatcher = buildDispatcherWithoutLiveRun();
-
-    await expect(dispatcher.applyIntervention(buildInterruptParams())).rejects.toBeInstanceOf(
-      ClaudeSessionUnavailableError,
-    );
-  });
-});
-
-describe("ClaudeInterventionDispatcher interrupt receipt", () => {
-  it("applies an interrupt that reports survivors — survival is what defines it", async () => {
-    const harness = buildHarness();
-    harness.channel.controlResponse = {
-      subtype: "success",
-      response: { still_queued: ["3f1b0c22-0000-4000-8000-000000000001"] },
-    };
-
-    // Queued input is meant to outlive an interrupt, so survivors are not a failure here.
     await expect(
       harness.dispatcher.applyIntervention(buildInterruptParams()),
-    ).resolves.toStrictEqual({ status: "applied" });
+    ).resolves.toStrictEqual({ status: "degraded" });
+
+    const unrouted = new ClaudeInterventionDispatcher({
+      channelLookup: new StubRunProcessLookup(undefined, []),
+      settlement: SETTLEMENT_WITH_NO_CHOICE,
+      onSteerSent: () => undefined,
+    });
+    await expect(unrouted.applyIntervention(buildInterruptParams())).rejects.toBeInstanceOf(
+      ClaudeSessionUnavailableError,
+    );
   });
 });

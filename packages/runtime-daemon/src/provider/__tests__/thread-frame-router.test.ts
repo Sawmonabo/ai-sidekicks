@@ -144,35 +144,26 @@ describe("ThreadFrameRouter", () => {
     },
   );
 
-  it(
-    "a registered child's content and lifecycle frames are transcript-suppressed, diagnosed " +
-      "once per child",
-    () => {
-      const { router, diagnostics } = makeRouter();
-      router.registerSessionThread("session-thread");
-      router.registerChildThread({
-        childThreadId: "child-thread",
-        declaredParentThreadId: "session-thread",
-        subagentId: "child-thread",
-      });
-      for (let deltaSequence = 0; deltaSequence < 3; deltaSequence += 1) {
-        const route = router.routeFrame(
-          {
-            rawWireType: "item/agentMessage/delta",
-            familyClass: { scope: "thread", capability: "content" },
-            threadId: "child-thread",
-          },
-          deltaSequence,
-        );
-        expect(route).toEqual({
-          decision: "suppress-child-transcript",
-          childThreadId: "child-thread",
-        });
-      }
-      // Once per child thread: content deltas must not flood the channel.
-      expect(diagnostics.recentRecordsOfKind("thread_child_transcript_suppressed")).toHaveLength(1);
-    },
-  );
+  it("a registered child's content and lifecycle frames go to its own transcript", () => {
+    const { router } = makeRouter();
+    router.registerSessionThread("session-thread");
+    router.registerChildThread({
+      childThreadId: "child-thread",
+      declaredParentThreadId: "session-thread",
+      subagentId: "child-thread",
+    });
+    for (let deltaSequence = 0; deltaSequence < 3; deltaSequence += 1) {
+      const route = router.routeFrame(
+        {
+          rawWireType: "item/agentMessage/delta",
+          familyClass: { scope: "thread", capability: "content" },
+          threadId: "child-thread",
+        },
+        deltaSequence,
+      );
+      expect(route).toEqual({ decision: "child-transcript", childThreadId: "child-thread" });
+    }
+  });
 
   it(
     "a present-but-unregistered identity is held, " +

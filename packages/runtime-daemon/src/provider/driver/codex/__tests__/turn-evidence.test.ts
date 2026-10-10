@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { UNRECOGNIZED_TURN_EVIDENCE } from "../../../outbound-frame.js";
+import { UNRECOGNIZED_TURN_EVIDENCE } from "../../../turn-evidence.js";
 import {
   classifyCodexTurnEvidence,
   classifyCodexTurnEvidenceObservation,
@@ -31,8 +31,8 @@ describe("Codex turn-evidence classifier", () => {
   });
 
   it("passes a typed declared failure so an unrelated outage is not misreported", () => {
-    // The measured quota-exhausted turn has no model output but is not a neutralization failure;
-    // reporting it as one would put the wrong cause in a shared field the person sees.
+    // The measured quota-exhausted turn has no model output but did run and fail; reading it as a
+    // turn that never ran would put the wrong cause in a shared field the person sees.
     expect(classifyCodexTurnEvidence(codexQuotaExhaustedTurn("turn-1")).observations).toStrictEqual(
       ["declared_turn_failure"],
     );

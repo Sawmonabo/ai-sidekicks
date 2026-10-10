@@ -1,15 +1,13 @@
 /**
- * Reads the session and run configuration a Codex session is opened with, and turns the execution
- * posture and subagent policy into the thread, turn and config overrides Codex takes.
+ * What a Codex session is opened in, resolved by the daemon at every start, and the run
+ * configuration each turn is started from.
  */
 
+import { AgentIdSchema, type AgentId } from "@ai-sidekicks/contracts/agent/definition";
 import { SessionIdSchema, type SessionId } from "@ai-sidekicks/contracts/session/id";
-import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
-import { type CredentialEnvPolicy, type SpawnEnvNameMatch } from "../../../spawn-env.js";
-import { RUN_OPENING_FRAME_ORIGIN } from "../../../outbound-frame.js";
+import type { SessionEnvironmentRows } from "../../../spawn-env.js";
 import { isPlainObject } from "../../../record-readers.js";
 import { CodexDriverConfigError } from "./errors.js";
-import type { SubagentPolicy } from "../../contract.js";
 
 /**
  * The item-injection method (`ThreadInjectItemsParams`, non-experimental at the pin): appends items
@@ -21,26 +19,23 @@ import type { SubagentPolicy } from "../../contract.js";
  */
 export const CODEX_THREAD_INJECT_ITEMS_METHOD = "thread/inject_items" as const;
 
-/**
- * What this driver requires inside the untyped `CreateSessionParams.config` (this module never
- * reads `process.env`).
- */
-export interface CodexSessionConfig {
-  cwd: string;
-  /** The session's environment pairs, set by name over the base the daemon captured at start. */
-  env: ReadonlyArray<readonly [string, string]>;
-  /**
-   * The provider account this leg's credential home is pinned to; the typed request member wins
-   * over this one ({@link resolveBoundProviderAccountId}). Identity and credential environment
-   * must never diverge; absence reaches command entries as `null`, which matches nothing.
-   */
-  providerAccountId?: string | undefined;
-  /**
-   * The effective credential policy resolved by the daemon, whose denied names are stripped from
-   * the child environment; absent only when no posture and no policy was declared. Re-derived from
-   * the posture on every create and resume, never inherited from the original launch.
-   */
-  credentialEnvPolicy?: CredentialEnvPolicy | undefined;
+/** Where one session's conversation runs, resolved by the daemon at every start and resume. */
+interface CodexSessionSpawnContext {
+  /** The session's working folder, its worktree, absolute. */
+  readonly workingDirectory: string;
+  /** The repository's git folder, the common one for a linked worktree; absent outside one. */
+  readonly gitCommonFolder: string | undefined;
+  readonly environmentRows: SessionEnvironmentRows | undefined;
+  /** The instructions the conversation runs under, sent on every start, resume and fork. */
+  readonly baseInstructions: string | undefined;
+}
+
+/** Resolves a session's spawn context, wired by the daemon. */
+export interface CodexSpawnContextResolver {
+  resolveSpawnContext(
+    sessionId: SessionId,
+    providerAccountId: string | undefined,
+  ): Promise<CodexSessionSpawnContext>;
 }
 
 /**
@@ -49,6 +44,7 @@ export interface CodexSessionConfig {
  */
 const CALLER_DERIVED_TURN_POSTURE_FIELDS: readonly string[] = [
   "cwd",
+  "sandbox",
   "sandboxPolicy",
   "permissions",
   "permissionProfile",
@@ -57,350 +53,24 @@ const CALLER_DERIVED_TURN_POSTURE_FIELDS: readonly string[] = [
 ];
 
 /**
- * Posture members V1 does not realize, asserted absent from every `turn/start`. The provider does
- * not adjudicate `sandboxPolicy` with `permissions` (an `experimentalApi` connection, which this
- * driver's is, accepts both), so V1 realizes `sandboxPolicy`; `permissionProfile` refuses
- * `-32602` at the pin.
- */
-const UNREALIZED_TURN_POSTURE_MEMBERS: readonly string[] = ["permissions", "permissionProfile"];
-
-/**
- * Throws `CodexDriverConfigError` if a constructed `turn/start` carries an unrealized posture
- * member; `#requestTurnStart` is the only construction site.
- */
-export function assertRealizedTurnPostureMembers(params: Record<string, unknown>): void {
-  for (const member of UNREALIZED_TURN_POSTURE_MEMBERS) {
-    if (member in params) {
-      throw new CodexDriverConfigError(
-        `turn/start must not carry ${member}; V1 realizes the sandboxPolicy member of the ` +
-          `posture pair.`,
-        `turn/start.${member}`,
-      );
-    }
-  }
-}
-
-/**
- * Required contents of `StartRunParams.agentConfig`, which carries the session id and turn text.
+ * Contents of `StartRunParams.agentConfig`: the session, the runtime binding the run's deliveries
+ * go on, the agent whose run it is, the turn's text, its model and window, and the skill the person
+ * picked, by name.
  */
 export interface CodexRunConfig {
   sessionId: SessionId;
+  bindingId: string;
+  agentId: AgentId;
   input: string;
   model?: string | undefined;
+  /**
+   * The larger window chosen for the turn's model, in tokens, as recorded when it was picked (the
+   * config's `largerWindow`); sent as recorded. Absent with a model named, the turn runs the
+   * default window; absent with no model named, the turn keeps the conversation's model and window.
+   */
+  modelContextWindow?: number | undefined;
   clientUserMessageId?: string | undefined;
-}
-
-// Provider keys below come from the pinned build's `v2/` schema and serde field names.
-
-/** Codex's thread-level sandbox (`SandboxMode` at the pin). */
-type CodexSandboxMode = "read-only" | "workspace-write" | "danger-full-access";
-
-/**
- * The sandbox each permission level runs in: Read Only at `readonly`, the workspace sandbox at the
- * three levels that write inside the workspace, and Full Access at `yolo`.
- */
-const CODEX_SANDBOX_MODE_BY_PERMISSION_LEVEL: Readonly<
-  Record<ExecutionPosture["mode"], CodexSandboxMode>
-> = Object.freeze({
-  readonly: "read-only",
-  ask: "workspace-write",
-  reviewed: "workspace-write",
-  sandboxed: "workspace-write",
-  yolo: "danger-full-access",
-});
-
-/**
- * The approval policy each permission level runs under: the three asking levels ask on request,
- * `yolo` asks on request too, so Codex asks before a removal its own check flags rather than
- * refusing it, and `sandboxed` never asks. No level sends `untrusted`.
- */
-const CODEX_APPROVAL_POLICY_BY_PERMISSION_LEVEL: Readonly<
-  Record<ExecutionPosture["mode"], "on-request" | "never">
-> = Object.freeze({
-  readonly: "on-request",
-  ask: "on-request",
-  reviewed: "on-request",
-  sandboxed: "never",
-  yolo: "on-request",
-});
-
-/** How Codex approves a ChatGPT connector's tool calls (`AppToolApproval` at the pin). */
-type CodexConnectorApprovalMode = "writes" | "approve";
-
-/**
- * The default every ChatGPT connector's tool calls take at each permission level, set only as
- * `apps._default` so an app, account or tool the person set keeps its own: `writes` below `yolo`,
- * so a tool not marked read-only asks (the reviewer answers at `reviewed`, approvals `never`
- * refuses it at `sandboxed`), and Codex's own `approve` at `yolo`, so every one runs unasked.
- */
-const CODEX_CONNECTOR_APPROVAL_MODE_BY_PERMISSION_LEVEL: Readonly<
-  Record<ExecutionPosture["mode"], CodexConnectorApprovalMode>
-> = Object.freeze({
-  readonly: "writes",
-  ask: "writes",
-  reviewed: "writes",
-  sandboxed: "writes",
-  yolo: "approve",
-});
-
-/** Who Codex routes an ask to (`ApprovalsReviewer` at the pin). */
-type CodexApprovalsReviewer = "user" | "auto_review";
-
-/**
- * Who answers Codex's asks at each permission level: Codex's own automatic reviewer at `reviewed`,
- * which is what that level means, and the person, through the daemon's approval pipeline, at
- * every other level.
- */
-const CODEX_APPROVALS_REVIEWER_BY_PERMISSION_LEVEL: Readonly<
-  Record<ExecutionPosture["mode"], CodexApprovalsReviewer>
-> = Object.freeze({
-  readonly: "user",
-  ask: "user",
-  reviewed: "auto_review",
-  sandboxed: "user",
-  yolo: "user",
-});
-
-/**
- * The `approvalsReviewer` a thread or turn carries: the posture's level's reviewer, and the person
- * when no posture is declared, so a config or profile override never picks the reviewer. Sent on
- * every `turn/start` too, because the turn's value routes that turn and every later one.
- */
-export function composeCodexApprovalsReviewer(
-  posture: ExecutionPosture | undefined,
-): CodexApprovalsReviewer {
-  return posture === undefined
-    ? "user"
-    : CODEX_APPROVALS_REVIEWER_BY_PERMISSION_LEVEL[posture.mode];
-}
-
-/** The thread-level posture one permission level runs a conversation under. */
-interface CodexThreadPosture {
-  /** The `sandbox` and `approvalPolicy` thread fields. */
-  readonly params: { readonly sandbox: CodexSandboxMode; readonly approvalPolicy: string };
-  /** The `config` overrides the level adds: the connectors' default approval mode. */
-  readonly config: Readonly<Record<string, unknown>>;
-}
-
-/** The thread sandbox, approval policy and config overrides a posture's level maps to. */
-export function composeCodexThreadPosture(posture: ExecutionPosture): CodexThreadPosture {
-  const sandbox = CODEX_SANDBOX_MODE_BY_PERMISSION_LEVEL[posture.mode];
-  const approvalPolicy = CODEX_APPROVAL_POLICY_BY_PERMISSION_LEVEL[posture.mode];
-  return {
-    params: { sandbox, approvalPolicy },
-    config: {
-      "apps._default.default_tools_approval_mode":
-        CODEX_CONNECTOR_APPROVAL_MODE_BY_PERMISSION_LEVEL[posture.mode],
-    },
-  };
-}
-
-/**
- * Names the Codex sandbox modes two postures map to when they differ, or `undefined` when both run
- * in the same mode.
- */
-export function findCodexSandboxModeDivergence(
-  runPosture: ExecutionPosture,
-  sessionPosture: ExecutionPosture,
-): { readonly run: CodexSandboxMode; readonly session: CodexSandboxMode } | undefined {
-  const run = CODEX_SANDBOX_MODE_BY_PERMISSION_LEVEL[runPosture.mode];
-  const session = CODEX_SANDBOX_MODE_BY_PERMISSION_LEVEL[sessionPosture.mode];
-  return run === session ? undefined : { run, session };
-}
-
-/**
- * Per-turn `sandboxPolicy`, sent every turn because it carries the writable roots the thread-level
- * mode cannot; the two exclude flags are pinned `true` so `writableRoots` is the complete list.
- * `providerNetworkAccess` is the person's own workspace network setting, read from the thread
- * reply.
- */
-export function composeCodexTurnSandboxPolicy(
-  posture: ExecutionPosture,
-  providerNetworkAccess: boolean | undefined,
-): Record<string, unknown> {
-  switch (CODEX_SANDBOX_MODE_BY_PERMISSION_LEVEL[posture.mode]) {
-    case "danger-full-access":
-      return { type: "dangerFullAccess" };
-    case "read-only":
-      // The person's network setting drives only the workspace sandbox; Codex's own Read Only
-      // omits the member.
-      return { type: "readOnly" };
-    case "workspace-write":
-      return {
-        type: "workspaceWrite",
-        writableRoots: posture.writableRoots,
-        // Echoed, never omitted when known: Codex reads an omitted `networkAccess` as off.
-        ...(providerNetworkAccess === undefined ? {} : { networkAccess: providerNetworkAccess }),
-        excludeTmpdirEnvVar: true,
-        excludeSlashTmp: true,
-      };
-  }
-}
-
-/**
- * The provider's floor on its concurrency cap: `agents.max_concurrent_threads_per_session: 0` is
- * refused at the pin, so zero cannot disable subagents; `agents.max_depth: 0` is accepted and
- * forbids any spawn (a child announces itself at depth 1), so the disable rides on depth.
- */
-const CODEX_SUBAGENT_CONCURRENCY_FLOOR = 1;
-
-/** The depth ceiling that admits no child thread at all. */
-const CODEX_SUBAGENT_DEPTH_NONE = 0;
-
-/**
- * Normalizes a cap into the provider's `i32`; fractions round down, never below `floor`. The
- * provider rejects a non-integer with a type error that fails the whole spawn.
- */
-function normalizeCodexSubagentCap(value: number, floor: number): number {
-  if (!Number.isFinite(value)) {
-    return floor;
-  }
-  return Math.max(floor, Math.floor(value));
-}
-
-/**
- * The `[agents]` config overrides realizing one subagent policy. A disabled policy, or one below
- * the provider's floor, is sent as a zero depth ceiling: omitting it keeps the installation's
- * defaults and clamping up would grant a subagent.
- */
-export function composeCodexSubagentConfigOverrides(
-  policy: SubagentPolicy,
-): Record<string, unknown> {
-  if (!policy.enabled || policy.maxConcurrent < CODEX_SUBAGENT_CONCURRENCY_FLOOR) {
-    return {
-      "agents.max_concurrent_threads_per_session": CODEX_SUBAGENT_CONCURRENCY_FLOOR,
-      "agents.max_depth": CODEX_SUBAGENT_DEPTH_NONE,
-    };
-  }
-  return {
-    "agents.max_concurrent_threads_per_session": normalizeCodexSubagentCap(
-      policy.maxConcurrent,
-      CODEX_SUBAGENT_CONCURRENCY_FLOOR,
-    ),
-    "agents.max_depth": normalizeCodexSubagentCap(policy.maxDepth, CODEX_SUBAGENT_DEPTH_NONE),
-  };
-}
-
-/**
- * Why every `SubagentDefinition` is withheld: the provider's per-role config entry carries only
- * `description`, `config_file` and `nickname_candidates` (serde names at the pin); the rest lives
- * in a file this driver would have to write.
- */
-export const CODEX_SUBAGENT_DEFINITION_WITHHELD_REASON: string =
-  "the provider's per-role config entry carries no inline model, tools, permission-mode, " +
-  "effort, or max-turns axis at the pinned build, so the definition cannot be realized " +
-  "without authoring a config file this driver does not own";
-
-/** Fail-closed parse of `CreateSessionParams.config`. */
-export function parseCodexSessionConfig(config: unknown): CodexSessionConfig {
-  const source = readRecord(config, "CreateSessionParams.config");
-  const cwd = readRequiredString(source, "cwd", "CreateSessionParams.config.cwd");
-  const rawEnv = source["env"];
-  if (!Array.isArray(rawEnv)) {
-    throw new CodexDriverConfigError(
-      "CreateSessionParams.config.env must be an array of [name, value] pairs.",
-      "CreateSessionParams.config.env",
-    );
-  }
-  const env = rawEnv.map((entry, index) => {
-    if (
-      !Array.isArray(entry) ||
-      entry.length !== 2 ||
-      typeof entry[0] !== "string" ||
-      typeof entry[1] !== "string" ||
-      entry[0].length === 0
-    ) {
-      throw new CodexDriverConfigError(
-        `CreateSessionParams.config.env[${index}] must be a [name, value] string pair.`,
-        "CreateSessionParams.config.env",
-      );
-    }
-    return [entry[0], entry[1]] as const;
-  });
-  // A present-but-empty account id refuses rather than reading as absent.
-  const providerAccountId = readOptionalString(
-    source,
-    "providerAccountId",
-    "CreateSessionParams.config.providerAccountId",
-  );
-  return {
-    cwd,
-    env,
-    ...(providerAccountId === undefined ? {} : { providerAccountId }),
-    ...parseCredentialEnvPolicy(source["credentialEnvPolicy"]),
-  };
-}
-
-/**
- * Picks which claim names a spawn's provider account, for both spawn composers: the typed
- * `requested` member wins, `recorded` answers only when it is absent (never the manager-wide
- * `resumeSpawnConfig`), and two differing accounts throw because either choice would move the
- * run's spend silently. An empty `requested` throws too, since it skips the config parse.
- */
-export function resolveBoundProviderAccountId(claims: {
-  readonly requested: string | undefined;
-  readonly requestedField: string;
-  readonly recorded: string | undefined;
-  readonly recordedField: string;
-}): string | undefined {
-  const { requested, requestedField, recorded, recordedField } = claims;
-  if (requested !== undefined && requested.length === 0) {
-    throw new CodexDriverConfigError(
-      `${requestedField} must be a non-empty string when present.`,
-      requestedField,
-    );
-  }
-  if (requested === undefined) {
-    return recorded;
-  }
-  if (recorded === undefined || recorded === requested) {
-    return requested;
-  }
-  throw new CodexDriverConfigError(
-    `${requestedField} names provider account ${requested} while ${recordedField} names ` +
-      `${recorded}; a spawn is billed to one account and neither resolver may silently win.`,
-    requestedField,
-  );
-}
-
-const ENV_NAME_MATCH_MODES: readonly SpawnEnvNameMatch[] = ["case-sensitive", "case-insensitive"];
-
-/**
- * Fail-closed parse of the daemon's resolved credential policy. Absent is legitimate (a declared
- * posture supplies it); a malformed one throws, since defaulting to "deny nothing" would spawn with
- * the variables the policy withholds. `envNameMatch` is required: guessing it could let `path` slip
- * past a list naming `PATH`.
- */
-function parseCredentialEnvPolicy(
-  value: unknown,
-): { credentialEnvPolicy: CredentialEnvPolicy } | Record<string, never> {
-  if (value === undefined) {
-    return {};
-  }
-  const label = "CreateSessionParams.config.credentialEnvPolicy";
-  const source = readRecord(value, label);
-  const rawDenyEnvVars = source["denyEnvVars"];
-  if (!Array.isArray(rawDenyEnvVars)) {
-    throw new CodexDriverConfigError(`${label}.denyEnvVars must be an array of names.`, label);
-  }
-  const denyEnvVars = rawDenyEnvVars.map((entry, index) => {
-    if (typeof entry !== "string" || entry.length === 0) {
-      throw new CodexDriverConfigError(
-        `${label}.denyEnvVars[${index}] must be a non-empty string.`,
-        label,
-      );
-    }
-    return entry;
-  });
-  // `find`, not `some`: the match narrows the value to the union without a cast.
-  const envNameMatch = ENV_NAME_MATCH_MODES.find((mode) => mode === source["envNameMatch"]);
-  if (envNameMatch === undefined) {
-    throw new CodexDriverConfigError(
-      `${label}.envNameMatch must be one of ${ENV_NAME_MATCH_MODES.join(" | ")}.`,
-      label,
-    );
-  }
-  return { credentialEnvPolicy: { denyEnvVars, envNameMatch } };
+  skill?: string | undefined;
 }
 
 /** Fail-closed parse of `StartRunParams.agentConfig`. */
@@ -421,28 +91,30 @@ export function parseCodexRunConfig(agentConfig: unknown): CodexRunConfig {
     );
   }
   const sessionId = parsedSessionId.data;
+  const bindingId = readRequiredString(source, "bindingId", "StartRunParams.agentConfig.bindingId");
+  const parsedAgentId = AgentIdSchema.safeParse(
+    readRequiredString(source, "agentId", "StartRunParams.agentConfig.agentId"),
+  );
+  if (!parsedAgentId.success) {
+    throw new CodexDriverConfigError(
+      "StartRunParams.agentConfig.agentId must be an agent id.",
+      "StartRunParams.agentConfig.agentId",
+      { cause: parsedAgentId.error },
+    );
+  }
   const input = readRequiredString(source, "input", "StartRunParams.agentConfig.input");
   const model = readOptionalString(source, "model", "StartRunParams.agentConfig.model");
+  const modelContextWindow = readOptionalTokenCount(
+    source,
+    "largerWindow",
+    "StartRunParams.agentConfig.largerWindow",
+  );
   const clientUserMessageId = readOptionalString(
     source,
     "clientUserMessageId",
     "StartRunParams.agentConfig.clientUserMessageId",
   );
-  // Read only to check it: the run-opening boundary mints its own frame origin, so any other value
-  // is refused; a caller-declared tripwire-exempt origin would deliver the user's words as a
-  // provider command.
-  const declaredFrameOrigin = readOptionalString(
-    source,
-    "frameOrigin",
-    "StartRunParams.agentConfig.frameOrigin",
-  );
-  if (declaredFrameOrigin !== undefined && declaredFrameOrigin !== RUN_OPENING_FRAME_ORIGIN) {
-    throw new CodexDriverConfigError(
-      `StartRunParams.agentConfig.frameOrigin cannot be declared; a run's opening text is ` +
-        `written as "${RUN_OPENING_FRAME_ORIGIN}".`,
-      "StartRunParams.agentConfig.frameOrigin",
-    );
-  }
+  const skill = readOptionalString(source, "skill", "StartRunParams.agentConfig.skill");
   // Refused even when the value matches what the daemon derived; no comparison needed.
   for (const field of CALLER_DERIVED_TURN_POSTURE_FIELDS) {
     if (source[field] !== undefined) {
@@ -455,9 +127,13 @@ export function parseCodexRunConfig(agentConfig: unknown): CodexRunConfig {
   }
   return {
     sessionId,
+    bindingId,
+    agentId: parsedAgentId.data,
     input,
     ...(model === undefined ? {} : { model }),
+    ...(modelContextWindow === undefined ? {} : { modelContextWindow }),
     ...(clientUserMessageId === undefined ? {} : { clientUserMessageId }),
+    ...(skill === undefined ? {} : { skill }),
   };
 }
 
@@ -474,6 +150,28 @@ function readRequiredString(source: Record<string, unknown>, key: string, label:
   const value = source[key];
   if (typeof value !== "string" || value.length === 0) {
     throw new CodexDriverConfigError(`${label} must be a non-empty string.`, label);
+  }
+  return value;
+}
+
+/**
+ * Reads a positive whole number of tokens, or undefined when it is absent; throws when present but
+ * not one.
+ */
+function readOptionalTokenCount(
+  source: Record<string, unknown>,
+  key: string,
+  label: string,
+): number | undefined {
+  const value = source[key];
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+    throw new CodexDriverConfigError(
+      `${label} must be a positive whole number when present.`,
+      label,
+    );
   }
   return value;
 }

@@ -26,6 +26,12 @@ export type ReportedVersionReading =
 
 /** One provider's static facts, the ones the daemon reads before or without a session. */
 export interface ProviderDriverDescriptor {
+  /**
+   * The command the provider's own installer puts on `PATH`, which every spawn resolves along the
+   * login shell's `PATH` and then where the installers put it, until the person sets a command of
+   * their own.
+   */
+  readonly command: string;
   /** How each capability flag is decided, total over the flag set. */
   readonly capabilityDetectionTable: DriverCapabilityDetectionTable;
   /** The request surface every capability probe of this provider rides. */

@@ -1,6 +1,6 @@
 /**
- * Answers a routed Codex server request: a callback tool call goes to the host, an approval ask
- * to the approval responder. Also shapes the reply content Codex receives.
+ * Answers a routed Codex callback tool call through the daemon's callback-tool host, and shapes
+ * the reply content Codex receives.
  */
 
 import type { CallbackToolHost } from "../../callback-tool-host.js";
@@ -13,41 +13,16 @@ import type {
   CodexSessionServerRequestResponder,
 } from "./server-requests.js";
 
-/** Construction inputs for {@link createCallbackToolAskResponder}. */
-export interface CallbackToolAskResponderOptions {
-  readonly host: CallbackToolHost;
-  /**
-   * The responder for `askKind: "approval"` asks, or an explicit `null` for a daemon composed
-   * without one. Required-but-nullable so every construction site decides.
-   */
-  readonly approvalAskResponder: CodexSessionServerRequestResponder | null;
-}
-
 /**
- * Composes the responder the Codex driver binds for routed asks: callback tool calls go to the
- * {@link CallbackToolHost}, approval asks to the approval responder. Every path answers; a refusal
- * becomes the asking method's own refusal shape, not a protocol fault.
+ * Composes the responder the Codex driver binds for callback tool calls, answered by the
+ * {@link CallbackToolHost}. Every path answers; a refusal becomes the asking method's own refusal
+ * shape, not a protocol fault.
  */
 export function createCallbackToolAskResponder(
-  options: CallbackToolAskResponderOptions,
+  host: CallbackToolHost,
 ): CodexSessionServerRequestResponder {
-  const { host, approvalAskResponder } = options;
   return {
     async answer(request: CodexSessionServerRequest): Promise<CodexServerRequestDecision> {
-      if (request.askKind === "approval") {
-        if (approvalAskResponder === null) {
-          // No diagnostic: the `callback_tool_*` kinds name this host's own conditions, so one here
-          // would misattribute the refusal. The reason still reaches the provider.
-          return {
-            decision: "refuse",
-            reason:
-              `The daemon has no approval responder registered for "${request.method}"; ` +
-              `refusing rather than answering without adjudication.`,
-          };
-        }
-        return await approvalAskResponder.answer(request);
-      }
-
       const invocation = readCallbackToolInvocation(request);
       if (typeof invocation === "string") {
         host.recordUnformedInvocation({

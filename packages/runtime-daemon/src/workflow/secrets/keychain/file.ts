@@ -19,6 +19,7 @@ import { z } from "zod";
 import { writeFileAtomically } from "../../../file/atomic-write.js";
 import { isMissingFileError } from "../../../file/missing-error.js";
 import { WorkflowSecretStoreUnavailableError, type SecretKeychain } from "../store.js";
+import { describeRejection } from "../../../rejection.js";
 
 const ITEMS_FILE_NAME = "secrets.json";
 const ITEMS_FILE_MODE = 0o600;
@@ -154,5 +155,5 @@ export class FileSecretKeychain implements SecretKeychain {
 // The file system's own text; for a write whose cleanup failed too, the write's failure first.
 function failureText(error: unknown): string {
   const failure = error instanceof AggregateError ? error.errors[0] : error;
-  return failure instanceof Error ? failure.message : String(failure);
+  return describeRejection(failure);
 }

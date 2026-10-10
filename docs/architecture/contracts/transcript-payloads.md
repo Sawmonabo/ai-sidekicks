@@ -359,6 +359,16 @@ interface QuestionAskedPayload {
     // option rows, so a secret question carries no options; the value is never written into the flow, and the person's turn afterwards records
     // only that a secret was answered.
     secret: boolean;
+    // The four below come only from a tool server's form, each present only where the form sets it.
+    // Whether the form must have this field answered.
+    required?: boolean;
+    // The answer the field starts from: the label of the option it preselects (several labels on a
+    // field of several picks), or a typed field's value in its own type. A label is always one of the
+    // question's own options.
+    default?: string | number | boolean | string[];
+    // A number field's smallest and largest value; the smallest is never above the largest.
+    minimum?: number;
+    maximum?: number;
   }>;
 }
 

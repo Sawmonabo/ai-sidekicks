@@ -1,24 +1,28 @@
 // Dispatching the provider's `/compact` command frame on a live Claude channel and waiting for the
-// typed compaction frame that proves it ran.
+// typed compaction frame that proves it ran. Claude Code runs the command as a turn of its own, so
+// it holds the session's turn until that turn settles.
 
 import type { DriverCompactionResult } from "@ai-sidekicks/contracts/provider/driver/compaction";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
-import { COMPACTION_WAIT_MS, type PendingCompactionRegistry } from "../../compaction-wait.js";
-import type { DriverDiagnosticsEmitter } from "../diagnostics.js";
-import type { OutboundTextFrameWriter } from "../../outbound-frame.js";
+import { mintUuidV7 } from "../../../uuid-v7.js";
 import {
-  CLAUDE_COMPACTION_COMMAND_TEXT,
-  CLAUDE_COMPACTION_FRAME_ORIGIN,
-  type ClaudeProviderProcess,
-  type ClaudeUserTextWriteAttempt,
-} from "./session/transport.js";
-import { describeFailure, sanitizeFailureDetail } from "./session/errors.js";
-import { attemptClaudeFrameWrite } from "./text-neutralization.js";
+  COMPACTION_WAIT_FAILURE_DETAIL,
+  type PendingCompactionRegistry,
+} from "../../compaction-wait.js";
+import type { DriverDiagnosticsEmitter } from "../diagnostics.js";
+import { CLAUDE_COMPACTION_COMMAND_TEXT, type ClaudeProviderProcess } from "./session/transport.js";
+import type { ClaudeRunRoutes } from "./run/routes.js";
+import {
+  ClaudeSessionUnavailableError,
+  describeFailure,
+  sanitizeFailureDetail,
+} from "./session/errors.js";
+import { attemptClaudeFrameWrite } from "./session/stdin-write.js";
 
-/** The lifecycle's compaction waits, frame writer and diagnostics the dispatch runs over. */
+/** The lifecycle's compaction waits and diagnostics the dispatch runs over. */
 export interface ClaudeCompactionDispatchDependencies {
   readonly pendingCompactions: PendingCompactionRegistry;
-  readonly outboundTextFrameWriter: OutboundTextFrameWriter;
+  readonly runRoutes: ClaudeRunRoutes;
   readonly diagnostics: DriverDiagnosticsEmitter;
 }
 
@@ -28,39 +32,42 @@ export interface ClaudeCompactionDispatchDependencies {
  */
 export class ClaudeCompactionDispatch {
   readonly #pendingCompactions: PendingCompactionRegistry;
-  readonly #outboundTextFrameWriter: OutboundTextFrameWriter;
+  readonly #runRoutes: ClaudeRunRoutes;
   readonly #diagnostics: DriverDiagnosticsEmitter;
 
   constructor(dependencies: ClaudeCompactionDispatchDependencies) {
     this.#pendingCompactions = dependencies.pendingCompactions;
-    this.#outboundTextFrameWriter = dependencies.outboundTextFrameWriter;
+    this.#runRoutes = dependencies.runRoutes;
     this.#diagnostics = dependencies.diagnostics;
   }
 
-  /** Arms the wait, writes the command frame and settles on the wait's terminal. */
+  /**
+   * Holds the session's turn, arms the wait, writes the command and settles on the wait's
+   * terminal. Throws `session_turn_in_flight` while a run or another command holds the turn.
+   */
   async dispatchCompaction(
     sessionId: SessionId,
     channel: ClaudeProviderProcess,
   ): Promise<DriverCompactionResult> {
-    // Armed before dispatch so a fast compaction is not lost; any early exit withdraws it.
-    const wait = this.#pendingCompactions.arm(sessionId, COMPACTION_WAIT_MS);
-    let attempt: ClaudeUserTextWriteAttempt;
-    try {
-      // Not registered with the tripwire: a pending frame would make `startRun` refuse until a
-      // terminal that never comes.
-      const frame = this.#outboundTextFrameWriter.compose({
-        text: CLAUDE_COMPACTION_COMMAND_TEXT,
-        // A literal: a forwarded value could carry user words under the tripwire exemption.
-        origin: CLAUDE_COMPACTION_FRAME_ORIGIN,
-      });
-      attempt = await attemptClaudeFrameWrite(channel, frame);
-    } catch (cause) {
-      // Withdraw first, or the armed timer outlives the caller. Composition calls an injected
-      // minter that may throw; rethrown, since nothing was refused or dispatched.
-      wait.abandon();
-      throw cause;
+    if (this.#runRoutes.isTurnHeld(sessionId)) {
+      throw new ClaudeSessionUnavailableError("session_turn_in_flight", { sessionId });
     }
+    // Held before the write, so no run starts into the command's turn, whose `result` would end it.
+    this.#runRoutes.holdTurnForCommand(sessionId);
+    // Armed before dispatch so a fast compaction is not lost; any early exit withdraws it.
+    const wait = this.#pendingCompactions.arm(sessionId);
+    // A command for Claude Code to run, so it goes unmarked.
+    const attempt = await attemptClaudeFrameWrite(
+      channel,
+      { text: CLAUDE_COMPACTION_COMMAND_TEXT, origin: "driver_command" },
+      mintUuidV7(),
+    );
     if (attempt.settled === "failed") {
+      // Text that never left starts no turn to release the hold; bytes that may have been taken
+      // can still start one, whose end releases it.
+      if (attempt.delivery === "unsent") {
+        this.#runRoutes.releaseCommandTurn(sessionId);
+      }
       // `provider_error` for both deliveries: this frame opens no turn, so the driver cannot say a
       // compaction happened. Withdrawn, not settled: settling is per key and would report this
       // failure to a concurrent waiter.
@@ -85,16 +92,12 @@ export class ClaudeCompactionDispatch {
     if (observed.terminal === "observed") {
       return { status: "applied", boundaryPosition: observed.boundaryPosition };
     }
-    // Only the two non-observed terminals are recorded; an applied compaction is ordinary success.
+    // An applied compaction is ordinary success; every other end is recorded.
     this.#diagnostics.emit({
       provider: "claude",
       kind: "compaction_wait_terminal",
       rawWireType: null,
-      dispositionReason:
-        observed.terminal === "wait_expired"
-          ? "the declared compaction bound elapsed with no typed compaction frame; a later " +
-            "boundary still projects"
-          : "the runtime binding was lost while a compaction wait was armed",
+      dispositionReason: COMPACTION_WAIT_FAILURE_DETAIL[observed.terminal],
       details: { sessionId, terminal: observed.terminal },
     });
     return { status: "failed", reason: observed.terminal };

@@ -1,14 +1,44 @@
 /**
- * Composes the settings a Claude session is spawned with: the callback tool server and the
- * sandbox.
+ * Composes the settings a Claude session is spawned with: the `--settings` document (retention,
+ * the agent view switch, the permission rules and the Bash sandbox) and the daemon's tool server.
  */
 
-import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
-import type { SessionCallbackTool } from "@ai-sidekicks/contracts/provider/driver/tools";
-import { CLAUDE_SUPERVISED_ALLOWS_UNSANDBOXED_COMMANDS } from "../subagent-policy.js";
+import path from "node:path";
 
-/** The server every callback tool is served under; the provider namespaces tools by server. */
-const CLAUDE_CALLBACK_MCP_SERVER_NAME: string = "sessions";
+import type { PermissionLevel } from "@ai-sidekicks/contracts/session/controls/methods";
+import type { SessionCallbackTool } from "@ai-sidekicks/contracts/provider/driver/tools";
+import { CLAUDE_AGENT_VIEW_OFF_SETTINGS } from "../../../../orchestration/native-subagent-governor.js";
+import { DAEMON_TOOL_SERVER_NAME } from "../../../tool-server-name.js";
+import type { ClaudePermissionsDocument, ClaudeSpawnBoundLegs } from "../session/transport.js";
+
+/**
+ * How many days Claude Code keeps a conversation file before cleaning it up: long enough that a
+ * session's own history never disappears under it. Written at every spawn and in each account home.
+ */
+export const CLAUDE_CLEANUP_PERIOD_DAYS = 36_500;
+
+// The shell tool and the command its Reviewed ask rule names.
+const CLAUDE_SHELL_TOOL_NAME = "Bash";
+const CLAUDE_REMOVAL_COMMAND = "rm";
+
+/** The ask rule held while a session is at Reviewed, so every removal reaches the daemon. */
+const CLAUDE_REVIEWED_REMOVAL_ASK_RULE = `${CLAUDE_SHELL_TOOL_NAME}(${CLAUDE_REMOVAL_COMMAND} *)`;
+
+/**
+ * Whether a tool ask is a removal the Reviewed ask rule matches: the shell tool running a command
+ * that starts with `rm` and its arguments. `input` is untrusted provider output.
+ */
+export function matchesClaudeReviewedRemovalRule(
+  toolName: string,
+  input: Readonly<Record<string, unknown>>,
+): boolean {
+  const command = input["command"];
+  return (
+    toolName === CLAUDE_SHELL_TOOL_NAME &&
+    typeof command === "string" &&
+    command.trimStart().startsWith(`${CLAUDE_REMOVAL_COMMAND} `)
+  );
+}
 
 /** Why the registry is withheld: the bound transport does not write the `--mcp-config` for it. */
 export const CLAUDE_CALLBACK_TOOL_TRANSPORT_UNAVAILABLE_DETAIL: string =
@@ -24,7 +54,7 @@ function composeClaudeProviderToolName(serverName: string, toolName: string): st
   return `mcp__${serverName}__${toolName}`;
 }
 
-/** The daemon-hosted ephemeral MCP server one session's callback tools ride. */
+/** The daemon-hosted MCP server one session's callback tools ride. */
 export interface ClaudeCallbackMcpServerDescriptor {
   readonly serverName: string;
   /** The admitted registry, in registration order and de-duplicated by name. */
@@ -44,50 +74,126 @@ export function composeClaudeCallbackMcpServer(
   const registryNamesByProviderName = new Map<string, string>();
   for (const name of admittedByName.keys()) {
     registryNamesByProviderName.set(
-      composeClaudeProviderToolName(CLAUDE_CALLBACK_MCP_SERVER_NAME, name),
+      composeClaudeProviderToolName(DAEMON_TOOL_SERVER_NAME, name),
       name,
     );
   }
   return {
-    serverName: CLAUDE_CALLBACK_MCP_SERVER_NAME,
+    serverName: DAEMON_TOOL_SERVER_NAME,
     tools: [...admittedByName.values()],
     registryNamesByProviderName,
   };
 }
 
 /**
- * The `--settings` sandbox document one posture composes to; the transport resolves
- * `credentialPolicyRef` into `permissions.deny` `Read` rules beside the environment scrub, so the
- * driver never sees the denied names and the deny holds on both the filesystem and the environment.
+ * The Bash sandbox at Sandboxed. `allowUnsandboxedCommands` is never written, so the person's own
+ * setting holds; `excludedCommands` is pinned empty, and a host whose sandbox cannot start refuses.
  */
 export interface ClaudeSandboxSettings {
-  readonly sandbox: {
-    readonly enabled: boolean;
-    readonly failIfUnavailable: boolean;
-    readonly allowUnsandboxedCommands: boolean;
-    readonly filesystem: { readonly allowWrite: readonly string[] };
-  };
-  readonly credentialPolicyRef: string;
+  readonly enabled: true;
+  readonly failIfUnavailable: true;
+  readonly excludedCommands: readonly string[];
+  readonly filesystem: { readonly allowWrite: readonly string[] };
 }
 
 /**
- * Composes the sandbox settings document for a posture. Every permission level but `yolo` runs in
- * the sandbox, and `readonly` writes nowhere. `failIfUnavailable` is `true` on every level: a
- * sandboxed level must refuse to start rather than run unsandboxed. The credential policy is
- * handed over on every level.
+ * The `--settings` document every Claude Code spawn carries. `advisorModel` is `""` when the
+ * session's advisor is off, which outranks the person's own advisor, and `outputStyle` is absent
+ * where the session chose none.
  */
-export function composeClaudeSandboxSettings(posture: ExecutionPosture): ClaudeSandboxSettings {
-  const sandboxed = posture.mode !== "yolo";
+export interface ClaudeSpawnSettings {
+  readonly cleanupPeriodDays: number;
+  readonly disableAgentView: true;
+  readonly permissions: ClaudePermissionsDocument;
+  readonly advisorModel: string;
+  readonly outputStyle?: string;
+  readonly sandbox?: ClaudeSandboxSettings;
+}
+
+/**
+ * The advisor setting for a session's advisor, `null` when off: `""`, which Claude Code reads as no
+ * advisor and which outranks the person's own advisor in their Claude Code settings.
+ */
+export function claudeAdvisorSetting(advisorModel: string | null): string {
+  return advisorModel ?? "";
+}
+
+// A permission rule's absolute path is written with a leading `//`, which roots it at `/`.
+function absolutePathRule(tool: "Read" | "Edit", absolutePath: string, glob: string): string {
+  return `${tool}(/${path.join(absolutePath, glob)})`;
+}
+
+/**
+ * The session's whole permission rules at `level`: the curated credential paths denied to every
+ * file-reading tool, a shared `.git` root's `hooks/` and `config` denied to every editing tool, the
+ * removal ask rule at Reviewed, and the memory folder's `.md` files allowed at Sandboxed.
+ * `apply_flag_settings` replaces the document whole, so a level move resends all of it.
+ */
+export function composeClaudePermissions(
+  legs: Pick<ClaudeSpawnBoundLegs, "credentialDenyPaths" | "memoryFolders">,
+  writableRoots: readonly string[],
+  level: PermissionLevel | undefined,
+): ClaudePermissionsDocument {
+  const deny = legs.credentialDenyPaths.map((denied) => absolutePathRule("Read", denied, "**"));
+  for (const root of writableRoots) {
+    // The shared `.git` folder of a linked worktree, which the sandbox lets Bash write except its
+    // hooks and config; the editing tools get the same exclusions.
+    if (path.basename(root) === ".git") {
+      deny.push(
+        absolutePathRule("Edit", root, "hooks/**"),
+        absolutePathRule("Edit", root, "config"),
+      );
+    }
+  }
+  const allow =
+    level === "sandboxed"
+      ? legs.memoryFolders.flatMap((folder) => [
+          absolutePathRule("Read", folder, "**/*.md"),
+          absolutePathRule("Edit", folder, "**/*.md"),
+        ])
+      : [];
   return {
-    sandbox: {
-      enabled: sandboxed,
-      failIfUnavailable: true,
-      allowUnsandboxedCommands: sandboxed ? CLAUDE_SUPERVISED_ALLOWS_UNSANDBOXED_COMMANDS : true,
-      filesystem: {
-        // Empty, not omitted: an omitted list asks for the provider's default.
-        allowWrite: posture.mode === "readonly" ? [] : posture.writableRoots,
-      },
-    },
-    credentialPolicyRef: posture.credentialPolicyRef,
+    allow,
+    ask: level === "reviewed" ? [CLAUDE_REVIEWED_REMOVAL_ASK_RULE] : [],
+    deny,
+  };
+}
+
+/**
+ * Composes the `--settings` document for a spawn at the session's current posture, advisor and
+ * output style.
+ */
+export function composeClaudeSpawnSettings(
+  legs: Pick<
+    ClaudeSpawnBoundLegs,
+    "credentialDenyPaths" | "memoryFolders" | "executionPosture" | "advisorModel" | "outputStyle"
+  >,
+): ClaudeSpawnSettings {
+  const posture = legs.executionPosture;
+  const settings: ClaudeSpawnSettings = {
+    cleanupPeriodDays: CLAUDE_CLEANUP_PERIOD_DAYS,
+    ...CLAUDE_AGENT_VIEW_OFF_SETTINGS,
+    permissions: composeClaudePermissions(legs, posture?.writableRoots ?? [], posture?.mode),
+    advisorModel: claudeAdvisorSetting(legs.advisorModel),
+    ...(legs.outputStyle === null ? {} : { outputStyle: legs.outputStyle }),
+  };
+  if (posture?.mode !== "sandboxed") {
+    return settings;
+  }
+  return { ...settings, sandbox: composeClaudeSandboxSettings(posture.writableRoots) };
+}
+
+/**
+ * The Bash sandbox block at Sandboxed, writable in `writableRoots` alone: the spawn's `--settings`
+ * carries it, and a live move into Sandboxed sends it by `apply_flag_settings {sandbox}`.
+ */
+export function composeClaudeSandboxSettings(
+  writableRoots: readonly string[],
+): ClaudeSandboxSettings {
+  return {
+    enabled: true,
+    failIfUnavailable: true,
+    excludedCommands: [],
+    filesystem: { allowWrite: writableRoots },
   };
 }

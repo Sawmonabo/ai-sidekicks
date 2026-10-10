@@ -24,6 +24,7 @@ import {
 import type { GitRunner } from "../../git/process.js";
 import { KeyedLock } from "../../keyed-lock.js";
 import { mintUuidV7 } from "../../uuid-v7.js";
+import { TEST_EXECUTION_POSTURE } from "../../session/run/__tests__/engine.test-support.js";
 import { requireWorkspaceRow } from "../__fixtures__/rows.js";
 import { COMMON_DIR_METADATA_PATH } from "../row-guards.js";
 import { ExecutionRootSetupGate } from "../run-setup-gate.js";
@@ -101,7 +102,12 @@ function setUp(
   return {
     runId,
     run: () =>
-      runGate.assertRunReady({ runId, sessionId: SessionIdSchema.parse(sessionId), queueItem }),
+      runGate.assertRunReady({
+        runId,
+        sessionId: SessionIdSchema.parse(sessionId),
+        queueItem,
+        executionPosture: TEST_EXECUTION_POSTURE,
+      }),
   };
 }
 

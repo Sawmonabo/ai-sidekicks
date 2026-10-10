@@ -82,6 +82,7 @@ export type SessionEventType =
   | "session.spend_limit_reached"
   | "session.restore_finished"
   | "session.advisor_changed"
+  | "session.output_style_changed"
   | "agent.provider_binding_changed"
   | "agent.provider_binding_change_failed"
   | "workspace.preparing"

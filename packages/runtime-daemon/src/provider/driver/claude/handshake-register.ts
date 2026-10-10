@@ -3,7 +3,6 @@
 // replaced by each later `system/init` that reports one and reported once per run when the run's
 // own handshake arrives.
 
-import { DRIVER_PROVIDER_COMMAND_ENTRIES_MAX } from "@ai-sidekicks/contracts/provider/driver/length-limits";
 import { type RunId } from "@ai-sidekicks/contracts/run/id";
 import {
   ProviderCommandEntrySchema,
@@ -59,13 +58,16 @@ export class ClaudeHandshakeRegister {
   readonly #unsettledRunBySession: Map<SessionId, ClaudeUnsettledRun> = new Map();
   readonly #diagnostics: DriverDiagnosticsEmitter;
   readonly #readBoundProviderAccountId: ((sessionId: SessionId) => string | null) | undefined;
-  readonly #onRunOutputSpeedSettled: RunOutputSpeedSettledListener | undefined;
+  readonly #onRunOutputSpeedSettled: RunOutputSpeedSettledListener;
 
   constructor(
     dependencies: Pick<
       ClaudeSessionLifecycleDependencies,
-      "diagnostics" | "readBoundProviderAccountId" | "onRunOutputSpeedSettled"
-    >,
+      "diagnostics" | "readBoundProviderAccountId"
+    > & {
+      /** Receives each run's settled declared fast-mode state, once. */
+      readonly onRunOutputSpeedSettled: RunOutputSpeedSettledListener;
+    },
   ) {
     this.#diagnostics = dependencies.diagnostics;
     this.#readBoundProviderAccountId = dependencies.readBoundProviderAccountId;
@@ -115,7 +117,7 @@ export class ClaudeHandshakeRegister {
     this.#unsettledRunBySession.delete(sessionId);
     const state = this.observedOutputSpeedFor(sessionId, providerSessionId);
     if (state !== undefined) {
-      this.#onRunOutputSpeedSettled?.(sessionId, unsettled.runId, state);
+      this.#onRunOutputSpeedSettled(sessionId, unsettled.runId, state);
     }
   }
 
@@ -137,9 +139,8 @@ export class ClaudeHandshakeRegister {
   }
 
   /**
-   * The command and skill entries one live session declared, capped at the contract's maximum with
-   * `complete: false` and a diagnostic when trimmed. Before the handshake it answers empty and
-   * complete. Throws when the account registry contradicts the admitted account.
+   * The command and skill entries one live session declared, all of them. Before the handshake it
+   * answers empty. Throws when the account registry contradicts the admitted account.
    */
   enumerateProviderCommands(
     sessionId: SessionId,
@@ -152,27 +153,11 @@ export class ClaudeHandshakeRegister {
     };
     const held = this.heldHandshakeFor(sessionId, live.providerSessionId);
     // Before the handshake (it rides a turn the user may not have made) answer empty, not refuse.
-    const declared =
+    const entries =
       held === undefined
         ? []
         : this.#composeProviderCommandEntries(sessionId, held.declaration, binding);
-    const admitted = declared.slice(0, DRIVER_PROVIDER_COMMAND_ENTRIES_MAX);
-    if (admitted.length < declared.length) {
-      this.#diagnostics.emit({
-        provider: "claude",
-        kind: "provider_command_entries_truncated",
-        rawWireType: null,
-        dispositionReason:
-          "the provider published more command and skill entries than one group admits; the " +
-          "tail is dropped from this reply and the held enumeration is unchanged",
-        details: {
-          sessionId,
-          declaredEntryCount: declared.length,
-          admittedEntryCount: admitted.length,
-        },
-      });
-    }
-    return { binding, entries: admitted, complete: admitted.length === declared.length };
+    return { binding, entries };
   }
 
   /**
@@ -212,7 +197,8 @@ export class ClaudeHandshakeRegister {
 
   /**
    * Records the fast-mode state a process reported, in its `initialize` reply at spawn or in a
-   * handshake. Read once, as observed, so a declaration the bounds refuse emits its diagnostic once.
+   * handshake. Read once, as observed, so a declaration the bounds refuse emits its diagnostic
+   * once.
    */
   holdFastMode(
     sessionId: SessionId,

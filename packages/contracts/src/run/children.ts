@@ -9,7 +9,7 @@ import {
   ChildHandleSchema,
   type AgentTreeMember,
   type ChildHandle,
-} from "../agent/methods.js";
+} from "../agent/tree.js";
 import { countSchema } from "../internal/wire-scalars.js";
 import { DRIVER_WIRE_REASON_MAX_LEN } from "../provider/driver/methods.js";
 import { RunIdSchema, type RunId } from "./id.js";

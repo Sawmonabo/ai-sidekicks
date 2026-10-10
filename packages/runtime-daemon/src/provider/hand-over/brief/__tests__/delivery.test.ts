@@ -7,11 +7,11 @@ import {
   BriefDeliveryCoordinator,
   type BriefDeliveryRequest,
   type BriefDeliverySettlement,
-  type BriefOutboundFrame,
+  type BriefTurn,
   type BriefTargetIdentity,
   UnownedBriefTargetError,
 } from "../delivery.js";
-import type { CanonicalTranscriptProjection } from "../../../driver/contract.js";
+import type { CanonicalTranscriptProjection } from "../../canonical-transcript.js";
 import { projectionOf, requestFor as renderRequestFor, turn } from "./projection.test-support.js";
 
 /** The target every fixture request addresses. */
@@ -113,19 +113,19 @@ describe("brief delivery — a target takes one brief send", () => {
     expect(target.sendAttempts).toBe(2);
   });
 
-  it("sends the brief as system narration, never exempt from the command tripwire", async () => {
-    // The brief carries an earlier conversation's text; only a driver command skips the tripwire.
-    const sentFrames: BriefOutboundFrame[] = [];
+  it("sends the brief as system narration, the text the daemon composed itself", async () => {
+    // The brief carries an earlier conversation's text, so a leading `/` or an `@path` in it must
+    // reach the model as written, never run as a command or expand a file.
+    const sentTurns: BriefTurn[] = [];
     const coordinator = new BriefDeliveryCoordinator({
-      sendBriefTurn: async (frame: BriefOutboundFrame): Promise<void> => {
-        sentFrames.push(frame);
+      sendBriefTurn: async (sent: BriefTurn): Promise<void> => {
+        sentTurns.push(sent);
       },
     });
 
     await deliverVia(coordinator, requestFor(HELLO));
 
-    expect(sentFrames).toHaveLength(1);
-    expect(sentFrames[0]?.frame.origin).toBe("system_narration");
-    expect(sentFrames[0]?.frame.tripwireExempt).toBe(false);
+    expect(sentTurns).toHaveLength(1);
+    expect(sentTurns[0]?.brief.origin).toBe("system_narration");
   });
 });

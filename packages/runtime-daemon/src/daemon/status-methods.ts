@@ -13,6 +13,7 @@ import type { ProcessIdentity } from "@ai-sidekicks/contracts/process-identity";
 
 import { registerDescribedMethod } from "../ipc/handlers/register-described-method.js";
 import type { ProcessTreeUsage } from "./process-tree-usage.js";
+import { describeRejection } from "../rejection.js";
 
 /** The running daemon's facts the status read reports. */
 export interface StatusMethodsDeps {
@@ -71,7 +72,7 @@ async function readUsageOrNull(deps: StatusMethodsDeps): Promise<ProcessTreeUsag
   try {
     return await deps.readProcessTreeUsage();
   } catch (failure) {
-    const reason = failure instanceof Error ? failure.message : String(failure);
+    const reason = describeRejection(failure);
     deps.writeServiceLog(`The processor and memory reading failed: ${reason}`);
     return null;
   }

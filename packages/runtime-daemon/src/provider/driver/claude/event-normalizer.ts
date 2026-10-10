@@ -5,11 +5,12 @@
 // `__fixtures__/`, so a re-pin fails a test). A row that names a normalized kind takes its category
 // and event type from `EVENT_DISPOSITION_BY_KIND`; a row with no kind states its own.
 //
-// Left out on purpose, so the diagnostic default branch reports them instead of a guessed row:
-// the `assistant` / `user` message frames (no authless probe records their shape), the subagent
-// signals (see {@link normalizeClaudeSubagentLifecycle}), `command_lifecycle`,
-// `queued_notification` (daemon-to-CLI, so anomalous inbound), `model_refusal_*`,
-// `prompt_suggestion`, and the `set_effort`, `rewind` and `compact` control subtypes.
+// Left out of the census: the frames the delivery side reads itself (the `assistant` and `user`
+// messages, the `stream_event` frames of a response being written, the `task_*` helper frames, `informational`, `status`, `permission_denied` and the four
+// model switches), which the router still classifies below; and, so the diagnostic default branch
+// reports them instead of a guessed row, `command_lifecycle`, `queued_notification` (daemon-to-CLI,
+// so anomalous inbound), `prompt_suggestion`, and the `set_effort`, `rewind` and `compact` control
+// subtypes.
 
 import { SESSION_EVENT_TYPES } from "@ai-sidekicks/contracts/event/session";
 import type { EventCategory } from "@ai-sidekicks/contracts/event/envelope";
@@ -33,7 +34,6 @@ export type ClaudeWireFrameKind =
   | "system/init"
   | "system/api_retry"
   | "system/api_error"
-  | "system/rate_limit_event"
   | "system/compact_boundary"
   | "system/worker_shutting_down"
   | "system/hook_started"
@@ -45,6 +45,8 @@ export type ClaudeWireFrameKind =
   | "system/memory_recall"
   | "system/local_command_output"
   | "system/task_progress"
+  // Stream channel, an account quota snapshot as its own `type`, with no subtype.
+  | "rate_limit_event"
   // Stream channel, `type: "result"`.
   | "result/success"
   | "result/error_max_turns"
@@ -201,9 +203,9 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
   // The rename happens here: the wire's `rate_limit_event` becomes the `rate_limits` kind, an
   // account quota snapshot. It is the preferred carrier because it is pushed, with no round trip
   // on the experimental `get_usage`.
-  "system/rate_limit_event": {
+  rate_limit_event: {
     disposition: "normalized",
-    frameKind: "system/rate_limit_event",
+    frameKind: "rate_limit_event",
     channel: "stream",
     normalizedKind: "rate_limits",
   },
@@ -290,8 +292,8 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
     frameKind: "system/task_progress",
     channel: "stream",
     reason:
-      "intra-task progress; the adopted `task_create` / `task_update` kinds and " +
-      "`todo_update` snapshots carry the durable task state",
+      "intra-task progress; `task_updated` and `task_notification` carry a helper's state, " +
+      "and the task and to-do lists stay with Claude Code",
   },
 
   // A `result` frame does not end the read loop (trailing events can follow), so the loop reads
@@ -416,7 +418,7 @@ const CLAUDE_FRAME_NORMALIZATION_RECORD = {
     channel: "control-request",
     reason:
       "daemon-originated read of the experimental usage surface; its ANSWER is what carries " +
-      "telemetry, and the push carrier `system/rate_limit_event` is the preferred source " +
+      "telemetry, and the push carrier `rate_limit_event` is the preferred source " +
       "where both are available",
   },
   "control_request/get_context_usage": {
@@ -515,7 +517,7 @@ const CLAUDE_FRAME_NORMALIZATION_BY_KIND: ReadonlyMap<
 
 /**
  * Composes the census key from a frame's `type` and subtype; a `null` subtype yields the bare
- * `type`, which is no census kind and so reaches the diagnostic seam. Inputs are untrusted.
+ * `type`, which reaches the diagnostic seam unless the census lists it. Inputs are untrusted.
  */
 export function composeClaudeWireFrameKind(frameType: string, subtype: string | null): string {
   return subtype === null ? frameType : `${frameType}/${subtype}`;
@@ -534,8 +536,11 @@ export function normalizeClaudeWireFrame(frameKind: string): ClaudeFrameNormaliz
   return normalization;
 }
 
-// Claude Code's question tool.
-const CLAUDE_QUESTION_TOOL_NAME = "AskUserQuestion";
+/** Claude Code's question tool, by its name on the wire. */
+export const CLAUDE_QUESTION_TOOL_NAME = "AskUserQuestion";
+
+/** The tool Claude Code asks to leave plan mode through, carrying the plan, by its wire name. */
+export const CLAUDE_PLAN_EXIT_TOOL_NAME = "ExitPlanMode";
 
 const CLAUDE_QUESTION_TOOL_NORMALIZATION: ClaudeFrameNormalization = Object.freeze(
   composeClaudeFrameNormalization({
@@ -604,21 +609,19 @@ export function resolveClaudeFrameEmissionRoute(
   return { route: "emit", normalization };
 }
 
-/**
- * Wire name of a Claude subagent start, which arrives in the parent's stream with
- * `parent_tool_use_id`. Claimed by name, outside the census, which holds only recorded kinds.
- */
+/** The signal a helper's `task_started` frame is read as: a helper began in the lead's stream. */
 export const CLAUDE_SUBAGENT_START_SIGNAL = "SubagentStart" as const;
 
-/** Wire name of a Claude subagent stop; see {@link CLAUDE_SUBAGENT_START_SIGNAL}. */
-const CLAUDE_SUBAGENT_STOP_SIGNAL = "SubagentStop" as const;
+/** The signal a helper's `task_notification` frame is read as; see the start signal. */
+export const CLAUDE_SUBAGENT_STOP_SIGNAL = "SubagentStop" as const;
 
 /** One Claude subagent-lifecycle signal, as the driver core read it. */
 export interface ClaudeSubagentLifecycleSignal {
   /** Derived from the two wire-name constants so a rename is a compile error at every reader. */
   readonly signal: typeof CLAUDE_SUBAGENT_START_SIGNAL | typeof CLAUDE_SUBAGENT_STOP_SIGNAL;
+  /** The helper's `task_id`, which its own frames and hook callbacks carry as `agent_id`. */
   readonly subagentId: string;
-  /** `parent_tool_use_id`, copied verbatim so the subagent tree pairs. */
+  /** The Agent call's `tool_use_id` that started the helper, copied verbatim. */
   readonly parentToolUseId: string | null;
 }
 
@@ -689,7 +692,7 @@ function classifyClaudeFrameKindForRouting(frameKind: string): ThreadFrameFamily
     // Connection- and account-scoped, including the control channel (connection-level both ways).
     case "system/api_retry":
     case "system/api_error":
-    case "system/rate_limit_event":
+    case "rate_limit_event":
     case "system/init":
     case "system/worker_shutting_down":
     case "control_request/can_use_tool":
@@ -714,9 +717,9 @@ function classifyClaudeFrameKindForRouting(frameKind: string): ThreadFrameFamily
     // Thread-scoped usage: the compaction marker rides the thread it compacts.
     case "system/compact_boundary":
       return { scope: "thread", capability: "usage" };
-    // Subagent lifecycle: thread-scoped; the start is also the router's registration input.
-    case CLAUDE_SUBAGENT_START_SIGNAL:
-    case CLAUDE_SUBAGENT_STOP_SIGNAL:
+    // A helper's start and end: thread-scoped; the start is also the router's registration input.
+    case "system/task_started":
+    case "system/task_notification":
       return { scope: "thread", capability: "lifecycle" };
     // Thread-scoped content: the result terminals and the remaining system-channel subtypes.
     case "result/success":
@@ -733,6 +736,18 @@ function classifyClaudeFrameKindForRouting(frameKind: string): ThreadFrameFamily
     case "system/memory_recall":
     case "system/local_command_output":
     case "system/task_progress":
+    case "system/task_updated":
+    case "system/background_tasks_changed":
+    case "system/informational":
+    case "system/status":
+    case "system/permission_denied":
+    case "system/model_refusal_fallback":
+    case "system/model_fallback":
+    case "system/model_consent_fallback":
+    case "system/model_refusal_no_fallback":
+    case "assistant":
+    case "stream_event":
+    case "user":
       return { scope: "thread", capability: "content" };
     default:
       return { scope: "unknown" };

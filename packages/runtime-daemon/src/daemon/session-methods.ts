@@ -45,7 +45,8 @@ import {
 } from "../ipc/handlers/transcript-methods.js";
 import type { StreamingPrimitive } from "../ipc/streaming-primitive.js";
 import type { ProviderRegistry } from "../provider/driver/registry.js";
-import type { SpawnEnvPair } from "../provider/spawn-env.js";
+import { ProviderConversationPurge } from "../provider/conversation-purge.js";
+import type { SpawnEnvNameMatch, SpawnEnvPair } from "../provider/spawn-env.js";
 import { RuntimeBindingStore } from "../provider/runtime-binding-store.js";
 import type { RunSetupGate } from "../session/run/setup-gates.js";
 import { SessionAutoTitle } from "../session/auto-title.js";
@@ -54,6 +55,7 @@ import { SessionConversion } from "../session/convert.js";
 import { SessionCreation } from "../session/create.js";
 import { directoryStatementsFor } from "../session/directory/row.js";
 import { SessionListFeed } from "../session/directory/list-feed.js";
+import { SessionDirectoryProviderPort } from "../session/directory/provider-port.js";
 import { SessionDraftStore } from "../session/draft-store.js";
 import { SessionGroupService } from "../session/groups/service.js";
 import { SessionLinkService } from "../session/links/service.js";
@@ -94,7 +96,10 @@ export interface SessionMethodsDeps {
   readonly folderPlace: FolderPlace;
   /** The machine settings file, which a create reads and writes the last lead model to. */
   readonly settingsFile: MachineSettingsFile;
-  /** The provider drivers, whose close ends a closed session's provider leg. */
+  /**
+   * The provider drivers, whose close ends a closed session's provider leg and whose purge deletes
+   * a deleted session's conversations.
+   */
   readonly providers: ProviderRegistry;
   /** The streaming primitive every streaming handler shares. */
   readonly streamingPrimitive: StreamingPrimitive;
@@ -110,6 +115,8 @@ export interface SessionMethodsDeps {
   readonly readDamagedFromSequence: DamagedFromSequenceReader;
   /** The login shell a project's setup commands run in; `null` runs the system's default one. */
   readonly commandShell: string | null;
+  /** How this system compares environment variable names, which setup commands are built under. */
+  readonly environmentNameMatch: SpawnEnvNameMatch;
   /** The login shell's environment captured at the start, which setup commands are built from. */
   readonly providerBaseEnvironment: readonly SpawnEnvPair[];
   /** Writes one line to the service log. */
@@ -124,6 +131,10 @@ export interface RegisteredSessionServices {
   readonly sessions: SessionService;
   /** The whole-session purge, which deletes a session a person deletes. */
   readonly purge: SessionPurge;
+  /** The store of every run's provider bindings, which the provider side writes too. */
+  readonly runtimeBindings: RuntimeBindingStore;
+  /** The session directory's reads and records that the provider side calls. */
+  readonly providerPort: SessionDirectoryProviderPort;
   /**
    * The one watch over every chat's managed workspace; its `whenFailed` says when it stopped
    * reporting writes.
@@ -189,11 +200,12 @@ export function registerSessionMethods(
     repoMounts,
     git: deps.git,
   });
+  const runtimeBindings = new RuntimeBindingStore(database);
   const changes = new SessionChanges({
     reader: database.reader,
     events: eventLog,
     providers: deps.providers,
-    runtimeBindings: new RuntimeBindingStore(database),
+    runtimeBindings,
   });
   const projectRecords = new ProjectRecords(database.reader, deps.folderPlace);
   const projectListFeed = new ProjectListFeed({
@@ -340,6 +352,7 @@ export function registerSessionMethods(
     homeDirectory: deps.homeDirectory,
     folderPlace: deps.folderPlace,
     commandShell: deps.commandShell,
+    environmentNameMatch: deps.environmentNameMatch,
     baseEnvironment: deps.providerBaseEnvironment,
     streamingPrimitive: deps.streamingPrimitive,
     outboundQueue: deps.outboundQueue,
@@ -366,6 +379,11 @@ export function registerSessionMethods(
     nodeId: deps.nodeId,
     eventLog,
     managedWorkspaces,
+    providerConversations: new ProviderConversationPurge({
+      reader: database.reader,
+      runtimeBindings,
+      providers: deps.providers,
+    }),
     sessionLock: changes.lock,
     sessionList: listFeed,
     relatedRanking,
@@ -379,6 +397,15 @@ export function registerSessionMethods(
     eventLog,
     sessions,
     purge,
+    runtimeBindings,
+    providerPort: new SessionDirectoryProviderPort({
+      reader: database.reader,
+      runtimeBindings,
+      git,
+      settingsFile: deps.settingsFile,
+      projectRecords,
+      writeServiceLog: deps.writeServiceLog,
+    }),
     managedWorkspaceWrites: writeWatcher,
     setupGate: repo.setupGate,
     start: () => {

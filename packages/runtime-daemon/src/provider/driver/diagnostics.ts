@@ -1,7 +1,7 @@
-// The daemon diagnostic channel both event normalizers route to: the typed
-// `DriverDiagnosticRecord`, the emitter that lands each record on the daemon log and a counter,
-// and the bounded reorder buffer. These are diagnostics for the person, never `session_events`
-// envelopes; a frame that reaches this channel is never silently dropped.
+// The daemon diagnostic channel the provider drivers and the run engine route to: the typed
+// `DriverDiagnosticRecord` and the emitter that lands each record on the daemon log and a counter.
+// These are diagnostics for the person, never `session_events` envelopes; a frame that reaches
+// this channel is never silently dropped.
 
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
@@ -47,8 +47,6 @@ export type DriverDiagnosticKind =
   // A second announcement for a child whose usage base exists. The driver declines to re-base
   // (that would re-meter the child's whole spend) and to emit a second `subagent.started`.
   | "thread_duplicate_child_announcement"
-  // The first suppression per thread of a child's transcript projection, so deltas do not flood.
-  | "thread_child_transcript_suppressed"
   // A capability re-declaration threw or missed its liveness deadline.
   | "capability_refresh_failed"
   // A successful detection read withdrew a flag the matrix declares because this build lacks the
@@ -73,20 +71,13 @@ export type DriverDiagnosticKind =
   // stands and only the activity row is missing.
   | "callback_tool_activity_record_failed"
   // A subagent definition the daemon cannot boundary-mediate is disabled at spawn.
-  | "subagent_definition_disabled"
-  // Concurrent subagents above the declared cap; observability only, never fails the run.
-  | "subagent_concurrency_breach"
-  // The tripwire swallowed a provider-bound text frame and the run-terminal consumer threw; the
-  // trip and the disposal stand, but the terminal the person sees may not have landed.
-  | "text_neutralization_trip_report_failed"
-  // Disposing the channel a tripwire trip condemned failed; the slot stays quarantined with the
-  // channel kept for a later close.
-  | "quarantined_session_dispose_failed"
-  // The wait for the typed compaction frame ended without it (per-driver bound elapsed, or the
-  // binding stopped being live); records which fired. Never emitted when compaction applied.
+  | "subagent_definition_field_withheld"
+  // A rewind or resume superseded a run's turn and the run-terminal consumer threw; the
+  // supersession stands, but the failure the person sees may not have landed.
+  | "superseded_run_report_failed"
+  // The wait for the typed compaction frame ended without it, because the binding stopped being
+  // live. Never emitted when compaction applied.
   | "compaction_wait_terminal"
-  // Entries beyond the per-group cap were dropped and `complete` is false; carries both counts.
-  | "provider_command_entries_truncated"
   // An entry broke the contract's bounds; it is dropped and its siblings are unaffected.
   | "provider_command_entry_rejected"
   // A declared output-speed state broke the bounds, so the binding reads as unobserved until the
@@ -95,7 +86,7 @@ export type DriverDiagnosticKind =
   // The provider refused the output-speed level the driver applied, so the process runs on the
   // level it held; the run's declared state reports which.
   | "output_speed_apply_refused"
-  // A choice set over the cardinality cap or with no readable admissible option. The ask still
+  // A choice set with an unreadable option or no readable admissible one. The ask still
   // reaches the user as free text; only the choice set is lost.
   | "interactive_request_option_set_dropped"
   // A receiver-generated task handle could not be stored on its receipt row (over a column bound,
@@ -110,15 +101,44 @@ export type DriverDiagnosticKind =
   | "late_event_absorbed"
   // A binding's capped set of operation associations evicted its oldest entry, so a late delivery
   // of that operation is attributed to the execution before the last cut, never to the current one.
-  | "epoch_association_evicted";
+  | "epoch_association_evicted"
+  // A provider process or service that ended on its own was started again; names the account and
+  // each conversation it resumed, and counts per account, so one that keeps dying shows.
+  | "provider_restarted"
+  // The crash that filled the crash window ended the automatic restarts; carries how it exited.
+  | "provider_crash_loop"
+  // Reporting a process's exit, a restart or a build move, or pointing a binding back after a
+  // failed rewind, failed with no caller left to tell.
+  | "process_report_failed"
+  // A delivery the run engine or a registered port refused or failed to take.
+  | "delivery_dispatch_failed"
+  // A control frame from the provider with no request id or subtype, so nothing could take it.
+  | "control_frame_malformed"
+  // Writing the daemon's answer to a provider's control request failed; the process is ended.
+  | "control_answer_failed"
+  // A provider output line passed the daemon's frame size ceiling; the process is ended.
+  | "provider_frame_oversized"
+  // A short control-only process's read (a command's choices, a model's reply reserve) failed; what
+  // needed it says why.
+  | "control_only_read_failed"
+  // Codex's catalog dump, or one row of it, could not be run or read; those picker rows carry no
+  // window.
+  | "model_window_read_failed"
+  // A message's final text did not begin with the text already streamed as its pieces, which stand.
+  | "streamed_text_diverged"
+  // The provider cut a response short after some of its blocks were streamed: what still waited is
+  // dropped, and the pieces already stored stay.
+  | "streamed_blocks_abandoned";
 
 /**
  * One daemon diagnostic the person sees; `details` is flat JSON-safe primitives. `rawWireType` is
  * null when no single frame caused it, else untrusted provider output: never interpolate it into
- * anything that executes.
+ * anything that executes. `providerAccountId` names the account a record is about, which its
+ * counter is also counted by.
  */
 export interface DriverDiagnosticRecord {
   readonly provider: ProviderName;
+  readonly providerAccountId?: string | undefined;
   readonly kind: DriverDiagnosticKind;
   readonly rawWireType: string | null;
   readonly dispositionReason: string;
@@ -146,7 +166,6 @@ export const DRIVER_DIAGNOSTIC_COUNTER_NAMES: Readonly<Record<DriverDiagnosticKi
     thread_pending_hold_shed: "driver.thread_router.pending_hold_shed",
     thread_registration_refused: "driver.thread_router.registration_refused",
     thread_duplicate_child_announcement: "driver.thread_router.duplicate_child_announcement",
-    thread_child_transcript_suppressed: "driver.thread_router.child_transcript_suppressed",
     capability_refresh_failed: "driver.capability_refresh.declaration_failed",
     capability_flag_withdrawn: "driver.capability_refresh.flag_withdrawn",
     callback_tool_seam_absent: "driver.callback_tool.seam_absent",
@@ -155,12 +174,9 @@ export const DRIVER_DIAGNOSTIC_COUNTER_NAMES: Readonly<Record<DriverDiagnosticKi
     callback_tool_registry_superseded: "driver.callback_tool.registry_superseded",
     callback_tool_registry_release_ignored: "driver.callback_tool.registry_release_ignored",
     callback_tool_activity_record_failed: "driver.callback_tool.activity_record_failed",
-    subagent_definition_disabled: "driver.subagent.definition_disabled",
-    subagent_concurrency_breach: "driver.subagent.concurrency_breach",
-    text_neutralization_trip_report_failed: "driver.text_neutralization.trip_report_failed",
-    quarantined_session_dispose_failed: "driver.session.quarantined_dispose_failed",
+    subagent_definition_field_withheld: "driver.subagent.definition_field_withheld",
+    superseded_run_report_failed: "driver.session.superseded_run_report_failed",
     compaction_wait_terminal: "driver.compaction.wait_terminal",
-    provider_command_entries_truncated: "driver.provider_commands.entries_truncated",
     provider_command_entry_rejected: "driver.provider_commands.entry_rejected",
     output_speed_state_rejected: "driver.output_speed.state_rejected",
     output_speed_apply_refused: "driver.output_speed.apply_refused",
@@ -169,6 +185,17 @@ export const DRIVER_DIAGNOSTIC_COUNTER_NAMES: Readonly<Record<DriverDiagnosticKi
     mcp_task_handle_write_failed: "driver.mcp_task_handle.write_failed",
     late_event_absorbed: "run.late_event.absorbed",
     epoch_association_evicted: "run.epoch.association_evicted",
+    provider_restarted: "driver.process.restarted",
+    provider_crash_loop: "driver.process.crash_loop",
+    process_report_failed: "driver.process.report_failed",
+    delivery_dispatch_failed: "driver.delivery.dispatch_failed",
+    control_frame_malformed: "driver.control.frame_malformed",
+    control_answer_failed: "driver.control.answer_failed",
+    provider_frame_oversized: "driver.process.frame_oversized",
+    control_only_read_failed: "driver.control_only.read_failed",
+    model_window_read_failed: "driver.model_window.read_failed",
+    streamed_text_diverged: "driver.streamed_text.diverged",
+    streamed_blocks_abandoned: "driver.streamed_text.blocks_abandoned",
   });
 
 /** Lands one record on the structured daemon log stream. */
@@ -264,6 +291,9 @@ export class DriverDiagnosticsEmitter {
     try {
       this.#counterSink.increment(DRIVER_DIAGNOSTIC_COUNTER_NAMES[frozenRecord.kind], {
         provider: frozenRecord.provider,
+        ...(frozenRecord.providerAccountId === undefined
+          ? {}
+          : { providerAccountId: frozenRecord.providerAccountId }),
       });
     } catch {
       // Same containment for the counter sink.
@@ -278,167 +308,5 @@ export class DriverDiagnosticsEmitter {
   /** Records currently retained for one kind, oldest first. */
   recentRecordsOfKind(kind: DriverDiagnosticKind): readonly DriverDiagnosticRecord[] {
     return this.#recentRecords.filter((record) => record.kind === kind);
-  }
-}
-
-/**
- * One buffered normalized event awaiting its pair. `toolCallId` is the provider `tool_use_id`
- * carried verbatim; an `unpaired` event never waits.
- */
-export interface ReorderBufferedEvent<TEvent> {
-  readonly toolCallId: string | null;
-  readonly pairingRole: "initiation" | "completion" | "unpaired";
-  readonly event: TEvent;
-}
-
-/**
- * The bounded reorder buffer for a boundary that pairs tool events by `toolCallId`: the only
- * reordering is holding a completion that arrives before its initiation. Overflow and pairing
- * timeout flush in arrival order, each with a diagnostic; the clock is caller-supplied (`nowMs`).
- */
-export class NormalizedEventReorderBuffer<TEvent> {
-  /** Seen-initiation cap when the caller declares none. */
-  static readonly DEFAULT_MAX_SEEN_INITIATION_IDS = 1024;
-
-  readonly #provider: ProviderName;
-  readonly #diagnostics: DriverDiagnosticsEmitter;
-  readonly #maxBufferedEvents: number;
-  readonly #pairingTimeoutMs: number;
-  readonly #maxSeenInitiationIds: number;
-  readonly #heldCompletions: {
-    readonly buffered: ReorderBufferedEvent<TEvent>;
-    readonly heldAtMs: number;
-  }[] = [];
-  // Capped and drained on pairing: one identity is added per tool call and no completion is
-  // guaranteed, so unbounded it would leak. Insertion-ordered, so eviction takes the oldest.
-  readonly #seenInitiationToolCallIds = new Set<string>();
-
-  constructor(options: {
-    readonly provider: ProviderName;
-    readonly diagnostics: DriverDiagnosticsEmitter;
-    readonly maxBufferedEvents: number;
-    readonly pairingTimeoutMs: number;
-    readonly maxSeenInitiationIds?: number;
-  }) {
-    this.#provider = options.provider;
-    this.#diagnostics = options.diagnostics;
-    this.#maxBufferedEvents = options.maxBufferedEvents;
-    this.#pairingTimeoutMs = options.pairingTimeoutMs;
-    this.#maxSeenInitiationIds =
-      options.maxSeenInitiationIds ?? NormalizedEventReorderBuffer.DEFAULT_MAX_SEEN_INITIATION_IDS;
-  }
-
-  /** Admits one event; returns the events it releases, in order. */
-  admit(buffered: ReorderBufferedEvent<TEvent>, nowMs: number): readonly TEvent[] {
-    const released: TEvent[] = [...this.#releaseExpired(nowMs)];
-
-    if (buffered.pairingRole === "completion" && buffered.toolCallId !== null) {
-      if (!this.#seenInitiationToolCallIds.has(buffered.toolCallId)) {
-        this.#heldCompletions.push({ buffered, heldAtMs: nowMs });
-        if (this.#heldCompletions.length > this.#maxBufferedEvents) {
-          released.push(...this.#flushAllOnOverflow());
-        }
-        return released;
-      }
-      this.#seenInitiationToolCallIds.delete(buffered.toolCallId);
-      released.push(buffered.event);
-      return released;
-    }
-
-    if (buffered.pairingRole === "initiation" && buffered.toolCallId !== null) {
-      this.#admitSeenInitiation(buffered.toolCallId);
-      released.push(buffered.event);
-      const pairedCompletions = this.#releaseHeldCompletionsFor(buffered.toolCallId);
-      if (pairedCompletions.length > 0) {
-        this.#seenInitiationToolCallIds.delete(buffered.toolCallId);
-      }
-      released.push(...pairedCompletions);
-      return released;
-    }
-
-    released.push(buffered.event);
-    return released;
-  }
-
-  /** Releases held events whose pairing timeout has expired, emitting a diagnostic for each. */
-  flushExpired(nowMs: number): readonly TEvent[] {
-    return this.#releaseExpired(nowMs);
-  }
-
-  #admitSeenInitiation(toolCallId: string): void {
-    this.#seenInitiationToolCallIds.add(toolCallId);
-    while (this.#seenInitiationToolCallIds.size > this.#maxSeenInitiationIds) {
-      const oldestEntry = this.#seenInitiationToolCallIds.values().next();
-      if (oldestEntry.done === true) {
-        return;
-      }
-      this.#seenInitiationToolCallIds.delete(oldestEntry.value);
-      this.#diagnostics.emit({
-        provider: this.#provider,
-        kind: "reorder_seen_initiation_evicted",
-        rawWireType: null,
-        dispositionReason:
-          "seen-initiation set exceeded its declared cap; oldest identity evicted, so a " +
-          "later completion for it holds instead of pairing",
-        details: {
-          toolCallId: oldestEntry.value,
-          maxSeenInitiationIds: this.#maxSeenInitiationIds,
-        },
-      });
-    }
-  }
-
-  #releaseHeldCompletionsFor(toolCallId: string): TEvent[] {
-    const released: TEvent[] = [];
-    for (let index = this.#heldCompletions.length - 1; index >= 0; index -= 1) {
-      const held = this.#heldCompletions[index];
-      if (held !== undefined && held.buffered.toolCallId === toolCallId) {
-        this.#heldCompletions.splice(index, 1);
-        released.unshift(held.buffered.event);
-      }
-    }
-    return released;
-  }
-
-  #releaseExpired(nowMs: number): TEvent[] {
-    const released: TEvent[] = [];
-    for (let index = 0; index < this.#heldCompletions.length; ) {
-      const held = this.#heldCompletions[index];
-      if (held !== undefined && nowMs - held.heldAtMs >= this.#pairingTimeoutMs) {
-        this.#heldCompletions.splice(index, 1);
-        released.push(held.buffered.event);
-        this.#diagnostics.emit({
-          provider: this.#provider,
-          kind: "tool_pairing_timeout",
-          rawWireType: null,
-          dispositionReason:
-            "unpaired toolCallId held past the reorder buffer's pairing timeout; flushed in " +
-            "arrival order",
-          details: {
-            toolCallId: held.buffered.toolCallId,
-            heldForMs: nowMs - held.heldAtMs,
-            pairingTimeoutMs: this.#pairingTimeoutMs,
-          },
-        });
-      } else {
-        index += 1;
-      }
-    }
-    return released;
-  }
-
-  #flushAllOnOverflow(): TEvent[] {
-    const flushed = this.#heldCompletions.map((held) => held.buffered.event);
-    const flushedCount = this.#heldCompletions.length;
-    this.#heldCompletions.length = 0;
-    this.#diagnostics.emit({
-      provider: this.#provider,
-      kind: "reorder_buffer_overflow",
-      rawWireType: null,
-      dispositionReason:
-        "reorder buffer exceeded its maximum buffered-event cap; flushed in arrival order",
-      details: { flushedEventCount: flushedCount, maxBufferedEvents: this.#maxBufferedEvents },
-    });
-    return flushed;
   }
 }

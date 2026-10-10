@@ -1,14 +1,15 @@
 // The daemon's start and stop in this process: a stop closes the socket before it drains the
-// terminals, and still closes the database when a step before it fails; a start refuses a data
-// folder another daemon holds, a socket another daemon answers on, a run folder other accounts can
-// reach, and, before the bind, a socket path longer than the platform binds, while a path at that
-// limit binds and answers a hello; a data folder other accounts could read becomes the person's
-// alone; of two starts racing for one socket, the loser is refused and the token file holds the
-// winner's token; a start that fails at the bind stops the session services it built and closes
-// the search thread and the database, and one whose session services fail to load fails with what
-// the load threw, never leaving it unhandled, and frees the data folder. A start releases the
-// execution root of each run its recovery settles. A start that fails while its login shell runs
-// ends the shell and fails at once.
+// terminals and ends every driver's provider processes, and still closes the database when a step
+// before it fails; a start refuses a data folder another daemon holds, a socket another daemon
+// answers on, a run folder other accounts can reach, and, before the bind, a socket path longer
+// than the platform binds, while a path at that limit binds and answers a hello; a data folder
+// other accounts could read becomes the person's alone; of two starts racing for one socket, the
+// loser is refused and the token file holds the winner's token; a start that fails at the bind
+// stops the session services it built and closes the search thread and the database, and one whose
+// session services fail to load fails with what the load threw, never leaving it unhandled, and
+// frees the data folder. A start releases the execution root of each run its recovery settles, and
+// starts registering the drivers only once the search index has opened. A start that fails while
+// its login shell runs ends the shell and fails at once.
 
 import { randomUUID } from "node:crypto";
 import { access, chmod, lstat, mkdir, readFile, writeFile } from "node:fs/promises";
@@ -43,6 +44,8 @@ import { EventLogService } from "../../events/log-service.js";
 import { SessionEventAppender } from "../../events/session/appender.js";
 import { connect } from "../../ipc/__fixtures__/local-socket-client.js";
 import { readSocketPathLimit } from "../../ipc/socket-path-limit.js";
+import type { FakeProviderDriver } from "../../provider/driver/__fixtures__/contract-doubles.js";
+import { ExecutionPostureService } from "../../policy/execution-posture-service.js";
 import { seedSessionRow } from "../../session/directory/__fixtures__/directory-rows.js";
 import { RunEngine } from "../../session/run/engine.js";
 import { insertQueuedRunStatement } from "../../session/run/projection.js";
@@ -51,6 +54,7 @@ import {
   insertExecutionContextCheckout,
 } from "../../workflow/runs/__fixtures__/rows.js";
 import { DaemonAlreadyRunningError } from "../already-running-error.js";
+import { DaemonProviders } from "../providers.js";
 import { captureLoginShellEnvironment } from "../login-shell-environment.js";
 import { DATABASE_FILE_NAME, DaemonProcess, type DaemonProcessOptions } from "../process.js";
 import {
@@ -119,6 +123,20 @@ const mockSessionMethods = vi.hoisted(
 );
 vi.mock("../session-methods.js", mockSessionMethods);
 
+// The drivers these daemons build, in build order: each one's capability read refuses, since no
+// provider is part of these tests, so neither registers.
+const builtDrivers = vi.hoisted((): FakeProviderDriver[] => []);
+vi.mock("../../provider/driver/factories.js", async () => {
+  const { FakeProviderDriver: Driver } =
+    await import("../../provider/driver/__fixtures__/contract-doubles.js");
+  const build = (): FakeProviderDriver => {
+    const driver = new Driver(() => Promise.reject(new Error("no provider is part of this test")));
+    builtDrivers.push(driver);
+    return driver;
+  };
+  return { PROVIDER_DRIVER_FACTORIES: { claude: build, codex: build } };
+});
+
 // Makes the session services' module throw what `failure` resolves to when it next loads, until
 // the returned function, or the end of the test, restores it.
 function failSessionMethodsLoad(failure: Promise<Error>): () => void {
@@ -161,6 +179,22 @@ describe("DaemonProcess.stop", () => {
     ]);
     // The last connection's close checkpoints the log into the database and removes it.
     await expect(access(writeAheadLogPath())).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("ends every driver's provider processes once the socket has closed", async () => {
+    const builtBefore = builtDrivers.length;
+    const daemon = await startDaemon({ shutdown: () => Promise.resolve(EMPTY_DRAIN) });
+    const wasSocketAnsweringAtShutdown: boolean[] = [];
+    for (const driver of builtDrivers.slice(builtBefore)) {
+      driver.shutdown = async () => {
+        wasSocketAnsweringAtShutdown.push(await isSocketAnswering(runFolder.socketPath));
+      };
+    }
+
+    await daemon.stop();
+
+    // One per provider: a driver the stop skipped would leave its provider processes running.
+    expect(wasSocketAnsweringAtShutdown).toStrictEqual([false, false]);
   });
 
   it("still closes the database when the terminal drain fails, and throws that failure", async () => {
@@ -228,6 +262,28 @@ describe("DaemonProcess.start", () => {
     await startDaemon(DRAIN_NOTHING);
   });
 
+  it("starts registering the drivers only once the search index has opened", async () => {
+    const indexOpen = Promise.withResolvers<void>();
+    useSearchThreads((options) => {
+      const thread = startSearchThread(options);
+      vi.spyOn(thread, "whenOpenSettled").mockReturnValue(indexOpen.promise);
+      return thread;
+    });
+    const providersStart = vi.spyOn(DaemonProviders.prototype, "start");
+    onTestFinished(() => {
+      providersStart.mockRestore();
+    });
+
+    await startDaemon(DRAIN_NOTHING);
+    // The start answers ready while the index still opens, and no provider process runs yet.
+    expect(providersStart).not.toHaveBeenCalled();
+
+    indexOpen.resolve();
+    await vi.waitFor(() => {
+      expect(providersStart).toHaveBeenCalledOnce();
+    });
+  });
+
   it("fails with what the session services' load threw, never left unhandled, and closes the database and frees the data folder", async () => {
     // A rejection nothing handled would end the daemon before its start could clean up.
     const unhandled: unknown[] = [];
@@ -281,7 +337,11 @@ describe("DaemonProcess.start", () => {
       { sessionEvents },
       EventEnvelopeVersionSchema.parse("1.0"),
     ).append("run.queued", queued, { transactionalPrelude: [insertQueuedRunStatement(queued)] });
-    const lastEngine = new RunEngine({ reader: database.reader, sessionEvents });
+    const lastEngine = new RunEngine({
+      reader: database.reader,
+      sessionEvents,
+      executionPostures: new ExecutionPostureService({ homeDirectory }),
+    });
     await lastEngine.transition({ runId, newState: "starting" });
     await lastEngine.transition({ runId, newState: "running" });
     const checkout = await insertExecutionContextCheckout(database.writer);

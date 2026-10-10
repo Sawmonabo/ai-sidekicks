@@ -3,22 +3,27 @@
  * the descriptors that read them, and the decisions and responders that answer them.
  */
 
+import type { QuestionAnswer } from "@ai-sidekicks/contracts/question";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { cutToCodeUnits } from "../../../text-cut.js";
+import { isPlainObject } from "../../record-readers.js";
 import type { ProviderAskOption } from "./ask-option-sets.js";
+import { composeCodexElicitationContent } from "./delivery/elicitation-form.js";
+import { composeCodexUserInputAnswers } from "./delivery/question-answers.js";
+import { isCodexToolCallApprovalElicitation } from "./event-normalizer.js";
 
 /**
- * Ceiling on one unterminated inbound line (UTF-16 code units, since counting bytes rescans the
- * tail on every chunk) and on one outbound frame (UTF-8 bytes; the provider publishes no limit).
- * It stops a peer that never sends a newline from growing the buffer until the daemon dies.
+ * Ceiling on one message the daemon takes from Codex, over its websocket or a hook, in UTF-8
+ * bytes; Codex names no limit on what it sends. It stops a peer from growing one message until the
+ * daemon dies.
  */
-export const CODEX_MAX_LINE_LENGTH: number = 32 * 1024 * 1024;
+export const CODEX_MAX_RECEIVED_MESSAGE_BYTES: number = 32 * 1024 * 1024;
 
 /**
- * The refusal reason substituted for an answer too large for the wire: a constant, so it cannot
- * itself exceed the bound. The answer is refused, never truncated (a truncated tool output reads
- * as complete), and the loss is recorded on both diagnostic sinks.
+ * The refusal reason substituted for an answer larger than the service said it takes, past which
+ * it would close the socket: a constant, so it fits. The answer is refused, never truncated (a
+ * truncated tool output reads as complete), and the loss is recorded on both diagnostic sinks.
  */
 export const CODEX_OUTBOUND_ANSWER_TOO_LARGE_REASON: string =
   "The daemon composed an answer larger than this transport will send; refusing rather than " +
@@ -31,9 +36,9 @@ export const CODEX_OUTBOUND_ANSWER_TOO_LARGE_REASON: string =
 const CODEX_ROUTED_ASK_TURN_ID_MAX_LEN = 256;
 
 /**
- * The ten server-initiated request methods of the pinned protocol (`ServerRequest` union at
- * `codex-cli 0.150.1`; regenerate, do not transcribe). An observability annotation, not a routing
- * filter: routing is keyed on the descriptors below, and any other method gets `-32601`.
+ * The ten server-initiated request methods of the protocol (`ServerRequest` union at
+ * `codex-cli 0.161.0`). An observability annotation, not a routing filter: routing is keyed on the
+ * descriptors below, and any other method gets `-32601`.
  */
 export const CODEX_SERVER_REQUEST_METHODS: ReadonlySet<string> = new Set([
   "item/commandExecution/requestApproval",
@@ -48,35 +53,43 @@ export const CODEX_SERVER_REQUEST_METHODS: ReadonlySet<string> = new Set([
   "execCommandApproval",
 ]);
 
-// Server-request routing: this table connects inbound asks to the normalizer's
-// `approval.requested`, `question.asked` and `tool.invoked`; otherwise every method+id frame gets
-// `-32601`.
-// Routed: `item/tool/call`, the three modern approval methods, the legacy pair (routed so the
-// answer does not depend on the provider's spelling) and `mcpServer/elicitation/request`.
-// Unrouted, so `-32601`: `item/tool/requestUserInput` (experimental, so it arrives on this
-// driver's `experimentalApi` connection; no descriptor composes its answer),
-// `attestation/generate` (declined at negotiation) and `account/chatgptAuthTokens/refresh`
-// (credential brokering this driver does not do).
-// Fail-closed: a routed method with no responder, a refusing one or a throwing one answers with
-// the method's own refusal shape, never `-32601` (a protocol error where a decision was asked) and
-// never silence (which hangs the turn).
+// Server-request routing: a daemon tool's call goes to the callback-tool host; an approval and a
+// question go to the run engine and then to the approvals or the questions card, which answer
+// later through `respondToRequest`. Unrouted, so `-32601`: `attestation/generate` (declined at
+// negotiation) and `account/chatgptAuthTokens/refresh` (credential brokering this driver does not
+// do). Fail-closed: a routed method with no responder, a refusing one or a throwing one answers
+// with the method's own refusal shape, never `-32601` (a protocol error where a decision was
+// asked) and never silence (which hangs the turn).
+
+/** Who answers a routed ask: the callback-tool host, the approvals, or the questions card. */
+export type CodexAskKind = "callback-tool" | "approval" | "question";
 
 /** The provider result for one answered ask, composed by its own descriptor. */
 export type CodexServerRequestResult = Record<string, unknown>;
 
 /** One routed server-request method and the two answers it can carry. */
 export interface CodexRoutedServerRequestDescriptor {
-  /** Which host answers the ask: the callback-tool host, or the approval evaluation seam. */
-  readonly askKind: "callback-tool" | "approval";
+  /** Which host answers one ask, read from its untrusted `params`. */
+  readonly classifyAsk: (params: unknown) => CodexAskKind;
   /**
    * The allowed answer. `payload` carries data the daemon supplies (a granted permission profile,
-   * an elicitation's content) and is merged, not substituted for the decision member.
+   * an elicitation's content, a question's answers) and is merged, not substituted for the
+   * decision member; `params` are the ask's own, untrusted.
    */
   readonly composeAllowedResult: (
     payload: Readonly<Record<string, unknown>> | undefined,
+    params: unknown,
   ) => CodexServerRequestResult;
   /** The refusal answer. Never carries data: a refusal grants nothing. */
   readonly composeRefusedResult: (reason: string) => CodexServerRequestResult;
+  /**
+   * A question's answer, from the questions card's answers, one per question in order; absent on
+   * a method that never asks one.
+   */
+  readonly composeAnsweredResult?: (
+    answers: readonly QuestionAnswer[],
+    params: unknown,
+  ) => CodexServerRequestResult;
 }
 
 /**
@@ -91,7 +104,7 @@ export const CODEX_ROUTED_SERVER_REQUEST_DESCRIPTORS: ReadonlyMap<
   [
     "item/tool/call",
     {
-      askKind: "callback-tool",
+      classifyAsk: () => "callback-tool",
       composeAllowedResult: (payload) => ({
         success: true,
         contentItems: readContentItems(payload),
@@ -105,7 +118,7 @@ export const CODEX_ROUTED_SERVER_REQUEST_DESCRIPTORS: ReadonlyMap<
   [
     "item/commandExecution/requestApproval",
     {
-      askKind: "approval",
+      classifyAsk: () => "approval",
       composeAllowedResult: () => ({ decision: "accept" }),
       composeRefusedResult: () => ({ decision: "decline" }),
     },
@@ -113,7 +126,7 @@ export const CODEX_ROUTED_SERVER_REQUEST_DESCRIPTORS: ReadonlyMap<
   [
     "item/fileChange/requestApproval",
     {
-      askKind: "approval",
+      classifyAsk: () => "approval",
       composeAllowedResult: () => ({ decision: "accept" }),
       composeRefusedResult: () => ({ decision: "decline" }),
     },
@@ -121,7 +134,7 @@ export const CODEX_ROUTED_SERVER_REQUEST_DESCRIPTORS: ReadonlyMap<
   [
     "item/permissions/requestApproval",
     {
-      askKind: "approval",
+      classifyAsk: () => "approval",
       // The granted profile is the daemon's to compose, so an allowed answer with no supplied
       // profile grants nothing rather than guessing a widening.
       composeAllowedResult: (payload) => ({
@@ -134,7 +147,7 @@ export const CODEX_ROUTED_SERVER_REQUEST_DESCRIPTORS: ReadonlyMap<
   [
     "execCommandApproval",
     {
-      askKind: "approval",
+      classifyAsk: () => "approval",
       composeAllowedResult: () => ({ decision: "approved" }),
       composeRefusedResult: (reason) => ({ decision: { denied: { rejection: reason } } }),
     },
@@ -142,47 +155,100 @@ export const CODEX_ROUTED_SERVER_REQUEST_DESCRIPTORS: ReadonlyMap<
   [
     "applyPatchApproval",
     {
-      askKind: "approval",
+      classifyAsk: () => "approval",
       composeAllowedResult: () => ({ decision: "approved" }),
       composeRefusedResult: (reason) => ({ decision: { denied: { rejection: reason } } }),
     },
   ],
   [
+    "item/tool/requestUserInput",
+    {
+      classifyAsk: () => "question",
+      // A question is answered with its answers, never a bare allow.
+      composeAllowedResult: () => {
+        throw new TypeError("A Codex question is answered with its answers, not an allow.");
+      },
+      // A question has no decline; an empty answer set is the refusal Codex reads.
+      composeRefusedResult: () => ({ answers: {} }),
+      composeAnsweredResult: (answers, params) => ({
+        answers: composeCodexUserInputAnswers(params, answers),
+      }),
+    },
+  ],
+  [
     "mcpServer/elicitation/request",
     {
-      askKind: "approval",
+      // Codex's own approval of a tool-server call is the approval card; any other is a question.
+      classifyAsk: (params) =>
+        isCodexToolCallApprovalElicitation(params) ? "approval" : "question",
       composeAllowedResult: (payload) =>
         payload === undefined ? { action: "accept" } : { action: "accept", content: payload },
       composeRefusedResult: () => ({ action: "decline" }),
+      // A question's answers fill the form's fields.
+      composeAnsweredResult: (answers, params) => ({
+        action: "accept",
+        content: composeCodexElicitationContent(params, answers),
+      }),
     },
   ],
 ]);
 
-/**
- * Why a Codex session's callback tools are withheld: they reach Codex only as the daemon's
- * per-session MCP `url` entry, never as `ThreadStartParams.dynamicTools`, and this daemon offers
- * no such entry.
- */
-export const CODEX_CALLBACK_TOOL_REGISTRATION_UNAVAILABLE_DETAIL: string =
-  "callback tools reach Codex only through the daemon's per-session MCP url entry, and this " +
-  "daemon offers none, so the registry is withheld";
-
 /** One inbound ask, as the daemon-side responder sees it. */
 export interface CodexInboundServerRequest {
+  /**
+   * The provider's own request id, as text; `respondToRequest` answers a held ask under it. Unique
+   * on one service connection.
+   */
+  readonly requestId: string;
   /** The JSON-RPC method, verbatim and untrusted; a key and a label only. */
   readonly method: string;
-  readonly askKind: "callback-tool" | "approval";
+  readonly askKind: CodexAskKind;
   /** The raw `params`, untrusted; the responder parses what it needs. */
   readonly params: unknown;
 }
 
 /**
  * The daemon-side answer to one ask. `payload` is read only by arms whose provider response
- * carries daemon-composed content (a granted permission profile, an elicitation's answer).
+ * carries daemon-composed content (a granted permission profile, a tool-server approval's
+ * content); a question is `answered` with the questions card's answers, one per question.
  */
-export type CodexServerRequestDecision =
+export type CodexServerRequestAnswer =
   | { readonly decision: "allow"; readonly payload?: Record<string, unknown> | undefined }
-  | { readonly decision: "refuse"; readonly reason: string };
+  | { readonly decision: "refuse"; readonly reason: string }
+  | { readonly decision: "answered"; readonly answers: readonly QuestionAnswer[] };
+
+/**
+ * Reads the person's answer to a held ask as it arrives: a question's `{answers}`, one per
+ * question in order, or the approval pipeline's `allow` (with an optional object `payload`) or
+ * `refuse` with a reason. Throws `TypeError` for anything else.
+ */
+export function readCodexServerRequestAnswer(response: unknown): CodexServerRequestAnswer {
+  if (isPlainObject(response)) {
+    const answers = response["answers"];
+    if (Array.isArray(answers)) {
+      // The questions service validated each answer against the questions contract.
+      return { decision: "answered", answers: answers as readonly QuestionAnswer[] };
+    }
+    const payload = response["payload"];
+    if (response["decision"] === "allow" && (payload === undefined || isPlainObject(payload))) {
+      return payload === undefined ? { decision: "allow" } : { decision: "allow", payload };
+    }
+    const reason = response["reason"];
+    if (response["decision"] === "refuse" && typeof reason === "string") {
+      return { decision: "refuse", reason };
+    }
+  }
+  throw new TypeError(
+    "A Codex ask is answered with its answers, an allow, or a refusal with its reason.",
+  );
+}
+
+/**
+ * What the responder did with one ask: answered it now, or `held` it for the person, who answers
+ * later through `respondToRequest` with a {@link CodexServerRequestAnswer}. A held ask stays
+ * pending at the provider until then.
+ */
+export type CodexServerRequestDecision = CodexServerRequestAnswer | { readonly decision: "held" };
 
 /**
  * The port the daemon binds to answer routed asks: the callback-tool host for `item/tool/call`,
@@ -307,31 +373,18 @@ export function composeRoutedAskRefusalReason(
   );
 }
 
-/**
- * How one routed ask was attributed to a run: by its named turn, by fallback to the session's sole
- * active run when it named no usable turn, or refused when its turn cannot be resolved.
- */
-export type CodexRoutedAskAttribution =
-  | { readonly outcome: "attributed"; readonly runId: RunId }
-  | { readonly outcome: "unattributed"; readonly runId: RunId | null }
-  | { readonly outcome: "refused"; readonly reason: string };
+/** The run an ask belongs to, and the binding its permission ask is delivered on. */
+export interface CodexAskOwner {
+  readonly runId: RunId;
+  readonly bindingId: string;
+}
 
 /**
- * The `thread/realtime/*` notifications opted out at negotiation (exact names, `codex-cli
- * 0.150.1`): V1 has no realtime surface, so each would be an unmapped-kind diagnostic per audio
- * delta. Never widen it to quiet a diagnostic.
+ * How one routed ask was attributed to a run: by its helper's child run or its named turn, by
+ * fallback to the session's sole active run when it named no usable turn, or refused when its turn
+ * cannot be resolved.
  */
-export const CODEX_SUPPRESSED_REALTIME_NOTIFICATION_METHODS: readonly string[] = Object.freeze([
-  "thread/realtime/started",
-  "thread/realtime/closed",
-  "thread/realtime/error",
-  // The pin publishes the `itemAdded` and `transcript/*` names beside the `item/*` ones.
-  "thread/realtime/itemAdded",
-  "thread/realtime/sdp",
-  "thread/realtime/outputAudio/delta",
-  "thread/realtime/transcript/delta",
-  "thread/realtime/transcript/done",
-  "thread/realtime/item/started",
-  "thread/realtime/item/transcript/delta",
-  "thread/realtime/item/completed",
-]);
+export type CodexRoutedAskAttribution =
+  | { readonly outcome: "attributed"; readonly owner: CodexAskOwner }
+  | { readonly outcome: "unattributed"; readonly owner: CodexAskOwner | null }
+  | { readonly outcome: "refused"; readonly reason: string };

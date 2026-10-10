@@ -21,9 +21,26 @@ export interface ProviderModel {
   // `supportsFastMode`, the Codex tier its catalog names `Fast`). Required so a missing reading
   // never looks like "no fast mode".
   fast: boolean;
+  // Whether this row is the model's larger window, offered beside its default row; the driver fills
+  // it from the provider (Codex's catalog `max_context_window`, Claude Code's `[1m]` mark on the
+  // model id). On Codex the row's `contextWindow` is the figure a pick of it records; a Claude
+  // larger row is picked by its own id.
+  largerWindow: boolean;
   // The window in tokens as the provider reports it. Absent until a reading arrives; nothing fills
   // it from a table or a default.
   contextWindow?: number | undefined;
+}
+
+/**
+ * The catalog row a choice names. A model's default row and its larger-window row share the
+ * model's id, so a row is found by its id and its `largerWindow` together, never by the id alone.
+ */
+export function findProviderModelRow<Row extends Pick<ProviderModel, "id" | "largerWindow">>(
+  rows: readonly Row[],
+  modelId: string,
+  largerWindow: boolean,
+): Row | undefined {
+  return rows.find((row) => row.id === modelId && row.largerWindow === largerWindow);
 }
 
 /** One selectable mode of one provider, normalized at the driver's boundary (`listModes`). */
@@ -46,14 +63,14 @@ export const DRIVER_CAPABILITY_FLAGS = [
   "model_mutation",
   "structured_output",
   "rollback",
-  // Forks the bound conversation into a new provider conversation through `forkConversation`,
-  // leaving the source untouched; never an undo.
+  // Moves the session onto a new provider conversation forked from the bound one at a message,
+  // through `moveSessionToFork`; never an undo.
   "session_fork",
   "session_goals",
   "callback_tools",
   "subagents",
   // User-triggered compaction of the bound session's provider-side context via `compactContext`.
-  // Native on Codex; emulated on Claude through the one tripwire-exempt `driver_command` frame.
+  // Native on Codex; on Claude Code the driver sends `/compact` as a driver command.
   "context_compaction",
   // A live read of the provider's slash-command and skill enumeration via `listProviderCommands`,
   // held as driver-session state, so the flag adds no table or column.

@@ -14,11 +14,7 @@ import { isPlainObject } from "../../record-readers.js";
  */
 export const CODEX_ACCOUNT_RATE_LIMITS_READ_METHOD = "account/rateLimits/read" as const;
 
-/**
- * The `account/rateLimits/updated` method, the push carrier of a rate-limit snapshot.
- *
- * @consumedBy the Codex driver's account rate-limit reads
- */
+/** The `account/rateLimits/updated` method, the push carrier of a rate-limit snapshot. */
 export const CODEX_ACCOUNT_RATE_LIMITS_UPDATED_METHOD = "account/rateLimits/updated" as const;
 
 // Arms meaning a rolling allowance is spent; it clears when the window turns over. The
@@ -93,6 +89,21 @@ function readCodexSpentWindowResetEpochSeconds(window: unknown): number | null {
 function codexEpochSecondsToRfc3339Utc(epochSeconds: number): string | null {
   const instant = new Date(epochSeconds * 1000);
   return Number.isNaN(instant.getTime()) ? null : instant.toISOString();
+}
+
+/**
+ * The observation after one more `account/rateLimits/updated` push: the readings so far, merged
+ * the vendor's way, become the base the new sparse push is read over.
+ */
+export function observeCodexRateLimitUpdate(
+  previous: CodexRateLimitObservation,
+  update: unknown,
+): CodexRateLimitObservation {
+  const merged = mergeCodexRateLimitReading(
+    readCodexRateLimitSnapshot(previous.latestRead),
+    readCodexRateLimitSnapshot(previous.rollingUpdate),
+  );
+  return { latestRead: { rateLimits: merged }, rollingUpdate: update };
 }
 
 /**

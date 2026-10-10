@@ -84,7 +84,7 @@ const CODEX_CAPABILITY_DETECTION_TABLE: DriverCapabilityDetectionTable = Object.
       "at its pin, not at every older build the driver may admit. The flag resolves from the " +
       "matrix until a parameter-level probe exists, and the gap is closed at INVOCATION " +
       "instead: a build that accepts the method and then refuses the boundary field is " +
-      "classified at `CodexLifecycleManager.forkConversation`'s fork dispatch as " +
+      "classified at `CodexLifecycleManager.moveSessionToFork`'s fork dispatch as " +
       "`driver.capability_unsupported`, rather than surfacing as an opaque provider fault " +
       "the caller would have to read a deserializer message to understand. That " +
       "classification covers the refusing build only — one that instead IGNORES an " +
@@ -261,6 +261,7 @@ export const CODEX_STANDARD_OUTPUT_SPEED = "default";
 
 /** Codex's static facts. */
 export const CODEX_DRIVER_DESCRIPTOR: ProviderDriverDescriptor = Object.freeze({
+  command: "codex",
   capabilityDetectionTable: CODEX_CAPABILITY_DETECTION_TABLE,
   capabilityProbeChannel: "client_request",
   capabilityProbeNegativeControl: "zzq/nonexistent_method",

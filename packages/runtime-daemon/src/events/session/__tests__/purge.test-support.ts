@@ -6,6 +6,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import { NodeIdSchema, type NodeId } from "@ai-sidekicks/contracts/runtime-node/id";
 import { SessionIdSchema, type SessionId } from "@ai-sidekicks/contracts/session/id";
 
@@ -14,6 +15,9 @@ import {
   type ScratchDatabase,
 } from "../../../database/__fixtures__/scratch.js";
 import { KeyedLock } from "../../../keyed-lock.js";
+import { ProviderConversationPurge } from "../../../provider/conversation-purge.js";
+import type { ProviderDriver } from "../../../provider/driver/contract.js";
+import { RuntimeBindingStore } from "../../../provider/runtime-binding-store.js";
 import { EventLogService } from "../../log-service.js";
 import { SessionRelatedRanking } from "../../../session/related/ranking.js";
 import { WorkspaceEventEmitter } from "../../../workspace/event-emitter.js";
@@ -159,6 +163,8 @@ export class PurgeFixture {
   readonly relatedRanking: SessionRelatedRanking;
   readonly sessionLock: KeyedLock<SessionId> = new KeyedLock<SessionId>();
   readonly sessionList: RecordingSessionList = new RecordingSessionList();
+  /** The drivers the purge deletes provider conversations through; none until an arm adds one. */
+  readonly providerDrivers: Map<ProviderName, Pick<ProviderDriver, "purgeSession">> = new Map();
   #nextSequence = 0;
 
   private constructor(scratch: ScratchDatabase, homeDirectory: string) {
@@ -223,6 +229,14 @@ export class PurgeFixture {
       nodeId: NODE,
       eventLog: new RecordingEventLog(),
       managedWorkspaces: this.managedWorkspaces,
+      providerConversations: new ProviderConversationPurge({
+        reader: this.scratch.reader,
+        runtimeBindings: new RuntimeBindingStore(this.scratch),
+        providers: {
+          lookup: (driverName) =>
+            this.providerDrivers.get(driverName) as ProviderDriver | undefined,
+        },
+      }),
       sessionLock: this.sessionLock,
       sessionList: this.sessionList,
       relatedRanking: this.relatedRanking,

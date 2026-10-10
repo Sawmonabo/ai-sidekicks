@@ -31,16 +31,12 @@ import {
   registerDriverInterruptRun,
   registerDriverListCapabilities,
   registerDriverListModels,
-  registerDriverListModes,
   registerDriverListProviderCommands,
   type DriverCatalogDeps,
   type DriverCompactContextDeps,
   type DriverListProviderCommandsDeps,
 } from "../requests.js";
-import type {
-  GetCapabilitiesResult,
-  ProviderDriver,
-} from "../../../../provider/driver/contract.js";
+import type { ProviderDriver } from "../../../../provider/driver/contract.js";
 
 const TEST_SESSION_ID = "550e8400-e29b-41d4-a716-446655440000" as SessionId;
 const SECOND_SESSION_ID = "990e8400-e29b-41d4-a716-446655440003" as SessionId;
@@ -51,10 +47,7 @@ const UNKNOWN_AGENT_ID = "770e8400-e29b-41d4-a716-446655440099";
 const TEST_BINDING_ID = "binding-1";
 const NO_TRANSPORT: HandlerContext = {};
 
-/**
- * A partial driver typed as a `ProviderDriver`. Both shipped drivers are `Pick`-narrowed classes
- * registered as the full contract, so a partial driver is what the handlers really receive.
- */
+/** A driver holding only the operations a test calls, typed as the full `ProviderDriver`. */
 function driverDouble(operations: Partial<ProviderDriver>): ProviderDriver {
   return operations as ProviderDriver;
 }
@@ -95,7 +88,7 @@ function capabilityGate(
 }
 
 /** A real `ProviderRegistry` seeded through its own `register()`, so the shipped gate refuses. */
-async function realProviderRegistry(
+function realProviderRegistry(
   driverSeeds: Partial<
     Record<
       ProviderName,
@@ -105,7 +98,7 @@ async function realProviderRegistry(
       }
     >
   >,
-): Promise<ProviderRegistry> {
+): ProviderRegistry {
   const providerRegistry = new ProviderRegistry();
   for (const driverName of PROVIDER_NAMES) {
     const seed = driverSeeds[driverName];
@@ -115,21 +108,16 @@ async function realProviderRegistry(
     const flags = Object.fromEntries(
       DRIVER_CAPABILITY_FLAGS.map((flag) => [flag, seed.flags[flag] ?? false]),
     ) as Record<DriverCapabilityFlag, boolean>;
-    const capabilitiesResult: GetCapabilitiesResult = {
-      capabilities: { flags, contractVersion: "1.0.0" },
-      tools: [],
-      cliVersion: { rawVersion: "test-provider-cli 0.0.1", parsedVersion: "0.0.1" },
-    };
-    await providerRegistry.register(
-      driverName,
-      driverDouble({ ...seed.operations, getCapabilities: async () => capabilitiesResult }),
-    );
+    providerRegistry.register(driverName, driverDouble(seed.operations), {
+      flags,
+      contractVersion: "1.0.0",
+    });
   }
   return providerRegistry;
 }
 
 /**
- * Deps for `driver.compactContext` that admit everything (a reachable session, a permitted caller,
+ * Deps for `driver.compactContext` that admit everything (a reachable session,
  * one live `claude` binding, the capability declared), so a test overrides only its own seam.
  */
 function compactContextDeps(
@@ -142,7 +130,6 @@ function compactContextDeps(
       checkCapability: capabilityGate({ claude: { context_compaction: true } }),
     },
     resolveSessionAccess: () => true,
-    evaluateInterveneAction: () => "permit",
     resolveRunBinding: () => ({ kind: "bound", driverName: "claude", bindingId: TEST_BINDING_ID }),
     ...overrides,
   };
@@ -178,7 +165,6 @@ function commandGroup(driverName: ProviderName): ProviderCommandBindingGroup {
     entries: [
       { name: "compact", kind: "command", binding: { driverName, providerAccountId: null } },
     ],
-    complete: true,
   };
 }
 
@@ -352,29 +338,6 @@ describe("driver.* — a refusal fires before any driver runs", () => {
     }
   });
 
-  it("settles a compaction the caller may not perform as a refusal, never compacting", async () => {
-    // An evaluator answering neither literal is a broken implementor, and fails closed.
-    for (const verdict of ["deny", undefined]) {
-      const registry = new MethodRegistryImpl();
-      const compactContext = vi.fn();
-      registerDriverCompactContext(
-        registry,
-        compactContextDeps(
-          { claude: driverDouble({ compactContext }) },
-          {
-            evaluateInterveneAction: (() =>
-              verdict) as unknown as DriverCompactContextDeps["evaluateInterveneAction"],
-          },
-        ),
-      );
-
-      await expect(
-        registry.dispatch("driver.compactContext", COMPACT_REQUEST, NO_TRANSPORT),
-      ).resolves.toStrictEqual({ status: "refused", reason: "not_permitted" });
-      expect(compactContext).not.toHaveBeenCalled();
-    }
-  });
-
   it("refuses a driver lacking the capability before dispatching to any binding", async () => {
     // A partial command list would tell the caller the gated binding has none, so every binding
     // is gated before any is dispatched. `claude` declares the flag, so the refusal is `codex`'s.
@@ -388,7 +351,7 @@ describe("driver.* — a refusal fires before any driver runs", () => {
       compactContextDeps(
         {},
         {
-          providerRegistry: await realProviderRegistry({
+          providerRegistry: realProviderRegistry({
             claude: { flags: { context_compaction: false }, operations: { compactContext } },
           }),
         },
@@ -400,7 +363,7 @@ describe("driver.* — a refusal fires before any driver runs", () => {
       listProviderCommandsDeps(
         {},
         {
-          providerRegistry: await realProviderRegistry({
+          providerRegistry: realProviderRegistry({
             claude: {
               flags: { provider_commands: true },
               operations: { listProviderCommands: claudeList },
@@ -481,7 +444,7 @@ describe("driver.* — a refusal fires before any driver runs", () => {
   });
 });
 
-describe("driver.listCapabilities, listModels and listModes: one unreadable driver fails", () => {
+describe("driver.listCapabilities and listModels: one unreadable driver fails", () => {
   function catalogDeps(drivers: Partial<Record<ProviderName, ProviderDriver>>): DriverCatalogDeps {
     return {
       providerRegistry: {
@@ -517,17 +480,6 @@ describe("driver.listCapabilities, listModels and listModes: one unreadable driv
     const wireError = wireErrorData(await rejectionOf(registry, "driver.listCapabilities", {}));
     expect(wireError.type).toBe("driver.unavailable");
     expect(wireError.fields).toMatchObject({ driverId: "codex" });
-  });
-
-  it("refuses an operation the resolved driver does not implement", async () => {
-    // Neither shipped driver implements `listModes`. Without the guard the call would be a
-    // `TypeError` and reach the client as a bare `-32603`, a crash report for a missing feature.
-    const registry = new MethodRegistryImpl();
-    registerDriverListModes(registry, catalogDeps({ claude: driverDouble({}) }));
-
-    const wireError = wireErrorData(await rejectionOf(registry, "driver.listModes", {}));
-    expect(wireError.type).toBe("driver.capability_unsupported");
-    expect(wireError.fields).toMatchObject({ driverId: "claude", operation: "listModes" });
   });
 
   it("fails the whole catalog read when one driver's read rejects", async () => {

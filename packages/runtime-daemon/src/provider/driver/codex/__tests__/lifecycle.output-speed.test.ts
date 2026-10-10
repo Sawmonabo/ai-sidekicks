@@ -7,11 +7,12 @@
 import { describe, expect, it } from "vitest";
 
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
-import type { ProviderOutputSpeedState } from "@ai-sidekicks/contracts/provider/driver/output-speed";
+import { QueueItemIdSchema } from "@ai-sidekicks/contracts/run/queue";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { CreateSessionParams } from "../../contract.js";
+import { mintUuidV7 } from "../../../../uuid-v7.js";
 import { drainMicrotasks } from "../../../__fixtures__/drain-microtasks.js";
-import { CodexTransportError, type CodexModelCatalogExchange } from "../index.js";
+import { CodexTransportError } from "../session/errors.js";
 import {
   type Harness,
   type JsonRpcAnswer,
@@ -21,7 +22,8 @@ import {
   TEST_MODEL,
   THREAD_ID,
   createHarness,
-  threadStartResult,
+  runConfig,
+  threadReply,
   turnCompletedFrame,
 } from "../__fixtures__/app-server-doubles.js";
 import { CREATE_PARAMS, RESUME_PARAMS } from "./lifecycle.test-support.js";
@@ -36,41 +38,31 @@ const FLEX_ONLY_MODEL = "gpt-6-luna";
 /** Read in place of a member a request left out, so an omission never passes for `null`. */
 const OMITTED = "<omitted>";
 
-const CATALOG_READ: CodexModelCatalogExchange = () =>
-  Promise.resolve({
-    data: [
-      {
-        id: TEST_MODEL,
-        displayName: "GPT-5.5",
-        serviceTiers: [{ id: FAST_TIER, name: "Fast", description: "1.5x speed, increased usage" }],
-      },
-      { id: TIERLESS_MODEL, displayName: "Daybreak Blue", serviceTiers: [] },
-      {
-        id: SECOND_FAST_MODEL,
-        displayName: "GPT-6 Sol",
-        serviceTiers: [{ id: FAST_TIER, name: "Fast", description: "2x speed" }],
-      },
-      {
-        id: FLEX_ONLY_MODEL,
-        displayName: "GPT-6 Luna",
-        serviceTiers: [{ id: "flex", name: "Flex", description: "Slower, lower cost" }],
-      },
-    ],
-    nextCursor: null,
-  });
+const CATALOG = {
+  data: [
+    {
+      id: TEST_MODEL,
+      displayName: "GPT-5.5",
+      serviceTiers: [{ id: FAST_TIER, name: "Fast", description: "1.5x speed, increased usage" }],
+    },
+    { id: TIERLESS_MODEL, displayName: "Daybreak Blue", serviceTiers: [] },
+    {
+      id: SECOND_FAST_MODEL,
+      displayName: "GPT-6 Sol",
+      serviceTiers: [{ id: FAST_TIER, name: "Fast", description: "2x speed" }],
+    },
+    {
+      id: FLEX_ONLY_MODEL,
+      displayName: "GPT-6 Luna",
+      serviceTiers: [{ id: "flex", name: "Flex", description: "Slower, lower cost" }],
+    },
+  ],
+  nextCursor: null,
+};
 
-function speedHarness(
-  onRunOutputSpeedSettled?: (
-    sessionId: SessionId,
-    runId: RunId,
-    state: ProviderOutputSpeedState,
-  ) => void,
-): Harness {
-  const harness = createHarness({ modelCatalogExchange: CATALOG_READ, onRunOutputSpeedSettled });
-  // A resume's process must not displace the reader of the one it replaces.
-  harness.server.uniqueSpawnSessionIds = true;
-  harness.server.on("thread/start", () => threadStartResult());
-  harness.server.on("thread/resume", () => threadStartResult(1));
+function speedHarness(): Harness {
+  const harness = createHarness();
+  harness.server.on("model/list", () => ({ result: CATALOG }));
   return harness;
 }
 
@@ -93,9 +85,16 @@ function sentTier(harness: Harness, method: string): unknown {
   return sentMember(harness, method, "serviceTier");
 }
 
-/** A thread establishment reply declaring `serviceTier`. */
-function declaringTier(serviceTier: string | null, turnCount = 0): () => JsonRpcAnswer {
-  return () => ({ result: { ...(threadStartResult(turnCount).result as object), serviceTier } });
+/** A thread establishment reply declaring `serviceTier`, on `threadId`. */
+function declaringTier(
+  serviceTier: string | null,
+  turnCount = 0,
+  threadId = THREAD_ID,
+): (params: unknown) => JsonRpcAnswer {
+  return (params) => {
+    const reply = threadReply(threadId, params, turnCount);
+    return { result: { ...(reply.result as object), serviceTier } };
+  };
 }
 
 let turnSequence = 0;
@@ -104,7 +103,7 @@ let turnSequence = 0;
 async function startTurn(
   harness: Harness,
   runId: RunId,
-  extra: { outputSpeed?: string; model?: string } = {},
+  extra: { outputSpeed?: string; outputSpeedForTurn?: string; model?: string } = {},
 ): Promise<string> {
   turnSequence += 1;
   const turnId = `turn-speed-${String(turnSequence)}`;
@@ -112,11 +111,13 @@ async function startTurn(
   await harness.driver.startRun({
     runId,
     agentConfig: {
-      sessionId: SESSION_ID,
-      input: "go",
+      ...runConfig("go"),
       ...(extra.model === undefined ? {} : { model: extra.model }),
     },
     ...(extra.outputSpeed === undefined ? {} : { outputSpeed: extra.outputSpeed }),
+    ...(extra.outputSpeedForTurn === undefined
+      ? {}
+      : { outputSpeedForTurn: extra.outputSpeedForTurn }),
   });
   return turnId;
 }
@@ -125,7 +126,7 @@ async function startTurn(
 async function runTurn(
   harness: Harness,
   runId: RunId,
-  extra: { outputSpeed?: string; model?: string } = {},
+  extra: { outputSpeed?: string; outputSpeedForTurn?: string; model?: string } = {},
 ): Promise<void> {
   const turnId = await startTurn(harness, runId, extra);
   harness.server.emitFrame(turnCompletedFrame(turnId, "completed"));
@@ -144,12 +145,22 @@ function emitThreadSettings(harness: Harness, threadId: string, serviceTier: unk
   harness.server.emitFrame({
     jsonrpc: "2.0",
     method: "thread/settings/updated",
-    params: { threadId, threadSettings: { model: TEST_MODEL, serviceTier } },
+    params: {
+      threadId,
+      threadSettings: {
+        model: TEST_MODEL,
+        serviceTier,
+        // The profile the session started on, as Codex reports it on every settings update.
+        activePermissionProfile: {
+          id: harness.server.paramsFor("thread/start")[0]?.["permissions"],
+        },
+      },
+    },
   });
 }
 
 describe("Codex output speed carriers", () => {
-  it("sends the requested level on establishment, every turn, a fork and a resume", async () => {
+  it("sends the requested level on establishment, every turn, a rewind and a restart", async () => {
     const harness = speedHarness();
     await createSpeedSession(harness, FAST_TIER);
     expect(sentTier(harness, "thread/start")).toBe(FAST_TIER);
@@ -158,19 +169,16 @@ describe("Codex output speed carriers", () => {
     await runTurn(harness, RUN_ID);
     expect(sentTier(harness, "turn/start")).toBe(FAST_TIER);
 
-    harness.server.on("thread/fork", () => ({
-      result: { thread: { id: "thread-forked", sessionId: "session-tree-1", turns: [] } },
-    }));
-    await harness.driver.forkConversation({
+    await harness.driver.moveSessionToFork({
       sessionId: SESSION_ID,
       bindingId: "binding-predecessor",
       position: 1,
     });
     expect(sentTier(harness, "thread/fork")).toBe(FAST_TIER);
 
-    // The level the spawn record rebuilt for the resume.
+    // The level the spawn record rebuilt for the restart's fork.
     await harness.driver.resumeSession({ ...RESUME_PARAMS, outputSpeed: FAST_TIER });
-    expect(sentTier(harness, "thread/resume")).toBe(FAST_TIER);
+    expect(sentTier(harness, "thread/fork")).toBe(FAST_TIER);
   });
 
   it("sends standard as a cleared tier, and a run's level in place of the thread's", async () => {
@@ -188,10 +196,7 @@ describe("Codex output speed carriers", () => {
     });
     expect(sentTier(harness, "turn/start")).toBeNull();
 
-    harness.server.on("thread/fork", () => ({
-      result: { thread: { id: "thread-forked", sessionId: "session-tree-1", turns: [] } },
-    }));
-    await harness.driver.forkConversation({
+    await harness.driver.moveSessionToFork({
       sessionId: SESSION_ID,
       bindingId: "binding-predecessor",
       position: 1,
@@ -199,7 +204,7 @@ describe("Codex output speed carriers", () => {
     expect(sentTier(harness, "thread/fork")).toBeNull();
 
     await harness.driver.resumeSession({ ...RESUME_PARAMS, outputSpeed: "default" });
-    expect(sentTier(harness, "thread/resume")).toBeNull();
+    expect(sentTier(harness, "thread/fork")).toBeNull();
   });
 
   it("leaves the provider's own tier alone when no level was ever requested", async () => {
@@ -210,20 +215,70 @@ describe("Codex output speed carriers", () => {
     expect(sentTier(harness, "thread/start")).toBe(OMITTED);
     expect(sentTier(harness, "turn/start")).toBe(OMITTED);
   });
+
+  it("runs one turn on standard and keeps the session on flex for the next", async () => {
+    // `Use standard` after a turn Codex failed for want of flex capacity: that turn alone goes on
+    // standard, and nothing moves the session off flex.
+    const harness = speedHarness();
+    await harness.driver.createSession({
+      ...CREATE_PARAMS,
+      model: FLEX_ONLY_MODEL,
+      outputSpeed: "flex",
+    });
+    await runTurn(harness, RUN_ID, { outputSpeed: "flex", outputSpeedForTurn: "default" });
+    expect(sentMember(harness, "turn/start", "serviceTierForTurn")).toBe("default");
+    expect(sentTier(harness, "turn/start")).toBe("flex");
+
+    // A run carrying no level falls back to the thread's own, which must still be flex.
+    await runTurn(harness, SECOND_RUN_ID);
+    expect(sentMember(harness, "turn/start", "serviceTierForTurn")).toBe(OMITTED);
+    expect(sentTier(harness, "turn/start")).toBe("flex");
+  });
+
+  it("keeps a run's one-turn level for the turn it continues in after a pause", async () => {
+    const harness = speedHarness();
+    await harness.driver.createSession({
+      ...CREATE_PARAMS,
+      model: FLEX_ONLY_MODEL,
+      outputSpeed: "flex",
+    });
+    const turnId = await startTurn(harness, RUN_ID, {
+      outputSpeed: "flex",
+      outputSpeedForTurn: "default",
+    });
+    harness.server.on("turn/interrupt", () => ({ result: {} }));
+    await harness.driver.pauseRun({ sessionId: SESSION_ID, runId: RUN_ID });
+    // The pause lands after the step in flight, by interrupting the turn.
+    harness.server.emitFrame({
+      jsonrpc: "2.0",
+      method: "item/completed",
+      params: { threadId: THREAD_ID, turnId, item: { type: "agentMessage", id: "item-1" } },
+    });
+    await drainMicrotasks();
+    harness.server.emitFrame(turnCompletedFrame(turnId, "interrupted"));
+    await drainMicrotasks();
+
+    harness.server.on("turn/start", () => ({ result: { turn: { id: "turn-after-pause" } } }));
+    await harness.driver.resumeRun({
+      sessionId: SESSION_ID,
+      runId: RUN_ID,
+      messages: [{ id: QueueItemIdSchema.parse(mintUuidV7()), content: "go on" }],
+    });
+
+    expect(harness.server.framesForMethod("turn/start")).toHaveLength(2);
+    expect(sentMember(harness, "turn/start", "serviceTierForTurn")).toBe("default");
+  });
 });
 
 describe("Codex session model", () => {
-  it("starts, resumes and forks the thread on the session's model", async () => {
+  it("starts and forks the thread on the session's model, for a rewind and a restart", async () => {
     const harness = speedHarness();
     await createSpeedSession(harness);
     expect(sentMember(harness, "thread/start", "model")).toBe(TEST_MODEL);
 
     // A run's model is the thread's from then on, so the fork carries it.
     await runTurn(harness, RUN_ID, { model: TIERLESS_MODEL });
-    harness.server.on("thread/fork", () => ({
-      result: { thread: { id: "thread-forked", sessionId: "session-tree-1", turns: [] } },
-    }));
-    await harness.driver.forkConversation({
+    await harness.driver.moveSessionToFork({
       sessionId: SESSION_ID,
       bindingId: "binding-predecessor",
       position: 1,
@@ -231,14 +286,14 @@ describe("Codex session model", () => {
     expect(sentMember(harness, "thread/fork", "model")).toBe(TIERLESS_MODEL);
 
     await harness.driver.resumeSession({ ...RESUME_PARAMS, model: TIERLESS_MODEL });
-    expect(sentMember(harness, "thread/resume", "model")).toBe(TIERLESS_MODEL);
+    expect(sentMember(harness, "thread/fork", "model")).toBe(TIERLESS_MODEL);
   });
 });
 
 const THIRD_RUN_ID = "44444444-4444-4444-8444-444444444444" as RunId;
 
 describe("Codex output speed resolution", () => {
-  it("runs a level the model does not list at standard on every carrier, refusing none", async () => {
+  it("runs a level the model does not list at standard everywhere, refusing none", async () => {
     const harness = speedHarness();
     await createSpeedSession(harness, "flex");
     expect(sentTier(harness, "thread/start")).toBeNull();
@@ -248,10 +303,10 @@ describe("Codex output speed resolution", () => {
     await runTurn(harness, SECOND_RUN_ID, { outputSpeed: "flex" });
     expect(sentTier(harness, "turn/start")).toBeNull();
 
-    harness.server.on("thread/resume", declaringTier(null, 1));
+    harness.server.on("thread/fork", declaringTier(null, 1, "thread-restarted"));
     const resumed = await harness.driver.resumeSession({ ...RESUME_PARAMS, outputSpeed: "flex" });
     expect(resumed.status).toBe("resumed");
-    expect(sentTier(harness, "thread/resume")).toBeNull();
+    expect(sentTier(harness, "thread/fork")).toBeNull();
     expect(harness.driver.observedOutputSpeedFor(SESSION_ID)).toStrictEqual({
       declared: "default",
     });
@@ -259,7 +314,7 @@ describe("Codex output speed resolution", () => {
     // A model with no tier at all runs at standard too.
     await harness.driver.createSession({
       ...CREATE_PARAMS,
-      sessionId: "session-tierless" as SessionId,
+      sessionId: "77777777-7777-4777-8777-777777777777" as SessionId,
       model: TIERLESS_MODEL,
       outputSpeed: FAST_TIER,
     });
@@ -286,14 +341,13 @@ describe("Codex output speed resolution", () => {
 
   it("reads the tier list afresh on an unchanged turn and a fork", async () => {
     let testModelTiers = [{ id: FAST_TIER, name: "Fast", description: "1.5x speed" }];
-    const harness = createHarness({
-      modelCatalogExchange: () =>
-        Promise.resolve({
-          data: [{ id: TEST_MODEL, displayName: "GPT-5.5", serviceTiers: testModelTiers }],
-          nextCursor: null,
-        }),
-    });
-    harness.server.on("thread/start", () => threadStartResult());
+    const harness = speedHarness();
+    harness.server.on("model/list", () => ({
+      result: {
+        data: [{ id: TEST_MODEL, displayName: "GPT-5.5", serviceTiers: testModelTiers }],
+        nextCursor: null,
+      },
+    }));
     await createSpeedSession(harness, FAST_TIER);
     await runTurn(harness, RUN_ID);
     expect(sentTier(harness, "turn/start")).toBe(FAST_TIER);
@@ -302,10 +356,7 @@ describe("Codex output speed resolution", () => {
     testModelTiers = [];
     await runTurn(harness, SECOND_RUN_ID);
     expect(sentTier(harness, "turn/start")).toBeNull();
-    harness.server.on("thread/fork", () => ({
-      result: { thread: { id: "thread-forked", sessionId: "session-tree-1", turns: [] } },
-    }));
-    await harness.driver.forkConversation({
+    await harness.driver.moveSessionToFork({
       sessionId: SESSION_ID,
       bindingId: "binding-predecessor",
       position: 1,
@@ -314,29 +365,15 @@ describe("Codex output speed resolution", () => {
   });
 
   it("sends no turn on a thread re-established while its level was being resolved", async () => {
-    let releaseCatalog = (): void => undefined;
-    const catalogGate = new Promise<void>((resolve) => {
-      releaseCatalog = resolve;
-    });
-    let gateNextRead = false;
-    const harness = createHarness({
-      modelCatalogExchange: async () => {
-        if (gateNextRead) {
-          await catalogGate;
-        }
-        return await CATALOG_READ();
-      },
-    });
-    harness.server.on("thread/start", () => threadStartResult());
-    harness.server.on("thread/resume", () => threadStartResult(1));
+    const harness = speedHarness();
     await createSpeedSession(harness);
 
-    gateNextRead = true;
+    const releaseCatalog = harness.server.holdAnswers("model/list");
     const starting = runTurn(harness, RUN_ID, { outputSpeed: FAST_TIER });
     await drainMicrotasks();
-    // The resume is mid-flight when the read settles, so the turn would reach a leg being
+    // The restart's fork is mid-flight when the read settles, so the turn would reach a leg being
     // replaced.
-    const releaseResume = harness.server.holdAnswers("thread/resume");
+    const releaseResume = harness.server.holdAnswers("thread/fork");
     const resuming = harness.driver.resumeSession(RESUME_PARAMS);
     await drainMicrotasks();
     releaseCatalog();
@@ -383,17 +420,13 @@ describe("Codex declared output speed", () => {
 });
 
 describe("Codex output speed per run", () => {
-  function settledHarness(): { harness: Harness; settled: unknown[] } {
-    const settled: unknown[] = [];
-    const harness = speedHarness((sessionId, runId, state) => {
-      expect(sessionId).toBe(SESSION_ID);
-      settled.push({ runId, state });
-    });
+  function settledHarness(): { harness: Harness; settled: Harness["settledOutputSpeeds"] } {
+    const harness = speedHarness();
     harness.server.on("thread/start", declaringTier(null));
-    return { harness, settled };
+    return { harness, settled: harness.settledOutputSpeeds };
   }
 
-  it("settles a turn that changes the tier on its notice, and any other on its first item", async () => {
+  it("settles a tier-changing turn on its notice, and any other on its first item", async () => {
     const { harness, settled } = settledHarness();
     await createSpeedSession(harness);
 
@@ -404,7 +437,9 @@ describe("Codex output speed per run", () => {
     expect(settled).toStrictEqual([]);
     emitThreadSettings(harness, THREAD_ID, FAST_TIER);
     await drainMicrotasks();
-    expect(settled).toStrictEqual([{ runId: RUN_ID, state: { declared: FAST_TIER } }]);
+    expect(settled).toStrictEqual([
+      { sessionId: SESSION_ID, runId: RUN_ID, state: { declared: FAST_TIER } },
+    ]);
     emitThreadSettings(harness, THREAD_ID, FAST_TIER);
     harness.server.emitFrame(turnCompletedFrame(changing, "completed"));
     await drainMicrotasks();
@@ -415,8 +450,8 @@ describe("Codex output speed per run", () => {
     emitItemStarted(harness, steady);
     await drainMicrotasks();
     const bothSettled = [
-      { runId: RUN_ID, state: { declared: FAST_TIER } },
-      { runId: SECOND_RUN_ID, state: { declared: FAST_TIER } },
+      { sessionId: SESSION_ID, runId: RUN_ID, state: { declared: FAST_TIER } },
+      { sessionId: SESSION_ID, runId: SECOND_RUN_ID, state: { declared: FAST_TIER } },
     ];
     expect(settled).toStrictEqual(bothSettled);
     emitItemStarted(harness, steady);
@@ -425,7 +460,7 @@ describe("Codex output speed per run", () => {
     expect(settled).toStrictEqual(bothSettled);
   });
 
-  it("settles at the turn's end when no notice came, and at once for a turn already ended", async () => {
+  it("settles at the turn's end with no notice, and at once for a turn already over", async () => {
     const { harness, settled } = settledHarness();
     await createSpeedSession(harness);
 
@@ -434,7 +469,9 @@ describe("Codex output speed per run", () => {
     emitItemStarted(harness, unanswered);
     harness.server.emitFrame(turnCompletedFrame(unanswered, "completed"));
     await drainMicrotasks();
-    expect(settled).toStrictEqual([{ runId: RUN_ID, state: { declared: "default" } }]);
+    expect(settled).toStrictEqual([
+      { sessionId: SESSION_ID, runId: RUN_ID, state: { declared: "default" } },
+    ]);
 
     // A turn whose end arrived before its acceptance was read.
     harness.server.on("turn/start", () => {
@@ -443,9 +480,11 @@ describe("Codex output speed per run", () => {
     });
     await harness.driver.startRun({
       runId: SECOND_RUN_ID,
-      agentConfig: { sessionId: SESSION_ID, input: "go" },
+      agentConfig: runConfig("go"),
     });
+    await drainMicrotasks();
     expect(settled.at(-1)).toStrictEqual({
+      sessionId: SESSION_ID,
       runId: SECOND_RUN_ID,
       state: { declared: "default" },
     });

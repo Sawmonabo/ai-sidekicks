@@ -15,10 +15,12 @@ import { ProviderNameSchema, type ProviderName } from "@ai-sidekicks/contracts/p
 import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import type { SessionCallbackTool } from "@ai-sidekicks/contracts/provider/driver/tools";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { SessionMode } from "@ai-sidekicks/contracts/session/controls/methods";
 import type { Statement } from "better-sqlite3";
 
 import type { DatabaseConnections } from "../database/connection/lifecycle.js";
 import type { DatabaseWriter } from "../database/writer.js";
+import { composeLeftConversationInsert, type LeftConversation } from "./left-conversations.js";
 import { assertValidContractVersion, assertValidResumeHandle } from "./output-validation.js";
 import { mintUuidV7 } from "../uuid-v7.js";
 import { isPlainObject } from "./record-readers.js";
@@ -28,6 +30,7 @@ import {
   type DriverCliVersionReport,
   type McpServerStatusProducer,
   type ResumeSessionParams,
+  type SessionToolServer,
   type SubagentPolicy,
   readCliVersionColumns,
 } from "./driver/contract.js";
@@ -42,11 +45,15 @@ export interface RuntimeBindingSpawnConfig {
   readonly executionPosture?: ExecutionPosture | undefined;
   readonly callbackTools?: SessionCallbackTool[] | undefined;
   readonly subagentPolicy?: SubagentPolicy | undefined;
+  // Every tool server the session can reach, each with the person's switch, so a resume starts
+  // with exactly the servers that were switched on.
+  readonly toolServers?: readonly SessionToolServer[] | undefined;
   readonly outputSchema?: Record<string, unknown> | undefined;
   // Bound for the run's lifetime, so a resume never re-resolves to the current default account;
   // server-resolved, never client-supplied.
   readonly providerAccountId?: string | undefined;
-  // So a resumed leg re-spawns the same binary even if PATH has changed.
+  // The build that ran, as provenance only: every start resolves the provider's command again,
+  // because an update deletes older builds.
   readonly resolvedExecutablePath?: string | undefined;
   // The requested level, never the observed `ProviderOutputSpeedState`, which would make a mode
   // that stopped being available read as accepted after a restart.
@@ -121,6 +128,27 @@ export function withSpawnedVersionCarriers(
   };
 }
 
+/** A binding pointed at the conversation its session moved onto, and the ones the session left. */
+export interface RuntimeBindingRebind {
+  readonly bindingId: string;
+  readonly resumeHandle: string;
+  readonly leftConversations: readonly LeftConversation[];
+}
+
+/**
+ * A resume a driver started on its own, after its process ended or on a new provider build, and the
+ * binding it minted for the session's leg.
+ */
+interface RuntimeBindingRelaunch {
+  /** The binding the session ran on before, whose run, driver and spawn record carry over. */
+  readonly predecessorId: string;
+  /** The id the driver minted for the relaunched leg. */
+  readonly bindingId: string;
+  /** The conversation the leg runs on now. */
+  readonly resumeHandle: string;
+  readonly leftConversations: readonly LeftConversation[];
+}
+
 /**
  * `update` patch: the mutable columns only. `spawnConfig` and `cliVersion` are absent because a
  * relaunch mints a new row; patching them would rewrite the provenance recovery rebuilds from.
@@ -160,6 +188,7 @@ const SPAWN_CONFIG_MEMBER_CHECKS = {
   executionPosture: isPlainObject,
   callbackTools: (value) => Array.isArray(value),
   subagentPolicy: isPlainObject,
+  toolServers: (value) => Array.isArray(value),
   outputSchema: isPlainObject,
   providerAccountId: (value) => typeof value === "string",
   resolvedExecutablePath: (value) => typeof value === "string",
@@ -179,21 +208,24 @@ export interface ResumeFunctionLegInjection {
 
 /**
  * Which `spawn_config` members are resume legs (handed to the driver on `ResumeSessionParams`) and
- * which are `"relaunch-input"`, consumed by spawn resolution. Unannotated on purpose: `satisfies`
- * keeps the per-key literals `ResumeLegSpawnConfigKey` reads, and an annotation would widen them.
+ * which are `"provenance"`, a record of what ran that no start reads. Unannotated on purpose:
+ * `satisfies` keeps the per-key literals `ResumeLegSpawnConfigKey` reads, and an annotation would
+ * widen them.
  */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars -- `ResumeLegSpawnConfigKey` reads it
 const SPAWN_CONFIG_RESUME_DISPOSITION = {
   executionPosture: "resume-leg",
   callbackTools: "resume-leg",
   subagentPolicy: "resume-leg",
+  toolServers: "resume-leg",
   outputSchema: "resume-leg",
   // Handed to the driver, so a resume stays on the account it was admitted against.
   providerAccountId: "resume-leg",
-  resolvedExecutablePath: "relaunch-input",
+  // What ran; a resume resolves the command where it points now.
+  resolvedExecutablePath: "provenance",
   // A parameter the driver itself takes and hands to the provider, unlike the executable path.
   outputSpeed: "resume-leg",
-} satisfies Readonly<Record<keyof RuntimeBindingSpawnConfig, "resume-leg" | "relaunch-input">>;
+} satisfies Readonly<Record<keyof RuntimeBindingSpawnConfig, "resume-leg" | "provenance">>;
 
 type ResumeDisposition = typeof SPAWN_CONFIG_RESUME_DISPOSITION;
 
@@ -217,13 +249,15 @@ export class RuntimeBindingNotResumableError extends Error {
 
 /**
  * Rebuilds a resumed leg's spawn-bound surface from its durable binding and the session's current
- * model. Throws `RuntimeBindingNotResumableError` when `resumeHandle` is null or empty, as it
- * names no session.
+ * model, its recorded larger window and its mode. Throws `RuntimeBindingNotResumableError` when
+ * `resumeHandle` is null or empty, as it names no session.
  */
 export function composeResumeSessionParams(
   sessionId: SessionId,
   binding: RuntimeBinding,
   model: string,
+  largerWindow: number | undefined,
+  mode: SessionMode,
   functionLegs: ResumeFunctionLegInjection,
 ): ResumeSessionParams {
   const resumeHandle = binding.resumeHandle;
@@ -237,11 +271,12 @@ export function composeResumeSessionParams(
     );
   }
   const spawnConfig = binding.spawnConfig;
-  // Enumerated, not spread, so the `relaunch-input` member stays off the params.
+  // Enumerated, not spread, so the `provenance` member stays off the params.
   const resumeLegs = {
     executionPosture: spawnConfig.executionPosture,
     callbackTools: spawnConfig.callbackTools,
     subagentPolicy: spawnConfig.subagentPolicy,
+    toolServers: spawnConfig.toolServers,
     outputSchema: spawnConfig.outputSchema,
     // Read back verbatim, never re-resolved.
     providerAccountId: spawnConfig.providerAccountId,
@@ -251,6 +286,8 @@ export function composeResumeSessionParams(
     sessionId,
     resumeHandle,
     model,
+    largerWindow,
+    mode,
     ...resumeLegs,
     onCallbackToolCall: functionLegs.onCallbackToolCall,
     onMcpServerStatus: functionLegs.onMcpServerStatus,
@@ -278,6 +315,17 @@ const UPDATE_BINDING_SQL = `
    WHERE id = @id AND driver_name = @driver_name AND spawn_config = @spawn_config
   RETURNING id, run_id, driver_name, contract_version, cli_version_raw, cli_version_semver,
             resume_handle, spawn_config, runtime_metadata, created_at, updated_at`;
+
+// The relaunch resolved the provider's command again, so the build the predecessor recorded may not
+// be the one that runs now: the version pair and the executable path are left unrecorded.
+const INSERT_RELAUNCHED_BINDING_SQL = `
+  INSERT INTO runtime_bindings
+    (id, run_id, driver_name, contract_version, cli_version_raw, cli_version_semver,
+     resume_handle, spawn_config, runtime_metadata, created_at, updated_at)
+  SELECT @id, run_id, driver_name, contract_version, NULL, NULL, @resume_handle,
+         json_remove(spawn_config, '$.resolvedExecutablePath'), '{}', @timestamp, @timestamp
+    FROM runtime_bindings
+   WHERE id = @predecessor_id`;
 
 const DELETE_BINDING_SQL = `DELETE FROM runtime_bindings WHERE id = ?`;
 
@@ -428,11 +476,16 @@ export class RuntimeBindingStore {
   }
 
   /**
-   * Patches a binding's mutable columns and bumps `updated_at`; resolves with the updated binding,
-   * or `undefined` when `id` is absent. An invalid patch throws even for an absent id, and an
-   * unreadable stored row throws before anything is written.
+   * Patches a binding's mutable columns and bumps `updated_at`, recording in the same write each
+   * conversation the patch moved its session off; resolves with the updated binding, or
+   * `undefined` when `id` is absent and nothing is written. An invalid patch throws even for an
+   * absent id, and an unreadable stored row throws before anything is written.
    */
-  async update(id: string, patch: UpdateRuntimeBindingPatch): Promise<RuntimeBinding | undefined> {
+  async update(
+    id: string,
+    patch: UpdateRuntimeBindingPatch,
+    leftConversations: readonly LeftConversation[] = [],
+  ): Promise<RuntimeBinding | undefined> {
     if (patch.contractVersion !== undefined) {
       assertValidContractVersion(patch.contractVersion);
     }
@@ -452,6 +505,7 @@ export class RuntimeBindingStore {
     // value read above. An absent key keeps the stored value and `resumeHandle: null` clears it,
     // which COALESCE cannot express. The parsed columns are part of the match, so the patch lands
     // only on the record just parsed.
+    const updatedAt = this.#now();
     const [result] = await this.#writer.write([
       {
         sql: UPDATE_BINDING_SQL,
@@ -466,19 +520,64 @@ export class RuntimeBindingStore {
           sets_runtime_metadata: patch.runtimeMetadata === undefined ? 0 : 1,
           runtime_metadata:
             patch.runtimeMetadata === undefined ? null : JSON.stringify(patch.runtimeMetadata),
-          updated_at: this.#now(),
+          updated_at: updatedAt,
         },
       },
+      ...leftConversations.map((conversation) =>
+        composeLeftConversationInsert(id, updatedAt, conversation),
+      ),
     ]);
     const updated = result?.rows[0] as RuntimeBindingRow | undefined;
     if (updated === undefined) {
       // The row was deleted after the read, or its driver or spawn columns, which the daemon never
       // changes, were edited outside it. Reading again answers `undefined` for the first and parses
       // the record as now stored for the second, refusing it if it no longer reads.
-      return this.update(id, patch);
+      return this.update(id, patch, leftConversations);
     }
     // Reuses the columns the patch was gated on, so the result cannot disagree with them.
     return this.#rowToDomain(updated, parsedColumns);
+  }
+
+  /**
+   * Points a binding at the conversation its session moved onto, so a later resume opens that one,
+   * recording in the same write each conversation the session left. Rejects when the binding has
+   * no row, so nothing was recorded.
+   */
+  async rebind(rebind: RuntimeBindingRebind): Promise<void> {
+    const rebound = await this.update(
+      rebind.bindingId,
+      { resumeHandle: rebind.resumeHandle },
+      rebind.leftConversations,
+    );
+    if (rebound === undefined) {
+      throw new Error(`The runtime binding ${rebind.bindingId} has no row to point elsewhere`);
+    }
+  }
+
+  /**
+   * Records the binding a driver minted when it resumed a session on its own: a new row on the
+   * predecessor's run, driver and spawn record, naming the conversation the leg runs on now, with
+   * each conversation the leg left in the same write. Rejects when the predecessor has no row, so
+   * nothing was recorded.
+   */
+  async recordRelaunch(relaunch: RuntimeBindingRelaunch): Promise<void> {
+    assertValidResumeHandle(relaunch.resumeHandle);
+    const timestamp = this.#now();
+    await this.#writer.write([
+      {
+        sql: INSERT_RELAUNCHED_BINDING_SQL,
+        bindings: {
+          id: relaunch.bindingId,
+          resume_handle: relaunch.resumeHandle,
+          timestamp,
+          predecessor_id: relaunch.predecessorId,
+        },
+        expectedRowCount: 1,
+      },
+      ...relaunch.leftConversations.map((conversation) =>
+        composeLeftConversationInsert(relaunch.bindingId, timestamp, conversation),
+      ),
+    ]);
   }
 
   /** Deletes a binding by primary key; resolves with whether a row was removed. */

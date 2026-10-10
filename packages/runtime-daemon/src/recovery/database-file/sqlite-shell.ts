@@ -22,6 +22,7 @@ import {
   RECOVERY_STALL_WINDOW_MS,
   RecoveryStallWatch,
 } from "./stall-watch.js";
+import { describeRejection } from "../../rejection.js";
 
 /** How long a shell reading the file waits out another connection's lock before it fails busy. */
 export const SQLITE_SHELL_BUSY_TIMEOUT_MS = 5_000;
@@ -194,7 +195,7 @@ export async function refuseUnfitShell(shellProgram: string): Promise<void> {
   } catch (error) {
     throw new Error(
       `The daemon's SQLite shell at ${shellProgram} could not be run, so its install is ` +
-        `damaged: ${error instanceof Error ? error.message : String(error)}`,
+        `damaged: ${describeRejection(error)}`,
       { cause: error },
     );
   }

@@ -52,10 +52,9 @@ const EMPTY_READ_PARAMS: DriverReadParams = Object.freeze({});
  * The client-facing driver surface: six request/response verbs plus `subscribeEvents`.
  *
  * `compactContext` and `applyIntervention` resolve refusals as values: a `refused` or `failed`
- * compaction (including the daemon's `not_permitted`) and a `degraded` intervention are data a
- * caller branches on. Only address, liveness and capability refusals (`session.not_found`,
- * `run.not_found`, `agent.not_found`, `driver.unavailable`, `driver.capability_unsupported`)
- * arrive as `JsonRpcRemoteError`.
+ * compaction and a `degraded` intervention are data a caller branches on. Only address, liveness
+ * and capability refusals (`session.not_found`, `run.not_found`, `agent.not_found`,
+ * `driver.unavailable`, `driver.capability_unsupported`) arrive as `JsonRpcRemoteError`.
  *
  * `interruptRun` resolves the empty `EmptyPayload`, a genuine success value: the daemon answers
  * with `{}` because the method registry parses every result and `undefined` would fail its own

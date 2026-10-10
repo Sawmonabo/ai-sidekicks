@@ -1,18 +1,16 @@
-// What the command popover says about its own enumeration. The state (reading, refused, cut short)
+// What the command popover says about its own enumeration. The state (reading, refused, no group)
 // is a fact about the read, not the commands, so it is its own line rather than a selectable entry
 // with nothing to send.
 
 import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts/provider/driver/commands";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
-import { PartialRead } from "#renderer/components/PartialRead/PartialRead.js";
-import { type ReadingState } from "#renderer/lib/partial-read.js";
 import { useProviderCommandEnumeration } from "../hooks/useProviderCommandEnumeration.js";
 
 /**
- * The provider half of the list when it is not the whole list: nobody asked, reading, refused, no
- * group attributable to this run's binding (a routing absence, not a claim about the catalog), or a
- * group the reply says was cut. Takes the group, not a flag, so it cannot disagree with the list.
+ * The provider half of the list when it is not the whole list: nobody asked, reading, refused, or
+ * no group attributable to this run's binding (a routing absence, not a claim about the catalog).
+ * Takes the group, not a flag, so it cannot disagree with the list.
  */
 export function EnumerationState(props: {
   readonly enumeration: ReturnType<typeof useProviderCommandEnumeration>;
@@ -65,21 +63,6 @@ export function EnumerationState(props: {
           </div>
         );
       }
-      // Said whether or not the filter matched: a nonempty list off a cut enumeration looks
-      // exhaustive. The figure is what the group carried; how many were dropped is not on the wire.
-      return (
-        <PartialRead
-          states={[cutEnumerationReading(addressedGroup)]}
-          subject="this run's command list"
-        />
-      );
+      return null;
   }
-}
-
-/**
- * A served group's own account of how complete its list is. `cut` says a producer stopped short
- * without a figure for what it dropped; a complete group is `served`, which renders nothing.
- */
-function cutEnumerationReading(group: ProviderCommandBindingGroup): ReadingState {
-  return group.complete ? { kind: "served" } : { kind: "cut", servedCount: group.entries.length };
 }

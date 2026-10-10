@@ -252,6 +252,7 @@ describe("EventLogService — content description members are refused on the pla
           payload: {
             sessionId: SESSION,
             runId: "run-1",
+            providerMessageId: "msg_reply_1",
             contentType: "text/markdown",
             [key]: value,
           },

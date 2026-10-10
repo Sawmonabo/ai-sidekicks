@@ -1,21 +1,9 @@
-// The input-ask choice set: what `readCodexAskOptionSet` reads from each ask shape, and how the
-// set is stamped onto the ask at the session seam.
+// The input-ask choice set: what `readCodexAskOptionSet` reads from each ask shape.
 
 import { describe, expect, it } from "vitest";
 
-import { type CodexServerRequestDecision } from "../index.js";
-import { CODEX_ASK_OPTION_SET_MAX, readCodexAskOptionSet } from "../ask-option-sets.js";
-import { type CodexSessionServerRequest } from "../server-requests.js";
-import {
-  type ManagerHarness,
-  SESSION_CONFIG,
-  SESSION_ID,
-  TEST_MODEL,
-  THREAD_ID,
-  TURN_ID,
-  createManagerHarness,
-} from "../__fixtures__/app-server-doubles.js";
-import { drainMicrotasks } from "../../../__fixtures__/drain-microtasks.js";
+import { readCodexAskOptionSet } from "../ask-option-sets.js";
+import { THREAD_ID, TURN_ID } from "../__fixtures__/app-server-doubles.js";
 
 describe("readCodexAskOptionSet (the input-ask choice set)", () => {
   it("reads `item/tool/requestUserInput` options with value === label", () => {
@@ -202,26 +190,6 @@ describe("readCodexAskOptionSet (the input-ask choice set)", () => {
     },
   );
 
-  it("drops an over-large set rather than truncating it", () => {
-    const reading = readCodexAskOptionSet("mcpServer/elicitation/request", {
-      mode: "form",
-      requestedSchema: {
-        type: "object",
-        properties: {
-          pick: {
-            type: "string",
-            enum: Array.from({ length: CODEX_ASK_OPTION_SET_MAX + 1 }, (_u, i) => `opt-${i}`),
-          },
-        },
-      },
-    });
-
-    expect(reading).toMatchObject({
-      kind: "dropped",
-      declaredCount: CODEX_ASK_OPTION_SET_MAX + 1,
-    });
-  });
-
   it("drops the WHOLE set when one option is unreadable, never a partial one", () => {
     const reading = readCodexAskOptionSet("mcpServer/elicitation/request", {
       mode: "form",
@@ -234,109 +202,5 @@ describe("readCodexAskOptionSet (the input-ask choice set)", () => {
     // A partial set silently removes a choice the provider offered, so the card would look complete
     // yet could not express the answer the provider awaits.
     expect(reading).toMatchObject({ kind: "dropped", declaredCount: 2 });
-  });
-});
-
-describe("Codex ask normalization at the session seam", () => {
-  async function askHarness(
-    recorded: CodexSessionServerRequest[],
-  ): Promise<{ harness: ManagerHarness; ask: (method: string, params: unknown) => Promise<void> }> {
-    const harness = createManagerHarness({
-      onServerNotification: true,
-      answerServerRequest: {
-        answer: async (request): Promise<CodexServerRequestDecision> => {
-          recorded.push(request);
-          return await Promise.resolve({ decision: "refuse", reason: "test" });
-        },
-      },
-    });
-    await harness.manager.createSession({
-      model: TEST_MODEL,
-      sessionId: SESSION_ID,
-      config: SESSION_CONFIG,
-    });
-    let nextRequestId = 4000;
-    const ask = async (method: string, params: unknown): Promise<void> => {
-      nextRequestId += 1;
-      harness.server.onData(
-        "pty-session-1",
-        new TextEncoder().encode(
-          `${JSON.stringify({ jsonrpc: "2.0", id: nextRequestId, method, params })}\r\n`,
-        ),
-      );
-      await drainMicrotasks();
-    };
-    return { harness, ask };
-  }
-
-  it("stamps a readable choice set onto the session-scoped ask", async () => {
-    const recorded: CodexSessionServerRequest[] = [];
-    const { ask } = await askHarness(recorded);
-
-    await ask("mcpServer/elicitation/request", {
-      threadId: THREAD_ID,
-      turnId: null,
-      serverName: "files",
-      mode: "form",
-      message: "choose",
-      requestedSchema: {
-        type: "object",
-        properties: {
-          pick: { type: "string", oneOf: [{ const: "a", title: "Alpha" }] },
-        },
-      },
-    });
-
-    expect(recorded).toHaveLength(1);
-    expect(recorded[0]?.options).toStrictEqual([{ value: "a", label: "Alpha" }]);
-    // The verbatim payload still travels beside the options; that member is a derived projection,
-    // never a replacement.
-    expect(recorded[0]?.params).toMatchObject({ serverName: "files" });
-  });
-
-  it("drops an oversized choice set with a diagnostic while the ask STILL normalizes", async () => {
-    const recorded: CodexSessionServerRequest[] = [];
-    const { harness, ask } = await askHarness(recorded);
-
-    await ask("mcpServer/elicitation/request", {
-      threadId: THREAD_ID,
-      turnId: null,
-      serverName: "files",
-      mode: "form",
-      message: "choose",
-      requestedSchema: {
-        type: "object",
-        properties: {
-          pick: {
-            type: "string",
-            enum: Array.from({ length: CODEX_ASK_OPTION_SET_MAX + 1 }, (_u, i) => `opt-${i}`),
-          },
-        },
-      },
-    });
-
-    // The ask still reaches the daemon: refusing to normalize it because its options did not
-    // parse would hang a turn over a decoration; the free-text arm is unconditional.
-    expect(recorded).toHaveLength(1);
-    expect(Object.hasOwn(recorded[0] as object, "options")).toBe(false);
-    const drops = harness.driverDiagnostics.recentRecordsOfKind(
-      "interactive_request_option_set_dropped",
-    );
-    expect(drops).toHaveLength(1);
-    expect(drops[0]?.rawWireType).toBe("mcpServer/elicitation/request");
-    expect(drops[0]?.details["declaredOptionCount"]).toBe(CODEX_ASK_OPTION_SET_MAX + 1);
-    expect(drops[0]?.details["optionSetMax"]).toBe(CODEX_ASK_OPTION_SET_MAX);
-  });
-
-  it("omits the key entirely when the ask publishes no choice set", async () => {
-    const recorded: CodexSessionServerRequest[] = [];
-    const { ask } = await askHarness(recorded);
-
-    await ask("item/commandExecution/requestApproval", { threadId: THREAD_ID });
-
-    expect(recorded).toHaveLength(1);
-    // Key presence: under `exactOptionalPropertyTypes` a present-but-undefined key differs from an
-    // absent one, and absent is what this member's contract describes.
-    expect(Object.hasOwn(recorded[0] as object, "options")).toBe(false);
   });
 });

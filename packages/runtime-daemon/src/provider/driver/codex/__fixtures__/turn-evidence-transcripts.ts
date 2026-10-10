@@ -47,8 +47,8 @@ export function codexCommandDispatchResponse(turnId: string): Record<string, unk
 
 /**
  * RECORDED: the quota-exhausted turn, with no model output and a typed declared failure. It is the
- * control for the classifier's third evidence class: a two-way "output or trip" rule would report
- * it as a neutralization failure. `itemsView: "notLoaded"` beside an empty item list is measured;
+ * control for the classifier's third evidence class: a two-way "output or nothing" rule would read
+ * it as a turn that never ran. `itemsView: "notLoaded"` beside an empty item list is measured;
  * it is why turn evidence accrues from in-flight item notifications, not from this frame alone.
  */
 export function codexQuotaExhaustedTurn(turnId: string): Record<string, unknown> {

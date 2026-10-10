@@ -11,7 +11,11 @@
 //   subscriber, called rather than copied. Queue kinds stay off it, because its queue arm needs
 //   `priority` and `createdAt`, which only the queue rows' own read supplies.
 
-import { RunIdSchema } from "@ai-sidekicks/contracts/run/id";
+import {
+  RunProviderInitializedPayloadSchema,
+  RunTurnStartedPayloadSchema,
+  RunWorkerShutdownPayloadSchema,
+} from "@ai-sidekicks/contracts/run/events";
 import { RunQueuedPayloadSchema } from "@ai-sidekicks/contracts/run/queued";
 import {
   RunRecoveryResolvedPayloadSchema,
@@ -27,9 +31,7 @@ import {
   RunStepLimitReachedPayloadSchema,
   RunTokenLimitReachedPayloadSchema,
 } from "@ai-sidekicks/contracts/session/controls/events";
-import { SessionIdSchema } from "@ai-sidekicks/contracts/session/id";
 import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
-import { z } from "zod";
 import type { ZodType } from "zod";
 
 import { describeSchemaIssue } from "./defect.js";
@@ -77,43 +79,17 @@ type RunLifecycleKind = Extract<SessionEventType, `run.${string}`>;
 type UnprojectedRunLifecycleKind = Exclude<RunLifecycleKind, RunStateStreamKind>;
 
 /**
- * The run identity every run-lifecycle payload carries: `{sessionId, runId, runVersion}`.
+ * The registered payload of each run kind no stream projects, each the contract's own schema.
  *
- * The id schemas are the contract's own; `runVersion` takes the same
- * `z.number().int().nonnegative()` the contracts package applies to every run-progression counter.
- */
-const runIdentityShape = {
-  sessionId: SessionIdSchema,
-  runId: RunIdSchema,
-  runVersion: z.number().int().nonnegative(),
-};
-
-/**
- * The registered payload of each run kind no stream projects.
- *
- * The forward rows are the only place those shapes exist, and `RunStateChangeEventSchema` is the
- * `run.subscribeState` wire projection rather than the durable payload. Not `.strict()`: what is
- * fixed for these kinds is which members are required, and refusing an invented member is
- * `beat/shape.ts`'s strict-layer leg, which reaches only kinds with a registered variant. The
- * creation row, the step and token limits and the recovery answer are registered, so their rows
- * are the contract's own schemas.
+ * `RunStateChangeEventSchema` is the `run.subscribeState` wire projection rather than the durable
+ * payload, so these kinds are checked here against the payload their own variant registers.
  */
 const REGISTERED_UNPROJECTED_RUN_PAYLOADS: Readonly<Record<UnprojectedRunLifecycleKind, ZodType>> =
   Object.freeze({
     "run.queued": RunQueuedPayloadSchema,
-    // `{sessionId, runId, runVersion, provider, model?}`.
-    "run.provider_initialized": z.object({
-      ...runIdentityShape,
-      provider: z.string().min(1),
-      model: z.string().optional(),
-    }),
-    // `{sessionId, runId, runVersion, position?}`, `position` a non-negative session position.
-    "run.turn_started": z.object({
-      ...runIdentityShape,
-      position: z.number().int().nonnegative().optional(),
-    }),
-    // `{sessionId, runId, runVersion, reason?}`, the sanitized provider-supplied shutdown reason.
-    "run.worker_shutdown": z.object({ ...runIdentityShape, reason: z.string().optional() }),
+    "run.provider_initialized": RunProviderInitializedPayloadSchema,
+    "run.turn_started": RunTurnStartedPayloadSchema,
+    "run.worker_shutdown": RunWorkerShutdownPayloadSchema,
     "run.step_limit_reached": RunStepLimitReachedPayloadSchema,
     "run.token_limit_reached": RunTokenLimitReachedPayloadSchema,
     "run.recovery_steps_added": RunRecoveryStepsAddedPayloadSchema,

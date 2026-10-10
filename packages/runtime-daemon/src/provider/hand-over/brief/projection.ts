@@ -16,7 +16,7 @@ import type {
   CanonicalTranscriptProjection,
   CanonicalTranscriptSegment,
   CanonicalTranscriptTurn,
-} from "../../driver/contract.js";
+} from "../canonical-transcript.js";
 
 /** The loss this floor declares on every path. */
 const BRIEF_FLOOR_DECLARED_LOSS_KIND: DeclaredLossKind = "conversation_history_summarized";

@@ -37,6 +37,7 @@ import { mintUuidV7 } from "../uuid-v7.js";
 import type { DamagedHistory } from "./damaged-history.js";
 import { ProjectionFailureError, type ProjectionRebuildService } from "./projection-rebuild.js";
 import type { RecoveryStatusTracker } from "./status.js";
+import { describeRejection } from "../rejection.js";
 
 /** What the pass reads, writes and reports through. */
 export interface StartupRecoveryDeps {
@@ -215,15 +216,15 @@ export class StartupRecovery {
       // A failure outside one session's fold is the store's: nothing more can be trusted.
       status.markStoreFailed();
       this.#deps.reportStoreFailure(error);
-      this.#deps.writeServiceLog(`The recovery pass failed: ${describeError(error)}`);
+      this.#deps.writeServiceLog(`The recovery pass failed: ${describeRejection(error)}`);
       await this.#recordFailure(base, {
         failureKind: hasSqliteErrorCode(error, "SQLITE_") ? "persistence_unavailable" : "other",
-        detail: boundFailureDetail(describeError(error), UNDESCRIBED_PASS_FAILURE),
+        detail: boundFailureDetail(describeRejection(error), UNDESCRIBED_PASS_FAILURE),
         runsLeftInFlight: [...runsLeftInFlight],
         durationMs: elapsedMs(passStartedAt),
       }).catch((recordError: unknown) => {
         this.#deps.writeServiceLog(
-          `Recording the failed recovery pass failed too: ${describeError(recordError)}`,
+          `Recording the failed recovery pass failed too: ${describeRejection(recordError)}`,
         );
       });
     } finally {
@@ -250,7 +251,7 @@ export class StartupRecovery {
           throw error;
         }
         this.#deps.writeServiceLog(
-          `The projections of session ${sessionId} could not be rebuilt: ${describeError(error)}`,
+          `The projections of session ${sessionId} could not be rebuilt: ${describeRejection(error)}`,
         );
         await this.#healSession(sessionId, heal, tally);
       }
@@ -384,8 +385,4 @@ export class StartupRecovery {
 // Measured on the monotonic clock, so a wall-clock change during the pass does not skew it.
 function elapsedMs(startedAt: number): number {
   return Math.round(performance.now() - startedAt);
-}
-
-function describeError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

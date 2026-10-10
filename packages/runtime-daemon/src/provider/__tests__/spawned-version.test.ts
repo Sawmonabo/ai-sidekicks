@@ -48,16 +48,23 @@ class RecordingHandshake {
 
   readonly run = (request: ProviderVersionHandshakeRequest): Promise<unknown> => {
     this.requests.push(request);
-    const reply = this.#repliesByPath.get(request.resolvedExecutablePath);
+    const reply = this.#repliesByPath.get(request.executable.resolvedExecutablePath);
     if (reply === undefined) {
       // An unregistered path is a test-design bug: fail loudly instead of reading as an
       // unparseable provider reply.
       return Promise.reject(
-        new Error(`no handshake reply registered for ${request.resolvedExecutablePath}`),
+        new Error(`no handshake reply registered for ${request.executable.resolvedExecutablePath}`),
       );
     }
     return Promise.resolve(reply);
   };
+}
+
+// The environment a handshake request starts its build in, by name.
+function environmentOf(
+  request: ProviderVersionHandshakeRequest | undefined,
+): Record<string, string> {
+  return Object.fromEntries(request?.executable.environment ?? []);
 }
 
 function codexUserAgent(codexVersion: string, clientVersion = "0.9.0"): string {
@@ -79,24 +86,25 @@ describe("auto-update suppression in the spawned child", () => {
     });
     await readSpawnedProviderVersion({
       driverName: "claude",
-      requestedCommand: executable,
+      resolveCommand: async (spawnEnvironment) =>
+        await resolveProviderExecutable("claude", executable, spawnEnvironment, {
+          isExecutableFile: () => Promise.resolve(true),
+          realpath: (candidate) => Promise.resolve(candidate),
+          platform: "darwin",
+        }),
       handshake: handshake.run,
+      environmentNameMatch: "case-sensitive",
       baseEnv: [
         ["PATH", "/usr/bin"],
         ["DISABLE_AUTOUPDATER", "0"],
       ],
-      resolver: {
-        isExecutableFile: () => Promise.resolve(true),
-        realpath: (candidate) => Promise.resolve(candidate),
-        platform: "darwin",
-      },
     });
 
     expect(handshake.requests).toHaveLength(1);
-    expect(handshake.requests[0]?.environment["DISABLE_AUTOUPDATER"]).toBe("1");
-    expect(handshake.requests[0]?.environment["DISABLE_UPDATES"]).toBe("1");
+    expect(environmentOf(handshake.requests[0])["DISABLE_AUTOUPDATER"]).toBe("1");
+    expect(environmentOf(handshake.requests[0])["DISABLE_UPDATES"]).toBe("1");
     // Everything else passes through untouched.
-    expect(handshake.requests[0]?.environment["PATH"]).toBe("/usr/bin");
+    expect(environmentOf(handshake.requests[0])["PATH"]).toBe("/usr/bin");
   });
 
   it("builds the handshake's environment from the spawn's base, never the daemon's", async () => {
@@ -108,19 +116,23 @@ describe("auto-update suppression in the spawned child", () => {
       const handshake = new RecordingHandshake({ [executable]: { version: "2.1.245" } });
       await readSpawnedProviderVersion({
         driverName: "claude",
-        requestedCommand: executable,
+        resolveCommand: async (spawnEnvironment) =>
+          await resolveProviderExecutable("claude", executable, spawnEnvironment, {
+            isExecutableFile: () => Promise.resolve(true),
+            realpath: (candidate) => Promise.resolve(candidate),
+            platform: "darwin",
+          }),
         handshake: handshake.run,
+        environmentNameMatch: "case-sensitive",
         baseEnv: [["PATH", "/usr/bin"]],
-        resolver: {
-          isExecutableFile: () => Promise.resolve(true),
-          realpath: (candidate) => Promise.resolve(candidate),
-          platform: "darwin",
-        },
       });
 
-      expect(handshake.requests[0]?.environment).toStrictEqual({
+      expect(environmentOf(handshake.requests[0])).toStrictEqual({
         PATH: "/usr/bin",
         ...PROVIDER_DRIVER_DESCRIPTORS.claude.autoUpdateOptOutEnvironment,
+        CLAUDE_AUTO_BACKGROUND_TASKS: "1",
+        CLAUDE_CODE_USER_DIALOG_TIMEOUT_MS: "0",
+        BASH_MAX_TIMEOUT_MS: "2147483647",
       });
     } finally {
       vi.unstubAllEnvs();
@@ -185,8 +197,10 @@ describe("provider executable resolution", () => {
 
       const reading = await readSpawnedProviderVersion({
         driverName: "claude",
-        requestedCommand: "claude",
+        resolveCommand: async (spawnEnvironment) =>
+          await resolveProviderExecutable("claude", "claude", spawnEnvironment, {}),
         handshake: handshake.run,
+        environmentNameMatch: "case-sensitive",
         baseEnv: [["PATH", binDirectory]],
       });
 
@@ -208,8 +222,10 @@ describe("provider executable resolution", () => {
 
       const reading = await readSpawnedProviderVersion({
         driverName: "claude",
-        requestedCommand: launcherPath,
+        resolveCommand: async (spawnEnvironment) =>
+          await resolveProviderExecutable("claude", launcherPath, spawnEnvironment, {}),
         handshake: handshake.run,
+        environmentNameMatch: "case-sensitive",
         baseEnv: [],
       });
 
@@ -217,9 +233,9 @@ describe("provider executable resolution", () => {
       expect(reading.resolvedExecutablePath).toBe(resolved.resolvedExecutablePath);
       expect(reading.resolvedExecutablePath).not.toBe(launcherPath);
       // The launcher was never spawned.
-      expect(handshake.requests.map((request) => request.resolvedExecutablePath)).toStrictEqual([
-        resolved.resolvedExecutablePath,
-      ]);
+      expect(
+        handshake.requests.map((request) => request.executable.resolvedExecutablePath),
+      ).toStrictEqual([resolved.resolvedExecutablePath]);
 
       const carriers = toBindingVersionCarriers(reading);
       expect(carriers.cliVersion).toStrictEqual({
@@ -243,6 +259,36 @@ describe("provider executable resolution", () => {
     expect(refusal.fields.requestedCommand).toBe("codex");
   });
 
+  it("looks for a bare command through the command search only after the PATH", async () => {
+    const executables = new Set<string>();
+    const dependencies = {
+      isExecutableFile: (candidate: string) => Promise.resolve(executables.has(candidate)),
+      realpath: (candidate: string) => Promise.resolve(candidate),
+      commandSearch: {
+        find: () =>
+          Promise.resolve({ build: join("/installer/bin", "codex"), folder: "/installer/bin" }),
+      },
+    };
+    const shellEnvironment: readonly SpawnEnvPair[] = [["PATH", "/shell/bin"]];
+
+    const fromFolders = await resolveProviderExecutable(
+      "codex",
+      "codex",
+      shellEnvironment,
+      dependencies,
+    );
+    expect(fromFolders.resolvedExecutablePath).toBe(join("/installer/bin", "codex"));
+
+    executables.add(join("/shell/bin", "codex"));
+    const fromPath = await resolveProviderExecutable(
+      "codex",
+      "codex",
+      shellEnvironment,
+      dependencies,
+    );
+    expect(fromPath.resolvedExecutablePath).toBe(join("/shell/bin", "codex"));
+  });
+
   // Spelled `Path`, as Windows spells it: names are matched case-insensitively there.
   const WINDOWS_SPAWN_ENV: readonly SpawnEnvPair[] = [
     ["Path", join("/tools")],
@@ -257,11 +303,11 @@ describe("provider executable resolution", () => {
       platform: "win32",
       isExecutableFile: (candidate) => {
         probed.push(candidate);
-        return Promise.resolve(candidate.endsWith(".CMD"));
+        return Promise.resolve(candidate.endsWith(".EXE"));
       },
       realpath: (candidate) => Promise.resolve(candidate),
     });
-    expect(resolved.resolvedExecutablePath.endsWith("claude.CMD")).toBe(true);
+    expect(resolved.resolvedExecutablePath.endsWith("claude.EXE")).toBe(true);
     expect(probed.some((candidate) => candidate.endsWith("claude.COM"))).toBe(true);
   });
 
@@ -382,10 +428,16 @@ describe("the version read at the spawn", () => {
   ): Promise<DeclareDriverCapabilitiesResult> {
     const reading = await readSpawnedProviderVersion({
       driverName: CODEX_DRIVER_NAME,
-      requestedCommand: CODEX_EXECUTABLE,
+      resolveCommand: async (spawnEnvironment) =>
+        await resolveProviderExecutable(
+          CODEX_DRIVER_NAME,
+          CODEX_EXECUTABLE,
+          spawnEnvironment,
+          passthroughResolver(),
+        ),
       handshake: handshake.run,
+      environmentNameMatch: "case-sensitive",
       baseEnv: [],
-      resolver: passthroughResolver(),
     });
     return refreshCodexCapabilities(sink, {
       reading,
@@ -412,13 +464,19 @@ describe("the version read at the spawn", () => {
     });
     await readSpawnedProviderVersion({
       driverName: CODEX_DRIVER_NAME,
-      requestedCommand: CODEX_EXECUTABLE,
+      resolveCommand: async (spawnEnvironment) =>
+        await resolveProviderExecutable(
+          CODEX_DRIVER_NAME,
+          CODEX_EXECUTABLE,
+          spawnEnvironment,
+          passthroughResolver(),
+        ),
       handshake: handshake.run,
+      environmentNameMatch: "case-sensitive",
       baseEnv: [],
-      resolver: passthroughResolver(),
     });
     const request = handshake.requests[0];
-    expect(request?.resolvedExecutablePath).toBe(CODEX_EXECUTABLE);
+    expect(request?.executable.resolvedExecutablePath).toBe(CODEX_EXECUTABLE);
     expect(request?.clientName).toBe(DEFAULT_PROVIDER_VERSION_CLIENT_NAME);
     expect(request?.driverName).toBe("codex");
   });

@@ -12,6 +12,7 @@ import { AsyncEntry } from "@napi-rs/keyring";
 import type { KeychainRefusalCause } from "@ai-sidekicks/contracts/keychain";
 
 import { WorkflowSecretStoreUnavailableError, type SecretKeychain } from "../store.js";
+import { describeRejection } from "../../../rejection.js";
 
 // How long one keychain call may take, an unlock prompt included.
 const KEYCHAIN_CALL_TIMEOUT_MS = 30_000;
@@ -67,7 +68,7 @@ export class OsSecretKeychain implements SecretKeychain {
       if (error instanceof WorkflowSecretStoreUnavailableError) {
         throw error;
       }
-      const message = error instanceof Error ? error.message : String(error);
+      const message = describeRejection(error);
       throw new WorkflowSecretStoreUnavailableError(
         causeOfKeychainFailure(message),
         message,

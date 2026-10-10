@@ -1,14 +1,10 @@
 // What a Claude process is spawned under: the spawn-bound legs every spawn path realizes, the
 // binding a later run is checked against, and the check itself.
 
-import type { SessionId } from "@ai-sidekicks/contracts/session/id";
-import type { DriverDiagnosticsEmitter } from "../../diagnostics.js";
+import { CURATED_CREDENTIAL_POLICY_REF } from "../../../../policy/execution-posture-service.js";
 import type { SpawnEnvPair } from "../../../spawn-env.js";
-import {
-  type ClaudeSessionTransport,
-  type ClaudeSpawnBoundLegs,
-  composeClaudeMandatedEnvironment,
-} from "../session/transport.js";
+import type { DriverDiagnosticsEmitter } from "../../diagnostics.js";
+import type { ClaudeSessionTransport, ClaudeSpawnBoundLegs } from "../session/transport.js";
 import type {
   ClaudeSessionLifecycleDependencies,
   ClaudeSpawnBinding,
@@ -16,79 +12,92 @@ import type {
 } from "../session/state.js";
 import { ClaudeSessionUnavailableError } from "../session/errors.js";
 import {
-  type ClaudeSubagentAdmissionPort,
-  ClaudeSubagentConcurrencyGate,
-  realizeClaudeSubagentPolicy,
-} from "../subagent-policy.js";
-import {
   CLAUDE_CALLBACK_TOOL_TRANSPORT_UNAVAILABLE_DETAIL,
   type ClaudeCallbackMcpServerDescriptor,
   composeClaudeCallbackMcpServer,
-  composeClaudeSandboxSettings,
 } from "./settings.js";
+import { writeClaudeHomeRetention } from "./account-home.js";
+import { composeClaudeSpawnEnvironment } from "./environment.js";
 import { digestOutputSchema, findPostureDivergence } from "../session/posture.js";
-import type {
-  CreateSessionParams,
-  ResumeSessionParams,
-  StartRunParams,
-  SubagentPolicy,
-} from "../../contract.js";
+import type { CreateSessionParams, ResumeSessionParams, StartRunParams } from "../../contract.js";
 
 /**
- * Composes the spawn-bound legs of a create or resume and the subagent gate of every spawn,
- * recording each withheld definition or callback-tool registry as a diagnostic.
+ * Composes the spawn-bound legs of a create or resume: where and as whom the process runs, its
+ * whole environment, the credential paths it is denied, and the tools it is offered, recording a
+ * withheld callback-tool registry as a diagnostic.
  */
 export class ClaudeSpawnLegComposer {
   readonly #transport: ClaudeSessionTransport;
   readonly #diagnostics: DriverDiagnosticsEmitter;
   readonly #providerBaseEnvironment: readonly SpawnEnvPair[];
+  readonly #operatingSystem: ClaudeSessionLifecycleDependencies["operatingSystem"];
+  readonly #spawnContext: ClaudeSessionLifecycleDependencies["spawnContext"];
+  readonly #credentialPolicy: ClaudeSessionLifecycleDependencies["credentialPolicy"];
 
   constructor(
     dependencies: Pick<
       ClaudeSessionLifecycleDependencies,
-      "transport" | "diagnostics" | "providerBaseEnvironment"
+      | "transport"
+      | "diagnostics"
+      | "providerBaseEnvironment"
+      | "operatingSystem"
+      | "spawnContext"
+      | "credentialPolicy"
     >,
   ) {
     this.#transport = dependencies.transport;
     this.#diagnostics = dependencies.diagnostics;
     this.#providerBaseEnvironment = dependencies.providerBaseEnvironment;
+    this.#operatingSystem = dependencies.operatingSystem;
+    this.#spawnContext = dependencies.spawnContext;
+    this.#credentialPolicy = dependencies.credentialPolicy;
   }
 
-  /** The ONE builder both spawn paths use — see `ClaudeSpawnBoundLegs`. */
-  buildSpawnBoundLegs(params: CreateSessionParams | ResumeSessionParams): ClaudeSpawnBoundLegs {
-    const subagentPolicy = params.subagentPolicy;
-    const realizedSubagents =
-      subagentPolicy === undefined ? undefined : realizeClaudeSubagentPolicy(subagentPolicy);
-    for (const withheldDefinition of realizedSubagents?.withheld ?? []) {
-      this.#diagnostics.emit({
-        provider: "claude",
-        kind: "subagent_definition_disabled",
-        rawWireType: null,
-        dispositionReason: withheldDefinition.reason,
-        // Untrusted caller text, carried as data so the person can see which definition was
-        // withheld.
-        details: { sessionId: params.sessionId, definitionName: withheldDefinition.name },
-      });
-    }
+  /**
+   * The ONE builder every spawn path uses — see `ClaudeSpawnBoundLegs`. Throws when the spawn
+   * context or the credential list cannot be resolved, or the environment cannot be built.
+   */
+  async buildSpawnBoundLegs(
+    params: CreateSessionParams | ResumeSessionParams,
+  ): Promise<ClaudeSpawnBoundLegs> {
     const posture = params.executionPosture;
+    const context = await this.#spawnContext.resolveSpawnContext(
+      params.sessionId,
+      params.providerAccountId,
+    );
+    // Every spawn on a home the app manages keeps the home's own retention set; the person's own
+    // home is theirs.
+    if (context.accountFolders !== undefined) {
+      await writeClaudeHomeRetention(context.accountFolders.configFolder);
+    }
+    // The curated list is handed over on every level, a posture-less spawn included.
+    const credentialPolicy = await this.#credentialPolicy.resolveCredentialPolicy(
+      posture?.credentialPolicyRef ?? CURATED_CREDENTIAL_POLICY_REF,
+    );
     const callbackToolServer = this.#resolveCallbackToolServer(params);
     return {
       sessionId: params.sessionId,
       model: params.model,
       executionPosture: posture,
-      sandboxSettings: posture === undefined ? undefined : composeClaudeSandboxSettings(posture),
+      workingDirectory: context.workingDirectory,
       // The registry offered is the one the descriptor serves, so a withholding sheds both.
       callbackTools: callbackToolServer === undefined ? undefined : [...callbackToolServer.tools],
       callbackToolServer,
-      subagentPolicy: realizedSubagents?.policy,
-      withheldSubagentDefinitions: realizedSubagents?.withheld ?? [],
-      subagentAdmission: this.buildSubagentAdmission(params.sessionId, realizedSubagents?.policy),
+      subagentPolicy: params.subagentPolicy,
+      toolServers: params.toolServers ?? [],
       outputSchema: params.outputSchema,
       onCallbackToolCall: params.onCallbackToolCall,
       onMcpServerStatus: params.onMcpServerStatus,
-      providerBaseEnvironment: this.#providerBaseEnvironment,
-      // The shared composer, so this path and the auth probe cannot hold different opt-outs.
-      mandatedEnvironment: composeClaudeMandatedEnvironment(),
+      credentialDenyPaths: credentialPolicy.denyPaths,
+      memoryFolders: context.memoryFolders,
+      advisorModel: context.advisorModel,
+      outputStyle: context.outputStyle,
+      spawnEnvironment: composeClaudeSpawnEnvironment({
+        providerBaseEnvironment: this.#providerBaseEnvironment,
+        environmentNameMatch: this.#operatingSystem.environmentNameMatch,
+        environmentRows: context.environmentRows,
+        accountFolders: context.accountFolders,
+      }),
     };
   }
 
@@ -136,22 +145,6 @@ export class ClaudeSpawnLegComposer {
       return undefined;
     }
     return composeClaudeCallbackMcpServer(requestedTools);
-  }
-
-  // One gate per spawn, not per session: a relaunch's subagents are new, and old slots would hold a
-  // cap against calls that died with the old process.
-  buildSubagentAdmission(
-    sessionId: SessionId,
-    policy: SubagentPolicy | undefined,
-  ): ClaudeSubagentAdmissionPort | undefined {
-    if (policy === undefined || !policy.enabled) {
-      return undefined;
-    }
-    return new ClaudeSubagentConcurrencyGate({
-      sessionId,
-      diagnostics: this.#diagnostics,
-      maxConcurrent: policy.maxConcurrent,
-    });
   }
 }
 

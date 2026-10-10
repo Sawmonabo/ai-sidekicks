@@ -1,59 +1,65 @@
 /**
- * The per-session state the Codex lifecycle keeps: the session record, the buffer of turn evidence
- * that arrived before its run, the lifecycle options, and the readers for frames it routes.
+ * The per-session state the Codex lifecycle keeps: the session record, its turn memories, the
+ * lifecycle's dependencies, and the readers for frames it routes.
  */
 
 import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { ProviderOutputSpeedState } from "@ai-sidekicks/contracts/provider/driver/output-speed";
+import type { SessionMode } from "@ai-sidekicks/contracts/session/controls/methods";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
-import type { RunOutputSpeedSettledListener } from "../../../declared-output-speed.js";
+import type { ExecutionPostureService } from "../../../../policy/execution-posture-service.js";
+import type { RunEngine } from "../../../../session/run/engine.js";
+import type { PermissionAskPort } from "../../../port/permission-ask.js";
+import type { QuestionPort } from "../../../port/question.js";
+import type { PortRegistration } from "../../../port/registration.js";
+import type { CommandOutputPublisher } from "../../../port/command-output-publisher.js";
+import type { ReviewerDenialPort } from "../../../port/reviewer-denial.js";
+import type { RuntimeBindingRebind } from "../../../runtime-binding-store.js";
+import type { ToolServerRoute } from "../../../port/tool-server-route.js";
+import type { ProviderOperatingSystem } from "../../../operating-system/contract.js";
+import type { SpawnEnvPair } from "../../../spawn-env.js";
+import type { ProviderCommandResolver } from "../../../spawned-version.js";
 import type { DriverDiagnosticsEmitter } from "../../diagnostics.js";
 import {
   type ChildThreadAnnouncement,
   type RoutableProviderFrame,
-  type SubagentLifecycleEmission,
   type ThreadFrameRouterConfig,
 } from "../../../thread-frame-router.js";
 import {
   type CumulativeAxisReadings,
   type CumulativeUsageReading,
   type MeteredUsageDelta,
+  type UsageTokenAxis,
+  type WindowTelemetry,
 } from "../../../usage-delta-accountant.js";
-import { type CredentialEnvPolicy } from "../../../spawn-env.js";
 import {
   CODEX_THREAD_STARTED_METHOD,
   deriveCodexChildThreadAnnouncement,
 } from "../event-normalizer.js";
-import {
-  type TextNeutralityMechanismGrade,
-  type TextNeutralizationRunFailure,
-  type TurnEvidenceClass,
-  type TurnEvidenceClassification,
-} from "../../../outbound-frame.js";
-import type { CodexAppServerConnection, CodexConnectionOptions } from "../app-server-connection.js";
-import type { CodexSessionConfig } from "./config.js";
-import type { CodexModelCatalogExchange } from "../capabilities.js";
-import { type CodexSessionSlotState } from "./errors.js";
+import type { CodexServerPromptPort } from "../commands.js";
+import type { CodexDeliveryMemory } from "../delivery/memory.js";
+import type { CodexInboundDispatchPort } from "../delivery/dispatch.js";
 import type { CodexSessionServerRequestResponder } from "../server-requests.js";
+import type { CodexCommandRunner, CodexServiceLauncher } from "../service/process.js";
+import type { CodexHomeResolver } from "../service/registry.js";
+import type { CodexService } from "../service/supervisor.js";
+import type { CodexThreadPermissionProfiles } from "../thread/permission-profiles.js";
+import type { CodexThreadSettings } from "../thread/settings.js";
+import type { CodexDiagnosticSink, CodexScheduleTimeout } from "../transport/diagnostics.js";
+import type { CodexServiceSocketConnector } from "../transport/socket.js";
+import type { CodexSpawnContextResolver } from "./config.js";
+import type { CodexSessionSlotState } from "./errors.js";
 import { isPlainObject } from "../../../record-readers.js";
-import type { SubagentPolicy } from "../../contract.js";
+import type { DriverResumeResult } from "../../contract.js";
+import type { DaemonTurnBindingResolver, ResumeRunParams } from "../../run-control.js";
 
 /** Terminal `TurnStatus` values; `inProgress` is excluded so a live route is never retired. */
-export const CODEX_TERMINAL_TURN_STATUSES: ReadonlySet<string> = new Set([
+const CODEX_TERMINAL_TURN_STATUSES: ReadonlySet<string> = new Set([
   "completed",
   "interrupted",
   "failed",
 ]);
-
-/** Turn evidence buffered per session (see `startRun`); bounded so it cannot leak. */
-const CODEX_BUFFERED_TURN_EVIDENCE_LIMIT = 64;
-
-/**
- * Ceiling for that buffer while a `turn/start` is in flight and nothing may be evicted; past it
- * the session is torn down rather than discard evidence.
- */
-const CODEX_BUFFERED_TURN_EVIDENCE_CEILING = CODEX_BUFFERED_TURN_EVIDENCE_LIMIT * 4;
 
 /**
  * Ceiling on interrupted runs whose terminals are still owed (see
@@ -62,44 +68,85 @@ const CODEX_BUFFERED_TURN_EVIDENCE_CEILING = CODEX_BUFFERED_TURN_EVIDENCE_LIMIT 
  */
 const CODEX_INTERRUPTED_ROUTE_MEMORY = 64;
 
-/**
- * Settled turn ids remembered while no steer is in flight (see
- * `CodexSessionRecord.settledTurnIds`); eviction is safe only then, since absence means a terminal
- * is still owed.
- */
+/** Settled turn ids remembered per session (see `CodexSessionRecord.settledTurnIds`). */
 const CODEX_SETTLED_TURN_MEMORY = 64;
 
-/** Settled-turn memory ceiling while a `turn/steer` is in flight; past it the session refuses. */
-const CODEX_SETTLED_TURN_MEMORY_CEILING = CODEX_SETTLED_TURN_MEMORY * 4;
+/** What a turn was sent with, kept so a faster-model retry can send it again. */
+interface CodexTurnInput {
+  readonly texts: readonly string[];
+  readonly clientMessageIds: readonly string[];
+  readonly skill: CodexPickedSkill | undefined;
+  /** The level the turn alone ran at, which a resend of the turn keeps. */
+  readonly outputSpeedForTurn: string | undefined;
+}
+
+/** A skill the person picked for a turn, as Codex's skill input names it. */
+export interface CodexPickedSkill {
+  readonly name: string;
+  readonly path: string;
+}
 
 /** Everything the lifecycle keeps for one live Codex session. */
 export interface CodexSessionRecord {
   readonly sessionId: SessionId;
-  readonly connection: CodexAppServerConnection;
   /**
-   * The thread this session is bound to. Only `forkConversation` changes it, in place, because
-   * in-flight closures hold this record and check `#sessions` still maps to it.
+   * The service the conversation is loaded on; a move onto a new provider build replaces it in
+   * place, as a fork replaces `threadId`.
+   */
+  service: CodexService;
+  /**
+   * The thread this session is bound to. Only a fork changes it, in place, because in-flight
+   * closures hold this record and check the slots still map to it.
    */
   threadId: string;
   /**
-   * This thread's turn ids, oldest first; `ForkConversationParams.position` N is
-   * `turnBoundaries[N - 1]`. Seeded from `thread.turns` on resume and fork, appended at each
+   * The runtime binding whose resume handle names `threadId`, rewritten as soon as a fork answers
+   * so a resume after a daemon restart opens the fork: the binding of the run last started here,
+   * or the one a resume minted. `undefined` until the daemon names one.
+   */
+  bindingId: string | undefined;
+  /** The account the conversation runs on, `undefined` on the node's default home. */
+  readonly providerAccountId: string | undefined;
+  /**
+   * This thread's turn ids, oldest first; `MoveSessionToForkParams.position` N is
+   * `turnBoundaries[N - 1]`. Read back from the thread on resume and fork, appended at each
    * accepted `turn/start`. Uncapped: evicting the head would re-map every later ordinal.
    */
   readonly turnBoundaries: string[];
-  /** The posture re-sent as each turn's `sandboxPolicy` when its `StartRunParams` declare none. */
-  readonly executionPosture: ExecutionPosture | undefined;
+  /** The turn each of the person's messages started, by the message's id, for an undo's cut. */
+  readonly turnIdByClientMessageId: Map<string, string>;
   /**
-   * The person's own workspace network setting, from a thread reply whose realized sandbox is the
-   * workspace one; echoed on each workspace turn's `sandboxPolicy`. Replaced in place by
-   * `forkConversation`, as `threadId` is.
+   * What every start, resume and fork of the thread carries, the settings as chosen; replaced when
+   * the model, the window or the permission level moves, so a resume after a crash sends the
+   * current ones.
    */
-  providerNetworkAccess: boolean | undefined;
+  threadSettings: CodexThreadSettings;
   /**
-   * The model a turn runs on when its run names none: the session's at establishment, then each
-   * accepted turn's, since a turn's model is a thread setting from that turn on.
+   * Whether the conversation still owes a fork onto a config `threadSettings` changed, since a
+   * level's config keys and the window reach a conversation only through a start, resume or fork.
+   * Cleared as a fork's request is composed; a turn never starts while it is set.
    */
-  model: string;
+  isConfigForkOwed: boolean;
+  /**
+   * The conversations forks moved the session off before it had a binding, oldest first; the
+   * binding of its first run records them, emptying this.
+   */
+  readonly leftThreadIdsAwaitingBinding: string[];
+  /**
+   * The session's level and roots as they stand now: the posture it was established at, its level
+   * moved by each live level change. A turn the daemon starts itself runs at it.
+   */
+  executionPosture: ExecutionPosture;
+  /**
+   * The permission profile Codex last reported for `threadId` and those asked for since, against
+   * which each `thread/settings/updated` is checked for a drift.
+   */
+  permissionProfiles: CodexThreadPermissionProfiles;
+  /**
+   * Build or Plan as the person last set it on this record, sent again after every resume and
+   * every move to another service, so a conversation in Plan never comes back in Build.
+   */
+  sessionMode: SessionMode;
   /**
    * The output-speed level the carriers last asked for: the session's at establishment, then each
    * accepted turn's. A run carrying none, and a fork, ask for it again, each resolved afresh
@@ -112,59 +159,54 @@ export interface CodexSessionRecord {
    */
   declaredOutputSpeed: ProviderOutputSpeedState | undefined;
   /**
+   * The reasoning effort the conversation runs at, as Codex last reported it on an establishment
+   * reply or `thread/settings/updated`; a mode move sends it back, since one without it resets it.
+   */
+  reasoningEffort: string | null;
+  /**
    * Accepted turns, by turn id, whose run has yet to report the tier it settled at; each entry
    * leaves on its settlement, at the latest on the turn's `turn/completed`.
    */
   readonly unsettledOutputSpeedRuns: Map<string, CodexUnsettledOutputSpeedRun>;
-  /** The subagent policy, re-sent on `thread/fork` so the new thread keeps its caps. */
-  readonly subagentPolicy: SubagentPolicy | undefined;
-  /**
-   * The config this process was launched with. A resume reuses its `cwd` and `env` but
-   * re-derives `credentialEnvPolicy` from its own posture, inheriting this one only when it
-   * states none (see `CodexSpawnPosture.composeResumeSpawnConfig`).
-   */
-  readonly spawnConfig: CodexSessionConfig;
   /**
    * Every live turn, keyed by turn id, newest last. Turn-keyed because a run can hold several
    * live turns; a run-keyed map would lose the first one's terminal route.
    */
   readonly runIdByActiveTurnId: Map<string, RunId>;
   /**
-   * Turn evidence that arrived before any route pointed at its turn; insertion-ordered, capped
-   * (`CODEX_BUFFERED_TURN_EVIDENCE_LIMIT`), consumed by `startRun`, which rules the tripwire on the
-   * evidence itself (an id alone would report a zero-turn interception as a completed turn).
-   */
-  readonly bufferedTurnEvidence: Map<string, BufferedTurnEvidence>;
-  /**
-   * `turn/start` requests awaiting an answer. At zero nothing can claim evidence: only the start
-   * handed the turn id claims it, and the provider never reuses a turn id.
-   */
-  inFlightTurnStarts: number;
-  /**
-   * Turn ids whose terminal was ingested, newest last, so `steerRun` can ask whether an
-   * acknowledged turn has ended. Written for every terminal, never consumed; pruned to
-   * `CODEX_SETTLED_TURN_MEMORY` only while `inFlightSteers` is zero.
+   * Turn ids whose terminal was ingested, newest last, so a turn that ended before its
+   * `turn/start` answer was read gets no live route and an interrupt holds no entry for it.
+   * Written for every terminal, never consumed; pruned oldest-first to `CODEX_SETTLED_TURN_MEMORY`.
    */
   readonly settledTurnIds: Set<string>;
-  /** `turn/steer` requests awaiting an answer; a count, as each live turn steers on its own. */
-  inFlightSteers: number;
   /**
    * Runs whose route an interrupt retired before their turn's terminal arrived, keyed by that
-   * turn id: `turn/interrupt` resolves on acceptance, and the tripwire is ruled on the later
-   * `turn/completed`. Not a live route. Bounded by refusal at `CODEX_INTERRUPTED_ROUTE_MEMORY`,
-   * never eviction; released when the terminal is ruled.
+   * turn id: `turn/interrupt` resolves on acceptance, and the later `turn/completed` is the
+   * interrupt's outcome for that run. Not a live route. Bounded by refusal at
+   * `CODEX_INTERRUPTED_ROUTE_MEMORY`, never eviction; released when the terminal arrives.
    */
   readonly interruptedRunIdByTurnId: Map<string, RunId>;
-}
-
-/**
- * What was observed about a turn before any correlated frame was re-keyed onto it. The
- * tripwire is ruled on both parts: a `notLoaded` terminal alone cannot restate the observations.
- */
-interface BufferedTurnEvidence {
-  readonly observations: Set<TurnEvidenceClass>;
-  /** The settling classification, once this turn's terminal has arrived. */
-  terminal: TurnEvidenceClassification | undefined;
+  /**
+   * The newest steer sent on the conversation, settled either way; the next steer is sent once it
+   * settles, so steers reach Codex one at a time in the order they were handed over.
+   */
+  lastSteerSend: Promise<void>;
+  /** Runs asked to pause whose turn has a step in flight, by that turn's id. */
+  readonly pauseRunIdByTurnId: Map<string, RunId>;
+  /**
+   * Runs whose turn was interrupted to pause them, by that turn's id: its interrupted terminal is
+   * the pause taking effect, never the run's end.
+   */
+  readonly pausedRunIdByInterruptedTurnId: Map<string, RunId>;
+  /**
+   * Continues asked for while a pause's interrupt was on its way, by the run: the interrupted
+   * turn's end starts the next turn instead of reporting the pause.
+   */
+  readonly continuesAwaitingPause: Map<RunId, ResumeRunParams>;
+  /** What each live turn was sent with, by turn id; each leaves with its turn's terminal. */
+  readonly turnInputByTurnId: Map<string, CodexTurnInput>;
+  /** What this record's deliveries remember between frames. */
+  readonly delivery: CodexDeliveryMemory;
 }
 
 /**
@@ -175,74 +217,24 @@ export type CodexUsageEstablishment =
   | { readonly mode: "fresh" }
   | { readonly mode: "resume"; readonly priorEmittedThreadId: string };
 
-/**
- * Gets or creates a turn's entry in the bounded evidence buffer, or returns `null` when it can
- * neither evict nor grow, which is session-fatal. While a `turn/start` is in flight nothing is
- * evicted (one synchronous drain can outrun the waiting `startRun` continuation, and dropping
- * its terminal would report a swallowed opening as a completed turn) and the buffer may grow to
- * `CODEX_BUFFERED_TURN_EVIDENCE_CEILING`. With none in flight, oldest-first eviction is free.
- */
-export function bufferTurnEvidence(
-  record: CodexSessionRecord,
-  turnId: string,
-): BufferedTurnEvidence | null {
-  const buffer = record.bufferedTurnEvidence;
-  const existing = buffer.get(turnId);
-  if (
-    existing === undefined &&
-    record.inFlightTurnStarts > 0 &&
-    buffer.size >= CODEX_BUFFERED_TURN_EVIDENCE_CEILING
-  ) {
-    // Only a turn not already held is refused; dropping a held one would make the refusal the loss.
-    return null;
-  }
-  const buffered = existing ?? { observations: new Set(), terminal: undefined };
-  buffer.delete(turnId);
-  buffer.set(turnId, buffered);
-  if (record.inFlightTurnStarts === 0) {
-    while (buffer.size > CODEX_BUFFERED_TURN_EVIDENCE_LIMIT) {
-      const oldest = buffer.keys().next();
-      if (oldest.done === true) {
-        break;
-      }
-      buffer.delete(oldest.value);
-    }
-  }
-  return buffered;
-}
-
-/**
- * Records that a turn's terminal was ingested; false (session-fatal) means the memory is full.
- * `turn/steer` reads absence as "still live", so with a steer in flight nothing is evicted and
- * the memory refuses at `CODEX_SETTLED_TURN_MEMORY_CEILING`; otherwise oldest-first pruning.
- */
-export function rememberSettledTurn(record: CodexSessionRecord, turnId: string): boolean {
+/** Records that a turn's terminal was ingested, pruning the oldest past the memory's bound. */
+export function rememberSettledTurn(record: CodexSessionRecord, turnId: string): void {
   const memory = record.settledTurnIds;
-  if (
-    !memory.has(turnId) &&
-    record.inFlightSteers > 0 &&
-    memory.size >= CODEX_SETTLED_TURN_MEMORY_CEILING
-  ) {
-    return false;
-  }
   memory.delete(turnId);
   memory.add(turnId);
-  if (record.inFlightSteers === 0) {
-    while (memory.size > CODEX_SETTLED_TURN_MEMORY) {
-      const oldest = memory.values().next();
-      if (oldest.done === true) {
-        break;
-      }
-      memory.delete(oldest.value);
+  while (memory.size > CODEX_SETTLED_TURN_MEMORY) {
+    const oldest = memory.values().next();
+    if (oldest.done === true) {
+      break;
     }
+    memory.delete(oldest.value);
   }
-  return true;
 }
 
 /**
  * Retains an interrupted run's turn correlation for its coming terminal; false (session-fatal)
  * at the ceiling. Never evicts: every entry is still owed its terminal, and an evicted one
- * would leave that terminal ruled against no run.
+ * would leave that terminal reaching no run.
  */
 export function rememberInterruptedRun(
   record: CodexSessionRecord,
@@ -256,6 +248,20 @@ export function rememberInterruptedRun(
   memory.delete(turnId);
   memory.set(turnId, runId);
   return true;
+}
+
+/**
+ * Whether a turn runs or is starting on the session, or one Codex started by itself is opening its
+ * run, so input the daemon sends would fold into it rather than start a turn of its own. The
+ * opening of `openingTurnId` itself does not count, for the run that opening starts.
+ */
+export function isTurnInFlight(record: CodexSessionRecord, openingTurnId?: string): boolean {
+  const opening = record.delivery.selfStartedTurnOpening;
+  return (
+    record.runIdByActiveTurnId.size > 0 ||
+    record.delivery.startingTurnRunIds.length > 0 ||
+    (opening !== undefined && opening.turnId !== openingTurnId)
+  );
 }
 
 /** The newest live turn a run holds on one session, or `undefined`; interventions land there. */
@@ -301,61 +307,113 @@ export interface CodexSessionTransition {
 export type CodexSessionTransitionKind = Exclude<CodexSessionSlotState, "live">;
 
 /**
- * Resolves the credential policy for the posture a spawn states, per spawn and never cached.
- * `undefined` for a posture that carries a reference is a wiring fault: the spawn refuses.
+ * A run whose turn the driver lost before Codex settled it, a resume superseding it or the
+ * service it ran on going away: whether its words reached the model was never established.
  */
-export type CodexCredentialEnvPolicyResolver = (
-  posture: ExecutionPosture,
-) => Promise<CredentialEnvPolicy | undefined>;
+export interface CodexLostRunFailure {
+  readonly eventType: "run.failed";
+  readonly failureCategory: "provider failure";
+  readonly recoveryCondition: "recovery-needed";
+  readonly providerFailureDetail: string;
+}
+
+/**
+ * The run engine's own operations the driver calls: the run of a turn the daemon starts itself, the
+ * end of a turn whose service process ended on its own, and the comparison of a run's settled
+ * output speed with the level it asked for.
+ */
+export type CodexRunEnginePort = Pick<
+  RunEngine,
+  "startDaemonTurn" | "endTurnOnProcessExit" | "recordSettledOutputSpeed"
+>;
 
 /** Construction inputs for the lifecycle manager. */
-export interface CodexLifecycleOptions extends CodexConnectionOptions {
+export interface CodexLifecycleOptions {
   /**
-   * Spawn context for a cold resume and the auth probe; required, since a bare environment hides
-   * the credential home and fails like a bad handle. Parse untyped input with
-   * `parseCodexSessionConfig`. `thread/resume` restores the thread's own cwd, so `cwd` here is the
-   * process's directory.
+   * Resolves the Codex command afresh at every service start, along the service's environment, so
+   * a restart runs what the command names now.
    */
-  readonly resumeSpawnConfig: CodexSessionConfig;
-  /**
-   * Answers a spawn's credential policy from its posture. Required: a manager-wide fallback
-   * cannot represent a per-session policy and would relaunch a tightened posture unreported.
-   */
-  readonly resolveCredentialEnvPolicy: CodexCredentialEnvPolicyResolver;
-  /**
-   * The live `model/list` read: `listModels()` answers from it, and a carried output-speed level is
-   * resolved against the tier list it publishes for the model, standard where the list lacks it.
-   */
-  readonly modelCatalogExchange: CodexModelCatalogExchange;
+  readonly providerCommand: ProviderCommandResolver;
+  /** The login shell's environment captured at the daemon's start, every service's base. */
+  readonly providerBaseEnvironment: readonly SpawnEnvPair[];
+  /** The operating system the daemon runs on, chosen where the daemon is composed. */
+  readonly operatingSystem: ProviderOperatingSystem;
+  readonly homes: CodexHomeResolver;
+  readonly spawnContext: CodexSpawnContextResolver;
+  /** Resolves the curated credential list a posture names into the paths every level denies. */
+  readonly credentialPolicy: Pick<ExecutionPostureService, "resolveCredentialPolicy">;
+  /** Where the daemon serves the session's tool servers; unregistered, it reaches none. */
+  readonly toolServerRoute: PortRegistration<ToolServerRoute>;
+  /** More `-c` switches for every service the daemon starts. */
+  readonly additionalConfigOverrides?: readonly string[] | undefined;
+  readonly launchProcess?: CodexServiceLauncher | undefined;
+  readonly runCommand?: CodexCommandRunner | undefined;
+  readonly connectSocket?: CodexServiceSocketConnector | undefined;
+  /** The transport's diagnostic channel; separate from `diagnostics`, the daemon-wide band. */
+  readonly reportDiagnostic: CodexDiagnosticSink;
+  /** The daemon-wide diagnostic band; required, since each fail-closed path owes a record. */
+  readonly diagnostics: DriverDiagnosticsEmitter;
+  readonly scheduleTimeout?: CodexScheduleTimeout | undefined;
+  /** The clock the crash window reads, in milliseconds; `Date.now` by default. */
+  readonly now?: (() => number) | undefined;
+  readonly requestTimeoutMs?: number | undefined;
+  readonly startupTimeoutMs?: number | undefined;
+  readonly turnStartTimeoutMs?: number | undefined;
   /** Mints `DriverResumeResult.bindingId`; supply the store's minter in the daemon. */
   readonly newBindingId?: (() => string) | undefined;
+  /** Answers callback tool calls with session and run identity attached; absent, they refuse. */
+  readonly answerCallbackToolCall?: CodexSessionServerRequestResponder | undefined;
+  readonly runEngine: CodexRunEnginePort;
+  /** The binding a turn the daemon starts itself (a review, a goal, `Allow once`) runs on. */
+  readonly daemonTurnBindings: DaemonTurnBindingResolver;
   /**
-   * Answers routed server requests with session and run identity attached. The manager wraps it
-   * per connection and overrides the transport-level `serverRequestResponder` with the wrapper.
+   * Where every delivery from a Codex conversation goes, in the order its frames arrived: rows,
+   * run moves, child runs, markers, live states, asks and session notices.
    */
-  readonly answerServerRequest?: CodexSessionServerRequestResponder | undefined;
+  readonly inbound: CodexInboundDispatchPort;
   /**
-   * This leg's declared text-neutrality parity grade, default `emulated`. Injected rather than
-   * derived from the driver's name; the default stays `emulated` although the transport was
-   * probed at the pin and does no client-side command parsing.
+   * The approval pipeline's intake of the permission asks the run engine admitted; until it is
+   * registered an ask stays pending at Codex.
    */
-  readonly textNeutralityMechanismGrade?: TextNeutralityMechanismGrade | undefined;
-  /** Correlation minting for outbound text frames. Injectable for tests. */
-  readonly mintOutboundFrameCorrelationId?: (() => string) | undefined;
+  readonly permissionAsks: PortRegistration<PermissionAskPort>;
+  /** The questions card's intake; until it is registered a question stays pending. */
+  readonly questions: PortRegistration<QuestionPort>;
+  /** The approval service's intake of the blocks Codex's own reviewer made at Reviewed. */
+  readonly reviewerDenials: PortRegistration<ReviewerDenialPort>;
+  /** The daemon's tool-server client's prompts for the `/` list; absent, the list has none. */
+  readonly serverPrompts: PortRegistration<CodexServerPromptPort>;
+  /** The running-commands stream's live output; absent, a command's output is dropped. */
+  readonly commandOutput: PortRegistration<CommandOutputPublisher>;
+  /** The address the daemon's hook programs reach it on; absent, services run no hooks. */
+  readonly hookEndpoint: string | undefined;
   /**
-   * Receives the run terminal a tripwire trip produces (producer-only). Required: a trip raises no
-   * JSON-RPC error, so this is the only user-visible surface.
+   * The daemon's folder for helper role files, absolute: each session's files go in a folder of
+   * its own under it, removed when the session is deleted.
    */
-  readonly onTextNeutralizationFailure: (
+  readonly helperRolesFolder: string;
+  /**
+   * Receives the result of each resume the driver starts itself, after its service came back or
+   * moved to a new build, so the daemon records the binding it minted and the conversation it
+   * names, or the failure.
+   */
+  readonly onSessionRelaunched: (sessionId: SessionId, result: DriverResumeResult) => void;
+  /**
+   * Points a binding at the conversation its session is on after a fork, so a later resume opens
+   * that one, and records in the same write each conversation the session left. Rejects when it
+   * was not recorded.
+   */
+  readonly rebindRuntimeBinding: (rebind: RuntimeBindingRebind) => Promise<void>;
+  /**
+   * Receives the run terminal for a run whose turn the driver lost. Required: no terminal frame
+   * can end that run, so without it the run would never end.
+   */
+  readonly onLostRunFailure: (
     sessionId: SessionId,
     runId: RunId,
-    failure: TextNeutralizationRunFailure,
+    failure: CodexLostRunFailure,
   ) => void;
-  /**
-   * The daemon-wide diagnostic band for policy facts such as `subagent_definition_disabled`;
-   * required, and separate from `reportDiagnostic`, the transport channel.
-   */
-  readonly diagnostics: DriverDiagnosticsEmitter;
+  /** Orders the sessions a recovered service resumes, the one on screen first. */
+  readonly orderRecovery?: ((sessionIds: readonly SessionId[]) => SessionId[]) | undefined;
   /**
    * The daemon's prior-emitted cumulative token sums for one thread, used to base a native resume.
    * Optional because the sums live in the event record this module never reads; unbound, a resume
@@ -367,17 +425,26 @@ export interface CodexLifecycleOptions extends CodexConnectionOptions {
   /** Receives each metered per-turn usage delta; the emission pipeline mints the envelope. */
   readonly onMeteredUsage?: ((sessionId: SessionId, delta: MeteredUsageDelta) => void) | undefined;
   /**
-   * Receives the `subagent.started` / `subagent.completed` pair per provider-attributed child
-   * thread; the child's only transcript presence.
+   * Receives how full the session's own conversation is after each request Codex reports, for the
+   * context meter; the emission pipeline mints the envelope. Helpers' readings never arrive here.
    */
-  readonly onSubagentLifecycle?:
-    | ((sessionId: SessionId, emission: SubagentLifecycleEmission) => void)
+  readonly onContextWindowReading?:
+    | ((sessionId: SessionId, reading: CodexContextWindowReading) => void)
     | undefined;
-  /**
-   * Receives each run's settled declared tier: the thread's tier from the settings notice its
-   * `turn/start` produced, or, where the turn left the tier alone, at the turn's first item.
-   */
-  readonly onRunOutputSpeedSettled?: RunOutputSpeedSettledListener | undefined;
+}
+
+/**
+ * How full a conversation is, from one `thread/tokenUsage/updated`: the tokens in the window are
+ * Codex's own count, the last request's total, and the window is the usable one Codex reports,
+ * 95 % of the model's full window and following any override, never the catalog's size.
+ */
+interface CodexContextWindowReading {
+  readonly threadId: string;
+  /** The turn the report names, or `null` where it names none. */
+  readonly turnId: string | null;
+  readonly window: WindowTelemetry;
+  /** Codex's own split of the last request's tokens; an axis it did not report is absent. */
+  readonly breakdown: Readonly<Partial<Record<UsageTokenAxis, number>>>;
 }
 
 /** A run whose turn is accepted and whose settled output speed is not yet reported. */
@@ -486,6 +553,18 @@ export function readCodexCumulativeUsageReading(params: unknown): CumulativeUsag
 }
 
 /**
+ * The usable window a `thread/tokenUsage/updated` frame reports (`modelContextWindow`), or `null`
+ * where the frame carries none, as the wire allows.
+ */
+export function readCodexModelContextWindow(params: unknown): number | null {
+  const window = isPlainObject(params) ? params["tokenUsage"] : undefined;
+  const reported = isPlainObject(window) ? window["modelContextWindow"] : undefined;
+  return typeof reported === "number" && Number.isSafeInteger(reported) && reported > 0
+    ? reported
+    : null;
+}
+
+/**
  * Maps one Codex `TokenUsageBreakdown` onto the accountant's axes, or `null` for a non-object.
  * Absent axes stay absent: a fabricated zero would meter a negative delta on the next reading.
  */
@@ -517,4 +596,15 @@ export function readCodexTerminalTurnStatus(params: unknown): boolean {
   const turn = isPlainObject(payload["turn"]) ? payload["turn"] : {};
   const status = turn["status"];
   return typeof status === "string" && CODEX_TERMINAL_TURN_STATUSES.has(status);
+}
+
+/** The turn a `turn/completed` ends, or `null` when its status is not terminal or it names none. */
+export function readCodexTerminalTurnId(params: unknown): string | null {
+  if (!readCodexTerminalTurnStatus(params)) {
+    return null;
+  }
+  const payload = isPlainObject(params) ? params : {};
+  const turn = isPlainObject(payload["turn"]) ? payload["turn"] : {};
+  const turnId = turn["id"];
+  return typeof turnId === "string" && turnId.length > 0 ? turnId : null;
 }

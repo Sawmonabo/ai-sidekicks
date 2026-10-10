@@ -23,7 +23,6 @@ describe("Claude capability-probe reply classification", () => {
     // this context`); reading it as absence would withdraw a live capability.
     expect(classifyClaudeProbeReply(claudeContextualRefusalReply("get_usage"))).toBe("accepted");
     expect(classifyClaudeProbeReply(claudeUnsupportedSubtypeReply("zzq"))).toBe("unknown-name");
-    // Unwrapped inner response — the seam may return either shape.
     expect(classifyClaudeProbeReply({ subtype: "success" })).toBe("accepted");
     expect(classifyClaudeProbeReply({ subtype: "error", error: 42 })).toBe("unrecognized");
     expect(classifyClaudeProbeReply(null)).toBe("unrecognized");

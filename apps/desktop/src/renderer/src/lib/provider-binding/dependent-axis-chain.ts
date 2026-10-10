@@ -12,18 +12,23 @@ import {
 } from "./driver-catalog.js";
 
 /**
- * The chain, parent first: the binding members a switch moves, less the two this rule does not
- * judge (`providerAccountId` and `outputSpeed`). The order is the order vocabularies are
- * published in and the order a form lists what is still needed.
+ * The chain, parent first: the binding members a switch moves, less the three this rule does not
+ * judge (`providerAccountId`, `outputSpeed` and `largerWindow`). The order is the order
+ * vocabularies are published in and the order a form lists what is still needed.
  */
 export type DependentAxis = Exclude<
   keyof AgentBindingSwitchTarget,
-  "providerAccountId" | "outputSpeed"
+  "providerAccountId" | "outputSpeed" | "largerWindow"
 >;
 const DEPENDENT_AXES: readonly DependentAxis[] = ["driverName", "modelId", "effort"];
 
-/** One resolved reading of the chain. Every axis is optional; absent differs from refused. */
-export type ResolvedAxisChain = Partial<Record<DependentAxis, string>>;
+/**
+ * One resolved reading of the chain. Every axis is optional; absent differs from refused.
+ * `largerWindow` says which of the model's rows is chosen, absent being its default window.
+ */
+export type ResolvedAxisChain = Partial<Record<DependentAxis, string>> & {
+  readonly largerWindow?: boolean;
+};
 
 /**
  * Which axes of this chain no published vocabulary carries, parent first. Only a settled axis
@@ -47,12 +52,18 @@ function vocabularyVouchesFor(
   if (value === undefined) {
     return true;
   }
+  const largerWindow = chain.largerWindow ?? false;
   switch (axis) {
     case "driverName":
       return catalog !== undefined && driverNamesOf(catalog).includes(value);
     case "modelId":
-      return catalogCarriesModel(catalog, chain.driverName, value);
+      return catalogCarriesModel(catalog, chain.driverName, { modelId: value, largerWindow });
     case "effort":
-      return catalogCarriesEffortLevel(catalog, chain.driverName, chain.modelId, value);
+      return catalogCarriesEffortLevel(
+        catalog,
+        chain.driverName,
+        chain.modelId === undefined ? undefined : { modelId: chain.modelId, largerWindow },
+        value,
+      );
   }
 }

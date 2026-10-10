@@ -94,6 +94,9 @@ const PROJECT_OF_WORKTREE_SQL = `SELECT project.setup, project.environment_rows
 
 const PROJECT_OF_MOUNT_SQL = "SELECT project_id FROM repo_mounts WHERE id = ?";
 
+const ENVIRONMENT_ROWS_OF_SESSION_SQL = `SELECT environment_rows FROM projects
+ WHERE id = ${sessionProjectSql("@sessionId")}`;
+
 const VCS_OF_MOUNT_SQL = "SELECT vcs_type FROM repo_mounts WHERE id = ?";
 
 // The project's sessions a detach archives: the active ones, and those still provisioning, whose
@@ -152,6 +155,10 @@ export class ProjectRecords {
     { readonly setup: string; readonly environment_rows: string }
   >;
   readonly #selectProjectOfMount: Statement<[string], { readonly project_id: ProjectId | null }>;
+  readonly #selectEnvironmentRowsOfSession: Statement<
+    { sessionId: string },
+    { readonly environment_rows: string }
+  >;
   readonly #selectVcsOfMount: Statement<[string], { readonly vcs_type: string }>;
   readonly #selectArchivableSessionsOfProject: Statement<[string], { readonly id: SessionId }>;
   readonly #selectSlugTaken: Statement<[string]>;
@@ -166,6 +173,7 @@ export class ProjectRecords {
     this.#selectNamingOfMount = reader.prepare(NAMING_OF_MOUNT_SQL);
     this.#selectProjectOfWorktree = reader.prepare(PROJECT_OF_WORKTREE_SQL);
     this.#selectProjectOfMount = reader.prepare(PROJECT_OF_MOUNT_SQL);
+    this.#selectEnvironmentRowsOfSession = reader.prepare(ENVIRONMENT_ROWS_OF_SESSION_SQL);
     this.#selectVcsOfMount = reader.prepare(VCS_OF_MOUNT_SQL);
     this.#selectArchivableSessionsOfProject = reader.prepare(ARCHIVABLE_SESSIONS_OF_PROJECT_SQL);
     this.#selectSlugTaken = reader.prepare(SLUG_TAKEN_SQL);
@@ -213,6 +221,15 @@ export class ProjectRecords {
     return JSON.parse(
       this.#requireProjectOfWorktree(worktreeId).environment_rows,
     ) as EnvironmentRow[];
+  }
+
+  /**
+   * The environment rows of the project a session sits in, which its provider processes start
+   * with; none for a chat or a session whose project was forgotten.
+   */
+  readEnvironmentRowsOfSession(sessionId: SessionId): EnvironmentRow[] {
+    const row = this.#selectEnvironmentRowsOfSession.get({ sessionId });
+    return row === undefined ? [] : (JSON.parse(row.environment_rows) as EnvironmentRow[]);
   }
 
   /** The project a mount serves, or `null` for a chat's mount or a forgotten project. */

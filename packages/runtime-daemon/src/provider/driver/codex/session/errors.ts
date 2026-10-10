@@ -1,11 +1,17 @@
 /**
- * The errors the Codex lifecycle raises: transport, timeout, provider, rewind-boundary, slot and
- * configuration failures.
+ * The errors the Codex lifecycle raises: transport, timeout, provider, larger-window,
+ * rewind-boundary, slot and configuration failures.
  */
 
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts/provider/driver/capabilities";
+import { DaemonDomainError } from "../../../../ipc/domain-error.js";
 import { CODEX_DRIVER_NAME } from "../capabilities.js";
-import { boundFailureDetail, DRIVER_CAPABILITY_UNSUPPORTED_MESSAGE } from "../../contract.js";
+import {
+  boundFailureDetail,
+  DRIVER_CAPABILITY_UNSUPPORTED_MESSAGE,
+  LARGER_WINDOW_UNAVAILABLE_CODE,
+} from "../../contract.js";
 
 /** Substituted when a provider failure carries no usable message. */
 const UNSPECIFIED_PROVIDER_FAILURE_DETAIL =
@@ -25,15 +31,27 @@ export class CodexTransportError extends Error {
   }
 }
 
-/** Line over `CODEX_MAX_LINE_LENGTH`: framing is lost, so the connection is torn down. */
-export class CodexLineTooLongError extends CodexTransportError {
-  constructor(retainedLength: number, limit: number) {
+/**
+ * A request larger than the service said it takes, refused before it was sent, since Codex closes
+ * the socket on a message past that limit. Nothing reached the provider. Carries the refusal code
+ * `driver.unavailable` with `reason: "request_too_large"`.
+ */
+export class CodexRequestTooLargeError extends Error {
+  readonly code = "driver.unavailable" as const;
+  readonly fields: Readonly<Record<string, string>>;
+
+  constructor(method: string, encodedByteLength: number, limit: number) {
     super(
-      `The Codex app-server sent ${retainedLength} characters with no line terminator, ` +
-        `exceeding the ${limit}-character framing limit.`,
-      { retainedLength: String(retainedLength), limit: String(limit) },
+      `The "${method}" request is ${String(encodedByteLength)} bytes, past the ` +
+        `${String(limit)} the Codex service takes in one message, so it was not sent.`,
     );
-    this.name = "CodexLineTooLongError";
+    this.name = "CodexRequestTooLargeError";
+    this.fields = {
+      reason: "request_too_large",
+      method,
+      encodedByteLength: String(encodedByteLength),
+      limit: String(limit),
+    };
   }
 }
 
@@ -48,6 +66,27 @@ export class CodexRequestTimeoutError extends Error {
     this.fields = fields;
   }
 }
+
+/**
+ * A session created on a larger window its model's catalog does not offer at that figure now
+ * (`driver.larger_window_unavailable`); no conversation was started.
+ */
+export class CodexLargerWindowUnavailableError extends DaemonDomainError {
+  constructor(model: string, largerWindow: number, offeredLargerWindow: number | undefined) {
+    super("Codex's catalog does not offer this larger window for the model now.", {
+      code: LARGER_WINDOW_UNAVAILABLE_CODE,
+      jsonRpcCode: JsonRpcErrorCode.InvalidRequest,
+      detail: {
+        model,
+        largerWindow,
+        ...(offeredLargerWindow === undefined ? {} : { offeredLargerWindow }),
+      },
+    });
+  }
+}
+
+/** JSON-RPC's invalid-request code, which Codex answers a request it refuses with. */
+export const CODEX_INVALID_REQUEST_CODE = -32600;
 
 /**
  * A provider JSON-RPC error answer; the classifier maps it to a code. `providerMessage` is the

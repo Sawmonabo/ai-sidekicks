@@ -21,67 +21,15 @@ import {
 } from "../../capability/__fixtures__/results.js";
 import { DriverCapabilitiesWriter } from "../capabilities-writer.js";
 import { DriverCapabilityUnsupportedError, ProviderRegistry } from "../registry.js";
-import type { GetCapabilitiesResult, ProviderDriver } from "../contract.js";
+import type { GetCapabilitiesResult } from "../contract.js";
+import { FakeProviderDriver } from "../__fixtures__/contract-doubles.js";
 
 const DRIVER_NAME: ProviderName = "claude";
 
-// The registry caches `getCapabilities()` once per registration, so each registration gets its own
-// driver. Every other method rejects, so a stray call fails the test.
-function makeMockDriver(capabilitiesResult: GetCapabilitiesResult): ProviderDriver {
-  return {
-    getCapabilities(): Promise<GetCapabilitiesResult> {
-      return Promise.resolve(capabilitiesResult);
-    },
-    createSession(): Promise<never> {
-      return Promise.reject(new Error("createSession is not exercised by this suite"));
-    },
-    resumeSession(): Promise<never> {
-      return Promise.reject(new Error("resumeSession is not exercised by this suite"));
-    },
-    startRun(): Promise<never> {
-      return Promise.reject(new Error("startRun is not exercised by this suite"));
-    },
-    interruptRun(): Promise<never> {
-      return Promise.reject(new Error("interruptRun is not exercised by this suite"));
-    },
-    forkConversation(): Promise<never> {
-      return Promise.reject(new Error("forkConversation is not exercised by this suite"));
-    },
-    respondToRequest(): Promise<never> {
-      return Promise.reject(new Error("respondToRequest is not exercised by this suite"));
-    },
-    setSessionGoal(): Promise<never> {
-      return Promise.reject(new Error("setSessionGoal is not exercised by this suite"));
-    },
-    clearSessionGoal(): Promise<never> {
-      return Promise.reject(new Error("clearSessionGoal is not exercised by this suite"));
-    },
-    closeSession(): Promise<never> {
-      return Promise.reject(new Error("closeSession is not exercised by this suite"));
-    },
-    listModels(): Promise<never> {
-      return Promise.reject(new Error("listModels is not exercised by this suite"));
-    },
-    listModes(): Promise<never> {
-      return Promise.reject(new Error("listModes is not exercised by this suite"));
-    },
-    probeAuth(): Promise<never> {
-      return Promise.reject(new Error("probeAuth is not exercised by this suite"));
-    },
-    compactContext(): Promise<never> {
-      return Promise.reject(new Error("compactContext is not exercised by this suite"));
-    },
-    listProviderCommands(): Promise<never> {
-      return Promise.reject(new Error("listProviderCommands is not exercised by this suite"));
-    },
-    observedOutputSpeedFor(): never {
-      throw new Error("observedOutputSpeedFor is not exercised by this suite");
-    },
-    applyIntervention(): Promise<never> {
-      return Promise.reject(new Error("applyIntervention is not exercised by this suite"));
-    },
-  };
-}
+// The registry gates on the snapshot it is handed and never calls the driver itself.
+const driver = new FakeProviderDriver(() =>
+  Promise.reject(new Error("the registry never reads a driver's capabilities")),
+);
 
 interface Stack {
   readonly writer: DriverCapabilitiesWriter;
@@ -119,10 +67,8 @@ describe("capability gating across the registry, the durable cache and a restart
         capabilities: { flags: makeFlags({ steer: false }), contractVersion: CONTRACT_VERSION },
         tools: [{ name: "search", idempotency_class: "idempotent", description: "search the web" }],
       });
-      const driver = makeMockDriver(advertised);
-
       // Registry A: the live gate reads the snapshot resolved at register.
-      await registry.register(DRIVER_NAME, driver);
+      registry.register(DRIVER_NAME, driver, advertised.capabilities);
       // A declared-true flag returns void.
       expect(registry.checkCapability(DRIVER_NAME, "resume")).toBeUndefined();
       // A declared-false flag throws.
@@ -151,12 +97,10 @@ describe("capability gating across the registry, the durable cache and a restart
       ]);
       expect(hydrated.cliVersion).toEqual(CLI_VERSION_REPORT);
 
-      // Cold-start re-seed: registry B is fed the hydrated cache, not the live driver, and must
+      // Cold-start re-seed: registry B is fed the hydrated cache, not the live read, and must
       // gate identically to registry A.
       const registryB: ProviderRegistry = new ProviderRegistry();
-      // The cache's own object is handed over unmodified; re-attaching `CLI_VERSION_REPORT` would
-      // mask a cache that dropped it.
-      await registryB.register(DRIVER_NAME, makeMockDriver(hydrated));
+      registryB.register(DRIVER_NAME, driver, hydrated.capabilities);
       expect(registryB.checkCapability(DRIVER_NAME, "resume")).toBeUndefined();
       const refusalB = captureThrow(() => registryB.checkCapability(DRIVER_NAME, "steer"));
       expect(refusalB).toBeInstanceOf(DriverCapabilityUnsupportedError);
@@ -201,8 +145,7 @@ describe("capability gating across the registry, the durable cache and a restart
     expect(refreshed.cliVersion).toEqual(CLI_VERSION_REPORT);
 
     const refreshedRegistry: ProviderRegistry = new ProviderRegistry();
-    // Handed across unmodified, as for registry B above.
-    await refreshedRegistry.register(DRIVER_NAME, makeMockDriver(refreshed));
+    refreshedRegistry.register(DRIVER_NAME, driver, refreshed.capabilities);
     expect(refreshedRegistry.checkCapability(DRIVER_NAME, "steer")).toBeUndefined();
   });
 });

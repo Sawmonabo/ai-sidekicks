@@ -9,7 +9,6 @@
 // launcher. Every path that retires a tree then drops its setup card.
 
 import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
-import type { EnvironmentRow } from "@ai-sidekicks/contracts/machine-settings";
 
 import { waitWithin } from "../bounded-wait.js";
 import { settleAll } from "../settle-all.js";
@@ -46,8 +45,8 @@ import type { OutboundQueue } from "../ipc/handlers/session/subscribe.js";
 import { registerSessionWorkingFolder } from "../ipc/handlers/session/working-folder.js";
 import type { StreamingPrimitive } from "../ipc/streaming-primitive.js";
 import {
-  hostEnvNameMatchForPlatform,
-  layerSpawnEnvironment,
+  buildCommandSpawnEnv,
+  type SpawnEnvNameMatch,
   type SpawnEnvPair,
 } from "../provider/spawn-env.js";
 import type { SessionCreation } from "../session/create.js";
@@ -96,6 +95,8 @@ export interface RepoMethodsDeps {
   readonly folderPlace: FolderPlace;
   /** The login shell a project's setup commands run in; `null` runs the system's default one. */
   readonly commandShell: string | null;
+  /** How this system compares environment variable names. */
+  readonly environmentNameMatch: SpawnEnvNameMatch;
   /** The login shell's environment, which a project's setup commands are built from. */
   readonly baseEnvironment: readonly SpawnEnvPair[];
   readonly streamingPrimitive: StreamingPrimitive;
@@ -178,14 +179,14 @@ export function registerRepoMethods(registry: MethodRegistry, deps: RepoMethodsD
     commandShell: deps.commandShell,
     commandEnvironment: async (worktreeId) =>
       Object.fromEntries(
-        layerSpawnEnvironment(
-          [
-            ...deps.baseEnvironment,
-            ...pairsOf((await readSettings()).environmentRows),
-            ...pairsOf(projectRecords.readEnvironmentRowsOfWorktree(worktreeId)),
-          ],
-          hostEnvNameMatchForPlatform(process.platform),
-        ),
+        buildCommandSpawnEnv({
+          baseEnv: deps.baseEnvironment,
+          environmentRows: {
+            everyProject: (await readSettings()).environmentRows,
+            project: projectRecords.readEnvironmentRowsOfWorktree(worktreeId),
+          },
+          hostEnvNameMatch: deps.environmentNameMatch,
+        }),
       ),
     writeServiceLog,
   });
@@ -550,8 +551,4 @@ export function registerRepoMethods(registry: MethodRegistry, deps: RepoMethodsD
       },
     },
   };
-}
-
-function pairsOf(rows: readonly EnvironmentRow[]): SpawnEnvPair[] {
-  return rows.map((row): SpawnEnvPair => [row.name, row.value]);
 }

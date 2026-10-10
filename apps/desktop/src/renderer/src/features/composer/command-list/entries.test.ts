@@ -17,7 +17,6 @@ const GROUPS: readonly ProviderCommandBindingGroup[] = [
         binding: { driverName: "claude", providerAccountId: null },
       },
     ],
-    complete: true,
   },
   {
     runId: null,
@@ -29,7 +28,6 @@ const GROUPS: readonly ProviderCommandBindingGroup[] = [
         binding: { driverName: "codex", providerAccountId: "account-1" },
       },
     ],
-    complete: true,
   },
 ];
 

@@ -12,6 +12,7 @@ import type { ServiceLogWriter } from "../daemon/service-log.js";
 import type { EventLogService } from "../events/log-service.js";
 import type { SessionChanges } from "./changes.js";
 import { cutToCodeUnits } from "../text-cut.js";
+import { describeRejection } from "../rejection.js";
 
 // A title reads as a few words: whole words up to this many UTF-16 units.
 const TITLE_MAX_LENGTH = 40;
@@ -114,7 +115,7 @@ export class SessionAutoTitle {
     } catch (error) {
       this.#writeServiceLog(
         `Naming session ${sessionId} after its first exchange failed: ` +
-          `${error instanceof Error ? error.message : String(error)}`,
+          `${describeRejection(error)}`,
       );
     }
   }
