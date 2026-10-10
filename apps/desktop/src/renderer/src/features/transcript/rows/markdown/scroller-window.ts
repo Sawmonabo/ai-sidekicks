@@ -6,11 +6,13 @@
 // the library lay every item out again. The window never writes the scroller and never compensates
 // an item that changed size: the conversation's own window keeps the reader's place.
 
-import type { Rect } from "@tanstack/react-virtual";
+import type { Range, Rect } from "@tanstack/react-virtual";
 
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { type ScrollController } from "#renderer/lib/scroll/chokepoint.js";
+import { widenRangeByPixels } from "#renderer/lib/scroll/item-band.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
+import { TRANSCRIPT_DRAWN_BAND_SCREEN_HEIGHTS } from "../../viewport/caps.js";
 
 /** The scroller-facing members of one nested window, read through `topPx` for its place. */
 export class ScrollerWindowMembers {
@@ -69,6 +71,21 @@ export class ScrollerWindowMembers {
   /** The viewport the window opens against before its first geometry sample. */
   public initialRect(): Rect {
     return { width: 0, height: this.#scrollController.geometry?.viewportHeight ?? 0 };
+  }
+
+  /**
+   * The items the window draws for the library's `range`: those the scroller shows and those within
+   * the conversation's drawn band past each edge, reached in the scroller's own height, ascending.
+   * `sizeAtPx` answers an item's laid-out size, measured or estimated.
+   */
+  public drawnIndexesOf(range: Range, sizeAtPx: (index: number) => number): number[] {
+    const viewportHeightPx = this.#scrollController.geometry?.viewportHeight ?? 0;
+    const bandPx = viewportHeightPx * TRANSCRIPT_DRAWN_BAND_SCREEN_HEIGHTS;
+    const { startIndex, endIndex } = widenRangeByPixels(range, bandPx, bandPx, sizeAtPx);
+    return Array.from(
+      { length: endIndex - startIndex + 1 },
+      (_unused, offset) => startIndex + offset,
+    );
   }
 
   /** Sends the window its offset again, after its top moved while the scroller did not. */

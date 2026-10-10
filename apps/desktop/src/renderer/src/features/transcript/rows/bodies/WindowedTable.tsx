@@ -6,6 +6,7 @@
 
 import { type MarkdownTableOffer } from "#renderer/components/Markdown/table-offer.js";
 import {
+  MARKDOWN_COLUMN_COUNT_ATTRIBUTE,
   MARKDOWN_SOURCE_END_ATTRIBUTE,
   MARKDOWN_SOURCE_START_ATTRIBUTE,
   MARKDOWN_TABLE_ROW_INDEX_ATTRIBUTE,
@@ -63,9 +64,10 @@ function LongTable(props: { readonly offer: MarkdownTableOffer }): React.JSX.Ele
                     [MARKDOWN_TABLE_ROW_INDEX_ATTRIBUTE]: row.index,
                     "aria-rowindex": row.index + 2,
                   })
-                : offer.drawSpacerRow(row.key, row.heightPx, row.rowCount, {
+                : offer.drawSpacerRow(row.key, row.heightPx, {
                     [MARKDOWN_SOURCE_START_ATTRIBUTE]: row.sourceStart,
                     [MARKDOWN_SOURCE_END_ATTRIBUTE]: row.sourceEnd,
+                    [MARKDOWN_COLUMN_COUNT_ATTRIBUTE]: offer.columnCount,
                   }),
             ),
           })}

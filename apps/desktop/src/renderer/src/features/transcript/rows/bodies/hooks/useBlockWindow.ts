@@ -1,4 +1,4 @@
-import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
+import { useVirtualizer, type Range } from "@tanstack/react-virtual";
 import { useCallback, useEffect, useLayoutEffect, useReducer, useState } from "react";
 
 import { type MarkdownBodyBlocksSnapshot } from "../../markdown/body-blocks.js";
@@ -27,12 +27,6 @@ export interface BlockWindow {
 }
 
 /**
- * Blocks drawn past each edge of the scroller, so a fling meets drawn text rather than an empty
- * band while the next blocks mount. Six blocks of agent prose are about two screens of lines.
- */
-const BLOCK_WINDOW_OVERSCAN_BLOCKS = 6;
-
-/**
  * One long body's window over its blocks: only those near the scroller's viewport are drawn, plus
  * every block the reader's selection runs across. A scroll re-renders the body only when the
  * drawn blocks change, and a measured block only when it moves a spacer. `viewport` and `rowKey`
@@ -59,11 +53,13 @@ export function useBlockWindow(
     readBlockCount,
     MARKDOWN_BLOCK_INDEX_ATTRIBUTE,
   );
-  // Every block between a selection's ends stays drawn, so a copy reads the blocks from the page.
+  // The blocks the scroller shows and a band past each edge as tall as the scroller, so a fling
+  // meets drawn text rather than an empty band while the next blocks mount. Every block between a
+  // selection's ends stays drawn too, so a copy reads the blocks from the page.
   const rangeExtractor = useCallback(
     (range: Range) =>
-      withPinnedIndexes(defaultRangeExtractor(range), indexesBetween(pins), range.count),
-    [pins],
+      withPinnedIndexes(layout.drawnIndexesOf(range), indexesBetween(pins), range.count),
+    [layout, pins],
   );
   // A new identity whenever a block settles, so the library re-reads every key even where the
   // count did not change: the tail's place can pass to a settled block at the same index.
@@ -96,7 +92,6 @@ export function useBlockWindow(
     initialRect,
     rangeExtractor,
     onChange,
-    overscan: BLOCK_WINDOW_OVERSCAN_BLOCKS,
     indexAttribute: MARKDOWN_BLOCK_INDEX_ATTRIBUTE,
     // A geometry sample can arrive while React commits, where a synchronous flush only warns.
     useFlushSync: false,

@@ -27,6 +27,7 @@ import {
   tablesOf,
 } from "./long-table.js";
 import {
+  flingShowingSpacers,
   mountBodies,
   SCROLLER_HEIGHT_PX,
   scrollTo,
@@ -34,6 +35,11 @@ import {
   textEnds,
   type MountedBodies,
 } from "./reply.js";
+
+/** A table long enough that the fastest fling ends inside it. */
+const FLUNG_TABLE_ROW_COUNT = 3_000;
+/** The screens a fling must travel for its frames to have crossed the window's edge many times. */
+const FLING_MINIMUM_SCREENS = 3;
 
 function drawnRow(table: HTMLTableElement, index: number): HTMLTableRowElement {
   const row = drawnRows(table).get(index);
@@ -213,33 +219,28 @@ describe("browser — a long table drawn as a window over its rows", () => {
     expectSameLayout(bodies, "at the widening row");
   });
 
-  it("draws the rows it holds the room of with the borders and ground of a drawn row", async () => {
-    const bodies = await mountWithWhole(replyWith(benchTable(400)), { isComplete: true });
+  it("shows no spacer in any frame of the fastest fling, and draws a spacer with no cell", async () => {
+    const bodies = await mountWithWhole(replyWith(benchTable(FLUNG_TABLE_ROW_COUNT)), {
+      isComplete: true,
+    });
     const { windowed } = tablesOf(bodies);
-    await scrollToRow(bodies, 200);
-    const spacers = windowed.querySelectorAll<HTMLTableRowElement>("tr[data-table-spacer]");
-    expect(spacers).toHaveLength(2);
-    const drawnCells = [...drawnRow(windowed, 200).cells];
-    const sides = ["top", "right", "bottom", "left"] as const;
-    const lookOf = (cell: Element): string[] => {
-      const style = getComputedStyle(cell);
-      return [
-        style.backgroundColor,
-        ...sides.flatMap((side) => [
-          style.getPropertyValue(`border-${side}-width`),
-          style.getPropertyValue(`border-${side}-style`),
-          style.getPropertyValue(`border-${side}-color`),
-        ]),
-      ];
-    };
-    for (const spacer of spacers) {
-      expect(spacer.cells).toHaveLength(drawnCells.length);
-      for (const [column, cell] of [...spacer.cells].entries()) {
-        expect(lookOf(cell), `spacer column ${String(column)}`).toStrictEqual(
-          lookOf(drawnCells[column] ?? expect.fail("a drawn cell")),
-        );
-      }
-    }
+    const spacersOf = (): HTMLTableRowElement[] => [
+      ...windowed.querySelectorAll<HTMLTableRowElement>("tr[data-table-spacer]"),
+    ];
+
+    const shownPxByFrame = await flingShowingSpacers(
+      bodies.scroller,
+      `[${MARKDOWN_TABLE_ROW_INDEX_ATTRIBUTE}]`,
+      spacersOf,
+    );
+
+    // The controls: the fling crossed screens of rows the window had not drawn, and the window
+    // still holds the room of the rows it does not draw.
+    expect(bodies.scroller.scrollTop).toBeGreaterThan(FLING_MINIMUM_SCREENS * SCROLLER_HEIGHT_PX);
+    expect(spacersOf().length).toBeGreaterThan(0);
+    expect(shownPxByFrame).toEqual([]);
+    // A spacer draws no cell, so no border or ground of one ever reaches the screen.
+    expect(spacersOf().map((spacer) => spacer.cells.length)).toEqual(spacersOf().map(() => 0));
   });
 
   it("tells assistive technology each drawn row's place in the whole table", async () => {

@@ -36,13 +36,12 @@ export interface MarkdownTableOffer {
    */
   readonly drawBodyRow: (index: number, attributes: MarkdownTableRowAttributes) => React.ReactNode;
   /**
-   * A row keyed `key` holding the room of `rowCount` rows not drawn, `heightPx` tall, hidden from
-   * assistive technology: a cell per column with the cells' borders, ruled between the rows.
+   * A row keyed `key` holding `heightPx` of room for rows not drawn, hidden from assistive
+   * technology. It draws no cell and no border, so it is never mistaken for rows.
    */
   readonly drawSpacerRow: (
     key: string,
     heightPx: number,
-    rowCount: number,
     attributes: MarkdownTableRowAttributes,
   ) => React.ReactNode;
 }

@@ -24,6 +24,12 @@ export const MARKDOWN_TABLE_ROW_INDEX_ATTRIBUTE = "data-markdown-table-row";
 export const MARKDOWN_SOURCE_START_ATTRIBUTE = "data-markdown-source-start";
 export const MARKDOWN_SOURCE_END_ATTRIBUTE = "data-markdown-source-end";
 
+/**
+ * The attribute a windowed table's spacer row carries the table's column count on, so a copy
+ * parses the rows it stands for at the table's width: the spacer draws no cell to count.
+ */
+export const MARKDOWN_COLUMN_COUNT_ATTRIBUTE = "data-markdown-column-count";
+
 /** Every index attribute a window marks its drawn elements with, outermost window first. */
 export const WINDOWED_ELEMENT_INDEX_ATTRIBUTES: readonly string[] = [
   MARKDOWN_BLOCK_INDEX_ATTRIBUTE,

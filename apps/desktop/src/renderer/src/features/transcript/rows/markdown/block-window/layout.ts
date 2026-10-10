@@ -5,7 +5,7 @@
 // undrawn run. A long table in a block windows its own rows against the same scroller, from the
 // block's place this layout answers as its table placement, and hears each change that may move it.
 
-import type { VirtualItem, Virtualizer } from "@tanstack/react-virtual";
+import type { Range, VirtualItem, Virtualizer } from "@tanstack/react-virtual";
 
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { Emitter } from "#renderer/lib/emitter.js";
@@ -240,6 +240,14 @@ export class BlockWindowLayout implements TableBodyPlacement {
   /** Tells the tables inside the body's blocks that a block may have moved. */
   public announcePlacementChange(change: TablePlacementChange): void {
     this.#placementChanges.emit(change);
+  }
+
+  /** The blocks drawn for the library's `range`: those on screen and the drawn band past them. */
+  public drawnIndexesOf(range: Range): number[] {
+    return this.#scroller.drawnIndexesOf(
+      range,
+      (index) => this.#virtualizer?.measurementsCache[index]?.size ?? this.estimateSize(index),
+    );
   }
 
   /** Takes the virtualizer this layout's members were given to, which a new width re-measures. */

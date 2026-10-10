@@ -8,7 +8,7 @@
 // remembered geometry.
 
 import type { Table } from "mdast";
-import type { VirtualItem, Virtualizer } from "@tanstack/react-virtual";
+import type { Range, VirtualItem, Virtualizer } from "@tanstack/react-virtual";
 
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { type HeldTableColumns } from "#renderer/components/Markdown/table-offer.js";
@@ -43,8 +43,6 @@ export type TableWindowRow =
       readonly kind: "spacer";
       readonly key: string;
       readonly heightPx: number;
-      /** How many undrawn rows it stands for. */
-      readonly rowCount: number;
       readonly sourceStart: number;
       readonly sourceEnd: number;
     };
@@ -318,6 +316,14 @@ export class TableWindowLayout {
     ) {
       this.#file(this.#filedBodyType, geometry);
     }
+  }
+
+  /** The body rows drawn for the library's `range`: those on screen and the drawn band past them. */
+  public drawnIndexesOf(range: Range): number[] {
+    return this.#scroller.drawnIndexesOf(
+      range,
+      (index) => this.#virtualizer?.measurementsCache[index]?.size ?? this.estimateSize(index),
+    );
   }
 
   /** Takes the virtualizer this layout's members were given to, and how to keep a row drawn. */
@@ -597,7 +603,6 @@ export class TableWindowLayout {
       kind: "spacer",
       key: firstIndex === 0 ? "before" : `after:${String(firstIndex - 1)}`,
       heightPx,
-      rowCount: lastIndex - firstIndex + 1,
       sourceStart: base + (firstRow?.position?.start.offset ?? 0),
       sourceEnd: base + (lastRow?.position?.end.offset ?? 0),
     });

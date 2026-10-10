@@ -2,12 +2,10 @@
 // the rows the reader ends on and no others, so no row mounts at an offset the box never shows,
 // and the band beyond the box widens in the tasks after it, at once when the reader scrolls.
 
-import { getConfig } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { cdp, userEvent } from "vitest/browser";
+import { userEvent } from "vitest/browser";
 
 import { RealClock, type Clock, type ScheduledHandle } from "#renderer/lib/clock.js";
-import { letFramesPass } from "#test/helpers/animation-frame.js";
 import {
   FEED_HEIGHT_PX,
   ROW_SELECTOR,
@@ -17,6 +15,7 @@ import {
   mountLongToolHistory,
   positionOfRow,
 } from "./long-tool-feed.js";
+import { FASTEST_FLICK_SPEED, touchFling } from "./touch-fling.js";
 
 /** Screens the reader wheels toward the head: far enough that pages join there. */
 const SCREEN_COUNT = 15;
@@ -34,14 +33,10 @@ const LONG_TURN_PX = FEED_HEIGHT_PX * 1.25;
 const TOUCH_FLING_PX = FEED_HEIGHT_PX * 3;
 /** A quick flick, whose momentum carries on long after the hand lets go, in pixels a second. */
 const QUICK_FLICK_SPEED = 8000;
-/** The fastest flick, which crosses a cut at the head while the offset moves under it. */
-const FASTEST_FLICK_SPEED = 17000;
 /** The wheel gestures before the first take-back a case may start at, near the window's end. */
 const GESTURES_BEFORE_NEAR_END = 2;
 /** The wheel gestures before a take-back a case may start at, deep in the window's middle. */
 const GESTURES_BEFORE_MIDDLE = 8;
-/** The frames the offset holds still for once a fling's momentum has run out. */
-const FLING_STILL_FRAME_COUNT = 10;
 
 /**
  * The wall clock, except that its timeouts wait until the case runs them, so the band a land
@@ -237,29 +232,6 @@ async function wheelToTakeBack(scroller: HTMLElement, minimumGestureCount: numbe
     }
   }
   expect.fail("no gesture took rows back from the head");
-}
-
-/**
- * A touch fling from the box's middle, toward the head for a positive `distancePx`, and the frames
- * of its momentum until the offset holds still.
- */
-async function touchFling(scroller: HTMLElement, distancePx: number, speed: number): Promise<void> {
-  const box = scroller.getBoundingClientRect();
-  await getConfig().asyncWrapper(async () => {
-    await cdp().send("Input.synthesizeScrollGesture", {
-      x: Math.round(box.left + box.width / 2),
-      y: Math.round(box.top + box.height / 2),
-      yDistance: distancePx,
-      speed,
-      gestureSourceType: "touch",
-      preventFling: false,
-    });
-  });
-  for (let stillFrames = 0, lastScrollTopPx = -1; stillFrames < FLING_STILL_FRAME_COUNT; ) {
-    await letFramesPass(1);
-    stillFrames = Math.abs(scroller.scrollTop - lastScrollTopPx) < GRAIN_PX ? stillFrames + 1 : 0;
-    lastScrollTopPx = scroller.scrollTop;
-  }
 }
 
 /** The unfilled height of the box after every change to the rows while `drive` runs. */

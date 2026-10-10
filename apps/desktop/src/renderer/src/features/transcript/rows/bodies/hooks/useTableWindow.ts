@@ -1,4 +1,4 @@
-import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
+import { useVirtualizer, type Range } from "@tanstack/react-virtual";
 import {
   useCallback,
   useContext,
@@ -50,12 +50,6 @@ export interface TableWindow {
   /** One drawn row, measured as it mounts and each time it resizes. */
   readonly attachRow: (element: HTMLElement | null) => void;
 }
-
-/**
- * Body rows drawn past each edge of the scroller, so a fling meets drawn rows rather than an empty
- * band while the next ones mount: about half a screen of one-line rows.
- */
-const TABLE_WINDOW_OVERSCAN_ROWS = 12;
 
 /**
  * One long table's window over its body rows, inside a transcript viewport: only the rows near the
@@ -120,15 +114,17 @@ export function useTableWindow(offer: MarkdownTableOffer): TableWindow {
     MARKDOWN_TABLE_ROW_INDEX_ATTRIBUTE,
   );
   const [revealedRowIndex, setRevealedRowIndex] = useState<number | undefined>(undefined);
-  // The rows holding a selection's ends stay drawn; the rows between are copied from the text.
+  // The rows the scroller shows and a band past each edge as tall as the scroller, so a fling meets
+  // drawn rows rather than a spacer while the next ones mount. The rows holding a selection's ends
+  // stay drawn too; the rows between are copied from the text.
   const rangeExtractor = useCallback(
     (range: Range) =>
       withPinnedIndexes(
-        defaultRangeExtractor(range),
+        layout.drawnIndexesOf(range),
         revealedRowIndex === undefined ? rangeEnds(pins) : [...rangeEnds(pins), revealedRowIndex],
         range.count,
       ),
-    [pins, revealedRowIndex],
+    [layout, pins, revealedRowIndex],
   );
   const onChange = useCallback(
     (instance: TableRowVirtualizer) => {
@@ -154,7 +150,6 @@ export function useTableWindow(offer: MarkdownTableOffer): TableWindow {
     initialRect,
     rangeExtractor,
     onChange,
-    overscan: TABLE_WINDOW_OVERSCAN_ROWS,
     indexAttribute: MARKDOWN_TABLE_ROW_INDEX_ATTRIBUTE,
     // A geometry sample can arrive while React commits, where a synchronous flush only warns.
     useFlushSync: false,
