@@ -52,6 +52,13 @@ function isMounted(feed: HTMLElement, index: number): boolean {
   return feed.querySelector(`[data-row-id="${transcriptFixtureEventId(index)}"]`) !== null;
 }
 
+/** Where the window placed a row's box in the scrolled content, in pixels. */
+function rowOffsetPx(row: HTMLElement): number | undefined {
+  const transform = row.closest<HTMLElement>(".meridian-transcript-viewport__row")?.style.transform;
+  const offset = /translate3d\(0(?:px)?, (-?[\d.]+)px, 0(?:px)?\)/u.exec(transform ?? "")?.[1];
+  return offset === undefined ? undefined : Number(offset);
+}
+
 /**
  * The long log mounted with `messageAnchorCursor` naming the message to open at, in a box that
  * opens at its tail as the app's does.
@@ -166,9 +173,17 @@ describe("the transcript feed — opened at a message", () => {
         drawsBody: (row) => row.id !== transcriptFixtureEventId(FAR_BACK_INDEX),
       },
     );
-    // Reading starts at the next drawn row.
-    expect(isMounted(feed, FAR_BACK_INDEX + 1)).toBe(true);
-    expect(document.activeElement).toBe(scrollContainerOf(feed));
+    // Reading starts at the next drawn row, at the top of the box, and no line says the message
+    // is missing: the event is in the log, it draws nothing.
+    const box = scrollContainerOf(feed);
+    const rowAtTop = [...feed.querySelectorAll<HTMLElement>("[data-row-id]")].find(
+      (row) => rowOffsetPx(row) === box.scrollTop,
+    );
+    expect(rowAtTop?.getAttribute("data-row-id")).toBe(
+      transcriptFixtureEventId(FAR_BACK_INDEX + 1),
+    );
+    expect(feed.textContent).not.toContain("Message not found");
+    expect(document.activeElement).toBe(box);
   });
 
   it("lands once on a message inside a run group, so a reader who folds the group keeps it", () => {
