@@ -12,10 +12,24 @@ export const WINDOWS_PROVIDER_OPERATING_SYSTEM: ProviderOperatingSystem = {
   canRunClaudeBashSandbox: false,
   environmentNameMatch: "case-insensitive",
   homeVariable: "USERPROFILE",
-  // Claude Code's installer puts `claude.exe` in `.local\bin`; Codex's puts `codex.exe` under the
-  // account's local application data.
-  providerCommandFolders: (homeDirectory) => [
-    `${homeDirectory}\\.local\\bin`,
-    `${homeDirectory}\\AppData\\Local\\Programs\\OpenAI\\Codex\\bin`,
-  ],
+  // Each where its installer or manager puts it; npm's prefix holds its shims itself on Windows.
+  providerCommandFolders: (place) => {
+    const home = place.homeDirectory;
+    const appData = place.readVariable("APPDATA") ?? `${home}\\AppData\\Roaming`;
+    const localAppData = place.readVariable("LOCALAPPDATA") ?? `${home}\\AppData\\Local`;
+    const npmPrefix =
+      place.readVariable("npm_config_prefix") ?? place.readVariable("NPM_CONFIG_PREFIX");
+    const nvmSymlink = place.readVariable("NVM_SYMLINK");
+    return [
+      `${home}\\.local\\bin`,
+      `${localAppData}\\Programs\\OpenAI\\Codex\\bin`,
+      ...(npmPrefix === undefined ? [] : [npmPrefix]),
+      `${appData}\\npm`,
+      place.readVariable("PNPM_HOME") ?? `${localAppData}\\pnpm`,
+      `${localAppData}\\Programs\\nodejs`,
+      ...(nvmSymlink === undefined ? [] : [nvmSymlink]),
+      `${home}\\scoop\\shims`,
+      `${home}\\.bun\\bin`,
+    ];
+  },
 };

@@ -6,7 +6,7 @@ import { access, stat } from "node:fs/promises";
 import { delimiter as pathDelimiter, extname, isAbsolute, join, resolve } from "node:path";
 
 import { selectProviderOperatingSystem } from "../provider/operating-system/selection.js";
-import type { SpawnEnvPair } from "../provider/spawn-env.js";
+import type { SpawnEnvNameMatch, SpawnEnvPair } from "../provider/spawn-env.js";
 
 /** "Is this path a file this process may execute?" — never rejects. */
 type ExecutableFileProbe = (candidate: string) => Promise<boolean>;
@@ -44,14 +44,13 @@ function windowsCandidateNames(command: string, pathExtensions: readonly string[
   return extname(command) === "" ? [...withExtensions, command] : [command, ...withExtensions];
 }
 
-// The value of `name` in a spawn environment, matched the way the host matches names.
-function readSpawnEnvValue(
+/** The value of `name` in a spawn environment, its name matched by the system's rule. */
+export function readSpawnEnvValue(
   environment: readonly SpawnEnvPair[],
   name: string,
-  platform: NodeJS.Platform,
+  nameMatch: SpawnEnvNameMatch,
 ): string | undefined {
-  const caseInsensitive =
-    selectProviderOperatingSystem(platform).environmentNameMatch === "case-insensitive";
+  const caseInsensitive = nameMatch === "case-insensitive";
   const entry = environment.find(([entryName]) =>
     caseInsensitive ? entryName.toUpperCase() === name : entryName === name,
   );
@@ -71,8 +70,9 @@ export async function* findExecutables(
   const platform = dependencies.platform ?? process.platform;
   const isExecutableFile = dependencies.isExecutableFile ?? DEFAULT_IS_EXECUTABLE_FILE;
   const isWindows = platform === "win32";
+  const nameMatch = selectProviderOperatingSystem(platform).environmentNameMatch;
   const pathExtensions = isWindows
-    ? (readSpawnEnvValue(environment, "PATHEXT", platform) ?? "")
+    ? (readSpawnEnvValue(environment, "PATHEXT", nameMatch) ?? "")
         .split(";")
         .map((extension) => extension.trim())
         .filter((extension) => extension !== "")
@@ -84,7 +84,7 @@ export async function* findExecutables(
     isAbsolute(command) || command.includes("/") || (isWindows && command.includes("\\"));
   const searchRoots: string[] = anchored
     ? [resolve(dependencies.workingDirectory ?? process.cwd(), command)]
-    : (readSpawnEnvValue(environment, "PATH", platform) ?? "")
+    : (readSpawnEnvValue(environment, "PATH", nameMatch) ?? "")
         .split(pathDelimiter)
         .filter((entry) => entry !== "")
         .map((entry) => join(entry, command));

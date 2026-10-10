@@ -52,6 +52,7 @@ import {
 import type { StreamingPrimitive } from "../ipc/streaming-primitive.js";
 import type { ExecutionPostureService } from "../policy/execution-posture-service.js";
 import { DriverCapabilityCache } from "../provider/capability/cache.js";
+import { ProviderCommandSearch } from "../provider/command-search.js";
 import {
   CAPABILITY_REFRESH_READ_TIMEOUT_MS,
   CapabilityRefresher,
@@ -296,17 +297,20 @@ export class DaemonProviders {
       return declared;
     };
     // Each spawn resolves the provider's own command along the login shell's `PATH` again, then
-    // where the providers' installers put it, so a shell that missed its deadline loses neither.
-    const providerCommandFolders = context.operatingSystem.providerCommandFolders(
-      context.homeDirectory,
-    );
+    // where the installers and Node managers put it, the newest build first, so a shell that
+    // missed its deadline loses neither provider.
+    const commandSearch = new ProviderCommandSearch({
+      operatingSystem: context.operatingSystem,
+      homeDirectory: context.homeDirectory,
+      writeServiceLog,
+    });
     const providerCommandOf = (driverName: ProviderName) => async (): Promise<string> =>
       (
         await resolveProviderExecutable(
           driverName,
           PROVIDER_DRIVER_DESCRIPTORS[driverName].command,
           providerBaseEnvironment,
-          { providerCommandFolders },
+          { commandSearch },
         )
       ).resolvedExecutablePath;
     const onSessionRelaunched: ClaudeDependencies["onSessionRelaunched"] = (sessionId, result) => {

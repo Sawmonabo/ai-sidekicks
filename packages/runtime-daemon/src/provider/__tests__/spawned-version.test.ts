@@ -250,12 +250,12 @@ describe("provider executable resolution", () => {
     expect(refusal.fields.requestedCommand).toBe("codex");
   });
 
-  it("looks for a bare command where the installers put it only after the PATH", async () => {
-    const executables = new Set([join("/installer/bin", "codex")]);
+  it("looks for a bare command through the command search only after the PATH", async () => {
+    const executables = new Set<string>();
     const dependencies = {
       isExecutableFile: (candidate: string) => Promise.resolve(executables.has(candidate)),
       realpath: (candidate: string) => Promise.resolve(candidate),
-      providerCommandFolders: ["/installer/bin"],
+      commandSearch: { find: () => Promise.resolve(join("/installer/bin", "codex")) },
     };
     const shellEnvironment: readonly SpawnEnvPair[] = [["PATH", "/shell/bin"]];
 
