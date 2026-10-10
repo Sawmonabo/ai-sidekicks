@@ -8,7 +8,7 @@ import { markdownWorker } from "#renderer/components/Markdown/worker/connection.
 import { startSlice } from "#renderer/lib/work-slices.js";
 import { type TranscriptPageRead } from "#renderer/services/daemon/transcript/page.js";
 import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
-import { copyOnceBuilt } from "#renderer/services/platform/late-clipboard-copy.js";
+import { copyOnceBuilt } from "#renderer/services/platform/clipboard/late-copy.js";
 import { primarySelectionFor } from "#renderer/services/platform/primary-selection/host.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { type SessionStore } from "#renderer/store/session/store.js";

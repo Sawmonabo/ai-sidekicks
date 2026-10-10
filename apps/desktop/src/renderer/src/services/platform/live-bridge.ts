@@ -8,7 +8,7 @@ import { FIXTURE_LAUNCH_GLOBAL, type FixtureLaunch } from "#shared/fixture-launc
 import type { PreloadApi } from "#shared/preload-api.js";
 import type { PlatformBridge } from "./bridge.js";
 import { ClockLocale } from "./clock-locale.js";
-import { PendingClipboardCopies } from "./late-clipboard-copy.js";
+import { PendingClipboardCopies } from "./clipboard/pending-copies.js";
 import { TransportReconnectSignal } from "../transport/reconnect.js";
 
 /** The installed preload bridge, or `undefined` when the preload did not run. */

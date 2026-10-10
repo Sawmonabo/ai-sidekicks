@@ -7,7 +7,7 @@ import type {
 import type { ClipboardContent } from "#shared/preload-api.js";
 import type { ScheduledHandle } from "#renderer/lib/clock.js";
 import { TRANSIENT_STATUS_DURATION_MS } from "#renderer/lib/transient-status.js";
-import { copyOnceBuilt } from "../late-clipboard-copy.js";
+import { copyOnceBuilt } from "../clipboard/late-copy.js";
 import { useClock } from "./useClock.js";
 import { usePlatformBridge } from "./usePlatformBridge.js";
 
