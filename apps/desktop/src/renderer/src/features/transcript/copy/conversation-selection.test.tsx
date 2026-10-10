@@ -5,11 +5,13 @@
 
 import { render } from "@testing-library/react";
 import type { TextClipboardContent } from "#shared/preload-api.js";
-import { toHtml } from "hast-util-to-html";
 import { renderToString } from "katex";
 import { describe, expect, it, vi } from "vitest";
 
-import { markdownTableBodyRows, markdownToHtml } from "#renderer/components/Markdown/html.js";
+import { markdownToHtml } from "#renderer/components/Markdown/html.js";
+import type { CodeSpanReader } from "#renderer/components/Markdown/highlight/code-span-reader.js";
+import { MarkdownNodes } from "#renderer/components/Markdown/MarkdownNodes.js";
+import { parseSettledBlock } from "#renderer/components/Markdown/parse.js";
 import { drawnTreeText, type CopyFlavor } from "#renderer/components/Markdown/drawn-text.js";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
@@ -124,13 +126,31 @@ function tableReply(rowCount: number): { readonly text: string; readonly rowLine
   return { text: ["| Lane | Rows |", "| --- | --- |", ...rowLines].join("\n"), rowLines };
 }
 
-/** A conversation of one reply row drawing `rows` as its table's body, under the table's head. */
-function conversationWithTable(rows: string): HTMLElement {
-  const conversation = document.createElement("div");
-  conversation.innerHTML =
-    `<div ${WINDOWED_ROW_INDEX_ATTRIBUTE}="0"><div ${COPY_FLAVOR_ATTRIBUTE}="markdown"><table>` +
-    `<thead><tr><th>Lane</th><th>Rows</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
-  return conversation;
+/** Reads no code colors: no table here holds a code block. */
+const NO_CODE_SPANS: CodeSpanReader = {
+  heldSpans: () => expect.fail("a table asked for code colors"),
+  readSpans: () => expect.fail("a table asked for code colors"),
+};
+
+/** A one-row conversation whose body copies as `flavor` and draws `markdown` as the screen does. */
+function conversationDrawing(markdown: string, flavor: CopyFlavor): HTMLElement {
+  const { container } = render(
+    <div {...{ [WINDOWED_ROW_INDEX_ATTRIBUTE]: "0" }}>
+      <div {...{ [COPY_FLAVOR_ATTRIBUTE]: flavor }}>
+        <MarkdownNodes
+          nodes={parseSettledBlock(markdown).children}
+          context={{
+            isSettled: true,
+            definedFootnoteIdentifiers: new Set(),
+            codeSpanReader: NO_CODE_SPANS,
+            renderCopy: undefined,
+            renderTable: undefined,
+          }}
+        />
+      </div>
+    </div>,
+  );
+  return container;
 }
 
 describe("a selection across the conversation", () => {
@@ -267,54 +287,52 @@ describe("a selection across the conversation", () => {
 });
 
 describe("a long table's undrawn rows in a selection", () => {
-  it("are read by the markdown worker in their spacer's place, as drawn rows are", async () => {
-    // Long enough that the part is read off the page's thread.
-    const { text, rowLines } = tableReply(160);
-    const drawnRow = (line: string): string =>
-      toHtml(markdownTableBodyRows(`| Lane | Rows |\n| --- | --- |\n${line}`));
-    const firstLine = rowLines[0] ?? expect.fail("the table has rows");
-    const lastLine = rowLines.at(-1) ?? expect.fail("the table has rows");
-    const undrawnStart = text.indexOf(rowLines[1] ?? "");
-    const undrawnEnd = text.lastIndexOf("\n");
-    const spacer =
-      `<tr ${MARKDOWN_SOURCE_START_ATTRIBUTE}="${String(undrawnStart)}" ` +
-      `${MARKDOWN_SOURCE_END_ATTRIBUTE}="${String(undrawnEnd)}" ` +
-      `${MARKDOWN_COLUMN_COUNT_ATTRIBUTE}="2"></tr>`;
-    const drawnText = vi.fn<ConversationCopyRows["markdownWorker"]["drawnText"]>((tree, flavor) =>
-      Promise.resolve(drawnTreeText(tree, flavor)),
-    );
-    const worker = {
-      html: (markdown: string) => Promise.resolve(markdownToHtml(markdown)),
-      drawnText,
-    };
-    const readers = { ...END_ROWS_ONLY, rowBodyText: () => text };
-    const windowed = buildOfDrawnRows(
-      conversationWithTable(drawnRow(firstLine) + spacer + drawnRow(lastLine)),
-      0,
-      readers,
-      worker,
-    );
+  it.each(["markdown", "text"] as const)(
+    "copy as %s exactly as the same rows drawn, read by the markdown worker in the spacer's place",
+    async (flavor) => {
+      // Long enough that the part is read off the page's thread.
+      const { text, rowLines } = tableReply(160);
+      const drawn = conversationDrawing(text, flavor);
+      const windowed = drawn.cloneNode(true) as HTMLElement;
+      const bodyRows = [...windowed.querySelectorAll("tbody > tr")];
+      const spacer = windowed.ownerDocument.createElement("tr");
+      const lastUndrawnLine = rowLines.at(-2) ?? expect.fail("the table has rows");
+      spacer.setAttribute(MARKDOWN_SOURCE_START_ATTRIBUTE, String(text.indexOf(rowLines[1] ?? "")));
+      spacer.setAttribute(
+        MARKDOWN_SOURCE_END_ATTRIBUTE,
+        String(text.indexOf(lastUndrawnLine) + lastUndrawnLine.length),
+      );
+      spacer.setAttribute(MARKDOWN_COLUMN_COUNT_ATTRIBUTE, "2");
+      bodyRows[1]?.before(spacer);
+      for (const undrawn of bodyRows.slice(1, -1)) {
+        undrawn.remove();
+      }
+      const drawnText = vi.fn<ConversationCopyRows["markdownWorker"]["drawnText"]>(
+        (tree, partFlavor) => Promise.resolve(drawnTreeText(tree, partFlavor)),
+      );
+      const worker = {
+        html: (markdown: string) => Promise.resolve(markdownToHtml(markdown)),
+        drawnText,
+      };
+      const copyOf = (conversation: Element, readers = END_ROWS_ONLY) => {
+        const build = buildOfDrawnRows(conversation, 0, readers, worker);
+        expect(build.buildWhile(() => true).isBuilt).toBe(false);
+        return build.finish(
+          windowCuttingEveryPart(),
+          () => true,
+          () => undefined,
+        );
+      };
 
-    expect(windowed.buildWhile(() => true).isBuilt).toBe(false);
-    const copied = await windowed.finish(
-      windowCuttingEveryPart(),
-      () => true,
-      () => undefined,
-    );
-    const whole = await buildOfDrawnRows(
-      conversationWithTable(rowLines.map(drawnRow).join("")),
-      0,
-      END_ROWS_ONLY,
-      worker,
-    ).finish(
-      windowCuttingEveryPart(),
-      () => true,
-      () => undefined,
-    );
-    expect(drawnText).toHaveBeenCalledTimes(2);
-    expect(copied).toStrictEqual(whole);
-    expect(copied?.text).toMatch(/^\| lane-80 +\| \*\*80\*\* rows +\|$/mu);
-  });
+      const copied = await copyOf(windowed, { ...END_ROWS_ONLY, rowBodyText: () => text });
+      const whole = await copyOf(drawn);
+      expect(drawnText).toHaveBeenCalledTimes(2);
+      expect(copied).toStrictEqual(whole);
+      expect(copied?.text).toMatch(
+        flavor === "text" ? /^lane-80\t80 rows$/mu : /^\| lane-80 +\| \*\*80\*\* rows +\|$/mu,
+      );
+    },
+  );
 });
 
 describe("a formula in a selection", () => {
