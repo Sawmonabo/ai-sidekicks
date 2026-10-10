@@ -2,9 +2,9 @@
 // (its row carries its size alone, and its control reads it in full), unavailable, available. A
 // truncated body renders its prefix and says so; an unreadable one keeps the turn at its position
 // with the unavailable marker, because an empty body or a dropped row would misreport the turn.
-// `MessageContent` and `ToolOutput` differ only in how a body's shape is read. A live body is read
-// through its lane's handle and a stored one through a handle over its string, so neither is
-// copied whole on a frame.
+// `MessageContent` and `ToolOutput` differ only in how a body's shape is read and in that a
+// call's output is cut at a share of the visible flow. A live body is read through its lane's
+// handle and a stored one through a handle over its string, so neither is copied whole on a frame.
 
 import "./MachineBody.css";
 
@@ -20,7 +20,9 @@ import { withoutResidualEscapesOf } from "../ansi/escape-sequences.js";
 import { FullBodyReadsContext, type FullBodyReads } from "../full-body-reads.js";
 import { type FootnoteRegistry } from "../markdown/footnotes/registry.js";
 import { FullOutputControl } from "./FullOutputControl.js";
+import { OutputHeightCut } from "./OutputHeightCut.js";
 import { type OutputKind } from "./output-kinds.js";
+import { countPrintedLines } from "./printed-lines.js";
 import { StreamingMarkdown } from "./StreamingMarkdown.js";
 import { TruncationNotice } from "./TruncationNotice.js";
 import { UnavailableBody } from "./UnavailableBody.js";
@@ -42,6 +44,11 @@ export interface MachineBodyProps {
   readonly footnotes: FootnoteRegistry;
   /** What a screen reader calls a command-output block. */
   readonly label: string;
+  /**
+   * Whether the body is a call's output, whose plain or command-output box is cut at a share of
+   * the visible flow with the rest one press away; a reply's is drawn whole.
+   */
+  readonly isCutAtFlowHeight: boolean;
   /** Keep a pressed control where it stands while the body grows; see `TranscriptCardProps`. */
   readonly holdControlInPlace?: ((control: HTMLElement) => void) | undefined;
 }
@@ -155,6 +162,7 @@ function renderBodyText(
       <AnsiOutput
         publishedText={drawnText}
         label={props.label}
+        isCutAtFlowHeight={props.isCutAtFlowHeight}
         holdControlInPlace={props.holdControlInPlace}
       />
     );
@@ -162,7 +170,16 @@ function renderBodyText(
   if (kind === "plain-text") {
     // Verbatim: no parse, no footnotes. Preformatted, so text copied out of it keeps its lines.
     // Drawn as the text's own chunks, one text node each, so the tree shares them.
-    return <pre className="meridian-machine-body__plain">{drawnText.chunks()}</pre>;
+    return (
+      <OutputHeightCut
+        className="meridian-machine-body__plain"
+        isCutAtFlowHeight={props.isCutAtFlowHeight}
+        readPrintedLineCount={() => countPrintedLines(drawnText.chunks())}
+        holdControlInPlace={props.holdControlInPlace}
+      >
+        {drawnText.chunks()}
+      </OutputHeightCut>
+    );
   }
   return (
     <StreamingMarkdown
