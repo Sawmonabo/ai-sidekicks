@@ -35,6 +35,8 @@ import { NodePtyHost } from "../../host/node-pty.js";
 import { PtySessionEvents } from "../../host/session-events.js";
 import type { ShellOutputOutlet } from "../output/stream.js";
 import { ShellTable } from "../table.js";
+import { DARWIN_TERMINAL_OPERATING_SYSTEM } from "../../operating-system/darwin.js";
+import { selectTerminalOperatingSystem } from "../../operating-system/selector.js";
 
 /** A second project session, whose shells another session's requests must never reach. */
 export const OTHER_SESSION_ID: SessionId = SessionIdSchema.parse(
@@ -108,7 +110,7 @@ export function openTable(options: TableOptions = {}): TableUnderTest {
   const startedPrograms: string[] = [];
   const host =
     options.host ??
-    new NodePtyHost(makeOrphanGuardDouble(), {
+    new NodePtyHost(makeOrphanGuardDouble(), DARWIN_TERMINAL_OPERATING_SYSTEM, {
       platform: "darwin",
       ptySpawn: (_command, args) => {
         // Every program starts behind the parent check, `/bin/sh -c <check> <program> …`.
@@ -152,6 +154,7 @@ export function openTable(options: TableOptions = {}): TableUnderTest {
     readLoginShell: () => options.loginShell ?? "/bin/sh",
     baseEnvironment: options.baseEnvironment ?? [],
     runFolderPath: scratchRunFolder(),
+    operatingSystem: selectTerminalOperatingSystem(process.platform, process.env),
     outboundQueue: {
       isFull: (transportId) => fullTransports.has(transportId),
       onceDrained: (transportId, listener) => {

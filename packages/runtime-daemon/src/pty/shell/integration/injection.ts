@@ -1,15 +1,14 @@
 // How each shell is started so that this daemon's script loads beside the person's own startup
 // files and reports the shell's marks with a nonce minted for that shell alone. zsh reads the
 // script through a `ZDOTDIR` folder, copied into the daemon's run folder, whose files source the
-// person's own; bash starts as a login
-// shell in posix mode, which reads only the file `ENV` names, and the script turns posix mode off
-// and loads the login profile itself; fish reads it through a vendor configuration folder named
-// first in `XDG_DATA_DIRS`, before the person's `config.fish`. macOS's own bash skips the posix
-// start's `ENV`, so it starts as a plain login shell and loads the script from its first prompt
-// command. The nonce goes to the shell in a file of its own, which the script reads and deletes,
-// so it never sits in the shell's environment, where any program of the account could read it.
-// Every other shell starts with no script and reports no marks, as a login shell where the
-// platform has one.
+// person's own; bash starts as a login shell in posix mode, which reads only the file `ENV` names,
+// and the script turns posix mode off and loads the login profile itself; fish reads it through a
+// vendor configuration folder named first in `XDG_DATA_DIRS`, before the person's `config.fish`. A
+// bash that skips the posix start's `ENV`, as macOS's own does, starts as a plain login shell and
+// loads the script from its first prompt command. The nonce goes to the shell in a file of its
+// own, which the script reads and deletes, so it never sits in the shell's environment, where any
+// program of the account could read it. Every other shell starts with no script and reports no
+// marks, as a login shell where the system has one.
 
 import { randomBytes } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -26,6 +25,7 @@ import {
 } from "@ai-sidekicks/contracts/machine-settings";
 
 import type { SpawnEnvPair } from "../../../provider/spawn-env.js";
+import type { TerminalOperatingSystem } from "../../operating-system/contract.js";
 import { prepareZshStartupFolder } from "./zsh-startup.js";
 
 // Beside this module in the source and in the build, which copies the folder there.
@@ -36,11 +36,10 @@ const FISH_DATA_FOLDER = path.join(SCRIPTS_FOLDER, "xdg-data");
 // The data folders fish reads when `XDG_DATA_DIRS` names none, as the XDG specification sets them.
 const DEFAULT_XDG_DATA_DIRS = ["/usr/local/share", "/usr/share"];
 
-// macOS's own bash, a 3.2 Apple patched so that a posix-mode start never reads `ENV`.
-const APPLE_BASH_PATH = "/bin/bash";
-// The last prompt command of macOS's own bash at its first prompt, which loads the script; the
-// script takes this exact text back out of `PROMPT_COMMAND`. It evaluates the script rather than
-// sourcing it, because bash 3.2 puts back a DEBUG trap a sourced file replaced once it ends.
+// The last prompt command, at its first prompt, of a bash that skips a posix start's `ENV`, which
+// loads the script; the script takes this exact text back out of `PROMPT_COMMAND`. It evaluates
+// the script rather than sourcing it, because bash 3.2 puts back a DEBUG trap a sourced file
+// replaced once it ends.
 const BASH_PROMPT_LOADER = `builtin eval "$(<"$${SHELL_BASH_SCRIPT_ENVIRONMENT_NAME}")"`;
 
 // The shells a script here loads into; every other shell reports no marks.
@@ -79,12 +78,13 @@ export async function prepareShellLaunch(input: {
   readonly environment: readonly SpawnEnvPair[];
   /** The daemon's run folder, which only this account may open; zsh's startup files go there. */
   readonly runFolderPath: string;
+  /** What the terminal takes from the operating system it runs on. */
+  readonly operatingSystem: TerminalOperatingSystem;
 }): Promise<ShellLaunch> {
-  const { shellPath, environment } = input;
+  const { shellPath, environment, operatingSystem } = input;
   const shellName = path.basename(shellPath);
   if (!isScriptedShellName(shellName)) {
-    // Windows' command interpreters have no login form, and take `-l` for no flag of theirs.
-    const args = process.platform === "win32" ? [] : ["-l"];
+    const args = [...operatingSystem.loginShellArgs];
     return { command: shellPath, args, environment, markNonce: null };
   }
   const markNonce = await writeMarkNonce(randomBytes(NONCE_BYTE_LENGTH).toString("hex"));
@@ -108,7 +108,7 @@ export async function prepareShellLaunch(input: {
       );
     }
     case "bash": {
-      if (process.platform === "darwin" && shellPath === APPLE_BASH_PATH) {
+      if (operatingSystem.isBashSkippingPosixEnv(shellPath)) {
         const personPromptCommand = valueOf(environment, "PROMPT_COMMAND");
         return launch(
           ["-l"],

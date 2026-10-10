@@ -11,6 +11,8 @@ import { PtyBackendUnavailableError } from "../../sidecar/binary-path.js";
 import { makeFakeChild, makeOrphanGuardDouble } from "../../__fixtures__/child-doubles.js";
 import type { SpawnRequest } from "../protocol.js";
 import type { DrainResult } from "../contract.js";
+import { LINUX_TERMINAL_OPERATING_SYSTEM } from "../../operating-system/linux.js";
+import { windowsTerminalOperatingSystem } from "../../operating-system/windows.js";
 
 const SAMPLE_SPAWN: SpawnRequest = {
   kind: "spawn_request",
@@ -54,7 +56,7 @@ beforeEach(() => {
     .fn<(pid: number) => Promise<TaskkillResult>>()
     .mockResolvedValue({ exitCode: 0 });
 
-  const host = new NodePtyHost(makeOrphanGuardDouble(), {
+  const host = new NodePtyHost(makeOrphanGuardDouble(), LINUX_TERMINAL_OPERATING_SYSTEM, {
     // POSIX, so `kill` takes the plain `child.kill(signal)` branch.
     platform: "linux",
     ptySpawn: ptySpawnStub,
@@ -273,12 +275,16 @@ describe("NodePtyHost.shutdown — Windows taskkill-escalation race", () => {
         (sessionId: string, exitCode: number, signalCode?: number) => void
       > = vi.fn();
 
-      const winHost = new NodePtyHost(makeOrphanGuardDouble(), {
-        platform: "win32",
-        ptySpawn: winPtySpawn,
-        generateConsoleCtrlEvent: winGCCE,
-        spawnTaskkill: winTaskkill,
-      });
+      const winHost = new NodePtyHost(
+        makeOrphanGuardDouble(),
+        windowsTerminalOperatingSystem(undefined),
+        {
+          platform: "win32",
+          ptySpawn: winPtySpawn,
+          generateConsoleCtrlEvent: winGCCE,
+          spawnTaskkill: winTaskkill,
+        },
+      );
       winHost.setOnExit(winExitRecorder);
 
       await winHost.spawn(SAMPLE_SPAWN);

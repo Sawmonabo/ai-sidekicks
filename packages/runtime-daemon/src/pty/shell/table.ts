@@ -57,6 +57,7 @@ import { ShellPastes } from "./paste.js";
 import { ShellResizeQueue, type ShellSize } from "./queue/resize.js";
 import { ShellWriteQueue } from "./queue/write.js";
 import { ScrollbackWindow } from "./scrollback.js";
+import type { TerminalOperatingSystem } from "../operating-system/contract.js";
 import { checkWorkingFolder, prepareShellStart } from "./start.js";
 
 /** The size a shell starts at before any pane sizes it: the conventional terminal's. */
@@ -85,6 +86,8 @@ interface ShellTableDeps {
   readonly baseEnvironment: readonly SpawnEnvPair[];
   /** The daemon's run folder, which only this account may open; a shell's startup files go there. */
   readonly runFolderPath: string;
+  /** What the terminal takes from the operating system it runs on. */
+  readonly operatingSystem: TerminalOperatingSystem;
   /** The connections' outbound queues, which an output stream reads before it sends. */
   readonly outboundQueue: OutboundQueue;
   /** Writes one line to the service log, where work no caller waits on reports its failure. */
@@ -476,6 +479,7 @@ export class ShellTable {
       baseEnvironment: this.#deps.baseEnvironment,
       isScreenReaderModeOn: await this.#deps.readScreenReaderMode(),
       runFolderPath: this.#deps.runFolderPath,
+      operatingSystem: this.#deps.operatingSystem,
     });
     let hostSessionId: string | null = null;
     let status: PtyShellStatus;

@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import { makeFakeChild, makeOrphanGuardDouble } from "../../__fixtures__/child-doubles.js";
 import { NodePtyHost } from "../node-pty.js";
 import type { SpawnRequest } from "../protocol.js";
+import { DARWIN_TERMINAL_OPERATING_SYSTEM } from "../../operating-system/darwin.js";
 
 const SHELL_SPAWN: SpawnRequest = {
   kind: "spawn_request",
@@ -34,6 +35,7 @@ function hostWithChild(
         return Promise.resolve();
       },
     },
+    DARWIN_TERMINAL_OPERATING_SYSTEM,
     { ptySpawn: () => fake.child, platform: "darwin" },
   );
   const events: string[] = [];

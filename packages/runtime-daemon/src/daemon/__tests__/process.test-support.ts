@@ -26,6 +26,7 @@ import { chooseDatabaseFileOperatingSystem } from "../../recovery/database-file/
 import { SearchThread, type SearchThreadOptions } from "../../session/search/thread/handle.js";
 import { DaemonProcess, type DaemonProcessOptions } from "../process.js";
 import { readProcessTreeUsage } from "../process-tree-usage.js";
+import { selectTerminalOperatingSystem } from "../../pty/operating-system/selector.js";
 
 /** A terminal drain that had nothing to end. */
 export const EMPTY_DRAIN: DrainResult = {
@@ -137,6 +138,7 @@ export async function startDaemon(
     captureProviderBaseEnvironment: () => Promise.resolve([]),
     commandShell: null,
     providerOperatingSystem: DARWIN_PROVIDER_OPERATING_SYSTEM,
+    terminalOperatingSystem: selectTerminalOperatingSystem(process.platform, process.env),
     serviceVersion: SERVICE_VERSION,
     processIdentity: PROCESS_IDENTITY,
     readProcessTreeUsage: () => readProcessTreeUsage(process.pid),

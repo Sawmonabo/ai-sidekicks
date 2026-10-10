@@ -63,6 +63,7 @@ import { ExecutionPostureService } from "../policy/execution-posture-service.js"
 import { ProviderRegistry } from "../provider/driver/registry.js";
 import type { ProviderOperatingSystem } from "../provider/operating-system/contract.js";
 import type { SpawnEnvPair } from "../provider/spawn-env.js";
+import type { TerminalOperatingSystem } from "../pty/operating-system/contract.js";
 import type { DrainResult, PtyHost } from "../pty/host/contract.js";
 import { PtySessionEvents } from "../pty/host/session-events.js";
 import type { OrphanGuard } from "../pty/orphan/guard.js";
@@ -142,6 +143,8 @@ export interface DaemonProcessOptions {
   readonly commandShell: string | null;
   /** The operating system the daemon runs on, chosen once at its start. */
   readonly providerOperatingSystem: ProviderOperatingSystem;
+  /** What the terminal takes from the operating system it runs on, picked once at the start. */
+  readonly terminalOperatingSystem: TerminalOperatingSystem;
   /** The service's own release version, which the status read reports. */
   readonly serviceVersion: string;
   /** The daemon's own process as the system knows it, which the status read reports. */
@@ -310,6 +313,7 @@ export class DaemonProcess {
       environmentNameMatch: options.providerOperatingSystem.environmentNameMatch,
       providerBaseEnvironment: parts.providerBaseEnvironment,
       runFolderPath: options.runFolder.folderPath,
+      terminalOperatingSystem: options.terminalOperatingSystem,
       refuseSessionWrite: (sessionId, eventType) => {
         refuseSessionEvent(this.#recoveryStatus, sessionId, eventType);
       },

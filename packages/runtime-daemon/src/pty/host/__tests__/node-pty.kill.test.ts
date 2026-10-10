@@ -11,6 +11,8 @@ import type { TaskkillResult } from "../../taskkill-windows.js";
 import { makeFakeChild, makeOrphanGuardDouble } from "../../__fixtures__/child-doubles.js";
 import { SPAWN_NONCE_ENVIRONMENT_NAME } from "../../orphan/registry.js";
 import type { SpawnRequest } from "../protocol.js";
+import { LINUX_TERMINAL_OPERATING_SYSTEM } from "../../operating-system/linux.js";
+import { windowsTerminalOperatingSystem } from "../../operating-system/windows.js";
 
 // Distinctive, so a failing assertion names the fixture.
 const FIXTURE_PID = 67890;
@@ -52,7 +54,7 @@ beforeEach(() => {
   const exitRecorder: Mock<(sessionId: string, exitCode: number, signalCode?: number) => void> =
     vi.fn();
 
-  const host = new NodePtyHost(makeOrphanGuardDouble(), {
+  const host = new NodePtyHost(makeOrphanGuardDouble(), windowsTerminalOperatingSystem(undefined), {
     platform: "win32",
     ptySpawn: ptySpawnStub,
     generateConsoleCtrlEvent: mockGCCE,
@@ -230,14 +232,18 @@ describe("NodePtyHost — invokeTaskkill is wall-clock bounded", () => {
       const exitRecorder: Mock<(sessionId: string, exitCode: number, signalCode?: number) => void> =
         vi.fn();
 
-      const host = new NodePtyHost(makeOrphanGuardDouble(), {
-        platform: "win32",
-        ptySpawn: ptySpawnStub,
-        // The SIGKILL path never calls the console-control sender; a no-op keeps the host from
-        // loading the production FFI.
-        generateConsoleCtrlEvent: vi.fn(),
-        spawnTaskkill: stuckTaskkill,
-      });
+      const host = new NodePtyHost(
+        makeOrphanGuardDouble(),
+        windowsTerminalOperatingSystem(undefined),
+        {
+          platform: "win32",
+          ptySpawn: ptySpawnStub,
+          // The SIGKILL path never calls the console-control sender; a no-op keeps the host from
+          // loading the production FFI.
+          generateConsoleCtrlEvent: vi.fn(),
+          spawnTaskkill: stuckTaskkill,
+        },
+      );
       host.setOnExit(exitRecorder);
 
       const { session_id } = await host.spawn(SAMPLE_SPAWN);
@@ -355,7 +361,7 @@ describe("NodePtyHost — close() on Windows routes through taskkill", () => {
     const exitRecorder: Mock<(sessionId: string, exitCode: number, signalCode?: number) => void> =
       vi.fn();
 
-    const host = new NodePtyHost(makeOrphanGuardDouble(), {
+    const host = new NodePtyHost(makeOrphanGuardDouble(), LINUX_TERMINAL_OPERATING_SYSTEM, {
       platform: "linux",
       ptySpawn: ptySpawnStub,
       spawnTaskkill: mockTaskkill,
@@ -507,7 +513,7 @@ describe("NodePtyHost — kill translation", () => {
   it("on platform=linux, SIGINT delegates to child.kill('SIGINT')", async () => {
     const { child } = makeFakeChild();
     const ptySpawnStub: Mock<NodePtySpawnFn> = vi.fn<NodePtySpawnFn>().mockReturnValue(child);
-    const host = new NodePtyHost(makeOrphanGuardDouble(), {
+    const host = new NodePtyHost(makeOrphanGuardDouble(), LINUX_TERMINAL_OPERATING_SYSTEM, {
       platform: "linux",
       ptySpawn: ptySpawnStub,
     });

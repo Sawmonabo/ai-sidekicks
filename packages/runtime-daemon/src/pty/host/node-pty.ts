@@ -21,7 +21,7 @@ import { randomUUID } from "node:crypto";
 
 import { importKoffi } from "../koffi.js";
 import { HeldSessionEvents } from "./held-events.js";
-import { requireDaemonParent } from "./parent-check.js";
+import type { TerminalOperatingSystem } from "../operating-system/contract.js";
 import type { OrphanGuard } from "../orphan/guard.js";
 import { SPAWN_NONCE_ENVIRONMENT_NAME } from "../orphan/registry.js";
 import { PtyBackendUnavailableError } from "../sidecar/binary-path.js";
@@ -208,6 +208,9 @@ export class NodePtyHost implements PtyHost {
   /** Records each child in the orphan registry from before its start to its end. */
   private readonly orphanGuard: NodePtyOrphanGuard;
 
+  /** How each child starts on the system the daemon runs on. */
+  private readonly operatingSystem: TerminalOperatingSystem;
+
   /** Consumer callbacks; no-ops until the daemon registers its own with `setOnData`/`setOnExit`. */
   private dataListener: (sessionId: string, chunk: Uint8Array) => void = () => {};
 
@@ -230,8 +233,13 @@ export class NodePtyHost implements PtyHost {
   private readonly shutdownWaiters: Map<string, (result: "drained" | "forced") => void> = new Map();
 
   /** Partial `deps` merge with production defaults. */
-  public constructor(orphanGuard: NodePtyOrphanGuard, deps?: Partial<NodePtyHostDeps>) {
+  public constructor(
+    orphanGuard: NodePtyOrphanGuard,
+    operatingSystem: TerminalOperatingSystem,
+    deps?: Partial<NodePtyHostDeps>,
+  ) {
     this.orphanGuard = orphanGuard;
+    this.operatingSystem = operatingSystem;
     this.deps = resolveDefaultDeps(deps ?? {});
   }
 
@@ -270,12 +278,7 @@ export class NodePtyHost implements PtyHost {
             "the host is terminal — re-create a fresh instance for new sessions.",
         );
       }
-      // Outside Windows the child starts only while this daemon is its parent, so a daemon killed
-      // mid-spawn leaves nothing running (see `parent-check.ts`).
-      const launch =
-        this.deps.platform === "win32"
-          ? { command: spec.command, args: spec.args }
-          : requireDaemonParent(spec.command, spec.args, process.pid);
+      const launch = this.operatingSystem.launchTerminalChild(spec.command, spec.args, process.pid);
       child = ptySpawn(launch.command, launch.args, {
         name: spec.terminal_name ?? "xterm-color",
         cols: spec.cols,

@@ -54,6 +54,7 @@ import type { StreamingPrimitive } from "../ipc/streaming-primitive.js";
 import type { ProviderRegistry } from "../provider/driver/registry.js";
 import { ProviderConversationPurge } from "../provider/conversation-purge.js";
 import type { SpawnEnvNameMatch, SpawnEnvPair } from "../provider/spawn-env.js";
+import type { TerminalOperatingSystem } from "../pty/operating-system/contract.js";
 import { RuntimeBindingStore } from "../provider/runtime-binding-store.js";
 import type { RunSetupGate } from "../session/run/setup-gates.js";
 import type { PtyHost } from "../pty/host/contract.js";
@@ -139,6 +140,8 @@ export interface SessionMethodsDeps {
   readonly providerBaseEnvironment: readonly SpawnEnvPair[];
   /** The daemon's run folder, which only this account may open; a shell's startup files go there. */
   readonly runFolderPath: string;
+  /** What the terminal takes from the operating system it runs on. */
+  readonly terminalOperatingSystem: TerminalOperatingSystem;
   /** Writes one line to the service log. */
   readonly writeServiceLog: (line: string) => void;
   /** The terminal host every session's shells run in. */
@@ -410,6 +413,7 @@ export function registerSessionMethods(
     readLoginShell: () => userInfo().shell,
     baseEnvironment: deps.providerBaseEnvironment,
     runFolderPath: deps.runFolderPath,
+    operatingSystem: deps.terminalOperatingSystem,
     outboundQueue: deps.outboundQueue,
     writeServiceLog: deps.writeServiceLog,
   });

@@ -18,6 +18,7 @@ import { SESSION_WORKING_FOLDER_UNAVAILABLE_CODE } from "@ai-sidekicks/contracts
 
 import { DaemonDomainError } from "../../ipc/domain-error.js";
 import type { SpawnEnvPair } from "../../provider/spawn-env.js";
+import type { TerminalOperatingSystem } from "../operating-system/contract.js";
 import { prepareShellLaunch, type ShellLaunch } from "./integration/injection.js";
 
 // What the system answers when it cannot start a program, in plain words; any other answer is
@@ -54,6 +55,8 @@ interface ShellStartInput {
   readonly isScreenReaderModeOn: boolean;
   /** The daemon's run folder, which only this account may open. */
   readonly runFolderPath: string;
+  /** What the terminal takes from the operating system it runs on. */
+  readonly operatingSystem: TerminalOperatingSystem;
 }
 
 // The line above the platform's default shell's prompt when the login shell could not start.
@@ -63,15 +66,6 @@ function describeShellFallback(
   fallbackPath: string,
 ): string {
   return `Could not start ${attemptedPath} (${reason}), so this tab runs ${fallbackPath}.\r\n`;
-}
-
-// The shell the system itself starts for an account that names none; on Windows, the command
-// interpreter the system names in `ComSpec`.
-function platformDefaultShell(): string {
-  if (process.platform === "win32") {
-    return process.env["ComSpec"] ?? "cmd.exe";
-  }
-  return process.platform === "darwin" ? "/bin/zsh" : "/bin/sh";
 }
 
 function isErrnoError(error: unknown): error is NodeJS.ErrnoException {
@@ -126,7 +120,7 @@ async function readNotStartableReason(path: string): Promise<string | null> {
 async function resolveShellProgram(
   input: ShellStartInput,
 ): Promise<{ path: string; fallbackNotice: string | null }> {
-  const fallbackPath = platformDefaultShell();
+  const fallbackPath = input.operatingSystem.defaultShell;
   if (input.loginShell === null || input.loginShell.length === 0) {
     return { path: fallbackPath, fallbackNotice: null };
   }
@@ -148,6 +142,7 @@ async function launchShell(input: ShellStartInput, shellPath: string): Promise<S
     shellPath,
     environment: input.baseEnvironment,
     runFolderPath: input.runFolderPath,
+    operatingSystem: input.operatingSystem,
   });
   const environment = launch.environment.filter(
     ([name]) => name !== CLAUDE_SCREEN_READER_ENVIRONMENT_NAME,

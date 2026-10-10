@@ -17,6 +17,7 @@ import { findInstalledShell } from "../../../__fixtures__/installed-shell.js";
 import { NodePtyHost } from "../../../host/node-pty.js";
 import { discardMarkNonceFile, prepareShellLaunch } from "../injection.js";
 import { type ShellMark, ShellMarkReader } from "../marks.js";
+import { selectTerminalOperatingSystem } from "../../../operating-system/selector.js";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -283,7 +284,10 @@ describe.skipIf(process.platform === "win32")("each shell's marks in a real logi
         }
         const home = writeFixtureHome(shellCase.files);
         const runFolder = mkdtempSync(path.join(tmpdir(), "shell-marks-run-"));
-        const host = new NodePtyHost(makeOrphanGuardDouble());
+        const host = new NodePtyHost(
+          makeOrphanGuardDouble(),
+          selectTerminalOperatingSystem(process.platform, process.env),
+        );
         const launch = await prepareShellLaunch({
           shellPath,
           environment: [
@@ -292,6 +296,7 @@ describe.skipIf(process.platform === "win32")("each shell's marks in a real logi
             ["TERM", "xterm-256color"],
           ],
           runFolderPath: runFolder,
+          operatingSystem: selectTerminalOperatingSystem(process.platform, process.env),
         });
         try {
           const { markNonce } = launch;

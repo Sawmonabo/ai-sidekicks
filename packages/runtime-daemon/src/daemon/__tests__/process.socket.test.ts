@@ -61,6 +61,7 @@ import {
   whenClosed,
   writeAheadLogPath,
 } from "./process.test-support.js";
+import { DARWIN_TERMINAL_OPERATING_SYSTEM } from "../../pty/operating-system/darwin.js";
 
 // Every server this file's daemons create, so a test can fail the daemon's own listener the way
 // the operating system would, with an `error` event on the listening server.
@@ -469,7 +470,7 @@ describe("a session's shells over the socket", () => {
   it("releases a hold as a disconnect when its connection ends, before its panes close", async () => {
     const writers = captureDatabaseWriters();
     // Shells whose program is a stand-in, each ending as soon as it is signaled.
-    const ptyHost = new NodePtyHost(makeOrphanGuardDouble(), {
+    const ptyHost = new NodePtyHost(makeOrphanGuardDouble(), DARWIN_TERMINAL_OPERATING_SYSTEM, {
       platform: "darwin",
       ptySpawn: () => {
         const fake = makeFakeChild();

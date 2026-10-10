@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { makeOrphanGuardDouble } from "../../__fixtures__/child-doubles.js";
 import { NodePtyHost } from "../node-pty.js";
+import { selectTerminalOperatingSystem } from "../../operating-system/selector.js";
 
 // Below a million, where the BSD `seq` on macOS switches to exponent notation.
 const LINE_COUNT = 300_000;
@@ -17,7 +18,10 @@ const MAX_BYTES_AFTER_PAUSE = 128 * 1024;
 
 describe.skipIf(process.platform === "win32")("NodePtyHost flow control", () => {
   it("holds a flood back while paused, then delivers all of it in order", async () => {
-    const host = new NodePtyHost(makeOrphanGuardDouble());
+    const host = new NodePtyHost(
+      makeOrphanGuardDouble(),
+      selectTerminalOperatingSystem(process.platform, process.env),
+    );
     const decoder = new TextDecoder();
     let receivedBytes = 0;
     let text = "";

@@ -58,6 +58,7 @@ import { NodePtyHost } from ${JSON.stringify(moduleUrl("../../host/node-pty.ts")
 import { openOrphanGuard } from ${JSON.stringify(moduleUrl("../guard.ts"))};
 import { openOrphanOperatingSystem } from ${JSON.stringify(moduleUrl("../operating-system.ts"))};
 import { SPAWN_NONCE_ENVIRONMENT_NAME } from ${JSON.stringify(moduleUrl("../registry.ts"))};
+import { selectTerminalOperatingSystem } from ${JSON.stringify(moduleUrl("../../operating-system/selector.ts"))};
 
 const dataFolder = process.env.DATA_FOLDER;
 const isCrashingInSpawn = process.env.CRASH_IN_SPAWN === "1";
@@ -88,7 +89,8 @@ const ptySpawn = (command, args, options) => {
   }
   return child;
 };
-await new NodePtyHost(guard, { ptySpawn }).spawn({
+const operatingSystem = selectTerminalOperatingSystem(process.platform, process.env);
+await new NodePtyHost(guard, operatingSystem, { ptySpawn }).spawn({
   kind: "spawn_request",
   ...(isCrashingInSpawn
     ? { command: "/bin/zsh", args: ["-l"] }

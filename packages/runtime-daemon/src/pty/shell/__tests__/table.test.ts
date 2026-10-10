@@ -47,6 +47,7 @@ import {
   textOf,
   writeThrough,
 } from "./table.test-support.js";
+import { selectTerminalOperatingSystem } from "../../operating-system/selector.js";
 
 const UNKNOWN_TERMINAL_ID: TerminalId = TerminalIdSchema.parse("no-such-terminal");
 
@@ -427,7 +428,10 @@ describe("ShellTable", () => {
       }
       const home = mkdtempSync(path.join(tmpdir(), "shell-table-"));
       writeFileSync(path.join(home, ".zshrc"), "PS1='$ '\n");
-      const host = new NodePtyHost(makeOrphanGuardDouble());
+      const host = new NodePtyHost(
+        makeOrphanGuardDouble(),
+        selectTerminalOperatingSystem(process.platform, process.env),
+      );
       // The nonce, read from the file the shell is handed before the shell reads and deletes it.
       const nonces: string[] = [];
       const spawn = host.spawn.bind(host);
