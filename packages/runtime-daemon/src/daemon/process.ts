@@ -434,7 +434,6 @@ export class DaemonProcess {
         dataFolder,
         indexFolderPath,
         runFolder: options.runFolder,
-        bootId: options.processIdentity.bootId,
         readBackupFolder: async () =>
           (await settingsFile.read()).settings.backup.folder ??
           path.join(dataFolder, BACKUP_DEFAULT_FOLDER_NAME),

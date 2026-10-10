@@ -1,12 +1,14 @@
 // Each open window's frame store, kept by the app so its commands act on the window used last,
-// and main's report of the background service, which every window shows. A store is built when its
-// window opens, on the address the window opened on, so it never publishes its default route over
-// that address; it goes when its window closes.
+// and main's report of the background service, which every window shows, with whether the service
+// has answered since the app opened. A store is built when its window opens, on the address the
+// window opened on, so it never publishes its default route over that address; it goes when its
+// window closes.
 
 import type { MainProcessState } from "#shared/daemon/status-topic.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { parseRoute } from "#renderer/routing/routes.js";
 import type { OpenWindow, OpenWindows } from "#renderer/services/window/open-windows.js";
+import { serviceBootStageOf } from "#renderer/store/window/main-process-state.js";
 import { WindowStore } from "#renderer/store/window/store.js";
 
 /** One open window and the frame store it draws from. */
@@ -15,12 +17,16 @@ export interface OpenWindowStore {
   readonly store: WindowStore;
 }
 
-/** The frame store of every open window, and the one report of the service they share. */
+/**
+ * The frame store of every open window, the one report of the service they share, and whether the
+ * service has answered yet.
+ */
 export class WindowStores {
   readonly #heldByWindowId = new Map<string, HeldWindowStore>();
   readonly #listeners = new Set<() => void>();
   #usedLastFirst: readonly OpenWindowStore[] = [];
   #latestReport: MainProcessState | undefined;
+  #hasServiceAnswered = false;
 
   /**
    * Hold a store for each window `openWindows` has open, now and on each open, close and focus
@@ -40,15 +46,30 @@ export class WindowStores {
     return this.#usedLastFirst;
   }
 
+  /**
+   * Whether the service has answered since the app opened. Once it has, it stays so for the app's
+   * life, whatever the link does after, so a window opened later never meets the boot cover.
+   */
+  public get hasServiceAnswered(): boolean {
+    return this.#hasServiceAnswered;
+  }
+
   /** Hand main's newest report to every window's store, and to each one built after. */
   public publishMainProcessReport(report: MainProcessState): void {
     this.#latestReport = report;
     for (const { store } of this.#heldByWindowId.values()) {
       store.publishMainProcessReport(report);
     }
+    if (!this.#hasServiceAnswered && serviceBootStageOf(report.connection) === "answered") {
+      this.#hasServiceAnswered = true;
+      this.#publish();
+    }
   }
 
-  /** Hear every window open, close or come forward, and every window's route move. */
+  /**
+   * Hear every window open, close or come forward, every window's route move, and the service's
+   * first answer.
+   */
   public subscribe(listener: () => void): Unsubscribe {
     this.#listeners.add(listener);
     return () => {

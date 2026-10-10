@@ -23,7 +23,11 @@ import {
   DAEMON_STOP_DRAIN_BOUND_MS,
   type DaemonLifecycleAccepted,
 } from "@ai-sidekicks/contracts/daemon/lifecycle";
-import { DAEMON_REPAIRING_CODE } from "@ai-sidekicks/contracts/daemon/recovery";
+import {
+  DAEMON_REPAIRING_CODE,
+  DaemonRepairingDetailsSchema,
+  type DaemonRepairProgress,
+} from "@ai-sidekicks/contracts/daemon/recovery";
 import { DAEMON_STATUS_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/daemon/status";
 import {
   CURRENT_PROTOCOL_VERSION,
@@ -455,10 +459,11 @@ export class DaemonSupervisor {
    * tried again only while its token is not written yet, since a socket nothing answers means
    * there is none to find. A service, started or found, that answers it is repairing its
    * database file is waited for as long as it keeps answering so: the wait runs again from each
-   * such answer, and the gap while it binds its socket again is waited out as a start's. The wait
-   * ends early, with the exit's reason, when the started service exits. A service this app started
-   * that is still running when the wait runs out is ended as one that never answered, since it
-   * would hold the socket against every later start.
+   * such answer, reported with its count unless a lost link is being brought back, and the gap
+   * while it binds its socket again is waited out as a start's. The wait ends early, with the exit's
+   * reason, when the started service exits. A service this app started that is still running when
+   * the wait runs out is ended as one that never answered, since it would hold the socket against
+   * every later start.
    */
   async #connectWithin(
     lifetime: LinkLifetime,
@@ -514,6 +519,12 @@ export class DaemonSupervisor {
             // Alive and busy for as long as the repair takes: it binds its socket again after.
             isSocketExpected = true;
             armDeadline();
+            if (!this.#isBringingBack) {
+              this.#reportUnlinked({
+                kind: "repairing",
+                progress: this.#repairProgressOf(failure),
+              });
+            }
           } else if (!isServiceNotReadyYet(failure) || (isNoSocket && !isSocketExpected)) {
             throw failure;
           }
@@ -539,6 +550,23 @@ export class DaemonSupervisor {
         );
       }
     }
+  }
+
+  /**
+   * The count a repairing answer carries, read from its fields. Fields the app cannot read are
+   * logged, and the repair is reported without a count.
+   */
+  #repairProgressOf(failure: JsonRpcRemoteError): DaemonRepairProgress | undefined {
+    const details = DaemonRepairingDetailsSchema.safeParse(failure.data?.fields ?? {});
+    if (!details.success) {
+      this.#log.write({
+        level: "warning",
+        source: LOG_SOURCE,
+        message: `The background service's repair count could not be read: ${details.error.message}`,
+      });
+      return undefined;
+    }
+    return details.data.progress;
   }
 
   #linkEvents(currentConnection: () => DaemonClientConnection | undefined): LinkEvents {
@@ -778,7 +806,7 @@ function isServiceNotReadyYet(failure: unknown): boolean {
 }
 
 // A service repairing its database file answers the hello with this until it is done.
-function isServiceRepairing(failure: unknown): boolean {
+function isServiceRepairing(failure: unknown): failure is JsonRpcRemoteError {
   return failure instanceof JsonRpcRemoteError && failure.data?.type === DAEMON_REPAIRING_CODE;
 }
 

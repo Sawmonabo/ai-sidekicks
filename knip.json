@@ -267,10 +267,12 @@
       ]
     },
     "packages/runtime-daemon": {
-      // The database writer's and the search's worker threads, the search index's build process,
-      // and the askpass program git runs: each started by its file's URL, which knip cannot follow.
+      // The database writer's, the search's and the repair's fresh-file worker threads, the search
+      // index's build process, and the askpass program git runs: each started by its file's URL,
+      // which knip cannot follow.
       "entry": [
         "src/database/worker.ts",
+        "src/recovery/database-file/fresh-file/worker.ts",
         "src/session/search/thread/worker.ts",
         "src/session/search/index/child.ts",
         "src/workspace/clone/askpass/program.ts"

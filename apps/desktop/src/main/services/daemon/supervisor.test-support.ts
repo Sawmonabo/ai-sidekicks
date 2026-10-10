@@ -63,11 +63,14 @@ export interface ScriptedLink {
 /** How the scripted service answers a call: at once, after `delayMs`, refused, or never. */
 export type CallAnswer = "answered" | { readonly delayMs: number } | "refused" | "silent";
 
-/** How the scripted service answers the next connect; `repairing` refuses the hello while so. */
+/**
+ * How the scripted service answers the next connect; `repairing` refuses the hello while so, with
+ * the refusal's `fields` as the service sends them.
+ */
 export type ConnectAnswer =
   | { readonly kind: "absent" }
   | { readonly kind: "answering"; readonly hello: DaemonHelloAck; readonly answersPing: boolean }
-  | { readonly kind: "repairing" }
+  | { readonly kind: "repairing"; readonly fields: Record<string, unknown> }
   | { readonly kind: "silent" };
 
 /** A background service played by the test: what each connect meets, and the starts asked for. */
@@ -129,6 +132,7 @@ export class ScriptedService {
       return Promise.reject(
         new JsonRpcRemoteError(JsonRpcErrorCode.InvalidRequest, "repairing the database file", {
           type: DAEMON_REPAIRING_CODE,
+          fields: answer.fields,
         }),
       );
     }

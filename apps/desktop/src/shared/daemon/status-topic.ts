@@ -5,6 +5,8 @@
 // daemon's method map because it must speak while no service answers: at boot, while a start
 // is retried, and on Windows when the service wrote down why it cannot start.
 
+import type { DaemonRepairProgress } from "@ai-sidekicks/contracts/daemon/recovery";
+
 /**
  * What the app says when the background service does not answer: a call the operating system
  * broke, a call rejected with no code of its own, and a link main gave up on.
@@ -49,17 +51,23 @@ export interface MainProcessNegotiation {
 /**
  * Where this window stands with the background service. Before a link exists: `connecting` while
  * main looks for a running service and handshakes, `starting` while a service main started comes
- * up. With a link: `connected`, or `version_incompatible` when the handshake was refused and the
- * link serves reads alone. After a link is lost: `transient_disconnect` while main brings it back
- * with backoff, `unknown` for a loss whose cause main does not recognize, drawn as `degraded` and
- * never as `connected`, and `degraded` once the backoff gives up. `stopped` is the service ended
- * on the person's `Stop`. `unreported` is what a window holds before main's first delivery; main
- * never publishes it.
+ * up, and `repairing` while the service answers that it is repairing its database file. With a
+ * link: `connected`, or `version_incompatible` when the handshake was refused and the link serves
+ * reads alone. After a link is lost: `transient_disconnect` while main brings it back with
+ * backoff, `unknown` for a loss whose cause main does not recognize, drawn as `degraded` and never
+ * as `connected`, and `degraded` once the backoff gives up. `stopped` is the service ended on the
+ * person's `Stop`. `unreported` is what a window holds before main's first delivery; main never
+ * publishes it.
  */
 export type DaemonConnection =
   | { readonly kind: "unreported" }
   | { readonly kind: "connecting" }
   | { readonly kind: "starting" }
+  | {
+      readonly kind: "repairing";
+      /** The service's own count from its latest answer; absent while the repair gives none. */
+      readonly progress: DaemonRepairProgress | undefined;
+    }
   | { readonly kind: "connected" }
   /** The handshake was refused. The facts are on `MainProcessState.negotiation`. */
   | { readonly kind: "version_incompatible" }

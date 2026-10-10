@@ -23,10 +23,7 @@ const isMutationRun = process.env["STRYKER_MUTATOR_WORKER"] !== undefined;
 export default defineConfig({
   test: {
     environment: "node",
-    execArgv: [
-      "--import",
-      `data:text/javascript,import{register}from"node:module";register(${JSON.stringify(SOURCE_LOADER)})`,
-    ],
+    execArgv: ["--import", SOURCE_LOADER],
     passWithNoTests: false,
     reporters: ["default"],
     // Coverage is read only at the root once projects are declared.

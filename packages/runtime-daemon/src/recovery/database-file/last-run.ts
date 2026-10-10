@@ -1,12 +1,13 @@
 // The record of how the daemon's last run on the database file ended, kept beside the file. A start
-// writes that it runs in this boot of the system; a clean stop, once every connection has closed,
-// replaces that with the file's facts as it left them. A process that ends any other way within
-// one boot cannot damage the file, since SQLite keeps every committed transaction across a crash
-// of the program; a crash of the system or a power loss can, on storage that does not write in the
-// order it was asked, so a start that finds another boot's record, or a clean stop's facts the
-// file no longer matches, cannot vouch for the file. SQLite keeps no such flag of its own, and a
-// missing write-ahead log proves nothing. The facts come from `stat` alone, since opening and
-// closing the database file in this process would drop the locks SQLite holds on it.
+// writes that it runs; a clean stop, once every connection has closed, replaces that with the
+// file's facts as it left them. A run that ends any other way leaves the file sound: SQLite keeps
+// every committed transaction across a crash of the program, and in WAL mode a crash of the
+// machine or a power loss can damage the file only through a checkpoint whose syncs the storage
+// did not honor, which the writer's checkpoints rule out by flushing the drive. A file whose facts
+// no longer match a clean stop's, or with no record, was changed by something else, so a start
+// cannot vouch for it. SQLite keeps no such flag of its own, and a missing write-ahead log proves
+// nothing. The facts come from `stat` alone, since opening and closing the database file in this
+// process would drop the locks SQLite holds on it.
 
 import { readFile, stat } from "node:fs/promises";
 
@@ -15,19 +16,16 @@ import { isMissingFileError } from "../../file/missing-error.js";
 
 /**
  * How the last run on the database file ended, as its record tells: `new-file` when there is no
- * file yet, `clean` after a clean stop that left the file as it is, `process-ended` when the run
- * ended without one within the system's current boot, and `unknown` otherwise.
+ * file yet, `clean` after a clean stop that left the file as it is, `unclean` when the run ended
+ * without one, and `unknown` when there is no record or the file changed since a clean stop.
  */
-export type LastRunEnd = "new-file" | "clean" | "process-ended" | "unknown";
+export type LastRunEnd = "new-file" | "clean" | "unclean" | "unknown";
 
-const RUNNING_PREFIX = "running ";
+const RUNNING_RECORD = "running";
 const CLEAN_PREFIX = "clean ";
 
-/**
- * Reads how the last run on the file ended, as the system's boot `bootId` sees it. Rejects with
- * the file system's error.
- */
-export async function readLastRunEnd(databasePath: string, bootId: string): Promise<LastRunEnd> {
+/** Reads how the last run on the file ended. Rejects with the file system's error. */
+export async function readLastRunEnd(databasePath: string): Promise<LastRunEnd> {
   if ((await statOrMissing(databasePath)) === undefined) {
     return "new-file";
   }
@@ -43,15 +41,15 @@ export async function readLastRunEnd(databasePath: string, bootId: string): Prom
   if (recordText === `${CLEAN_PREFIX}${await describeDatabaseFile(databasePath)}`) {
     return "clean";
   }
-  return recordText === `${RUNNING_PREFIX}${bootId}` ? "process-ended" : "unknown";
+  return recordText === RUNNING_RECORD ? "unclean" : "unknown";
 }
 
 /**
- * Records that a run on the file has started in the system's boot `bootId`, replacing the last
- * run's record. Rejects with the file system's error.
+ * Records that a run on the file has started, replacing the last run's record. Rejects with the
+ * file system's error.
  */
-export async function recordRunStart(databasePath: string, bootId: string): Promise<void> {
-  await writeFileAtomically(lastRunRecordPath(databasePath), `${RUNNING_PREFIX}${bootId}`, 0o600);
+export async function recordRunStart(databasePath: string): Promise<void> {
+  await writeFileAtomically(lastRunRecordPath(databasePath), RUNNING_RECORD, 0o600);
 }
 
 /**

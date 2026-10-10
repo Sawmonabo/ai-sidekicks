@@ -61,11 +61,13 @@ export async function copyDatabaseFilesAside(options: DatabaseFilesAsideOptions)
   const folder = await mkdtemp(
     path.join(asideRoot, `${options.now().toISOString().replaceAll(":", "-")}-`),
   );
+  // A clone where the file system offers one (APFS, Btrfs, XFS), which takes no time or space and
+  // keeps the bytes as they were when the file is replaced; a full copy elsewhere.
   for (const file of files) {
     await copyFile(
       path.join(path.dirname(options.databasePath), file.name),
       path.join(folder, file.name),
-      constants.COPYFILE_EXCL,
+      constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE,
     );
   }
   await writeRecord(folder, { files, sessions: [] });

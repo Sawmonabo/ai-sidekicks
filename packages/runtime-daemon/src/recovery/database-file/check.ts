@@ -7,7 +7,11 @@
 
 import { spawn } from "node:child_process";
 
-import { refuseUnfitShell, SQLITE_SHELL_PROGRAM } from "./sqlite-shell.js";
+import {
+  refuseUnfitShell,
+  SQLITE_SHELL_BUSY_TIMEOUT_MS,
+  SQLITE_SHELL_PROGRAM,
+} from "./sqlite-shell.js";
 
 /**
  * What the check found: the file is sound, or damaged, with what SQLite reported; or `stopped`
@@ -17,9 +21,6 @@ export type DatabaseFileCheckAnswer =
   | { readonly outcome: "sound" }
   | { readonly outcome: "damaged"; readonly damage: string }
   | { readonly outcome: "stopped" };
-
-// How long the shell waits for a writer's lock before it reports the file busy.
-const BUSY_TIMEOUT_MS = 5_000;
 
 // The tail of the shell's output kept for a damage or a failure's message.
 const OUTPUT_KEPT_BYTES = 4_096;
@@ -65,7 +66,7 @@ export class DatabaseFileCheck {
       [
         "-readonly",
         "-cmd",
-        `.timeout ${String(BUSY_TIMEOUT_MS)}`,
+        `.timeout ${String(SQLITE_SHELL_BUSY_TIMEOUT_MS)}`,
         databasePath,
         "PRAGMA quick_check",
       ],

@@ -1,10 +1,10 @@
 // The database file as a start opens it. A file a previous run found damaged is repaired first,
 // while the socket answers that the service is repairing; one the repair cannot heal fails the
 // start, naming why. The file's structural check then runs beside the service at every start but
-// the first: after a clean stop that left the file as it was, or an end of the process within the
-// system's current boot, which SQLite keeps every committed transaction across, writes go at once;
-// otherwise, after a crash of the system or a power loss or when the file changed, the writer holds
-// every write until the check finds the file sound. A check that cannot run leaves the service
+// the first: after any end of the last run, clean or not, writes go at once, since nothing but a
+// checkpoint the storage did not flush can damage the file, and the writer's checkpoints flush
+// it; a file something else changed since the last run, or with no record of one, holds every
+// write until the check finds it sound. A check that cannot run leaves the service
 // taking writes and reading as degraded, and the next start checks before it writes again. Damage
 // the check or any read or write meets is recorded beside the file and stops the daemon, so its
 // next start repairs the file before anything opens it.
@@ -35,8 +35,6 @@ export interface DatabaseFileOpenOptions {
   readonly dataFolder: string;
   readonly indexFolderPath: string;
   readonly runFolder: DaemonRunFolder;
-  /** The system's current boot, which tells an end of the process from a crash of the system. */
-  readonly bootId: string;
   /** The folder the person's backups go to; read only when the file is damaged. */
   readonly readBackupFolder: () => Promise<string>;
   readonly now: () => Date;
@@ -91,15 +89,15 @@ export async function openDatabaseFile(
         `Its files are copied aside in ${fileRepair.asideFolder}`,
     );
   }
-  const lastRunEnd = await readLastRunEnd(databasePath, options.bootId);
+  const lastRunEnd = await readLastRunEnd(databasePath);
   let isVouched = lastRunEnd !== "unknown";
-  // A run that ends uncleanly in this boot leaves this record, which vouches for the file at the
-  // next start; an unvouched file keeps the last run's record until its check finds it sound.
+  // A run that ends uncleanly leaves this record, which vouches for the file at the next start;
+  // an unvouched file keeps the last run's record until its check finds it sound.
   if (isVouched) {
-    await recordRunStart(databasePath, options.bootId);
+    await recordRunStart(databasePath);
   } else {
     writeServiceLog(
-      "The service did not stop cleanly in this boot, or its database file changed since; " +
+      "The database file changed since the service's last run, or holds no record of one; " +
         "writes wait for the file's check",
     );
   }
@@ -130,7 +128,7 @@ export async function openDatabaseFile(
                 );
                 if (!isVouched) {
                   isVouched = true;
-                  await recordRunStart(databasePath, options.bootId).catch((error: unknown) => {
+                  await recordRunStart(databasePath).catch((error: unknown) => {
                     writeServiceLog(
                       "Recording that the file was found sound failed, so the next start " +
                         `checks it before it writes again: ${describeError(error)}`,

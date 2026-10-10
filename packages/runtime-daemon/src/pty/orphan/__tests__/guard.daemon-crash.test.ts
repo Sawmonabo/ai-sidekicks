@@ -119,7 +119,7 @@ function startDaemon(dataFolder: string, isCrashingInSpawn: boolean): StartedDae
     [
       "--conditions=@ai-sidekicks/source",
       "--import",
-      `data:text/javascript,import{register}from"node:module";register(${JSON.stringify(SOURCE_LOADER)})`,
+      SOURCE_LOADER,
       "--input-type=module",
       "--eval",
       DAEMON_SCRIPT,

@@ -4,7 +4,7 @@
 
 Repair or restore the Local Runtime Daemon SQLite store when the service's own repair at a start could not heal it, or when a session's history stays damaged after that repair.
 
-The service heals first, on its own ([Spec-013 §Fallback Behavior](../specs/013-persistence-and-recovery.md#fallback-behavior)). It checks the file's structure at every start, beside its work after a clean stop or an end of its process while the machine stayed up, and before it takes any write after a crash of the machine, a power loss or a changed file; damage that check or any read or write meets stops the service, and its next start repairs the file before it opens it: a damaged file is copied aside untouched into a folder under `~/.ai-sidekicks/damaged/` with its write-ahead log, recovered into a fresh file with SQLite's own recovery (`sqlite3_recover`) and checked with `PRAGMA integrity_check` before it is used, a session the newest backup holds more events of taking them from that backup; a session whose events still cannot be read opens at its last good point, read-only, with `Continue from here` and `Delete session`, and only that session refuses writes. This runbook starts where that repair ends.
+The service heals first, on its own ([Spec-013 §Fallback Behavior](../specs/013-persistence-and-recovery.md#fallback-behavior)). It checks the file's structure at every start, beside its work after a clean stop or any other end of its last run, and before it takes any write on a file something else changed since a clean stop or one with no record of the last run; damage that check or any read or write meets stops the service, and its next start repairs the file before it opens it: a damaged file is copied aside untouched into a folder under `~/.ai-sidekicks/damaged/` with its write-ahead log, recovered into a fresh file with SQLite's own recovery (`sqlite3_recover`) and checked with `PRAGMA integrity_check` before it is used, a session the newest backup holds more events of taking them from that backup; a session whose events still cannot be read opens at its last good point, read-only, with `Continue from here` and `Delete session`, and only that session refuses writes. This runbook starts where that repair ends.
 
 ## Symptoms
 
@@ -75,7 +75,7 @@ A backup is taken with `Back up now` on Settings › Runtime; the service's heal
 
 | Metric | Target |
 | --- | --- |
-| The service's structural check, which holds writes only after a crash of the machine, a power loss or a changed file | < 3s at a million messages; about 2 minutes at ten million, 140 s at worst on an M1 Pro |
+| The service's structural check, which holds writes only on a file something else changed or one with no record of the last run | < 3s at a million messages; about 2 minutes at ten million, 140 s at worst on an M1 Pro |
 | The service's repair of a damaged store | < 60s |
 | Backup restore | < 60s |
 | Projection rebuild after restore | < 120s |

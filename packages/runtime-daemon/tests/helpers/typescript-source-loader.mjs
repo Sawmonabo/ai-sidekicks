@@ -9,19 +9,19 @@
 //   * Vanilla Node strips TypeScript types from the `.ts` files it executes, but it does not
 //     rewrite `.js` specifiers to find sibling `.ts` files.
 //
-// A worker registers it via `node:module#register()`; a child process passes that call through
-// `--import`. Only a relative specifier from a source file is rewritten: a bare or `node:` one,
-// and anything under `node_modules`, goes straight to the default resolver.
+// Preloading this file with `--import` registers the hook in the thread that loads it, through
+// `module.registerHooks`; a worker thread and a forked child inherit the preload through their
+// `execArgv`. The hook runs in that thread, so a resolve is a call, not a blocking round trip to a
+// separate hooks thread as `module.register` makes. Only a relative specifier from a source file
+// is rewritten: a bare or `node:` one, and anything under `node_modules`, goes straight to the
+// default resolver.
 
 import { existsSync } from "node:fs";
+import { registerHooks } from "node:module";
 import { URL } from "node:url";
 
-/**
- * @param {string} specifier
- * @param {{ parentURL?: string }} context
- * @param {(s: string, c: { parentURL?: string }) => unknown} nextResolve
- */
-export async function resolve(specifier, context, nextResolve) {
+/** @type {import("node:module").ResolveHookSync} */
+const resolveSourceSibling = (specifier, context, nextResolve) => {
   const parentUrl = context.parentURL;
   if (
     (specifier.startsWith("./") || specifier.startsWith("../")) &&
@@ -36,4 +36,6 @@ export async function resolve(specifier, context, nextResolve) {
     }
   }
   return nextResolve(specifier, context);
-}
+};
+
+registerHooks({ resolve: resolveSourceSibling });

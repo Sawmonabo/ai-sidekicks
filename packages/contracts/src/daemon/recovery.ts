@@ -150,6 +150,41 @@ export type DaemonRepairingCode = "daemon.repairing";
  */
 export const DAEMON_REPAIRING_CODE: DaemonRepairingCode = "daemon.repairing";
 
+/** How far a repair has come: `done` of the damaged file's `total` session events recovered. */
+export interface DaemonRepairProgress {
+  done: number;
+  total: number;
+}
+
+/**
+ * The `daemon.repairing` refusal's `data.fields`: the repair's count, absent while the step it is
+ * on gives none.
+ */
+export interface DaemonRepairingDetails {
+  progress?: DaemonRepairProgress | undefined;
+}
+/** Parses a {@link DaemonRepairingDetails}. */
+export const DaemonRepairingDetailsSchema: z.ZodType<DaemonRepairingDetails> = z
+  .object({ progress: z.object({ done: countSchema, total: countSchema }).strict().optional() })
+  .strict();
+
+/** What a person reads while the service repairs its database file. */
+export const DAEMON_REPAIRING_LINE = "Repairing saved sessions after an unexpected shutdown";
+
+/**
+ * The repair's line in parts, `<line> · <done> of <total>`, or the line ending in `…` when there
+ * is no count; `drawCount` turns each figure into the reader's own form of it, such as a string
+ * in the reader's locale.
+ */
+export function describeDaemonRepairingLine<Figure>(
+  progress: DaemonRepairProgress | undefined,
+  drawCount: (count: number) => Figure,
+): (string | Figure)[] {
+  return progress === undefined
+    ? [`${DAEMON_REPAIRING_LINE}…`]
+    : [`${DAEMON_REPAIRING_LINE} · `, drawCount(progress.done), " of ", drawCount(progress.total)];
+}
+
 // ---- The recovery pass's events, recorded on the service's own session ----
 
 const RECOVERY_PHASE_VALUES = ["projection_rebuild", "binding_restore", "run_resumption"] as const;

@@ -84,7 +84,7 @@ export function AppWindows(props: AppWindowsProps): React.JSX.Element {
   useLazyBodyIdleWarm(paneRegistry, screenRegistry);
 
   // Each window's frame store, kept here so the app's commands act on the window used last.
-  const { windowStores, windows } = useWindowStores(openWindows, bridge);
+  const { windowStores, windows, hasServiceAnswered } = useWindowStores(openWindows, bridge);
   const windowStoreUsedLast = useCallback(() => windowStores.list()[0]?.store, [windowStores]);
   // A View-menu scheme main could not save is told on the window used last.
   useEffect(
@@ -125,6 +125,7 @@ export function AppWindows(props: AppWindowsProps): React.JSX.Element {
           appearance={appearance}
           commandRevision={commandRevision}
           appTitle={consoleDocument.title}
+          hasServiceAnswered={hasServiceAnswered}
           notice={
             isRestoreOffered ? <SafeStartNotice onRestoreWindows={restoreWindows} /> : undefined
           }

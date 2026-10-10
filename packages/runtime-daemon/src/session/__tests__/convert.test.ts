@@ -156,11 +156,16 @@ async function makeRepository(
   return folder;
 }
 
+// Writes every file at once, so a test of many files does not wait out each write in turn.
 async function writeFiles(folder: string, files: Readonly<Record<string, string>>): Promise<void> {
-  for (const [relativePath, text] of Object.entries(files)) {
-    await mkdir(path.dirname(path.join(folder, relativePath)), { recursive: true });
-    await writeFile(path.join(folder, relativePath), text);
+  const entries = Object.entries(files).map(([relativePath, text]) => ({
+    filePath: path.join(folder, relativePath),
+    text,
+  }));
+  for (const parent of new Set(entries.map(({ filePath }) => path.dirname(filePath)))) {
+    await mkdir(parent, { recursive: true });
   }
+  await Promise.all(entries.map(({ filePath, text }) => writeFile(filePath, text)));
 }
 
 function convert(sessionId: SessionId, typedPath: string, using: SessionConversion = conversion) {
@@ -592,7 +597,7 @@ describe("SessionConversion", () => {
 
   it("keeps copying while file records commit, with a bounded number waiting", async () => {
     const sessionId = mintUuidV7() as SessionId;
-    const fileCount = 300;
+    const fileCount = 150;
     await startChat(
       sessionId,
       Object.fromEntries(

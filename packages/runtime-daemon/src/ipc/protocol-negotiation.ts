@@ -35,7 +35,11 @@ import {
   NEGOTIATION_VERSION_MISMATCH_CODE,
   SUPPORTED_PROTOCOL_VERSIONS,
 } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
-import { DAEMON_REPAIRING_CODE } from "@ai-sidekicks/contracts/daemon/recovery";
+import {
+  DAEMON_REPAIRING_CODE,
+  type DaemonRepairingDetails,
+  type DaemonRepairProgress,
+} from "@ai-sidekicks/contracts/daemon/recovery";
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 
 import { DaemonDomainError } from "./domain-error.js";
@@ -276,18 +280,27 @@ export class ProtocolNegotiator {
 
   /**
    * Registers the `daemon.hello` handler of a service still repairing its database file, which
-   * serves nothing else: a hello with this start's session token is answered `daemon.repairing`,
-   * one without it is refused as any wrong token is.
+   * serves nothing else: a hello with this start's session token is answered `daemon.repairing`
+   * with the progress `readProgress` reads, one without it is refused as any wrong token is.
    */
-  registerRepairingHandshakeMethod(registry: MethodRegistry): void {
+  registerRepairingHandshakeMethod(
+    registry: MethodRegistry,
+    readProgress: () => DaemonRepairProgress | undefined,
+  ): void {
     const handler: Handler<DaemonHello, DaemonHelloAck> = (params) => {
       if (!this.#isSessionToken(params.sessionToken)) {
         return Promise.reject(sessionTokenRefusal());
       }
+      const progress = readProgress();
+      const detail: DaemonRepairingDetails = progress === undefined ? {} : { progress };
       return Promise.reject(
         new DaemonDomainError(
           "The service is repairing its database file and answers once the repair has ended",
-          { code: DAEMON_REPAIRING_CODE, jsonRpcCode: JsonRpcErrorCode.InvalidRequest },
+          {
+            code: DAEMON_REPAIRING_CODE,
+            jsonRpcCode: JsonRpcErrorCode.InvalidRequest,
+            detail: { ...detail },
+          },
         ),
       );
     };

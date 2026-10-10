@@ -45,6 +45,7 @@ function reachabilityOf(
     case "unreported":
     case "connecting":
     case "starting":
+    case "repairing":
       return undefined;
     case "transient_disconnect":
     case "unknown":

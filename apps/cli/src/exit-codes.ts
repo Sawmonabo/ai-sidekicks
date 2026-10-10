@@ -3,6 +3,7 @@ import {
   JsonRpcTransportClosedError,
   JsonRpcTransportUnavailableError,
 } from "@ai-sidekicks/client-sdk";
+import { DAEMON_REPAIRING_CODE } from "@ai-sidekicks/contracts/daemon/recovery";
 import {
   JsonRpcErrorCode,
   type JsonRpcErrorCodeValue,
@@ -70,8 +71,8 @@ function isBrokenPipe(error: unknown): boolean {
 }
 
 /**
- * The exit code for a failed run, from its error's class: a refusal, an unreachable service, a
- * closed output pipe, a daemon error code, or else a software error. Throws
+ * The exit code for a failed run, from its error's class: a refusal, an unreachable or repairing
+ * service, a closed output pipe, a daemon error code, or else a software error. Throws
  * `UnmappedExitCodeError` for a daemon code with no exit code.
  */
 export function exitCodeForFailure(error: unknown): ExitCode {
@@ -88,6 +89,10 @@ export function exitCodeForFailure(error: unknown): ExitCode {
     return LOCAL_FAILURE_EXIT_CODES.brokenPipe;
   }
   if (error instanceof JsonRpcRemoteError) {
+    // A service repairing its database file serves nothing until the repair ends.
+    if (error.data?.type === DAEMON_REPAIRING_CODE) {
+      return LOCAL_FAILURE_EXIT_CODES.unavailable;
+    }
     if (!isAssignedDaemonCode(error.code)) {
       throw new UnmappedExitCodeError(error.code);
     }

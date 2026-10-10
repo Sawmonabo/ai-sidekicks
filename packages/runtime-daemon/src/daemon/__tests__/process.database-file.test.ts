@@ -1,11 +1,12 @@
-// The database file at a start: after a crash of the system every write waits for the file's
-// check to find it sound, while after an end of the process in this boot or a clean stop writes go
-// at once, and a check that cannot run never fails the start; a damaged page the recovery pass
-// reads stops the daemon, and its next start repairs the file while the socket answers that the
-// service is repairing. The check is stood in, so each test decides when it answers.
+// The database file at a start: when something else changed the file since the last run every
+// write waits for the file's check to find it sound, while after any end of the last run, clean or
+// not, writes go at once, and a check that cannot run never fails the start; a damaged page the
+// recovery pass reads stops the daemon, and its next start repairs the file while the socket
+// answers that the service is repairing, with the repair's count, and the repaired file takes
+// writes at once. The check is stood in, so each test decides when it answers.
 
 import { existsSync } from "node:fs";
-import { mkdir, open, readdir, readFile } from "node:fs/promises";
+import { mkdir, open, readdir, readFile, utimes } from "node:fs/promises";
 import * as path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
@@ -13,7 +14,10 @@ import Database from "better-sqlite3";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 
 import { DAEMON_DATA_FOLDER_NAME } from "@ai-sidekicks/contracts/daemon/data";
-import { DAEMON_REPAIRING_CODE } from "@ai-sidekicks/contracts/daemon/recovery";
+import {
+  DAEMON_REPAIRING_CODE,
+  type DaemonRepairProgress,
+} from "@ai-sidekicks/contracts/daemon/recovery";
 import { CURRENT_PROTOCOL_VERSION } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 
 import { bootstrap } from "../../bootstrap/index.js";
@@ -31,7 +35,6 @@ import {
   homeDirectory,
   isSocketAnswering,
   openSession,
-  PROCESS_IDENTITY,
   runFolder,
   startDaemon,
   useDaemonFolders,
@@ -67,6 +70,12 @@ function standInChecks(answerFor: () => Promise<DatabaseFileCheckAnswer>): void 
   });
 }
 
+// Moves the file's modification time, as a copy or another program writing it would.
+async function touchDatabaseFile(): Promise<void> {
+  const later = new Date(Date.now() + 60_000);
+  await utimes(databasePath(), later, later);
+}
+
 function countRecoveryPasses(): number {
   const database = new Database(databasePath(), { readonly: true });
   try {
@@ -84,7 +93,7 @@ function countRecoveryPasses(): number {
 }
 
 describe("the database file's check at a start", () => {
-  it("holds every write after a crash of the system until the check answers, and none otherwise", async () => {
+  it("holds every write on a file changed since the last run until the check answers, and none otherwise", async () => {
     const heldAnswer = Promise.withResolvers<DatabaseFileCheckAnswer>();
     const answers: (() => Promise<DatabaseFileCheckAnswer>)[] = [
       () => heldAnswer.promise,
@@ -96,8 +105,8 @@ describe("the database file's check at a start", () => {
     // A new file has nothing to check, and its first start knows this machine.
     await (await startDaemon(DRAIN_NOTHING)).stop();
     expect(answers).toHaveLength(4);
-    // A run in another boot that never stopped cleanly: the system crashed under it.
-    await recordRunStart(databasePath(), "another-boot");
+    // A clean stop's facts the file no longer matches: something else wrote it since.
+    await touchDatabaseFile();
 
     let isStarted = false;
     const starting = startDaemon(DRAIN_NOTHING).then((daemon) => {
@@ -117,9 +126,9 @@ describe("the database file's check at a start", () => {
     heldAnswer.resolve({ outcome: "sound" });
     await (await starting).stop();
     expect(countRecoveryPasses()).toBe(2);
-    // A run that ended without a clean stop in this boot: the next start writes while its check
-    // never answers.
-    await recordRunStart(databasePath(), PROCESS_IDENTITY.bootId);
+    // A run that ended without a clean stop, its process or the machine gone under it: the next
+    // start writes while its check never answers.
+    await recordRunStart(databasePath());
     await (await startDaemon(DRAIN_NOTHING)).stop();
     expect(countRecoveryPasses()).toBe(3);
 
@@ -127,8 +136,8 @@ describe("the database file's check at a start", () => {
     await (await startDaemon(DRAIN_NOTHING)).stop();
     expect(countRecoveryPasses()).toBe(4);
 
-    // A check that cannot run after a crash of the system lets the writes go.
-    await recordRunStart(databasePath(), "another-boot");
+    // A check that cannot run on a changed file lets the writes go.
+    await touchDatabaseFile();
     await startDaemon(DRAIN_NOTHING);
     expect(countRecoveryPasses()).toBe(5);
     expect(answers).toHaveLength(0);
@@ -144,9 +153,12 @@ describe("damage met while the daemon runs", () => {
          type, payload)
        VALUES (?, ?, ?, '2026-10-07T12:00:00.000Z', 0, 'session_lifecycle', 'session.renamed', ?)`,
     );
-    for (let sequence = 0; sequence < 300; sequence += 1) {
-      insert.run(`event-${String(sequence)}`, SESSION_ID, sequence, JSON.stringify({ sequence }));
-    }
+    // One transaction, so the rows take one flush to the drive rather than one each.
+    seeded.transaction(() => {
+      for (let sequence = 0; sequence < 300; sequence += 1) {
+        insert.run(`event-${String(sequence)}`, SESSION_ID, sequence, JSON.stringify({ sequence }));
+      }
+    })();
     // A rebuild cut short, so the pass rebuilds the session from its first event.
     seeded
       .prepare(
@@ -187,7 +199,13 @@ describe("damage met while the daemon runs", () => {
     expect(await daemon.whenStopped()).toStrictEqual({ isClean: true, isFileDamaged: true });
     expect(existsSync(`${databasePath()}.damaged`)).toBe(true);
 
+    // As a file something else changed since a clean stop leaves its record, which would hold the
+    // next start's writes; the repaired file was checked whole, so its start writes while its own
+    // check never answers.
+    await recordCleanStop(databasePath());
+    await touchDatabaseFile();
     vi.restoreAllMocks();
+    standInChecks(() => new Promise(() => {}));
     await startDaemon(DRAIN_NOTHING);
     expect(existsSync(`${databasePath()}.damaged`)).toBe(false);
     expect(
@@ -204,7 +222,11 @@ describe("damage met while the daemon runs", () => {
   it("answers a hello with its token as repairing while the file is repaired, and goes after", async () => {
     bootstrap({ localIpcPath: runFolder.socketPath });
     const repair = Promise.withResolvers<string>();
-    const repairing = answerRepairingWhile(runFolder, () => repair.promise);
+    let reportProgress: (progress: DaemonRepairProgress | undefined) => void = () => {};
+    const repairing = answerRepairingWhile(runFolder, (reportRepairProgress) => {
+      reportProgress = reportRepairProgress;
+      return repair.promise;
+    });
     // The token is written once the socket is bound, so a hello waits for both.
     await vi.waitFor(
       async () => {
@@ -215,11 +237,25 @@ describe("damage met while the daemon runs", () => {
     );
 
     const { call } = await openSession();
-    const hello = (await call("daemon.hello", {
-      protocolVersion: CURRENT_PROTOCOL_VERSION,
-      sessionToken: await readFile(runFolder.tokenPath, "utf8"),
-    })) as { error?: { data?: { type?: string } } };
-    expect(hello.error?.data?.type).toBe(DAEMON_REPAIRING_CODE);
+    const sessionToken = await readFile(runFolder.tokenPath, "utf8");
+    const readRepairing = async () =>
+      (
+        (await call("daemon.hello", {
+          protocolVersion: CURRENT_PROTOCOL_VERSION,
+          sessionToken,
+        })) as {
+          error?: { data?: { type?: string; fields?: unknown } };
+        }
+      ).error?.data;
+    // Each hello carries the count the repair last reported, and none while it gives none.
+    expect(await readRepairing()).toStrictEqual({ type: DAEMON_REPAIRING_CODE, fields: {} });
+    reportProgress({ done: 120, total: 400 });
+    expect(await readRepairing()).toStrictEqual({
+      type: DAEMON_REPAIRING_CODE,
+      fields: { progress: { done: 120, total: 400 } },
+    });
+    reportProgress({ done: 400, total: 400 });
+    expect((await readRepairing())?.fields).toStrictEqual({ progress: { done: 400, total: 400 } });
     const wrongToken = (await call("daemon.hello", {
       protocolVersion: CURRENT_PROTOCOL_VERSION,
       sessionToken: "not-this-start's",

@@ -310,9 +310,10 @@ export class DatabaseWriter {
   }
 
   /**
-   * Ends the writer at once, without the checkpoint a close makes, so the database's files stay as
-   * they are: every write taken and every later one fails with `error`, and
-   * {@link whenWorkerFailed} resolves with it.
+   * Ends the writer at once: every write taken and every later one fails with `error`, and
+   * {@link whenWorkerFailed} resolves with it. While another connection holds the file open, as the
+   * reader does, the ended connection skips the checkpoint a close makes, so the files stay as
+   * they are; ended last, it checkpoints as a close does.
    */
   end(error: Error): void {
     this.#fail(error);
