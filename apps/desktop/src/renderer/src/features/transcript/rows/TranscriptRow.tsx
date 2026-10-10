@@ -1,7 +1,7 @@
 // The transcript's row renderer: one row through the card its kind names. It holds no state: a
 // call's fold press and its output's `Show all` go to the feed's folds, because the virtualizer
 // unmounts rows scrolled out of range, and every press that changes the row's height asks the feed
-// to keep the pressed control where it stands. A row read from history carries its body, which the
+// to hold the row where it stands. A row read from history carries its body, which the
 // cards draw; a streamed row and a large body carry none, and the cards draw the state
 // `MessageContent` and `ToolOutput` give an unread body. A type the kind table does not name has no
 // card, and `drawsTranscriptRowBody` says so before the feed lists it.
@@ -29,32 +29,26 @@ import { ToolRow } from "./ToolRow.js";
  */
 export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element {
   const [footnotes] = useState(() => new FootnoteRegistry());
-  const { toggleCallFold, openOutput, holdControlInPlace } = useRowToggle();
+  const { toggleCallFold, openOutput, holdRowInPlace } = useRowToggle();
   const rowId = props.row.id;
   // The fold goes to the feed, not to local state, which would die when the virtualizer unmounts
   // the row.
-  const toggleFold = useCallback(
-    (control: HTMLElement) => {
-      toggleCallFold(rowId, control);
-    },
-    [rowId, toggleCallFold],
-  );
+  const toggleFold = useCallback(() => {
+    toggleCallFold(rowId);
+  }, [rowId, toggleCallFold]);
   const isOutputOpened = props.isOutputOpened;
   const outputOpening = useMemo<OutputOpening>(
     () => ({
       isOpened: isOutputOpened,
-      open: (control) => {
-        openOutput(rowId, control);
+      open: () => {
+        openOutput(rowId);
       },
     }),
     [isOutputOpened, openOutput, rowId],
   );
-  const holdPressedControl = useCallback(
-    (control: HTMLElement) => {
-      holdControlInPlace(rowId, control);
-    },
-    [rowId, holdControlInPlace],
-  );
+  const holdRow = useCallback(() => {
+    holdRowInPlace(rowId);
+  }, [rowId, holdRowInPlace]);
 
   const rowKind = classifyTranscriptRow(props.row);
   // The reasoning read is armed in the component that renders it, not here: an ordinary row would
@@ -84,7 +78,7 @@ export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element {
           footnotes={footnotes}
           {...(props.row.content === undefined ? {} : { content: props.row.content })}
           {...(liveText === undefined ? {} : { liveText })}
-          holdControlInPlace={holdPressedControl}
+          holdRowInPlace={holdRow}
           onDensityToggle={toggleFold}
           outputOpening={outputOpening}
         />
@@ -102,7 +96,7 @@ export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element {
           footnotes={footnotes}
           {...(props.row.content === undefined ? {} : { content: props.row.content })}
           {...(liveText === undefined ? {} : { liveText })}
-          holdControlInPlace={holdPressedControl}
+          holdRowInPlace={holdRow}
           replyRowIds={props.replyRowIds}
           editControl={editControlOf(props)}
           thinkingRow={
@@ -113,7 +107,7 @@ export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element {
                 storedBody={
                   props.row.content?.status === "available" ? props.row.content.body : undefined
                 }
-                holdControlInPlace={holdPressedControl}
+                holdRowInPlace={holdRow}
               />
             ) : undefined
           }

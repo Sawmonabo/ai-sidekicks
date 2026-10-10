@@ -9,7 +9,6 @@
 // publication, deferred hold, anchor capture, landing, the history line, the tail follow and the
 // reader's input on the box each have a module beside this one.
 import { type Clock } from "#renderer/lib/clock.js";
-import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
 import { type RememberedRowHeights } from "#renderer/store/session/remembered-row-heights.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { type RowHeightKind } from "../rows/height-kind.js";
@@ -251,8 +250,8 @@ export class ViewportController {
       scroll: this.scroll,
       rowKeys: () => this.#rowKeys,
       offsetOfIndex: (index) => this.#anchorCapture.offsetOfIndex(index),
-      holdReadingPosition: (controlDisplacementPx) => {
-        this.holdReadingPosition(controlDisplacementPx);
+      holdReadingPosition: () => {
+        this.holdReadingPosition();
       },
     });
     this.#readerInput = new ViewportReaderInput({
@@ -447,23 +446,16 @@ export class ViewportController {
   /**
    * Keeps one row where it stands on screen through a press that changes heights in or around it,
    * as a fold's header or chevron does: reading starts at the row, at its offset now, and the
-   * hold is performed once the rows the press changes are laid out. A pressed `control` whose row
-   * grows above it is moved back by what it moved inside the row, read once then. Does nothing
-   * for a row the window does not hold.
+   * hold is performed once the rows the press changes are laid out, so the rows below absorb the
+   * change. Does nothing for a row the window does not hold.
    */
-  public holdRowInPlace(rowKey: string, control?: HTMLElement): void {
+  public holdRowInPlace(rowKey: string): void {
     const rowStartPx = this.rowStartPx(rowKey);
     if (this.#disposed || rowStartPx === undefined) {
       return;
     }
     this.anchor.readFrom(rowKey, rowStartPx - (this.scroll.geometry?.scrollTop ?? 0));
-    const controlOffsetPx = control === undefined ? undefined : controlOffsetInRowPx(control);
-    this.#deferredHold.armAnchoredHoldAtCommit(() => {
-      const movedOffsetPx = control === undefined ? undefined : controlOffsetInRowPx(control);
-      return controlOffsetPx === undefined || movedOffsetPx === undefined
-        ? 0
-        : movedOffsetPx - controlOffsetPx;
-    });
+    this.#deferredHold.armAnchoredHoldAtCommit();
   }
 
   /**
@@ -540,17 +532,16 @@ export class ViewportController {
 
   /**
    * Puts a reader who left the tail back where they were: the anchored row at the same distance
-   * from the top of the viewport, moved on by `controlDisplacementPx` where a pressed control
-   * moved inside that row. A follower's position is the library's, so it does nothing.
+   * from the top of the viewport. A follower's position is the library's, so it does nothing.
    *
    * A pass calls it only where no cut compensation ran: after a cut the virtualizer is still in
    * the pre-cut offset space until React re-renders, so its index lookup would name the wrong
    * row. The head-insert case waits for `commitPendingPositionHold`.
    */
-  public holdReadingPosition(controlDisplacementPx = 0): void {
+  public holdReadingPosition(): void {
     const targetPx = this.#readingPositionTargetPx();
     if (targetPx !== undefined) {
-      this.scroll.glideTo("hold-reading-position", targetPx + controlDisplacementPx);
+      this.scroll.glideTo("hold-reading-position", targetPx);
     }
   }
 
@@ -836,17 +827,6 @@ function haveDifferentEnds(previousKeys: readonly string[], nextKeys: readonly s
 function haveRowsJoined(previousKeys: readonly string[], nextKeys: readonly string[]): boolean {
   const previousKeySet = new Set(previousKeys);
   return nextKeys.some((key) => !previousKeySet.has(key));
-}
-
-/**
- * How far a control sits below the top of the row it is drawn in, in pixels, or `undefined` once
- * the press took it off the page.
- */
-function controlOffsetInRowPx(control: HTMLElement): number | undefined {
-  const rowElement = control.closest(`[${WINDOWED_ROW_INDEX_ATTRIBUTE}]`);
-  return rowElement === null
-    ? undefined
-    : control.getBoundingClientRect().top - rowElement.getBoundingClientRect().top;
 }
 
 /** What starts one pass of the window: the side a reader's approach admits on, and who asked. */

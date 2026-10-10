@@ -73,7 +73,7 @@ export interface TranscriptViewportBinding {
    * it, and stops following the tail; see `ViewportController.holdRowInPlace`. Call it before the
    * change the press makes. Stable for the binding's controller.
    */
-  readonly holdRowInPlace: (rowKey: string, control?: HTMLElement) => void;
+  readonly holdRowInPlace: (rowKey: string) => void;
   /**
    * Keeps the row nearest the middle of the view where it stands through a change no control was
    * pressed for, holding the nearest row `survives` keeps; see
@@ -389,8 +389,8 @@ export function useTranscriptViewport(
       [controller],
     ),
     holdRowInPlace: useCallback(
-      (rowKey: string, control?: HTMLElement) => {
-        controller.holdRowInPlace(rowKey, control);
+      (rowKey: string) => {
+        controller.holdRowInPlace(rowKey);
         setHeldPressCount((current) => current + 1);
       },
       [controller],

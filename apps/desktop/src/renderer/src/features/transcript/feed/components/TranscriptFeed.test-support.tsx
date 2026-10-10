@@ -99,8 +99,8 @@ export function CallFoldingRowBody(props: TranscriptRowProps): React.JSX.Element
       className="call-folding-row"
       data-row-id={props.row.id}
       data-density={props.density}
-      onClick={(event) => {
-        toggleCallFold(props.row.id, event.currentTarget);
+      onClick={() => {
+        toggleCallFold(props.row.id);
       }}
     >
       {props.row.type}

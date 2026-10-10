@@ -15,7 +15,7 @@ function renderToolCard(
     readonly type?: string;
     readonly payload?: Readonly<Record<string, unknown>>;
     readonly density?: "collapsed" | "expanded";
-    readonly onDensityToggle?: (control: HTMLElement) => void;
+    readonly onDensityToggle?: () => void;
     readonly body?: string;
   } = {},
 ): HTMLElement {

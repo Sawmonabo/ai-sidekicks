@@ -1,9 +1,9 @@
 // The message card for user, agent and reasoning rows: open body, the author's hue on the edge. A
 // reply's foot stands on its last row once the reply has drawn something to read, and stays for the
 // rest of the turn: its time at rest, its Copy revealed on hover and focus. A user's actions are
-// revealed on hover. A live `liveText` beats the stored body; a user body is the message its payload
-// carries; reasoning is composed by the mount so a policy-withheld body stays distinguishable from
-// an unreadable one.
+// revealed on hover. A live `liveText` beats the stored body; a user body is the message its
+// payload carries; reasoning is composed by the mount so a policy-withheld body stays
+// distinguishable from an unreadable one.
 
 import "./MessageRow.css";
 
@@ -148,7 +148,7 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
               sourceId={props.row.id}
               footnotes={props.footnotes}
               label={rowKind.label}
-              holdControlInPlace={props.holdControlInPlace}
+              holdRowInPlace={props.holdRowInPlace}
             />
           )}
         </div>

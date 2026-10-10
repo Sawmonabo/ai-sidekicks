@@ -41,7 +41,7 @@ function InBridge(props: { readonly children: React.ReactNode }): React.JSX.Elem
 const UNPRESSED_ROW_TOGGLE: RowToggle = {
   toggleCallFold: () => undefined,
   openOutput: () => undefined,
-  holdControlInPlace: () => undefined,
+  holdRowInPlace: () => undefined,
 };
 
 /** The row renderer inside a list, as a transcript mounts it. */
