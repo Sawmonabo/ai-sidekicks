@@ -1,6 +1,7 @@
 // The transcript's diff card: one block per changed file, each file's rows in the flow with its own
 // cut and footer (`InlineDiffBlock`), and no wrapper or header around the set. Past as many blocks
-// as two screens of the flow hold, the rest of the files fold into one footer. A compared pair the
+// as two screens of the flow hold, the rest of the files fold into one footer. Which files are open
+// whole is the host's, so a file stays open while its row scrolls out of the window and back. A compared pair the
 // row names is drawn the same way; a unified patch names neither state, so they come from the row
 // (`contributions/inline-cards.ts`) and only the unread copy says them.
 
@@ -24,8 +25,17 @@ import { InlineDiffBlock } from "./InlineDiffBlock.js";
 /** What the diff card is drawn from: the row's registry props and, once read, the diff. */
 export interface InlineDiffCardProps {
   readonly card: DiffInlineCardProps;
-  /** The diff to render; absent until a fetch produces one. */
-  readonly diff?: DiffModel;
+  /** The diff to render and which of its files are open; absent until a fetch produces one. */
+  readonly diff?: OpenableDiff;
+}
+
+/** A read diff and which of its files are open whole, both held by the card's host. */
+export interface OpenableDiff {
+  readonly model: DiffModel;
+  /** The files open whole, by their position in `model.files`. */
+  readonly openFileIndexes: ReadonlySet<number>;
+  /** Open one file whole, by its position, as its `Show all` asks; nothing closes it again. */
+  readonly onOpenFile: (fileIndex: number) => void;
 }
 
 /** A transcript row's diff card: each file's rows in the flow, the rest folded past two screens. */
@@ -54,11 +64,12 @@ export function InlineDiffCard(props: InlineDiffCardProps): React.JSX.Element {
  * to as many as two screens of the flow hold; the files past them fold into one footer.
  */
 function InlineDiffBlocks(props: {
-  readonly diff: DiffModel;
+  readonly diff: OpenableDiff;
   readonly flowHeightPx: number;
   readonly cardElement: HTMLElement | null;
 }): React.JSX.Element {
-  const { diff, flowHeightPx } = props;
+  const { flowHeightPx } = props;
+  const { model: diff, openFileIndexes, onOpenFile } = props.diff;
   const fileRows = useMemo(() => diff.files.map((file) => diffFlowRowsOf(diff, file)), [diff]);
   const rowHeightPx = useDiffRowHeightPx();
   // Until the first block's footer is laid out, a block's overhead is reckoned as one row; it is
@@ -84,6 +95,10 @@ function InlineDiffBlocks(props: {
             flowRows={flowRows}
             flowHeightPx={flowHeightPx}
             rowHeightPx={rowHeightPx}
+            isOpen={openFileIndexes.has(fileIndex)}
+            onOpen={() => {
+              onOpenFile(fileIndex);
+            }}
           />
         );
       })}

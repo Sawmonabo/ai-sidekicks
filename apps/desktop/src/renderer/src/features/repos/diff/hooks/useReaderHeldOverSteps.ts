@@ -1,31 +1,36 @@
-import { useContext, useLayoutEffect } from "react";
+import { useContext, useLayoutEffect, useRef } from "react";
 
 import { getWindow } from "@floating-ui/utils/dom";
 
 import { TranscriptBodyViewportContext } from "#renderer/components/TranscriptBodyViewport/context.js";
 import { nearestVerticalScrollerOf } from "#renderer/lib/clipping-ancestors.js";
-import { observeElementsResize } from "#renderer/lib/element-resize.js";
+import {
+  observeElementsResize,
+  type ElementsResizeObservation,
+} from "#renderer/lib/element-resize.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
 import { DIFF_FLOW_STEP_ATTRIBUTE } from "../rows/flow.js";
 
 /**
- * While a block is open whole inside a transcript viewport, keep the reader still as its steps of
- * rows change height above them: a step mounted or laid out for the first time takes its real
- * height in place of the estimate it was held at, and a long line wraps. The resize observation
- * is delivered after layout and before paint, so the offset moves back by what the steps above
- * the screen's top grew in the same frame, and the rows the reader sees never move.
+ * While a block is open whole inside a transcript viewport, keep the reader still as its rows
+ * change height above them: a step of rows that lands grows the block at the end of its mounted
+ * rows, and a long line wraps again when the flow's width or the text size changes. The resize
+ * observation is delivered after layout and before paint, so the offset moves back by what grew
+ * above the screen's top in the same frame, and the rows the reader sees never move.
  *
  * The conversation's own window moves the offset for a row wholly above the screen, so the block
  * moves it only while its row reaches the screen. Outside a viewport there is no scroller to
- * write, and nothing is held.
+ * write, and nothing is held. `mountedRowCount` is how many rows are mounted, so each step that
+ * lands is observed from its first frame.
  */
 export function useReaderHeldOverSteps(
   rowsElement: HTMLElement | null,
   isWhole: boolean,
-  stepCount: number,
+  mountedRowCount: number | undefined,
 ): void {
   const viewport = useContext(TranscriptBodyViewportContext);
   const scrollController = viewport?.scrollController;
+  const held = useRef<HeldSteps | undefined>(undefined);
 
   useLayoutEffect(() => {
     const scroller = rowsElement === null ? undefined : nearestVerticalScrollerOf(rowsElement);
@@ -51,9 +56,9 @@ export function useReaderHeldOverSteps(
       let grownAbovePx = 0;
       let grownInBlockPx = 0;
       for (const { step, heightPx } of grown) {
-        const previousHeightPx = heightByStep.get(step);
+        const previousHeightPx = heightByStep.get(step) ?? heightPx;
         heightByStep.set(step, heightPx);
-        if (previousHeightPx === undefined || heightPx === previousHeightPx) {
+        if (heightPx === previousHeightPx) {
           continue;
         }
         const deltaPx = heightPx - previousHeightPx;
@@ -70,13 +75,41 @@ export function useReaderHeldOverSteps(
         scrollController.glideTo("measurement-compensation", scroller.scrollTop + grownAbovePx);
       }
     });
-    // Every step is drawn while the block is whole, holding its room until its rows mount, so
-    // each is observed once; its first observation records the height it opens at.
-    for (const step of rowsElement.querySelectorAll(`:scope > [${DIFF_FLOW_STEP_ATTRIBUTE}]`)) {
+    // The steps drawn when the block opens are where its growth starts from: their heights now.
+    for (const step of stepsOf(rowsElement)) {
+      heightByStep.set(step, step.getBoundingClientRect().height);
       observation.observe(step);
     }
-    return observation.disconnect;
-  }, [rowsElement, isWhole, stepCount, scrollController]);
+    held.current = { heightByStep, observation };
+    return () => {
+      observation.disconnect();
+      held.current = undefined;
+    };
+  }, [rowsElement, isWhole, scrollController]);
+
+  useLayoutEffect(() => {
+    const current = held.current;
+    if (current === undefined || rowsElement === null) {
+      return;
+    }
+    // A step that landed after the block opened took no room before, so all of it is growth.
+    for (const step of stepsOf(rowsElement)) {
+      if (!current.heightByStep.has(step)) {
+        current.heightByStep.set(step, 0);
+        current.observation.observe(step);
+      }
+    }
+  }, [rowsElement, mountedRowCount]);
+}
+
+/** The observation over an open block's steps, and each step's height as last seen. */
+interface HeldSteps {
+  readonly heightByStep: Map<Element, number>;
+  readonly observation: ElementsResizeObservation;
+}
+
+function stepsOf(rowsElement: HTMLElement): NodeListOf<HTMLElement> {
+  return rowsElement.querySelectorAll<HTMLElement>(`:scope > [${DIFF_FLOW_STEP_ATTRIBUTE}]`);
 }
 
 function stepIndexOf(step: Element): number {
