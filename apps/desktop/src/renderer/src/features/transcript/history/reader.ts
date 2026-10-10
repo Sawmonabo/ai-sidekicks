@@ -53,8 +53,11 @@ export interface TranscriptStretchMeasure {
   readonly screenHeightPx: () => number;
   /** The least height a row is estimated at, which sizes a page's row limit. */
   readonly smallestRowHeightPx: () => number;
-  /** The estimated height, in pixels, of the rows a page's events would draw. */
-  readonly pageHeightPx: (events: readonly ProjectedSessionEvent[]) => number;
+  /**
+   * The estimated height, in pixels, of the rows the store's whole transcript would draw. Derived
+   * through the session's own window derivation, so it is handed the store's transcript alone.
+   */
+  readonly heldHeightPx: (transcript: readonly ProjectedSessionEvent[]) => number;
 }
 
 /**
@@ -262,7 +265,7 @@ export class TranscriptHistoryReader {
 
   /** The estimated height of the whole transcript the store holds, drawn as the feed draws it. */
   #heldHeightPx(measure: TranscriptStretchMeasure): number {
-    return measure.pageHeightPx(this.#sessionStore.snapshot().transcript);
+    return measure.heldHeightPx(this.#sessionStore.snapshot().transcript);
   }
 
   #edgeOf(side: WindowSide): TranscriptWindowEdge {

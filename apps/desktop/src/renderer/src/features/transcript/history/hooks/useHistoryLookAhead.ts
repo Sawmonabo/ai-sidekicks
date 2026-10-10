@@ -120,7 +120,7 @@ function readOwedHead(
   // The newest rows fill the screen the reader opens on; the rest of what is held sits above.
   const owedHeightPx =
     (TRANSCRIPT_APPROACH_SCREEN_HEIGHTS + 1) * measure.screenHeightPx() -
-    measure.pageHeightPx(sessionStore.snapshot().transcript);
+    measure.heldHeightPx(sessionStore.snapshot().transcript);
   if (owedHeightPx > 0) {
     readStretch("head", owedHeightPx);
   }

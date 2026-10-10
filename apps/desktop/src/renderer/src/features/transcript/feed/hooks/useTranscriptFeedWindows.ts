@@ -123,7 +123,7 @@ export function useTranscriptFeedWindows(
   // What a person folded is a fact about who is reading, so it is held here and handed to the
   // derivation rather than folded into it.
   const folds = useTranscriptFolds(inputs.sessionStore.sessionId);
-  const unfurledWindow = useTranscriptProjection(inputs.sessionStore);
+  const { unfurledWindow, derivation } = useTranscriptProjection(inputs.sessionStore);
   // A long run's window is cut in the viewport's estimates, but the fold runs before the viewport
   // is minted, so they arrive from the layout effect below. Until then every call reads zero
   // high and a window holds one call; the fold cuts it again once they land.
@@ -257,6 +257,7 @@ export function useTranscriptFeedWindows(
   });
   const stretchMeasure = useStretchMeasure({
     history,
+    derivation,
     viewport,
     drawsBody,
     foldedRunGroupKeys: folds.foldedRunGroupKeys,

@@ -7,13 +7,16 @@ import { useCallback, useLayoutEffect, useMemo } from "react";
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { type TranscriptRowRenderer } from "../../rows/renderer.js";
 import { type TranscriptViewportBinding } from "../../viewport/hooks/useTranscriptViewport.js";
-import { estimatePageHeightPx } from "../page-height.js";
+import { type TranscriptWindowDerivation } from "../../window/transcript-window.js";
+import { estimateDrawnHeightPx } from "../drawn-height.js";
 import { type TranscriptStretchMeasure } from "../reader.js";
 import { type TranscriptHistory } from "./useTranscriptHistory.js";
 
 /** What a stretch is measured by: the viewport, and the feed's rules for drawing a row. */
 export interface StretchMeasureInputs {
   readonly history: TranscriptHistory | undefined;
+  /** The session's own derivation, which the held transcript is derived through. */
+  readonly derivation: TranscriptWindowDerivation;
   readonly viewport: TranscriptViewportBinding;
   readonly drawsBody: TranscriptRowRenderer["drawsBody"];
   /** The run groups the reader folded; every other one draws open. */
@@ -28,7 +31,7 @@ export interface StretchMeasureInputs {
  */
 export function useStretchMeasure(inputs: StretchMeasureInputs): TranscriptStretchMeasure {
   const ownerWindow = useOwnerWindow();
-  const { history, viewport, drawsBody, foldedRunGroupKeys, foldedCallRowIds } = inputs;
+  const { history, derivation, viewport, drawsBody, foldedRunGroupKeys, foldedCallRowIds } = inputs;
   const { scrollController, estimatedRowHeightPx, smallestRowHeightPx } = viewport;
   // Its own callback, stable while the box is, so the run windows cut against it are not cut
   // again each time a fold moves the measure below.
@@ -40,8 +43,8 @@ export function useStretchMeasure(inputs: StretchMeasureInputs): TranscriptStret
     () => ({
       screenHeightPx,
       smallestRowHeightPx,
-      pageHeightPx: (events) =>
-        estimatePageHeightPx(events, {
+      heldHeightPx: (transcript) =>
+        estimateDrawnHeightPx(derivation.derive(transcript), {
           estimatedRowHeightPx,
           screenHeightPx,
           drawsBody,
@@ -50,6 +53,7 @@ export function useStretchMeasure(inputs: StretchMeasureInputs): TranscriptStret
         }),
     }),
     [
+      derivation,
       screenHeightPx,
       estimatedRowHeightPx,
       smallestRowHeightPx,
