@@ -94,10 +94,16 @@ interface RowSpanCopy {
   readonly endRowElement: (rowKey: string) => Element | undefined;
 }
 
-/** A copy built at once, or the read of one still building in slices. */
+/** A copy built at once, or one still building in slices from its end rows as they were drawn. */
 type CopyBuilding =
   | Extract<ConversationCopyStep, { isBuilt: true }>
-  | { readonly isBuilt: false; readonly reading: Promise<TextClipboardContent | undefined> };
+  | { readonly isBuilt: false; readonly build: ConversationCopyBuild };
+
+/**
+ * The rest of a copy's build, in slices: it hands the copy's plain text to `onText` as soon as
+ * every row is read, and resolves the whole content.
+ */
+type CopyFinish = (onText: (text: string) => void) => Promise<TextClipboardContent | undefined>;
 
 const COPY_FAILED_ANNOUNCEMENT = "Could not copy";
 
@@ -109,8 +115,11 @@ const COPY_FAILED_ANNOUNCEMENT = "Could not copy";
  * first conversation that writes a copy takes it, so with several open, one write reaches the
  * clipboard. A selection the store let rows of go is read back a page at a time between the events
  * its ends sit in. A copy is built a slice at a time, so it holds no frame however long, and a
- * large body it takes in is read in full just before its row, opened or not. A copy is written
- * whole in one write, or not at all when a page or a body is refused; the newest copy wins. A
+ * large body it takes in is read in full just before its row, opened or not. A copy built at once
+ * is written whole in one write. One that builds longer writes its plain text as soon as every row
+ * is read, so a paste never takes the clipboard's older copy, then adds its formatted flavor only
+ * while the clipboard still holds that text, so a newer copy made meanwhile, here or in another
+ * app, stands. Nothing is written when a page or a body is refused; the newest copy wins. A
  * selection settled in the conversation, by a drag or the keys, hands the same text to the system's
  * primary selection. A refused write or read is said aloud.
  */
@@ -201,7 +210,7 @@ export function useConversationCopy(source: ConversationCopySource): void {
     });
     // A copy of rows drawn now, built at once when the slice taken now holds it all; otherwise the
     // rest is built in slices from its end rows copied now, as their drawing may change meanwhile.
-    const buildHeldCopy = (copy: RowSpanCopy, isCurrent: () => boolean): CopyBuilding => {
+    const buildHeldCopy = (copy: RowSpanCopy): CopyBuilding => {
       let endRowElement = copy.endRowElement;
       const build = new ConversationCopyBuild(
         rowsOf({ ...copy, endRowElement: (rowKey) => endRowElement(rowKey) }),
@@ -212,7 +221,7 @@ export function useConversationCopy(source: ConversationCopySource): void {
       }
       const endRows = keptEndRows(copy.selection, copy.endRowElement);
       endRowElement = (rowKey) => endRows.get(rowKey);
-      return { isBuilt: false, reading: build.finish(ownerWindow, isCurrent) };
+      return { isBuilt: false, build };
     };
     // Everything the read back needs is taken here, before anything waits.
     const takeHistoryCopy = (): HistoryCopy | undefined => {
@@ -243,6 +252,7 @@ export function useConversationCopy(source: ConversationCopySource): void {
       copy: HistoryCopy,
       readHistory: ConversationCopyHistory,
       isCurrent: () => boolean,
+      onText: (text: string) => void,
     ): Promise<TextClipboardContent | undefined> => {
       const events = await readSelectedEvents(copy.span, copy.held, {
         readPage: readHistory.readPage,
@@ -266,27 +276,52 @@ export function useConversationCopy(source: ConversationCopySource): void {
         transcriptWindow,
         endRowElement: (rowKey) => copy.endRows.get(rowKey),
       };
-      return await new ConversationCopyBuild(rowsOf(readBackCopy)).finish(ownerWindow, isCurrent);
+      return await new ConversationCopyBuild(rowsOf(readBackCopy)).finish(
+        ownerWindow,
+        isCurrent,
+        onText,
+      );
+    };
+    const sayCopyFailed = (): void => {
+      announce(COPY_FAILED_ANNOUNCEMENT, "assertive");
     };
     const write = (content: TextClipboardContent): void => {
-      bridge.native.copyToClipboard(content).catch(() => {
-        announce(COPY_FAILED_ANNOUNCEMENT, "assertive");
-      });
+      bridge.native.copyToClipboard(content).catch(sayCopyFailed);
     };
-    const writeOnceRead = (
-      reading: Promise<TextClipboardContent | undefined>,
-      isCurrent: () => boolean,
-    ): void => {
-      reading
-        .then((content) => {
-          if (content !== undefined && isCurrent()) {
+    // The plain text first, once every row is read, then its formatted flavor beside it while the
+    // clipboard still holds that text; a copy whose text and flavor come together is one write.
+    const writeOnceBuilt = (finish: CopyFinish, isCurrent: () => boolean): void => {
+      // Whether the plain text written first reached the clipboard.
+      let isTextWritten: Promise<boolean> | undefined;
+      finish((text) => {
+        if (isCurrent()) {
+          isTextWritten = bridge.native.copyToClipboard({ text }).then(
+            () => true,
+            () => false,
+          );
+        }
+      })
+        .then(async (content) => {
+          if (content === undefined || !isCurrent()) {
+            return;
+          }
+          if (isTextWritten === undefined) {
             write(content);
+            return;
+          }
+          // Main compares against the clipboard's text, so the formatting waits for it to land.
+          if (!(await isTextWritten)) {
+            sayCopyFailed();
+            return;
+          }
+          if (content.html !== undefined) {
+            await bridge.native.addClipboardFormatting({ text: content.text, html: content.html });
           }
         })
         .catch(() => {
           // A newer copy stands in for this one, and says how it went.
           if (isCurrent()) {
-            announce(COPY_FAILED_ANNOUNCEMENT, "assertive");
+            sayCopyFailed();
           }
         });
     };
@@ -301,10 +336,13 @@ export function useConversationCopy(source: ConversationCopySource): void {
       // The log holds both ends, so it holds every row between.
       const heldCopy = takeHeldCopy();
       if (heldCopy !== undefined) {
-        const building = buildHeldCopy(heldCopy, isCurrent);
+        const building = buildHeldCopy(heldCopy);
         if (!building.isBuilt) {
           event.preventDefault();
-          writeOnceRead(building.reading, isCurrent);
+          writeOnceBuilt(
+            (onText) => building.build.finish(ownerWindow, isCurrent, onText),
+            isCurrent,
+          );
           return;
         }
         if (building.content !== undefined) {
@@ -318,7 +356,7 @@ export function useConversationCopy(source: ConversationCopySource): void {
         return;
       }
       event.preventDefault();
-      writeOnceRead(readBack(copy, history, isCurrent), isCurrent);
+      writeOnceBuilt((onText) => readBack(copy, history, isCurrent, onText), isCurrent);
     };
     // A settled selection's text, its large bodies read in full; only the newest settle's is put.
     const readSettledText = async (isCurrent: () => boolean): Promise<string | undefined> => {
@@ -326,9 +364,11 @@ export function useConversationCopy(source: ConversationCopySource): void {
       if (heldCopy === undefined) {
         return undefined;
       }
-      const building = buildHeldCopy(heldCopy, isCurrent);
-      const content = building.isBuilt ? building.content : await building.reading;
-      return isCurrent() ? content?.text : undefined;
+      const building = buildHeldCopy(heldCopy);
+      const text = building.isBuilt
+        ? building.content?.text
+        : await building.build.finishText(ownerWindow, isCurrent);
+      return isCurrent() ? text : undefined;
     };
     ownerWindow.document.addEventListener("copy", copySelection);
     const stopHearingSettles = selectionTracker.subscribeToSettledSelection(() => {

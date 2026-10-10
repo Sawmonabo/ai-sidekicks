@@ -160,6 +160,14 @@ export async function mountTranscriptFeed(
   vi.spyOn(fixture.bridge.native, "copyToClipboard").mockImplementation(async (content) => {
     copied.push("text" in content ? content : expect.fail("the transcript copies text"));
   });
+  // A formatted flavor added after its text is a write, while the clipboard still holds the text.
+  vi.spyOn(fixture.bridge.native, "addClipboardFormatting").mockImplementation(async (content) => {
+    if (copied.at(-1)?.text !== content.text) {
+      return false;
+    }
+    copied.push(content);
+    return true;
+  });
   // The wall clock by default, not the scenario's frozen one: a scroll gesture is told by the time
   // between the reader's scroll samples.
   const Wrapper = bridgeWrapper(fixture.bridge, clock);

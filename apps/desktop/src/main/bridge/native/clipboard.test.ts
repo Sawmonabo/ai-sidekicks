@@ -1,11 +1,14 @@
 // A copy reaches the clipboard as one write carrying every flavor, and the selection clipboard
-// only where the system keeps one.
+// only where the system keeps one. A formatted flavor added after a copy's text joins it only while
+// the clipboard still holds that text.
 
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  addClipboardFormatting,
   clipboardHostsFor,
   copyToClipboard,
+  type ClipboardFlavors,
   type ClipboardHost,
   type ClipboardHosts,
 } from "./clipboard.js";
@@ -18,7 +21,22 @@ vi.mock("electron", () => ({
 }));
 
 function recordingClipboard(): ClipboardHost & { readonly write: ReturnType<typeof vi.fn> } {
-  return { write: vi.fn(() => Promise.resolve()) };
+  return { write: vi.fn(() => Promise.resolve()), readText: () => Promise.resolve("") };
+}
+
+/** A clipboard holding what was last written to it, as a system clipboard does. */
+function holdingClipboard(): ClipboardHost & { held: ClipboardFlavors | undefined } {
+  const clipboard: ClipboardHost & { held: ClipboardFlavors | undefined } = {
+    held: undefined,
+    write: async (flavors) => {
+      clipboard.held = flavors;
+    },
+    readText: async () =>
+      clipboard.held !== undefined && "text/plain" in clipboard.held
+        ? clipboard.held["text/plain"]
+        : "",
+  };
+  return clipboard;
 }
 
 function systemOnly(clipboard: ClipboardHost): ClipboardHosts {
@@ -76,5 +94,26 @@ describe("the clipboard copy", () => {
 
     expect(selectionWrites).toEqual([[{ flavors: { "text/plain": "a settled line" } }]]);
     expect(systemWrites).toStrictEqual([]);
+  });
+});
+
+describe("a formatted flavor added after a copy's text", () => {
+  it("joins the text while the clipboard holds it, and leaves a newer copy standing", async () => {
+    const clipboard = holdingClipboard();
+    const clipboards = systemOnly(clipboard);
+    const formatting = { text: "**first**", html: "<strong>first</strong>" };
+
+    await copyToClipboard(clipboards, { content: { text: formatting.text } });
+    await expect(addClipboardFormatting(clipboards, formatting)).resolves.toBe(true);
+    expect(clipboard.held).toStrictEqual({
+      "text/plain": "**first**",
+      "text/html": "<strong>first</strong>",
+    });
+
+    await copyToClipboard(clipboards, { content: { text: formatting.text } });
+    // A second copy, from this app or another, lands while the first's formatting is made.
+    await clipboard.write({ "text/plain": "a newer copy" });
+    await expect(addClipboardFormatting(clipboards, formatting)).resolves.toBe(false);
+    expect(clipboard.held).toStrictEqual({ "text/plain": "a newer copy" });
   });
 });

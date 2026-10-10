@@ -1,15 +1,20 @@
 // `⌘C` in a session: a selection in the conversation goes onto the clipboard through main, each
 // message row's body joined in the order the rows are read, a reply's part as the markdown rebuilt
-// from what was selected with a formatted flavor beside it; a selection in the message box is left
-// to the platform's own copy. The rows are the real message rows inside the real windowed row,
-// known to a real selection tracker on the conversation, drawn in a window of its own as every
-// window the app opens is: its document is not the one the code runs in.
+// from what was selected with a formatted flavor beside it; a long part's text is written first
+// and its formatted flavor added once made, unless a newer copy took over; a selection in the
+// message box is left to the platform's own copy. The rows are the real message rows inside the
+// real windowed row, known to a real selection tracker on the conversation, drawn in a window of
+// its own as every window the app opens is: its document is not the one the code runs in.
 
 import { fireEvent, render } from "@testing-library/react";
 import { useState } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { TextClipboardContent } from "#shared/preload-api.js";
+import {
+  markdownWorker,
+  PAGE_MARKDOWN_CHARACTER_LIMIT,
+} from "#renderer/components/Markdown/worker/connection.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { OwnerWindowProvider } from "#renderer/components/OwnerWindow/OwnerWindowProvider.js";
 import { WindowedListRow } from "#renderer/components/WindowedListRow/WindowedListRow.js";
@@ -37,23 +42,36 @@ const ROWS = [
   }),
 ];
 
-const ROW_KEYS = ROWS.map((row) => row.id);
+/** A reply too long for its formatted flavor to be made on the page's thread. */
+const LONG_REPLY = `Long start ${"word ".repeat(PAGE_MARKDOWN_CHARACTER_LIMIT / 5)}long end`;
+
+/** The person's message, then a long reply. */
+const LONG_ROWS = [
+  ROWS[0] ?? expect.fail("the person's message is a row"),
+  sampleRunRow({
+    id: "event-03",
+    type: "assistant.message",
+    content: { status: "available", body: LONG_REPLY },
+  }),
+];
 
 /** No log behind the rows: the store holds both, so nothing is read back. */
 const NO_WINDOW = deriveTranscriptWindow([]);
 
-function Conversation(): React.JSX.Element {
+function Conversation(props: { readonly rows: typeof ROWS }): React.JSX.Element {
+  const rowKeys = props.rows.map((row) => row.id);
   const [tracker] = useState(
     () =>
       new ViewportSelectionTracker({
         holdSelectedRows: () => {},
-        logPositionOf: (rowKey) => ROW_KEYS.indexOf(rowKey),
+        logPositionOf: (rowKey) => rowKeys.indexOf(rowKey),
         drawRow: () => {},
       }),
   );
   useConversationCopy({
     selectionTracker: tracker,
-    selectedRowKeys: () => ROW_KEYS,
+    // Each copy here runs from the first row to the last.
+    selectedRowKeys: () => rowKeys,
     rowSourceWindows: { unfurledWindow: NO_WINDOW, transcriptWindow: NO_WINDOW },
     rowText: () => expect.fail("both rows are end rows"),
     rowBodyText: () => expect.fail("neither row draws a table or a large body"),
@@ -71,14 +89,14 @@ function Conversation(): React.JSX.Element {
         tracker.attach(element);
       }}
     >
-      {ROWS.map((row, index) => {
+      {props.rows.map((row, index) => {
         const rowKind = classifyTranscriptRow(row) ?? expect.fail(`${row.type} is a message`);
         return (
           <WindowedListRow
             key={row.id}
             as="div"
             rowIndex={index}
-            totalRowCount={ROWS.length}
+            totalRowCount={props.rows.length}
             rowRef={(element) => {
               if (element !== null) {
                 tracker.addRow(element, row.id);
@@ -103,11 +121,13 @@ function Conversation(): React.JSX.Element {
 }
 
 /**
- * The session's conversation and message box in a window of their own, and every clipboard write
- * main was asked for.
+ * The session's conversation of `rows` and message box in a window of their own, every clipboard
+ * write main was asked for, and every formatted flavor main was asked to add.
  */
-function renderSession(): {
+function renderSession(rows = ROWS): {
+  readonly native: ReturnType<typeof createFixtureBridge>["bridge"]["native"];
   readonly copied: TextClipboardContent[];
+  readonly formatted: TextClipboardContent[];
   readonly box: HTMLTextAreaElement;
   readonly sessionDocument: Document;
 } {
@@ -124,11 +144,16 @@ function renderSession(): {
   vi.spyOn(fixture.bridge.native, "copyToClipboard").mockImplementation(async (content) => {
     copied.push("text" in content ? content : expect.fail("the conversation copies text"));
   });
+  const formatted: TextClipboardContent[] = [];
+  vi.spyOn(fixture.bridge.native, "addClipboardFormatting").mockImplementation(async (content) => {
+    formatted.push(content);
+    return true;
+  });
   const { container } = render(
     <FixtureBridgeProvider fixture={fixture}>
       <OwnerWindowProvider window={sessionWindow}>
         <LiveAnnouncerProvider>
-          <Conversation />
+          <Conversation rows={rows} />
           <textarea aria-label="Message" defaultValue="draft words" />
         </LiveAnnouncerProvider>
       </OwnerWindowProvider>
@@ -136,7 +161,7 @@ function renderSession(): {
     { container: sessionDocument.body.appendChild(sessionDocument.createElement("div")) },
   );
   const box = container.querySelector("textarea") ?? expect.fail("the message box is drawn");
-  return { copied, box, sessionDocument };
+  return { native: fixture.bridge.native, copied, formatted, box, sessionDocument };
 }
 
 /** The text node in `ownerDocument` holding `text`, so a selection can start or end inside it. */
@@ -149,6 +174,10 @@ function textNodeHolding(ownerDocument: Document, text: string): Text {
   }
   return expect.fail(`no text node holds ${text}`);
 }
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("⌘C in a session", () => {
   it("copies the selection in reading order while the message box holds none", async () => {
@@ -173,6 +202,86 @@ describe("⌘C in a session", () => {
     );
     expect(content?.html).toContain("<strong>the plan</strong>");
     expect(content?.html).toContain(`<p>${USER_MESSAGE}</p>`);
+  });
+
+  it("writes a long part's text at once, and adds its formatting unless a newer copy took over", async () => {
+    const { copied, formatted, sessionDocument } = renderSession(LONG_ROWS);
+    const workerAnswers: ((html: string) => void)[] = [];
+    vi.spyOn(markdownWorker, "html").mockImplementation(
+      () => new Promise((resolve) => workerAnswers.push(resolve)),
+    );
+    const selection = sessionDocument.getSelection() ?? expect.fail("the window has a selection");
+    const selectLongReply = (): Text => {
+      const start = textNodeHolding(sessionDocument, USER_MESSAGE);
+      const end = textNodeHolding(sessionDocument, "long end");
+      selection.setBaseAndExtent(start, 0, end, end.length);
+      return start;
+    };
+
+    fireEvent.copy(selectLongReply());
+    await vi.waitFor(() => {
+      expect(workerAnswers).toHaveLength(1);
+    });
+    expect(copied).toHaveLength(1);
+    expect(copied[0]).toStrictEqual({ text: `${USER_MESSAGE}\n\n${LONG_REPLY}` });
+    // A newer copy, short enough to be written whole at once, lands while the first's formatting
+    // is made.
+    const message = textNodeHolding(sessionDocument, USER_MESSAGE);
+    selection.setBaseAndExtent(message, 0, textNodeHolding(sessionDocument, "Long start"), 2);
+    fireEvent.copy(message);
+    await vi.waitFor(() => {
+      expect(copied).toHaveLength(2);
+    });
+    workerAnswers[0]?.("<p>the first copy's formatting</p>");
+    fireEvent.copy(selectLongReply());
+    await vi.waitFor(() => {
+      expect(workerAnswers).toHaveLength(2);
+    });
+    workerAnswers[1]?.("<p>the third copy's formatting</p>");
+
+    await vi.waitFor(() => {
+      expect(formatted).toHaveLength(1);
+    });
+    expect(copied.map((content) => content.text)).toStrictEqual([
+      `${USER_MESSAGE}\n\n${LONG_REPLY}`,
+      `${USER_MESSAGE}\n\nLo`,
+      `${USER_MESSAGE}\n\n${LONG_REPLY}`,
+    ]);
+    expect(formatted[0]?.html).toContain("<p>the third copy's formatting</p>");
+  });
+
+  it("adds a long part's formatting only once its text write has landed", async () => {
+    const { native, copied, formatted, sessionDocument } = renderSession(LONG_ROWS);
+    vi.spyOn(markdownWorker, "html").mockResolvedValue("<p>made by the worker</p>");
+    const textWrites: (() => void)[] = [];
+    vi.spyOn(native, "copyToClipboard").mockImplementationOnce(
+      (content) =>
+        new Promise((resolve) => {
+          textWrites.push(() => {
+            copied.push("text" in content ? content : expect.fail("the copy is text"));
+            resolve();
+          });
+        }),
+    );
+    const start = textNodeHolding(sessionDocument, USER_MESSAGE);
+    const end = textNodeHolding(sessionDocument, "long end");
+    sessionDocument.getSelection()?.setBaseAndExtent(start, 0, end, end.length);
+
+    fireEvent.copy(start);
+    await vi.waitFor(() => {
+      expect(markdownWorker.html).toHaveBeenCalledOnce();
+    });
+    // The worker has answered; the text write has not landed, so nothing is added yet.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(formatted).toStrictEqual([]);
+    textWrites[0]?.();
+
+    await vi.waitFor(() => {
+      expect(formatted).toHaveLength(1);
+    });
+    expect(copied.map((content) => content.text)).toStrictEqual([
+      `${USER_MESSAGE}\n\n${LONG_REPLY}`,
+    ]);
   });
 
   it("leaves a selection in the message box to the platform's own copy", () => {

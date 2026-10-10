@@ -1,7 +1,9 @@
 // A clipboard, written by main for the page: a plain line, the text with a formatted flavor beside
 // it, or a PNG picture, in one write, so a paste target picks the flavor it understands. The page
 // names the system clipboard or Linux's selection one, which a middle-click pastes. Which
-// clipboards a system keeps is chosen once, from its platform.
+// clipboards a system keeps is chosen once, from its platform. A copy whose formatted flavor comes
+// after its text adds it only while the system clipboard still holds that text, so a newer copy
+// stands.
 
 import { ClipboardItem } from "electron";
 import * as z from "zod/mini";
@@ -11,9 +13,11 @@ export type ClipboardFlavors =
   | { readonly "text/plain": string; readonly "text/html"?: string }
   | { readonly "image/png": Blob };
 
-/** Writes one clipboard entry: Electron's `clipboard.write` with one `ClipboardItem`. */
+/** One clipboard over Electron's: writes one entry with one `ClipboardItem`, and reads its text. */
 export interface ClipboardHost {
   write(flavors: ClipboardFlavors): Promise<void>;
+  /** The plain text the clipboard holds now, empty when it holds none. */
+  readText(): Promise<string>;
 }
 
 /** The eight bytes every PNG file opens with. */
@@ -53,6 +57,8 @@ const clipboardContentSchema = z.union([
   }),
 ]);
 
+const formattingRequestSchema = z.strictObject({ text: z.string(), html: z.string() });
+
 const copyRequestSchema = z.strictObject({
   content: clipboardContentSchema,
   clipboard: z.optional(z.literal("selection")),
@@ -80,6 +86,29 @@ export async function copyToClipboard(clipboards: ClipboardHosts, request: unkno
   );
 }
 
+/**
+ * Add the formatted flavor beside the plain text the system clipboard holds, writing both in one
+ * write, only while that text is still the request's `text`: `false`, writing nothing, once a
+ * newer copy holds the clipboard. Throws a `ZodError` for a request but `{text, html}` with string
+ * values.
+ */
+export async function addClipboardFormatting(
+  clipboards: ClipboardHosts,
+  request: unknown,
+): Promise<boolean> {
+  const { text, html } = formattingRequestSchema.parse(request);
+  // Electron reads a clipboard only asynchronously, so an app writing between this read and the
+  // write below loses its copy; no clipboard lets a reader make the two one step.
+  if ((await clipboards.system.readText()) !== text) {
+    return false;
+  }
+  await clipboards.system.write({ "text/plain": text, "text/html": html });
+  return true;
+}
+
 function clipboardHostOf(electronClipboard: Electron.Clipboard): ClipboardHost {
-  return { write: (flavors) => electronClipboard.write([new ClipboardItem({ ...flavors })]) };
+  return {
+    write: (flavors) => electronClipboard.write([new ClipboardItem({ ...flavors })]),
+    readText: () => electronClipboard.readText(),
+  };
 }
