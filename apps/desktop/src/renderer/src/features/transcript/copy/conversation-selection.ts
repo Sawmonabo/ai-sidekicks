@@ -8,7 +8,9 @@
 // message row gives only its body, never its author line, stamp or controls: a reply's part as the
 // markdown rebuilt from what was selected, and the person's own message or a reasoning aside as
 // plain text. Any other row gives the text selected in it. Plain text is read the way the screen
-// lays it out, a block's lines on lines of their own, and no control's label is ever part of it. A
+// lays it out, a block's lines on lines of their own, and no control's label is ever part of it. An
+// end row's part that reaches a large body, which draws only its control, is the whole row, the
+// body read in full, so the body is never dropped and the control's words never copied. A
 // formula copies as its TeX source, whole, once. A formatted flavor rides beside the text whenever
 // a reply is part of it. A selection crossing the conversation copies only the conversation's part.
 
@@ -45,6 +47,12 @@ export const COPY_FLAVOR_ATTRIBUTE = "data-copy-flavor";
 
 /** How a body's selected part is copied: a reply's markdown, or plain text. */
 export type CopyFlavor = "markdown" | "text";
+
+/**
+ * The attribute the place of a body its row carries as its size alone holds, around the control
+ * that reads it: an end row's part reaching it copies as the whole row.
+ */
+export const LARGE_BODY_ATTRIBUTE = "data-large-body";
 
 /** What joins two rows' parts, of a selection or of a reply: a blank line, as they are read. */
 export const PART_SEPARATOR = "\n\n";
@@ -105,7 +113,8 @@ export function clipboardContentOf(
 
 /**
  * One row's part: an end row's selected part as it was drawn, any other row's whole text. An end
- * that lies outside the scroller takes its row whole, and so does an end row with no drawing kept.
+ * that lies outside the scroller takes its row whole, and so does an end row with no drawing kept
+ * or one whose part reaches a large body.
  */
 function rowPartOf(span: RowSpanSelection, rowKey: string): SelectedPart | undefined {
   const { start, end } = span.selection;
@@ -126,6 +135,11 @@ function rowPartOf(span: RowSpanSelection, rowKey: string): SelectedPart | undef
   const endPosition = endAt === undefined ? undefined : resolveRowTextPosition(rowElement, endAt);
   if (endPosition !== undefined) {
     range.setEnd(endPosition.textNode, endPosition.offsetInNode);
+  }
+  for (const largeBody of rowElement.querySelectorAll(`[${LARGE_BODY_ATTRIBUTE}]`)) {
+    if (range.intersectsNode(largeBody)) {
+      return span.rowText(rowKey);
+    }
   }
   return readSelectedPart(range, rowElement, () => span.rowText(rowKey)?.text);
 }

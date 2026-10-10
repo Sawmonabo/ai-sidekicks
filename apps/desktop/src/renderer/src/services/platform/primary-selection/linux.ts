@@ -7,7 +7,7 @@ import type { PrimarySelection } from "./contract.js";
 export function linuxPrimarySelection(bridge: PlatformBridge): PrimarySelection {
   return {
     takeSettledSelection: async (readText) => {
-      const text = readText();
+      const text = await readText();
       if (text !== undefined) {
         await bridge.native.copyToClipboard({ text }, "selection");
       }

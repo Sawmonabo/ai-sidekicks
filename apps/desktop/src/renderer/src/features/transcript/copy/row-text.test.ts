@@ -35,6 +35,7 @@ function sourcesHolding(
     transcriptWindow: transcriptWindow as TranscriptWindowModel,
     reveal: reveal as RowRevealContextValue,
     densityOf: () => density,
+    fullBodyOf: () => undefined,
     clockLocale: "en-US",
   };
 }

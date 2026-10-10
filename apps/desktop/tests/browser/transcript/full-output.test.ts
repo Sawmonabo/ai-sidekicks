@@ -3,7 +3,10 @@
 // nothing until the control is pressed; while the read is out the control says so, a refused read
 // offers the press again, and a read that lands draws the body in the control's place. Scrolled
 // far enough up that the store lets the row go, and back, the opened body is read again through
-// the same client and drawn again.
+// the same client and drawn again. A copy that takes the body in, pressed or not, between its ends
+// or at one, reads it in full through the same client and copies it whole, never the control's
+// words; a refused read writes nothing and says so. A copy of the rows the store let go reads them
+// back and the body with them.
 
 import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -11,7 +14,8 @@ import { userEvent } from "vitest/browser";
 
 import type { TranscriptBodyReadRequest } from "@ai-sidekicks/contracts/transcript/content";
 
-import { FEED_HEIGHT_PX, endGesture, mountTranscriptFeed } from "./long-tool-feed.js";
+import { COPY, pressKey } from "../../helpers/system-keys.js";
+import { FEED_HEIGHT_PX, ROW_SELECTOR, endGesture, mountTranscriptFeed } from "./long-tool-feed.js";
 import { settleFrames } from "./windowed/reply.js";
 
 import { transcriptOpeningPageLimit } from "#renderer/features/transcript/history/page-limit.js";
@@ -44,8 +48,25 @@ const LARGE_BODY = `## ${BODY_HEADING}\n\n${Array.from(
 ).join("\n\n")}`;
 /** The whole body's UTF-8 size, as its row carries it. */
 const LARGE_BODY_BYTES = new TextEncoder().encode(LARGE_BODY).byteLength;
+/** What a copy that fails says. */
+const COPY_FAILED = "Could not copy";
 /** The case scrolls about nine screens one real-time gesture at a time, past the default. */
 const CASE_TIMEOUT_MS = 60_000;
+
+/** The text node of the drawn message row at `index`, its text naming the position. */
+function messageTextAt(scroller: HTMLElement, index: number): Text {
+  const message = `message_${String(index)}`;
+  for (const row of scroller.querySelectorAll(ROW_SELECTOR)) {
+    const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT, (node) =>
+      node.textContent === message ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP,
+    );
+    const text = walker.nextNode();
+    if (text instanceof Text) {
+      return text;
+    }
+  }
+  return expect.fail(`row ${String(index)} is drawn`);
+}
 
 /** A person's message at one log position, or the large reply at its own. */
 function eventAt(index: number): ProjectedSessionEvent {
@@ -103,7 +124,7 @@ describe("a reply whose body is too large to travel with its row", () => {
         });
         await settleFrames();
       };
-      const { scroller } = await mountTranscriptFeed(
+      const { scroller, copied } = await mountTranscriptFeed(
         sessionStore,
         history.read,
         undefined,
@@ -132,6 +153,37 @@ describe("a reply whose body is too large to travel with its row", () => {
       const stepsPastLetGo = Math.ceil(
         ((TRANSCRIPT_LET_GO_SCREEN_HEIGHTS + 1) * FEED_HEIGHT_PX) / WHEEL_STEP_PX,
       );
+      const isReplyStored = (): boolean =>
+        sessionStore
+          .snapshot()
+          .transcript.some((event) => event.id === transcriptFixtureEventId(LARGE_REPLY_INDEX));
+      // Down a gesture at a time until the reply's control is drawn again.
+      const scrollBackToControl = async (): Promise<void> => {
+        for (let step = 0; step < 4 * stepsPastLetGo && control() === null; step += 1) {
+          await wheel(WHEEL_STEP_PX, 1);
+        }
+      };
+      const browserSelection = document.getSelection() ?? expect.fail("the page has a selection");
+      // From the start of the node `from` to the end of the message row after the large reply.
+      const selectThroughReply = async (from: Text): Promise<void> => {
+        const end = messageTextAt(scroller, LARGE_REPLY_INDEX + 1);
+        scroller.focus();
+        browserSelection.setBaseAndExtent(from, 0, end, end.length);
+        await settleFrames();
+      };
+      // The copy key pressed, and the body read it asks for answered: what reached the clipboard.
+      const copyAnswering = async (isServed: boolean): Promise<string | undefined> => {
+        const before = copied.length;
+        await act(() => pressKey(COPY));
+        await answerRead(isServed);
+        return copied.length === before ? undefined : copied.at(-1)?.text;
+      };
+      const largeReplyRead = {
+        sessionId: sessionStore.sessionId,
+        rowId: transcriptFixtureEventId(LARGE_REPLY_INDEX),
+      };
+      const replyCopied = `${LARGE_BODY}\n\nmessage_${String(LARGE_REPLY_INDEX + 1)}`;
+      const throughReplyCopied = `message_${String(LARGE_REPLY_INDEX - 1)}\n\n${replyCopied}`;
 
       // Drawn with its size and nothing read, scrolled past or not.
       expect(control()?.textContent).toBe(
@@ -141,11 +193,39 @@ describe("a reply whose body is too large to travel with its row", () => {
       await wheel(WHEEL_STEP_PX, 4);
       expect(bodyReads).toStrictEqual([]);
 
+      // Copied unpressed, across it and from inside it, the body is read in full and copied whole,
+      // and the row still offers it under its size.
+      await selectThroughReply(messageTextAt(scroller, LARGE_REPLY_INDEX - 1));
+      expect(await copyAnswering(true)).toBe(throughReplyCopied);
+      const controlText = control()?.firstChild ?? expect.fail("the control draws its words");
+      await selectThroughReply(controlText instanceof Text ? controlText : expect.fail("as text"));
+      expect(await copyAnswering(true)).toBe(replyCopied);
+      expect(bodyReads).toStrictEqual([largeReplyRead, largeReplyRead]);
+      expect(control()?.textContent).toBe(
+        `Show full output (${formatByteQuantity(LARGE_BODY_BYTES).text})`,
+      );
+      expect(drawsWholeBody()).toBe(false);
+
+      // A refused read writes nothing and says the copy failed.
+      const alert = document.querySelector("[role='alert']") ?? expect.fail("an alert region");
+      expect(alert.textContent).not.toContain(COPY_FAILED);
+      expect(await copyAnswering(false)).toBe(undefined);
+      expect(alert.textContent).toContain(COPY_FAILED);
+
+      // Selected across it, then up until the store lets it go: the copy reads the rows back, and
+      // the body in full through the same client.
+      await selectThroughReply(messageTextAt(scroller, LARGE_REPLY_INDEX - 1));
+      await wheel(-WHEEL_STEP_PX, stepsPastLetGo);
+      expect(isReplyStored()).toBe(false);
+      expect(await copyAnswering(true)).toBe(throughReplyCopied);
+      expect(bodyReads).toHaveLength(4);
+      browserSelection.removeAllRanges();
+      await scrollBackToControl();
+      const copyReadCount = bodyReads.length;
+
       // Pressed: one read of the row, and the control says it is out until it is refused.
       await pressControl();
-      expect(bodyReads).toStrictEqual([
-        { sessionId: sessionStore.sessionId, rowId: transcriptFixtureEventId(LARGE_REPLY_INDEX) },
-      ]);
+      expect(bodyReads.slice(copyReadCount)).toStrictEqual([largeReplyRead]);
       expect(control()?.textContent).toBe("Loading the full output…");
       await answerRead(false);
       expect(control()?.textContent).toBe("Couldn't load the full output · Retry");
@@ -153,7 +233,7 @@ describe("a reply whose body is too large to travel with its row", () => {
 
       // Pressed again, the read lands and the body takes the control's place.
       await pressControl();
-      expect(bodyReads).toHaveLength(2);
+      expect(bodyReads).toHaveLength(copyReadCount + 2);
       await answerRead(true);
       expect(control()).toBe(null);
       expect(drawsWholeBody()).toBe(true);
@@ -161,17 +241,11 @@ describe("a reply whose body is too large to travel with its row", () => {
       // Up until the store lets the reply go, then back: its row is drawn again with its size
       // alone, and the opened body is read again and drawn again.
       await wheel(-WHEEL_STEP_PX, stepsPastLetGo);
-      expect(
-        sessionStore
-          .snapshot()
-          .transcript.some((event) => event.id === transcriptFixtureEventId(LARGE_REPLY_INDEX)),
-      ).toBe(false);
+      expect(isReplyStored()).toBe(false);
       expect(drawsWholeBody()).toBe(false);
-      for (let step = 0; step < 4 * stepsPastLetGo && control() === null; step += 1) {
-        await wheel(WHEEL_STEP_PX, 1);
-      }
+      await scrollBackToControl();
       expect(control()?.textContent).toBe("Loading the full output…");
-      expect(bodyReads).toHaveLength(3);
+      expect(bodyReads).toHaveLength(copyReadCount + 3);
       await answerRead(true);
       expect(control()).toBe(null);
       expect(drawsWholeBody()).toBe(true);
