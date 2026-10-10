@@ -14,7 +14,8 @@
  * `measurement-compensation` is a list window's: when a row above the fold measures differently
  * than estimated, the library offers to subtract the difference from the offset. In the transcript
  * the reading anchor decides whether that happens; the scroll controller performs it, so the
- * library never writes the offset itself.
+ * library never writes the offset itself. A diff opened whole in a transcript row makes the same
+ * write for its steps of rows that grew above the screen, while its row reaches the screen.
  * `window-opening` is a list window putting a box it just took at the offset it holds: where the
  * list opens, a selection far down it included. `row-reveal` is a list window scrolling the least
  * distance that brings a row into view: the keyboard's row in a roving list, the palette's
