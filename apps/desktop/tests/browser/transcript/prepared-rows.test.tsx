@@ -419,9 +419,45 @@ function rowsOnScreen(scrollContainer: HTMLElement): Map<string, number> {
   return tops;
 }
 
+/** Records each painted frame where a listed row paints over the listed row below it. */
+class PaintedOverlapRecorder {
+  readonly overlaps: string[] = [];
+  readonly #frames: PaintedFrameReader<string | undefined>;
+
+  public constructor() {
+    this.#frames = new PaintedFrameReader(ROW_SELECTOR, listedRowOverlap, (overlap) => {
+      if (overlap !== undefined) {
+        this.overlaps.push(overlap);
+      }
+    });
+  }
+
+  public stop(): void {
+    this.#frames.stop();
+  }
+}
+
+/** The first listed row that paints over the listed row below it, or `undefined` when none does. */
+function listedRowOverlap(): string | undefined {
+  const rows = [...document.querySelectorAll(ROW_SELECTOR)]
+    .map((row) => ({
+      rowId: row.querySelector<HTMLElement>("[data-row-id]")?.dataset["rowId"],
+      box: row.getBoundingClientRect(),
+    }))
+    .sort((first, second) => first.box.top - second.box.top);
+  for (const [index, upper] of rows.entries()) {
+    const lower = rows[index + 1];
+    if (lower !== undefined && upper.box.bottom - lower.box.top > SAME_LENGTH_TOLERANCE_PX) {
+      return `${String(upper.rowId)} painted over ${String(lower.rowId)} by ${String(upper.box.bottom - lower.box.top)} px`;
+    }
+  }
+  return undefined;
+}
+
 describe("a held reply joining the list", () => {
   // The page read back holds rows 0 to 35; the reply at 30 waits on its picture, and the rows
-  // above it wait with it, so the list starts at 31 until it joins at the head.
+  // above it wait with it, so the list starts at 31 until it joins at the head. No painted frame,
+  // from the page's read to the join, shows one row over another.
   for (const placement of ["at the top of the box", "above the box"] as const) {
     it(
       `moves no row on screen when the list's head is ${placement}`,
@@ -445,6 +481,7 @@ describe("a held reply joining the list", () => {
         await waitFor(() => {
           expect(history.requests.length).toBeGreaterThan(0);
         });
+        const overlaps = new PaintedOverlapRecorder();
         await act(async () => {
           history.release();
           await nextFrame();
@@ -478,6 +515,8 @@ describe("a held reply joining the list", () => {
           { timeout: CASE_TIMEOUT_MS / 2 },
         );
         await letFramesPass(2);
+        overlaps.stop();
+        expect(overlaps.overlaps).toEqual([]);
 
         // Within a device pixel: the hold restores the row's place to the scroll offset's grain.
         const after = rowsOnScreen(scrollContainer);
@@ -500,7 +539,9 @@ const LONG_TABLE_INDEX = 33;
 /** A reply in the first page read back whose body is too large to travel with it. */
 const LARGE_BODY_INDEX = 34;
 const LONG_TABLE_ROW_COUNT = 300;
-/** A cell only the table's last rows hold: drawn in a sample of its widest rows, never on screen. */
+/**
+ * A cell only the table's last rows hold: drawn in a sample of its widest rows, never on screen.
+ */
 const SAMPLE_ONLY_TEXT = "読者位置表";
 /** The hidden frame a long table's rows are sampled in, on screen or off the list. */
 const SAMPLE_FRAME_SELECTOR = ".meridian-table-sample-frame";
@@ -550,43 +591,6 @@ class SampleSelectionRecorder {
   }
 }
 
-/** Records each painted frame where a row paints over the listed row below it. */
-class PaintedOverlapRecorder {
-  readonly overlaps: string[] = [];
-  readonly #frames: PaintedFrameReader<string | undefined>;
-
-  public constructor(rowOf: () => HTMLElement | null) {
-    this.#frames = new PaintedFrameReader(
-      ROW_SELECTOR,
-      () => overlapBelow(rowOf()?.closest(ROW_SELECTOR) ?? null),
-      (overlap) => {
-        if (overlap !== undefined) {
-          this.overlaps.push(overlap);
-        }
-      },
-    );
-  }
-
-  public stop(): void {
-    this.#frames.stop();
-  }
-}
-
-/** How far `row` paints over the listed row below it, or `undefined` when it does not. */
-function overlapBelow(row: Element | null): string | undefined {
-  if (row === null) {
-    return undefined;
-  }
-  const box = row.getBoundingClientRect();
-  const below = [...document.querySelectorAll(ROW_SELECTOR)]
-    .map((listed) => listed.getBoundingClientRect())
-    .filter((listed) => listed.top > box.top)
-    .sort((first, second) => first.top - second.top)[0];
-  return below !== undefined && box.bottom - below.top > SAME_LENGTH_TOLERANCE_PX
-    ? `painted over the row below by ${String(box.bottom - below.top)} px`
-    : undefined;
-}
-
 describe("a reply read back holding a long table", () => {
   it(
     "joins the list drawing its window from the first frame, laid out as measured on screen",
@@ -614,7 +618,7 @@ describe("a reply read back holding a long table", () => {
 
       const selections = new SampleSelectionRecorder();
       const recorder = new WholeRowRecorder(container, [replyId]);
-      const overlaps = new PaintedOverlapRecorder(() => recorder.rowOf(replyId));
+      const overlaps = new PaintedOverlapRecorder();
       await act(async () => {
         history.release();
         await nextFrame();
