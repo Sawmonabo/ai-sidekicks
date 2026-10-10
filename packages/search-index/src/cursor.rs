@@ -45,6 +45,14 @@ pub fn open_phrase_cursor(
             let token = prefix_cursor(segment, fields.pair, &text, asked)?;
             return Ok(token.map(PhraseCursor::Token));
         }
+        // A long prefix whose first four characters begin no other word of the segment counts as
+        // often in a row as the four-character field's term.
+        if let (Some(term), [part]) = (phrase.long_prefix_field_term(fields), &phrase.parts[..])
+            && cut_pins_prefix(segment, fields, part)?
+        {
+            let token = term_cursor(segment, &term, IndexRecordOption::WithFreqs)?;
+            return Ok(token.map(PhraseCursor::Token));
+        }
     }
     if let [part] = phrase.parts.as_slice() {
         let token = match purpose {
