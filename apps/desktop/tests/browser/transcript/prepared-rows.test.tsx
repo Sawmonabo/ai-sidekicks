@@ -526,16 +526,26 @@ class SampleSelectionRecorder {
 }
 
 /**
- * Reads, after each frame is painted, how far a row overlaps the listed row below it, and records
- * each painted frame where the two overlap.
+ * Reads, in each frame as it will be painted, how far a row overlaps the listed row below it, and
+ * records each frame where the two overlap.
+ *
+ * The read runs in the frame's resize observation, after the list's: observers are told in the
+ * order they were made, the list's was made when its first row mounted, before this one, and the
+ * list moves the rows below a resized row in its own callback. A probe element resized each frame
+ * makes this observer's turn come every frame. A state a task commits after one paint and the next
+ * frame's observation corrects is never painted, so it is never read.
  */
 class PaintedOverlapRecorder {
   readonly overlaps: string[] = [];
+  readonly #probe: HTMLElement;
+  readonly #observer: ResizeObserver;
   #isWatching = true;
 
   public constructor(rowOf: () => HTMLElement | null) {
-    const channel = new MessageChannel();
-    channel.port1.onmessage = () => {
+    this.#probe = document.createElement("div");
+    this.#probe.style.cssText = "position: fixed; top: 0; left: 0; width: 1px; height: 1px;";
+    document.body.append(this.#probe);
+    this.#observer = new ResizeObserver(() => {
       const row = rowOf()?.closest(VIEWPORT_ROW_SELECTOR);
       if (row === null || row === undefined) {
         return;
@@ -548,14 +558,13 @@ class PaintedOverlapRecorder {
       if (below !== undefined && box.bottom - below.top > SAME_LENGTH_TOLERANCE_PX) {
         this.overlaps.push(`painted over the row below by ${String(box.bottom - below.top)} px`);
       }
-    };
+    });
+    this.#observer.observe(this.#probe);
     const onFrame = (): void => {
       if (!this.#isWatching) {
-        channel.port1.close();
         return;
       }
-      // Posted from the frame, it runs once the frame has been laid out, observed and painted.
-      channel.port2.postMessage(undefined);
+      this.#probe.style.width = this.#probe.style.width === "1px" ? "2px" : "1px";
       requestAnimationFrame(onFrame);
     };
     requestAnimationFrame(onFrame);
@@ -563,6 +572,8 @@ class PaintedOverlapRecorder {
 
   public stop(): void {
     this.#isWatching = false;
+    this.#observer.disconnect();
+    this.#probe.remove();
   }
 }
 
