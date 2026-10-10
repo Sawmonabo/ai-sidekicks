@@ -14,6 +14,7 @@ import type { Unsubscribe } from "#shared/preload-api.js";
 import { type HeldTableColumns } from "#renderer/components/Markdown/table-offer.js";
 import { observeElementResize } from "#renderer/lib/element-resize.js";
 import { isSameBodyType, type MarkdownBodyType } from "../body-type.js";
+import { type DrawnBandScreenHeights } from "#renderer/features/transcript/viewport/drawn-band.js";
 import { ScrollerWindowMembers } from "../scroller-window.js";
 import { type ListedBodies, type TableWindowBody } from "./context.js";
 import {
@@ -318,10 +319,14 @@ export class TableWindowLayout {
     }
   }
 
-  /** The body rows drawn for the library's `range`: those on screen and the drawn band past them. */
-  public drawnIndexesOf(range: Range): number[] {
+  /**
+   * The body rows drawn for the library's `range`: those on screen and `bandScreenHeights` past
+   * them.
+   */
+  public drawnIndexesOf(range: Range, bandScreenHeights: DrawnBandScreenHeights): number[] {
     return this.#scroller.drawnIndexesOf(
       range,
+      bandScreenHeights,
       (index) => this.#virtualizer?.measurementsCache[index]?.size ?? this.estimateSize(index),
     );
   }

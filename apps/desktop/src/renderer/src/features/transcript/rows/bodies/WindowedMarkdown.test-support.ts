@@ -3,7 +3,10 @@
 // block before it, so one block can draw more than one element.
 
 import type { Unsubscribe } from "#shared/preload-api.js";
+import { RealClock } from "#renderer/lib/clock.js";
+import { Emitter } from "#renderer/lib/emitter.js";
 import { type ScrollController } from "#renderer/lib/scroll/chokepoint.js";
+import { ViewportDrawnBand } from "../../viewport/drawn-band.js";
 import { type MarkdownWindowViewport } from "../markdown/block-window/context.js";
 
 /** A reply of at least `minimumCharacters`, cycle after cycle of every kind of block. */
@@ -21,7 +24,8 @@ export function longReplyMarkdown(minimumCharacters: number): string {
 
 /**
  * The viewport a suite draws a windowed body in: a scroll controller over its scroller, a row that
- * starts at the top of the content, and a selection read from the document.
+ * starts at the top of the content, the transcript's own drawn band, whole and following the
+ * scroller's samples, and a selection read from the document.
  */
 export function suiteWindowViewport(
   scrollController: ScrollController,
@@ -30,11 +34,27 @@ export function suiteWindowViewport(
     readonly read: () => AbstractRange | undefined;
   },
 ): MarkdownWindowViewport {
+  const bandChanges = new Emitter<void>("suite drawn band");
+  const band = new ViewportDrawnBand({
+    clock: new RealClock(),
+    isLanding: () => false,
+    redraw: () => {},
+    publish: () => {
+      bandChanges.emit(undefined);
+    },
+  });
+  // Whole, as the transcript's band is once its opening has landed.
+  band.widenFully();
+  scrollController.subscribeToGeometry((geometry) => {
+    band.observeGeometry(geometry);
+  });
   return {
     scrollController,
     rowStartPx: () => 0,
     // The one row spans the scroller, and no reader follows it.
     holdsPlaceInsideRow: () => true,
+    drawnBandScreenHeights: () => band.nestedScreenHeights,
+    subscribeToDrawnBand: (listener) => bandChanges.subscribe(listener),
     subscribeToSelection: selection.subscribe,
     readSelectionRange: selection.read,
   };

@@ -1,5 +1,12 @@
 import { useVirtualizer, type Range } from "@tanstack/react-virtual";
-import { useCallback, useEffect, useLayoutEffect, useReducer, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useReducer,
+  useState,
+  useSyncExternalStore,
+} from "react";
 
 import { type MarkdownBodyBlocksSnapshot } from "../../markdown/body-blocks.js";
 import { type MarkdownWindowViewport } from "../../markdown/block-window/context.js";
@@ -52,13 +59,21 @@ export function useBlockWindow(
     readBlockCount,
     MARKDOWN_BLOCK_INDEX_ATTRIBUTE,
   );
-  // The blocks the scroller shows and a band past each edge as tall as the scroller, so a fling
-  // meets drawn text rather than an empty band while the next blocks mount. Every block between a
+  // The blocks the scroller shows and the conversation's band past each edge, so a fling meets
+  // drawn text rather than an empty band while the next blocks mount. Every block between a
   // selection's ends stays drawn too, so a copy reads the blocks from the page.
+  const bandScreenHeights = useSyncExternalStore(
+    viewport.subscribeToDrawnBand,
+    viewport.drawnBandScreenHeights,
+  );
   const rangeExtractor = useCallback(
     (range: Range) =>
-      withPinnedIndexes(layout.drawnIndexesOf(range), indexesBetween(pins), range.count),
-    [layout, pins],
+      withPinnedIndexes(
+        layout.drawnIndexesOf(range, bandScreenHeights),
+        indexesBetween(pins),
+        range.count,
+      ),
+    [layout, bandScreenHeights, pins],
   );
   // A new identity whenever a block settles, so the library re-reads every key even where the
   // count did not change: the tail's place can pass to a settled block at the same index.
