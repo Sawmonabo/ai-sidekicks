@@ -110,23 +110,28 @@ export class OffListTables {
     const key = this.#nextKey;
     this.#nextKey += 1;
     let bodyType: MarkdownBodyType | undefined;
-    const measurement: TableMeasurement = new TableMeasurement(table, this.#ownerDocument, () => {
-      const geometry = measurement.geometry;
-      if (geometry !== undefined && bodyType !== undefined) {
-        rememberTableGeometry(
-          { fingerprint: this.tableFingerprints.fingerprintOf(table), bodyType },
-          geometry,
-        );
-      }
-      if (geometry !== undefined || measurement.hasFailed) {
-        this.#drop(key);
-        onLanded();
-        return;
-      }
-      // The frame to draw changed: the list is new, so the frames draw it anew.
-      this.#tables = [...this.#tables];
-      this.#tell();
-    });
+    const measurement: TableMeasurement = new TableMeasurement(
+      table,
+      this.#ownerDocument,
+      this.tableFingerprints,
+      () => {
+        const geometry = measurement.geometry;
+        if (geometry !== undefined && bodyType !== undefined) {
+          rememberTableGeometry(
+            { fingerprint: this.tableFingerprints.fingerprintOf(table), bodyType },
+            geometry,
+          );
+        }
+        if (geometry !== undefined || measurement.hasFailed) {
+          this.#drop(key);
+          onLanded();
+          return;
+        }
+        // The frame to draw changed: the list is new, so the frames draw it anew.
+        this.#tables = [...this.#tables];
+        this.#tell();
+      },
+    );
     const withdraw = (): void => {
       measurement.stop();
       this.#drop(key);

@@ -522,6 +522,7 @@ export class TableWindowLayout {
       measurement: new TableMeasurement(
         this.#table,
         this.#ownerDocument(),
+        this.#tableFingerprints,
         this.#onMeasured,
         known,
       ),

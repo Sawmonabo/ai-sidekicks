@@ -175,13 +175,35 @@ export class MarkdownBodyBlocks {
   }
 }
 
+/**
+ * A text's fingerprint read a part at a time, for text read in slices: its value is the one
+ * `fingerprintOf` gives the parts joined.
+ */
+export class TextFingerprint {
+  #hash = FINGERPRINT_OFFSET_BASIS;
+  #length = 0;
+
+  /** The fingerprint of the text read so far. */
+  public get value(): string {
+    return `${this.#length.toString(36)}.${(this.#hash >>> 0).toString(36)}`;
+  }
+
+  /** Reads `text` after what was read before. */
+  public read(text: string): void {
+    let hash = this.#hash;
+    for (let index = 0; index < text.length; index += 1) {
+      hash = Math.imul(hash ^ text.charCodeAt(index), FINGERPRINT_PRIME);
+    }
+    this.#hash = hash;
+    this.#length += text.length;
+  }
+}
+
 /** A text's length and FNV-1a hash, in base 36: equal for equal texts, short for any. */
 export function fingerprintOf(text: string): string {
-  let hash = FINGERPRINT_OFFSET_BASIS;
-  for (let index = 0; index < text.length; index += 1) {
-    hash = Math.imul(hash ^ text.charCodeAt(index), FINGERPRINT_PRIME);
-  }
-  return `${text.length.toString(36)}.${(hash >>> 0).toString(36)}`;
+  const fingerprint = new TextFingerprint();
+  fingerprint.read(text);
+  return fingerprint.value;
 }
 
 /**
