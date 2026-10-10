@@ -11,6 +11,8 @@
 // mounts thousands of rows. Rows not mounted yet hold no room: the block grows at the end of its
 // mounted rows as each step lands, so no scroll, however the browser runs it, can reach a part of
 // the block with no rows drawn, and the reader stays still as the block grows above them.
+// Each step is laid out and painted on its own, so a step that lands costs the browser its own
+// rows rather than every row mounted above it.
 
 // The rows' own sheet, shared with Review's renderer so a change reads the same in both, then the
 // block's and the flow's look.
@@ -182,7 +184,11 @@ const FlowRowStep = memo(function FlowRowStep(props: {
     }
   }
   return (
-    <div role="rowgroup" {...{ [DIFF_FLOW_STEP_ATTRIBUTE]: props.step }}>
+    <div
+      role="rowgroup"
+      className="meridian-diff-block__step"
+      {...{ [DIFF_FLOW_STEP_ATTRIBUTE]: props.step }}
+    >
       {rows}
     </div>
   );
