@@ -73,7 +73,7 @@ export const DiffRowView: React.MemoExoticComponent<
     const changeNotes =
       file === undefined || (props.look === "flow" && file.hunks.length === 0)
         ? []
-        : diffFileChangeNotes(file);
+        : diffFileChangeNotes(file, "header");
     return (
       <div {...rowProps} className="meridian-diff__row meridian-diff__row--file">
         <span className="meridian-diff__file-path" role="cell">

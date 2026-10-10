@@ -38,6 +38,15 @@ describe("diffFileListReading", () => {
     expect(diffFileListReading(DIFF, "module-01").entries[1]).toHaveProperty("counts");
   });
 
+  it("reads a rename as renamed on its row, leaving the old path to the file's header", () => {
+    const { renamed } = EXTENDED_HEADER_FIXTURE_FILES;
+    const { entries } = diffFileListReading(
+      buildDiffFixture(EXTENDED_HEADER_DIFF_SHAPE),
+      renamed.to,
+    );
+    expect(entries[1]).toHaveProperty("changeNotes", ["renamed"]);
+  });
+
   it("matches the wire-verbatim path, case-insensitively and on a substring", () => {
     expect(diffFileListReading(DIFF, "  MODULE-01  ").matchCount).toBe(1);
   });

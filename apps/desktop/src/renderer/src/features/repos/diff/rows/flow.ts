@@ -44,7 +44,7 @@ export function diffFlowRowsOf(diff: DiffModel, file: DiffFile): DiffFlowRows {
   const index = new DiffRowIndex({ baseRef: diff.baseRef, headRef: diff.headRef, files: [file] });
   const unshownReason = diffFileUnshownReason(file);
   const changeNotes = [
-    ...diffFileChangeNotes(file),
+    ...diffFileChangeNotes(file, "header"),
     ...(unshownReason === undefined ? [] : [unshownReason]),
   ];
   const hasHeader = changeNotes.length > 0 || file.hunks.length === 0;
