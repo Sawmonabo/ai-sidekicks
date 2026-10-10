@@ -3,9 +3,10 @@
 // first delivery of a subscription, and a request the schema refuses changes nothing; a member
 // naming one window acts on that window alone, its floor held within the display it is on as it
 // moves and as displays change, the window shrunk to that display when it no longer fits, and
-// brings it forward through main's reveal path; the end of a safe start reaches main's registry; main's ask to reopen a window and its word
-// that a menu scheme was not kept reach the page; and every member, the read of a held navigation
-// request among them, answers the console document alone.
+// brings it forward through main's reveal path and pastes into its document; the end of a safe
+// start reaches main's registry; main's ask to reopen a window and its word that a menu scheme was
+// not kept reach the page; and every member, the read of a held navigation request among them,
+// answers the console document alone.
 
 import { EventEmitter } from "node:events";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
@@ -52,6 +53,10 @@ let openWindowBounds: Rectangle;
 let openWindowEvents: EventEmitter;
 /** What bringing the one open window forward asked of it, in order. */
 let revealCalls: string[];
+/** How many pastes the one open window's document was asked for. */
+let pastes: number;
+/** Whether the one open window's document is destroyed, as a quit leaves it a moment before. */
+let isDocumentDestroyed: boolean;
 /** Whether the asking document is the console document. */
 let isAskedFromTheConsole: boolean;
 /** How many times main's registry was told the safe start ended. */
@@ -112,6 +117,15 @@ async function connectWindowBridge() {
           isConsoleDocument: () => isAskedFromTheConsole,
           windowWithId: (windowId) =>
             windowId === OPEN_WINDOW_ID ? (openWindow as never) : undefined,
+          documentOfWindow: (windowId) =>
+            windowId === OPEN_WINDOW_ID
+              ? ({
+                  isDestroyed: () => isDocumentDestroyed,
+                  paste: () => {
+                    pastes += 1;
+                  },
+                } as never)
+              : undefined,
           windowUsedLast: () => undefined,
           setDefaultSizes: () => undefined,
           endSafeStart: () => {
@@ -147,6 +161,8 @@ beforeEach(async () => {
   sizings = [];
   openWindowBounds = { x: 100, y: 100, width: 900, height: 600 };
   revealCalls = [];
+  pastes = 0;
+  isDocumentDestroyed = false;
   isAskedFromTheConsole = true;
   safeStartEnds = 0;
   heldNavigationRequest = null;
@@ -239,6 +255,17 @@ describe("the window members", () => {
     expect(revealCalls).toStrictEqual(["restore", "show", "focus"]);
   });
 
+  it("paste into a named window's document, and nothing for a closed one or a destroyed document", async () => {
+    const windowBridge = await connectWindowBridge();
+
+    await windowBridge.paste(OPEN_WINDOW_ID);
+    await windowBridge.paste("window/w-9");
+    isDocumentDestroyed = true;
+    await windowBridge.paste(OPEN_WINDOW_ID);
+
+    expect(pastes).toBe(1);
+  });
+
   it("end a safe start, and hand the page main's ask to reopen a window and its unkept scheme", async () => {
     const windowBridge = await connectWindowBridge();
     const reopened: string[] = [];
@@ -303,6 +330,7 @@ describe("the window members", () => {
     await expect(windowBridge.setDefaultSizes({ paneWidths: {} })).rejects.toThrow(refusal);
     await expect(windowBridge.endSafeStart()).rejects.toThrow(refusal);
     await expect(windowBridge.bringForward(OPEN_WINDOW_ID)).rejects.toThrow(refusal);
+    await expect(windowBridge.paste(OPEN_WINDOW_ID)).rejects.toThrow(refusal);
     const { ipcRenderer } = (await import("electron")) as unknown as {
       ipcRenderer: { invoke(channel: string): Promise<unknown> };
     };
@@ -313,6 +341,7 @@ describe("the window members", () => {
 
     expect(safeStartEnds).toBe(0);
     expect(revealCalls).toStrictEqual([]);
+    expect(pastes).toBe(0);
     await expect(readFile(appearanceFilePath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
   });
 });

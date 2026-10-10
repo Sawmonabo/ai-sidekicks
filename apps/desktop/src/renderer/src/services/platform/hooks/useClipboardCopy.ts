@@ -7,7 +7,7 @@ import type {
 import type { ClipboardContent } from "#shared/preload-api.js";
 import type { ScheduledHandle } from "#renderer/lib/clock.js";
 import { TRANSIENT_STATUS_DURATION_MS } from "#renderer/lib/transient-status.js";
-import { LateClipboardCopy } from "../late-clipboard-copy.js";
+import { copyOnceBuilt } from "../late-clipboard-copy.js";
 import { useClock } from "./useClock.js";
 import { usePlatformBridge } from "./usePlatformBridge.js";
 
@@ -63,8 +63,7 @@ export function useClipboardCopy(
     // Content ready now is written at once; content still being built is written once it is.
     let written: Promise<boolean>;
     if (built instanceof Promise) {
-      const lateCopy = new LateClipboardCopy(bridge);
-      written = built.then((ready) => lateCopy.write(ready));
+      written = copyOnceBuilt(bridge, async (write) => write(await built));
     } else {
       written = bridge.native.copyToClipboard(built).then(() => true);
     }
