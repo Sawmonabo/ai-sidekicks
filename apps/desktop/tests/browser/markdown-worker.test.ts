@@ -1,10 +1,11 @@
 // The markdown worker, started as the app starts it, makes the same HTML bytes the page makes on
 // its own thread, on the constructs whose meaning reaches across a text: reference links and
-// images, footnotes, a loose list beside a tight one, raw HTML and a table.
+// images, footnotes, a loose list beside a tight one, raw HTML and a table; and the same body rows
+// of a table whose cells hold inline marks, a link and raw HTML.
 
 import { expect, it } from "vitest";
 
-import { markdownToHtml } from "#renderer/components/Markdown/html.js";
+import { markdownTableBodyRows, markdownToHtml } from "#renderer/components/Markdown/html.js";
 import {
   MarkdownWorkerConnection,
   startMarkdownWorker,
@@ -40,4 +41,16 @@ it("makes the same HTML bytes off the page's thread as on it", async () => {
   const connection = new MarkdownWorkerConnection(startMarkdownWorker);
 
   expect(await connection.html(REPLY)).toBe(markdownToHtml(REPLY));
+});
+
+it("makes the same table body rows off the page's thread as on it", async () => {
+  const connection = new MarkdownWorkerConnection(startMarkdownWorker);
+  const table = [
+    "| Lane | Rows |",
+    "| :--- | ---: |",
+    "| **Architect** with `code` | [412](https://example.com) |",
+    "| <b>raw</b> | ~~gone~~ |",
+  ].join("\n");
+
+  expect(await connection.tableBodyRows(table)).toStrictEqual(markdownTableBodyRows(table));
 });

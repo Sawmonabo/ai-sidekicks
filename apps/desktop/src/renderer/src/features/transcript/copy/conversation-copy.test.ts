@@ -5,15 +5,16 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { PAGE_HTML_CHARACTER_LIMIT } from "#renderer/components/Markdown/worker/connection.js";
+import { PAGE_MARKDOWN_CHARACTER_LIMIT } from "#renderer/components/Markdown/worker/connection.js";
 import { RefusalError } from "#renderer/lib/refusal/contract.js";
 import { ConversationCopyBuild, type ConversationCopyRows } from "./conversation-copy.js";
+import { windowCuttingEveryPart } from "./conversation-copy.test-support.js";
 import { type SelectedPart } from "./conversation-selection.js";
 
 const LARGE_BODY_ROW_ID = "event-large";
 const LARGE_BODY = "line one\nline two";
 /** A reply too long to make into HTML on the page's thread. */
-const LONG_REPLY = "a".repeat(PAGE_HTML_CHARACTER_LIMIT);
+const LONG_REPLY = "a".repeat(PAGE_MARKDOWN_CHARACTER_LIMIT);
 /** What the stand-in worker makes of the long reply. */
 const WORKER_HTML = "<p>made by the worker</p>";
 
@@ -54,13 +55,6 @@ function rowsReading(
     fullBodyReads: { readFullBody },
     markdownWorker,
   };
-}
-
-/** A window running its tasks at once, its clock past each slice's end: a slice holds one part. */
-function windowCuttingEveryPart(): Window {
-  let nowMs = 0;
-  vi.spyOn(performance, "now").mockImplementation(() => (nowMs += 10));
-  return { scheduler: { postTask: async (task: () => unknown) => task() } } as unknown as Window;
 }
 
 afterEach(() => {

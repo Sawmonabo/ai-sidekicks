@@ -3,8 +3,8 @@
 // formatted flavor a part at a time, joined by a blank line into the content of one clipboard
 // write. A large body is read in full just before its row and let go once the row's part is read,
 // so a copy holds one at a time. A reply part too long to make into HTML within a slice is made by
-// the markdown worker, off the page's thread. A copy built in slices is the same bytes as one built
-// at once.
+// the markdown worker, off the page's thread, and so are a long table's undrawn rows in an end
+// row. A copy built in slices is the same bytes as one built at once.
 
 import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event/envelope";
 import { toHtml } from "hast-util-to-html";
@@ -89,8 +89,8 @@ export class ConversationCopyBuild {
 
   /**
    * Builds one part after another while `hasTime` answers true, one at the least, and stops
-   * before a row whose large body is still to be read in full, or a reply part whose formatted
-   * flavor the markdown worker makes.
+   * before a row whose large body is still to be read in full, or after a row whose undrawn table
+   * rows or reply part's formatted flavor the markdown worker makes.
    */
   public buildWhile(hasTime: () => boolean): ConversationCopyStep {
     this.#step = this.#buildWhile(hasTime);
@@ -99,10 +99,10 @@ export class ConversationCopyBuild {
 
   /**
    * Builds the rest of the copy in slices in `view`, reading each large body in full, one at a
-   * time, as its row comes, and each long reply part's formatted flavor through the markdown
-   * worker. Resolves `undefined` once `isCurrent` answers false, as when a newer copy took over;
-   * throws a `RefusalError` when a body's read is refused, or the worker's `Error` when it fails,
-   * so nothing is copied.
+   * time, as its row comes, and each long table's undrawn rows and long reply part's formatted
+   * flavor through the markdown worker. Resolves `undefined` once `isCurrent` answers false, as
+   * when a newer copy took over; throws a `RefusalError` when a body's read is refused, or the
+   * worker's `Error` when it fails, so nothing is copied.
    */
   public async finish(
     view: Window,
@@ -163,8 +163,8 @@ export class ConversationCopyBuild {
   }
 
   /**
-   * Reads the next row's part, its large body let go after it; `false`, reading nothing, when the
-   * row's large body is still to be read in full.
+   * Reads the next row's part, its large body let go after it; `false` when the row's large body
+   * is still to be read in full, reading nothing, or when the markdown worker is making the part.
    */
   #readNextRow(): boolean {
     const rowKey =
@@ -176,17 +176,27 @@ export class ConversationCopyBuild {
       return false;
     }
     const part = readRowPart(this.#span, rowKey);
-    if (part !== undefined && part.text.trim() !== "") {
-      this.#parts.push(part);
-    }
     this.#fullBody = undefined;
     this.#rowIndex += 1;
+    if (part instanceof Promise) {
+      this.#awaited = { kind: "worker-row-part", part };
+      return false;
+    }
+    this.#keep(part);
     return true;
   }
 
+  /** Keeps `part` when it holds text. */
+  #keep(part: SelectedPart | undefined): void {
+    if (part !== undefined && part.text.trim() !== "") {
+      this.#parts.push(part);
+    }
+  }
+
   /**
-   * Settles what the build waits on: reads the next row's large body in full, or has the worker
-   * make the next part's formatted flavor. `false` once a newer copy took over.
+   * Settles what the build waits on: reads the next row's large body in full, has the worker make
+   * the last row's undrawn table rows, or the next part's formatted flavor. `false` once a newer
+   * copy took over.
    */
   async #settleAwaited(isCurrent: () => boolean): Promise<boolean> {
     const awaited = this.#awaited;
@@ -199,6 +209,12 @@ export class ConversationCopyBuild {
         return false;
       }
       this.#partHtml.push(html);
+    } else if (awaited.kind === "worker-row-part") {
+      const part = await awaited.part;
+      if (!isCurrent()) {
+        return false;
+      }
+      this.#keep(part);
     } else {
       const fullBodyReads = this.#rows.fullBodyReads ?? throwLostPlace("a large body has a reader");
       const reply = await fullBodyReads.readFullBody(awaited.rowId);
@@ -216,11 +232,12 @@ export class ConversationCopyBuild {
 }
 
 /**
- * What a build waits on: the large body the next row reads, to be read in full, or the formatted
- * flavor of the next reply part, which the markdown worker is making.
+ * What a build waits on: the large body the next row reads, to be read in full, or the last row's
+ * part or the formatted flavor of the next reply part, which the markdown worker is making.
  */
 type AwaitedWork =
   | { readonly kind: "full-body"; readonly rowId: string }
+  | { readonly kind: "worker-row-part"; readonly part: Promise<SelectedPart> }
   | { readonly kind: "worker-html"; readonly html: Promise<string> };
 
 const NOT_BUILT: ConversationCopyStep = { isBuilt: false };

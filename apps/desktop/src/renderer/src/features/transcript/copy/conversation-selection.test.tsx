@@ -1,12 +1,16 @@
 // What a selection across the conversation copies from the rows its ends sit in, read from the
 // rows as they are drawn: each end row's part from the end's character offset, a large body read
-// in full in its control's place.
+// in full in its control's place, and a long table's undrawn rows made by the markdown worker in
+// their spacer's place.
 
 import { render } from "@testing-library/react";
 import type { TextClipboardContent } from "#shared/preload-api.js";
+import { toHtml } from "hast-util-to-html";
 import { renderToString } from "katex";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { markdownTableBodyRows, markdownToHtml } from "#renderer/components/Markdown/html.js";
+import { markdownWorker } from "#renderer/components/Markdown/worker/connection.js";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
 import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
@@ -21,9 +25,15 @@ import { classifyTranscriptRow } from "../rows/kind.js";
 import { MessageRow } from "../rows/MessageRow.js";
 import { ToolRow } from "../rows/ToolRow.js";
 import { FullBodyReads, FullBodyReadsContext } from "../rows/full-body-reads.js";
+import {
+  MARKDOWN_COLUMN_COUNT_ATTRIBUTE,
+  MARKDOWN_SOURCE_END_ATTRIBUTE,
+  MARKDOWN_SOURCE_START_ATTRIBUTE,
+} from "../rows/markdown/block-window/markers.js";
 import { FootnoteRegistry } from "../rows/markdown/footnotes/registry.js";
 import { characterOffsetWithin } from "../viewport/selection/preservation.js";
 import { ConversationCopyBuild, type ConversationCopyRows } from "./conversation-copy.js";
+import { windowCuttingEveryPart } from "./conversation-copy.test-support.js";
 import { COPY_FLAVOR_ATTRIBUTE, type CopyFlavor } from "./conversation-selection.js";
 
 /** A call's output size, too large to travel with its row. */
@@ -63,10 +73,23 @@ function copyOfDrawnRows(
   startOffset = 0,
   readers = END_ROWS_ONLY,
 ): TextClipboardContent | undefined {
+  const copy = buildOfDrawnRows(conversation, startOffset, readers, {
+    html: () => expect.fail("no reply part is long enough for the worker"),
+  }).buildWhile(() => true);
+  return copy.isBuilt ? copy.content : expect.fail("a copy reading no body in full builds at once");
+}
+
+/** The build of a copy as `copyOfDrawnRows` reads it, a long reply part's HTML made by `worker`. */
+function buildOfDrawnRows(
+  conversation: Element,
+  startOffset: number,
+  readers: Pick<ConversationCopyRows, "rowText" | "rowBodyText">,
+  worker: ConversationCopyRows["markdownWorker"],
+): ConversationCopyBuild {
   const rows = [...conversation.querySelectorAll(`[${WINDOWED_ROW_INDEX_ATTRIBUTE}]`)];
   const rowKeys = rows.map((_, index) => `row-${String(index)}`);
   const lastRow = rows.at(-1) ?? expect.fail("the conversation draws a row");
-  const copy = new ConversationCopyBuild({
+  return new ConversationCopyBuild({
     selection: {
       start: {
         at: "row",
@@ -84,9 +107,26 @@ function copyOfDrawnRows(
     ...readers,
     largeBodyRowIdOf: () => undefined,
     fullBodyReads: undefined,
-    markdownWorker: { html: () => expect.fail("no reply part is long enough for the worker") },
-  }).buildWhile(() => true);
-  return copy.isBuilt ? copy.content : expect.fail("a copy reading no body in full builds at once");
+    markdownWorker: worker,
+  });
+}
+
+/** A reply drawn as a table of `rowCount` rows, each row's markdown its own line. */
+function tableReply(rowCount: number): { readonly text: string; readonly rowLines: string[] } {
+  const rowLines = Array.from({ length: rowCount }, (_, index) => {
+    const lane = String(index);
+    return `| lane-${lane} | **${lane}** rows |`;
+  });
+  return { text: ["| Lane | Rows |", "| --- | --- |", ...rowLines].join("\n"), rowLines };
+}
+
+/** A conversation of one reply row drawing `rows` as its table's body, under the table's head. */
+function conversationWithTable(rows: string): HTMLElement {
+  const conversation = document.createElement("div");
+  conversation.innerHTML =
+    `<div ${WINDOWED_ROW_INDEX_ATTRIBUTE}="0"><div ${COPY_FLAVOR_ATTRIBUTE}="markdown"><table>` +
+    `<thead><tr><th>Lane</th><th>Rows</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+  return conversation;
 }
 
 describe("a selection across the conversation", () => {
@@ -219,6 +259,50 @@ describe("a selection across the conversation", () => {
     const copied = copyOfDrawnRows(container);
     expect(copied?.text).toBe("Run it:\n\n```ts\nconst a = 1;\n```");
     expect(copied?.html).not.toContain("Copy");
+  });
+});
+
+describe("a long table's undrawn rows in a selection", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("are made by the markdown worker and copy in their spacer's place, as drawn rows do", async () => {
+    // Long enough that the rows the spacer stands for are parsed off the page's thread.
+    const { text, rowLines } = tableReply(160);
+    const drawnRow = (line: string): string =>
+      toHtml(markdownTableBodyRows(`| Lane | Rows |\n| --- | --- |\n${line}`));
+    const firstLine = rowLines[0] ?? expect.fail("the table has rows");
+    const lastLine = rowLines.at(-1) ?? expect.fail("the table has rows");
+    const undrawnStart = text.indexOf(rowLines[1] ?? "");
+    const undrawnEnd = text.lastIndexOf("\n");
+    const spacer =
+      `<tr ${MARKDOWN_SOURCE_START_ATTRIBUTE}="${String(undrawnStart)}" ` +
+      `${MARKDOWN_SOURCE_END_ATTRIBUTE}="${String(undrawnEnd)}" ` +
+      `${MARKDOWN_COLUMN_COUNT_ATTRIBUTE}="2"></tr>`;
+    const tableBodyRows = vi
+      .spyOn(markdownWorker, "tableBodyRows")
+      .mockImplementation((markdown) => Promise.resolve(markdownTableBodyRows(markdown)));
+    const worker = { html: (markdown: string) => Promise.resolve(markdownToHtml(markdown)) };
+    const readers = { ...END_ROWS_ONLY, rowBodyText: () => text };
+    const windowed = buildOfDrawnRows(
+      conversationWithTable(drawnRow(firstLine) + spacer + drawnRow(lastLine)),
+      0,
+      readers,
+      worker,
+    );
+
+    expect(windowed.buildWhile(() => true).isBuilt).toBe(false);
+    const copied = await windowed.finish(windowCuttingEveryPart(), () => true);
+    const whole = await buildOfDrawnRows(
+      conversationWithTable(rowLines.map(drawnRow).join("")),
+      0,
+      END_ROWS_ONLY,
+      worker,
+    ).finish(windowCuttingEveryPart(), () => true);
+    expect(tableBodyRows).toHaveBeenCalledOnce();
+    expect(copied).toStrictEqual(whole);
+    expect(copied?.text).toMatch(/^\| lane-80 +\| \*\*80\*\* rows +\|$/mu);
   });
 });
 

@@ -127,24 +127,24 @@ function rowOf(body: HTMLElement): Element {
 }
 
 /** The markdown a selection in the windowed reply copies, read as the conversation's copy does. */
-function copiedFromWindowed(bodies: MountedBodies, reply: string): string {
+async function copiedFromWindowed(bodies: MountedBodies, reply: string): Promise<string> {
   const selection = document.getSelection() ?? expect.fail("the document has a selection");
-  const copied = readSelectedPart(
+  const { text: copied } = await readSelectedPart(
     selection.getRangeAt(0),
     rowOf(bodies.windowedBody),
     () => reply,
-  ).text;
+  );
   selection.removeAllRanges();
   return copied;
 }
 
 /** The markdown the same rows copy as from the table drawn whole. */
-function copiedFromWhole(
+async function copiedFromWhole(
   bodies: MountedBodies,
   reply: string,
   firstIndex: number,
   lastIndex: number,
-): string {
+): Promise<string> {
   const { whole } = tablesOf(bodies);
   const wholeRange = document.createRange();
   const rows = whole.tBodies[0]?.rows;
@@ -152,7 +152,7 @@ function copiedFromWhole(
   const end = textEnds(rows?.[lastIndex] ?? expect.fail("last row")).last;
   wholeRange.setEnd(end, end.length);
   const flowBody = bodies.flowBody ?? expect.fail("the whole reply is drawn");
-  return readSelectedPart(wholeRange, rowOf(flowBody), () => reply).text;
+  return (await readSelectedPart(wholeRange, rowOf(flowBody), () => reply)).text;
 }
 
 describe("browser — a long table drawn as a window over its rows", () => {
@@ -306,9 +306,9 @@ describe("browser — a long table drawn as a window over its rows", () => {
     const reply = replyWith(benchTable(400));
     const bodies = await mountWithWhole(reply, { isComplete: true });
     await selectAcrossRows(bodies, 2, 350);
-    const copied = copiedFromWindowed(bodies, reply);
+    const copied = await copiedFromWindowed(bodies, reply);
 
-    expect(copied).toBe(copiedFromWhole(bodies, reply, 2, 350));
+    expect(copied).toBe(await copiedFromWhole(bodies, reply, 2, 350));
     expect(copied).toContain("lane-180");
     // The selection starts two letters into row 2 and keeps every row from 3 to 350 whole.
     expect(copied.match(/^\| lane-\d+ /gmu)?.length).toBe(348);
@@ -318,7 +318,7 @@ describe("browser — a long table drawn as a window over its rows", () => {
     const reply = replyWith(benchTable(400));
     const bodies = await mountWithWhole(reply, { isComplete: true });
     await selectAcrossRows(bodies, 5, 8);
-    const lines = copiedFromWindowed(bodies, reply).split("\n");
+    const lines = (await copiedFromWindowed(bodies, reply)).split("\n");
 
     // Markdown has no table without a head row, so the rows paste under an empty one.
     expect(lines).toHaveLength(6);
