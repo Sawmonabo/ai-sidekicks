@@ -49,6 +49,25 @@ describe("parsing ANSI output", () => {
     expect(lifted.elidedSpanCount).toBe(0);
   });
 
+  it("draws a 256-color or true-color code in the nearest of the sixteen names", () => {
+    const { spans } = new AnsiSpanParser().read(
+      publishedTextOf(
+        `${ESCAPE}[38;5;196mpalette red${ESCAPE}[39m ` +
+          `${ESCAPE}[38;2;30;90;220mtrue blue${ESCAPE}[39m ` +
+          `${ESCAPE}[38;5;244mpalette gray${ESCAPE}[39m ` +
+          `${ESCAPE}[7;38;2;250;250;250;48;5;34mreversed${ESCAPE}[0m`,
+      ),
+    );
+    const colored = spans.filter((span) => span.text.trim() !== "");
+    expect(colored.map((span) => [span.text, span.foreground, span.background])).toEqual([
+      ["palette red", "bright-red", undefined],
+      ["true blue", "bright-blue", undefined],
+      ["palette gray", "bright-black", undefined],
+      // Reverse video keeps what the stream set on each channel, true colors included.
+      ["reversed", "bright-white", "green"],
+    ]);
+  });
+
   it("parses a growing output a part at a time into what one parse of the whole draws", () => {
     // Red opens before a boundary and closes after it, and growth steps stop inside an escape;
     // the style must carry across each boundary and no sequence may be split.
