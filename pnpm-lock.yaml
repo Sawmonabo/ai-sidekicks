@@ -30,6 +30,9 @@ patchedDependencies:
   '@xyflow/system@0.0.83':
     hash: c11ee8a5c80ab59f9d8f2e419d6bde29cac61d64e63cc88aefe787c384fd777c
     path: patches/@xyflow__system@0.0.83.patch
+  hast-util-to-text@4.0.2:
+    hash: 80aa1461c733aa2f31d343e2e3348d3e615d76636a9b6e73d729d86955ac6063
+    path: patches/hast-util-to-text@4.0.2.patch
   overlayscrollbars@2.16.0:
     hash: 1b90abe1ac5c9f7723925ab49b37e4a867d6c944f1bafe5b3e34f758f3f7faa3
     path: patches/overlayscrollbars@2.16.0.patch
@@ -267,7 +270,7 @@ importers:
         version: 10.1.2
       hast-util-to-text:
         specifier: 4.0.2
-        version: 4.0.2
+        version: 4.0.2(patch_hash=80aa1461c733aa2f31d343e2e3348d3e615d76636a9b6e73d729d86955ac6063)
       idb:
         specifier: 8.0.3
         version: 8.0.3
@@ -12725,7 +12728,7 @@ snapshots:
       '@ungap/structured-clone': 1.4.0
       hast-util-phrasing: 3.0.1
       hast-util-to-html: 9.0.5
-      hast-util-to-text: 4.0.2
+      hast-util-to-text: 4.0.2(patch_hash=80aa1461c733aa2f31d343e2e3348d3e615d76636a9b6e73d729d86955ac6063)
       hast-util-whitespace: 3.0.0
       mdast-util-phrasing: 4.1.0
       mdast-util-to-hast: 13.2.1
@@ -12735,7 +12738,7 @@ snapshots:
       unist-util-position: 5.0.0
       unist-util-visit: 5.1.0
 
-  hast-util-to-text@4.0.2:
+  hast-util-to-text@4.0.2(patch_hash=80aa1461c733aa2f31d343e2e3348d3e615d76636a9b6e73d729d86955ac6063):
     dependencies:
       '@types/hast': 3.0.5
       '@types/unist': 3.0.3
