@@ -83,6 +83,8 @@ interface ShellTableDeps {
   readonly readLoginShell: () => string | null;
   /** The login shell's environment captured at the daemon's start. */
   readonly baseEnvironment: readonly SpawnEnvPair[];
+  /** The daemon's run folder, which only this account may open; a shell's startup files go there. */
+  readonly runFolderPath: string;
   /** The connections' outbound queues, which an output stream reads before it sends. */
   readonly outboundQueue: OutboundQueue;
   /** Writes one line to the service log, where work no caller waits on reports its failure. */
@@ -473,6 +475,7 @@ export class ShellTable {
       loginShell: this.#deps.readLoginShell(),
       baseEnvironment: this.#deps.baseEnvironment,
       isScreenReaderModeOn: await this.#deps.readScreenReaderMode(),
+      runFolderPath: this.#deps.runFolderPath,
     });
     let hostSessionId: string | null = null;
     let status: PtyShellStatus;

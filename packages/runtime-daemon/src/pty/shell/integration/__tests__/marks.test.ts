@@ -282,6 +282,7 @@ describe.skipIf(process.platform === "win32")("each shell's marks in a real logi
           throw new Error(`${shellCase.name} runs only where its shell is installed`);
         }
         const home = writeFixtureHome(shellCase.files);
+        const runFolder = mkdtempSync(path.join(tmpdir(), "shell-marks-run-"));
         const host = new NodePtyHost(makeOrphanGuardDouble());
         const launch = await prepareShellLaunch({
           shellPath,
@@ -290,6 +291,7 @@ describe.skipIf(process.platform === "win32")("each shell's marks in a real logi
             ["PATH", process.env["PATH"] ?? "/usr/bin:/bin"],
             ["TERM", "xterm-256color"],
           ],
+          runFolderPath: runFolder,
         });
         try {
           const { markNonce } = launch;
@@ -396,6 +398,7 @@ describe.skipIf(process.platform === "win32")("each shell's marks in a real logi
             await discardMarkNonceFile(launch.markNonce);
           }
           rmSync(home, { recursive: true, force: true });
+          rmSync(runFolder, { recursive: true, force: true });
         }
       },
       60_000,

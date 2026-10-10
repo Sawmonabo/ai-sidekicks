@@ -52,6 +52,8 @@ interface ShellStartInput {
   readonly baseEnvironment: readonly SpawnEnvPair[];
   /** Whether `Simplify for a screen reader` is on, read at this start. */
   readonly isScreenReaderModeOn: boolean;
+  /** The daemon's run folder, which only this account may open. */
+  readonly runFolderPath: string;
 }
 
 // The line above the platform's default shell's prompt when the login shell could not start.
@@ -142,7 +144,11 @@ async function resolveShellProgram(
 // the pairs that load the marks script laid over it, and the screen-reader switch, set while it is
 // on and never carried in from the captured base while it is off.
 async function launchShell(input: ShellStartInput, shellPath: string): Promise<ShellLaunch> {
-  const launch = await prepareShellLaunch({ shellPath, environment: input.baseEnvironment });
+  const launch = await prepareShellLaunch({
+    shellPath,
+    environment: input.baseEnvironment,
+    runFolderPath: input.runFolderPath,
+  });
   const environment = launch.environment.filter(
     ([name]) => name !== CLAUDE_SCREEN_READER_ENVIRONMENT_NAME,
   );

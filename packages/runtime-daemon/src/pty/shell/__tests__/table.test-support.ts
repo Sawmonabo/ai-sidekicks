@@ -3,9 +3,11 @@
 // request throws.
 
 import { randomUUID } from "node:crypto";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
+import path from "node:path";
 
-import { vi } from "vitest";
+import { onTestFinished, vi } from "vitest";
 
 import {
   SubscriptionIdSchema,
@@ -92,6 +94,15 @@ interface TableUnderTest {
  * outbound queue a case has filled, and what it wrote to the service log. A case can hold the next
  * lease change's append back until it lets it land.
  */
+// A run folder of the test's own, removed when the test ends.
+function scratchRunFolder(): string {
+  const folder = mkdtempSync(path.join(tmpdir(), "shell-run-folder-"));
+  onTestFinished(() => {
+    rmSync(folder, { recursive: true, force: true });
+  });
+  return folder;
+}
+
 export function openTable(options: TableOptions = {}): TableUnderTest {
   const children: FakeChild[] = [];
   const startedPrograms: string[] = [];
@@ -140,6 +151,7 @@ export function openTable(options: TableOptions = {}): TableUnderTest {
     readScreenReaderMode: async () => false,
     readLoginShell: () => options.loginShell ?? "/bin/sh",
     baseEnvironment: options.baseEnvironment ?? [],
+    runFolderPath: scratchRunFolder(),
     outboundQueue: {
       isFull: (transportId) => fullTransports.has(transportId),
       onceDrained: (transportId, listener) => {

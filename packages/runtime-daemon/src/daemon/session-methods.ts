@@ -137,6 +137,8 @@ export interface SessionMethodsDeps {
    * built from.
    */
   readonly providerBaseEnvironment: readonly SpawnEnvPair[];
+  /** The daemon's run folder, which only this account may open; a shell's startup files go there. */
+  readonly runFolderPath: string;
   /** Writes one line to the service log. */
   readonly writeServiceLog: (line: string) => void;
   /** The terminal host every session's shells run in. */
@@ -407,6 +409,7 @@ export function registerSessionMethods(
     // Read from the account's record at each open, so a shell changed with `chsh` opens next.
     readLoginShell: () => userInfo().shell,
     baseEnvironment: deps.providerBaseEnvironment,
+    runFolderPath: deps.runFolderPath,
     outboundQueue: deps.outboundQueue,
     writeServiceLog: deps.writeServiceLog,
   });

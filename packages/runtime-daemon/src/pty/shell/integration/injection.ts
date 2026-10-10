@@ -1,6 +1,7 @@
 // How each shell is started so that this daemon's script loads beside the person's own startup
 // files and reports the shell's marks with a nonce minted for that shell alone. zsh reads the
-// script through a `ZDOTDIR` folder whose files source the person's own; bash starts as a login
+// script through a `ZDOTDIR` folder, copied into the daemon's run folder, whose files source the
+// person's own; bash starts as a login
 // shell in posix mode, which reads only the file `ENV` names, and the script turns posix mode off
 // and loads the login profile itself; fish reads it through a vendor configuration folder named
 // first in `XDG_DATA_DIRS`, before the person's `config.fish`. macOS's own bash skips the posix
@@ -25,10 +26,10 @@ import {
 } from "@ai-sidekicks/contracts/machine-settings";
 
 import type { SpawnEnvPair } from "../../../provider/spawn-env.js";
+import { prepareZshStartupFolder } from "./zsh-startup.js";
 
 // Beside this module in the source and in the build, which copies the folder there.
 const SCRIPTS_FOLDER = fileURLToPath(new URL("./scripts/", import.meta.url));
-const ZSH_FOLDER = path.join(SCRIPTS_FOLDER, "zsh");
 const BASH_SCRIPT_PATH = path.join(SCRIPTS_FOLDER, "startup.bash");
 // A data folder whose `fish/vendor_conf.d` holds fish's script.
 const FISH_DATA_FOLDER = path.join(SCRIPTS_FOLDER, "xdg-data");
@@ -76,6 +77,8 @@ export interface ShellLaunch {
 export async function prepareShellLaunch(input: {
   readonly shellPath: string;
   readonly environment: readonly SpawnEnvPair[];
+  /** The daemon's run folder, which only this account may open; zsh's startup files go there. */
+  readonly runFolderPath: string;
 }): Promise<ShellLaunch> {
   const { shellPath, environment } = input;
   const shellName = path.basename(shellPath);
@@ -100,7 +103,7 @@ export async function prepareShellLaunch(input: {
         ["-l"],
         [
           [SHELL_ORIGINAL_ZDOTDIR_ENVIRONMENT_NAME, personFolder],
-          ["ZDOTDIR", ZSH_FOLDER],
+          ["ZDOTDIR", await prepareZshStartupFolder(input.runFolderPath)],
         ],
       );
     }

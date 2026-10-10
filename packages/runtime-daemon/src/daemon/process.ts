@@ -309,6 +309,7 @@ export class DaemonProcess {
       commandShell: options.commandShell,
       environmentNameMatch: options.providerOperatingSystem.environmentNameMatch,
       providerBaseEnvironment: parts.providerBaseEnvironment,
+      runFolderPath: options.runFolder.folderPath,
       refuseSessionWrite: (sessionId, eventType) => {
         refuseSessionEvent(this.#recoveryStatus, sessionId, eventType);
       },
