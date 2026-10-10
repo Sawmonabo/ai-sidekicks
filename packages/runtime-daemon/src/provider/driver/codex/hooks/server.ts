@@ -1,11 +1,11 @@
-// The daemon's end of the Codex hooks: a Unix socket the hook program hands each pre-tool and
+// The daemon's end of the Codex hooks: a local socket the hook program hands each pre-tool and
 // post-tool input to, answered at one dispatch point where each answerer in turn may answer or let
 // the next one. A held pre-tool call is denied shortly before Codex's own hook deadline, since a
 // hook that times out lets the call run.
 
-import { lstat, unlink } from "node:fs/promises";
 import * as net from "node:net";
 
+import type { ProviderOperatingSystem } from "../../../operating-system/contract.js";
 import { isPlainObject, readNonEmptyString } from "../../../record-readers.js";
 import { CODEX_MAX_RECEIVED_MESSAGE_BYTES } from "../server-requests.js";
 import { CODEX_HOOK_TIMEOUT_SECONDS, type CodexDaemonHooks } from "../service/command-line.js";
@@ -74,7 +74,16 @@ const PASS: CodexHookAnswer = { decision: "pass" };
 
 /** What the hook server needs. */
 export interface CodexHookServerDependencies {
-  readonly socketPath: string;
+  /** The address the server listens on and the hook programs connect to. */
+  readonly endpoint: string;
+  /**
+   * How the system readies the address and quotes the hook's command line, which Codex runs with
+   * the system's command shell.
+   */
+  readonly operatingSystem: Pick<
+    ProviderOperatingSystem,
+    "prepareLocalSocketEndpoint" | "quoteShellWord"
+  >;
   /** Answer in order; the first that answers wins, and a call none answers passes. */
   readonly answerers: readonly CodexHookAnswerer[];
   readonly reportDiagnostic: CodexDiagnosticSink;
@@ -82,7 +91,7 @@ export interface CodexHookServerDependencies {
   readonly now: () => number;
 }
 
-/** Serves the daemon's hook programs on one Unix socket for every service of one driver. */
+/** Serves the daemon's hook programs on one local socket for every service of one driver. */
 export class CodexHookServer implements CodexDaemonHooks {
   readonly commands: CodexDaemonHooks["commands"];
   readonly #dependencies: CodexHookServerDependencies;
@@ -96,12 +105,12 @@ export class CodexHookServer implements CodexDaemonHooks {
     // One command per event, so Codex lists and trusts each, and the program knows its event
     // even when the input cannot be read.
     this.commands = {
-      preToolUse: composeCodexHookCommand(dependencies.socketPath, "PreToolUse"),
-      postToolUse: composeCodexHookCommand(dependencies.socketPath, "PostToolUse"),
+      preToolUse: composeCodexHookCommand(dependencies, "PreToolUse"),
+      postToolUse: composeCodexHookCommand(dependencies, "PostToolUse"),
     };
   }
 
-  /** Starts listening, once; a socket a stopped daemon left at the path is removed first. */
+  /** Starts listening, once; what a stopped daemon left at the address is removed first. */
   async listen(): Promise<void> {
     this.#listening ??= this.#listen();
     await this.#listening;
@@ -109,7 +118,7 @@ export class CodexHookServer implements CodexDaemonHooks {
 
   /**
    * Stops listening as the daemon stops: every hook still waiting is cut off, which Codex reads as
-   * the hook failing, and the socket path is removed. Idempotent.
+   * the hook failing, and the address is let go. Idempotent.
    */
   async close(): Promise<void> {
     this.#closing ??= this.#close();
@@ -132,7 +141,7 @@ export class CodexHookServer implements CodexDaemonHooks {
     for (const socket of this.#connections) {
       socket.destroy();
     }
-    // Closing a server on a socket path also removes the path.
+    // Closing a server on a socket path also removes the path; a named pipe ends with it.
     await new Promise<void>((resolve, reject) => {
       server.close((error) => {
         if (error === undefined) {
@@ -145,14 +154,16 @@ export class CodexHookServer implements CodexDaemonHooks {
   }
 
   async #listen(): Promise<void> {
-    await removeLeftoverSocket(this.#dependencies.socketPath);
+    await this.#dependencies.operatingSystem.prepareLocalSocketEndpoint(
+      this.#dependencies.endpoint,
+    );
     const server = net.createServer((socket) => {
       this.#serve(socket);
     });
     this.#server = server;
     await new Promise<void>((resolve, reject) => {
       server.once("error", reject);
-      server.listen(this.#dependencies.socketPath, () => {
+      server.listen(this.#dependencies.endpoint, () => {
         server.off("error", reject);
         resolve();
       });
@@ -296,16 +307,14 @@ export class CodexHookServer implements CodexDaemonHooks {
   }
 }
 
-// The command line Codex runs for one daemon hook: this Node, the program, the socket, the event.
-function composeCodexHookCommand(socketPath: string, eventName: CodexHookEventName): string {
-  return [process.execPath, CODEX_HOOK_PROGRAM_PATH, socketPath, eventName]
-    .map(quoteForShell)
+// The command line Codex runs for one daemon hook: this Node, the program, the address, the event.
+function composeCodexHookCommand(
+  { endpoint, operatingSystem }: CodexHookServerDependencies,
+  eventName: CodexHookEventName,
+): string {
+  return [process.execPath, CODEX_HOOK_PROGRAM_PATH, endpoint, eventName]
+    .map(operatingSystem.quoteShellWord)
     .join(" ");
-}
-
-// One POSIX shell word: single-quoted, with each single quote closed, escaped and reopened.
-function quoteForShell(word: string): string {
-  return `'${word.replaceAll("'", `'\\''`)}'`;
 }
 
 // Reads one hook input line's message; throws `TypeError` for one that is not a daemon hook's.
@@ -329,21 +338,4 @@ function readCodexHookInput(message: unknown): CodexHookInput {
     toolUseId: readNonEmptyString(input, "tool_use_id"),
     toolInput: input["tool_input"],
   };
-}
-
-// A socket at the path is a stopped daemon's, since the path is this daemon's own; anything else
-// there is refused rather than removed.
-async function removeLeftoverSocket(socketPath: string): Promise<void> {
-  try {
-    const existing = await lstat(socketPath);
-    if (!existing.isSocket()) {
-      throw new Error(`${socketPath} exists and is not a socket`);
-    }
-    await unlink(socketPath);
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-      return;
-    }
-    throw error;
-  }
 }

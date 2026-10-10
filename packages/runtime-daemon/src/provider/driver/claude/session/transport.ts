@@ -334,8 +334,8 @@ export interface ClaudeProviderProcess {
   onExit(observer: (exit: ProcessExit) => void): void;
 
   /**
-   * Stops the process with SIGTERM, which ends a running turn without answering what is queued,
-   * and resolves once it exited. Used by a conversation cut and a process that stopped answering.
+   * Asks the process to stop as the system stops a child process, which ends a running turn
+   * without answering what is queued, and resolves once it exited. Used by a conversation cut and a process that stopped answering.
    */
   terminate(): Promise<void>;
 

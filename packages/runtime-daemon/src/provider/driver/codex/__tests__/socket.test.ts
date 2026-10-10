@@ -9,7 +9,8 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocketServer } from "ws";
 
-import { connectCodexServiceSocket } from "../transport/socket.js";
+import { DARWIN_PROVIDER_OPERATING_SYSTEM } from "../../../operating-system/darwin.js";
+import { createCodexServiceSocketConnector } from "../transport/socket.js";
 
 const servers: Server[] = [];
 const folders: string[] = [];
@@ -46,12 +47,19 @@ describe("the Codex service socket", () => {
   ])("reads the size the upgrade names ($header)", async ({ header, limit }) => {
     const socketPath = await listeningService([header]);
 
-    const socket = await connectCodexServiceSocket(
+    const connect = createCodexServiceSocketConnector(DARWIN_PROVIDER_OPERATING_SYSTEM);
+    const socket = await connect(
       socketPath,
       { onMessage: () => undefined, onClose: () => undefined },
       {
         awaitSocket: false,
         codexHome: path.dirname(socketPath),
+        codexBuild: {
+          requestedCommand: "codex",
+          resolvedExecutablePath: "/opt/codex/bin/codex",
+          start: { program: "/opt/codex/bin/codex", leadingArguments: [] },
+          environment: [],
+        },
         signal: new AbortController().signal,
       },
     );

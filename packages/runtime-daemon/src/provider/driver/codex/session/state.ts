@@ -19,7 +19,7 @@ import type { RuntimeBindingRebind } from "../../../runtime-binding-store.js";
 import type { ToolServerRoute } from "../../../port/tool-server-route.js";
 import type { ProviderOperatingSystem } from "../../../operating-system/contract.js";
 import type { SpawnEnvPair } from "../../../spawn-env.js";
-import type { ProviderExecutableResolverDependencies } from "../../../spawned-version.js";
+import type { ProviderCommandResolver } from "../../../spawned-version.js";
 import type { DriverDiagnosticsEmitter } from "../../diagnostics.js";
 import {
   type ChildThreadAnnouncement,
@@ -330,10 +330,10 @@ export type CodexRunEnginePort = Pick<
 /** Construction inputs for the lifecycle manager. */
 export interface CodexLifecycleOptions {
   /**
-   * The Codex command as the person configured it, resolved afresh at every service start, so a
-   * restart runs what the command names now.
+   * Resolves the Codex command afresh at every service start, along the service's environment, so
+   * a restart runs what the command names now.
    */
-  readonly providerCommand: () => Promise<string>;
+  readonly providerCommand: ProviderCommandResolver;
   /** The login shell's environment captured at the daemon's start, every service's base. */
   readonly providerBaseEnvironment: readonly SpawnEnvPair[];
   /** The operating system the daemon runs on, chosen where the daemon is composed. */
@@ -349,7 +349,6 @@ export interface CodexLifecycleOptions {
   readonly launchProcess?: CodexServiceLauncher | undefined;
   readonly runCommand?: CodexCommandRunner | undefined;
   readonly connectSocket?: CodexServiceSocketConnector | undefined;
-  readonly executableResolver?: Partial<ProviderExecutableResolverDependencies> | undefined;
   /** The transport's diagnostic channel; separate from `diagnostics`, the daemon-wide band. */
   readonly reportDiagnostic: CodexDiagnosticSink;
   /** The daemon-wide diagnostic band; required, since each fail-closed path owes a record. */
@@ -385,8 +384,8 @@ export interface CodexLifecycleOptions {
   readonly serverPrompts: PortRegistration<CodexServerPromptPort>;
   /** The running-commands stream's live output; absent, a command's output is dropped. */
   readonly commandOutput: PortRegistration<CommandOutputPublisher>;
-  /** The Unix socket the daemon's hook programs reach it on; absent, services run no hooks. */
-  readonly hookSocketPath: string | undefined;
+  /** The address the daemon's hook programs reach it on; absent, services run no hooks. */
+  readonly hookEndpoint: string | undefined;
   /**
    * The daemon's folder for helper role files, absolute: each session's files go in a folder of
    * its own under it, removed when the session is deleted.

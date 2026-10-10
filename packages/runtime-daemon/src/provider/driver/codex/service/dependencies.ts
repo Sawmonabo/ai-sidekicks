@@ -6,7 +6,7 @@ import type { ProcessExit } from "@ai-sidekicks/contracts/run/control";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import type { SpawnEnvNameMatch, SpawnEnvPair } from "../../../spawn-env.js";
-import type { ProviderExecutableResolverDependencies } from "../../../spawned-version.js";
+import type { ProviderCommandResolver } from "../../../spawned-version.js";
 import type { DriverDiagnosticsEmitter } from "../../diagnostics.js";
 import type { CodexServerRequestResponder } from "../server-requests.js";
 import type { CodexForgottenRequest } from "../transport/connection.js";
@@ -62,12 +62,11 @@ export interface CodexServiceDependencies {
   readonly listenAddress: string;
   /** The socket the listen address makes. */
   readonly socketPath: string;
-  /** The configured Codex command, read and resolved again at every start. */
-  readonly providerCommand: () => Promise<string>;
+  /** Resolves the configured Codex command again at every start. */
+  readonly providerCommand: ProviderCommandResolver;
   readonly providerBaseEnvironment: readonly SpawnEnvPair[];
   /** How this system compares environment variable names. */
   readonly environmentNameMatch: SpawnEnvNameMatch;
-  readonly executableResolver?: Partial<ProviderExecutableResolverDependencies> | undefined;
   readonly launchProcess: CodexServiceLauncher;
   readonly runCommand: CodexCommandRunner;
   readonly connectSocket: CodexServiceSocketConnector;

@@ -90,6 +90,7 @@ import type { SpawnEnvPair } from "../provider/spawn-env.js";
 import {
   ProviderExecutableUnresolvableError,
   resolveProviderExecutable,
+  type ProviderCommandResolver,
 } from "../provider/spawned-version.js";
 import type { RunEngine } from "../session/run/engine.js";
 import { ExecutionEpochs } from "../session/run/epochs.js";
@@ -102,7 +103,7 @@ import { RunStateReader } from "../session/run/read.js";
 import { RunAlreadyEndedError, RunNotFoundError } from "../session/run/refusals.js";
 
 // The socket Codex's hook programs reach the daemon on, beside the daemon's own socket.
-const CODEX_HOOK_SOCKET_FILE_NAME = "codex-hooks.sock";
+const CODEX_HOOK_SOCKET_NAME = "codex-hooks";
 
 // The folder of the role files the daemon writes for Codex helpers, one folder per session.
 const CODEX_HELPER_ROLES_FOLDER_NAME = "codex-helper-roles";
@@ -296,23 +297,23 @@ export class DaemonProviders {
       }
       return declared;
     };
-    // Each spawn resolves the provider's own command along the login shell's `PATH` again, then
-    // where the installers and Node managers put it, the newest build first, so a shell that
+    // Each spawn resolves the provider's own command along its own environment's `PATH` again,
+    // then where the installers and Node managers put it, the newest build first, so a shell that
     // missed its deadline loses neither provider.
     const commandSearch = new ProviderCommandSearch({
       operatingSystem: context.operatingSystem,
       homeDirectory: context.homeDirectory,
       writeServiceLog,
     });
-    const providerCommandOf = (driverName: ProviderName) => async (): Promise<string> =>
-      (
+    const providerCommandOf =
+      (driverName: ProviderName): ProviderCommandResolver =>
+      async (spawnEnvironment) =>
         await resolveProviderExecutable(
           driverName,
           PROVIDER_DRIVER_DESCRIPTORS[driverName].command,
-          providerBaseEnvironment,
-          { commandSearch },
-        )
-      ).resolvedExecutablePath;
+          spawnEnvironment,
+          { commandSearch, operatingSystem: context.operatingSystem },
+        );
     const onSessionRelaunched: ClaudeDependencies["onSessionRelaunched"] = (sessionId, result) => {
       sessionDirectory.requirePort().onSessionRelaunched(sessionId, result);
     };
@@ -393,7 +394,10 @@ export class DaemonProviders {
           credentialPolicy: executionPosture,
           runEngine,
           inbound,
-          hookSocketPath: path.join(context.runFolder.folderPath, CODEX_HOOK_SOCKET_FILE_NAME),
+          hookEndpoint: context.operatingSystem.localSocketEndpoint(
+            context.runFolder.folderPath,
+            CODEX_HOOK_SOCKET_NAME,
+          ),
           helperRolesFolder: path.join(context.dataFolder, CODEX_HELPER_ROLES_FOLDER_NAME),
           reportDiagnostic: (diagnostic) => {
             writeServiceLog(`codex-transport ${JSON.stringify(boundDiagnosticDetail(diagnostic))}`);

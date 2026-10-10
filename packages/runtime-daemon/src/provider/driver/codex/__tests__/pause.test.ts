@@ -10,6 +10,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { drainMicrotasks } from "../../../__fixtures__/drain-microtasks.js";
+import { DARWIN_PROVIDER_OPERATING_SYSTEM } from "../../../operating-system/darwin.js";
 import { makeManualScheduler } from "../../../__fixtures__/manual-scheduler.js";
 import { RUN_ID, SESSION_ID, THREAD_ID } from "../__fixtures__/app-server-doubles.js";
 import { type CodexHookPause, CodexRunPauses } from "../hooks/pause.js";
@@ -73,7 +74,8 @@ describe("Codex hook pause", () => {
       isRunLive: () => true,
     });
     const server = new CodexHookServer({
-      socketPath,
+      endpoint: socketPath,
+      operatingSystem: DARWIN_PROVIDER_OPERATING_SYSTEM,
       answerers: [pauses.answer],
       reportDiagnostic: () => undefined,
       scheduleTimeout: scheduler.schedule,

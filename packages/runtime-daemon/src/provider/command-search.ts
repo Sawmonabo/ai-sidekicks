@@ -1,11 +1,12 @@
 // Finds a provider's command in the folders its installers, npm and the Node version and package
 // managers put it, for a spawn whose login shell's search path holds none. Where more than one
 // build is found, the newest runs: each build's `--version` is read once, under a deadline, and
-// kept for its path.
+// kept for its path. A build runs with the folder it was found in first on its search path, where
+// a Node manager keeps the `node` its script's `#!/usr/bin/env node` names.
 
 import { execFile } from "node:child_process";
 import { readdir, realpath as realpathFromFilesystem } from "node:fs/promises";
-import { delimiter as pathDelimiter, join } from "node:path";
+import { delimiter as pathDelimiter, dirname, join } from "node:path";
 import { promisify } from "node:util";
 
 import semver from "semver";
@@ -20,8 +21,10 @@ import { parseCliVersionReport } from "./capability/refresh.js";
 import type {
   ProviderCommandFolder,
   ProviderOperatingSystem,
+  ProviderProgramStart,
 } from "./operating-system/contract.js";
-import type { SpawnEnvPair } from "./spawn-env.js";
+import { placeFolderFirstOnSearchPath, type SpawnEnvPair } from "./spawn-env.js";
+import { startResolvedBuild } from "./spawned-version.js";
 
 /** How long one build may take to print its version before it ranks below every build that did. */
 const VERSION_READ_DEADLINE_MS = 5_000;
@@ -34,18 +37,25 @@ export interface ProviderCommandSearchDependencies extends ExecutableSearchDepen
   readonly realpath: (candidate: string) => Promise<string>;
   /** The names in a folder; rejects for a folder that cannot be read. */
   readonly listFolder: (folder: string) => Promise<readonly string[]>;
-  /** What `<build> --version` printed; rejects for a build that fails or misses the deadline. */
+  /** What the build printed for `--version`; rejects for one that fails or misses the deadline. */
   readonly readVersionOutput: (
-    build: string,
+    start: ProviderProgramStart,
     environment: Readonly<Record<string, string>>,
   ) => Promise<string>;
+}
+
+/** One build the search found: its resolved path and the folder its command was found in. */
+export interface ProviderCommandSearchHit {
+  readonly build: string;
+  /** Put first on the build's search path, so a Node script finds the Node installed beside it. */
+  readonly folder: string;
 }
 
 /** What one search is built from. */
 export interface ProviderCommandSearchOptions {
   readonly operatingSystem: Pick<
     ProviderOperatingSystem,
-    "environmentNameMatch" | "providerCommandFolders"
+    "environmentNameMatch" | "providerCommandFolders" | "startProviderBuild"
   >;
   /** The person's home folder, which most of the folders sit under. */
   readonly homeDirectory: string;
@@ -59,9 +69,9 @@ const DEFAULT_DEPENDENCIES: Omit<
 > = {
   realpath: realpathFromFilesystem,
   listFolder: async (folder) => await readdir(folder),
-  readVersionOutput: async (build, environment) =>
+  readVersionOutput: async (start, environment) =>
     (
-      await runProgram(build, ["--version"], {
+      await runProgram(start.program, [...start.leadingArguments, "--version"], {
         env: environment,
         timeout: VERSION_READ_DEADLINE_MS,
       })
@@ -88,21 +98,21 @@ export class ProviderCommandSearch {
   }
 
   /**
-   * The resolved path of the newest build `command` names in the folders, or `undefined` where
-   * none holds it. A build whose version cannot be read ranks below every build whose can; among
-   * equals the earlier folder wins.
+   * The newest build `command` names in the folders, or `undefined` where none holds it. A build
+   * whose version cannot be read ranks below every build whose can; among equals the earlier
+   * folder wins.
    */
   async find(
     command: string,
     spawnEnvironment: readonly SpawnEnvPair[],
-  ): Promise<string | undefined> {
+  ): Promise<ProviderCommandSearchHit | undefined> {
     const folders = await this.#listFolders(spawnEnvironment);
     // The folders as a `PATH` of their own, so they are searched the way the shell's is.
     const environment: readonly SpawnEnvPair[] = [
       ["PATH", folders.join(pathDelimiter)],
       ...spawnEnvironment,
     ];
-    const builds: string[] = [];
+    const builds: ProviderCommandSearchHit[] = [];
     for await (const candidate of findExecutables(command, environment, this.#dependencies)) {
       let build: string;
       try {
@@ -111,15 +121,17 @@ export class ProviderCommandSearch {
         // Gone between the probe and the dereference: the next candidate is tried.
         continue;
       }
-      if (!builds.includes(build)) {
-        builds.push(build);
+      // The folder the command sits in, never the build's own: a Node manager links its command
+      // to a script deep in its packages, beside no `node`.
+      if (!builds.some((found) => found.build === build)) {
+        builds.push({ build, folder: dirname(candidate) });
       }
     }
     if (builds.length <= 1) {
       return builds[0];
     }
     const versions = await Promise.all(
-      builds.map(async (build) => await this.#readVersion(build, spawnEnvironment)),
+      builds.map(async (hit) => await this.#readVersion(hit, spawnEnvironment)),
     );
     let newest = 0;
     versions.forEach((version, index) => {
@@ -168,7 +180,7 @@ export class ProviderCommandSearch {
   }
 
   #readVersion(
-    build: string,
+    { build, folder }: ProviderCommandSearchHit,
     spawnEnvironment: readonly SpawnEnvPair[],
   ): Promise<semver.SemVer | null> {
     const known = this.#versions.get(build);
@@ -177,9 +189,19 @@ export class ProviderCommandSearch {
     }
     const reading = (async (): Promise<semver.SemVer | null> => {
       try {
+        const { operatingSystem } = this.#options;
+        const environment = placeFolderFirstOnSearchPath(
+          spawnEnvironment,
+          folder,
+          operatingSystem.environmentNameMatch,
+        );
+        const start = await startResolvedBuild(build, environment, {
+          ...this.#dependencies,
+          operatingSystem,
+        });
         const output = await this.#dependencies.readVersionOutput(
-          build,
-          Object.fromEntries(spawnEnvironment),
+          start,
+          Object.fromEntries(environment),
         );
         const parsed = parseCliVersionReport(output).parsedVersion;
         if (parsed !== undefined) {

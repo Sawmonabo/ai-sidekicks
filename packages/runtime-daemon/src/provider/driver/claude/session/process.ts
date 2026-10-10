@@ -8,6 +8,10 @@ import { once } from "node:events";
 import { DRIVER_FAILURE_DETAIL_MAX_LEN } from "@ai-sidekicks/contracts/provider/driver/length-limits";
 import type { ProcessExit } from "@ai-sidekicks/contracts/run/control";
 
+import type {
+  ProviderOperatingSystem,
+  ProviderProgramStart,
+} from "../../../operating-system/contract.js";
 import type { OutboundText } from "../../../outbound-text.js";
 import { isPlainObject, readNonEmptyString } from "../../../record-readers.js";
 import type { SpawnEnvPair } from "../../../spawn-env.js";
@@ -41,9 +45,10 @@ const DELIVERED_ROUTE_DECISIONS: ReadonlySet<ThreadFrameRoute["decision"]> = new
  */
 const CLAUDE_MAX_FRAME_BYTES = 32 * 1024 * 1024;
 
-/** What starting one Claude Code process takes; the command is already resolved to a path. */
+/** What starting one Claude Code process takes; the command is already resolved to a build. */
 export interface ClaudeCodeProcessLaunch {
-  readonly executablePath: string;
+  /** What the system starts to run the build; `args` follow its leading arguments. */
+  readonly programStart: ProviderProgramStart;
   readonly args: readonly string[];
   readonly workingDirectory: string;
   /** The process's whole environment; nothing of the daemon's own is inherited. */
@@ -51,6 +56,8 @@ export interface ClaudeCodeProcessLaunch {
   /** The id the process runs its conversation under. */
   readonly providerSessionId: string;
   readonly diagnostics: DriverDiagnosticsEmitter;
+  /** How the system ends the process: asked to stop, or killed. */
+  readonly endChildProcess: ProviderOperatingSystem["endChildProcess"];
 }
 
 /**
@@ -60,7 +67,8 @@ export interface ClaudeCodeProcessLaunch {
 export async function startClaudeCodeProcess(
   launch: ClaudeCodeProcessLaunch,
 ): Promise<ClaudeCodeProcess> {
-  const child = spawn(launch.executablePath, [...launch.args], {
+  const { program, leadingArguments } = launch.programStart;
+  const child = spawn(program, [...leadingArguments, ...launch.args], {
     cwd: launch.workingDirectory,
     env: Object.fromEntries(launch.environment),
     shell: false,
@@ -77,6 +85,7 @@ export class ClaudeCodeProcess implements ClaudeProviderProcess {
   readonly providerSessionId: string;
   readonly #child: ChildProcessWithoutNullStreams;
   readonly #diagnostics: DriverDiagnosticsEmitter;
+  readonly #endChildProcess: ProviderOperatingSystem["endChildProcess"];
   readonly #controlRequests: ClaudeControlRequestTable;
   /** Settles once, with how the process ended, when it has exited. */
   readonly exited: Promise<ProcessExit>;
@@ -100,6 +109,7 @@ export class ClaudeCodeProcess implements ClaudeProviderProcess {
     this.providerSessionId = launch.providerSessionId;
     this.#child = child;
     this.#diagnostics = launch.diagnostics;
+    this.#endChildProcess = launch.endChildProcess;
     this.#controlRequests = new ClaudeControlRequestTable();
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (chunk: string) => {
@@ -226,7 +236,7 @@ export class ClaudeCodeProcess implements ClaudeProviderProcess {
 
   async terminate(): Promise<void> {
     if (!this.#closed) {
-      this.#child.kill("SIGTERM");
+      this.#endChildProcess(this.#child, "stop");
     }
     await this.exited;
   }
@@ -246,7 +256,7 @@ export class ClaudeCodeProcess implements ClaudeProviderProcess {
     }
     this.#child.stdin.end();
     const kill = setTimeout(() => {
-      this.#child.kill("SIGKILL");
+      this.#endChildProcess(this.#child, "kill");
     }, exitWaitMs);
     try {
       await this.exited;

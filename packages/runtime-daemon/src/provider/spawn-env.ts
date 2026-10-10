@@ -277,3 +277,24 @@ export function composeCodexShellEnvironmentPolicy(
     ),
   };
 }
+
+/**
+ * `environment` with `folder` first on its `PATH`, the variable's own spelling kept; a `PATH` it
+ * lacks is set to `folder` alone. One pair per name, so the search and the spawn read one value.
+ */
+export function placeFolderFirstOnSearchPath(
+  environment: readonly SpawnEnvPair[],
+  folder: string,
+  nameMatch: SpawnEnvNameMatch,
+): readonly SpawnEnvPair[] {
+  const pathKey = toMatchKey("PATH", nameMatch);
+  let isPathSet = false;
+  const placed = environment.map(([name, value]): SpawnEnvPair => {
+    if (toMatchKey(name, nameMatch) !== pathKey) {
+      return [name, value];
+    }
+    isPathSet = true;
+    return [name, value === "" ? folder : `${folder}${path.delimiter}${value}`];
+  });
+  return isPathSet ? placed : [...placed, ["PATH", folder]];
+}

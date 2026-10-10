@@ -13,7 +13,7 @@ import { assertValidCliVersionReport } from "../../../output-validation.js";
 import { buildProviderSpawnEnv, type SpawnEnvPair } from "../../../spawn-env.js";
 import {
   DEFAULT_PROVIDER_VERSION_CLIENT_NAME,
-  resolveProviderExecutable,
+  type ResolvedProviderExecutable,
   type SpawnedProviderVersionReading,
 } from "../../../spawned-version.js";
 import { CODEX_DRIVER_NAME } from "../capabilities.js";
@@ -104,6 +104,8 @@ export class CodexService {
   #process: CodexServiceProcess | null = null;
   #connection: CodexAppServerConnection | null = null;
   #versionReading: SpawnedProviderVersionReading | null = null;
+  // The build resolved at the last start, which the catalog read runs and a dial may go through.
+  #executable: ResolvedProviderExecutable | null = null;
   // The account's rate-limit readings this service has seen, which a failed turn's usage limit
   // is read from; the account outlives a connection, so a reconnect keeps them.
   #rateLimitObservation: CodexRateLimitObservation = { latestRead: null, rollingUpdate: null };
@@ -215,7 +217,12 @@ export class CodexService {
       const opened = await openCodexConnection({
         connectSocket: this.#dependencies.connectSocket,
         socketPath: this.#dependencies.socketPath,
-        dialOptions: { awaitSocket: false, codexHome: this.home.codexHome, signal: abort.signal },
+        dialOptions: {
+          awaitSocket: false,
+          codexHome: this.home.codexHome,
+          codexBuild: this.#requireExecutable(),
+          signal: abort.signal,
+        },
         options: {
           reportDiagnostic: this.#dependencies.reportDiagnostic,
           scheduleTimeout: this.#scheduleTimeout,
@@ -255,15 +262,15 @@ export class CodexService {
 
   async #runCatalogDump(): Promise<string> {
     await this.ensureStarted();
-    const reading = this.#versionReading;
-    if (reading === null) {
+    const executable = this.#executable;
+    if (executable === null) {
       throw new Error("The Codex service has not started, so its catalog cannot be read.");
     }
     return await this.#dependencies.runCommand(
       {
-        command: reading.resolvedExecutablePath,
-        args: ["debug", "models"],
-        environment: this.#spawnEnvironment(),
+        command: executable.start.program,
+        args: [...executable.start.leadingArguments, "debug", "models"],
+        environment: executable.environment,
         workingDirectory: this.home.codexHome,
       },
       CODEX_CATALOG_READ_DEADLINE_MS,
@@ -409,24 +416,19 @@ export class CodexService {
     this.#state = "starting";
     this.#generation += 1;
     const generation = this.#generation;
-    const environment = this.#spawnEnvironment();
     try {
       // Resolved at every start, so a relaunch runs what the command names now.
-      const executable = await resolveProviderExecutable(
-        CODEX_DRIVER_NAME,
-        await this.#dependencies.providerCommand(),
-        environment,
-        this.#dependencies.executableResolver ?? {},
-      );
+      const executable = await this.#dependencies.providerCommand(this.#spawnEnvironment());
+      this.#executable = executable;
       const hooks = this.home.isManaged ? this.#dependencies.hooks : undefined;
       // Listening before the service starts, so no hook it runs finds the daemon away.
       await hooks?.listen();
       // A stop while the command was read leaves nothing to launch.
       this.#assertCurrent(generation);
       if (this.home.isManaged) {
-        this.#launch(executable.resolvedExecutablePath, environment);
+        this.#launch(executable);
       }
-      const opened = await this.#connect(generation);
+      const opened = await this.#connect(generation, executable);
       this.#versionReading = {
         driverName: CODEX_DRIVER_NAME,
         resolvedExecutablePath: executable.resolvedExecutablePath,
@@ -444,6 +446,14 @@ export class CodexService {
       await this.#teardown();
       throw cause;
     }
+  }
+
+  // Set by the start every connection follows.
+  #requireExecutable(): ResolvedProviderExecutable {
+    if (this.#executable === null) {
+      throw new Error("The Codex service was dialed before its command was resolved.");
+    }
+    return this.#executable;
   }
 
   #spawnEnvironment(): readonly SpawnEnvPair[] {
@@ -466,14 +476,17 @@ export class CodexService {
     return tracked;
   }
 
-  #launch(executablePath: string, environment: readonly SpawnEnvPair[]): void {
+  #launch({ start, environment }: ResolvedProviderExecutable): void {
     const serviceProcess = this.#dependencies.launchProcess({
-      command: executablePath,
-      args: composeCodexServiceArguments({
-        listenAddress: this.#dependencies.listenAddress,
-        hookCommands: this.#dependencies.hooks?.commands,
-        additionalConfigOverrides: this.#dependencies.additionalConfigOverrides,
-      }),
+      command: start.program,
+      args: [
+        ...start.leadingArguments,
+        ...composeCodexServiceArguments({
+          listenAddress: this.#dependencies.listenAddress,
+          hookCommands: this.#dependencies.hooks?.commands,
+          additionalConfigOverrides: this.#dependencies.additionalConfigOverrides,
+        }),
+      ],
       environment,
       workingDirectory: this.home.codexHome,
     });
@@ -495,6 +508,7 @@ export class CodexService {
   /** Opens the connection, bounded by the startup deadline and by the process ending first. */
   async #connect(
     generation: number,
+    executable: ResolvedProviderExecutable,
   ): Promise<{ connection: CodexAppServerConnection; initializeReply: unknown }> {
     const startupTimeoutMs = this.#dependencies.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS;
     const abort = this.#abortAfterStartupDeadline(startupTimeoutMs);
@@ -521,6 +535,7 @@ export class CodexService {
         dialOptions: {
           awaitSocket: this.home.isManaged,
           codexHome: this.home.codexHome,
+          codexBuild: executable,
           signal: abort.signal,
         },
         options: {
@@ -679,7 +694,7 @@ export class CodexService {
     this.#generation += 1;
     const droppedProcess = this.#process;
     try {
-      await this.#connect(this.#generation);
+      await this.#connect(this.#generation, this.#requireExecutable());
     } catch (cause) {
       // A stop the daemon asked for ended the reconnect; it is no failure.
       if (this.#isStopRequested) {

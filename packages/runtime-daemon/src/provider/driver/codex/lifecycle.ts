@@ -56,7 +56,7 @@ import { CodexSelfStartedTurns } from "./run/self-started-turns.js";
 import { CodexRunStart } from "./run/start.js";
 import { CodexTurnEndWaiters } from "./run/turn-end-waiters.js";
 import { readCodexServerRequestAnswer } from "./server-requests.js";
-import { launchCodexServiceProcess, runCodexCommand } from "./service/process.js";
+import { createCodexServiceLauncher, runCodexCommand } from "./service/process.js";
 import type { CodexServiceEvents } from "./service/dependencies.js";
 import { CodexServiceRegistry } from "./service/registry.js";
 import { CODEX_CONFIG_WARNING_METHOD, type CodexService } from "./service/supervisor.js";
@@ -91,7 +91,7 @@ import {
 } from "./transport/connection.js";
 import { composeCodexLevelConfig } from "./thread/settings.js";
 import { reportDiagnosticFromDetachedFrame } from "./transport/diagnostics.js";
-import { connectCodexServiceSocket } from "./transport/socket.js";
+import { createCodexServiceSocketConnector } from "./transport/socket.js";
 import {
   buildAuthProbeResult,
   type ClearSessionGoalParams,
@@ -205,10 +205,11 @@ export class CodexLifecycleManager {
       },
     });
     this.#hooks =
-      options.hookSocketPath === undefined
+      options.hookEndpoint === undefined
         ? undefined
         : new CodexHookServer({
-            socketPath: options.hookSocketPath,
+            endpoint: options.hookEndpoint,
+            operatingSystem: options.operatingSystem,
             answerers: [this.#pauses.answer],
             reportDiagnostic,
             scheduleTimeout,
@@ -219,10 +220,12 @@ export class CodexLifecycleManager {
       providerCommand: options.providerCommand,
       providerBaseEnvironment: options.providerBaseEnvironment,
       environmentNameMatch: options.operatingSystem.environmentNameMatch,
-      executableResolver: options.executableResolver,
-      launchProcess: options.launchProcess ?? launchCodexServiceProcess,
+      launchProcess:
+        options.launchProcess ??
+        createCodexServiceLauncher(options.operatingSystem.endChildProcess),
       runCommand: options.runCommand ?? runCodexCommand,
-      connectSocket: options.connectSocket ?? connectCodexServiceSocket,
+      connectSocket:
+        options.connectSocket ?? createCodexServiceSocketConnector(options.operatingSystem),
       hooks: this.#hooks,
       additionalConfigOverrides: options.additionalConfigOverrides ?? [],
       reportDiagnostic,

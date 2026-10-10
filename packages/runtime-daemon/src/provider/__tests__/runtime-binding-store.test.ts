@@ -25,6 +25,7 @@ import {
 } from "../runtime-binding-store.js";
 import {
   readSpawnedProviderVersion,
+  resolveProviderExecutable,
   toBindingVersionCarriers,
   type ProviderVersionHandshakeRequest,
 } from "../spawned-version.js";
@@ -708,10 +709,10 @@ describe("RuntimeBindingStore — spawned-version carriers", () => {
 
   async function claudeHandshake(request: ProviderVersionHandshakeRequest): Promise<unknown> {
     const reportedVersion: string | undefined = REPORTED_VERSION_BY_PATH.get(
-      request.resolvedExecutablePath,
+      request.executable.resolvedExecutablePath,
     );
     if (reportedVersion === undefined) {
-      throw new Error(`no fixture build installed at ${request.resolvedExecutablePath}`);
+      throw new Error(`no fixture build installed at ${request.executable.resolvedExecutablePath}`);
     }
     return { version: reportedVersion, buildTime: "2026-08-20T00:00:00Z" };
   }
@@ -728,11 +729,16 @@ describe("RuntimeBindingStore — spawned-version carriers", () => {
   it("records the BUILD's version and path under launcher drift", async () => {
     const reading = await readSpawnedProviderVersion({
       driverName: "claude",
-      requestedCommand: LAUNCHER_PATH,
+      resolveCommand: async (spawnEnvironment) =>
+        await resolveProviderExecutable(
+          "claude",
+          LAUNCHER_PATH,
+          spawnEnvironment,
+          DRIFTING_RESOLVER,
+        ),
       handshake: claudeHandshake,
       environmentNameMatch: "case-sensitive",
       baseEnv: [],
-      resolver: DRIFTING_RESOLVER,
     });
 
     const store = makeStore();

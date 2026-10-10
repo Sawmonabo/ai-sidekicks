@@ -62,7 +62,7 @@ describe("Codex services", () => {
   });
 
   it("starts each managed service with the listener and the shared switches", async () => {
-    const harness = createHarness({ hookSocketPath });
+    const harness = createHarness({ hookEndpoint: hookSocketPath });
 
     await createdSession(harness);
 
@@ -98,7 +98,7 @@ describe("Codex services", () => {
   });
 
   it("trusts the daemon's hooks before the first conversation starts", async () => {
-    const harness = createHarness({ hookSocketPath });
+    const harness = createHarness({ hookEndpoint: hookSocketPath });
 
     await createdSession(harness);
 
@@ -174,7 +174,7 @@ describe("Codex services", () => {
 
   it("stops only the services it started when the daemon stops, and restarts none", async () => {
     const harness = createHarness({
-      hookSocketPath,
+      hookEndpoint: hookSocketPath,
       homes: {
         codexHomeFor: async (providerAccountId) =>
           providerAccountId === OWN_ACCOUNT_ID

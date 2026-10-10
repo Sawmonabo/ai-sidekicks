@@ -8,6 +8,7 @@ import { promisify } from "node:util";
 import type { ProcessExit } from "@ai-sidekicks/contracts/run/control";
 import { DRIVER_FAILURE_DETAIL_MAX_LEN } from "@ai-sidekicks/contracts/provider/driver/length-limits";
 
+import type { ProviderOperatingSystem } from "../../../operating-system/contract.js";
 import type { SpawnEnvPair } from "../../../spawn-env.js";
 
 /** What one Codex process runs: a service start or a short command. */
@@ -36,8 +37,20 @@ export interface CodexServiceProcess {
 /** Starts one service process. */
 export type CodexServiceLauncher = (launch: CodexProcessLaunch) => CodexServiceProcess;
 
-/** Starts the service with `child_process`, keeping the last stretch of what it prints. */
-export const launchCodexServiceProcess: CodexServiceLauncher = (launch) => {
+/**
+ * The launcher that starts the service with `child_process`, keeping the last stretch of what it
+ * prints, and stops and kills it as the operating system ends a child process.
+ */
+export function createCodexServiceLauncher(
+  endChildProcess: ProviderOperatingSystem["endChildProcess"],
+): CodexServiceLauncher {
+  return (launch) => launchCodexServiceProcess(launch, endChildProcess);
+}
+
+function launchCodexServiceProcess(
+  launch: CodexProcessLaunch,
+  endChildProcess: ProviderOperatingSystem["endChildProcess"],
+): CodexServiceProcess {
   const child = spawn(launch.command, [...launch.args], {
     cwd: launch.workingDirectory,
     env: Object.fromEntries(launch.environment),
@@ -68,13 +81,13 @@ export const launchCodexServiceProcess: CodexServiceLauncher = (launch) => {
   return {
     exited,
     stop: () => {
-      child.kill("SIGTERM");
+      endChildProcess(child, "stop");
     },
     kill: () => {
-      child.kill("SIGKILL");
+      endChildProcess(child, "kill");
     },
   };
-};
+}
 
 /**
  * Runs one short Codex command to its end and resolves with its standard output. Rejects on a

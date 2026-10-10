@@ -106,7 +106,7 @@ export function createDriver(
             readSpawnedVersion: async () =>
               await readSpawnedProviderVersion({
                 driverName: CLAUDE_DRIVER_NAME,
-                requestedCommand: await providerCommand(),
+                resolveCommand: providerCommand,
                 handshake: async (request) => await buildProcess.readBinaryVersion(request),
                 baseEnv: providerBaseEnvironment,
                 environmentNameMatch: operatingSystem.environmentNameMatch,

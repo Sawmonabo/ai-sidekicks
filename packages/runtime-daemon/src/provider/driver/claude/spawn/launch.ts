@@ -16,9 +16,10 @@ import { mintUuidV7 } from "../../../../uuid-v7.js";
 import type { ProviderOperatingSystem } from "../../../operating-system/contract.js";
 import type { PortRegistration } from "../../../port/registration.js";
 import type { ToolServerRoute } from "../../../port/tool-server-route.js";
-import {
-  resolveProviderExecutable,
-  type ProviderVersionHandshakeRequest,
+import type {
+  ProviderCommandResolver,
+  ProviderVersionHandshakeRequest,
+  ResolvedProviderExecutable,
 } from "../../../spawned-version.js";
 import { DAEMON_TOOL_SERVER_NAME } from "../../../tool-server-name.js";
 import type { SpawnEnvPair } from "../../../spawn-env.js";
@@ -89,19 +90,22 @@ import { composeClaudeSpawnSettings } from "./settings.js";
 
 /** What the transport resolves and reaches at each spawn. */
 export interface ClaudeProcessTransportDependencies {
-  /** The provider command to run, read again at every spawn. */
-  readonly providerCommand: () => Promise<string>;
+  /** Resolves the provider command to run along a spawn's environment, again at every spawn. */
+  readonly providerCommand: ProviderCommandResolver;
   /** The route to the session's tool servers; while unregistered a session loads none. */
   readonly toolServerRoute: PortRegistration<ToolServerRoute>;
   readonly diagnostics: DriverDiagnosticsEmitter;
-  /** The system fact a conversation file is found by: the variable naming the home folder. */
-  readonly operatingSystem: Pick<ProviderOperatingSystem, "homeVariable">;
+  /**
+   * The system facts the transport reads: the variable naming the home folder, which a
+   * conversation file is found by, and how a process it started is ended.
+   */
+  readonly operatingSystem: Pick<ProviderOperatingSystem, "homeVariable" | "endChildProcess">;
 }
 
 /** The reads of one build, on one process that keeps nothing: its version first, then probes. */
 export interface ClaudeBuildProcess {
   /**
-   * Starts the process at the request's resolved path in its environment and reads the build's
+   * Starts the request's resolved build in its environment and reads the build's
    * version with `get_binary_version`; the reply is the provider's, unread. Throws when Claude
    * Code refuses the request.
    */
@@ -350,13 +354,7 @@ export class ClaudeProcessTransport implements ClaudeSessionTransport {
     try {
       return await read({
         readBinaryVersion: async (request) => {
-          const environment = Object.entries(request.environment).flatMap(
-            ([name, value]): SpawnEnvPair[] => (value === undefined ? [] : [[name, value]]),
-          );
-          claudeProcess = await this.#startKeepingNothing(
-            request.resolvedExecutablePath,
-            environment,
-          );
+          claudeProcess = await this.#startKeepingNothing(request.executable);
           return await this.#expectSuccess(claudeProcess, { subtype: "get_binary_version" });
         },
         sendCapabilityProbe: async (probeName) => {
@@ -471,30 +469,23 @@ export class ClaudeProcessTransport implements ClaudeSessionTransport {
     workingDirectory: string = os.tmpdir(),
     extraArguments: readonly string[] = [],
   ): Promise<ClaudeCodeProcess> {
-    const resolved = await resolveProviderExecutable(
-      CLAUDE_DRIVER_NAME,
-      await this.#dependencies.providerCommand(),
-      request.spawnEnvironment,
-    );
     return await this.#startKeepingNothing(
-      resolved.resolvedExecutablePath,
-      request.spawnEnvironment,
+      await this.#dependencies.providerCommand(request.spawnEnvironment),
       workingDirectory,
       extraArguments,
     );
   }
 
   async #startKeepingNothing(
-    executablePath: string,
-    environment: readonly SpawnEnvPair[],
+    executable: ResolvedProviderExecutable,
     workingDirectory: string = os.tmpdir(),
     extraArguments: readonly string[] = [],
   ): Promise<ClaudeCodeProcess> {
     return await this.#start({
-      executablePath,
+      programStart: executable.start,
       args: [...CLAUDE_CONTROL_ONLY_ARGUMENTS, ...extraArguments],
       workingDirectory,
-      environment,
+      environment: executable.environment,
       providerSessionId: mintUuidV7(),
     });
   }
@@ -627,13 +618,16 @@ export class ClaudeProcessTransport implements ClaudeSessionTransport {
   }
 
   // Every process starts here, so the daemon's stop knows each one; none starts once it stopped.
-  async #start(launch: Omit<ClaudeCodeProcessLaunch, "diagnostics">): Promise<ClaudeCodeProcess> {
+  async #start(
+    launch: Omit<ClaudeCodeProcessLaunch, "diagnostics" | "endChildProcess">,
+  ): Promise<ClaudeCodeProcess> {
     if (this.#isStopped) {
       throw new Error("The daemon is stopping, so no Claude Code process starts.");
     }
     const claudeProcess = await startClaudeCodeProcess({
       ...launch,
       diagnostics: this.#dependencies.diagnostics,
+      endChildProcess: this.#dependencies.operatingSystem.endChildProcess,
     });
     this.#liveProcesses.add(claudeProcess);
     void claudeProcess.exited.then(() => {
@@ -664,11 +658,7 @@ export class ClaudeProcessTransport implements ClaudeSessionTransport {
     conversation: ClaudeConversationStart,
   ): Promise<ClaudeSessionAttachment> {
     // Resolved at every spawn, so a relaunch runs whatever the configured command names now.
-    const resolved = await resolveProviderExecutable(
-      CLAUDE_DRIVER_NAME,
-      await this.#dependencies.providerCommand(),
-      legs.spawnEnvironment,
-    );
+    const resolved = await this.#dependencies.providerCommand(legs.spawnEnvironment);
     // Read once per spawn, so the command line and the server set name the same route.
     const route = this.#dependencies.toolServerRoute.port;
     const policy = legs.subagentPolicy;
@@ -688,10 +678,10 @@ export class ClaudeProcessTransport implements ClaudeSessionTransport {
       conversation,
     });
     const claudeProcess = await this.#start({
-      executablePath: resolved.resolvedExecutablePath,
+      programStart: resolved.start,
       args,
       workingDirectory: legs.workingDirectory,
-      environment: legs.spawnEnvironment,
+      environment: resolved.environment,
       providerSessionId,
     });
     try {

@@ -51,6 +51,7 @@ import type {
   CodexServiceSocketHandlers,
 } from "../transport/socket.js";
 import { DARWIN_PROVIDER_OPERATING_SYSTEM } from "../../../operating-system/darwin.js";
+import { resolveProviderExecutable } from "../../../spawned-version.js";
 
 /** One scripted answer to a request the driver sent. */
 export interface JsonRpcAnswer {
@@ -568,8 +569,8 @@ export interface HarnessOptions {
   readonly newBindingId?: () => string;
   /** The crash window's clock, in milliseconds. */
   readonly now?: () => number;
-  /** The socket the daemon's hook programs reach it on; absent, services run no hooks. */
-  readonly hookSocketPath?: string;
+  /** The address the daemon's hook programs reach it on; absent, services run no hooks. */
+  readonly hookEndpoint?: string;
   /** Where sessions' helper role files are written; absent, a folder no harness writes to. */
   readonly helperRolesFolder?: string;
   /** Answers one delivery in place of the run engine's usual outcome. */
@@ -644,7 +645,13 @@ export function createHarness(options: HarnessOptions = {}): Harness {
   });
   let childRunCount = 0;
   const lifecycleOptions: CodexLifecycleOptions = {
-    providerCommand: async () => EXECUTABLE_PATH,
+    providerCommand: async (spawnEnvironment) =>
+      await resolveProviderExecutable("codex", EXECUTABLE_PATH, spawnEnvironment, {
+        realpath: async (candidate) => candidate,
+        isExecutableFile: async () => true,
+        platform: "darwin",
+        workingDirectory: "/",
+      }),
     providerBaseEnvironment: [["PATH", "/usr/bin"]],
     operatingSystem: DARWIN_PROVIDER_OPERATING_SYSTEM,
     homes: options.homes ?? {
@@ -666,19 +673,13 @@ export function createHarness(options: HarnessOptions = {}): Harness {
       }),
     },
     toolServerRoute,
-    hookSocketPath: options.hookSocketPath,
+    hookEndpoint: options.hookEndpoint,
     // A session that defines no helper writes nothing, so the default folder stays empty.
     helperRolesFolder:
       options.helperRolesFolder ?? path.join(tmpdir(), "codex-helper-roles-unwritten"),
     launchProcess: server.launchProcess,
     runCommand: server.runCommand,
     connectSocket: server.connectSocket,
-    executableResolver: {
-      realpath: async (candidate) => candidate,
-      isExecutableFile: async () => true,
-      platform: "darwin",
-      workingDirectory: "/",
-    },
     reportDiagnostic: (diagnostic) => {
       diagnostics.push(diagnostic);
     },

@@ -1,13 +1,23 @@
-// The websocket a Codex service is reached over, on the Unix socket the service listens on. The
-// advertised socket path is a link to the real socket, and macOS refuses a socket path past 104
-// bytes, so the client always dials the link's target.
+// The websocket a Codex service is reached over, on the Unix socket the service listens on. Where
+// Node opens a Unix socket, the socket is dialed directly: the advertised socket path is a link to
+// the real socket, and macOS refuses a socket path past 104 bytes, so the link's target is dialed.
+// Where Node opens none, the websocket runs over `codex app-server proxy`, which carries its
+// standard input and output to the socket.
 
+import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { type FSWatcher, watch } from "node:fs";
 import { mkdir, realpath } from "node:fs/promises";
 import path from "node:path";
+import { Duplex } from "node:stream";
 import WebSocket from "ws";
 
+import type { ProviderOperatingSystem } from "../../../operating-system/contract.js";
+import type { ResolvedProviderExecutable } from "../../../spawned-version.js";
 import { CODEX_MAX_RECEIVED_MESSAGE_BYTES } from "../server-requests.js";
+
+// The most of a failed proxy's error output kept for the failure's message.
+const CODEX_PROXY_OUTPUT_TAIL_MAX_LENGTH = 1_000;
 
 // What a dial meets while a service it just started has not bound its socket yet: no socket, or a
 // socket file a killed service left behind that nothing listens on.
@@ -18,10 +28,12 @@ const CODEX_SOCKET_NOT_LISTENING_CODES: ReadonlySet<string> = new Set(["ENOENT",
 const CODEX_MAX_UNFRAGMENTED_MESSAGE_BYTES_HEADER =
   "x-codex-websocket-max-unfragmented-message-bytes";
 
-// An open websocket and the largest message the service said it takes.
+// An open websocket to a service, the largest message the service said it takes, and how the
+// daemon closes it.
 interface CodexOpenWebSocket {
   readonly webSocket: WebSocket;
   readonly sentMessageByteLimit: number | undefined;
+  readonly close: () => void;
 }
 
 /** What a service socket reports to its owner. */
@@ -54,6 +66,8 @@ export interface CodexServiceSocketDialOptions {
   readonly awaitSocket: boolean;
   /** The service's `CODEX_HOME`, whose service this is. */
   readonly codexHome: string;
+  /** The Codex build the daemon resolved for the service, whose proxy a dial may run. */
+  readonly codexBuild: ResolvedProviderExecutable;
   /** Ends the wait and the upgrade; the dial rejects with the signal's reason. */
   readonly signal: AbortSignal;
 }
@@ -65,21 +79,135 @@ export type CodexServiceSocketConnector = (
   options: CodexServiceSocketDialOptions,
 ) => Promise<CodexServiceSocket>;
 
+// One try at the socket, given the folder watch of a dial that waits for it; rejects with a
+// not-listening failure while nothing listens there yet.
+type CodexSocketAttempt = (
+  changes: CodexSocketFolderChanges | undefined,
+) => Promise<CodexOpenWebSocket>;
+
 /**
- * Dials the service with `ws`, deflate off (a service offered it has answered with a dead
- * socket), with the bound on received messages on and the service's own limit on sent ones read
- * from its upgrade answer. Rejects when the signal aborts, when the link does not resolve
- * on a service it need not wait for, or when the upgrade fails for another reason than the service
- * not listening yet.
+ * The connector that dials the socket as the operating system can, and hands each message and the
+ * close to the socket's owner. A dial rejects when the signal aborts, or when the socket cannot be
+ * reached for another reason than a service the daemon just started not listening yet.
  */
-export const connectCodexServiceSocket: CodexServiceSocketConnector = async (
-  socketPath,
-  handlers,
-  options,
-) => {
-  const { webSocket, sentMessageByteLimit } = options.awaitSocket
-    ? await dialWhenListening(socketPath, options.signal)
-    : await openWebSocket(await realpath(socketPath), options.signal);
+export function createCodexServiceSocketConnector(
+  operatingSystem: Pick<ProviderOperatingSystem, "canOpenUnixSocket" | "endChildProcess">,
+): CodexServiceSocketConnector {
+  return async (socketPath, handlers, options) => {
+    const attempt: CodexSocketAttempt = operatingSystem.canOpenUnixSocket
+      ? async (changes) => {
+          const realSocketPath = await realpath(socketPath);
+          changes?.watchFolder(path.dirname(realSocketPath));
+          return await openCodexWebSocket(`ws+unix://${realSocketPath}:/`, options.signal);
+        }
+      : async () => await openThroughProxy(socketPath, options, operatingSystem.endChildProcess);
+    const opened = options.awaitSocket
+      ? await dialWhenListening(socketPath, options.signal, attempt)
+      : await attempt(undefined);
+    return exposeServiceSocket(opened, handlers);
+  };
+}
+
+/**
+ * Dials a service the daemon just started once it listens. The socket's folder is watched, and the
+ * real socket's where the path is a link to it, and each change there tries again; no polling. A
+ * dial refused because nothing listens yet, as on a socket a killed service left, waits for the
+ * next change.
+ */
+async function dialWhenListening(
+  socketPath: string,
+  signal: AbortSignal,
+  attempt: CodexSocketAttempt,
+): Promise<CodexOpenWebSocket> {
+  const socketFolder = path.dirname(socketPath);
+  // Watched before the service makes it, so the folder is made here; the home is the app's.
+  await mkdir(socketFolder, { recursive: true, mode: 0o700 });
+  const changes = new CodexSocketFolderChanges(signal);
+  try {
+    changes.watchFolder(socketFolder);
+    for (;;) {
+      const changesSeen = changes.count;
+      try {
+        return await attempt(changes);
+      } catch (error) {
+        if (signal.aborted) {
+          throw signal.reason;
+        }
+        if (!isSocketNotListening(error)) {
+          throw error;
+        }
+      }
+      await changes.waitForChangeAfter(changesSeen);
+    }
+  } finally {
+    changes.close();
+  }
+}
+
+// A proxy that ended with a failure before the websocket opened, as for a socket nothing listens
+// on yet.
+class CodexProxyEndedError extends Error {}
+
+// Opens the websocket over the build's own `app-server proxy`; the proxy ends with the websocket.
+async function openThroughProxy(
+  socketPath: string,
+  options: CodexServiceSocketDialOptions,
+  endChildProcess: ProviderOperatingSystem["endChildProcess"],
+): Promise<CodexOpenWebSocket> {
+  const { start, environment } = options.codexBuild;
+  const proxy = spawn(
+    start.program,
+    [...start.leadingArguments, "app-server", "proxy", "--sock", socketPath],
+    { env: Object.fromEntries(environment), stdio: ["pipe", "pipe", "pipe"], windowsHide: true },
+  );
+  let outputTail = "";
+  const keepTail = (text: string): void => {
+    outputTail = (outputTail + text).slice(-CODEX_PROXY_OUTPUT_TAIL_MAX_LENGTH);
+  };
+  proxy.stderr.setEncoding("utf8");
+  proxy.stderr.on("data", keepTail);
+  const closed = new Promise<number | null>((resolve) => {
+    proxy.once("close", resolve);
+  });
+  // The start's own failure rejects the wait below; a later one is told in the failure's text.
+  await once(proxy, "spawn");
+  proxy.on("error", (error) => {
+    keepTail(`\n${error.message}`);
+  });
+  try {
+    const opened = await openCodexWebSocket("ws://localhost/", options.signal, () =>
+      Duplex.from({ readable: proxy.stdout, writable: proxy.stdin }),
+    );
+    opened.webSocket.once("close", () => {
+      if (proxy.exitCode === null) {
+        endChildProcess(proxy, "stop");
+      }
+    });
+    // The proxy passes on no closing handshake, so a close waits out `ws`'s closing deadline;
+    // the daemon's close ends the stream at once instead, which ends the proxy.
+    return {
+      ...opened,
+      close: () => {
+        opened.webSocket.terminate();
+      },
+    };
+  } catch (error) {
+    endChildProcess(proxy, "kill");
+    const exitCode = await closed;
+    if (exitCode !== null && exitCode !== 0) {
+      throw new CodexProxyEndedError(
+        `The Codex proxy to ${socketPath} ended with code ${String(exitCode)}: ${outputTail}`,
+        { cause: error },
+      );
+    }
+    throw error;
+  }
+}
+
+function exposeServiceSocket(
+  { webSocket, sentMessageByteLimit, close }: CodexOpenWebSocket,
+  handlers: CodexServiceSocketHandlers,
+): CodexServiceSocket {
   let closed = false;
   const reportClose = (detail: string): void => {
     if (closed) {
@@ -106,24 +234,27 @@ export const connectCodexServiceSocket: CodexServiceSocketConnector = async (
           }
         });
       }),
-    close: () => {
-      webSocket.close();
-    },
+    close,
     sentMessageByteLimit,
   };
-};
+}
 
-/** Opens the websocket on the real socket, ended at once when the signal aborts. */
-async function openWebSocket(
-  realSocketPath: string,
+// Opens the websocket at `address` with `ws`, deflate off (a service offered it has answered with
+// a dead socket), with the bound on received messages on and the service's own limit on sent ones
+// read from its upgrade answer; over `createConnection`'s stream where one is given. Ended at once
+// when the signal aborts.
+async function openCodexWebSocket(
+  address: string,
   signal: AbortSignal,
+  createConnection?: () => Duplex,
 ): Promise<CodexOpenWebSocket> {
   if (signal.aborted) {
     throw signal.reason;
   }
-  const webSocket = new WebSocket(`ws+unix://${realSocketPath}:/`, {
+  const webSocket = new WebSocket(address, {
     perMessageDeflate: false,
     maxPayload: CODEX_MAX_RECEIVED_MESSAGE_BYTES,
+    ...(createConnection === undefined ? {} : { createConnection }),
   });
   let sentMessageByteLimit: number | undefined;
   webSocket.once("upgrade", (response) => {
@@ -156,44 +287,13 @@ async function openWebSocket(
     webSocket.once("error", onError);
     signal.addEventListener("abort", onAbort, { once: true });
   });
-  return { webSocket, sentMessageByteLimit };
-}
-
-/**
- * Dials a service the daemon just started once it listens. The service makes its socket path a
- * link to a socket it binds elsewhere, so the link's folder and the real socket's folder are both
- * watched, and each change there tries again; no polling. A dial refused because nothing listens
- * yet, as on a socket a killed service left, waits for the next change.
- */
-async function dialWhenListening(
-  socketPath: string,
-  signal: AbortSignal,
-): Promise<CodexOpenWebSocket> {
-  const linkFolder = path.dirname(socketPath);
-  // Watched before the service makes it, so the folder is made here; the home is the app's.
-  await mkdir(linkFolder, { recursive: true, mode: 0o700 });
-  const changes = new CodexSocketFolderChanges(signal);
-  try {
-    changes.watchFolder(linkFolder);
-    for (;;) {
-      const changesSeen = changes.count;
-      try {
-        const realSocketPath = await realpath(socketPath);
-        changes.watchFolder(path.dirname(realSocketPath));
-        return await openWebSocket(realSocketPath, signal);
-      } catch (error) {
-        if (signal.aborted) {
-          throw signal.reason;
-        }
-        if (!isSocketNotListening(error)) {
-          throw error;
-        }
-      }
-      await changes.waitForChangeAfter(changesSeen);
-    }
-  } finally {
-    changes.close();
-  }
+  return {
+    webSocket,
+    sentMessageByteLimit,
+    close: () => {
+      webSocket.close();
+    },
+  };
 }
 
 /** Counts the changes in the watched folders, so a change during a dial is never missed. */
@@ -280,6 +380,9 @@ class CodexSocketFolderChanges {
 }
 
 function isSocketNotListening(error: unknown): boolean {
+  if (error instanceof CodexProxyEndedError) {
+    return true;
+  }
   const code = error instanceof Error && "code" in error ? error.code : undefined;
   return typeof code === "string" && CODEX_SOCKET_NOT_LISTENING_CODES.has(code);
 }
