@@ -47,6 +47,15 @@ export const TRANSCRIPT_LET_GO_SCREEN_HEIGHTS: number =
 export const TRANSCRIPT_DRAWN_BAND_SCREEN_HEIGHTS = 1;
 
 /**
+ * The rows drawn beyond the edge the reader last moved toward, in screen heights, once the band is
+ * whole.
+ *
+ * A fling's fastest frame moves the box further than `TRANSCRIPT_DRAWN_BAND_SCREEN_HEIGHTS`
+ * before the next render draws, so the side it moves toward reaches further than the other.
+ */
+export const TRANSCRIPT_LEADING_BAND_SCREEN_HEIGHTS = 1.5;
+
+/**
  * How far the drawn band widens beyond each edge of the viewport per task after a land, in screen
  * heights.
  *

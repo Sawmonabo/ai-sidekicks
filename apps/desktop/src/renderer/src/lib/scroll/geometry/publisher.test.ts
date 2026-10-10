@@ -54,6 +54,25 @@ describe("the scroll geometry publisher — who is woken", () => {
     expect(received[0]?.contentHeight).toBe(5000);
   });
 
+  it("never hands a sink a sample older than one a sink earlier in the emission published", () => {
+    // The first sink moves the offset as it hears a sample, as a cut's compensation does; the
+    // sink after it hears the new offset during that publication and must not hear the old one.
+    publisher.publish(readingAt(0), "scroll");
+    publisher.subscribe((geometry) => {
+      if (geometry.scrollTop === 4000) {
+        publisher.publish(readingAt(2000), "scroll");
+      }
+    });
+    const received: number[] = [];
+    publisher.subscribe((geometry) => received.push(geometry.scrollTop));
+    received.length = 0;
+    publisher.publish(readingAt(4000), "scroll");
+    expect(received).toStrictEqual([2000]);
+    // The control: a sample nothing supersedes still reaches it.
+    publisher.publish(readingAt(3000), "scroll");
+    expect(received).toStrictEqual([2000, 3000]);
+  });
+
   it("drops every subscriber on clear, and keeps the sample it holds", () => {
     publisher.publish(readingAt(0), "scroll");
     const received: ScrollGeometry[] = [];
