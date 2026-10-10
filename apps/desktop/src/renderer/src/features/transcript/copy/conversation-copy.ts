@@ -58,7 +58,9 @@ export type ConversationCopyStep =
 /**
  * One copy of the conversation's rows, built a slice at a time: `buildWhile` builds what one slice
  * has time for, and `finish` builds the rest in slices, reading each large body as its row comes
- * and waiting on the markdown worker for each long reply part's formatted flavor.
+ * and waiting on the markdown worker for each long reply part's formatted flavor. The plain text
+ * is whole once every row's part is read, before any formatted flavor is made, so `finish` hands
+ * it over first and `finishText` builds no further.
  */
 export class ConversationCopyBuild {
   readonly #rows: ConversationCopyRows;
@@ -72,6 +74,10 @@ export class ConversationCopyBuild {
   #fullBody: { readonly rowId: string; readonly content: HydratedSessionEventContent } | undefined;
   /** What the build waits on before it goes on, while it waits. */
   #awaited: AwaitedWork | undefined;
+  /** Whether every row's part is read, so the copy's plain text is whole. */
+  #isTextRead = false;
+  /** The copy's plain text once every row's part is read; `undefined` when no part holds text. */
+  #text: string | undefined;
   #step: ConversationCopyStep = NOT_BUILT;
 
   public constructor(rows: ConversationCopyRows) {
@@ -100,31 +106,69 @@ export class ConversationCopyBuild {
   /**
    * Builds the rest of the copy in slices in `view`, reading each large body in full, one at a
    * time, as its row comes, and each long table's undrawn rows and long reply part's formatted
-   * flavor through the markdown worker. Resolves `undefined` once `isCurrent` answers false, as
-   * when a newer copy took over; throws a `RefusalError` when a body's read is refused, or the
-   * worker's `Error` when it fails, so nothing is copied.
+   * flavor through the markdown worker. Once every row's part is read, a copy whose formatted
+   * flavor is still to be made hands its plain text to `onText`, then makes the rest. Resolves
+   * `undefined` once `isCurrent` answers false, as when a newer copy took over; throws a
+   * `RefusalError` when a body's read is refused, or the worker's `Error` when it fails.
    */
   public async finish(
     view: Window,
     isCurrent: () => boolean,
+    onText: (text: string) => void,
   ): Promise<TextClipboardContent | undefined> {
+    if (!(await this.#buildUntil(view, isCurrent, () => this.#isTextRead))) {
+      return undefined;
+    }
+    if (!this.#step.isBuilt && this.#text !== undefined) {
+      onText(this.#text);
+    }
+    return (await this.#buildUntil(view, isCurrent, () => this.#step.isBuilt))
+      ? this.#builtContent()
+      : undefined;
+  }
+
+  /**
+   * Builds the copy's plain text alone in slices in `view`, as `finish` does, making no formatted
+   * flavor: `undefined` when no row holds text or once `isCurrent` answers false. Throws as
+   * `finish` does.
+   */
+  public async finishText(view: Window, isCurrent: () => boolean): Promise<string | undefined> {
+    return (await this.#buildUntil(view, isCurrent, () => this.#isTextRead))
+      ? this.#text
+      : undefined;
+  }
+
+  /** Builds in slices until `isEnough` answers true; `false` once `isCurrent` answers false. */
+  async #buildUntil(
+    view: Window,
+    isCurrent: () => boolean,
+    isEnough: () => boolean,
+  ): Promise<boolean> {
     for (;;) {
-      if (this.#step.isBuilt) {
-        return this.#step.content;
+      if (isEnough()) {
+        return true;
       }
       const isStopped = !(await this.#settleAwaited(isCurrent));
       if (isStopped) {
-        return undefined;
+        return false;
       }
       const isDone = await workInSlices(
         view,
-        (hasTime) => this.buildWhile(hasTime).isBuilt || this.#awaited !== undefined,
+        (hasTime) => {
+          this.buildWhile(hasTime);
+          return isEnough() || this.#awaited !== undefined;
+        },
         () => !isCurrent(),
       );
       if (!isDone) {
-        return undefined;
+        return false;
       }
     }
+  }
+
+  /** The content of a built copy. */
+  #builtContent(): TextClipboardContent | undefined {
+    return this.#step.isBuilt ? this.#step.content : throwLostPlace("the copy is built");
   }
 
   #buildWhile(hasTime: () => boolean): ConversationCopyStep {
@@ -138,11 +182,16 @@ export class ConversationCopyBuild {
       }
     }
     const parts = this.#parts;
-    if (parts.length === 0) {
+    if (!this.#isTextRead) {
+      this.#isTextRead = true;
+      this.#text = parts.length === 0 ? undefined : textOf(parts);
+    }
+    const text = this.#text;
+    if (text === undefined) {
       return { isBuilt: true, content: undefined };
     }
     if (!parts.some((part) => part.flavor === "markdown")) {
-      return { isBuilt: true, content: { text: textOf(parts) } };
+      return { isBuilt: true, content: { text } };
     }
     while (this.#partHtml.length < parts.length) {
       const part = parts[this.#partHtml.length] ?? throwLostPlace("a part follows the last made");
@@ -159,7 +208,7 @@ export class ConversationCopyBuild {
         return NOT_BUILT;
       }
     }
-    return { isBuilt: true, content: { text: textOf(parts), html: this.#partHtml.join("") } };
+    return { isBuilt: true, content: { text, html: this.#partHtml.join("") } };
   }
 
   /**

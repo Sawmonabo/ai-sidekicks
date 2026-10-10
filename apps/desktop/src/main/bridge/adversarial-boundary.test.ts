@@ -73,6 +73,8 @@ vi.mock("electron", () => ({
     write: (items: unknown) => {
       clipboardWrites.push(items);
     },
+    // Holds the text every accepted formatting request names, so an accepted one writes.
+    readText: () => Promise.resolve("a"),
   },
   ClipboardItem: class {
     public constructor(public readonly flavors: unknown) {}
@@ -351,6 +353,23 @@ async function intakeCases(): Promise<readonly IntakeCase[]> {
       refusal: SCHEMA_REFUSAL,
       accepted: { content: { text: "a", html: "<b>a</b>" } },
       send: (payload) => invoke(BRIDGE_CHANNELS.copyToClipboard, payload),
+      acted: () => clipboardWrites.length,
+    },
+    {
+      member: "native.addClipboardFormatting",
+      refused: [
+        { text: "a" },
+        { html: "<b>a</b>" },
+        { text: "a", html: 7 },
+        { text: 7, html: "<b>a</b>" },
+        { text: "a", html: "<b>a</b>", extra: true },
+        { content: { text: "a", html: "<b>a</b>" } },
+        "a",
+        null,
+      ],
+      refusal: SCHEMA_REFUSAL,
+      accepted: { text: "a", html: "<b>a</b>" },
+      send: (payload) => invoke(BRIDGE_CHANNELS.addClipboardFormatting, payload),
       acted: () => clipboardWrites.length,
     },
     {

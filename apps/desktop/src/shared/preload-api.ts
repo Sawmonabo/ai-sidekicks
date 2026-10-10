@@ -418,6 +418,12 @@ export interface PreloadApi {
      * middle-click pastes, which Linux alone keeps and is refused elsewhere.
      */
     copyToClipboard(content: ClipboardContent, clipboard?: "selection"): Promise<void>;
+    /**
+     * Put `html` beside `text` on the system clipboard, in one write, only while the clipboard
+     * still holds `text` as a copy wrote it; resolves `false`, writing nothing, once a newer copy,
+     * from this app or another, holds it.
+     */
+    addClipboardFormatting(content: Required<TextClipboardContent>): Promise<boolean>;
     /** Show a file or folder selected in the platform's file manager. */
     revealInFileExplorer(ref: FilePathRef): Promise<void>;
   };
@@ -562,6 +568,7 @@ export function createStubBridge(app: AppFacts, lastUsedWindowId: string): Prelo
       listEditors: () => stubThrow("native.listEditors"),
       getNotificationPermission: () => stubThrow("native.getNotificationPermission"),
       copyToClipboard: () => stubThrow("native.copyToClipboard"),
+      addClipboardFormatting: () => stubThrow("native.addClipboardFormatting"),
       revealInFileExplorer: () => stubThrow("native.revealInFileExplorer"),
     },
     update: {

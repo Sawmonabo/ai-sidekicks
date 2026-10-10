@@ -293,13 +293,21 @@ describe("a long table's undrawn rows in a selection", () => {
     );
 
     expect(windowed.buildWhile(() => true).isBuilt).toBe(false);
-    const copied = await windowed.finish(windowCuttingEveryPart(), () => true);
+    const copied = await windowed.finish(
+      windowCuttingEveryPart(),
+      () => true,
+      () => undefined,
+    );
     const whole = await buildOfDrawnRows(
       conversationWithTable(rowLines.map(drawnRow).join("")),
       0,
       END_ROWS_ONLY,
       worker,
-    ).finish(windowCuttingEveryPart(), () => true);
+    ).finish(
+      windowCuttingEveryPart(),
+      () => true,
+      () => undefined,
+    );
     expect(tableBodyRows).toHaveBeenCalledOnce();
     expect(copied).toStrictEqual(whole);
     expect(copied?.text).toMatch(/^\| lane-80 +\| \*\*80\*\* rows +\|$/mu);

@@ -90,6 +90,8 @@ export function createFixtureBridge(options: FixtureBridgeOptions): FixtureBridg
         // A no-op is safe: nothing reads the result back, and a refusal would make every "copy id"
         // affordance untestable.
       },
+      // The fixture keeps no clipboard, so none still holds a copy's text.
+      addClipboardFormatting: async () => false,
       revealInFileExplorer: () => refuseAbsentCapability("native.revealInFileExplorer"),
     },
     update: {

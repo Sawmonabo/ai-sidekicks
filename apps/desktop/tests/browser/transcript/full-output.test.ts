@@ -178,7 +178,9 @@ describe("a reply whose body is too large to travel with its row", () => {
         await act(() => pressKey(COPY));
         await answerRead(isServed);
         if (isServed) {
-          await expect.poll(() => copied.length).toBe(before + 1);
+          await expect
+            .poll(() => copied.length > before && copied.at(-1)?.html !== undefined)
+            .toBe(true);
         }
         return copied.length === before ? undefined : copied.at(-1)?.text;
       };

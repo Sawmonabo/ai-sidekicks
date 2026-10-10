@@ -1,7 +1,7 @@
 // A copy built a slice at a time: cut after every part, and after every formatted part, it is the
 // same bytes as the whole copy, with each large body read in full before its row and only a long
-// reply part's formatted flavor made by the markdown worker, in its place; a refused read or a
-// failed worker copies nothing.
+// reply part's formatted flavor made by the markdown worker, in its place, its plain text handed
+// over before the worker is asked; a refused read hands over nothing, and a failed worker rejects.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -62,9 +62,10 @@ afterEach(() => {
 });
 
 describe("a copy built a slice at a time", () => {
-  it("is the whole copy: bodies read in full, a long reply made by the worker", async () => {
+  it("is the whole copy, its text handed over before the worker makes the long reply", async () => {
     const reads: string[] = [];
     const workerTexts: string[] = [];
+    const steps: string[] = [];
     const build = new ConversationCopyBuild(
       rowsReading(
         async (rowId) => {
@@ -74,15 +75,23 @@ describe("a copy built a slice at a time", () => {
         {
           html: async (markdown) => {
             workerTexts.push(markdown);
+            steps.push("worker");
             return WORKER_HTML;
           },
         },
       ),
     );
 
-    const content = await build.finish(windowCuttingEveryPart(), () => true);
+    const content = await build.finish(
+      windowCuttingEveryPart(),
+      () => true,
+      (text) => {
+        steps.push(`text: ${text}`);
+      },
+    );
 
     expect([reads, workerTexts]).toStrictEqual([[LARGE_BODY_ROW_ID], [LONG_REPLY]]);
+    expect(steps).toStrictEqual([`text: ${content?.text ?? ""}`, "worker"]);
     expect(content).toStrictEqual({
       text:
         "rename the reader\nand its callers\n\nHere is **the plan**\n\n" +
@@ -108,12 +117,18 @@ describe("a copy built a slice at a time", () => {
       }),
     );
 
-    await expect(build.finish(windowCuttingEveryPart(), () => true)).rejects.toStrictEqual(
-      new RefusalError(refusal),
-    );
+    await expect(
+      build.finish(
+        windowCuttingEveryPart(),
+        () => true,
+        () => {
+          expect.fail("a refused read leaves no text to hand over");
+        },
+      ),
+    ).rejects.toStrictEqual(new RefusalError(refusal));
   });
 
-  it("copies nothing when the markdown worker fails", async () => {
+  it("rejects with the markdown worker's failure, after handing over the text", async () => {
     const failure = new Error("The markdown worker stopped: out of memory");
     const build = new ConversationCopyBuild(
       rowsReading(
@@ -122,6 +137,15 @@ describe("a copy built a slice at a time", () => {
       ),
     );
 
-    await expect(build.finish(windowCuttingEveryPart(), () => true)).rejects.toBe(failure);
+    const texts: string[] = [];
+
+    await expect(
+      build.finish(
+        windowCuttingEveryPart(),
+        () => true,
+        (text) => texts.push(text),
+      ),
+    ).rejects.toBe(failure);
+    expect(texts).toHaveLength(1);
   });
 });
