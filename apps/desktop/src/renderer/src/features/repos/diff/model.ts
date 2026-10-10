@@ -94,6 +94,11 @@ export interface DiffFile {
   readonly unreadable?: DiffFileUnreadableReason;
   /** On a workflow run's comparison, the name of the step that changed the file. */
   readonly stepName?: string;
+  /**
+   * The file's own unified patch, wire-verbatim: what a copy of the patch lifts, whole even
+   * where only part of it is drawn. Absent where the wire carried none.
+   */
+  readonly patch?: string;
   readonly hunks: readonly DiffHunk[];
 }
 

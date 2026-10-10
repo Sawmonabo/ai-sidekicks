@@ -1,7 +1,8 @@
-// The one diff renderer, shared by the pane and the transcript card so a change reads the same
-// in both. It owns rows (scroller, window, spacers); the host owns its chrome and cap. It holds
-// no diff state, mounts diff text only as text, wraps long lines, and computes intraline
-// segments per drawn row from a cache, so virtualization bounds the cost as well as the DOM.
+// Review's diff renderer: one virtualized scroller of file headers and rows, the pane's one
+// vertical scroller. It owns rows (scroller, window, spacers); the pane owns its chrome. It holds
+// no diff state, mounts diff text only as text, wraps long lines, and computes intraline segments
+// per drawn row from a cache, so virtualization bounds the cost as well as the DOM. The flow draws
+// the same rows without a scroller (`InlineDiffBlock.tsx`).
 
 import "./DiffRenderer.css";
 
@@ -33,8 +34,6 @@ export interface DiffRendererProps {
    */
   readonly shownFilePath?: string | undefined;
   readonly onExpandGap: (fileIndex: number, hunkIndex: number) => void;
-  /** Height the scroller is capped at, in CSS pixels. The card supplies one; the pane fills. */
-  readonly heightCapPx?: number;
   /** The scroller's accessible name. Its host knows what this diff is of. */
   readonly label: string;
 }
@@ -112,10 +111,7 @@ export function DiffRenderer(props: DiffRendererProps): React.JSX.Element {
       // The row height has one home, `measures.ts`; the sheet reads it from here so the
       // window arithmetic and the painted rows cannot disagree.
       style={
-        {
-          "--meridian-diff-row-height": `${String(DIFF_ROW_HEIGHT_PX)}px`,
-          ...(props.heightCapPx === undefined ? {} : { maxBlockSize: props.heightCapPx }),
-        } as React.CSSProperties
+        { "--meridian-diff-row-height": `${String(DIFF_ROW_HEIGHT_PX)}px` } as React.CSSProperties
       }
     >
       {/* The content box holds the full height so the scrollbar spans the whole diff, and the

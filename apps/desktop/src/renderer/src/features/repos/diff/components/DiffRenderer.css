@@ -36,9 +36,9 @@
   flex: 1 1 auto;
   min-inline-size: 0;
   min-block-size: 0;
-  /* Explicit on both axes: a long line wraps, and an unbreakable token overflows horizontally
-     instead of being clipped (`DiffRenderer.tsx` never clips). */
-  overflow: auto;
+  /* Vertical only: a long line wraps, an unbreakable token included, so nothing is lost off the
+     right edge and the diff never scrolls sideways. */
+  overflow: hidden auto;
   font-family: var(--meridian-font-mono);
   font-size: var(--meridian-text-xs);
   line-height: var(--meridian-diff-row-height);
@@ -176,9 +176,18 @@
   border-inline-start-color: var(--meridian-edge-strong);
 }
 
+/* A long line wraps at word boundaries, and inside a token too long for the row. */
 .meridian-diff__code {
   min-inline-size: 0;
   font-family: var(--meridian-font-mono);
+  overflow-wrap: anywhere;
+}
+
+/* In Review, a wrapped line's continuations hang two characters past its first row, so the
+   wrapped line still reads as one line. */
+.meridian-diff .meridian-diff__code {
+  padding-inline-start: 2ch;
+  text-indent: -2ch;
 }
 
 /*

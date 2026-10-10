@@ -11,7 +11,7 @@ import { DiffGutter } from "./DiffGutter.js";
 import { DiffLineText } from "./DiffLineText.js";
 import { DiffStepMark } from "./DiffStepMark.js";
 
-/** What one virtualized diff row is drawn from. */
+/** What one diff row is drawn from. */
 export interface DiffRowViewProps {
   readonly rowIndex: number;
   readonly row: DiffRow;
@@ -25,13 +25,14 @@ export interface DiffRowViewProps {
   /** Reveal one more band of this row's gap. Only a `gap` row calls it. */
   readonly onExpandGap: (fileIndex: number, hunkIndex: number) => void;
   /**
-   * The virtualizer's measurement callback: each row reports its own height so offsets stay
-   * true under wrapped lines. Stable for the virtualizer's life, so the memo holds.
+   * The virtualizer's measurement callback, where a window draws the row: each row reports its
+   * own height so offsets stay true under wrapped lines. Stable for the virtualizer's life, so
+   * the memo holds. Absent where every row is drawn in the flow.
    */
-  readonly rowElementRef: (element: HTMLDivElement | null) => void;
+  readonly rowElementRef?: (element: HTMLDivElement | null) => void;
 }
 
-/** One diff row, memoized so a scroll re-renders only the rows that entered the window. */
+/** One diff row, memoized so a scroll re-renders only the rows that entered a window. */
 export const DiffRowView: React.MemoExoticComponent<
   (props: DiffRowViewProps) => React.JSX.Element
 > = memo(function DiffRowView(props: DiffRowViewProps): React.JSX.Element {

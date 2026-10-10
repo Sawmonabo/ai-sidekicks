@@ -175,9 +175,13 @@ describe("accessibility — the overlay scrollbar", () => {
     );
     const { container: conversation } = render(
       <BridgeHost>
-        {/* Two cards over the same refs, each diff held to a height so its rows overflow. */}
-        <DiffRenderer {...diffRendererProps({ label: DIFF_LABEL, heightCapPx: 120 })} />
-        <DiffRenderer {...diffRendererProps({ label: DIFF_LABEL, heightCapPx: 120 })} />
+        {/* Two diffs over the same refs, each in a box held to a height so its rows overflow. */}
+        <div style={{ display: "flex", flexDirection: "column", blockSize: 120 }}>
+          <DiffRenderer {...diffRendererProps({ label: DIFF_LABEL })} />
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", blockSize: 120 }}>
+          <DiffRenderer {...diffRendererProps({ label: DIFF_LABEL })} />
+        </div>
         <RunGroupBody runGroup={findRunGroup(groupRowsByRun(runRows), "run-a")} />
         <PayloadRowWindow
           rowCount={200}

@@ -1,22 +1,19 @@
-// The transcript's diff card. Without a compared pair it shows the capped `DiffRenderer`, open
-// by default, with collapse, expand-in-place and jump-to-end always rendered so a cap never
-// ends in a fade with nowhere to go. With both compared states it shows `DiffChangeSet`. A
-// unified patch names neither state, so they come from the row (`contributions/inline-cards.ts`).
+// The transcript's diff card. Without a compared pair it draws one block per changed file, each
+// file's rows in the flow with its own cut and footer (`InlineDiffBlock`). With both compared
+// states it shows `DiffChangeSet`. A unified patch names neither state, so they come from the row
+// (`contributions/inline-cards.ts`).
 
 import "./InlineDiffCard.css";
 
-import { useId, useRef, useState } from "react";
+import { useId, useState } from "react";
 
 import { GLYPH_SIZE_ROW } from "#renderer/styles/glyphs.js";
 import { Glyph } from "#renderer/components/Glyph/Glyph.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import type { DiffInlineCardProps } from "#renderer/registries/inline-cards/registry.js";
-import { INLINE_DIFF_CARD_HEIGHT_CAP_PX } from "../caps.js";
 import { DiffChangeSet } from "./DiffChangeSet.js";
-import { DiffRenderer } from "./DiffRenderer.js";
-import { useDiffViewControls } from "../hooks/useDiffViewControls.js";
+import { InlineDiffBlock } from "./InlineDiffBlock.js";
 import { type DiffModel } from "../model.js";
-import { useDiffModelViewState } from "../hooks/useDiffModelViewState.js";
 // Type-only: `patch-parse.ts` calls the diff library, and this card is registered eagerly, so
 // a value import would put the parser on the initial import graph.
 import type { ComparedStates } from "../patch-parse.js";
@@ -29,17 +26,11 @@ export interface InlineDiffCardProps {
   readonly diff?: DiffModel;
 }
 
-/** A transcript row's diff card: a capped glance, or the full change set when states are named. */
+/** A transcript row's diff card: each file's rows in the flow, or the change set when states are named. */
 export function InlineDiffCard(props: InlineDiffCardProps): React.JSX.Element {
   const headingId = useId();
-  const viewControls = useDiffViewControls();
-  // Gap expansion is the model's, so it comes from the hook the pane reads. The card narrows
-  // to no file, so only the expansion half is used.
-  const { expansion, expandGapAt } = useDiffModelViewState(props.diff);
   const comparedStates = comparedStatesOf(props.card);
-  const [isCapped, setIsCapped] = useState(true);
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const endSentinelRef = useRef<HTMLSpanElement | null>(null);
 
   return (
     <section className="meridian-diff-card" aria-labelledby={headingId}>
@@ -79,52 +70,22 @@ export function InlineDiffCard(props: InlineDiffCardProps): React.JSX.Element {
             // once and the changed files are reachable.
             <DiffChangeSet diff={props.diff} />
           ) : (
-            <>
-              <DiffRenderer
-                model={props.diff}
-                viewMode={viewControls.viewMode}
-                expansion={expansion}
-                onExpandGap={expandGapAt}
-                {...(isCapped ? { heightCapPx: INLINE_DIFF_CARD_HEIGHT_CAP_PX } : {})}
-                label={`Diff, ${props.diff.baseRef} to ${props.diff.headRef}`}
-              />
-              {/* Always rendered, capped or not: a footer that appeared only while capped
-                  would move the card's bottom edge on use. */}
-              <div className="meridian-diff-card__footer">
-                <button
-                  type="button"
-                  className="meridian-diff-card__control"
-                  aria-pressed={!isCapped}
-                  onClick={() => {
-                    setIsCapped((previous) => !previous);
-                  }}
-                >
-                  {isCapped ? "Expand in place" : "Restore height"}
-                </button>
-                {/* A focus move, not a scroll write: focusing the sentinel brings it into
-                    view, and the transcript's scroll chokepoint owns `scrollTop`. A fragment
-                    link would rewrite the location hash, which the console routes on. */}
-                <button
-                  type="button"
-                  className="meridian-diff-card__control"
-                  onClick={() => {
-                    endSentinelRef.current?.focus();
-                  }}
-                >
-                  Jump to end
-                </button>
-              </div>
-              <span
-                ref={endSentinelRef}
-                tabIndex={-1}
-                className="meridian-diff-card__end"
-                aria-label="End of diff"
-              />
-            </>
+            <InlineDiffBlocks diff={props.diff} />
           )}
         </div>
       )}
     </section>
+  );
+}
+
+/** One block per changed file, keyed by position: two files of one path each keep their own. */
+function InlineDiffBlocks(props: { readonly diff: DiffModel }): React.JSX.Element {
+  return (
+    <>
+      {props.diff.files.map((file, fileIndex) => (
+        <InlineDiffBlock key={fileIndex} diff={props.diff} file={file} />
+      ))}
+    </>
   );
 }
 
