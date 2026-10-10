@@ -13,9 +13,6 @@ use crate::phrase::query_phrases;
 use crate::tags::TaggedSessions;
 use crate::version::IndexVersion;
 
-/// How many sessions the first pruned ranking holds; a later page past them doubles it.
-const FIRST_TOP_SESSIONS: usize = 32;
-
 /// One search over one version of the index; every page of it reads that version.
 pub struct SearchView {
     version: Arc<IndexVersion>,
@@ -29,6 +26,8 @@ enum Search {
     Words {
         query: PreparedQuery,
         within: Option<SessionSet>,
+        /// How many sessions the first pruned ranking holds; a page past them doubles it.
+        first_ranked: usize,
         order: SessionOrder,
     },
     Tags {
@@ -53,11 +52,13 @@ enum SessionOrder {
 impl SearchView {
     /// Prepares the search against `engine`'s current version, its phrase counts and tagged
     /// sessions read now. With `tag_folds`, only the sessions carrying each tag or one nested under
-    /// it count: ranked by `query` when it is given, most recently active first when it is not.
+    /// it count: ranked by `query` when it is given, most recently active first when it is not. A
+    /// ranking first holds `first_ranked` sessions, so a page that reads no further ranks once.
     pub fn open(
         engine: &IndexEngine,
         query: Option<&SearchQuery>,
         tag_folds: Vec<String>,
+        first_ranked: usize,
     ) -> tantivy::Result<SearchView> {
         let version = engine.current_version();
         let read_cache = Arc::new(ReadCaches::open_cache(engine.read_caches()));
@@ -85,6 +86,7 @@ impl SearchView {
                     Some(query) => Search::Words {
                         query,
                         within,
+                        first_ranked,
                         order: SessionOrder::NotRanked,
                     },
                     None => Search::Empty,
@@ -101,14 +103,15 @@ impl SearchView {
     /// The sessions ranked `from` to `from + count - 1`, best first; fewer past the end.
     pub fn sessions_at(&mut self, from: usize, count: usize) -> tantivy::Result<Vec<u64>> {
         let end = from.saturating_add(count);
-        let (query, within, order) = match &mut self.search {
+        let (query, within, first_ranked, order) = match &mut self.search {
             Search::Empty => return Ok(Vec::new()),
             Search::Tags { order, .. } => return Ok(page_of(order, from, end)),
             Search::Words {
                 query,
                 within,
+                first_ranked,
                 order,
-            } => (&*query, within.as_ref(), order),
+            } => (&*query, within.as_ref(), *first_ranked, order),
         };
         let _reading = ReadCache::enter(&self.read_cache);
         loop {
@@ -121,7 +124,7 @@ impl SearchView {
                 }
                 SessionOrder::Top { .. } | SessionOrder::NotRanked => {}
             }
-            *order = rank(&self.version, query, within, order, end)?;
+            *order = rank(&self.version, query, within, order, first_ranked, end)?;
         }
     }
 
@@ -163,13 +166,14 @@ fn page_of(order: &[u64], from: usize, end: usize) -> Vec<u64> {
 }
 
 // A narrow query, and one within sessions whose own rows are few, score every matching row once
-// and keep every hit; a broad one ranks the best k sessions, k doubled or raised to the page's end
-// each time a page runs past them.
+// and keep every hit; a broad one ranks the best k sessions, first `first_ranked`, then k doubled,
+// raised to the page's end each time a page runs past them.
 fn rank(
     version: &IndexVersion,
     query: &PreparedQuery,
     within: Option<&SessionSet>,
     order: &SessionOrder,
+    first_ranked: usize,
     end: usize,
 ) -> tantivy::Result<SessionOrder> {
     let mut fewest_rows = query.fewest_rows();
@@ -183,7 +187,7 @@ fn rank(
     }
     let k = match order {
         SessionOrder::Top { k, .. } => (k * 2).max(end),
-        SessionOrder::NotRanked | SessionOrder::Whole(_) => FIRST_TOP_SESSIONS.max(end),
+        SessionOrder::NotRanked | SessionOrder::Whole(_) => first_ranked.max(end),
     };
     Ok(SessionOrder::Top {
         k,

@@ -50,6 +50,8 @@ use super::support::{batch, event, query};
 const LARGEST_SESSION: u64 = 2;
 // Sessions on one page of results.
 const PAGE_SESSIONS: usize = 32;
+// The first ranking the daemon asks of a search: one session more than a page's most hits.
+const DAEMON_FIRST_RANKED: usize = 257;
 // Rows in each of `steady_batches`' batches.
 const STEADY_BATCH_ROWS: u64 = 100;
 // Searches a person holds open at once, as many as the daemon keeps.
@@ -407,8 +409,13 @@ fn probes() -> Vec<Probe> {
 // them, the two pages' times and how many sessions they showed.
 fn time_pages(engine: &IndexEngine, probe: &Probe) -> (SearchView, f64, f64, usize) {
     let started = Instant::now();
-    let mut view = SearchView::open(engine, probe.query.as_ref(), probe.tag_folds.clone())
-        .expect("the search opens");
+    let mut view = SearchView::open(
+        engine,
+        probe.query.as_ref(),
+        probe.tag_folds.clone(),
+        DAEMON_FIRST_RANKED,
+    )
+    .expect("the search opens");
     let first = view
         .sessions_at(0, PAGE_SESSIONS)
         .expect("the first page ranks");
@@ -531,8 +538,8 @@ fn visibility() {
             .apply(&batch(outbox_id, vec![row]))
             .expect("the row applies");
         let search = query(&[word.as_str()], false);
-        let mut view =
-            SearchView::open(&engine, Some(&search), Vec::new()).expect("the search opens");
+        let mut view = SearchView::open(&engine, Some(&search), Vec::new(), DAEMON_FIRST_RANKED)
+            .expect("the search opens");
         let sessions = view.sessions_at(0, 1).expect("the search ranks");
         times.push(elapsed_milliseconds(started));
         assert_eq!(sessions, vec![1], "the new row is found");
@@ -667,7 +674,8 @@ fn purge_and_merge() {
     let lo = typed("lo", &["lo"]);
     let time_counts = |when: &str| {
         let started = Instant::now();
-        SearchView::open(&engine, lo.query.as_ref(), Vec::new()).expect("the search opens");
+        SearchView::open(&engine, lo.query.as_ref(), Vec::new(), DAEMON_FIRST_RANKED)
+            .expect("the search opens");
         let counting = elapsed_milliseconds(started);
         let (_, first_page, ..) = time_pages(&engine, &lo);
         report(format!(

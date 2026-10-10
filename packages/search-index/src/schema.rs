@@ -1,10 +1,13 @@
 //! The index's fields, how a row becomes a document, and how owners are kept apart. A row is
 //! folded into tokens once, as its document is made; every text field holds those tokens joined,
 //! and the tokenizers registered here split them again as the field is indexed, so a document
-//! waiting for the indexing thread holds one short string per field. A tag row also holds its
-//! tag's fold in the tag field, cut at each `/` so a `tag:` term finds the tags nested under it,
-//! and its session's last activity, which orders a search by tag alone.
+//! waiting for the indexing thread holds one short string per field. Besides each token and its
+//! prefixes, each token's start is indexed with the next token's, so the rows where two tokens sit
+//! in order are one term's. A tag row also holds its tag's fold in the tag field, cut at each `/`
+//! so a `tag:` term finds the tags nested under it, and its session's last activity, which orders
+//! a search by tag alone.
 
+use std::iter::Peekable;
 use std::str::Split;
 
 use tantivy::schema::{
@@ -28,6 +31,9 @@ const FILLER: &str = "\u{1}";
 /// Separates the joined tokens a text field holds; no folded token holds it.
 const TOKEN_SEPARATOR: char = '\u{0}';
 
+/// Separates a token's start from the next one's in a pair term; no folded token holds it.
+const PAIR_SEPARATOR: &str = " ";
+
 /// The tokenizer the text field is indexed with.
 const TOKENS_TOKENIZER: &str = "joined-tokens";
 
@@ -47,6 +53,10 @@ pub struct IndexFields {
     pub text: Field,
     /// `prefixes[n - 1]` holds each token's first n characters, or the filler for a shorter token.
     pub prefixes: [Field; PREFIX_FIELD_COUNT],
+    /// At each token's place, the token's first four characters, or all of a shorter one, then
+    /// the next place's token's the same way, with frequencies and positions; the filler where no
+    /// token is next.
+    pub pair: Field,
     /// The row key, indexed so a replace or a removal deletes by its term.
     pub key: Field,
     /// The row's owner as `owner_value` encodes it, indexed so an owner's rows are found by term.
@@ -68,12 +78,19 @@ pub fn index_schema() -> (Schema, IndexFields) {
     let text = builder.add_text_field("text", text_indexing);
     let prefixes = std::array::from_fn(|index| {
         let name = format!("prefix{}", index + 1);
-        let tokenizer = prefix_tokenizer_name(index + 1);
+        let tokenizer = tokenizer_name(TokenCut::Prefix(index + 1));
         builder.add_text_field(
             &name,
             text_options(IndexRecordOption::WithFreqs, &tokenizer),
         )
     });
+    let pair = builder.add_text_field(
+        "pair",
+        text_options(
+            IndexRecordOption::WithFreqsAndPositions,
+            &tokenizer_name(TokenCut::Pair),
+        ),
+    );
     let key = builder.add_u64_field("key", NumericOptions::default().set_indexed().set_fast());
     let owner = builder.add_u64_field("owner", NumericOptions::default().set_indexed().set_fast());
     let kind = builder.add_u64_field("kind", NumericOptions::default().set_fast());
@@ -93,6 +110,7 @@ pub fn index_schema() -> (Schema, IndexFields) {
         IndexFields {
             text,
             prefixes,
+            pair,
             key,
             owner,
             kind,
@@ -111,26 +129,23 @@ fn text_options(record: IndexRecordOption, tokenizer: &str) -> TextOptions {
     )
 }
 
-// The tokenizer the prefix field of prefixes `length` characters long is indexed with.
-fn prefix_tokenizer_name(length: usize) -> String {
-    format!("joined-prefixes-{length}")
+// The tokenizer the text, a prefix or the pair field is indexed with.
+fn tokenizer_name(cut: TokenCut) -> String {
+    match cut {
+        TokenCut::Whole => TOKENS_TOKENIZER.to_string(),
+        TokenCut::Prefix(length) => format!("joined-prefixes-{length}"),
+        TokenCut::Pair => "joined-pairs".to_string(),
+    }
 }
 
 /// Registers the tokenizers the schema's text fields name, which an index needs before its writer
 /// indexes a row.
 pub fn register_tokenizers(index: &Index) {
     let tokenizers = index.tokenizers();
-    tokenizers.register(
-        TOKENS_TOKENIZER,
-        JoinedTokens {
-            prefix_length: None,
-        },
-    );
-    for length in 1..=PREFIX_FIELD_COUNT {
-        let tokenizer = JoinedTokens {
-            prefix_length: Some(length),
-        };
-        tokenizers.register(&prefix_tokenizer_name(length), tokenizer);
+    let mut cuts = vec![TokenCut::Whole, TokenCut::Pair];
+    cuts.extend((1..=PREFIX_FIELD_COUNT).map(TokenCut::Prefix));
+    for cut in cuts {
+        tokenizers.register(&tokenizer_name(cut), JoinedTokens { cut });
     }
     tokenizers.register(TAG_PATHS_TOKENIZER, TagPaths);
 }
@@ -179,14 +194,24 @@ pub fn owner_term(fields: &IndexFields, owner: Owner) -> Term {
     Term::from_field_u64(fields.owner, owner_value(owner))
 }
 
+/// The pair field's text for `token` followed by `next`, each cut to its first four characters.
+pub fn pair_text(token: &str, next: &str) -> String {
+    format!("{}{PAIR_SEPARATOR}{}", pair_start(token), pair_start(next))
+}
+
+// A token's start as the pair field holds it.
+fn pair_start(token: &str) -> &str {
+    prefix_of(token, PREFIX_FIELD_COUNT).unwrap_or(token)
+}
+
 /// The term a tag field holds for every tag row whose tag is `fold` or nested under it.
 pub fn tag_term(fields: &IndexFields, fold: &str) -> Term {
     Term::from_field_text(fields.tag, fold)
 }
 
-/// One row as a document: its folded tokens in the text field, their prefixes in the prefix fields,
-/// and its key, owner, kind and length as columns; a tag row's fold and its session's last activity
-/// besides.
+/// One row as a document: its folded tokens in the text field, their prefixes and pairs in the
+/// prefix and pair fields, and its key, owner, kind and length as columns; a tag row's fold and its
+/// session's last activity besides.
 pub fn row_document(
     fields: &IndexFields,
     key: u64,
@@ -199,7 +224,7 @@ pub fn row_document(
     let joined = joined_tokens(&tokens);
     let mut document = TantivyDocument::default();
     document.add_text(fields.text, &joined);
-    for field in fields.prefixes {
+    for field in fields.prefixes.into_iter().chain([fields.pair]) {
         document.add_text(field, &joined);
     }
     document.add_u64(fields.key, key);
@@ -228,11 +253,23 @@ fn joined_tokens(tokens: &[TextToken]) -> String {
     joined
 }
 
-/// Splits a text field's joined tokens back into tokens at their places, each cut to its prefix
-/// for a prefix field or the filler where it is shorter, then the filler past the last place.
+/// Splits a text field's joined tokens back into tokens at their places, each cut as its field
+/// holds it, then the filler past the last place, so every field holds the row's length in tokens.
 #[derive(Clone)]
 struct JoinedTokens {
-    prefix_length: Option<usize>,
+    cut: TokenCut,
+}
+
+/// What a field holds at each token's place.
+#[derive(Clone, Copy)]
+enum TokenCut {
+    /// The token.
+    Whole,
+    /// Its first n characters, or the filler for a shorter token.
+    Prefix(usize),
+    /// Its start and the next place's token's start, each its first four characters, or the
+    /// filler where the next place holds no token.
+    Pair,
 }
 
 impl Tokenizer for JoinedTokens {
@@ -245,8 +282,8 @@ impl Tokenizer for JoinedTokens {
             pieces.next();
         }
         JoinedTokenStream {
-            pieces,
-            prefix_length: self.prefix_length,
+            pieces: pieces.peekable(),
+            cut: self.cut,
             place: 0,
             is_filler_sent: false,
             token: Token::default(),
@@ -255,17 +292,19 @@ impl Tokenizer for JoinedTokens {
 }
 
 struct JoinedTokenStream<'a> {
-    pieces: Split<'a, char>,
-    prefix_length: Option<usize>,
+    pieces: Peekable<Split<'a, char>>,
+    cut: TokenCut,
     place: usize,
     is_filler_sent: bool,
     token: Token,
 }
 
 impl JoinedTokenStream<'_> {
-    fn emit(&mut self, text: &str, position: usize) {
+    fn emit(&mut self, pieces: &[&str], position: usize) {
         self.token.text.clear();
-        self.token.text.push_str(text);
+        for piece in pieces {
+            self.token.text.push_str(piece);
+        }
         self.token.position = position;
         self.token.position_length = 1;
     }
@@ -273,24 +312,35 @@ impl JoinedTokenStream<'_> {
 
 impl TokenStream for JoinedTokenStream<'_> {
     fn advance(&mut self) -> bool {
-        for piece in self.pieces.by_ref() {
+        while let Some(piece) = self.pieces.next() {
             let place = self.place;
             self.place += 1;
             if piece.is_empty() {
                 continue;
             }
-            let text = match self.prefix_length {
-                None => piece,
-                Some(length) => prefix_of(piece, length).unwrap_or(FILLER),
-            };
-            self.emit(text, place);
+            match self.cut {
+                TokenCut::Whole => self.emit(&[piece], place),
+                TokenCut::Prefix(length) => {
+                    self.emit(&[prefix_of(piece, length).unwrap_or(FILLER)], place);
+                }
+                TokenCut::Pair => {
+                    // An empty next piece is a dropped token's place: no token is next.
+                    match self.pieces.peek().filter(|next| !next.is_empty()) {
+                        Some(next) => {
+                            let next_start = pair_start(next);
+                            self.emit(&[pair_start(piece), PAIR_SEPARATOR, next_start], place);
+                        }
+                        None => self.emit(&[FILLER], place),
+                    }
+                }
+            }
             return true;
         }
         if self.is_filler_sent {
             return false;
         }
         self.is_filler_sent = true;
-        self.emit(FILLER, self.place);
+        self.emit(&[FILLER], self.place);
         true
     }
 

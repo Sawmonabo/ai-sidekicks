@@ -154,7 +154,7 @@ describe("session.search paging", () => {
     expect(renamedTitle?.matchRanges).toEqual([{ start: 26, end: 32 }]);
   });
 
-  it("reads on past sessions whose hits are all gone once a page is full, and pages to the end", async () => {
+  it("reads on past sessions whose hits are all gone once a page is full, past a session's gone hits to its later ones, and pages to the end", async () => {
     const { database } = fixture;
     // Rows no query here finds, so the searched word is rare enough to score above zero.
     insertSession(database, sessionIdOf(99));
@@ -177,6 +177,18 @@ describe("session.search paging", () => {
         message: `deploy${" pad".repeat(index)}`,
       });
     }
+    // The last session ranks below every other and holds one more matching row than a page of
+    // sixteen reads of it at once.
+    const lastIndex = sessionIndexes.length + 1;
+    insertSession(database, sessionIdOf(lastIndex));
+    for (let sequence = 0; sequence < 18; sequence += 1) {
+      insertEvent(database, {
+        sessionId: sessionIdOf(lastIndex),
+        sequence,
+        type: "user.message",
+        message: `deploy${" pad".repeat(lastIndex + sequence)}`,
+      });
+    }
     await fixture.settle();
     // The first read's sixteen sessions fill a page of sixteen. The next sixteen lost their rows
     // after the index saw them, so the read after that full page finds no hit at all.
@@ -184,6 +196,11 @@ describe("session.search paging", () => {
     for (const index of emptiedIndexes) {
       database.prepare("DELETE FROM session_events WHERE session_id = ?").run(sessionIdOf(index));
     }
+    // Every row of the last session but its lowest ranked is gone, so its one hit is found only
+    // past the seventeen rows read of it first.
+    database
+      .prepare("DELETE FROM session_events WHERE session_id = ? AND sequence < 17")
+      .run(sessionIdOf(lastIndex));
 
     const hits = readEveryHit((request) => fixture.services().sessionSearch.search(request), {
       query: "deploy",
@@ -191,7 +208,7 @@ describe("session.search paging", () => {
     });
 
     expect(hits.map((hit) => hit.sessionId)).toEqual(
-      sessionIndexes
+      [...sessionIndexes, lastIndex]
         .filter((index) => !emptiedIndexes.includes(index))
         .map((index) => sessionIdOf(index)),
     );

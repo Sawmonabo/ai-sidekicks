@@ -97,7 +97,10 @@ interface ReferenceQuery {
 // The seeded directory's query classes: one common word, two words, a word still being typed, a
 // folded accent, a tool call's arguments, a finished word in group names and titles, and words
 // within a tag, nested tags included, written in any case, with a word still being typed, within
-// two tags, and finished by the tag typed after it.
+// two tags, and finished by the tag typed after it. Then joined words after a short word: a prefix
+// of two letters, of four and of six, and a whole word of three and of four; after a four-letter
+// word, a prefix of two and, in Cyrillic, a whole word of two. The rows with `pushed`, `login` and
+// `файлы` are look-alikes their pairs of word starts also hold, which none of them matches.
 const REFERENCE_QUERIES: readonly ReferenceQuery[] = [
   { query: "deploy", searchQuery: { words: ["deploy"], lastWordIsPrefix: true }, tagFolds: [] },
   {
@@ -137,6 +140,25 @@ const REFERENCE_QUERIES: readonly ReferenceQuery[] = [
     query: "deploy tag:billing",
     searchQuery: { words: ["deploy"], lastWordIsPrefix: false },
     tagFolds: ["billing"],
+  },
+  { query: "git.co", searchQuery: { words: ["git.co"], lastWordIsPrefix: true }, tagFolds: [] },
+  { query: "git.comm", searchQuery: { words: ["git.comm"], lastWordIsPrefix: true }, tagFolds: [] },
+  {
+    query: "git.commit",
+    searchQuery: { words: ["git.commit"], lastWordIsPrefix: true },
+    tagFolds: [],
+  },
+  { query: "git.log ", searchQuery: { words: ["git.log"], lastWordIsPrefix: false }, tagFolds: [] },
+  {
+    query: "git.push ",
+    searchQuery: { words: ["git.push"], lastWordIsPrefix: false },
+    tagFolds: [],
+  },
+  { query: "push.or", searchQuery: { words: ["push.or"], lastWordIsPrefix: true }, tagFolds: [] },
+  {
+    query: "файл.да ",
+    searchQuery: { words: ["файл.да"], lastWordIsPrefix: false },
+    tagFolds: [],
   },
 ];
 // Small pages, so every query pages many times.

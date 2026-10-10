@@ -303,14 +303,21 @@ impl SearchIndex {
     /// A search over the index as it is now, held until released. With `tagFolds`, each a tag
     /// folded as the tag store folds it, only the sessions carrying every one of those tags or one
     /// nested under it count, with their groups' rows: ranked by `query`'s words when it is given,
-    /// most recently active first when it is not.
-    #[napi(catch_unwind, ts_args_type = "tagFolds: string[], query?: SearchQuery")]
+    /// most recently active first when it is not. A ranking first holds `firstRankedSessions`
+    /// sessions, so a page that reads no further ranks once.
+    #[napi(
+        catch_unwind,
+        ts_args_type = "tagFolds: string[], firstRankedSessions: number, query?: SearchQuery"
+    )]
     pub fn open_search(
         &self,
         tag_folds: Vec<String>,
+        first_ranked_sessions: u32,
         query: Option<SearchQuery>,
     ) -> Result<HeldSearch> {
-        let view = SearchView::open(self.engine()?, query.as_ref(), tag_folds).map_err(failure)?;
+        let first_ranked = first_ranked_sessions as usize;
+        let view = SearchView::open(self.engine()?, query.as_ref(), tag_folds, first_ranked)
+            .map_err(failure)?;
         Ok(HeldSearch { view: Some(view) })
     }
 

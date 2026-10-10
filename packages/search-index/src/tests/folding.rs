@@ -5,7 +5,7 @@
 use crate::find::mark_matches;
 use crate::view::SearchView;
 
-use super::support::{ScratchFolder, batch, event, open_engine, query};
+use super::support::{FIRST_RANKED_SESSIONS, ScratchFolder, batch, event, open_engine, query};
 
 fn marks(text: &str, words: &[&str], last_word_is_prefix: bool) -> Vec<(u32, u32)> {
     mark_matches(text, &query(words, last_word_is_prefix))
@@ -31,7 +31,8 @@ fn folded_words_match_and_split_words_need_adjacent_tokens() {
     engine.apply(&batch(1, rows)).expect("the batch applies");
     let sessions = |words: &[&str], last_word_is_prefix: bool| -> Vec<u64> {
         let query = query(words, last_word_is_prefix);
-        let mut view = SearchView::open(&engine, Some(&query), Vec::new()).expect("opens");
+        let mut view = SearchView::open(&engine, Some(&query), Vec::new(), FIRST_RANKED_SESSIONS)
+            .expect("opens");
         view.sessions_at(0, 10).expect("ranks")
     };
 

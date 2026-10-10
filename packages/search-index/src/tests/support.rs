@@ -17,6 +17,9 @@ use crate::{GroupMembers, IndexBatch, IndexRow, IndexRowKind, SearchQuery};
 /// An arena just above Tantivy's 15 MB floor.
 pub const TEST_ARENA_BYTES: usize = 16 * 1024 * 1024;
 
+/// How many sessions a test search first ranks; a ranking orders sessions the same at any size.
+pub const FIRST_RANKED_SESSIONS: usize = 16;
+
 static NEXT_FOLDER: AtomicU64 = AtomicU64::new(0);
 
 /// A fresh folder under the system's temporary folder, removed when dropped.
@@ -152,6 +155,14 @@ pub fn queries_over(rows: &[IndexRow]) -> Vec<SearchQuery> {
         .expect("the set has words of three syllables")
         .clone();
     let (first, second) = (&events[5][0], &events[5][1]);
+    let before_long_word = events
+        .iter()
+        .find(|tokens| tokens.len() > 1 && tokens[1].chars().count() >= 6)
+        .expect("a row holds a word of three syllables after another");
+    let three_tokens = events
+        .iter()
+        .find(|tokens| tokens.len() > 2)
+        .expect("a row holds three words");
     let prefix = |token: &str, length: usize| token.chars().take(length).collect::<String>();
     let search = |words: Vec<String>, last_word_is_prefix: bool| SearchQuery {
         words,
@@ -167,6 +178,23 @@ pub fn queries_over(rows: &[IndexRow]) -> Vec<SearchQuery> {
         search(vec![format!("{}-{}", events[50][0], events[50][1])], false),
         search(
             vec![format!("{}-{}", events[50][0], prefix(&events[50][1], 1))],
+            true,
+        ),
+        search(
+            vec![format!(
+                "{}-{}",
+                before_long_word[0],
+                prefix(&before_long_word[1], 5)
+            )],
+            true,
+        ),
+        search(
+            vec![format!(
+                "{}-{}-{}",
+                three_tokens[0],
+                three_tokens[1],
+                prefix(&three_tokens[2], 2)
+            )],
             true,
         ),
     ]

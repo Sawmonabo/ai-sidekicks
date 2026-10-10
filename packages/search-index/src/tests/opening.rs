@@ -11,7 +11,7 @@ use super::support::{ScratchFolder, TEST_ARENA_BYTES, batch, event, open_engine}
 #[cfg(target_os = "macos")]
 #[test]
 fn the_memory_mapped_index_answers_before_and_after_a_reopen() {
-    use super::support::query;
+    use super::support::{FIRST_RANKED_SESSIONS, query};
     use crate::view::SearchView;
 
     let folder = ScratchFolder::new("memory-map");
@@ -21,7 +21,8 @@ fn the_memory_mapped_index_answers_before_and_after_a_reopen() {
     };
     let sessions = |engine: &IndexEngine| -> Vec<u64> {
         let words = query(&["mapped"], false);
-        let mut view = SearchView::open(engine, Some(&words), Vec::new()).expect("opens");
+        let mut view = SearchView::open(engine, Some(&words), Vec::new(), FIRST_RANKED_SESSIONS)
+            .expect("opens");
         view.sessions_at(0, 10).expect("ranks")
     };
     {

@@ -1,22 +1,31 @@
 //! Cursors over the rows a phrase matches in one segment, with how often it matches each row.
 
-use std::cmp::Reverse;
-use std::collections::BinaryHeap;
+pub mod token;
 
-use tantivy::postings::{Postings, SegmentPostings, TermInfo};
-use tantivy::query::{BooleanWeight, Explanation, Occur, Scorer, SumCombiner, Weight};
-use tantivy::schema::{Field, IndexRecordOption};
-use tantivy::{DocId, DocSet, Score, SegmentReader, TERMINATED, TantivyError, Term};
+use tantivy::schema::IndexRecordOption;
+use tantivy::{DocId, SegmentReader, TERMINATED};
 
-use crate::phrase::Phrase;
-use crate::schema::IndexFields;
+use crate::phrase::{PairRows, Phrase};
+use crate::schema::{IndexFields, PREFIX_FIELD_COUNT};
+use token::{
+    PrefixWords, TokenCursor, prefix_cursor, prefix_term_infos, term_cursor, text_cursor,
+    word_union,
+};
 
 /// What a cursor is opened for: scoring needs each phrase's count per row; marking needs where in
-/// the row each phrase sits, so every phrase reads the text field's positions.
+/// the row each phrase sits, so every phrase reads positions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CursorPurpose {
     Score,
     Mark,
+}
+
+/// How many rows a cursor will be asked for: every row it holds, walked, or at most this many,
+/// each sought.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RowsAsked {
+    Every,
+    AtMost(u64),
 }
 
 /// Opens `phrase`'s cursor in `segment`, or `None` when no row of the segment can match it.
@@ -25,363 +34,243 @@ pub fn open_phrase_cursor(
     fields: &IndexFields,
     phrase: &Phrase,
     purpose: CursorPurpose,
+    asked: RowsAsked,
 ) -> tantivy::Result<Option<PhraseCursor>> {
+    if purpose == CursorPurpose::Score {
+        if let Some(term) = phrase.single_term(fields) {
+            let token = term_cursor(segment, &term, IndexRecordOption::WithFreqs)?;
+            return Ok(token.map(PhraseCursor::Token));
+        }
+        if let Some(PairRows::Prefix(text)) = phrase.exact_pair_rows(fields) {
+            let term_infos = prefix_term_infos(segment, fields.pair, &text)?;
+            let token = prefix_cursor(segment, fields.pair, &term_infos, asked)?;
+            return Ok(token.map(PhraseCursor::Token));
+        }
+        // A long prefix whose first four characters begin no other word of the segment counts as
+        // often in a row as the four-character field's term; any other sums its words.
+        if let (Some(term), [part]) = (phrase.long_prefix_field_term(fields), &phrase.parts[..]) {
+            let token = match PrefixWords::read(segment, fields, part)? {
+                PrefixWords::Pinned => term_cursor(segment, &term, IndexRecordOption::WithFreqs)?,
+                PrefixWords::Listed(term_infos) => {
+                    prefix_cursor(segment, fields.text, &term_infos, asked)?
+                }
+            };
+            return Ok(token.map(PhraseCursor::Token));
+        }
+    }
+    // Every one-token phrase a score reads has returned above, so this one is marked.
     if let [part] = phrase.parts.as_slice() {
-        let token = match (purpose, phrase.single_term(fields)) {
-            (CursorPurpose::Score, Some(term)) => {
-                term_cursor(segment, &term, IndexRecordOption::WithFreqs)?
-            }
-            (CursorPurpose::Score, None) => occurrences_cursor(segment, fields.text, part)?,
-            (CursorPurpose::Mark, _) => text_cursor(
-                segment,
-                fields,
-                part,
-                phrase.ends_in_prefix,
-                IndexRecordOption::WithFreqsAndPositions,
-            )?,
-        };
+        let token = text_cursor(segment, fields, part, phrase.ends_in_prefix)?;
         return Ok(token.map(PhraseCursor::Token));
+    }
+    // The pairs first: a segment lacking one holds no row of the phrase, and its tokens' cursors
+    // are left unopened. A pair's places stand for a token's where they pin it, read in place of
+    // the token's own far longer lists, one cursor for both tokens when the pair pins both: a token
+    // shorter than the pair field's cut is the pair's first; the last token is the pair's second,
+    // one place on, when it is a whole word shorter than the cut, a prefix no longer than the cut,
+    // or a prefix whose cut begins no word of the segment it does not. Every other pair filters.
+    let positions = IndexRecordOption::WithFreqsAndPositions;
+    let last = phrase.parts.len() - 1;
+    let mut cursors = Vec::with_capacity(phrase.parts.len() * 2 - 1);
+    let mut sources: Vec<Option<(usize, u32)>> = vec![None; phrase.parts.len()];
+    let mut filters = Vec::with_capacity(last);
+    // The last token's words, read while asking whether its pair pins it.
+    let mut last_words = None;
+    for (first, rows) in phrase.pair_rows(fields).into_iter().enumerate() {
+        let second = first + 1;
+        let pins_first = phrase.parts[first].chars().count() < PREFIX_FIELD_COUNT;
+        let pins_second = second == last
+            && match &rows {
+                PairRows::Prefix(_) => true,
+                PairRows::Term(_) if phrase.is_prefix_part(second) => {
+                    match PrefixWords::read(segment, fields, &phrase.parts[second])? {
+                        PrefixWords::Pinned => true,
+                        PrefixWords::Listed(term_infos) => {
+                            last_words = Some(term_infos);
+                            false
+                        }
+                    }
+                }
+                PairRows::Term(_) => phrase.parts[second].chars().count() < PREFIX_FIELD_COUNT,
+            };
+        let is_read = pins_first || pins_second;
+        let record = if is_read {
+            positions
+        } else {
+            IndexRecordOption::Basic
+        };
+        let opened = match &rows {
+            PairRows::Term(term) => term_cursor(segment, term, record)?,
+            PairRows::Prefix(text) => {
+                let term_infos = prefix_term_infos(segment, fields.pair, text)?;
+                word_union(segment, fields.pair, &term_infos, record)?
+            }
+        };
+        let Some(cursor) = opened else {
+            return Ok(None);
+        };
+        if !is_read {
+            filters.push(cursor);
+            continue;
+        }
+        for (index, shift, pins) in [(first, 0, pins_first), (second, 1, pins_second)] {
+            if pins {
+                sources[index] = Some((cursors.len(), shift));
+            }
+        }
+        cursors.push(cursor);
     }
     let mut parts = Vec::with_capacity(phrase.parts.len());
     for (index, part) in phrase.parts.iter().enumerate() {
-        let record = IndexRecordOption::WithFreqsAndPositions;
-        match text_cursor(segment, fields, part, phrase.is_prefix_part(index), record)? {
-            Some(cursor) => parts.push(cursor),
+        if let Some(source) = sources[index] {
+            parts.push(source);
+            continue;
+        }
+        let cursor = if index == last
+            && let Some(term_infos) = last_words.take()
+        {
+            word_union(segment, fields.text, &term_infos, positions)?
+        } else {
+            text_cursor(segment, fields, part, phrase.is_prefix_part(index))?
+        };
+        let Some(cursor) = cursor else {
+            return Ok(None);
+        };
+        parts.push((cursors.len(), 0));
+        cursors.push(cursor);
+    }
+    let positioned = cursors.len();
+    cursors.extend(filters);
+    Ok(Some(PhraseCursor::Sequence(SequenceCursor::new(
+        cursors, positioned, parts,
+    ))))
+}
+
+/// Every phrase's cursor in `segment`, in phrase order, or `None` when no row of the segment can
+/// match one of them.
+pub fn open_cursors(
+    segment: &SegmentReader,
+    fields: &IndexFields,
+    phrases: &[Phrase],
+    purpose: CursorPurpose,
+    asked: RowsAsked,
+) -> tantivy::Result<Option<Vec<PhraseCursor>>> {
+    let mut cursors = Vec::with_capacity(phrases.len());
+    for phrase in phrases {
+        match open_phrase_cursor(segment, fields, phrase, purpose, asked)? {
+            Some(cursor) => cursors.push(cursor),
             None => return Ok(None),
         }
     }
-    Ok(Some(PhraseCursor::Sequence(SequenceCursor::new(parts))))
+    Ok(Some(cursors))
 }
 
-/// The postings of one term in `segment`, or `None` when the segment lacks the term.
-pub fn term_cursor(
-    segment: &SegmentReader,
-    term: &Term,
-    record: IndexRecordOption,
-) -> tantivy::Result<Option<TokenCursor>> {
-    let inverted = segment.inverted_index(term.field())?;
-    Ok(inverted
-        .read_postings(term, record)?
-        .map(|postings| TokenCursor::Term(Box::new(postings))))
+/// Whether every phrase matches row `doc`, each cursor moved there or past it.
+pub fn all_on(cursors: &mut [PhraseCursor], doc: DocId) -> bool {
+    cursors.iter_mut().all(|cursor| cursor.matches_at(doc))
 }
 
-// A whole word's text term, or every text term a prefix begins, merged.
-fn text_cursor(
-    segment: &SegmentReader,
-    fields: &IndexFields,
-    token: &str,
-    is_prefix: bool,
-    record: IndexRecordOption,
-) -> tantivy::Result<Option<TokenCursor>> {
-    if !is_prefix {
-        return term_cursor(segment, &Term::from_field_text(fields.text, token), record);
-    }
-    let inverted = segment.inverted_index(fields.text)?;
-    let mut postings = Vec::new();
-    for term_info in prefix_term_infos(segment, fields.text, token)? {
-        postings.push(inverted.read_postings_from_terminfo(&term_info, record)?);
-    }
-    Ok(match postings.len() {
-        0 => None,
-        1 => postings
-            .pop()
-            .map(|postings| TokenCursor::Term(Box::new(postings))),
-        _ => Some(TokenCursor::Union(UnionCursor::new(postings))),
-    })
+/// A segment's phrase cursors for rows asked in increasing order, opened only at the first row
+/// that can match: a long prefix's cursor reads every word it begins, so a row the four-character
+/// prefix field's term lacks is turned away first, and a segment where no row asked can match
+/// reads none of the words.
+pub struct GatedCursors<'a> {
+    segment: &'a SegmentReader,
+    fields: &'a IndexFields,
+    phrases: &'a [Phrase],
+    purpose: CursorPurpose,
+    asked: RowsAsked,
+    // The four-character field's postings of each phrase that is a longer prefix: they hold every
+    // row the prefix's words hold.
+    filters: Vec<TokenCursor>,
+    cursors: GatedState,
 }
 
-// A prefix longer than every prefix field, for scoring: Tantivy's buffered union of every word it
-// begins, merging them a window of rows at a time rather than seeking each word's postings to every
-// row asked for, each word scored by its count in the row so the union's score is the prefix's.
-fn occurrences_cursor(
-    segment: &SegmentReader,
-    text: Field,
-    prefix: &str,
-) -> tantivy::Result<Option<TokenCursor>> {
-    let term_infos = prefix_term_infos(segment, text, prefix)?;
-    let cost = term_infos
-        .iter()
-        .map(|term_info| u64::from(term_info.doc_freq))
-        .sum();
-    let words: Vec<(Occur, Box<dyn Weight>)> = term_infos
-        .into_iter()
-        .map(|term_info| {
-            let word = OccurrenceWeight { text, term_info };
-            (Occur::Should, Box::new(word) as Box<dyn Weight>)
-        })
-        .collect();
-    if words.is_empty() {
-        return Ok(None);
-    }
-    let union = BooleanWeight::new(words, true, Box::new(SumCombiner::default));
-    let words = union.scorer(segment, 1.0)?;
-    Ok(Some(TokenCursor::Occurrences { words, cost }))
+enum GatedState {
+    Closed,
+    Open(Vec<PhraseCursor>),
+    NoRowMatches,
 }
 
-// Where every term of `field` that `prefix` begins sits in `segment`'s term dictionary, in term
-// order.
-fn prefix_term_infos(
-    segment: &SegmentReader,
-    field: Field,
-    prefix: &str,
-) -> tantivy::Result<Vec<TermInfo>> {
-    let inverted = segment.inverted_index(field)?;
-    let mut stream = inverted
-        .terms()
-        .range()
-        .ge(prefix.as_bytes())
-        .into_stream()?;
-    let mut term_infos = Vec::new();
-    while stream.advance() && stream.key().starts_with(prefix.as_bytes()) {
-        term_infos.push(stream.value().clone());
-    }
-    Ok(term_infos)
+/// How a row asked of `GatedCursors` stands.
+pub enum RowMatch<'c> {
+    /// Every phrase matches the row; the cursors sit on it.
+    Matches(&'c mut [PhraseCursor]),
+    /// The row misses a phrase.
+    Misses,
+    /// No row of the segment matches every phrase.
+    NoRowMatches,
 }
 
-// One word's postings, scored by how often the word occurs in each row.
-struct OccurrenceWeight {
-    text: Field,
-    term_info: TermInfo,
-}
-
-impl Weight for OccurrenceWeight {
-    fn scorer(&self, segment: &SegmentReader, _: Score) -> tantivy::Result<Box<dyn Scorer>> {
-        let postings = segment
-            .inverted_index(self.text)?
-            .read_postings_from_terminfo(&self.term_info, IndexRecordOption::WithFreqs)?;
-        Ok(Box::new(OccurrenceScorer(postings)))
-    }
-
-    fn explain(&self, segment: &SegmentReader, doc: DocId) -> tantivy::Result<Explanation> {
-        let mut scorer = self.scorer(segment, 1.0)?;
-        if scorer.seek(doc) != doc {
-            return Err(TantivyError::InvalidArgument(format!(
-                "row {doc} does not hold the word"
-            )));
-        }
-        Ok(Explanation::new("occurrences in the row", scorer.score()))
-    }
-}
-
-struct OccurrenceScorer(SegmentPostings);
-
-impl DocSet for OccurrenceScorer {
-    fn advance(&mut self) -> DocId {
-        self.0.advance()
-    }
-
-    fn seek(&mut self, target: DocId) -> DocId {
-        self.0.seek(target)
-    }
-
-    fn doc(&self) -> DocId {
-        self.0.doc()
-    }
-
-    fn size_hint(&self) -> u32 {
-        self.0.size_hint()
-    }
-}
-
-impl Scorer for OccurrenceScorer {
-    fn score(&mut self) -> Score {
-        self.0.term_freq() as Score
-    }
-}
-
-/// The four-character prefix field's postings of each phrase that is a prefix longer than every
-/// prefix field. They hold every row the prefix's words hold, so a row they lack is turned away
-/// before the words' merged postings are sought to it, a seek that refills a window of rows. Rows
-/// are asked in increasing order.
-pub struct RowFilters(Vec<TokenCursor>);
-
-impl RowFilters {
-    /// The filters of `phrases` in `segment`; a phrase with none, or one the segment lacks, filters
-    /// nothing, and its own cursor finds no row there.
-    pub fn open(
-        segment: &SegmentReader,
-        fields: &IndexFields,
-        phrases: &[Phrase],
-    ) -> tantivy::Result<RowFilters> {
+impl<'a> GatedCursors<'a> {
+    /// The gate of `phrases` in `segment`, its cursors not yet opened, for at most `asked` rows.
+    pub fn new(
+        segment: &'a SegmentReader,
+        fields: &'a IndexFields,
+        phrases: &'a [Phrase],
+        purpose: CursorPurpose,
+        asked: u64,
+    ) -> tantivy::Result<GatedCursors<'a>> {
         let mut filters = Vec::new();
+        let mut cursors = GatedState::Closed;
         for phrase in phrases {
             let Some(term) = phrase.long_prefix_field_term(fields) else {
                 continue;
             };
-            if let Some(filter) = term_cursor(segment, &term, IndexRecordOption::Basic)? {
-                filters.push(filter);
-            }
-        }
-        Ok(RowFilters(filters))
-    }
-
-    /// Whether row `doc` can match every phrase: false when a filter lacks it.
-    pub fn admit(&mut self, doc: DocId) -> bool {
-        self.0.iter_mut().all(|filter| filter.seek(doc) == doc)
-    }
-}
-
-/// One token's rows: a single term's postings, the postings of every term a prefix begins with
-/// their positions, or for scoring alone those terms' union scored by their counts.
-pub enum TokenCursor {
-    // Boxed: a term's postings hold a decoded block inline, many times a union's size.
-    Term(Box<SegmentPostings>),
-    Union(UnionCursor),
-    // Tantivy's union leaves a word out of its own cost once it has passed the word's last row, so
-    // the words' rows are counted when it opens.
-    Occurrences { words: Box<dyn Scorer>, cost: u64 },
-}
-
-impl TokenCursor {
-    /// The row the cursor is on, `TERMINATED` past the last.
-    pub fn doc(&self) -> DocId {
-        match self {
-            TokenCursor::Term(postings) => postings.doc(),
-            TokenCursor::Union(union) => union.doc,
-            TokenCursor::Occurrences { words, .. } => words.doc(),
-        }
-    }
-
-    /// Moves to the next row.
-    pub fn advance(&mut self) -> DocId {
-        match self {
-            TokenCursor::Term(postings) => postings.advance(),
-            TokenCursor::Union(union) => union.advance(),
-            TokenCursor::Occurrences { words, .. } => words.advance(),
-        }
-    }
-
-    /// Moves to the first row at or after `target`; a cursor already there stays.
-    pub fn seek(&mut self, target: DocId) -> DocId {
-        match self {
-            TokenCursor::Term(postings) if postings.doc() >= target => postings.doc(),
-            TokenCursor::Term(postings) => postings.seek(target),
-            TokenCursor::Union(union) => union.seek(target),
-            TokenCursor::Occurrences { words, .. } if words.doc() >= target => words.doc(),
-            TokenCursor::Occurrences { words, .. } => words.seek(target),
-        }
-    }
-
-    /// How many times the token occurs in the current row.
-    pub fn frequency(&mut self) -> u32 {
-        match self {
-            TokenCursor::Term(postings) => postings.term_freq(),
-            TokenCursor::Union(union) => union
-                .current
-                .iter()
-                .map(|index| union.postings[*index].term_freq())
-                .sum(),
-            // Each word's count summed as a float, exact for any count a row can hold.
-            TokenCursor::Occurrences { words, .. } => words.score() as u32,
-        }
-    }
-
-    /// The token's positions in the current row, ascending, into `positions`.
-    pub fn positions(&mut self, positions: &mut Vec<u32>) {
-        positions.clear();
-        match self {
-            TokenCursor::Term(postings) => postings.append_positions_with_offset(0, positions),
-            TokenCursor::Union(union) => {
-                for index in &union.current {
-                    union.postings[*index].append_positions_with_offset(0, positions);
+            match term_cursor(segment, &term, IndexRecordOption::Basic)? {
+                Some(filter) => filters.push(filter),
+                None => {
+                    cursors = GatedState::NoRowMatches;
+                    break;
                 }
-                positions.sort_unstable();
             }
-            // Opened for scoring, so no position is read.
-            TokenCursor::Occurrences { .. } => {}
         }
+        Ok(GatedCursors {
+            segment,
+            fields,
+            phrases,
+            purpose,
+            asked: RowsAsked::AtMost(asked),
+            filters,
+            cursors,
+        })
     }
 
-    /// The rows the cursor can visit, counted with deleted rows.
-    pub fn cost(&self) -> u64 {
-        match self {
-            TokenCursor::Term(postings) => u64::from(postings.doc_freq()),
-            TokenCursor::Union(union) => union
-                .postings
-                .iter()
-                .map(|postings| u64::from(postings.doc_freq()))
-                .sum(),
-            TokenCursor::Occurrences { cost, .. } => *cost,
+    /// Whether row `doc` matches every phrase, opening the cursors at the first row the filters
+    /// admit.
+    pub fn at(&mut self, doc: DocId) -> tantivy::Result<RowMatch<'_>> {
+        if matches!(self.cursors, GatedState::NoRowMatches) {
+            return Ok(RowMatch::NoRowMatches);
         }
-    }
-}
-
-/// Several terms' postings merged into one ascending walk: the postings on the current row, and the
-/// rest in a heap by the row each is on.
-pub struct UnionCursor {
-    postings: Vec<SegmentPostings>,
-    waiting: BinaryHeap<Reverse<(DocId, usize)>>,
-    current: Vec<usize>,
-    doc: DocId,
-}
-
-impl UnionCursor {
-    fn new(postings: Vec<SegmentPostings>) -> UnionCursor {
-        let waiting = postings
-            .iter()
-            .enumerate()
-            .filter(|(_, postings)| postings.doc() != TERMINATED)
-            .map(|(index, postings)| Reverse((postings.doc(), index)))
-            .collect();
-        let mut union = UnionCursor {
-            postings,
-            waiting,
-            current: Vec::new(),
-            doc: TERMINATED,
-        };
-        union.settle();
-        union
-    }
-
-    fn settle(&mut self) {
-        self.current.clear();
-        self.doc = match self.waiting.peek() {
-            Some(Reverse((doc, _))) => *doc,
-            None => TERMINATED,
-        };
-        while let Some(Reverse((doc, index))) = self.waiting.peek().copied() {
-            if doc != self.doc {
-                break;
+        if !self
+            .filters
+            .iter_mut()
+            .all(|filter| filter.seek(doc) == doc)
+        {
+            return Ok(RowMatch::Misses);
+        }
+        if matches!(self.cursors, GatedState::Closed) {
+            self.cursors = match open_cursors(
+                self.segment,
+                self.fields,
+                self.phrases,
+                self.purpose,
+                self.asked,
+            )? {
+                Some(cursors) => GatedState::Open(cursors),
+                None => GatedState::NoRowMatches,
+            };
+        }
+        Ok(match &mut self.cursors {
+            GatedState::Open(cursors) => {
+                if all_on(cursors, doc) {
+                    RowMatch::Matches(cursors)
+                } else {
+                    RowMatch::Misses
+                }
             }
-            self.waiting.pop();
-            self.current.push(index);
-        }
-    }
-
-    fn advance(&mut self) -> DocId {
-        for index in &self.current {
-            let next = self.postings[*index].advance();
-            if next != TERMINATED {
-                self.waiting.push(Reverse((next, *index)));
-            }
-        }
-        self.settle();
-        self.doc
-    }
-
-    fn seek(&mut self, target: DocId) -> DocId {
-        if self.doc >= target {
-            return self.doc;
-        }
-        for index in &self.current {
-            let next = self.postings[*index].seek(target);
-            if next != TERMINATED {
-                self.waiting.push(Reverse((next, *index)));
-            }
-        }
-        self.current.clear();
-        while let Some(Reverse((doc, index))) = self.waiting.peek().copied() {
-            if doc >= target {
-                break;
-            }
-            self.waiting.pop();
-            let next = self.postings[index].seek(target);
-            if next != TERMINATED {
-                self.waiting.push(Reverse((next, index)));
-            }
-        }
-        self.settle();
-        self.doc
+            _ => RowMatch::NoRowMatches,
+        })
     }
 }
 
@@ -393,11 +282,12 @@ pub enum PhraseCursor {
 }
 
 impl PhraseCursor {
-    /// The row the cursor is on, `TERMINATED` past the last.
-    pub fn doc(&self) -> DocId {
+    /// The row the cursor is on, `TERMINATED` past the last; a typed word finds its first row the
+    /// first time a row is asked of it.
+    pub fn doc(&mut self) -> DocId {
         match self {
             PhraseCursor::Token(token) => token.doc(),
-            PhraseCursor::Sequence(sequence) => sequence.doc,
+            PhraseCursor::Sequence(sequence) => sequence.doc(),
         }
     }
 
@@ -415,6 +305,15 @@ impl PhraseCursor {
         match self {
             PhraseCursor::Token(token) => token.seek(target),
             PhraseCursor::Sequence(sequence) => sequence.seek(target),
+        }
+    }
+
+    /// Whether the phrase matches row `target`, at or after the cursor's row, a typed word's
+    /// positions read only there. After a miss, only `matches_at` and `seek` go on from `target`.
+    pub fn matches_at(&mut self, target: DocId) -> bool {
+        match self {
+            PhraseCursor::Token(token) => token.seek(target) == target,
+            PhraseCursor::Sequence(sequence) => sequence.matches_at(target),
         }
     }
 
@@ -447,90 +346,136 @@ impl PhraseCursor {
     pub fn cost(&self) -> u64 {
         match self {
             PhraseCursor::Token(token) => token.cost(),
-            PhraseCursor::Sequence(sequence) => sequence.parts[sequence.leader].cost(),
+            PhraseCursor::Sequence(sequence) => sequence.cursors[sequence.leader].cost(),
         }
     }
 }
 
 /// A typed word of several tokens: the rows where every token sits right after the one before,
-/// walked from its rarest token.
+/// walked from its rarest token or pair of neighbors. A row's positions are read only where every
+/// token and pair term is, and only once a row is asked: a check of one row reads them there alone,
+/// never at rows a cursor passes on the way.
 pub struct SequenceCursor {
-    parts: Vec<TokenCursor>,
+    /// The cursors that give places, then each pair term that filters.
+    cursors: Vec<TokenCursor>,
+    /// How many of `cursors` give places.
+    positioned: usize,
+    /// For each token in order, the cursor holding its places and how many places before the token
+    /// that cursor holds them: one for a token read as its pair's second, zero for the rest.
+    parts: Vec<(usize, u32)>,
     leader: usize,
-    doc: DocId,
+    /// The row the cursor is on; `None` until a row is first asked of it.
+    doc: Option<DocId>,
     starts: Vec<u32>,
-    part_positions: Vec<Vec<u32>>,
+    /// Each positioned cursor's places in the current row.
+    places: Vec<Vec<u32>>,
 }
 
 impl SequenceCursor {
-    fn new(parts: Vec<TokenCursor>) -> SequenceCursor {
-        let leader = (0..parts.len())
-            .min_by_key(|index| parts[*index].cost())
+    fn new(
+        cursors: Vec<TokenCursor>,
+        positioned: usize,
+        parts: Vec<(usize, u32)>,
+    ) -> SequenceCursor {
+        let leader = (0..cursors.len())
+            .min_by_key(|index| cursors[*index].cost())
             .unwrap_or(0);
-        let part_positions = vec![Vec::new(); parts.len()];
-        let mut sequence = SequenceCursor {
+        SequenceCursor {
+            cursors,
+            positioned,
             parts,
             leader,
-            doc: TERMINATED,
+            doc: None,
             starts: Vec::new(),
-            part_positions,
-        };
-        sequence.find_match();
-        sequence
+            places: vec![Vec::new(); positioned],
+        }
+    }
+
+    fn doc(&mut self) -> DocId {
+        match self.doc {
+            Some(doc) => doc,
+            None => self.find_match(),
+        }
     }
 
     fn advance(&mut self) -> DocId {
-        self.parts[self.leader].advance();
+        self.doc();
+        self.cursors[self.leader].advance();
         self.find_match()
     }
 
-    fn seek(&mut self, target: DocId) -> DocId {
-        if self.doc >= target {
-            return self.doc;
+    // Whether `target` holds every part in order, without reading positions at any row past it.
+    // A miss leaves `doc` short of `target`, or unknown, so a later seek checks the rows past it.
+    fn matches_at(&mut self, target: DocId) -> bool {
+        if let Some(doc) = self.doc
+            && doc >= target
+        {
+            return doc == target;
         }
-        self.parts[self.leader].seek(target);
+        let cursors = &mut self.cursors;
+        let is_on = (self.positioned..cursors.len())
+            .chain(0..self.positioned)
+            .all(|index| cursors[index].seek(target) == target);
+        if is_on && self.collect_starts() {
+            self.doc = Some(target);
+            return true;
+        }
+        false
+    }
+
+    fn seek(&mut self, target: DocId) -> DocId {
+        if let Some(doc) = self.doc
+            && doc >= target
+        {
+            return doc;
+        }
+        self.cursors[self.leader].seek(target);
         self.find_match()
     }
 
     // From the leader's row on, the first row holding every part in order.
     fn find_match(&mut self) -> DocId {
-        let mut candidate = self.parts[self.leader].doc();
+        let mut candidate = self.cursors[self.leader].doc();
         'candidates: while candidate != TERMINATED {
-            for index in 0..self.parts.len() {
-                let doc = self.parts[index].seek(candidate);
+            // The pair terms, rarer than the tokens, first.
+            for index in (self.positioned..self.cursors.len()).chain(0..self.positioned) {
+                let doc = self.cursors[index].seek(candidate);
                 if doc != candidate {
-                    candidate = self.parts[self.leader].seek(doc);
+                    candidate = self.cursors[self.leader].seek(doc);
                     continue 'candidates;
                 }
             }
             if self.collect_starts() {
-                self.doc = candidate;
+                self.doc = Some(candidate);
                 return candidate;
             }
-            candidate = self.parts[self.leader].advance();
+            candidate = self.cursors[self.leader].advance();
         }
         self.starts.clear();
-        self.doc = TERMINATED;
+        self.doc = Some(TERMINATED);
         TERMINATED
     }
 
-    // The positions where the first part starts a full run of the parts in the current row.
+    // The places where the first part starts a full run of the parts in the current row, each
+    // positioned cursor's places read once.
     fn collect_starts(&mut self) -> bool {
-        for (part, positions) in self.parts.iter_mut().zip(self.part_positions.iter_mut()) {
-            part.positions(positions);
+        for (cursor, places) in self.cursors.iter_mut().zip(self.places.iter_mut()) {
+            cursor.positions(places);
         }
         self.starts.clear();
-        let Some((first, rest)) = self.part_positions.split_first() else {
+        let Some((&(first, first_shift), rest)) = self.parts.split_first() else {
             return false;
         };
-        for start in first {
-            let in_order = rest.iter().enumerate().all(|(offset, positions)| {
-                positions
-                    .binary_search(&(start + offset as u32 + 1))
+        for place in &self.places[first] {
+            let start = place + first_shift;
+            // Part `offset + 1` sits at `start + offset + 1`, its cursor's place `shift` before it.
+            let in_order = rest.iter().enumerate().all(|(offset, &(cursor, shift))| {
+                self.places[cursor]
+                    .binary_search(&(start + offset as u32 + 1 - shift))
                     .is_ok()
             });
             if in_order {
-                self.starts.push(*start);
+                self.starts.push(start);
             }
         }
         !self.starts.is_empty()

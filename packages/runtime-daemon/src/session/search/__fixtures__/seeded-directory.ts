@@ -47,6 +47,17 @@ const VOCABULARY = [
   "token",
   "thread",
 ];
+// Words joined by a dot, and look-alikes whose pairs of word starts the index holds too: `pushed`
+// begins with `push`, `login` with `log` and `файлы` with `файл`. Each is one message of one of
+// the first sessions; the Cyrillic holds no letter the two tokenizers fold differently.
+const JOINED_TEXTS = [
+  "git.push origin",
+  "git pushed origin",
+  "git.log --oneline",
+  "git login",
+  "файл.да готов",
+  "файлы да",
+];
 const GROUP_NAMES = ["release train", "billing work", "cache review notes"];
 // Nested tags, one written in capitals, and `deployment`, which no search for `tag:deploy` keeps.
 const TAGS = [
@@ -95,7 +106,10 @@ export class SeededDirectory {
     this.#database = database;
   }
 
-  /** Writes the groups and `sessionCount` sessions with their titles, tags and log rows. */
+  /**
+   * Writes the groups and `sessionCount` sessions with their titles, tags and log rows, the first
+   * sessions each with one message of joined words.
+   */
   seed(sessionCount: number): void {
     GROUP_NAMES.forEach((name, index) => {
       this.#groups.set(insertGroup(this.#database, `group-${String(index)}`, name), name);
@@ -121,6 +135,10 @@ export class SeededDirectory {
       }
       for (let place = 0; place < 2 + (index % 6); place += 1) {
         this.#appendEvent(sessionId, session, index * 31 + place * 17);
+      }
+      const joinedText = JOINED_TEXTS[index - 1];
+      if (joinedText !== undefined) {
+        this.addMessage(sessionId, joinedText);
       }
     }
   }
