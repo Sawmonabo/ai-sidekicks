@@ -4,6 +4,7 @@
 
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
+import { type TranscriptBodyRead } from "#renderer/services/daemon/transcript/body.js";
 import { type TranscriptPageRead } from "#renderer/services/daemon/transcript/page.js";
 import { type TranscriptRowRenderer } from "../../rows/renderer.js";
 import { TranscriptFeed } from "./TranscriptFeed.js";
@@ -17,6 +18,8 @@ export interface TranscriptPaneBodyProps {
   readonly messageAnchorCursor: string | undefined;
   /** The `transcript.read` the feed reads its history past the store's window with. */
   readonly readTranscriptPage: TranscriptPageRead;
+  /** The `transcript.bodyRead` the feed reads an opened large body with. */
+  readonly readTranscriptBody: TranscriptBodyRead;
 }
 
 /**
@@ -44,6 +47,7 @@ export function TranscriptPaneBody(props: TranscriptPaneBodyProps): React.JSX.El
       feedLabel="Transcript"
       messageAnchorCursor={props.messageAnchorCursor}
       readTranscriptPage={props.readTranscriptPage}
+      readTranscriptBody={props.readTranscriptBody}
     />
   );
 }

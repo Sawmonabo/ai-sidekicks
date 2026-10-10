@@ -11,10 +11,13 @@ import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale
 import { RowRevealProvider } from "../../reveal/components/RowRevealProvider.js";
 import { TranscriptViewport } from "../../viewport/components/TranscriptViewport.js";
 import { LoadEarlier } from "../../history/components/LoadEarlier.js";
+import { type TranscriptBodyRead } from "#renderer/services/daemon/transcript/body.js";
 import { type TranscriptPageRead } from "#renderer/services/daemon/transcript/page.js";
 import { TranscriptFeedHeader } from "./TranscriptFeedHeader.js";
 import { TranscriptWindowSkeleton } from "../../window/components/TranscriptWindowSkeleton.js";
 import { useTranscriptRowRenderer } from "../hooks/useTranscriptRowRenderer.js";
+import { useFullBodyReads } from "../hooks/useFullBodyReads.js";
+import { FullBodyReadsContext } from "../../rows/full-body-reads.js";
 import { OffListTableFrames } from "../../rows/bodies/OffListTableFrames.js";
 import { ListedBodiesContext } from "../../rows/markdown/table-window/context.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
@@ -43,6 +46,11 @@ export interface TranscriptFeedProps {
    */
   readonly readTranscriptPage?: TranscriptPageRead | undefined;
   /**
+   * The `transcript.bodyRead` a large body is read in full with when its control is pressed. A
+   * composition with none offers no control and draws a large body as not read.
+   */
+  readonly readTranscriptBody?: TranscriptBodyRead | undefined;
+  /**
    * The event cursor of the message to open at, or `undefined` to open at the bottom. A message
    * older than the window is reached by reading back through `readTranscriptPage`; a cursor no
    * read holds, down to the start of history, opens at the bottom too.
@@ -66,6 +74,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
     prepareRow: props.rowRenderer.prepareRow,
   });
   const { folds, transcriptWindow, viewport, history } = windows;
+  const fullBodyReads = useFullBodyReads(props.sessionStore, props.readTranscriptBody);
   const jumpToRow = viewport.jumpToRow;
   const findAndJump = useTranscriptFindAndJump({
     foldedAwayRows: windows.runGroupFold.removedRows,
@@ -213,23 +222,25 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
       <div className="meridian-transcript-feed__body">
         <RowToggleProvider rowToggle={rowToggle}>
           <RowRevealProvider channel={revealChannel}>
-            <ListedBodiesContext value={windows.offListTables}>
-              <TranscriptViewport
-                binding={viewport}
-                renderRow={renderRow}
-                feedLabel={props.feedLabel}
-                firstReadSettled={windows.firstReadSettled}
-                hasActiveTurn={transcriptWindow.liveRunIds.size > 0}
-                earlierHistoryControl={
-                  history === undefined ? undefined : (
-                    <LoadEarlier
-                      history={history}
-                      isLinkedMessageMissing={windows.messageReadBack === "not-in-history"}
-                    />
-                  )
-                }
-              />
-            </ListedBodiesContext>
+            <FullBodyReadsContext value={fullBodyReads}>
+              <ListedBodiesContext value={windows.offListTables}>
+                <TranscriptViewport
+                  binding={viewport}
+                  renderRow={renderRow}
+                  feedLabel={props.feedLabel}
+                  firstReadSettled={windows.firstReadSettled}
+                  hasActiveTurn={transcriptWindow.liveRunIds.size > 0}
+                  earlierHistoryControl={
+                    history === undefined ? undefined : (
+                      <LoadEarlier
+                        history={history}
+                        isLinkedMessageMissing={windows.messageReadBack === "not-in-history"}
+                      />
+                    )
+                  }
+                />
+              </ListedBodiesContext>
+            </FullBodyReadsContext>
           </RowRevealProvider>
         </RowToggleProvider>
         <TranscriptWindowSkeleton sessionStore={props.sessionStore} />

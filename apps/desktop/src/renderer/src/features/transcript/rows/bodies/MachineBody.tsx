@@ -1,21 +1,25 @@
-// The one body a machine-authored row draws, in its three states: not read (a streamed row, or a
-// large body, whose row carries its size alone), unavailable, available. A truncated body renders
-// its prefix and says so; an unreadable one keeps the turn at its position with the unavailable
-// marker, because an empty body or a dropped row would misreport the turn. `MessageContent` and
-// `ToolOutput` differ only in how a body's shape is read. A live body is read through its lane's
-// handle and a stored one through a handle over its string, so neither is copied whole on a frame.
+// The one body a machine-authored row draws, in its four states: not read (a streamed row), large
+// (its row carries its size alone, and its control reads it in full), unavailable, available. A
+// truncated body renders its prefix and says so; an unreadable one keeps the turn at its position
+// with the unavailable marker, because an empty body or a dropped row would misreport the turn.
+// `MessageContent` and `ToolOutput` differ only in how a body's shape is read. A live body is read
+// through its lane's handle and a stored one through a handle over its string, so neither is
+// copied whole on a frame.
 
 import "./MachineBody.css";
 
-import { useMemo } from "react";
+import { useContext, useEffect, useMemo, useSyncExternalStore } from "react";
 
 import type { TranscriptRowContent } from "@ai-sidekicks/contracts/transcript/content";
 
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import { byteFigurePart } from "#renderer/lib/figure-sentence.js";
 import { publishedTextOf, type PublishedText } from "../../reveal/published-text.js";
 import { AnsiOutput } from "../ansi/AnsiOutput.js";
 import { withoutResidualEscapesOf } from "../ansi/escape-sequences.js";
+import { FullBodyReadsContext, type FullBodyReads } from "../full-body-reads.js";
 import { type FootnoteRegistry } from "../markdown/footnotes/registry.js";
+import { FullOutputControl } from "./FullOutputControl.js";
 import { type OutputKind } from "./output-kinds.js";
 import { StreamingMarkdown } from "./StreamingMarkdown.js";
 import { TruncationNotice } from "./TruncationNotice.js";
@@ -68,9 +72,21 @@ export function MachineBody(props: MachineBodyProps): React.JSX.Element {
     [bodyText, revision, kind],
   );
 
+  const fullBodyReads = useContext(FullBodyReadsContext);
+
   if (bodyText === undefined || kind === undefined || drawnText === undefined) {
     if (props.content?.status === "unavailable") {
       return <UnavailableBody />;
+    }
+    if (props.content?.status === "large" && fullBodyReads !== undefined) {
+      return (
+        <LargeBody
+          rowId={props.sourceId}
+          contentLength={props.content.contentLength}
+          fullBodyReads={fullBodyReads}
+          holdControlInPlace={props.holdControlInPlace}
+        />
+      );
     }
     // `not-checked`, not `not-loaded`: nothing was asked for, so a skeleton would promise a body.
     return <Nothing kind="not-checked" placement="inline" title={UNREAD_BODY_TITLE} />;
@@ -89,6 +105,37 @@ export function MachineBody(props: MachineBodyProps): React.JSX.Element {
         />
       ) : null}
     </div>
+  );
+}
+
+/** What a large body's control reads and asks through. */
+interface LargeBodyProps {
+  readonly rowId: string;
+  /** The whole body's UTF-8 byte length. */
+  readonly contentLength: number;
+  readonly fullBodyReads: FullBodyReads;
+  readonly holdControlInPlace: ((control: HTMLElement) => void) | undefined;
+}
+
+/** A body its row carries as its size alone: the control that reads it in full. */
+function LargeBody(props: LargeBodyProps): React.JSX.Element {
+  const { fullBodyReads, rowId } = props;
+  const reading = useSyncExternalStore(fullBodyReads.subscribe, () =>
+    fullBodyReads.readingOf(rowId),
+  );
+  // Drawn again with its size alone, an opened body is read again, as the store let it go.
+  useEffect(() => {
+    fullBodyReads.readOpenedBody(rowId);
+  }, [fullBodyReads, rowId]);
+  return (
+    <FullOutputControl
+      measure={byteFigurePart("wire", props.contentLength)}
+      reading={reading}
+      onPress={(control) => {
+        props.holdControlInPlace?.(control);
+        fullBodyReads.open(rowId);
+      }}
+    />
   );
 }
 

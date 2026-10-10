@@ -7,7 +7,9 @@
 // the list, above the reader, never between rows on screen. A listed row stays listed while the
 // window holds it, so no row leaves from above the reader; its preparation is kept and refreshed as
 // its text grows, so a row the virtualizer has not mounted has its pictures ready before a scroll
-// or a jump reaches it. A row the window lets go is prepared again when it comes back.
+// or a jump reaches it. A listed row that changes, as one does when its large body is read in
+// full, is drawn as it last stood until the changed row draws whole, so the change lands formatted
+// on its first frame. A row the window lets go is prepared again when it comes back.
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
@@ -74,8 +76,11 @@ export class PreparedRowGate {
    * Whether a row the window holds draws whole if mounted now: true for a row with nothing to
    * wait on, false for a held row and for a listed one whose newly settled work is still out.
    */
-  public readonly isPrepared = (rowKey: string): boolean =>
-    this.#preparations.get(rowKey)?.preparation.isReady ?? true;
+  public readonly isPrepared = (rowKey: string): boolean => {
+    const held = this.#preparations.get(rowKey);
+    // A changed row's last version is what draws while the change is prepared.
+    return held === undefined || (held.drawn ?? held).preparation.isReady;
+  };
 
   /** Whether the last pass held this row out of the list, so it joins the list later. */
   public readonly isHeldOut = (rowKey: string): boolean => this.#heldOutRowIds.has(rowKey);
@@ -123,11 +128,13 @@ export class PreparedRowGate {
     const heldRowIds = new Set<string>();
     const heldOutRowIds = new Set<string>();
     const listedKeysBeforeHeldRows = new Set<string | undefined>();
-    const isReadyByRowId = new Map<string, boolean>();
+    // What each row is listed as, its last version while a change of it is prepared.
+    const listedRowById = new Map<string, TranscriptEventRow | undefined>();
+    const lastVersionById = new Map<string, TranscriptEventRow>();
     for (const row of model.rows) {
-      isReadyByRowId.set(row.id, this.#isListed(row, prepareRow, sources));
+      listedRowById.set(row.id, this.#listedRowOf(row, prepareRow, sources));
     }
-    const lastHeadHeldRowId = this.#lastHeldBeforeListedRows(model.rows, isReadyByRowId);
+    const lastHeadHeldRowId = this.#lastHeldBeforeListedRows(model.rows, listedRowById);
     let isInHeadHold = lastHeadHeldRowId !== undefined;
     let rowPosition = 0;
     // The window lists each row's identity in the rows' own order, a header standing before a run
@@ -140,14 +147,17 @@ export class PreparedRowGate {
       }
       rowPosition += 1;
       heldRowIds.add(row.id);
-      const isListed = !isInHeadHold && isReadyByRowId.get(row.id) === true;
+      const listedRow = isInHeadHold ? undefined : listedRowById.get(row.id);
       if (row.id === lastHeadHeldRowId) {
         isInHeadHold = false;
       }
-      if (isListed) {
+      if (listedRow !== undefined) {
         listedRowIds.add(row.id);
         viewportRows.push(identity);
-        rows.push(row);
+        rows.push(listedRow);
+        if (listedRow !== row) {
+          lastVersionById.set(row.id, listedRow);
+        }
       } else {
         preparingRows.push(identity);
         heldOutRowIds.add(row.id);
@@ -164,22 +174,30 @@ export class PreparedRowGate {
     this.#heldOutRowIds = heldOutRowIds;
     this.#listedKeysBeforeHeldRows = listedKeysBeforeHeldRows;
     const output: PreparedRows =
-      preparingRows.length === 0
+      preparingRows.length === 0 && lastVersionById.size === 0
         ? { window: model, preparingRows: NO_ROWS }
         : {
             window: {
               ...model,
               viewportRows:
-                last !== undefined &&
-                holdsSameObjects(viewportRows, last.output.window.viewportRows)
-                  ? last.output.window.viewportRows
-                  : viewportRows,
+                preparingRows.length === 0
+                  ? model.viewportRows
+                  : last !== undefined &&
+                      holdsSameObjects(viewportRows, last.output.window.viewportRows)
+                    ? last.output.window.viewportRows
+                    : viewportRows,
               rows,
+              rowsByKey:
+                lastVersionById.size === 0
+                  ? model.rowsByKey
+                  : new Map([...model.rowsByKey, ...lastVersionById]),
             },
             preparingRows:
-              last !== undefined && holdsSameObjects(preparingRows, last.output.preparingRows)
-                ? last.output.preparingRows
-                : preparingRows,
+              preparingRows.length === 0
+                ? NO_ROWS
+                : last !== undefined && holdsSameObjects(preparingRows, last.output.preparingRows)
+                  ? last.output.preparingRows
+                  : preparingRows,
           };
     this.#last = { model, prepareRow, sources, readiness: this.#readiness, output };
     return output;
@@ -216,14 +234,14 @@ export class PreparedRowGate {
    */
   #lastHeldBeforeListedRows(
     rows: readonly TranscriptEventRow[],
-    isReadyByRowId: ReadonlyMap<string, boolean>,
+    listedRowById: ReadonlyMap<string, TranscriptEventRow | undefined>,
   ): string | undefined {
     let lastHeldRowId: string | undefined;
     for (const row of rows) {
       if (this.#listedRowIds.has(row.id)) {
         return lastHeldRowId;
       }
-      if (isReadyByRowId.get(row.id) !== true) {
+      if (listedRowById.get(row.id) === undefined) {
         lastHeldRowId = row.id;
       }
     }
@@ -231,37 +249,44 @@ export class PreparedRowGate {
     return undefined;
   }
 
-  /** Whether `row` is listed: listed before, ready now, or ready since its preparation began. */
-  #isListed(
+  /**
+   * What `row` is listed as, or `undefined` while it waits: itself once listed before, ready now
+   * or ready since its preparation began, and the version of it last listed while a change of a
+   * listed row is still being prepared.
+   */
+  #listedRowOf(
     row: TranscriptEventRow,
     prepareRow: TranscriptRowPreparer,
     sources: TranscriptRowSources,
-  ): boolean {
+  ): TranscriptEventRow | undefined {
     const wasListed = this.#listedRowIds.has(row.id);
     const held = this.#preparations.get(row.id);
     if (held?.row === row) {
-      return wasListed || held.preparation.isReady;
+      return this.#settledRowOf(held, wasListed);
     }
-    if (held !== undefined) {
-      // The row changed, so what it waits on may have too.
-      this.#withdraw(row.id, held);
+    // The row changed, so what it waits on may have too; the version drawn now stays drawn.
+    const drawn = held?.drawn ?? (wasListed ? held : undefined);
+    if (held !== undefined && held !== drawn) {
+      held.preparation.release();
     }
+    this.#preparations.delete(row.id);
     if (this.#isDisposed) {
-      return wasListed;
+      drawn?.preparation.release();
+      return wasListed ? row : undefined;
     }
     // Declared ahead of the call, since a preparation may answer before it returns.
     let preparation: TranscriptRowPreparation | undefined = undefined;
     preparation = prepareRow(row, sources, () => {
       const current = this.#preparations.get(row.id);
       // A pass under way reads the readiness itself.
-      if (current?.preparation !== preparation) {
+      if (current === undefined || current.preparation !== preparation) {
         return;
       }
       for (const listener of this.#workListeners) {
         listener();
       }
-      // A listed row is not held, so the list has nothing to change for it.
-      if (this.#listedRowIds.has(row.id)) {
+      // A listed row drawn as itself is not held, so the list has nothing to change for it.
+      if (this.#listedRowIds.has(row.id) && current.drawn === undefined) {
         return;
       }
       this.#readiness += 1;
@@ -270,22 +295,44 @@ export class PreparedRowGate {
       }
     });
     if (preparation === undefined) {
-      return true;
+      drawn?.preparation.release();
+      return row;
     }
-    this.#preparations.set(row.id, { row, preparation });
-    return wasListed || preparation.isReady;
+    if (preparation.isReady || drawn === undefined) {
+      drawn?.preparation.release();
+      this.#preparations.set(row.id, { row, preparation, drawn: undefined });
+      return wasListed || preparation.isReady ? row : undefined;
+    }
+    this.#preparations.set(row.id, { row, preparation, drawn });
+    return drawn.row;
+  }
+
+  /** What a row held since the last pass is listed as, letting its last version go once whole. */
+  #settledRowOf(held: HeldPreparation, wasListed: boolean): TranscriptEventRow | undefined {
+    if (held.drawn === undefined) {
+      return wasListed || held.preparation.isReady ? held.row : undefined;
+    }
+    if (!held.preparation.isReady) {
+      return held.drawn.row;
+    }
+    held.drawn.preparation.release();
+    this.#preparations.set(held.row.id, { ...held, drawn: undefined });
+    return held.row;
   }
 
   #withdraw(rowId: string, held: HeldPreparation): void {
     this.#preparations.delete(rowId);
     held.preparation.release();
+    held.drawn?.preparation.release();
   }
 }
 
-/** One row's preparation, and the row object it was started for. */
+/** One row's preparation, the row object it was started for, and the version drawn meanwhile. */
 interface HeldPreparation {
   readonly row: TranscriptEventRow;
   readonly preparation: TranscriptRowPreparation;
+  /** The row's last listed version, drawn while this changed one is prepared. */
+  readonly drawn: HeldPreparation | undefined;
 }
 
 /** One pass's inputs and what it published. */
