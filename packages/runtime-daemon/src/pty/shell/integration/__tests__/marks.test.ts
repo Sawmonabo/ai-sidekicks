@@ -6,7 +6,7 @@
 // bash, which loads it from its first prompt command. A shell this machine does not have is
 // skipped.
 
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -118,6 +118,8 @@ interface ShellCase {
   readonly passedThrough: readonly string[];
   /** Turns the shell's command tracing on. */
   readonly traceCommand: string;
+  /** Writes `grouped` from a group of commands whose output goes to `file`. */
+  readonly groupedRedirectCommand: (file: string) => string;
   /** Ends the shell; a bash login shell ends on `logout`, which any other bash refuses. */
   readonly exitCommand: string;
 }
@@ -180,6 +182,7 @@ function bashCases(
       expectedCheckOutput: () => "loaded-bash-profile,loaded-bashrc,ran,,login,unset",
       passedThrough: [PERSON_PROMPT_MARK],
       traceCommand: "set -x",
+      groupedRedirectCommand: (file) => `{ echo grouped; } > ${file}`,
       exitCommand: "logout",
     },
     {
@@ -200,6 +203,7 @@ function bashCases(
       expectedCheckOutput: () => "loaded-bash-profile,ran,login",
       passedThrough: [PERSON_PROMPT_MARK],
       traceCommand: "set -x",
+      groupedRedirectCommand: (file) => `{ echo grouped; } > ${file}`,
       exitCommand: "logout",
     },
   ];
@@ -229,6 +233,7 @@ const SHELL_CASES: readonly ShellCase[] = [
       `loaded-zshenv,loaded-zprofile,loaded-zshrc,loaded-zlogin,ran,${home}`,
     passedThrough: [PERSON_PROMPT_MARK, UNMARKED_END_MARK, FORGED_COMMAND_MARK],
     traceCommand: "set -x",
+    groupedRedirectCommand: (file) => `{ echo grouped; } > ${file}`,
     exitCommand: "exit",
   },
   ...bashCases("bash", ENV_BASH_PATH, (command) => `PROMPT_COMMAND='${command}'`),
@@ -252,6 +257,7 @@ const SHELL_CASES: readonly ShellCase[] = [
     expectedCheckOutput: () => "loaded-fish",
     passedThrough: [PERSON_PROMPT_MARK],
     traceCommand: "set -g fish_trace 1",
+    groupedRedirectCommand: (file) => `begin; echo grouped; end > ${file}`,
     exitCommand: "exit",
   },
 ];
@@ -376,6 +382,13 @@ describe.skipIf(process.platform === "win32")("each shell's marks in a real logi
           expect(inherited.output).toContain(`HOME=${home}`);
           expect(inherited.output).not.toContain(nonce);
           expect(inherited.output).not.toContain(nonceFile);
+
+          // The start mark a group's first command writes reaches the terminal, never the file
+          // the group's output goes to.
+          const groupedFile = path.join(home, "grouped.txt");
+          const grouped = await run(shellCase.groupedRedirectCommand(groupedFile));
+          expect(markKinds(grouped.marks)).toEqual(ranWith(0));
+          expect(readFileSync(groupedFile, "utf8")).toBe("grouped\n");
 
           // A failing command's end mark carries its own exit code, not the hooks' own.
           expect(markKinds((await run("false")).marks)).toEqual(ranWith(1));

@@ -22,10 +22,11 @@ end
 set -g __sidekicks_command_started 0
 set -g __sidekicks_exit_code 0
 
+# Each mark goes to the terminal itself, never into where a person sent the shell's output.
 # Tracing is off inside, so a person's `fish_trace` never writes the nonce into the output.
 function __sidekicks_print_mark --argument-names body
     set -l fish_trace
-    builtin printf '\e]133;%s;nonce=%s\a' $body $__sidekicks_nonce
+    builtin printf '\e]133;%s;nonce=%s\a' $body $__sidekicks_nonce >/dev/tty
 end
 
 function __sidekicks_prompt_hook --on-event fish_prompt

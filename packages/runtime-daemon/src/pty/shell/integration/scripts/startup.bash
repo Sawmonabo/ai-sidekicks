@@ -67,8 +67,10 @@ fi
 __sidekicks_command_started=
 __sidekicks_at_prompt=
 
-# Tracing goes off around the mark and comes back as it was, so a person's `set -x` never writes
-# the nonce into the output; bash 3.2 has no `local -` to do it.
+# Each mark goes to the terminal itself, so the start mark the DEBUG trap writes inside a command
+# whose output is redirected, `{ echo grouped; } > file`, never lands in the file. Tracing goes off
+# around the mark and comes back as it was, so a person's `set -x` never writes the nonce into the
+# output; bash 3.2 has no `local -` to do it.
 __sidekicks_print_mark() {
   builtin local tracing=
   case $- in
@@ -77,7 +79,7 @@ __sidekicks_print_mark() {
       builtin set +x
       ;;
   esac
-  builtin printf '\033]133;%s;nonce=%s\007' "$1" "$__sidekicks_nonce"
+  builtin printf '\033]133;%s;nonce=%s\007' "$1" "$__sidekicks_nonce" >/dev/tty
   if [ -n "$tracing" ]; then
     builtin set -x
   fi

@@ -14,11 +14,12 @@ fi
 
 __sidekicks_command_started=0
 
-# Each hook runs under zsh's own options with tracing off, so a person's `set -x` never writes
-# the nonce into the output.
+# Each mark goes to the terminal itself, never into where a person sent the shell's output. Each
+# hook runs under zsh's own options with tracing off, so a person's `set -x` never writes the
+# nonce into the output.
 __sidekicks_print_mark() {
   builtin emulate -L zsh -o no_xtrace
-  builtin printf '\033]133;%s;nonce=%s\007' "$1" "$__sidekicks_nonce"
+  builtin printf '\033]133;%s;nonce=%s\007' "$1" "$__sidekicks_nonce" >/dev/tty
 }
 
 # Runs first before each prompt, so it reads the command's exit code before any other hook; it
