@@ -21,15 +21,15 @@ import {
 } from "@ai-sidekicks/contracts/transcript/methods";
 import { TRANSCRIPT_READ_LIMIT_MAX } from "@ai-sidekicks/contracts/transcript/limits";
 import type { Handler, MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
-import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type {
   TranscriptMethodName,
   TranscriptMethodRequest,
   TranscriptMethodResponse,
 } from "@ai-sidekicks/contracts/transcript/methods";
 
-import { hydrateStoredEvent, type StoredEventContentRow } from "../../events/content/read.js";
+import { hydrateStoredEvent } from "../../events/content/read.js";
 import type { SearchThread } from "../../session/search/thread/handle.js";
+import type { TranscriptBodyReader } from "../../transcript/body.js";
 import type { TranscriptWindowReader } from "../../transcript/window.js";
 import { RegistryDispatchError } from "../registry.js";
 
@@ -267,29 +267,19 @@ export function registerTranscriptRead(
   });
 }
 
-/**
- * What `transcript.bodyRead` reads through: the stored event row.
- *
- * @consumedBy the daemon's method wiring for the transcript's full-body read
- */
+/** What `transcript.bodyRead` reads through: the stored event row. */
 export interface TranscriptBodyReadDependencies {
   /**
-   * The stored row of one event in one session, or `undefined` when the session holds no event
-   * with that id. An unknown session throws `SessionNotFoundError`, reported as
-   * `session.not_found`.
+   * Its `readStoredEventRow` answers `undefined` when the session holds no event with that id,
+   * and throws `SessionNotFoundError` (`session.not_found`) for an unknown session.
    */
-  readonly readStoredEventRow: (
-    sessionId: SessionId,
-    eventId: string,
-  ) => Promise<StoredEventContentRow | undefined>;
+  readonly transcriptBodies: Pick<TranscriptBodyReader, "readStoredEventRow">;
 }
 
 /**
  * Binds `transcript.bodyRead`, which returns a row's large body or full output. The row id is the
  * stored event's id; the answer is the body, or `absent` for a row that carries none. An id the
  * session does not hold is refused on the `rowId` path, so it differs from a row with no body.
- *
- * @consumedBy the daemon's method wiring for the transcript's full-body read
  */
 export function registerTranscriptBodyRead(
   registry: MethodRegistry,
@@ -298,7 +288,10 @@ export function registerTranscriptBodyRead(
   registerTranscriptMethod(registry, {
     method: TRANSCRIPT_BODY_READ_METHOD,
     handler: async (request) => {
-      const storedRow = await dependencies.readStoredEventRow(request.sessionId, request.rowId);
+      const storedRow = dependencies.transcriptBodies.readStoredEventRow(
+        request.sessionId,
+        request.rowId,
+      );
       if (storedRow === undefined) {
         throw new RegistryDispatchError(
           "invalid_params",

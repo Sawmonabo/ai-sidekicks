@@ -1,9 +1,10 @@
 // The `session_events` reads, run on the daemon's read-only connection: a session's head, the rows
 // after a log position, of every type or of named types, the rows up to one, the rows of a
-// sequence window and the rows at named sequences, each in sequence order, and the check of a
-// cursor against the head. A row crosses in from the database file, so each one is checked against
-// the envelope contract on the way out. A range the session skipped past as damaged is never read,
-// and while its history is damaged no read goes past its last good point.
+// sequence window and the rows at named sequences, each in sequence order, one row by its event id
+// with its stored body, and the check of a cursor against the head. A row crosses in from the
+// database file, so each one is checked against the envelope contract on the way out. A range the
+// session skipped past as damaged is never read, and while its history is damaged no read goes
+// past its last good point.
 
 import type { Database } from "better-sqlite3";
 
@@ -16,6 +17,7 @@ import {
 } from "@ai-sidekicks/contracts/session/event-cursor";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
+import type { StoredEventContentRow } from "../content/read.js";
 import { outsideSkippedRangesSql } from "./skipped-ranges.js";
 
 /** A `session_events` row as the reads select it, before it is checked. */
@@ -31,6 +33,11 @@ interface StoredEventRow {
   readonly correlation_id: unknown;
   readonly causation_id: unknown;
   readonly version: unknown;
+}
+
+/** A `session_events` row with the body its `content_payload` column holds. */
+interface StoredEventRowWithBody extends StoredEventRow {
+  readonly content_payload: string | null;
 }
 
 /** The head row; `sequence` is NULL when the session has no events. */
@@ -90,6 +97,8 @@ export interface SessionEventReads {
   readWindow(sessionId: SessionId, fromSequence: number, toSequence: number): EventEnvelope[];
   /** The events at the given sequences; a sequence the session holds no event at reads none. */
   readAtSequences(sessionId: SessionId, sequences: readonly number[]): EventEnvelope[];
+  /** The event `eventId` with its stored body, or `undefined` when the session reads none. */
+  readStoredRow(sessionId: SessionId, eventId: string): StoredEventContentRow | undefined;
 }
 
 const SELECTED_COLUMNS = `id, session_id, sequence, occurred_at, category, type, actor, payload,
@@ -164,6 +173,12 @@ export function prepareSessionEventReads(
         AND ${outsideSkippedRangesSql("event")}
       ORDER BY sequence ASC`,
   );
+  const storedRowStatement = reader.prepare(
+    `SELECT ${SELECTED_COLUMNS}, content_payload
+       FROM session_events AS event
+      WHERE session_id = ? AND id = ? AND sequence < ?
+        AND ${outsideSkippedRangesSql("event")}`,
+  );
   return {
     readHead: (sessionId) => {
       const head = (headStatement.get(sessionId) as HeadRow).sequence;
@@ -215,6 +230,16 @@ export function prepareSessionEventReads(
           sessionReadBound(readDamagedFromSequence, sessionId),
         ) as StoredEventRow[]
       ).map(readEnvelope),
+    readStoredRow: (sessionId, eventId) => {
+      const row = storedRowStatement.get(
+        sessionId,
+        eventId,
+        sessionReadBound(readDamagedFromSequence, sessionId),
+      ) as StoredEventRowWithBody | undefined;
+      return row === undefined
+        ? undefined
+        : { envelope: readEnvelope(row), contentPayload: row.content_payload };
+    },
   };
 }
 
