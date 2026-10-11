@@ -61,6 +61,8 @@ interface StoredApprovalResolution {
    * a one-time answer and for a rule that could not be kept.
    */
   readonly rememberedScope: RememberedScope | undefined;
+  /** The command or path as the person corrected it, on an approval that changed it. */
+  readonly editedAction: string | undefined;
   readonly resolvedAt: string;
 }
 
@@ -84,6 +86,7 @@ interface InsertedApprovalResolution {
   readonly clientResolutionId: string;
   readonly decision: ApprovalDecision;
   readonly effectiveScope: string;
+  readonly editedAction: string | undefined;
   readonly resolvedAt: string;
 }
 
@@ -113,15 +116,31 @@ const INSERT_REQUEST_SQL = `INSERT INTO approval_requests
   VALUES (@id, @session_id, @run_id, @requested_by, @category, @scope, @resource_descriptor,
           @ask_id, 'pending', @created_at, @created_at)`;
 
+// A rebuild's write of an ask: a row a workflow gate's answer names outlives the rebuild's clear,
+// since no rebuild writes the gate's rows, and is written over with what the log says.
+const REWRITE_REQUEST_SQL = `${INSERT_REQUEST_SQL}
+  ON CONFLICT (id) DO UPDATE SET
+    session_id = excluded.session_id, run_id = excluded.run_id,
+    requested_by = excluded.requested_by, category = excluded.category, scope = excluded.scope,
+    resource_descriptor = excluded.resource_descriptor, ask_id = excluded.ask_id,
+    state = excluded.state, created_at = excluded.created_at, updated_at = excluded.updated_at`;
+
 const SETTLE_PENDING_SQL = `UPDATE approval_requests
     SET state = @state, updated_at = @updated_at
   WHERE id = @id
     AND state = 'pending'`;
 
 const INSERT_RESOLUTION_SQL = `INSERT INTO approval_resolutions
-    (request_id, device_id, client_resolution_id, decision, effective_scope, resolved_at)
+    (request_id, device_id, client_resolution_id, decision, effective_scope, edited_action,
+     resolved_at)
   VALUES (@request_id, @device_id, @client_resolution_id, @decision, @effective_scope,
-          @resolved_at)`;
+          @edited_action, @resolved_at)`;
+
+// Refused, by changing no row, once the correction was carried out.
+const INSERT_CORRECTION_USE_SQL = `INSERT INTO approval_correction_uses
+    (request_id, session_id, used_at)
+  VALUES (@request_id, @session_id, @used_at)
+  ON CONFLICT (request_id) DO NOTHING`;
 
 const SET_REMEMBERED_SCOPE_SQL = `UPDATE approval_resolutions
     SET remembered_scope_kind = @kind, remembered_scope_pattern = @pattern
@@ -132,7 +151,7 @@ const SELECT_REQUESTS_SQL = `SELECT request.id, request.session_id, request.run_
        request.ask_id, request.state, request.created_at, request.updated_at,
        resolution.device_id, resolution.client_resolution_id, resolution.decision,
        resolution.effective_scope, resolution.remembered_scope_kind,
-       resolution.remembered_scope_pattern, resolution.resolved_at,
+       resolution.remembered_scope_pattern, resolution.edited_action, resolution.resolved_at,
        session.shape AS session_shape
   FROM approval_requests AS request
   LEFT JOIN approval_resolutions AS resolution ON resolution.request_id = request.id
@@ -184,6 +203,7 @@ interface ApprovalRequestRow {
   readonly effective_scope: string | null;
   readonly remembered_scope_kind: RememberedScopeKind | null;
   readonly remembered_scope_pattern: string | null;
+  readonly edited_action: string | null;
   readonly resolved_at: string | null;
   readonly session_shape: string | null;
 }
@@ -204,8 +224,16 @@ export function runLiveStatement(sessionId: SessionId, runId: RunId): WriteState
 
 /** The statement that records a new pending ask. */
 export function insertRequestStatement(request: InsertedApprovalRequest): WriteStatement {
+  return { ...rewriteRequestStatement(request), sql: INSERT_REQUEST_SQL };
+}
+
+/**
+ * The statement a rebuild records an ask with: the live one's row, written over a row the rebuild
+ * kept because a workflow gate's answer names it.
+ */
+export function rewriteRequestStatement(request: InsertedApprovalRequest): WriteStatement {
   return {
-    sql: INSERT_REQUEST_SQL,
+    sql: REWRITE_REQUEST_SQL,
     bindings: {
       id: request.approvalRequestId,
       session_id: request.sessionId,
@@ -244,8 +272,25 @@ export function insertResolutionStatement(resolution: InsertedApprovalResolution
       client_resolution_id: resolution.clientResolutionId,
       decision: resolution.decision,
       effective_scope: resolution.effectiveScope,
+      edited_action: resolution.editedAction ?? null,
       resolved_at: resolution.resolvedAt,
     },
+    expectedRowCount: 1,
+  };
+}
+
+/**
+ * The statement that records the one carrying out of an approved card's corrected command or path,
+ * refused when it was carried out already.
+ */
+export function insertCorrectionUseStatement(use: {
+  readonly approvalRequestId: ApprovalRequestId;
+  readonly sessionId: SessionId;
+  readonly usedAt: string;
+}): WriteStatement {
+  return {
+    sql: INSERT_CORRECTION_USE_SQL,
+    bindings: { request_id: use.approvalRequestId, session_id: use.sessionId, used_at: use.usedAt },
     expectedRowCount: 1,
   };
 }
@@ -383,6 +428,7 @@ function resolutionOf(row: ApprovalRequestRow): StoredApprovalResolution | undef
             pattern: row.remembered_scope_pattern,
             sense: SENSE_BY_DECISION[row.decision],
           },
+    editedAction: row.edited_action ?? undefined,
     resolvedAt: row.resolved_at,
   };
 }

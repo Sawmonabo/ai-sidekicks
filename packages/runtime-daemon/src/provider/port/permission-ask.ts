@@ -45,6 +45,12 @@ export interface ProviderPermissionAsk {
    * (Claude Code's `suppress_always_allow_rule`), so no rule in force answers it.
    */
   isProviderFlagged: boolean;
+  /**
+   * Whether an ask rule the session's level adds sent the ask rather than the provider's own check
+   * or the person's rules, as Claude Code's `Bash(rm *)` at Reviewed sends a removal its check did
+   * not flag; the level answers such an ask itself.
+   */
+  isSentByLevelRule?: boolean | undefined;
   /** The held tool call's id (Claude Code's `tool_use_id`, Codex's `itemId`), where it sent one. */
   toolCallId?: string | undefined;
   prompt?: string | undefined;

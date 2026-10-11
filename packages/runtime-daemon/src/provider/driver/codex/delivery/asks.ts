@@ -139,12 +139,12 @@ function composeCorrectionSteer(action: ProviderAskAction, editedAction: string)
 }
 
 // What a corrected action is matched by when Codex asks for it again in the turn it was made in.
-function correctionKeyOf(turnId: string, action: ProviderAskAction): string | undefined {
+function correctionKeyOf(action: ProviderAskAction): string | undefined {
   if (action.kind === "command") {
-    return `${turnId}\u0000command\u0000${action.command}`;
+    return `command\u0000${action.command}`;
   }
   return action.kind === "file_change" && action.paths.length === 1
-    ? `${turnId}\u0000file_change\u0000${action.paths[0] ?? ""}`
+    ? `file_change\u0000${action.paths[0] ?? ""}`
     : undefined;
 }
 
@@ -157,9 +157,12 @@ export class CodexAskHandOff {
   readonly #readGitFolder: CodexGitFolderReader;
   // The approvals held for their card, by session then Codex's request id.
   readonly #heldBySession = new Map<SessionId, Map<string, CodexHeldApproval>>();
-  // The corrected commands and paths approved, by session, each with the card it was approved on
-  // and taken by Codex's next ask for it in the same turn.
-  readonly #correctionsBySession = new Map<SessionId, Map<string, ApprovalRequestId>>();
+  // The corrected commands and paths approved, by session then turn, each with the card it was
+  // approved on, taken by Codex's next ask for it in the same turn and dropped when the turn ends.
+  readonly #correctionsBySession = new Map<
+    SessionId,
+    Map<string, Map<string, ApprovalRequestId>>
+  >();
 
   constructor(dependencies: CodexAskHandOffDependencies) {
     this.#dispatch = dependencies.dispatch;
@@ -171,8 +174,8 @@ export class CodexAskHandOff {
 
   /**
    * Delivers one approval or question as a permission ask on its run's binding and, once the run
-   * engine admits it, hands it to its owner and holds it for the answer. An ask on no run, or one
-   * the run engine absorbed or refused, is refused at Codex.
+   * engine admits it, holds it for the answer, an approval handed to its owner by the decision's
+   * `onHeld`. An ask on no run, or one the run engine absorbed or refused, is refused at Codex.
    */
   async hold(
     sessionId: SessionId,
@@ -264,6 +267,15 @@ export class CodexAskHandOff {
     this.#correctionsBySession.delete(sessionId);
   }
 
+  /** Drops the corrections an ended turn's asks could have carried out, which no later turn may. */
+  forgetTurnCorrections(sessionId: SessionId, turnId: string): void {
+    const byTurn = this.#correctionsBySession.get(sessionId);
+    byTurn?.delete(turnId);
+    if (byTurn?.size === 0) {
+      this.#correctionsBySession.delete(sessionId);
+    }
+  }
+
   // The words a decline is followed by: a decline's reason, or the corrected command or path, which
   // Codex's next ask for then carries out the card it was approved on.
   #steerAfter(
@@ -282,12 +294,15 @@ export class CodexAskHandOff {
       held.action.kind === "command"
         ? { kind: "command", command: correction.editedAction }
         : { kind: "file_change", paths: [correction.editedAction] };
-    const key = held.turnId === undefined ? undefined : correctionKeyOf(held.turnId, corrected);
-    if (key !== undefined) {
-      const corrections =
-        this.#correctionsBySession.get(sessionId) ?? new Map<string, ApprovalRequestId>();
+    const key = correctionKeyOf(corrected);
+    if (held.turnId !== undefined && key !== undefined) {
+      const byTurn =
+        this.#correctionsBySession.get(sessionId) ??
+        new Map<string, Map<string, ApprovalRequestId>>();
+      const corrections = byTurn.get(held.turnId) ?? new Map<string, ApprovalRequestId>();
       corrections.set(key, correction.approvalRequestId);
-      this.#correctionsBySession.set(sessionId, corrections);
+      byTurn.set(held.turnId, corrections);
+      this.#correctionsBySession.set(sessionId, byTurn);
     }
     return composeCorrectionSteer(held.action, correction.editedAction);
   }
@@ -335,8 +350,9 @@ export class CodexAskHandOff {
         : this.#recordFor(sessionId)?.delivery.changedPathsByItemId.get(itemId);
     const { action, ruleScopes } = readCodexAskAction(request.method, params, changedPaths);
     const turnId = readNonEmptyString(params, "turnId");
-    const correctionKey = turnId === undefined ? undefined : correctionKeyOf(turnId, action);
-    const corrections = this.#correctionsBySession.get(sessionId);
+    const correctionKey = correctionKeyOf(action);
+    const corrections =
+      turnId === undefined ? undefined : this.#correctionsBySession.get(sessionId)?.get(turnId);
     const correctionOf = correctionKey === undefined ? undefined : corrections?.get(correctionKey);
     if (correctionKey !== undefined) {
       corrections?.delete(correctionKey);
@@ -353,24 +369,27 @@ export class CodexAskHandOff {
       readNonEmptyString(params, "serverName") ??
       request.method;
     const prompt = readNonEmptyString(params, "reason") ?? readNonEmptyString(params, "message");
-    port
-      .takeAsk({
-        sessionId,
-        runId,
-        requestId: request.requestId,
-        toolName,
-        input: request.params,
-        action,
-        ruleScopes,
-        isProviderFlagged: false,
-        ...(itemId === undefined ? {} : { toolCallId: itemId }),
-        ...(prompt === undefined ? {} : { prompt }),
-        ...(correctionOf === undefined ? {} : { correctionOf }),
-      })
-      .catch((cause: unknown) => {
-        this.#reportOwnerFailure("permission-ask", sessionId, cause);
-      });
-    return { decision: "held" };
+    // Taken once the connection holds the ask, since a designed answer reaches it at once.
+    const takeAsk = (): void => {
+      port
+        .takeAsk({
+          sessionId,
+          runId,
+          requestId: request.requestId,
+          toolName,
+          input: request.params,
+          action,
+          ruleScopes,
+          isProviderFlagged: false,
+          ...(itemId === undefined ? {} : { toolCallId: itemId }),
+          ...(prompt === undefined ? {} : { prompt }),
+          ...(correctionOf === undefined ? {} : { correctionOf }),
+        })
+        .catch((cause: unknown) => {
+          this.#reportOwnerFailure("permission-ask", sessionId, cause);
+        });
+    };
+    return { decision: "held", onHeld: takeAsk };
   }
 
   #handQuestion(sessionId: SessionId, runId: RunId, request: CodexInboundServerRequest): void {

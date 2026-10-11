@@ -29,6 +29,7 @@ beforeEach(async () => {
   fixture = await openRunEngineFixture();
   service = new ApprovalService({
     reader: fixture.database.reader,
+    writer: fixture.database.writer,
     sessionEvents: fixture.sessionEvents,
     followAll: () => () => {},
     workingFolders: { raiseStaleness: async () => {} },

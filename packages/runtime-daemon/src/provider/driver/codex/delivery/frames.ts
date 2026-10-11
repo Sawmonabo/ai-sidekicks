@@ -119,6 +119,7 @@ export interface CodexFrameDeliveryDependencies {
   readonly commandOutput: PortRegistration<CommandOutputPublisher>;
   /** Settles the card of an ask Codex resolved itself. */
   readonly withdrawAsk: (sessionId: SessionId, requestId: string, askKind: CodexAskKind) => void;
+  readonly forgetTurnCorrections: (sessionId: SessionId, turnId: string) => void;
   readonly reportDiagnostic: CodexDiagnosticSink;
   /** The driver's diagnostic channel, recording a frame the driver has no row or cause for. */
   readonly diagnostics: DriverDiagnosticsEmitter;
@@ -689,7 +690,7 @@ export class CodexFrameDelivery {
     );
   }
 
-  // An ask a turn that ended still held can no longer be answered, so its card is withdrawn.
+  // A turn that ended answers no ask it held: their cards are withdrawn, its corrections dropped.
   #withdrawEndedTurnAsks(
     record: CodexSessionRecord,
     params: Readonly<Record<string, unknown>>,
@@ -703,6 +704,7 @@ export class CodexFrameDelivery {
     for (const forgotten of record.service.forgetHeldRequestsOfTurn(threadId, turnId)) {
       this.#dependencies.withdrawAsk(record.sessionId, forgotten.requestId, forgotten.askKind);
     }
+    this.#dependencies.forgetTurnCorrections(record.sessionId, turnId);
   }
 
   // Codex settled an ask itself, such as at a turn's interrupt: no answer is sent for it, and its

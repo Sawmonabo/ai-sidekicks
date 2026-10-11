@@ -335,24 +335,15 @@ export class ClaudeInboundRequests {
     if (toolName === CLAUDE_PLAN_EXIT_TOOL_NAME) {
       this.#recordPlan(live, run, input);
     }
-    // At Reviewed only Claude Code's own removal check reaches the person; a removal the daemon's
-    // `Bash(rm *)` rule sent while the process reviews in auto mode is allowed here, and every
-    // other rule's ask goes to the person.
-    if (
+    // At Reviewed only Claude Code's own removal check reaches the person: a removal the level's
+    // `Bash(rm *)` rule sent while the process reviews in auto mode is the level's to allow, which
+    // the approval pipeline does, and every other rule's ask goes to the person.
+    const isSentByLevelRule =
       live.executionPosture?.mode === "reviewed" &&
       body["decision_reason_type"] === CLAUDE_RULE_DECISION &&
       matchesClaudeReviewedRemovalRule(toolName, input) &&
       this.#dependencies.permissionModeFor(live.sessionId) ===
-        CLAUDE_PERMISSION_MODE_BY_LEVEL.reviewed
-    ) {
-      answerClaudeRequest(
-        live,
-        request.requestId,
-        { behavior: "allow", updatedInput: input },
-        this.#dependencies.diagnostics,
-      );
-      return;
-    }
+        CLAUDE_PERMISSION_MODE_BY_LEVEL.reviewed;
     const toolCallId = readNonEmptyString(body, "tool_use_id");
     const prompt = readNonEmptyString(body, "title") ?? readNonEmptyString(body, "description");
     const { action, ruleScopes, isProviderFlagged } = readClaudeAskAction(toolName, input, body);
@@ -367,6 +358,7 @@ export class ClaudeInboundRequests {
         action,
         ruleScopes,
         isProviderFlagged,
+        ...(isSentByLevelRule ? { isSentByLevelRule } : {}),
         ...(toolCallId === undefined ? {} : { toolCallId }),
         ...(prompt === undefined ? {} : { prompt }),
       });

@@ -123,6 +123,7 @@ type DirectoryTable =
   | "worktrees"
   | "approvalRequests"
   | "approvalResolutions"
+  | "correctionUses"
   | "gateResolutions"
   | "reviewerDenials"
   | "artifactManifests"
@@ -153,6 +154,7 @@ const DIRECTORY_ROW_QUERIES: Record<DirectoryTable, string> = {
   approvalRequests: "SELECT session_id FROM approval_requests ORDER BY 1",
   approvalResolutions: `SELECT request.session_id FROM approval_resolutions
     JOIN approval_requests AS request ON request.id = approval_resolutions.request_id ORDER BY 1`,
+  correctionUses: "SELECT session_id FROM approval_correction_uses ORDER BY 1",
   gateResolutions: "SELECT approval_request_id FROM workflow_gate_resolutions ORDER BY 1",
   reviewerDenials: "SELECT session_id FROM reviewer_denials ORDER BY 1",
   artifactManifests: "SELECT session_id FROM artifact_manifests ORDER BY 1",
@@ -346,8 +348,9 @@ export class PurgeFixture {
   }
 
   /**
-   * One answered ask of the session, the workflow gate answer it settled on a run of
-   * `workflowVersionId`, a reviewer's block, and an artifact with its stored payload's reference.
+   * One answered ask of the session with its correction carried out, the workflow gate answer it
+   * settled on a run of `workflowVersionId`, a reviewer's block, and an artifact with its stored
+   * payload's reference.
    * The ask's id is `request-<sessionId>`.
    */
   async seedApprovalAndArtifactRows(
@@ -371,6 +374,11 @@ export class PurgeFixture {
                                                 decision, effective_scope, resolved_at)
               VALUES (?, 'device-1', 'resolution-1', 'approved', 'approve', ?)`,
         bindings: [requestId, PURGE_INSTANT],
+      },
+      {
+        sql: `INSERT INTO approval_correction_uses (request_id, session_id, used_at)
+              VALUES (?, ?, ?)`,
+        bindings: [requestId, sessionId, PURGE_INSTANT],
       },
       {
         sql: `INSERT INTO workflow_gate_resolutions (id, workflow_run_id, sequence, node_id,

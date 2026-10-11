@@ -55,7 +55,6 @@ import {
   createStreamedGitRunner,
   type StreamedGitRunner,
 } from "../workspace/clone/streamed-git.js";
-import { APPROVALS_PROJECTION } from "../approvals/projection.js";
 import { InFlightMutations } from "../ipc/in-flight-mutations.js";
 import { LocalIpcGateway } from "../ipc/local-gateway.js";
 import { ProtocolNegotiator } from "../ipc/protocol-negotiation.js";
@@ -84,9 +83,7 @@ import { refuseSessionEvent } from "../recovery/session-write-refusal.js";
 import { StartupRecovery } from "../recovery/startup.js";
 import { RecoveryStatusTracker } from "../recovery/status.js";
 import { RecoveryWriteGate } from "../recovery/write-gate.js";
-import { SESSION_DIRECTORY_PROJECTION } from "../session/directory/projection.js";
 import { RunEngine } from "../session/run/engine.js";
-import { RUNS_PROJECTION } from "../session/run/projection.js";
 import { RunStateReader } from "../session/run/read.js";
 import { SearchThread } from "../session/search/thread/handle.js";
 import { readFolderPlace, type FolderPlace } from "../workspace/folder/place.js";
@@ -97,6 +94,7 @@ import type { ServiceLogFiles } from "./service-log.js";
 import { readOrMintLocalMachine, type LocalMachine } from "./machine/local.js";
 import { MachineSettingsFile } from "./machine/settings/file.js";
 import { registerMachineSettingsMethods } from "./machine/settings/methods.js";
+import { SESSION_PROJECTIONS } from "./projections.js";
 import type { ProcessTreeUsage } from "./process-tree-usage.js";
 import { DaemonProviders, type ProviderPorts } from "./providers.js";
 import { bindSocket, mintSessionToken, prepareRunFolder } from "./run-folder.js";
@@ -366,7 +364,7 @@ export class DaemonProcess {
       reader,
       writer,
       sessionEvents: sessionServices.sessions,
-      projections: [SESSION_DIRECTORY_PROJECTION, RUNS_PROJECTION, APPROVALS_PROJECTION],
+      projections: SESSION_PROJECTIONS,
     });
     const damagedHistory = new DamagedHistory({
       reader,

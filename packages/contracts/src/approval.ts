@@ -538,8 +538,8 @@ export const ApprovalRequestedPayloadSchema: z.ZodType<ApprovalRequestedPayload>
   .strict();
 
 /**
- * `approval.approved` and `approval.rejected`: the answer, the device it came from, and the id the
- * answering client minted.
+ * `approval.approved` and `approval.rejected`: the answer, the device it came from, the id the
+ * answering client minted, and on an approval the command or path as the person corrected it.
  */
 export type ApprovalResolvedPayload = {
   sessionId: SessionId;
@@ -550,6 +550,8 @@ export type ApprovalResolvedPayload = {
   effectiveScope: string;
   deviceId: DeviceId;
   clientResolutionId: string;
+  /** The corrected command or path, which is what runs; only on `approval.approved`. */
+  editedAction?: string | undefined;
 };
 /** Parses an {@link ApprovalResolvedPayload}. */
 export const ApprovalResolvedPayloadSchema: z.ZodType<ApprovalResolvedPayload> = z
@@ -562,6 +564,7 @@ export const ApprovalResolvedPayloadSchema: z.ZodType<ApprovalResolvedPayload> =
     effectiveScope: approvalScopeSchema("ApprovalResolvedPayload.effectiveScope"),
     deviceId: DeviceIdSchema,
     clientResolutionId: z.uuid(),
+    editedAction: z.string().min(1).optional(),
   })
   .strict();
 

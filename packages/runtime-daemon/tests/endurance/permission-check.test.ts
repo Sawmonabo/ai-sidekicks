@@ -2,8 +2,9 @@
 // built-in rules held resident, a real rules store and a real log on a scratch database: a workflow
 // start the rules allow and one a rule over the asking run's posture refuses, each a full
 // evaluation; and a provider's ask the daemon answers itself, one a rule in force answers, and one
-// that raises its card, a durable write. It prints p50 and p95 per class against its budget, fails
-// on any class over one, and proves every start was evaluated afresh, none served from a cache.
+// that raises its card, a durable write. It prints p50, p95 and p99 per class against its p95
+// budget, fails on any class over one, and proves every start was evaluated afresh, none served
+// from a cache.
 
 import { copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -36,10 +37,14 @@ import {
 import type { ProviderPermissionAsk } from "../../src/provider/port/permission-ask.js";
 import { timingOf, type Timing } from "./timing.js";
 
-// A workflow start's decision by the rules, marshaling into and out of the engine included.
+// A workflow start's decision by the rules, marshaling into and out of the engine included: the
+// rules engine's own 1 ms target for one decision.
 const RULES_P95_BUDGET_MS = 1;
-// A provider's ask answered or carded by the daemon, the card's durable write included.
-const ASK_P95_BUDGET_MS = 10;
+// A provider's ask the daemon answers, by its own answer or a rule in force: the 10 ms of the
+// daemon's time one answer may cost.
+const ANSWER_P95_BUDGET_MS = 10;
+// A provider's ask that raises its card, a durable write: the log's 10 ms target for one append.
+const CARD_P95_BUDGET_MS = 10;
 
 // Untimed checks first, so the engine and the statements are warm; then the timed ones.
 const WARMUP_CHECKS = 100;
@@ -116,6 +121,7 @@ beforeAll(async () => {
   });
   const approvals = new ApprovalService({
     reader: database.reader,
+    writer: database.writer,
     sessionEvents,
     followAll: () => () => {},
     workingFolders: { raiseStaleness: async () => {} },
@@ -223,7 +229,7 @@ describe("the permission check's cost per decision", () => {
 
     classes.push({
       label: "provider ask, the daemon's own answer",
-      budgetMs: ASK_P95_BUDGET_MS,
+      budgetMs: ANSWER_P95_BUDGET_MS,
       timing: await measure(
         (index) =>
           check.check({
@@ -241,7 +247,7 @@ describe("the permission check's cost per decision", () => {
     });
     classes.push({
       label: "provider ask, a rule in force",
-      budgetMs: ASK_P95_BUDGET_MS,
+      budgetMs: ANSWER_P95_BUDGET_MS,
       timing: await measure(
         (index) =>
           check.check({
@@ -255,7 +261,7 @@ describe("the permission check's cost per decision", () => {
     });
     classes.push({
       label: "provider ask, a card raised",
-      budgetMs: ASK_P95_BUDGET_MS,
+      budgetMs: CARD_P95_BUDGET_MS,
       timing: await measure(
         (index) =>
           check.check({
@@ -270,11 +276,12 @@ describe("the permission check's cost per decision", () => {
 
     console.info(
       [
-        `Permission check, ${String(TIMED_CHECKS)} timed checks per class (p50/p95, worst):`,
+        `Permission check, ${String(TIMED_CHECKS)} timed checks per class (p50/p95/p99, worst):`,
         ...classes.map(
           ({ label, budgetMs, timing }) =>
-            `  ${label}: ${timing.p50Ms.toFixed(3)}/${timing.p95Ms.toFixed(3)} ms, worst ` +
-            `${timing.worstMs.toFixed(3)} ms; budget ${String(budgetMs)} ms at p95`,
+            `  ${label}: ${timing.p50Ms.toFixed(3)}/${timing.p95Ms.toFixed(3)}/` +
+            `${timing.p99Ms.toFixed(3)} ms, worst ${timing.worstMs.toFixed(3)} ms; ` +
+            `budget ${String(budgetMs)} ms at p95`,
         ),
       ].join("\n"),
     );

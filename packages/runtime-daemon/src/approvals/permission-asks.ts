@@ -2,9 +2,11 @@
 // ask passes the permission check, which answers it itself where the daemon has an answer (the
 // refusal of a background Claude Code command, the allow of an agent's own memory note, a rule in
 // force on its subject) and else raises its card. An answer the daemon gives goes straight back to
-// its provider with no record, and an allow among them marks the session's working folder stale,
-// as an approved card does. A card's answer is recorded, then goes back to the provider that holds
-// the call, decision first, with the rule it made, which is recorded once the provider kept it.
+// its provider with no record, and an allow among them marks the session's working folder stale, as
+// an approved card does. An ask the check could not decide is refused at its provider, so no call
+// waits on a check that failed, and the failure is thrown on to the driver that handed it. A card's
+// answer is recorded, then goes back to the provider that holds the call, decision first, with the
+// rule it made, which is recorded once the provider kept it.
 
 import type {
   ApprovalResolveRequest,
@@ -32,11 +34,14 @@ import { ApprovalRuleNotKeptError } from "./refusals.js";
 import type { ApprovalRules } from "./rules.js";
 import type { ApprovalService } from "./service.js";
 
+// What the agent reads when its call was refused because the check itself failed.
+const CHECK_FAILED_REFUSAL = "This call could not be checked, so it did not run.";
+
 /** What the intake raises cards through and answers providers with. */
 export interface PermissionAsksDeps {
   readonly approvals: Pick<
     ApprovalService,
-    "resolve" | "withdraw" | "readRequest" | "readAskRequest" | "markAllowed"
+    "resolve" | "withdraw" | "readRequest" | "readAskRequest" | "markWorkingFolderStale"
   >;
   readonly permissionCheck: Pick<PermissionCheckService, "check">;
   readonly rules: Pick<ApprovalRules, "record" | "readProjectFolders">;
@@ -71,7 +76,8 @@ export class PermissionAsks implements PermissionAskPort {
    * Answers the ask itself where the permission check has an answer for it, else raises its card
    * under an ask id the daemon mints, so a provider that numbers its asks afresh after a restart
    * never reaches a card already settled; the same ask delivered again while held raises nothing.
-   * Rejects when the card could not be raised, as the approval service's create does.
+   * Rejects with what the check threw when it could not decide, a card that could not be raised
+   * among them, once the provider's call is refused with the reason.
    */
   async takeAsk(ask: ProviderPermissionAsk): Promise<void> {
     const key = heldKeyOf(ask.runId, ask.requestId);
@@ -103,7 +109,7 @@ export class PermissionAsks implements PermissionAskPort {
       if (held.withdrawal.signal.aborted && error === held.withdrawal.signal.reason) {
         return;
       }
-      throw error;
+      return await this.#refuseUnchecked(ask, error);
     }
     if (checked.reason === "pending_approval") {
       if (held.withdrawal.signal.aborted) {
@@ -121,7 +127,7 @@ export class PermissionAsks implements PermissionAskPort {
       response: providerAnswerOf(checked),
     });
     if (checked.allowed) {
-      await this.#deps.approvals.markAllowed(ask.sessionId);
+      await this.#deps.approvals.markWorkingFolderStale(ask.sessionId);
     }
   }
 
@@ -197,6 +203,24 @@ export class PermissionAsks implements PermissionAskPort {
       await this.#deps.rules.record(stored, madeRule);
     }
     return response;
+  }
+
+  // Refuses the call the check could not decide, then throws the check's failure on.
+  async #refuseUnchecked(ask: ProviderPermissionAsk, checkFailure: unknown): Promise<never> {
+    try {
+      await this.#deps.respondToRequest({
+        runId: ask.runId,
+        requestId: ask.requestId,
+        response: { decision: "refuse", reason: CHECK_FAILED_REFUSAL },
+      });
+    } catch (refusalFailure) {
+      throw new AggregateError(
+        [checkFailure, refusalFailure],
+        "The check of a provider's ask failed, and so did refusing the call",
+        { cause: refusalFailure },
+      );
+    }
+    throw checkFailure;
   }
 
   /** Lets go of the asks of a run that ended, whose cards its approval service cancels. */

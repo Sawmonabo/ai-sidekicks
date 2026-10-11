@@ -548,7 +548,7 @@ describe("Codex approval answers", () => {
 });
 
 describe("Codex corrections", () => {
-  it("names the card a corrected command carries out in its own turn, and none in a later one", async () => {
+  it("names a correction's card in its own turn, and none in a later one", async () => {
     const { harness } = await routedAskHarness(undefined);
     harness.server.on("turn/steer", () => ({ result: { turnId: TURN_ID } }));
     const taken: ProviderPermissionAsk[] = [];

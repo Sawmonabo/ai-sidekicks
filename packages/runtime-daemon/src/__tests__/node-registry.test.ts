@@ -49,7 +49,7 @@ describe("NodeRegistry", () => {
     expect(registry.lookup("node-never-registered", OWNER_USER_ID)).toBeUndefined();
   });
 
-  it("allows an agent's start as the local owner with no sign-in, none under another user", async () => {
+  it("starts an agent's workflow as the local owner unsigned, never as another user", async () => {
     let namesRead = 0;
     const readName = (): Promise<string> => {
       namesRead += 1;
@@ -72,13 +72,17 @@ describe("NodeRegistry", () => {
       },
       approvals: {
         create: () => Promise.reject(new Error("a workflow start raises no card")),
-        readRequest: () => undefined,
+        takeCorrection: () => Promise.resolve(false),
       },
       rules: { findRule: () => undefined },
       agentMemoryFolder: "/data/agent-memory",
       readRunAgent: () => "agent-1",
       readOwner: () => registry.readOwner(machine),
-      readPosture: () => undefined,
+      readPosture: () => ({
+        mode: "ask",
+        writableRoots: [],
+        credentialPolicyRef: "curated-credentials",
+      }),
     });
     const agentStart = {
       kind: "workflow_start",

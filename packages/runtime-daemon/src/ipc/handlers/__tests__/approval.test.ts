@@ -1,8 +1,8 @@
 // The `approval.*` methods as the client receives them, through the real method registry over a
 // real log: a session's cards come back with the device that answered each, the scope it granted
 // and the rule it made, in a reply the contract's schema accepts; each refusal reaches the wire as
-// its own type and number; and an answer the log could not keep is refused with no part of it
-// written, so the ask still waits for an answer.
+// its own type and number, an unfit answer and a rule its provider could not keep among them; and
+// an answer the log could not keep is refused with no part of it written, so the ask still waits.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -16,7 +16,7 @@ import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 
 import { captureRejection } from "../../../__fixtures__/capture-failure.js";
 import { PermissionAsks } from "../../../approvals/permission-asks.js";
-import { ApprovalProjectionService } from "../../../approvals/projection-service.js";
+import { ApprovalProjectionService } from "../../../approvals/projection/read.js";
 import { ApprovalRules } from "../../../approvals/rules.js";
 import { ApprovalService } from "../../../approvals/service.js";
 import {
@@ -24,6 +24,11 @@ import {
   type ScratchDatabase,
 } from "../../../database/__fixtures__/scratch.js";
 import { EventLogService } from "../../../events/log-service.js";
+import { PermissionCheckService } from "../../../policy/permission-check.js";
+import {
+  type ProviderPermissionAsk,
+  ProviderRuleNotKeptError,
+} from "../../../provider/port/permission-ask.js";
 import { mapJsonRpcError } from "../../jsonrpc-error-mapping.js";
 import { MethodRegistryImpl } from "../../registry.js";
 import { registerApprovalMethods } from "../approval.js";
@@ -34,19 +39,30 @@ const UNKNOWN_ID = "00000000-0000-7000-8000-0000000000ff";
 const LAPTOP: HandlerContext = { deviceId: "device-laptop" as DeviceId };
 const PHONE: HandlerContext = { deviceId: "device-phone" as DeviceId };
 const CREATED_AT = "2026-10-11T00:00:00.000Z";
-// The client resolution ids of four separate presses.
+// The client resolution ids of six separate presses.
 const RESOLUTION_IDS = [
   "00000000-0000-4000-8000-0000000000d1",
   "00000000-0000-4000-8000-0000000000d2",
   "00000000-0000-4000-8000-0000000000d3",
   "00000000-0000-4000-8000-0000000000d4",
+  "00000000-0000-4000-8000-0000000000d5",
+  "00000000-0000-4000-8000-0000000000d6",
 ] as const;
 
-// No ask is taken here, so no check is made.
-function refuseCheck(): Promise<never> {
-  return Promise.reject(new Error("no ask is taken here"));
-}
+// A provider's ask for `npm test`, whose provider keeps no rule an answer makes.
+const NPM_TEST_ASK: ProviderPermissionAsk = {
+  sessionId: SESSION_ID,
+  runId: RUN_ID,
+  requestId: "7",
+  toolCallId: "call-1",
+  toolName: "Bash",
+  input: { command: "npm test" },
+  action: { kind: "command", command: "npm test" },
+  ruleScopes: ["session"],
+  isProviderFlagged: false,
+};
 
+let asks: PermissionAsks;
 let database: ScratchDatabase;
 let service: ApprovalService;
 let rules: ApprovalRules;
@@ -74,6 +90,7 @@ beforeEach(async () => {
   });
   service = new ApprovalService({
     reader: database.reader,
+    writer: database.writer,
     sessionEvents,
     followAll: () => () => {},
     workingFolders: { raiseStaleness: async () => {} },
@@ -91,14 +108,28 @@ beforeEach(async () => {
       throw new Error(`unexpected service log line: ${line}`);
     },
   });
+  asks = new PermissionAsks({
+    approvals: service,
+    permissionCheck: new PermissionCheckService({
+      authorizer: {
+        decide: () => {
+          throw new Error("a provider ask takes no rule evaluation");
+        },
+      },
+      approvals: service,
+      rules,
+      agentMemoryFolder: "/data/agent-memory",
+      readRunAgent: () => "agent-1",
+      readOwner: () => undefined,
+      readPosture: () => undefined,
+    }),
+    rules,
+    respondToRequest: () =>
+      Promise.reject(new ProviderRuleNotKeptError(new Error("settings file is not writable"))),
+  });
   registry = new MethodRegistryImpl();
   registerApprovalMethods(registry, {
-    asks: new PermissionAsks({
-      approvals: service,
-      permissionCheck: { check: refuseCheck },
-      rules,
-      respondToRequest: () => Promise.reject(new Error("no card here belongs to a provider")),
-    }),
+    asks,
     projection: new ApprovalProjectionService(database.reader),
     rules,
     reviewerDenials: {
@@ -229,6 +260,45 @@ describe("approval.* on the wire", () => {
       code: JsonRpcErrorCode.InvalidParams,
       type: "approval.not_found",
     });
+    const unfit = await raiseAsk("npm run lint");
+    expect(
+      await refusalOver(
+        registry.dispatch(
+          "approval.resolve",
+          {
+            approvalRequestId: unfit,
+            decision: "approved",
+            clientResolutionId: RESOLUTION_IDS[4],
+            rememberedScope: { kind: "session", sense: "allow", pattern: "npm run" },
+          },
+          LAPTOP,
+        ),
+      ),
+    ).toEqual({ code: JsonRpcErrorCode.InvalidParams, type: "approval.resolution_invalid" });
+    expect(readRows(unfit)).toEqual({ state: "pending", devices: [] });
+
+    // The provider's ask is answered, but its provider could not keep the rule the answer made.
+    await asks.takeAsk(NPM_TEST_ASK);
+    const providerCard = database.reader
+      .prepare<
+        [],
+        { id: ApprovalRequestId }
+      >("SELECT id FROM approval_requests WHERE ask_id IS NOT NULL")
+      .get()?.id;
+    expect(
+      await refusalOver(
+        registry.dispatch(
+          "approval.resolve",
+          {
+            approvalRequestId: providerCard,
+            decision: "approved",
+            clientResolutionId: RESOLUTION_IDS[5],
+            rememberedScope: { kind: "session", sense: "allow", pattern: "npm test" },
+          },
+          LAPTOP,
+        ),
+      ),
+    ).toEqual({ code: JsonRpcErrorCode.InternalError, type: "approval.rule_not_kept" });
 
     await rememberAllow(answered, "npm test");
     const ruleId = answered as unknown as RememberedRuleId;

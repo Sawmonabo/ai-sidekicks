@@ -1,16 +1,15 @@
 // The daemon's approval pipeline, built once with the provider side: the permission check every
 // sensitive action passes, the asks and their answers, the rules the providers keep and a purge
-// takes out of them, the reviewer's blocks, the hold an
-// ask puts on its run, and the `approval.*` methods. Its ports are registered as it is built, so
-// no ask waits on a missing intake; its log follows begin at `start`, once the start's recovery
-// pass has settled the runs.
+// takes out of them, the reviewer's blocks, the hold an ask puts on its run, and the `approval.*`
+// methods. Its ports are registered as it is built, so no ask waits on a missing intake; its log
+// follows begin at `start`, once the start's recovery pass has settled the runs.
 
 import path from "node:path";
 
 import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 
 import { PermissionAsks } from "../approvals/permission-asks.js";
-import { ApprovalProjectionService } from "../approvals/projection-service.js";
+import { ApprovalProjectionService } from "../approvals/projection/read.js";
 import { ReviewerDenials } from "../approvals/reviewer-denials.js";
 import { ApprovalRules } from "../approvals/rules.js";
 import { ApprovalRunBlocking } from "../approvals/run-blocking.js";
@@ -86,6 +85,7 @@ export class DaemonApprovals {
     const followAll = eventLog.followAll.bind(eventLog);
     this.#service = new ApprovalService({
       reader: database.reader,
+      writer: database.writer,
       sessionEvents: eventLog,
       followAll,
       workingFolders: context.workingFolders,

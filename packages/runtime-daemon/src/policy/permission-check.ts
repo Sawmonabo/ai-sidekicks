@@ -3,12 +3,17 @@
 //
 //   * A provider's permission ask takes no rule evaluation. The daemon's own designed answer
 //     settles it first; then a rule in force on its subject: a block refuses it whatever it
-//     offers; then the person's approval of the card whose corrected command or path the ask
-//     carries out; then an allow in force, only where a standing allow may stand, so a
-//     destructive git command or an ask the provider's own check flagged always reaches the card.
-//     Every other ask raises a card, recorded before the check returns.
+//     offers; then the level's own allow of an ask its added ask rule sent; then the person's
+//     approval of the card whose corrected command or path the ask carries out, taken once and
+//     only on that card's run; then an allow in force, only where a standing allow may stand, so
+//     a destructive git command or an ask the provider's own check flagged always reaches the
+//     card. Every other ask raises a card, recorded before the check returns.
+//   * A call of the app's own tools that its provider did not ask about is gated by the calling
+//     session's level alone: at a level that asks it raises the ordinary card, and at Sandboxed
+//     and YOLO it runs; a call whose run has no level to read is refused.
 //   * A workflow start an agent or a trigger asks for is decided by the built-in rules, for the
-//     machine's owning user, with the asking run's posture among what the rules read.
+//     machine's owning user, with the asking run's posture among what the rules read; an agent's
+//     start whose run has no posture to read is refused, never judged as a trigger's.
 //
 // No method registers the check, since a check made over the wire ahead of the action could be
 // stale by the time the action runs. Nothing is cached between checks: each one reads the rules,
@@ -27,7 +32,11 @@ import {
 } from "../approvals/ask-description.js";
 import type { ApprovalRules } from "../approvals/rules.js";
 import type { ApprovalService } from "../approvals/service.js";
-import type { ProviderAskRule, ProviderPermissionAsk } from "../provider/port/permission-ask.js";
+import type {
+  ProviderAskAction,
+  ProviderAskRule,
+  ProviderPermissionAsk,
+} from "../provider/port/permission-ask.js";
 import type { Authorizer } from "./authorizer.js";
 import { answerProviderAsk } from "./provider-ask-answers.js";
 import { checkWorkflowStart } from "./workflow-start.js";
@@ -53,8 +62,21 @@ export interface WorkflowStartCheck {
   readonly askingRunId: RunId | undefined;
 }
 
+/**
+ * A call of one of the app's own tools its provider runs without asking first, as Codex runs the
+ * daemon's tool server's, so the session's level is applied here.
+ */
+export interface ToolCallCheck {
+  readonly kind: "tool_call";
+  readonly sessionId: SessionId;
+  readonly runId: RunId;
+  readonly toolName: string;
+  /** The held call's id, which the card names so the call's row draws it held. */
+  readonly toolCallId: string;
+}
+
 /** One action to decide, described by what asks for it. */
-export type PermissionCheckRequest = ProviderAskCheck | WorkflowStartCheck;
+export type PermissionCheckRequest = ProviderAskCheck | ToolCallCheck | WorkflowStartCheck;
 
 /**
  * What the check decided. The action runs on `policy_allow` (the daemon's own designed answer, or
@@ -80,10 +102,23 @@ export type WorkflowStartCheckResponse = Extract<
   { readonly reason: "policy_allow" | "denied" }
 >;
 
+/** What a tool call's check can answer: it runs, waits on its card, or is refused. */
+export type ToolCallCheckResponse = Extract<
+  PermissionCheckResponse,
+  { readonly reason: "policy_allow" | "pending_approval" | "denied" }
+>;
+
+// The levels at which a call asks first; at Sandboxed and YOLO the level's posture answers it.
+const ASKING_LEVELS: ReadonlySet<ExecutionPosture["mode"]> = new Set([
+  "readonly",
+  "ask",
+  "reviewed",
+]);
+
 /** What the check reads its answers from and raises cards through. */
 export interface PermissionCheckDeps {
   readonly authorizer: Authorizer;
-  readonly approvals: Pick<ApprovalService, "create" | "readRequest">;
+  readonly approvals: Pick<ApprovalService, "create" | "takeCorrection">;
   readonly rules: Pick<ApprovalRules, "findRule">;
   /** The one all-projects agent-memory folder, whose notes an agent reads and writes unasked. */
   readonly agentMemoryFolder: string;
@@ -97,6 +132,9 @@ export interface PermissionCheckDeps {
 
 // What the agent reads when a rule in force blocks the subject its call names.
 const BLOCKED_BY_RULE_REFUSAL = "A rule in force on this session blocks this.";
+
+// What the agent reads when its call's run has no level to judge it by.
+const NO_LEVEL_REFUSAL = "This call's run is not running, so it did not run.";
 
 // What the agent reads when the built-in rules refuse its workflow start.
 const WORKFLOW_START_REFUSAL = "The workflow rules on this machine refuse this start.";
@@ -113,15 +151,52 @@ export class PermissionCheckService {
    * Decides one action. A provider ask no answer settles raises its card, and the check resolves
    * once the card is recorded. Rejects with the signal's reason for an ask taken back before its
    * card was raised; with `approval.request_canceled` when its run or session has ended; with
-   * `approval.persistence_unavailable` when the card could not be recorded, so the action does not
-   * proceed; and when a path the designed answers read cannot be resolved.
+   * `approval.persistence_unavailable` when the card, or a correction's one use, could not be
+   * recorded, so the action does not proceed; and when a path the designed answers read cannot be
+   * resolved.
    */
   async check(request: WorkflowStartCheck): Promise<WorkflowStartCheckResponse>;
+  async check(request: ToolCallCheck): Promise<ToolCallCheckResponse>;
   async check(request: PermissionCheckRequest): Promise<PermissionCheckResponse>;
   async check(request: PermissionCheckRequest): Promise<PermissionCheckResponse> {
-    return request.kind === "provider_ask"
-      ? await this.#checkProviderAsk(request)
-      : this.#checkWorkflowStart(request);
+    switch (request.kind) {
+      case "provider_ask":
+        return await this.#checkProviderAsk(request);
+      case "tool_call":
+        return await this.#checkToolCall(request);
+      case "workflow_start":
+        return this.#checkWorkflowStart(request);
+    }
+  }
+
+  async #checkToolCall(request: ToolCallCheck): Promise<ToolCallCheckResponse> {
+    const posture = this.#deps.readPosture(request.runId);
+    if (posture === undefined) {
+      return { allowed: false, reason: "denied", refusal: NO_LEVEL_REFUSAL };
+    }
+    if (!ASKING_LEVELS.has(posture.mode)) {
+      return { allowed: true, reason: "policy_allow" };
+    }
+    const action = { kind: "tool", toolName: request.toolName } as const;
+    const { approvalRequestId } = await this.#deps.approvals.create(
+      {
+        sessionId: request.sessionId,
+        runId: request.runId,
+        requestedBy: this.#deps.readRunAgent(request.sessionId, request.runId),
+        category: "tool_execution",
+        scope: request.toolName,
+        resourceDescriptor: {
+          subject: request.toolName,
+          standingAllowOffered: false,
+          projectScopeOffered: false,
+          editable: false,
+          action,
+          toolName: request.toolName,
+        },
+      },
+      { toolCallId: request.toolCallId },
+    );
+    return { allowed: false, reason: "pending_approval", approvalRequestId };
   }
 
   async #checkProviderAsk(request: ProviderAskCheck): Promise<PermissionCheckResponse> {
@@ -140,11 +215,19 @@ export class PermissionCheckService {
     if (rule?.sense === "block") {
       return { allowed: false, reason: "denied", refusal: BLOCKED_BY_RULE_REFUSAL };
     }
-    if (ask.correctionOf !== undefined) {
-      const corrected = this.#deps.approvals.readRequest(ask.correctionOf);
-      if (corrected?.state === "approved" && corrected.runId === ask.runId) {
-        return { allowed: true, reason: "approved" };
-      }
+    if (ask.isSentByLevelRule === true) {
+      return { allowed: true, reason: "policy_allow" };
+    }
+    const correctedSubject = correctedSubjectOf(ask.action);
+    if (
+      ask.correctionOf !== undefined &&
+      correctedSubject !== undefined &&
+      (await this.#deps.approvals.takeCorrection(ask.correctionOf, {
+        runId: ask.runId,
+        correctedSubject,
+      }))
+    ) {
+      return { allowed: true, reason: "approved" };
     }
     if (rule !== undefined && mayAllowStand(ask)) {
       return { allowed: true, reason: "remembered_rule", rule };
@@ -163,14 +246,32 @@ export class PermissionCheckService {
   }
 
   #checkWorkflowStart(request: WorkflowStartCheck): WorkflowStartCheckResponse {
+    const posture =
+      request.askingRunId === undefined ? undefined : this.#deps.readPosture(request.askingRunId);
+    if (request.askingRunId !== undefined && posture === undefined) {
+      return { allowed: false, reason: "denied", refusal: NO_LEVEL_REFUSAL };
+    }
     const decision = checkWorkflowStart(this.#deps.authorizer, {
       owner: this.#deps.readOwner(),
       workflowId: request.workflowId,
-      posture:
-        request.askingRunId === undefined ? undefined : this.#deps.readPosture(request.askingRunId),
+      posture,
     });
     return decision.decision === "allow"
       ? { allowed: true, reason: "policy_allow" }
       : { allowed: false, reason: "denied", refusal: WORKFLOW_START_REFUSAL };
+  }
+}
+
+// The command or path a corrected ask carries out, which its card's correction must name exactly.
+function correctedSubjectOf(action: ProviderAskAction): string | undefined {
+  switch (action.kind) {
+    case "command":
+      return action.command;
+    case "file_read":
+      return action.path;
+    case "file_change":
+      return action.paths.length === 1 ? action.paths[0] : undefined;
+    default:
+      return undefined;
   }
 }

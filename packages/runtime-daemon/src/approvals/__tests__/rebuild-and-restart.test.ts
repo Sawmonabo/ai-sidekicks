@@ -1,8 +1,11 @@
 // The approval record across a rebuild and a restart, over a real run engine and log:
 //
-//   * A rebuild from the log writes the approval rows the live writes wrote, so each provider ask
-//     still finds its own card by the daemon's ask id with several open on one run, and the answer
-//     that made a rule still carries it. A rebuild cut before an event leaves no row it wrote.
+//   * A rebuild of the daemon's own projections from the log writes the approval rows the live
+//     writes wrote, an approval with its corrected command, a decline and a cancellation each as
+//     it settled, so each provider ask still finds its own card by the daemon's ask id with several
+//     open on one run, and the answer that made a rule still carries it. A card a workflow gate's
+//     answer names is written over in place, never cleared from under the gate's row. A rebuild
+//     cut before an event leaves no row it wrote.
 //   * A restart ends the run that was waiting on an ask, and its ask settles canceled with it, so a
 //     late answer is refused and no card waits on a run that is gone.
 
@@ -13,6 +16,7 @@ import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { NodeId } from "@ai-sidekicks/contracts/runtime-node/id";
 import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 
+import { SESSION_PROJECTIONS } from "../../daemon/projections.js";
 import { ProjectionRebuildService } from "../../recovery/projection-rebuild.js";
 import {
   openRunEngineFixture,
@@ -20,8 +24,8 @@ import {
 } from "../../session/run/__tests__/engine.test-support.js";
 import type { RunEngine } from "../../session/run/engine.js";
 import { SessionService } from "../../session/service.js";
+import { createFixtureRun, insertWorkflowVersion } from "../../workflow/runs/__fixtures__/rows.js";
 import { ApprovalEventEmitter } from "../event-emitter.js";
-import { APPROVALS_PROJECTION } from "../projection.js";
 import { ApprovalRunBlocking } from "../run-blocking.js";
 import { ApprovalService } from "../service.js";
 import { rememberedScopeStatement } from "../store.js";
@@ -49,6 +53,7 @@ afterEach(async () => {
 function startApprovals(engine: RunEngine): ApprovalService {
   const service = new ApprovalService({
     reader: fixture.database.reader,
+    writer: fixture.database.writer,
     sessionEvents: fixture.sessionEvents,
     followAll: () => () => {},
     workingFolders: { raiseStaleness: async () => {} },
@@ -120,15 +125,27 @@ function sequenceOf(type: string, approvalRequestId: ApprovalRequestId): number 
   return row.sequence;
 }
 
-it("rebuilds the approval rows the live writes wrote, each ask still routed to its own card", async () => {
+it("rebuilds each approval row as written live, each ask to its own card", async () => {
   const service = startApprovals(fixture.engine);
   const runId = await fixture.runThrough(["starting", "running"]);
   const answered = await raiseAsk(service, runId, "ask-a", "npm test");
   const open = await raiseAsk(service, runId, "ask-b", "npm run build");
+  const declined = await raiseAsk(service, runId, "ask-c", "git push");
+  const withdrawn = await raiseAsk(service, runId, "ask-d", "npm publish");
   await service.resolve(
-    { approvalRequestId: answered, decision: "approved", clientResolutionId: answered },
+    {
+      approvalRequestId: answered,
+      decision: "approved",
+      clientResolutionId: answered,
+      editedAction: "npm test -- --run",
+    },
     LAPTOP,
   );
+  await service.resolve(
+    { approvalRequestId: declined, decision: "rejected", clientResolutionId: declined },
+    LAPTOP,
+  );
+  await service.withdraw(withdrawn);
   // The rule the answer made, recorded once its provider kept it, as the rules record one.
   const rememberedScope = { kind: "session", sense: "allow", pattern: "npm test" } as const;
   await new ApprovalEventEmitter(fixture.sessionEvents).remembered(
@@ -147,22 +164,47 @@ it("rebuilds the approval rows the live writes wrote, each ask still routed to i
       statements: [rememberedScopeStatement(answered, rememberedScope)],
     },
   );
+  // A workflow gate's answer naming the approved card, which no rebuild writes.
+  const workflowRunId = await createFixtureRun(
+    fixture.database.writer,
+    await insertWorkflowVersion(fixture.database.writer, "Release"),
+    { sessionId: fixture.sessionId },
+  );
+  await fixture.database.writer.write([
+    {
+      sql: `INSERT INTO workflow_gate_resolutions (id, workflow_run_id, sequence, node_id,
+              gate_kind, approval_request_id, outcome, device_id, resolved_at)
+            VALUES ('gate-1', ?, 1, 'approve', 'human.approval', ?, 'approved', ?, ?)`,
+      bindings: [workflowRunId, answered, LAPTOP, new Date().toISOString()],
+    },
+  ]);
   const liveRows = readApprovalRows();
-  // The rebuild must write every row itself, so none is left from the live writes.
+  // The rebuild must write every row itself: each answer is gone and each card reads pending.
   await fixture.database.writer.write([
     { sql: "DELETE FROM approval_resolutions" },
-    { sql: "DELETE FROM approval_requests" },
+    { sql: "UPDATE approval_requests SET state = 'pending'" },
   ]);
   const rebuild = new ProjectionRebuildService({
     reader: fixture.database.reader,
     writer: fixture.database.writer,
     sessionEvents: new SessionService(fixture.database.reader),
-    projections: [APPROVALS_PROJECTION],
+    projections: SESSION_PROJECTIONS,
   });
 
   await rebuild.rebuild({ sessionId: fixture.sessionId, force: true });
 
   expect(readApprovalRows()).toStrictEqual(liveRows);
+  expect(
+    [answered, open, declined, withdrawn].map((approvalRequestId) => [
+      service.readRequest(approvalRequestId)?.state,
+      service.readRequest(approvalRequestId)?.resolution?.editedAction,
+    ]),
+  ).toEqual([
+    ["approved", "npm test -- --run"],
+    ["pending", undefined],
+    ["rejected", undefined],
+    ["canceled", undefined],
+  ]);
   expect(service.readAskRequest(runId, "ask-b")).toMatchObject({
     approvalRequestId: open,
     state: "pending",
@@ -173,7 +215,8 @@ it("rebuilds the approval rows the live writes wrote, each ask still routed to i
     resolution: { deviceId: LAPTOP, rememberedScope },
   });
 
-  // Cut before the answer: the answer and its rule are gone, and both asks wait again.
+  // Cut before the answer: the answers and the rule are gone, and every ask waits again, the one
+  // the gate's answer names kept in place.
   await rebuild.rebuild({
     sessionId: fixture.sessionId,
     force: true,
@@ -182,8 +225,10 @@ it("rebuilds the approval rows the live writes wrote, each ask still routed to i
 
   expect(readApprovalRows().resolutions).toEqual([]);
   expect(
-    [answered, open].map((approvalRequestId) => service.readRequest(approvalRequestId)?.state),
-  ).toEqual(["pending", "pending"]);
+    [answered, open, declined, withdrawn].map(
+      (approvalRequestId) => service.readRequest(approvalRequestId)?.state,
+    ),
+  ).toEqual(["pending", "pending", "pending", "pending"]);
 });
 
 it("cancels the ask of a run a restart ended, so a late answer is refused", async () => {
