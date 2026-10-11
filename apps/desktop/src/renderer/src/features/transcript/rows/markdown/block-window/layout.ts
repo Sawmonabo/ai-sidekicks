@@ -8,14 +8,13 @@
 import type { Range, VirtualItem, Virtualizer } from "@tanstack/react-virtual";
 
 import type { Unsubscribe } from "#shared/preload-api.js";
-import { Emitter } from "#renderer/lib/emitter.js";
-import { observeElementResize } from "#renderer/lib/element-resize.js";
 import { blockSourceStartOf, type SettledMarkdownBlock } from "../body-blocks.js";
 import { isSameBodyType, readMarkdownBodyType, type MarkdownBodyType } from "../body-type.js";
 import { type DrawnBandScreenHeights } from "#renderer/features/transcript/viewport/drawn-band.js";
 import { ReaderPlaceHold } from "../reader-place-hold.js";
 import { offsetInRowPx, ScrollerWindowMembers } from "../scroller-window.js";
 import { type TableBodyPlacement, type TablePlacementChange } from "../table-window/context.js";
+import { TablePlacementReports } from "../table-window/placement-reports.js";
 import { MARKDOWN_BLOCK_INDEX_ATTRIBUTE } from "./markers.js";
 import { type MarkdownWindowViewport } from "./context.js";
 import {
@@ -85,11 +84,11 @@ export class BlockWindowLayout implements TableBodyPlacement {
   readonly #rowKey: string;
   readonly #scroller: ScrollerWindowMembers;
   readonly #placeHold: ReaderPlaceHold;
-  readonly #placementChanges = new Emitter<TablePlacementChange>("block placement change");
+  readonly #reports = new TablePlacementReports("block placement change", (element, entry) => {
+    this.#readBody(element, entry);
+  });
   #blocks: WindowedBlocks;
   #bodyTextLength: number;
-  #bodyElement: HTMLElement | undefined;
-  #stopObservingBody: Unsubscribe | undefined;
   #virtualizer: BlockVirtualizer | undefined;
   /** The body's width and text size, read from its resize observations. */
   #bodyType: MarkdownBodyType | undefined;
@@ -105,7 +104,7 @@ export class BlockWindowLayout implements TableBodyPlacement {
   #committedRows: readonly BlockWindowRow[] = [];
 
   /** The body's element: what the window observes its blocks from. Never scrolled. */
-  public readonly getScrollElement = (): HTMLElement | null => this.#bodyElement ?? null;
+  public readonly getScrollElement = (): HTMLElement | null => this.#reports.element ?? null;
 
   /** The window's offset, viewport and refused writes, against the conversation scroller. */
   public readonly scrollToFn: ScrollerWindowMembers["scrollToFn"];
@@ -180,15 +179,10 @@ export class BlockWindowLayout implements TableBodyPlacement {
 
   /** The body's element, and its size observation: its width, type and place in its row. */
   public readonly attachBody = (element: HTMLElement | null): void => {
-    this.#stopObservingBody?.();
-    this.#stopObservingBody = undefined;
-    this.#bodyElement = element ?? undefined;
     if (element !== null) {
       warmIdeographFallback(element);
-      this.#stopObservingBody = observeElementResize(element, (entries) => {
-        this.#readBody(element, entries.at(-1));
-      });
     }
+    this.#reports.attach(element);
   };
 
   public constructor(options: BlockWindowLayoutOptions) {
@@ -223,7 +217,7 @@ export class BlockWindowLayout implements TableBodyPlacement {
   }
 
   public get ownerDocument(): Document | undefined {
-    return this.#bodyElement?.ownerDocument;
+    return this.#reports.element?.ownerDocument;
   }
 
   /** The key of the transcript row the body is drawn in. */
@@ -267,15 +261,16 @@ export class BlockWindowLayout implements TableBodyPlacement {
 
   /**
    * Hears each change that may move a block: `"moved"` when a block measured or the drawn blocks
-   * changed, `"laid-out"` when the body was laid out at a new width.
+   * changed, `"laid-out"` when the body was laid out at a new width, or after this table started
+   * to listen to a body laid out while no table did.
    */
   public subscribeToPlacement(listener: (change: TablePlacementChange) => void): Unsubscribe {
-    return this.#placementChanges.subscribe(listener);
+    return this.#reports.subscribe(listener);
   }
 
   /** Tells the tables inside the body's blocks that a block may have moved. */
   public announcePlacementChange(change: TablePlacementChange): void {
-    this.#placementChanges.emit(change);
+    this.#reports.announce(change);
   }
 
   /** The blocks drawn for the library's `range`: on screen, and `bandScreenHeights` past them. */

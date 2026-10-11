@@ -2,18 +2,16 @@
 // window over its blocks, so a table measures its place from the body itself: the body's top is its
 // row's start and its place in the row, read whenever the body is laid out anew, which also tells
 // its tables to read their own place in it again. A body no table listens to reads nothing when it
-// is laid out, only when asked, so a reply without a long table costs no layout read. A table that
-// starts to listen after such a layout hears of it in the body's next report, before it paints.
+// is laid out, only when asked, so a reply without a long table costs no layout read.
 
 import type { Unsubscribe } from "#shared/preload-api.js";
-import { Emitter } from "#renderer/lib/emitter.js";
-import { observeElementResize } from "#renderer/lib/element-resize.js";
 import { type MarkdownWindowViewport } from "../block-window/context.js";
 import { isSameBodyType, readMarkdownBodyType, type MarkdownBodyType } from "../body-type.js";
 import { blockSourceStartOf, type MarkdownBodyBlocksSnapshot } from "../body-blocks.js";
 import { offsetInRowPx } from "../scroller-window.js";
 import { type TableBodyPlacement, type TablePlacementChange } from "./context.js";
 import { warmIdeographFallback } from "./ideograph-fallback-warm.js";
+import { TablePlacementReports } from "./placement-reports.js";
 
 /** The blocks a body drawn whole counts its tables' text in. */
 export type FlowBodyBlocks = Pick<
@@ -25,11 +23,11 @@ export type FlowBodyBlocks = Pick<
 export class FlowBodyPlacement implements TableBodyPlacement {
   readonly #viewport: MarkdownWindowViewport;
   readonly #rowKey: string;
-  readonly #placementChanges = new Emitter<TablePlacementChange>("flow body placement change");
+  readonly #reports = new TablePlacementReports("flow body placement change", (_element, entry) => {
+    this.#noteBodyLaidOut(entry);
+  });
   #blocks: FlowBodyBlocks;
   #bodyTextLength: number;
-  #bodyElement: HTMLElement | undefined;
-  #stopObservingBody: Unsubscribe | undefined;
   #bodyType: MarkdownBodyType | undefined;
   /** How far the body's top sits below its row's, read each time the body is laid out. */
   #bodyOffsetInRowPx = 0;
@@ -42,13 +40,10 @@ export class FlowBodyPlacement implements TableBodyPlacement {
 
   /** The body's element, observed for every change of its size: a block above a table grew. */
   public readonly attachBody = (element: HTMLElement | null): void => {
-    this.#stopObservingBody?.();
-    this.#stopObservingBody = undefined;
-    this.#bodyElement = element ?? undefined;
     if (element !== null) {
       warmIdeographFallback(element);
-      this.#observeBody(element);
     }
+    this.#reports.attach(element);
   };
 
   /** `viewport` and `rowKey` are held for the body's life. */
@@ -70,7 +65,7 @@ export class FlowBodyPlacement implements TableBodyPlacement {
   }
 
   public get ownerDocument(): Document | undefined {
-    return this.#bodyElement?.ownerDocument;
+    return this.#reports.element?.ownerDocument;
   }
 
   public get rowKey(): string {
@@ -98,7 +93,7 @@ export class FlowBodyPlacement implements TableBodyPlacement {
 
   /** Every table here measures its place from the body. */
   public anchorOf(): Element | null {
-    return this.#bodyElement ?? null;
+    return this.#reports.element ?? null;
   }
 
   /** The body's top in the scroller's content, whichever block the table is in. */
@@ -108,44 +103,26 @@ export class FlowBodyPlacement implements TableBodyPlacement {
     return this.#rowStartPx + this.#bodyOffsetInRowPx;
   }
 
-  /**
-   * Hears each change that may move the body's tables. Where the body was laid out while no table
-   * listened, it is observed anew, so its next report, before the next paint, tells this table too.
-   */
   public subscribeToPlacement(listener: (change: TablePlacementChange) => void): Unsubscribe {
-    const unsubscribe = this.#placementChanges.subscribe(listener);
-    // A fresh observation reports the body's size in the next frame, before it paints; telling the
-    // table here would redraw it from inside the effect that subscribes, where React defers it.
-    if (this.#isUnread && this.#bodyElement !== undefined) {
-      this.#observeBody(this.#bodyElement);
-    }
-    return unsubscribe;
-  }
-
-  /** Observes `element` for every change of its size, from its size now. */
-  #observeBody(element: HTMLElement): void {
-    this.#stopObservingBody?.();
-    this.#stopObservingBody = observeElementResize(element, (entries) => {
-      this.#noteBodyLaidOut(entries.at(-1));
-    });
+    return this.#reports.subscribe(listener);
   }
 
   /**
-   * Notes the body laid out anew; where a table listens, reads its type and place in its row at
-   * once and tells its tables, and otherwise leaves both to be read when first asked.
+   * Notes the body laid out anew and tells its tables; where a table listens, reads its type and
+   * place in its row first, and otherwise leaves both to be read when first asked.
    */
   #noteBodyLaidOut(entry: ResizeObserverEntry | undefined): void {
     this.#observedInlineSizePx = entry?.contentBoxSize[0]?.inlineSize ?? 0;
     this.#isUnread = true;
-    if (this.#placementChanges.hasSinks) {
+    if (this.#reports.hasListeners) {
       this.#readUnreadBody();
-      this.#placementChanges.emit("laid-out");
     }
+    this.#reports.announce("laid-out");
   }
 
   /** Reads the body's type and place in its row, when it was laid out anew since they were read. */
   #readUnreadBody(): void {
-    const element = this.#bodyElement;
+    const element = this.#reports.element;
     if (!this.#isUnread || element === undefined) {
       return;
     }

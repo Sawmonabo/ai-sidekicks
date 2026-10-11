@@ -14,7 +14,9 @@ import {
   readSelectedPart,
 } from "#renderer/features/transcript/copy/conversation-selection.js";
 import { suiteWindowViewport } from "#renderer/features/transcript/rows/bodies/WindowedMarkdown.test-support.js";
+import { BlockWindowLayout } from "#renderer/features/transcript/rows/markdown/block-window/layout.js";
 import { MARKDOWN_TABLE_ROW_INDEX_ATTRIBUTE } from "#renderer/features/transcript/rows/markdown/block-window/markers.js";
+import { type TablePlacementChange } from "#renderer/features/transcript/rows/markdown/table-window/context.js";
 import { FlowBodyPlacement } from "#renderer/features/transcript/rows/markdown/table-window/flow-body-placement.js";
 import { ManualClock } from "#renderer/lib/clock.js";
 import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
@@ -430,5 +432,46 @@ describe("browser — a long table drawn as a window over its rows", () => {
     expect(placement.anchorTopPx()).toBe(LEAD_HEIGHT_PX);
     await settleFrames();
     expect(heard).toStrictEqual([{ widthPx: LEAD_BODY_WIDTH_PX, topPx: LEAD_HEIGHT_PX }]);
+  });
+
+  it("tells a table in a windowed body of a layout the body made before the table listened", async () => {
+    // As in a body drawn whole: the body is laid out with no table listening, the table listens
+    // only after, and the body is not laid out again.
+    const row = document.createElement("div");
+    row.setAttribute(WINDOWED_ROW_INDEX_ATTRIBUTE, "0");
+    const body = document.createElement("div");
+    body.style.width = `${String(LEAD_BODY_WIDTH_PX)}px`;
+    body.textContent = "A long reply drawn as a window over its blocks.";
+    row.append(body);
+    document.body.append(row);
+    onTestFinished(() => {
+      row.remove();
+    });
+    const scrollController = new ScrollController({ clock: new ManualClock() });
+    const layout = new BlockWindowLayout({
+      viewport: suiteWindowViewport(scrollController, {
+        subscribe: () => () => {},
+        read: () => undefined,
+      }),
+      rowKey: "reply",
+      blocks: {
+        settledBlocks: [],
+        volatileTail: "",
+        definitionPreamble: "",
+        readBlockSource: () => "",
+      },
+      bodyTextLength: 0,
+    });
+    const heard: { readonly change: TablePlacementChange; readonly widthPx: number | undefined }[] =
+      [];
+
+    layout.attachBody(body);
+    await settleFrames();
+    layout.subscribeToPlacement((change) => {
+      heard.push({ change, widthPx: layout.bodyType?.widthPx });
+    });
+    await settleFrames();
+
+    expect(heard).toStrictEqual([{ change: "laid-out", widthPx: LEAD_BODY_WIDTH_PX }]);
   });
 });
