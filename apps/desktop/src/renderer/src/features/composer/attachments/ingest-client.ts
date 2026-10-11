@@ -8,6 +8,7 @@ import { RealClock, type Clock } from "#renderer/lib/clock.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
 import type { AttachmentIngestPort } from "./services/ingest-port.js";
 import { AttachmentIngestEntries } from "./ingest-entries.js";
+import { canRetryIngest } from "./policy.js";
 import { AttachmentIngestStreamDriver } from "./services/ingest-stream.js";
 import type { AttachmentIngestEntry, AttachmentSource } from "./shapes.js";
 
@@ -62,17 +63,12 @@ export class AttachmentIngestClient {
   /**
    * Sends again after a refusal. `restart` drops the stream identity and begins from the first
    * byte; `attach-another` sends nothing, since the same bytes get the same answer; every other
-   * disposition resumes at the current offset, so a lost response costs one chunk. Only from
-   * `refused`, the last state that still holds the payload.
+   * disposition resumes at the current offset, so a lost response costs one chunk. Only from a
+   * refusal that still holds the payload, which every refusal but one of the file itself does.
    */
   public retry(localId: string): void {
     const entry = this.#entries.current(localId);
-    if (
-      entry === undefined ||
-      entry.state !== "refused" ||
-      entry.disposition === "attach-another" ||
-      this.#streams.isRunning(localId)
-    ) {
+    if (entry === undefined || !canRetryIngest(entry) || this.#streams.isRunning(localId)) {
       return;
     }
     const restarting = entry.disposition === "restart";

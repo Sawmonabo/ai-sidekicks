@@ -540,10 +540,14 @@ export function registerSessionMethods(
       listFeed.close();
       projectListFeed.close();
       await watchStarting;
-      // The scheduler stops after every user of it: the reaper is canceled here, and the
-      // repository services run the stop once their own work schedules nothing more.
-      artifacts.stop();
-      await Promise.all([stopBackgroundWork?.(), repo.stop(() => scheduler.stop())]);
+      // The scheduler stops after every user of it: the artifact store cancels its reaper before
+      // its first wait, and the repository services run the stop once their own work schedules
+      // nothing more.
+      await Promise.all([
+        artifacts.stop(),
+        stopBackgroundWork?.(),
+        repo.stop(() => scheduler.stop()),
+      ]);
     },
     releaseConnection: (transportId) => {
       shellTable.releaseConnection(transportId);

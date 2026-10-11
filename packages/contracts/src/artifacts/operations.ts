@@ -261,6 +261,7 @@ const ARTIFACT_REFUSAL_CODE_VALUES = [
   "artifact.not_found",
   "artifact.too_large",
   "artifact.type_unreadable",
+  "artifact.type_check_unavailable",
   "artifact.file_publish_refused",
   "artifact.ingest_capacity_exhausted",
   "artifact.ingest_stream_invalid",
@@ -278,3 +279,21 @@ export type ArtifactRefusalCode = (typeof ARTIFACT_REFUSAL_CODE_VALUES)[number];
  * @consumedBy the composer attachment strip's one-line refusal
  */
 export const ARTIFACT_REFUSAL_CODES: readonly ArtifactRefusalCode[] = ARTIFACT_REFUSAL_CODE_VALUES;
+
+/**
+ * Why an `artifact.ingest_stream_invalid` stream call cannot go on, carried as its `reason`: its id
+ * names no live stream, a chunk broke the sequence, the stream outlived its lifetime, a chunk came
+ * after the completion, or a completion record disagrees with the digest its stream committed.
+ */
+export type IngestStreamInvalidReason =
+  | "unknown_stream"
+  | "sequence_broken"
+  | "lifetime_expired"
+  | "already_completed"
+  | "completion_record_mismatch";
+
+/**
+ * Why an `artifact.too_large` refusal was raised, carried as its `reason`: the file was declared
+ * larger than the disk has room for, or its stream sent more than it declared.
+ */
+export type ArtifactTooLargeReason = "volume_too_small" | "declared_size_exceeded";

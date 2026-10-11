@@ -1,8 +1,9 @@
 // A completion answers its resend with the first result while the stream is held, running nothing
-// again and pinning no slot; past the stream's lifetime the resend is refused and the same bytes
-// sent again are stored once under a second manifest. A stream past its lifetime is ended at its
-// next call however recently it was written, and the reaper ends one no call reaches, freeing its
-// slot. The reaper deletes a spool no stream holds once unwritten past its time to live.
+// again and pinning no slot; past the stream's lifetime the resend is refused and the bytes sent
+// again take a second manifest. A stream past its lifetime is ended at its next call however
+// recently it was written, and the reaper ends one no call reaches, freeing its slot. The reaper
+// deletes a spool no stream holds once unwritten past its time to live, and never the spool of a
+// stream a call is holding, however old.
 
 import { utimes, writeFile } from "node:fs/promises";
 import * as path from "node:path";
@@ -10,7 +11,7 @@ import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { ABANDONED_SPOOL_TTL_MS, MAX_ACTIVE_INGEST_STREAMS } from "../limits.js";
-import { openIngestHarness, type IngestHarness } from "./service.test-support.js";
+import { openIngestHarness, type IngestHarness } from "../../__tests__/harness.test-support.js";
 
 const STREAM_INVALID = { code: "artifact.ingest_stream_invalid" };
 const NOTES = new TextEncoder().encode("meeting notes");
@@ -40,18 +41,16 @@ describe("a resent completion", () => {
     }
   });
 
-  it("is refused past the lifetime, and the bytes sent again are stored once", async () => {
+  it("is refused past the lifetime, and the bytes sent again take a second manifest", async () => {
     harness = await openIngestHarness();
     const { ingestId } = await harness.init(NOTES.length);
     await harness.chunk(ingestId, 0, NOTES);
-    const first = await harness.complete(ingestId);
+    await harness.complete(ingestId);
     harness.passLifetime();
 
     await expect(harness.complete(ingestId)).rejects.toMatchObject(STREAM_INVALID);
-    const second = await harness.ingest(NOTES);
+    await harness.ingest(NOTES);
 
-    expect(second.contentHash).toBe(first.contentHash);
-    expect(await harness.storedPayloads()).toHaveLength(1);
     expect(harness.manifestRows()).toHaveLength(2);
   });
 });
@@ -112,5 +111,29 @@ describe("the reaper", () => {
     await expect(harness.spooledBytes("still-being-written")).resolves.toStrictEqual(
       Buffer.from(NOTES),
     );
+  });
+
+  it("keeps the spool of a stream a call is holding, however old", async () => {
+    const detectionStarted = Promise.withResolvers<void>();
+    const detectionFinished = Promise.withResolvers<void>();
+    harness = await openIngestHarness({
+      detectMediaType: () => async () => {
+        detectionStarted.resolve();
+        await detectionFinished.promise;
+        return "text/plain";
+      },
+    });
+    const { ingestId } = await harness.init(NOTES.length);
+    await harness.chunk(ingestId, 0, NOTES);
+    const longAgo = new Date(Date.now() - ABANDONED_SPOOL_TTL_MS - 60_000);
+    await utimes(path.join(harness.spoolDirectory, ingestId), longAgo, longAgo);
+    const completing = harness.complete(ingestId);
+    await detectionStarted.promise;
+
+    await harness.service.reap();
+    detectionFinished.resolve();
+
+    await expect(completing).resolves.toMatchObject({ derivedMediaType: "text/plain" });
+    expect(harness.manifestRows()).toHaveLength(1);
   });
 });

@@ -55,7 +55,7 @@ CREATE TABLE session_events (
                            END
                          ) VIRTUAL,                  -- the payload's text run id, NULL when it names none; computed only from well-formed JSON, so a damaged payload can still be written over
   UNIQUE(session_id, sequence)
-);
+) STRICT;
 
 CREATE INDEX idx_session_events_type ON session_events(session_id, type);
 CREATE INDEX idx_session_events_skipped ON session_events(session_id) WHERE type = 'recovery.damaged_events_skipped';
@@ -115,7 +115,7 @@ CREATE TABLE session_snapshots (
   state_blob            BLOB NOT NULL,              -- serialized session state
   created_at            TEXT NOT NULL,
   FOREIGN KEY (session_id, as_of_sequence) REFERENCES session_events(session_id, sequence)
-);
+) STRICT;
 
 CREATE INDEX idx_session_snapshots_session ON session_snapshots(session_id, as_of_sequence);
 ```
@@ -141,7 +141,7 @@ CREATE TABLE session_groups (
   name         TEXT NOT NULL,              -- the person's own casing, for display
   name_folded  TEXT NOT NULL,              -- the full-Unicode case fold of name, written by the store on every insert and rename
   created_at   TEXT NOT NULL
-);
+) STRICT;
 
 -- A group's name is unique in its project ignoring case, on the stored fold key, the same rule
 -- agent definition names follow.
@@ -161,7 +161,7 @@ CREATE TABLE session_links (
   first_at           TEXT NOT NULL,
   last_at            TEXT NOT NULL,          -- the 30-day halving of a link's weight is measured from here
   PRIMARY KEY (source_session_id, target_session_id, kind)
-);
+) STRICT;
 
 CREATE INDEX idx_session_links_target ON session_links(target_session_id, source_session_id);
 
@@ -172,7 +172,7 @@ CREATE TABLE session_tags (
   tag         TEXT NOT NULL,                 -- as written, for display
   tag_folded  TEXT NOT NULL,
   PRIMARY KEY (session_id, tag_folded)
-);
+) STRICT;
 
 -- Covers the tags in use, which `Add tag` suggests: one spelling per fold, read from the index alone.
 CREATE INDEX idx_session_tags_tag ON session_tags(tag_folded, tag);
@@ -187,7 +187,7 @@ CREATE TABLE session_related (
   related_session_id  TEXT NOT NULL,
   score               REAL NOT NULL,
   PRIMARY KEY (session_id, related_session_id)
-);
+) STRICT;
 
 CREATE INDEX idx_session_related_score ON session_related(session_id, score DESC);
 -- A purge deletes the entries naming the purged session from every other session's list.
@@ -253,7 +253,7 @@ CREATE TABLE session_console_state (
   session_mode        TEXT NOT NULL DEFAULT 'build'
                       CHECK (session_mode IN ('build', 'plan')),  -- the composer's Build or Plan mode, written once the provider has taken a `session.modeUpdate`; a restart's resume opens in it
   updated_at          TEXT NOT NULL
-);
+) STRICT;
 ```
 
 The number is carried onto a spawn through `runtime_bindings.spawn_config` and realized by the driver, `--max-turns` on one leg and the daemon's own per-turn count on the other; a change reaches the session's next turn and never the turn in flight. The mode is read when a restart resumes the session, so a session left in Plan comes back in Plan. The advisor rides the same path: every Claude Code process started for the session (after a restart, a resume or a provider switch, and a helper the bridge starts) reads `advisor_model` at launch.
@@ -262,28 +262,28 @@ The number is carried onto a spawn through `runtime_bindings.spawn_config` and r
 -- Owner: Plan-008
 CREATE TABLE session_review_notes (
   session_id            TEXT NOT NULL,
-  note_id               TEXT NOT NULL,  -- minted by the client, so a resent add is one note
+  note_id               TEXT NOT NULL,
   scope                 TEXT NOT NULL
                         CHECK (scope IN ('changes', 'branch', 'change_request')),
   base                  TEXT NOT NULL,
-  head_commit_id        TEXT,  -- the comparison's head commit, for a note on committed lines
-  working_tree_blob_id  TEXT,  -- the working file's blob, for a note on uncommitted lines
+  head_commit_id        TEXT,
+  working_tree_blob_id  TEXT,
   request_number        INTEGER CHECK (request_number IS NULL OR request_number >= 1),
   path                  TEXT NOT NULL,
-  old_path              TEXT,  -- the file's earlier path when it was renamed
+  old_path              TEXT,                   -- the file's earlier path when it was renamed
   side                  TEXT NOT NULL CHECK (side IN ('added', 'removed')),
   line                  INTEGER NOT NULL CHECK (line >= 1),
   start_line            INTEGER CHECK (start_line IS NULL OR start_line BETWEEN 1 AND line),
-  quote                 TEXT NOT NULL,  -- the line's text when the note was added
+  quote                 TEXT NOT NULL,          -- the line's text when the note was added
   body                  TEXT NOT NULL,
-  created_at            TEXT NOT NULL,  -- RFC 3339 UTC, ms precision
+  created_at            TEXT NOT NULL,          -- RFC 3339 UTC, ms precision
   updated_at            TEXT NOT NULL,
   PRIMARY KEY (session_id, note_id),
   CHECK ((head_commit_id IS NULL) <> (working_tree_blob_id IS NULL))
 ) STRICT, WITHOUT ROWID;
 ```
 
-A note is held here until it is composed into the draft as a steer, posted with a review or discarded. Whether its line is still in the diff (`stranded`) is read from git on each read and never stored: the note reads stranded once the line is no longer a changed line of the diff its comparison names, or no longer says what `quote` holds. The session's purge deletes its notes in the same write as its other rows.
+A note is held here until it is composed into the draft as a steer, posted with a review or discarded. Whether its line is still there (`stranded`) is read from git on each read and never stored: `quote` is taken from that side's file at the note's comparison, and the note reads stranded once that line is gone from the file or no longer says what `quote` holds. The session's purge deletes its notes in the same write as its other rows.
 
 ---
 
@@ -338,7 +338,7 @@ CREATE TABLE queue_items (
   created_at      TEXT NOT NULL,
   updated_at      TEXT NOT NULL,
   CHECK((state = 'not_delivered') = (not_delivered_reason IS NOT NULL))  -- a not_delivered item always says why
-);
+) STRICT;
 
 CREATE INDEX idx_queue_items_session_state ON queue_items(session_id, state);
 CREATE INDEX idx_queue_items_target_run ON queue_items(target_run_id) WHERE target_run_id IS NOT NULL;
@@ -362,7 +362,7 @@ CREATE TABLE interventions (
   created_at             TEXT NOT NULL,
   resolved_at            TEXT,
   UNIQUE(target_run_id, client_idempotency_key),     -- identical retry returns the saved result; key reuse with a differing payload rejects as intervention.idempotency_conflict (Spec-003 §Interfaces And Contracts) — distinct grain from command_receipts.command_id (per-command crash-recovery dedupe)
-);
+) STRICT;
 
 CREATE INDEX idx_interventions_run ON interventions(target_run_id);
 CREATE INDEX idx_interventions_state ON interventions(state) WHERE state IN ('requested', 'accepted');
@@ -407,7 +407,7 @@ CREATE TABLE command_receipts (
   delivered         INTEGER NOT NULL DEFAULT 0     -- 1 once a task-augmented call's result has reached the conversation, by steering a running turn or starting one, so a result that arrives after a daemon restart is delivered once
                     CHECK (delivered IN (0, 1)),
   created_at        TEXT NOT NULL
-);
+) STRICT;
 
 CREATE INDEX idx_command_receipts_run ON command_receipts(run_id) WHERE run_id IS NOT NULL;
 -- Recovery sweep index: the startup sweep's in-flight receipts, each resumed by its task handle
@@ -445,7 +445,7 @@ CREATE TABLE runtime_bindings (
   runtime_metadata    TEXT NOT NULL DEFAULT '{}', -- JSON: provider-specific recovery data
   created_at          TEXT NOT NULL,
   updated_at          TEXT NOT NULL
-);
+) STRICT;
 
 CREATE INDEX idx_runtime_bindings_run ON runtime_bindings(run_id);
 
@@ -464,7 +464,7 @@ CREATE TABLE left_conversations (
                        CHECK (length(conversation_id) > 0 AND length(conversation_id) <= 4096 AND instr(conversation_id, char(0)) = 0),
   left_at              TEXT NOT NULL,
   PRIMARY KEY (driver_name, conversation_id)
-);
+) STRICT;
 
 CREATE INDEX idx_left_conversations_session ON left_conversations(session_id);
 
@@ -486,7 +486,7 @@ CREATE TABLE driver_capabilities (
                     -- differs from the union's. This CHECK lists every flag in the union.
   refreshed_at      TEXT NOT NULL,
   PRIMARY KEY (driver_name, capability_flag)
-);
+) STRICT;
 
 -- Owner: Plan-003
 -- Per-tool metadata, cached so Settings › MCP servers shows each tool's declared idempotency_class
@@ -502,7 +502,7 @@ CREATE TABLE driver_tools (
   description        TEXT,
   refreshed_at       TEXT NOT NULL,
   PRIMARY KEY (driver_name, tool_name)
-);
+) STRICT;
 
 -- Owner: Plan-003
 -- Per-driver capability-contract metadata. The capability cache is keyed by driver_name
@@ -528,7 +528,7 @@ CREATE TABLE driver_contract_meta (
   cli_version_semver  TEXT                      -- cached `cliVersion.parsedVersion`; NULL where the printed version does not parse. Cold-start hydration MUST treat a NULL `cli_version_raw` as a cache miss and refresh from the driver — the required `GetCapabilitiesResult.cliVersion` is never fabricated from cache
                       CHECK ((cli_version_raw IS NOT NULL OR cli_version_semver IS NULL) AND (cli_version_semver IS NULL OR (length(cli_version_semver) > 0 AND length(cli_version_semver) <= 64 AND instr(cli_version_semver, char(0)) = 0))),
   refreshed_at        TEXT NOT NULL             -- last contract-meta write: every capability-refresh write, plus the eventless cli_version pair-only currency refresh, so it may lead driver_capabilities.refreshed_at
-);
+) STRICT;
 ```
 
 The build-metadata rejection above is grounded in the SemVer specification itself: per [Semantic Versioning 2.0.0 §10](https://semver.org/#spec-item-10), "Build metadata MUST be ignored when determining version precedence. Thus two versions that differ only in the build metadata, have the same precedence." Because `1.2.3+build.5` and `1.2.3+build.6` denote the SAME contract version under that precedence rule, persisting them as byte-distinct `contract_version` strings would let a non-change masquerade as a change. The shared write-path Zod guard (`assertValidContractVersion`, invoked from both the T2.2 `runtime_bindings` and T2.4 `driver_contract_meta` write paths) therefore REJECTS — rather than strips/normalizes — any value carrying build metadata, keeping the stored value byte-identical to what was validated and both `contract_version` columns canonical-identifying.
@@ -548,7 +548,7 @@ CREATE TABLE local_machine (
   node_id           TEXT NOT NULL,
   name              TEXT NOT NULL,
   minted_at         TEXT NOT NULL
-);
+) STRICT;
 
 -- Owner: Plan-025
 CREATE TABLE node_trust_state (
@@ -557,7 +557,7 @@ CREATE TABLE node_trust_state (
   established_at    TEXT NOT NULL,  -- first registration; a re-registration keeps it
   updated_at        TEXT NOT NULL,
   PRIMARY KEY (node_id, owner_user_id)
-);
+) STRICT;
 ```
 
 ---
@@ -566,40 +566,40 @@ CREATE TABLE node_trust_state (
 
 ```sql
 -- Owner: Plan-011
--- + size_bytes realizes the OCI manifest envelope (D-011-1).
 CREATE TABLE artifact_manifests (
-  id                 TEXT PRIMARY KEY,
+  id                 TEXT PRIMARY KEY,             -- UUIDv7, minted by the daemon
   session_id         TEXT NOT NULL,
   run_id             TEXT,
-  created_by         TEXT,                       -- the device the publishing request came from; NULL for a daemon-produced artifact
-  artifact_type      TEXT NOT NULL              -- Spec-012 §Interfaces And Contracts discriminator (D-011-3)
-                     CHECK(artifact_type IN ('file', 'diff', 'summary', 'log', 'design', 'workflow_output')),
+  -- The device the request that made it came from; NULL for an artifact the daemon produced.
+  created_by         TEXT,
+  artifact_type      TEXT NOT NULL
+                     CHECK(artifact_type IN ('file', 'diff', 'summary', 'log', 'design',
+                                             'workflow_output')),
   state              TEXT NOT NULL DEFAULT 'pending'
                      CHECK(state IN ('pending', 'published', 'superseded')),
-  content_hash       TEXT NOT NULL,              -- SHA-256 content address (OCI `digest`); intrinsic to a content-addressed manifest (I-011-1), set at insert by the writing producer (AttachmentIngest or ArtifactPublish) from its own payload — D-011-1
-  size_bytes         INTEGER NOT NULL,           -- OCI manifest-descriptor `size` (payload byte length); set at insert by the writing producer from its own payload, never a payload-less row — D-011-1
-  metadata           TEXT NOT NULL DEFAULT '{}', -- JSON: daemon-side provenance, the file name and the media type (Spec-012)
-  created_at         TEXT NOT NULL
-);
+  content_hash       TEXT NOT NULL,                -- the payload's SHA-256, 'sha256:<hex>'
+  size_bytes         INTEGER NOT NULL,             -- the payload's length, measured by the daemon
+  metadata           TEXT NOT NULL DEFAULT '{}',   -- JSON: the file name and the media type
+  created_at         TEXT NOT NULL                 -- RFC 3339 UTC, ms precision
+) STRICT;
 
 CREATE INDEX idx_artifact_manifests_session ON artifact_manifests(session_id);
 CREATE INDEX idx_artifact_manifests_run ON artifact_manifests(run_id) WHERE run_id IS NOT NULL;
 CREATE INDEX idx_artifact_manifests_hash ON artifact_manifests(content_hash);
 
 -- Owner: Plan-011
+-- Where a manifest's payload is stored. Written in the manifest's own transaction, after it.
 CREATE TABLE artifact_payload_refs (
   id              TEXT PRIMARY KEY,
   manifest_id     TEXT NOT NULL REFERENCES artifact_manifests(id),
-  storage_path    TEXT NOT NULL,              -- filesystem path or CAS key
-  media_type      TEXT NOT NULL,              -- MIME type
+  storage_path    TEXT NOT NULL,                  -- the content store's key
+  media_type      TEXT NOT NULL,                  -- read from the payload's bytes
   size_bytes      INTEGER NOT NULL,
-  created_at      TEXT NOT NULL
-);
+  created_at      TEXT NOT NULL                   -- RFC 3339 UTC, ms precision
+) STRICT;
 
 CREATE INDEX idx_artifact_payload_refs_manifest ON artifact_payload_refs(manifest_id);
--- The derived-refcount lookup key — the session sweep
--- counts surviving references by storage_path on every reclaim decision (Spec-012 §Local Artifact
--- Deletion And CAS Reclaim (V1)), and an unindexed lookup would full-scan the table each time.
+-- How many references name a storage key is counted on every reclaim decision.
 CREATE INDEX idx_artifact_payload_refs_storage_path ON artifact_payload_refs(storage_path);
 ```
 
@@ -641,7 +641,7 @@ CREATE TABLE approval_requests (
                                               -- as either a grant or a denial (Spec-010 §Required Behavior)
   created_at            TEXT NOT NULL,
   updated_at            TEXT NOT NULL         -- last state-transition instant (a cancel carries no resolution row)
-);
+) STRICT;
 
 CREATE INDEX idx_approval_requests_run ON approval_requests(run_id);
 CREATE INDEX idx_approval_requests_session ON approval_requests(session_id);
@@ -667,7 +667,7 @@ CREATE TABLE approval_resolutions (
                            CHECK(remembered_scope_kind IS NULL OR remembered_scope_kind IN ('session', 'project')),
   remembered_scope_pattern TEXT,              -- the derived subject of that rule, nullable
   resolved_at              TEXT NOT NULL
-);
+) STRICT;
 ```
 
 The daemon keeps no table of approval rules: the providers keep them ([Spec-010 §Default Behavior](../../specs/010-approvals-permissions-and-trust-boundaries.md#default-behavior)), and a session's own answers are its `approval_resolutions` rows and its `approval.remembered` and `approval.rule_revoked` events, which the inspector's `Rules` reads beside the providers' own rules.
@@ -691,7 +691,7 @@ CREATE TABLE projection_cursors (
   state           TEXT NOT NULL DEFAULT 'current'
                   CHECK(state IN ('current', 'rebuilding', 'stale')),
   updated_at      TEXT NOT NULL
-);
+) STRICT;
 
 -- Owner: Plan-012. The sessions a restart rebuilds: every session with events
 -- has a cursor, written with each event, so only one not current needs a rebuild.
@@ -706,7 +706,7 @@ CREATE TABLE recovery_checkpoints (
   as_of_sequence  INTEGER NOT NULL,
   state_blob      BLOB NOT NULL,
   created_at      TEXT NOT NULL
-);
+) STRICT;
 
 CREATE INDEX idx_recovery_checkpoints_session ON recovery_checkpoints(session_id);
 ```
@@ -739,7 +739,7 @@ CREATE TABLE skill_records (
   updated_at        TEXT NOT NULL,
   CHECK((origin = 'plugin') = (plugin_name <> '')),
   CHECK((scope = 'global') = (scope_ref = ''))
-);
+) STRICT;
 
 -- One live record per folder; an orphaned record keeps its last path without holding the folder.
 CREATE UNIQUE INDEX idx_skill_records_folder ON skill_records(folder_path) WHERE orphaned = 0;
@@ -766,7 +766,7 @@ CREATE TABLE push_deliveries (
                CHECK(state IN ('sent', 'replaced')),  -- 'replaced' once a later push for the same moment took its place, which leaves nothing to withdraw
   sent_at      TEXT NOT NULL,
   PRIMARY KEY (entry_id, device_id)
-);
+) STRICT;
 ```
 
 ## Remote Control Tables (Plan-025)
@@ -785,7 +785,7 @@ CREATE TABLE trust_statements (
                                    'passkey.added', 'passkey.removed',
                                    'runtimenode.added', 'runtimenode.renamed', 'runtimenode.removed')),
   statement         BLOB NOT NULL                 -- the signed statement as verified, signed by a machine key, a device key or a passkey
-);
+) STRICT;
 
 -- Owner: Plan-025
 -- One row per device the chain trusts or has revoked. Kept until the account is gone; a
@@ -803,7 +803,7 @@ CREATE TABLE trusted_devices (
   push_key                BLOB,                   -- the key a push notice to this device is sealed to
   web_push_keys           TEXT,                   -- JSON: the web client's subscription keys {p256dh, auth}; NULL on every other device
   CHECK(revoked_at IS NULL OR (notification_settings IS NULL AND push_key IS NULL AND web_push_keys IS NULL))  -- the switches and push keys are kept until the device is revoked
-);
+) STRICT;
 
 -- Owner: Plan-025
 -- The ports this machine shares with the account's devices: only listed ports, and only loopback,
@@ -812,7 +812,7 @@ CREATE TABLE shared_ports (
   port      INTEGER PRIMARY KEY
             CHECK(port BETWEEN 1 AND 65535),
   added_at  TEXT NOT NULL
-);
+) STRICT;
 ```
 
 ## Session Search Index

@@ -20,23 +20,21 @@ import type {
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 
-import {
-  openScratchDatabase,
-  type ScratchDatabase,
-} from "../../../database/__fixtures__/scratch.js";
-import { isMissingFileError } from "../../../file/missing-error.js";
-import { registerArtifactIngestMethods } from "../../../ipc/handlers/artifact/ingest.js";
-import { registerArtifactPublish } from "../../../ipc/handlers/artifact/publish.js";
-import { MethodRegistryImpl } from "../../../ipc/registry.js";
+import { openScratchDatabase, type ScratchDatabase } from "../../database/__fixtures__/scratch.js";
+import { isMissingFileError } from "../../file/missing-error.js";
+import { registerArtifactIngestMethods } from "../../ipc/handlers/artifact/ingest.js";
+import { registerArtifactPublish } from "../../ipc/handlers/artifact/publish.js";
+import { MethodRegistryImpl } from "../../ipc/registry.js";
 import {
   mintSessionId,
   seedSessionRow,
-} from "../../../session/directory/__fixtures__/directory-rows.js";
-import { PayloadStore } from "../../payload-store.js";
-import { ArtifactPublishService } from "../../publish.js";
-import { MAX_INGEST_STREAM_LIFETIME_MS } from "../limits.js";
-import { AttachmentIngestService } from "../service.js";
-import type { MediaTypeDetector } from "../detection/thread.js";
+} from "../../session/directory/__fixtures__/directory-rows.js";
+import { UploadAdmission } from "../admission.js";
+import { ThreadedTypeDetector, type MediaTypeDetector } from "../detection/thread.js";
+import { MAX_INGEST_STREAM_LIFETIME_MS } from "../ingest/limits.js";
+import { AttachmentIngestService } from "../ingest/service.js";
+import { PayloadStore } from "../payload-store.js";
+import { ArtifactPublishService } from "../publish.js";
 import { IngestValidation } from "../validation.js";
 
 /** The device every call comes from. */
@@ -49,9 +47,10 @@ export const PNG_SIGNATURE: Uint8Array = Uint8Array.from([
 
 /** What a harness is opened with; each defaults to a roomy disk and the real detector. */
 export interface IngestHarnessOptions {
-  /** The disk's free room, in bytes, read at each opening. */
+  /** The disk's free room, in bytes, read at each admission. */
   readonly readVolumeFreeBytes?: () => Promise<number>;
-  readonly detectMediaType?: MediaTypeDetector;
+  /** The detector, handed the harness so it can act on the session mid-detection. */
+  readonly detectMediaType?: (harness: IngestHarness) => MediaTypeDetector;
 }
 
 /** An open harness: the calls, the clock, and what the store and the database hold. */
@@ -93,6 +92,8 @@ export interface IngestHarness {
   readonly spooledBytes: (ingestId: string) => Promise<Buffer | undefined>;
   readonly manifestRows: () => ManifestRow[];
   readonly payloadRefRows: () => PayloadRefRow[];
+  /** Deletes the session's directory row, as a purge does. */
+  readonly deleteSession: () => Promise<void>;
   readonly close: () => Promise<void>;
 }
 
@@ -136,9 +137,16 @@ export async function openIngestHarness(
   let nowMs = openedAt;
   let pipelineRuns = 0;
   const payloadStore = new PayloadStore(objectsDirectory);
+  const threadedDetector = new ThreadedTypeDetector();
+  // Set once the harness exists, so a test's detector can act on it.
+  let detectMediaType: MediaTypeDetector = (leadingBytes) => threadedDetector.detect(leadingBytes);
   const validation = new IngestValidation({
     payloadStore,
-    ...(options.detectMediaType === undefined ? {} : { detectMediaType: options.detectMediaType }),
+    detectMediaType: (leadingBytes) => detectMediaType(leadingBytes),
+  });
+  const admission = new UploadAdmission({
+    spoolDirectory,
+    readVolumeFreeBytes: options.readVolumeFreeBytes ?? (() => Promise.resolve(2 ** 40)),
   });
   const service = new AttachmentIngestService({
     database: scratch,
@@ -148,14 +156,15 @@ export async function openIngestHarness(
         return validation.run(payload, recordReference);
       },
     },
+    admission,
     spoolDirectory,
-    readVolumeFreeBytes: options.readVolumeFreeBytes ?? (() => Promise.resolve(2 ** 40)),
     now: () => nowMs,
   });
   const publisher = new ArtifactPublishService({
     database: scratch,
     validation,
     payloadStore,
+    admission,
     spoolDirectory,
     now: () => nowMs,
   });
@@ -192,7 +201,7 @@ export async function openIngestHarness(
       context,
     )) as AttachmentIngestCompleteResponse;
 
-  return {
+  const harness: IngestHarness = {
     sessionId,
     service,
     publisher,
@@ -263,9 +272,19 @@ export async function openIngestHarness(
            FROM artifact_payload_refs ORDER BY manifest_id`,
         )
         .all() as PayloadRefRow[],
+    deleteSession: async () => {
+      await scratch.writer.write([
+        { sql: "DELETE FROM sessions WHERE id = ?", bindings: [sessionId], expectedRowCount: 1 },
+      ]);
+    },
     close: async () => {
+      await threadedDetector.stop();
       await scratch.close();
       await rm(storeDirectory, { recursive: true, force: true });
     },
   };
+  if (options.detectMediaType !== undefined) {
+    detectMediaType = options.detectMediaType(harness);
+  }
+  return harness;
 }

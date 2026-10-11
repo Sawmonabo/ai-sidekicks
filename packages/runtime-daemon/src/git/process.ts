@@ -21,7 +21,7 @@ const DEFAULT_GIT_EXECUTABLE = "git";
  * listing of a whole worktree. A cap, not an allocation; overflow fails the invocation and never
  * truncates.
  */
-const GIT_STDIO_MAX_BUFFER_BYTES: number = 64 * 1024 * 1024;
+export const GIT_STDIO_MAX_BUFFER_BYTES: number = 64 * 1024 * 1024;
 
 /**
  * Two minutes: `worktree add` materializes a full checkout and the snapshot staging legs walk the

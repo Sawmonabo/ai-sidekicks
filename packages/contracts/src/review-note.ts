@@ -17,6 +17,9 @@ import { FILE_PATH_MAX_LEN } from "./free-form-string.js";
 import { SessionIdSchema, type SessionId } from "./session/id.js";
 import { isoDateTimeSchema } from "./internal/wire-scalars.js";
 
+/** The refusal for a note the session does not hold: sent, posted or discarded, maybe elsewhere. */
+export const SESSION_REVIEW_NOTE_NOT_FOUND_CODE = "session.review_note_not_found" as const;
+
 /** The id of one held note, minted by the client, so adding the same note twice makes one note. */
 export type ReviewNoteId = string & { readonly __brand: "ReviewNoteId" };
 /** Parses a {@link ReviewNoteId}. */

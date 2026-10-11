@@ -3,7 +3,7 @@
 // own the ingest, so the chip and the transcript card cannot disagree about an upload.
 // A refusal is the only non-neutral tone.
 
-import { INGEST_ABANDON_COPY, INGEST_DISPOSITION_COPY } from "./policy.js";
+import { canRetryIngest, INGEST_ABANDON_COPY, INGEST_DISPOSITION_COPY } from "./policy.js";
 import { isIngestStalled } from "./presentation.js";
 import {
   ATTACHMENT_DECLARED_MEDIA_TYPE_LABEL,
@@ -43,7 +43,7 @@ export interface ComposerAttachmentChipModel {
   readonly isStalled: boolean;
   /** The daemon's refusal, verbatim, with what it recommends doing next. */
   readonly refusal: ComposerAttachmentRefusal | undefined;
-  /** Whether a retry may be offered. False for every settled entry, refused excepted. */
+  /** Whether a retry may be offered: only for a refusal that is not of the file itself. */
   readonly offersRetry: boolean;
   /** Whether an abandon may be offered. */
   readonly offersAbandon: boolean;
@@ -96,7 +96,7 @@ export function composerAttachmentChip(
                 ? undefined
                 : INGEST_DISPOSITION_COPY[entry.disposition],
           },
-    offersRetry: entry.state === "refused" && entry.disposition !== "attach-another",
+    offersRetry: canRetryIngest(entry),
     offersAbandon: entry.state === "declared" || entry.state === "ingesting",
     abandonCopy: INGEST_ABANDON_COPY,
   };

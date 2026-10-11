@@ -322,14 +322,14 @@ interface ReviewNote {
   side: "added" | "removed";
   line: number;
   startLine?: number; // a note on a range of lines
-  quote: string; // the one-line quote of the line
+  quote: string; // the line's text, read from that side's file at the comparison when added
   body: string;
-  stranded: boolean; // the line no longer exists in the diff the note points into
+  stranded: boolean; // that line is gone from that side's file, or no longer says what `quote` holds
   createdAt: string; // RFC 3339 UTC
   updatedAt: string; // RFC 3339 UTC; the last edit of `body`
-  // Arrives with `gitflow.reviewSubmit`: `sent` once a posted review carried it, drawn `sent` and
-  // never offered again, so a second press after a part-way failure posts only what is still `held`.
-  state: "held" | "sent";
+  // `gitflow.reviewSubmit` adds `state: "held" | "sent"` to this shape when it is built: `sent` once
+  // a posted review carried the note, drawn `sent` and never offered again, so a second press after
+  // a part-way failure posts only what is still `held`. Until then the schema refuses the member.
 }
 interface ReviewNoteAddRequest {
   sessionId: SessionId;
@@ -417,4 +417,4 @@ Plan-008's git flow is exposed as the `gitflow.*` methods below. Method-name str
 | `session.reviewNoteRemove` | `mutation` | `ReviewNoteRemoveRequest` | `ReviewNoteRemoveResponse` |
 | `session.reviewNoteList` | `subscription` | `ReviewNoteListRequest` | `ReviewNoteSet` (stream) |
 
-The reads are `query`s, the live feeds `subscription`s and every other verb a `mutation`, per the tRPC procedure-type convention in remote-control-payloads.md §Plan-025 — Remote Control Bootstrap. The daemon answers these verbs through its own hosting adapter, one per hosting kind, GitHub through the `gh` command-line tool and GitLab through `glab`, each under the person's own signed-in identity. The adapter is daemon-internal, in the daemon's gitflow module (`packages/runtime-daemon/src/gitflow/`), and is not part of this contract; its operations are stated in [Spec-009 §GitHostingAdapter Interface](../../specs/009-gitflow-pr-and-diff-attribution.md#githostingadapter-interface), and every reply a client reads is the verb's own shape above. Canonical Zod schemas live in `packages/contracts/src/gitflow/` per the api-payload-contracts.md §Source-of-Truth Policy.
+The reads are `query`s, the live feeds `subscription`s and every other verb a `mutation`, per the tRPC procedure-type convention in remote-control-payloads.md §Plan-025 — Remote Control Bootstrap. The daemon answers these verbs through its own hosting adapter, one per hosting kind, GitHub through the `gh` command-line tool and GitLab through `glab`, each under the person's own signed-in identity. The adapter is daemon-internal, in the daemon's gitflow module (`packages/runtime-daemon/src/gitflow/`), and is not part of this contract; its operations are stated in [Spec-009 §GitHostingAdapter Interface](../../specs/009-gitflow-pr-and-diff-attribution.md#githostingadapter-interface), and every reply a client reads is the verb's own shape above. Canonical Zod schemas live in `packages/contracts/src/gitflow/`, and the held-note shapes in `packages/contracts/src/review-note.ts`, per the api-payload-contracts.md §Source-of-Truth Policy.

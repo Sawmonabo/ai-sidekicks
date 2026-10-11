@@ -2,11 +2,10 @@
 // kept with the session beside its draft so a half-written review reaches the person's other
 // devices. The client mints a note's id, so a resent add answers the note already held.
 //
-// A note quotes its line as the diff read when it was added. Whether it is stranded is never
-// stored: each read looks its line up again in the diff its comparison names, as that diff reads
-// now, and a note whose line is no longer a changed line there, or no longer says what it quoted,
-// is stranded. A session working in no repository's folder has no diff, so its notes read
-// stranded.
+// A note quotes its line from that side's file at its comparison when it was added. Whether it is
+// stranded is never stored: each read looks its line up again in that file as it reads now, and a
+// note whose line is gone, or no longer says what it quoted, is stranded. A session working in no
+// repository's folder has no diff, so its notes read stranded.
 //
 // A follower gets the whole set at once, then again after each note change and each change to the
 // folder the session works in. Reads for one follower run one at a time and only the newest is
@@ -14,17 +13,18 @@
 
 import type { Statement } from "better-sqlite3";
 
-import type {
-  ReviewNote,
-  ReviewNoteAddRequest,
-  ReviewNoteId,
-  ReviewNoteRemoveRequest,
-  ReviewNoteRemoveResponse,
-  ReviewNoteResponse,
-  ReviewNoteScope,
-  ReviewNoteSet,
-  ReviewNoteSide,
-  ReviewNoteUpdateRequest,
+import {
+  SESSION_REVIEW_NOTE_NOT_FOUND_CODE,
+  type ReviewNote,
+  type ReviewNoteAddRequest,
+  type ReviewNoteId,
+  type ReviewNoteRemoveRequest,
+  type ReviewNoteRemoveResponse,
+  type ReviewNoteResponse,
+  type ReviewNoteScope,
+  type ReviewNoteSet,
+  type ReviewNoteSide,
+  type ReviewNoteUpdateRequest,
 } from "@ai-sidekicks/contracts/review-note";
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
@@ -93,7 +93,7 @@ export interface ReviewNoteSetOutlet {
 class ReviewNoteNotFoundError extends DaemonDomainError {
   constructor(noteId: ReviewNoteId) {
     super("This session holds no such review note", {
-      code: "session.review_note_not_found",
+      code: SESSION_REVIEW_NOTE_NOT_FOUND_CODE,
       jsonRpcCode: JsonRpcErrorCode.InvalidParams,
       detail: { noteId },
     });
@@ -141,8 +141,10 @@ export class SessionReviewNoteStore {
   }
 
   /**
-   * Holds a new note, quoting its line as the diff reads now, and answers it; a note already held
-   * under its id is answered as held. Rejects with `session.not_found` for an unknown session.
+   * Holds a new note, quoting its line from that side's file at its comparison, and answers it; a
+   * note already held under its id is answered as held. Rejects with `session.not_found` for an
+   * unknown session and `session.review_note_not_found` when the note is discarded elsewhere
+   * before it is answered.
    */
   async add(request: ReviewNoteAddRequest): Promise<ReviewNoteResponse> {
     const { sessionId, noteId, comparison } = request;

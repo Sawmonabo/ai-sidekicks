@@ -8,7 +8,7 @@ import { setTimeout } from "node:timers/promises";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { MAX_ACTIVE_INGEST_STREAMS } from "../limits.js";
-import { openIngestHarness, type IngestHarness } from "./service.test-support.js";
+import { openIngestHarness, type IngestHarness } from "../../__tests__/harness.test-support.js";
 
 const CAPACITY_EXHAUSTED = { code: "artifact.ingest_capacity_exhausted" };
 
@@ -57,7 +57,7 @@ describe("opening an ingest stream", () => {
 
     await expect(harness.init(1_001, "backup.tar")).rejects.toMatchObject({
       code: "artifact.too_large",
-      detail: { fileName: "backup.tar", availableBytes: 1_000 },
+      detail: { reason: "volume_too_small", fileName: "backup.tar", availableBytes: 1_000 },
     });
     await expect(harness.init(1_000)).resolves.toMatchObject({ ingestId: expect.any(String) });
   });

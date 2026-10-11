@@ -1,4 +1,9 @@
-// The runs of one session, as its close and its purge find them.
+// The runs of one session, as its close and its purge find them, and whether a run is one of them.
+
+import type { RunId } from "@ai-sidekicks/contracts/run/id";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+
+import type { WriteStatement } from "../../database/statement.js";
 
 /**
  * The ids, in one `runId` column, of the runs of the session the `@sessionId` parameter names: the
@@ -14,3 +19,12 @@ export const SESSION_RUN_IDS_SQL = `SELECT run_id AS runId FROM runs WHERE sessi
    WHERE runId IS NOT NULL
   UNION
   SELECT run_id FROM run_execution_contexts WHERE session_id = @sessionId`;
+
+/** Reads a row only while the `@runId` parameter names a run of the `@sessionId` session. */
+export const RUN_IN_SESSION_SQL =
+  "SELECT 1 FROM runs WHERE run_id = @runId AND session_id = @sessionId";
+
+/** Holds only while `runId` names a run of `sessionId`. */
+export function runInSessionStatement(sessionId: SessionId, runId: RunId): WriteStatement {
+  return { sql: RUN_IN_SESSION_SQL, bindings: { sessionId, runId }, expectedRowCount: 1 };
+}

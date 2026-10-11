@@ -2,10 +2,10 @@
 // stands. Every operation settles before it returns, and a continuation returning from an await
 // must consult the record rather than the entry it captured, since a user can act mid-call.
 // Order is attach order, kept in an explicit array of local ids. An entry holds the user's `Blob`
-// only while a send is still possible (`declared`, `ingesting`, `refused`); settled entries are
-// built through `attachmentIngestEntryFrom`, whose settled arm has no payload member, so ten
-// finished uploads do not pin ten files of memory. A write moving a settled entry back into a
-// sending state is refused.
+// only while a send is still possible (`declared`, `ingesting`, or `refused` with a retry to
+// offer); settled entries are built through `attachmentIngestEntryFrom`, whose settled arm has no
+// payload member, so ten finished uploads do not pin ten files of memory. A write moving a settled
+// entry back into a sending state is refused.
 
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { Emitter } from "#renderer/lib/emitter.js";

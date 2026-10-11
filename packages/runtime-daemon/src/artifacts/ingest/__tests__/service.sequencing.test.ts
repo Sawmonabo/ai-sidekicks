@@ -5,7 +5,11 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { contentHashOf, openIngestHarness, type IngestHarness } from "./service.test-support.js";
+import {
+  contentHashOf,
+  openIngestHarness,
+  type IngestHarness,
+} from "../../__tests__/harness.test-support.js";
 
 const STREAM_INVALID = { code: "artifact.ingest_stream_invalid" };
 const FIRST = new TextEncoder().encode("first chunk;");

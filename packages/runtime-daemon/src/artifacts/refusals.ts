@@ -1,22 +1,16 @@
 // The artifact store's refusals, each projected onto the wire by its code: a stream past its end is
-// begun again from its opening, a full ledger is waited out, and a file too large for its
-// declaration or for the disk, a payload whose type cannot be read, and a file sent to the publish
-// call are refused for good.
+// begun again from its opening, a full ledger and a type check that could not run are waited out
+// and sent again, and a file too large for its declaration or for the disk, a payload whose type
+// the detector refused, and a file sent to the publish call are refused for good.
 
-import type { ArtifactRefusalCode } from "@ai-sidekicks/contracts/artifacts/operations";
+import type {
+  ArtifactRefusalCode,
+  ArtifactTooLargeReason,
+  IngestStreamInvalidReason,
+} from "@ai-sidekicks/contracts/artifacts/operations";
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 
 import { DaemonDomainError } from "../ipc/domain-error.js";
-
-/**
- * Why a stream call cannot go on: its id names no live stream, a chunk broke the sequence, the
- * stream outlived its lifetime, or a chunk came after the completion.
- */
-export type IngestStreamInvalidReason =
-  | "unknown_stream"
-  | "sequence_broken"
-  | "lifetime_expired"
-  | "already_completed";
 
 /**
  * `artifact.ingest_stream_invalid`: the call cannot proceed and cannot be retried in place, so the
@@ -33,44 +27,49 @@ export class IngestStreamInvalidError extends DaemonDomainError {
 }
 
 /**
- * `artifact.ingest_capacity_exhausted`: no stream was opened because the open streams are at their
- * bound or the disk has no room for this one beside theirs. Nothing was created, so a later
- * opening may admit.
+ * `artifact.ingest_capacity_exhausted`: no upload was admitted because the open uploads are at
+ * their bound or the disk has no room for this one beside theirs. Nothing was created, so a later
+ * one may admit.
  */
 export class IngestCapacityExhaustedError extends DaemonDomainError {
   constructor() {
     super("The background service has no room for another upload right now", {
       code: "artifact.ingest_capacity_exhausted" satisfies ArtifactRefusalCode,
+      jsonRpcCode: JsonRpcErrorCode.InvalidRequest,
     });
   }
 }
 
 /**
- * `artifact.too_large`: a file declared larger than the disk has room for, or a stream sent more
- * than it declared. Either names the file and the limit it hit.
+ * `artifact.too_large`: a payload declared larger than the disk has room for, or a stream that
+ * sent more than it declared. Either names its reason, the limit it hit and the file, when it has
+ * one; a publish carries no file name.
  */
 export class ArtifactTooLargeError extends DaemonDomainError {
   constructor(
-    fileName: string,
+    fileName: string | undefined,
     limit: { readonly availableBytes: number } | { readonly declaredSizeBytes: number },
   ) {
+    const payloadName = fileName ?? "The payload";
+    const reason: ArtifactTooLargeReason =
+      "availableBytes" in limit ? "volume_too_small" : "declared_size_exceeded";
     super(
       "availableBytes" in limit
-        ? `${fileName} is larger than the ${String(limit.availableBytes)} bytes free on the disk`
-        : `${fileName} sent more than the ${String(limit.declaredSizeBytes)} bytes it declared`,
+        ? `${payloadName} is larger than the ${String(limit.availableBytes)} bytes free on the disk`
+        : `${payloadName} sent more than the ${String(limit.declaredSizeBytes)} bytes it declared`,
       {
         code: "artifact.too_large" satisfies ArtifactRefusalCode,
         jsonRpcCode: JsonRpcErrorCode.InvalidRequest,
-        detail: { fileName, ...limit },
+        detail: { reason, ...(fileName === undefined ? {} : { fileName }), ...limit },
       },
     );
   }
 }
 
 /**
- * `artifact.type_unreadable`: the detector failed or ran past its bound on this payload's bytes.
- * The same bytes fail the same way, so the payload is refused for good rather than begun again.
- * `fileName` is the ingested file's; a publish carries none.
+ * `artifact.type_unreadable`: the detector ran over this payload's bytes and refused them. The same
+ * bytes fail the same way, so the payload is refused for good rather than sent again. `fileName` is
+ * the ingested file's; a publish carries none.
  */
 export class ArtifactTypeUnreadableError extends DaemonDomainError {
   constructor(fileName: string | undefined, cause: unknown) {
@@ -80,6 +79,28 @@ export class ArtifactTypeUnreadableError extends DaemonDomainError {
         : `The type of ${fileName} could not be read from its bytes`,
       {
         code: "artifact.type_unreadable" satisfies ArtifactRefusalCode,
+        jsonRpcCode: JsonRpcErrorCode.InvalidRequest,
+        ...(fileName === undefined ? {} : { detail: { fileName } }),
+        cause,
+      },
+    );
+  }
+}
+
+/**
+ * `artifact.type_check_unavailable`: the type check could not run to an answer, because it ran past
+ * its time bound, its thread failed or ran out of room, or too many payloads were waiting for one.
+ * Nothing about the bytes is known, so the same call is sent again: an ingest stream stays open
+ * with its spool for a resent completion, and a publish keeps nothing.
+ */
+export class ArtifactTypeCheckUnavailableError extends DaemonDomainError {
+  constructor(fileName: string | undefined, cause: unknown) {
+    super(
+      fileName === undefined
+        ? "The type of the published payload could not be checked right now"
+        : `The type of ${fileName} could not be checked right now`,
+      {
+        code: "artifact.type_check_unavailable" satisfies ArtifactRefusalCode,
         jsonRpcCode: JsonRpcErrorCode.InvalidRequest,
         ...(fileName === undefined ? {} : { detail: { fileName } }),
         cause,

@@ -144,8 +144,8 @@ CREATE TABLE session_drafts (
 -- for the same reason, each until it is sent as a steer, posted with a review
 -- or discarded. The client mints the note's id, so a resent add is one note.
 -- The comparison a note was written in names its head commit or, for
--- uncommitted lines, the working file's blob; whether its line is still in the
--- diff is read from git on each read, never stored.
+-- uncommitted lines, the working file's blob; whether its line is still in
+-- that side's file is read from git on each read, never stored.
 CREATE TABLE session_review_notes (
   session_id            TEXT NOT NULL,
   note_id               TEXT NOT NULL,
