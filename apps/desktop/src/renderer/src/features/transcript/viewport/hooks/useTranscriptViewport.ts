@@ -17,6 +17,7 @@ import {
 } from "react";
 
 import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
+import { useStopObservingRemovedItems } from "#renderer/hooks/useStopObservingRemovedItems.js";
 import { type Clock } from "#renderer/lib/clock.js";
 import { type RememberedRowHeights } from "#renderer/store/session/remembered-row-heights.js";
 import { type ScrollController } from "#renderer/lib/scroll/chokepoint.js";
@@ -274,6 +275,8 @@ export function useTranscriptViewport(
     // re-renders only when the index range moves.
     directDomUpdates: true,
   });
+
+  useStopObservingRemovedItems(virtualizer);
 
   useEffect(() => {
     if (controller.isDisposed) {
