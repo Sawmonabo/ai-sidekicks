@@ -4,7 +4,7 @@
 // send to a model, a content hash blind to layout, pinned data and tags, trigger inputs with
 // distinct names that start on a value their type allows, a tool binding that carries no policy,
 // and a step's failure whose details never travel without its code, nor an agent refusal without
-// its reason and the definition it names, `null` for the General agent.
+// its reason and the definition it names, `null` for the General agent, nor any other agent code.
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
@@ -285,7 +285,7 @@ describe("WorkflowStepErrorSchema", () => {
     expect(WorkflowStepErrorSchema.safeParse({ message: "failed" }).success).toBe(true);
   });
 
-  it("fails a step whose agent could not resolve with that refusal, its reason and its definition, none for the General agent", () => {
+  it("fails a step whose agent could not resolve with that refusal, its reason and its definition, none for the General agent, and with no other agent code", () => {
     const parkRefused = {
       message: "The account this step waited on was removed",
       code: "agent.resolution_refused",
@@ -312,10 +312,17 @@ describe("WorkflowStepErrorSchema", () => {
       WorkflowStepErrorSchema.safeParse({ ...parkRefused, details: { reason: "out_of_luck" } })
         .success,
     ).toBe(false);
-    // The resolution refusal is the one agent code a step fails with; no other rides it.
+    // The resolution refusal is the one agent code a step fails with; no other rides it, with the
+    // resolution refusal's details or with its own.
     expect(
       WorkflowStepErrorSchema.safeParse({ ...parkRefused, code: "agent.update_refused" }).success,
     ).toBe(false);
+    const updateRefused = {
+      message: "This sidekick comes from a plugin and cannot be edited",
+      code: "agent.update_refused",
+      details: { definitionId: parkRefused.details.definitionId, reason: "plugin_read_only" },
+    };
+    expect(WorkflowStepErrorSchema.safeParse(updateRefused).success).toBe(false);
   });
 
   it("carries the failing item's index from 0, and no negative one", () => {
