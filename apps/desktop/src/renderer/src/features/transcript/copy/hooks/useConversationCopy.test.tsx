@@ -11,7 +11,7 @@ import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ClipboardContent, TextClipboardContent } from "#shared/preload-api.js";
-import { drawnTreeText } from "#renderer/components/Markdown/drawn-text.js";
+import { inThreadMarkdownWorker } from "#renderer/components/Markdown/worker/connection.test-support.js";
 import {
   markdownWorker,
   PAGE_HTML_CHARACTER_LIMIT,
@@ -26,6 +26,7 @@ import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
 import { MessageRow } from "../../rows/MessageRow.js";
 import { classifyTranscriptRow } from "../../rows/kind.js";
 import { FootnoteRegistry } from "../../rows/markdown/footnotes/registry.js";
+import { DrawnLongTables } from "../../rows/markdown/table-window/drawn-tables.js";
 import { ViewportSelectionTracker } from "../../viewport/selection/tracker.js";
 import { deriveTranscriptWindow } from "../../window/transcript-window.js";
 import { useConversationCopy } from "./useConversationCopy.js";
@@ -69,15 +70,17 @@ function Conversation(props: { readonly rows: typeof ROWS }): React.JSX.Element 
         drawRow: () => {},
       }),
   );
+  const [drawnLongTables] = useState(() => new DrawnLongTables());
   useConversationCopy({
     selectionTracker: tracker,
     // Each copy here runs from the first row to the last.
     selectedRowKeys: () => rowKeys,
     rowSourceWindows: { unfurledWindow: NO_WINDOW, transcriptWindow: NO_WINDOW },
     rowText: () => expect.fail("both rows are end rows"),
-    rowBodyText: () => expect.fail("neither row draws a table or a large body"),
+    rowBodyText: () => expect.fail("neither row draws a large body"),
     largeBodyRowIdOf: () => undefined,
     fullBodyReads: undefined,
+    drawnLongTables,
     history: undefined,
   });
   return (
@@ -174,8 +177,9 @@ function renderSession(rows = ROWS): {
     },
   );
   // happy-dom runs no worker; a long part is read on the page, as the worker reads it.
-  vi.spyOn(markdownWorker, "drawnText").mockImplementation((tree, flavor) =>
-    Promise.resolve(drawnTreeText(tree, flavor)),
+  const inThreadWorker = inThreadMarkdownWorker(sessionWindow);
+  vi.spyOn(markdownWorker, "drawnText").mockImplementation((tree, flavor, blockSources) =>
+    inThreadWorker.drawnText(tree, flavor, blockSources),
   );
   const formatted: TextClipboardContent[] = [];
   // The formatted flavor joins the text only while the clipboard still holds it, as main's does.

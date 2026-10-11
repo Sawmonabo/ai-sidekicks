@@ -4,15 +4,16 @@
 // rows the same tree.
 
 import { toHtml } from "hast-util-to-html";
+import type { Parents, Table, TableRow } from "mdast";
 import { toHast, type Handlers } from "mdast-util-to-hast";
 
 import { parseMarkdown } from "./parse.js";
 
-/** One node of the tree `markdownToHast` makes, below its root. */
-export type MarkdownHastChild = Extract<
-  ReturnType<typeof markdownToHast>,
-  { children: unknown }
->["children"][number];
+/** One element of the tree `markdownToHast` makes, below its root. */
+export type MarkdownHastElement = Extract<
+  Extract<ReturnType<typeof markdownToHast>, { children: unknown }>["children"][number],
+  { type: "element" }
+>;
 
 /** The HTML `markdown` makes, as the screen would draw it. */
 export function markdownToHtml(markdown: string): string {
@@ -24,9 +25,27 @@ export function markdownToHast(markdown: string): ReturnType<typeof toHast> {
   return toHast(parseMarkdown(markdown), { handlers: SCREEN_POLICY_HANDLERS });
 }
 
-/** The body rows of the one table `markdown` makes, as elements; none when it makes no table. */
-export function markdownTableBodyRows(markdown: string): MarkdownHastChild[] {
-  return bodyRowsOf(markdownToHast(markdown));
+/**
+ * Body rows `firstIndex` to `lastIndex` of `table`, counted from the first row below its head, as
+ * elements drawn as the screen draws a table's rows, a footnote marker among them.
+ */
+export function screenTableBodyRows(
+  table: Table,
+  firstIndex: number,
+  lastIndex: number,
+): MarkdownHastElement[] {
+  // Under the head row the rows are body rows, as they are in the whole table.
+  const rowsUnderHead: Table = {
+    type: "table",
+    align: table.align,
+    children: [
+      ...table.children.slice(0, 1),
+      ...table.children.slice(firstIndex + 1, lastIndex + 2),
+    ],
+  };
+  return bodyRowsOf(
+    toHast({ type: "root", children: [rowsUnderHead] }, { handlers: SCREEN_TABLE_ROW_HANDLERS }),
+  );
 }
 
 /** The screen draws a link as its text, an image as its alt text and raw HTML as literal text. */
@@ -41,8 +60,37 @@ const SCREEN_POLICY_HANDLERS: Handlers = {
   html: (_state, node: { value: string }) => ({ type: "text", value: node.value }),
 };
 
+/**
+ * A table row's cells drawn as the screen draws them: each cell the parse made, however many the
+ * head declares, under the screen's policy, and a footnote marker as its label in a `sup`, not as
+ * a numbered link to a footnotes section.
+ */
+const SCREEN_TABLE_ROW_HANDLERS: Handlers = {
+  ...SCREEN_POLICY_HANDLERS,
+  tableRow: (state, row: TableRow, parent: Parents | undefined) => {
+    const align = parent?.type === "table" ? parent.align : undefined;
+    const tagName = parent?.children[0] === row ? "th" : "td";
+    const cells = row.children.map((cell, columnIndex) => {
+      const alignment = align?.[columnIndex];
+      return {
+        type: "element" as const,
+        tagName,
+        properties: alignment === null || alignment === undefined ? {} : { align: alignment },
+        children: state.all(cell),
+      };
+    });
+    return { type: "element", tagName: "tr", properties: {}, children: state.wrap(cells, true) };
+  },
+  footnoteReference: (_state, node: { identifier: string; label?: string | null }) => ({
+    type: "element",
+    tagName: "sup",
+    properties: {},
+    children: [{ type: "text", value: node.label ?? node.identifier }],
+  }),
+};
+
 /** The body rows of the first table `tree` holds. */
-function bodyRowsOf(tree: ReturnType<typeof markdownToHast>): MarkdownHastChild[] {
+function bodyRowsOf(tree: ReturnType<typeof markdownToHast>): MarkdownHastElement[] {
   if (!("children" in tree)) {
     return [];
   }
@@ -51,7 +99,7 @@ function bodyRowsOf(tree: ReturnType<typeof markdownToHast>): MarkdownHastChild[
       continue;
     }
     if (child.tagName === "tbody") {
-      return child.children.filter((row) => row.type === "element");
+      return child.children.filter((row): row is MarkdownHastElement => row.type === "element");
     }
     const rows = bodyRowsOf(child);
     if (rows.length > 0) {

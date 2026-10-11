@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useId,
   useLayoutEffect,
   useReducer,
   useRef,
@@ -23,6 +24,7 @@ import {
   MarkdownBlockIndexContext,
   TableWindowBodyContext,
 } from "../../markdown/table-window/context.js";
+import { DrawnLongTablesContext } from "../../markdown/table-window/drawn-tables.js";
 import {
   TableWindowLayout,
   type TableRowVirtualizer,
@@ -33,6 +35,8 @@ import { useSelectionPins } from "./useSelectionPins.js";
 
 /** A long table's elements as one render draws them. */
 export interface TableWindow {
+  /** The key the feed holds the table under, which its spacer rows carry for a copy. */
+  readonly tableKey: string;
   /** The widths the drawn table's columns are held at; `undefined` until they are measured. */
   readonly heldColumns: HeldTableColumns | undefined;
   /**
@@ -72,6 +76,21 @@ export function useTableWindow(offer: MarkdownTableOffer): TableWindow {
   );
   layout.setTable(offer.table, blockIndex);
   layout.update();
+
+  // The table a copy reads its undrawn rows from, held from the commit that draws its spacers, so
+  // a copy asked after any commit finds the parse that frame drew from.
+  const drawnTables = useContext(DrawnLongTablesContext);
+  const tableKey = useId();
+  const readBlockParseSource = body.placement.blockParseSource(blockIndex);
+  useLayoutEffect(() => {
+    drawnTables?.hold(tableKey, { table: offer.table, readBlockParseSource });
+  });
+  useLayoutEffect(
+    () => () => {
+      drawnTables?.release(tableKey);
+    },
+    [drawnTables, tableKey],
+  );
 
   const heldColumns = layout.heldColumns;
   const measuring = layout.measuringFrame;
@@ -186,6 +205,7 @@ export function useTableWindow(offer: MarkdownTableOffer): TableWindow {
   });
 
   return {
+    tableKey,
     heldColumns,
     drawsWhole: heldColumns === undefined && layout.bodyType !== undefined,
     measuring,

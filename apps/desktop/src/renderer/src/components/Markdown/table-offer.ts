@@ -16,8 +16,6 @@ export interface MarkdownTableOffer {
   readonly table: Table;
   /** How many rows the table holds below its head row. */
   readonly bodyRowCount: number;
-  /** How many columns its delimiter line declares. */
-  readonly columnCount: number;
   /** The table drawn whole: every row, its columns sized to their cells by automatic layout. */
   readonly drawWhole: () => React.ReactNode;
   /** The table's element around rows the caller chose, held at given column widths when given. */

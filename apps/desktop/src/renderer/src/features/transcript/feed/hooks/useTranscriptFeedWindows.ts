@@ -57,6 +57,7 @@ import { useFoldedRunGroups } from "./useFoldedRunGroups.js";
 import { useDrawnRows } from "./useDrawnRows.js";
 import { usePreparedRows } from "./usePreparedRows.js";
 import { classifyTranscriptRow } from "../../rows/kind.js";
+import { DrawnLongTables } from "../../rows/markdown/table-window/drawn-tables.js";
 import { OffListTables } from "../../rows/markdown/table-window/off-list.js";
 import { type TranscriptRowRenderer } from "../../rows/renderer.js";
 import { useMessageAnchorRowKey } from "./useMessageAnchorRowKey.js";
@@ -101,6 +102,8 @@ export interface TranscriptFeedWindows {
   readonly viewport: TranscriptViewportBinding;
   /** The long tables of rows not yet listed, measured off the list at the listed rows' width. */
   readonly offListTables: OffListTables;
+  /** The long tables the feed draws, which a copy reads their undrawn rows from. */
+  readonly drawnLongTables: DrawnLongTables;
   /** The history past the store's window, or `undefined` for a composition with no read. */
   readonly history: TranscriptHistory | undefined;
   /** How reading back toward a linked message the log lacks stands, or `undefined` for none. */
@@ -183,6 +186,7 @@ export function useTranscriptFeedWindows(
   const [offListTables] = useState(
     () => new OffListTables(ownerDocument, () => readRowWidthPxRef.current()),
   );
+  const [drawnLongTables] = useState(() => new DrawnLongTables());
   // A row the log lets go takes its streaming tables' handed geometry with it.
   useEffect(() => {
     offListTables.streamingTables.retainRows(unfurledWindow.rowsByKey);
@@ -399,6 +403,7 @@ export function useTranscriptFeedWindows(
     reveal,
     viewport,
     offListTables,
+    drawnLongTables,
     history,
     messageReadBack: readBack,
     openRunStretch,

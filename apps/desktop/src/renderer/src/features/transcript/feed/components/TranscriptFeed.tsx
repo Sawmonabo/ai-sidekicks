@@ -28,6 +28,7 @@ import { useFullBodyReads } from "../hooks/useFullBodyReads.js";
 import { FullBodyReadsContext } from "../../rows/full-body-reads.js";
 import { OffListTableFrames } from "../../rows/bodies/OffListTableFrames.js";
 import { ListedBodiesContext } from "../../rows/markdown/table-window/context.js";
+import { DrawnLongTablesContext } from "../../rows/markdown/table-window/drawn-tables.js";
 import {
   useDependentReadFailed,
   useSessionDegraded,
@@ -275,6 +276,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
     rowBodyText,
     largeBodyRowIdOf,
     fullBodyReads,
+    drawnLongTables: windows.drawnLongTables,
     history: copyHistory,
   });
 
@@ -289,22 +291,24 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
           <RowRevealProvider channel={revealChannel}>
             <FullBodyReadsContext value={fullBodyReads}>
               <ListedBodiesContext value={windows.offListTables}>
-                <TranscriptViewport
-                  binding={viewport}
-                  renderRow={renderRow}
-                  feedLabel={props.feedLabel}
-                  firstReadSettled={windows.firstReadSettled}
-                  isShown={isDrawable}
-                  hasActiveTurn={transcriptWindow.liveRunIds.size > 0}
-                  earlierHistoryControl={
-                    history === undefined ? undefined : (
-                      <LoadEarlier
-                        history={history}
-                        isLinkedMessageMissing={windows.messageReadBack === "not-in-history"}
-                      />
-                    )
-                  }
-                />
+                <DrawnLongTablesContext value={windows.drawnLongTables}>
+                  <TranscriptViewport
+                    binding={viewport}
+                    renderRow={renderRow}
+                    feedLabel={props.feedLabel}
+                    firstReadSettled={windows.firstReadSettled}
+                    isShown={isDrawable}
+                    hasActiveTurn={transcriptWindow.liveRunIds.size > 0}
+                    earlierHistoryControl={
+                      history === undefined ? undefined : (
+                        <LoadEarlier
+                          history={history}
+                          isLinkedMessageMissing={windows.messageReadBack === "not-in-history"}
+                        />
+                      )
+                    }
+                  />
+                </DrawnLongTablesContext>
               </ListedBodiesContext>
             </FullBodyReadsContext>
           </RowRevealProvider>

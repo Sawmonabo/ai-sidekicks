@@ -15,8 +15,10 @@ import {
   type MarkdownWorkerConnection,
 } from "#renderer/components/Markdown/worker/connection.js";
 import { RefusalError } from "#renderer/lib/refusal/contract.js";
+import { joinPieces, piecesOf } from "#renderer/lib/text-pieces.js";
 import { workInSlices } from "#renderer/lib/work-slices.js";
 import { type FullBodyReads } from "../rows/full-body-reads.js";
+import { type DrawnLongTable } from "../rows/markdown/table-window/drawn-tables.js";
 import { type RowSelection } from "../viewport/selection/record.js";
 import {
   PART_SEPARATOR,
@@ -39,6 +41,8 @@ export interface ConversationCopyRows {
   readonly rowText: (rowKey: string, fullBodyOf: FullBodyOf) => SelectedPart | undefined;
   /** The text of a row's body alone, read as `rowText` reads it. */
   readonly rowBodyText: (rowKey: string, fullBodyOf: FullBodyOf) => string | undefined;
+  /** The long table a spacer row's key names, as it is drawn or as the copy kept it. */
+  readonly drawnTableOf: (tableKey: string) => DrawnLongTable | undefined;
   /** The id of the row whose large body its text reads, which is read in full first. */
   readonly largeBodyRowIdOf: (rowKey: string) => string | undefined;
   /** What a large body is read in full through, or `undefined` where none is read. */
@@ -73,6 +77,8 @@ export class ConversationCopyBuild {
   readonly #parts: SelectedPart[] = [];
   /** The formatted flavor of each part made so far. */
   readonly #partHtml: string[] = [];
+  /** A long plain part's formatted flavor while it is made a piece at a time. */
+  #plainHtml: PlainHtmlMaking | undefined;
   /** The large body the next row reads, once it is read in full. */
   #fullBody: { readonly rowId: string; readonly content: HydratedSessionEventContent } | undefined;
   /** What the build waits on before it goes on, while it waits. */
@@ -93,6 +99,7 @@ export class ConversationCopyBuild {
       endRowElement: (rowKey) => rows.endRowElement(rowKey),
       rowText: (rowKey) => rows.rowText(rowKey, fullBodyOf),
       rowBodyText: (rowKey) => rows.rowBodyText(rowKey, fullBodyOf),
+      drawnTableOf: (tableKey) => rows.drawnTableOf(tableKey),
       markdownWorker: rows.markdownWorker,
     };
   }
@@ -199,20 +206,46 @@ export class ConversationCopyBuild {
     }
     while (this.#partHtml.length < parts.length) {
       const part = parts[this.#partHtml.length] ?? throwLostPlace("a part follows the last made");
-      const html =
-        part.flavor === "markdown"
-          ? makeMarkdownHtml(part.text, this.#rows.markdownWorker)
-          : plainHtml(part.text);
-      if (typeof html !== "string") {
-        this.#awaited = { kind: "worker-html", html };
+      if (part.flavor === "markdown") {
+        const html = makeMarkdownHtml(part.text, this.#rows.markdownWorker, part.pieces);
+        if (typeof html !== "string") {
+          this.#awaited = { kind: "worker-html", html };
+          return NOT_BUILT;
+        }
+        this.#partHtml.push(html);
+      } else if (!this.#makePlainHtml(part, hasTime)) {
         return NOT_BUILT;
       }
-      this.#partHtml.push(html);
       if (!hasTime() && this.#partHtml.length < parts.length) {
         return NOT_BUILT;
       }
     }
-    return { isBuilt: true, content: { text, html: this.#partHtml.join("") } };
+    return { isBuilt: true, content: { text, html: joinPieces(this.#partHtml) } };
+  }
+
+  /**
+   * Makes a plain part's formatted flavor a piece of its text at a time while `hasTime` answers
+   * true, one piece at the least; `true` once it is made.
+   */
+  #makePlainHtml(part: SelectedPart, hasTime: () => boolean): boolean {
+    const making = this.#plainHtml ?? {
+      pieces: part.pieces ?? piecesOf(part.text),
+      madePieceCount: 0,
+      html: "",
+    };
+    this.#plainHtml = making;
+    do {
+      const piece =
+        making.pieces[making.madePieceCount] ?? throwLostPlace("a piece follows the last made");
+      making.html += plainHtmlOf(piece);
+      making.madePieceCount += 1;
+    } while (making.madePieceCount < making.pieces.length && hasTime());
+    if (making.madePieceCount < making.pieces.length) {
+      return false;
+    }
+    this.#partHtml.push(`<p>${making.html}</p>`);
+    this.#plainHtml = undefined;
+    return true;
   }
 
   /**
@@ -239,9 +272,9 @@ export class ConversationCopyBuild {
     return true;
   }
 
-  /** Keeps `part` when it holds text. */
+  /** Keeps `part` when it holds text, read a piece at a time up to its first that does. */
   #keep(part: SelectedPart | undefined): void {
-    if (part !== undefined && part.text.trim() !== "") {
+    if (part !== undefined && (part.pieces ?? [part.text]).some((piece) => piece.trim() !== "")) {
       this.#parts.push(part);
     }
   }
@@ -295,18 +328,28 @@ type AwaitedWork =
 
 const NOT_BUILT: ConversationCopyStep = { isBuilt: false };
 
-/** The text of a copy's parts, a blank line between each. */
-function textOf(parts: readonly SelectedPart[]): string {
-  return parts.map((part) => part.text).join(PART_SEPARATOR);
+/** A long plain part's formatted flavor as it is made: its pieces, and the HTML made so far. */
+interface PlainHtmlMaking {
+  readonly pieces: readonly string[];
+  madePieceCount: number;
+  html: string;
 }
 
-/** Plain text as a formatted paragraph, its line breaks kept. */
-function plainHtml(text: string): string {
-  const lines = text.split("\n");
+/** The text of a copy's parts, a blank line between each, linked rather than copied. */
+function textOf(parts: readonly SelectedPart[]): string {
+  return joinPieces(
+    parts.flatMap((part, index) => (index === 0 ? [part.text] : [PART_SEPARATOR, part.text])),
+  );
+}
+
+/**
+ * A piece of plain text as the inside of a formatted paragraph, its line breaks kept; the pieces'
+ * HTML joined is the whole text's, since each character is escaped alone.
+ */
+function plainHtmlOf(piece: string): string {
+  const lines = piece.split("\n");
   return toHtml({
-    type: "element",
-    tagName: "p",
-    properties: {},
+    type: "root",
     children: lines.flatMap((line, index) => [
       ...(index === 0
         ? []

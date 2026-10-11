@@ -51,6 +51,7 @@ function rowsReading(
       return ROW_TEXT[rowKey]?.(fullBody?.status === "available" ? fullBody.body : undefined);
     },
     rowBodyText: () => expect.fail("no row is drawn"),
+    drawnTableOf: () => expect.fail("no row is drawn"),
     largeBodyRowIdOf: (rowKey) => (rowKey === "output" ? LARGE_BODY_ROW_ID : undefined),
     fullBodyReads: { readFullBody },
     markdownWorker: { ...markdownWorker, drawnText: () => expect.fail("no row is drawn") },

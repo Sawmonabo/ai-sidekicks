@@ -6,9 +6,9 @@
 
 import { type MarkdownTableOffer } from "#renderer/components/Markdown/table-offer.js";
 import {
-  MARKDOWN_COLUMN_COUNT_ATTRIBUTE,
-  MARKDOWN_SOURCE_END_ATTRIBUTE,
-  MARKDOWN_SOURCE_START_ATTRIBUTE,
+  MARKDOWN_FIRST_UNDRAWN_ROW_ATTRIBUTE,
+  MARKDOWN_LAST_UNDRAWN_ROW_ATTRIBUTE,
+  MARKDOWN_TABLE_KEY_ATTRIBUTE,
   MARKDOWN_TABLE_ROW_INDEX_ATTRIBUTE,
 } from "../markdown/block-window/markers.js";
 import { WHOLE_TABLE_MAX_BODY_ROWS } from "../markdown/table-window/long-tables.js";
@@ -65,9 +65,9 @@ function LongTable(props: { readonly offer: MarkdownTableOffer }): React.JSX.Ele
                     "aria-rowindex": row.index + 2,
                   })
                 : offer.drawSpacerRow(row.key, row.heightPx, {
-                    [MARKDOWN_SOURCE_START_ATTRIBUTE]: row.sourceStart,
-                    [MARKDOWN_SOURCE_END_ATTRIBUTE]: row.sourceEnd,
-                    [MARKDOWN_COLUMN_COUNT_ATTRIBUTE]: offer.columnCount,
+                    [MARKDOWN_TABLE_KEY_ATTRIBUTE]: tableWindow.tableKey,
+                    [MARKDOWN_FIRST_UNDRAWN_ROW_ATTRIBUTE]: row.firstIndex,
+                    [MARKDOWN_LAST_UNDRAWN_ROW_ATTRIBUTE]: row.lastIndex,
                   }),
             ),
           })}

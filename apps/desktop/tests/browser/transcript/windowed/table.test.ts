@@ -136,6 +136,7 @@ async function copiedFromWindowed(bodies: MountedBodies, reply: string): Promise
     rowOf(bodies.windowedBody),
     () => reply,
     markdownWorker,
+    (tableKey) => bodies.drawnTables.tableOf(tableKey),
   );
   selection.removeAllRanges();
   return copied;
@@ -155,7 +156,15 @@ async function copiedFromWhole(
   const end = textEnds(rows?.[lastIndex] ?? expect.fail("last row")).last;
   wholeRange.setEnd(end, end.length);
   const flowBody = bodies.flowBody ?? expect.fail("the whole reply is drawn");
-  return (await readSelectedPart(wholeRange, rowOf(flowBody), () => reply, markdownWorker)).text;
+  return (
+    await readSelectedPart(
+      wholeRange,
+      rowOf(flowBody),
+      () => reply,
+      markdownWorker,
+      () => expect.fail("the table drawn whole draws every row"),
+    )
+  ).text;
 }
 
 describe("browser — a long table drawn as a window over its rows", () => {

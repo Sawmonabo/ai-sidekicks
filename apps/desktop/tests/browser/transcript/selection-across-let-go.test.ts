@@ -60,9 +60,15 @@ function drawnPartOf(row: Element, from: "row-start" | Text, to: "row-end" | Tex
   if (to !== "row-end") {
     range.setEnd(to, END_OFFSET_IN_NAME);
   }
-  const part = readSelectedPart(range, row, () => expect.fail("a tool row draws no table"), {
-    drawnText: () => expect.fail("a tool row is read at once"),
-  });
+  const part = readSelectedPart(
+    range,
+    row,
+    () => expect.fail("a tool row draws no large body"),
+    {
+      drawnText: () => expect.fail("a tool row is read at once"),
+    },
+    () => expect.fail("a tool row draws no table"),
+  );
   return part instanceof Promise ? expect.fail("a tool row is read at once") : part.text;
 }
 

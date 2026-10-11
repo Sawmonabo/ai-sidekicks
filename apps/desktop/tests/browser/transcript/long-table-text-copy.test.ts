@@ -39,12 +39,14 @@ describe("a long table in a selection", () => {
       rowKeys: [ROW_KEY],
       endRowElement: () => row,
       rowText: () => expect.fail("the one row is an end row"),
-      rowBodyText: () => expect.fail("the table draws every row"),
+      rowBodyText: () => expect.fail("the table draws no large body"),
+      drawnTableOf: () => expect.fail("the table draws every row"),
       largeBodyRowIdOf: () => undefined,
       fullBodyReads: undefined,
       markdownWorker: {
         html: () => expect.fail("a text part needs no formatted flavor"),
-        drawnText: (tree, flavor) => markdownWorker.drawnText(tree, flavor),
+        drawnText: (tree, flavor, blockSources) =>
+          markdownWorker.drawnText(tree, flavor, blockSources),
       },
     }).finish(
       window,

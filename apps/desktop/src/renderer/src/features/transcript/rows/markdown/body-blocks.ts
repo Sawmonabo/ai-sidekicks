@@ -8,7 +8,11 @@
 import type { FootnoteDefinition } from "mdast";
 
 import { collectFootnoteDefinitions } from "#renderer/components/Markdown/footnotes/collection.js";
-import { footnoteDefinitionPreamble, parseMarkdown } from "#renderer/components/Markdown/parse.js";
+import {
+  footnoteDefinitionPreamble,
+  parseMarkdown,
+  type BlockParseSource,
+} from "#renderer/components/Markdown/parse.js";
 import {
   publishedTextOf,
   type PublishedText,
@@ -194,6 +198,24 @@ export function blockSourceStartOf(
   index: number,
 ): number {
   return blocks.settledBlocks[index]?.start ?? bodyTextLength - blocks.volatileTail.length;
+}
+
+/**
+ * What block `index` of a body was parsed from, read when the answer is called: a settled block's
+ * text, or the tail as it stands now, which only this frame's parse was made from.
+ */
+export function blockParseSourceOf(
+  blocks: Pick<
+    MarkdownBodyBlocksSnapshot,
+    "settledBlocks" | "volatileTail" | "definitionPreamble" | "readBlockSource"
+  >,
+  index: number,
+): () => BlockParseSource {
+  const { definitionPreamble, readBlockSource, volatileTail } = blocks;
+  const block = blocks.settledBlocks[index];
+  return block === undefined
+    ? () => ({ source: volatileTail, definitionPreamble, isVolatileTail: true })
+    : () => ({ source: readBlockSource(block), definitionPreamble, isVolatileTail: false });
 }
 
 /** One generation's text, as the handle it is read through: every block of it is cut from this. */
