@@ -18,6 +18,8 @@ import {
   type AppearanceRecord,
 } from "#shared/appearance.js";
 import type { MainDiagnosticEntry } from "../services/diagnostic-log.js";
+import type { OwnerOnlyFileSystem } from "../services/owner-only-file.js";
+import { folderFlushAnswers } from "../services/owner-only-file.test-support.js";
 
 import { KeptAppearance } from "./kept-record.js";
 import { APPEARANCE_FILE_NAME, AppearanceRecordFile } from "./record-file.js";
@@ -59,12 +61,15 @@ function createNativeTheme(): { themeSource: string; shouldUseDarkColors: boolea
 }
 
 /** One start: the kept appearance read from this case's file, its reports in `logged`. */
-function startApp(nativeTheme = createNativeTheme()): KeptAppearance {
+function startApp(
+  operatingSystem: OwnerOnlyFileSystem,
+  nativeTheme = createNativeTheme(),
+): KeptAppearance {
   return new KeptAppearance({
     file: new AppearanceRecordFile({
       filePath,
       log: { write: (entry) => logged.push(entry) },
-      operatingSystem: { flushesFolderAfterRename: true },
+      operatingSystem,
     }),
     nativeTheme: nativeTheme as never,
   });
@@ -97,15 +102,15 @@ function startOverHeldWrites(nativeTheme = createNativeTheme()) {
   return { appearance, writes, changeCount: () => changes };
 }
 
-describe("the appearance record", () => {
+describe.each(folderFlushAnswers())("the appearance record %s", (_answer, operatingSystem) => {
   it("is kept across a restart and drives the next start's first frame and stamp", async () => {
-    await startApp().choose(CHOICE, GROUNDS);
+    await startApp(operatingSystem).choose(CHOICE, GROUNDS);
 
     // Readable and writable only by the person.
     expect((await stat(filePath)).mode & 0o777).toBe(0o600);
 
     const nativeTheme = createNativeTheme();
-    const nextStart = startApp(nativeTheme);
+    const nextStart = startApp(operatingSystem, nativeTheme);
 
     expect(nextStart.record).toStrictEqual({ ...CHOICE, grounds: GROUNDS });
     // Set before any window exists, so the first frame resolves the kept scheme.
@@ -126,7 +131,7 @@ describe("the appearance record", () => {
 
   it("reads a missing file as the default, and writes nothing until a choice", async () => {
     const nativeTheme = createNativeTheme();
-    const appearance = startApp(nativeTheme);
+    const appearance = startApp(operatingSystem, nativeTheme);
 
     expect(appearance.record).toStrictEqual(DEFAULT_APPEARANCE_RECORD);
     expect(nativeTheme.themeSource).toBe("system");
@@ -147,7 +152,7 @@ describe("the appearance record", () => {
   ])("reads a file that is %s as the default, and rewrites it so", async (_case, fileText) => {
     await writeFile(filePath, fileText, "utf8");
 
-    expect(startApp().record).toStrictEqual(DEFAULT_APPEARANCE_RECORD);
+    expect(startApp(operatingSystem).record).toStrictEqual(DEFAULT_APPEARANCE_RECORD);
     expect(JSON.parse(await readFile(filePath, "utf8"))).toStrictEqual(DEFAULT_APPEARANCE_RECORD);
     expect((await stat(filePath)).mode & 0o777).toBe(0o600);
     expect(logged).toMatchObject([{ level: "warning", source: "main/appearance" }]);
@@ -156,14 +161,14 @@ describe("the appearance record", () => {
   it("reads a file it cannot read or repair as the default, logging it, never stopping a start", async () => {
     // A folder where the file belongs cannot be read as one, and is left as it is.
     await mkdir(filePath);
-    expect(startApp().record).toStrictEqual(DEFAULT_APPEARANCE_RECORD);
+    expect(startApp(operatingSystem).record).toStrictEqual(DEFAULT_APPEARANCE_RECORD);
     expect((await stat(filePath)).isDirectory()).toBe(true);
 
     // A broken file in a folder the person cannot write cannot be rewritten.
     await rm(filePath, { recursive: true });
     await writeFile(filePath, "{ theme", "utf8");
     await chmod(userData, 0o500);
-    expect(startApp().record).toStrictEqual(DEFAULT_APPEARANCE_RECORD);
+    expect(startApp(operatingSystem).record).toStrictEqual(DEFAULT_APPEARANCE_RECORD);
 
     expect(logged.map(({ level, source }) => ({ level, source }))).toStrictEqual([
       { level: "warning", source: "main/appearance" },
