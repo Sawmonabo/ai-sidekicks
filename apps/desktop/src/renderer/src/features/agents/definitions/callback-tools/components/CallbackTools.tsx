@@ -8,7 +8,6 @@ import "./CallbackTools.css";
 
 import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 
-import type { DriverCapabilityReading } from "#renderer/store/driver-capabilities/readings.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { CallbackToolRows } from "./CallbackToolRows.js";
 import { type CallbackToolRegistryReading } from "../registry.js";
@@ -19,11 +18,19 @@ import { type CallbackToolRegistryReading } from "../registry.js";
  */
 export const CALLBACK_TOOLS_CAPABILITY: DriverCapabilityFlag = "callback_tools";
 
+/**
+ * What this build knows about one driver flag. `declared`: that driver declared it. `undeclared`:
+ * that driver declared it absent. `unknown`: nobody has answered, because the read has not
+ * landed, the driver is not nameable, or the named driver filed no report; collapsing it onto
+ * `undeclared` would show an unread session like one bound to a driver that cannot do the thing.
+ */
+export type DriverCapabilityReading = "declared" | "undeclared" | "unknown";
+
 /** What the daemon-hosted tools section renders from: the capability and the registry. */
 export interface CallbackToolsProps {
   /**
-   * What this build knows about the capability. `unknown` rather than `undefined`: the reading
-   * is the bridge's closed set, so every gate on a driver flag answers in the same spelling.
+   * What this build knows about the capability. `unknown` rather than `undefined`, so an unread
+   * capability is a state of its own and never reads as one the driver declared absent.
    */
   readonly capability: DriverCapabilityReading;
   /**

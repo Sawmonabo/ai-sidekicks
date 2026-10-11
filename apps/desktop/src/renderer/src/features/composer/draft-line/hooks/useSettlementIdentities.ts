@@ -14,8 +14,8 @@ import { useCallback, useLayoutEffect, useRef } from "react";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import {
-  addressedOperationKey,
-  attemptIdsAtAddress,
+  visitOperationKey,
+  attemptIdsAtVisit,
   isSettlementCurrent,
   type ComposerSendOperation,
   type ComposerSettlementIdentity,
@@ -34,27 +34,27 @@ export function useSettlementIdentities(
   bridge: PlatformBridge,
   draftKey: string,
 ): SettlementIdentities {
-  // One serial per mount, handed out by the holder's re-seed, so a return to an address gets a
+  // One serial per mount, handed out by the holder's re-seed, so a return to a session gets a
   // number the earlier stay's outstanding calls cannot claim.
   const nextVisitRef = useRef(0);
   const { value: visit } = useSubjectScopedState<number>(bridge, draftKey, () => {
     nextVisitRef.current += 1;
     return nextVisitRef.current;
   });
-  // Settlements are measured against the composer's current address, while a dispatch closure
+  // Settlements are measured against the composer's current draft, while a dispatch closure
   // holds the one it was issued at, so both travel through refs that each commit refreshes.
   const currentDraftKeyRef = useRef(draftKey);
   const currentVisitRef = useRef(visit);
   useLayoutEffect(() => {
     currentDraftKeyRef.current = draftKey;
     currentVisitRef.current = visit;
-    // Narrowed in the same commit that retires other addresses' keys, so there is one rule
+    // Narrowed in the same commit that retires other visits' keys, so there is one rule
     // for which keys are live.
-    newestAttemptIdRef.current = attemptIdsAtAddress(newestAttemptIdRef.current, draftKey, visit);
+    newestAttemptIdRef.current = attemptIdsAtVisit(newestAttemptIdRef.current, draftKey, visit);
   }, [draftKey, visit]);
   const nextAttemptIdRef = useRef(0);
-  // Keyed by `addressedOperationKey`, not by operation alone, so a send from one address
-  // cannot retire an attempt made at another. Narrowed above to the address on screen, so it
+  // Keyed by `visitOperationKey`, not by operation alone, so a send from one session
+  // cannot retire an attempt made at another. Narrowed above to the visit on screen, so it
   // holds at most one entry per operation.
   const newestAttemptIdRef = useRef<Record<string, number>>({});
 
@@ -67,7 +67,7 @@ export function useSettlementIdentities(
       attemptId: nextAttemptIdRef.current,
     };
     newestAttemptIdRef.current[
-      addressedOperationKey(identity.draftKey, identity.visit, identity.operation)
+      visitOperationKey(identity.draftKey, identity.visit, identity.operation)
     ] = identity.attemptId;
     return identity;
   }, []);

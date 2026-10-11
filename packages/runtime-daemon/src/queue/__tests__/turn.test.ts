@@ -1,8 +1,10 @@
 // A person's turn end to end, with the run queue wired as the daemon wires it: over a real
-// database, event log, run engine and inbound dispatch, through the `run.*` methods, onto each
-// provider's real driver over its fake process. A send is written whole, starts a run whose turn
-// carries the message, ends `completed` on the provider's own end and is streamed so; a message
-// sent mid-turn reaches Claude Code at once and Codex only at its next tool boundary.
+// database, event log, run engine and inbound dispatch, through the `run.*` methods and the
+// intervention service, onto each provider's real driver over its fake process. A send is written
+// whole, starts a run whose turn carries the message, ends `completed` on the provider's own end
+// and is streamed so; a message sent mid-turn reaches Claude Code at once and Codex only at its
+// next tool boundary. An interrupted run goes on, the same run, on the turn Claude Code starts with
+// the message it kept, and on Codex's next turn a send starts.
 
 import { randomUUID } from "node:crypto";
 
@@ -13,13 +15,20 @@ import {
   SUBSCRIPTION_NOTIFY_METHOD,
   type SubscriptionNotifyParams,
 } from "@ai-sidekicks/contracts/jsonrpc/streaming";
+import type { InterruptPendingChoice } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
-import type { RunStateStreamEvent, RunStateStreamFrame } from "@ai-sidekicks/contracts/run/control";
+import type {
+  InterventionRequestResponse,
+  RunStateStreamEvent,
+  RunStateStreamFrame,
+} from "@ai-sidekicks/contracts/run/control";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { QueueItemCreateResponse, QueueItemId } from "@ai-sidekicks/contracts/run/queue";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { DeviceIdSchema } from "@ai-sidekicks/contracts/trust-statement";
 
+import { InterventionService } from "../../interventions/service.js";
+import { InterventionReader } from "../../interventions/store.js";
 import { registerRunQueueMethods } from "../../ipc/handlers/run/queue.js";
 import { registerRunStateSubscribe, RunSafetyHolds } from "../../ipc/handlers/run/state.js";
 import type { OutboundQueue } from "../../ipc/handlers/session/subscribe.js";
@@ -31,6 +40,7 @@ import {
 } from "../../provider/driver/diagnostics.js";
 import { FakeAttachmentResolver } from "../../provider/driver/__fixtures__/attachment-doubles.js";
 import { ClaudeDriver } from "../../provider/driver/claude/index.js";
+import { ClaudeRunRoutes } from "../../provider/driver/claude/run/routes.js";
 import {
   buildHarness,
   spawnedChannel,
@@ -43,6 +53,7 @@ import {
   turnCompletedFrame,
   type Harness,
 } from "../../provider/driver/codex/__fixtures__/app-server-doubles.js";
+import { CodexTurnEndWaiters } from "../../provider/driver/codex/run/turn-end-waiters.js";
 import type { ProviderDriver } from "../../provider/driver/contract.js";
 import { PortRegistration } from "../../provider/port/registration.js";
 import type { RunStatePublisher } from "../../provider/port/run-state-publisher.js";
@@ -86,6 +97,8 @@ interface TurnFixture {
   readonly diagnosticRecords: DriverDiagnosticRecord[];
   /** Sends `content` through `run.queueCreate` from this machine's device. */
   send(content: string): Promise<QueueItemCreateResponse>;
+  /** Interrupts `runId` from this machine's device at the version it reads now. */
+  interrupt(runId: RunId, pending: InterruptPendingChoice): Promise<InterventionRequestResponse>;
   /** The run the item was queued for. */
   runOf(itemId: QueueItemId): RunId;
   /** Where the item stands in the queue. */
@@ -207,6 +220,15 @@ async function openTurnFixture(
   const context = { transportId: TRANSPORT_ID, deviceId: DeviceIdSchema.parse(randomUUID()) };
   await registry.dispatch("run.subscribeState", { sessionId }, context);
   const items = new QueueItemReader(database.reader);
+  const interventions = new InterventionService({
+    runs: engine.runs,
+    interventions: new InterventionReader(database.reader),
+    sessionEvents,
+    resolveDriver: () => driver,
+    retryOnFasterModel: () => Promise.reject(new Error("No faster-model retry is sent here")),
+    runEngine: engine.engine,
+    queue,
+  });
 
   return {
     engine,
@@ -219,6 +241,17 @@ async function openTurnFixture(
         { sessionId, clientIdempotencyKey: randomUUID(), content },
         context,
       )) as QueueItemCreateResponse,
+    interrupt: async (runId, pending) =>
+      await interventions.applyIntervention(
+        {
+          type: "interrupt",
+          targetRunId: runId,
+          expectedRunVersion: engine.runs.getRun(runId)?.version ?? 0,
+          clientIdempotencyKey: randomUUID(),
+          pending,
+        },
+        { actor: context.deviceId },
+      ),
     runOf: (itemId) => {
       const runId = items.get(itemId)?.targetRunId;
       if (runId === undefined) {
@@ -244,10 +277,66 @@ async function openTurnFixture(
   };
 }
 
+// A turn fixture on Claude Code's real driver, wired to the queue as the daemon wires it.
+async function openClaudeTurnFixture(): Promise<{
+  readonly fixture: TurnFixture;
+  readonly claude: LifecycleHarness;
+}> {
+  let harness: LifecycleHarness | undefined;
+  const fixture = await openTurnFixture("claude", ({ engine, inbound, queue }) => {
+    harness = buildHarness({
+      runEngine: engine,
+      inbound,
+      runDispatchResolver: {
+        resolveRunDispatch: async (params) => await queue().admission.resolveRunDispatch(params),
+        openDaemonTurnBinding: async (runId, sessionId) =>
+          await queue().admission.openDaemonTurnBinding(runId, sessionId),
+      },
+      attachments: new FakeAttachmentResolver(),
+      onMessageTaken: (sessionId, messageId, takenRunId) => {
+        queue().delivery.messageTaken(sessionId, messageId, takenRunId);
+      },
+    });
+    return new ClaudeDriver({
+      ...harness.dependencies,
+      readBuild: () => Promise.reject(new Error("No build is read here")),
+    });
+  });
+  if (harness === undefined) {
+    throw new Error("The Claude harness was not built");
+  }
+  return { fixture, claude: harness };
+}
+
+// A turn fixture on Codex's real driver, wired to the queue as the daemon wires it.
+async function openCodexTurnFixture(): Promise<{
+  readonly fixture: TurnFixture;
+  readonly codex: Harness;
+}> {
+  let harness: Harness | undefined;
+  const fixture = await openTurnFixture("codex", ({ engine, inbound, queue }) => {
+    harness = createHarness({
+      runEngine: engine,
+      inbound,
+      onToolBoundary: (boundary) => {
+        queue().delivery.onToolBoundary(boundary);
+      },
+      openDaemonTurnBinding: async (runId, sessionId) =>
+        await queue().admission.openDaemonTurnBinding(runId, sessionId),
+    });
+    return harness.driver;
+  });
+  if (harness === undefined) {
+    throw new Error("The Codex harness was not built");
+  }
+  return { fixture, codex: harness };
+}
+
 describe("a person's turn through the run queue", () => {
   let fixture: TurnFixture | undefined;
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     expect(fixture?.serviceLog).toEqual([]);
     expect(fixture?.diagnosticRecords).toEqual([]);
     await fixture?.close();
@@ -283,30 +372,9 @@ describe("a person's turn through the run queue", () => {
   // Ending a run at a turn that left a steer untaken completes it before Claude Code's own next
   // turn, whose replay then finds no run and leaves the kept message waiting.
   it("runs on Claude Code, which takes a mid-turn message at once", async () => {
-    let harness: LifecycleHarness | undefined;
-    fixture = await openTurnFixture("claude", ({ engine, inbound, queue }) => {
-      harness = buildHarness({
-        runEngine: engine,
-        inbound,
-        runDispatchResolver: {
-          resolveRunDispatch: async (params) => await queue().admission.resolveRunDispatch(params),
-          openDaemonTurnBinding: async (runId, sessionId) =>
-            await queue().admission.openDaemonTurnBinding(runId, sessionId),
-        },
-        attachments: new FakeAttachmentResolver(),
-        onMessageTaken: (sessionId, messageId, takenRunId) => {
-          queue().delivery.messageTaken(sessionId, messageId, takenRunId);
-        },
-      });
-      return new ClaudeDriver({
-        ...harness.dependencies,
-        readBuild: () => Promise.reject(new Error("No build is read here")),
-      });
-    });
-    if (harness === undefined) {
-      throw new Error("The Claude harness was not built");
-    }
-    const claude = harness;
+    const opened = await openClaudeTurnFixture();
+    fixture = opened.fixture;
+    const { claude } = opened;
 
     const sent = await fixture.send("Add the retry");
     expectSendWritten(fixture);
@@ -390,23 +458,9 @@ describe("a person's turn through the run queue", () => {
   // dropping `clientUserMessageId` from the turn's opening fails the `turn/start` check.
   // Recording the run's binding without opening its epoch cursor leaves the run `running`.
   it("runs on Codex, which takes mid-turn messages only at a tool boundary", async () => {
-    let harness: Harness | undefined;
-    fixture = await openTurnFixture("codex", ({ engine, inbound, queue }) => {
-      harness = createHarness({
-        runEngine: engine,
-        inbound,
-        onToolBoundary: (boundary) => {
-          queue().delivery.onToolBoundary(boundary);
-        },
-        openDaemonTurnBinding: async (runId, sessionId) =>
-          await queue().admission.openDaemonTurnBinding(runId, sessionId),
-      });
-      return harness.driver;
-    });
-    if (harness === undefined) {
-      throw new Error("The Codex harness was not built");
-    }
-    const codex = harness;
+    const opened = await openCodexTurnFixture();
+    fixture = opened.fixture;
+    const { codex } = opened;
     codex.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
     codex.server.on("turn/steer", () => ({ result: { turnId: TURN_ID } }));
 
@@ -453,5 +507,156 @@ describe("a person's turn through the run queue", () => {
 
     codex.server.emitFrame(turnCompletedFrame(TURN_ID, "completed"));
     await expectStreamedCompleted(fixture, runId);
+  });
+  // Mutations: leaving out the stream's continue of the interrupted run leaves the kept turn's
+  // frames on an ended run, the run interrupted and the message waiting; continuing the run from
+  // the queue while Claude Code holds the message sends it a second time; leaving the stopped
+  // turn's end unmarked records it, refused after the interrupt's own end, as a late event.
+  it("continues an interrupted Claude run on the turn Claude Code starts with the message it kept", async () => {
+    const opened = await openClaudeTurnFixture();
+    fixture = opened.fixture;
+    const sent = await fixture.send("Add the retry");
+    const runId = fixture.runOf(sent.queueItemId);
+    await vi.waitFor(() => {
+      expect(fixture?.engine.runs.getRun(runId)?.state).toBe("running");
+    });
+    const channel = spawnedChannel(opened.claude);
+    channel.processId = 4242;
+    const emitAssistant = (uuid: string, text: string): void => {
+      channel.emitStreamFrame("assistant", undefined, {
+        type: "assistant",
+        uuid,
+        message: { id: `msg-${uuid}`, content: [{ type: "text", text }] },
+      });
+    };
+    emitAssistant("wire-retry", "Adding the retry.");
+    const kept = await fixture.send("Cover the timeout too");
+    await vi.waitFor(() => {
+      expect(channel.sentUserFrames.at(1)).toMatchObject({ uuid: kept.queueItemId });
+    });
+
+    expect((await fixture.interrupt(runId, "nextTurn")).state).toBe("applied");
+    expect(fixture.engine.runs.getRun(runId)?.state).toBe("interrupted");
+    expect(channel.controlRequests).toStrictEqual([{ subtype: "interrupt" }]);
+
+    // Claude Code ends the stopped turn, then starts its next with the message it kept.
+    channel.emitStreamFrame("result/error_during_execution", undefined, {
+      type: "result",
+      subtype: "error_during_execution",
+    });
+    channel.emitStreamFrame("user", undefined, {
+      type: "user",
+      isReplay: true,
+      parent_tool_use_id: null,
+      uuid: kept.queueItemId,
+      message: { role: "user", content: "Cover the timeout too" },
+    });
+    emitAssistant("wire-kept", "Covering the timeout.");
+    const runMessagesSql =
+      "SELECT COUNT(*) AS count FROM session_events WHERE type = 'assistant.message' " +
+      `AND json_extract(payload, '$.runId') = '${runId}'`;
+    await vi.waitFor(() => {
+      expect(fixture?.engine.runs.getRun(runId)?.state).toBe("running");
+      expect(fixture?.readItemState(kept.queueItemId)).toBe("admitted");
+      expect(fixture?.countRows(runMessagesSql)).toBe(2);
+    });
+    expect(fixture.runOf(kept.queueItemId)).toBe(runId);
+
+    channel.emitStreamFrame("result/success", undefined, { type: "result", subtype: "success" });
+    await expectStreamedCompleted(fixture, runId);
+    expect(channel.sentUserFrames.map((frame) => frame.uuid)).toStrictEqual([
+      sent.queueItemId,
+      kept.queueItemId,
+    ]);
+  });
+
+  // Mutation: starting Claude Code's next turn without waiting for it to end the stopped one
+  // never waits for the turn's release and writes the send into the turn the interrupt stopped.
+  it("continues an interrupted Claude run on the next turn a send starts, once the stopped turn ended", async () => {
+    const opened = await openClaudeTurnFixture();
+    fixture = opened.fixture;
+    const sent = await fixture.send("Add the retry");
+    const runId = fixture.runOf(sent.queueItemId);
+    await vi.waitFor(() => {
+      expect(fixture?.engine.runs.getRun(runId)?.state).toBe("running");
+    });
+    const channel = spawnedChannel(opened.claude);
+    channel.processId = 4242;
+    channel.emitStreamFrame("assistant", undefined, {
+      type: "assistant",
+      uuid: "wire-retry",
+      message: { id: "msg-wire-retry", content: [{ type: "text", text: "Adding the retry." }] },
+    });
+
+    expect((await fixture.interrupt(runId, "returnToDraft")).state).toBe("applied");
+    const waitForRelease = vi.spyOn(ClaudeRunRoutes.prototype, "whenTurnReleased");
+    const next = await fixture.send("Then the docs");
+    // Nothing more is written while Claude Code is still ending the stopped turn.
+    await vi.waitFor(() => {
+      expect(waitForRelease).toHaveBeenCalled();
+    });
+    expect(channel.sentUserFrames).toHaveLength(1);
+
+    channel.emitStreamFrame("result/error_during_execution", undefined, {
+      type: "result",
+      subtype: "error_during_execution",
+    });
+    await vi.waitFor(() => {
+      expect(fixture?.engine.runs.getRun(runId)?.state).toBe("running");
+      expect(fixture?.readItemState(next.queueItemId)).toBe("admitted");
+    });
+    expect(fixture.runOf(next.queueItemId)).toBe(runId);
+    expect(channel.sentUserFrames.map((frame) => frame.uuid)).toStrictEqual([
+      sent.queueItemId,
+      next.queueItemId,
+    ]);
+
+    channel.emitStreamFrame("result/success", undefined, { type: "result", subtype: "success" });
+    await expectStreamedCompleted(fixture, runId);
+  });
+
+  // Mutations: starting a new run for a send while the newest run rests interrupted gives the
+  // turn another run id; starting Codex's next turn without waiting for the stopped one to end
+  // never waits for that end and folds the two.
+  it("continues an interrupted Codex run on the next turn a send starts", async () => {
+    const opened = await openCodexTurnFixture();
+    fixture = opened.fixture;
+    const { codex } = opened;
+    const turnIds = [TURN_ID, "turn-02"];
+    codex.server.on("turn/start", () => ({ result: { turn: { id: turnIds.shift() } } }));
+    codex.server.on("turn/interrupt", () => ({ result: {} }));
+    const sent = await fixture.send("Add the retry");
+    const runId = fixture.runOf(sent.queueItemId);
+    await vi.waitFor(() => {
+      expect(fixture?.engine.runs.getRun(runId)?.state).toBe("running");
+    });
+
+    expect((await fixture.interrupt(runId, "returnToDraft")).state).toBe("applied");
+    expect(fixture.engine.runs.getRun(runId)?.state).toBe("interrupted");
+    const waitForStoppedTurns = vi.spyOn(CodexTurnEndWaiters.prototype, "waitForStoppedTurns");
+    const next = await fixture.send("Then the docs");
+    // No turn starts while Codex is still ending the stopped one.
+    await vi.waitFor(() => {
+      expect(waitForStoppedTurns).toHaveBeenCalled();
+    });
+    expect(codex.server.paramsFor("turn/start")).toHaveLength(1);
+    // Codex ends the stopped turn, its own end finding the run already ended.
+    codex.server.emitFrame(turnCompletedFrame(TURN_ID, "interrupted"));
+
+    await vi.waitFor(() => {
+      expect(fixture?.readItemState(next.queueItemId)).toBe("admitted");
+      expect(fixture?.engine.runs.getRun(runId)?.state).toBe("running");
+    });
+    expect(fixture.runOf(next.queueItemId)).toBe(runId);
+    expect(
+      codex.server.paramsFor("turn/start").map((params) => params["clientUserMessageId"]),
+    ).toStrictEqual([sent.queueItemId, next.queueItemId]);
+    codex.server.emitFrame(turnCompletedFrame("turn-02", "completed"));
+    await expectStreamedCompleted(fixture, runId);
+    expect(fixture.streamedStates()).toStrictEqual(
+      ["starting", "running", "interrupted", "running", "completed"].map((newState) =>
+        expect.objectContaining({ runId, newState }),
+      ),
+    );
   });
 });

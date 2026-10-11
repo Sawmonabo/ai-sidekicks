@@ -24,7 +24,7 @@ const RUN_CONTROL_COMMAND_GROUP = "Run";
 
 /** Contributes the controls of every described run while the caller is mounted. */
 export function useRunControlCommands(input: RunControlCommandInput): void {
-  const rows = runControlCommandRows(input.runs, input.driverCapabilities);
+  const rows = runControlCommandRows(input.runs);
   // Refreshed by every committed render, never in the render body: a write during a render
   // React discards would leave a row on screen dispatching through that pass's runs and latch.
   const inputRef = useLatestRef(input);

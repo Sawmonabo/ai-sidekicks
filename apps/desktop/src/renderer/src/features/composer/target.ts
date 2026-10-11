@@ -1,83 +1,72 @@
-// Where a composed message goes: the session, or an agent's running turn. The address is a
-// projection of what the daemon has said, kept out of components so it can be driven from a test.
-// The wire-read fields are `undefined`-able because each feature registers its own projector, so
-// the resolver can answer with an incomplete target; defaulting a missing field would assert facts
-// nobody established.
+// What the composer is addressed at: the lead's live run while it has one, else the session. The
+// composer is always the lead's, wherever focus is: a child is steered only in its own view. The
+// address picks the `/` list's provider commands and the run the context ring reads; a send goes
+// onto the session's queue either way. It is a projection of what the daemon has said, kept out of
+// components so it can be driven from a test.
+// The lead and its driver are read off the session's standing events, which the store keeps
+// whatever rows its window holds; where they do not say, the target says nothing rather than guess.
 
-import { readWireString } from "#renderer/lib/wire/strings.js";
-import type { StoredEntity } from "#renderer/store/session/entities/vocabulary.js";
-import type { EntityRef } from "#renderer/lib/entity-kinds.js";
-import type { PaneAddress } from "#renderer/routing/panes/address.js";
+import {
+  readAgentDriverNames,
+  readLeadAgentId,
+} from "#renderer/services/driver-capabilities/session-agents.js";
+import {
+  type StoredEntity,
+  type ProjectedSessionEvent,
+} from "#renderer/store/session/entities/vocabulary.js";
 import { resolveAddressedRun } from "./addressed-run.js";
 
-/** A message addressed to the session. */
+/** A composer addressed at the session, while the lead has no live run. */
 export interface ComposerSessionTarget {
-  readonly path: "session-message";
+  readonly kind: "session";
   readonly sessionId: string;
 }
 
 /**
- * A message addressed to an agent's running turn. It is sent as any message is, onto the
- * session's queue; the address keys the draft and names the agent the command list reads.
+ * A composer addressed at the session's lead's live run, never a child's. It sends as any message
+ * is sent, onto the session's queue; the address names the agent the command list reads and the
+ * run the context ring reads.
  */
 export interface ComposerRunTarget {
-  readonly path: "provider-bound";
+  readonly kind: "run";
   readonly sessionId: string;
+  /** The session's lead. */
   readonly agentId: string;
   /**
-   * The bound driver's wire-verbatim registry name, `undefined` when the wire has not said.
+   * The lead's current driver, wire-verbatim, `undefined` when the log has not said.
    * Provider commands are filtered to this driver.
    */
   readonly driverName: string | undefined;
   readonly targetRunId: string;
 }
 
-/** Where a composed message goes: the session or a bound agent's run. */
+/** What the composer is addressed at: the session or the lead's live run. */
 export type ComposerTarget = ComposerSessionTarget | ComposerRunTarget;
 
-/** What `resolveComposerTarget` is given. All of it comes from the composer's props. */
+/** What `resolveComposerTarget` is given, all of it read off the session's store. */
 export interface ComposerTargetInput {
   readonly sessionId: string;
-  /** The pane a person is looking at, or `undefined` when focus is elsewhere. */
-  readonly focusedPane: PaneAddress | undefined;
-  /** The session store's `agent` partition, read through its selector. */
-  readonly agents: Readonly<Record<string, StoredEntity>>;
+  /** The session store's standing events, read through its selector. */
+  readonly standingEvents: readonly ProjectedSessionEvent[];
   /** The session store's `run` partition, read through its selector. */
   readonly runs: Readonly<Record<string, StoredEntity>>;
 }
 
 /**
- * Resolve what this send is addressed to. The provider-bound path is taken only when the focused
- * pane names an agent that has a run whose state still admits a steer (`addressed-run.ts`);
- * everything else goes to the session.
+ * Resolve what the composer is addressed at: the lead's run whenever the lead has a live one
+ * (`addressed-run.ts`); otherwise, and whenever the lead is unknown, the session.
  */
 export function resolveComposerTarget(input: ComposerTargetInput): ComposerTarget {
-  const agentRef = focusedRefOfKind(input.focusedPane, "agent");
-  const agent = agentRef === undefined ? undefined : input.agents[agentRef.id];
-  const run = agentRef === undefined ? undefined : resolveAddressedRun(input.runs, agentRef.id);
-  if (agentRef !== undefined && run !== undefined) {
+  const leadAgentId = readLeadAgentId(input.standingEvents);
+  const run = leadAgentId === undefined ? undefined : resolveAddressedRun(input.runs, leadAgentId);
+  if (leadAgentId !== undefined && run !== undefined) {
     return {
-      path: "provider-bound",
+      kind: "run",
       sessionId: input.sessionId,
-      agentId: agentRef.id,
-      driverName: readWireString(agent?.body?.["driverName"]),
+      agentId: leadAgentId,
+      driverName: readAgentDriverNames(input.standingEvents).get(leadAgentId),
       targetRunId: run.id,
     };
   }
-  return { path: "session-message", sessionId: input.sessionId };
-}
-
-/**
- * The entity of one kind a focused pane names, or `undefined` when it names another. The `in`
- * check narrows: session-scoped pane arms carry no `entity` member at all.
- */
-function focusedRefOfKind(
-  pane: PaneAddress | undefined,
-  kind: EntityRef["kind"],
-): EntityRef | undefined {
-  if (pane === undefined || !("entity" in pane)) {
-    return undefined;
-  }
-  const { entity } = pane;
-  return entity !== undefined && entity.kind === kind ? entity : undefined;
+  return { kind: "session", sessionId: input.sessionId };
 }

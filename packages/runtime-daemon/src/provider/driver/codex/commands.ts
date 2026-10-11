@@ -21,7 +21,6 @@ import { isPlainObject } from "../../record-readers.js";
 import type { ProviderCommandsListener } from "../session-control.js";
 import { CODEX_DRIVER_NAME } from "./capabilities.js";
 import type { CodexService } from "./service/supervisor.js";
-import type { CodexSpawnContextResolver } from "./session/config.js";
 import { CodexTransportError, normalizeProviderFailureDetail } from "./session/errors.js";
 import { type CodexSessionRecord, soleActiveRunIdIn } from "./session/state.js";
 import type { DriverDiagnosticsEmitter } from "../diagnostics.js";
@@ -51,7 +50,6 @@ export interface CodexProviderCommandCacheDependencies {
   readonly serverPrompts: PortRegistration<CodexServerPromptPort>;
   readonly recordFor: (sessionId: SessionId) => CodexSessionRecord | undefined;
   readonly serviceFor: (providerAccountId: string | undefined) => Promise<CodexService>;
-  readonly spawnContext: CodexSpawnContextResolver;
 }
 
 /** Holds each session's command enumeration and composes the capped reply from it. */
@@ -98,11 +96,12 @@ export class CodexProviderCommandCache {
 
   /**
    * Each skill Codex lists for the session, by its name and the file it loads it from: the live
-   * session's held listing, else a read from the account's service over the session's folder.
+   * session's held listing, else a read from the account's service over `workingDirectory`.
    */
   async readSkillFiles(
     sessionId: SessionId,
     providerAccountId: string | undefined,
+    workingDirectory: string,
   ): Promise<readonly PickedSkill[]> {
     const record = this.#options.recordFor(sessionId);
     if (record !== undefined) {
@@ -113,14 +112,9 @@ export class CodexProviderCommandCache {
       );
       return listing.skillFiles;
     }
-    const [service, context] = await Promise.all([
-      this.#options.serviceFor(providerAccountId),
-      this.#options.spawnContext.resolveSpawnContext(sessionId, providerAccountId),
-    ]);
+    const service = await this.#options.serviceFor(providerAccountId);
     await service.ensureStarted();
-    const response = await service.request(CODEX_SKILLS_LIST_METHOD, {
-      cwds: [context.workingDirectory],
-    });
+    const response = await service.request(CODEX_SKILLS_LIST_METHOD, { cwds: [workingDirectory] });
     return readCodexProviderCommandEntries(response, providerAccountId ?? null).skillFiles;
   }
 
@@ -255,11 +249,11 @@ export class CodexProviderCommandCache {
 const CODEX_SKILLS_LIST_METHOD = "skills/list" as const;
 
 /**
- * Maps the provider's `skills/list` reply onto command entries and each skill's file,
- * concatenating per-directory groups. Pure: rejections are returned, not emitted. `providerAccountId` is the bound account or
- * `null`, never `""` or a wildcard; entries are deep-frozen because the list is shared state.
- * Throws `CodexTransportError` for a reply with no `data` list: reading it as no commands would
- * hold a false claim that the provider has none.
+ * Maps the provider's `skills/list` reply onto command entries and each skill's file, concatenating
+ * per-directory groups. Pure: rejections are returned, not emitted. `providerAccountId` is the
+ * bound account or `null`, never `""` or a wildcard; entries are deep-frozen because the list is
+ * shared state. Throws `CodexTransportError` for a reply with no `data` list: reading it as no
+ * commands would hold a false claim that the provider has none.
  */
 function readCodexProviderCommandEntries(
   response: unknown,

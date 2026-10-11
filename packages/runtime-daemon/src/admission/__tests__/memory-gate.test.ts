@@ -27,14 +27,19 @@ interface GateOnMachine {
   readonly gate: MemoryGate;
   /** Moves the clock on, firing every timer that falls due. */
   advance(milliseconds: number): void;
+  /** Sets what the machine's memory reading answers from now on. */
+  setAvailable(bytes: number): void;
+  /** How many of the gate's timers are armed and not canceled. */
+  countArmedTimers(): number;
 }
 
-// A gate on a machine whose memory reading stays at `availableBytes`, with a hand-moved clock.
+// A gate on a machine whose memory reading starts at `availableBytes`, with a hand-moved clock.
 function gateOnMachine(
-  availableBytes: number,
+  initialAvailableBytes: number,
   options: { physicalMemoryBytes?: number; peaksByProcess?: Map<number, number> } = {},
 ): GateOnMachine {
   let nowMs = 0;
+  let availableBytes = initialAvailableBytes;
   let timers: { dueAt: number; callback: () => void }[] = [];
   const peaksByProcess = options.peaksByProcess ?? new Map<number, number>();
   const gate = createMemoryGate({
@@ -44,12 +49,20 @@ function gateOnMachine(
     clock: {
       now: () => nowMs,
       schedule: (callback, delayMs) => {
-        timers.push({ dueAt: nowMs + delayMs, callback });
+        const timer = { dueAt: nowMs + delayMs, callback };
+        timers.push(timer);
+        return () => {
+          timers = timers.filter((armed) => armed !== timer);
+        };
       },
     },
   });
   return {
     gate,
+    setAvailable: (bytes) => {
+      availableBytes = bytes;
+    },
+    countArmedTimers: () => timers.length,
     advance: (milliseconds) => {
       nowMs += milliseconds;
       const due = timers.filter((timer) => timer.dueAt <= nowMs);
@@ -126,6 +139,31 @@ describe("the memory gate", () => {
     expect(next.state).toBe("waiting");
     idle.advance(1_500);
     expect(next.state).toBe("admitted");
+  });
+
+  // Mutations: weighing only when an entry joins or leaves keeps `turn` waiting after memory frees;
+  // leaving the timer armed once nothing waits keeps a timer running on an idle gate.
+  it("reads memory again each second while the head waits, and arms nothing once none waits", () => {
+    const machine = gateOnMachine(HEADROOM_BYTES + 100 * MEBIBYTE);
+    machine.gate.enqueue(quickStep("running"));
+    const turn = machine.gate.enqueue(CLAUDE_TURN);
+    expect(turn.state).toBe("waiting");
+
+    // Another program frees memory; nothing joins or leaves the line.
+    machine.setAvailable(HEADROOM_BYTES + GIBIBYTE);
+    machine.advance(999);
+    expect(turn.state).toBe("waiting");
+    machine.advance(1);
+    expect(turn.state).toBe("admitted");
+    expect(machine.countArmedTimers()).toBe(0);
+
+    const withdrawn = machine.gate.enqueue(CLAUDE_TURN);
+    machine.setAvailable(0);
+    machine.advance(1_500);
+    expect(withdrawn.state).toBe("waiting");
+    expect(machine.countArmedTimers()).toBe(1);
+    withdrawn.release();
+    expect(machine.countArmedTimers()).toBe(0);
   });
 
   // Mutations: not subtracting held reservations admits `third` beside the other two; a headroom

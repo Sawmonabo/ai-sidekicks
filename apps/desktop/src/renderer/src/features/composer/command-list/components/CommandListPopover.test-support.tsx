@@ -7,7 +7,6 @@ import { afterEach } from "vitest";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { WAITING_FOR_INPUT_SCENARIO } from "#fixtures/scenarios/waiting-for-input.js";
-import { scenarioLeadAgentId } from "#fixtures/data/opening-entries.js";
 import { commandRegistry } from "#renderer/registries/commands/registry.js";
 import { RUN_LIFECYCLE_PROJECTORS } from "#renderer/store/session/events/run/lifecycle-projector.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "#renderer/store/persistence/caps.js";
@@ -15,7 +14,6 @@ import { DraftStore } from "#renderer/store/drafts.js";
 import { WindowStore } from "#renderer/store/window/store.js";
 import { SessionStore } from "#renderer/store/session/store.js";
 import { type ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
-import type { PaneAddress } from "#renderer/routing/panes/address.js";
 import { MessageComposer } from "../../Composer.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 
@@ -30,11 +28,6 @@ export const registeredIds: string[] = [];
 export interface MountedComposer {
   readonly container: HTMLElement;
   readonly line: HTMLTextAreaElement;
-}
-
-/** The scenario's lead, read out of the log rather than restated. */
-export function composerLeadAgentId(): string {
-  return scenarioLeadAgentId(WAITING_FOR_INPUT_SCENARIO);
 }
 
 /** A session store initialized with the composer scenario's beats. */
@@ -54,7 +47,6 @@ export function composerSessionStore(): SessionStore {
 /** Mount the real composer over the given bridge and return the handles a case needs. */
 export async function mountComposer(options: {
   readonly bridge: PlatformBridge;
-  readonly focusedPane: PaneAddress | undefined;
 }): Promise<MountedComposer> {
   const sessionStore = composerSessionStore();
   const draftStore = new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT });
@@ -70,7 +62,6 @@ export async function mountComposer(options: {
           draftStore={draftStore}
           frameStore={frameStore}
           route={route}
-          focusedPane={options.focusedPane}
         />
       </LiveAnnouncerProvider>,
     );

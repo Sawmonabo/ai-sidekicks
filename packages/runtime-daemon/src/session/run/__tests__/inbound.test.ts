@@ -48,7 +48,10 @@ describe("run inbound dispatch", () => {
     });
     const engine: Pick<
       RunEngine,
-      "applyProviderStateChange" | "startProviderSubagentRun" | "appendRunMarker"
+      | "applyProviderStateChange"
+      | "continueRunWithKeptMessages"
+      | "startProviderSubagentRun"
+      | "appendRunMarker"
     > = {
       applyProviderStateChange: (change) => {
         changesReachingEngine.push(change);
@@ -57,6 +60,7 @@ describe("run inbound dispatch", () => {
       startProviderSubagentRun: (parentRunId) =>
         fixture.engine.startProviderSubagentRun(parentRunId),
       appendRunMarker: (marker) => fixture.engine.appendRunMarker(marker),
+      continueRunWithKeptMessages: (runId) => fixture.engine.continueRunWithKeptMessages(runId),
     };
     const inbound = new RunInboundDispatch({
       engine,

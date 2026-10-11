@@ -111,7 +111,7 @@ describe("SessionPurge — the session's directory rows and managed workspace", 
     await fixture.seedSessionRow(THIRD_SESSION, "group-kept");
     await fixture.seedMessage("hi");
     // A run the log names, one only its execution root names, and one only its `runs` row names,
-    // as a run the rebuild reached but whose events a damaged row hides, each with a steer.
+    // as a run the rebuild reached but whose events a damaged row hides, each with an interrupt.
     await fixture.seed({
       category: "run_lifecycle",
       type: "run.running",

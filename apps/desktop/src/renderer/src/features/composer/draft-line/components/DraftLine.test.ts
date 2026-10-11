@@ -19,11 +19,9 @@ import {
 } from "../../command-list/workflow/start-from-line.test-support.js";
 import { WORKFLOW_START_COMMAND_GROUP } from "../../command-list/workflow/hooks/useWorkflowStartPrefill.js";
 import {
-  FIRST_AGENT_ID,
-  SECOND_AGENT_ID,
   answerQueued,
-  mountAddressable,
   mountDraftLine,
+  mountOverLead,
   openSessionStore,
   pressSend,
 } from "./DraftLine.test-support.js";
@@ -44,17 +42,30 @@ describe("DraftLine — the unsent body lives in the supplied draft store", () =
     expect(second.line.value).toBe("half a thought");
   });
 
-  it("swaps drafts on an address change rather than carrying text to the new target", () => {
-    const bar = mountAddressable(sendCallsAnswering(async () => undefined));
-    fireEvent.change(bar.line(), { target: { value: "for the first agent" } });
+  it("keeps the text while the lead's run starts and settles, and Send sends that text", async () => {
+    // The composer is re-addressed at the lead's run when it starts and at the session when it
+    // settles; the draft is the session's, so neither moment may empty the line or leave Send
+    // reading a different draft than the one on screen.
+    const sentBodies: string[] = [];
+    const bar = mountOverLead(
+      sendCallsAnswering(async (call) => {
+        sentBodies.push((call.params as { readonly content: string }).content);
+        return QUEUE_CREATED;
+      }),
+    );
+    fireEvent.change(bar.line(), { target: { value: "half a thought" } });
 
-    // A different composer address in the same window: its own key, its own draft.
-    bar.address(SECOND_AGENT_ID);
+    bar.startLeadRun();
+    expect(bar.line().value).toBe("half a thought");
+
+    bar.settleLeadRun();
+    expect(bar.line().value).toBe("half a thought");
+
+    await act(async () => {
+      pressSend(bar.result.container);
+    });
+    expect(sentBodies).toStrictEqual(["half a thought"]);
     expect(bar.line().value).toBe("");
-
-    // …and the first address still holds what was written for it.
-    bar.address(FIRST_AGENT_ID);
-    expect(bar.line().value).toBe("for the first agent");
   });
 
   it("clears the draft once the send has settled, and not before", async () => {
@@ -91,7 +102,7 @@ describe("DraftLine — a refused message stays in the line", () => {
       code: "queue.persistence_unavailable",
       message: "The queue cannot be stored right now.",
     };
-    const bar = mountAddressable(sendCallsAnswering(vi.fn().mockRejectedValue(rejection)));
+    const bar = mountOverLead(sendCallsAnswering(vi.fn().mockRejectedValue(rejection)));
 
     fireEvent.change(bar.line(), { target: { value: "keep going on the parser" } });
     await act(async () => {
@@ -105,7 +116,7 @@ describe("DraftLine — a refused message stays in the line", () => {
 
   it("negative control: the same send against a queued answer clears the line", async () => {
     // Without this, the case above would pass a bar that never clears the draft at all.
-    const bar = mountAddressable(sendCallsAnswering(answerQueued));
+    const bar = mountOverLead(sendCallsAnswering(answerQueued));
 
     fireEvent.change(bar.line(), { target: { value: "keep going on the parser" } });
     await act(async () => {

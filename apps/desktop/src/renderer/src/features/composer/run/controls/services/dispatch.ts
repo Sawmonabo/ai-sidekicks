@@ -5,9 +5,8 @@
 // interrupt carry a `clientIdempotencyKey` minted per dispatch. A steer is a message on one
 // child's own queue, which the child takes at its next step. The fresh comparand is the newer of
 // the answer's version and the state stream's, since the run also advances with no control
-// pressed. Eligibility is decided by the daemon, not here; a rejected call propagates. Only steer
-// is gated on the bound driver, in `gating.ts`. The daemon calls are an argument
-// (`RunControlCalls`), so this module holds no bridge.
+// pressed. Eligibility is decided by the daemon, not here; a rejected call propagates. The daemon
+// calls are an argument (`RunControlCalls`), so this module holds no bridge.
 
 import type {
   InterventionRequestPayload,
@@ -21,7 +20,7 @@ import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { QueueItemCreateResponse } from "@ai-sidekicks/contracts/run/queue";
 
 import { heldIdAsWireId, readRunId } from "#renderer/services/daemon/wire/identifiers.js";
-import { AnsweredRunVersions } from "../answered-run-versions.js";
+import { AnsweredRunVersions } from "../answered-versions.js";
 
 /** The four daemon methods the controls reach, each taking the contract's request. */
 export interface RunControlCalls {
@@ -116,7 +115,7 @@ export class RunControlDispatcher {
   /** Steer: `run.childSteer` with a fresh key, carrying the person's text as typed. */
   public async steer(target: RunControlTarget, request: SteerRequest): Promise<RunControlOutcome> {
     const response = await this.#calls.childSteer({
-      ...this.#interventionGuards(target),
+      ...this.#keyedGuards(target),
       childHandle: heldIdAsWireId(request.childHandle),
       content: request.content,
     });
@@ -127,14 +126,14 @@ export class RunControlDispatcher {
   public async interrupt(target: RunControlTarget, reason?: string): Promise<RunControlOutcome> {
     return await this.#settle("interrupt", target, {
       type: "interrupt",
-      ...this.#interventionGuards(target),
+      ...this.#keyedGuards(target),
       pending: "nextTurn",
       ...(reason === undefined ? {} : { reason }),
     });
   }
 
-  /** The comparand and a key for this body, carried by every intervention. */
-  #interventionGuards(target: RunControlTarget): {
+  /** The comparand and a fresh idempotency key for this body, carried by steer and interrupt. */
+  #keyedGuards(target: RunControlTarget): {
     readonly targetRunId: RunId;
     readonly expectedRunVersion: number;
     readonly clientIdempotencyKey: string;

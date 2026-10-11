@@ -3,15 +3,14 @@
 // Not a test file. `helpers/app/harness.tsx` owns how the app is mounted; this owns what of this
 // feature is mounted into it.
 //
-// The composer states are addresses, not variants: `features/composer/target.ts` resolves the send
-// path from the focused pane and the session store's own partitions, so the composer has an address
-// to be read at, not a state to be put into. The three mounts are three `focusedPane` values (and,
-// for the two provider-bound ones, two prefixes of the same scenario log), so they share one store
-// builder:
+// The composer states are addresses, not variants: `features/composer/target.ts` resolves the
+// address from the session store's own standing events and runs, so the composer has an address
+// to be read at, not a state to be put into. The three mounts are three prefixes of the same
+// scenario log, so they share one store builder:
 //
-//   • the session default, which a composer addresses when focus is not in the pane layout;
-//   • the provider-bound path with the run `running`;
-//   • the provider-bound path with the run `waiting_for_input`, the steer path.
+//   • addressed at the session, before the lead has a run;
+//   • addressed at the lead's run while it is `running`;
+//   • addressed at the lead's run while it is `waiting_for_input`.
 //
 // Every store opens with the fold the window composes ({@link COMPOSED_ENTITY_PROJECTORS}), never
 // a registrar this file picked, which would decide which partitions its view can read.
@@ -27,7 +26,6 @@ import type { ReactElement } from "react";
 
 import { renderSettled } from "../../helpers/app/harness.js";
 import { WAITING_FOR_INPUT_SCENARIO } from "#fixtures/scenarios/waiting-for-input.js";
-import { scenarioLeadAgentId } from "#fixtures/data/opening-entries.js";
 import {
   createFixtureBridge,
   type FixtureBridge,
@@ -41,15 +39,14 @@ import { WindowStore } from "#renderer/store/window/store.js";
 import { SessionStore } from "#renderer/store/session/store.js";
 import { type ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { MessageComposer } from "#renderer/features/composer/Composer.js";
-import type { PaneAddress } from "#renderer/routing/panes/address.js";
 import { COMPOSED_ENTITY_PROJECTORS } from "./projector-composition.js";
 import { requireLabeledRegion, type MountedView } from "./queries.js";
 
 /**
  * A store holding the scenario's beats up to and including the named kind.
  *
- * A prefix rather than the whole log, because the two provider-bound views differ only in how far
- * the run has got.
+ * A prefix rather than the whole log, because the three views differ only in how far the lead's
+ * run has got.
  */
 function composerSessionStore(throughKind: string): SessionStore {
   const store = new SessionStore({
@@ -113,49 +110,33 @@ function requireNoReadInFlight(container: HTMLElement): void {
 }
 
 /** Mount the composer at one address, over a store fed to one point in the log. */
-async function mountComposerAt(options: {
-  readonly throughKind: string;
-  readonly focusedPane: PaneAddress | undefined;
-}): Promise<MountedView> {
+async function mountComposerAt(throughKind: string): Promise<MountedView> {
   const fixture = createFixtureBridge({ scenario: WAITING_FOR_INPUT_SCENARIO });
   const { bridge } = fixture;
   const container = await mountViewSettled(
     fixture,
     <MessageComposer
-      sessionStore={composerSessionStore(options.throughKind)}
+      sessionStore={composerSessionStore(throughKind)}
       bridge={bridge}
       draftStore={new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT })}
       frameStore={new WindowStore()}
       route={{ kind: "session", sessionId: WAITING_FOR_INPUT_SCENARIO.sessionId }}
-      focusedPane={options.focusedPane}
     />,
   );
   return { element: requireLabeledRegion(container, "Message composer"), bridge };
 }
 
-/** The composer with focus outside the pane layout: addressed at the session. */
-export async function mountComposerSessionDefault(): Promise<MountedView> {
-  return mountComposerAt({ throughKind: "run.running", focusedPane: undefined });
+/** The composer addressed at the session, before the lead has a run. */
+export async function mountComposerOnSession(): Promise<MountedView> {
+  return mountComposerAt("session.created");
 }
 
-/** The composer addressed at a working run: the new-turn path against a live agent. */
-export async function mountComposerProviderBoundRunning(): Promise<MountedView> {
-  return mountComposerAt({
-    throughKind: "run.running",
-    focusedPane: {
-      kind: "agents",
-      entity: { kind: "agent", id: scenarioLeadAgentId(WAITING_FOR_INPUT_SCENARIO) },
-    },
-  });
+/** The composer addressed at the lead's run while it works. */
+export async function mountComposerOnRunningLead(): Promise<MountedView> {
+  return mountComposerAt("run.running");
 }
 
-/** The composer addressed at a run waiting on a person: the steer path. */
-export async function mountComposerProviderBoundWaiting(): Promise<MountedView> {
-  return mountComposerAt({
-    throughKind: "run.waiting_for_input",
-    focusedPane: {
-      kind: "agents",
-      entity: { kind: "agent", id: scenarioLeadAgentId(WAITING_FOR_INPUT_SCENARIO) },
-    },
-  });
+/** The composer addressed at the lead's run while it waits on a person. */
+export async function mountComposerOnWaitingLead(): Promise<MountedView> {
+  return mountComposerAt("run.waiting_for_input");
 }

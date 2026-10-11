@@ -29,11 +29,13 @@ import { ExecutionEpochs } from "../../session/run/epochs.js";
 import { RunInboundDispatch } from "../../session/run/inbound.js";
 import {
   TEST_EXECUTION_POSTURE,
+  makeEngineInterruptQueue,
   makeQueueItem,
   makeRecordingDriver,
   startOnDriver,
   openRunEngineFixture,
   type RunEngineFixture,
+  refuseDriverInterrupt,
 } from "../../session/run/__tests__/engine.test-support.js";
 import { InterventionService } from "../service.js";
 import { InterventionReader } from "../store.js";
@@ -75,10 +77,8 @@ describe("intervention service with the run engine and inbound dispatch", () => 
         },
       }),
       retryOnFasterModel: () => answerRetry(),
-      runEngine: {
-        endRunForInterrupt: (runId, verdict) => fixture.engine.endRunForInterrupt(runId, verdict),
-        routeInterrupt: (runId) => routeInterrupt(runId),
-      },
+      runEngine: { routeInterrupt: (runId) => routeInterrupt(runId) },
+      queue: makeEngineInterruptQueue(fixture.engine),
     });
   });
 
@@ -161,6 +161,7 @@ describe("intervention service with the run engine and inbound dispatch", () => 
       queueItem: makeQueueItem(),
       provider: "claude",
       outputSpeed: undefined,
+      interruptDriver: refuseDriverInterrupt,
       startDriver: startOnDriver(makeRecordingDriver(), runId),
       executionPosture: TEST_EXECUTION_POSTURE,
     });
@@ -202,6 +203,7 @@ describe("intervention service with the run engine and inbound dispatch", () => 
     };
   }
 
+  // Mutation: recording the interrupted turn's own end as a late event adds a third diagnostic.
   it("ends the run interrupted once, and absorbs the provider's late lifecycle events", async () => {
     const { runId, interruptedVersion, countTerminalHooks } = await interruptStartedRun();
     const epochs = new ExecutionEpochs({ diagnostics });
@@ -226,9 +228,17 @@ describe("intervention service with the run engine and inbound dispatch", () => 
       bindingId,
       change: { runId, newState: "running" },
     });
+    // The stopped turn's own end, which the interrupt's verdict wrote first, is no late event.
+    const interruptEnd = await inbound.dispatch({
+      kind: "run_lifecycle",
+      bindingId,
+      change: { runId, newState: "interrupted" },
+      isDaemonInterruptEnd: true,
+    });
 
     expect(lateCompleted).toEqual({ disposition: "absorbed", reason: "run_ended" });
     expect(lateRunning).toEqual({ disposition: "absorbed", reason: "run_ended" });
+    expect(interruptEnd).toEqual({ disposition: "absorbed", reason: "run_ended" });
     expect(readSessionEventTypes()).toEqual(eventsBefore);
     expect(fixture.runs.getRun(runId)).toMatchObject({
       state: "interrupted",
@@ -300,6 +310,7 @@ describe("intervention service with the run engine and inbound dispatch", () => 
         queueItem: makeQueueItem(),
         provider: "claude",
         outputSpeed: undefined,
+        interruptDriver: refuseDriverInterrupt,
         startDriver: startOnDriver(providerDriver, runId),
         executionPosture: TEST_EXECUTION_POSTURE,
       })
@@ -346,6 +357,7 @@ describe("intervention service with the run engine and inbound dispatch", () => 
         queueItem: makeQueueItem(),
         provider: "codex",
         outputSpeed: undefined,
+        interruptDriver: refuseDriverInterrupt,
         startDriver: async () => {
           startCalled.resolve();
           await settleStart.promise;
@@ -413,6 +425,7 @@ describe("intervention service with the run engine and inbound dispatch", () => 
         queueItem: makeQueueItem(),
         provider: "codex",
         outputSpeed: undefined,
+        interruptDriver: refuseDriverInterrupt,
         startDriver: startOnDriver(
           { startRun: () => Promise.reject(new Error("spawn codex ENOENT")) },
           runId,
@@ -454,6 +467,7 @@ describe("intervention service with the run engine and inbound dispatch", () => 
         queueItem: makeQueueItem(),
         provider: "claude",
         outputSpeed: undefined,
+        interruptDriver: refuseDriverInterrupt,
         startDriver: startOnDriver(makeRecordingDriver(), runId),
         executionPosture: TEST_EXECUTION_POSTURE,
       })

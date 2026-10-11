@@ -10,6 +10,7 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { WorkspaceIdSchema } from "@ai-sidekicks/contracts/repo/mount";
 import { QueueItemIdSchema, type QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
 import { RunIdSchema, type RunId } from "@ai-sidekicks/contracts/run/id";
 import { SessionIdSchema } from "@ai-sidekicks/contracts/session/id";
@@ -89,6 +90,7 @@ class RetiringCheckoutLock extends KeyedLock<string> {
 function setUp(
   sessionId: string,
   runGate: ExecutionRootSetupGate = gate,
+  workspaceId?: string,
 ): { runId: RunId; run: () => Promise<void> } {
   const runId = RunIdSchema.parse(mintUuidV7());
   const queueItem: QueueItemSummary = {
@@ -106,6 +108,7 @@ function setUp(
         runId,
         sessionId: SessionIdSchema.parse(sessionId),
         queueItem,
+        workspaceId: workspaceId === undefined ? undefined : WorkspaceIdSchema.parse(workspaceId),
         executionPosture: TEST_EXECUTION_POSTURE,
       }),
   };
@@ -211,6 +214,27 @@ describe("the run-setup gate", () => {
 
     expect(refusal).toBeInstanceOf(WorkspaceExecutionRootUnresolvedError);
     expect(refusal).toMatchObject({ causeCode: "workspace.stale" });
+    expect(readRunContext(runId)).toBeUndefined();
+  });
+
+  // Mutation: reading the session's newest workspace whatever the send named binds the run there.
+  it("refuses a run whose send named a workspace the session does not hold", async () => {
+    const sessionId = fixture.seedSession();
+    const ready = {
+      executionMode: "bound-root",
+      state: "ready",
+      fsRoot: fixture.repository.root,
+      boundRoot: fixture.repository.root,
+      checkoutRoot: fixture.repository.root,
+    } as const;
+    fixture.seedWorkspace({ sessionId, ...ready });
+    const othersWorkspaceId = fixture.seedWorkspace({ sessionId: fixture.seedSession(), ...ready });
+    const { runId, run } = setUp(sessionId, gate, othersWorkspaceId);
+
+    const refusal = await captureRejection(run);
+
+    expect(refusal).toBeInstanceOf(WorkspaceExecutionRootUnresolvedError);
+    expect(refusal).toMatchObject({ workspaceId: othersWorkspaceId });
     expect(readRunContext(runId)).toBeUndefined();
   });
 

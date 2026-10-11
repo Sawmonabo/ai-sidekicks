@@ -16,7 +16,11 @@ import {
   resolveMessageAttachments,
   type ProviderAttachment,
 } from "../../attachments.js";
-import type { PauseRunParams, ResumeRunParams } from "../../run-control.js";
+import {
+  SteerTurnEndedError,
+  type PauseRunParams,
+  type ResumeRunParams,
+} from "../../run-control.js";
 import type { CodexDeliveryDispatch } from "../delivery/dispatch.js";
 import type { CodexHookPause, CodexRunPauses } from "../hooks/pause.js";
 import type { CodexSteerAcknowledgement, CodexSteerRunRequest } from "../intervention.js";
@@ -33,6 +37,7 @@ import {
 } from "../session/state.js";
 import { steerActiveTurn } from "../steer.js";
 import { reportDiagnosticFromDetachedFrame } from "../transport/diagnostics.js";
+import type { CodexFasterModelRetries } from "./faster-model-retry.js";
 import type { CodexRunRoutes } from "./routes.js";
 import type { CodexRunStart } from "./start.js";
 
@@ -48,6 +53,7 @@ export interface CodexRunControlDependencies {
   readonly runStart: CodexRunStart;
   readonly pauses: CodexRunPauses;
   readonly dispatch: CodexDeliveryDispatch;
+  readonly retries: Pick<CodexFasterModelRetries, "cancel">;
 }
 
 /** Interrupts, steers, pauses and continues runs on their live turns. */
@@ -59,6 +65,7 @@ export class CodexRunControl {
   readonly #runStart: CodexRunStart;
   readonly #pauses: CodexRunPauses;
   readonly #dispatch: CodexDeliveryDispatch;
+  readonly #retries: CodexRunControlDependencies["retries"];
 
   constructor(dependencies: CodexRunControlDependencies) {
     this.#options = dependencies.options;
@@ -68,14 +75,22 @@ export class CodexRunControl {
     this.#runStart = dependencies.runStart;
     this.#pauses = dependencies.pauses;
     this.#dispatch = dependencies.dispatch;
+    this.#retries = dependencies.retries;
   }
 
   /**
    * Interrupts the run's live turn and retires its route, so a later steer or second interrupt
    * is refused, then ends the commands it left running, which an interrupt does not stop. The
-   * turn's correlation is kept for the `turn/completed` that follows.
+   * turn's correlation is kept for the `turn/completed` that follows. A run retrying on a faster
+   * model, which holds no live turn while its held turn stops, has its retry stopped instead.
    */
   async interruptRun(params: InterruptRunParams): Promise<void> {
+    if (
+      this.#slots.findActiveTurn(params.runId) === undefined &&
+      (await this.#retries.cancel(params.runId))
+    ) {
+      return;
+    }
     const { record, turnId } = this.#slots.requireActiveTurn(params.runId);
     await record.service.request("turn/interrupt", { threadId: record.threadId, turnId });
     record.pauseRunIdByTurnId.delete(turnId);
@@ -93,12 +108,18 @@ export class CodexRunControl {
    * Sends a steer and its files into the run's live turn as soon as it is handed over, once Codex
    * answered the conversation's steer before it, and answers once Codex took it; each carries its
    * own key, which Codex echoes on that message. Steers keep the order they were handed over in,
-   * however long their files take to bind. Rejects when the binding or the send failed.
+   * however long their files take to bind. Rejects when the binding or the send failed, and with
+   * `SteerTurnEndedError` when the run's turn has ended, before or while the steer waited.
    */
   async steerRun(request: CodexSteerRunRequest): Promise<CodexSteerAcknowledgement> {
-    const { record, turnId } = this.#slots.requireActiveTurn(request.runId);
+    const active = this.#slots.findActiveTurn(request.runId);
+    if (active === undefined) {
+      throw new SteerTurnEndedError(request.runId);
+    }
+    const { record, turnId } = active;
     // Nothing is awaited before the steer takes its place behind the one before it.
     return await steerActiveTurn(record, turnId, {
+      runId: request.runId,
       content: request.content,
       skills: request.skills,
       attachments: this.#resolveAttachments(record.sessionId, request.attachments),
@@ -297,6 +318,7 @@ export class CodexRunControl {
   ): Promise<void> {
     for (const message of params.messages) {
       await steerActiveTurn(record, turnId, {
+        runId: params.runId,
         content: message.content,
         skills: message.skills,
         attachments: this.#resolveAttachments(params.sessionId, message.attachments),

@@ -9,7 +9,6 @@ import {
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import type { SessionShape } from "@ai-sidekicks/contracts/session/methods";
 
-import type { Scenario } from "../scenario.js";
 import type { ScriptEntry } from "./script-entries.js";
 
 /**
@@ -127,16 +126,4 @@ export function composeOpeningEntry(input: SessionCreatedInput): ScriptEntry {
     actorId: input.openedBy,
     payload: composeSessionCreatedPayload(input),
   };
-}
-
-/**
- * The agent id of a scenario's lead, read from its `session.created` beat so tests do not
- * restate it. Throws when the scenario plays no such beat.
- */
-export function scenarioLeadAgentId(scenario: Scenario): string {
-  const created = scenario.beats.find((beat) => beat.event.kind === "session.created");
-  if (created === undefined) {
-    throw new RangeError(`scenario ${scenario.id} plays no session.created, so it has no lead`);
-  }
-  return SessionCreatedPayloadSchema.parse(created.event.payload).mainAgent.agentId;
 }

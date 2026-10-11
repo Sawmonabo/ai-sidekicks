@@ -18,6 +18,7 @@ import {
   startOnDriver,
   openRunEngineFixture,
   type RunEngineFixture,
+  refuseDriverInterrupt,
 } from "../../session/run/__tests__/engine.test-support.js";
 import {
   CURATED_CREDENTIAL_ENV_VARS,
@@ -117,6 +118,7 @@ describe("execution posture service — the run setup gate", () => {
           queueItem: makeQueueItem(),
           provider: "claude",
           outputSpeed: undefined,
+          interruptDriver: refuseDriverInterrupt,
           startDriver: startOnDriver(driver, runId),
           executionPosture: violating(),
         }),
@@ -140,6 +142,7 @@ describe("execution posture service — the run setup gate", () => {
       queueItem: makeQueueItem(),
       provider: "claude",
       outputSpeed: undefined,
+      interruptDriver: refuseDriverInterrupt,
       startDriver: startOnDriver(makeRecordingDriver(), runId),
       executionPosture: posture({ writableRoots: [linkedRoot] }),
     });

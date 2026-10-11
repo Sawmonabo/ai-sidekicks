@@ -110,7 +110,10 @@ export class RunBindingCursors {
     await this.#deps.store.recordRelaunch(relaunch);
   }
 
-  /** Takes a committed session event: a run's end marks its cursors to drop; a close drops all. */
+  /**
+   * Takes a committed session event: a run's end marks its cursors to drop and its continue
+   * unmarks them; a close drops all.
+   */
   observe(event: EventEnvelope): void {
     const key = canonicalizeUuid(event.sessionId);
     const session = this.#sessions.get(key);
@@ -125,12 +128,14 @@ export class RunBindingCursors {
       return;
     }
     const change = readStoredRunStateChange(event);
-    if (
-      change !== undefined &&
-      isTerminalState(change.newState) &&
-      session.bindingIdsByRun.has(change.runId)
-    ) {
+    if (change === undefined || !session.bindingIdsByRun.has(change.runId)) {
+      return;
+    }
+    if (isTerminalState(change.newState)) {
       session.endedRunIds.add(change.runId);
+    } else {
+      // An interrupted run a send continued is live again on the same cursors.
+      session.endedRunIds.delete(change.runId);
     }
   }
 

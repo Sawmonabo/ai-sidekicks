@@ -59,7 +59,6 @@ const QUEUE_ITEM_NOT_DELIVERED_REASONS: Record<QueueItemNotDeliveredReason, true
 };
 
 const INTERVENTION_TYPES: Record<InterventionType, true> = {
-  steer: true,
   interrupt: true,
   faster_model_retry: true,
 };
@@ -357,10 +356,10 @@ describe("contract enums against the daemon schema", () => {
       expect(() => insertIntervention(type, "requested")).not.toThrow();
     }
     for (const state of membersOf(INTERVENTION_STATES)) {
-      expect(() => insertIntervention("steer", state)).not.toThrow();
+      expect(() => insertIntervention("interrupt", state)).not.toThrow();
     }
     expect(() => insertIntervention(NON_MEMBER, "requested")).toThrow(CHECK_FAILURE);
-    expect(() => insertIntervention("steer", NON_MEMBER)).toThrow(CHECK_FAILURE);
+    expect(() => insertIntervention("interrupt", NON_MEMBER)).toThrow(CHECK_FAILURE);
   });
 
   it("admits every run state and child run provenance and refuses any other", () => {

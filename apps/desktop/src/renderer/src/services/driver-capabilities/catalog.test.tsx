@@ -8,7 +8,6 @@ import { SessionIdSchema } from "@ai-sidekicks/contracts/session/id";
 
 import { settleScheduledRead } from "#test/helpers/scheduled-read.js";
 import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
-import { declaredFlagsForDriver } from "#renderer/store/driver-capabilities/readings.js";
 import { type DriverCapabilityReadout } from "#renderer/store/driver-capabilities/readout.js";
 import { neverRead } from "#renderer/store/driver-capabilities/readout.test-support.js";
 import {
@@ -46,7 +45,7 @@ describe("createDriverCatalogRead — the capability report comes from the share
     await settleScheduledRead(counted.clock);
 
     expect(capabilityCallCount(counted)).toBe(1);
-    expect(declaredFlagsForDriver(readout, "claude")?.steer).toBe(true);
+    expect(readout?.flagsByDriverName.get("claude")?.steer).toBe(true);
     const { state } = catalogRead;
     if (state.kind !== "loaded") {
       throw new Error(`the catalog read settled ${state.kind}, not loaded`);

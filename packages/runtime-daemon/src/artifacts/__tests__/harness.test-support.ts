@@ -30,6 +30,7 @@ import {
   seedSessionRow,
 } from "../../session/directory/__fixtures__/directory-rows.js";
 import { UploadAdmission } from "../admission.js";
+import { ArtifactAttachmentResolver } from "../attachment-resolver.js";
 import { ThreadedTypeDetector, type MediaTypeDetector } from "../detection/thread.js";
 import { MAX_INGEST_STREAM_LIFETIME_MS } from "../ingest/limits.js";
 import { AttachmentIngestService } from "../ingest/service.js";
@@ -59,6 +60,9 @@ export interface IngestHarness {
   readonly service: AttachmentIngestService;
   /** The publish service, for a publish the daemon makes itself. */
   readonly publisher: ArtifactPublishService;
+  /** Binds a message's attachments to what the store holds, as a driver's delivery does. */
+  readonly attachments: ArtifactAttachmentResolver;
+  readonly database: ScratchDatabase;
   readonly spoolDirectory: string;
   /** How many times a completion has run the pipeline. */
   readonly pipelineRunCount: () => number;
@@ -205,6 +209,8 @@ export async function openIngestHarness(
     sessionId,
     service,
     publisher,
+    attachments: new ArtifactAttachmentResolver(scratch.reader, payloadStore),
+    database: scratch,
     spoolDirectory,
     pipelineRunCount: () => pipelineRuns,
     passLifetime: () => {

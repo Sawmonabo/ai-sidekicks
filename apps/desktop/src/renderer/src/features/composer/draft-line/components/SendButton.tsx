@@ -26,7 +26,7 @@ export type SendButtonProps = ComposerProps & {
 
 /** Send for the addressed draft, resolving to the wire call the addressed target admits. */
 export function SendButton(props: SendButtonProps): React.JSX.Element {
-  const target = useComposerAddress(props.sessionStore, props.focusedPane);
+  const target = useComposerAddress(props.sessionStore);
   // The handler a command that reads its arguments off the line runs with, so `/workflow run
   // <name>` starts the named workflow in this composer's session.
   const commandLineHandlers = useWorkflowStartHandlers({

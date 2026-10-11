@@ -4,11 +4,12 @@
 // they were handed over.
 
 import type { PickedSkill } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { RunId } from "@ai-sidekicks/contracts/run/id";
 
 import type { ProviderAttachment } from "../attachments.js";
+import { SteerTurnEndedError } from "../run-control.js";
 import { composeCodexMessageInput } from "./attachments.js";
 import type { CodexSteerAcknowledgement } from "./intervention.js";
-import { CodexTransportError } from "./session/errors.js";
 import type { CodexSessionRecord } from "./session/state.js";
 import { readSteeredTurnId } from "./thread/view.js";
 
@@ -17,6 +18,8 @@ import { readSteeredTurnId } from "./thread/view.js";
  * key.
  */
 export interface CodexSteerInput {
+  /** The run the steer was handed for. */
+  readonly runId: RunId;
   readonly content: string;
   /** The skills picked for the message, in the order picked. */
   readonly skills: readonly PickedSkill[] | undefined;
@@ -32,7 +35,7 @@ export interface CodexSteerInput {
  * Steers `turnId` on `record`, or the turn the steer expects, and reports both the turn it
  * targeted and the turn the provider acknowledged. Sent once the conversation's previous steer
  * settled and its files are bound. Throws the request's failure, the files' binding failure, and
- * `CodexTransportError` when the turn is no longer the run's live one by then.
+ * `SteerTurnEndedError` when the turn is no longer the run's live one by then.
  */
 export async function steerActiveTurn(
   record: CodexSessionRecord,
@@ -49,9 +52,7 @@ export async function steerActiveTurn(
     // A steer that waited behind another is sent only while its turn is still the run's live one,
     // never into a turn an interrupt retired or a conversation the session has left.
     if (!record.runIdByActiveTurnId.has(turnId)) {
-      throw new CodexTransportError("The turn ended before the steer was sent.", {
-        threadId: record.threadId,
-      });
+      throw new SteerTurnEndedError(steer.runId);
     }
     return record.service.request("turn/steer", {
       threadId: record.threadId,

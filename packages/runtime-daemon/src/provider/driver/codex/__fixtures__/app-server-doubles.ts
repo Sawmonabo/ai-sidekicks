@@ -591,6 +591,8 @@ export interface HarnessOptions {
   readonly openDaemonTurnBinding?: DaemonTurnBindingResolver["openDaemonTurnBinding"];
   /** Points a binding at the conversation a fork moved its session to; absent, nothing does. */
   readonly rebindRuntimeBinding?: CodexLifecycleOptions["rebindRuntimeBinding"];
+  /** How long a turn's start may take; absent, the driver's own default. */
+  readonly turnStartTimeoutMs?: number;
 }
 
 /** A driver over the fake host, and everything it reported. */
@@ -696,6 +698,7 @@ export function createHarness(options: HarnessOptions = {}): Harness {
     },
     diagnostics: driverDiagnostics,
     scheduleTimeout: scheduler.schedule,
+    turnStartTimeoutMs: options.turnStartTimeoutMs,
     now: options.now ?? ((): number => 0),
     newBindingId: options.newBindingId ?? ((): string => "binding-abc"),
     runEngine: options.runEngine ?? {

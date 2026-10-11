@@ -80,7 +80,8 @@ const DELIVERED_ROUTE_DECISIONS: ReadonlySet<ThreadFrameRoute["decision"]> = new
 /** In-memory channel that records every write and control request and lets a test drive frames. */
 export class FakeClaudeProviderProcess implements ClaudeProviderProcess {
   readonly providerSessionId: string;
-  readonly processId: number | undefined = undefined;
+  /** The process's id, `undefined` until a test gives it one. */
+  processId: number | undefined = undefined;
   /** Each written text as the user frame a real transport puts on stdin. */
   readonly sentUserFrames: ClaudeUserFrame[] = [];
   readonly controlRequests: ClaudeControlRequest[] = [];
@@ -544,7 +545,7 @@ export function buildStartRunParams(): StartRunParams {
   return { runId: TEST_RUN_ID, agentConfig: {} };
 }
 
-/** A steer intervention on the first test run carrying `content` and any staged files. */
+/** A driver steer on the first test run carrying `content` and any staged files. */
 export function buildSteerParams(
   content: string,
   attachments?: ArtifactId[],

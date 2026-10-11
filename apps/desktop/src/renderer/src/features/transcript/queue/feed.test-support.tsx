@@ -62,6 +62,7 @@ export function queueFeedBridge(snapshot: readonly QueueItemSummary[] = []): {
   clock: Clock;
   queueCalls: QueueCalls;
   deliver: (item: QueueItemSummary) => void;
+  deliverFrame: (frame: RunQueueStreamFrame) => void;
   tailedSessionIds: readonly string[];
   listedSessionIds: readonly string[];
   canceledItemIds: readonly string[];
@@ -70,6 +71,11 @@ export function queueFeedBridge(snapshot: readonly QueueItemSummary[] = []): {
   const listedSessionIds: string[] = [];
   const canceledItemIds: string[] = [];
   const tails = new Set<(frame: RunQueueStreamFrame) => void>();
+  const deliverFrame = (frame: RunQueueStreamFrame): void => {
+    for (const onFrame of tails) {
+      onFrame(frame);
+    }
+  };
   const { bridge, engine } = createFixture();
   return {
     bridge,
@@ -92,11 +98,9 @@ export function queueFeedBridge(snapshot: readonly QueueItemSummary[] = []): {
     },
     deliver: (item) => {
       // One change per frame, at a cursor no case reads.
-      const frame: RunQueueStreamFrame = { changes: [{ cursor: encodeEventCursor(0), item }] };
-      for (const onFrame of tails) {
-        onFrame(frame);
-      }
+      deliverFrame({ changes: [{ cursor: encodeEventCursor(0), item }] });
     },
+    deliverFrame,
     tailedSessionIds,
     listedSessionIds,
     canceledItemIds,

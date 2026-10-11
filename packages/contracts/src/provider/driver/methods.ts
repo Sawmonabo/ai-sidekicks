@@ -335,6 +335,12 @@ export const ProviderCommandListResultSchema: z.ZodType<
   })
   .strict();
 
+/**
+ * The refusal of a provider operation that outlived its deadline, such as a provider request
+ * left unanswered or a wait on the provider's service past the delivery timeout.
+ */
+export const DRIVER_TIMEOUT_CODE = "driver.timeout" as const;
+
 // ---- Method table ----
 
 /** The driver methods a client calls, each a query or a mutation. */

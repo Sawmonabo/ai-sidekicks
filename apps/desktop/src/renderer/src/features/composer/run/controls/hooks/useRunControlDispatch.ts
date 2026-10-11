@@ -18,7 +18,7 @@ import {
   type RunControlCalls,
   type RunControlOutcome,
 } from "../services/dispatch.js";
-import { inFlightKeyFor, mintRunControlDispatchToken } from "../keys.js";
+import { inFlightKeyFor, mintRunControlDispatchToken, type RunControlSubject } from "../keys.js";
 
 /** One recorded dispatch and what it settled to, read back by the steer box. */
 export interface RunControlRecord {
@@ -53,10 +53,10 @@ export interface RunControlDispatchState {
   readonly dispatcher: RunControlDispatcher;
   /** Newest last, matching the transcript's reading direction. Bounded. */
   readonly records: readonly RunControlRecord[];
-  /** Controls with a dispatch in flight, keyed `<runId>:<control>`. */
+  /** Controls with a dispatch in flight, each under its `inFlightKeyFor` key. */
   readonly inFlightKeys: ReadonlySet<string>;
   readonly dispatch: (
-    runId: string,
+    subject: RunControlSubject,
     control: RunControl,
     perform: (dispatcher: RunControlDispatcher) => Promise<RunControlOutcome>,
   ) => RunControlAdmission;
@@ -101,11 +101,12 @@ export function useRunControlDispatch(
 
   const dispatch = useCallback(
     (
-      runId: string,
+      subject: RunControlSubject,
       control: RunControl,
       perform: (held: RunControlDispatcher) => Promise<RunControlOutcome>,
     ): RunControlAdmission => {
-      const key = inFlightKeyFor(runId, control);
+      const { runId } = subject;
+      const key = inFlightKeyFor(subject, control);
       const claim = controlLatch.claim(bridge, key);
       if (claim === undefined) {
         return { admitted: false, reason: "in-flight" };

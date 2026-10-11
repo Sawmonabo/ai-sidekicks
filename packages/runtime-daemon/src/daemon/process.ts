@@ -41,6 +41,7 @@ import { DeviceIdSchema } from "@ai-sidekicks/contracts/trust-statement";
 import { CURRENT_PROTOCOL_VERSION } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 
+import type { ProcessPeakReader } from "../admission/process-peak/contract.js";
 import { bootstrap } from "../bootstrap/index.js";
 import { waitWithin } from "../bounded-wait.js";
 import { withCleanupFailures } from "../cleanup-failures.js";
@@ -65,7 +66,7 @@ import { ProviderRegistry } from "../provider/driver/registry.js";
 import type { ProviderOperatingSystem } from "../provider/operating-system/contract.js";
 import type { SpawnEnvPair } from "../provider/spawn-env.js";
 import type { TerminalOperatingSystem } from "../pty/operating-system/contract.js";
-import type { DrainResult, PtyHost } from "../pty/host/contract.js";
+import type { PtyHost } from "../pty/host/contract.js";
 import { PtySessionEvents } from "../pty/host/session-events.js";
 import type { OrphanGuard } from "../pty/orphan/guard.js";
 import { describeOrphanSweep, type OrphanSweepResult } from "../pty/orphan/sweep.js";
@@ -97,6 +98,7 @@ import { registerMachineSettingsMethods } from "./machine/settings/methods.js";
 import type { ProcessTreeUsage } from "./process-tree-usage.js";
 import { DaemonProviders, type ProviderPorts } from "./providers.js";
 import { bindSocket, mintSessionToken, prepareRunFolder } from "./run-folder.js";
+import { describeDrain, endWithinDrainBound } from "./stop-drain.js";
 import type { registerSessionMethods, RegisteredSessionServices } from "./session-methods.js";
 import { registerStatusMethods } from "./status-methods.js";
 
@@ -144,6 +146,8 @@ export interface DaemonProcessOptions {
   readonly commandShell: string | null;
   /** The operating system the daemon runs on, chosen once at its start. */
   readonly providerOperatingSystem: ProviderOperatingSystem;
+  /** The memory gate's read of a provider process's peak, chosen once at the start. */
+  readonly processPeakReader: ProcessPeakReader;
   /** What the terminal takes from the operating system it runs on, picked once at the start. */
   readonly terminalOperatingSystem: TerminalOperatingSystem;
   /**
@@ -413,6 +417,7 @@ export class DaemonProcess {
       dataFolder: parts.dataFolder,
       providerBaseEnvironment: parts.providerBaseEnvironment,
       operatingSystem: options.providerOperatingSystem,
+      processPeakReader: options.processPeakReader,
       writeServiceLog: options.writeServiceLog,
     });
     this.providerPorts = this.#providers.ports;
@@ -878,30 +883,4 @@ function reportDamageOf(inner: MethodRegistry, watch: DatabaseDamageWatch): Meth
       throw error;
     }
   });
-}
-
-function describeDrain(drain: DrainResult): string {
-  return (
-    `The terminals drained at the stop: ${String(drain.sessionsDrained)} ended, ` +
-    `${String(drain.sessionsForcedKilled)} killed; the terminal host ` +
-    `${drain.sidecarExitedCleanly ? "exited cleanly" : "did not exit cleanly"}` +
-    `${drain.taskkillEscalated ? " and was killed" : ""}.`
-  );
-}
-
-// Waits for `work` within the stop's drain bound: resolves `true` once it ended, its failure, if
-// any, added to `failures`, or `false` when the bound passed first.
-async function endWithinDrainBound(work: Promise<unknown>, failures: unknown[]): Promise<boolean> {
-  const failure = work.then(
-    () => undefined,
-    (error: unknown) => ({ error }),
-  );
-  if (!(await waitWithin(failure, DAEMON_STOP_DRAIN_BOUND_MS))) {
-    return false;
-  }
-  const ended = await failure;
-  if (ended !== undefined) {
-    failures.push(ended.error);
-  }
-  return true;
 }

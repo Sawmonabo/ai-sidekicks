@@ -357,17 +357,16 @@ CREATE TABLE interventions (
   id                     TEXT PRIMARY KEY,
   target_run_id          TEXT NOT NULL,
   type                   TEXT NOT NULL
-                         CHECK(type IN ('steer', 'interrupt', 'faster_model_retry')),
+                         CHECK(type IN ('interrupt', 'faster_model_retry')),
   state                  TEXT NOT NULL DEFAULT 'requested'
                          CHECK(state IN ('requested', 'accepted', 'applied', 'rejected', 'degraded', 'expired', 'failed')),
-  payload                TEXT NOT NULL DEFAULT '{}', -- JSON: type-specific fields, a steer's text among them as plain text (Spec-003 §Required Behavior)
+  payload                TEXT NOT NULL DEFAULT '{}', -- JSON: the request's own fields, as plain text — an interrupt's `pending`, `deliverFirst` and optional `reason`, a faster-model retry's `expectedTurnId` and `model`. A message the person sends mid-turn is a queue send, so its words sit on `queue_items.payload`, never here (Spec-003 §Required Behavior)
   expected_run_version   INTEGER NOT NULL,           -- MANDATORY fail-closed comparand (Spec-003 §Interfaces And Contracts / Plan-002 D-002-2)
   client_idempotency_key TEXT NOT NULL,              -- MANDATORY requester-generated UUID (a client's, or the daemon's own for its own stop); return-or-conflict intervention dedupe (Spec-004 §Required Behavior)
   device_id              TEXT,                       -- the device the intervention came from (the machine's own screen or a linked device's channel), found from the connection at acceptance; NULL means the daemon's own stop (Queue And Intervention Model)
   rejection_reason       TEXT,                       -- machine-readable rejected cause (driver.capability_unsupported foremost) — durable across a retry: the reply carries no result, so a retry that returns the saved reply reconstructs rejectionReason from this column (Plan-002 T1.4/T3.13)
   fallback_action        TEXT,                       -- the fallback a degraded intervention took; NULL in every other state
   failure_reason         TEXT,                       -- what a failed dispatch threw (a daemon error's code, else its message), so a retry's saved reply carries the same failureReason; NULL in every other state
-  delivered_run_id       TEXT,                       -- the run an applied steer's message went to when that is not its target (settling a choice the target was held on ended it, so the message started the session's next turn as a run of its own); NULL otherwise. The `intervention.applied` event carries the same id
   created_at             TEXT NOT NULL,
   resolved_at            TEXT,
   UNIQUE(target_run_id, client_idempotency_key),     -- identical retry returns the saved result; key reuse with a differing payload rejects as intervention.idempotency_conflict (Spec-003 §Interfaces And Contracts) — distinct grain from command_receipts.command_id (per-command crash-recovery dedupe)

@@ -1,6 +1,6 @@
 // `intervention.ts`: a steer is one user message written into the running turn, steers keeping the
-// order they came in; an interrupt drops the waiting messages only when they return to the draft
-// and the process can drop them, and its receipt says whether it did.
+// order they came in; an interrupt is Claude Code's plain `interrupt`, whatever becomes of the
+// waiting messages, which the run queue takes back itself.
 
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
@@ -24,15 +24,11 @@ import {
   STAGED_ATTACHMENT_IDS,
 } from "../../__fixtures__/attachment-doubles.js";
 
-const CANCEL_QUEUED_CAPABILITY = "interrupt_cancel_queued_v1";
-
 class StubRunProcessLookup implements ClaudeRunProcessLookup {
   readonly channel: FakeClaudeProviderProcess | undefined;
-  readonly capabilities: ReadonlySet<string>;
 
-  constructor(channel: FakeClaudeProviderProcess | undefined, capabilities: readonly string[]) {
+  constructor(channel: FakeClaudeProviderProcess | undefined) {
     this.channel = channel;
-    this.capabilities = new Set(capabilities);
   }
 
   sessionIdForRun(): SessionId | undefined {
@@ -41,10 +37,6 @@ class StubRunProcessLookup implements ClaudeRunProcessLookup {
 
   findProcessForRun(): ClaudeProviderProcess | undefined {
     return this.channel;
-  }
-
-  advertisedCapabilitiesForRun(): ReadonlySet<string> {
-    return this.capabilities;
   }
 }
 
@@ -65,13 +57,11 @@ interface InterventionHarness {
   readonly steersSent: { readonly runId: RunId; readonly messageUuid: string }[];
 }
 
-function buildHarness(
-  capabilities: readonly string[] = [CANCEL_QUEUED_CAPABILITY],
-): InterventionHarness {
+function buildHarness(): InterventionHarness {
   const channel = new FakeClaudeProviderProcess("provider-session-live");
   const steersSent: InterventionHarness["steersSent"] = [];
   const dispatcher = new ClaudeInterventionDispatcher({
-    channelLookup: new StubRunProcessLookup(channel, capabilities),
+    channelLookup: new StubRunProcessLookup(channel),
     settlement: SETTLEMENT_WITH_NO_CHOICE,
     attachments: new FakeAttachmentResolver(),
     onSteerSent: (runId, messageUuid) => {
@@ -111,7 +101,7 @@ describe("ClaudeInterventionDispatcher steer order", () => {
     const filesRead = Promise.withResolvers<void>();
     const channel = new FakeClaudeProviderProcess("provider-session-live");
     const dispatcher = new ClaudeInterventionDispatcher({
-      channelLookup: new StubRunProcessLookup(channel, []),
+      channelLookup: new StubRunProcessLookup(channel),
       settlement: SETTLEMENT_WITH_NO_CHOICE,
       attachments: {
         resolveAttachments: async (_sessionId, artifactIds) => {
@@ -145,37 +135,15 @@ describe("ClaudeInterventionDispatcher steer order", () => {
 });
 
 describe("ClaudeInterventionDispatcher interrupt", () => {
-  it("drops waiting messages only when they return to the draft and the process can", async () => {
-    const cases = [
-      { pending: "returnToDraft", capabilities: [CANCEL_QUEUED_CAPABILITY], cancels: true },
-      { pending: "nextTurn", capabilities: [CANCEL_QUEUED_CAPABILITY], cancels: false },
-      { pending: "returnToDraft", capabilities: [], cancels: false },
-    ] as const;
-    for (const { pending, capabilities, cancels } of cases) {
-      const harness = buildHarness(capabilities);
-      // Survivors after an interrupt that keeps its waiting messages are what it promises.
-      harness.channel.controlResponse = {
-        subtype: "success",
-        response: { still_queued: ["3f1b0c22-0000-4000-8000-000000000001"] },
-      };
+  // Mutation: answering `degraded` for a return to the draft fails the `returnToDraft` arm.
+  it("sends a plain interrupt and applies it whatever the waiting messages' choice", async () => {
+    for (const pending of ["returnToDraft", "nextTurn"] as const) {
+      const harness = buildHarness();
 
       const result = await harness.dispatcher.applyIntervention(buildInterruptParams(pending));
 
-      expect(harness.channel.controlRequests).toStrictEqual([
-        cancels ? { subtype: "interrupt", cancel_queued: true } : { subtype: "interrupt" },
-      ]);
-      expect(result).toStrictEqual(cancels ? { status: "degraded" } : { status: "applied" });
-    }
-  });
-
-  it("applies a cancel whose receipt lists no survivors or an unreadable list", async () => {
-    for (const receipt of [{ still_queued: [] }, { still_queued: "not-a-list" }, {}]) {
-      const harness = buildHarness();
-      harness.channel.controlResponse = { subtype: "success", response: receipt };
-
-      await expect(
-        harness.dispatcher.applyIntervention(buildInterruptParams("returnToDraft")),
-      ).resolves.toStrictEqual({ status: "applied" });
+      expect(harness.channel.controlRequests).toStrictEqual([{ subtype: "interrupt" }]);
+      expect(result).toStrictEqual({ status: "applied" });
     }
   });
 
@@ -190,7 +158,7 @@ describe("ClaudeInterventionDispatcher interrupt", () => {
     ).resolves.toStrictEqual({ status: "degraded" });
 
     const unrouted = new ClaudeInterventionDispatcher({
-      channelLookup: new StubRunProcessLookup(undefined, []),
+      channelLookup: new StubRunProcessLookup(undefined),
       settlement: SETTLEMENT_WITH_NO_CHOICE,
       attachments: new FakeAttachmentResolver(),
       onSteerSent: () => undefined,

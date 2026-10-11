@@ -93,11 +93,13 @@ describe("InterventionService", () => {
         await duringDispatch();
         return retryOutcome;
       },
-      runEngine: {
-        // Only an interrupt's verdict ends its run; a retry reaching here fails the test.
-        endRunForInterrupt: () =>
-          Promise.reject(new Error("A faster-model retry never ends its run")),
-        routeInterrupt: () => Promise.resolve("driver"),
+      runEngine: { routeInterrupt: () => Promise.resolve("driver") },
+      // No run here has messages waiting, and none an interrupt dispatched to here ends.
+      queue: {
+        holdForInterrupt: () => Promise.resolve(),
+        withdrawForInterrupt: () => Promise.resolve(),
+        endRunForInterrupt: () => Promise.reject(new Error("No run ends in these tests")),
+        releaseInterrupt: () => Promise.resolve(),
       },
     });
 

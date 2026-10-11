@@ -1,8 +1,9 @@
 // The run engine over a real database: the setup gates around a run's start, the terminal hooks,
 // a provider process that ends on its own, a run that waits and comes back on its own id, the
 // notice a run gets when its provider does not run it at the fast output level it carried, and
-// the interrupt a restart's settle writes for a held child or for the person's pending one, and a
-// turn the daemon starts itself, run as the session's own run.
+// the interrupt a restart's settle writes for a held child or for the person's pending one, an
+// interrupted run continued on its own id, its gates released when the continue fails, and a turn
+// the daemon starts itself, run as the session's own run.
 
 import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises";
@@ -25,6 +26,7 @@ import {
   startOnDriver,
   openRunEngineFixture,
   type RunEngineFixture,
+  refuseDriverInterrupt,
 } from "./engine.test-support.js";
 
 describe("run engine", () => {
@@ -57,12 +59,26 @@ describe("run engine", () => {
     };
   }
 
+  function versionOf(runId: RunId): number {
+    const run = fixture.runs.getRun(runId);
+    if (run === undefined) {
+      throw new Error(`Run ${runId} has no row`);
+    }
+    return run.version;
+  }
+
+  // Ends the run for an interrupt accepted at the version it reads now.
+  async function endForInterrupt(runId: RunId): Promise<boolean> {
+    return await fixture.engine.endRunForInterrupt(runId, versionOf(runId), {});
+  }
+
   async function startRun(runId: RunId): Promise<void> {
     await fixture.engine.startRun({
       runId,
       queueItem: makeQueueItem(),
       provider: "claude",
       outputSpeed: undefined,
+      interruptDriver: refuseDriverInterrupt,
       startDriver: startOnDriver(makeRecordingDriver(), runId),
       executionPosture: TEST_EXECUTION_POSTURE,
     });
@@ -90,6 +106,7 @@ describe("run engine", () => {
         queueItem: makeQueueItem(),
         provider: "claude",
         outputSpeed: undefined,
+        interruptDriver: refuseDriverInterrupt,
         startDriver: async (resolvedPosture) => {
           log.push("driver");
           await startOnDriver(driver, gated)(resolvedPosture);
@@ -124,6 +141,7 @@ describe("run engine", () => {
           queueItem: makeQueueItem(),
           provider: "claude",
           outputSpeed: undefined,
+          interruptDriver: refuseDriverInterrupt,
           startDriver: startOnDriver(driver, runId),
           executionPosture: TEST_EXECUTION_POSTURE,
         })
@@ -168,6 +186,7 @@ describe("run engine", () => {
             queueItem: makeQueueItem(),
             provider: "claude",
             outputSpeed: undefined,
+            interruptDriver: refuseDriverInterrupt,
             startDriver: startOnDriver(driver, runId),
             executionPosture: TEST_EXECUTION_POSTURE,
           })
@@ -201,7 +220,7 @@ describe("run engine", () => {
       const terminals: RunTerminalContext[] = [];
       fixture.engine.registerSetupGate({
         assertRunReady: async () => {
-          await fixture.engine.endRunForInterrupt(runId, {});
+          await endForInterrupt(runId);
           throw gateError;
         },
         onRunTerminal: (context) => {
@@ -216,6 +235,7 @@ describe("run engine", () => {
           queueItem: makeQueueItem(),
           provider: "claude",
           outputSpeed: undefined,
+          interruptDriver: refuseDriverInterrupt,
           startDriver: startOnDriver(makeRecordingDriver(), runId),
           executionPosture: TEST_EXECUTION_POSTURE,
         }),
@@ -229,7 +249,7 @@ describe("run engine", () => {
       const runId = await fixture.queueRun();
       fixture.engine.registerSetupGate({
         assertRunReady: async () => {
-          await fixture.engine.endRunForInterrupt(runId, {});
+          await endForInterrupt(runId);
         },
       });
       const driver = makeRecordingDriver();
@@ -240,6 +260,7 @@ describe("run engine", () => {
           queueItem: makeQueueItem(),
           provider: "claude",
           outputSpeed: undefined,
+          interruptDriver: refuseDriverInterrupt,
           startDriver: startOnDriver(driver, runId),
           executionPosture: TEST_EXECUTION_POSTURE,
         }),
@@ -258,6 +279,7 @@ describe("run engine", () => {
           queueItem: makeQueueItem(),
           provider: "claude",
           outputSpeed: undefined,
+          interruptDriver: refuseDriverInterrupt,
           startDriver: startOnDriver({ startRun: () => Promise.reject(driverError) }, runId),
           executionPosture: TEST_EXECUTION_POSTURE,
         })
@@ -287,7 +309,7 @@ describe("run engine", () => {
       await startRun(runId);
       log.length = 0;
 
-      await fixture.engine.endRunForInterrupt(runId, {});
+      await endForInterrupt(runId);
       // A second terminal of the same run version is refused and releases nothing again.
       await expect(
         fixture.engine.transition({ runId, newState: "interrupted" }),
@@ -316,15 +338,24 @@ describe("run engine", () => {
       fixture.engine.registerSetupGate(recordingGate("gate", log));
       const runId = await fixture.queueRun();
       await startRun(runId);
+      const acceptedVersion = versionOf(runId);
       await fixture.engine.applyProviderStateChange({
         runId,
         newState: "completed",
         completionKind: "turn",
       });
 
-      await expect(fixture.engine.endRunForInterrupt(runId, {})).resolves.toBe(false);
-
+      await expect(fixture.engine.endRunForInterrupt(runId, acceptedVersion, {})).resolves.toBe(
+        false,
+      );
       expect(fixture.runs.getRun(runId)).toMatchObject({ state: "completed", version: 3 });
+
+      // A run continued after that end is not the run the interrupt was accepted on.
+      await fixture.engine.transition({ runId, newState: "running" });
+      await expect(fixture.engine.endRunForInterrupt(runId, acceptedVersion, {})).resolves.toBe(
+        false,
+      );
+      expect(fixture.runs.getRun(runId)).toMatchObject({ state: "running", version: 4 });
       expect(fixture.readRunEvents(runId).some((row) => row.type === "run.interrupted")).toBe(
         false,
       );
@@ -332,9 +363,7 @@ describe("run engine", () => {
 
       // A run that has not ended and cannot end interrupted is still refused.
       const queued = await fixture.queueRun();
-      const refusal: unknown = await fixture.engine
-        .endRunForInterrupt(queued, {})
-        .catch((error: unknown) => error);
+      const refusal: unknown = await endForInterrupt(queued).catch((error: unknown) => error);
       expect(refusal).toBeInstanceOf(RunInvalidTransitionError);
       expect(refusal).not.toBeInstanceOf(RunAlreadyEndedError);
     });
@@ -418,7 +447,7 @@ describe("run engine", () => {
     const waiting = await fixture.engine.transition({ runId, newState: "waiting_for_approval" });
     const resumed = await fixture.engine.transition({ runId, newState: "running" });
     await fixture.engine.transition({ runId, newState: "waiting_for_input" });
-    await fixture.engine.endRunForInterrupt(runId, {});
+    await endForInterrupt(runId);
 
     expect([waiting.version, resumed.version]).toEqual([3, 4]);
     expect(fixture.runs.getRun(runId)).toEqual({
@@ -440,6 +469,96 @@ describe("run engine", () => {
     });
   });
 
+  // Mutations: waiting for the continue before refusing a terminal ends the continued run with
+  // the stopped turn's own end; appending a marker of an ended run without waiting for its
+  // continue drops the next turn's first report.
+  it("continues an interrupted run on its id, refusing the stopped turn's late end and holding the next turn's reports for its running", async () => {
+    const runId = await fixture.queueRun();
+    await startRun(runId);
+    await endForInterrupt(runId);
+    let lateEnd: Promise<unknown> = Promise.resolve();
+    let firstReport: Promise<string | undefined> = Promise.resolve(undefined);
+
+    const continued = await fixture.engine.continueRun({
+      runId,
+      queueItem: makeQueueItem(),
+      provider: "claude",
+      outputSpeed: undefined,
+      executionPosture: TEST_EXECUTION_POSTURE,
+      interruptDriver: refuseDriverInterrupt,
+      startDriver: async () => {
+        // The stopped turn ends as the driver waits for it, then the next turn reports at once.
+        lateEnd = fixture.engine
+          .applyProviderStateChange({ runId, newState: "interrupted" })
+          .catch((error: unknown) => error);
+        await Promise.resolve();
+        firstReport = fixture.engine.appendRunMarker({
+          type: "run.turn_started",
+          payload: { runId },
+        });
+      },
+    });
+
+    expect(continued).toMatchObject({ state: "running", version: 4 });
+    expect(await lateEnd).toBeInstanceOf(RunAlreadyEndedError);
+    expect(await firstReport).toEqual(expect.any(String));
+    expect(fixture.runs.getRun(runId)).toMatchObject({ state: "running", version: 4 });
+  });
+
+  // Mutation: continuing on the provider's kept turn without waiting for the end it reported just
+  // before reads the run still running and leaves the kept turn on an ended run.
+  it("continues a run on the turn its provider started after reporting the interrupted turn's end", async () => {
+    const runId = await fixture.queueRun();
+    await startRun(runId);
+
+    const reportedEnd = fixture.engine.applyProviderStateChange({
+      runId,
+      newState: "interrupted",
+    });
+    const continued = await fixture.engine.continueRunWithKeptMessages(runId);
+    await reportedEnd;
+
+    expect(continued).toMatchObject({ state: "running", version: 4 });
+    expect(fixture.runs.getRun(runId)?.state).toBe("running");
+  });
+
+  // Mutation: leaving the gates unreleased after a failed continue keeps the resolved posture of a
+  // run that rests interrupted until some later end.
+  it("releases what the gates took for a continue that failed, the run resting interrupted", async () => {
+    const terminals: RunTerminalContext[] = [];
+    fixture.engine.registerSetupGate(recordingGate("workspace", [], terminals));
+    const runId = await fixture.queueRun();
+    await startRun(runId);
+    await endForInterrupt(runId);
+    const interruptedVersion = versionOf(runId);
+    terminals.length = 0;
+    const refused = new Error("The provider refused the turn");
+
+    const continuing = fixture.engine.continueRun({
+      runId,
+      queueItem: makeQueueItem(),
+      provider: "claude",
+      outputSpeed: undefined,
+      executionPosture: TEST_EXECUTION_POSTURE,
+      interruptDriver: refuseDriverInterrupt,
+      startDriver: () => Promise.reject(refused),
+    });
+
+    await expect(continuing).rejects.toBe(refused);
+    expect(fixture.runs.getRun(runId)).toMatchObject({
+      state: "interrupted",
+      version: interruptedVersion,
+    });
+    expect(fixture.executionPostures.resolvedPostureFor(runId)).toBeUndefined();
+    expect(terminals).toEqual([
+      expect.objectContaining({
+        runId,
+        terminalState: "interrupted",
+        runVersion: interruptedVersion,
+      }),
+    ]);
+  });
+
   it("starts a daemon turn as the session's own run, a change its start reports landing after running", async () => {
     const reported: Promise<unknown>[] = [];
     const startedRunIds: RunId[] = [];
@@ -449,6 +568,8 @@ describe("run engine", () => {
       provider: "claude",
       admittedProviderAccountId: null,
       executionPosture: TEST_EXECUTION_POSTURE,
+      isProviderStarted: false,
+      interruptTurn: refuseDriverInterrupt,
       startTurn: async (runId) => {
         startedRunIds.push(runId);
         // A turn that ends at once reports its end before the engine has written `running`.
@@ -480,6 +601,68 @@ describe("run engine", () => {
     expect(runEvents[0]?.payload["agentId"]).toBe(fixture.agentId);
   });
 
+  // Mutations: rethrowing a failed `running` write as it is leaves a provider's own turn running
+  // under a run that stays `starting`, a live lead run that holds the session's turn for good; one
+  // after a continue's turn started leaves that turn running under a run that reads interrupted.
+  it("interrupts the provider's turn when a run's running write fails, the session taking the next", async () => {
+    const refuseRunning = async (): Promise<void> => {
+      await fixture.database.writer.write([
+        {
+          sql: `CREATE TRIGGER refuse_running BEFORE INSERT ON session_events
+                  WHEN NEW.type = 'run.running'
+                  BEGIN SELECT RAISE(ABORT, 'database or disk is full'); END`,
+        },
+      ]);
+    };
+    const acceptRunning = async (): Promise<void> => {
+      await fixture.database.writer.write([{ sql: "DROP TRIGGER refuse_running" }]);
+    };
+    const interrupted: RunId[] = [];
+    const providerTurn = {
+      sessionId: fixture.sessionId,
+      provider: "codex" as const,
+      admittedProviderAccountId: null,
+      executionPosture: TEST_EXECUTION_POSTURE,
+      isProviderStarted: true,
+      startTurn: () => Promise.resolve(),
+      interruptTurn: (runId: RunId) => {
+        interrupted.push(runId);
+        return Promise.resolve();
+      },
+    };
+    await refuseRunning();
+
+    await expect(fixture.engine.startDaemonTurn(providerTurn)).rejects.toThrow("disk is full");
+
+    const [failedRunId] = interrupted;
+    if (failedRunId === undefined) {
+      throw new Error("The failed write interrupted no turn");
+    }
+    expect(fixture.runs.getRun(failedRunId)?.state).toBe("failed");
+    await acceptRunning();
+    const nextRunId = await fixture.engine.startDaemonTurn(providerTurn);
+    expect(fixture.runs.getRun(nextRunId)?.state).toBe("running");
+
+    await endForInterrupt(nextRunId);
+    await refuseRunning();
+    await expect(
+      fixture.engine.continueRun({
+        runId: nextRunId,
+        queueItem: makeQueueItem(),
+        provider: "codex",
+        outputSpeed: undefined,
+        executionPosture: TEST_EXECUTION_POSTURE,
+        startDriver: () => Promise.resolve(),
+        interruptDriver: () => {
+          interrupted.push(nextRunId);
+          return Promise.resolve();
+        },
+      }),
+    ).rejects.toThrow("disk is full");
+    expect(interrupted).toEqual([failedRunId, nextRunId]);
+    expect(fixture.runs.getRun(nextRunId)?.state).toBe("interrupted");
+  });
+
   describe("fast output notice", () => {
     async function startRunAt(provider: ProviderName, outputSpeed: string): Promise<RunId> {
       const runId = await fixture.queueRun();
@@ -488,6 +671,7 @@ describe("run engine", () => {
         queueItem: makeQueueItem(),
         provider,
         outputSpeed: outputSpeed,
+        interruptDriver: refuseDriverInterrupt,
         startDriver: startOnDriver(makeRecordingDriver(), runId),
         executionPosture: TEST_EXECUTION_POSTURE,
       });

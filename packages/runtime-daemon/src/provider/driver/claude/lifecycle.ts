@@ -348,10 +348,14 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
       runEngine: dependencies.runEngine,
       slots: this.#slots,
       runRoutes: this.#runRoutes,
+      stream: this.#stream,
       handshakes: this.#handshakes,
       diagnostics,
       prompts: this.#prompts,
       attachments: dependencies.attachments,
+      interruptRun: async (params) => {
+        await this.#runControls.interruptRun(params);
+      },
     });
     this.#runControls = new ClaudeRunControls({
       slots: this.#slots,
@@ -751,17 +755,6 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
   findProcessForRun(runId: RunId): ClaudeProviderProcess | undefined {
     const sessionId = this.#runRoutes.sessionIdFor(runId);
     return sessionId === undefined ? undefined : this.#slots.findLiveSession(sessionId)?.channel;
-  }
-
-  /** The capabilities the process of a run's session advertised on its newest `system/init`. */
-  advertisedCapabilitiesForRun(runId: RunId): ReadonlySet<string> {
-    const sessionId = this.#runRoutes.sessionIdFor(runId);
-    const live = sessionId === undefined ? undefined : this.#slots.findLiveSession(sessionId);
-    if (sessionId === undefined || live === undefined) {
-      return new Set();
-    }
-    const held = this.#handshakes.heldHandshakeFor(sessionId, live.providerSessionId);
-    return new Set(held?.declaration.capabilities ?? []);
   }
 
   /** Records a steer written into a run's turn as its session's newest message, not yet taken. */

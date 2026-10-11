@@ -1,12 +1,11 @@
-// The log reads that say which driver a run is bound to. `driver.listCapabilities` is addressed at
-// the daemon and names no run, but the session's log does: `session.created` carries the lead,
-// `run.queued` an agent started from a saved definition, `agent.provider_binding_changed` an
-// agent's switch to another binding, and a run's body carries its `agentId`, from its `run.queued`
-// or from the read's record of the run. The store keeps the first three among its standing events,
-// whatever rows its window holds. Each is read through a schema because the payload and body are
-// `unknown`, and a hand-shaped read would take a number or an empty string as a binding.
+// The session's agents as its log names them: which agent is the lead and which driver each agent
+// is bound to. `driver.listCapabilities` is addressed at the daemon and names no agent, but the
+// session's log does: `session.created` carries the lead, `run.queued` an agent started from a
+// saved definition, and `agent.provider_binding_changed` an agent's switch to another binding.
+// The store keeps all three among its standing events, whatever rows its window holds. Each is
+// read through a schema because the payload is `unknown`, and a hand-shaped read would take a
+// number or an empty string as a binding.
 
-import { z } from "zod";
 import {
   AGENT_PROVIDER_BINDING_CHANGED_EVENT,
   AgentProviderBindingChangedPayloadSchema,
@@ -16,15 +15,9 @@ import { SessionCreatedPayloadSchema } from "@ai-sidekicks/contracts/session/eve
 import type { AgentListEntry } from "@ai-sidekicks/contracts/agent/methods";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
-import {
-  type StoredEntity,
-  type ProjectedSessionEvent,
-} from "#renderer/store/session/entities/vocabulary.js";
+import { type ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { RUN_QUEUED_EVENT_KIND } from "#renderer/store/session/events/run/state-kinds.js";
 import { SESSION_CREATED_EVENT_KIND } from "#renderer/store/session/standing-events.js";
-
-/** The one member of a run's body this read takes. */
-const runAgentBindingSchema = z.object({ agentId: z.string().min(1) });
 
 /**
  * Each agent's current driver, from the rows among `events` that bring agents into the session
@@ -49,10 +42,18 @@ export function readAgentDriverNames(
   return new Map([...broughtInDriverByAgentId, ...switchedDriverByAgentId]);
 }
 
-/** The agent a run was created for, or `undefined` where its body names none. */
-export function readRunAgentId(run: StoredEntity): string | undefined {
-  const binding = runAgentBindingSchema.safeParse(run.body);
-  return binding.success ? binding.data.agentId : undefined;
+/**
+ * The session's lead: the agent the `session.created` row among `events` brought in, or
+ * `undefined` where they hold no readable one naming its own session.
+ */
+export function readLeadAgentId(events: readonly ProjectedSessionEvent[]): string | undefined {
+  for (const entry of events) {
+    const lead = entry.kind === SESSION_CREATED_EVENT_KIND ? agentBroughtInBy(entry) : undefined;
+    if (lead !== undefined) {
+      return lead.agentId;
+    }
+  }
+  return undefined;
 }
 
 /** The agent this row brings into its own session, or `undefined` where it brings none. */

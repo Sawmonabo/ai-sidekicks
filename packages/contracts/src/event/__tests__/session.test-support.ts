@@ -201,7 +201,7 @@ const INTERVENTION = {
   sessionId: SESSION_ID,
   interventionId: "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f27",
   targetRunId: RUN_ID,
-  type: "steer",
+  type: "interrupt",
   actor: "daemon",
 };
 

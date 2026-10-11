@@ -16,18 +16,18 @@
 // before either goes; a steer whose settlement ended the run starts the session's next turn
 // instead, naming that run as the one its message went to. The turn end an interrupt causes is held
 // until Claude Code answers, then delivered as `interrupted`, so the run ends whether that end or
-// the daemon's verdict lands first; an interrupt Claude Code never got delivers it as sent.
+// the daemon's verdict lands first; an interrupt Claude Code never got delivers it as sent. The
+// interrupt never drops Claude Code's own queue: the run queue takes back what an interrupt's
+// choice keeps from the next turn, by each message's id, before the interrupt goes.
 
 import {
   DriverInterventionResultSchema,
   type ApplyInterventionParams,
   type DriverInterventionResult,
-  type InterruptPayload,
 } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
-import { isPlainObject } from "../../record-readers.js";
 import type { AttachmentResolver } from "../attachments.js";
 import { composeClaudeAttachmentBlocks } from "./attachments.js";
 import { ClaudeRequestTimeoutError, ClaudeSessionUnavailableError } from "./session/errors.js";
@@ -39,12 +39,6 @@ import type {
   ClaudeRunProcessLookup,
   ClaudeUserContentBlock,
 } from "./session/transport.js";
-
-// The `system/init` capability that makes `interrupt` take `cancel_queued`.
-const CLAUDE_INTERRUPT_CANCEL_QUEUED_CAPABILITY = "interrupt_cancel_queued_v1";
-
-// Key of the uuids of queued user messages that outlived an interrupt.
-const CLAUDE_INTERRUPT_RECEIPT_SURVIVOR_KEY = "still_queued";
 
 /** How an interrupt settled: Claude Code's answer, or a process stopped because it gave none. */
 export type ClaudeInterruptOutcome =
@@ -68,13 +62,6 @@ export async function sendClaudeInterrupt(
     await channel.terminate();
     return { kind: "stopped" };
   }
-}
-
-// Survivors are counted only from an array: a missing or malformed list reads as none, so a build
-// that sends no receipt does not fail a queue-dropping interrupt closed.
-function countSurvivingQueuedMessages(payload: Record<string, unknown> | undefined): number {
-  const survivors = payload?.[CLAUDE_INTERRUPT_RECEIPT_SURVIVOR_KEY];
-  return Array.isArray(survivors) ? survivors.length : 0;
 }
 
 /** What an interrupt and a steer settle on the driver's side before and after they go. */
@@ -182,7 +169,7 @@ export class ClaudeInterventionDispatcher {
         return await steer;
       }
       case "interrupt": {
-        return await this.#dispatchInterrupt(channel, params.targetRunId, params.payload);
+        return await this.#dispatchInterrupt(channel, params.targetRunId);
       }
     }
   }
@@ -222,43 +209,23 @@ export class ClaudeInterventionDispatcher {
   async #dispatchInterrupt(
     channel: ClaudeProviderProcess,
     targetRunId: RunId,
-    payload: InterruptPayload,
   ): Promise<DriverInterventionResult> {
     const { settlement } = this.#dependencies;
     if (await settlement.settleChoiceForInterrupt(targetRunId)) {
       return DriverInterventionResultSchema.parse({ status: "applied" });
     }
-    // Waiting messages go back to the draft only where the process can drop them; elsewhere they
-    // stay queued and go as the next turn.
-    const cancelQueued =
-      payload.pending === "returnToDraft" &&
-      this.#dependencies.channelLookup
-        .advertisedCapabilitiesForRun(targetRunId)
-        .has(CLAUDE_INTERRUPT_CANCEL_QUEUED_CAPABILITY);
     settlement.holdTurnEndForInterrupt(targetRunId);
     let outcome: ClaudeInterruptOutcome;
     try {
-      outcome = await sendClaudeInterrupt(
-        channel,
-        cancelQueued ? { subtype: "interrupt", cancel_queued: true } : { subtype: "interrupt" },
-      );
+      outcome = await sendClaudeInterrupt(channel, { subtype: "interrupt" });
     } catch (error) {
       settlement.settleInterrupt(targetRunId, false);
       throw error;
     }
     // Every answer, a refusal included, is a verdict the daemon ends the run with.
     settlement.settleInterrupt(targetRunId, true);
-    if (outcome.kind === "stopped") {
-      return DriverInterventionResultSchema.parse({ status: "applied" });
-    }
-    const response = outcome.response;
-    if (response.subtype === "error") {
+    if (outcome.kind === "answered" && outcome.response.subtype === "error") {
       // The key is omitted, not `undefined`, because the envelope is `.strict()`.
-      return DriverInterventionResultSchema.parse({ status: "degraded" });
-    }
-    const receipt = isPlainObject(response.response) ? response.response : undefined;
-    if (cancelQueued && countSurvivingQueuedMessages(receipt) > 0) {
-      // Messages Claude Code still holds outlived the interrupt, so not all went back to the draft.
       return DriverInterventionResultSchema.parse({ status: "degraded" });
     }
     return DriverInterventionResultSchema.parse({ status: "applied" });

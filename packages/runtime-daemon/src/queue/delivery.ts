@@ -10,10 +10,15 @@
 // reorder moves it, except by Claude Code's own withdraw, which a change waits for only so long:
 // one whose withdraw fails or is not answered in time reads not delivered, so a stuck process
 // never holds the session's writes, and is admitted after all if Claude Code then shows it took it.
+// One whose withdraw went unanswered stays handed until Claude Code answers it, since Claude Code
+// may still start a turn with it.
 // A message Claude Code keeps past its run's end stays queued, for the turn Claude Code starts with
 // it, whose replay admits it, while the process it was handed to still runs; once that process is
-// gone it goes to the next run. Every call that hands, withdraws or settles a session's messages
-// runs on one chain per session, so they reach the driver in the order the queue decided them.
+// gone it goes to the next run. While an interrupt of a run is under way nothing more is handed
+// to it, so the interrupt's choice decides every message still waiting. What waits for an
+// interrupted run that a newer lead run took over is handed to that run as to any live run. Every call that hands,
+// withdraws or settles a session's messages runs on one chain per session, so they reach the
+// driver in the order the queue decided them.
 
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
@@ -23,6 +28,7 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { canonicalizeUuid } from "@ai-sidekicks/contracts/uuid-canonical";
 import type { DriverInterventionResult } from "@ai-sidekicks/contracts/provider/driver/intervention";
 
+import { waitWithin } from "../bounded-wait.js";
 import type { ServiceLogWriter } from "../daemon/service-log.js";
 import {
   resolveDriverForSessionOrThrow,
@@ -30,7 +36,11 @@ import {
 } from "../ipc/handlers/driver/resolution.js";
 import { KeyedLock } from "../keyed-lock.js";
 import type { ProviderDriver } from "../provider/driver/contract.js";
-import type { RunToolBoundary, WaitingMessage } from "../provider/driver/run-control.js";
+import {
+  SteerTurnEndedError,
+  type RunToolBoundary,
+  type WaitingMessage,
+} from "../provider/driver/run-control.js";
 import { describeRejection } from "../rejection.js";
 import type { RunStateReader } from "../session/run/read.js";
 import { RunNotFoundError } from "../session/run/refusals.js";
@@ -41,10 +51,10 @@ import type { QueueItemReader, QueueItemRecord } from "./store.js";
 // The run states in which Claude Code is handed a message at once.
 const CLAUDE_HANDING_STATES: ReadonlySet<RunState> = new Set(["running", "waiting_for_approval"]);
 
-// How long a change waits for Claude Code to give a handed message back. A withdraw is one control
-// request Claude Code answers without running a turn, so an answer this late means the process is
-// stuck; the request's own one-minute deadline, once per message of a reorder, would hold every
-// write on the session for minutes.
+// How long a change waits for Claude Code to give its handed messages back, all withdrawn at once.
+// A withdraw is one control request Claude Code answers without running a turn, so an answer this
+// late means the process is stuck; the request's own one-minute deadline would hold every write on
+// the session for a minute.
 const WITHDRAW_DEADLINE_MS = 10_000;
 
 // A message the provider has been handed and not yet confirmed taking: by the driver, or by the
@@ -76,22 +86,33 @@ export interface QueueDeliveryDeps {
   readonly sessionLock: KeyedLock<SessionId>;
   /** The process id of the session's provider process, or `undefined` while none runs. */
   readonly readProviderProcessId: (sessionId: SessionId) => number | undefined;
+  /**
+   * Continues an interrupted run with the messages waiting for it, once the last one Claude Code
+   * kept was taken in the turn the interrupt stopped; called off the session lock.
+   */
+  readonly continueInterruptedRun: (sessionId: SessionId, runId: RunId) => void;
   readonly writeServiceLog: ServiceLogWriter;
   readonly now: () => string;
+  /** How long a change waits for Claude Code to give its handed messages back; defaults to 10 s. */
+  readonly withdrawDeadlineMs?: number;
 }
 
 /** Hands live runs their waiting messages, holds Codex's, and takes back Claude Code's. */
 export class QueueDelivery {
   readonly #deps: QueueDeliveryDeps;
+  readonly #withdrawDeadlineMs: number;
   readonly #handed = new Map<QueueItemId, HandedMessage>();
   // Messages sent while their run waited on input, which go as the next turn, by the run.
   readonly #nextTurnRunByItemId = new Map<QueueItemId, RunId>();
   // Runs on which Claude Code holds a credits choice that a message settles.
   readonly #creditsChoiceRunIds = new Set<RunId>();
+  // Runs an interrupt is under way on, which are handed nothing until it settles.
+  readonly #interruptedRunIds = new Set<RunId>();
   readonly #handChain = new KeyedLock<SessionId>(canonicalizeUuid);
 
   constructor(deps: QueueDeliveryDeps) {
     this.#deps = deps;
+    this.#withdrawDeadlineMs = deps.withdrawDeadlineMs ?? WITHDRAW_DEADLINE_MS;
   }
 
   /**
@@ -122,7 +143,7 @@ export class QueueDelivery {
     const takesMessages =
       CLAUDE_HANDING_STATES.has(run.state) ||
       (run.state === "waiting_for_input" && this.#creditsChoiceRunIds.has(runId));
-    if (driverName !== "claude" || !takesMessages) {
+    if (driverName !== "claude" || !takesMessages || this.#interruptedRunIds.has(runId)) {
       return;
     }
     const items = this.#unhandedWaiting(runId);
@@ -154,7 +175,7 @@ export class QueueDelivery {
     const { sessionId, runId } = boundary;
     void this.#deps.sessionLock
       .run(sessionId, () => {
-        const items = this.#unhandedWaiting(runId);
+        const items = this.#interruptedRunIds.has(runId) ? [] : this.#unhandedWaiting(runId);
         if (items.length === 0) {
           return Promise.resolve();
         }
@@ -246,6 +267,12 @@ export class QueueDelivery {
           await this.#admit(item, runId);
         } else {
           this.#handed.delete(itemId);
+          // One whose withdraw went unanswered reads not delivered; the agent took it after all.
+          await this.#admitUndelivered(itemId, runId);
+        }
+        // Claude Code keeps no turn for a run whose kept messages it took before the interrupt.
+        if (this.#deps.runs.getRun(handed.runId)?.state === "interrupted") {
+          this.#deps.continueInterruptedRun(sessionId, handed.runId);
         }
         return;
       }
@@ -260,69 +287,79 @@ export class QueueDelivery {
   }
 
   /**
-   * Takes `item` back from its provider ahead of a change to it, on the session's chain, and says
-   * whether it is the queue's to change; a Claude withdraw finding it delivered admits it. A
-   * withdraw Claude Code failed or did not answer within the deadline leaves the message not
-   * delivered, `failed`, and answers `not_delivered`.
+   * Takes `items`, all of one session, back from their provider ahead of a change to them, on the
+   * session's chain, every withdraw at once under one deadline, and says of each whether it is
+   * still the queue's to change: waiting, not a starting run's opening, and given back. A Claude
+   * withdraw finding one delivered admits it, and one whose withdraw Claude Code failed or did not
+   * answer within the deadline reads not delivered, `failed`, and answers `not_delivered`.
    */
-  async withdraw(item: QueueItemRecord): Promise<QueueWithdrawal> {
-    return this.#handChain.run(item.sessionId, async () => {
-      const handed = this.#handed.get(item.id);
-      if (handed === undefined) {
-        return "returned";
-      }
-      if (handed.route === "continue" || handed.driverName !== "claude") {
-        return "taken";
-      }
-      const { driver } = resolveDriverForSessionOrThrow(this.#deps.sessions, item.sessionId);
-      const withdrawing = driver.withdrawQueuedMessage({
-        sessionId: item.sessionId,
-        runId: handed.runId,
-        clientIdempotencyKey: item.id,
-      });
-      let result: Awaited<typeof withdrawing> | "timed_out";
-      try {
-        result = await this.#withinWithdrawDeadline(withdrawing);
-      } catch (error) {
-        await this.#settleUnreturned(item, `failed: ${describeRejection(error)}`);
-        return "not_delivered";
-      }
-      if (result === "timed_out") {
-        void withdrawing.then(
-          (late) => {
-            this.#deps.writeServiceLog(
-              `run queue: Claude Code answered the withdraw of message ${item.id} after the ` +
-                `deadline: ${late.status}`,
-            );
-            // Claude Code had read it, so the record follows what the agent got.
-            if (late.status === "already_delivered") {
-              this.#onChain(item.sessionId, async () => {
-                await this.#admitUndelivered(item.id, handed.runId);
-              });
-            }
-          },
-          (error: unknown) => {
-            this.#deps.writeServiceLog(
-              `run queue: the withdraw of message ${item.id} failed after the deadline: ` +
-                describeRejection(error),
-            );
-          },
-        );
-        await this.#settleUnreturned(item, "was not answered within the deadline");
-        return "not_delivered";
-      }
-      if (result.status === "already_delivered") {
-        await this.#admit(item, handed.runId);
-        return "taken";
-      }
-      this.#handed.delete(item.id);
-      return "returned";
-    });
+  async takeBack(
+    sessionId: SessionId,
+    items: readonly QueueItemRecord[],
+  ): Promise<ReadonlyMap<QueueItemId, QueueWithdrawal>> {
+    const candidates = items.filter(
+      (item) => item.state === "queued" && !this.#deps.isOpening(item.id),
+    );
+    const withdrawals = await this.#handChain.run(
+      sessionId,
+      async () =>
+        new Map(
+          await Promise.all(
+            candidates.map(async (item) => [item.id, await this.#withdraw(item)] as const),
+          ),
+        ),
+    );
+    return new Map(
+      items.map((item): [QueueItemId, QueueWithdrawal] => {
+        const withdrawal = withdrawals.get(item.id) ?? "taken";
+        if (withdrawal !== "returned") {
+          return [item.id, withdrawal];
+        }
+        return [item.id, this.#deps.items.get(item.id)?.state === "queued" ? "returned" : "taken"];
+      }),
+    );
+  }
+
+  /**
+   * Forgets that the provider was handed any of `itemIds` or that one waits for a next turn, once
+   * they have left the queue in a write another made.
+   */
+  forget(itemIds: readonly QueueItemId[]): void {
+    for (const itemId of itemIds) {
+      this.#handed.delete(itemId);
+      this.#nextTurnRunByItemId.delete(itemId);
+    }
   }
 
   /** Settles once every hand and withdraw queued on the session's chain has settled. */
   async settle(sessionId: SessionId): Promise<void> {
     await this.#handChain.run(sessionId, () => Promise.resolve());
+  }
+
+  /**
+   * Runs `task` on the session's chain, once every hand and withdraw queued before it has settled
+   * and before any queued after it, so no message changes state while it reads and writes.
+   */
+  async runBetweenHands<T>(sessionId: SessionId, task: () => Promise<T>): Promise<T> {
+    return await this.#handChain.run(sessionId, task);
+  }
+
+  /**
+   * Holds back every hand to `runId` while an interrupt of it is under way, until
+   * {@link releaseInterruptHold}. Called under the session lock.
+   */
+  holdForInterrupt(runId: RunId): void {
+    this.#interruptedRunIds.add(runId);
+  }
+
+  /** Ends an interrupt's hold on `runId`, answering whether one was held. */
+  releaseInterruptHold(runId: RunId): boolean {
+    return this.#interruptedRunIds.delete(runId);
+  }
+
+  /** Whether an interrupt of `runId` is under way. */
+  isHeldForInterrupt(runId: RunId): boolean {
+    return this.#interruptedRunIds.has(runId);
   }
 
   /** Records whether Claude Code holds a credits choice on `runId`, which a message settles. */
@@ -346,12 +383,7 @@ export class QueueDelivery {
     this.#creditsChoiceRunIds.delete(runId);
     const liveProcessId = this.#deps.readProviderProcessId(sessionId);
     for (const [itemId, handed] of [...this.#handed]) {
-      const isKeptByClaudeCode =
-        handed.route === "driver" &&
-        handed.driverName === "claude" &&
-        handed.processId !== undefined &&
-        handed.processId === liveProcessId;
-      if (handed.runId === runId && !isKeptByClaudeCode) {
+      if (handed.runId === runId && !isKeptByProcess(handed, liveProcessId)) {
         this.#handed.delete(itemId);
       }
     }
@@ -365,6 +397,21 @@ export class QueueDelivery {
   /** Whether the provider has been handed `itemId` and has not yet said what became of it. */
   isHanded(itemId: QueueItemId): boolean {
     return this.#handed.has(itemId);
+  }
+
+  /**
+   * Whether the Claude Code process of `sessionId` may still hold a message handed for `runId`,
+   * which it starts a turn of its own with: one waiting, or one that reads not delivered because
+   * its withdraw has not been answered.
+   */
+  isMessageKeptForRun(sessionId: SessionId, runId: RunId): boolean {
+    const liveProcessId = this.#deps.readProviderProcessId(sessionId);
+    for (const handed of this.#handed.values()) {
+      if (handed.runId === runId && isKeptByProcess(handed, liveProcessId)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   // The lead's messages waiting for the run that go now: not handed, except by the route
@@ -425,6 +472,62 @@ export class QueueDelivery {
     });
   }
 
+  // One withdraw of a `takeBack`, on the session's chain.
+  async #withdraw(item: QueueItemRecord): Promise<QueueWithdrawal> {
+    const handed = this.#handed.get(item.id);
+    if (handed === undefined) {
+      return "returned";
+    }
+    if (handed.route === "continue" || handed.driverName !== "claude") {
+      return "taken";
+    }
+    const { driver } = resolveDriverForSessionOrThrow(this.#deps.sessions, item.sessionId);
+    const withdrawing = driver.withdrawQueuedMessage({
+      sessionId: item.sessionId,
+      runId: handed.runId,
+      clientIdempotencyKey: item.id,
+    });
+    if (!(await waitWithin(withdrawing, this.#withdrawDeadlineMs))) {
+      void withdrawing.then(
+        (late) => {
+          this.#deps.writeServiceLog(
+            `run queue: Claude Code answered the withdraw of message ${item.id} after the ` +
+              `deadline: ${late.status}`,
+          );
+          this.#onChain(item.sessionId, async () => {
+            await this.#settleLateWithdraw(item, handed, late.status === "already_delivered");
+          });
+        },
+        (error: unknown) => {
+          this.#deps.writeServiceLog(
+            `run queue: the withdraw of message ${item.id} failed after the deadline: ` +
+              describeRejection(error),
+          );
+          this.#onChain(item.sessionId, async () => {
+            await this.#settleLateWithdraw(item, handed, false);
+          });
+        },
+      );
+      // Still handed: Claude Code may yet start a turn with it, which no continue may race.
+      await this.#recordUnreturned(item, "was not answered within the deadline");
+      return "not_delivered";
+    }
+    let result: Awaited<typeof withdrawing>;
+    try {
+      result = await withdrawing;
+    } catch (error) {
+      this.#handed.delete(item.id);
+      await this.#recordUnreturned(item, `failed: ${describeRejection(error)}`);
+      return "not_delivered";
+    }
+    if (result.status === "already_delivered") {
+      await this.#admit(item, handed.runId);
+      return "taken";
+    }
+    this.#handed.delete(item.id);
+    return "returned";
+  }
+
   // Admits an item that reads not delivered into `runId`, unless something moved it meanwhile.
   async #admitUndelivered(itemId: QueueItemId, runId: RunId): Promise<void> {
     const item = this.#deps.items.get(itemId);
@@ -438,26 +541,29 @@ export class QueueDelivery {
     await this.#deps.recorder.recordOutcome(item, { to: "admitted", runId }, this.#deps.now());
   }
 
-  // The withdraw's answer, or `timed_out` once the deadline passes first.
-  async #withinWithdrawDeadline<T>(withdrawing: Promise<T>): Promise<T | "timed_out"> {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const timedOut = new Promise<"timed_out">((resolve) => {
-      timer = setTimeout(() => {
-        resolve("timed_out");
-      }, WITHDRAW_DEADLINE_MS);
-      timer.unref();
-    });
-    try {
-      return await Promise.race([withdrawing, timedOut]);
-    } finally {
-      clearTimeout(timer);
+  // Settles a withdraw Claude Code answered after the deadline, unless the message's replay settled
+  // it first: one it had taken is admitted, and with the message no longer Claude Code's to keep,
+  // its interrupted run is continued with what waits for it.
+  async #settleLateWithdraw(
+    item: QueueItemRecord,
+    handed: HandedMessage,
+    isDelivered: boolean,
+  ): Promise<void> {
+    if (this.#handed.get(item.id) !== handed) {
+      return;
+    }
+    this.#handed.delete(item.id);
+    if (isDelivered) {
+      await this.#admitUndelivered(item.id, handed.runId);
+    }
+    if (this.#deps.runs.getRun(handed.runId)?.state === "interrupted") {
+      this.#deps.continueInterruptedRun(item.sessionId, handed.runId);
     }
   }
 
   // A handed message Claude Code did not give back: whether it reaches the agent is unknown, so it
   // reads not delivered and can be sent again.
-  async #settleUnreturned(item: QueueItemRecord, what: string): Promise<void> {
-    this.#handed.delete(item.id);
+  async #recordUnreturned(item: QueueItemRecord, what: string): Promise<void> {
     this.#deps.writeServiceLog(`run queue: the withdraw of message ${item.id} ${what}`);
     if (this.#deps.items.get(item.id)?.state === "queued") {
       await this.#deps.recorder.recordOutcome(
@@ -468,10 +574,13 @@ export class QueueDelivery {
     }
   }
 
-  // A hand that failed: the message was not delivered, unless its run ended first, when it waits
-  // for the next run with the run's other messages.
+  // A hand that failed: the message was not delivered, unless its turn or its run ended first,
+  // when it waits for the run's next turn or the next run with the run's other messages.
   async #settleFailedHand(item: QueueItemRecord, runId: RunId, error: unknown): Promise<void> {
     this.#handed.delete(item.id);
+    if (error instanceof SteerTurnEndedError) {
+      return;
+    }
     this.#deps.writeServiceLog(
       `run queue: message ${item.id} could not be handed to run ${runId}: ` +
         describeRejection(error),
@@ -485,4 +594,15 @@ export class QueueDelivery {
       );
     }
   }
+}
+
+// Whether `handed` is a message Claude Code holds in the process it was handed to, which is still
+// the session's process `liveProcessId`.
+function isKeptByProcess(handed: HandedMessage, liveProcessId: number | undefined): boolean {
+  return (
+    handed.route === "driver" &&
+    handed.driverName === "claude" &&
+    handed.processId !== undefined &&
+    handed.processId === liveProcessId
+  );
 }

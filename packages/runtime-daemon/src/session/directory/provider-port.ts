@@ -31,6 +31,10 @@ import {
 } from "../../provider/runtime-binding-store.js";
 import type { ProviderSessionOpening } from "../../queue/provider-session.js";
 import type { ProjectRecords } from "../../workspace/project/records.js";
+import {
+  BOUND_ROOT_METADATA_PATH,
+  CHECKOUT_ROOT_METADATA_PATH,
+} from "../../workspace/row-guards.js";
 import { readSessionAdvisorModel, readSessionMode } from "../console-state.js";
 import { SESSION_RUN_IDS_SQL } from "../run/ids.js";
 import { SESSION_EXISTS_SQL } from "./lookups.js";
@@ -100,6 +104,15 @@ const WORKING_DIRECTORY_SQL = `SELECT fs_root AS workingDirectory FROM workspace
   WHERE session_id = ? AND state <> 'archived' AND fs_root IS NOT NULL
   ORDER BY created_at DESC, id DESC LIMIT 1`;
 
+// The folder the session's runs work in: its prepared root, else, before its first run prepares
+// one, the folder its workspace was bound to, or the checkout that holds it.
+const RUN_FOLDER_SQL = `SELECT COALESCE(fs_root,
+           json_extract(metadata, '${BOUND_ROOT_METADATA_PATH}'),
+           json_extract(metadata, '${CHECKOUT_ROOT_METADATA_PATH}')) AS folder
+  FROM workspaces
+  WHERE session_id = ? AND state <> 'archived'
+  ORDER BY created_at DESC, id DESC LIMIT 1`;
+
 /** What the session directory's provider port reads and records through. */
 interface SessionDirectoryProviderPortDeps {
   readonly reader: Database;
@@ -124,6 +137,7 @@ export class SessionDirectoryProviderPort {
   readonly #selectLeadEvents: Statement<[string], { type: string; payload: string }>;
   readonly #selectOutputStyle: Statement<[string], { outputStyle: string }>;
   readonly #selectWorkingDirectory: Statement<[string], { workingDirectory: string }>;
+  readonly #selectRunFolder: Statement<[string], { folder: string | null }>;
   readonly #selectRunIds: Statement<{ sessionId: string }, { runId: string }>;
 
   /** Every spawn's context, the same for both drivers. */
@@ -142,6 +156,7 @@ export class SessionDirectoryProviderPort {
     this.#selectLeadEvents = deps.reader.prepare(LEAD_EVENTS_SQL);
     this.#selectOutputStyle = deps.reader.prepare(OUTPUT_STYLE_SQL);
     this.#selectWorkingDirectory = deps.reader.prepare(WORKING_DIRECTORY_SQL);
+    this.#selectRunFolder = deps.reader.prepare(RUN_FOLDER_SQL);
     this.#selectRunIds = deps.reader.prepare(SESSION_RUN_IDS_SQL);
   }
 
@@ -273,6 +288,18 @@ export class SessionDirectoryProviderPort {
       outputStyle: this.#selectOutputStyle.get(sessionId)?.outputStyle ?? null,
       baseInstructions: undefined,
     };
+  }
+
+  /**
+   * The folder the session's runs work in, read before its first run has prepared it too. Throws
+   * for a session with no workspace.
+   */
+  requireRunFolder(sessionId: SessionId): string {
+    const folder = this.#selectRunFolder.get(sessionId)?.folder ?? undefined;
+    if (folder === undefined) {
+      throw new Error(`Session ${sessionId} has no workspace to work in`);
+    }
+    return folder;
   }
 
   /** The session's newest binding with a conversation to resume, or `undefined` for none. */

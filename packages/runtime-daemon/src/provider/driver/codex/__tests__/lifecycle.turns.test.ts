@@ -21,6 +21,7 @@ import {
   STAGED_ATTACHMENT_IDS,
   stagedFiles,
 } from "../../__fixtures__/attachment-doubles.js";
+import { SteerTurnEndedError } from "../../run-control.js";
 import {
   type Harness,
   DEFAULT_CODEX_HOME,
@@ -237,7 +238,9 @@ describe("Codex turn posture", () => {
     });
   });
 
-  it("fails a steer that waited behind another once an interrupt retired its turn", async () => {
+  // Mutations: failing the steer that waited, or the one handed after, as a transport fault reads
+  // its message not delivered, though the run's next turn takes it.
+  it("fails a steer as its turn ended once an interrupt retired the turn, waiting or handed after", async () => {
     const harness = await liveSession();
     harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
     harness.server.on("turn/steer", () => ({ result: { turnId: TURN_ID } }));
@@ -252,7 +255,10 @@ describe("Codex turn posture", () => {
     releaseAnswers();
 
     expect(await first).toEqual({ status: "applied" });
-    expect(await waiting).toBeInstanceOf(CodexTransportError);
+    expect(await waiting).toBeInstanceOf(SteerTurnEndedError);
+    expect(
+      await captureRejection(steer(harness, "9a1d8f30-0000-4000-8000-0000000000dc")),
+    ).toBeInstanceOf(SteerTurnEndedError);
     // Only the steer sent while its turn was live reached Codex.
     expect(
       harness.server.paramsFor("turn/steer").map((params) => params?.["clientUserMessageId"]),

@@ -161,6 +161,7 @@ Daemon-local run-queue control codes (Plan-002). Run-control authority is daemon
 | `queue.persistence_unavailable` | New queued run-control work was rejected fail-closed because the daemon's queue-persistence layer is unavailable (Plan-002 I-002-1 / ADR-003 — block new queued work when persistence is unavailable) | 503 |
 | `queue.item_not_found` | A change (`run.queueCancel`, an edit through `run.queueCreate` with `replacesQueueItemId`, or `run.queueReorder`) named a queue item the queue does not hold: an id it never stored, an item of another session, or one of another queue than the call names | 404 |
 | `queue.change_refused` | A change to a waiting message refused: a removal (`run.queueCancel`) or an edit (`run.queueCreate` with `replacesQueueItemId`) of a message the agent has already taken, a removal or an edit of one Claude Code did not give back, its withdraw failing or passing the daemon's ten-second withdraw deadline, which then reads not delivered, or a `run.queueReorder` whose list is not exactly the waiting items. `data.fields.reason` is `already_taken`, `not_delivered` or `order_mismatch` | 409 |
+| `queue.run_changed` | A send (`run.queueCreate`) whose session's lead run started, ended or was continued between each read of it and the write that sends into it, every time the daemon tried; nothing is queued, and the send can be made again | 409 |
 
 ### Intervention
 

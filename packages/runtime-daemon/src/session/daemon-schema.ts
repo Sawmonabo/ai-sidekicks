@@ -485,7 +485,7 @@ CREATE TABLE interventions (
   id                      TEXT PRIMARY KEY,
   target_run_id           TEXT NOT NULL,
   type                    TEXT NOT NULL
-                          CHECK(type IN ('steer', 'interrupt', 'faster_model_retry')),
+                          CHECK(type IN ('interrupt', 'faster_model_retry')),
   state                   TEXT NOT NULL DEFAULT 'requested'
     CHECK(state IN ('requested', 'accepted', 'applied', 'rejected', 'degraded', 'expired',
                     'failed')),
@@ -500,8 +500,6 @@ CREATE TABLE interventions (
   fallback_action         TEXT,
   -- What a failed dispatch threw, so a retry's saved reply carries the same reason.
   failure_reason          TEXT,
-  -- The run an applied steer's message went to when that is not its target; NULL otherwise.
-  delivered_run_id        TEXT,
   created_at              TEXT NOT NULL,
   resolved_at             TEXT,
   -- An identical retry returns the saved result; a reused key with a

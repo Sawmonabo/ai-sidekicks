@@ -36,6 +36,8 @@ function runEnds(harness: LifecycleHarness): unknown[] {
 }
 
 describe("ClaudeSessionLifecycle turn end", () => {
+  // Mutation: delivering the held end unmarked has the daemon record it as a late event when its
+  // own verdict landed first.
   it("delivers an intervention's held turn end as interrupted once it is answered", async () => {
     const harness = buildHarness();
     const driver = new ClaudeDriver({
@@ -59,8 +61,12 @@ describe("ClaudeSessionLifecycle turn end", () => {
     release();
 
     await expect(interrupted).resolves.toStrictEqual({ status: "applied" });
-    // The run ends whichever of this end and the daemon's own verdict lands first.
+    // The run ends whichever of this end and the daemon's own verdict lands first, and lands
+    // second as the interrupt's own end, which the daemon absorbs without a diagnostic.
     expect(runEnds(harness)).toStrictEqual([{ runId: TEST_RUN_ID, newState: "interrupted" }]);
+    expect(harness.deliveries.find((delivery) => delivery.kind === "run_lifecycle")).toMatchObject({
+      isDaemonInterruptEnd: true,
+    });
   });
 
   it("delivers the turn end held for an interrupt that never reached Claude Code", async () => {

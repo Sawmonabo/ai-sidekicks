@@ -15,9 +15,17 @@ import {
   QUEUE_PERSISTENCE_UNAVAILABLE_CODE,
   type QueueItemCreateResponse,
 } from "@ai-sidekicks/contracts/run/queue";
+import { SESSION_ALREADY_CLOSED_CODE } from "@ai-sidekicks/contracts/session/methods";
 import { SKILL_PATH_REFUSED_CODE } from "@ai-sidekicks/contracts/skill";
 
-import { openRunQueueFixture, type RunQueueFixture } from "./service.test-support.js";
+import { SteerTurnEndedError } from "../../provider/driver/run-control.js";
+
+import {
+  openRunQueueFixture,
+  startFirstRun,
+  waitForOpening,
+  type RunQueueFixture,
+} from "./service.test-support.js";
 
 describe("the run queue", () => {
   let fixture: RunQueueFixture | undefined;
@@ -27,13 +35,6 @@ describe("the run queue", () => {
     await fixture?.close();
     fixture = undefined;
   });
-
-  // Settles once the run a send started has taken its opening, so no start outlives the test.
-  async function waitForOpening(queueFixture: RunQueueFixture, sent: QueueItemCreateResponse) {
-    await vi.waitFor(() => {
-      expect(queueFixture.readItem(sent.queueItemId)?.state).toBe("admitted");
-    });
-  }
 
   function countRows(sql: string): number {
     if (fixture === undefined) {
@@ -150,9 +151,38 @@ describe("the run queue", () => {
     expect(queueFixture.startSteps).toEqual(["gates", "open"]);
   });
 
-  // Mutation: reading Codex's skills without waiting at the gate starts the account's service
-  // while the gate holds every start.
-  it("waits at the memory gate before a skill read that starts the account's Codex service", async () => {
+  // Mutations: reading Codex's skills without waiting at the gate starts the account's service
+  // while the gate holds every start; waiting with no deadline leaves the send hanging for good.
+  it("waits at the memory gate, within the delivery timeout, before a skill read that starts Codex's service", async () => {
+    const queueFixture = await openRunQueueFixture({
+      driverName: "codex",
+      availableMemoryBytes: 0,
+      deliveryTimeoutMs: 50,
+    });
+    fixture = queueFixture;
+    queueFixture.startsCodexAccountService = true;
+    queueFixture.skillFiles = [{ name: "deploy", path: "/work/app/.codex/skills/deploy/SKILL.md" }];
+    const pick = [{ name: "deploy", folderPath: "/work/app/.codex/skills/deploy" }];
+    // Admitted first, so the read behind it waits for memory that never frees.
+    const blocker = queueFixture.memoryGate.enqueue({ kind: "provider", provider: "claude" });
+
+    const refused: unknown = await queueFixture
+      .send("Ship it", undefined, pick)
+      .catch((error: unknown) => error);
+
+    expect(refused).toMatchObject({ code: "driver.timeout" });
+    expect(queueFixture.skillReads).toBe(0);
+    expect(countRows("SELECT COUNT(*) AS count FROM queue_items")).toBe(0);
+    expect(queueFixture.readEventTypes()).toEqual([]);
+
+    blocker.release();
+    await waitForOpening(queueFixture, await queueFixture.send("Ship it", undefined, pick));
+    expect(queueFixture.skillReads).toBe(1);
+  });
+
+  // Mutation: resolving the picks under the session's lock holds the lock the run ahead at the gate
+  // needs to start, and neither send ever settles.
+  it("resolves a skill pick behind a run waiting at the gate without holding the session", async () => {
     const queueFixture = await openRunQueueFixture({
       driverName: "codex",
       availableMemoryBytes: 0,
@@ -160,17 +190,30 @@ describe("the run queue", () => {
     fixture = queueFixture;
     queueFixture.startsCodexAccountService = true;
     queueFixture.skillFiles = [{ name: "deploy", path: "/work/app/.codex/skills/deploy/SKILL.md" }];
-    // Admitted first, so the read behind it waits for memory that never frees.
+    // The first run's start brings the account's service up.
+    queueFixture.engine.engine.registerSetupGate({
+      assertRunReady: () => {
+        queueFixture.startsCodexAccountService = false;
+        return Promise.resolve();
+      },
+    });
     const blocker = queueFixture.memoryGate.enqueue({ kind: "provider", provider: "claude" });
-
+    const first = await queueFixture.send("Add the retry");
     const sending = queueFixture.send("Ship it", undefined, [
       { name: "deploy", folderPath: "/work/app/.codex/skills/deploy" },
     ]);
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(queueFixture.skillReads).toBe(0);
 
     blocker.release();
-    await waitForOpening(queueFixture, await sending);
+    const sent = await sending;
+
+    await waitForOpening(queueFixture, first);
+    const [firstRunId] = queueFixture.startedRunIds();
+    expect(queueFixture.startedRunIds()).toHaveLength(1);
+    expect(queueFixture.readItem(sent.queueItemId)).toMatchObject({
+      state: "queued",
+      targetRunId: firstRunId,
+      body: { skills: [{ name: "deploy", path: "/work/app/.codex/skills/deploy/SKILL.md" }] },
+    });
     expect(queueFixture.skillReads).toBe(1);
   });
 
@@ -179,11 +222,7 @@ describe("the run queue", () => {
   it("holds Codex's messages and hands them all at once, in send order, at a tool boundary", async () => {
     const queueFixture = await openRunQueueFixture({ driverName: "codex" });
     fixture = queueFixture;
-    await waitForOpening(queueFixture, await queueFixture.send("Add the retry"));
-    const [runId] = queueFixture.startedRunIds();
-    if (runId === undefined) {
-      throw new Error("The opening started no run");
-    }
+    const runId = await startFirstRun(queueFixture, "Add the retry");
     const held: QueueItemCreateResponse[] = [];
     for (const content of ["Then the tests", "Then the docs", "Then the changelog"]) {
       held.push(await queueFixture.send(content));
@@ -224,11 +263,7 @@ describe("the run queue", () => {
   it("makes the messages a turn ended without taking the next run's, the first its opening", async () => {
     const queueFixture = await openRunQueueFixture({ driverName: "codex" });
     fixture = queueFixture;
-    await waitForOpening(queueFixture, await queueFixture.send("Add the retry"));
-    const [firstRunId] = queueFixture.startedRunIds();
-    if (firstRunId === undefined) {
-      throw new Error("The opening started no run");
-    }
+    const firstRunId = await startFirstRun(queueFixture, "Add the retry");
     const next = await queueFixture.send("Then the tests");
     const after = await queueFixture.send("Then the docs");
 
@@ -256,11 +291,7 @@ describe("the run queue", () => {
   it("makes what waited for a run that ended unseen the next run, when the record is read again", async () => {
     const queueFixture = await openRunQueueFixture({ driverName: "codex" });
     fixture = queueFixture;
-    await waitForOpening(queueFixture, await queueFixture.send("Add the retry"));
-    const [firstRunId] = queueFixture.startedRunIds();
-    if (firstRunId === undefined) {
-      throw new Error("The opening started no run");
-    }
+    const firstRunId = await startFirstRun(queueFixture, "Add the retry");
     // The queue misses the run's end, as across a restart.
     queueFixture.stopFollowing();
     const next = await queueFixture.send("Then the tests");
@@ -287,11 +318,7 @@ describe("the run queue", () => {
   it("leaves a message Claude Code kept past its run's end queued until its replay admits it", async () => {
     const queueFixture = await openRunQueueFixture({ driverName: "claude" });
     fixture = queueFixture;
-    await waitForOpening(queueFixture, await queueFixture.send("Add the retry"));
-    const [runId] = queueFixture.startedRunIds();
-    if (runId === undefined) {
-      throw new Error("The opening started no run");
-    }
+    const runId = await startFirstRun(queueFixture, "Add the retry");
     const kept = await queueFixture.send("Cover the timeout too");
     await vi.waitFor(() => {
       expect(queueFixture.steers.map((steer) => steer.clientIdempotencyKey)).toEqual([
@@ -326,11 +353,7 @@ describe("the run queue", () => {
   it("makes a message the next run's opening when the Claude Code process it went to is gone", async () => {
     const queueFixture = await openRunQueueFixture({ driverName: "claude" });
     fixture = queueFixture;
-    await waitForOpening(queueFixture, await queueFixture.send("Add the retry"));
-    const [runId] = queueFixture.startedRunIds();
-    if (runId === undefined) {
-      throw new Error("The opening started no run");
-    }
+    const runId = await startFirstRun(queueFixture, "Add the retry");
     const lost = await queueFixture.send("Cover the timeout too");
     await vi.waitFor(() => {
       expect(queueFixture.steers.map((steer) => steer.clientIdempotencyKey)).toEqual([
@@ -357,11 +380,7 @@ describe("the run queue", () => {
   it("admits a message read not delivered once Claude Code shows it took it after all", async () => {
     const queueFixture = await openRunQueueFixture({ driverName: "claude" });
     fixture = queueFixture;
-    await waitForOpening(queueFixture, await queueFixture.send("Add the retry"));
-    const [runId] = queueFixture.startedRunIds();
-    if (runId === undefined) {
-      throw new Error("The opening started no run");
-    }
+    const runId = await startFirstRun(queueFixture, "Add the retry");
     const handed = await queueFixture.send("Cover the timeout too");
     await vi.waitFor(() => {
       expect(queueFixture.steers).toHaveLength(1);
@@ -394,39 +413,71 @@ describe("the run queue", () => {
     expect(queueFixture.readEventTypes().at(-1)).toBe("queue_item.admitted");
   });
 
-  // Mutation: waiting for the gate with no deadline leaves the message queued for good.
-  it("leaves a message not delivered, and ends its run, when the gate holds the run past the timeout", async () => {
-    const queueFixture = await openRunQueueFixture({
-      driverName: "codex",
-      availableMemoryBytes: 0,
-      deliveryTimeoutMs: 20,
-    });
-    fixture = queueFixture;
-    // Admitted first, so the run behind it waits for memory that never frees.
-    const blocker = queueFixture.memoryGate.enqueue({ kind: "provider", provider: "claude" });
-    expect(blocker.state).toBe("admitted");
+  // Mutation: letting both the early read and the write's own guard pass a closed session queues a
+  // message no run will ever take.
+  it("refuses a send to a closed session, writing nothing", async () => {
+    fixture = await openRunQueueFixture({ driverName: "codex" });
+    await fixture.engine.database.writer.write([
+      {
+        sql: "UPDATE sessions SET state = 'closed' WHERE id = ?",
+        bindings: [fixture.engine.sessionId],
+      },
+    ]);
 
-    const sent = await queueFixture.send("Add the retry");
+    const refused: unknown = await fixture.send("Add the retry").catch((error: unknown) => error);
+
+    expect(refused).toMatchObject({ code: SESSION_ALREADY_CLOSED_CODE });
+    expect(countRows("SELECT COUNT(*) AS count FROM queue_items")).toBe(0);
+    expect(fixture.readEventTypes()).toEqual([]);
+  });
+
+  // Mutation: reading a live run again without handing it what waits leaves a message sent while
+  // the queue missed the run's return to work waiting for good.
+  it("hands a live run what waits for it, when the record is read again", async () => {
+    const queueFixture = await openRunQueueFixture({ driverName: "claude" });
+    fixture = queueFixture;
+    const runId = await startFirstRun(queueFixture, "Add the retry");
+    queueFixture.stopFollowing();
+    for (const newState of ["pausing", "paused"] as const) {
+      await queueFixture.engine.engine.transition({ runId, newState });
+    }
+    // A paused run is handed nothing; the queue misses its return to work.
+    await queueFixture.send("Cover the timeout too");
+    await queueFixture.engine.engine.transition({ runId, newState: "running" });
+    expect(queueFixture.steers).toEqual([]);
+
+    await queueFixture.queue.lifecycle.reconcile(queueFixture.engine.sessionId);
 
     await vi.waitFor(() => {
-      expect(queueFixture.readItem(sent.queueItemId)).toMatchObject({
-        state: "not_delivered",
-        notDeliveredReason: "timed_out",
-      });
+      expect(
+        queueFixture.steers.map((steer) => (steer.type === "steer" ? steer.payload.content : "")),
+      ).toEqual(["Cover the timeout too"]);
     });
-    const item = queueFixture.readItem(sent.queueItemId);
-    const runId = item?.targetRunId;
-    expect(runId === undefined ? undefined : queueFixture.engine.runs.getRun(runId)?.state).toBe(
-      "failed",
-    );
-    expect(queueFixture.readEventTypes()).toEqual([
-      "run.queued",
-      "queue_item.created",
-      "user.message",
-      "queue_item.not_delivered",
-      "run.failed",
-    ]);
-    expect(queueFixture.startedRuns).toEqual([]);
-    blocker.release();
+  });
+
+  // Mutation: settling a steer whose turn ended before it was sent as a failed hand reads the
+  // message not delivered, though the next run takes it.
+  it("leaves a message whose Codex turn ended before its steer for the next run", async () => {
+    const queueFixture = await openRunQueueFixture({ driverName: "codex" });
+    fixture = queueFixture;
+    const runId = await startFirstRun(queueFixture, "Add the retry");
+    const left = await queueFixture.send("Then the tests");
+    queueFixture.answerSteer = () => Promise.reject(new SteerTurnEndedError(runId));
+
+    queueFixture.queue.delivery.onToolBoundary({ sessionId: queueFixture.engine.sessionId, runId });
+    await vi.waitFor(() => {
+      expect(queueFixture.steers).toHaveLength(1);
+    });
+    await queueFixture.queue.delivery.settle(queueFixture.engine.sessionId);
+    expect(queueFixture.readItem(left.queueItemId)?.state).toBe("queued");
+
+    await queueFixture.engine.engine.transition({
+      runId,
+      newState: "completed",
+      completionKind: "turn",
+    });
+
+    await waitForOpening(queueFixture, left);
+    expect(queueFixture.readItem(left.queueItemId)?.targetRunId).not.toBe(runId);
   });
 });

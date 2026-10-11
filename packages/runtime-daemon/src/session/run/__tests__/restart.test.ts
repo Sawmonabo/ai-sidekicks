@@ -15,6 +15,7 @@ import {
   openRunEngineFixture,
   type RecordingDriver,
   type RunEngineFixture,
+  refuseDriverInterrupt,
 } from "./engine.test-support.js";
 
 describe("run settle after a restart", () => {
@@ -36,6 +37,7 @@ describe("run settle after a restart", () => {
       queueItem: makeQueueItem(),
       provider: "claude",
       outputSpeed: undefined,
+      interruptDriver: refuseDriverInterrupt,
       startDriver: startOnDriver(driver, runId),
       executionPosture: TEST_EXECUTION_POSTURE,
     });

@@ -4,16 +4,22 @@
 // decision read from the run is checked again by a guarded statement inside the write it decides.
 //
 // The accept is the version gate: a request whose run moved before it expires undispatched, and
-// once dispatched the driver's verdict is recorded whatever the run did meanwhile. An applied or
-// degraded interrupt's verdict is written with the run's end, in the same write. A dispatch that
-// throws ends the request `failed`. Retries on one run take turns under a per-run lock, so two at
-// one version never both reach the provider; an interrupt takes a lock of its own, so a stop never
-// waits behind a retry, and a retry still queued when it lands meets the advanced version at its
-// accept and expires. A person's message mid-turn is a queue send, never an intervention.
+// once dispatched the driver's verdict is recorded whatever the run did meanwhile. An interrupt
+// holds the run queue's hands to its run from before its accept until it settles, so an end of
+// the run seen meanwhile waits for its choice, and an end the queue settled first has the choice
+// applied to the messages it moved on as the hold is taken; the queue takes back what Claude Code
+// holds that the choice keeps from the next turn before the interrupt goes. An applied or degraded
+// interrupt's verdict is written with the run's end, and with what its choice makes of the run's
+// waiting messages, in the same write. A dispatch that throws ends the request `failed`.
+// Retries on one run take turns under a per-run lock, so two at one version never both reach the
+// provider; an interrupt takes a lock of its own, so a stop never waits behind a retry, and a retry
+// still queued when it lands meets the advanced version at its accept and expires. A person's
+// message mid-turn is a queue send, never an intervention.
 
 import { EventEnvelopeVersionSchema } from "@ai-sidekicks/contracts/event/envelope";
 import type {
   ApplyInterventionParams,
+  InterruptPendingChoice,
   InterventionType,
 } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import {
@@ -30,6 +36,7 @@ import {
   type InterventionEventPayload,
 } from "@ai-sidekicks/contracts/run/events";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
+import type { QueueItemId } from "@ai-sidekicks/contracts/run/queue";
 import type { RunState } from "@ai-sidekicks/contracts/run/state";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { canonicalizeUuid } from "@ai-sidekicks/contracts/uuid-canonical";
@@ -75,10 +82,46 @@ export type FasterModelRetryRequest = Extract<
 
 /** The run engine as the intervention service uses it. */
 interface InterventionRunEngine {
-  /** Ends the run with an interrupt's verdict in one write; see `RunEngine.endRunForInterrupt`. */
-  endRunForInterrupt(runId: RunId, verdict: RunStateChangeCompanions): Promise<boolean>;
   /** Where an interrupt of the run goes; see `RunEngine.routeInterrupt`. */
   routeInterrupt(runId: RunId): Promise<InterruptRoute>;
+}
+
+/** An interrupt's choice for the messages waiting for its run. */
+export interface InterruptChoice {
+  readonly runId: RunId;
+  /** What becomes of the messages waiting for the run. */
+  readonly pending: InterruptPendingChoice;
+  /** The waiting message that goes first in the next turn. */
+  readonly deliverFirst: QueueItemId | undefined;
+}
+
+/** An interrupt that applied, as the write that ends its run takes it. */
+export interface InterruptEnd extends InterruptChoice {
+  /** The run version the interrupt was accepted at; a run ended since keeps that end. */
+  readonly acceptedRunVersion: number;
+  /** Whether the provider answered `degraded`, so it may still hold the messages it was handed. */
+  readonly isDegraded: boolean;
+  /** The interrupt's row move and its event, which the run's end commits. */
+  readonly verdict: RunStateChangeCompanions;
+}
+
+/** What an interrupt asks of the run queue for the messages waiting for its run. */
+export interface InterruptQueue {
+  /**
+   * Holds hands to the run, and the settling of an end of it seen meanwhile; a run whose end
+   * already moved its waiting messages on has the choice applied to them.
+   */
+  holdForInterrupt(choice: InterruptChoice): Promise<void>;
+  /** Takes back what Claude Code holds that the choice keeps from the turn it would start. */
+  withdrawForInterrupt(choice: InterruptChoice): Promise<void>;
+  /**
+   * Ends the run `interrupted` with the verdict and the choice for its waiting messages, in one
+   * write, and lets the hold go; resolves `false` with nothing written when the run has ended
+   * since the accept.
+   */
+  endRunForInterrupt(end: InterruptEnd): Promise<boolean>;
+  /** Lets go a hold no end was written for, applying the choice to a run that ended first. */
+  releaseInterrupt(choice: InterruptChoice): Promise<void>;
 }
 
 /** What the intervention service needs from the rest of the daemon. */
@@ -93,6 +136,8 @@ export interface InterventionServiceDeps {
     request: FasterModelRetryRequest,
   ) => Promise<FasterModelRetryOutcome>;
   readonly runEngine: InterventionRunEngine;
+  /** The run queue, which an interrupt's choice for its run's waiting messages goes through. */
+  readonly queue: InterruptQueue;
 }
 
 // The run states each type is accepted in: an interrupt ends any run the table lets move to
@@ -205,7 +250,24 @@ export class InterventionService {
       }
       return this.#answerReusedKey(request, payload);
     }
+    if (request.type !== "interrupt") {
+      return this.#acceptAndApply(target, request);
+    }
+    const choice = interruptChoiceOf(request);
+    // Held before the accept, so a run that ends meanwhile keeps its messages for the choice.
+    await this.#deps.queue.holdForInterrupt(choice);
+    try {
+      return await this.#acceptAndApply(target, request);
+    } finally {
+      await this.#deps.queue.releaseInterrupt(choice);
+    }
+  }
 
+  // Accepts the recorded request against the run, dispatches it once and records its outcome.
+  async #acceptAndApply(
+    target: InterventionTarget,
+    request: InterventionRequestPayload,
+  ): Promise<InterventionRequestResponse> {
     try {
       await this.#appendIntervention(target, "accepted", [
         runAtVersionStatement(target.targetRunId, request.expectedRunVersion),
@@ -231,6 +293,9 @@ export class InterventionService {
 
     let outcome: DispatchOutcome;
     try {
+      if (request.type === "interrupt") {
+        await this.#deps.queue.withdrawForInterrupt(interruptChoiceOf(request));
+      }
       outcome = await this.#dispatch(request);
     } catch (error) {
       return this.#fail(target, error);
@@ -245,10 +310,15 @@ export class InterventionService {
     };
     // An interrupt ends its run in the verdict's own write; a run that ended first keeps its end.
     const hasEndedRun =
-      target.type === "interrupt" &&
-      (await this.#deps.runEngine.endRunForInterrupt(target.targetRunId, {
-        statements: [move],
-        precedingEvents: [{ type: `intervention.${outcome.to}`, payload: verdict }],
+      request.type === "interrupt" &&
+      (await this.#deps.queue.endRunForInterrupt({
+        ...interruptChoiceOf(request),
+        acceptedRunVersion: request.expectedRunVersion,
+        isDegraded: outcome.to === "degraded",
+        verdict: {
+          statements: [move],
+          precedingEvents: [{ type: `intervention.${outcome.to}`, payload: verdict }],
+        },
       }));
     if (!hasEndedRun) {
       // An interrupt's verdict never advances the version; it found its run already ended. Any
@@ -448,6 +518,16 @@ function interventionPayloadOf(request: InterventionRequestPayload): string {
     case "faster_model_retry":
       return JSON.stringify({ expectedTurnId: request.expectedTurnId, model: request.model });
   }
+}
+
+function interruptChoiceOf(
+  request: Exclude<InterventionRequestPayload, FasterModelRetryRequest>,
+): InterruptChoice {
+  return {
+    runId: request.targetRunId,
+    pending: request.pending,
+    deliverFirst: request.deliverFirst,
+  };
 }
 
 function driverParamsOf(

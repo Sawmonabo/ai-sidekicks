@@ -3,11 +3,11 @@
 // session's routes when its turn settles, a rewind supersedes it or it closes; a bound route, or a
 // command Claude Code runs as a turn of its own, is the session's one turn in flight. A run's
 // binding outlives its turn's hold, since a paused run takes its next turn on the same binding,
-// and goes when the run ends; a run whose turn ended with a steer Claude Code has yet to take
-// keeps its hold through that turn's settlement, into the turn Claude Code starts with it. A helper Claude Code started is a child run, routed by the
-// provider's own agent id, which its frames and hook callbacks carry. A run apart from the
-// session's process, such as a review of the staged changes, holds no turn there and is routed
-// only to how it is stopped.
+// and goes when the run ends; a run whose turn ended with a steer Claude Code has yet to take keeps
+// its hold through that turn's settlement, into the turn Claude Code starts with it. A helper
+// Claude Code started is a child run, routed by the provider's own agent id, which its frames and
+// hook callbacks carry. A run apart from the session's process, such as a review of the staged
+// changes, holds no turn there and is routed only to how it is stopped.
 
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";

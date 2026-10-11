@@ -32,6 +32,7 @@ import {
 import { CREATE_PARAMS } from "./lifecycle.test-support.js";
 import { CodexTransportError } from "../session/errors.js";
 import { drainMicrotasks } from "../../../__fixtures__/drain-microtasks.js";
+import { captureRejection } from "../../../../__fixtures__/capture-failure.js";
 
 const BINDING = { sessionId: SESSION_ID, bindingId: "binding-abc" };
 
@@ -73,6 +74,49 @@ describe("Codex session goals", () => {
       threadId: THREAD_ID,
       origin: "user",
     });
+  });
+
+  // Mutations: refusing at once while the turn's run opens refuses before that run has taken
+  // over the messages the start would send; sending while the turn runs folds the start's input
+  // into Codex's own turn.
+  it("lets a turn Codex started open its run before refusing a start, and sends none while it runs", async () => {
+    const runOpening = Promise.withResolvers<void>();
+    const harness = createHarness({
+      runEngine: {
+        startDaemonTurn: async (request) => {
+          await runOpening.promise;
+          await request.startTurn(SECOND_RUN_ID);
+          return SECOND_RUN_ID;
+        },
+        endTurnOnProcessExit: () => Promise.resolve(),
+        recordSettledOutputSpeed: () => Promise.resolve(),
+      },
+    });
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    await harness.driver.createSession(CREATE_PARAMS);
+    harness.server.emitFrame({
+      jsonrpc: "2.0",
+      method: "turn/started",
+      params: { threadId: THREAD_ID, turn: { id: "turn-own" } },
+    });
+    await drainMicrotasks();
+
+    let isSettled = false;
+    const refused = captureRejection(
+      harness.driver.startRun({ runId: RUN_ID, agentConfig: runConfig("go on") }).finally(() => {
+        isSettled = true;
+      }),
+    );
+    await drainMicrotasks();
+    expect(isSettled).toBe(false);
+    runOpening.resolve();
+
+    expect(await refused).toMatchObject({ fields: { reason: "session_turn_in_flight" } });
+    expect(harness.server.framesForMethod("turn/start")).toHaveLength(0);
+    harness.server.emitFrame(turnCompletedFrame("turn-own", "completed"));
+    await drainMicrotasks();
+    await harness.driver.startRun({ runId: RUN_ID, agentConfig: runConfig("go on") });
+    expect(harness.server.framesForMethod("turn/start")).toHaveLength(1);
   });
 });
 

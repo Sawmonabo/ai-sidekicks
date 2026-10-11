@@ -11,10 +11,8 @@ import { ArtifactIdSchema, type ArtifactId } from "./id.js";
 export const AttachmentReferenceListSchema: z.ZodType<ArtifactId[], ArtifactId[]> =
   z.array(ArtifactIdSchema);
 
-const UNRESOLVED_ATTACHMENT_CAUSE_VALUES = ["deleted"] as const;
-
 /** Why an attachment could not be delivered: `deleted`, its manifest gone with its payload. */
-export type UnresolvedAttachmentCause = (typeof UNRESOLVED_ATTACHMENT_CAUSE_VALUES)[number];
+export type UnresolvedAttachmentCause = "deleted";
 
 /**
  * The marker in the place of an attachment the daemon could not bind to its manifest at delivery,
@@ -25,18 +23,3 @@ export interface UnresolvedAttachmentMarker {
   artifactId: ArtifactId;
   cause: UnresolvedAttachmentCause;
 }
-/**
- * Parses an {@link UnresolvedAttachmentMarker}.
- *
- * @consumedBy the daemon's attachment resolver, which delivers a message's files in order
- */
-export const UnresolvedAttachmentMarkerSchema: z.ZodType<
-  UnresolvedAttachmentMarker,
-  UnresolvedAttachmentMarker
-> = z
-  .object({
-    kind: z.literal("unresolved"),
-    artifactId: ArtifactIdSchema,
-    cause: z.enum(UNRESOLVED_ATTACHMENT_CAUSE_VALUES),
-  })
-  .strict();

@@ -39,7 +39,7 @@ import {
   CODEX_SKILLS_CHANGED_METHOD,
   CODEX_TURN_COMPLETED_METHOD,
 } from "./event-normalizer.js";
-import { clearCodexSessionGoal, setCodexSessionGoal } from "./goals.js";
+import { CodexSessionGoals } from "./goals.js";
 import { CodexRunPauses } from "./hooks/pause.js";
 import { CodexHookServer } from "./hooks/server.js";
 import type { CodexSteerAcknowledgement, CodexSteerRunRequest } from "./intervention.js";
@@ -53,7 +53,7 @@ import {
 } from "./thread/permission-profiles.js";
 import { CodexRoutedAskAttributor } from "./routed-ask-attribution.js";
 import { CodexRunControl } from "./run/control.js";
-import { retryCodexTurnOnFasterModel } from "./run/faster-model-retry.js";
+import { CodexFasterModelRetries } from "./run/faster-model-retry.js";
 import { CodexRunRoutes } from "./run/routes.js";
 import { CodexSelfStartedTurns } from "./run/self-started-turns.js";
 import { CodexRunStart } from "./run/start.js";
@@ -164,6 +164,8 @@ export class CodexLifecycleManager {
   readonly #selfStartedTurns: CodexSelfStartedTurns;
   readonly #askHandOff: CodexAskHandOff;
   readonly #rewind: CodexConversationRewind;
+  readonly #goals: CodexSessionGoals;
+  readonly #retries: CodexFasterModelRetries;
 
   constructor(options: CodexLifecycleOptions) {
     this.#options = options;
@@ -178,7 +180,6 @@ export class CodexLifecycleManager {
       serverPrompts: options.serverPrompts,
       recordFor: (sessionId) => this.#slots.recordFor(sessionId),
       serviceFor: async (providerAccountId) => await this.#services.serviceFor(providerAccountId),
-      spawnContext: options.spawnContext,
     });
     this.#pauses = new CodexRunPauses({
       onTookEffect: (pause) => {
@@ -363,9 +364,22 @@ export class CodexLifecycleManager {
       runEngine: options.runEngine,
       daemonTurnBindings: options.daemonTurnBindings,
       attachments: options.attachments,
+      turnEnds: this.#turnEnds,
+      interruptRun: async (params) => {
+        await this.#runControl.interruptRun(params);
+      },
       reportDiagnostic,
       scheduleTimeout,
       turnStartTimeoutMs: options.turnStartTimeoutMs,
+    });
+    this.#goals = new CodexSessionGoals(this.#configForks, this.#turnEnds, this.#runStart);
+    this.#retries = new CodexFasterModelRetries({
+      slots: this.#slots,
+      runRoutes: this.#runRoutes,
+      runStart: this.#runStart,
+      forks: this.#forks,
+      turnEnds: this.#turnEnds,
+      dispatch: this.#dispatch,
     });
     this.#runControl = new CodexRunControl({
       options,
@@ -375,6 +389,7 @@ export class CodexLifecycleManager {
       runStart: this.#runStart,
       pauses: this.#pauses,
       dispatch: this.#dispatch,
+      retries: this.#retries,
     });
     this.#rewind = new CodexConversationRewind({
       slots: this.#slots,
@@ -464,22 +479,13 @@ export class CodexLifecycleManager {
       await this.#configForks.requireAfterForks(params.sessionId),
       params.providerDenial,
       this.#runStart,
+      this.#turnEnds,
     );
   }
 
   /** Sends a held turn's message again on a faster model; see the retry's own docs. */
   async retryTurnOnFasterModel(params: FasterModelRetryParams): Promise<FasterModelRetryOutcome> {
-    return await retryCodexTurnOnFasterModel(
-      {
-        slots: this.#slots,
-        runRoutes: this.#runRoutes,
-        runStart: this.#runStart,
-        forks: this.#forks,
-        turnEnds: this.#turnEnds,
-        dispatch: this.#dispatch,
-      },
-      params,
-    );
+    return await this.#retries.retry(params);
   }
 
   /** Pauses the run from its next tool call; see {@link CodexRunControl.pauseRun}. */
@@ -586,15 +592,12 @@ export class CodexLifecycleManager {
 
   /** Binds the session's goal on Codex's own thread goal; a turn Codex starts on it is a run. */
   async setSessionGoal(params: SetSessionGoalParams): Promise<DriverGoalResult> {
-    return await setCodexSessionGoal(
-      await this.#configForks.requireAfterForks(params.sessionId),
-      params.goalText,
-    );
+    return await this.#goals.set(params);
   }
 
   /** Clears the session's goal on Codex's own thread goal. */
   async clearSessionGoal(params: ClearSessionGoalParams): Promise<DriverGoalResult> {
-    return await clearCodexSessionGoal(await this.#configForks.requireAfterForks(params.sessionId));
+    return await this.#goals.clear(params);
   }
 
   /**
@@ -651,8 +654,13 @@ export class CodexLifecycleManager {
   async readSkillFiles(
     sessionId: SessionId,
     providerAccountId: string | undefined,
+    workingDirectory: string,
   ): Promise<readonly PickedSkill[]> {
-    return await this.#providerCommands.readSkillFiles(sessionId, providerAccountId);
+    return await this.#providerCommands.readSkillFiles(
+      sessionId,
+      providerAccountId,
+      workingDirectory,
+    );
   }
 
   /**
@@ -874,9 +882,9 @@ export class CodexLifecycleManager {
       void this.#runControl.observeItemCompleted(record, params);
     }
     if (endedTurnId !== null) {
-      // Before run control acts on the end, so a fork owed meanwhile runs ahead of the next turn.
-      this.#configForks.noteTurnSettled(record);
+      // A pause's stopped turn is let go first, so an owed fork starts here, ahead of its continue.
       void this.#runControl.observeTurnEnded(record, endedTurnId, endedRunId);
+      this.#configForks.noteTurnSettled(record);
       this.#recovery.noteTurnSettled(record);
       this.#turnEnds.settle();
     }

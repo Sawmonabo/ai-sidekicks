@@ -7,12 +7,11 @@
 export const COMPOSER_HISTORY_RECALL_CAP = 20;
 
 /**
- * Composer addresses whose recall history one window retains. History is per address so
- * re-addressing never walks another target's messages into this line; the least recently
- * addressed is dropped past this bound so the map cannot grow all day. Sized so a session and its
- * agents never evict.
+ * Sessions whose recall history one window keeps. Each session has its own, so switching sessions
+ * never walks another session's messages into the line, and past this many the least recently
+ * used is dropped so the map cannot grow all day.
  */
-export const COMPOSER_RETAINED_ADDRESS_CAP = 12;
+export const COMPOSER_RETAINED_SESSION_CAP = 12;
 
 /**
  * The most lines the draft line grows to before it scrolls; `Composer.css` caps it lower when a

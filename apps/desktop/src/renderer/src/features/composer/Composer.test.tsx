@@ -29,7 +29,6 @@ function mountComposerWithLine(text: string): HTMLTextAreaElement {
       draftStore={draftStore}
       frameStore={new WindowStore()}
       route={DEFAULT_ROUTE}
-      focusedPane={undefined}
     />,
     { wrapper: LiveAnnouncerProvider },
   );

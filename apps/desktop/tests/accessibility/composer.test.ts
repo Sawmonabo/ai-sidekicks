@@ -9,9 +9,9 @@ import { userEvent } from "vitest/browser";
 
 import { emulateSystemScheme } from "../helpers/media-emulation.js";
 import {
-  mountComposerProviderBoundRunning,
-  mountComposerProviderBoundWaiting,
-  mountComposerSessionDefault,
+  mountComposerOnRunningLead,
+  mountComposerOnWaitingLead,
+  mountComposerOnSession,
 } from "./feature-mounts/composer.js";
 import { type MountedView } from "./feature-mounts/queries.js";
 import { describeViolations, runTierAxe } from "./axe-run.js";
@@ -29,9 +29,9 @@ const AUDITED_VIEWS: readonly {
   readonly label: string;
   readonly mount: () => Promise<MountedView>;
 }[] = [
-  { label: "the composer on the session", mount: mountComposerSessionDefault },
-  { label: "the composer addressed at a working run", mount: mountComposerProviderBoundRunning },
-  { label: "the composer addressed at a waiting run", mount: mountComposerProviderBoundWaiting },
+  { label: "the composer on the session", mount: mountComposerOnSession },
+  { label: "the composer addressed at a working run", mount: mountComposerOnRunningLead },
+  { label: "the composer addressed at a waiting run", mount: mountComposerOnWaitingLead },
 ];
 
 beforeEach(() => {
@@ -67,7 +67,7 @@ describe("accessibility — the composer's command list", () => {
     onTestFinished(() => {
       commandRegistry.unregister(LISTED_COMMAND_ID);
     });
-    const mounted = await mountComposerProviderBoundRunning();
+    const mounted = await mountComposerOnRunningLead();
     const line = mounted.element.querySelector("textarea");
     if (line === null) {
       throw new Error("the composer drew no message line");

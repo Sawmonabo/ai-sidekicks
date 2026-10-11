@@ -77,7 +77,8 @@ interface RunRootIdsRow {
   readonly branch_context_id: string | null;
 }
 
-// The session's live workspace, the newest when a detach left an older one archived.
+// The session's live workspace the send named, else its newest, when a detach left an older one
+// archived.
 const SELECT_RUN_WORKSPACE_SQL = `SELECT workspace.id, workspace.repo_mount_id,
        workspace.execution_mode, workspace.state, workspace.fs_root,
        json_extract(workspace.metadata, '${CHECKOUT_ROOT_METADATA_PATH}') AS checkout_root,
@@ -85,6 +86,7 @@ const SELECT_RUN_WORKSPACE_SQL = `SELECT workspace.id, workspace.repo_mount_id,
   FROM workspaces AS workspace
   JOIN repo_mounts AS mount ON mount.id = workspace.repo_mount_id
  WHERE workspace.session_id = @session_id AND workspace.state <> 'archived'
+   AND (@workspace_id IS NULL OR workspace.id = @workspace_id)
  ORDER BY workspace.created_at DESC, workspace.id DESC
  LIMIT 1`;
 
@@ -159,7 +161,10 @@ export class ExecutionRootSetupGate implements RunSetupGate {
   readonly #runGit: GitCommand;
   readonly #now: () => string;
   readonly #writer: Pick<DatabaseWriter, "write">;
-  readonly #selectWorkspaceStmt: Statement<{ session_id: string }, RunWorkspaceRow>;
+  readonly #selectWorkspaceStmt: Statement<
+    { session_id: string; workspace_id: string | null },
+    RunWorkspaceRow
+  >;
   readonly #selectTitleStmt: Statement<{ session_id: string }, SessionTitleRow>;
   readonly #selectRootIdsStmt: Statement<
     { workspace_id: string; execution_mode: string; execution_root: string },
@@ -188,11 +193,18 @@ export class ExecutionRootSetupGate implements RunSetupGate {
 
   /**
    * Binds the run, or throws `workspace.execution_root_unresolved` wrapping why it could not, which
-   * ends the run `failed`. A session bound to no repository has nothing to bind.
+   * ends the run `failed`; a send that named a workspace the session does not hold live is refused
+   * so. A session bound to no repository has nothing to bind.
    */
   async assertRunReady(context: RunSetupContext): Promise<void> {
-    const before = this.#selectWorkspaceStmt.get({ session_id: context.sessionId });
+    const before = this.#readWorkspace(context);
     if (before === undefined) {
+      if (context.workspaceId !== undefined) {
+        throw new WorkspaceExecutionRootUnresolvedError(
+          context.workspaceId,
+          new Error(`workspace "${context.workspaceId}" is no live workspace of the session`),
+        );
+      }
       return;
     }
     try {
@@ -200,11 +212,11 @@ export class ExecutionRootSetupGate implements RunSetupGate {
       await this.#workingFolders.sweepFromRemovedTree(context.sessionId);
       await workspacePreparationLock.run(before.id, async () => {
         await this.#workingFolders.applyPending(context.sessionId);
-        let workspace = this.#requireWorkspace(context.sessionId);
+        let workspace = this.#requireWorkspace(context);
         // A re-attach moved it, its root kept: admitted again before anything binds there.
         if (workspace.state === "preparing" && workspace.fs_root !== null) {
           await this.#reattachedWorkspaces.prepareMovedWorkspace(workspace.id);
-          workspace = this.#requireWorkspace(context.sessionId);
+          workspace = this.#requireWorkspace(context);
         }
         if (workspace.state === "preparing") {
           // The prepare checks the mount before it makes anything.
@@ -219,7 +231,7 @@ export class ExecutionRootSetupGate implements RunSetupGate {
         } else {
           await this.#workspaces.assertWritable(workspace.id);
         }
-        await this.#writeRunContext(context, this.#requireWorkspace(context.sessionId));
+        await this.#writeRunContext(context, this.#requireWorkspace(context));
       });
     } catch (bindFailure) {
       throw new WorkspaceExecutionRootUnresolvedError(before.id, bindFailure);
@@ -317,10 +329,17 @@ export class ExecutionRootSetupGate implements RunSetupGate {
     });
   }
 
-  #requireWorkspace(sessionId: string): RunWorkspaceRow {
-    const workspace = this.#selectWorkspaceStmt.get({ session_id: sessionId });
+  #readWorkspace(context: RunSetupContext): RunWorkspaceRow | undefined {
+    return this.#selectWorkspaceStmt.get({
+      session_id: context.sessionId,
+      workspace_id: context.workspaceId ?? null,
+    });
+  }
+
+  #requireWorkspace(context: RunSetupContext): RunWorkspaceRow {
+    const workspace = this.#readWorkspace(context);
     if (workspace === undefined) {
-      throw new Error(`session "${sessionId}" lost its workspace while its run was set up`);
+      throw new Error(`session "${context.sessionId}" lost its workspace while its run was set up`);
     }
     return workspace;
   }

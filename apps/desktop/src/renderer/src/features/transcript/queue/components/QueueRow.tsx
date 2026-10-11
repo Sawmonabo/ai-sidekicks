@@ -4,7 +4,7 @@
 
 import { useState } from "react";
 
-import { Chip } from "#renderer/components/Chip/Chip.js";
+import { Chip, type ChipTone } from "#renderer/components/Chip/Chip.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { codeWords } from "#renderer/lib/code-words.js";
@@ -24,17 +24,16 @@ const QUEUE_CANCEL_FAILED = "queue-cancel-failed";
 const CANCELABLE_STATE: QueueItemSummary["state"] = "queued";
 
 /**
- * The tone each of the five states takes. Total over the closed set, so a sixth
- * state fails to compile rather than rendering in whichever tone a fallback picked.
+ * The tone each of the five states takes. A failed delivery is red; a replaced or canceled message
+ * needs nobody, so it takes no hue. Total over the closed set, so a sixth state fails to compile
+ * rather than rendering in whichever tone a fallback picked.
  */
-const QUEUE_STATE_TONES: Readonly<
-  Record<QueueItemSummary["state"], "neutral" | "accent" | "attention">
-> = {
+const QUEUE_STATE_TONES: Readonly<Record<QueueItemSummary["state"], ChipTone>> = {
   queued: "accent",
   admitted: "neutral",
-  superseded: "attention",
+  superseded: "neutral",
   canceled: "neutral",
-  not_delivered: "attention",
+  not_delivered: "failure",
 };
 
 /**

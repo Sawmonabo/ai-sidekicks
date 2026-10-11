@@ -67,8 +67,8 @@ interface OpenedSession {
 
 /**
  * Opens each session's provider session once per daemon process, at its first admission, and the
- * runtime binding of each run on it. A session holds one entry from its first admission until the
- * daemon stops.
+ * runtime binding of each run on it. A session holds one entry from its first admission until it
+ * closes or the daemon stops.
  */
 export class ProviderSessions {
   readonly #deps: ProviderSessionsDeps;
@@ -147,6 +147,11 @@ export class ProviderSessions {
       opened.bindingId = binding.id;
       return binding.id;
     });
+  }
+
+  /** Forgets a closed session's provider session, whose process its close ended. */
+  forget(sessionId: SessionId): void {
+    this.#opened.delete(canonicalizeUuid(sessionId));
   }
 
   async #create(sessionId: SessionId, runId: RunId): Promise<OpenedSession> {

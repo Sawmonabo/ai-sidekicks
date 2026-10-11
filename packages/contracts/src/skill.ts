@@ -571,7 +571,7 @@ export interface SkillPathRefusedDetails {
 /**
  * Parses {@link SkillPathRefusedDetails}.
  *
- * @consumedBy the handler that returns the `skill.path_refused` error
+ * @consumedBy the skill editor, which reads the refused path into the row it was typed in
  */
 export const SkillPathRefusedDetailsSchema: z.ZodType<SkillPathRefusedDetails> = z
   .object({

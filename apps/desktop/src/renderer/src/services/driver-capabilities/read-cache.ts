@@ -31,9 +31,6 @@ import { type PlatformBridge } from "../platform/bridge.js";
 /** The reply a settled read carries to everyone waiting on it. */
 type CapabilityReply = DaemonReply<ListCapabilitiesResult>;
 
-/** No run has a named binding yet. */
-const NO_RUN_BINDINGS: ReadonlyMap<string, ProviderName> = new Map<string, ProviderName>();
-
 /** The declarations a failed read carries: none. */
 const NO_DECLARATIONS: ReadonlyMap<ProviderName, DeclaredDriverFlags> = new Map<
   ProviderName,
@@ -160,16 +157,12 @@ function readoutOf(reply: CapabilityReply): DriverCapabilityReadout {
     flagsByDriverName.set(report.driverName, report.capabilities.flags);
   }
   // A reply naming no driver settles with no entries and no refusal: the service declares nothing.
-  return { flagsByDriverName, driverNameByRunId: NO_RUN_BINDINGS, readRefusal: undefined };
+  return { flagsByDriverName, readRefusal: undefined };
 }
 
 /** A reading that declares nothing, carrying the reason it declares nothing. */
 function refusedReadout(readRefusal: Refusal): DriverCapabilityReadout {
-  return {
-    flagsByDriverName: NO_DECLARATIONS,
-    driverNameByRunId: NO_RUN_BINDINGS,
-    readRefusal,
-  };
+  return { flagsByDriverName: NO_DECLARATIONS, readRefusal };
 }
 
 /**

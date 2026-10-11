@@ -5,6 +5,7 @@
 
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts/provider/driver/capabilities";
+import { DRIVER_TIMEOUT_CODE } from "@ai-sidekicks/contracts/provider/driver/methods";
 import { DaemonDomainError } from "../../../../ipc/domain-error.js";
 import { CODEX_DRIVER_NAME } from "../capabilities.js";
 import {
@@ -57,7 +58,7 @@ export class CodexRequestTooLargeError extends Error {
 
 /** A request outlived its deadline. Carries `driver.timeout`. */
 export class CodexRequestTimeoutError extends Error {
-  readonly code = "driver.timeout" as const;
+  readonly code: typeof DRIVER_TIMEOUT_CODE = DRIVER_TIMEOUT_CODE;
   readonly fields: Readonly<Record<string, string>>;
 
   constructor(message: string, fields: Readonly<Record<string, string>> = {}) {

@@ -3,6 +3,8 @@
 // run. The session's frames wait in order while the run opens, then go on as if just received, so
 // none of the turn's frames reaches the run engine before its run exists. The wait is bounded in
 // frames and in time; past either, the frames go on and the turn's run, once open, takes the rest.
+// A turn whose run cannot open, such as one Codex starts while a lead run waits to start, is
+// interrupted, so no turn runs with no run, and a start waits for its end.
 
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
@@ -75,17 +77,23 @@ export class CodexSelfStartedTurns {
     }, this.#dependencies.runStart.turnStartTimeoutMs);
     this.#heldBySession.set(sessionId, { frames: [{ method, params }], cancelDeadline });
     const opened = Promise.withResolvers<void>();
+    record.delivery.selfStartedTurnIds.add(turnId);
     record.delivery.selfStartedTurnOpening = { turnId, opened: opened.promise };
     void this.#openRun(record, turnId).finally(opened.resolve);
     return true;
   }
 
   async #openRun(record: CodexSessionRecord, turnId: string): Promise<void> {
+    let isOpened = false;
     try {
       await this.#dependencies.runStart.startDaemonTurn(record, async () => turnId, turnId);
+      isOpened = true;
     } catch (cause) {
-      // No run takes the turn: its frames go on as frames of a turn no run holds.
-      record.delivery.unownedTurnIds.add(turnId);
+      // No run takes the turn: its frames go on as frames of a turn no run holds. One whose end
+      // already went by, with frames let go early, is over.
+      if (!record.settledTurnIds.has(turnId)) {
+        record.delivery.unownedTurnIds.add(turnId);
+      }
       reportDiagnosticFromDetachedFrame(this.#dependencies.reportDiagnostic, {
         kind: "provider-turn-run-failed",
         sessionId: record.sessionId,
@@ -96,6 +104,31 @@ export class CodexSelfStartedTurns {
         record.delivery.selfStartedTurnOpening = undefined;
       }
       this.#release(record.sessionId, undefined);
+    }
+    if (!isOpened) {
+      await this.#interruptUnownedTurn(record, turnId);
+    }
+  }
+
+  // Ends a turn no run holds, unless its held frames already ended it, its run's failed start
+  // already interrupted it, or its session went.
+  async #interruptUnownedTurn(record: CodexSessionRecord, turnId: string): Promise<void> {
+    if (
+      !record.delivery.unownedTurnIds.has(turnId) ||
+      record.interruptedRunIdByTurnId.has(turnId) ||
+      !record.service.isRunning ||
+      this.#dependencies.recordFor(record.sessionId) !== record
+    ) {
+      return;
+    }
+    try {
+      await record.service.request("turn/interrupt", { threadId: record.threadId, turnId });
+    } catch (cause) {
+      reportDiagnosticFromDetachedFrame(this.#dependencies.reportDiagnostic, {
+        kind: "provider-turn-interrupt-failed",
+        sessionId: record.sessionId,
+        detail: normalizeProviderFailureDetail(cause),
+      });
     }
   }
 

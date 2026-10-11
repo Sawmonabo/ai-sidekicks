@@ -3,6 +3,7 @@
  * detail text and recovery condition a caller reports.
  */
 
+import { DRIVER_TIMEOUT_CODE } from "@ai-sidekicks/contracts/provider/driver/methods";
 import type { RecoveryCondition } from "@ai-sidekicks/contracts/provider/driver/recovery";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
@@ -123,7 +124,7 @@ export class ClaudeAuthenticationRequiredError extends Error {
 
 /** A request to the Claude Code process that its deadline expired on. Rides `driver.timeout`. */
 export class ClaudeRequestTimeoutError extends Error {
-  readonly code = "driver.timeout" as const;
+  readonly code: typeof DRIVER_TIMEOUT_CODE = DRIVER_TIMEOUT_CODE;
   readonly fields: { readonly driverId: string; readonly timeoutMs: string };
 
   constructor(message: string, timeoutMs: number) {

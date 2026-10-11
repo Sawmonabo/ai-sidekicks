@@ -44,11 +44,9 @@ import { SessionCatchUpLine } from "./components/SessionCatchUpLine.js";
 import { SessionPaneLayout } from "./pane-layout/components/SessionPaneLayout.js";
 import { PANE_LAYOUT_RESTORED_PANE_CAP } from "./pane-layout/store.js";
 import { usePaneLayoutStore } from "./pane-layout/hooks/usePaneLayoutStore.js";
-import { usePaneLayoutState } from "./pane-layout/hooks/usePaneLayoutState.js";
 import type { SessionPane } from "./pane-layout/state.js";
 import { usePaneLayoutPersistence } from "./pane-layout/hooks/usePaneLayoutPersistence.js";
 import { usePaneOpenRequests } from "./pane-layout/hooks/usePaneOpenRequests.js";
-import { useFocusedPaneAddress } from "./hooks/useFocusedPaneAddress.js";
 import { findComposerRenderers } from "#renderer/registries/composer/registry.js";
 import { parsePaneAddress } from "#renderer/routing/panes/parse-address.js";
 import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
@@ -89,7 +87,6 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
   const sessionId = routeSessionId(props.route);
   const registry = props.paneRegistry;
   const layout = usePaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });
-  const paneLayoutState = usePaneLayoutState(layout);
   const clock = useClock();
   // The bridge is the subject and the session the key: every refusal here came through that
   // transport, so replacing it retires their banners with them.
@@ -178,7 +175,6 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
   );
 
   const composer = findComposerRenderers();
-  const focusedPane = useFocusedPaneAddress(paneLayoutState.panes, paneLayoutState.focusedPaneId);
 
   return (
     <div className="meridian-session-screen" ref={carryFlowHeight}>
@@ -212,7 +208,6 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
             frameStore: props.frameStore,
             draftStore: props.draftStore,
             route: props.route,
-            focusedPane,
           })}
         </div>
       )}

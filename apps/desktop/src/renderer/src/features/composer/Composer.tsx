@@ -14,7 +14,6 @@ import { WorkflowStartPrefillQuestion } from "./command-list/workflow/components
 import { useWorkflowStartPrefill } from "./command-list/workflow/hooks/useWorkflowStartPrefill.js";
 import { composerDraftKey } from "./draft-line/draft-key.js";
 import { useCarryComposerChromeHeight } from "./hooks/useCarryComposerChromeHeight.js";
-import { useComposerAddress } from "./hooks/useComposerAddress.js";
 import { DraftLine } from "./draft-line/components/DraftLine.js";
 import "./Composer.css";
 
@@ -52,7 +51,7 @@ export function MessageComposer(props: ComposerProps): React.JSX.Element {
   );
   // The palette entry that types the command word onto this composer's line, and the question
   // it asks above the draft before replacing unsent words.
-  const draftKey = composerDraftKey(useComposerAddress(props.sessionStore, props.focusedPane));
+  const draftKey = composerDraftKey(props.sessionStore.sessionId);
   const prefillPrompt = useWorkflowStartPrefill({ draftStore: props.draftStore, draftKey });
   return (
     <section className="meridian-composer" aria-label="Message composer" ref={regionRef}>

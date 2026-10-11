@@ -1,16 +1,17 @@
 // Every frame the router delivered off a Claude Code process becomes deliveries to the run engine,
 // in frame order, on the binding of the run holding the session's turn: the turn's opening, its
-// markers, its message and tool rows, the text and thinking Claude Code streams as stored pieces
-// of their message, the provider's status, warnings and model switches, a helper's child run, and
-// the turn's end. The end passes the terminal-emission gate once per turn;
-// a turn whose end the daemon writes itself (a refusal the driver settled) delivers none, a turn
-// an interrupt stopped delivers `interrupted`, a turn that ended on the run's pause delivers
-// `paused`, and a turn that completed with a steer Claude Code has yet to take delivers none, its
-// run going on into the turn Claude Code starts with that steer. An end the run engine could not take is followed by a failed end, so no run is left
-// open, and an ended run's per-run readings go with it.
+// markers, its message and tool rows, the text and thinking Claude Code streams as stored pieces of
+// their message, the provider's status, warnings and model switches, a helper's child run, and the
+// turn's end. The end passes the terminal-emission gate once per turn; a turn whose end the daemon
+// writes itself (a refusal the driver settled) delivers none, a turn an interrupt stopped delivers
+// `interrupted`, marked as the end of the daemon's own interrupt, which the daemon's verdict may
+// have written first, a turn that ended on the run's pause delivers `paused`, and a turn that
+// completed with a steer Claude Code has yet to take delivers none, its run going on into the turn
+// Claude Code starts with that steer. An interrupted run keeps its readings, so a send continues
+// it: a steer Claude Code kept past the interrupt starts its next turn, which the run holds and
+// continues on. An end the run engine could not take is followed by a failed end, so no run is
+// left open, and an ended run's per-run readings go with it.
 
-import type { ProviderSpentRetriesSignal } from "@ai-sidekicks/contracts/provider/driver/usage-limit";
-import type { RunRefusedCause } from "@ai-sidekicks/contracts/run/failure-cause";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
@@ -19,23 +20,17 @@ import type { TerminalEmissionGate } from "../../../terminal-emission-gate.js";
 import type { SubagentLifecycleEmission, ThreadFrameRoute } from "../../../thread-frame-router.js";
 import { readNonEmptyString } from "../../../record-readers.js";
 import type { DriverDiagnosticsEmitter } from "../../diagnostics.js";
-import { NormalizedEventReorderBuffer } from "../../reorder-buffer.js";
 import { CLAUDE_DRIVER_NAME } from "../capabilities.js";
 import { composeClaudeWireFrameKind } from "../event-normalizer.js";
 import type { ClaudeSentPrompts } from "../run/prompts.js";
 import type { ClaudeBoundRun, ClaudeRunRoutes } from "../run/routes.js";
-import { CLAUDE_THREAD_FRAME_ROUTER_CONFIG, type LiveClaudeSession } from "../session/state.js";
+import type { LiveClaudeSession } from "../session/state.js";
 import { classifyClaudeSpentRetries } from "../spent-retries-signal.js";
 import type { ClaudeProviderDialogs } from "./dialogs.js";
 import type { ClaudeDeliveryDispatch } from "./dispatch.js";
-import {
-  readClaudeAssistantRows,
-  readClaudeUserRows,
-  type ClaudeMessageRow,
-  type ClaudeOpenToolCall,
-} from "./messages.js";
+import { ClaudeRunReadings, type ClaudeStreamSession } from "./run-readings.js";
+import { readClaudeAssistantRows, readClaudeUserRows, type ClaudeMessageRow } from "./messages.js";
 import { readClaudeResultDenials, type ClaudeReviewerCapture } from "./reviewer.js";
-import { ClaudeStreamedBlocks } from "./streamed-blocks.js";
 import {
   readClaudeHelperEnd,
   readClaudeModelReroute,
@@ -75,42 +70,17 @@ export interface ClaudeDeliveryStreamDependencies {
   readonly now: () => number;
 }
 
-/** What the stream holds for one session while its process runs. */
-interface ClaudeStreamSession {
-  readonly openToolCalls: Map<string, ClaudeOpenToolCall>;
-  readonly buffer: NormalizedEventReorderBuffer<InboundDelivery>;
-  /** The run whose turn the stream has opened, until that turn's end. */
-  turnRunId: RunId | undefined;
-  /** How many turns each run took on this process, the epoch its turn end passes the gate under. */
-  readonly turnEpochByRun: Map<RunId, number>;
-  /** The runs whose `run.provider_initialized` was delivered. */
-  readonly initializedRuns: Set<RunId>;
-  /** The words Claude Code sent the model for each failed or denied call of the turn. */
-  readonly failedCallWords: Map<string, string>;
-  /** The refusal no other model took, which ends the turn refused. */
-  refusal: RunRefusedCause | undefined;
-  spentRetries: ProviderSpentRetriesSignal | undefined;
-  /** The permission mode the process last reported it runs in. */
-  permissionMode: string | undefined;
-  /** The runs whose turn the driver's own interrupt is stopping. */
-  readonly interruptedRuns: Set<RunId>;
-  /**
-   * The ids of the events each message of the open turn was written as, by its wire uuid, and
-   * those of each streamed block's pieces, by the block's key.
-   */
-  readonly eventIdsByMessageKey: Map<string, Promise<string | undefined>[]>;
-  /** The text and thinking the process is streaming. */
-  readonly streamedBlocks: ClaudeStreamedBlocks;
-}
-
 /**
  * A run whose end the daemon writes itself: `confirmed` once that end is certain, and until then
- * the turn end held back in case it does not happen.
+ * the turn end held back in case it does not happen. One held for an interrupt notes whether the
+ * run holds the session's turn into the one Claude Code starts with the steers it kept.
  */
 interface ClaudeDaemonEndedRun {
   readonly sessionId: SessionId;
+  readonly isForInterrupt: boolean;
   confirmed: boolean;
   heldTurnEnd: ClaudeTurnEndDelivery | undefined;
+  isCarried: boolean;
 }
 
 // Why a run ended failed when the run engine could not take the end Claude Code reported.
@@ -120,7 +90,7 @@ const CLAUDE_UNRECORDED_TURN_END_DETAIL =
 /** Turns each delivered frame of every session into the run engine's deliveries. */
 export class ClaudeDeliveryStream {
   readonly #dependencies: ClaudeDeliveryStreamDependencies;
-  readonly #sessions: Map<SessionId, ClaudeStreamSession> = new Map();
+  readonly #readings: ClaudeRunReadings;
   readonly #daemonEndedRuns: Map<RunId, ClaudeDaemonEndedRun> = new Map();
   // Each helper's child run being started, by session and agent id, until it has its route.
   readonly #startingChildRuns: Map<SessionId, Map<string, Promise<void>>> = new Map();
@@ -130,6 +100,7 @@ export class ClaudeDeliveryStream {
 
   constructor(dependencies: ClaudeDeliveryStreamDependencies) {
     this.#dependencies = dependencies;
+    this.#readings = new ClaudeRunReadings(dependencies);
   }
 
   /**
@@ -141,7 +112,7 @@ export class ClaudeDeliveryStream {
     sessionId: SessionId,
     messageUuids: readonly string[],
   ): Promise<string[]> {
-    const session = this.#sessions.get(sessionId);
+    const session = this.#readings.find(sessionId);
     const written = session?.eventIdsByMessageKey;
     const eventIds = await Promise.all(
       messageUuids.flatMap((messageUuid) => {
@@ -157,7 +128,7 @@ export class ClaudeDeliveryStream {
 
   /** The permission mode a session's process last reported it runs in, if any. */
   permissionModeFor(sessionId: SessionId): string | undefined {
-    return this.#sessions.get(sessionId)?.permissionMode;
+    return this.#readings.find(sessionId)?.permissionMode;
   }
 
   /**
@@ -167,15 +138,16 @@ export class ClaudeDeliveryStream {
    * coming, so nothing is marked.
    */
   markDaemonEnded(runId: RunId, confirmed: boolean): void {
-    const marked = this.#daemonEndedRuns.get(runId);
-    if (marked !== undefined) {
-      marked.confirmed ||= confirmed;
-      return;
-    }
-    const sessionId = this.#dependencies.runRoutes.sessionIdFor(runId);
-    if (sessionId !== undefined) {
-      this.#daemonEndedRuns.set(runId, { sessionId, confirmed, heldTurnEnd: undefined });
-    }
+    this.#markDaemonEnd(runId, confirmed, false);
+  }
+
+  /**
+   * Marks a run whose turn an intervention's interrupt is about to stop, whose end the daemon
+   * writes from the interrupt's answer: pending until {@link interruptDaemonEnd} or
+   * {@link releaseDaemonEnd}.
+   */
+  holdTurnEndForInterrupt(runId: RunId): void {
+    this.#markDaemonEnd(runId, false, true);
   }
 
   /** The daemon's end of a marked run happened; a turn end held back for it is dropped. */
@@ -186,6 +158,11 @@ export class ClaudeDeliveryStream {
     }
     if (marked.heldTurnEnd !== undefined) {
       this.#daemonEndedRuns.delete(runId);
+      this.#readings.settleEndedRun(
+        this.#readings.sessionFor(marked.sessionId),
+        marked.heldTurnEnd.change,
+        false,
+      );
       return;
     }
     marked.confirmed = true;
@@ -196,6 +173,8 @@ export class ClaudeDeliveryStream {
     const marked = this.#daemonEndedRuns.get(runId);
     this.#daemonEndedRuns.delete(runId);
     if (marked?.heldTurnEnd !== undefined) {
+      const session = this.#readings.sessionFor(marked.sessionId);
+      this.#readings.settleEndedRun(session, marked.heldTurnEnd.change, marked.isCarried);
       this.#deliverTurnEnd(marked.heldTurnEnd);
     }
   }
@@ -216,9 +195,17 @@ export class ClaudeDeliveryStream {
       this.markInterrupted(marked.sessionId, runId);
       return;
     }
-    // A turn end held as a pause kept the run's binding; as an interrupt the run ends here.
-    this.#dependencies.runRoutes.forgetRun(runId);
-    this.#deliverTurnEnd({ ...held, change: { runId, newState: "interrupted" } });
+    const interrupted: ClaudeTurnEndDelivery = {
+      ...held,
+      change: { runId, newState: "interrupted" },
+      isDaemonInterruptEnd: true,
+    };
+    this.#readings.settleEndedRun(
+      this.#readings.sessionFor(marked.sessionId),
+      interrupted.change,
+      marked.isCarried,
+    );
+    this.#deliverTurnEnd(interrupted);
   }
 
   /**
@@ -234,12 +221,23 @@ export class ClaudeDeliveryStream {
    * sends is delivered as `interrupted`; {@link unmarkInterrupted} takes it back if none was sent.
    */
   markInterrupted(sessionId: SessionId, runId: RunId): void {
-    this.#sessionFor(sessionId).interruptedRuns.add(runId);
+    this.#readings.sessionFor(sessionId).interruptedRuns.add(runId);
   }
 
   /** The interrupt was not sent: the run's turn end is delivered as Claude Code reports it. */
   unmarkInterrupted(sessionId: SessionId, runId: RunId): void {
-    this.#sessions.get(sessionId)?.interruptedRuns.delete(runId);
+    this.#readings.find(sessionId)?.interruptedRuns.delete(runId);
+  }
+
+  /**
+   * Whether the turn of `runId` is being stopped by an interrupt whose turn end has not yet
+   * arrived, so a next turn of the run waits for that end.
+   */
+  isTurnEndingForInterrupt(sessionId: SessionId, runId: RunId): boolean {
+    return (
+      this.#readings.find(sessionId)?.interruptedRuns.has(runId) === true ||
+      this.#daemonEndedRuns.get(runId)?.isForInterrupt === true
+    );
   }
 
   /** Takes one frame the router delivered off a live session's process, whole and untrusted. */
@@ -249,7 +247,7 @@ export class ClaudeDeliveryStream {
     route: ThreadFrameRoute,
   ): void {
     const { runRoutes, observeLeadFrame } = this.#dependencies;
-    const session = this.#sessionFor(live.sessionId);
+    const session = this.#readings.sessionFor(live.sessionId);
     const frameKind = composeClaudeWireFrameKind(
       readNonEmptyString(frame, "type") ?? "",
       readNonEmptyString(frame, "subtype") ?? null,
@@ -407,7 +405,7 @@ export class ClaudeDeliveryStream {
     // A helper's start can be its turn's first frame, which opens the turn before its rows; a
     // background helper's end after its turn ended opens none.
     if (runRoutes.leadRunOn(sessionId) !== undefined) {
-      this.#openTurn(this.#sessionFor(sessionId), lead);
+      this.#openTurn(this.#readings.sessionFor(sessionId), lead);
     }
     const parentToolCallId = emission.parentToolCallId;
     const operation =
@@ -450,7 +448,7 @@ export class ClaudeDeliveryStream {
 
   /** Releases every row a session's buffer still holds, as its turn or its process ends. */
   drain(sessionId: SessionId): void {
-    const session = this.#sessions.get(sessionId);
+    const session = this.#readings.find(sessionId);
     if (session !== undefined) {
       this.#sendAll(session, session.buffer.flushExpired(Number.POSITIVE_INFINITY));
     }
@@ -458,9 +456,9 @@ export class ClaudeDeliveryStream {
 
   /** Forgets a session whose process is gone, releasing what it streamed and buffered first. */
   forgetSession(sessionId: SessionId): void {
-    this.#sessions.get(sessionId)?.streamedBlocks.endAll();
+    this.#readings.find(sessionId)?.streamedBlocks.endAll();
     this.drain(sessionId);
-    this.#sessions.delete(sessionId);
+    this.#readings.forgetSession(sessionId);
     this.#startingChildRuns.delete(sessionId);
     for (const [runId, marked] of this.#daemonEndedRuns) {
       if (marked.sessionId === sessionId) {
@@ -469,39 +467,22 @@ export class ClaudeDeliveryStream {
     }
   }
 
-  #sessionFor(sessionId: SessionId): ClaudeStreamSession {
-    const existing = this.#sessions.get(sessionId);
-    if (existing !== undefined) {
-      return existing;
-    }
-    const session: ClaudeStreamSession = {
-      openToolCalls: new Map(),
-      buffer: new NormalizedEventReorderBuffer<InboundDelivery>({
-        provider: CLAUDE_DRIVER_NAME,
-        diagnostics: this.#dependencies.diagnostics,
-        maxBufferedEvents: CLAUDE_THREAD_FRAME_ROUTER_CONFIG.maxPendingHoldFrames,
-        pairingTimeoutMs: CLAUDE_THREAD_FRAME_ROUTER_CONFIG.pendingRegistrationTimeoutMs,
-      }),
-      turnRunId: undefined,
-      turnEpochByRun: new Map(),
-      initializedRuns: new Set(),
-      failedCallWords: new Map(),
-      refusal: undefined,
-      spentRetries: undefined,
-      permissionMode: undefined,
-      interruptedRuns: new Set(),
-      eventIdsByMessageKey: new Map(),
-      streamedBlocks: new ClaudeStreamedBlocks(this.#dependencies.diagnostics),
-    };
-    this.#sessions.set(sessionId, session);
-    return session;
-  }
-
   // The first frame of a run's turn opens it: the boundary, then the turn's marker, and the
   // readings of the turn before start empty.
   #openTurn(session: ClaudeStreamSession, lead: ClaudeBoundRun): void {
     if (session.turnRunId === lead.runId) {
       return;
+    }
+    // Claude Code started its next turn with the steers it kept, so the interrupt took effect.
+    const marked = this.#daemonEndedRuns.get(lead.runId);
+    if (marked?.isForInterrupt === true && marked.heldTurnEnd !== undefined) {
+      this.interruptDaemonEnd(lead.runId);
+    }
+    if (this.#readings.takeContinuableRun(session, lead.runId)) {
+      void this.#dependencies.dispatch.send(
+        { kind: "run_continued", bindingId: lead.bindingId, runId: lead.runId },
+        null,
+      );
     }
     session.turnRunId = lead.runId;
     session.turnEpochByRun.set(lead.runId, (session.turnEpochByRun.get(lead.runId) ?? 0) + 1);
@@ -515,6 +496,24 @@ export class ClaudeDeliveryStream {
       null,
     );
     this.#sendMarker(lead, null, { type: "run.turn_started", payload: { runId: lead.runId } });
+  }
+
+  #markDaemonEnd(runId: RunId, confirmed: boolean, isForInterrupt: boolean): void {
+    const marked = this.#daemonEndedRuns.get(runId);
+    if (marked !== undefined) {
+      marked.confirmed ||= confirmed;
+      return;
+    }
+    const sessionId = this.#dependencies.runRoutes.sessionIdFor(runId);
+    if (sessionId !== undefined) {
+      this.#daemonEndedRuns.set(runId, {
+        sessionId,
+        isForInterrupt,
+        confirmed,
+        heldTurnEnd: undefined,
+        isCarried: false,
+      });
+    }
   }
 
   #markInitialized(
@@ -637,21 +636,30 @@ export class ClaudeDeliveryStream {
         : isPaused
           ? { runId: lead.runId, expectedState: "pausing", newState: "paused" }
           : this.#composeTurnEnd(session, end, decision.intendedClose),
+      ...(isInterrupted ? { isDaemonInterruptEnd: true } : {}),
     };
-    // A paused run takes its next turn on the same binding; every other run ended here.
-    if (!isPaused) {
-      this.#forgetEndedRun(session, lead.runId);
-    }
+    // Claude Code starts its next turn at once with the steers an interrupt left it, so a run
+    // whose turn an interrupt stops holds the session's turn into that one, decided now, before
+    // the turn's settlement releases it.
     const marked = this.#daemonEndedRuns.get(lead.runId);
+    const isCarried =
+      (isInterrupted || marked?.isForInterrupt === true) &&
+      this.#dependencies.prompts.hasUntakenSteer(lead.runId);
+    if (isCarried) {
+      this.#dependencies.runRoutes.carryTurnOver(lead.runId);
+    }
     if (marked !== undefined) {
       // The daemon writes this run's end; a turn end is held while that write is not certain.
       if (marked.confirmed) {
         this.#daemonEndedRuns.delete(lead.runId);
+        this.#readings.settleEndedRun(session, change.change, isCarried);
       } else {
         marked.heldTurnEnd = change;
+        marked.isCarried = isCarried;
       }
       return;
     }
+    this.#readings.settleEndedRun(session, change.change, isCarried);
     this.#deliverTurnEnd(change);
     if (end.isTooLong && !isInterrupted) {
       this.#dependencies.onTooLongTurn(live, lead.runId);
@@ -680,16 +688,6 @@ export class ClaudeDeliveryStream {
         null,
       );
     });
-  }
-
-  // An ended run's readings: its binding, its turn count and its initialization, and the tool
-  // calls its turn left open, which can no longer complete.
-  #forgetEndedRun(session: ClaudeStreamSession, runId: RunId): void {
-    this.#dependencies.runRoutes.forgetRun(runId);
-    this.#dependencies.prompts.forgetRun(runId);
-    session.turnEpochByRun.delete(runId);
-    session.initializedRuns.delete(runId);
-    session.openToolCalls.clear();
   }
 
   // The lead run a helper was started beneath, for a background helper whose turn already ended.

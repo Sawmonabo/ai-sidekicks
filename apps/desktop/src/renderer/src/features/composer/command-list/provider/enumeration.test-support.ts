@@ -25,10 +25,10 @@ export const FIRST_AGENT = "019b7a11-1100-7a6e-8110-ada11a5a3301";
 /** A second agent id, so a case can address a different agent. */
 export const SECOND_AGENT = "019b7a11-1100-7a6e-8110-ada11a5a3302";
 
-/** A provider-bound composer target addressed at the given agent. */
+/** A composer target addressed at the given agent's run. */
 export function targetForAgent(agentId: string): ComposerTarget {
   return {
-    path: "provider-bound",
+    kind: "run",
     sessionId: WAITING_FOR_INPUT_SCENARIO.sessionId,
     agentId,
     driverName: "claude",

@@ -102,8 +102,7 @@ export interface QueuedSkillPick {
   name: string;
   folderPath: string;
 }
-/** Parses a {@link QueuedSkillPick}. */
-export const QueuedSkillPickSchema: z.ZodType<QueuedSkillPick, QueuedSkillPick> = z
+const QueuedSkillPickSchema: z.ZodType<QueuedSkillPick, QueuedSkillPick> = z
   .object({
     name: wireFreeFormString(FILE_PATH_MAX_LEN, "QueuedSkillPick.name"),
     folderPath: wireFreeFormString(FILE_PATH_MAX_LEN, "QueuedSkillPick.folderPath"),
@@ -218,24 +217,46 @@ export const QUEUE_ITEM_EVENT_PAYLOAD_SCHEMAS: {
   }),
 };
 
-/** The queued message, as a send or a child's steer answers. */
+// Only a not-delivered message carries a reason, and it always does.
+function hasReasonOnlyWhenNotDelivered(item: {
+  readonly state: QueueItemState;
+  readonly notDeliveredReason?: QueueItemNotDeliveredReason | undefined;
+}): boolean {
+  return (item.state === "not_delivered") === (item.notDeliveredReason !== undefined);
+}
+
+const NOT_DELIVERED_REASON_ISSUE = {
+  path: ["notDeliveredReason"],
+  message: "A not-delivered message carries its reason, and only a not-delivered one does.",
+};
+
+/**
+ * The queued message, as a send or a child's steer answers, and, when a retry answers one whose
+ * delivery failed, the daemon's reason.
+ */
 export interface QueueItemCreateResponse {
   queueItemId: QueueItemId;
   state: QueueItemState;
+  notDeliveredReason?: QueueItemNotDeliveredReason | undefined;
   createdAt: string;
 }
-/** Parses a {@link QueueItemCreateResponse}. */
+/** Parses a {@link QueueItemCreateResponse}; only a not-delivered item carries a reason. */
 export const QueueItemCreateResponseSchema: z.ZodType<QueueItemCreateResponse> = z
   .object({
     queueItemId: QueueItemIdSchema,
     state: QueueItemStateSchema,
+    notDeliveredReason: QueueItemNotDeliveredReasonSchema.optional(),
     createdAt: isoDateTimeSchema,
   })
-  .strict();
+  .strict()
+  .refine(hasReasonOnlyWhenNotDelivered, NOT_DELIVERED_REASON_ISSUE);
 
 // run.queueList and run.subscribeQueue
 
-/** Reads a queue, the lead's or, with `childHandle`, a child's, in the daemon's order. */
+/**
+ * Reads a queue, the lead's or, with `childHandle`, a child's, in the daemon's order: the items in
+ * `state` when it is given, else every item waiting or not delivered.
+ */
 export interface QueueItemListRequest {
   sessionId: SessionId;
   childHandle?: ChildHandle | undefined;
@@ -280,10 +301,7 @@ export const QueueItemSummarySchema: z.ZodType<QueueItemSummary> = z
     updatedAt: isoDateTimeSchema,
   })
   .strict()
-  .refine((item) => (item.state === "not_delivered") === (item.notDeliveredReason !== undefined), {
-    path: ["notDeliveredReason"],
-    message: "A not-delivered message carries its reason, and only a not-delivered one does.",
-  });
+  .refine(hasReasonOnlyWhenNotDelivered, NOT_DELIVERED_REASON_ISSUE);
 
 /** A queue's items in the daemon's order. */
 export interface QueueItemListResponse {
@@ -392,6 +410,13 @@ export const QueueReorderRequestSchema: z.ZodType<QueueReorderRequest, QueueReor
 export const QUEUE_PERSISTENCE_UNAVAILABLE_CODE = "queue.persistence_unavailable" as const;
 
 /**
+ * The refusal of a send whose session's lead run started, ended or was continued between each
+ * read and the write that sends into it, every time the daemon tried: nothing is queued, and the
+ * send can be made again.
+ */
+export const QUEUE_RUN_CHANGED_CODE = "queue.run_changed" as const;
+
+/**
  * The refusal of a change naming a queue item the queue does not hold: an id it never stored, an
  * item of another session, or one of another queue than the change names.
  */
@@ -405,23 +430,9 @@ export const QUEUE_ITEM_NOT_FOUND_CODE = "queue.item_not_found" as const;
 export const QUEUE_CHANGE_REFUSED_CODE = "queue.change_refused" as const;
 
 /** Why a change to a waiting message was refused. */
-export const QUEUE_CHANGE_REFUSED_REASONS = [
-  "already_taken",
-  "not_delivered",
-  "order_mismatch",
-] as const;
-/** One of {@link QUEUE_CHANGE_REFUSED_REASONS}. */
-export type QueueChangeRefusedReason = (typeof QUEUE_CHANGE_REFUSED_REASONS)[number];
+export type QueueChangeRefusedReason = "already_taken" | "not_delivered" | "order_mismatch";
 
 /** The details a `queue.change_refused` refusal carries. */
 export interface QueueChangeRefusedDetails {
   reason: QueueChangeRefusedReason;
 }
-/**
- * Parses {@link QueueChangeRefusedDetails}.
- *
- * @consumedBy the handler that returns the `queue.change_refused` error
- */
-export const QueueChangeRefusedDetailsSchema: z.ZodType<QueueChangeRefusedDetails> = z
-  .object({ reason: z.enum(QUEUE_CHANGE_REFUSED_REASONS) })
-  .strict();

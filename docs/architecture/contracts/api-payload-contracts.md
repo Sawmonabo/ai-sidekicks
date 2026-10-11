@@ -173,7 +173,7 @@ type RunFailureCategory =
   | "setup failure"; // a setup gate threw before the provider started the run (Spec-005 §Run Lifecycle)
 
 type QueueItemState = "queued" | "admitted" | "superseded" | "canceled" | "not_delivered";
-type InterventionType = "steer" | "interrupt" | "faster_model_retry"; // Spec-003 §Required Behavior and Spec-004 §Required Behavior; ApplyInterventionParams (Plan-003 T1.8) carries the first two, and the daemon carries out `faster_model_retry` itself. Undo is `session.restore`, never an intervention
+type InterventionType = "interrupt" | "faster_model_retry"; // Spec-003 §Interfaces And Contracts and Spec-004 §Required Behavior; ApplyInterventionParams (Plan-003 T1.8) carries the interrupt beside the driver's own `steer`, the queue's delivery of a waiting message, which no intervention records, and the daemon carries out `faster_model_retry` itself. Undo is `session.restore`, never an intervention
 type InterventionState =
   | "requested"
   | "accepted"

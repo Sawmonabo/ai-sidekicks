@@ -146,7 +146,7 @@ export class ClaudeRunControls implements ClaudeInterventionSettlement {
 
   /** Holds the turn end an intervention's interrupt causes until the interrupt settles. */
   holdTurnEndForInterrupt(runId: RunId): void {
-    this.#dependencies.stream.markDaemonEnded(runId, false);
+    this.#dependencies.stream.holdTurnEndForInterrupt(runId);
   }
 
   /** Delivers the held turn end as `interrupted` once answered, else as Claude Code sent it. */

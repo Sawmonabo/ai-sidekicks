@@ -6,7 +6,6 @@
 // contributes its own rows, and the run id joins the title only when there is more than one.
 // Steer opens the composer rather than sending, because it needs a body not yet written.
 
-import { type DriverCapabilityReadout } from "#renderer/store/driver-capabilities/readout.js";
 import type { RunState } from "@ai-sidekicks/contracts/run/state";
 
 import { RUN_CONTROL_PRESENTATION } from "../presentation.js";
@@ -36,7 +35,6 @@ export interface RunControlCommandRun {
 export interface RunControlCommandInput {
   /** The runs the live stream has described. A row is contributed per offered control. */
   readonly runs: readonly RunControlCommandRun[];
-  readonly driverCapabilities: DriverCapabilityReadout | undefined;
   /** The one dispatcher and its in-flight latch. */
   readonly dispatchState: RunControlDispatchState;
   /** Open the steer form against this run. */
@@ -46,12 +44,11 @@ export interface RunControlCommandInput {
 /** One row per control each run offers, in the row's own order. */
 export function runControlCommandRows(
   runs: readonly RunControlCommandRun[],
-  driverCapabilities: DriverCapabilityReadout | undefined,
 ): readonly RunControlCommandRow[] {
   const rows: RunControlCommandRow[] = [];
   const namesTheRun = runs.length > 1;
   for (const run of runs) {
-    const offered = offeredRunControls(run, driverCapabilities);
+    const offered = offeredRunControls(run.state);
     for (const control of [...offered.primary, ...offered.overflow]) {
       const presentation = RUN_CONTROL_PRESENTATION[control];
       rows.push({
@@ -89,7 +86,7 @@ export function dispatchRunControlCommand(
     runId: run.runId,
     expectedRunVersion: dispatchState.dispatcher.comparandFor(run.runId, run.runVersion),
   };
-  dispatchState.dispatch(run.runId, control, (dispatcher) => {
+  dispatchState.dispatch({ runId: run.runId }, control, (dispatcher) => {
     switch (control) {
       case "pause":
         return dispatcher.pause(target);

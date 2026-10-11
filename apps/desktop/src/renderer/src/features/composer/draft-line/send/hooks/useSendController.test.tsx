@@ -31,7 +31,7 @@ import { useSendController } from "./useSendController.js";
 import { QUEUE_CREATED, SESSION_ID, sendCallsAnswering } from "../router.test-support.js";
 
 const SESSION_TARGET: ComposerSessionTarget = {
-  path: "session-message",
+  kind: "session",
   sessionId: SESSION_ID,
 };
 
@@ -92,7 +92,7 @@ function driveController(
   );
   return {
     draftStore,
-    draftKey: composerDraftKey(SESSION_TARGET),
+    draftKey: composerDraftKey(SESSION_TARGET.sessionId),
     latest: () => {
       if (latest === undefined) {
         throw new Error("the probe reported no controller");

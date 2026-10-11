@@ -1,14 +1,13 @@
 // The composer's message line: the draft field, and what needs only the draft. The text is the
-// draft store's: this line reads the addressed key and writes every edit back, so a remount or
-// re-address finds the text where it was left. Enter is swallowed here (no newline, no send);
-// sending is `SendButton.tsx`'s.
+// draft store's: this line reads the session's draft key and writes every edit back, so a remount
+// or a return to the session finds the text where it was left. Enter is swallowed here (no
+// newline, no send); sending is `SendButton.tsx`'s.
 
 import { useCallback, useEffect, useRef } from "react";
 import { TextBox } from "#renderer/components/TextBox/TextBox.js";
 import { subscribeToComposerFocus } from "../../focus-requests.js";
 import { type ComposerProps } from "#renderer/registries/composer/registry.js";
 import { COMPOSER_DRAFT_MAX_ROWS } from "../../bounds.js";
-import { useComposerAddress } from "../../hooks/useComposerAddress.js";
 import { useComposerDraftText } from "../../hooks/useComposerDraftText.js";
 import { DRAFT_PLACEHOLDER } from "../caret.js";
 import { composerDraftKey } from "../draft-key.js";
@@ -19,11 +18,10 @@ export interface DraftLineProps extends ComposerProps {
   readonly scrollerRef?: React.RefObject<HTMLDivElement | null>;
 }
 
-/** The message line over the addressed draft. Enter keeps the draft and sends nothing. */
+/** The message line over the session's draft. Enter keeps the draft and sends nothing. */
 export function DraftLine(props: DraftLineProps): React.JSX.Element {
   const { draftStore } = props;
-  const target = useComposerAddress(props.sessionStore, props.focusedPane);
-  const draftKey = composerDraftKey(target);
+  const draftKey = composerDraftKey(props.sessionStore.sessionId);
   const { text } = useComposerDraftText(draftStore, draftKey);
 
   const onChange = useCallback(

@@ -23,14 +23,6 @@ export interface DriverCapabilityReadout {
    */
   readonly flagsByDriverName: ReadonlyMap<ProviderName, DeclaredDriverFlags>;
   /**
-   * Which driver each run is bound to, for every run whose binding is nameable.
-   *
-   * Not what `driver.listCapabilities` answers, since that read names no run. The consumer
-   * joins it on through `withRunDriverBindings` from the session's own projection, so it is
-   * empty on the readout the read settles.
-   */
-  readonly driverNameByRunId: ReadonlyMap<string, ProviderName>;
-  /**
    * Why the declarations could not be read, where they could not be: the daemon rejected the
    * read, or answered something the registered schema will not accept. A view whose controls
    * this readout gates renders it, so a missing control says why.

@@ -1,7 +1,7 @@
 // The session controls Codex carries on the conversation itself: Build or Plan as its
 // collaboration mode, its own review of a set of changes, and `Allow once` on a block its reviewer
 // made at Reviewed. A review, and an `Allow once` sent while no turn runs, start a turn, so each is
-// started as the session's own run.
+// started as the session's own run; an `Allow once` goes into a turn only while that turn is live.
 
 import type {
   SessionMode,
@@ -12,8 +12,10 @@ import { isPlainObject, readNonEmptyString } from "../../../record-readers.js";
 import type { CodexDeliveryDispatch } from "../delivery/dispatch.js";
 import { CODEX_THREAD_SETTINGS_UPDATED_METHOD } from "../event-normalizer.js";
 import type { CodexRunStart } from "../run/start.js";
+import type { CodexTurnEndWaiters } from "../run/turn-end-waiters.js";
 import { readTurnId } from "../thread/view.js";
-import { type CodexSessionRecord, isTurnInFlight } from "./state.js";
+import { CodexTransportError } from "./errors.js";
+import type { CodexSessionRecord } from "./state.js";
 
 // What each review target asks Codex for. Codex names no staged set and the daemon holds no base
 // branch for the session, so both are asked in words with the git command that reads them.
@@ -109,13 +111,16 @@ export async function startCodexReview(
 /**
  * Sends `Allow once` for a block Codex's reviewer made, with the review Codex sent as the block,
  * on the conversation it was made in: into the turn running there, or, on the session's own
- * conversation with no turn running, as the session's own run, since Codex then starts a turn for
- * it. Throws the request's failure, and as the run's start throws.
+ * conversation with no live turn, as the session's own run, since Codex then starts a turn for
+ * it. A turn the daemon is stopping is no live turn: its end is waited for first, within the
+ * request deadline, past which this throws `session_turn_in_flight` with nothing sent. Throws the
+ * request's failure, and as the run's start throws.
  */
 export async function overrideCodexReviewerDenial(
   record: CodexSessionRecord,
   providerDenial: unknown,
   runStart: Pick<CodexRunStart, "startDaemonTurn">,
+  turnEnds: Pick<CodexTurnEndWaiters, "waitForStoppedTurns">,
 ): Promise<void> {
   const denial = isPlainObject(providerDenial) ? providerDenial : {};
   const threadId = readNonEmptyString(denial, "threadId") ?? record.threadId;
@@ -126,7 +131,18 @@ export async function overrideCodexReviewerDenial(
     });
     return undefined;
   };
-  if (threadId !== record.threadId || isTurnInFlight(record)) {
+  if (threadId !== record.threadId) {
+    await approve(record);
+    return;
+  }
+  // Sent into a turn still ending, it would start a turn no run holds once that turn ends.
+  if (!(await turnEnds.waitForStoppedTurns(record))) {
+    throw new CodexTransportError(
+      `Codex did not end a turn it was stopping on session "${record.sessionId}" in time.`,
+      { sessionId: record.sessionId, reason: "session_turn_in_flight" },
+    );
+  }
+  if (record.runIdByActiveTurnId.size > 0) {
     await approve(record);
     return;
   }

@@ -16,22 +16,22 @@ export interface InterruptRunParams {
 }
 
 /**
- * How a caller acts on a live run: steer, interrupt, or retry on a faster model. A driver applies
- * the first two (`ApplyInterventionParams`); the daemon carries out `faster_model_retry` by
- * stopping the turn and sending its message again on the named model.
+ * How a caller acts on a live run, as its intervention row records it: interrupt, or retry on a
+ * faster model, which the daemon carries out by stopping the turn and sending its message again on
+ * the named model. A person's message mid-turn is a queue send, never an intervention.
  */
-export type InterventionType = "steer" | "interrupt" | "faster_model_retry";
+export type InterventionType = "interrupt" | "faster_model_retry";
 /** Validates an {@link InterventionType}; the one runtime spelling of its values. */
 export const InterventionTypeSchema: z.ZodType<InterventionType, InterventionType> = z.enum([
-  "steer",
   "interrupt",
   "faster_model_retry",
 ]);
 
 /**
- * A daemon-constructed intervention, one arm per type with its own payload. `expectedRunVersion`
- * is the fail-closed comparand; `clientIdempotencyKey` is the requester's key the daemon dedupes
- * on, passed through unchanged, because a key minted per retry would defeat the dedupe.
+ * What the daemon asks a driver to do on a live run, one arm per verb with its own payload: a
+ * `steer` delivers a message the run queue holds, and an `interrupt` carries out an intervention.
+ * `expectedRunVersion` is the fail-closed comparand; `clientIdempotencyKey` is the requester's key,
+ * passed through unchanged, because a key minted per retry would defeat the dedupe.
  */
 export type ApplyInterventionParams =
   | {
@@ -73,8 +73,8 @@ export const PickedSkillSchema: z.ZodType<PickedSkill, PickedSkill> = z
   .strict();
 
 /**
- * Payload of a `steer` intervention: the message content, its attachments, the skills the person
- * picked for it and a target turn.
+ * Payload of a driver's `steer`: the queued message's content, its attachments, the skills the
+ * person picked for it and a target turn.
  */
 export interface SteerPayload {
   content: string;
@@ -104,10 +104,9 @@ export interface InterruptPayload {
 
 /**
  * Return of `ProviderDriver.applyIntervention()`. `fallbackAction` names the fallback for a
- * `degraded` result and is absent when `applied`.
- * `deliveredRunId` names the run an `applied` steer's message went to when that is not its target:
- * settling a choice the target was held on ended it, so the message started the session's next
- * turn as a run of its own.
+ * `degraded` result and is absent when `applied`. `deliveredRunId` names the run a delivered
+ * message went to when that is not its target: settling a choice the target was held on ended it,
+ * so the message started the session's next turn as a run of its own.
  */
 export interface DriverInterventionResult {
   status: "applied" | "degraded";

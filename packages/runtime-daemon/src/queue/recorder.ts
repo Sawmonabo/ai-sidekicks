@@ -33,9 +33,11 @@ import {
   insertQueueItemStatement,
   leaveQueuedStatement,
   noLiveLeadRunStatement,
-  placeStatement,
+  placementStatements,
   retargetStatement,
   runLiveStatement,
+  currentInterruptedLeadRunStatement,
+  sessionTakesMessagesStatement,
   summaryOf,
   type NewQueueItem,
   type QueueItemOutcome,
@@ -46,19 +48,27 @@ import {
 const QUEUE_EVENT_VERSION = EventEnvelopeVersionSchema.parse("1.0");
 
 /**
- * The position of a send's guard among its write's statements, after its own insert: no lead run
- * is live for a send that starts one, the run is still live for a send into it, and the item an
- * edit replaces is still waiting.
+ * The position among a send's statements, after its own insert, of the guard that its session still
+ * takes messages: it is neither closed nor being purged.
  */
-export const SEND_GUARD_STATEMENT_INDEX = 1;
+export const SEND_SESSION_GUARD_STATEMENT_INDEX = 1;
 
 /**
- * Where one person's send goes: a run it starts, the live run it goes into, or the place of the
- * waiting item it edits, which goes into that item's run.
+ * The position of a send's route guard among its write's statements, after the session's: no lead
+ * run is live for a send that starts one, the run is still live for a send into it, the run still
+ * reads interrupted, the session's current lead run, for a send that continues it, and the item an
+ * edit replaces is still waiting.
+ */
+export const SEND_GUARD_STATEMENT_INDEX = 2;
+
+/**
+ * Where one person's send goes: a run it starts, the live run it goes into, the interrupted run it
+ * continues, or the place of the waiting item it edits, which goes into that item's run.
  */
 type SendRoute =
   | { readonly kind: "new_run"; readonly queued: RunQueuedPayload }
   | { readonly kind: "live_run" }
+  | { readonly kind: "interrupted_run" }
   | { readonly kind: "edit"; readonly replaces: QueueItemRecord };
 
 /** One person's send as it is recorded: the new row, its device and where it goes. */
@@ -116,12 +126,16 @@ export class QueueRecorder {
 
   /**
    * Records `send` in one write and resolves with its row. Throws the write's `WriteRefusedError`
-   * at {@link SEND_GUARD_STATEMENT_INDEX} when its guard no longer holds, and at its insert for a
-   * key already spent in the session, writing nothing either way.
+   * at {@link SEND_SESSION_GUARD_STATEMENT_INDEX} when the session no longer takes messages, at
+   * {@link SEND_GUARD_STATEMENT_INDEX} when its route's guard no longer holds, and at its insert
+   * for a key already spent in the session, writing nothing either way.
    */
   async recordSend(send: RecordedSend): Promise<QueueItemRecord> {
     const { item, route } = send;
-    const statements: WriteStatement[] = [insertQueueItemStatement(item)];
+    const statements: WriteStatement[] = [
+      insertQueueItemStatement(item),
+      sessionTakesMessagesStatement(item.sessionId),
+    ];
     const precedingEvents: SessionEventDraft[] = [];
     switch (route.kind) {
       case "new_run":
@@ -133,6 +147,9 @@ export class QueueRecorder {
         break;
       case "live_run":
         statements.push(runLiveStatement(item.targetRunId));
+        break;
+      case "interrupted_run":
+        statements.push(currentInterruptedLeadRunStatement(item.targetRunId));
         break;
       case "edit":
         // An edit waits for the run its old item waited for; once that run ends, the run's next
@@ -247,34 +264,34 @@ export class QueueRecorder {
   }
 
   /**
-   * Points each of the waiting `items` at the live run `runId` in one write, which no event records
-   * and no screen draws. Throws the write's `WriteRefusedError` when the run has ended or one of
-   * them has left `queued`.
+   * Points each of the waiting `items` at `run` in one write, which no event records and no screen
+   * draws: a live run, or the session's current lead run resting interrupted for a continue. Throws
+   * the write's `WriteRefusedError` when the run no longer reads so or one of them has left
+   * `queued`.
    */
   async recordRetarget(
-    runId: RunId,
+    run: { readonly runId: RunId; readonly state: "live" | "interrupted" },
     items: readonly QueueItemRecord[],
     now: string,
   ): Promise<void> {
     await this.#writer.write([
-      runLiveStatement(runId),
-      ...items.map((item) => retargetStatement(item.id, runId, now)),
+      run.state === "live"
+        ? runLiveStatement(run.runId)
+        : currentInterruptedLeadRunStatement(run.runId),
+      ...items.map((item) => retargetStatement(item.id, run.runId, now)),
     ]);
   }
 
   /**
-   * Gives each of `ordered` the place at its index among `positions` in one write, which no event
-   * records. Throws the write's `WriteRefusedError` when one of them has left `queued`.
+   * Puts the waiting items `ordered` in that order among the places they hold, in one write, which
+   * no event records. Throws the write's `WriteRefusedError` when one of them has left `queued`.
    */
   async recordOrder(
     sessionId: SessionId,
     ordered: readonly QueueItemRecord[],
-    positions: readonly number[],
     now: string,
   ): Promise<void> {
-    await this.#writer.write(
-      ordered.map((item, index) => placeStatement(item.id, positions[index] ?? item.position, now)),
-    );
+    await this.#writer.write(placementStatements(ordered, now));
     this.publishCommitted(
       sessionId,
       ordered.map((item) => item.id),

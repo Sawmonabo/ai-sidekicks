@@ -192,7 +192,7 @@ export interface ClaudeHttpServerEntry {
 
 /**
  * The control requests the daemon sends, in their wire shape; closed so an unrouted subtype cannot
- * typecheck. `cancel_queued` rides only where the process advertised `interrupt_cancel_queued_v1`.
+ * typecheck.
  */
 export type ClaudeControlRequest =
   | {
@@ -202,7 +202,7 @@ export type ClaudeControlRequest =
       readonly supportedDialogKinds: readonly string[];
       readonly perTaskStopAffordance: true;
     }
-  | { readonly subtype: "interrupt"; readonly cancel_queued?: true }
+  | { readonly subtype: "interrupt" }
   | { readonly subtype: "apply_flag_settings"; readonly settings: ClaudeFlagSettings }
   | { readonly subtype: "set_permission_mode"; readonly mode: ClaudePermissionMode }
   | { readonly subtype: "set_max_thinking_tokens"; readonly thinking_display: "summarized" }
@@ -692,13 +692,12 @@ export interface ClaudeRunDispatchResolver extends DaemonTurnBindingResolver {
 }
 
 /**
- * The reads `ClaudeInterventionDispatcher` needs: the session a run is bound to, its live channel
- * and the capabilities its process advertised on `system/init`.
+ * The reads `ClaudeInterventionDispatcher` needs: the session a run is bound to and its live
+ * channel.
  */
 export interface ClaudeRunProcessLookup {
   sessionIdForRun(runId: RunId): SessionId | undefined;
   findProcessForRun(runId: RunId): ClaudeProviderProcess | undefined;
-  advertisedCapabilitiesForRun(runId: RunId): ReadonlySet<string>;
 }
 
 /** The structured fields of a `ClaudeControlRequestRefusedError`. */

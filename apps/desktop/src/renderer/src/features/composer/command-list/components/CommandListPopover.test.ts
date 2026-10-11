@@ -11,7 +11,6 @@ import {
   NOT_RUNNABLE_FRAGMENT,
   TEST_COMMAND_ID,
   activeRow,
-  composerLeadAgentId,
   mountComposer,
   optionNames,
   pressOnList,
@@ -19,7 +18,6 @@ import {
   stepIntoList,
   typeIntoLine,
 } from "./CommandListPopover.test-support.js";
-import { agentPane } from "../../Composer.test-support.js";
 import { bridgeAnswering, type RecordedDaemonCall } from "#test/helpers/fixture/bridge.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { WAITING_FOR_INPUT_SCENARIO } from "#fixtures/scenarios/waiting-for-input.js";
@@ -43,10 +41,7 @@ describe("CommandList — the list activates its active row", () => {
   it("answers a press on a provider row instead of running anything", async () => {
     const counted = registerCountedConsoleCommand();
     const recorded: RecordedDaemonCall[] = [];
-    const mounted = await mountComposer({
-      bridge: recordingBridge(recorded),
-      focusedPane: agentPane(composerLeadAgentId()),
-    });
+    const mounted = await mountComposer({ bridge: recordingBridge(recorded) });
     await typeIntoLine(mounted.line, "/");
     const list = await stepIntoList(mounted);
     // Console entries lead the catalog and their number grows with the palette, so step until the
@@ -64,10 +59,7 @@ describe("CommandList — the list activates its active row", () => {
 
   it("negative control: the same key on the same list runs the console row beside it", async () => {
     const counted = registerCountedConsoleCommand();
-    const mounted = await mountComposer({
-      bridge: recordingBridge([]),
-      focusedPane: agentPane(composerLeadAgentId()),
-    });
+    const mounted = await mountComposer({ bridge: recordingBridge([]) });
     await typeIntoLine(mounted.line, "/");
     const list = await stepIntoList(mounted);
     await pressOnList(list, "ArrowDown");
@@ -87,10 +79,7 @@ describe("CommandList — a row that cannot act", () => {
       const reply = await passThrough();
       return call.method === "driver.listProviderCommands" ? withReviewDisabled(reply) : reply;
     }, WAITING_FOR_INPUT_SCENARIO);
-    const mounted = await mountComposer({
-      bridge,
-      focusedPane: agentPane(composerLeadAgentId()),
-    });
+    const mounted = await mountComposer({ bridge });
     await typeIntoLine(mounted.line, "/");
     const list = await stepIntoList(mounted);
     await stepToFirstProviderRow(mounted, list);
@@ -145,10 +134,7 @@ describe("CommandList — only what runs here is drawn", () => {
       });
       registeredIds.push(commandId);
     }
-    const mounted = await mountComposer({
-      bridge: recordingBridge([]),
-      focusedPane: agentPane(composerLeadAgentId()),
-    });
+    const mounted = await mountComposer({ bridge: recordingBridge([]) });
 
     await typeIntoLine(mounted.line, "/");
 

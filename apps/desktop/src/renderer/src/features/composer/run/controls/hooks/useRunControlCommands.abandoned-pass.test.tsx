@@ -12,7 +12,6 @@ import { describe, expect, it } from "vitest";
 
 import { commandRegistry } from "#renderer/registries/commands/registry.js";
 import { SuspendsWhenAsked, abandonOneRenderPass } from "#test/helpers/abandoned-pass.js";
-import { capabilityReadout } from "../driver-capability-readout.test-support.js";
 import {
   RUN_ID as TARGET_RUN,
   commandRun,
@@ -24,8 +23,6 @@ import { useRunControlCommands } from "./useRunControlCommands.js";
 import { type RunControlDispatchState } from "./useRunControlDispatch.js";
 
 const PAUSE_COMMAND_ID = `runs.pause.${TARGET_RUN}`;
-
-const CAPABLE = capabilityReadout([["claude", []]], [[TARGET_RUN, "claude"]]);
 
 /**
  * The hook under a tree that can re-address and suspend in one transition. The two dispatch
@@ -41,7 +38,6 @@ function ReaddressableRunCommandContributor(props: {
   const input = useMemo<RunControlCommandInput>(
     () => ({
       runs: [commandRun(TARGET_RUN)],
-      driverCapabilities: CAPABLE,
       dispatchState: addressedToAbandoned
         ? props.abandonedDispatchState
         : props.committedDispatchState,

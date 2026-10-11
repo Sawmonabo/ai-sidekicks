@@ -77,7 +77,7 @@ export function recordingRunControlDispatch(): {
     dispatcher,
     records: [],
     inFlightKeys: new Set<string>(),
-    dispatch: (_runId, _control, perform) => {
+    dispatch: (_subject, _control, perform) => {
       void perform(dispatcher);
       return { admitted: true, dispatchToken: "token", settled: Promise.resolve() };
     },

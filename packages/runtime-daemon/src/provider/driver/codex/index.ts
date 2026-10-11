@@ -275,13 +275,14 @@ export class CodexDriver implements ProviderDriver {
 
   /**
    * Each skill Codex lists for the session, by its name and the file it loads it from, which a
-   * person's pick is resolved against.
+   * person's pick is resolved against; read over `workingDirectory` while no conversation is live.
    */
   async readSkillFiles(
     sessionId: SessionId,
     providerAccountId: string | undefined,
+    workingDirectory: string,
   ): Promise<readonly PickedSkill[]> {
-    return await this.#lifecycle.readSkillFiles(sessionId, providerAccountId);
+    return await this.#lifecycle.readSkillFiles(sessionId, providerAccountId, workingDirectory);
   }
 
   /** The id of the service process the session runs on, while the daemon runs it. */

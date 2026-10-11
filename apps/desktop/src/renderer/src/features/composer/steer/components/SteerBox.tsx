@@ -2,8 +2,10 @@
 //
 // All form state sits in one subject-scoped holder keyed by run id, so it re-seeds during the
 // render that first sees a new run and a submit never sends text written for another run. A steer
-// is a queue send, so the form closes once the dispatch recorded under its own token settles; a
-// refused send records nothing, and the form keeps the text and says why.
+// is a queue send, so the form closes once the dispatch recorded under its own token settles on
+// the child's queue. A steer the daemon answers as not delivered keeps the text and reads
+// `Not delivered · Retry` under the box; a refused send records nothing, and the form keeps the
+// text and says why.
 
 import { useCallback, useEffect, useRef } from "react";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
@@ -12,7 +14,8 @@ import { TextBox } from "#renderer/components/TextBox/TextBox.js";
 import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 import { normalizeWireRejection } from "#renderer/lib/wire/rejection.js";
-import { RUN_INTERVENTION_REFUSAL_ORIGIN, admissionRefusal } from "../refusals.js";
+import { STEER_REFUSAL_ORIGIN, admissionRefusal } from "../refusals.js";
+import { NotDeliveredLine } from "../../components/NotDeliveredLine.js";
 import type { RunControlCommandRun } from "../../run/controls/contributions/commands.js";
 import type {
   RunControlDispatcher,
@@ -35,7 +38,7 @@ export interface SteerBoxProps {
   /** The agent the box steers, as the transcript names it: `Steer <name>`. */
   readonly agentName: string;
   readonly dispatchState: RunControlDispatchState;
-  /** Close the box. Raised once the steer is sent. */
+  /** Close the box. Raised once the steer is on the child's queue. */
   readonly onDismiss: () => void;
 }
 
@@ -93,11 +96,13 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
 
   // Read off the record whose id is this form's dispatch token, so another request's
   // settlement is never mistaken for it.
-  const hasLanded =
-    pendingDispatch !== undefined &&
-    pendingDispatch.composedIdentity === composedIdentity &&
-    dispatchState.records.some((record) => record.recordId === pendingDispatch.dispatchToken);
-  const isSending = pendingDispatch !== undefined && !hasLanded;
+  const ownRecord =
+    pendingDispatch !== undefined && pendingDispatch.composedIdentity === composedIdentity
+      ? dispatchState.records.find((record) => record.recordId === pendingDispatch.dispatchToken)
+      : undefined;
+  const isSending = pendingDispatch !== undefined && ownRecord === undefined;
+  const undelivered = ownRecord === undefined ? undefined : readUndeliveredSteer(ownRecord.outcome);
+  const hasLanded = ownRecord !== undefined && undelivered === undefined;
 
   const hasAskedToClose = form.hasAskedToClose;
   useEffect(() => {
@@ -119,7 +124,7 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
         publishForm((held) => ({
           ...held,
           localRefusal: refuse(
-            RUN_INTERVENTION_REFUSAL_ORIGIN,
+            STEER_REFUSAL_ORIGIN,
             "empty-steer",
             "There is nothing to steer with yet. Type what the run should do differently.",
           ),
@@ -132,7 +137,7 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
           { childHandle, content: body },
         );
       // Nothing is recorded unless the dispatch state admitted the call.
-      const admission = dispatchState.dispatch(run.runId, "steer", steer);
+      const admission = dispatchState.dispatch({ runId: run.runId, childHandle }, "steer", steer);
       if (!admission.admitted) {
         publishForm((held) => ({ ...held, localRefusal: admissionRefusal(admission.reason) }));
         return;
@@ -150,7 +155,7 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
             ? {
                 ...held,
                 pendingDispatch: undefined,
-                localRefusal: normalizeWireRejection(RUN_INTERVENTION_REFUSAL_ORIGIN, rejection),
+                localRefusal: normalizeWireRejection(STEER_REFUSAL_ORIGIN, rejection),
               }
             : held,
         );
@@ -188,6 +193,15 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
           attempt={localRefusal}
         />
       )}
+      {ownRecord === undefined || undelivered === undefined ? null : (
+        <NotDeliveredLine
+          failureReason={undelivered.failureReason}
+          attempt={ownRecord}
+          onRetry={() => {
+            formRef.current?.requestSubmit();
+          }}
+        />
+      )}
       <div className="meridian-run-composer__actions">
         <button
           type="submit"
@@ -203,4 +217,18 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
       </div>
     </form>
   );
+}
+
+/**
+ * Why a steer's answer says it was not delivered, or `undefined` for one now on the child's
+ * queue. The daemon gives a reason only with a `not_delivered` answer, so its presence is the test.
+ */
+function readUndeliveredSteer(
+  outcome: RunControlOutcome,
+): { readonly failureReason: string } | undefined {
+  if (outcome.kind !== "queued") {
+    return undefined;
+  }
+  const { notDeliveredReason } = outcome.response;
+  return notDeliveredReason === undefined ? undefined : { failureReason: notDeliveredReason };
 }

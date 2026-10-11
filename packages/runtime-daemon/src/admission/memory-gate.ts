@@ -5,7 +5,8 @@
 // work never stalls on a full machine. A start whose size is an estimate waits 1.5 s after the
 // last such start, so the reading shows the first one's growth before the next is weighed.
 // The gate weighs when an entry joins the line or gives up its reservation, when the spacing
-// ends, and when the caller's tick asks; it never polls.
+// ends, when the caller's tick asks, and once a second while the head waits for memory, so memory
+// another program frees is seen; with nothing waiting no timer runs.
 
 import { totalmem } from "node:os";
 
@@ -20,6 +21,10 @@ const HEADROOM_SHARE = 0.2;
 const HEADROOM_FLOOR_BYTES = 1024 * MEBIBYTE;
 
 const ESTIMATED_START_SPACING_MS = 1_500;
+
+// How often the reading is taken again while the head waits for memory: one read of the system's
+// available memory a second, and none while nothing waits.
+const WAITING_REWEIGH_MS = 1_000;
 
 // Each estimated kind's reservation, as footprint, until a peak is learned on this machine.
 const ESTIMATED_STARTING_BYTES = {
@@ -115,10 +120,13 @@ export interface MemoryAdmission {
   release(): void;
 }
 
-/** The clock the gate times its spacing by: a monotonic now in milliseconds, and a timer. */
+/**
+ * The clock the gate times its waits by: a monotonic now in milliseconds, and a timer whose
+ * returned function cancels it.
+ */
 interface MemoryGateClock {
   now(): number;
-  schedule(callback: () => void, delayMs: number): void;
+  schedule(callback: () => void, delayMs: number): () => void;
 }
 
 /** What the gate reads the machine through; tests replace the reading and the clock. */
@@ -143,7 +151,11 @@ export interface MemoryGate {
 const SYSTEM_CLOCK: MemoryGateClock = {
   now: () => performance.now(),
   schedule: (callback, delayMs) => {
-    setTimeout(callback, delayMs).unref();
+    const timer = setTimeout(callback, delayMs);
+    timer.unref();
+    return () => {
+      clearTimeout(timer);
+    };
   },
 };
 
@@ -169,7 +181,8 @@ export function createMemoryGate(options: MemoryGateOptions): MemoryGate {
   let heldBytes = 0;
   let admittedCount = 0;
   let lastEstimatedStartAt: number | undefined;
-  let isSpacingTimerArmed = false;
+  // The one timer that weighs again while the head waits, and when it falls due.
+  let wake: { readonly dueAt: number; readonly cancel: () => void } | undefined;
 
   const reservationBytes = (work: AdmissionWork): number => {
     switch (work.kind) {
@@ -207,15 +220,20 @@ export function createMemoryGate(options: MemoryGateOptions): MemoryGate {
     }
   };
 
-  const armSpacingTimer = (delayMs: number): void => {
-    if (isSpacingTimerArmed) {
+  // Weighs again in `delayMs`, unless an armed timer falls due sooner.
+  const wakeIn = (delayMs: number): void => {
+    const dueAt = clock.now() + delayMs;
+    if (wake !== undefined && wake.dueAt <= dueAt) {
       return;
     }
-    isSpacingTimerArmed = true;
-    clock.schedule(() => {
-      isSpacingTimerArmed = false;
-      weigh();
-    }, delayMs);
+    wake?.cancel();
+    wake = {
+      dueAt,
+      cancel: clock.schedule(() => {
+        wake = undefined;
+        weigh();
+      }, delayMs),
+    };
   };
 
   const weigh = (): void => {
@@ -225,7 +243,7 @@ export function createMemoryGate(options: MemoryGateOptions): MemoryGate {
       if (isEstimate && lastEstimatedStartAt !== undefined) {
         const spacingLeftMs = lastEstimatedStartAt + ESTIMATED_START_SPACING_MS - clock.now();
         if (spacingLeftMs > 0) {
-          armSpacingTimer(spacingLeftMs);
+          wakeIn(spacingLeftMs);
           return;
         }
       }
@@ -233,6 +251,7 @@ export function createMemoryGate(options: MemoryGateOptions): MemoryGate {
       if (admittedCount > 0) {
         roomBytes ??= readAvailableMemory() - headroomBytes;
         if (bytes > roomBytes - heldBytes) {
+          wakeIn(WAITING_REWEIGH_MS);
           return;
         }
       }
@@ -246,6 +265,9 @@ export function createMemoryGate(options: MemoryGateOptions): MemoryGate {
       admittedCount += 1;
       head.wait.resolve("admitted");
     }
+    // Nothing waits, so nothing needs weighing again.
+    wake?.cancel();
+    wake = undefined;
   };
 
   const freeReservation = (entry: AdmissionEntry): void => {

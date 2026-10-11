@@ -3,7 +3,6 @@
 
 import { describe, expect, it } from "vitest";
 
-import { capabilityReadout } from "../driver-capability-readout.test-support.js";
 import {
   RUN_ID as FIRST_RUN,
   commandRun,
@@ -16,15 +15,12 @@ import {
 } from "./commands.js";
 import { type RunControlDispatchState } from "../hooks/useRunControlDispatch.js";
 
-const CAPABLE = capabilityReadout([["claude", ["steer"]]], [[FIRST_RUN, "claude"]]);
-
 function inputFor(
   runs: readonly RunControlCommandRun[],
   dispatchState: RunControlDispatchState,
 ): RunControlCommandInput {
   return {
     runs,
-    driverCapabilities: CAPABLE,
     dispatchState,
     onRequestSteer: () => undefined,
   };

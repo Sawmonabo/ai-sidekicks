@@ -200,7 +200,7 @@ Payload shape: `{sessionId, queueItemId, state}`, where `state` is `queued` on `
 | `queue_item.admitted` | A queued item has been admitted to execution. Payload: `{sessionId, queueItemId, state, runId}`, `runId` naming the run that took it: the run the message was sent toward, or the next run when that run ended before taking it. An item that reads `not_delivered` because Claude Code did not answer its withdraw in time is admitted the same way when Claude Code then shows it took the message, so the record follows what the agent got. |
 | `queue_item.superseded` | A queued item has been replaced by a newer item. Payload: `{sessionId, queueItemId, state, replacedByQueueItemId}`, `replacedByQueueItemId` naming the item that replaced it. |
 | `queue_item.canceled` | A queued item has been canceled before execution. |
-| `queue_item.not_delivered` | The daemon took a queued item but could not deliver it, and it can be sent again; only a later `queue_item.admitted` follows it, for a message the agent took after all. Payload: `{sessionId, queueItemId, state, notDeliveredReason}`, `notDeliveredReason` being `timed_out` when it waited longer than the daemon's delivery timeout and `failed` when its delivery failed outright. |
+| `queue_item.not_delivered` | The daemon took a queued item but could not deliver it, and it can be sent again; only a later `queue_item.admitted` follows it, for a message the agent took after all. Payload: `{sessionId, queueItemId, state, notDeliveredReason}`, `notDeliveredReason` being `timed_out` when the run it waited for waited longer than the daemon's delivery timeout to start and `failed` when its delivery failed outright. |
 
 #### Intervention Events
 

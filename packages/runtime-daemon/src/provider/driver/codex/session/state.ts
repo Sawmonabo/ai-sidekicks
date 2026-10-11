@@ -88,7 +88,7 @@ export interface CodexTurnMessage {
 }
 
 /** What a turn was sent with, kept so a faster-model retry can send it again, files and all. */
-interface CodexTurnInput {
+export interface CodexTurnInput {
   readonly messages: readonly CodexTurnMessage[];
   readonly clientMessageIds: readonly string[];
   /** The level the turn alone ran at, which a resend of the turn keeps. */
@@ -260,15 +260,30 @@ export function rememberInterruptedRun(
 }
 
 /**
- * Whether a turn runs or is starting on the session, or one Codex started by itself is opening its
- * run, so input the daemon sends would fold into it rather than start a turn of its own. The
- * opening of `openingTurnId` itself does not count, for the run that opening starts.
+ * The turns the daemon stopped whose `turn/completed` has yet to arrive: interrupted, interrupted
+ * for a pause, or stopped for a faster-model retry. Codex runs each until that end.
+ */
+export function endingTurnIds(record: CodexSessionRecord): string[] {
+  return [
+    ...record.interruptedRunIdByTurnId.keys(),
+    ...record.pausedRunIdByInterruptedTurnId.keys(),
+    ...record.delivery.retriedRunIdByTurnId.keys(),
+  ];
+}
+
+/**
+ * Whether a turn runs, is starting or is still ending on the session, or one Codex started by
+ * itself is opening its run or runs on with no run, so input the daemon sends would fold into it
+ * rather than start a turn of its own. The opening of `openingTurnId` itself does not count, for
+ * the run that opening starts.
  */
 export function isTurnInFlight(record: CodexSessionRecord, openingTurnId?: string): boolean {
   const opening = record.delivery.selfStartedTurnOpening;
   return (
     record.runIdByActiveTurnId.size > 0 ||
     record.delivery.startingTurnRunIds.length > 0 ||
+    record.delivery.unownedTurnIds.size > 0 ||
+    endingTurnIds(record).length > 0 ||
     (opening !== undefined && opening.turnId !== openingTurnId)
   );
 }

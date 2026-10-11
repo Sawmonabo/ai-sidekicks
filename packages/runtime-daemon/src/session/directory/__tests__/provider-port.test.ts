@@ -1,7 +1,7 @@
 // The session directory's provider port over a real database: a resume a driver started on its
 // own is recorded, so the daemon's next restart of the session resumes the conversation that
 // resume opened, and the one it left is recorded for the purge; a restart resumes in the mode the
-// session was last moved to.
+// session was last moved to; the folder a session's runs work in reads before its first run.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -111,5 +111,43 @@ describe("a restart of a session left in Plan", () => {
     ]);
 
     expect(openPort().resolveRestartTarget(SESSION_ID)?.params.mode).toBe("plan");
+  });
+});
+
+describe("the folder a session's runs work in", () => {
+  it("is the folder its workspace was bound to until a run prepares its root", async () => {
+    await log.createSession(SESSION_ID, "chat");
+    const now = "2026-10-11T12:00:00.000Z";
+    const database = log.scratch.writer;
+    await database.write([
+      {
+        sql: `INSERT INTO projects (id, name, slug, folder_path, state, setup, created_at, updated_at)
+              VALUES ('project-1', 'repo', 'repo', '/repo', 'active', '{}', ?, ?)`,
+        bindings: [now, now],
+      },
+      {
+        sql: `INSERT INTO repo_mounts
+                (id, node_id, local_path, canonical_root, project_id, attached_at, updated_at)
+              VALUES ('mount-1', 'node-1', '/repo', '/repo', 'project-1', ?, ?)`,
+        bindings: [now, now],
+      },
+      // As a bind writes it: no root yet, the bound folder and its checkout in the metadata.
+      {
+        sql: `INSERT INTO workspaces (id, session_id, repo_mount_id, execution_mode, fs_root, state,
+                                      metadata, created_at, updated_at)
+              VALUES ('workspace-1', ?, 'mount-1', 'bound-root', NULL, 'preparing',
+                      json_object('boundRoot', '/repo/app', 'checkoutRoot', '/repo'), ?, ?)`,
+        bindings: [SESSION_ID, now, now],
+      },
+    ]);
+    const port = openPort();
+
+    expect(port.requireRunFolder(SESSION_ID)).toBe("/repo/app");
+
+    // A worktree the run prepared is where it works from then on.
+    await database.write([
+      { sql: `UPDATE workspaces SET fs_root = '/worktrees/app', state = 'ready'`, bindings: [] },
+    ]);
+    expect(port.requireRunFolder(SESSION_ID)).toBe("/worktrees/app");
   });
 });

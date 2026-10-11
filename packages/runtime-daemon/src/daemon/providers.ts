@@ -14,7 +14,7 @@ import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { createMemoryGate } from "../admission/memory-gate.js";
-import { selectProcessPeakReader } from "../admission/process-peak/selector.js";
+import type { ProcessPeakReader } from "../admission/process-peak/contract.js";
 import type { DatabaseConnections } from "../database/connection/lifecycle.js";
 import { describeRejection } from "../rejection.js";
 import type { GitRunner } from "../git/process.js";
@@ -136,6 +136,8 @@ interface SessionDirectoryPort {
   readonly composeOpening: SessionDirectoryProviderPort["composeOpening"];
   /** The session's newest binding with a conversation to resume. */
   readonly readSessionLeg: SessionDirectoryProviderPort["readSessionLeg"];
+  /** The folder the session's runs work in, which a skill pick is read against. */
+  readonly requireRunFolder: SessionDirectoryProviderPort["requireRunFolder"];
 }
 
 /** The run queue's reads and calls that the drivers make. */
@@ -224,6 +226,8 @@ interface DaemonProvidersContext {
   readonly providerBaseEnvironment: readonly SpawnEnvPair[];
   /** The operating system the daemon runs on, which each driver reads its system facts from. */
   readonly operatingSystem: ProviderOperatingSystem;
+  /** The memory gate's read of a provider process's peak. */
+  readonly processPeakReader: ProcessPeakReader;
   readonly writeServiceLog: (line: string) => void;
 }
 
@@ -493,26 +497,6 @@ export class DaemonProviders {
       providerRegistry,
       resolveDriverForRun: (runId) => liveRunBindings.resolveDriverForRun(runId),
     };
-    const interventions = new InterventionService({
-      runs,
-      interventions: new InterventionReader(database.reader),
-      sessionEvents,
-      resolveDriver: (runId) => resolveDriverForRunOrThrow(runDispatch, runId).driver,
-      retryOnFasterModel: async (request) => {
-        const run = runs.getRun(request.targetRunId);
-        if (run === undefined) {
-          throw new RunNotFoundError(request.targetRunId);
-        }
-        const { driver } = resolveDriverForRunOrThrow(runDispatch, request.targetRunId);
-        return await driver.retryTurnOnFasterModel({
-          sessionId: run.sessionId,
-          runId: request.targetRunId,
-          expectedTurnId: request.expectedTurnId,
-          model: request.model,
-        });
-      },
-      runEngine,
-    });
     const resolveSessionAccess = (sessionId: SessionId): boolean =>
       sessionDirectory.requirePort().resolveSessionAccess(sessionId);
     const sessionDrivers = {
@@ -538,16 +522,19 @@ export class DaemonProviders {
         readSessionMode: (sessionId) => readSessionMode(database.reader, sessionId),
       }),
       sessions: sessionDrivers,
-      memoryGate: createMemoryGate({ peakReader: selectProcessPeakReader(process.platform) }),
+      memoryGate: createMemoryGate({ peakReader: context.processPeakReader }),
       startsCodexAccountService: async (sessionId) =>
         await drivers.codex.startsAccountService(
           sessionDirectory.requirePort().readLeadBinding(sessionId)?.providerAccountId ?? undefined,
         ),
-      readCodexSkillFiles: async (sessionId) =>
-        await drivers.codex.readSkillFiles(
+      readCodexSkillFiles: async (sessionId) => {
+        const port = sessionDirectory.requirePort();
+        return await drivers.codex.readSkillFiles(
           sessionId,
-          sessionDirectory.requirePort().readLeadBinding(sessionId)?.providerAccountId ?? undefined,
-        ),
+          port.readLeadBinding(sessionId)?.providerAccountId ?? undefined,
+          port.requireRunFolder(sessionId),
+        );
+      },
       readProviderProcessId: (sessionId) => {
         const driverName = sessionDrivers.resolveDriverForSession(sessionId);
         return driverName === undefined ? undefined : drivers[driverName].readProcessId(sessionId);
@@ -555,6 +542,27 @@ export class DaemonProviders {
       writeServiceLog,
     });
     this.#queue = queue;
+    const interventions = new InterventionService({
+      runs,
+      interventions: new InterventionReader(database.reader),
+      sessionEvents,
+      resolveDriver: (runId) => resolveDriverForRunOrThrow(runDispatch, runId).driver,
+      retryOnFasterModel: async (request) => {
+        const run = runs.getRun(request.targetRunId);
+        if (run === undefined) {
+          throw new RunNotFoundError(request.targetRunId);
+        }
+        const { driver } = resolveDriverForRunOrThrow(runDispatch, request.targetRunId);
+        return await driver.retryTurnOnFasterModel({
+          sessionId: run.sessionId,
+          runId: request.targetRunId,
+          expectedTurnId: request.expectedTurnId,
+          model: request.model,
+        });
+      },
+      runEngine,
+      queue,
+    });
     // A session whose events could not all be read has its waiting messages read again.
     this.#detachRunFollowers = sessionEvents.followAll(
       (event) => {

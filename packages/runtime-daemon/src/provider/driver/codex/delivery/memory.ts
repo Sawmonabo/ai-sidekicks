@@ -129,6 +129,11 @@ export interface CodexDeliveryMemory {
   selfStartedTurnOpening: CodexSelfStartedTurnOpening | undefined;
   /** Turns Codex started by itself whose run did not open: no run takes them. */
   readonly unownedTurnIds: Set<string>;
+  /**
+   * Every turn Codex started by itself, until its terminal: a turn sent while one whose run opened
+   * still runs would fold into it.
+   */
+  readonly selfStartedTurnIds: Set<string>;
   readonly reorderBuffer: NormalizedEventReorderBuffer<CodexRowDelivery>;
   /** The replies, reasoning and plans being streamed, by item id, sent as stored pieces. */
   readonly streamedText: StreamedText;
@@ -156,6 +161,7 @@ export function createCodexDeliveryMemory(
     runningCommandByItemId: new Map(),
     selfStartedTurnOpening: undefined,
     unownedTurnIds: new Set(),
+    selfStartedTurnIds: new Set(),
     reorderBuffer: new NormalizedEventReorderBuffer<CodexRowDelivery>({
       provider: CODEX_DRIVER_NAME,
       diagnostics,
@@ -194,6 +200,7 @@ export function forgetTurn(memory: CodexDeliveryMemory, turnId: string): void {
   memory.replyStartedTurnIds.delete(turnId);
   memory.itemStartedAtMsByTurnId.delete(turnId);
   memory.unownedTurnIds.delete(turnId);
+  memory.selfStartedTurnIds.delete(turnId);
 }
 
 /**

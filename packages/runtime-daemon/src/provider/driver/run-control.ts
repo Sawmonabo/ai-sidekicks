@@ -13,6 +13,20 @@ import type { QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 /**
+ * Thrown by a driver's steer that was not sent because the turn it was handed for had ended
+ * first: nothing reached the provider, and the message is left for the run's next turn.
+ */
+export class SteerTurnEndedError extends Error {
+  readonly runId: RunId;
+
+  constructor(runId: RunId) {
+    super(`The turn of run ${runId} ended before the steer was sent.`);
+    this.name = "SteerTurnEndedError";
+    this.runId = runId;
+  }
+}
+
+/**
  * Params of `pauseRun`: the lead run or a provider subagent's child run to stop after the step in
  * flight. The caller has moved the run to `pausing`; the driver reports `paused` once nothing runs.
  */
@@ -120,8 +134,8 @@ export interface DaemonTurnBinding {
 }
 
 /**
- * The daemon-owned facts the Claude driver's `startRun` needs that `StartRunParams` lacks, which the
- * run queue serves. `messageId` is the person's message the opening text is, a UUID, stamped on
+ * The daemon-owned facts the Claude driver's `startRun` needs that `StartRunParams` lacks, which
+ * the run queue serves. `messageId` is the person's message the opening text is, a UUID, stamped on
  * the user frame so a later cut can name it.
  */
 export interface ClaudeRunDispatch {

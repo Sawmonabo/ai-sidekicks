@@ -22,13 +22,13 @@ export const QUEUE_CREATED: Readonly<Record<string, unknown>> = {
 
 /** A composer addressed to the session. */
 export const SESSION_TARGET: ComposerSessionTarget = {
-  path: "session-message",
+  kind: "session",
   sessionId: SESSION_ID,
 };
 
 /** A composer bound to a running agent, whose message waits for the agent's next step. */
 export const RUN_TARGET: ComposerRunTarget = {
-  path: "provider-bound",
+  kind: "run",
   sessionId: SESSION_ID,
   agentId: "agent-implementer",
   driverName: "claude",

@@ -1,9 +1,9 @@
 // The steer form: a body typed for one run is never sent to or cleared by another, a dispatch
-// is recorded only where the dispatch state admitted it, and the text survives a refusal and
-// reaches the child's queue as typed.
+// is recorded only where the dispatch state admitted it, the text survives a refusal and a failed
+// delivery, and it reaches the child's queue as typed.
 
 import { useLayoutEffect, useState } from "react";
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { SteerBox } from "./SteerBox.js";
 import { useRunControlDispatch } from "../../run/controls/hooks/useRunControlDispatch.js";
@@ -282,6 +282,39 @@ describe("the composer outlives its dispatch", () => {
     expect(container.querySelector(".meridian-refusal")?.textContent).toContain(
       "The child has ended.",
     );
+  });
+});
+
+describe("a steer the background service could not deliver", () => {
+  it("reads Not delivered · Retry, and Retry sends the same text again", async () => {
+    // Negative control: the second answer is queued, and that one closes the box.
+    let answers = 0;
+    const undeliveredThenQueued: ScriptedAnswer = () => {
+      answers += 1;
+      return answers === 1
+        ? { ...QUEUED_STEER_RESPONSE, state: "not_delivered", notDeliveredReason: "failed" }
+        : QUEUED_STEER_RESPONSE;
+    };
+    const { container, calls, dismissCount } = renderSteerBox(undeliveredThenQueued);
+    typeInto(steerField(container), "stop editing that file");
+    await submit(container);
+    expect(dismissCount()).toBe(0);
+    expect(bodyValue(container)).toBe("stop editing that file");
+    const line = container.querySelector(".meridian-composer__not-delivered");
+    expect(line?.textContent).toBe("Not delivered · Retry");
+    // The line carries the daemon's reason, not the answer's state.
+    expect(line?.getAttribute("data-refusal-code")).toBe("failed");
+
+    const retry = within(container).getByRole("button", { name: "Retry" });
+    await act(async () => {
+      retry.click();
+    });
+    expect(calls).toHaveLength(2);
+    expect(calls[1]?.params).toMatchObject({
+      childHandle: STEERED_CHILD_HANDLE,
+      content: "stop editing that file",
+    });
+    expect(dismissCount()).toBe(1);
   });
 });
 

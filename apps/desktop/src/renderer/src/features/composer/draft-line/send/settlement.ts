@@ -1,11 +1,12 @@
 // Which act a settlement belongs to, so one target's result is never shown under another.
-// A settlement carries the identity captured where the act was issued: the composer address
-// (the draft key), the visit to it, the operation, and a monotonic attempt id.
+// A settlement carries the identity captured where the act was issued: the session's draft key,
+// the visit to it, the operation, and a monotonic attempt id.
 //
 // The visit is needed because a composer routed away and back is at the same key on two
 // visits: keyed alone, a returning visit's Send would find a latch held by a call it cannot
 // see, and a stale send would clear a draft typed later. A stale settlement is discarded, not
-// parked, so re-addressing back never resurrects a refusal that reads as current minutes later.
+// parked, so coming back to a session never resurrects a refusal that reads as current minutes
+// later.
 
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
 
@@ -15,11 +16,11 @@ const COMPOSER_SEND_OPERATIONS = ["send"] as const;
 /** One such act. */
 export type ComposerSendOperation = (typeof COMPOSER_SEND_OPERATIONS)[number];
 
-/** Which act a settlement belongs to: the address, the visit, the operation, and the attempt. */
+/** Which act a settlement belongs to: the draft key, the visit, the operation, and the attempt. */
 export interface ComposerSettlementIdentity {
-  /** The composer address the act was issued under: `composerDraftKey`'s value. */
+  /** The session draft the act was sent from: `composerDraftKey`'s value. */
   readonly draftKey: string;
-  /** Which stay at the address, monotonic within one mounted composer; advanced on re-seed. */
+  /** Which stay at the draft key, monotonic within one mounted composer; advanced on re-seed. */
   readonly visit: number;
   readonly operation: ComposerSendOperation;
   /** Monotonic within one mounted composer. Never reused, never compared across hooks. */
@@ -42,7 +43,7 @@ export type ComposerRefusalsByOperation = Readonly<
  * The visit frees a returning visit's latch from a call still traveling for the earlier one.
  * The separator is never parsed back; keys address one window's `Map`.
  */
-export function addressedOperationKey(
+export function visitOperationKey(
   draftKey: string,
   visit: number,
   operation: ComposerSendOperation,
@@ -51,20 +52,20 @@ export function addressedOperationKey(
 }
 
 /**
- * The attempt register narrowed to one address, dropping every retired key. Nothing else
+ * The attempt register narrowed to one visit, dropping every retired key. Nothing else
  * removes keys, so the register would grow per dispatched act; keys of another visit or
- * target are dead once the composer re-addresses. Built by enumerating the operations
- * through `addressedOperationKey`, not by prefix or split, so it cannot disagree with it.
+ * session are dead once the composer moves. Built by enumerating the operations
+ * through `visitOperationKey`, not by prefix or split, so it cannot disagree with it.
  * Returns a fresh record.
  */
-export function attemptIdsAtAddress(
+export function attemptIdsAtVisit(
   newestAttemptIdByKey: Readonly<Record<string, number>>,
   draftKey: string,
   visit: number,
 ): Record<string, number> {
   const retained: Record<string, number> = {};
   for (const operation of COMPOSER_SEND_OPERATIONS) {
-    const key = addressedOperationKey(draftKey, visit, operation);
+    const key = visitOperationKey(draftKey, visit, operation);
     const attemptId = newestAttemptIdByKey[key];
     if (attemptId !== undefined) {
       retained[key] = attemptId;
@@ -81,8 +82,8 @@ export const NO_COMPOSER_REFUSALS: ComposerRefusalsByOperation = Object.freeze({
 /**
  * Whether this settlement may still be written. It is stale when issued at another visit
  * (a different target, or an earlier pass at the same one) or superseded by a later attempt
- * of the same operation at this visit. The register is keyed per address, so a send at one
- * address never retires another's attempt.
+ * of the same operation at this visit. The register is keyed per visit, so a send from one
+ * session never retires another's attempt.
  */
 export function isSettlementCurrent(
   identity: ComposerSettlementIdentity,
@@ -90,7 +91,7 @@ export function isSettlementCurrent(
   currentVisit: number,
   newestAttemptIdByKey: Readonly<Record<string, number>>,
 ): boolean {
-  const key = addressedOperationKey(identity.draftKey, identity.visit, identity.operation);
+  const key = visitOperationKey(identity.draftKey, identity.visit, identity.operation);
   return (
     identity.draftKey === currentDraftKey &&
     identity.visit === currentVisit &&
@@ -111,7 +112,7 @@ export function withSettledRefusal(
 }
 
 /**
- * The refusal the bar renders, or `undefined`. There is no address guard here on purpose: the
+ * The refusal the bar renders, or `undefined`. There is no draft-key guard here on purpose: the
  * refusals live in `useSubjectScopedState` under `(bridge, draftKey)`, which re-seeds on the
  * render that first sees a new subject.
  */

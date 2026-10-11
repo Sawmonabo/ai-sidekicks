@@ -175,15 +175,21 @@ export class CodexSessionSlots {
     return record;
   }
 
-  /** The live turn a steer, interrupt or pause acts on. Throws `CodexTransportError` with none. */
-  requireActiveTurn(runId: RunId): { record: CodexSessionRecord; turnId: string } {
+  /** The live turn a steer, interrupt or pause acts on, or `undefined` when the run has none. */
+  findActiveTurn(runId: RunId): { record: CodexSessionRecord; turnId: string } | undefined {
     const sessionId = this.#runRoutes.sessionIdFor(runId);
     const record = sessionId === undefined ? undefined : this.#records.get(sessionId);
     const turnId = record === undefined ? undefined : newestActiveTurnForRun(record, runId);
-    if (record === undefined || turnId === undefined) {
+    return record === undefined || turnId === undefined ? undefined : { record, turnId };
+  }
+
+  /** The live turn an interrupt or pause acts on. Throws `CodexTransportError` with none. */
+  requireActiveTurn(runId: RunId): { record: CodexSessionRecord; turnId: string } {
+    const active = this.findActiveTurn(runId);
+    if (active === undefined) {
       throw new CodexTransportError(`No active Codex turn for run "${runId}".`, { runId });
     }
-    return { record, turnId };
+    return active;
   }
 
   /** The intended-close gate, which stamps `intendedClose` on a terminal; read live. */
