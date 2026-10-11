@@ -332,6 +332,8 @@ Every refusal point of the workflow surface carries its own code, registered in 
 | `workflow.secret_not_found` | A secret reference the keychain does not hold. `data.fields`: `reference` only. It reads `not on this machine` for a shared secret, `not in <project>` for a project secret, and `This run has no repository` for a project secret on a run that works in no project's repository. The step offers `Retry from this step` | 404 |
 | `workflow.secret_store_unavailable` | The keychain is locked or unavailable. `data.fields.cause`: `locked` \| `unavailable`. The step fails with its cause and offers `Retry from this step`; it never waits indefinitely and never falls back to a plaintext value | 503 |
 
+One code outside `workflow.*` fails a step: a step whose agent cannot be resolved fails with `agent.resolution_refused`, carrying that refusal's own `reason`; its `data.fields` are that refusal's own (listed under [Agent Definitions](#agent-definitions)), except that `definitionId` is `null` for a step running the General agent. The case [Spec-025 §The account registry](../../specs/025-provider-accounts-and-credential-homes.md#the-account-registry) settles is a step's park on a spent account racing that account's removal: where the removal commits first, the step fails with reason `account_unavailable`. No other `agent.*` code rides a step's `error`.
+
 No code names a refused cancellation **of a parked run**, because a parked run is cancelable without precondition; cancel and resume check only the run's state. A park itself is a state transition rather than a caller-visible refusal.
 
 ### Driver
