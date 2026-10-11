@@ -2,12 +2,11 @@
 // edge. `SessionPaneLayout.tsx` decides which panes exist, their order and focus; this file answers
 // what is drawn for a single pane, including when nothing is registered for its kind.
 
-import { memo, useCallback, useMemo, useRef } from "react";
+import { memo, useCallback, useId, useMemo, useRef } from "react";
 
 import { type Refusal } from "#renderer/lib/refusal/contract.js";
 import { rootFontSizePx } from "#renderer/lib/root-font-size.js";
 import { PaneControlsContext, type PaneControls } from "#renderer/components/PaneFrame/controls.js";
-import { TITLE_BY_PANE_KIND } from "#renderer/components/PaneFrame/PaneFrame.js";
 import { type PaneContext } from "#renderer/registries/panes/context.js";
 import { type PaneRegistry } from "#renderer/registries/panes/registry.js";
 import type { BlockPaneKind } from "#renderer/routing/panes/kinds.js";
@@ -84,8 +83,10 @@ export const SessionPaneSlot: React.NamedExoticComponent<SessionPaneSlotProps> =
       [registerItem],
     );
 
+    const titleId = useId();
     const controls = useMemo<PaneControls>(
       () => ({
+        titleId,
         onClose: () => {
           onClose(pane.paneId);
         },
@@ -110,6 +111,7 @@ export const SessionPaneSlot: React.NamedExoticComponent<SessionPaneSlotProps> =
         props.registerDragHandle,
         rule.isResizable,
         isFullWidth,
+        titleId,
       ],
     );
 
@@ -150,7 +152,6 @@ export const SessionPaneSlot: React.NamedExoticComponent<SessionPaneSlotProps> =
     if (descriptor === undefined) {
       throw new Error(`no body is registered for the ${pane.kind} pane kind`);
     }
-    const title = TITLE_BY_PANE_KIND[pane.kind];
     const hasWidthEdge = rule.isResizable && props.placement !== "terminal-stacked";
     const style: PaneSlotStyle =
       props.placement === "terminal-stacked"
@@ -180,7 +181,7 @@ export const SessionPaneSlot: React.NamedExoticComponent<SessionPaneSlotProps> =
         </PaneControlsContext.Provider>
         {hasWidthEdge ? (
           <PaneEdge
-            label={`Resize the ${title} pane`}
+            labelledBy={titleId}
             growKey={props.side === "right" ? "ArrowLeft" : "ArrowRight"}
             measure={measureWidth}
             onPreview={previewWidth}
@@ -190,7 +191,7 @@ export const SessionPaneSlot: React.NamedExoticComponent<SessionPaneSlotProps> =
         ) : null}
         {props.placement === "terminal-stacked" ? (
           <PaneEdge
-            label={`Resize the ${title} pane's height`}
+            labelledBy={titleId}
             growKey={props.terminalPlace === "below" ? "ArrowUp" : "ArrowDown"}
             measure={props.measureTerminalHeight}
             onPreview={props.previewTerminalHeight}

@@ -110,6 +110,7 @@ export function PaneFrame(props: PaneFrameProps): React.JSX.Element {
         <PaneBreadcrumb
           crumbsId={headingId}
           currentCrumb={title}
+          currentCrumbId={hostControls?.titleId}
           sessionId={props.sessionId}
           runId={props.runId}
           entity={props.entity}
