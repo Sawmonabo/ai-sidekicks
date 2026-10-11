@@ -112,17 +112,18 @@ export class AnsiSpanParser {
   #parsed: ParsedText | undefined;
 
   /**
-   * The spans `text` settles past what earlier reads settled, and its tail. The parsed part is kept
-   * while `text` is the handle last read and still begins with it (and with the `ESC [` it ends
-   * before); a different handle or a rewrite below that parses from the start.
+   * The spans `text` settles up to `end` past what earlier reads settled, and its tail there; `end`
+   * is the text's length or a line end, so a long text is read a piece at a time. The parsed part
+   * is kept while `text` is the handle last read and still begins with it (and with the `ESC [` it
+   * ends before); a different handle or a rewrite below that parses from the start.
    */
-  public read(text: PublishedText): AnsiSpanRead {
+  public read(text: PublishedText, end: number): AnsiSpanRead {
     const restarted = !this.#continues(text);
     if (restarted) {
       this.#reset();
     }
     const parsedLength = this.#parsed?.length ?? 0;
-    const unparsed = text.slice(parsedLength);
+    const unparsed = text.slice(parsedLength, end);
     const settledSpans: AnsiSpan[] = [];
     const firstRunStart = unparsed.indexOf(CONTROL_SEQUENCE_INTRODUCER);
     let parsedThrough: number;
@@ -169,6 +170,11 @@ export class AnsiSpanParser {
     }
     this.#parsed = { text, revision: text.revision, length: parsedLength + parsedThrough };
     return { restarted, settledSpans, tailSpans };
+  }
+
+  /** Where a read of `text` starts: past the parsed part while it still stands, else at 0. */
+  public parsedLengthOf(text: PublishedText): number {
+    return this.#continues(text) ? (this.#parsed?.length ?? 0) : 0;
   }
 
   /**

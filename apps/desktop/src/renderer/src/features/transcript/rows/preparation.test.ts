@@ -15,6 +15,7 @@ import { typesetterLoadFor } from "#renderer/components/Markdown/typesetter/load
 import { userMessageRow } from "../event-rows.test-support.js";
 import { transcriptReadRowAt } from "../logs.test-support.js";
 import { RevealTextRope } from "../reveal/text-rope.js";
+import { PreparedAnsiOutputs } from "./ansi/preparation.js";
 import { prepareTranscriptRow } from "./preparation.js";
 import { OffListTables } from "./markdown/table-window/off-list.js";
 import { type TranscriptRowSources } from "./renderer.js";
@@ -36,6 +37,7 @@ function sourcesWith(
     ownerWindow: window,
     diagramPictures: pictures,
     offListTables: new OffListTables(document, () => undefined),
+    preparedOutputs: new PreparedAnsiOutputs(),
   };
 }
 

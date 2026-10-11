@@ -177,10 +177,9 @@ function renderBodyText(
   liveByteLength: number | undefined,
 ): React.JSX.Element {
   if (kind === "command-output") {
-    // Read through the handle: the block parses only the text past what it already parsed.
+    // The row's preparation parsed the text, past what it already parsed, for the block to draw.
     return (
       <AnsiOutput
-        publishedText={drawnText}
         label={props.label}
         rowKey={props.sourceId}
         opening={props.opening}

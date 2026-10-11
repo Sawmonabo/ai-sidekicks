@@ -9,6 +9,8 @@ import { useState } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { applyAppearance, installMeridianTokens } from "#renderer/app/token-installation.js";
+import { PreparedAnsiOutputsContext } from "#renderer/features/transcript/rows/ansi/preparation.js";
+import { prepareOutputForTest } from "#renderer/features/transcript/rows/ansi/preparation.test-support.js";
 import { OUTPUT_CUT_FLOW_SHARE } from "#renderer/features/transcript/rows/bodies/hooks/useOutputHeightCut.js";
 import { type OutputOpening } from "#renderer/features/transcript/rows/bodies/OutputHeightCut.js";
 import { ToolOutput } from "#renderer/features/transcript/rows/bodies/ToolOutput.js";
@@ -97,6 +99,9 @@ function isLineSeen(box: HTMLElement, line: number): boolean {
   return lineRect.top >= edges.top - 0.5 && lineRect.bottom <= edges.bottom + 0.5;
 }
 
+/** The row every held call's output belongs to. */
+const HELD_CALL_ROW_KEY = "call";
+
 /** A call's output whose opening the case holds, as the feed does, so a press repaints it. */
 function HeldToolOutput(props: {
   readonly body: string;
@@ -113,7 +118,7 @@ function HeldToolOutput(props: {
     <ToolOutput
       content={{ status: "available", body: props.body }}
       {...(props.liveText === undefined ? {} : { liveText: props.liveText })}
-      sourceId="call"
+      sourceId={HELD_CALL_ROW_KEY}
       footnotes={new FootnoteRegistry()}
       label="Output"
       opening={opening}
@@ -162,15 +167,16 @@ describe("a call's output cut at the visible flow", () => {
       { length: PRINTED_LINE_COUNT },
       (_line, index) => `${ESCAPE}[32mok${ESCAPE}[39m line ${String(index + 1)}`,
     ).join("\n");
+    const prepared = prepareOutputForTest(HELD_CALL_ROW_KEY, coloredOutput);
     const { container } = renderInScroller(
-      <>
+      <PreparedAnsiOutputsContext value={prepared.outputs}>
         <div data-call="colored">
           <HeldToolOutput body={coloredOutput} />
         </div>
         <div data-call="plain">
           <HeldToolOutput body={printedLines(PRINTED_LINE_COUNT)} />
         </div>
-      </>,
+      </PreparedAnsiOutputsContext>,
     );
     await settleFrames();
     const colored = drawnElement(container, ".meridian-ansi__body");

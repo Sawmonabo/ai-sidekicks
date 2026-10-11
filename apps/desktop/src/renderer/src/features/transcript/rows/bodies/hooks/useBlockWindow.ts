@@ -8,6 +8,7 @@ import {
   useSyncExternalStore,
 } from "react";
 
+import { useStopObservingRemovedItems } from "#renderer/hooks/useStopObservingRemovedItems.js";
 import { type MarkdownBodyBlocksSnapshot } from "../../markdown/body-blocks.js";
 import { type MarkdownWindowViewport } from "../../markdown/block-window/context.js";
 import {
@@ -114,6 +115,7 @@ export function useBlockWindow(
     directDomUpdates: true,
   });
   virtualizer.shouldAdjustScrollPositionOnItemSizeChange = layout.holdPlaceThroughResizedBlock;
+  useStopObservingRemovedItems(virtualizer);
 
   useEffect(() => {
     layout.bindVirtualizer(virtualizer);

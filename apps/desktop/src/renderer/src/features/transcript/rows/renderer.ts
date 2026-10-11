@@ -13,6 +13,7 @@ import { type DiagramPictures } from "#renderer/components/Markdown/diagram/pict
 import { type AgentHueAssignment } from "#renderer/styles/agent-hue.js";
 import { SingleEntryRegistry } from "#renderer/lib/single-entry-registry.js";
 import { type PublishedText } from "../reveal/published-text.js";
+import { type PreparedAnsiOutputs } from "./ansi/preparation.js";
 import { type OffListTables } from "./markdown/table-window/off-list.js";
 
 /**
@@ -63,8 +64,9 @@ export interface TranscriptRowRenderer {
   readonly drawsBody: (row: TranscriptEventRow) => boolean;
   /**
    * Starts the work a row's first frame waits on that is not done yet, such as a finished
-   * diagram's picture, so the feed lists the row only once it draws whole and keeps the rest of
-   * the window ready to scroll to. `undefined` for a row that never waits on anything.
+   * diagram's picture or a long command output's parse, so the feed lists the row only once it
+   * draws whole and keeps the rest of the window ready to scroll to. `undefined` for a row that
+   * never waits on anything.
    */
   readonly prepareRow: TranscriptRowPreparer;
 }
@@ -79,6 +81,8 @@ export interface TranscriptRowSources {
   readonly diagramPictures: DiagramPictures | undefined;
   /** Where a row's long tables are measured before it is listed. */
   readonly offListTables: OffListTables;
+  /** Where a row's command output is parsed before it is listed, and drawn from after. */
+  readonly preparedOutputs: PreparedAnsiOutputs;
 }
 
 /** The work one row's first frame waits on, kept while the window holds the row. */

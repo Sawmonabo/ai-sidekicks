@@ -29,6 +29,7 @@ import { useFullBodyReads } from "../hooks/useFullBodyReads.js";
 import { FullBodyReadsContext } from "../../rows/full-body-reads.js";
 import { OffListTableFrames } from "../../rows/bodies/OffListTableFrames.js";
 import { ListedBodiesContext } from "../../rows/markdown/table-window/context.js";
+import { PreparedAnsiOutputsContext } from "../../rows/ansi/preparation.js";
 import { DrawnWindowSourcesContext } from "../../rows/drawn-window-sources.js";
 import {
   useDependentReadFailed,
@@ -294,24 +295,26 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
           <RowRevealProvider channel={revealChannel}>
             <FullBodyReadsContext value={fullBodyReads}>
               <ListedBodiesContext value={windows.offListTables}>
-                <DrawnWindowSourcesContext value={windows.drawnWindowSources}>
-                  <TranscriptViewport
-                    binding={viewport}
-                    renderRow={renderRow}
-                    feedLabel={props.feedLabel}
-                    firstReadSettled={windows.firstReadSettled}
-                    isShown={isDrawable}
-                    hasActiveTurn={transcriptWindow.liveRunIds.size > 0}
-                    earlierHistoryControl={
-                      history === undefined ? undefined : (
-                        <LoadEarlier
-                          history={history}
-                          isLinkedMessageMissing={windows.messageReadBack === "not-in-history"}
-                        />
-                      )
-                    }
-                  />
-                </DrawnWindowSourcesContext>
+                <PreparedAnsiOutputsContext value={windows.preparedOutputs}>
+                  <DrawnWindowSourcesContext value={windows.drawnWindowSources}>
+                    <TranscriptViewport
+                      binding={viewport}
+                      renderRow={renderRow}
+                      feedLabel={props.feedLabel}
+                      firstReadSettled={windows.firstReadSettled}
+                      isShown={isDrawable}
+                      hasActiveTurn={transcriptWindow.liveRunIds.size > 0}
+                      earlierHistoryControl={
+                        history === undefined ? undefined : (
+                          <LoadEarlier
+                            history={history}
+                            isLinkedMessageMissing={windows.messageReadBack === "not-in-history"}
+                          />
+                        )
+                      }
+                    />
+                  </DrawnWindowSourcesContext>
+                </PreparedAnsiOutputsContext>
               </ListedBodiesContext>
             </FullBodyReadsContext>
           </RowRevealProvider>

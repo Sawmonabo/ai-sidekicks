@@ -7,6 +7,7 @@ import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { CONTROLLER_DISPOSAL } from "#renderer/lib/subject-scoped/disposal.js";
 import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
 import { type RowRevealContextValue } from "../../reveal/components/RowRevealProvider.js";
+import { type PreparedAnsiOutputs } from "../../rows/ansi/preparation.js";
 import { type OffListTables } from "../../rows/markdown/table-window/off-list.js";
 import { type TranscriptRowPreparer, type TranscriptRowSources } from "../../rows/renderer.js";
 import { type TranscriptWindowModel } from "../../window/transcript-window.js";
@@ -22,13 +23,15 @@ export interface PreparedRowsBinding
  * Hold each drawn row out of the window until it draws whole, and keep the listed rows ready to
  * scroll to, reading a row's live text through the reveal channel its body reads. One gate per
  * session, disposed with the feed, so a held row of one log never waits in another's. A held row's
- * long tables are measured in `offListTables`.
+ * long tables are measured in `offListTables`, and its command output is parsed into
+ * `preparedOutputs`.
  */
 export function usePreparedRows(
   model: TranscriptWindowModel,
   prepareRow: TranscriptRowPreparer,
   revealChannel: RowRevealContextValue,
   offListTables: OffListTables,
+  preparedOutputs: PreparedAnsiOutputs,
   sessionId: string,
 ): PreparedRowsBinding {
   const bridge = usePlatformBridge();
@@ -38,8 +41,8 @@ export function usePreparedRows(
   const diagramPictures = useContext(DiagramPicturesContext);
   const publishedTextFor = revealChannel.publishedTextFor;
   const sources = useMemo<TranscriptRowSources>(
-    () => ({ publishedTextFor, ownerWindow, diagramPictures, offListTables }),
-    [publishedTextFor, ownerWindow, diagramPictures, offListTables],
+    () => ({ publishedTextFor, ownerWindow, diagramPictures, offListTables, preparedOutputs }),
+    [publishedTextFor, ownerWindow, diagramPictures, offListTables, preparedOutputs],
   );
   // Every drained frame may have settled a block in a row the virtualizer has not mounted, and a
   // new palette draws every picture again, so both refresh the rows the window lists.

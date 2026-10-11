@@ -10,6 +10,7 @@ import {
   useSyncExternalStore,
 } from "react";
 
+import { useStopObservingRemovedItems } from "#renderer/hooks/useStopObservingRemovedItems.js";
 import { useSelectionPins } from "../../bodies/hooks/useSelectionPins.js";
 import { DrawnWindowSourcesContext } from "../../drawn-window-sources.js";
 import { type MarkdownWindowViewport } from "../../markdown/block-window/context.js";
@@ -135,6 +136,7 @@ export function useAnsiLineWindow(
     directDomUpdates: true,
   });
   virtualizer.shouldAdjustScrollPositionOnItemSizeChange = layout.holdPlaceThroughResizedChunk;
+  useStopObservingRemovedItems(virtualizer);
 
   useEffect(() => {
     layout.bindVirtualizer(virtualizer);

@@ -12,12 +12,13 @@ import { describe, expect, it, onTestFinished } from "vitest";
 import { markdownWorker } from "#renderer/components/Markdown/worker/connection.js";
 import { installMeridianTokens } from "#renderer/app/token-installation.js";
 import { readSelectedPart } from "#renderer/features/transcript/copy/conversation-selection.js";
-import { publishedTextOf } from "#renderer/features/transcript/reveal/published-text.js";
 import { AnsiOutput } from "#renderer/features/transcript/rows/ansi/AnsiOutput.js";
 import {
   ANSI_LINE_CHUNK_INDEX_ATTRIBUTE,
   ANSI_OUTPUT_KEY_ATTRIBUTE,
 } from "#renderer/features/transcript/rows/ansi/lines/markers.js";
+import { PreparedAnsiOutputsContext } from "#renderer/features/transcript/rows/ansi/preparation.js";
+import { prepareOutputForTest } from "#renderer/features/transcript/rows/ansi/preparation.test-support.js";
 import { suiteWindowViewport } from "#renderer/features/transcript/rows/bodies/WindowedMarkdown.test-support.js";
 import {
   DrawnWindowSources,
@@ -73,6 +74,12 @@ async function mountOutput(output: string = OUTPUT): Promise<{
     read: () => tracker.selectionRange,
   });
   const sources = new DrawnWindowSources();
+  // Parsed whole before it mounts, as the feed lists a row only once its output is.
+  const prepared = prepareOutputForTest(ROW_KEY, output);
+  onTestFinished(() => {
+    prepared.release();
+  });
+  await prepared.whole;
   const view = render(
     <div
       data-testid="scroller"
@@ -103,9 +110,11 @@ async function mountOutput(output: string = OUTPUT): Promise<{
         style={{ width: "600px" }}
       >
         <MarkdownWindowViewportContext value={viewport}>
-          <DrawnWindowSourcesContext value={sources}>
-            <AnsiOutput publishedText={publishedTextOf(output)} label={LABEL} rowKey={ROW_KEY} />
-          </DrawnWindowSourcesContext>
+          <PreparedAnsiOutputsContext value={prepared.outputs}>
+            <DrawnWindowSourcesContext value={sources}>
+              <AnsiOutput label={LABEL} rowKey={ROW_KEY} />
+            </DrawnWindowSourcesContext>
+          </PreparedAnsiOutputsContext>
         </MarkdownWindowViewportContext>
       </div>
     </div>,
@@ -224,13 +233,18 @@ describe("browser — a long command output drawn as a window over its lines", (
   it("lays out the whole output's height before any scroll, its undrawn lines measured off screen", async () => {
     const { scroller, row } = await mountOutput();
     // The same output drawn whole, at the same width, outside any window.
+    const prepared = prepareOutputForTest("whole", OUTPUT);
+    await prepared.whole;
     const whole = render(
       <div style={{ width: "600px" }}>
-        <AnsiOutput publishedText={publishedTextOf(OUTPUT)} label={LABEL} rowKey="whole" />
+        <PreparedAnsiOutputsContext value={prepared.outputs}>
+          <AnsiOutput label={LABEL} rowKey="whole" />
+        </PreparedAnsiOutputsContext>
       </div>,
     );
     onTestFinished(() => {
       whole.unmount();
+      prepared.release();
     });
     await settleMeasuring();
 

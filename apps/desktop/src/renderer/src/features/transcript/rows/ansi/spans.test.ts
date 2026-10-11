@@ -19,7 +19,7 @@ class ReadSpans {
   #settled: AnsiSpan[] = [];
 
   public read(text: PublishedText): readonly AnsiSpan[] {
-    const read = this.#parser.read(text);
+    const read = this.#parser.read(text, text.length);
     if (read.restarted) {
       this.#settled = [];
     }

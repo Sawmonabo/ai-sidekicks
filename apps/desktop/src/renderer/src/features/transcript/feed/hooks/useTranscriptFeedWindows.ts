@@ -57,6 +57,7 @@ import { useFoldedRunGroups } from "./useFoldedRunGroups.js";
 import { useDrawnRows } from "./useDrawnRows.js";
 import { usePreparedRows } from "./usePreparedRows.js";
 import { classifyTranscriptRow } from "../../rows/kind.js";
+import { PreparedAnsiOutputs } from "../../rows/ansi/preparation.js";
 import { DrawnWindowSources } from "../../rows/drawn-window-sources.js";
 import { OffListTables } from "../../rows/markdown/table-window/off-list.js";
 import { type TranscriptRowRenderer } from "../../rows/renderer.js";
@@ -104,6 +105,8 @@ export interface TranscriptFeedWindows {
   readonly offListTables: OffListTables;
   /** What the feed's windows draw from, which a copy reads their undrawn items from. */
   readonly drawnWindowSources: DrawnWindowSources;
+  /** The command outputs of the rows the window holds, parsed before each row is listed. */
+  readonly preparedOutputs: PreparedAnsiOutputs;
   /** The history past the store's window, or `undefined` for a composition with no read. */
   readonly history: TranscriptHistory | undefined;
   /** How reading back toward a linked message the log lacks stands, or `undefined` for none. */
@@ -187,6 +190,7 @@ export function useTranscriptFeedWindows(
     () => new OffListTables(ownerDocument, () => readRowWidthPxRef.current()),
   );
   const [drawnWindowSources] = useState(() => new DrawnWindowSources());
+  const [preparedOutputs] = useState(() => new PreparedAnsiOutputs());
   // A row the log lets go takes its streaming tables' handed geometry with it.
   useEffect(() => {
     offListTables.streamingTables.retainRows(unfurledWindow.rowsByKey);
@@ -197,6 +201,7 @@ export function useTranscriptFeedWindows(
     inputs.prepareRow,
     reveal.channel,
     offListTables,
+    preparedOutputs,
     inputs.sessionStore.sessionId,
   );
   const transcriptWindow = preparedRows.window;
@@ -404,6 +409,7 @@ export function useTranscriptFeedWindows(
     viewport,
     offListTables,
     drawnWindowSources,
+    preparedOutputs,
     history,
     messageReadBack: readBack,
     openRunStretch,

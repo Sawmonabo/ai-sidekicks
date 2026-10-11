@@ -2,7 +2,8 @@
 // a spacer in for. A chunk closes at the line end that brings it to its share of lines or
 // characters, and never changes after; only the last chunk grows, holding the lines since and the
 // tail the parser reads again on each revision. A revision appends the spans it settled to the
-// last chunk, so no revision copies the spans of the chunks before it.
+// last chunk, so no revision copies the spans of the chunks before it. The text is read a piece of
+// whole lines at a time while the caller's slice has time, so a long output is parsed in slices.
 
 import { type PublishedText } from "#renderer/features/transcript/reveal/published-text.js";
 import { AnsiSpanParser, type AnsiSpan } from "../spans.js";
@@ -24,6 +25,13 @@ export interface AnsiLineChunkList {
   chunkAt(index: number): AnsiLineChunk;
 }
 
+/** An output's chunks as one read leaves them, and whether that read reached the text's end. */
+export interface AnsiLineChunkRead {
+  readonly chunks: AnsiLineChunkList;
+  /** Whether the chunks hold the whole text read; false when the slice ran out before its end. */
+  readonly isComplete: boolean;
+}
+
 /** One output's chunks, read from its text as it grows. */
 export class AnsiLineChunks {
   readonly #parser = new AnsiSpanParser();
@@ -34,19 +42,39 @@ export class AnsiLineChunks {
   #openSpans: AnsiSpan[] = [];
   #openLineLengths: number[] = [0];
   #openCharacterCount = 0;
+  /**
+   * How far the next piece reaches: twice as far after each piece that settled nothing, kept
+   * across reads, so a run that cannot settle in one slice's pieces settles in a later slice's.
+   */
+  #pieceLength = PIECE_LENGTH;
 
-  /** The chunks of `text` as it stands, reading only what arrived past the parsed part. */
-  public read(text: PublishedText): AnsiLineChunkList {
-    const read = this.#parser.read(text);
-    if (read.restarted) {
-      this.#generation += 1;
-      this.#closed = [];
-      this.#startOpenChunk();
-    }
-    for (const span of read.settledSpans) {
-      this.#appendSettled(span);
-    }
-    return this.#listWith(read.tailSpans);
+  /**
+   * The chunks of `text` as far as this read reaches, reading only past the parsed part, a piece of
+   * whole lines at a time, at least one and more while `hasTime` answers true. A rewrite below the
+   * parsed part drops every chunk read before it and starts a new generation.
+   */
+  public read(text: PublishedText, hasTime: () => boolean): AnsiLineChunkRead {
+    let tailSpans: readonly AnsiSpan[];
+    let isComplete: boolean;
+    do {
+      const start = this.#parser.parsedLengthOf(text);
+      const end = pieceEndOf(text, start + this.#pieceLength);
+      const read = this.#parser.read(text, end);
+      if (read.restarted) {
+        this.#generation += 1;
+        this.#closed = [];
+        this.#startOpenChunk();
+      }
+      for (const span of read.settledSpans) {
+        this.#appendSettled(span);
+      }
+      tailSpans = read.tailSpans;
+      isComplete = end === text.length;
+      // A piece holding one run that opens with no whole sequence settles nothing alone.
+      this.#pieceLength =
+        this.#parser.parsedLengthOf(text) === start ? this.#pieceLength * 2 : PIECE_LENGTH;
+    } while (!isComplete && hasTime());
+    return { chunks: this.#listWith(tailSpans), isComplete };
   }
 
   /** Adds a settled span to the last chunk, closing it at each line end that fills it. */
@@ -128,6 +156,12 @@ export function chunkTextOf(chunk: AnsiLineChunk): string {
   return chunk.spans.map((span) => span.text).join("");
 }
 
+/** Where a piece reaching `from` ends: just past the line end there, or at the text's end. */
+function pieceEndOf(text: PublishedText, from: number): number {
+  const lineEnd = from >= text.length ? -1 : text.indexOf("\n", from);
+  return lineEnd === -1 ? text.length : lineEnd + 1;
+}
+
 /** `span`'s text from `start` to `end`, as a span of its own; the span itself when that is all. */
 function pieceOf(span: AnsiSpan, start: number, end: number): AnsiSpan {
   return start === 0 && end === span.text.length
@@ -170,3 +204,9 @@ function openChunkOf(
  */
 const CHUNK_LINE_COUNT = 32;
 const CHUNK_CHARACTER_COUNT = 4_096;
+
+/**
+ * How many characters one piece of a read reaches before the line end it stops at: a few hundred
+ * microseconds of parsing, so a slice stops close to its end.
+ */
+const PIECE_LENGTH = 16_384;

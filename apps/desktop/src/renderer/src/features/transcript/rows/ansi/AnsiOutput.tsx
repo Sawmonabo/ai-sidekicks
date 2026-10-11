@@ -1,15 +1,14 @@
-// Command output: the spans `spans.ts` parses from the output's handle, grouped in chunks of whole
+// Command output: the spans `spans.ts` parses from the output's text, grouped in chunks of whole
 // lines, in one output box, which a call's output takes cut at the visible flow until its opening
 // is pressed. Each chunk is a block of its lines in flow, so every line wraps and stands as it
 // would in one block. Inside a transcript viewport a long output draws as a window over its chunks,
 // only those near the reader mounted and a spacer holding the room of each run of the rest, its
-// chunks measured off screen a slice at a time so the spacers hold their real room. The block keeps
-// one parser, so a streaming output is parsed only past what earlier revisions parsed, and a
-// revision redraws only the last chunk.
+// chunks measured off screen a slice at a time so the spacers hold their real room. The box parses
+// nothing: it draws the chunks the row's preparation published, which parses a streaming output
+// only past what earlier revisions parsed, so a revision redraws only the last chunk.
 
-import { memo, useContext, useMemo, useState, useSyncExternalStore } from "react";
+import { memo, useContext, useSyncExternalStore } from "react";
 
-import { type PublishedText } from "../../reveal/published-text.js";
 import { MeasuringFrames } from "../bodies/MeasuringFrames.js";
 import { OutputHeightCut, type OutputOpening } from "../bodies/OutputHeightCut.js";
 import {
@@ -17,7 +16,7 @@ import {
   type MarkdownWindowViewport,
 } from "../markdown/block-window/context.js";
 import { useAnsiLineWindow } from "./hooks/useAnsiLineWindow.js";
-import { AnsiLineChunks, type AnsiLineChunk, type AnsiLineChunkList } from "./lines/chunks.js";
+import { type AnsiLineChunk, type AnsiLineChunkList } from "./lines/chunks.js";
 import {
   ANSI_FIRST_UNDRAWN_CHUNK_ATTRIBUTE,
   ANSI_LAST_UNDRAWN_CHUNK_ATTRIBUTE,
@@ -25,17 +24,19 @@ import {
   ANSI_OUTPUT_KEY_ATTRIBUTE,
 } from "./lines/markers.js";
 import { type AnsiChunkMeasurement } from "./lines/measurement.js";
+import { PreparedAnsiOutputsContext } from "./preparation.js";
 import { ansiSpanClassNames } from "./spans.js";
 
 import "./AnsiOutput.css";
 
-/** The tool output to render and the label a screen reader gives its block. */
+/** Which row's output to render and the label a screen reader gives its block. */
 export interface AnsiOutputProps {
-  /** The tool's output, wire-verbatim, escape sequences and all, read through its handle. */
-  readonly publishedText: PublishedText;
   /** What a screen reader calls this block. */
   readonly label: string;
-  /** The row the output belongs to, whose top a windowed output is laid out from. */
+  /**
+   * The row the output belongs to: its chunks are the ones the feed's preparation of the row
+   * published, and a windowed output is laid out from the row's top.
+   */
   readonly rowKey: string;
   /** A call's output's opening, cut at the visible flow until opened; absent, drawn whole. */
   readonly opening?: OutputOpening | undefined;
@@ -43,15 +44,18 @@ export interface AnsiOutputProps {
   readonly liveByteLength?: number | undefined;
 }
 
-/** Renders ANSI-styled command output in one output box. */
+/**
+ * Renders a row's ANSI-styled command output in one output box, as the feed's preparation of the
+ * row parsed it; empty while none is published. Throws outside a feed, where nothing parses it.
+ */
 export function AnsiOutput(props: AnsiOutputProps): React.JSX.Element {
-  const publishedText = props.publishedText;
-  const revision = publishedText.revision;
-  const [lineChunks] = useState(() => new AnsiLineChunks());
-  const chunks = useMemo(
-    () => lineChunks.read(publishedText),
-    // The handle stays the same while a streaming output grows; its revision is what changed.
-    [lineChunks, publishedText, revision],
+  const preparedOutputs = useContext(PreparedAnsiOutputsContext);
+  if (preparedOutputs === undefined) {
+    throw new Error("A command output is drawn only inside a transcript feed, which parses it.");
+  }
+  const rowKey = props.rowKey;
+  const chunks = useSyncExternalStore(preparedOutputs.subscribe, () =>
+    preparedOutputs.chunksOf(rowKey),
   );
   const viewport = useContext(MarkdownWindowViewportContext);
 
@@ -62,18 +66,9 @@ export function AnsiOutput(props: AnsiOutputProps): React.JSX.Element {
       opening={props.opening}
       liveByteLength={props.liveByteLength}
     >
-      {viewport === undefined || chunks.count < WINDOWED_OUTPUT_MIN_CHUNKS ? (
-        <span className="meridian-ansi__lines">
-          {Array.from({ length: chunks.count }, (_unused, index) => (
-            <AnsiChunk
-              key={`${String(chunks.generation)}:${String(index)}`}
-              chunk={chunks.chunkAt(index)}
-              index={index}
-              attach={undefined}
-            />
-          ))}
-        </span>
-      ) : (
+      {chunks !== undefined &&
+      viewport !== undefined &&
+      chunks.count >= WINDOWED_OUTPUT_MIN_CHUNKS ? (
         <WindowedAnsiLines
           // A rewrite parsed from the start remounts the window with its measurements.
           key={chunks.generation}
@@ -81,6 +76,19 @@ export function AnsiOutput(props: AnsiOutputProps): React.JSX.Element {
           viewport={viewport}
           rowKey={props.rowKey}
         />
+      ) : (
+        <span className="meridian-ansi__lines">
+          {chunks === undefined
+            ? null
+            : Array.from({ length: chunks.count }, (_unused, index) => (
+                <AnsiChunk
+                  key={`${String(chunks.generation)}:${String(index)}`}
+                  chunk={chunks.chunkAt(index)}
+                  index={index}
+                  attach={undefined}
+                />
+              ))}
+        </span>
       )}
     </OutputHeightCut>
   );
