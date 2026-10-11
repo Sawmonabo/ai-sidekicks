@@ -287,7 +287,7 @@ While backups are on, data staleness on restore is bounded at **≤ 25 hours**: 
 
 ## Example Flows
 
-- `Example: The daemon restarts during a blocked approval state. The startup rebuild recreates the session projection, restores the pending approval, and resumes the session in a recoverable waiting state.`
+- `Example: The daemon restarts while a run waits on an approval. The restart stops the run, its ask settles as canceled, and the startup rebuild recreates the session projection and the approval record from the event log, so the session shows the stopped run and the canceled ask.`
 - `Example: A provider session cannot be resumed. The daemon records a recovery failure outcome, transitions the run to failed with provider failure detail and recovery-needed condition, and leaves the run visible to the person for intervention.`
 
 ## Implementation Notes
@@ -304,7 +304,7 @@ While backups are on, data staleness on restore is bounded at **≤ 25 hours**: 
 
 ## Acceptance Criteria
 
-- [ ] Local node restart can rebuild session projections and restore pending queue or approval state.
+- [ ] Local node restart can rebuild session projections and approval records, restore pending queue state, and settle every ask whose run the restart stopped.
 - [ ] Local mutable work is blocked when canonical local persistence is unavailable.
 - [ ] Recovery failure is visible and auditable rather than silent.
 - [ ] A session with a damaged event opens at its last good point with the damaged rows still stored, `Continue from here` lets it take new work, and every other session takes writes throughout.
