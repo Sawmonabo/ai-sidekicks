@@ -76,6 +76,7 @@ import { ClaudeRunControls } from "./run/controls.js";
 import { ClaudeSentPrompts } from "./run/prompts.js";
 import { ClaudeConversationCuts } from "./run/rewind.js";
 import { ClaudeRunRoutes, type ClaudeBoundRun } from "./run/routes.js";
+import { ClaudeSelfStartedTurns, type ClaudeSessionArrival } from "./run/self-started-turns.js";
 import { ClaudeTurnSettlement } from "./run/settlement.js";
 import { ClaudeRunStart } from "./run/start.js";
 import {
@@ -133,6 +134,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
   readonly #restarts: ClaudeSessionRestarts;
   readonly #cuts: ClaudeConversationCuts;
   readonly #settlement: ClaudeTurnSettlement;
+  readonly #selfStartedTurns: ClaudeSelfStartedTurns;
 
   constructor(dependencies: ClaudeSessionLifecycleDependencies) {
     this.#dependencies = dependencies;
@@ -183,6 +185,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
       reviewer: this.#reviewer,
       gateFor: (sessionId) => this.#slots.intendedCloseGateFor(sessionId),
       takeLeadPauseEffect: (sessionId) => this.#pauses.takeLeadPauseEffect(sessionId),
+      reportedLeadPause: (sessionId) => this.#pauses.reportedLeadPause(sessionId),
       onTooLongTurn: (live) => {
         this.#cuts.cutTooLongTurn(live);
       },
@@ -259,7 +262,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
       },
       listeners: {
         onTurnTerminal: (live) => {
-          this.#settlement.settleTurn(live);
+          this.#receive(live, { kind: "terminal" });
         },
         onInboundFrame: (band, live, observation) =>
           this.#frameRouting.observeInboundFrame(
@@ -269,10 +272,10 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
             observation,
           ),
         onDeliveredFrame: (live, frame, route) => {
-          this.#stream.deliverFrame(live, frame, route);
+          this.#receive(live, { kind: "frame", frame, route });
         },
         onInboundRequest: (live, event) => {
-          this.#hookCallbacks.handle(live, event);
+          this.#receive(live, { kind: "request", event });
         },
         onUnrequestedExit: (live, exit) => {
           this.#prompts.forgetSession(live.sessionId);
@@ -290,6 +293,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
       diagnostics,
       resume: async (params) => await this.resumeSession(params),
       onSessionRelaunched: dependencies.onSessionRelaunched,
+      onProcessGone: dependencies.onProcessGone,
       forgetProcessState: (sessionId) => {
         this.#forgetProcessState(sessionId);
       },
@@ -388,6 +392,38 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
         this.#restarts.moveAfterTurn(live);
       },
     });
+    this.#selfStartedTurns = new ClaudeSelfStartedTurns({
+      runRoutes: this.#runRoutes,
+      pauses: this.#pauses,
+      openProviderTurn: async (live) =>
+        await this.#runStart.startDaemonTurn(live, { kind: "provider" }),
+      deliver: (live, arrival) => {
+        this.#take(live, arrival);
+      },
+      diagnostics,
+    });
+  }
+
+  // What the session's process delivered, unless it waits while a turn Claude Code started by
+  // itself gets its run.
+  #receive(live: LiveClaudeSession, arrival: ClaudeSessionArrival): void {
+    if (!this.#selfStartedTurns.holds(live, arrival)) {
+      this.#take(live, arrival);
+    }
+  }
+
+  #take(live: LiveClaudeSession, arrival: ClaudeSessionArrival): void {
+    switch (arrival.kind) {
+      case "frame":
+        this.#stream.deliverFrame(live, arrival.frame, arrival.route);
+        return;
+      case "terminal":
+        this.#settlement.settleTurn(live);
+        return;
+      case "request":
+        this.#hookCallbacks.handle(live, arrival.event);
+        return;
+    }
   }
 
   /**
@@ -765,11 +801,12 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
     }
   }
 
-  /** Forgets a steer whose write failed. */
+  /** Forgets a steer whose write failed; a run that went on to a next turn for it alone ends. */
   forgetSteer(runId: RunId, messageUuid: string): void {
     const sessionId = this.#runRoutes.sessionIdFor(runId);
     if (sessionId !== undefined) {
       this.#prompts.forgetSent(sessionId, messageUuid);
+      this.#stream.releaseCarriedTurn(runId);
     }
   }
 

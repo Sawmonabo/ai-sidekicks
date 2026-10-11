@@ -510,27 +510,40 @@ describe("an interrupt's choice for the waiting messages", () => {
     expect(queueFixture.startedRunIds()).toEqual([runId]);
   });
 
-  // Mutation: holding a turn in a process of its own behind the live lead run refuses Claude Code's
-  // review of the staged set while the lead works.
-  it("starts a turn in a process of its own beside a live lead run", async () => {
+  // Mutations: holding a turn in a process of its own behind the live lead run refuses Claude
+  // Code's review of the staged set while the lead works; counting its run as a lead run hands it
+  // the person's messages, which its one-turn process cannot take, and ends the interrupted lead's
+  // place as the run a send continues.
+  it("starts a turn in a process of its own beside the lead's, leaving the lead its messages", async () => {
     const queueFixture = await openFixture("claude");
-    const leadRunId = await startFirstRun(queueFixture, "Add the retry");
     const startTurn = vi.fn(() => Promise.resolve());
+    const startApartTurn = async (): Promise<RunId> =>
+      await queueFixture.engine.engine.startDaemonTurn({
+        sessionId: queueFixture.engine.sessionId,
+        provider: "claude",
+        admittedProviderAccountId: null,
+        executionPosture: TEST_EXECUTION_POSTURE,
+        isProviderStarted: false,
+        isApart: true,
+        interruptTurn: refuseDriverInterrupt,
+        startTurn,
+      });
+    const firstApartRunId = await startApartTurn();
+    const leadRunId = await startFirstRun(queueFixture, "Add the retry");
+    const apartRunId = await startApartTurn();
 
-    const reviewRunId = await queueFixture.engine.engine.startDaemonTurn({
-      sessionId: queueFixture.engine.sessionId,
-      provider: "claude",
-      admittedProviderAccountId: null,
-      executionPosture: TEST_EXECUTION_POSTURE,
-      isProviderStarted: false,
-      isApart: true,
-      interruptTurn: refuseDriverInterrupt,
-      startTurn,
-    });
-
-    expect(startTurn).toHaveBeenCalledWith(reviewRunId);
-    expect(queueFixture.engine.runs.getRun(reviewRunId)?.state).toBe("running");
-    expect(queueFixture.engine.runs.getRun(leadRunId)?.state).toBe("running");
+    expect(startTurn.mock.calls).toEqual([[firstApartRunId], [apartRunId]]);
+    for (const runId of [firstApartRunId, leadRunId, apartRunId]) {
+      expect(queueFixture.engine.runs.getRun(runId)?.state).toBe("running");
+    }
+    const steer = await queueFixture.send("Then the docs");
+    expect(queueFixture.readItem(steer.queueItemId)?.targetRunId).toBe(leadRunId);
+    await queueFixture.interrupt(leadRunId, "returnToDraft");
+    await waitForRunState(queueFixture, leadRunId, "interrupted");
+    const continued = await queueFixture.send("Then the tests");
+    expect(queueFixture.readItem(continued.queueItemId)?.targetRunId).toBe(leadRunId);
+    await waitForOpening(queueFixture, continued);
+    expect(queueFixture.startedRunIds()).toEqual([leadRunId, leadRunId]);
   });
 
   // Mutations: taking the messages over in the write that queues the provider's run, which then

@@ -39,7 +39,6 @@ import {
   type SessionEventLinkage,
 } from "../../events/session/appender.js";
 import type { DriverDiagnosticsEmitter } from "../../provider/driver/diagnostics.js";
-import type { PortRegistration } from "../../provider/port/registration.js";
 import type { RunStatePublisher } from "../../provider/port/run-state-publisher.js";
 import { advisorModelChangeStatement } from "../console-state.js";
 import type { RunEngine, RunMarker, RunTransitionRequest } from "./engine.js";
@@ -212,8 +211,8 @@ export type LateEventAbsorbReason = "before_cut" | "run_ended";
  * What the dispatch did with a delivery. `ask_admitted` is a permission ask of the current
  * execution, which the caller hands to the approval pipeline. `child_run_started` carries the
  * child's new run id, which the caller keeps for the subagent's later deliveries. A live state is
- * `published`, or `dropped` with no publisher registered; a thinking update is `dropped` when the
- * full write queue dropped it. An appended row carries the id of the event written for it.
+ * `published`; a thinking update is `dropped` when the full write queue dropped it. An appended row
+ * carries the id of the event written for it.
  */
 export type InboundOutcome =
   | { readonly disposition: "turn_opened" }
@@ -250,7 +249,7 @@ export interface RunInboundDispatchDeps extends SessionEventAppenderDeps {
   readonly engine: InboundEngine;
   readonly epochs: ExecutionEpochs;
   readonly diagnostics: DriverDiagnosticsEmitter;
-  readonly runStatePublisher: PortRegistration<RunStatePublisher>;
+  readonly runStatePublisher: RunStatePublisher;
 }
 
 // A delivery the dispatch may absorb: every one on a binding but a row stamped instead.
@@ -272,7 +271,7 @@ export class RunInboundDispatch {
   readonly #engine: InboundEngine;
   readonly #epochs: ExecutionEpochs;
   readonly #diagnostics: DriverDiagnosticsEmitter;
-  readonly #runStatePublisher: PortRegistration<RunStatePublisher>;
+  readonly #runStatePublisher: RunStatePublisher;
   readonly #appender: SessionEventAppender;
 
   constructor(deps: RunInboundDispatchDeps) {
@@ -370,11 +369,7 @@ export class RunInboundDispatch {
   }
 
   #publish(state: RunSafetyBufferingUpdatedPayload): InboundOutcome {
-    const publisher = this.#runStatePublisher.port;
-    if (publisher === undefined) {
-      return { disposition: "dropped" };
-    }
-    publisher.publish(state);
+    this.#runStatePublisher.publish(state);
     return { disposition: "published" };
   }
 

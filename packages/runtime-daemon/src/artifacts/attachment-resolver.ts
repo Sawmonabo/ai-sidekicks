@@ -59,7 +59,7 @@ export class ArtifactAttachmentResolver implements AttachmentResolver {
           session_id: canonicalizeUuid(sessionId),
         });
         if (row === undefined) {
-          return { kind: "unresolved", artifactId, cause: "deleted" };
+          return { kind: "unresolved", artifactId: canonicalId, cause: "deleted" };
         }
         return {
           kind: "resolved",

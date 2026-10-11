@@ -22,13 +22,13 @@
 
 import {
   DriverInterventionResultSchema,
-  type ApplyInterventionParams,
   type DriverInterventionResult,
 } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import type { AttachmentResolver } from "../attachments.js";
+import { SteerTurnEndedError, type ApplyInterventionParams } from "../run-control.js";
 import { composeClaudeAttachmentBlocks } from "./attachments.js";
 import { ClaudeRequestTimeoutError, ClaudeSessionUnavailableError } from "./session/errors.js";
 import { attemptClaudeFrameWrite } from "./session/stdin-write.js";
@@ -131,8 +131,9 @@ export class ClaudeInterventionDispatcher {
    * Writes a steer and its files into the run's turn and sends an interrupt as Claude Code's
    * `interrupt`. Steers on one session are written in the order they were handed over, however
    * long their files take to read. Throws `ClaudeSessionUnavailableError` when the run has no
-   * channel, the files' resolution or read failure before anything is sent, and a failed steer
-   * write's cause; nothing is written twice.
+   * channel, `SteerTurnEndedError` when the run's turn ended before its steer could go, the files'
+   * resolution or read failure before anything is sent, and a failed steer write's cause; nothing
+   * is written twice.
    */
   async applyIntervention(params: ApplyInterventionParams): Promise<DriverInterventionResult> {
     const { settlement } = this.#dependencies;
@@ -191,6 +192,11 @@ export class ClaudeInterventionDispatcher {
         attachmentBlocks,
       );
       return DriverInterventionResultSchema.parse({ status: "applied", deliveredRunId });
+    }
+    // The run's turn may have ended while the steer waited for the one before it and its files; an
+    // idle process would start a turn of its own with it.
+    if (this.#dependencies.channelLookup.findProcessForRun(params.targetRunId) !== channel) {
+      throw new SteerTurnEndedError(params.targetRunId);
     }
     this.#dependencies.onSteerSent(params.targetRunId, params.clientIdempotencyKey);
     const attempt = await attemptClaudeFrameWrite(

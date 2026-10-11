@@ -14,10 +14,8 @@ import type {
 import type { DriverCompactionResult } from "@ai-sidekicks/contracts/provider/driver/compaction";
 import type { ProviderCommandListResult } from "@ai-sidekicks/contracts/provider/driver/commands";
 import type {
-  ApplyInterventionParams,
   DriverInterventionResult,
   InterruptRunParams,
-  PickedSkill,
 } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type { ProviderOutputSpeedState } from "@ai-sidekicks/contracts/provider/driver/output-speed";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
@@ -56,6 +54,8 @@ import type {
   ResumeRunParams,
   WithdrawQueuedMessageParams,
   WithdrawQueuedMessageResult,
+  ApplyInterventionParams,
+  PickedSkill,
 } from "../run-control.js";
 import type {
   AnswerSessionCommandParams,

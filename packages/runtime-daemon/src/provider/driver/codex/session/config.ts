@@ -6,14 +6,11 @@
 import { AgentIdSchema, type AgentId } from "@ai-sidekicks/contracts/agent/definition";
 import { AttachmentReferenceListSchema } from "@ai-sidekicks/contracts/artifacts/attachment-reference";
 import type { ArtifactId } from "@ai-sidekicks/contracts/artifacts/id";
-import {
-  PickedSkillSchema,
-  type PickedSkill,
-} from "@ai-sidekicks/contracts/provider/driver/intervention";
 import { SessionIdSchema, type SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { SessionEnvironmentRows } from "../../../spawn-env.js";
 import { isPlainObject } from "../../../record-readers.js";
 import { CodexDriverConfigError } from "./errors.js";
+import { PickedSkillSchema, type PickedSkill } from "../../run-control.js";
 
 /**
  * The item-injection method (`ThreadInjectItemsParams`, non-experimental at the pin): appends items

@@ -286,7 +286,7 @@ describe("the composer outlives its dispatch", () => {
 });
 
 describe("a steer the background service could not deliver", () => {
-  it("reads Not delivered · Retry, and Retry sends the same text again", async () => {
+  it("reads Not delivered · Retry, and Retry sends that same steer again under its key", async () => {
     // Negative control: the second answer is queued, and that one closes the box.
     let answers = 0;
     const undeliveredThenQueued: ScriptedAnswer = () => {
@@ -305,14 +305,19 @@ describe("a steer the background service could not deliver", () => {
     // The line carries the daemon's reason, not the answer's state.
     expect(line?.getAttribute("data-refusal-code")).toBe("failed");
 
+    // Words typed after the failure are a new steer, not the one Retry sends again.
+    typeInto(steerField(container), "and the test file");
     const retry = within(container).getByRole("button", { name: "Retry" });
     await act(async () => {
       retry.click();
     });
     expect(calls).toHaveLength(2);
+    // The same key, so the daemon reads it as the steer that failed, not a second one.
     expect(calls[1]?.params).toMatchObject({
       childHandle: STEERED_CHILD_HANDLE,
       content: "stop editing that file",
+      clientIdempotencyKey: (calls[0]?.params as { clientIdempotencyKey: string })
+        .clientIdempotencyKey,
     });
     expect(dismissCount()).toBe(1);
   });

@@ -2,9 +2,9 @@
 // answers: the three ingest calls and the publish. The store sits in the data folder: the
 // content-addressed payloads in `objects/` and the spools of ingests and publishes beside them in
 // `spool/`, on one volume, so a spool moves into the store by a rename. A message's files are
-// bound to their stored copies there for the drivers. Its start schedules the
-// ingest reaper on the service's one scheduler: a pass at once, which clears the spools a stopped
-// daemon left, then one every ten minutes; its stop cancels the reaper and the type detector.
+// bound to their stored copies there for the drivers. Its start schedules the ingest reaper on the
+// service's one scheduler: a pass at once, which clears the spools a stopped daemon left, then one
+// every ten minutes; its stop cancels the reaper and the type detector.
 
 import * as path from "node:path";
 

@@ -226,8 +226,9 @@ export class ClaudeRunControls implements ClaudeInterventionSettlement {
   }
 
   /**
-   * Takes back a message written into a running turn: `withdrawn` before Claude Code read it,
-   * `already_delivered` once it had. Throws with no live session and when the request is refused.
+   * Takes back a message written into a running turn: `withdrawn` before Claude Code read it, a
+   * run that went on to its next turn for that message alone then ending, `already_delivered` once
+   * it had. Throws with no live session and when the request is refused.
    */
   async withdrawQueuedMessage(
     params: WithdrawQueuedMessageParams,
@@ -241,7 +242,13 @@ export class ClaudeRunControls implements ClaudeInterventionSettlement {
       throw new ClaudeControlRequestRefusedError("cancel_async_message", response.error);
     }
     if (isPlainObject(response.response) && response.response["cancelled"] === true) {
-      this.#dependencies.prompts.forgetSent(params.sessionId, params.clientIdempotencyKey);
+      const steeredRunId = this.#dependencies.prompts.forgetSent(
+        params.sessionId,
+        params.clientIdempotencyKey,
+      );
+      if (steeredRunId !== undefined) {
+        this.#dependencies.stream.releaseCarriedTurn(steeredRunId);
+      }
       return { status: "withdrawn" };
     }
     return { status: "already_delivered" };

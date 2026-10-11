@@ -4,10 +4,7 @@
 
 import type { AgentId } from "@ai-sidekicks/contracts/agent/definition";
 import type { ArtifactId } from "@ai-sidekicks/contracts/artifacts/id";
-import type {
-  ApplyInterventionParams,
-  InterruptPendingChoice,
-} from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { InterruptPendingChoice } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type { ProcessExit } from "@ai-sidekicks/contracts/run/control";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
@@ -49,7 +46,11 @@ import {
   type ClaudeUserTextWriteAttempt,
 } from "../session/transport.js";
 import type { CreateSessionParams, StartRunParams } from "../../contract.js";
-import type { ClaudeRunDispatch, DaemonTurnBinding } from "../../run-control.js";
+import type {
+  ClaudeRunDispatch,
+  DaemonTurnBinding,
+  ApplyInterventionParams,
+} from "../../run-control.js";
 
 /** The session id every test session uses. */
 export const TEST_SESSION_ID: SessionId = "session-1" as SessionId;

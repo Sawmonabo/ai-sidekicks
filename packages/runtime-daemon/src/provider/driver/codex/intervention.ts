@@ -16,12 +16,11 @@
 
 import type { ArtifactId } from "@ai-sidekicks/contracts/artifacts/id";
 import type {
-  ApplyInterventionParams,
   DriverInterventionResult,
   InterruptRunParams,
-  PickedSkill,
 } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
+import type { ApplyInterventionParams, PickedSkill } from "../run-control.js";
 
 /** One steer, as handed to the runtime. */
 export interface CodexSteerRunRequest {

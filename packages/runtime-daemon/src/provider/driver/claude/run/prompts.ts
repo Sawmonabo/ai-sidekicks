@@ -42,12 +42,20 @@ export class ClaudeSentPrompts {
     return (this.#untakenSteersByRun.get(runId)?.messageUuids.size ?? 0) > 0;
   }
 
-  /** Forgets a message taken back before Claude Code read it, if it is still the newest. */
-  forgetSent(sessionId: SessionId, messageUuid: string): void {
+  /**
+   * Forgets a message taken back before Claude Code read it, the newest no more, and answers the
+   * run it was a steer into, if any.
+   */
+  forgetSent(sessionId: SessionId, messageUuid: string): RunId | undefined {
     if (this.#newestBySession.get(sessionId) === messageUuid) {
       this.#newestBySession.delete(sessionId);
     }
-    this.recordTaken(messageUuid);
+    for (const [runId, untaken] of this.#untakenSteersByRun) {
+      if (untaken.messageUuids.delete(messageUuid)) {
+        return runId;
+      }
+    }
+    return undefined;
   }
 
   /** The newest message sent to the session's process, if one is known. */

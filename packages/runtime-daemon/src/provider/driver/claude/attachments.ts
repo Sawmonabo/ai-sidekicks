@@ -15,14 +15,13 @@ import {
   type ProviderAttachment,
   type ResolvedAttachment,
 } from "../attachments.js";
-import type { ClaudePictureMediaType, ClaudeUserContentBlock } from "./session/transport.js";
+import {
+  CLAUDE_PICTURE_MEDIA_TYPES,
+  type ClaudePictureMediaType,
+  type ClaudeUserContentBlock,
+} from "./session/transport.js";
 
-const CLAUDE_PICTURE_MEDIA_TYPES: ReadonlySet<string> = new Set<ClaudePictureMediaType>([
-  "image/jpeg",
-  "image/png",
-  "image/gif",
-  "image/webp",
-]);
+const PICTURE_MEDIA_TYPES: ReadonlySet<string> = new Set(CLAUDE_PICTURE_MEDIA_TYPES);
 
 // Claude Code's default per-picture limit on an image block's base64 text, which it checks before
 // a request and Anthropic's API enforces as its 5 MB per-image limit.
@@ -42,7 +41,7 @@ class ClaudePictureTooLargeError extends Error {
 function isClaudePicture(
   attachment: ProviderAttachment,
 ): attachment is ResolvedAttachment & { readonly mediaType: ClaudePictureMediaType } {
-  return attachment.kind === "resolved" && CLAUDE_PICTURE_MEDIA_TYPES.has(attachment.mediaType);
+  return attachment.kind === "resolved" && PICTURE_MEDIA_TYPES.has(attachment.mediaType);
 }
 
 /**

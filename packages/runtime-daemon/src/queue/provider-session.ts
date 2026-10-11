@@ -19,6 +19,7 @@ import {
   type RuntimeBindingSpawnConfig,
   type RuntimeBindingStore,
 } from "../provider/runtime-binding-store.js";
+import type { RunBindingCursors } from "../session/run/binding-cursors.js";
 
 /** What a session's provider session opens with, composed from the session's lead. */
 export interface ProviderSessionOpening {
@@ -31,10 +32,10 @@ export interface ProviderSessionOpening {
 
 /** What the session opener reads and calls. */
 export interface ProviderSessionsDeps {
-  readonly runtimeBindings: Pick<
-    RuntimeBindingStore,
-    "create" | "update" | "delete" | "findById" | "recordRelaunch"
-  >;
+  /** The binding rows a session's opening completes or removes. */
+  readonly runtimeBindings: Pick<RuntimeBindingStore, "update" | "delete">;
+  /** Records each binding a run opens on, or a resume minted, with its epoch cursor open. */
+  readonly bindingCursors: Pick<RunBindingCursors, "create" | "recordRelaunch">;
   readonly resolveDriver: (
     driverName: ProviderName,
   ) => Pick<ProviderDriver, "createSession" | "resumeSession">;
@@ -58,11 +59,9 @@ class ProviderSessionOpenError extends Error {
   }
 }
 
-// One opened session: the posture its process runs at, which each of its runs is requested at,
-// and the binding its newest run is on.
+// One opened session: the posture its process runs at, which each of its runs is requested at.
 interface OpenedSession {
   readonly executionPosture: ExecutionPosture;
-  bindingId: string;
 }
 
 /**
@@ -119,8 +118,9 @@ export class ProviderSessions {
   }
 
   /**
-   * The binding `runId` runs on: the session's current leg recorded again for the run, unless the
-   * run is the one the leg was opened for. Throws when the session was not opened in this process.
+   * The binding `runId` runs on: the session's current leg, its newest binding with a conversation,
+   * recorded again for the run, unless the run is the one that leg is on. Throws when the session
+   * was not opened in this process or has no conversation.
    */
   async openRunBinding(runId: RunId, sessionId: SessionId): Promise<string> {
     return this.#openLock.run(sessionId, async () => {
@@ -128,15 +128,16 @@ export class ProviderSessions {
       if (opened === undefined) {
         throw new ProviderSessionOpenError(sessionId, "it has no provider session open");
       }
-      // Read afresh: a fork or a relaunch may have pointed the leg at another conversation.
-      const current = this.#deps.runtimeBindings.findById(opened.bindingId);
+      // Read afresh: a fork moves the leg onto another conversation and a relaunch records a new
+      // leg, so the newest one is the session's.
+      const current = this.#deps.readSessionLeg(sessionId);
       if (current === undefined) {
-        throw new ProviderSessionOpenError(sessionId, `its binding ${opened.bindingId} is gone`);
+        throw new ProviderSessionOpenError(sessionId, "it has no conversation to run on");
       }
       if (current.runId === runId) {
         return current.id;
       }
-      const binding = await this.#deps.runtimeBindings.create({
+      const binding = await this.#deps.bindingCursors.create({
         runId,
         driverName: current.driverName,
         contractVersion: current.contractVersion,
@@ -144,7 +145,6 @@ export class ProviderSessions {
         resumeHandle: current.resumeHandle,
         spawnConfig: current.spawnConfig,
       });
-      opened.bindingId = binding.id;
       return binding.id;
     });
   }
@@ -158,7 +158,7 @@ export class ProviderSessions {
     const opening = await this.#deps.composeOpening(sessionId);
     const { driverName, createParams } = opening;
     const executionPosture = postureOf(sessionId, undefined, opening);
-    const binding = await this.#deps.runtimeBindings.create({
+    const binding = await this.#deps.bindingCursors.create({
       runId,
       driverName,
       contractVersion: this.#deps.readContractVersion(driverName),
@@ -188,7 +188,7 @@ export class ProviderSessions {
     if (recorded === undefined) {
       throw new ProviderSessionOpenError(sessionId, `its binding ${binding.id} is gone`);
     }
-    return { executionPosture, bindingId: binding.id };
+    return { executionPosture };
   }
 
   // The session ran before this daemon started: its conversation is resumed in a fresh process,
@@ -222,13 +222,13 @@ export class ProviderSessions {
               conversationId: leg.resumeHandle,
             },
           ];
-    await this.#deps.runtimeBindings.recordRelaunch({
+    await this.#deps.bindingCursors.recordRelaunch({
       predecessorId: leg.id,
       bindingId: result.bindingId,
       resumeHandle: result.resumeHandle,
       leftConversations,
     });
-    const session: OpenedSession = { executionPosture, bindingId: result.bindingId };
+    const session: OpenedSession = { executionPosture };
     // The resumed leg sits on the run it was first opened for; this run gets its own.
     this.#opened.set(canonicalizeUuid(sessionId), session);
     await this.openRunBinding(runId, sessionId);

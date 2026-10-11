@@ -2,9 +2,9 @@
 // from the cursor a returning screen names, replaying what the log holds past it, or else from the
 // session's newest event. It carries each run state change and each rollback the log records, and
 // Codex's safety hold on a turn, which the log never records and which goes out at the session's
-// newest cursor. Its changes are batched like every session stream; a screen that
-// stops reading is dropped for past the run streams' held changes, and once its connection has
-// room again it gets one frame with the drop mark and the newest cursor, and repairs from the
+// newest cursor, after the catch-up. Its changes are batched like every session stream; a screen
+// that stops reading is dropped for past the run streams' held changes, and once its connection
+// has room again it gets one frame with the drop mark and the newest cursor, and repairs from the
 // daemon's record by cursor. Every frame goes out after the acknowledgment.
 
 import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
@@ -143,6 +143,9 @@ export function registerRunStateSubscribe(
     subscription.onCancel(() => {
       batcher.stop();
     });
+    // A hold goes out at the session's newest cursor, so one that comes during the catch-up waits
+    // for its end: a screen resuming from the newest cursor it saw would skip the rows before it.
+    let holdsDuringCatchUp: RunStateStreamChange[] | undefined = [];
     try {
       const afterCursor = request.afterCursor ?? deps.readNewestCursor(sessionId);
       const detach = deps.followSession(sessionId, afterCursor, {
@@ -153,6 +156,10 @@ export function registerRunStateSubscribe(
           }
         },
         onCaughtUp: () => {
+          for (const hold of holdsDuringCatchUp ?? []) {
+            batcher.add(hold);
+          }
+          holdsDuringCatchUp = undefined;
           batcher.endCatchUp();
         },
         onFailure: (error) => {
@@ -177,7 +184,11 @@ export function registerRunStateSubscribe(
     }
     subscription.onCancel(
       deps.holds.follow(sessionId, (change) => {
-        batcher.add(change);
+        if (holdsDuringCatchUp === undefined) {
+          batcher.add(change);
+        } else {
+          holdsDuringCatchUp.push(change);
+        }
       }),
     );
     barrier.release();

@@ -13,7 +13,6 @@ import type {
 import type { DriverCompactionResult } from "@ai-sidekicks/contracts/provider/driver/compaction";
 import type { ProviderCommandListResult } from "@ai-sidekicks/contracts/provider/driver/commands";
 import type {
-  ApplyInterventionParams,
   DriverInterventionResult,
   InterruptRunParams,
 } from "@ai-sidekicks/contracts/provider/driver/intervention";
@@ -49,6 +48,7 @@ import type {
   ResumeRunParams,
   WithdrawQueuedMessageParams,
   WithdrawQueuedMessageResult,
+  ApplyInterventionParams,
 } from "../run-control.js";
 import type {
   AnswerSessionCommandParams,

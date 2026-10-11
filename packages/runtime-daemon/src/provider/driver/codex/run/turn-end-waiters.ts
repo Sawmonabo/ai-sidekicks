@@ -1,11 +1,12 @@
-// Waiting for stopped turns to end: an undo, a faster-model retry, a start and a goal set all wait,
-// after the daemon sent `turn/interrupt`, which Codex answers on acceptance, for the turn's
-// `turn/completed`. A wait is bound by a deadline, so a turn that never ends cannot hold anything
-// forever, and a turn its service dropped ends the wait as not ended. Several waits of one act
-// share one deadline, whose clock starts at the first of them, so their bounds never add up.
+// Waiting on a session's turns: an undo, a faster-model retry, a start, a goal set or clear and
+// `Allow once` wait, after the daemon sent `turn/interrupt`, which Codex answers on acceptance, for
+// the turn's `turn/completed`, and `Allow once` also waits for a turn still starting to run. A wait
+// is bound by a deadline, so a turn that never ends or starts cannot hold anything forever, and a
+// turn its service dropped ends the wait as not ended. Several waits of one act share one
+// deadline, whose clock starts at the first of them, so their bounds never add up.
 
 import type { CodexScheduleTimeout } from "../transport/diagnostics.js";
-import { type CodexSessionRecord, endingTurnIds } from "../session/state.js";
+import { type CodexSessionRecord, endingTurnIds, isTurnInFlight } from "../session/state.js";
 
 interface CodexTurnEndWaiter {
   readonly record: CodexSessionRecord;
@@ -50,9 +51,10 @@ export class CodexTurnEndDeadline {
     };
   }
 
-  /** Stops the clock, once the waits it bounds are over. */
+  /** Stops the clock, once the waits it bounds are over; a later wait starts it again. */
   close(): void {
     this.#cancelTimer?.();
+    this.#cancelTimer = undefined;
     this.#onPassed.clear();
   }
 }
@@ -108,6 +110,28 @@ export class CodexTurnEndWaiters {
     );
   }
 
+  /**
+   * Resolves `true` once a turn runs on `record`, at once when one does; `false` when `deadline`
+   * passed first.
+   */
+  async waitForLiveTurn(
+    record: CodexSessionRecord,
+    deadline: CodexTurnEndDeadline,
+  ): Promise<boolean> {
+    return await this.#wait(record, () => record.runIdByActiveTurnId.size === 0, deadline);
+  }
+
+  /**
+   * Resolves `true` once a turn runs, starts or opens its run on `record`, at once when one does;
+   * `false` when `deadline` passed first.
+   */
+  async waitForTurnInFlight(
+    record: CodexSessionRecord,
+    deadline: CodexTurnEndDeadline,
+  ): Promise<boolean> {
+    return await this.#wait(record, () => !isTurnInFlight(record), deadline);
+  }
+
   /** Settles every wait on `record`'s turns as not ended: its turns were dropped unended. */
   abandon(record: CodexSessionRecord): void {
     for (const waiter of [...this.#waiters]) {
@@ -118,8 +142,9 @@ export class CodexTurnEndWaiters {
   }
 
   /**
-   * Settles every wait whose turns no route still owes a terminal: neither live, nor stopped by the
-   * daemon and still ending, nor one Codex started that runs on with no run.
+   * Settles every wait no longer owed: whose turns are neither live, nor stopped by the daemon and
+   * still ending, nor one Codex started that runs on with no run, one for a live turn once a turn
+   * runs, and one for a turn in flight once one is.
    */
   settle(): void {
     for (const waiter of [...this.#waiters]) {

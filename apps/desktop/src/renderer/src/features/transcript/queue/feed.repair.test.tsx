@@ -1,6 +1,6 @@
 // A repaired stream, and a frame the daemon marks dropped, must each take a fresh snapshot, or the
-// pane shows the list as it stood before the drop. The negative control (time passing, no repair) is what makes the positive case
-// mean "because it was repaired" and not "because it polls".
+// pane shows the list as it stood before the drop. The negative control (time passing, no repair)
+// is what makes the positive case mean "because it was repaired" and not "because it polls".
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";

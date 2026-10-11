@@ -2,10 +2,12 @@
 // gives it back only while no later start has taken it since, and while a turn the daemon stopped
 // still ends no turn starts, within one deadline for the whole start, no turn the daemon starts is
 // taken, no fork runs, and a goal and an `Allow once` wait for that end. A goal goes apart from
-// the session's turn starts.
+// the session's turn starts until the turn it starts begins, and an `Allow once` waits for a turn
+// still starting to run.
 
 import { describe, expect, it } from "vitest";
 
+import type { AgentId } from "@ai-sidekicks/contracts/agent/definition";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 
 import { captureRejection } from "../../../../../__fixtures__/capture-failure.js";
@@ -13,6 +15,7 @@ import { drainMicrotasks } from "../../../../__fixtures__/drain-microtasks.js";
 import { STAGED_ATTACHMENT_IDS } from "../../../__fixtures__/attachment-doubles.js";
 import type { RuntimeBindingRebind } from "../../../../runtime-binding-store.js";
 import {
+  AGENT_ID,
   createHarness,
   createdSession,
   type Harness,
@@ -172,7 +175,7 @@ describe("a turn the daemon stopped, until Codex ends it", () => {
   ])(
     "sends %s once the turn an interrupt stopped ends, and refuses it past the deadline",
     async (method, changeGoal) => {
-      const harness = await stoppableSession();
+      const harness = await stoppableSession({ turnStartTimeoutMs: START_DEADLINE_MS });
       harness.server.on(method, () => ({ result: {} }));
       await harness.driver.startRun({ runId: RUN_ID, agentConfig: runConfig("go") });
       await interruptFirstTurn(harness);
@@ -181,6 +184,9 @@ describe("a turn the daemon stopped, until Codex ends it", () => {
       await drainMicrotasks();
       expect(harness.server.framesForMethod(method)).toHaveLength(0);
       harness.server.emitFrame(turnCompletedFrame("turn-1", "interrupted"));
+      await drainMicrotasks();
+      // A set waits for the turn its goal starts, which Codex did not start here.
+      harness.scheduler.fireDelay(START_DEADLINE_MS);
       await expect(changed).resolves.toStrictEqual({ status: "applied" });
       expect(harness.server.framesForMethod(method)).toHaveLength(1);
 
@@ -194,34 +200,70 @@ describe("a turn the daemon stopped, until Codex ends it", () => {
     },
   );
 
-  // Mutation: sending a turn while a goal set waits for Codex's answer lets the goal's own turn and
-  // the run's reach Codex together.
-  it("sends a run's turn only once Codex answered a goal set after the same turn's end", async () => {
-    const harness = await stoppableSession();
-    harness.server.on("thread/goal/set", () => ({ result: {} }));
-    await harness.driver.startRun({ runId: RUN_ID, agentConfig: runConfig("go") });
-    await interruptFirstTurn(harness);
-    const goal = harness.driver.setSessionGoal({ ...GOAL_PARAMS, goalText: "ship the fix" });
-    const started = harness.driver.startRun({
-      runId: SECOND_RUN_ID,
-      agentConfig: runConfig("next"),
-    });
-    const releaseGoal = harness.server.holdAnswers("thread/goal/set");
-    await drainMicrotasks();
+  // Mutations: sending a turn while a goal set waits for Codex's answer, or once it answered and
+  // before the goal's own turn starts, lets the two reach Codex together; waiting with no deadline
+  // holds every start for good when Codex starts no turn for the goal.
+  it.each([{ doesGoalTurnStart: true }, { doesGoalTurnStart: false }])(
+    "sends a run's turn only once a goal set after the same turn's end started its own (starts: $doesGoalTurnStart)",
+    async ({ doesGoalTurnStart }) => {
+      // The goal's run opens only when the test lets it, so the start goes on at the turn's start.
+      const goalRunOpening = Promise.withResolvers<void>();
+      const harness = await stoppableSession({
+        turnStartTimeoutMs: START_DEADLINE_MS,
+        openDaemonTurnBinding: async () => {
+          await goalRunOpening.promise;
+          return { bindingId: "binding-goal", agentId: AGENT_ID as AgentId };
+        },
+      });
+      harness.server.on("thread/goal/set", () => ({ result: {} }));
+      await harness.driver.startRun({ runId: RUN_ID, agentConfig: runConfig("go") });
+      await interruptFirstTurn(harness);
+      const goal = harness.driver.setSessionGoal({ ...GOAL_PARAMS, goalText: "ship the fix" });
+      let isGoalSettled = false;
+      void goal.finally(() => {
+        isGoalSettled = true;
+      });
+      // Settles with the start's refusal, or with nothing once it went.
+      const started = harness.driver
+        .startRun({ runId: SECOND_RUN_ID, agentConfig: runConfig("next") })
+        .then(
+          () => undefined,
+          (error: unknown) => error,
+        );
+      const releaseGoal = harness.server.holdAnswers("thread/goal/set");
+      await drainMicrotasks();
 
-    harness.server.emitFrame(turnCompletedFrame("turn-1", "interrupted"));
-    await drainMicrotasks();
-    expect(harness.server.framesForMethod("thread/goal/set")).toHaveLength(1);
-    expect(harness.server.framesForMethod("turn/start")).toHaveLength(1);
-    releaseGoal();
-    await expect(goal).resolves.toStrictEqual({ status: "applied" });
-    await started;
-    expect(harness.server.framesForMethod("turn/start")).toHaveLength(2);
-  });
+      harness.server.emitFrame(turnCompletedFrame("turn-1", "interrupted"));
+      await drainMicrotasks();
+      expect(harness.server.framesForMethod("thread/goal/set")).toHaveLength(1);
+      releaseGoal();
+      await drainMicrotasks();
+      expect(isGoalSettled).toBe(false);
+      expect(harness.server.framesForMethod("turn/start")).toHaveLength(1);
 
-  // Mutation: approving into a turn still ending, as into a live one, makes Codex start a turn for
-  // it that no run holds once the stopped turn ends.
-  it("sends `Allow once` into a live turn, and after a stopped turn's end as the session's own run", async () => {
+      if (doesGoalTurnStart) {
+        harness.server.emitFrame({
+          jsonrpc: "2.0",
+          method: "turn/started",
+          params: { threadId: THREAD_ID, turn: { id: "turn-goal", status: "inProgress" } },
+        });
+        await expect(goal).resolves.toStrictEqual({ status: "applied" });
+        goalRunOpening.resolve();
+        expect(await started).toMatchObject({ fields: { reason: "session_turn_in_flight" } });
+        expect(harness.server.framesForMethod("turn/start")).toHaveLength(1);
+      } else {
+        harness.scheduler.fireDelay(START_DEADLINE_MS);
+        await expect(goal).resolves.toStrictEqual({ status: "applied" });
+        expect(await started).toBeUndefined();
+        expect(harness.server.framesForMethod("turn/start")).toHaveLength(2);
+      }
+    },
+  );
+
+  // Mutations: answering while the run's turn is still starting refuses `Allow once`, since a turn
+  // the daemon starts waits for it; approving into a turn still ending, as into a live one, makes
+  // Codex start a turn for it that no run holds once the stopped turn ends.
+  it("sends `Allow once` into a turn once it starts, and after a stopped turn's end as the session's own run", async () => {
     const harness = await stoppableSession();
     harness.server.on("thread/approveGuardianDeniedAction", () => ({ result: {} }));
     const allowOnce = async (): Promise<void> => {
@@ -230,8 +272,15 @@ describe("a turn the daemon stopped, until Codex ends it", () => {
         providerDenial: { threadId: THREAD_ID, action: "rm -rf build" },
       });
     };
-    await harness.driver.startRun({ runId: RUN_ID, agentConfig: runConfig("go") });
-    await allowOnce();
+    const releaseStart = harness.server.holdAnswers("turn/start");
+    const started = harness.driver.startRun({ runId: RUN_ID, agentConfig: runConfig("go") });
+    await drainMicrotasks();
+    const allowedWhileStarting = allowOnce();
+    await drainMicrotasks();
+    expect(harness.server.framesForMethod("thread/approveGuardianDeniedAction")).toHaveLength(0);
+    releaseStart();
+    await started;
+    await allowedWhileStarting;
     expect(harness.server.framesForMethod("thread/approveGuardianDeniedAction")).toHaveLength(1);
     expect(harness.daemonTurnRunIds).toHaveLength(0);
     await interruptFirstTurn(harness);
@@ -302,5 +351,78 @@ describe("a turn the daemon stopped, until Codex ends it", () => {
 
     expect(await refused).toMatchObject({ fields: { reason: "session_turn_in_flight" } });
     expect(harness.server.framesForMethod("turn/start")).toHaveLength(1);
+  });
+
+  // Mutation: leaving the waits asleep when Codex refuses the interrupt holds `Allow once` until
+  // its deadline, though the turn it waits on runs on as the run's.
+  it.each([
+    {
+      stop: "a faster-model retry",
+      stopTurn: async (harness: Harness): Promise<{ readonly stopped: Promise<unknown> }> => {
+        const retried = captureRejection(
+          harness.driver.retryTurnOnFasterModel({
+            sessionId: SESSION_ID,
+            runId: RUN_ID,
+            expectedTurnId: "turn-1",
+            model: "gpt-5.5-mini",
+          }),
+        );
+        await drainMicrotasks();
+        return { stopped: retried };
+      },
+    },
+    {
+      stop: "a pause",
+      stopTurn: async (harness: Harness): Promise<{ readonly stopped: Promise<unknown> }> => {
+        await pauseAtStepEnd(harness, "turn-1");
+        return { stopped: Promise.resolve() };
+      },
+    },
+  ])(
+    "sends `Allow once` into the turn once Codex refuses $stop's interrupt",
+    async ({ stopTurn }) => {
+      const harness = await stoppableSession();
+      harness.server.on("thread/approveGuardianDeniedAction", () => ({ result: {} }));
+      await harness.driver.startRun({ runId: RUN_ID, agentConfig: runConfig("go") });
+      harness.server.on("turn/interrupt", () => ({
+        error: { code: -32600, message: "interrupt refused" },
+      }));
+      const releaseInterrupt = harness.server.holdAnswers("turn/interrupt");
+      const { stopped } = await stopTurn(harness);
+
+      const allowed = harness.driver.overrideDenial({
+        sessionId: SESSION_ID,
+        providerDenial: { threadId: THREAD_ID, action: "rm -rf build" },
+      });
+      await drainMicrotasks();
+      expect(harness.server.framesForMethod("thread/approveGuardianDeniedAction")).toHaveLength(0);
+      releaseInterrupt();
+      await allowed;
+      await stopped;
+
+      expect(harness.server.framesForMethod("thread/approveGuardianDeniedAction")).toHaveLength(1);
+      expect(harness.daemonTurnRunIds).toHaveLength(0);
+    },
+  );
+
+  // Mutation: leaving a wait on a record that left holds `Allow once` until its deadline, though no
+  // turn of a closed session will end.
+  it("refuses `Allow once` waiting on a stopped turn at once when the session closes", async () => {
+    const harness = await stoppableSession();
+    harness.server.on("thread/unsubscribe", () => ({ result: {} }));
+    await harness.driver.startRun({ runId: RUN_ID, agentConfig: runConfig("go") });
+    await interruptFirstTurn(harness);
+    const refused = captureRejection(
+      harness.driver.overrideDenial({
+        sessionId: SESSION_ID,
+        providerDenial: { threadId: THREAD_ID, action: "rm -rf build" },
+      }),
+    );
+    await drainMicrotasks();
+
+    await harness.driver.closeSession({ sessionId: SESSION_ID });
+
+    expect(await refused).toMatchObject({ fields: { reason: "session_turn_in_flight" } });
+    expect(harness.server.framesForMethod("thread/approveGuardianDeniedAction")).toHaveLength(0);
   });
 });

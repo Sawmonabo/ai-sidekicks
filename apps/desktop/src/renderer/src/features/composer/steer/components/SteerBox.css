@@ -1,23 +1,27 @@
-/* The box a steer is written in. Send uses the shared action button
-   (`styles/action-buttons.css`) and the text area the shared form part (`styles/form.css`);
-   every value is a Meridian token. */
+/* The box a steer is written in: the child's own composer, a line and the round Send on one row
+   under a hairline, with what a send answered beneath them. The text area wears the shared form
+   part (`styles/form.css`) and Send the composer's round control; every value is a Meridian
+   token. */
 
 .meridian-run-composer {
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-2);
-  padding: var(--meridian-space-3);
-  border: 1px solid var(--meridian-edge-strong);
-  border-radius: var(--meridian-radius-lg);
-  background: var(--meridian-surface-raised);
+  padding: var(--meridian-space-2) var(--meridian-space-3) var(--meridian-space-3);
+  border-top: 1px solid var(--meridian-edge);
 }
 
-.meridian-run-composer__body {
-  resize: vertical;
-}
-
-.meridian-run-composer__actions {
+.meridian-run-composer__row {
   display: flex;
   gap: var(--meridian-space-2);
-  align-items: center;
+  align-items: flex-end;
+}
+
+/* The line takes what the row leaves beside Send, on the ground, in the pane's smaller type. */
+.meridian-run-composer__body {
+  flex: 1;
+  min-width: 0;
+  resize: none;
+  font-size: var(--meridian-text-12-5);
+  background: var(--meridian-ground);
 }

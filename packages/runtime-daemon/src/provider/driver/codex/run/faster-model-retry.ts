@@ -2,7 +2,9 @@
 // forked to just before it, and the same message sent again on the faster model, which stays the
 // session's model. The run goes on in the new turn under its binding; nothing is drawn twice. An
 // interrupt of the run while it retries goes out at once and stops the retry, which then forks and
-// sends nothing more; the turn it stopped ends as the interrupt's would.
+// sends nothing more; the turn it stopped ends as the interrupt's would. An interrupt that comes
+// once the fork has begun leaves the session on the fork, the conversation the retry moved it to,
+// since the one it left is already let go.
 
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 
@@ -31,16 +33,25 @@ export interface CodexFasterModelRetryDependencies {
   readonly runRoutes: CodexRunRoutes;
   readonly runStart: Pick<CodexRunStart, "startTurn">;
   readonly forks: Pick<CodexConversationForks, "establishFork">;
-  readonly turnEnds: Pick<CodexTurnEndWaiters, "waitForEnd">;
+  readonly turnEnds: Pick<CodexTurnEndWaiters, "waitForEnd" | "settle">;
   readonly dispatch: CodexDeliveryDispatch;
 }
 
-// One retry in flight: its session, the answer to its interrupt, and its end.
+// One retry in flight: its session, the conversation its held turn ran on, the answer to its
+// interrupt, whether it has begun to fork, and its end.
 interface CodexRetryInFlight {
   readonly record: CodexSessionRecord;
+  readonly heldThreadId: string;
   readonly interruptAnswered: Promise<void>;
-  readonly settled: Promise<unknown>;
+  readonly settled: Promise<void>;
+  isForking: boolean;
   isCanceled: boolean;
+}
+
+/** A retry an interrupt stopped: its session, and the conversation its held turn ran on. */
+export interface CodexStoppedRetry {
+  readonly record: CodexSessionRecord;
+  readonly heldThreadId: string;
 }
 
 /** Retries held turns on a faster model, and stops a retry its run's interrupt reaches. */
@@ -82,14 +93,16 @@ export class CodexFasterModelRetries {
       threadId: record.threadId,
       turnId,
     });
-    const settled = Promise.withResolvers<unknown>();
+    const settled = Promise.withResolvers<void>();
     const inFlight: CodexRetryInFlight = {
       record,
+      heldThreadId: record.threadId,
       interruptAnswered: interrupting.then(
         () => undefined,
         () => undefined,
       ),
       settled: settled.promise,
+      isForking: false,
       isCanceled: false,
     };
     this.#inFlightByRun.set(params.runId, inFlight);
@@ -97,30 +110,34 @@ export class CodexFasterModelRetries {
       return await this.#retry(params, inFlight, interrupting, input, binding);
     } finally {
       this.#inFlightByRun.delete(params.runId);
-      settled.resolve(undefined);
+      settled.resolve();
     }
   }
 
   /**
-   * Stops the retry of `runId` in flight, answering `true` when that stopped the run: the retry
-   * forks and sends nothing more, and lets the run's binding go once its stopped turn has ended.
-   * Answers `false` with no retry in flight, and once a turn the retry kept or already sent runs as
-   * the run's, which the interrupt then stops as any live turn.
+   * Stops the retry of `runId` in flight, answering the session's record and the conversation its
+   * held turn ran on when that stopped the run: the retry forks and sends nothing more, and lets
+   * the run's binding go once its stopped turn has ended. A retry that has begun to fork is waited
+   * for, so the session is on its one conversation when this answers. Answers `undefined` with no
+   * retry in flight, and once a turn the retry kept or already sent runs as the run's, which the
+   * interrupt then stops as any live turn.
    */
-  async cancel(runId: RunId): Promise<boolean> {
+  async cancel(runId: RunId): Promise<CodexStoppedRetry | undefined> {
     const inFlight = this.#inFlightByRun.get(runId);
     if (inFlight === undefined) {
-      return false;
+      return undefined;
     }
     inFlight.isCanceled = true;
     const { record } = inFlight;
     // An interrupt Codex refused leaves the held turn running as the run's; a turn already sent
     // is the run's once Codex answers it.
     await inFlight.interruptAnswered;
-    if (record.delivery.startingTurnRunIds.includes(runId)) {
+    if (inFlight.isForking) {
       await inFlight.settled;
     }
-    return newestActiveTurnForRun(record, runId) === undefined;
+    return newestActiveTurnForRun(record, runId) === undefined
+      ? { record, heldThreadId: inFlight.heldThreadId }
+      : undefined;
   }
 
   async #retry(
@@ -141,6 +158,8 @@ export class CodexFasterModelRetries {
         record.delivery.retriedRunIdByTurnId.delete(turnId);
         record.runIdByActiveTurnId.set(turnId, params.runId);
         runRoutes.bindRun(params.runId, params.sessionId, turnId);
+        // The turn is the run's live one again, no turn the daemon is stopping.
+        turnEnds.settle();
         throw new Error(
           `Failed to retry with a faster model: ${normalizeProviderFailureDetail(cause)}`,
           { cause },
@@ -161,17 +180,28 @@ export class CodexFasterModelRetries {
       }
       // The fork carries the faster model on its default window, and every later start and resume
       // carries it too. The run's own binding is pointed at the fork before the turn is sent, so a
-      // resume after a restart finds the fork, never the held turn.
-      record.threadSettings = {
-        ...record.threadSettings,
+      // resume after a restart finds the fork, never the held turn. A fork that fails leaves the
+      // session on its conversation and its model.
+      inFlight.isForking = true;
+      const heldSettings = record.threadSettings;
+      const fasterSettings = {
+        ...heldSettings,
         model: params.model,
         modelContextWindow: undefined,
       };
-      await slots.claim(
-        params.sessionId,
-        "establishing",
-        async () => await forks.establishFork(record, turnId, binding.bindingId),
-      );
+      record.threadSettings = fasterSettings;
+      try {
+        await slots.claim(
+          params.sessionId,
+          "establishing",
+          async () => await forks.establishFork(record, turnId, binding.bindingId),
+        );
+      } catch (cause) {
+        if (record.threadSettings === fasterSettings) {
+          record.threadSettings = heldSettings;
+        }
+        throw cause;
+      }
       // An interrupt from here on withdraws the turn before it is sent.
       await runStart.startTurn(record, {
         runId: params.runId,

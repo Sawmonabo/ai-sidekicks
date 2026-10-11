@@ -5,7 +5,6 @@
 
 import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
-import type { PickedSkill } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type { ProviderOutputSpeedState } from "@ai-sidekicks/contracts/provider/driver/output-speed";
 import type { SessionMode } from "@ai-sidekicks/contracts/session/controls/methods";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
@@ -58,6 +57,7 @@ import type {
   DaemonTurnBindingResolver,
   ResumeRunParams,
   RunToolBoundary,
+  PickedSkill,
 } from "../../run-control.js";
 
 /** Terminal `TurnStatus` values; `inProgress` is excluded so a live route is never retired. */
@@ -195,6 +195,8 @@ export interface CodexSessionRecord {
    * `CODEX_INTERRUPTED_ROUTE_MEMORY`, never eviction; released when the terminal arrives.
    */
   readonly interruptedRunIdByTurnId: Map<string, RunId>;
+  /** Turns whose `turn/interrupt` is on the wire: no steer is sent into one. */
+  readonly interruptingTurnIds: Set<string>;
   /**
    * The newest steer sent on the conversation, settled either way; the next steer is sent once it
    * settles, so steers reach Codex one at a time in the order they were handed over.

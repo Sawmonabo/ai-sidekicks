@@ -95,6 +95,7 @@ interface SessionReadRow {
 interface LiveRunRow {
   readonly run_id: RunId;
   readonly parent_run_id: RunId | null;
+  readonly is_apart: 0 | 1;
   readonly state: RunState;
   readonly run_version: number;
   readonly agent_id: AgentId | null;
@@ -111,7 +112,7 @@ function readableEventSql(eventAlias: string): string {
 // touch is its newest readable `run_lifecycle` event. Both read the run-and-type index on the
 // event log; the unary `+` drops the run id column's affinity, which would keep the index from
 // serving.
-const SELECT_LIVE_RUNS_SQL = `SELECT run_id, parent_run_id, state, run_version,
+const SELECT_LIVE_RUNS_SQL = `SELECT run_id, parent_run_id, is_apart, state, run_version,
     (SELECT COALESCE(json_extract(queued.payload, '$.agentId'),
                      json_extract(queued.payload, '$.resolvedAgent.agentId'))
        FROM session_events AS queued
@@ -327,6 +328,7 @@ function readLiveRun(row: LiveRunRow, sessionId: SessionId): SessionLiveRun {
   return {
     runId: row.run_id,
     ...(row.parent_run_id === null ? {} : { parentRunId: row.parent_run_id }),
+    ...(row.is_apart === 1 ? { isApart: true } : {}),
     state: row.state,
     runVersion: row.run_version,
     agentId: row.agent_id,

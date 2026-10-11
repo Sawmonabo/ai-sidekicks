@@ -34,7 +34,7 @@ import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 import type { ZodType } from "zod";
 
 import { describeSchemaIssue } from "./defect.js";
-import { projectRunStreamDelivery } from "#renderer/services/run-streams/projection.fixture.js";
+import { projectRunStateStreamDelivery } from "#renderer/services/run-streams/projection.fixture.js";
 import type { ScenarioBeat } from "#fixtures/scenario.js";
 import { RUN_STATE_EVENT_STREAM } from "#shared/daemon/streams.js";
 import {
@@ -167,11 +167,8 @@ function describeRunStreamProjectionDefect(beat: ScenarioBeat): string | undefin
   if (runStateStreamArmFor(beat.event.kind) === undefined) {
     return undefined;
   }
-  // The `undefined` arm ("this subscription registers no projection") is reachable only if the
-  // two readings of the subscription name drift apart; it is reported rather than asserted so it
-  // stays a reported defect like every other.
-  const projected = projectRunStreamDelivery(RUN_STATE_EVENT_STREAM, beat.event);
-  if (projected === undefined || projected.status === "projected") {
+  const projected = projectRunStateStreamDelivery(beat.event);
+  if (projected.status === "projected") {
     return undefined;
   }
   return (

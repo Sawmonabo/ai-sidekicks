@@ -1,9 +1,10 @@
 // The message line, Send, and the draft beneath them: an unsent body lives in the supplied
 // draft store, so a send that did not land must leave what the person wrote (a line with its
-// own copy would lose it). Two presses inside one frame send once, and a line-reading command
-// sent with Send runs instead of going out as a message.
+// own copy would lose it). Two presses inside one frame send once, Send keeps its name while the
+// send is in flight, and a line-reading command sent with Send runs instead of going out as a
+// message.
 
-import { act, fireEvent } from "@testing-library/react";
+import { act, fireEvent, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { commandRegistry } from "#renderer/registries/commands/registry.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "#renderer/store/persistence/caps.js";
@@ -156,6 +157,9 @@ describe("DraftLine — one send in flight", () => {
       pressSend(result.container);
     });
     expect(settleCalls).toStrictEqual(["run.queueCreate"]);
+    // In flight, Send keeps its one name and is never renamed for what it is doing.
+    const inFlight = within(result.container).getByRole("button", { name: "Send" });
+    expect(inFlight.getAttribute("aria-busy")).toBe("true");
 
     await act(async () => {
       releaseFirstCall();

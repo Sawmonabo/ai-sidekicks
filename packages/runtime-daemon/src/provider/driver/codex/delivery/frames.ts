@@ -350,7 +350,7 @@ export class CodexFrameDelivery {
       turnRun !== undefined && isStoppedByCodex ? this.#rowRun(record, turnRun) : undefined,
     );
     if (turnRun === undefined) {
-      // A turn no run holds is a compaction's own, whose frame came before this end if it compacted.
+      // A turn no run holds is a compaction's own, whose frame came before this end if it ran.
       this.#dependencies.pendingCompactions.observeTurnEnd(
         codexCompactionWaitKey(record.sessionId, threadId),
       );

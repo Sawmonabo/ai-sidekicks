@@ -35,7 +35,7 @@ import type { ClaudeBoundRun, ClaudeRunRoutes } from "./routes.js";
  * What a turn the daemon starts on a session itself opens with: text, and the blocks of the files
  * a person's message carries, written to the session's own process under the message id a later
  * cut names, or a turn run apart from that process, started once its run is bound and delivered on
- * that run.
+ * that run; or the turn Claude Code started by itself, which its run takes with nothing written.
  */
 export type ClaudeDaemonTurnOpening =
   | {
@@ -44,7 +44,8 @@ export type ClaudeDaemonTurnOpening =
       readonly messageId: string;
       readonly attachmentBlocks?: readonly ClaudeUserContentBlock[] | undefined;
     }
-  | { readonly kind: "apart"; readonly start: (run: ClaudeBoundRun) => void };
+  | { readonly kind: "apart"; readonly start: (run: ClaudeBoundRun) => void }
+  | { readonly kind: "provider" };
 
 /** What a run's start reads and writes through. */
 export interface ClaudeRunStartDependencies {
@@ -126,15 +127,15 @@ export class ClaudeRunStart {
   }
 
   /**
-   * Starts a turn the daemon starts on a session itself as the session's own run, at the session's
-   * current posture, and resolves with the run's id once its opening is written and the run is
-   * running. A text opening is refused, before any run exists, while a run holds the session's
-   * turn, every opening while the session holds its next turn for an interrupted run's continue,
-   * and every opening on a session holding no posture. Throws as {@link startRun} does, the run
-   * then ended `failed` by the run engine.
+   * Starts a turn the daemon starts on a session itself, or one Claude Code started by itself, as
+   * the session's own run, at the session's current posture, and resolves with the run's id once
+   * its opening is written and the run is running. A text opening is refused, before any run
+   * exists, while a run holds the session's turn or the session holds its next turn for an
+   * interrupted run's continue; every opening is refused on a session holding no posture. Throws as
+   * {@link startRun} does, the run then ended `failed` by the run engine.
    */
   async startDaemonTurn(live: LiveClaudeSession, opening: ClaudeDaemonTurnOpening): Promise<RunId> {
-    const { runEngine, runDispatchResolver, slots, interruptRun } = this.#dependencies;
+    const { runEngine, runDispatchResolver, slots, runRoutes, interruptRun } = this.#dependencies;
     const sessionId = live.sessionId;
     const executionPosture = live.executionPosture;
     if (executionPosture === undefined) {
@@ -148,12 +149,16 @@ export class ClaudeRunStart {
       provider: CLAUDE_DRIVER_NAME,
       admittedProviderAccountId: live.admittedProviderAccountId,
       executionPosture,
-      isProviderStarted: false,
+      isProviderStarted: opening.kind === "provider",
       isApart: opening.kind === "apart",
       startTurn: async (runId) => {
         const { bindingId } = await runDispatchResolver.openDaemonTurnBinding(runId, sessionId);
         if (opening.kind === "apart") {
           opening.start({ runId, bindingId });
+          return;
+        }
+        if (opening.kind === "provider") {
+          runRoutes.bindRun(runId, sessionId, bindingId);
           return;
         }
         // Re-read: the session may have closed or moved to another process while the run started.

@@ -550,6 +550,8 @@ CREATE TABLE runs (
   reached_by     TEXT
                  CHECK(reached_by IS NULL
                    OR reached_by IN ('provider_subagent', 'bridge_run', 'workflow_step')),
+  -- 1 on a run whose turn runs in a process of its own; such a run is never the lead run.
+  is_apart       INTEGER NOT NULL DEFAULT 0 CHECK(is_apart IN (0, 1)),
   state          TEXT NOT NULL
     CHECK(state IN ('queued', 'starting', 'running', 'waiting_for_approval', 'waiting_for_input',
                     'pausing', 'paused', 'completed', 'interrupted', 'stopped', 'failed')),

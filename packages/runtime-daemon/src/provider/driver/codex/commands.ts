@@ -14,7 +14,6 @@ import {
   type ProviderCommandListResult,
 } from "@ai-sidekicks/contracts/provider/driver/commands";
 import { wireFreeFormString } from "@ai-sidekicks/contracts/free-form-string";
-import type { PickedSkill } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { PortRegistration } from "../../port/registration.js";
 import { isPlainObject } from "../../record-readers.js";
@@ -28,6 +27,7 @@ import {
   type CodexDiagnosticSink,
   reportDiagnosticFromDetachedFrame,
 } from "./transport/diagnostics.js";
+import type { PickedSkill } from "../run-control.js";
 
 /**
  * The daemon's tool-server client's side of the `/` list: each working server's prompts for a

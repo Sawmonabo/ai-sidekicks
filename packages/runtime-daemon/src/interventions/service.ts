@@ -18,7 +18,6 @@
 
 import { EventEnvelopeVersionSchema } from "@ai-sidekicks/contracts/event/envelope";
 import type {
-  ApplyInterventionParams,
   InterruptPendingChoice,
   InterventionType,
 } from "@ai-sidekicks/contracts/provider/driver/intervention";
@@ -47,7 +46,10 @@ import { SessionEventAppender, type SessionEventLog } from "../events/session/ap
 import { DaemonDomainError } from "../ipc/domain-error.js";
 import { KeyedLock } from "../keyed-lock.js";
 import { boundFailureDetail, type ProviderDriver } from "../provider/driver/contract.js";
-import type { FasterModelRetryOutcome } from "../provider/driver/run-control.js";
+import type {
+  FasterModelRetryOutcome,
+  ApplyInterventionParams,
+} from "../provider/driver/run-control.js";
 import type { InterruptRoute } from "../session/run/engine.js";
 import { advanceRunVersionStatement } from "../session/run/projection.js";
 import type { RunStateReader } from "../session/run/read.js";
@@ -142,9 +144,7 @@ export interface InterventionServiceDeps {
 
 // The run states each type is accepted in: an interrupt ends any run the table lets move to
 // `interrupted`, while a retry acts on the turn in flight.
-const RUN_STATES_ACCEPTING_INTERVENTION: Readonly<
-  Record<InterventionRequestPayload["type"], readonly RunState[]>
-> = {
+const RUN_STATES_ACCEPTING_INTERVENTION: Readonly<Record<InterventionType, readonly RunState[]>> = {
   interrupt: statesThatMayEnter("interrupted"),
   faster_model_retry: ["running"],
 };

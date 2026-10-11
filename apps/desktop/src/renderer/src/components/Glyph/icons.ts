@@ -117,6 +117,8 @@ import ExternalFace from "~icons/signature/external";
 import MoreFace from "~icons/signature/more";
 // Two lines.
 import PlusFace from "~icons/tabler/plus";
+// A shaft and an open head, all straight lines.
+import ArrowUpFace from "~icons/tabler/arrow-up";
 
 /** One compiled face: an `<svg>` component that forwards every prop to its root. */
 export type GlyphIcon = ComponentType<SVGProps<SVGSVGElement>>;
@@ -173,4 +175,5 @@ export const GLYPH_ICONS: Readonly<Record<GlyphName, GlyphIcon>> = {
   external: ExternalFace,
   more: MoreFace,
   plus: PlusFace,
+  "arrow-up": ArrowUpFace,
 };

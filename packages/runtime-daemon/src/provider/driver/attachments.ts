@@ -2,10 +2,6 @@
 // stored copy the provider reads, in the order they were staged, and one the daemon could not bind
 // standing in its own place as an unresolved marker, so no file is ever left out unsaid.
 
-import type {
-  UnresolvedAttachmentCause,
-  UnresolvedAttachmentMarker,
-} from "@ai-sidekicks/contracts/artifacts/attachment-reference";
 import type { ArtifactId } from "@ai-sidekicks/contracts/artifacts/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
@@ -19,6 +15,17 @@ export interface ResolvedAttachment {
   readonly path: string;
   readonly fileName: string;
   readonly mediaType: string;
+}
+
+// Why an attachment could not be delivered: `deleted`, its manifest gone with its payload.
+type UnresolvedAttachmentCause = "deleted";
+
+// The marker in the place of an attachment the daemon could not bind to its manifest at delivery,
+// so the list keeps its length and order and the recipient reads why the file is missing.
+interface UnresolvedAttachmentMarker {
+  readonly kind: "unresolved";
+  readonly artifactId: ArtifactId;
+  readonly cause: UnresolvedAttachmentCause;
 }
 
 /** One attachment as a driver hands it to its provider, a bound file or the marker in its place. */

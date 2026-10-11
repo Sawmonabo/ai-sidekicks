@@ -43,4 +43,14 @@ describe("resolveAddressedRun — the newest run that is still live", () => {
     };
     expect(resolveAddressedRun(partition(mine, theirs), AGENT_ID)?.id).toBe("run-mine");
   });
+
+  // Mutation: addressing the newest live run whatever runs it points the composer at a review of
+  // the staged set, a process that takes no message, instead of the lead's run.
+  it("ignores a newer live run apart from the session's process", () => {
+    const lead = run("run-lead", "running", "2026-01-01T10:00:00.000Z");
+    const review = run("run-review", "running", "2026-01-01T11:00:00.000Z");
+    const apart: StoredEntity = { ...review, body: { ...review.body, isApart: true } };
+    expect(resolveAddressedRun(partition(lead, apart), AGENT_ID)?.id).toBe("run-lead");
+    expect(resolveAddressedRun(partition(apart), AGENT_ID)).toBeUndefined();
+  });
 });

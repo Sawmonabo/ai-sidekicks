@@ -3,11 +3,10 @@
 // on one conversation go out one at a time, each once Codex answered the one before, in the order
 // they were handed over.
 
-import type { PickedSkill } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 
 import type { ProviderAttachment } from "../attachments.js";
-import { SteerTurnEndedError } from "../run-control.js";
+import { SteerTurnEndedError, type PickedSkill } from "../run-control.js";
 import { composeCodexMessageInput } from "./attachments.js";
 import type { CodexSteerAcknowledgement } from "./intervention.js";
 import type { CodexSessionRecord } from "./session/state.js";
@@ -35,7 +34,8 @@ export interface CodexSteerInput {
  * Steers `turnId` on `record`, or the turn the steer expects, and reports both the turn it
  * targeted and the turn the provider acknowledged. Sent once the conversation's previous steer
  * settled and its files are bound. Throws the request's failure, the files' binding failure, and
- * `SteerTurnEndedError` when the turn is no longer the run's live one by then.
+ * `SteerTurnEndedError` when the turn is no longer the run's live one by then or an interrupt is
+ * stopping it, or had ended when Codex refused the steer.
  */
 export async function steerActiveTurn(
   record: CodexSessionRecord,
@@ -49,22 +49,32 @@ export async function steerActiveTurn(
   // Both are awaited from here, so a binding that fails before the previous steer settles is this
   // steer's failure at once, never an unhandled one.
   const send = Promise.all([previousSend, steer.attachments]).then(([, attachments]) => {
-    // A steer that waited behind another is sent only while its turn is still the run's live one,
-    // never into a turn an interrupt retired or a conversation the session has left.
-    if (!record.runIdByActiveTurnId.has(turnId)) {
+    // A steer that waited behind another or its files is sent only while its turn is still the
+    // run's live one, never into a turn an interrupt is stopping or retired, or a conversation the
+    // session has left.
+    if (!record.runIdByActiveTurnId.has(turnId) || record.interruptingTurnIds.has(turnId)) {
       throw new SteerTurnEndedError(steer.runId);
     }
-    return record.service.request("turn/steer", {
-      threadId: record.threadId,
-      input: composeCodexMessageInput([
-        { text: steer.content, skills: steer.skills ?? [], attachments },
-      ]),
-      expectedTurnId: targetedTurnId,
-      // The requester's key, verbatim and never re-minted, or the intervention dedupe guard is
-      // defeated. `clientUserMessageId` is the provider's caller-supplied message id field, as on
-      // `turn/start`.
-      clientUserMessageId: steer.clientIdempotencyKey,
-    });
+    return record.service
+      .request("turn/steer", {
+        threadId: record.threadId,
+        input: composeCodexMessageInput([
+          { text: steer.content, skills: steer.skills ?? [], attachments },
+        ]),
+        expectedTurnId: targetedTurnId,
+        // The requester's key, verbatim and never re-minted, or the intervention dedupe guard is
+        // defeated. `clientUserMessageId` is the provider's caller-supplied message id field, as on
+        // `turn/start`.
+        clientUserMessageId: steer.clientIdempotencyKey,
+      })
+      .catch((cause: unknown) => {
+        // Codex refuses a steer whose turn ended before it arrived, and the turn's end reaches the
+        // daemon ahead of that answer, so the refused message waits for the run's next turn.
+        if (!record.runIdByActiveTurnId.has(turnId)) {
+          throw new SteerTurnEndedError(steer.runId);
+        }
+        throw cause;
+      });
   });
   // The next steer waits for the one before this and for this one, whichever way each ends; this
   // one's failure reaches its own caller below.

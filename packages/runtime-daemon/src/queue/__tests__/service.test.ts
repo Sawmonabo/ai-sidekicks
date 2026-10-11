@@ -348,31 +348,81 @@ describe("the run queue", () => {
     });
   });
 
-  // Mutation: keeping a handed message past its run's end whatever became of the process it went
-  // to leaves it waiting for a turn no process will start, never sent again.
-  it("makes a message the next run's opening when the Claude Code process it went to is gone", async () => {
-    const queueFixture = await openRunQueueFixture({ driverName: "claude" });
-    fixture = queueFixture;
-    const runId = await startFirstRun(queueFixture, "Add the retry");
-    const lost = await queueFixture.send("Cover the timeout too");
-    await vi.waitFor(() => {
-      expect(queueFixture.steers.map((steer) => steer.clientIdempotencyKey)).toEqual([
-        lost.queueItemId,
-      ]);
-    });
+  // Mutations: keeping a handed message past its run's end whatever became of the process it went
+  // to leaves it waiting for a turn no process will start, never sent again; looking at a kept
+  // message only at its run's end strands it when the process dies after.
+  it.each([
+    ["before", true],
+    ["after", false],
+  ])(
+    "makes a message the next run's opening when the Claude Code process it went to is gone %s the run's end",
+    async (_case, isGoneBeforeEnd) => {
+      const queueFixture = await openRunQueueFixture({ driverName: "claude" });
+      fixture = queueFixture;
+      const { sessionId } = queueFixture.engine;
+      const runId = await startFirstRun(queueFixture, "Add the retry");
+      const lost = await queueFixture.send("Cover the timeout too");
+      await vi.waitFor(() => {
+        expect(queueFixture.steers.map((steer) => steer.clientIdempotencyKey)).toEqual([
+          lost.queueItemId,
+        ]);
+      });
 
-    // The process exited and the session was started again in a new one.
-    queueFixture.providerProcessId = 5151;
+      // The process exited and the session was started again in a new one.
+      if (isGoneBeforeEnd) {
+        queueFixture.providerProcessId = 5151;
+      }
+      await queueFixture.engine.engine.transition({
+        runId,
+        newState: "completed",
+        completionKind: "turn",
+      });
+      if (!isGoneBeforeEnd) {
+        // The end is settled with the message still kept, then the process goes.
+        await queueFixture.queue.lifecycle.reconcile(sessionId);
+        expect(queueFixture.startedRunIds()).toEqual([runId]);
+        queueFixture.providerProcessId = 5151;
+        queueFixture.queue.lifecycle.onProcessGone(sessionId);
+      }
+
+      await waitForOpening(queueFixture, lost);
+      const [, nextRunId] = queueFixture.startedRunIds();
+      expect(nextRunId).not.toBe(runId);
+      expect(queueFixture.readItem(lost.queueItemId)?.targetRunId).toBe(nextRunId);
+    },
+  );
+
+  // Mutation: reading the process's peak with no catch before the run's end skips the end on a
+  // failed read, so the run's place at the gate is held for good and the next run never starts.
+  it("ends a run whose start brought its process up even when that process's peak cannot be read", async () => {
+    const queueFixture = await openRunQueueFixture({
+      driverName: "claude",
+      // Room past the gate's headroom for one Claude Code run at a time.
+      availableMemoryBytes: (16 * 0.2 + 0.4) * 1024 * 1024 * 1024,
+      readPeakBytes: () => Promise.reject(new Error("the usage library did not load")),
+    });
+    fixture = queueFixture;
+    queueFixture.providerProcessId = undefined;
+    queueFixture.answerStart = () => {
+      queueFixture.providerProcessId = 4242;
+      return Promise.resolve();
+    };
+    const runId = await startFirstRun(queueFixture, "Add the retry");
+
     await queueFixture.engine.engine.transition({
       runId,
       newState: "completed",
       completionKind: "turn",
     });
+    const next = await queueFixture.send("Cover the timeout too");
 
-    await waitForOpening(queueFixture, lost);
-    const [, nextRunId] = queueFixture.startedRunIds();
-    expect(nextRunId).not.toBe(runId);
-    expect(queueFixture.readItem(lost.queueItemId)?.targetRunId).toBe(nextRunId);
+    await waitForOpening(queueFixture, next);
+    expect(queueFixture.startedRunIds()).toHaveLength(2);
+    // Each change whose peak read failed says so, and none is held back by it.
+    expect(queueFixture.serviceLog).not.toHaveLength(0);
+    for (const line of queueFixture.serviceLog.splice(0)) {
+      expect(line).toContain("the usage library did not load");
+    }
   });
 
   // Mutation: admitting only a message still handed leaves one Claude Code took after its

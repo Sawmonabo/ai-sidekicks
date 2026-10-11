@@ -12,23 +12,18 @@ import { isDeepStrictEqual } from "node:util";
 import type { ProviderModel } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import type { DriverCompactionResult } from "@ai-sidekicks/contracts/provider/driver/compaction";
 import type { ProviderCommandListResult } from "@ai-sidekicks/contracts/provider/driver/commands";
-import type {
-  InterruptRunParams,
-  PickedSkill,
-} from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { InterruptRunParams } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type { ProviderOutputSpeedState } from "@ai-sidekicks/contracts/provider/driver/output-speed";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { PendingCompactionRegistry } from "../../compaction-wait.js";
 import { mintUuidV7 } from "../../../uuid-v7.js";
-import type { CapabilityProbeRequest } from "../../capability/probe.js";
 import {
   classifyCodexAuthStatus,
   CODEX_AUTH_PROBE_TIMEOUT_MS,
   requestCodexAuthStatus,
 } from "./auth-status.js";
-import { getCodexCapabilities, readCodexCapabilityDetection } from "./capabilities.js";
 import { CodexProviderCommandCache } from "./commands.js";
 import { CodexCompactionDispatch } from "./compaction.js";
 import { CodexAskHandOff } from "./delivery/asks.js";
@@ -61,13 +56,10 @@ import { CodexTurnEndWaiters } from "./run/turn-end-waiters.js";
 import { readCodexServerRequestAnswer } from "./server-requests.js";
 import { createCodexServiceLauncher, runCodexCommand } from "./service/process.js";
 import type { CodexServiceEvents } from "./service/dependencies.js";
+import { probeCodexServiceCapabilities } from "./service/capabilities.js";
 import { CodexServiceRegistry } from "./service/registry.js";
 import { CODEX_CONFIG_WARNING_METHOD, type CodexService } from "./service/supervisor.js";
-import {
-  CodexProviderRequestError,
-  CodexTransportError,
-  normalizeProviderFailureDetail,
-} from "./session/errors.js";
+import { CodexTransportError, normalizeProviderFailureDetail } from "./session/errors.js";
 import {
   observeCodexReasoningEffort,
   overrideCodexReviewerDenial,
@@ -121,6 +113,7 @@ import type {
   OverrideDenialParams,
   PauseRunParams,
   ResumeRunParams,
+  PickedSkill,
 } from "../run-control.js";
 import type {
   AskSideQuestionParams,
@@ -208,6 +201,8 @@ export class CodexLifecycleManager {
       // A turn waiting on the record's running turn would otherwise wait for good.
       onRecordLeft: (record) => {
         this.#configForks.stopWaiting(record);
+        // No turn of a record that left will end, so nothing waits on one.
+        this.#turnEnds.abandon(record);
       },
     });
     this.#hooks =
@@ -390,6 +385,7 @@ export class CodexLifecycleManager {
       pauses: this.#pauses,
       dispatch: this.#dispatch,
       retries: this.#retries,
+      turnEnds: this.#turnEnds,
     });
     this.#rewind = new CodexConversationRewind({
       slots: this.#slots,
@@ -405,6 +401,7 @@ export class CodexLifecycleManager {
     this.#selfStartedTurns = new CodexSelfStartedTurns({
       recordFor: (sessionId) => this.#slots.recordFor(sessionId),
       runStart: this.#runStart,
+      turnEnds: this.#turnEnds,
       ingest: (sessionId, method, params) => {
         this.#ingestFrame(sessionId, method, params);
       },
@@ -753,35 +750,10 @@ export class CodexLifecycleManager {
    * its own that starts no conversation. Throws when the service cannot start.
    */
   async getCapabilities(): Promise<GetCapabilitiesResult> {
-    const service = await this.#services.serviceFor(undefined);
-    await service.ensureStarted();
-    const reading = service.versionReading;
-    if (reading === undefined) {
-      throw new CodexTransportError("The Codex service reported no build at its start.", {
-        codexHome: service.home.codexHome,
-      });
-    }
-    const connection = await service.openDetachedConnection();
-    try {
-      const detection = await readCodexCapabilityDetection(
-        reading,
-        async (request: CapabilityProbeRequest): Promise<unknown> => {
-          // The reply's own shape, as the probe classifier reads it.
-          try {
-            return { result: await connection.request(request.probeName, {}) };
-          } catch (cause) {
-            if (cause instanceof CodexProviderRequestError) {
-              return { error: { code: cause.providerErrorCode, message: cause.providerMessage } };
-            }
-            throw cause;
-          }
-        },
-        this.#options.diagnostics,
-      );
-      return getCodexCapabilities(reading, detection);
-    } finally {
-      connection.close();
-    }
+    return await probeCodexServiceCapabilities(
+      await this.#services.serviceFor(undefined),
+      this.#options.diagnostics,
+    );
   }
 
   /** What every service tells the lifecycle about its conversations. */

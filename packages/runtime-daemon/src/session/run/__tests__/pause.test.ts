@@ -1,20 +1,47 @@
 // The version guard on pause and resume: a request at any version but the run's current one is
-// refused `run.version_stale` with the run, its log and the provider untouched, and one at the
-// current version moves the run and reaches the driver once, and a run that moves between the read
-// and the write is refused by the guard inside the write.
+// refused `run.version_stale` with the run, its log, its waiting messages and the provider
+// untouched, and one at the current version moves the run and reaches the driver once, and a run
+// that moves between the read and the write is refused by the guard inside the write. A resume's
+// messages are taken only once the driver continued the run, and given back when it did not.
+
+import { randomUUID } from "node:crypto";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
+import { QueueItemIdSchema } from "@ai-sidekicks/contracts/run/queue";
 
-import type { PauseRunParams, ResumeRunParams } from "../../../provider/driver/run-control.js";
-import { RunPauseControl } from "../pause.js";
+import type {
+  PauseRunParams,
+  ResumeRunParams,
+  WaitingMessage,
+} from "../../../provider/driver/run-control.js";
+import { type ContinuedMessages, RunPauseControl } from "../pause.js";
 import { openRunEngineFixture, type RunEngineFixture } from "./engine.test-support.js";
 
 describe("RunPauseControl version guard", () => {
   let fixture: RunEngineFixture;
   let control: RunPauseControl;
   let driverCalls: (PauseRunParams | ResumeRunParams)[];
+  // What became of a resume's messages, in order, beside each driver call.
+  let steps: string[];
+  const waiting: WaitingMessage[] = [
+    { id: QueueItemIdSchema.parse(randomUUID()), content: "Then the docs" },
+  ];
+  const continued: ContinuedMessages = {
+    read: () => {
+      steps.push("read");
+      return waiting;
+    },
+    admit: () => {
+      steps.push("admit");
+      return Promise.resolve();
+    },
+    release: () => {
+      steps.push("release");
+      return Promise.resolve();
+    },
+  };
   const driver = {
     pauseRun: (params: PauseRunParams) => {
       driverCalls.push(params);
@@ -22,6 +49,7 @@ describe("RunPauseControl version guard", () => {
     },
     resumeRun: (params: ResumeRunParams) => {
       driverCalls.push(params);
+      steps.push("resume");
       return Promise.resolve();
     },
   };
@@ -30,6 +58,7 @@ describe("RunPauseControl version guard", () => {
     fixture = await openRunEngineFixture();
     control = new RunPauseControl({ runs: fixture.runs, engine: fixture.engine });
     driverCalls = [];
+    steps = [];
   });
 
   afterEach(async () => {
@@ -45,7 +74,7 @@ describe("RunPauseControl version guard", () => {
     const request = { targetRunId, expectedRunVersion };
     return operation === "pause"
       ? control.pause(request, driver)
-      : control.resume(request, driver, []);
+      : control.resume(request, driver, continued);
   }
 
   it.each(
@@ -65,6 +94,34 @@ describe("RunPauseControl version guard", () => {
     expect(fixture.runs.getRun(runId)).toEqual(before);
     expect(fixture.readRunEvents(runId)).toEqual(eventsBefore);
     expect(driverCalls).toEqual([]);
+    expect(steps).toEqual([]);
+  });
+
+  // Mutations: reading the messages before the version check lets a refused resume give back the
+  // ones a resume that went delivered, so they are sent twice; taking them before the driver
+  // continued the run, or keeping them when it refused, loses them.
+  it("takes a resume's messages once the driver continued the run, and gives them back when it refused", async () => {
+    const runId = await fixture.runThrough(["starting", "running", "pausing", "paused"]);
+    const refused = fixture.runs.getRun(runId)!;
+    const refusing = {
+      resumeRun: () => Promise.reject(new Error("the process stopped answering")),
+    };
+
+    await expect(
+      control.resume(
+        { targetRunId: runId, expectedRunVersion: refused.version },
+        refusing,
+        continued,
+      ),
+    ).rejects.toThrow("the process stopped answering");
+    expect(steps).toEqual(["read", "release"]);
+
+    steps = [];
+    await fixture.engine.transition({ runId, newState: "pausing" });
+    const { version } = fixture.runs.getRun(runId)!;
+    await control.resume({ targetRunId: runId, expectedRunVersion: version }, driver, continued);
+    expect(steps).toEqual(["read", "resume", "admit"]);
+    expect(driverCalls).toEqual([{ sessionId: fixture.sessionId, runId, messages: waiting }]);
   });
 
   it.each(cases)("admits a $operation at the run's current version", async (testCase) => {

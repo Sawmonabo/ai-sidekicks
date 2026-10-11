@@ -31,7 +31,7 @@ export function useRunControlCommands(input: RunControlCommandInput): void {
 
   // Keyed by what the rows say: only a change in what the palette would list may
   // re-register the owner.
-  const signature = rows.map((row) => `${row.runId} ${row.control} ${row.title}`).join("|");
+  const signature = rows.map((row) => `${commandIdFor(row)} ${row.title}`).join("|");
   // Built from this render's rows, not through a ref, which a layout effect refreshes only
   // after this memo runs. The signature is the dependency because keying on the array's
   // identity would re-register commands on every streamed run event.
@@ -52,7 +52,7 @@ function buildRunControlCommand(
   inputRef: React.RefObject<RunControlCommandInput>,
 ): CommandDefinition {
   return {
-    id: `runs.${row.control}.${row.runId}`,
+    id: commandIdFor(row),
     title: row.title,
     group: RUN_CONTROL_COMMAND_GROUP,
     // Nothing narrower: a fact that changes with every event does not belong in a vocabulary
@@ -63,4 +63,10 @@ function buildRunControlCommand(
       dispatchRunControlCommand(row, inputRef.current);
     },
   };
+}
+
+/** The palette id of one row: a steer row is one per child, so its child joins the id. */
+function commandIdFor(row: RunControlCommandRow): string {
+  const id = `runs.${row.control}.${row.runId}`;
+  return row.control === "steer" ? `${id}.${row.child.childHandle}` : id;
 }

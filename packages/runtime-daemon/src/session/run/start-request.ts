@@ -56,8 +56,8 @@ export interface DaemonTurnStartRequest {
   readonly isProviderStarted: boolean;
   /**
    * Whether the turn runs in a process of its own apart from the session's, such as Claude Code's
-   * review of the staged set: it takes no turn of the session's process, so a live lead run never
-   * holds it back.
+   * review of the staged set: it takes no turn of the session's process, so its run is no lead run
+   * and nothing the session's turn waits for holds it back.
    */
   readonly isApart?: boolean;
   /**

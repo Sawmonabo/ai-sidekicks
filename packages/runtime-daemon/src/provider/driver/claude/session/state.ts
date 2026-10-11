@@ -265,6 +265,11 @@ export interface ClaudeSessionLifecycleDependencies {
    */
   readonly onMessageTaken: (sessionId: SessionId, messageId: string, runId: RunId) => void;
   /**
+   * The session's Claude Code process ended, on its own or for a move to a new build, so a message
+   * it kept for a turn of its own went with it.
+   */
+  readonly onProcessGone: (sessionId: SessionId) => void;
+  /**
    * Points the session's binding at the session a rewind forked, so a later resume opens that one,
    * and records in the same write the session it left. Rejects when it was not recorded.
    */

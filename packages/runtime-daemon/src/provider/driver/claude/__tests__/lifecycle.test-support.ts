@@ -179,6 +179,7 @@ export function buildHarness(
       relaunches.push({ sessionId, result });
     },
     onMessageTaken: () => undefined,
+    onProcessGone: () => undefined,
     rebindRuntimeBinding: async () => {
       await Promise.resolve();
     },

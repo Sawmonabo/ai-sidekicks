@@ -9,10 +9,8 @@ import { randomUUID } from "node:crypto";
 import { expect, vi } from "vitest";
 
 import type {
-  ApplyInterventionParams,
   DriverInterventionResult,
   InterruptPendingChoice,
-  PickedSkill,
 } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import type { InterventionRequestResponse } from "@ai-sidekicks/contracts/run/control";
@@ -37,6 +35,8 @@ import type { ProviderDriver, StartRunParams } from "../../provider/driver/contr
 import type {
   WithdrawQueuedMessageParams,
   WithdrawQueuedMessageResult,
+  ApplyInterventionParams,
+  PickedSkill,
 } from "../../provider/driver/run-control.js";
 import {
   TEST_EXECUTION_POSTURE,
@@ -57,6 +57,8 @@ export interface RunQueueFixtureOptions {
   readonly withdrawDeadlineMs?: number;
   /** The one clock the engine and the queue stamp their rows with; the default is the machine's. */
   readonly now?: () => string;
+  /** Reads a process's peak, in bytes; the default reads none. */
+  readonly readPeakBytes?: (processId: number) => Promise<number | undefined>;
 }
 
 /** A run queue over a scratch database, and what its provider was handed. */
@@ -131,10 +133,14 @@ export interface RunQueueFixture {
  * A memory gate on a 16 GiB machine with `availableMemoryBytes` free, whose clock reads a minute
  * later on each read, so the spacing between estimated starts has always passed.
  */
-export function openUnspacedMemoryGate(availableMemoryBytes: number): MemoryGate {
+export function openUnspacedMemoryGate(
+  availableMemoryBytes: number,
+  readPeakBytes: (processId: number) => Promise<number | undefined> = () =>
+    Promise.resolve(undefined),
+): MemoryGate {
   let clockMs = 0;
   return createMemoryGate({
-    peakReader: { readPeakBytes: () => Promise.resolve(undefined) },
+    peakReader: { readPeakBytes },
     readAvailableMemory: () => availableMemoryBytes,
     physicalMemoryBytes: 16 * GIBIBYTE,
     clock: {
@@ -209,7 +215,10 @@ export async function openRunQueueFixture(
     return fixture.answerWithdraw(params);
   };
 
-  const memoryGate = openUnspacedMemoryGate(options.availableMemoryBytes ?? 64 * GIBIBYTE);
+  const memoryGate = openUnspacedMemoryGate(
+    options.availableMemoryBytes ?? 64 * GIBIBYTE,
+    options.readPeakBytes,
+  );
   const selectHead = database.reader.prepare<[string], { head: number }>(
     "SELECT MAX(sequence) AS head FROM session_events WHERE session_id = ?",
   );

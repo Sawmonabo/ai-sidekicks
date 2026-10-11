@@ -27,6 +27,8 @@ import {
 } from "../../__fixtures__/app-server-doubles.js";
 
 const GOAL_TURN_ID = "turn-goal";
+// Apart from every other deadline the harness arms, so a test fires the turn start's alone.
+const START_DEADLINE_MS = 5_000;
 
 function emitGoalTurnStarted(harness: Harness): void {
   harness.server.emitFrame({
@@ -45,6 +47,7 @@ describe("a turn Codex started by itself", () => {
     // A second open never settles, so a try again shows as a second run, not as a loop.
     let openCount = 0;
     const harness = createHarness({
+      turnStartTimeoutMs: START_DEADLINE_MS,
       openDaemonTurnBinding: async () => {
         openCount += 1;
         if (openCount > 1) {
@@ -80,6 +83,10 @@ describe("a turn Codex started by itself", () => {
     expect(harness.server.framesForMethod("turn/start")).toHaveLength(0);
     expect(harness.server.framesForMethod("thread/goal/set")).toHaveLength(0);
     harness.server.emitFrame(turnCompletedFrame(GOAL_TURN_ID, "interrupted"));
+    await drainMicrotasks();
+    expect(harness.server.framesForMethod("thread/goal/set")).toHaveLength(1);
+    // Codex started no turn for the goal this time, so the start goes once the wait's bound passes.
+    harness.scheduler.fireDelay(START_DEADLINE_MS);
     await started;
     await expect(goal).resolves.toStrictEqual({ status: "applied" });
     expect(harness.server.framesForMethod("turn/start")).toHaveLength(1);
@@ -108,14 +115,24 @@ describe("a turn Codex started by itself", () => {
     expect(harness.server.framesForMethod("turn/start")).toHaveLength(1);
   });
 
-  // Mutation: sending the start's `turn/start` without waiting out a turn Codex started while the
-  // start bound its files folds it into that turn, whose run is either the provider's own or none.
-  it("waits out a turn Codex started while a start awaited its files, and refuses one with a run", async () => {
-    for (const doesOpen of [false, true]) {
+  // Mutations: sending the start's `turn/start` without waiting out a turn Codex started while the
+  // start bound its files folds it into that turn, whose run is either the provider's own or none;
+  // refusing before that turn's run opened refuses before the run took over what the start would
+  // send; moving the conversation for a change owed meanwhile before refusing waits out that
+  // whole turn while every other send waits too.
+  it.each([
+    { doesOpen: false, isForkOwed: false },
+    { doesOpen: true, isForkOwed: false },
+    { doesOpen: true, isForkOwed: true },
+  ])(
+    "waits out a turn Codex started while a start bound its files, refusing it once its run opens (opens: $doesOpen, fork owed: $isForkOwed)",
+    async ({ doesOpen, isForkOwed }) => {
       const filesBound = Promise.withResolvers<ProviderAttachment[]>();
+      const runOpening = Promise.withResolvers<void>();
       const harness = createHarness({
         attachments: { resolveAttachments: async () => await filesBound.promise },
         openDaemonTurnBinding: async () => {
+          await runOpening.promise;
           if (!doesOpen) {
             throw new Error("the run queue is not registered");
           }
@@ -125,6 +142,7 @@ describe("a turn Codex started by itself", () => {
       harness.server.on("turn/interrupt", () => ({ result: {} }));
       harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
       await createdSession(harness);
+      let isSettled = false;
       const started = harness.driver
         .startRun({
           runId: RUN_ID,
@@ -133,12 +151,22 @@ describe("a turn Codex started by itself", () => {
         .then(
           () => undefined,
           (error: unknown) => error,
-        );
+        )
+        .finally(() => {
+          isSettled = true;
+        });
       await drainMicrotasks();
 
       emitGoalTurnStarted(harness);
       await drainMicrotasks();
       filesBound.resolve([]);
+      await drainMicrotasks();
+      // A change that moves the conversation, owed while the start waits for that turn's run.
+      if (isForkOwed) {
+        await harness.driver.updatePermissionLevel({ sessionId: SESSION_ID, level: "yolo" });
+      }
+      expect(isSettled).toBe(false);
+      runOpening.resolve();
       await drainMicrotasks();
 
       expect(harness.server.framesForMethod("turn/start")).toHaveLength(0);
@@ -147,13 +175,17 @@ describe("a turn Codex started by itself", () => {
           fields: { reason: "session_turn_in_flight" },
         });
         expect(harness.server.framesForMethod("turn/start")).toHaveLength(0);
-        continue;
       }
       harness.server.emitFrame(turnCompletedFrame(GOAL_TURN_ID, "interrupted"));
-      await expect(started).resolves.toBeUndefined();
+      await drainMicrotasks();
+      if (doesOpen) {
+        await harness.driver.startRun({ runId: SECOND_RUN_ID, agentConfig: runConfig("go on") });
+      } else {
+        await expect(started).resolves.toBeUndefined();
+      }
       expect(harness.server.framesForMethod("turn/start")).toHaveLength(1);
-    }
-  });
+    },
+  );
 
   // Mutation: checking for a turn in flight before the daemon's turn binds the session's first run,
   // not after, sends the review into the turn Codex started meanwhile, whose run opened.

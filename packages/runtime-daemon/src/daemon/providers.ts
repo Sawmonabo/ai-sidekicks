@@ -77,7 +77,6 @@ import type { QuestionPort } from "../provider/port/question.js";
 import { PortRegistration } from "../provider/port/registration.js";
 import type { ReviewerDenialPort } from "../provider/port/reviewer-denial.js";
 import type { CommandOutputPublisher } from "../provider/port/command-output-publisher.js";
-import type { RunStatePublisher } from "../provider/port/run-state-publisher.js";
 import type { ToolServerRoute } from "../provider/port/tool-server-route.js";
 import type { RuntimeBindingRebind } from "../provider/runtime-binding-store.js";
 import type { ProviderOperatingSystem } from "../provider/operating-system/contract.js";
@@ -91,7 +90,7 @@ import {
 } from "../provider/spawned-version.js";
 import type { RunEngine } from "../session/run/engine.js";
 import { ExecutionEpochs } from "../session/run/epochs.js";
-import { bindingStoreWithCursors, RunBindingCursors } from "../session/run/binding-cursors.js";
+import { RunBindingCursors } from "../session/run/binding-cursors.js";
 import { RunInboundDispatch } from "../session/run/inbound.js";
 import { RunPauseControl } from "../session/run/pause.js";
 import { ProviderChoiceResolver } from "../session/run/provider-choice.js";
@@ -146,6 +145,8 @@ interface RunQueuePort {
   readonly onToolBoundary: CodexDependencies["onToolBoundary"];
   /** Admits a message Claude Code replayed as taken into the run whose turn took it. */
   readonly onMessageTaken: ClaudeDependencies["onMessageTaken"];
+  /** Moves on the messages a Claude Code process that ended kept past their run's end. */
+  readonly onProcessGone: ClaudeDependencies["onProcessGone"];
   /** The queued run each Claude Code start dispatches. */
   readonly claudeRunDispatch: Pick<ClaudeDependencies["runDispatchResolver"], "resolveRunDispatch">;
   /** The binding a turn the daemon starts on a session itself opens. */
@@ -288,15 +289,13 @@ export class DaemonProviders {
     const readNewestCursor = (sessionId: SessionId) => sessionEvents.readNewestCursor(sessionId);
     // The run state streams take Codex's safety holds, which the log never records.
     const holds = new RunSafetyHolds(readNewestCursor);
-    const runStatePublisher = new PortRegistration<RunStatePublisher>("run state publisher");
-    runStatePublisher.register(holds);
     const epochs = new ExecutionEpochs({ diagnostics });
     const inbound = new RunInboundDispatch({
       sessionEvents,
       engine: runEngine,
       epochs,
       diagnostics,
-      runStatePublisher,
+      runStatePublisher: holds,
     });
     const runs = new RunStateReader(database.reader);
     // Both drivers point a session's binding at the conversation a fork or rewind moved it onto.
@@ -345,16 +344,10 @@ export class DaemonProviders {
       const directory = sessionDirectory.requirePort();
       const predecessor =
         result.status === "resumed" ? directory.readSessionLeg(sessionId) : undefined;
-      // The directory logs a relaunch with no binding to replace.
+      // The directory logs a relaunch with no binding to replace. A cursor that cannot open
+      // throws to the driver, which reports its relaunch failed.
       if (predecessor !== undefined && result.status === "resumed") {
-        try {
-          bindingCursors.continueBinding(predecessor, result.bindingId);
-        } catch (error) {
-          writeServiceLog(
-            `The relaunched binding of session ${sessionId} opened no epoch cursor: ` +
-              describeRejection(error),
-          );
-        }
+        bindingCursors.continueBinding(predecessor, result.bindingId);
       }
       directory.onSessionRelaunched(sessionId, result);
     };
@@ -396,6 +389,9 @@ export class DaemonProviders {
         onSessionRelaunched,
         onMessageTaken: (sessionId, messageId, runId) => {
           runQueue.requirePort().onMessageTaken(sessionId, messageId, runId);
+        },
+        onProcessGone: (sessionId) => {
+          runQueue.requirePort().onProcessGone(sessionId);
         },
         rebindRuntimeBinding,
         providerBaseEnvironment,
@@ -511,8 +507,8 @@ export class DaemonProviders {
       readNewestCursor,
       engine: runEngine,
       providerSessions: new ProviderSessions({
-        // Every binding a run is opened on is recorded with its epoch cursor open.
-        runtimeBindings: bindingStoreWithCursors(runtimeBindings, bindingCursors),
+        runtimeBindings,
+        bindingCursors,
         resolveDriver: (driverName) => drivers[driverName],
         readContractVersion: (driverName) =>
           capabilityCache.read(driverName).capabilities.contractVersion,
@@ -578,6 +574,9 @@ export class DaemonProviders {
       onMessageTaken: (sessionId, messageId, runId) => {
         queue.delivery.messageTaken(sessionId, messageId, runId);
       },
+      onProcessGone: (sessionId) => {
+        queue.lifecycle.onProcessGone(sessionId);
+      },
       claudeRunDispatch: queue.admission,
       daemonTurnBindings: queue.admission,
     });
@@ -588,9 +587,11 @@ export class DaemonProviders {
       interventions,
       pauseControl: new RunPauseControl({ runs, engine: runEngine }),
       choices: new ProviderChoiceResolver({ reader: database.reader, runs, engine: runEngine }),
-      readWaitingMessages: (runId) => queue.delivery.readWaitingMessages(runId),
-      releaseContinued: (runId) => {
-        queue.delivery.releaseContinued(runId);
+      continuedMessages: {
+        read: (runId) => queue.delivery.readWaitingMessages(runId),
+        admit: async (sessionId, runId) => await queue.lifecycle.admitContinued(sessionId, runId),
+        release: async (sessionId, runId) =>
+          await queue.lifecycle.releaseContinued(sessionId, runId),
       },
     });
     registerRunQueueMethods(methods, {

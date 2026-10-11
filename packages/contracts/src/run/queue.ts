@@ -72,8 +72,8 @@ export interface QueueItemCreateRequest {
   attachments?: ArtifactId[] | undefined;
   /**
    * Each skill picked from the composer's `/` and `$` list, in the order picked, its name and
-   * folder as `skill.list` gives them. The daemon refuses a pick a Codex session's own list does not
-   * name in that folder (`skill.path_refused`, `not_listed`).
+   * folder as `skill.list` gives them. The daemon refuses a pick a Codex session's own list does
+   * not name in that folder (`skill.path_refused`, `not_listed`).
    */
   skills?: QueuedSkillPick[] | undefined;
   /**

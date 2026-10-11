@@ -84,6 +84,7 @@ function composeSessionRecord(
     runIdByActiveTurnId: new Map(),
     settledTurnIds: new Set(),
     interruptedRunIdByTurnId: new Map(),
+    interruptingTurnIds: new Set(),
     unsettledOutputSpeedRuns: new Map(),
     lastSteerSend: Promise.resolve(),
     pauseRunIdByTurnId: new Map(),

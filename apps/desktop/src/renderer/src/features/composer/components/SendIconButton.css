@@ -1,0 +1,31 @@
+/* The round Send. Its face is the shared filled accent (`styles/accent-fill.css`); this sheet adds
+   the circle, its two diameters and the dim. Every value is a Meridian token. */
+
+.meridian-composer__send-icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 50%;
+}
+
+.meridian-composer__send-icon--regular {
+  inline-size: var(--meridian-space-6);
+  block-size: var(--meridian-space-6);
+}
+
+.meridian-composer__send-icon--compact {
+  inline-size: var(--meridian-space-5);
+  block-size: var(--meridian-space-5);
+}
+
+/* Dim while the message holds nothing, and while a send is already going. */
+.meridian-composer__send-icon[data-empty],
+.meridian-composer__send-icon:disabled {
+  opacity: 0.6;
+}
+
+.meridian-composer__send-icon:disabled {
+  cursor: progress;
+}

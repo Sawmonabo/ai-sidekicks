@@ -1,9 +1,8 @@
 // The parts of a run-stream projection that every arm shares: the outcome type, the
 // envelope-against-payload session cross-check, the single registered-shape parse, and the refusal
 // constructors. `projection.fixture.ts` decides which arm a beat travels on; this file
-// changes only when the shape of a refusal does. The two types live here, not beside the arms,
-// because every helper returns a `RunStreamProjection` and declaring them in the arms module would
-// close an import cycle.
+// changes only when the shape of a refusal does. The types live here, not beside the arms, because
+// every helper returns one and declaring them in the arms module would close an import cycle.
 
 import type { QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
 import type { RunRolledBackEvent, RunStateChangeEvent } from "@ai-sidekicks/contracts/run/control";
@@ -15,14 +14,21 @@ import type { ProjectedSessionEvent } from "#renderer/store/session/entities/voc
 /** One registered payload a narrowed run stream delivers inside a frame's change. */
 export type RunStreamDelivery = RunStateChangeEvent | RunRolledBackEvent | QueueItemSummary;
 
+/** A beat its stream cannot deliver, and why in words a scenario author can act on. */
+export interface RunStreamUnprojectable {
+  readonly status: "unprojectable";
+  readonly detail: string;
+}
+
 /**
- * What one beat projects to on one narrowed stream. An outcome is returned rather than thrown,
- * per `lib/refusal/contract.ts`; the bridge turns `unprojectable` into the named rejection, since
- * the refusal vocabulary belongs to the bridge boundary and the projection rule to this module.
+ * What one beat projects to on one narrowed stream, narrowed to the payloads its arm registers.
+ * An outcome is returned rather than thrown, per `lib/refusal/contract.ts`; the bridge turns
+ * `unprojectable` into the named rejection, since the refusal vocabulary belongs to the bridge
+ * boundary and the projection rule to this module.
  */
-export type RunStreamProjection =
-  | { readonly status: "projected"; readonly delivery: RunStreamDelivery }
-  | { readonly status: "unprojectable"; readonly detail: string };
+export type RunStreamProjection<Delivery extends RunStreamDelivery = RunStreamDelivery> =
+  | { readonly status: "projected"; readonly delivery: Delivery }
+  | RunStreamUnprojectable;
 
 /**
  * The envelope-against-payload session cross-check for every arm of both run streams. A beat
@@ -36,7 +42,7 @@ export type RunStreamProjection =
 export function refuseSessionDisagreement(
   event: ProjectedSessionEvent,
   payload: Readonly<Record<string, unknown>>,
-): RunStreamProjection | undefined {
+): RunStreamUnprojectable | undefined {
   const statedSessionId = readWireString(payload["sessionId"]);
   if (statedSessionId === undefined) {
     return unprojectableFor(
@@ -64,7 +70,7 @@ export function projectThroughRegisteredShape<Delivery extends RunStreamDelivery
   registeredShape: ZodType<Delivery>,
   event: ProjectedSessionEvent,
   candidate: Readonly<Record<string, unknown>>,
-): RunStreamProjection {
+): RunStreamProjection<Delivery> {
   const parsed = registeredShape.safeParse(candidate);
   if (!parsed.success) {
     return unprojectableFor(
@@ -92,7 +98,10 @@ export function carriedOptionalMembers(
 }
 
 /** A refusal naming the beat it is about, so a scenario author can find it. */
-export function unprojectableFor(event: ProjectedSessionEvent, fault: string): RunStreamProjection {
+export function unprojectableFor(
+  event: ProjectedSessionEvent,
+  fault: string,
+): RunStreamUnprojectable {
   return unprojectable(
     `the "${event.kind}" beat at sequence ${String(event.sequence)} ${fault}. ` +
       "Script what the registered projection reads " +
@@ -102,7 +111,7 @@ export function unprojectableFor(event: ProjectedSessionEvent, fault: string): R
 }
 
 /** The refusal arm, spelled once. */
-export function unprojectable(detail: string): RunStreamProjection {
+export function unprojectable(detail: string): RunStreamUnprojectable {
   return { status: "unprojectable", detail };
 }
 

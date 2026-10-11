@@ -37,8 +37,9 @@ const QUEUE_STATE_TONES: Readonly<Record<QueueItemSummary["state"], ChipTone>> =
 };
 
 /**
- * One queued item: its state, its figures, and cancel where cancel applies. A refused cancel is
- * drawn beside the control in the daemon's own words, and the control stays to be pressed again.
+ * One queued item: its state, its figures, and `Remove`, which cancels it, where cancel applies.
+ * A refused cancel is drawn beside the control in the daemon's own words, and the control stays
+ * to be pressed again.
  */
 export function QueueRow(props: {
   readonly item: QueueItemSummary;
@@ -94,7 +95,7 @@ export function QueueRow(props: {
             });
           }}
         >
-          Cancel
+          Remove
         </button>
       ) : null}
       {cancelRefusal === undefined ? null : (

@@ -7,7 +7,7 @@ import type {
 } from "@ai-sidekicks/contracts/run/control";
 import type { RunState } from "@ai-sidekicks/contracts/run/state";
 
-import { type RunControlCommandRun } from "./contributions/commands.js";
+import { type RunChild, type RunControlCommandRun } from "./contributions/commands.js";
 import {
   type RunControl,
   type RunControlDispatcher,
@@ -48,9 +48,16 @@ export function appliedInterrupt(runVersion: number): InterventionRequestRespons
   } as InterventionRequestResponse;
 }
 
-/** A run at version 7, which is the comparand a contributed row is expected to carry. */
-export function commandRun(runId: string, state: RunState = "running"): RunControlCommandRun {
-  return { runId, runVersion: 7, state };
+/**
+ * A run at version 7, which is the comparand a contributed row is expected to carry, with the
+ * children a case gives it.
+ */
+export function commandRun(
+  runId: string,
+  state: RunState = "running",
+  children: readonly RunChild[] = [],
+): RunControlCommandRun {
+  return { runId, runVersion: 7, state, children };
 }
 
 /** A dispatch state whose dispatcher records the verb and target it was asked for. */

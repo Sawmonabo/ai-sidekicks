@@ -68,8 +68,79 @@ describe("a change to a waiting message", () => {
       .items.map((item) => item.id);
   }
 
+  // Mutation: handing what a change took back only to its own run strands a message Claude Code
+  // kept past that run's end, since an ended run is handed nothing more.
+  it.each(["an edit", "a reorder"])(
+    "sends a message Claude Code kept past its run's end as the next run's opening after %s",
+    async (change) => {
+      const queueFixture = await openRunQueueFixture({ driverName: "claude" });
+      fixture = queueFixture;
+      const { sessionId } = queueFixture.engine;
+      const runId = await startFirstRun(queueFixture, "Add the retry");
+      const [kept] = await sendAll(queueFixture, ["Cover the timeout too"]);
+      if (kept === undefined) {
+        throw new Error("A send answered nothing");
+      }
+      await vi.waitFor(() => {
+        expect(queueFixture.steers).toHaveLength(1);
+      });
+      await queueFixture.engine.engine.transition({
+        runId,
+        newState: "completed",
+        completionKind: "turn",
+      });
+      await queueFixture.queue.lifecycle.reconcile(sessionId);
+      expect(queueFixture.startedRunIds()).toEqual([runId]);
+
+      const changed =
+        change === "an edit"
+          ? (await edit(queueFixture, kept, "Cover the timeouts")).queueItemId
+          : ((await queueFixture.queue.reorder({ sessionId, queueItemIds: [kept] })).items[0]?.id ??
+            kept);
+
+      await vi.waitFor(() => {
+        expect(queueFixture.readItem(changed)?.state).toBe("admitted");
+      });
+      const [, nextRunId] = queueFixture.startedRunIds();
+      expect(nextRunId).not.toBe(runId);
+      expect(queueFixture.readItem(changed)?.targetRunId).toBe(nextRunId);
+    },
+  );
+
   // Mutation: answering the removal without writing it leaves the message waiting, and Codex is
   // handed it at the next tool boundary.
+  // Mutation: waiting on the session's hand chain with no deadline holds the removal for as long
+  // as the stuck write ahead of it.
+  it("answers a removal stuck behind a hand Claude Code never finishes within the deadline", async () => {
+    const queueFixture = await openRunQueueFixture({
+      driverName: "claude",
+      withdrawDeadlineMs: 20,
+    });
+    fixture = queueFixture;
+    await startFirstRun(queueFixture, "Add the retry");
+    const stuck = Promise.withResolvers<void>();
+    queueFixture.answerSteer = async () => {
+      await stuck.promise;
+      return { status: "applied" };
+    };
+    const [, docs] = await sendAll(queueFixture, ["Cover the timeout too", "Then the docs"]);
+    if (docs === undefined) {
+      throw new Error("expected two messages sent");
+    }
+
+    await expect(queueFixture.queue.cancel({ queueItemId: docs })).rejects.toMatchObject({
+      code: QUEUE_CHANGE_REFUSED_CODE,
+      detail: { reason: "not_delivered" },
+    });
+    expect(queueFixture.readItem(docs)?.state).toBe("not_delivered");
+    expect(queueFixture.serviceLog).toEqual([
+      `run queue: the withdraw of message ${docs} waited past the deadline behind earlier hands`,
+    ]);
+    queueFixture.serviceLog.length = 0;
+    stuck.resolve();
+    await queueFixture.queue.delivery.settle(queueFixture.engine.sessionId);
+  });
+
   it("never hands Codex a message removed while it waited", async () => {
     const queueFixture = await openRunQueueFixture({ driverName: "codex" });
     fixture = queueFixture;
@@ -89,6 +160,11 @@ describe("a change to a waiting message", () => {
       expect(handedContents(queueFixture)).toEqual(["Then the docs"]);
     });
     expect(queueFixture.readItem(removed)?.state).toBe("canceled");
+    // A second removal reads that the message left the queue, never that the agent took it.
+    await expect(queueFixture.queue.cancel({ queueItemId: removed })).rejects.toMatchObject({
+      code: QUEUE_CHANGE_REFUSED_CODE,
+      message: `Queue item ${removed} has left the queue`,
+    });
   });
 
   // Mutation: removing the last message without ending its run leaves a queued run with nothing to

@@ -31,7 +31,7 @@ import {
   RunStateChangeEventSchema,
 } from "@ai-sidekicks/contracts/run/control";
 import type { QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
-import type { RunStateChangeEvent } from "@ai-sidekicks/contracts/run/control";
+import type { RunRolledBackEvent, RunStateChangeEvent } from "@ai-sidekicks/contracts/run/control";
 
 import { readWireString } from "#renderer/lib/wire/strings.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
@@ -42,7 +42,7 @@ import {
   unprojectable,
   unprojectableFor,
 } from "./projection.js";
-import type { RunStreamDelivery, RunStreamProjection } from "./projection.js";
+import type { RunStreamProjection, RunStreamUnprojectable } from "./projection.js";
 import { RUN_QUEUE_EVENT_STREAM, RUN_STATE_EVENT_STREAM } from "#shared/daemon/streams.js";
 import { runStateForTransitionKind } from "#renderer/store/session/events/run/state-kinds.js";
 import {
@@ -50,13 +50,21 @@ import {
   runStateStreamArmFor,
 } from "../daemon/session/event/stream-kinds.js";
 
+/** What the `run.subscribeState` stream delivers: a state change, or the forward rollback row. */
+export type RunStateStreamDelivery = RunStateChangeEvent | RunRolledBackEvent;
+
 /**
- * One change of a narrowed run stream's frame as the fixture composes it: a candidate the stream's
- * registered emission judges, carrying the beat's cursor wire-verbatim.
+ * One change of a narrowed run stream's frame as the fixture composes it, carrying the beat's
+ * cursor wire-verbatim: a state-stream `event`, or a queue-stream `item`.
  */
 export type ScenarioRunStreamChange =
-  | { readonly cursor: string; readonly event: RunStreamDelivery }
-  | { readonly cursor: string; readonly item: RunStreamDelivery };
+  | { readonly cursor: string; readonly event: RunStateStreamDelivery }
+  | { readonly cursor: string; readonly item: QueueItemSummary };
+
+/** What one beat projects to as a change of its narrowed stream's frame. */
+export type ScenarioRunStreamChangeProjection =
+  | { readonly status: "projected"; readonly change: ScenarioRunStreamChange }
+  | RunStreamUnprojectable;
 
 /**
  * The optional `RunStateChangeEvent` members this projection carries through, wire-verbatim, so a
@@ -103,56 +111,46 @@ const QUEUE_ROW_CARRIED_OPTIONAL_MEMBERS: Readonly<
   notDeliveredReason: true,
 };
 
-/**
- * The registered payload this beat travels as on this stream, or `undefined` when the subscription
- * is not one of the two narrowed run streams; `session.subscribe` and bare event-type names get the
- * envelope. `queueRowFor` finds the queue row by the beat's own queue item id, and a lookup that
- * finds none is a refusal rather than a made-up row.
- */
-export function projectRunStreamDelivery(
-  subscriptionName: typeof RUN_STATE_EVENT_STREAM,
+/** The registered payload one beat travels as on the `run.subscribeState` stream. */
+export function projectRunStateStreamDelivery(
   event: ProjectedSessionEvent,
-): RunStreamProjection;
-/** The same delivery for a name known only at run time, with the queue row lookup. */
-export function projectRunStreamDelivery(
-  subscriptionName: string,
-  event: ProjectedSessionEvent,
-  queueRowFor: QueueRowLookup,
-): RunStreamProjection | undefined;
-/** Routes a beat to the arm its narrowed stream registers. */
-export function projectRunStreamDelivery(
-  subscriptionName: string,
-  event: ProjectedSessionEvent,
-  queueRowFor?: QueueRowLookup,
-): RunStreamProjection | undefined {
-  if (subscriptionName === RUN_STATE_EVENT_STREAM) {
-    return projectRunStateStreamBeat(event);
-  }
-  if (subscriptionName === RUN_QUEUE_EVENT_STREAM && queueRowFor !== undefined) {
-    return projectRunQueueStreamBeat(event, queueRowFor);
-  }
-  return undefined;
+): RunStreamProjection<RunStateStreamDelivery> {
+  return projectRunStateStreamBeat(event);
 }
 
 /**
- * The change a narrowed run stream's frame carries for one projected beat: the delivery at the
- * beat's cursor, as `item` on the queue stream and as `event` on the run-state stream.
+ * The change one beat carries on a narrowed run stream's frame, at the beat's cursor, or
+ * `undefined` when the subscription is not one of the two narrowed run streams; `session.subscribe`
+ * and bare event-type names get the envelope. `queueRowFor` finds the queue row by the beat's own
+ * queue item id, and a lookup that finds none is a refusal rather than a made-up row.
  */
-export function composeRunStreamChange(
+export function projectRunStreamChange(
   subscriptionName: string,
   event: ProjectedSessionEvent,
-  delivery: RunStreamDelivery,
-): ScenarioRunStreamChange {
-  return subscriptionName === RUN_QUEUE_EVENT_STREAM
-    ? { cursor: event.cursor, item: delivery }
-    : { cursor: event.cursor, event: delivery };
+  queueRowFor: QueueRowLookup,
+): ScenarioRunStreamChangeProjection | undefined {
+  if (subscriptionName === RUN_STATE_EVENT_STREAM) {
+    const projection = projectRunStateStreamBeat(event);
+    return projection.status === "projected"
+      ? { status: "projected", change: { cursor: event.cursor, event: projection.delivery } }
+      : projection;
+  }
+  if (subscriptionName === RUN_QUEUE_EVENT_STREAM) {
+    const projection = projectRunQueueStreamBeat(event, queueRowFor);
+    return projection.status === "projected"
+      ? { status: "projected", change: { cursor: event.cursor, item: projection.delivery } }
+      : projection;
+  }
+  return undefined;
 }
 
 /** Finds one queue row by its queue item id, or `undefined` where there is none. */
 type QueueRowLookup = (queueItemId: string) => Readonly<Record<string, unknown>> | undefined;
 
 /** The `run.subscribeState` arms: a state transition, or the forward rollback row. */
-function projectRunStateStreamBeat(event: ProjectedSessionEvent): RunStreamProjection {
+function projectRunStateStreamBeat(
+  event: ProjectedSessionEvent,
+): RunStreamProjection<RunStateStreamDelivery> {
   // The arm comes from the routing table, which is what decided this beat reaches this stream, so
   // it cannot disagree with the routing.
   const arm = runStateStreamArmFor(event.kind);
@@ -166,7 +164,9 @@ function projectRunStateStreamBeat(event: ProjectedSessionEvent): RunStreamProje
 }
 
 /** `RunStateChangeEvent` — the canonical transitions. */
-function projectStateChange(event: ProjectedSessionEvent): RunStreamProjection {
+function projectStateChange(
+  event: ProjectedSessionEvent,
+): RunStreamProjection<RunStateChangeEvent> {
   const payload = event.payload;
   if (payload === undefined) {
     return unprojectableFor(event, "carries no payload at all");
@@ -203,7 +203,7 @@ function projectStateChange(event: ProjectedSessionEvent): RunStreamProjection {
 }
 
 /** `RunRolledBackEvent` — the forward, non-state arm of the same stream. */
-function projectRollback(event: ProjectedSessionEvent): RunStreamProjection {
+function projectRollback(event: ProjectedSessionEvent): RunStreamProjection<RunRolledBackEvent> {
   const payload = event.payload;
   if (payload === undefined) {
     return unprojectableFor(event, "carries no payload at all");
@@ -226,7 +226,7 @@ function projectRollback(event: ProjectedSessionEvent): RunStreamProjection {
 function projectRunQueueStreamBeat(
   event: ProjectedSessionEvent,
   queueRowFor: QueueRowLookup,
-): RunStreamProjection {
+): RunStreamProjection<QueueItemSummary> {
   const announcedState = runQueueStreamStateFor(event.kind);
   if (announcedState === undefined) {
     return unprojectable(

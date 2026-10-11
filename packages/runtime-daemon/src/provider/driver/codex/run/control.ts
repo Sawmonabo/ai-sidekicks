@@ -40,6 +40,7 @@ import { reportDiagnosticFromDetachedFrame } from "../transport/diagnostics.js";
 import type { CodexFasterModelRetries } from "./faster-model-retry.js";
 import type { CodexRunRoutes } from "./routes.js";
 import type { CodexRunStart } from "./start.js";
+import type { CodexTurnEndWaiters } from "./turn-end-waiters.js";
 
 /** What run control needs from the lifecycle. */
 export interface CodexRunControlDependencies {
@@ -54,6 +55,7 @@ export interface CodexRunControlDependencies {
   readonly pauses: CodexRunPauses;
   readonly dispatch: CodexDeliveryDispatch;
   readonly retries: Pick<CodexFasterModelRetries, "cancel">;
+  readonly turnEnds: Pick<CodexTurnEndWaiters, "settle">;
 }
 
 /** Interrupts, steers, pauses and continues runs on their live turns. */
@@ -66,6 +68,7 @@ export class CodexRunControl {
   readonly #pauses: CodexRunPauses;
   readonly #dispatch: CodexDeliveryDispatch;
   readonly #retries: CodexRunControlDependencies["retries"];
+  readonly #turnEnds: CodexRunControlDependencies["turnEnds"];
 
   constructor(dependencies: CodexRunControlDependencies) {
     this.#options = dependencies.options;
@@ -76,23 +79,37 @@ export class CodexRunControl {
     this.#pauses = dependencies.pauses;
     this.#dispatch = dependencies.dispatch;
     this.#retries = dependencies.retries;
+    this.#turnEnds = dependencies.turnEnds;
   }
 
   /**
    * Interrupts the run's live turn and retires its route, so a later steer or second interrupt
    * is refused, then ends the commands it left running, which an interrupt does not stop. The
    * turn's correlation is kept for the `turn/completed` that follows. A run retrying on a faster
-   * model, which holds no live turn while its held turn stops, has its retry stopped instead.
+   * model, which holds no live turn while its held turn stops, has its retry stopped instead, and
+   * the commands its held turn left running end the same way.
    */
   async interruptRun(params: InterruptRunParams): Promise<void> {
-    if (
-      this.#slots.findActiveTurn(params.runId) === undefined &&
-      (await this.#retries.cancel(params.runId))
-    ) {
+    const retried =
+      this.#slots.findActiveTurn(params.runId) === undefined
+        ? await this.#retries.cancel(params.runId)
+        : undefined;
+    if (retried !== undefined) {
+      await endCodexRunningCommands(
+        retried.record.service,
+        retried.heldThreadId,
+        this.#options.reportDiagnostic,
+        { clean: false },
+      );
       return;
     }
     const { record, turnId } = this.#slots.requireActiveTurn(params.runId);
-    await record.service.request("turn/interrupt", { threadId: record.threadId, turnId });
+    record.interruptingTurnIds.add(turnId);
+    try {
+      await record.service.request("turn/interrupt", { threadId: record.threadId, turnId });
+    } finally {
+      record.interruptingTurnIds.delete(turnId);
+    }
     record.pauseRunIdByTurnId.delete(turnId);
     this.#dropHookPause(params.runId);
     if (!(await this.#rememberInterrupted(record, turnId, params.runId))) {
@@ -245,10 +262,13 @@ export class CodexRunControl {
     record.pauseRunIdByTurnId.delete(turnId);
     // Marked before the interrupt goes out, so a continue meanwhile waits for the turn's end.
     record.pausedRunIdByInterruptedTurnId.set(turnId, pausedRunId);
+    record.interruptingTurnIds.add(turnId);
     try {
       await record.service.request("turn/interrupt", { threadId: record.threadId, turnId });
     } catch (cause) {
       record.pausedRunIdByInterruptedTurnId.delete(turnId);
+      // The turn is no longer one the daemon is stopping, so what waits for that wakes.
+      this.#turnEnds.settle();
       reportDiagnosticFromDetachedFrame(this.#options.reportDiagnostic, {
         kind: "pause-interrupt-failed",
         threadId: record.threadId,
@@ -265,6 +285,8 @@ export class CodexRunControl {
         }
       }
       return;
+    } finally {
+      record.interruptingTurnIds.delete(turnId);
     }
     this.#runRoutes.retireTurnRoute(record, turnId);
   }

@@ -28,7 +28,9 @@ const ChildRunProvenanceSchema: z.ZodType<ChildRunProvenance> = z.enum([
  * already in the session, the lead's run naming the session's lead this way, or `resolvedAgent`
  * for one minted from a saved definition with this run. `effectiveRunConfig` holds the limits
  * admission resolved, the request's own else the session's default, so a rebuild restores them
- * even if the defaults change mid-run.
+ * even if the defaults change mid-run. `isApart` marks a run whose one turn runs in a process of
+ * its own apart from the session's, such as Claude Code's review of the staged set; it is never
+ * the session's lead run.
  */
 export type RunQueuedPayload = {
   sessionId: SessionId;
@@ -38,6 +40,7 @@ export type RunQueuedPayload = {
   agentId?: AgentId | undefined;
   parentRunId?: RunId | undefined;
   reachedBy?: ChildRunProvenance | undefined;
+  isApart?: true | undefined;
   effectiveRunConfig?: OrchestrationRunConfig | undefined;
   resolvedAgent?: AgentListEntry | undefined;
   admittedModelFamily?: string | undefined;
@@ -53,6 +56,7 @@ export const RunQueuedPayloadSchema: z.ZodType<RunQueuedPayload> = z
     agentId: AgentIdSchema.optional(),
     parentRunId: RunIdSchema.optional(),
     reachedBy: ChildRunProvenanceSchema.optional(),
+    isApart: z.literal(true).optional(),
     effectiveRunConfig: OrchestrationRunConfigSchema.optional(),
     resolvedAgent: AgentListEntrySchema.optional(),
     admittedModelFamily: wireFreeFormString(

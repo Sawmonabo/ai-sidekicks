@@ -10,6 +10,7 @@ import {
   ClaudeInterventionDispatcher,
   type ClaudeInterventionSettlement,
 } from "../intervention.js";
+import { SteerTurnEndedError } from "../../run-control.js";
 import { ClaudeSessionUnavailableError } from "../session/errors.js";
 import type { ClaudeProviderProcess, ClaudeRunProcessLookup } from "../session/transport.js";
 import {
@@ -25,7 +26,8 @@ import {
 } from "../../__fixtures__/attachment-doubles.js";
 
 class StubRunProcessLookup implements ClaudeRunProcessLookup {
-  readonly channel: FakeClaudeProviderProcess | undefined;
+  // Set to `undefined` once the run's turn ends.
+  channel: FakeClaudeProviderProcess | undefined;
 
   constructor(channel: FakeClaudeProviderProcess | undefined) {
     this.channel = channel;
@@ -131,6 +133,43 @@ describe("ClaudeInterventionDispatcher steer order", () => {
     await Promise.all([first, second]);
 
     expect(channel.sentTexts).toStrictEqual(["first", "second"]);
+  });
+
+  // Mutation: writing without looking up the run's turn again sends the steer to an idle process.
+  it("writes nothing for a steer whose run's turn ended while its files were read", async () => {
+    const filesRead = Promise.withResolvers<void>();
+    const channel = new FakeClaudeProviderProcess("provider-session-live");
+    const lookup = new StubRunProcessLookup(channel);
+    const steersSent: string[] = [];
+    const dispatcher = new ClaudeInterventionDispatcher({
+      channelLookup: lookup,
+      settlement: SETTLEMENT_WITH_NO_CHOICE,
+      attachments: {
+        resolveAttachments: async (_sessionId, artifactIds) => {
+          await filesRead.promise;
+          return artifactIds.map((artifactId) => ({
+            kind: "unresolved" as const,
+            artifactId,
+            cause: "deleted" as const,
+          }));
+        },
+      },
+      onSteerSent: (_runId, messageUuid) => {
+        steersSent.push(messageUuid);
+      },
+      onSteerUnsent: () => undefined,
+    });
+
+    const steer = dispatcher.applyIntervention(
+      buildSteerParams("late", [STAGED_ATTACHMENT_IDS.deleted]),
+    );
+    await drainMicrotasks();
+    lookup.channel = undefined;
+    filesRead.resolve();
+
+    await expect(steer).rejects.toBeInstanceOf(SteerTurnEndedError);
+    expect(channel.sentUserFrames).toStrictEqual([]);
+    expect(steersSent).toStrictEqual([]);
   });
 });
 

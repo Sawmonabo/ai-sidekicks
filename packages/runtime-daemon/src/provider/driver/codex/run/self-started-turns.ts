@@ -22,6 +22,7 @@ import {
   reportDiagnosticFromDetachedFrame,
 } from "../transport/diagnostics.js";
 import type { CodexRunStart } from "./start.js";
+import type { CodexTurnEndWaiters } from "./turn-end-waiters.js";
 
 interface CodexHeldFrame {
   readonly method: string;
@@ -32,6 +33,8 @@ interface CodexHeldFrame {
 export interface CodexSelfStartedTurnsDependencies {
   readonly recordFor: (sessionId: SessionId) => CodexSessionRecord | undefined;
   readonly runStart: Pick<CodexRunStart, "startDaemonTurn" | "turnStartTimeoutMs">;
+  /** Wakes the waits for a turn in flight, such as a goal set's for the turn it starts. */
+  readonly turnEnds: Pick<CodexTurnEndWaiters, "settle">;
   /** Takes one frame of the session as if it had just arrived. */
   readonly ingest: (sessionId: SessionId, method: string, params: unknown) => void;
   readonly reportDiagnostic: CodexDiagnosticSink;
@@ -79,6 +82,7 @@ export class CodexSelfStartedTurns {
     const opened = Promise.withResolvers<void>();
     record.delivery.selfStartedTurnIds.add(turnId);
     record.delivery.selfStartedTurnOpening = { turnId, opened: opened.promise };
+    this.#dependencies.turnEnds.settle();
     void this.#openRun(record, turnId).finally(opened.resolve);
     return true;
   }

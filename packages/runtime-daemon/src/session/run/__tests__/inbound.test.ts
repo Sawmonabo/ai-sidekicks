@@ -10,8 +10,6 @@ import type { RunId } from "@ai-sidekicks/contracts/run/id";
 
 import { makeSilentDriverDiagnostics } from "../../../provider/__fixtures__/silent-driver-diagnostics.js";
 import type { DriverDiagnosticsEmitter } from "../../../provider/driver/diagnostics.js";
-import { PortRegistration } from "../../../provider/port/registration.js";
-import type { RunStatePublisher } from "../../../provider/port/run-state-publisher.js";
 import type { RunEngine, RunTransitionRequest } from "../engine.js";
 import { ExecutionEpochs, type DeliveryOperation, type EpochBinding } from "../epochs.js";
 import {
@@ -67,7 +65,7 @@ describe("run inbound dispatch", () => {
       epochs,
       diagnostics,
       sessionEvents: fixture.sessionEvents,
-      runStatePublisher: new PortRegistration<RunStatePublisher>("run state publisher"),
+      runStatePublisher: { publish: () => undefined },
     });
     return { dispatch: (delivery) => inbound.dispatch(delivery), epochs };
   }

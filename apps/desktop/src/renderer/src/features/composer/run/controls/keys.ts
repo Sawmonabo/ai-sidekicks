@@ -11,9 +11,6 @@ export interface RunControlSubject {
   readonly childHandle?: string | undefined;
 }
 
-/** The separator between the segments of a token. */
-const KEY_SEPARATOR = ":";
-
 /**
  * Mints the token an admitted dispatch's record is recorded under. The run and control make
  * it legible in a failure; the ordinal keeps two dispatches of one control on one run distinct.
@@ -23,7 +20,7 @@ export function mintRunControlDispatchToken(
   control: RunControl,
   dispatchOrdinal: number,
 ): string {
-  return `${runId}${KEY_SEPARATOR}${control}${KEY_SEPARATOR}${String(dispatchOrdinal)}`;
+  return structuralKey([runId, control, String(dispatchOrdinal)]);
 }
 
 /**

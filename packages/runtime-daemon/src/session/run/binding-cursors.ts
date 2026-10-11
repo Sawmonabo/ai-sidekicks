@@ -99,7 +99,8 @@ export class RunBindingCursors {
 
   /**
    * Records the binding a resume minted, with its cursor opened first by {@link continueBinding}.
-   * Throws for a predecessor the store does not hold, recording nothing, and what the store throws.
+   * Throws for a predecessor the store does not hold and what the store throws, recording nothing
+   * and leaving no cursor open.
    */
   async recordRelaunch(relaunch: RuntimeBindingRelaunch): Promise<void> {
     const predecessor = this.#deps.store.findById(relaunch.predecessorId);
@@ -107,7 +108,12 @@ export class RunBindingCursors {
       throw new Error(`The runtime binding ${relaunch.predecessorId} has no row to resume from`);
     }
     this.continueBinding(predecessor, relaunch.bindingId);
-    await this.#deps.store.recordRelaunch(relaunch);
+    try {
+      await this.#deps.store.recordRelaunch(relaunch);
+    } catch (error) {
+      this.#forgetBinding(relaunch.bindingId);
+      throw error;
+    }
   }
 
   /**
@@ -153,31 +159,23 @@ export class RunBindingCursors {
     session.bindingIdsByRun.set(runId, [...(session.bindingIdsByRun.get(runId) ?? []), bindingId]);
   }
 
+  // Closes one binding's cursor, which no row records, wherever its run holds it.
+  #forgetBinding(bindingId: string): void {
+    this.#deps.epochs.closeBinding(bindingId);
+    for (const session of this.#sessions.values()) {
+      for (const [runId, bindingIds] of session.bindingIdsByRun) {
+        session.bindingIdsByRun.set(
+          runId,
+          bindingIds.filter((held) => held !== bindingId),
+        );
+      }
+    }
+  }
+
   #drop(session: SessionCursors, runId: RunId): void {
     for (const bindingId of session.bindingIdsByRun.get(runId) ?? []) {
       this.#deps.epochs.closeBinding(bindingId);
     }
     session.bindingIdsByRun.delete(runId);
   }
-}
-
-/**
- * The binding store a run's bindings are opened through: `store` itself, with each binding it
- * records or a resume minted opened with its cursor by `cursors`.
- */
-export function bindingStoreWithCursors(
-  store: Pick<RuntimeBindingStore, "update" | "delete" | "findById">,
-  cursors: Pick<RunBindingCursors, "create" | "recordRelaunch">,
-): Pick<RuntimeBindingStore, "update" | "delete" | "findById"> &
-  Pick<RunBindingCursors, "create" | "recordRelaunch"> {
-  return {
-    create: async (input) => await cursors.create(input),
-    update: async (id, patch, leftConversations) =>
-      await store.update(id, patch, leftConversations),
-    delete: async (id) => await store.delete(id),
-    findById: (id) => store.findById(id),
-    recordRelaunch: async (relaunch) => {
-      await cursors.recordRelaunch(relaunch);
-    },
-  };
 }

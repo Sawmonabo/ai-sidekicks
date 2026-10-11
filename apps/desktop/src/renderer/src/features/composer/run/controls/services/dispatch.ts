@@ -2,11 +2,12 @@
 //
 // A button assembling its own request could omit a comparand or reuse a key across a changed
 // body, so every run call carries `expectedRunVersion` from the caller's target, and steer and
-// interrupt carry a `clientIdempotencyKey` minted per dispatch. A steer is a message on one
-// child's own queue, which the child takes at its next step. The fresh comparand is the newer of
-// the answer's version and the state stream's, since the run also advances with no control
-// pressed. Eligibility is decided by the daemon, not here; a rejected call propagates. The daemon
-// calls are an argument (`RunControlCalls`), so this module holds no bridge.
+// interrupt carry a `clientIdempotencyKey` minted per dispatch, except that a retried steer reuses
+// the key it first went out with. A steer is a message on one child's own queue, which the child
+// takes at its next step. The fresh comparand is the newer of the answer's version and the state
+// stream's, since the run also advances with no control pressed. Eligibility is decided by the
+// daemon, not here; a rejected call propagates. The daemon calls are an argument
+// (`RunControlCalls`), so this module holds no bridge.
 
 import type {
   InterventionRequestPayload,
@@ -55,12 +56,25 @@ export type RunControlOutcome =
       readonly kind: "queued";
       readonly control: RunControl;
       readonly response: QueueItemCreateResponse;
+      /** The steer as it went out, key included, so a retry sends that same steer again. */
+      readonly sent: SentSteer;
     };
 
-/** What a steer dispatch carries: the child whose queue takes it, and the person's text. */
+/**
+ * What a steer dispatch carries: the child whose queue takes it and the person's text, and, on a
+ * retry of a steer that went out, that steer's own key.
+ */
 export interface SteerRequest {
   readonly childHandle: string;
   readonly content: string;
+  readonly clientIdempotencyKey?: string | undefined;
+}
+
+/** A steer as it went out on the wire, under the key it was sent with. */
+export interface SentSteer {
+  readonly childHandle: string;
+  readonly content: string;
+  readonly clientIdempotencyKey: string;
 }
 
 /** The comparand every dispatch threads, plus the run it names. */
@@ -112,14 +126,23 @@ export class RunControlDispatcher {
     return this.#acknowledged("resume", target, ack);
   }
 
-  /** Steer: `run.childSteer` with a fresh key, carrying the person's text as typed. */
+  /**
+   * Steer: `run.childSteer` carrying the person's text as typed, under a fresh key, or under the
+   * key a retried steer went out with so the daemon reads it as that same steer.
+   */
   public async steer(target: RunControlTarget, request: SteerRequest): Promise<RunControlOutcome> {
-    const response = await this.#calls.childSteer({
-      ...this.#keyedGuards(target),
-      childHandle: heldIdAsWireId(request.childHandle),
+    const sent: SentSteer = {
+      childHandle: request.childHandle,
       content: request.content,
+      clientIdempotencyKey: request.clientIdempotencyKey ?? this.#mintIdempotencyKey(),
+    };
+    const response = await this.#calls.childSteer({
+      ...this.#guardedRequest(target),
+      clientIdempotencyKey: sent.clientIdempotencyKey,
+      childHandle: heldIdAsWireId(sent.childHandle),
+      content: sent.content,
     });
-    return { kind: "queued", control: "steer", response };
+    return { kind: "queued", control: "steer", response, sent };
   }
 
   /** Interrupt: `run.intervene` with a fresh key and, where given, the reason. */
@@ -132,7 +155,7 @@ export class RunControlDispatcher {
     });
   }
 
-  /** The comparand and a fresh idempotency key for this body, carried by steer and interrupt. */
+  /** The comparand and a fresh idempotency key for this body, carried by interrupt. */
   #keyedGuards(target: RunControlTarget): {
     readonly targetRunId: RunId;
     readonly expectedRunVersion: number;

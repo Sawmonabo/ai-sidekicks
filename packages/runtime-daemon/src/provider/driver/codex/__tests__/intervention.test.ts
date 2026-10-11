@@ -3,10 +3,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import type {
-  ApplyInterventionParams,
-  InterruptRunParams,
-} from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { InterruptRunParams } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import { type RunId } from "@ai-sidekicks/contracts/run/id";
 
 import {
@@ -16,6 +13,7 @@ import {
   type CodexSteerRunRequest,
 } from "../intervention.js";
 import { drainMicrotasks } from "../../../__fixtures__/drain-microtasks.js";
+import type { ApplyInterventionParams } from "../../run-control.js";
 
 const RUN_ID = "22222222-2222-4222-8222-222222222222" as RunId;
 

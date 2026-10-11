@@ -51,13 +51,18 @@ export function steerCalls(calls: RecordedDaemonCall[], answer: ScriptedAnswer):
   };
 }
 
-/** A run in the given state, at the version and identity a case names. */
+/** A run in the given state, at the version and identity a case names, with the steered child. */
 export function runAt(
   state: RunState,
   runVersion = 8,
   runId: string = RUN_ID,
 ): RunControlCommandRun {
-  return { runId, runVersion, state };
+  return {
+    runId,
+    runVersion,
+    state,
+    children: [{ childHandle: STEERED_CHILD_HANDLE, agentName: STEERED_AGENT_NAME }],
+  };
 }
 
 /** The steer form mounted over a run control dispatch fed by the stub calls. */

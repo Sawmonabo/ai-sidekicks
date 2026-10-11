@@ -1,10 +1,9 @@
-// The session's agents as its log names them: which agent is the lead and which driver each agent
-// is bound to. `driver.listCapabilities` is addressed at the daemon and names no agent, but the
-// session's log does: `session.created` carries the lead, `run.queued` an agent started from a
-// saved definition, and `agent.provider_binding_changed` an agent's switch to another binding.
-// The store keeps all three among its standing events, whatever rows its window holds. Each is
-// read through a schema because the payload is `unknown`, and a hand-shaped read would take a
-// number or an empty string as a binding.
+// The session's agents as its log names them, for the composer's target: which agent is the lead
+// and which driver each agent is bound to. `session.created` carries the lead, `run.queued` an
+// agent started from a saved definition, and `agent.provider_binding_changed` an agent's switch to
+// another binding. The store keeps all three among its standing events, whatever rows its window
+// holds. Each is read through a schema because the payload is `unknown`, and a hand-shaped read
+// would take a number or an empty string as a binding.
 
 import {
   AGENT_PROVIDER_BINDING_CHANGED_EVENT,

@@ -18,8 +18,7 @@ import type { Unsubscribe } from "#shared/preload-api.js";
 import { FixtureBridgeError } from "../refusal.fixture.js";
 import { isWireRecord } from "#renderer/lib/wire/record.js";
 import {
-  composeRunStreamChange,
-  projectRunStreamDelivery,
+  projectRunStreamChange,
   type ScenarioRunStreamChange,
 } from "../../run-streams/projection.fixture.js";
 import { ScenarioEngine } from "../engine.fixture.js";
@@ -130,7 +129,7 @@ export function subscribeToScenario(
       }
       // The queue payload projects the queue row, whose stand-in is the reply the scenario
       // scripts for that read. Resolved per beat, so a replaced scenario is read afresh.
-      const projection = projectRunStreamDelivery(subscriptionName, event, (queueItemId) =>
+      const projection = projectRunStreamChange(subscriptionName, event, (queueItemId) =>
         scriptedQueueRowFor(engine, queueItemId),
       );
       if (projection === undefined) {
@@ -140,7 +139,7 @@ export function subscribeToScenario(
       if (projection.status === "unprojectable") {
         throw new FixtureBridgeError(subscriptionName, "beat-unprojectable", projection.detail);
       }
-      runStreamChanges.push(composeRunStreamChange(subscriptionName, event, projection.delivery));
+      runStreamChanges.push(projection.change);
     }
     for (const frame of composeScenarioStreamFrames(runStreamChanges)) {
       deliver(frame);

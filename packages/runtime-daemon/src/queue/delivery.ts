@@ -16,9 +16,9 @@
 // it, whose replay admits it, while the process it was handed to still runs; once that process is
 // gone it goes to the next run. While an interrupt of a run is under way nothing more is handed
 // to it, so the interrupt's choice decides every message still waiting. What waits for an
-// interrupted run that a newer lead run took over is handed to that run as to any live run. Every call that hands,
-// withdraws or settles a session's messages runs on one chain per session, so they reach the
-// driver in the order the queue decided them.
+// interrupted run that a newer lead run took over is handed to that run as to any live run. Every
+// call that hands, withdraws or settles a session's messages runs on one chain per session, so
+// they reach the driver in the order the queue decided them.
 
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
@@ -209,7 +209,7 @@ export class QueueDelivery {
 
   /**
    * The messages waiting for a paused run that its continue delivers, in the queue's order; each is
-   * admitted once the run runs again.
+   * admitted once the driver continued the run with them, and given back when it did not.
    */
   readWaitingMessages(runId: RunId): WaitingMessage[] {
     // A continue that did not go delivered nothing, so a later one delivers the same messages.
@@ -236,7 +236,7 @@ export class QueueDelivery {
     }
   }
 
-  /** Admits the messages the continue of `runId` delivered, now that it runs again. */
+  /** Admits the messages the continue of `runId` delivered, once the driver continued it. */
   async admitContinued(runId: RunId): Promise<void> {
     for (const [itemId, handed] of [...this.#handed]) {
       if (handed.runId === runId && handed.route === "continue") {
@@ -288,10 +288,11 @@ export class QueueDelivery {
 
   /**
    * Takes `items`, all of one session, back from their provider ahead of a change to them, on the
-   * session's chain, every withdraw at once under one deadline, and says of each whether it is
-   * still the queue's to change: waiting, not a starting run's opening, and given back. A Claude
-   * withdraw finding one delivered admits it, and one whose withdraw Claude Code failed or did not
-   * answer within the deadline reads not delivered, `failed`, and answers `not_delivered`.
+   * session's chain, the wait for the chain and every withdraw at once under one deadline, and says
+   * of each whether it is still the queue's to change: waiting, not a starting run's opening, and
+   * given back. A Claude withdraw finding one delivered admits it, and one whose withdraw Claude
+   * Code failed or did not answer within the deadline, or that the chain did not reach by then,
+   * reads not delivered, `failed`, and answers `not_delivered`.
    */
   async takeBack(
     sessionId: SessionId,
@@ -300,15 +301,32 @@ export class QueueDelivery {
     const candidates = items.filter(
       (item) => item.state === "queued" && !this.#deps.isOpening(item.id),
     );
-    const withdrawals = await this.#handChain.run(
-      sessionId,
-      async () =>
-        new Map(
-          await Promise.all(
-            candidates.map(async (item) => [item.id, await this.#withdraw(item)] as const),
-          ),
+    const deadline = AbortSignal.timeout(this.#withdrawDeadlineMs);
+    let hasStarted = false;
+    const withdrawing = this.#handChain.run(sessionId, async () => {
+      // A take-back the chain reached too late was already answered.
+      if (deadline.aborted) {
+        return undefined;
+      }
+      hasStarted = true;
+      return new Map(
+        await Promise.all(
+          candidates.map(async (item) => [item.id, await this.#withdraw(item, deadline)] as const),
         ),
-    );
+      );
+    });
+    const isReached =
+      (await waitWithin(withdrawing, this.#withdrawDeadlineMs, deadline)) || hasStarted;
+    const withdrawals =
+      (isReached ? await withdrawing : undefined) ??
+      new Map(
+        await Promise.all(
+          candidates.map(async (item) => {
+            await this.#recordUnreturned(item, "waited past the deadline behind earlier hands");
+            return [item.id, "not_delivered"] as const;
+          }),
+        ),
+      );
     return new Map(
       items.map((item): [QueueItemId, QueueWithdrawal] => {
         const withdrawal = withdrawals.get(item.id) ?? "taken";
@@ -394,6 +412,32 @@ export class QueueDelivery {
     }
   }
 
+  /**
+   * Forgets each message of `sessionId` Claude Code kept past its run's end in a process that is
+   * no longer the session's, which delivered nothing, and answers the ended runs they waited for.
+   */
+  forgetKeptByGoneProcess(sessionId: SessionId): RunId[] {
+    const liveProcessId = this.#deps.readProviderProcessId(sessionId);
+    const endedRunIds = new Set<RunId>();
+    for (const [itemId, handed] of [...this.#handed]) {
+      const item = this.#deps.items.get(itemId);
+      const state = this.#deps.runs.getRun(handed.runId)?.state;
+      if (
+        item !== undefined &&
+        canonicalizeUuid(item.sessionId) === canonicalizeUuid(sessionId) &&
+        state !== undefined &&
+        isTerminalState(state) &&
+        handed.route === "driver" &&
+        handed.driverName === "claude" &&
+        !isKeptByProcess(handed, liveProcessId)
+      ) {
+        this.#handed.delete(itemId);
+        endedRunIds.add(handed.runId);
+      }
+    }
+    return [...endedRunIds];
+  }
+
   /** Whether the provider has been handed `itemId` and has not yet said what became of it. */
   isHanded(itemId: QueueItemId): boolean {
     return this.#handed.has(itemId);
@@ -473,7 +517,7 @@ export class QueueDelivery {
   }
 
   // One withdraw of a `takeBack`, on the session's chain.
-  async #withdraw(item: QueueItemRecord): Promise<QueueWithdrawal> {
+  async #withdraw(item: QueueItemRecord, deadline: AbortSignal): Promise<QueueWithdrawal> {
     const handed = this.#handed.get(item.id);
     if (handed === undefined) {
       return "returned";
@@ -487,7 +531,7 @@ export class QueueDelivery {
       runId: handed.runId,
       clientIdempotencyKey: item.id,
     });
-    if (!(await waitWithin(withdrawing, this.#withdrawDeadlineMs))) {
+    if (!(await waitWithin(withdrawing, this.#withdrawDeadlineMs, deadline))) {
       void withdrawing.then(
         (late) => {
           this.#deps.writeServiceLog(

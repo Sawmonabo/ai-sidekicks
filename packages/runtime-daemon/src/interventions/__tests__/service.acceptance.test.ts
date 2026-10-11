@@ -6,10 +6,7 @@ import { randomUUID } from "node:crypto";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import type {
-  ApplyInterventionParams,
-  DriverInterventionResult,
-} from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { DriverInterventionResult } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type {
   InterventionId,
   InterventionRequestPayload,
@@ -21,9 +18,10 @@ import { DeviceIdSchema, type DeviceId } from "@ai-sidekicks/contracts/trust-sta
 import { makeSilentDriverDiagnostics } from "../../provider/__fixtures__/silent-driver-diagnostics.js";
 import { CodexRequestTimeoutError } from "../../provider/driver/codex/session/errors.js";
 import type { DriverDiagnosticsEmitter } from "../../provider/driver/diagnostics.js";
-import type { FasterModelRetryOutcome } from "../../provider/driver/run-control.js";
-import { PortRegistration } from "../../provider/port/registration.js";
-import type { RunStatePublisher } from "../../provider/port/run-state-publisher.js";
+import type {
+  FasterModelRetryOutcome,
+  ApplyInterventionParams,
+} from "../../provider/driver/run-control.js";
 import type { InterruptRoute } from "../../session/run/engine.js";
 import { ExecutionEpochs } from "../../session/run/epochs.js";
 import { RunInboundDispatch } from "../../session/run/inbound.js";
@@ -212,7 +210,7 @@ describe("intervention service with the run engine and inbound dispatch", () => 
       epochs,
       diagnostics,
       sessionEvents: fixture.sessionEvents,
-      runStatePublisher: new PortRegistration<RunStatePublisher>("run state publisher"),
+      runStatePublisher: { publish: () => undefined },
     });
     const bindingId = randomUUID();
     epochs.openBinding({ id: bindingId, runId, driverName: "claude" }, { epoch: 0, position: 1 });

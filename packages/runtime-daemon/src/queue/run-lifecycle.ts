@@ -83,9 +83,11 @@ export interface QueueRunLifecycleDeps {
     QueueDelivery,
     | "handWaiting"
     | "admitContinued"
+    | "releaseContinued"
     | "settle"
     | "endRun"
     | "isHanded"
+    | "forgetKeptByGoneProcess"
     | "isMessageKeptForRun"
     | "isHeldForInterrupt"
     | "noteCreditsChoice"
@@ -163,6 +165,58 @@ export class QueueRunLifecycle {
   }
 
   /**
+   * Moves on what waits for runs of the session that ended while Claude Code kept a message for
+   * them, once the process that kept it is gone, as at their end: no turn will take it.
+   */
+  onProcessGone(sessionId: SessionId): void {
+    this.#onChain(sessionId, async () => {
+      for (const runId of this.#deps.delivery.forgetKeptByGoneProcess(sessionId)) {
+        await this.#endRun(sessionId, runId);
+      }
+    });
+  }
+
+  /**
+   * Takes the messages a resume of `runId` delivered, once the driver continued the run with them.
+   */
+  async admitContinued(sessionId: SessionId, runId: RunId): Promise<void> {
+    await this.#deps.sessionLock.run(sessionId, async () => {
+      await this.#deps.delivery.admitContinued(runId);
+    });
+  }
+
+  /**
+   * Gives back the messages a resume of `runId` read and did not deliver, and hands them to the
+   * run as to any live run, since its move to `running` may already have been followed.
+   */
+  async releaseContinued(sessionId: SessionId, runId: RunId): Promise<void> {
+    await this.#deps.sessionLock.run(sessionId, () => {
+      this.#deps.delivery.releaseContinued(runId);
+      this.#deps.delivery.handWaiting(sessionId, runId);
+      return Promise.resolve();
+    });
+  }
+
+  /**
+   * Moves on what waits for `runId` as at its end, once a change took back a message Claude Code
+   * kept past that end and left it waiting for a run that takes no more. A run still live, and an
+   * interrupted one resting for its continue, keep theirs.
+   */
+  settleEndedRun(sessionId: SessionId, runId: RunId): void {
+    this.#onChain(sessionId, async () => {
+      const state = this.#deps.runs.getRun(runId)?.state;
+      if (
+        state === undefined ||
+        !isTerminalState(state) ||
+        this.#restingRunBySession.get(canonicalizeUuid(sessionId)) === runId
+      ) {
+        return;
+      }
+      await this.#endRun(sessionId, runId);
+    });
+  }
+
+  /**
    * Reads the session's waiting messages again from the record, after its events could not all be
    * read or when the daemon starts: a run they wait for that ended is ended as at its end, and a
    * queued run no start holds is started. Runs after the session's changes before it; a failure is
@@ -205,19 +259,32 @@ export class QueueRunLifecycle {
       } else if (state === "running") {
         admission.resume(runId);
         await admission.settled(runId);
-        await sessionLock.run(sessionId, async () => {
-          // A continue that went while the queue read nothing has run, so its messages are taken.
-          await delivery.admitContinued(runId);
+        await sessionLock.run(sessionId, () => {
           delivery.handWaiting(sessionId, runId);
+          return Promise.resolve();
         });
       }
     }
   }
 
+  // The peak is read before the change, which can let the run's place go, and a failed read never
+  // holds the change back: it is surfaced once the change is made.
   async #apply(sessionId: SessionId, change: StoredRunStateChange): Promise<void> {
+    let peakFailure: { readonly error: unknown } | undefined;
+    try {
+      await this.#deps.admission.observeProcessPeak(sessionId, change.runId);
+    } catch (error) {
+      peakFailure = { error };
+    }
+    await this.#applyStateChange(sessionId, change);
+    if (peakFailure !== undefined) {
+      throw peakFailure.error;
+    }
+  }
+
+  async #applyStateChange(sessionId: SessionId, change: StoredRunStateChange): Promise<void> {
     const { admission, delivery, sessionLock } = this.#deps;
-    const { runId, newState, previousState } = change;
-    await admission.observeProcessPeak(sessionId, runId);
+    const { runId, newState } = change;
     if (isTerminalState(newState)) {
       await this.#endRun(sessionId, runId);
       return;
@@ -236,11 +303,10 @@ export class QueueRunLifecycle {
     admission.resume(runId);
     // The start writes its opening's outcome first, so the opening is never handed again.
     await admission.settled(runId);
-    await sessionLock.run(sessionId, async () => {
-      if (previousState === "pausing" || previousState === "paused") {
-        await delivery.admitContinued(runId);
-      }
+    // A resume's own messages stay its until it says whether it delivered them.
+    await sessionLock.run(sessionId, () => {
       delivery.handWaiting(sessionId, runId);
+      return Promise.resolve();
     });
   }
 

@@ -34,6 +34,7 @@ export interface ClaudeSessionRestartsDependencies {
    */
   readonly resume: (params: ResumeSessionParams) => Promise<DriverResumeResult>;
   readonly onSessionRelaunched: ClaudeSessionLifecycleDependencies["onSessionRelaunched"];
+  readonly onProcessGone: ClaudeSessionLifecycleDependencies["onProcessGone"];
   /** Forgets what the daemon held for the dead process: its pauses and helper holds. */
   readonly forgetProcessState: (sessionId: SessionId) => void;
   readonly scheduler: ClaudeDeadlineScheduler;
@@ -104,6 +105,7 @@ export class ClaudeSessionRestarts {
         this.recordReportFailure(sessionId, "the run end of a process that exited", error);
       }
     }
+    this.#dependencies.onProcessGone(sessionId);
     if (this.#isStopped) {
       return;
     }
@@ -231,6 +233,7 @@ export class ClaudeSessionRestarts {
     runRoutes.retireRunRoutes(sessionId);
     this.#dependencies.forgetProcessState(sessionId);
     await slots.disposeHeldChannel(sessionId, live.channel);
+    this.#dependencies.onProcessGone(sessionId);
     const result = await this.#dependencies.resume(relaunch);
     this.#dependencies.onSessionRelaunched(sessionId, result);
     if (result.status === "resumed") {

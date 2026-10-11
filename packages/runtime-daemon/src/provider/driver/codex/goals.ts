@@ -3,7 +3,9 @@
 // instruction, which its automatic reviewer reads as authorization. Codex may work on the goal in a
 // turn of its own, whose run opens when that turn starts. Setting or clearing one records a
 // message in the conversation, and setting one can start that turn, so each waits for a turn the
-// daemon is stopping to end and goes apart from the session's turn starts.
+// daemon is stopping to end and goes apart from the session's turn starts; a set keeps them apart
+// until the turn it starts begins, within the turn-start deadline, since Codex starts it only
+// after answering.
 
 import type {
   ClearSessionGoalParams,
@@ -19,13 +21,19 @@ import { type CodexSessionRecord, isTurnInFlight } from "./session/state.js";
 /** Sets and clears each session's goal on its conversation. */
 export class CodexSessionGoals {
   readonly #configForks: Pick<CodexConfigForks, "requireAfterForks">;
-  readonly #turnEnds: Pick<CodexTurnEndWaiters, "waitForStoppedTurns">;
-  readonly #runStart: Pick<CodexRunStart, "sendApartFromTurnStarts">;
+  readonly #turnEnds: Pick<
+    CodexTurnEndWaiters,
+    "waitForStoppedTurns" | "openDeadline" | "waitForTurnInFlight"
+  >;
+  readonly #runStart: Pick<CodexRunStart, "sendApartFromTurnStarts" | "turnStartTimeoutMs">;
 
   constructor(
     configForks: Pick<CodexConfigForks, "requireAfterForks">,
-    turnEnds: Pick<CodexTurnEndWaiters, "waitForStoppedTurns">,
-    runStart: Pick<CodexRunStart, "sendApartFromTurnStarts">,
+    turnEnds: Pick<
+      CodexTurnEndWaiters,
+      "waitForStoppedTurns" | "openDeadline" | "waitForTurnInFlight"
+    >,
+    runStart: Pick<CodexRunStart, "sendApartFromTurnStarts" | "turnStartTimeoutMs">,
   ) {
     this.#configForks = configForks;
     this.#turnEnds = turnEnds;
@@ -36,6 +44,7 @@ export class CodexSessionGoals {
    * Binds the session's goal natively and resolves once Codex accepts it. Only `objective` is
    * sent; `status` and `tokenBudget` are provider-side state the daemon does not own. Goes as
    * {@link clear} does, and throws `session_turn_in_flight`, nothing sent, while a turn runs too.
+   * No turn start goes out until the goal's own turn starts or the turn-start deadline passes.
    */
   async set(params: SetSessionGoalParams): Promise<DriverGoalResult> {
     return await this.#send(params.sessionId, async (record) => {
@@ -47,6 +56,13 @@ export class CodexSessionGoals {
         origin: "user",
         objective: params.goalText,
       });
+      // A turn sent before the goal's own turn starts would fold into it or race it.
+      const deadline = this.#turnEnds.openDeadline(this.#runStart.turnStartTimeoutMs);
+      try {
+        await this.#turnEnds.waitForTurnInFlight(record, deadline);
+      } finally {
+        deadline.close();
+      }
     });
   }
 

@@ -25,17 +25,12 @@ import path from "node:path";
 import type { Database } from "better-sqlite3";
 
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
-import type { PickedSkill } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import { RunIdSchema, type RunId } from "@ai-sidekicks/contracts/run/id";
 import {
-  QUEUE_CHANGE_REFUSED_CODE,
-  QUEUE_ITEM_NOT_FOUND_CODE,
   QUEUE_PERSISTENCE_UNAVAILABLE_CODE,
   QUEUE_RUN_CHANGED_CODE,
   QueueItemIdSchema,
-  type QueueChangeRefusedDetails,
-  type QueueChangeRefusedReason,
   type QueueItemCancelRequest,
   type QueueItemCancelResponse,
   type QueueItemCreateRequest,
@@ -55,10 +50,6 @@ import {
 } from "@ai-sidekicks/contracts/session/event-cursor";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
-import {
-  SKILL_PATH_REFUSED_CODE,
-  type SkillPathRefusedDetails,
-} from "@ai-sidekicks/contracts/skill";
 import { canonicalizeUuid } from "@ai-sidekicks/contracts/uuid-canonical";
 
 import type { MemoryGate } from "../admission/memory-gate.js";
@@ -82,8 +73,15 @@ import { RunNotFoundError } from "../session/run/refusals.js";
 import { isTerminalState } from "../session/run/transitions.js";
 import { mintUuidV7 } from "../uuid-v7.js";
 import { QueueAdmission } from "./admission.js";
-import { QueueDelivery, type QueueWithdrawal } from "./delivery.js";
+import { QueueDelivery } from "./delivery.js";
 import type { ProviderSessions } from "./provider-session.js";
+import {
+  changeRefused,
+  leftQueueRefusal,
+  queueItemNotFound,
+  skillNotListed,
+  unreturnedRefusal,
+} from "./refusals.js";
 import {
   outcomeDraftOf,
   QueueRecorder,
@@ -99,6 +97,7 @@ import {
   type QueueItemBody,
   type QueueItemRecord,
 } from "./store.js";
+import type { PickedSkill } from "../provider/driver/run-control.js";
 
 // Reads and writes of a send before a run that keeps moving under it is refused.
 const SEND_ATTEMPTS = 3;
@@ -478,9 +477,13 @@ export class RunQueue {
       throw queueItemNotFound(request.queueItemId);
     }
     return this.#sessionLock.run(found.sessionId, async () => {
+      // A purge of the session while the removal waited took its rows.
       const item = this.#items.get(found.id);
       if (item === undefined) {
-        throw unreturnedRefusal(found.id, "taken");
+        throw queueItemNotFound(request.queueItemId);
+      }
+      if (item.state !== "queued") {
+        throw leftQueueRefusal(item);
       }
       const withdrawal =
         (await this.delivery.takeBack(item.sessionId, [item])).get(item.id) ?? "taken";
@@ -740,10 +743,12 @@ export class RunQueue {
     }
   }
 
-  // Hands a live lead run what waits for it, or continues an interrupted one with it.
+  // Hands a live lead run what waits for it, continues an interrupted one with it, or moves it on
+  // from a run that ended while Claude Code kept it.
   #handOrContinue(sessionId: SessionId, runId: RunId): void {
     this.delivery.handWaiting(sessionId, runId);
     this.lifecycle.continueInterruptedRun(sessionId, runId);
+    this.lifecycle.settleEndedRun(sessionId, runId);
   }
 
   // Applies an interrupt's choice to `waiting`, lead messages that waited for its run when the run
@@ -848,42 +853,4 @@ function placementsOf(
 
 function isRefusalAt(error: unknown, statementIndex: number): boolean {
   return error instanceof WriteRefusedError && error.statementIndex === statementIndex;
-}
-
-function changeRefused(reason: QueueChangeRefusedReason, message: string): DaemonDomainError {
-  const detail: QueueChangeRefusedDetails = { reason };
-  return new DaemonDomainError(message, {
-    code: QUEUE_CHANGE_REFUSED_CODE,
-    jsonRpcCode: JsonRpcErrorCode.InvalidRequest,
-    detail: { ...detail },
-  });
-}
-
-// The refusal of a change to an item its provider did not give back.
-function unreturnedRefusal(
-  queueItemId: QueueItemId,
-  withdrawal: Exclude<QueueWithdrawal, "returned">,
-): DaemonDomainError {
-  return withdrawal === "taken"
-    ? changeRefused("already_taken", `Queue item ${queueItemId} has been taken by the agent`)
-    : changeRefused(
-        "not_delivered",
-        `Queue item ${queueItemId} was not given back by the provider and reads not delivered`,
-      );
-}
-
-function skillNotListed(pick: QueuedSkillPick): DaemonDomainError {
-  const detail: SkillPathRefusedDetails = { path: pick.folderPath, reason: "not_listed" };
-  return new DaemonDomainError(
-    `The skill ${pick.name} in ${pick.folderPath} is not one the session's provider lists`,
-    { code: SKILL_PATH_REFUSED_CODE, detail: { ...detail } },
-  );
-}
-
-function queueItemNotFound(queueItemId: QueueItemId): DaemonDomainError {
-  return new DaemonDomainError(`Queue item ${queueItemId} is not in this queue`, {
-    code: QUEUE_ITEM_NOT_FOUND_CODE,
-    jsonRpcCode: JsonRpcErrorCode.InvalidParams,
-    detail: { queueItemId },
-  });
 }

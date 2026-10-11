@@ -1,21 +1,28 @@
 // `lifecycle.ts` turn ends: the `result` that confirms an interrupt is never a second end of the
 // run the driver delivers, whether the daemon writes the end (a refusal settled as cancelled) or
-// the turn ends `interrupted` (the driver's own interrupt or an intervention's).
+// the turn ends `interrupted` (the driver's own interrupt or an intervention's); and the turn
+// Claude Code starts by itself once a run's turn ended gets a run of its own.
 
 import { describe, expect, it, vi } from "vitest";
 
 import { ClaudeDriver } from "../index.js";
+import { CLAUDE_HOOK_CALLBACK_IDS } from "../hooks/registration.js";
 import {
   buildCreateSessionParams,
   buildInterruptParams,
   buildStartRunParams,
+  buildSteerParams,
+  type FakeClaudeProviderProcess,
   TEST_RUN_ID,
   TEST_SESSION_ID,
 } from "../__fixtures__/transport-doubles.js";
 import {
   armRunDispatch,
   buildHarness,
+  createLiveSession,
+  daemonTurnRunId,
   openGate,
+  SANDBOXED_POSTURE,
   spawnedChannel,
   startLiveRun,
   type LifecycleHarness,
@@ -161,5 +168,161 @@ describe("ClaudeSessionLifecycle turn end", () => {
         answer: { dialog: "refusal", choice: "retry_fallback" },
       }),
     ).resolves.toStrictEqual({ status: "not_pending" });
+  });
+
+  // Mutation: dropping the frames of a turn no run holds leaves the kept message untaken and the
+  // turn's reply off the record.
+  it("opens the session's own run for the turn Claude Code starts by itself with a kept message", async () => {
+    const taken: { readonly messageId: string; readonly runId: string }[] = [];
+    const harness = buildHarness({
+      onMessageTaken: (_sessionId, messageId, runId) => {
+        taken.push({ messageId, runId });
+      },
+    });
+    const starts = vi.spyOn(harness.dependencies.runEngine, "startDaemonTurn");
+    const channel = await createLiveSession(harness, { executionPosture: SANDBOXED_POSTURE });
+    armRunDispatch(harness);
+    await harness.lifecycle.startRun(buildStartRunParams());
+    channel.emitStreamFrame("system/init");
+    channel.emitStreamFrame("result/error_during_execution", undefined, {
+      type: "result",
+      subtype: "error_during_execution",
+      is_error: true,
+      result: "the model's service failed",
+    });
+
+    // Claude Code starts its next turn with the message the failed turn left it.
+    const keptMessageId = "6f1e2d3c-4b5a-4c6d-8e7f-0a1b2c3d4e5f";
+    channel.emitStreamFrame("system/init");
+    channel.emitStreamFrame("user", undefined, {
+      type: "user",
+      isReplay: true,
+      uuid: keptMessageId,
+      message: { role: "user", content: "also run the tests" },
+    });
+    await vi.waitFor(() => {
+      expect(taken).toStrictEqual([{ messageId: keptMessageId, runId: daemonTurnRunId(1) }]);
+    });
+    channel.emitStreamFrame("result/success", undefined, { type: "result", subtype: "success" });
+
+    expect(starts.mock.calls.map(([request]) => request.isProviderStarted)).toStrictEqual([true]);
+    expect(harness.runMoves.map((change) => [change.runId, change.newState])).toStrictEqual([
+      [TEST_RUN_ID, "failed"],
+      [daemonTurnRunId(1), "completed"],
+    ]);
+  });
+
+  // Mutations: opening a run of its own for the turn, or ending the paused run with that turn,
+  // each fail it.
+  it("keeps a paused run paused through the turn Claude Code starts by itself, which it takes", async () => {
+    const taken: { readonly messageId: string; readonly runId: string }[] = [];
+    const harness = buildHarness({
+      onMessageTaken: (_sessionId, messageId, runId) => {
+        taken.push({ messageId, runId });
+      },
+    });
+    const starts = vi.spyOn(harness.dependencies.runEngine, "startDaemonTurn");
+    const channel = await createLiveSession(harness, { executionPosture: SANDBOXED_POSTURE });
+    armRunDispatch(harness);
+    await harness.lifecycle.startRun(buildStartRunParams());
+    channel.emitStreamFrame("system/init");
+    harness.lifecycle.pauseRun({ sessionId: TEST_SESSION_ID, runId: TEST_RUN_ID });
+    channel.emitInboundRequest({
+      kind: "request",
+      request: {
+        requestId: "pause-1",
+        subtype: "hook_callback",
+        request: {
+          subtype: "hook_callback",
+          callback_id: CLAUDE_HOOK_CALLBACK_IDS.pauseAfterBatch,
+          input: {},
+        },
+      },
+    });
+    channel.emitStreamFrame("result/success", undefined, { type: "result", subtype: "success" });
+
+    const keptMessageId = "6f1e2d3c-4b5a-4c6d-8e7f-0a1b2c3d4e5f";
+    channel.emitStreamFrame("system/init");
+    channel.emitStreamFrame("user", undefined, {
+      type: "user",
+      isReplay: true,
+      uuid: keptMessageId,
+      message: { role: "user", content: "also run the tests" },
+    });
+    channel.emitStreamFrame("result/success", undefined, { type: "result", subtype: "success" });
+
+    await vi.waitFor(() => {
+      expect(taken).toStrictEqual([{ messageId: keptMessageId, runId: TEST_RUN_ID }]);
+    });
+    expect(starts).not.toHaveBeenCalled();
+    expect(harness.runMoves.map((change) => [change.runId, change.newState])).toStrictEqual([
+      [TEST_RUN_ID, "paused"],
+    ]);
+  });
+
+  // Mutations: leaving the run carried after its steer was taken back, or reading the turn as
+  // completed before its refusal, each fail one leg.
+  it.each([
+    {
+      leg: "a run that went on for a steer ends once that steer is taken back",
+      act: async (driver: ClaudeDriver, channel: FakeClaudeProviderProcess) => {
+        channel.emitStreamFrame("result/success", undefined, {
+          type: "result",
+          subtype: "success",
+        });
+        channel.controlResponse = { subtype: "success", response: { cancelled: true } };
+        await expect(
+          driver.withdrawQueuedMessage({
+            sessionId: TEST_SESSION_ID,
+            runId: TEST_RUN_ID,
+            clientIdempotencyKey: buildSteerParams("").clientIdempotencyKey,
+          }),
+        ).resolves.toStrictEqual({ status: "withdrawn" });
+      },
+      end: { runId: TEST_RUN_ID, newState: "completed", completionKind: "turn" },
+    },
+    {
+      leg: "a refused turn with a steer waiting ends refused",
+      act: async (_driver: ClaudeDriver, channel: FakeClaudeProviderProcess) => {
+        channel.emitStreamFrame("assistant", undefined, {
+          type: "assistant",
+          message: {
+            role: "assistant",
+            stop_reason: "refusal",
+            model: "claude-fable-5",
+            content: [],
+          },
+        });
+        channel.emitStreamFrame("result/success", undefined, {
+          type: "result",
+          subtype: "success",
+        });
+        await Promise.resolve();
+      },
+      end: {
+        runId: TEST_RUN_ID,
+        newState: "failed",
+        failureCategory: "refused",
+        failureCause: { cause: "refused", origin: "provider", model: "claude-fable-5" },
+      },
+    },
+  ])("$leg", async ({ act, end }) => {
+    const harness = buildHarness();
+    const driver = new ClaudeDriver({
+      ...harness.dependencies,
+      readBuild: () => Promise.reject(new Error("no build is read here")),
+    });
+    await driver.createSession(buildCreateSessionParams());
+    const channel = spawnedChannel(harness);
+    armRunDispatch(harness);
+    await driver.startRun(buildStartRunParams());
+    channel.emitStreamFrame("system/init");
+    await driver.applyIntervention(buildSteerParams("also run the tests"));
+
+    await act(driver, channel);
+
+    await vi.waitFor(() => {
+      expect(runEnds(harness)).toStrictEqual([end]);
+    });
   });
 });

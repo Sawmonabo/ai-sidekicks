@@ -79,7 +79,7 @@ export interface RecordedSend {
 }
 
 /** Hears each change to one queue: the item as it now stands, and the cursor after its change. */
-export type QueueChangeListener = (change: RunQueueStreamChange) => void;
+type QueueChangeListener = (change: RunQueueStreamChange) => void;
 
 /** What the recorder writes and reads through. */
 export interface QueueRecorderDeps extends SessionEventAppenderDeps {

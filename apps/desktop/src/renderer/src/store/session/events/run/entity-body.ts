@@ -98,6 +98,7 @@ const PER_TYPE_RUN_BODY_MEMBER_READERS: Readonly<
 > = Object.freeze({
   "run.queued": Object.freeze({
     parentRunId: "string",
+    isApart: "boolean",
     admittedModelFamily: "string",
     reachedBy: "string",
     effectiveRunConfig: "object",

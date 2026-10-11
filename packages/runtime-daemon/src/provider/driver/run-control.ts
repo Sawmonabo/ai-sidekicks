@@ -1,16 +1,64 @@
-// The params and results of the driver operations that act on one live run: pause and continue,
-// withdrawing a waiting message, overruling a reviewer's block, answering a provider's choice and
-// resending a held turn on a faster model; and what the run queue serves a driver starting a run.
+// The params and results of the driver operations that act on one live run: a steer or an
+// interrupt, pause and continue, withdrawing a waiting message, overruling a reviewer's block,
+// answering a provider's choice and resending a held turn on a faster model; and what the run queue
+// serves a driver starting a run.
+import { z } from "zod";
+
 import type { AgentId } from "@ai-sidekicks/contracts/agent/definition";
 import type { ArtifactId } from "@ai-sidekicks/contracts/artifacts/id";
+import type { ApplyInterventionRequest } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type {
   RunRefusalChoice,
   RunUsageCreditsChoice,
 } from "@ai-sidekicks/contracts/run/provider-choice";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
-import type { PickedSkill } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type { QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+
+/**
+ * A skill picked for a message as its provider listed it: its name and the file the provider loads
+ * it from, absolute. The daemon resolves a person's pick to it, so no path a client sent reaches a
+ * provider.
+ */
+export interface PickedSkill {
+  name: string;
+  path: string;
+}
+/** Parses a {@link PickedSkill}. */
+export const PickedSkillSchema: z.ZodType<PickedSkill, PickedSkill> = z
+  .object({
+    name: z.string().min(1),
+    path: z.string().min(1),
+  })
+  .strict();
+
+/**
+ * Payload of a driver's `steer`: the queued message's content, its attachments, the skills the
+ * person picked for it and a target turn.
+ */
+interface SteerPayload {
+  content: string;
+  // Order-preserving: an attachment the turn cannot resolve becomes an unresolved marker with its
+  // cause in its own position, never dropped. No count of the app's own bounds the list.
+  attachments?: ArtifactId[] | undefined;
+  skills?: PickedSkill[] | undefined;
+  expectedTurnId?: string | undefined;
+}
+
+/**
+ * What the daemon asks a driver to do on a live run, one arm per verb: a `steer` delivers a message
+ * the run queue holds, and an `interrupt` carries out an intervention. `clientIdempotencyKey` is
+ * passed through unchanged; a steer's is the message's own id.
+ */
+export type ApplyInterventionParams =
+  | {
+      type: "steer";
+      targetRunId: RunId;
+      expectedRunVersion: number;
+      clientIdempotencyKey: string;
+      payload: SteerPayload;
+    }
+  | ApplyInterventionRequest;
 
 /**
  * Thrown by a driver's steer that was not sent because the turn it was handed for had ended

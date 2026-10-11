@@ -3,7 +3,6 @@
 import { z } from "zod";
 
 import { wireFreeFormString } from "../../free-form-string.js";
-import type { ArtifactId } from "../../artifacts/id.js";
 import { RunIdSchema, type RunId } from "../../run/id.js";
 import { DRIVER_FALLBACK_ACTION_MAX_LEN } from "./length-limits.js";
 
@@ -28,61 +27,17 @@ export const InterventionTypeSchema: z.ZodType<InterventionType, InterventionTyp
 ]);
 
 /**
- * What the daemon asks a driver to do on a live run, one arm per verb with its own payload: a
- * `steer` delivers a message the run queue holds, and an `interrupt` carries out an intervention.
- * `expectedRunVersion` is the fail-closed comparand; `clientIdempotencyKey` is the requester's key,
- * passed through unchanged, because a key minted per retry would defeat the dedupe.
+ * The request of `driver.applyIntervention`: an interrupt on a live run. `expectedRunVersion` is
+ * the fail-closed comparand; `clientIdempotencyKey` is the requester's key, passed through
+ * unchanged, because a key minted per retry would defeat the dedupe. A message a person sends
+ * mid-turn reaches a driver only from the run queue (`run.queueCreate`), never over the wire.
  */
-export type ApplyInterventionParams =
-  | {
-      type: "steer";
-      targetRunId: RunId;
-      expectedRunVersion: number;
-      clientIdempotencyKey: string;
-      payload: SteerPayload;
-    }
-  | {
-      type: "interrupt";
-      targetRunId: RunId;
-      expectedRunVersion: number;
-      clientIdempotencyKey: string;
-      payload: InterruptPayload;
-    };
-
-/**
- * The request of `driver.applyIntervention`: an interrupt. A steer reaches a driver only from the
- * run queue, which delivers each message a person sends (`run.queueCreate`), never over the wire.
- */
-export type ApplyInterventionRequest = Extract<ApplyInterventionParams, { type: "interrupt" }>;
-
-/**
- * A skill picked for a message as its provider listed it: its name and the file the provider loads
- * it from, absolute. The daemon resolves a person's pick to it, so no path a client sent reaches a
- * provider.
- */
-export interface PickedSkill {
-  name: string;
-  path: string;
-}
-/** Parses a {@link PickedSkill}. */
-export const PickedSkillSchema: z.ZodType<PickedSkill, PickedSkill> = z
-  .object({
-    name: z.string().min(1),
-    path: z.string().min(1),
-  })
-  .strict();
-
-/**
- * Payload of a driver's `steer`: the queued message's content, its attachments, the skills the
- * person picked for it and a target turn.
- */
-export interface SteerPayload {
-  content: string;
-  // Order-preserving: an attachment the turn cannot resolve becomes an unresolved marker with its
-  // cause in its own position, never dropped. No count of the app's own bounds the list.
-  attachments?: ArtifactId[] | undefined;
-  skills?: PickedSkill[] | undefined;
-  expectedTurnId?: string | undefined;
+export interface ApplyInterventionRequest {
+  type: "interrupt";
+  targetRunId: RunId;
+  expectedRunVersion: number;
+  clientIdempotencyKey: string;
+  payload: InterruptPayload;
 }
 
 /**

@@ -15,6 +15,17 @@ import type { Refusal } from "#renderer/lib/refusal/contract.js";
 /** One driver's declared flags, exactly as its own report carried them. */
 export type DeclaredDriverFlags = Readonly<Record<DriverCapabilityFlag, boolean>>;
 
+/**
+ * What this build knows about one driver flag, read off a readout. `declared`: that driver
+ * declared it. `undeclared`: that driver declared it absent. `unknown`: nobody has answered,
+ * because the read has not landed, the driver is not nameable, or the named driver filed no
+ * report; collapsing it onto `undeclared` would show an unread session like one bound to a driver
+ * that cannot do the thing.
+ *
+ * @consumedBy the callback tools group on an agent definition's tool allowlist
+ */
+export type DriverCapabilityReading = "declared" | "undeclared" | "unknown";
+
 /** What the capability read answered. Absent until the read answers. */
 export interface DriverCapabilityReadout {
   /**

@@ -95,7 +95,7 @@ export interface CodexRunStartDependencies {
   readonly runEngine: Pick<CodexRunEnginePort, "startDaemonTurn">;
   readonly daemonTurnBindings: DaemonTurnBindingResolver;
   readonly attachments: AttachmentResolver;
-  readonly turnEnds: Pick<CodexTurnEndWaiters, "openDeadline" | "waitForStoppedTurns">;
+  readonly turnEnds: Pick<CodexTurnEndWaiters, "openDeadline" | "waitForStoppedTurns" | "settle">;
   /** The driver's interrupt of a run's live turn. */
   readonly interruptRun: (params: InterruptRunParams) => Promise<void>;
   readonly reportDiagnostic: CodexDiagnosticSink;
@@ -312,17 +312,11 @@ export class CodexRunStart {
         // A run opening for a turn Codex started is waited for; one that did not open leaves a turn
         // being stopped, which the next pass waits on.
         await record.delivery.selfStartedTurnOpening?.opened;
+        // Refused before a fork owed meanwhile, which would wait out that whole turn.
+        refuseWhileSelfStartedTurnRuns(record, turn.runId);
         await this.#configForks.forkBeforeTurn(record);
       }
-      // A turn Codex started whose run opened meanwhile holds the session, so nothing is sent.
-      if (
-        [...record.delivery.selfStartedTurnIds].some((id) => record.runIdByActiveTurnId.has(id))
-      ) {
-        throw new CodexTransportError(
-          `Codex session "${record.sessionId}" runs a turn Codex started, so this one waits.`,
-          { sessionId: record.sessionId, runId: turn.runId, reason: "session_turn_in_flight" },
-        );
-      }
+      refuseWhileSelfStartedTurnRuns(record, turn.runId);
       if (turn.isWithdrawn?.() === true) {
         throw new CodexTransportError(
           `The turn of run "${turn.runId}" was withdrawn before it went.`,
@@ -555,6 +549,8 @@ export class CodexRunStart {
     }
     record.runIdByActiveTurnId.set(turnId, runId);
     this.#runRoutes.bindRun(runId, record.sessionId, turnId);
+    // A wait for a live turn goes on once the turn's route is in place.
+    this.#turnEnds.settle();
     return true;
   }
 
@@ -620,6 +616,16 @@ export class CodexRunStart {
 }
 
 // Whether a turn Codex started by itself is opening its run or runs on with none.
+// A turn Codex started whose run opened holds the session, so nothing is sent into it.
+function refuseWhileSelfStartedTurnRuns(record: CodexSessionRecord, runId: RunId): void {
+  if ([...record.delivery.selfStartedTurnIds].some((id) => record.runIdByActiveTurnId.has(id))) {
+    throw new CodexTransportError(
+      `Codex session "${record.sessionId}" runs a turn Codex started, so this one waits.`,
+      { sessionId: record.sessionId, runId, reason: "session_turn_in_flight" },
+    );
+  }
+}
+
 function hasSelfStartedTurn(record: CodexSessionRecord): boolean {
   return (
     record.delivery.selfStartedTurnOpening !== undefined || record.delivery.unownedTurnIds.size > 0

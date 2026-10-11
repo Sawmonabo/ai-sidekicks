@@ -9,7 +9,7 @@
 import {
   readAgentDriverNames,
   readLeadAgentId,
-} from "#renderer/services/driver-capabilities/session-agents.js";
+} from "#renderer/services/daemon/session/event/agents.js";
 import {
   type StoredEntity,
   type ProjectedSessionEvent,

@@ -257,9 +257,10 @@ export class RunEngine {
    * session's own run: `run.queued` naming the session's lead and no parent, then the start
    * {@link startRun} makes, its setup gates given no queue item, and resolves with the new run's id
    * once it is `running`. Refuses with `SessionTurnHeldError`, writing nothing, while a lead
-   * run of the session is live, since a session has one, unless the turn runs in a process of its
-   * own, and a turn the daemon starts while a lead message waits for the session's current lead
-   * run as it rests interrupted, since that run's continue is the session's next turn. The run of a provider's own turn takes over, in its
+   * run of the session is live, since a session has one, and a turn the daemon starts while a
+   * lead message waits for the session's current lead run as it rests interrupted, since that
+   * run's continue is the session's next turn. A turn in a process of its own is neither refused
+   * nor the session's lead run. The run of a provider's own turn takes over, in its
    * `running` write, the lead messages waiting for the session's interrupted lead runs, so a turn
    * that fails to open leaves them where they were. Throws as {@link startRun} does.
    */
@@ -544,8 +545,8 @@ export class RunEngine {
    * `running` stamped with it; what the provider reports meanwhile waits for that write. A gate's
    * or the driver's throw leaves the run interrupted, every terminal hook releasing what the gates
    * took for the continue, and is rethrown; a `running` write that fails once the driver started
-   * the turn does so after the turn is interrupted. Throws {@link RunInvalidTransitionError} for a run that
-   * does not read interrupted or is already being continued.
+   * the turn does so after the turn is interrupted. Throws {@link RunInvalidTransitionError} for a
+   * run that does not read interrupted or is already being continued.
    */
   async continueRun(request: RunStartRequest): Promise<RunRead> {
     const { runId } = request;

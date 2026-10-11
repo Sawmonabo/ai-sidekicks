@@ -44,7 +44,14 @@ export const CLAUDE_REQUEST_DEADLINE_MS = 60_000;
 export const CLAUDE_COMPACTION_COMMAND_TEXT: string = `/${CLAUDE_COMPACTION_COMMAND_NAME}`;
 
 /** The picture formats Claude Code's image block takes. */
-export type ClaudePictureMediaType = "image/jpeg" | "image/png" | "image/gif" | "image/webp";
+export const CLAUDE_PICTURE_MEDIA_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+] as const;
+/** One of {@link CLAUDE_PICTURE_MEDIA_TYPES}. */
+export type ClaudePictureMediaType = (typeof CLAUDE_PICTURE_MEDIA_TYPES)[number];
 
 /**
  * One block of a user frame's content in streaming-input mode: words, or a picture as its own bytes
@@ -305,7 +312,10 @@ export interface ClaudeInboundFrameObservation {
 export interface ClaudeProviderProcess {
   readonly providerSessionId: string;
 
-  /** The operating system's id of the process, or `undefined` once it has none. */
+  /**
+   * The operating system's id of the process, kept after it exits; `undefined` only for a process
+   * that never started.
+   */
   readonly processId: number | undefined;
 
   /**
@@ -368,8 +378,9 @@ export interface ClaudeProviderProcess {
   onExit(observer: (exit: ProcessExit) => void): void;
 
   /**
-   * Asks the process to stop as the system stops a child process, which ends a running turn
-   * without answering what is queued, and resolves once it exited. Used by a conversation cut and a process that stopped answering.
+   * Asks the process to stop as the system stops a child process, which ends a running turn without
+   * answering what is queued, and resolves once it exited. Used by a conversation cut and a process
+   * that stopped answering.
    */
   terminate(): Promise<void>;
 

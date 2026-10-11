@@ -80,7 +80,7 @@ interface MountedDraftLine {
 
 /** The mounted Send, or a throw naming what was missing. */
 function sendButton(container: HTMLElement): HTMLButtonElement {
-  const button = container.querySelector(".meridian-composer__primary");
+  const button = container.querySelector(".meridian-composer__send-icon");
   if (!(button instanceof HTMLButtonElement)) {
     throw new Error("the composer rendered no Send button");
   }

@@ -5,7 +5,6 @@
 import type { Database, Statement } from "better-sqlite3";
 
 import type { ArtifactId } from "@ai-sidekicks/contracts/artifacts/id";
-import type { PickedSkill } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type { ChildHandle } from "@ai-sidekicks/contracts/agent/tree";
 import type { QuestionId } from "@ai-sidekicks/contracts/question";
 import type { WorkspaceId } from "@ai-sidekicks/contracts/repo/mount";
@@ -24,6 +23,7 @@ import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 import { sqlListOf } from "../database/sql-list.js";
 import type { WriteStatement } from "../database/statement.js";
 import { RUN_TERMINAL_STATES } from "../session/run/transitions.js";
+import type { PickedSkill } from "../provider/driver/run-control.js";
 
 /** What a queued message carries, as its payload stores it: the words and what rides with them. */
 export interface QueueItemBody {
@@ -77,14 +77,14 @@ export type QueueItemOutcome =
   | { readonly to: "not_delivered"; readonly reason: QueueItemNotDeliveredReason };
 
 /** One item a queue's stream replays, and the sequence of its newest change after the cursor. */
-export interface QueueItemChange {
+interface QueueItemChange {
   readonly item: QueueItemRecord;
   /** `undefined` for a waiting item no event changed after the cursor. */
   readonly sequence: number | undefined;
 }
 
 /** The state a waiting message leaves `queued` for: an outcome, or replaced by an edit. */
-export type QueueItemExit = QueueItemOutcome | { readonly to: "superseded" };
+type QueueItemExit = QueueItemOutcome | { readonly to: "superseded" };
 
 interface QueueItemRow {
   readonly id: QueueItemId;
@@ -143,9 +143,15 @@ const RUN_LIVE_SQL = `SELECT 1 FROM runs
 const SESSION_TAKES_MESSAGES_SQL = `SELECT 1 FROM sessions
   WHERE id = @session_id AND state NOT IN ('closed', 'purge_requested')`;
 
+// The condition that the run `alias` names is a lead run: no run started it, and its turn runs in
+// the session's own process, so a run apart from it, such as a review of the staged set, is none.
+function composeLeadRunPredicate(alias: string): string {
+  return `${alias}.parent_run_id IS NULL AND ${alias}.is_apart = 0`;
+}
+
 // Matches the session's lead runs that have not ended; a send that starts one expects none.
 const LIVE_LEAD_RUNS_SQL = `SELECT 1 FROM runs
-  WHERE session_id = @session_id AND parent_run_id IS NULL
+  WHERE session_id = @session_id AND ${composeLeadRunPredicate("runs")}
     AND state NOT IN (${sqlListOf(RUN_TERMINAL_STATES)})`;
 
 // The sessions with a lead message waiting for a run that ended or has not started.
@@ -183,24 +189,26 @@ function composeCurrentLeadRunPredicate(alias: string): string {
 // The session's current lead run, whatever its state: its newest but those whose start failed. Run
 // ids are minted in time order.
 const CURRENT_LEAD_RUN_SQL = `SELECT run_id AS runId, state FROM runs
-  WHERE session_id = ? AND parent_run_id IS NULL AND ${composeCurrentLeadRunPredicate("runs")}
+  WHERE session_id = ? AND ${composeLeadRunPredicate("runs")}
+    AND ${composeCurrentLeadRunPredicate("runs")}
   ORDER BY run_id DESC LIMIT 1`;
 
 // No lead run of the session of the `runs` row is newer and counts as current.
 const NO_NEWER_CURRENT_LEAD_RUN_SQL = `NOT EXISTS (SELECT 1 FROM runs AS newer
-      WHERE newer.session_id = runs.session_id AND newer.parent_run_id IS NULL
+      WHERE newer.session_id = runs.session_id AND ${composeLeadRunPredicate("newer")}
         AND newer.run_id > runs.run_id AND ${composeCurrentLeadRunPredicate("newer")})`;
 
 // The interrupted lead run a send continues, while it is its session's current lead run.
 const CURRENT_INTERRUPTED_LEAD_RUN_SQL = `SELECT 1 FROM runs
-  WHERE run_id = @run_id AND state = 'interrupted' AND parent_run_id IS NULL
+  WHERE run_id = @run_id AND state = 'interrupted' AND ${composeLeadRunPredicate("runs")}
     AND ${NO_NEWER_CURRENT_LEAD_RUN_SQL}`;
 
 // A lead message waiting for the session's current lead run while it rests interrupted, which the
 // run's continue takes as the session's next turn.
 const CONTINUE_WAITING_SQL = `SELECT 1 FROM queue_items JOIN runs ON runs.run_id = queue_items.target_run_id
   WHERE queue_items.session_id = @session_id AND queue_items.child_handle IS NULL
-    AND queue_items.state = 'queued' AND runs.state = 'interrupted' AND runs.parent_run_id IS NULL
+    AND queue_items.state = 'queued' AND runs.state = 'interrupted'
+    AND ${composeLeadRunPredicate("runs")}
     AND ${NO_NEWER_CURRENT_LEAD_RUN_SQL}
   LIMIT 1`;
 
@@ -210,11 +218,12 @@ const TAKE_OVER_INTERRUPTED_SQL = `UPDATE queue_items
     SET target_run_id = @run_id, updated_at = @now
   WHERE session_id = @session_id AND child_handle IS NULL AND state = 'queued'
     AND target_run_id IN (SELECT run_id FROM runs
-      WHERE session_id = @session_id AND parent_run_id IS NULL AND state = 'interrupted')`;
+      WHERE session_id = @session_id AND ${composeLeadRunPredicate("runs")}
+        AND state = 'interrupted')`;
 
 // The session's newest lead run that has not ended.
 const LIVE_LEAD_RUN_SQL = `SELECT run_id AS runId FROM runs
-  WHERE session_id = ? AND parent_run_id IS NULL
+  WHERE session_id = ? AND ${composeLeadRunPredicate("runs")}
     AND state NOT IN (${sqlListOf(RUN_TERMINAL_STATES)})
   ORDER BY run_id DESC LIMIT 1`;
 

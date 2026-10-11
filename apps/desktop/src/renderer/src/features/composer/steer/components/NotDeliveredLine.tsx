@@ -1,5 +1,6 @@
-// The line under a message or steer the background service took and could not hand to the agent:
-// red words and a faint `Retry` at the line's right end, which sends again what the box holds.
+// The line under a child's steer box when the background service took the steer and could not
+// hand it to the child: red words, and `Retry` at the line's right end in the same red, which
+// sends that steer again.
 // Not a live region: the words speak through the app's announcer, on the assertive lane a failure
 // takes, so a retry that fails again says them again.
 
@@ -13,7 +14,7 @@ import "./NotDeliveredLine.css";
 export interface NotDeliveredLineProps {
   /** Why the delivery failed, in the daemon's own word, carried on the root for diagnostics. */
   readonly failureReason: string;
-  /** Sends the box's text again, through the same path as its Send. */
+  /** Sends the steer that was not delivered again, under its own key. */
   readonly onRetry: () => void;
   /**
    * The delivery this line answers: a new value, a retry that failed too, says the words again.

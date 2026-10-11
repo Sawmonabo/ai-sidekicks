@@ -6,10 +6,11 @@
 // - `run.subscribeQueue` carries each message as it changes. A screen returning with a cursor is
 //   first sent what changed past it, read from the record in the same turn the stream starts
 //   following, so nothing falls between the two; one with none reads the queue with
-//   `run.queueList`. Its changes are batched like every session stream; a screen that stops
-//   reading is dropped for past the run streams' held changes, and once its connection has room
-//   again it gets one frame with the drop mark and the newest cursor, and repairs by cursor or by
-//   reading the queue again. Every frame goes out after the acknowledgment.
+//   `run.queueList`. The catch-up drops nothing: it ends once the connection has room. Its
+//   changes are batched like every session stream; a screen that stops reading is dropped for
+//   past the run streams' held changes, and once its connection has room again it gets one frame
+//   with the drop mark and the newest cursor, and repairs by cursor or by reading the queue again.
+//   Every frame goes out after the acknowledgment.
 
 import type { Handler, MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import { RUN_CONTROL_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/run/control";
@@ -117,7 +118,20 @@ function registerRunQueueSubscribe(registry: MethodRegistry, deps: RunQueueHandl
       )) {
         batcher.add(change);
       }
-      batcher.endCatchUp();
+      // The catch-up ends only once the connection has room, so none of its changes is dropped.
+      let detachDrained: (() => void) | undefined;
+      const endCatchUpWithRoom = (): void => {
+        detachDrained = undefined;
+        if (deps.outboundQueue.isFull(transportId)) {
+          detachDrained = deps.outboundQueue.onceDrained(transportId, endCatchUpWithRoom);
+          return;
+        }
+        batcher.endCatchUp();
+      };
+      endCatchUpWithRoom();
+      subscription.onCancel(() => {
+        detachDrained?.();
+      });
     }
     subscription.onCancel(
       deps.recorder.follow(sessionId, request.childHandle, (change) => {

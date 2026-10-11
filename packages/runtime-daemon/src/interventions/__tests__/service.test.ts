@@ -8,10 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { AgentIdSchema } from "@ai-sidekicks/contracts/agent/definition";
 import { EventEnvelopeVersionSchema } from "@ai-sidekicks/contracts/event/envelope";
-import type {
-  ApplyInterventionParams,
-  DriverInterventionResult,
-} from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { DriverInterventionResult } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type { InterventionId } from "@ai-sidekicks/contracts/run/control";
 import { DAEMON_INTERVENTION_ACTOR } from "@ai-sidekicks/contracts/run/events";
 import { RunIdSchema, type RunId } from "@ai-sidekicks/contracts/run/id";
@@ -25,7 +22,10 @@ import { SessionEventAppender } from "../../events/session/appender.js";
 import { DaemonDomainError } from "../../ipc/domain-error.js";
 import { insertQueuedRunStatement, swapRunStateStatement } from "../../session/run/projection.js";
 import { RunStateReader } from "../../session/run/read.js";
-import type { FasterModelRetryOutcome } from "../../provider/driver/run-control.js";
+import type {
+  FasterModelRetryOutcome,
+  ApplyInterventionParams,
+} from "../../provider/driver/run-control.js";
 import {
   InterventionService,
   type FasterModelRetryRequest,

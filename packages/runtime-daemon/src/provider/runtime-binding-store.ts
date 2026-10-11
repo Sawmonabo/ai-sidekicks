@@ -329,6 +329,26 @@ const INSERT_RELAUNCHED_BINDING_SQL = `
 
 const DELETE_BINDING_SQL = `DELETE FROM runtime_bindings WHERE id = ?`;
 
+/**
+ * The newest of a session's `bindings` with a conversation to resume, the session's leg, by when
+ * each was recorded and then by id, or `undefined` for none.
+ */
+export function selectSessionLeg(bindings: readonly RuntimeBinding[]): RuntimeBinding | undefined {
+  let newest: RuntimeBinding | undefined;
+  for (const binding of bindings) {
+    if (
+      binding.resumeHandle !== null &&
+      binding.resumeHandle.length > 0 &&
+      (newest === undefined ||
+        binding.createdAt > newest.createdAt ||
+        (binding.createdAt === newest.createdAt && binding.id > newest.id))
+    ) {
+      newest = binding;
+    }
+  }
+  return newest;
+}
+
 /** Reads `runtime_bindings` synchronously and writes it through the database writer. */
 export class RuntimeBindingStore {
   readonly #selectByIdStmt: Statement;

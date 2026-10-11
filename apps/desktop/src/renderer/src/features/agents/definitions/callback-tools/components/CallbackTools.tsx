@@ -9,6 +9,7 @@ import "./CallbackTools.css";
 import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import type { DriverCapabilityReading } from "#renderer/store/driver-capabilities/readout.js";
 import { CallbackToolRows } from "./CallbackToolRows.js";
 import { type CallbackToolRegistryReading } from "../registry.js";
 
@@ -17,14 +18,6 @@ import { type CallbackToolRegistryReading } from "../registry.js";
  * error rather than a section gated on a flag no driver declares.
  */
 export const CALLBACK_TOOLS_CAPABILITY: DriverCapabilityFlag = "callback_tools";
-
-/**
- * What this build knows about one driver flag. `declared`: that driver declared it. `undeclared`:
- * that driver declared it absent. `unknown`: nobody has answered, because the read has not
- * landed, the driver is not nameable, or the named driver filed no report; collapsing it onto
- * `undeclared` would show an unread session like one bound to a driver that cannot do the thing.
- */
-export type DriverCapabilityReading = "declared" | "undeclared" | "unknown";
 
 /** What the daemon-hosted tools section renders from: the capability and the registry. */
 export interface CallbackToolsProps {

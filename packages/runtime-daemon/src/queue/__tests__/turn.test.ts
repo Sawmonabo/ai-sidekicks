@@ -56,9 +56,8 @@ import {
 import { CodexTurnEndWaiters } from "../../provider/driver/codex/run/turn-end-waiters.js";
 import type { ProviderDriver } from "../../provider/driver/contract.js";
 import { PortRegistration } from "../../provider/port/registration.js";
-import type { RunStatePublisher } from "../../provider/port/run-state-publisher.js";
-import { RuntimeBindingStore } from "../../provider/runtime-binding-store.js";
-import { bindingStoreWithCursors, RunBindingCursors } from "../../session/run/binding-cursors.js";
+import { RuntimeBindingStore, selectSessionLeg } from "../../provider/runtime-binding-store.js";
+import { RunBindingCursors } from "../../session/run/binding-cursors.js";
 import { ExecutionEpochs } from "../../session/run/epochs.js";
 import type { RunEngine } from "../../session/run/engine.js";
 import { RunInboundDispatch } from "../../session/run/inbound.js";
@@ -128,17 +127,18 @@ async function openTurnFixture(
   const readNewestCursor = (readSessionId: SessionId) =>
     sessionEvents.readNewestCursor(readSessionId);
   const holds = new RunSafetyHolds(readNewestCursor);
-  const runStatePublisher = new PortRegistration<RunStatePublisher>("run state publisher");
-  runStatePublisher.register(holds);
   const epochs = new ExecutionEpochs({ diagnostics });
   const inbound = new RunInboundDispatch({
     sessionEvents,
     engine: engine.engine,
     epochs,
     diagnostics,
-    runStatePublisher,
+    runStatePublisher: holds,
   });
   const runtimeBindings = new RuntimeBindingStore(database);
+  const selectRunIds = database.reader.prepare<[string], { runId: RunId }>(
+    "SELECT run_id AS runId FROM runs WHERE session_id = ?",
+  );
   const bindingCursors = new RunBindingCursors({
     store: runtimeBindings,
     epochs,
@@ -161,7 +161,8 @@ async function openTurnFixture(
     readNewestCursor,
     engine: engine.engine,
     providerSessions: new ProviderSessions({
-      runtimeBindings: bindingStoreWithCursors(runtimeBindings, bindingCursors),
+      runtimeBindings,
+      bindingCursors,
       resolveDriver: () => driver,
       readContractVersion: () => "1.0.0",
       composeOpening: (openingSessionId) =>
@@ -176,7 +177,10 @@ async function openTurnFixture(
           },
           functionLegsFor: () => ({}),
         }),
-      readSessionLeg: () => undefined,
+      readSessionLeg: (legSessionId) =>
+        selectSessionLeg(
+          runtimeBindings.findByRuns(selectRunIds.all(legSessionId).map((row) => row.runId)),
+        ),
       readSessionMode: () => "build",
     }),
     sessions,

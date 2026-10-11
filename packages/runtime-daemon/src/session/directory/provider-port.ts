@@ -28,6 +28,7 @@ import {
   composeResumeSessionParams,
   type RuntimeBinding,
   type RuntimeBindingStore,
+  selectSessionLeg,
 } from "../../provider/runtime-binding-store.js";
 import type { ProviderSessionOpening } from "../../queue/provider-session.js";
 import type { ProjectRecords } from "../../workspace/project/records.js";
@@ -305,19 +306,7 @@ export class SessionDirectoryProviderPort {
   /** The session's newest binding with a conversation to resume, or `undefined` for none. */
   readSessionLeg(sessionId: SessionId): RuntimeBinding | undefined {
     const runIds = this.#selectRunIds.all({ sessionId }).map((row) => row.runId);
-    let newest: RuntimeBinding | undefined;
-    for (const binding of this.#runtimeBindings.findByRuns(runIds)) {
-      if (
-        binding.resumeHandle !== null &&
-        binding.resumeHandle.length > 0 &&
-        (newest === undefined ||
-          binding.createdAt > newest.createdAt ||
-          (binding.createdAt === newest.createdAt && binding.id > newest.id))
-      ) {
-        newest = binding;
-      }
-    }
-    return newest;
+    return selectSessionLeg(this.#runtimeBindings.findByRuns(runIds));
   }
 
   #readLead(sessionId: SessionId): SessionLead | undefined {

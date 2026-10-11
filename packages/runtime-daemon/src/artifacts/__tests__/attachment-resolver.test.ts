@@ -15,7 +15,8 @@ afterEach(async () => {
 
 describe("a message's attachments", () => {
   // Mutations: dropping a missing file shortens the list and shifts every file after it; looking an
-  // id up as spelled marks a stored file sent in uppercase as deleted.
+  // id up as spelled marks a stored file sent in uppercase as deleted; echoing a marker's id as
+  // sent names a file by a spelling no other entry uses.
   it("keep their order around a deleted file, and bind an id in either hex case", async () => {
     harness = await openIngestHarness();
     const encoder = new TextEncoder();
@@ -39,7 +40,7 @@ describe("a message's attachments", () => {
 
     expect(attachments).toMatchObject([
       { kind: "resolved", artifactId: plan.artifactId, fileName: "plan.md" },
-      { kind: "unresolved", artifactId: uppercase(draft.artifactId), cause: "deleted" },
+      { kind: "unresolved", artifactId: draft.artifactId, cause: "deleted" },
       { kind: "resolved", artifactId: notes.artifactId, fileName: "notes.md" },
     ]);
   });

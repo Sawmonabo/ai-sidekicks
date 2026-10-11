@@ -1,5 +1,6 @@
 // A run's binding cursors through its end, followed from the committed log: an ended run's drop
-// when the session's next binding opens, and an interrupted run a send continued keeps its own.
+// when the session's next binding opens, and an interrupted run a send continued keeps its own; a
+// relaunch whose row is not written leaves no cursor.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -66,5 +67,38 @@ describe("run binding cursors", () => {
 
     expect(() => epochs.bindingFor(endedBinding)).toThrow();
     expect(epochs.bindingFor(continuedBinding)).toMatchObject({ runId: continued });
+  });
+
+  // Mutation: keeping the cursor of a relaunch whose row was not written leaves a cursor open for
+  // a binding no row records, which no run's end ever drops.
+  it("leaves no cursor open for a relaunch whose row the store did not write", async () => {
+    const store = new RuntimeBindingStore(fixture.database);
+    const failingCursors = new RunBindingCursors({
+      store: {
+        create: async (input) => await store.create(input),
+        findById: (id) => store.findById(id),
+        recordRelaunch: async () => {
+          throw new Error("the disk is full");
+        },
+      },
+      epochs,
+      runs: fixture.runs,
+    });
+    const predecessor = await failingCursors.create({
+      runId: await fixture.runThrough(["starting", "running"]),
+      driverName: "claude",
+      contractVersion: "1.0.0",
+      spawnConfig: {},
+    });
+
+    await expect(
+      failingCursors.recordRelaunch({
+        predecessorId: predecessor.id,
+        bindingId: "binding-relaunched",
+        resumeHandle: "conversation-2",
+        leftConversations: [],
+      }),
+    ).rejects.toThrow("the disk is full");
+    expect(() => epochs.bindingFor("binding-relaunched")).toThrow();
   });
 });

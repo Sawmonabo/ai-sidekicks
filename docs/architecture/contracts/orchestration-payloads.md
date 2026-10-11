@@ -540,6 +540,7 @@ type RunQueuedPayload = {
   newState: "queued";
   parentRunId?: RunId;
   reachedBy?: ChildRunProvenance; // present with parentRunId: how the child was reached
+  isApart?: true; // a turn in a process of its own, such as Claude Code's staged review; never the lead run
   effectiveRunConfig?: OrchestrationRunConfig;
   // ── Path-independent admission stamps: run.queued carries them for EVERY provider run, whether admitted
   // via the ordinary run.queueCreate path or orchestration admission (the orchestration path threads

@@ -82,7 +82,7 @@ export interface QueueAdmissionDeps {
 }
 
 /** One waiting message and where it goes, for a write that ends the queued run it waited for. */
-export interface QueuedRunOutcome {
+interface QueuedRunOutcome {
   readonly item: QueueItemRecord;
   readonly outcome: QueueItemOutcome;
 }

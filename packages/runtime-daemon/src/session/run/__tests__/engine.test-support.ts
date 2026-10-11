@@ -103,7 +103,9 @@ export function startOnDriver(
   };
 }
 
-/** A driver interrupt no start here reaches, since each `running` write lands; one that does throws. */
+/**
+ * A driver interrupt no start here reaches, since each `running` write lands; one that does throws.
+ */
 export async function refuseDriverInterrupt(): Promise<void> {
   throw new Error("No start in this test interrupts its driver");
 }

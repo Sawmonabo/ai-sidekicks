@@ -4,10 +4,10 @@
 // render that first sees a new run and a submit never sends text written for another run. A steer
 // is a queue send, so the form closes once the dispatch recorded under its own token settles on
 // the child's queue. A steer the daemon answers as not delivered keeps the text and reads
-// `Not delivered · Retry` under the box; a refused send records nothing, and the form keeps the
-// text and says why.
+// `Not delivered · Retry` under the box, and `Retry` sends that same steer again under its own
+// key; a refused send records nothing, and the form keeps the text and says why.
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect } from "react";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { TextBox } from "#renderer/components/TextBox/TextBox.js";
@@ -15,11 +15,15 @@ import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubject
 import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 import { normalizeWireRejection } from "#renderer/lib/wire/rejection.js";
 import { STEER_REFUSAL_ORIGIN, admissionRefusal } from "../refusals.js";
-import { NotDeliveredLine } from "../../components/NotDeliveredLine.js";
+import { NotDeliveredLine } from "./NotDeliveredLine.js";
+import { SendIconButton } from "../../components/SendIconButton.js";
+import { COMPOSER_DRAFT_MAX_ROWS } from "../../bounds.js";
 import type { RunControlCommandRun } from "../../run/controls/contributions/commands.js";
 import type {
   RunControlDispatcher,
   RunControlOutcome,
+  SentSteer,
+  SteerRequest,
 } from "../../run/controls/services/dispatch.js";
 import type { RunControlDispatchState } from "../../run/controls/hooks/useRunControlDispatch.js";
 
@@ -84,8 +88,6 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
     () => EMPTY_FORM,
   );
   const { body, localRefusal, pendingDispatch } = form;
-  // `Retry` submits the form, so a retry takes the same path, latch and checks as Send.
-  const formRef = useRef<HTMLFormElement>(null);
 
   const publishBody = useCallback(
     (next: string) => {
@@ -112,30 +114,17 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
     }
   }, [hasLanded, hasAskedToClose, publishForm, onDismiss]);
 
-  const onSubmit = useCallback(
-    (event: React.FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
+  // Send and Retry both go out here, through one latch: Send with the box's text under a fresh
+  // key, Retry with the steer that was not delivered under the key it went out with.
+  const sendSteer = useCallback(
+    (request: SteerRequest) => {
       if (isSending) {
         // A latched confirm is still reachable by Enter in a field; a second dispatch of one body
         // would queue it twice.
         return;
       }
-      if (body.trim().length === 0) {
-        publishForm((held) => ({
-          ...held,
-          localRefusal: refuse(
-            STEER_REFUSAL_ORIGIN,
-            "empty-steer",
-            "There is nothing to steer with yet. Type what the run should do differently.",
-          ),
-        }));
-        return;
-      }
       const steer = (dispatcher: RunControlDispatcher): Promise<RunControlOutcome> =>
-        dispatcher.steer(
-          { runId: run.runId, expectedRunVersion: comparand },
-          { childHandle, content: body },
-        );
+        dispatcher.steer({ runId: run.runId, expectedRunVersion: comparand }, request);
       // Nothing is recorded unless the dispatch state admitted the call.
       const admission = dispatchState.dispatch({ runId: run.runId, childHandle }, "steer", steer);
       if (!admission.admitted) {
@@ -161,31 +150,51 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
         );
       });
     },
-    [
-      body,
-      dispatchState,
-      run.runId,
-      comparand,
-      childHandle,
-      isSending,
-      composedIdentity,
-      publishForm,
-    ],
+    [dispatchState, run.runId, comparand, childHandle, isSending, composedIdentity, publishForm],
+  );
+
+  const onSubmit = useCallback(
+    (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      if (body.trim().length === 0) {
+        publishForm((held) => ({
+          ...held,
+          localRefusal: refuse(
+            STEER_REFUSAL_ORIGIN,
+            "empty-steer",
+            "There is nothing to steer with yet. Type what the run should do differently.",
+          ),
+        }));
+        return;
+      }
+      sendSteer({ childHandle, content: body });
+    },
+    [body, childHandle, publishForm, sendSteer],
   );
 
   return (
-    <form ref={formRef} className="meridian-run-composer" onSubmit={onSubmit}>
-      <TextBox
-        className="meridian-run-composer__body meridian-form__input"
-        fieldClassName="meridian-form__text-area"
-        aria-label={`Steer ${agentName}`}
-        placeholder={`Steer ${agentName}…`}
-        value={body}
-        rows={3}
-        onChange={(event) => {
-          publishBody(event.target.value);
-        }}
-      />
+    <form className="meridian-run-composer" onSubmit={onSubmit}>
+      <div className="meridian-run-composer__row">
+        <TextBox
+          className="meridian-run-composer__body meridian-form__input"
+          fieldClassName="meridian-form__text-area"
+          aria-label={`Steer ${agentName}`}
+          placeholder={`Steer ${agentName}…`}
+          value={body}
+          rows={1}
+          // The child's own composer, so it grows as the composer's line does.
+          maxRows={COMPOSER_DRAFT_MAX_ROWS}
+          onChange={(event) => {
+            publishBody(event.target.value);
+          }}
+        />
+        <SendIconButton
+          type="submit"
+          size="compact"
+          isEmpty={body.trim().length === 0}
+          isSending={isSending}
+        />
+      </div>
       {localRefusal === undefined ? null : (
         <InlineRefusal
           code={localRefusal.code}
@@ -198,37 +207,27 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
           failureReason={undelivered.failureReason}
           attempt={ownRecord}
           onRetry={() => {
-            formRef.current?.requestSubmit();
+            sendSteer(undelivered.sent);
           }}
         />
       )}
-      <div className="meridian-run-composer__actions">
-        <button
-          type="submit"
-          className={
-            "meridian-action-button " +
-            "meridian-action-button--small meridian-action-button--raised"
-          }
-          disabled={isSending}
-          aria-busy={isSending}
-        >
-          Send
-        </button>
-      </div>
     </form>
   );
 }
 
 /**
- * Why a steer's answer says it was not delivered, or `undefined` for one now on the child's
- * queue. The daemon gives a reason only with a `not_delivered` answer, so its presence is the test.
+ * Why a steer's answer says it was not delivered and the steer that was not, or `undefined` for
+ * one now on the child's queue. The daemon gives a reason only with a `not_delivered` answer, so
+ * its presence is the test.
  */
 function readUndeliveredSteer(
   outcome: RunControlOutcome,
-): { readonly failureReason: string } | undefined {
+): { readonly failureReason: string; readonly sent: SentSteer } | undefined {
   if (outcome.kind !== "queued") {
     return undefined;
   }
   const { notDeliveredReason } = outcome.response;
-  return notDeliveredReason === undefined ? undefined : { failureReason: notDeliveredReason };
+  return notDeliveredReason === undefined
+    ? undefined
+    : { failureReason: notDeliveredReason, sent: outcome.sent };
 }
