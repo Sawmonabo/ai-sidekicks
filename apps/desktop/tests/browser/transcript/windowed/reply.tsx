@@ -16,8 +16,10 @@ import { installMeridianTokens } from "#renderer/app/token-installation.js";
 import { COPY_FLAVOR_ATTRIBUTE } from "#renderer/features/transcript/copy/conversation-selection.js";
 import { publishedTextOf } from "#renderer/features/transcript/reveal/published-text.js";
 import { StreamingMarkdown } from "#renderer/features/transcript/rows/bodies/StreamingMarkdown.js";
-import { suiteWindowViewport } from "#renderer/features/transcript/rows/bodies/WindowedMarkdown.test-support.js";
-import { MarkdownWindowViewportContext } from "#renderer/features/transcript/rows/markdown/block-window/context.js";
+import {
+  SuiteWindowViewportProvider,
+  suiteWindowViewport,
+} from "#renderer/features/transcript/rows/bodies/WindowedMarkdown.test-support.js";
 import {
   DrawnWindowSources,
   DrawnWindowSourcesContext,
@@ -136,7 +138,7 @@ export async function mountBodies(
               style={{ width: `${String(BODY_WIDTH_PX)}px` }}
             >
               <div {...{ [COPY_FLAVOR_ATTRIBUTE]: "markdown" }}>
-                <MarkdownWindowViewportContext value={viewport}>
+                <SuiteWindowViewportProvider viewport={viewport}>
                   <DrawnWindowSourcesContext value={drawnSources}>
                     <StreamingMarkdown
                       publishedText={publishedTextOf(text)}
@@ -146,7 +148,7 @@ export async function mountBodies(
                       offersBlockCopy
                     />
                   </DrawnWindowSourcesContext>
-                </MarkdownWindowViewportContext>
+                </SuiteWindowViewportProvider>
               </div>
             </div>
           </div>

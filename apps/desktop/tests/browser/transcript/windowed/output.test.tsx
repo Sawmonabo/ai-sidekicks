@@ -19,12 +19,14 @@ import {
 } from "#renderer/features/transcript/rows/ansi/lines/markers.js";
 import { PreparedAnsiOutputsContext } from "#renderer/features/transcript/rows/ansi/preparation.js";
 import { prepareOutputForTest } from "#renderer/features/transcript/rows/ansi/preparation.test-support.js";
-import { suiteWindowViewport } from "#renderer/features/transcript/rows/bodies/WindowedMarkdown.test-support.js";
+import {
+  SuiteWindowViewportProvider,
+  suiteWindowViewport,
+} from "#renderer/features/transcript/rows/bodies/WindowedMarkdown.test-support.js";
 import {
   DrawnWindowSources,
   DrawnWindowSourcesContext,
 } from "#renderer/features/transcript/rows/drawn-window-sources.js";
-import { MarkdownWindowViewportContext } from "#renderer/features/transcript/rows/markdown/block-window/context.js";
 import { ViewportSelectionTracker } from "#renderer/features/transcript/viewport/selection/tracker.js";
 import { ManualClock } from "#renderer/lib/clock.js";
 import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
@@ -109,13 +111,13 @@ async function mountOutput(output: string = OUTPUT): Promise<{
         }}
         style={{ width: "600px" }}
       >
-        <MarkdownWindowViewportContext value={viewport}>
+        <SuiteWindowViewportProvider viewport={viewport}>
           <PreparedAnsiOutputsContext value={prepared.outputs}>
             <DrawnWindowSourcesContext value={sources}>
               <AnsiOutput label={LABEL} rowKey={ROW_KEY} />
             </DrawnWindowSourcesContext>
           </PreparedAnsiOutputsContext>
-        </MarkdownWindowViewportContext>
+        </SuiteWindowViewportProvider>
       </div>
     </div>,
   );

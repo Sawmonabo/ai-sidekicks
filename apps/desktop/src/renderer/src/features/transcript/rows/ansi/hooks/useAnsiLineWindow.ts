@@ -7,11 +7,11 @@ import {
   useLayoutEffect,
   useReducer,
   useState,
-  useSyncExternalStore,
 } from "react";
 
 import { useDirectlyPlacedVirtualizer } from "#renderer/hooks/useDirectlyPlacedVirtualizer.js";
 import { useStopObservingRemovedItems } from "#renderer/hooks/useStopObservingRemovedItems.js";
+import { useDrawnBandScreenHeights } from "../../bodies/hooks/useDrawnBandScreenHeights.js";
 import { useSelectionPins } from "../../bodies/hooks/useSelectionPins.js";
 import { DrawnWindowSourcesContext } from "../../drawn-window-sources.js";
 import { type MarkdownWindowViewport } from "../../markdown/block-window/context.js";
@@ -89,10 +89,7 @@ export function useAnsiLineWindow(
   // The chunks the scroller shows and the conversation's band past each edge, so a fling meets
   // drawn lines rather than a spacer while the next ones mount. The chunks holding a selection's
   // ends stay drawn too.
-  const bandScreenHeights = useSyncExternalStore(
-    viewport.subscribeToDrawnBand,
-    viewport.drawnBandScreenHeights,
-  );
+  const bandScreenHeights = useDrawnBandScreenHeights();
   const rangeExtractor = useCallback(
     (range: Range) =>
       withPinnedIndexes(

@@ -1,13 +1,19 @@
-// Long replies for the windowed body's suites, and the viewport a suite draws one in. A reply's
-// blocks are separated by blank lines and carry every kind of element; a fence settles with the
-// block before it, so one block can draw more than one element.
+// Long replies for the windowed body's suites, and the viewport and band a suite draws one in. A
+// reply's blocks are separated by blank lines and carry every kind of element; a fence settles with
+// the block before it, so one block can draw more than one element.
+
+import { createElement, useSyncExternalStore } from "react";
 
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { RealClock } from "#renderer/lib/clock.js";
 import { Emitter } from "#renderer/lib/emitter.js";
 import { type ScrollController } from "#renderer/lib/scroll/chokepoint.js";
-import { ViewportDrawnBand } from "../../viewport/drawn-band.js";
-import { type MarkdownWindowViewport } from "../markdown/block-window/context.js";
+import { ViewportDrawnBand, type DrawnBandScreenHeights } from "../../viewport/drawn-band.js";
+import {
+  DrawnBandContext,
+  MarkdownWindowViewportContext,
+  type MarkdownWindowViewport,
+} from "../markdown/block-window/context.js";
 
 /** A reply of at least `minimumCharacters`, cycle after cycle of every kind of block. */
 export function longReplyMarkdown(minimumCharacters: number): string {
@@ -33,7 +39,7 @@ export function suiteWindowViewport(
     readonly subscribe: (listener: () => void) => Unsubscribe;
     readonly read: () => AbstractRange | undefined;
   },
-): MarkdownWindowViewport {
+): SuiteWindowViewport {
   const bandChanges = new Emitter<void>("suite drawn band");
   const band = new ViewportDrawnBand({
     clock: new RealClock(),
@@ -59,6 +65,31 @@ export function suiteWindowViewport(
     subscribeToSelection: selection.subscribe,
     readSelectionRange: selection.read,
   };
+}
+
+/** Draws `children` in a suite's `viewport` and its drawn band, as a transcript viewport does. */
+export function SuiteWindowViewportProvider(props: {
+  readonly viewport: SuiteWindowViewport;
+  readonly children: React.ReactNode;
+}): React.JSX.Element {
+  const { viewport } = props;
+  const bandScreenHeights = useSyncExternalStore(
+    viewport.subscribeToDrawnBand,
+    viewport.drawnBandScreenHeights,
+  );
+  return createElement(
+    MarkdownWindowViewportContext,
+    { value: viewport },
+    createElement(DrawnBandContext, { value: bandScreenHeights }, props.children),
+  );
+}
+
+/** A suite's viewport, with the transcript's own drawn band its provider draws the rows in. */
+interface SuiteWindowViewport extends MarkdownWindowViewport {
+  /** The band beyond each edge of the scroller now; the same object until a side changes. */
+  readonly drawnBandScreenHeights: () => DrawnBandScreenHeights;
+  /** Hears each change that may move what `drawnBandScreenHeights` answers. */
+  readonly subscribeToDrawnBand: (listener: () => void) => Unsubscribe;
 }
 
 /** One cycle of blocks, numbered so no two cycles share a block's text. */

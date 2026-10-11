@@ -18,6 +18,7 @@ import { JumpToLatest } from "./JumpToLatest.js";
 import { type TranscriptViewportBinding } from "../hooks/useTranscriptViewport.js";
 import { ViewportSelectionTrackerContext } from "../selection/context.js";
 import {
+  DrawnBandContext,
   MarkdownWindowViewportContext,
   type MarkdownWindowViewport,
 } from "../../rows/markdown/block-window/context.js";
@@ -61,7 +62,6 @@ export function TranscriptViewport(props: TranscriptViewportProps): React.JSX.El
   const { snapshot } = binding;
   const { scrollController, rowStartPx, rowEndPx, holdsPlaceInsideRow, noteShown } = binding;
   const tracker = binding.selectionTracker;
-  const { nestedBandScreenHeights, subscribeToNestedBand } = binding;
   // A layout effect, so a landing the same commit asks for knows the viewport is hidden.
   useLayoutEffect(() => {
     noteShown(props.isShown);
@@ -73,20 +73,10 @@ export function TranscriptViewport(props: TranscriptViewportProps): React.JSX.El
       rowStartPx,
       rowEndPx,
       holdsPlaceInsideRow,
-      drawnBandScreenHeights: nestedBandScreenHeights,
-      subscribeToDrawnBand: subscribeToNestedBand,
       subscribeToSelection: (listener) => tracker.subscribe(listener),
       readSelectionRange: () => tracker.selectionRange,
     }),
-    [
-      scrollController,
-      rowStartPx,
-      rowEndPx,
-      holdsPlaceInsideRow,
-      nestedBandScreenHeights,
-      subscribeToNestedBand,
-      tracker,
-    ],
+    [scrollController, rowStartPx, rowEndPx, holdsPlaceInsideRow, tracker],
   );
 
   return (
@@ -132,19 +122,22 @@ export function TranscriptViewport(props: TranscriptViewportProps): React.JSX.El
                     "aria-busy": props.hasActiveTurn ?? false,
                   })}
             >
-              {binding.virtualItems.map((virtualItem) => {
-                const row = snapshot.rows[virtualItem.index];
-                return row === undefined ? null : (
-                  <VirtualRow
-                    key={virtualItem.key}
-                    rowIndex={virtualItem.index}
-                    row={row}
-                    totalRowCount={snapshot.rows.length}
-                    renderRow={props.renderRow}
-                    attachRow={binding.attachRow}
-                  />
-                );
-              })}
+              {/* Its own value, so a moving band draws again only the windows that read it. */}
+              <DrawnBandContext value={snapshot.nestedBandScreenHeights}>
+                {binding.virtualItems.map((virtualItem) => {
+                  const row = snapshot.rows[virtualItem.index];
+                  return row === undefined ? null : (
+                    <VirtualRow
+                      key={virtualItem.key}
+                      rowIndex={virtualItem.index}
+                      row={row}
+                      totalRowCount={snapshot.rows.length}
+                      renderRow={props.renderRow}
+                      attachRow={binding.attachRow}
+                    />
+                  );
+                })}
+              </DrawnBandContext>
             </div>
             {/*
              * Empty only once the first read has landed: while it is in flight the feed draws its

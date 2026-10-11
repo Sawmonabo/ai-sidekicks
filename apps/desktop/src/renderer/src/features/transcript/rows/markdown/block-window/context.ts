@@ -27,13 +27,6 @@ export interface MarkdownWindowViewport {
    * which the conversation holds for a row wholly above it and for a following reader instead.
    */
   readonly holdsPlaceInsideRow: (rowKey: string) => boolean;
-  /**
-   * How far beyond each edge of the scroller the body draws its items, in screen heights, read
-   * when called; the same object until a side changes.
-   */
-  readonly drawnBandScreenHeights: () => DrawnBandScreenHeights;
-  /** Hears each change that may move what `drawnBandScreenHeights` answers. */
-  readonly subscribeToDrawnBand: (listener: () => void) => Unsubscribe;
   /** Hears each selection change that moves what `readSelectionRange` answers. */
   readonly subscribeToSelection: (listener: () => void) => Unsubscribe;
   /**
@@ -49,3 +42,13 @@ export interface MarkdownWindowViewport {
  */
 export const MarkdownWindowViewportContext: Context<MarkdownWindowViewport | undefined> =
   createContext<MarkdownWindowViewport | undefined>(undefined);
+
+/**
+ * How far beyond each edge of the scroller a windowed body draws its items, in screen heights, as
+ * the viewport's render draws its rows; the same object until a side changes. Apart from the
+ * viewport's value, so a band that moves draws again only the windows that read it, in the same
+ * render as the rows. `undefined` outside a viewport.
+ */
+export const DrawnBandContext: Context<DrawnBandScreenHeights | undefined> = createContext<
+  DrawnBandScreenHeights | undefined
+>(undefined);

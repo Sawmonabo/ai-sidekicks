@@ -21,11 +21,11 @@ import { prepareOutputForTest } from "#renderer/features/transcript/rows/ansi/pr
 import { OUTPUT_CUT_FLOW_SHARE } from "#renderer/features/transcript/rows/bodies/hooks/useOutputHeightCut.js";
 import { type OutputOpening } from "#renderer/features/transcript/rows/bodies/OutputHeightCut.js";
 import { ToolOutput } from "#renderer/features/transcript/rows/bodies/ToolOutput.js";
-import { suiteWindowViewport } from "#renderer/features/transcript/rows/bodies/WindowedMarkdown.test-support.js";
 import {
-  MarkdownWindowViewportContext,
-  type MarkdownWindowViewport,
-} from "#renderer/features/transcript/rows/markdown/block-window/context.js";
+  SuiteWindowViewportProvider,
+  suiteWindowViewport,
+} from "#renderer/features/transcript/rows/bodies/WindowedMarkdown.test-support.js";
+import { type MarkdownWindowViewport } from "#renderer/features/transcript/rows/markdown/block-window/context.js";
 import { FootnoteRegistry } from "#renderer/features/transcript/rows/markdown/footnotes/registry.js";
 import { prepareTranscriptRow } from "#renderer/features/transcript/rows/preparation.js";
 import {
@@ -182,7 +182,7 @@ async function renderInScroller(
       }}
       style={{ height: `${String(SCROLLER_HEIGHT_PX)}px`, overflowY: "scroll" }}
     >
-      <MarkdownWindowViewportContext value={viewport}>{drawn}</MarkdownWindowViewportContext>
+      <SuiteWindowViewportProvider viewport={viewport}>{drawn}</SuiteWindowViewportProvider>
     </div>
   );
   // The outputs a commit brings in are read once it is done, before the frame paints, in the same

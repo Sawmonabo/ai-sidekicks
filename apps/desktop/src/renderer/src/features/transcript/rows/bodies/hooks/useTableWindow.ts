@@ -8,7 +8,6 @@ import {
   useReducer,
   useRef,
   useState,
-  useSyncExternalStore,
 } from "react";
 import { flushSync } from "react-dom";
 
@@ -33,6 +32,7 @@ import {
 } from "../../markdown/table-window/layout.js";
 import { type TableMeasuringFrame } from "../../markdown/table-window/measurement.js";
 import { DrawnWindowSourcesContext } from "../../drawn-window-sources.js";
+import { useDrawnBandScreenHeights } from "./useDrawnBandScreenHeights.js";
 import { useSelectionPins } from "./useSelectionPins.js";
 
 /** A long table's elements as one render draws them. */
@@ -138,10 +138,7 @@ export function useTableWindow(offer: MarkdownTableOffer): TableWindow {
   // The rows the scroller shows and the conversation's band past each edge, so a fling meets drawn
   // rows rather than a spacer while the next ones mount. The rows holding a selection's ends stay
   // drawn too; the rows between are copied from the text.
-  const bandScreenHeights = useSyncExternalStore(
-    body.viewport.subscribeToDrawnBand,
-    body.viewport.drawnBandScreenHeights,
-  );
+  const bandScreenHeights = useDrawnBandScreenHeights();
   const rangeExtractor = useCallback(
     (range: Range) =>
       withPinnedIndexes(

@@ -1,12 +1,5 @@
 import { type Range } from "@tanstack/virtual-core";
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useReducer,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { useCallback, useEffect, useLayoutEffect, useReducer, useState } from "react";
 
 import { useDirectlyPlacedVirtualizer } from "#renderer/hooks/useDirectlyPlacedVirtualizer.js";
 import { useStopObservingRemovedItems } from "#renderer/hooks/useStopObservingRemovedItems.js";
@@ -20,6 +13,7 @@ import {
 } from "../../markdown/block-window/layout.js";
 import { MARKDOWN_BLOCK_INDEX_ATTRIBUTE } from "../../markdown/block-window/markers.js";
 import { indexesBetween, withPinnedIndexes } from "../../markdown/block-window/selection-pins.js";
+import { useDrawnBandScreenHeights } from "./useDrawnBandScreenHeights.js";
 import { useSelectionPins } from "./useSelectionPins.js";
 
 /** A windowed body's elements as one render draws them. */
@@ -64,10 +58,7 @@ export function useBlockWindow(
   // The blocks the scroller shows and the conversation's band past each edge, so a fling meets
   // drawn text rather than an empty band while the next blocks mount. Every block between a
   // selection's ends stays drawn too, so a copy reads the blocks from the page.
-  const bandScreenHeights = useSyncExternalStore(
-    viewport.subscribeToDrawnBand,
-    viewport.drawnBandScreenHeights,
-  );
+  const bandScreenHeights = useDrawnBandScreenHeights();
   const rangeExtractor = useCallback(
     (range: Range) =>
       withPinnedIndexes(

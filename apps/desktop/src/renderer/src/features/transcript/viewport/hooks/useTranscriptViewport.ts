@@ -31,7 +31,6 @@ import { declareDisplaySettings } from "../display-settings.js";
 import { type MessageReadBack } from "../landing.js";
 import { type RowOutputParses } from "../row-reach.js";
 import { type ViewportSelectionTracker } from "../selection/tracker.js";
-import { type DrawnBandScreenHeights } from "../drawn-band.js";
 import {
   shouldHoldPlaceInsideRow,
   type ViewportConditions,
@@ -113,13 +112,6 @@ export interface TranscriptViewportBinding {
    * fold; see `shouldHoldPlaceInsideRow`. Read when called; stable for the binding's controller.
    */
   readonly holdsPlaceInsideRow: (rowKey: string) => boolean;
-  /**
-   * How far beyond each edge of the box a window nested in a row draws its items, in screen
-   * heights, as this render draws them; a new reader, and a new object, only when a side changes.
-   */
-  readonly nestedBandScreenHeights: () => DrawnBandScreenHeights;
-  /** Hears each publication that may move `nestedBandScreenHeights`; stable likewise. */
-  readonly subscribeToNestedBand: (listener: () => void) => Unsubscribe;
   /**
    * The height a row the feed has not drawn yet would be laid out at, from its kind and body
    * length; see `RowMeasurementTable.estimatedHeightOf`. Stable for the binding's controller.
@@ -349,9 +341,6 @@ export function useTranscriptViewport(
   const [, setHeldPressCount] = useState(0);
 
   const virtualItems = virtualizer.getVirtualItems();
-  // A new reader each time the band moves, so the windows nested in rows this render draws no
-  // differently are drawn again with the band a render's own pass narrowed.
-  const nestedBandScreenHeights = snapshot.nestedBandScreenHeights;
 
   return {
     snapshot,
@@ -409,11 +398,6 @@ export function useTranscriptViewport(
           )
         );
       },
-      [controller],
-    ),
-    nestedBandScreenHeights: useCallback(() => nestedBandScreenHeights, [nestedBandScreenHeights]),
-    subscribeToNestedBand: useCallback(
-      (listener: () => void) => controller.subscribe(listener),
       [controller],
     ),
     selectionTracker: controller.selection,
