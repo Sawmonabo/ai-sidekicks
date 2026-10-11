@@ -52,6 +52,7 @@ interface AgentProviderBinding {
   providerAccountId: ProviderAccountId | null; // null = follow the provider's current account — the one marked `Default`, which `providerAccount.setCurrent` moves — resolved AT THE MOMENT THE RUN STARTS and followed when the mark moves. Deliberately not a foreign key: a definition may name an account that is later removed, and that must surface as a typed resolution refusal the person can act on, not as a delete-time cascade that silently rewrites the definition
   effort: string | null; // null = the driver's default. Validated at RESOLUTION against the target model's driver-reported `effortLevels` — never against a hardcoded list, and never at save, because the vocabulary belongs to the model a run actually binds
   outputSpeed?: string; // set on a running agent's binding through agent.configUpdate; a saved definition's bindings leave it absent, because the editor authors no speed
+  ultracode?: boolean; // Claude Code's Ultracode, set on a running Claude Code agent's binding through agent.configUpdate
   // The larger window chosen, in tokens, recorded when it was picked: the `contextWindow` of the
   // larger row picked (`ProviderModel.largerWindow`). Absent means the model's default window. A
   // figure is recorded only for a larger row that shares its default row's id (Codex); a Claude
@@ -334,7 +335,9 @@ interface PluginCatalogListResponse {
   }>;
   nextCursor?: string;
 }
-// plugin.read — what one plugin carries, each item by name and description, and its source.
+// plugin.read — what one plugin carries, each item by name and description, its source, and on
+// Claude Code its options: the `userConfig` of the plugin's `plugin.json` in the marketplace's copy
+// in the plugin home, which `Browse plugins` opens before it installs.
 interface PluginReadRequest {
   provider: PluginProvider;
   id: string;
@@ -346,13 +349,46 @@ interface PluginReadResponse {
     description: string;
   }>;
   source: { marketplace: string; repository?: string; commit?: string }; // repository and commit for a plugin fetched from elsewhere
+  // Claude Code only. `isSensitive`: the plugin marks it `sensitive`; drawn as a password field.
+  options?: Array<{
+    key: string;
+    title: string;
+    description: string;
+    isSensitive: boolean;
+    isRequired: boolean;
+  }>;
 }
-// plugin.install / plugin.uninstall — the provider's own install and uninstall in the daemon's plugin
-// home. An install reaches a live session as a saved agent does: on Claude Code by the resume at the
-// session's next idle moment, on Codex by forking the lead's conversation.
+// plugin.optionsRead / plugin.optionsSave — an installed Claude Code plugin's options, read through
+// `claude plugin configure <id> --json` and saved through the same verb with `--values-stdin`, so a
+// value never rides a command line where another process could read it. A sensitive value is never
+// read back: `isSet` says only whether it holds one.
+interface PluginOptionsReadRequest {
+  provider: "claude";
+  id: string;
+}
+interface PluginOptionsReadResponse {
+  options: Array<{
+    key: string;
+    title: string;
+    description: string;
+    isSensitive: boolean;
+    isSet: boolean;
+  }>;
+}
+interface PluginOptionsSaveRequest {
+  provider: "claude";
+  id: string;
+  values: Record<string, string>;
+}
+// plugin.install / plugin.uninstall — the provider's own install and uninstall in the daemon's
+// plugin home. `options` are saved through `claude plugin configure <id> --values-stdin` before the
+// plugin reaches any session. An install reaches a live session as a saved agent does: on
+// Claude Code by the resume at the session's next idle moment, on Codex by forking the lead's
+// conversation.
 interface PluginInstallRequest {
   provider: PluginProvider;
   id: string;
+  options?: Record<string, string>;
 }
 interface PluginUninstallRequest {
   provider: PluginProvider;
@@ -373,13 +409,15 @@ interface PluginInstallResponse {
 interface PluginUninstallResponse {
   uninstalled: true;
 }
-// plugin.installedList — the plugins in the daemon's plugin homes, and those the person installed in
-// their own terminal (`installedInTerminal`).
+// plugin.installedList — the plugins in the daemon's plugin homes, and those the person installed
+// in their own terminal (`installedInTerminal`). A Claude Code row carries `loadError` when the
+// plugin did not load: Claude Code's reason from the newest session start whose `system/init`
+// `plugin_errors` named it, drawn as `Didn't load` with `Remove` and `Copy error`.
 interface PluginInstalledListRequest {
   provider?: PluginProvider;
 }
 interface PluginInstalledListResponse {
-  plugins: PluginCatalogListResponse["plugins"];
+  plugins: Array<PluginCatalogListResponse["plugins"][number] & { loadError?: string }>;
 }
 // plugin.marketplaceAdd / plugin.marketplaceRemove — each provider's official marketplace is present
 // without adding it.
