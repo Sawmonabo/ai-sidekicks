@@ -135,7 +135,7 @@ async function createRegistry(
     screen,
     appearance,
     log,
-    appDiagnostics: { reportRendererGone: vi.fn() },
+    appDiagnosticRelay: { reportRendererGone: vi.fn() },
     operatingSystem,
   });
   return { openWindows, log };

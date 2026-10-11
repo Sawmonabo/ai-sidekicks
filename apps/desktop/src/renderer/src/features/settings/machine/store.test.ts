@@ -142,6 +142,9 @@ describe("machine settings — a feed that ends", () => {
       vi.useRealTimers();
     });
     const diagnostics = await collectSentDiagnostics();
+    onTestFinished(() => {
+      diagnostics.stop();
+    });
     const signal = new TransportReconnectSignal();
     const { store, service } = startedStore(signal);
     service.deliver({ settings: MACHINE_SETTINGS_DEFAULTS });
@@ -171,7 +174,6 @@ describe("machine settings — a feed that ends", () => {
       "subscription-open-failed",
       "subscription-ended",
     ]);
-    diagnostics.stop();
   });
 });
 

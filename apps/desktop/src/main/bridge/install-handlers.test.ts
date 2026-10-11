@@ -60,7 +60,7 @@ beforeEach(async () => {
     supervisor: { requestStart: vi.fn() },
     daemonLink: link,
     log,
-    appDiagnostics: { reportFromWindow: vi.fn() },
+    appDiagnosticRelay: { reportFromWindow: vi.fn() },
     windowContext: {
       appearance: { choose: vi.fn(), record: DEFAULT_APPEARANCE_RECORD },
       openWindows: {

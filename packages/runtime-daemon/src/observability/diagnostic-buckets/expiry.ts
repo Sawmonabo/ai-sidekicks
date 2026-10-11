@@ -1,31 +1,28 @@
-// The diagnostic-log expiry: every file in the folder the service log is kept in is deleted whole
-// once it was last written longer ago than the bound, so a log is kept as long as its newest line
-// is young enough, and the file this start writes is never deleted, however long it has been
-// quiet. A file that cannot be read or deleted is told in the service log and the pass goes on.
+// The diagnostic-log expiry: each pass first has the service log begin its next file once the live
+// one is a day old, then deletes whole every service log file last written longer ago than the
+// bound, so a log is kept as long as its newest line is young enough and no line outlives the bound
+// by more than a day while the daemon runs for weeks. The live file is never deleted, and a file in
+// the folder that is no service log file is never touched. A file that cannot be read or deleted is
+// told in the service log and the pass goes on.
 
 import { lstat, readdir, rm } from "node:fs/promises";
 import * as path from "node:path";
 
-import { DEFAULT_KEEP_DIAGNOSTIC_LOGS_DAYS } from "@ai-sidekicks/contracts/daemon/retention";
-
-import { isMissingFileError } from "../file/missing-error.js";
-import { describeRejection } from "../rejection.js";
-import type { ServiceLogWriter } from "./service-log.js";
-
-/**
- * How long a diagnostic log is kept: the default of `Keep diagnostic logs for`, which the service
- * holds no setting for yet.
- */
-export const DIAGNOSTIC_LOG_KEEP_MS: number =
-  DEFAULT_KEEP_DIAGNOSTIC_LOGS_DAYS * 24 * 60 * 60 * 1000;
+import {
+  isServiceLogFileName,
+  type ServiceLogFiles,
+  type ServiceLogWriter,
+} from "../../daemon/service-log.js";
+import { isMissingFileError } from "../../file/missing-error.js";
+import { describeRejection } from "../../rejection.js";
 
 /** How often the expiry runs: hourly, so no log outlives its bound by more than an hour. */
 export const DIAGNOSTIC_LOG_EXPIRY_INTERVAL_MS: number = 60 * 60 * 1000;
 
 /** What one pass of the expiry reads and deletes. */
 export interface DiagnosticLogExpiry {
-  /** The file this start's service log writes, whose folder holds every diagnostic log. */
-  readonly serviceLogFile: string;
+  /** The service log's files: the live one, whose folder holds the rest, and its turn by age. */
+  readonly serviceLog: ServiceLogFiles;
   /** How long a file is kept after it was last written, in milliseconds. */
   readonly keepMs: number;
   /** The wall clock, in milliseconds since the epoch. */
@@ -33,9 +30,11 @@ export interface DiagnosticLogExpiry {
   readonly writeServiceLog: ServiceLogWriter;
 }
 
-/** Deletes every diagnostic log last written before the bound, but this start's own. */
+/** Turns the live service log by age, then deletes every other one last written before the bound. */
 export async function expireDiagnosticLogs(expiry: DiagnosticLogExpiry): Promise<void> {
-  const folder = path.dirname(expiry.serviceLogFile);
+  expiry.serviceLog.rotateByAge();
+  const liveFile = expiry.serviceLog.liveFile();
+  const folder = path.dirname(liveFile);
   let names: string[];
   try {
     names = await readdir(folder);
@@ -51,7 +50,7 @@ export async function expireDiagnosticLogs(expiry: DiagnosticLogExpiry): Promise
   const cutoff = expiry.now() - expiry.keepMs;
   for (const name of names) {
     const filePath = path.join(folder, name);
-    if (filePath === expiry.serviceLogFile) {
+    if (filePath === liveFile || !isServiceLogFileName(name)) {
       continue;
     }
     try {

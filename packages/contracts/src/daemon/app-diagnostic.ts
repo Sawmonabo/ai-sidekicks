@@ -31,8 +31,9 @@ export const APP_DIAGNOSTIC_TEXT_BOUNDS = {
 } as const;
 
 /**
- * Where in the app an error went unhandled: main, the hidden console document, a window of session
- * views, or a pane's own window.
+ * Where in the app an error went unhandled: main; the hidden console document, which runs the code
+ * of every window, so its errors read here; or a window of session views or a pane's own window,
+ * for what that window's own objects raise, such as a promise one of its own calls returned.
  */
 export const APP_DIAGNOSTIC_ROLES = [
   "main",
@@ -93,16 +94,22 @@ export interface AppRendererGone {
 }
 
 /** Why records were not written. */
-export type AppDiagnosticHeldBackCause =
+export const APP_DIAGNOSTIC_HELD_BACK_CAUSES = [
   /** A window had more to send than it holds while it waited to send. */
-  | "window-buffer-full"
+  "window-buffer-full",
   /** Past the rate at which the app writes records. */
-  | "repeated"
+  "past-rate",
   /** The service could not be reached and the app holds no more. */
-  | "service-unreachable";
+  "service-unreachable",
+  /** The service was reached and did not take them. */
+  "service-refused",
+] as const;
+
+/** One cause from {@link APP_DIAGNOSTIC_HELD_BACK_CAUSES}. */
+export type AppDiagnosticHeldBackCause = (typeof APP_DIAGNOSTIC_HELD_BACK_CAUSES)[number];
 
 /** How many records were not written, and why. */
-export interface AppDiagnosticsHeldBack {
+export interface AppDiagnosticHeldBack {
   kind: "held-back";
   at: string;
   count: number;
@@ -114,7 +121,7 @@ export type AppDiagnosticRecord =
   | AppErrorThrown
   | AppCapturedDiagnostic
   | AppRendererGone
-  | AppDiagnosticsHeldBack;
+  | AppDiagnosticHeldBack;
 
 const textSchema = (bound: number): z.ZodString => z.string().max(bound);
 
@@ -166,7 +173,7 @@ export const AppDiagnosticRecordSchema: z.ZodType<AppDiagnosticRecord, AppDiagno
         kind: z.literal("held-back"),
         at: isoDateTimeSchema,
         count: countSchema,
-        cause: z.enum(["window-buffer-full", "repeated", "service-unreachable"]),
+        cause: z.enum(APP_DIAGNOSTIC_HELD_BACK_CAUSES),
       })
       .strict(),
   ]);

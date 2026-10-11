@@ -205,13 +205,13 @@ interface PlatformBridge {
     ): Unsubscribe;
     // after a session's decoded pictures are released: frees the cached memory nothing draws any more (`webFrame.clearCache()`)
     freeUnusedMemory(): void;
-    // a batch of what a window recorded about itself, at most 32 reports, which main redacts, bounds and rate-limits
+    // a batch of what a window recorded about itself, at most 30 reports, which main redacts, bounds and rate-limits
     // and hands the background service for its diagnostic log; settles once main has taken it
     reportWindowDiagnostics(
       reports: ReadonlyArray<
         | {
             kind: "uncaught-error" | "unhandled-rejection";
-            role: "console-document" | "console-window" | "pane-window"; // which window it went unhandled in
+            role: "console-document" | "console-window" | "pane-window"; // the window whose realm raised it
             name: string | null; // the error's name, or null for a thrown value that is no error
             message: string; // the error's message, or for a value that is no error a sentence naming its type
             stack: string | null;
@@ -228,7 +228,8 @@ interface PlatformBridge {
             };
           }
         | {
-            kind: "held-back"; // the reports past those the window held while it waited to send
+            kind: "held-back"; // reports the window did not send
+            cause: "window-buffer-full" | "past-rate"; // past those it held while it waited, or past the rate
             count: number;
           }
       >,

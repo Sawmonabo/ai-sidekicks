@@ -5,8 +5,11 @@
 
 import { readFile, rm } from "node:fs/promises";
 
+import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
+
 import { writeFileAtomically } from "../../file/atomic-write.js";
 import { isMissingFileError } from "../../file/missing-error.js";
+import { DelegatingRegistry } from "../../ipc/registry.js";
 import { hasSqliteErrorCode } from "../../session/sqlite-error-code.js";
 
 /**
@@ -77,4 +80,19 @@ export async function removeDatabaseDamage(databasePath: string): Promise<void> 
 
 function damageRecordPath(databasePath: string): string {
   return `${databasePath}.damaged`;
+}
+
+/**
+ * `inner` with every call's failure told to `watch`, so damage a read meets reaches the repair; the
+ * failure still goes to the caller.
+ */
+export function reportDamageOf(inner: MethodRegistry, watch: DatabaseDamageWatch): MethodRegistry {
+  return new DelegatingRegistry(inner, async (method, params, ctx) => {
+    try {
+      return await inner.dispatch(method, params, ctx);
+    } catch (error) {
+      watch.report(error);
+      throw error;
+    }
+  });
 }

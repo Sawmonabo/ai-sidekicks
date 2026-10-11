@@ -1,11 +1,12 @@
 // Main's relay of what the app records about itself to the service's diagnostic log: every error
 // nothing handled, a window's and main's own, and every line a window's diagnostic capture took.
-// Each is redacted and bounded (`record.ts`) and counted against the rate (`repeat-limit.ts`)
-// before it goes. While no link to the service is up, the first thirty-two records wait and are
-// sent, in order, when one comes up; past them, and for every record the service did not take, a
-// count is kept and sent as one record once a link is up again. A record the service did not take
-// is never sent again, so an outage costs one call per record and never loops, and main's own log
-// says once per outage that the service is not taking them.
+// Each is redacted and bounded (`record.ts`) and counted against the rate before it goes, and an
+// error of main's own is also written to main's log, which keeps it when the service never hears
+// of it. While no link to the service is up, the first thirty-two records wait and are sent, in
+// order, when one comes up; past them a count is kept and sent as one record once a link is up
+// again. A record the service did not take is never sent again but counted, and the count goes
+// with the next record it takes, so an outage costs one call per record and never loops, and
+// main's own log says once per outage that the service is not taking them.
 
 import {
   APP_DIAGNOSTIC_TEXT_BOUNDS,
@@ -18,15 +19,23 @@ import {
 import type { JsonRpcClient } from "@ai-sidekicks/client-sdk";
 
 import { describeFailure } from "#shared/failure-message.js";
-import { readThrownValue, type WindowDiagnosticReport } from "#shared/app-diagnostic/report.js";
+import { DiagnosticRateLimit, fingerprintOf } from "#shared/app-diagnostic/rate-limit.js";
+import { bounded } from "#shared/app-diagnostic/redaction.js";
+import {
+  readThrownValue,
+  recordCountOf,
+  type WindowDiagnosticReport,
+} from "#shared/app-diagnostic/report.js";
 
 import type { DaemonLink } from "../daemon/link/status.js";
 import type { MainDiagnosticLog } from "../diagnostic-log.js";
-import { boundAppError, boundCapturedDiagnostic, fingerprintOf } from "./record.js";
-import { RepeatLimit } from "./repeat-limit.js";
+import { boundAppError, boundCapturedDiagnostic } from "./record.js";
+
+// The module main's log names for what the relay writes.
+const LOG_SOURCE = "main/app-diagnostic";
 
 /** How many records wait for the service while no link is up; past them, each is counted. */
-export const APP_DIAGNOSTICS_HELD_WHILE_UNREACHABLE = 32;
+export const APP_DIAGNOSTIC_RECORDS_HELD_WHILE_UNREACHABLE = 32;
 
 /** What the relay sends over and where it says the service is not taking records. */
 export interface AppDiagnosticRelayOptions {
@@ -39,18 +48,26 @@ export interface AppDiagnosticRelayOptions {
 /** Carries what the app records about itself to the service's diagnostic log; never throws. */
 export class AppDiagnosticRelay {
   readonly #options: AppDiagnosticRelayOptions;
-  readonly #limit: RepeatLimit;
+  readonly #limit: DiagnosticRateLimit;
   readonly #held: AppDiagnosticRecord[] = [];
-  /** Records the service did not take or the relay could not hold, since the last count sent. */
-  #unsentCount = 0;
+  /** Records the relay could not hold while no link was up, since the last count sent. */
+  #unheldCount = 0;
+  /** Records the service did not take, since the last count sent. */
+  #refusedCount = 0;
   #isRefusalLogged = false;
 
   /** Sends what waits each time a link comes up, from now on. */
   public constructor(options: AppDiagnosticRelayOptions) {
     this.#options = options;
-    this.#limit = new RepeatLimit((count) => {
-      this.#send(this.#heldBack(count, "repeated"));
-    });
+    this.#limit = new DiagnosticRateLimit(
+      (count) => {
+        this.#send(this.#heldBack(count, "past-rate"));
+      },
+      // Unreferenced, so a count still waiting never keeps main from quitting.
+      (end, ms) => {
+        setTimeout(end, ms).unref();
+      },
+    );
     options.link.subscribe(() => {
       this.#sendWaiting();
     });
@@ -61,8 +78,9 @@ export class AppDiagnosticRelay {
     for (const report of reports) {
       switch (report.kind) {
         case "held-back":
-          if (this.#limit.admit(JSON.stringify([report.kind, "window-buffer-full"]))) {
-            this.#send(this.#heldBack(report.count, "window-buffer-full"));
+          // Held back here too, the count still stands for every record the window held back.
+          if (this.#limit.admit(fingerprintOf(report), report.count)) {
+            this.#send(this.#heldBack(report.count, report.cause));
           }
           break;
         case "captured":
@@ -77,9 +95,20 @@ export class AppDiagnosticRelay {
   /** An uncaught exception or unhandled rejection of main's own. */
   public reportFromMain(value: unknown, kind: AppErrorThrown["kind"]): void {
     const parts = readThrownValue(value, kind);
-    this.#reportLimited(
-      boundAppError({ kind, role: "main", ...parts, source: null }, this.#options.now()),
+    const record = boundAppError(
+      { kind, role: "main", ...parts, source: null },
+      this.#options.now(),
     );
+    if (this.#reportLimited(record)) {
+      const heading = [kind, record.name, record.message]
+        .filter((part) => part !== null)
+        .join(": ");
+      this.#options.log.write({
+        level: "error",
+        source: LOG_SOURCE,
+        message: record.stack === null ? heading : `${heading}\n${record.stack}`,
+      });
+    }
   }
 
   /** The process drawing every window went away, for `reason` with `exitCode`. */
@@ -87,24 +116,27 @@ export class AppDiagnosticRelay {
     this.#send({
       kind: "renderer-gone",
       at: this.#options.now().toISOString(),
-      reason: reason.slice(0, APP_DIAGNOSTIC_TEXT_BOUNDS.reason),
+      reason: bounded(reason, APP_DIAGNOSTIC_TEXT_BOUNDS.reason),
       exitCode,
     });
   }
 
-  #reportLimited(record: AppErrorThrown | AppCapturedDiagnostic): void {
-    if (this.#limit.admit(fingerprintOf(record))) {
+  // Whether the record went on under the rate.
+  #reportLimited(record: AppErrorThrown | AppCapturedDiagnostic): boolean {
+    const isAdmitted = this.#limit.admit(fingerprintOf(record));
+    if (isAdmitted) {
       this.#send(record);
     }
+    return isAdmitted;
   }
 
   #send(record: AppDiagnosticRecord): void {
     const client = this.#connectedClient();
     if (client === undefined) {
-      if (this.#held.length < APP_DIAGNOSTICS_HELD_WHILE_UNREACHABLE) {
+      if (this.#held.length < APP_DIAGNOSTIC_RECORDS_HELD_WHILE_UNREACHABLE) {
         this.#held.push(record);
       } else {
-        this.#unsentCount += unsentCountOf(record);
+        this.#unheldCount += recordCountOf(record);
       }
       return;
     }
@@ -114,14 +146,19 @@ export class AppDiagnosticRelay {
       .then(
         () => {
           this.#isRefusalLogged = false;
+          if (this.#refusedCount > 0) {
+            const count = this.#refusedCount;
+            this.#refusedCount = 0;
+            this.#send(this.#heldBack(count, "service-refused"));
+          }
         },
         (failure: unknown) => {
-          this.#unsentCount += unsentCountOf(record);
+          this.#refusedCount += recordCountOf(record);
           if (!this.#isRefusalLogged) {
             this.#isRefusalLogged = true;
             this.#options.log.write({
               level: "warning",
-              source: "main/app-diagnostics",
+              source: LOG_SOURCE,
               message:
                 "The background service did not take an app diagnostic, so the ones it does not " +
                 `take are counted until it does: ${describeFailure(failure)}`,
@@ -138,9 +175,9 @@ export class AppDiagnosticRelay {
     for (const record of this.#held.splice(0)) {
       this.#send(record);
     }
-    if (this.#unsentCount > 0) {
-      const count = this.#unsentCount;
-      this.#unsentCount = 0;
+    if (this.#unheldCount > 0) {
+      const count = this.#unheldCount;
+      this.#unheldCount = 0;
       this.#send(this.#heldBack(count, "service-unreachable"));
     }
   }
@@ -153,9 +190,4 @@ export class AppDiagnosticRelay {
   #heldBack(count: number, cause: AppDiagnosticHeldBackCause): AppDiagnosticRecord {
     return { kind: "held-back", at: this.#options.now().toISOString(), count, cause };
   }
-}
-
-// A count of unsent records that is itself unsent carries them all, so none is lost from it.
-function unsentCountOf(record: AppDiagnosticRecord): number {
-  return record.kind === "held-back" && record.cause === "service-unreachable" ? record.count : 1;
 }

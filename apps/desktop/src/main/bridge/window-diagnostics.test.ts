@@ -1,7 +1,7 @@
 // What a window records about itself goes from the page's bridge through main to the service's
 // diagnostic log redacted and bounded: every quoted run out of a message or a captured line, the
-// stack cut to its frames and its bound, the script's address without its query; a batch that is
-// not one is refused whole and nothing is sent.
+// stack cut to its frames and its bound, each frame's address and the script's without its query
+// and a private method's name kept; a batch that is not one is refused whole and nothing is sent.
 
 import { APP_DIAGNOSTIC_TEXT_BOUNDS } from "@ai-sidekicks/contracts/daemon/app-diagnostic";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -15,6 +15,10 @@ const electronMock = createElectronMock();
 vi.mock("electron", () => electronMock.moduleExports);
 
 const FRAME = "    at renderRow (app://renderer/assets/index-3f2a.js:120:17)";
+
+// A frame whose address carries a query, in a private method.
+const QUERIED_FRAME =
+  "    at RowCache.#measure (app://renderer/assets/index-3f2a.js?token=hunter2:88:9)";
 
 const CAPTURED_AT = "2026-10-11T15:59:58.000Z";
 
@@ -35,9 +39,11 @@ describe("a window's diagnostics through main", () => {
         role: "console-window",
         name: "SyntaxError",
         message: `Unexpected token 'p', "password=hunter2" is not valid JSON`,
-        stack: [`SyntaxError: "password=hunter2"`, ...Array<string>(frameCount).fill(FRAME)].join(
-          "\n",
-        ),
+        stack: [
+          `SyntaxError: "password=hunter2"`,
+          QUERIED_FRAME,
+          ...Array<string>(frameCount).fill(FRAME),
+        ].join("\n"),
         source: {
           address: "app://renderer/assets/index-3f2a.js?token=abc#frame",
           line: 120,
@@ -72,7 +78,10 @@ describe("a window's diagnostics through main", () => {
       source: { address: "app://renderer/assets/index-3f2a.js", line: 120, column: 17 },
     });
     expect(thrown.params.stack).toHaveLength(APP_DIAGNOSTIC_TEXT_BOUNDS.stack);
-    expect(thrown.params.stack.startsWith(FRAME)).toBe(true);
+    expect(thrown.params.stack.split("\n", 2)).toStrictEqual([
+      "    at RowCache.#measure (app://renderer/assets/index-3f2a.js:88:9)",
+      FRAME,
+    ]);
     expect(captured).toStrictEqual({
       method: "daemon.appDiagnostic.record",
       params: {

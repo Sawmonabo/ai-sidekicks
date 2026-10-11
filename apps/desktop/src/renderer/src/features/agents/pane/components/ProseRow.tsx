@@ -1,4 +1,4 @@
-import { elideText } from "#renderer/lib/elide-text.js";
+import { elideText } from "#shared/elide-text.js";
 import { RESOLVED_PROSE_INLINE_CAP } from "../../caps.js";
 
 /**

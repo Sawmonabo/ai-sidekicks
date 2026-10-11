@@ -10,6 +10,7 @@ import { z } from "zod";
 
 import {
   WINDOW_DIAGNOSTIC_BATCH_BOUND,
+  WINDOW_HELD_BACK_CAUSES,
   type WindowDiagnosticReport,
 } from "#shared/app-diagnostic/report.js";
 
@@ -43,7 +44,13 @@ const reportSchema: z.ZodType<WindowDiagnosticReport> = z.discriminatedUnion("ki
         .strict(),
     })
     .strict(),
-  z.object({ kind: z.literal("held-back"), count: z.number().int().positive() }).strict(),
+  z
+    .object({
+      kind: z.literal("held-back"),
+      cause: z.enum(WINDOW_HELD_BACK_CAUSES),
+      count: z.number().int().positive(),
+    })
+    .strict(),
 ]);
 
 const batchSchema = z.array(reportSchema).min(1).max(WINDOW_DIAGNOSTIC_BATCH_BOUND);

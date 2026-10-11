@@ -38,7 +38,7 @@ import { selectProcessPeakReader } from "./admission/process-peak/selector.js";
 const homeDirectory = os.homedir();
 const serviceLog = openServiceLog({
   dataFolder: resolveDataFolder(homeDirectory),
-  startedAt: new Date(),
+  now: () => new Date(),
   standardError: process.stderr,
 });
 const writeServiceLog = serviceLog.write;
@@ -128,7 +128,7 @@ const daemon = await DaemonProcess.start({
   readVolumeFreeBytes,
   now: () => new Date(),
   writeServiceLog,
-  serviceLogFile: serviceLog.filePath,
+  serviceLogFiles: serviceLog,
 }).catch((error: unknown) => {
   // A start a stop ended before the daemon listened has let go of what it took, so it exits as a
   // clean stop does; anything that failed beside it is a failed start.

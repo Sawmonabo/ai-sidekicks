@@ -1,11 +1,13 @@
 // Rotation is one generation at a byte ceiling measured on the file (not on one process's
-// writes) and at an age, so no file outlives its keeping; appends never interleave, the sink
-// creates its directory, and a failure stops the log and is readable afterwards.
+// writes) and at an age, so no file outlives its keeping, and a live file already gone is nothing
+// to rotate; appends never interleave, the sink creates its directory, and a failure stops the
+// log and is readable afterwards.
 
 import { mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { DEFAULT_KEEP_DIAGNOSTIC_LOGS_MS } from "@ai-sidekicks/contracts/daemon/retention";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -23,7 +25,7 @@ const AT = "2026-09-08T00:00:00.000Z";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-const KEEP_MS = 7 * DAY_MS;
+const KEEP_MS = DEFAULT_KEEP_DIAGNOSTIC_LOGS_MS;
 
 /** The log's clock in every case, so a written line is known to the byte. */
 const STOPPED_CLOCK = (): Date => new Date(AT);
@@ -216,6 +218,33 @@ describe("main diagnostic log", () => {
       toLogLine({ at: at(8).toISOString(), ...entry("error", "c") }),
     );
     await expect(stat(rotatedPathFor(filePath))).rejects.toThrow();
+  });
+
+  it("goes on writing when the live file is gone before it is due to rotate", async () => {
+    let now = new Date(AT);
+    const log = new MainDiagnosticLog({
+      filePath,
+      sink: realFileSink,
+      minimumLevel: "notice",
+      now: () => now,
+      fileByteCeiling: 64 * 1024,
+      keepMs: KEEP_MS,
+    });
+    log.write(entry("error", "a"));
+    await log.drain();
+    // Something else moved the live file away; the previous file is another launch's.
+    await rm(filePath);
+    await writeFile(rotatedPathFor(filePath), lineOf("error", "previous"));
+
+    now = new Date(Date.parse(AT) + 8 * DAY_MS);
+    log.write(entry("error", "b"));
+    await log.drain();
+
+    expect(log.isAccepting).toBe(true);
+    expect(await readFile(filePath, "utf8")).toBe(
+      toLogLine({ at: now.toISOString(), ...entry("error", "b") }),
+    );
+    expect(await readFile(rotatedPathFor(filePath), "utf8")).toBe(lineOf("error", "previous"));
   });
 
   it("creates the log folder and file, readable by the person alone", async () => {

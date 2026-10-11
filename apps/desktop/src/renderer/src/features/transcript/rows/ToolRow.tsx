@@ -8,7 +8,7 @@ import "./ToolRow.css";
 
 import { useId } from "react";
 
-import { elideText } from "#renderer/lib/elide-text.js";
+import { elideText } from "#shared/elide-text.js";
 import { readWireString } from "#renderer/lib/wire/strings.js";
 import { Chip, type ChipTone } from "#renderer/components/Chip/Chip.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";

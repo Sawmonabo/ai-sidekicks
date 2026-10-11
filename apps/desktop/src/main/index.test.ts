@@ -5,13 +5,14 @@
 // ready, and a non-`standard` scheme has no origin, so no IndexedDB or `localStorage`), and
 // `protocol.handle` before the first window (or a window loads against an unhandled scheme). Main's
 // log is opened before the crash reporter, which records in it, and the crash reporter starts
-// before the single-instance lock, so a crash anywhere later in startup is kept, and the
+// before the single-instance lock, so a crash anywhere later in startup is kept; the log drops its
+// old files only once the lock is held, so a second launch never rotates the first's file; and the
 // second-launch and `open-url` listeners are in place before ready, so a launch or a link arriving
 // while the app starts is heard.
 //
 // A failed startup exits even when its own record fails first. The records (stderr, the JSONL
 // log) are best-effort and the exit is the contract: the handler is last on the chain, so a
-// rejection leaving it would be unhandled and the process would skip `app.exit`.
+// rejection leaving it would only be reported and main would go on with no window.
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -83,6 +84,9 @@ vi.mock("./services/diagnostic-log.js", async (importOriginal) => ({
         write: (entry: MainDiagnosticEntry) => {
           writtenEntries.push(entry);
         },
+        dropPastKeeping: () => {
+          electronMock.record("log.dropPastKeeping");
+        },
       }) as unknown as MainDiagnosticLog,
   ),
   reportUnwrittenDiagnostics: vi.fn(() => reportUnwrittenDiagnosticsOutcome()),
@@ -94,6 +98,7 @@ const STARTUP_OPERATIONS: readonly string[] = [
   "app.getPath:logs",
   "crashReporter.start",
   "app.requestSingleInstanceLock",
+  "log.dropPastKeeping",
   "app.on:second-instance",
   "app.on:open-url",
   "app.setAsDefaultProtocolClient",
@@ -177,6 +182,7 @@ describe("main-process startup composition", () => {
       "app.getPath:logs",
       "crashReporter.start",
       "app.requestSingleInstanceLock",
+      "log.dropPastKeeping",
       "app.on:second-instance",
       "app.on:open-url",
       "app.setAsDefaultProtocolClient",

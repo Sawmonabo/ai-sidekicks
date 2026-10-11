@@ -9,9 +9,10 @@
 //
 // The size ceiling belongs to the file, not the process: main appends to the same path every
 // launch, so the byte count is seeded from the file on the first queued write. The seeded count
-// is still per process: two processes appending would rotate the file out from under each other.
-// The single-instance lock in `index.ts` prevents that except for a relaunch overlapping a first
-// instance that is still failing to start.
+// is still per process, so two processes appending would rotate the file out from under each
+// other. A second launch writes only while it fails to start or finds the first holding the
+// single-instance lock (`index.ts`), and only the lock's holder drops old files as it starts; a
+// live file already gone when a rotation comes is nothing to rotate, so the log goes on.
 //
 // The age rule keeps the app's diagnostic-log retention without a sweeper of its own, since the
 // service's expiry never reaches the folder this log is in: the live file rotates once its first
@@ -26,7 +27,7 @@
 import { appendFile, mkdir, open, rename, rm, stat, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 
-import { DEFAULT_KEEP_DIAGNOSTIC_LOGS_DAYS } from "@ai-sidekicks/contracts/daemon/retention";
+import { DEFAULT_KEEP_DIAGNOSTIC_LOGS_MS } from "@ai-sidekicks/contracts/daemon/retention";
 
 import { describeFailure } from "#shared/failure-message.js";
 import { isMissingPath } from "./missing-path.js";
@@ -170,7 +171,8 @@ export class MainDiagnosticLog {
   /**
    * Drop what is past `Keep diagnostic logs for`: the live file rotates once its first entry is
    * older, and the previous file goes once it was last written longer ago. Main calls it as it
-   * starts, so a launch that writes nothing still drops an old file.
+   * starts, once it holds the single-instance lock, so a launch that writes nothing still drops
+   * an old file and a second launch never does.
    */
   public dropPastKeeping(): void {
     this.#enqueue(async () => {
@@ -236,14 +238,17 @@ export class MainDiagnosticLog {
   /**
    * Rotate: the previous rotation is removed and the live file becomes the rotation. The
    * remove comes first and tolerates a missing file, because `replace` onto an existing path
-   * is not atomic on every supported platform. The rename invalidates the carried byte count,
-   * so the rotation resets it here rather than leaving that to the caller.
+   * is not atomic on every supported platform. A live file that is gone or empty is nothing to
+   * rotate, and the previous file stays. The rename invalidates the carried byte count, so the
+   * rotation resets it here rather than leaving that to the caller.
    */
   async #rotate(): Promise<void> {
-    const rotatedPath = rotatedPathFor(this.#filePath);
-    await this.#sink.remove(rotatedPath);
-    await this.#sink.replace(this.#filePath, rotatedPath);
-    this.#rotationCount += 1;
+    if ((await this.#sink.byteCountOf(this.#filePath)) > 0) {
+      const rotatedPath = rotatedPathFor(this.#filePath);
+      await this.#sink.remove(rotatedPath);
+      await this.#sink.replace(this.#filePath, rotatedPath);
+      this.#rotationCount += 1;
+    }
     this.#liveFileByteCount = 0;
     this.#liveFileStartedAt = null;
   }
@@ -365,22 +370,20 @@ const MAIN_DIAGNOSTIC_LOG_BYTE_CEILING = 2 * 1024 * 1024;
 export const MAIN_DIAGNOSTIC_LOG_FILE_NAME = "main.jsonl";
 
 /**
- * Build main's log under `logDirectory` and drop what it holds past `Keep diagnostic logs for`.
- * `notice` is the floor because main writes few lines and they are the only record of a process
- * that may not have produced a window.
+ * Build main's log under `logDirectory`; the instance holding the single-instance lock then drops
+ * what it holds past `Keep diagnostic logs for`. `notice` is the floor because main writes few
+ * lines and they are the only record of a process that may not have produced a window.
  */
 export function createMainDiagnosticLog(logDirectory: string): MainDiagnosticLog {
-  const log = new MainDiagnosticLog({
+  return new MainDiagnosticLog({
     filePath: path.join(logDirectory, MAIN_DIAGNOSTIC_LOG_FILE_NAME),
     sink: createFileSystemDiagnosticLogSink(),
     minimumLevel: "notice",
     fileByteCeiling: MAIN_DIAGNOSTIC_LOG_BYTE_CEILING,
     // The service holds no `Keep diagnostic logs for` setting yet, so its default is the bound.
-    keepMs: DEFAULT_KEEP_DIAGNOSTIC_LOGS_DAYS * 24 * 60 * 60 * 1000,
+    keepMs: DEFAULT_KEEP_DIAGNOSTIC_LOGS_MS,
     now: () => new Date(),
   });
-  log.dropPastKeeping();
-  return log;
 }
 
 /** Where a log that could not be written says so. Main passes `console.error`. */

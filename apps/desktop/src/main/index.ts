@@ -62,7 +62,7 @@ import { logRefusedRemoteDebugging, refuseRemoteDebugging } from "./services/rem
 import { describeFailure } from "#shared/failure-message.js";
 import { installRendererProtocol, registerRendererScheme } from "./services/renderer/protocol.js";
 import { resolveResourceFile, type InstallLocation } from "./services/resource-file.js";
-import { AppDiagnosticRelay } from "./services/app-diagnostics/relay.js";
+import { AppDiagnosticRelay } from "./services/app-diagnostic/relay.js";
 import { OpenWindows } from "./windows/registry.js";
 import { WINDOW_PLACES_FILE_NAME, WindowPlaceFile } from "./windows/places/file.js";
 import { installActivationPolicy, isMenuBarIconShown } from "./windows/reveal.js";
@@ -124,23 +124,26 @@ logRefusedRemoteDebugging(
 // an error main has before then waits on it for the service.
 const daemonLink = new DaemonLink();
 
-// Every error nothing in main or a window handles goes on to the service's diagnostic log, and to
-// standard error for a developer. Listening for an uncaught exception takes the place of
-// Electron's own handling, a dialog over every window, so nothing is shown and main goes on as
-// Electron's handling would after its dialog; a rejection listener likewise silences Node's
-// warning.
-const appDiagnostics = new AppDiagnosticRelay({
+// Every error nothing in main or a window handles goes on to the service's diagnostic log, main's
+// own to main's log too, and to standard error for a developer. Listening for an uncaught exception
+// takes the place of Electron's own handling, a dialog over every window, so nothing is shown and
+// main goes on as Electron's handling would after its dialog; a rejection listener likewise
+// silences Node's warning. A standard error whose reader has gone fails every write to it with a
+// broken pipe, raised here as an uncaught exception, so that one is not written to it again.
+const appDiagnosticRelay = new AppDiagnosticRelay({
   link: daemonLink,
   log: "log" in mainLogOpening ? mainLogOpening.log : STDERR_LOG,
   now: () => new Date(),
 });
 process.on("uncaughtException", (error) => {
-  console.error("[ai-sidekicks/desktop] uncaught exception:", error);
-  appDiagnostics.reportFromMain(error, "uncaught-error");
+  if (!isBrokenPipe(error)) {
+    console.error("[ai-sidekicks/desktop] uncaught exception:", error);
+  }
+  appDiagnosticRelay.reportFromMain(error, "uncaught-error");
 });
 process.on("unhandledRejection", (reason) => {
   console.error("[ai-sidekicks/desktop] unhandled rejection:", reason);
-  appDiagnostics.reportFromMain(reason, "unhandled-rejection");
+  appDiagnosticRelay.reportFromMain(reason, "unhandled-rejection");
 });
 
 // Compile-time flag: `true` in `electron-vite build --mode=smoke`, `false` in the default
@@ -174,6 +177,11 @@ const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
   app.quit();
 } else {
+  // Only the instance holding the lock drops main's old log files, so a second launch never
+  // rotates the file out from under the first.
+  if ("log" in mainLogOpening) {
+    mainLogOpening.log.dropPastKeeping();
+  }
   startApplication();
 }
 
@@ -184,6 +192,11 @@ function openMainLog(): { readonly log: MainDiagnosticLog } | { readonly failure
   } catch (failure) {
     return { failure };
   }
+}
+
+// Whether a stream write failed because its reader has gone.
+function isBrokenPipe(error: Error): boolean {
+  return "code" in error && error.code === "EPIPE";
 }
 
 /** An image from the package's `resources/` folder; throws when it is missing or not an image. */
@@ -235,7 +248,7 @@ function startApplication(): void {
       screen,
       appearance,
       log,
-      appDiagnostics,
+      appDiagnosticRelay,
       operatingSystem,
     });
     openWindows.installLifecycle(app);
@@ -328,7 +341,7 @@ function startApplication(): void {
         supervisor,
         daemonLink,
         log,
-        appDiagnostics,
+        appDiagnosticRelay,
         windowContext: { appearance, openWindows },
         operatingSystem,
       });
@@ -421,9 +434,9 @@ function startApplication(): void {
           loggingFailure,
         );
       } finally {
-        // The exit is the contract and the record is best-effort. A rejection escaping this
-        // terminal handler would be unhandled: the process would die through Node's path and
-        // `app.quit`'s hooks would not run.
+        // The exit is the contract and the record is best-effort, so it runs whatever the record
+        // did: a rejection escaping this handler would only be reported, and main would go on
+        // running with no window.
         app.exit(1);
       }
     });

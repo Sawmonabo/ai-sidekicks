@@ -141,7 +141,7 @@ export async function bridgeOverLink(
   const { FilePathRefs } = await import("./file-path/refs.js");
   const { PASTED_IMAGES_FOLDER_NAME, PastedImages } = await import("./native/file-intake.js");
   const { selectMainOperatingSystem } = await import("../operating-system/selection.js");
-  const { AppDiagnosticRelay } = await import("../services/app-diagnostics/relay.js");
+  const { AppDiagnosticRelay } = await import("../services/app-diagnostic/relay.js");
 
   const log = { write: vi.fn() };
   const filePathRefs = new FilePathRefs();
@@ -164,7 +164,7 @@ export async function bridgeOverLink(
     supervisor: { requestStart: vi.fn() },
     daemonLink: link,
     log,
-    appDiagnostics: new AppDiagnosticRelay({ link, log, now: () => new Date() }),
+    appDiagnosticRelay: new AppDiagnosticRelay({ link, log, now: () => new Date() }),
     windowContext,
     // The host's own module, as the handlers write to this machine's disk.
     operatingSystem: selectMainOperatingSystem(process.platform),

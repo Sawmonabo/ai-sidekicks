@@ -39,7 +39,6 @@ import type { ProcessIdentity } from "@ai-sidekicks/contracts/process-identity";
 import { MACHINE_SETTINGS_FILE_PATH_SEGMENTS } from "@ai-sidekicks/contracts/machine-settings";
 import { DeviceIdSchema } from "@ai-sidekicks/contracts/trust-statement";
 import { CURRENT_PROTOCOL_VERSION } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
-import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 
 import type { ProcessPeakReader } from "../admission/process-peak/contract.js";
 import { bootstrap } from "../bootstrap/index.js";
@@ -59,7 +58,7 @@ import {
 import { InFlightMutations } from "../ipc/in-flight-mutations.js";
 import { LocalIpcGateway } from "../ipc/local-gateway.js";
 import { ProtocolNegotiator } from "../ipc/protocol-negotiation.js";
-import { DelegatingRegistry, MethodRegistryImpl } from "../ipc/registry.js";
+import { MethodRegistryImpl } from "../ipc/registry.js";
 import { StreamingPrimitive } from "../ipc/streaming-primitive.js";
 import { loadAuthorizer, type Authorizer } from "../policy/authorizer.js";
 import { ExecutionPostureService } from "../policy/execution-posture-service.js";
@@ -77,7 +76,7 @@ import {
   findAsideCopyOfSession,
   recordSessionInAsideCopy,
 } from "../recovery/database-file/aside-copy.js";
-import type { DatabaseDamageWatch } from "../recovery/database-file/damage.js";
+import { reportDamageOf } from "../recovery/database-file/damage.js";
 import type { DatabaseFileOperatingSystem } from "../recovery/database-file/operating-system.js";
 import { ProjectionRebuildService } from "../recovery/projection-rebuild.js";
 import { refuseSessionEvent } from "../recovery/session-write-refusal.js";
@@ -93,6 +92,7 @@ import { readFolderPlace, type FolderPlace } from "../workspace/folder/place.js"
 import { openDatabaseFile, type OpenedDatabaseFile } from "./database-file.js";
 import { takeDataFolderLock, type DataFolderLock } from "./data-folder-lock.js";
 import { registerLifecycleMethods } from "./lifecycle-methods.js";
+import type { ServiceLogFiles } from "./service-log.js";
 import { readOrMintLocalMachine, type LocalMachine } from "./machine/local.js";
 import { MachineSettingsFile } from "./machine/settings/file.js";
 import { registerMachineSettingsMethods } from "./machine/settings/methods.js";
@@ -168,8 +168,8 @@ export interface DaemonProcessOptions {
   readonly now: () => Date;
   /** Writes one line to the service log, the daemon's standard error. */
   readonly writeServiceLog: (line: string) => void;
-  /** The file this start's service log writes, which the diagnostic-log expiry keeps. */
-  readonly serviceLogFile: string;
+  /** The service log's files, which the diagnostic-log expiry turns by age and expires. */
+  readonly serviceLogFiles: ServiceLogFiles;
   /**
    * Aborts when a terminate signal asks the daemon to stop. Before the daemon listens it ends the
    * start; once it listens it stops the daemon as a stop over the socket does.
@@ -342,7 +342,7 @@ export class DaemonProcess {
       readDamagedFromSequence: (sessionId) =>
         this.#recoveryStatus.readDamagedFromSequence(sessionId),
       writeServiceLog: options.writeServiceLog,
-      serviceLogFile: options.serviceLogFile,
+      serviceLogFiles: options.serviceLogFiles,
       ptyHost: this.#ptyHost,
       ptySessionEvents: this.#ptySessionEvents,
       machineDeviceId,
@@ -884,17 +884,4 @@ export class DaemonProcess {
       throw new AggregateError(failures, "The daemon's stop failed in more than one step");
     }
   }
-}
-
-// Tells `watch` of every call's failure, so damage a read meets reaches the repair; the failure
-// still goes to the caller.
-function reportDamageOf(inner: MethodRegistry, watch: DatabaseDamageWatch): MethodRegistry {
-  return new DelegatingRegistry(inner, async (method, params, ctx) => {
-    try {
-      return await inner.dispatch(method, params, ctx);
-    } catch (error) {
-      watch.report(error);
-      throw error;
-    }
-  });
 }

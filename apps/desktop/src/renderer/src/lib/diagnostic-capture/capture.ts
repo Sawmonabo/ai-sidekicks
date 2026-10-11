@@ -7,21 +7,27 @@
 // an app someone is watching. It owns no wire: the window's composition hands it the bridge member
 // that carries a batch to main, because `lib/` imports nothing above it.
 //
-// Each window is listened to once, from the app's composition. A browser notice that carries no
-// error, such as the ResizeObserver loop notice, is recorded as its message says, like any other.
-// A report is redacted and bounded before it is held (`#shared/app-diagnostic/redaction.ts`), so
-// what waits is bounded too. Reports wait under one bound until the bridge member is handed over,
-// and the rest are counted and sent as a count. Once it is, what arrived in one turn goes together
-// at the end of the turn, in batches, so a cascade crosses to main as a few batches a turn rather
-// than a crossing per report; nothing is scheduled past the turn, so an idle window is never woken.
+// Each window is listened to once, from the app's composition. A callback reports its error to the
+// window whose code it is, so an error in the app's code reads as the console document's in every
+// window; an opened window reports what its own objects raise, such as a rejected promise one of
+// its own calls returned. A browser notice that carries no error, such as the ResizeObserver loop
+// notice, is recorded as its message says, like any other. A report is redacted and bounded before
+// it is held (`#shared/app-diagnostic/redaction.ts`), so what waits is bounded too. Reports wait
+// under one bound until the bridge member is handed over, and the rest are counted and sent as a
+// count. Once it is, what arrived in one turn goes together at the end of the turn, as one batch,
+// at the rate (`#shared/app-diagnostic/rate-limit.ts`), so a cascade crosses to main once a turn
+// rather than once a report, and a window that throws on every frame sends a few reports a minute
+// and a count of the rest. Nothing is scheduled past the turn but the end of a minute that sent a
+// report, so an idle window is never woken.
 //
 // A batch main does not take is written to main's own log by main's bridge, and here only to the
 // developer console, never back into this capture, so a refused batch cannot loop.
 
+import { DiagnosticRateLimit, fingerprintOf } from "#shared/app-diagnostic/rate-limit.js";
 import { redactErrorParts, redactMessage } from "#shared/app-diagnostic/redaction.js";
 import {
   readThrownValue,
-  WINDOW_DIAGNOSTIC_BATCH_BOUND,
+  recordCountOf,
   type DiagnosticRecord,
   type WindowDiagnosticReport,
   type WindowDiagnosticRole,
@@ -67,7 +73,7 @@ export class DiagnosticCapture {
   readonly #pending: WindowDiagnosticReport[] = [];
   /** Reports past what waits, since the last count sent. */
   #heldBackCount = 0;
-  #send: WindowDiagnosticSender | undefined;
+  #sender: RateLimitedSender | undefined;
   #isSendQueued = false;
 
   /** Capture one line. */
@@ -97,15 +103,27 @@ export class DiagnosticCapture {
   }
 
   /**
-   * Hands every report to `send` from now on, those that waited first and then their count, until
-   * the returned call. Reports go at the end of the turn they arrive in.
+   * Hands every report to `send` from now on, at the rate, those that waited first and then their
+   * count, until the returned call. Reports go at the end of the turn they arrive in; what the rate
+   * holds back goes as one count once its minute ends.
    */
   public sendThrough(send: WindowDiagnosticSender): () => void {
-    this.#send = send;
+    const sender: RateLimitedSender = {
+      send,
+      limit: new DiagnosticRateLimit(
+        (count) => {
+          this.#hold({ kind: "held-back", cause: "past-rate", count });
+        },
+        (end, ms) => {
+          setTimeout(end, ms);
+        },
+      ),
+    };
+    this.#sender = sender;
     this.#queueSend();
     return () => {
-      if (this.#send === send) {
-        this.#send = undefined;
+      if (this.#sender === sender) {
+        this.#sender = undefined;
       }
     };
   }
@@ -114,13 +132,14 @@ export class DiagnosticCapture {
     if (this.#pending.length < WINDOW_DIAGNOSTICS_HELD) {
       this.#pending.push(report);
     } else {
-      this.#heldBackCount += 1;
+      // A count that does not fit still stands for every report it counted.
+      this.#heldBackCount += recordCountOf(report);
     }
     this.#queueSend();
   }
 
   #queueSend(): void {
-    if (this.#send === undefined || this.#isSendQueued) {
+    if (this.#sender === undefined || this.#isSendQueued) {
       return;
     }
     this.#isSendQueued = true;
@@ -131,17 +150,28 @@ export class DiagnosticCapture {
   }
 
   #sendWaiting(): void {
-    const send = this.#send;
-    if (send === undefined) {
+    const sender = this.#sender;
+    if (sender === undefined) {
       return;
     }
-    const waiting = this.#pending.splice(0);
-    if (this.#heldBackCount > 0) {
-      waiting.push({ kind: "held-back", count: this.#heldBackCount });
-      this.#heldBackCount = 0;
+    const isGoing = (report: WindowDiagnosticReport): boolean =>
+      sender.limit.admit(fingerprintOfReport(report), recordCountOf(report));
+    // The count of what did not fit is weighed first, so a cascade past the rate still says what
+    // the window dropped, and it goes last, after the reports it follows.
+    const bufferFull: WindowDiagnosticReport = {
+      kind: "held-back",
+      cause: "window-buffer-full",
+      count: this.#heldBackCount,
+    };
+    this.#heldBackCount = 0;
+    const isBufferFullGoing = bufferFull.count > 0 && isGoing(bufferFull);
+    const going = this.#pending.splice(0).filter(isGoing);
+    if (isBufferFullGoing) {
+      going.push(bufferFull);
     }
-    for (let start = 0; start < waiting.length; start += WINDOW_DIAGNOSTIC_BATCH_BOUND) {
-      void this.#deliver(send, waiting.slice(start, start + WINDOW_DIAGNOSTIC_BATCH_BOUND));
+    // The rate lets no more go in a minute than one batch carries.
+    if (going.length > 0) {
+      void this.#deliver(sender.send, going);
     }
   }
 
@@ -190,6 +220,24 @@ function reportOfError(
           : { address: event.filename, line: event.lineno, column: event.colno },
     }),
   };
+}
+
+// The bridge member reports go through, and the rate they go at, counted afresh for each member.
+interface RateLimitedSender {
+  readonly send: WindowDiagnosticSender;
+  readonly limit: DiagnosticRateLimit;
+}
+
+// A report's fingerprint, its captured line read as main's record of it names its fields.
+function fingerprintOfReport(report: WindowDiagnosticReport): string {
+  return report.kind === "captured"
+    ? fingerprintOf({
+        kind: "captured",
+        source: report.record.source,
+        capturedKind: report.record.kind,
+        detail: report.record.detail,
+      })
+    : fingerprintOf(report);
 }
 
 /**
