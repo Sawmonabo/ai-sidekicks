@@ -1,5 +1,7 @@
 // What main takes from macOS.
 
+import { createMacProcessIdentityReader } from "@ai-sidekicks/contracts/process-identity";
+
 import { MacMachineClockReader } from "../bridge/machine-clock/mac.js";
 import { MacInstalledEditors } from "../bridge/native/editors/mac.js";
 import type { MainOperatingSystem } from "./contract.js";
@@ -41,6 +43,7 @@ export const MAC_MAIN_OPERATING_SYSTEM: MainOperatingSystem = {
     trailingMenus: () => [],
   },
   hasMenuBarIcon: true,
+  createProcessIdentityReader: createMacProcessIdentityReader,
   // `show()` activates even an accessory app, so the window is never revealed; with throttling
   // off, Electron keeps drawing frames for a hidden window here (electron/electron#31016).
   ...(__TEST_TIER_BUILD__

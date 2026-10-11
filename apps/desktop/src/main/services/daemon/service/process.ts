@@ -11,12 +11,10 @@ import { promisify } from "node:util";
 
 import { DAEMON_STOP_DRAIN_BOUND_MS } from "@ai-sidekicks/contracts/daemon/lifecycle";
 import {
-  createProcessIdentityReader,
   isSameProcess,
   type ProcessIdentity,
+  type ProcessIdentitySystem,
 } from "@ai-sidekicks/contracts/process-identity";
-
-import type { SupportedPlatform } from "#shared/app-facts.js";
 
 /** How long a service still running after its drain bound has before SIGKILL. */
 const SERVICE_END_GRACE_MS = 2_000;
@@ -49,20 +47,13 @@ export interface ServiceExit {
   readonly signal: NodeJS.Signals | null;
 }
 
-/**
- * A reader of the processes of the system `platform` names, through Node's own file read and
- * program run; it answers `undefined` when no process has the id.
- */
-export function createSystemProcessIdentityReader(
-  platform: SupportedPlatform,
-): (processId: number) => Promise<ProcessIdentity | undefined> {
-  const runProgram = promisify(execFile);
-  return createProcessIdentityReader({
-    platform,
-    readTextFile: (filePath) => readFile(filePath, "utf8"),
-    runProgram: (file, args, environment) => runProgram(file, [...args], { env: environment }),
-  });
-}
+const runProgram = promisify(execFile);
+
+/** The system read through Node's own file read and program run, for a process identity reader. */
+export const NODE_PROCESS_IDENTITY_SYSTEM: ProcessIdentitySystem = {
+  readTextFile: (filePath) => readFile(filePath, "utf8"),
+  runProgram: (file, args, environment) => runProgram(file, [...args], { env: environment }),
+};
 
 /** A background service process main can end. */
 export interface ServiceProcess {

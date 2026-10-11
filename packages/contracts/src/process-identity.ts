@@ -105,6 +105,12 @@ export function createLinuxProcessIdentityReader(
   };
 }
 
+/** The reader on Windows, whose processes are not read: each reading rejects. */
+export function createWindowsProcessIdentityReader(): ProcessIdentityReader {
+  return () =>
+    Promise.reject(new Error("This system's processes cannot be identified here: win32"));
+}
+
 // The boot is read once and kept, since it cannot change while the reading process runs. A failed
 // reading is dropped, so the next one tries again.
 function keepBootIdReading(read: () => Promise<string>): () => Promise<string> {

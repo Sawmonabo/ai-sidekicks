@@ -9,7 +9,7 @@ import type { MainOperatingSystem } from "./contract.js";
 /** What Windows and Linux supply main alike: all but the facts each system answers its own way. */
 export type PcMainOperatingSystem = Omit<
   MainOperatingSystem,
-  "platform" | "flushesFolderAfterRename" | "unobtrusiveWindows"
+  "platform" | "flushesFolderAfterRename" | "createProcessIdentityReader" | "unobtrusiveWindows"
 >;
 
 /** The About panel's icon, which the package's `resources/` folder carries. */

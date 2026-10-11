@@ -10,7 +10,6 @@ import * as os from "node:os";
 
 import {
   assertPrivateRunFolder,
-  resolveDaemonRunFolder,
   type DaemonRunFolder,
 } from "@ai-sidekicks/contracts/daemon/run-folder";
 import {
@@ -25,6 +24,7 @@ import {
 } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 
 import { JsonRpcClient, JsonRpcRemoteError, type ClientTransport } from "./transport/json-rpc.js";
+import { selectDaemonRunFolderResolver } from "./run-folder.js";
 import { connectLocalSocket } from "./transport/local-socket.js";
 
 /**
@@ -43,7 +43,10 @@ export interface DaemonConnectionObserver {
 
 /** How to open a daemon connection. */
 export interface DaemonConnectionOptions {
-  /** The daemon's run folder; defaults to the one this user's daemon uses on macOS and Linux. */
+  /**
+   * The daemon's run folder; defaults to the one this user's daemon uses on macOS and Linux, and
+   * on Windows, which has none, the connect throws.
+   */
   readonly runFolder?: DaemonRunFolder;
   /** The most unread values one subscription holds; see `JsonRpcClientOptions`. */
   readonly maxQueuedValuesPerSubscription: number;
@@ -187,8 +190,11 @@ function observedTransport(
   };
 }
 
+// Picked once, when the client library loads.
+const resolveRunFolder = selectDaemonRunFolderResolver(process.platform);
+
 function defaultDaemonRunFolder(): DaemonRunFolder {
-  return resolveDaemonRunFolder({
+  return resolveRunFolder({
     runtimeDirectory: process.env["XDG_RUNTIME_DIR"],
     temporaryDirectory: os.tmpdir(),
     userId: os.userInfo().uid,

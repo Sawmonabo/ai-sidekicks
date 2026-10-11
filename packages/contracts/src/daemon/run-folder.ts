@@ -41,6 +41,17 @@ export function resolveDaemonRunFolder(facts: DaemonRunFolderFacts): DaemonRunFo
   };
 }
 
+/**
+ * The run folder on Windows, which has none: the service is reached through its per-user named
+ * pipe. Always throws.
+ */
+export function refuseWindowsDaemonRunFolder(): never {
+  throw new Error(
+    "On Windows the background service is reached through its per-user named pipe, not a " +
+      "Unix domain socket",
+  );
+}
+
 function trimTrailingSlash(folder: string): string {
   return folder.length > 1 && folder.endsWith("/") ? folder.slice(0, -1) : folder;
 }

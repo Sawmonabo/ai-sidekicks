@@ -1,5 +1,7 @@
 // What main takes from Linux.
 
+import { createLinuxProcessIdentityReader } from "@ai-sidekicks/contracts/process-identity";
+
 import type { MainOperatingSystem } from "./contract.js";
 import { pcMainOperatingSystem } from "./pc.js";
 
@@ -8,6 +10,7 @@ export const LINUX_MAIN_OPERATING_SYSTEM: MainOperatingSystem = {
   ...pcMainOperatingSystem("Linux"),
   platform: "linux",
   flushesFolderAfterRename: true,
+  createProcessIdentityReader: createLinuxProcessIdentityReader,
   // Runs under Xvfb in the test tiers, where an inactive reveal draws.
   ...(__TEST_TIER_BUILD__ ? { unobtrusiveWindows: { reveal: "inactive" } } : {}),
 };

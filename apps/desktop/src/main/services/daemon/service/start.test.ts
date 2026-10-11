@@ -15,16 +15,16 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { DAEMON_STOP_DRAIN_BOUND_MS } from "@ai-sidekicks/contracts/daemon/lifecycle";
 import { DAEMON_STATUS_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/daemon/status";
 
-import { supportedPlatform } from "#shared/app-facts.js";
 import type { MainProcessState } from "#shared/daemon/status-topic.js";
 import { TemporaryDirectoryTrail } from "#test/helpers/temporary-directory.js";
 
+import { selectMainOperatingSystem } from "../../../operating-system/selection.js";
 import { DaemonLink } from "../link/status.js";
 import { connectMainToDaemon, DaemonSupervisor } from "../supervisor.js";
 import { LINK_QUIET_MS } from "../link/lifetime.js";
 import {
   attachToServiceProcess,
-  createSystemProcessIdentityReader,
+  NODE_PROCESS_IDENTITY_SYSTEM,
   type ServiceProcess,
 } from "./process.js";
 import { startServiceDetached } from "./start.js";
@@ -35,7 +35,9 @@ const SOURCE_LOADER = import.meta.resolve("@ai-sidekicks/runtime-daemon/typescri
 const LINK_WITHIN_MS = 20_000;
 
 /** A reader of the processes of the system the test runs on. */
-const readProcessIdentity = createSystemProcessIdentityReader(supportedPlatform(process.platform));
+const readProcessIdentity = selectMainOperatingSystem(process.platform).createProcessIdentityReader(
+  NODE_PROCESS_IDENTITY_SYSTEM,
+);
 
 const trail = new TemporaryDirectoryTrail();
 let started: ServiceProcess[];

@@ -1,5 +1,8 @@
 // What the daemon takes from Windows.
 
+import { refuseWindowsDaemonRunFolder } from "@ai-sidekicks/contracts/daemon/run-folder";
+import { createWindowsProcessIdentityReader } from "@ai-sidekicks/contracts/process-identity";
+
 import { WINDOWS_PROCESS_PEAK_READER } from "../admission/process-peak/windows.js";
 import { requireMachineName } from "../daemon/machine/name.js";
 import { WINDOWS_DISK_FLUSH } from "../disk-flush/windows.js";
@@ -46,14 +49,8 @@ export function windowsDaemonOperatingSystem(
     hasAskpassLauncher: false,
     readSocketPathLimit: null,
     executableFileName,
-    createProcessIdentityReader: () => () =>
-      Promise.reject(new Error("This system's processes cannot be identified here: win32")),
-    resolveRunFolder: () => {
-      throw new Error(
-        "On Windows the background service is reached through its per-user named pipe, not a " +
-          "Unix domain socket",
-      );
-    },
+    createProcessIdentityReader: createWindowsProcessIdentityReader,
+    resolveRunFolder: refuseWindowsDaemonRunFolder,
     openOrphanOperatingSystem: () => Promise.resolve({}),
     captureProviderBaseEnvironment: (capture) =>
       Promise.resolve(

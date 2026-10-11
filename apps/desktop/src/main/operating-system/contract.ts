@@ -7,6 +7,11 @@ import type {
   MenuItemConstructorOptions,
 } from "electron";
 
+import type {
+  ProcessIdentityReader,
+  ProcessIdentitySystem,
+} from "@ai-sidekicks/contracts/process-identity";
+
 import type { SupportedPlatform } from "#shared/app-facts.js";
 import type { MachineClockReader } from "../bridge/machine-clock/reader.js";
 import type { InstalledEditors } from "../bridge/native/editors/installed.js";
@@ -59,6 +64,11 @@ export interface MainOperatingSystem extends OwnerOnlyFileOperatingSystem {
   readonly applicationMenu: ApplicationMenuParts;
   /** Whether the app keeps an icon in the menu bar for its whole life. */
   readonly hasMenuBarIcon: boolean;
+  /**
+   * A reader of the system's processes through `system`, which keeps the boot it first reads; on a
+   * system whose processes are not read, each reading rejects.
+   */
+  readonly createProcessIdentityReader: (system: ProcessIdentitySystem) => ProcessIdentityReader;
   /**
    * How a test build asked to keep out of the way puts its windows up. Set only behind the
    * compile-time test build flag, so a release bundle carries none of it.
