@@ -93,15 +93,27 @@ export function useOutputHeightCut(isCutAtFlowHeight: boolean, rowKey: string): 
     let cancelFirstRead = isFirstReportDeferred
       ? undefined
       : firstCutReads.request(readFirstAnswer);
-    const stopWatchingScroll =
-      isFirstReportDeferred && viewport !== undefined
-        ? viewport.scrollController.subscribeToGeometry(() => {
-            if (isFirstReportDeferred && !isRowScreensAboveBox(viewport, rowKey, 0)) {
-              isFirstReportDeferred = false;
-              cancelFirstRead = firstCutReads.request(readFirstAnswer);
-            }
-          })
-        : undefined;
+    let stopWatchingScroll: Unsubscribe | undefined;
+    // The first answer no longer waits, so the scroll has nothing more to tell this row.
+    const endFirstReportDeferral = (): void => {
+      isFirstReportDeferred = false;
+      stopWatchingScroll?.();
+      stopWatchingScroll = undefined;
+    };
+    if (isFirstReportDeferred && viewport !== undefined) {
+      const unsubscribe = viewport.scrollController.subscribeToGeometry(() => {
+        if (isFirstReportDeferred && !isRowScreensAboveBox(viewport, rowKey, 0)) {
+          endFirstReportDeferral();
+          cancelFirstRead = firstCutReads.request(readFirstAnswer);
+        }
+      });
+      // Subscribing replays the last sample, which may already have ended the wait.
+      if (isFirstReportDeferred) {
+        stopWatchingScroll = unsubscribe;
+      } else {
+        unsubscribe();
+      }
+    }
     const view = getWindow(body);
     let deferredDrawFrame: number | undefined;
     const watch = watchElementsResize(view, (entries) => {
@@ -113,7 +125,7 @@ export function useOutputHeightCut(isCutAtFlowHeight: boolean, rowKey: string): 
         }
       }
       if (isFirstReportDeferred) {
-        isFirstReportDeferred = false;
+        endFirstReportDeferral();
         if (viewport !== undefined && isRowScreensAboveBox(viewport, rowKey, 0)) {
           deferredDrawFrame = view.requestAnimationFrame(() => {
             deferredDrawFrame = undefined;
