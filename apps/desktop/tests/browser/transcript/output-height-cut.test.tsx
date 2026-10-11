@@ -4,9 +4,10 @@
 // whole lines and follows each new one, its rest offered under the bytes arrived so far. Whether
 // an output runs past the cut is known in the commit that cuts it, so the conversation measures its
 // row with `Show all` in that frame, except in a row a screen above the box, which takes it from
-// its first report and draws it as the next frame starts, raising no resize loop; the outputs one
-// commit brings in are read together, laid out once. Measured in Chromium, since the cut is CSS
-// line units over the scroller's measured height.
+// its first report and draws it as the next frame starts, or at once if a scroll brings it into
+// the box first, raising no resize loop; the outputs one commit brings in are read together, laid
+// out once. Measured in Chromium, since the cut is CSS line units over the scroller's measured
+// height.
 
 import { act, cleanup, fireEvent, render, within } from "@testing-library/react";
 import { useState } from "react";
@@ -247,6 +248,33 @@ function outputsReadAtOnce(scroller: HTMLElement): Element[] {
   );
 }
 
+/**
+ * The resize loop errors the window raises until `stop`, which answers them. A row that grows
+ * inside a resize report leaves the conversation's report of it undelivered, which the browser
+ * raises as an error the run would only log.
+ */
+function hearResizeLoopErrors(): { readonly stop: () => readonly string[] } {
+  const messages: string[] = [];
+  const hear = (event: ErrorEvent): void => {
+    if (event.message.includes("ResizeObserver loop")) {
+      messages.push(event.message);
+    }
+  };
+  window.addEventListener("error", hear);
+  return {
+    stop: () => {
+      window.removeEventListener("error", hear);
+      return messages;
+    },
+  };
+}
+
+/** How far the end of `output`'s row sits below the top of `scroller`'s box, in pixels. */
+function rowEndBelowBoxTopPx(scroller: HTMLElement, output: Element): number {
+  const row = output.closest(ROW_SELECTOR) ?? expect.fail("the output is drawn in a row");
+  return row.getBoundingClientRect().bottom - scroller.getBoundingClientRect().top;
+}
+
 /** One trace event of Chromium's main thread, as far as the count reads it. */
 interface TraceEvent {
   readonly name: string;
@@ -427,8 +455,25 @@ describe("a call's output cut at the visible flow", () => {
     expect(aboveFrames.slice(2).filter((frame) => frame.showAllCount === 0)).toStrictEqual([]);
     cleanup();
 
-    // A screen above when cut but brought nearer before its first report, the row draws `Show all`
-    // in the frame of that report, before it paints.
+    // Brought to within a screen of the box but still above it at the report, the row draws
+    // `Show all` as the next frame starts, as one a screen above does.
+    let nearRowEndPx = -SCROLLER_HEIGHT_PX;
+    const near = await renderInScroller(
+      <HeldToolOutput body={printedLines(PRINTED_LINE_COUNT)} />,
+      () => nearRowEndPx,
+    );
+    nearRowEndPx = -SCROLLER_HEIGHT_PX / 2;
+    const nearFrames = await act(
+      async () => await recordCutFrames(() => outputsIn(near.container), 6),
+    );
+    expect(nearFrames.slice(0, 2)).toStrictEqual([
+      { cutCount: 1, showAllCount: 0 },
+      { cutCount: 1, showAllCount: 0 },
+    ]);
+    cleanup();
+
+    // A screen above when cut but brought into the box before its first report with no scroll,
+    // the row draws `Show all` in the frame of that report, before it paints.
     let rowEndPx = -SCROLLER_HEIGHT_PX;
     const broughtNearer = await renderInScroller(
       <HeldToolOutput body={printedLines(PRINTED_LINE_COUNT)} />,
@@ -454,15 +499,7 @@ describe("a call's output cut at the visible flow", () => {
       prepareTranscriptRow,
     );
     const drawnBefore = new Set(scroller.querySelectorAll(OUTPUT_SELECTOR));
-    // A row that grows inside a resize report leaves the conversation's report of it undelivered,
-    // which the browser raises as an error the run would only log.
-    const resizeLoopErrors: string[] = [];
-    const hearResizeLoopError = (event: ErrorEvent): void => {
-      if (event.message.includes("ResizeObserver loop")) {
-        resizeLoopErrors.push(event.message);
-      }
-    };
-    window.addEventListener("error", hearResizeLoopError);
+    const resizeLoopErrors = hearResizeLoopErrors();
     let entered: Element[] = [];
     let frames: CutFrame[] = [];
     const forcedPasses = await forcedLayoutPassesOf(useOutputHeightCutModuleName, async () => {
@@ -484,7 +521,43 @@ describe("a call's output cut at the visible flow", () => {
     expect(forcedPasses).toStrictEqual({ styleRecalcs: 1, layouts: 1 });
     expect(frames[0]?.cutCount).toBeGreaterThan(0);
     expect(frames.filter((frame) => frame.cutCount > frame.showAllCount)).toStrictEqual([]);
-    window.removeEventListener("error", hearResizeLoopError);
-    expect(resizeLoopErrors).toStrictEqual([]);
+    expect(resizeLoopErrors.stop()).toStrictEqual([]);
+  });
+
+  it("draws `Show all` before the frame lays out for a far row a scroll brings into the box before its first report", async () => {
+    const { scroller } = await mountTranscriptFeed(
+      openPagedSessionStore(0, FEED_OUTPUT_COUNT - 1, undefined, (index) =>
+        toolOutputEventAt(index, printedLines(PRINTED_LINE_COUNT)),
+      ),
+      undefined,
+      undefined,
+      undefined,
+      prepareTranscriptRow,
+    );
+    const resizeLoopErrors = hearResizeLoopErrors();
+    // The jump brings a band of outputs in with one commit; the rows a screen above the box wait
+    // for their first report, and a second scroll moves those within half a screen more of it into
+    // the box before any frame.
+    act(() => {
+      scroller.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -FEED_HEIGHT_PX }));
+      scroller.scrollTop -= 2 * FEED_HEIGHT_PX;
+      fireEvent.scroll(scroller);
+    });
+    const farOutputs = outputsIn(scroller).filter((output) => {
+      const rowEndPx = rowEndBelowBoxTopPx(scroller, output);
+      return rowEndPx <= -FEED_HEIGHT_PX && rowEndPx > -1.5 * FEED_HEIGHT_PX;
+    });
+    act(() => {
+      scroller.scrollTop -= 1.5 * FEED_HEIGHT_PX;
+      fireEvent.scroll(scroller);
+    });
+    const outputsInBox = farOutputs.filter(
+      (output) => output.isConnected && rowEndBelowBoxTopPx(scroller, output) > 0,
+    );
+    const frames = await act(async () => await recordCutFrames(() => outputsInBox, 6));
+
+    expect(outputsInBox.length).toBeGreaterThan(0);
+    expect(frames.filter((frame) => frame.cutCount > frame.showAllCount)).toStrictEqual([]);
+    expect(resizeLoopErrors.stop()).toStrictEqual([]);
   });
 });

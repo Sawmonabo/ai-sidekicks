@@ -72,25 +72,36 @@ export function useOutputHeightCut(isCutAtFlowHeight: boolean, rowKey: string): 
     const readRunsPastCut = (): void => {
       setRunsPastCut(contentHeightPx - boxHeightPx > CUT_TOLERANCE_PX);
     };
-    // A row a screen above the box takes its first answer from the first report. Still a screen
-    // above then, it draws the answer as the next frame starts, before that frame lays out, so the
-    // conversation measures the row with `Show all` there and no frame shows it in the box without;
-    // drawn inside the report, the row would grow while its own report waits behind the cut's,
-    // which the browser raises as a resize loop. A row a scroll brought nearer since its commit
-    // draws the answer inside the report, before the frame paints. Any other row reads both heights
-    // once the commit is done, with every other output the commit brought in, laying the inserted
-    // rows out once, so the conversation measures the row with `Show all` in the first frame and no
-    // row is drawn over it.
-    let isFirstReportDeferred = viewport !== undefined && isRowAScreenAboveBox(viewport, rowKey);
-    const cancelFirstRead = isFirstReportDeferred
+    const readFirstAnswer = (): void => {
+      const style = getComputedStyle(body);
+      boxHeightPx =
+        body.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+      contentHeightPx = content.getBoundingClientRect().height;
+      readRunsPastCut();
+    };
+    // A row reads both heights once the commit is done, with every other output the commit
+    // brought in, laying the inserted rows out once, so the conversation measures the row with
+    // `Show all` in the first frame and no row is drawn over it. A row a screen above the box waits
+    // for its first report instead, unless a scroll brings it into the box or past it first, which
+    // reads it at once in the same way, before the frame lays out. Still above the box at the
+    // report, it draws the answer as the next frame starts, before that frame lays out, so the
+    // conversation measures the row with `Show all` there and no frame shows it in the box
+    // without; drawn inside the report, the row would grow while its own report waits behind the
+    // cut's, which the browser raises as a resize loop. A row that reached the box at the report
+    // with no scroll draws the answer inside it, before the frame paints.
+    let isFirstReportDeferred = viewport !== undefined && isRowScreensAboveBox(viewport, rowKey, 1);
+    let cancelFirstRead = isFirstReportDeferred
       ? undefined
-      : firstCutReads.request(() => {
-          const style = getComputedStyle(body);
-          boxHeightPx =
-            body.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
-          contentHeightPx = content.getBoundingClientRect().height;
-          readRunsPastCut();
-        });
+      : firstCutReads.request(readFirstAnswer);
+    const stopWatchingScroll =
+      isFirstReportDeferred && viewport !== undefined
+        ? viewport.scrollController.subscribeToGeometry(() => {
+            if (isFirstReportDeferred && !isRowScreensAboveBox(viewport, rowKey, 0)) {
+              isFirstReportDeferred = false;
+              cancelFirstRead = firstCutReads.request(readFirstAnswer);
+            }
+          })
+        : undefined;
     const view = getWindow(body);
     let deferredDrawFrame: number | undefined;
     const watch = watchElementsResize(view, (entries) => {
@@ -103,7 +114,7 @@ export function useOutputHeightCut(isCutAtFlowHeight: boolean, rowKey: string): 
       }
       if (isFirstReportDeferred) {
         isFirstReportDeferred = false;
-        if (viewport !== undefined && isRowAScreenAboveBox(viewport, rowKey)) {
+        if (viewport !== undefined && isRowScreensAboveBox(viewport, rowKey, 0)) {
           deferredDrawFrame = view.requestAnimationFrame(() => {
             deferredDrawFrame = undefined;
             flushSync(readRunsPastCut);
@@ -119,6 +130,7 @@ export function useOutputHeightCut(isCutAtFlowHeight: boolean, rowKey: string): 
     watch.observe(content);
     return () => {
       cancelFirstRead?.();
+      stopWatchingScroll?.();
       if (deferredDrawFrame !== undefined) {
         view.cancelAnimationFrame(deferredDrawFrame);
       }
@@ -174,15 +186,18 @@ class FirstCutReads {
 const firstCutReads = new FirstCutReads();
 
 /**
- * Whether row `rowKey` ends a whole screen or more above the conversation's box, at the height the
- * conversation lays it out at. Measured or estimated, that end is where the row's `Show all`
- * would land a frame late: the conversation holds the reader's place through any resize of a row
- * wholly above its box, and a follower's on the tail, so neither a wrong estimate nor the late
- * `Show all` moves the row toward the box, and no frame's scroll covers the screen between. A row
- * below the box is read at once: rows between it and the box move it as they are measured. Reads
- * no element.
+ * Whether row `rowKey` ends `screenCount` screens or more above the conversation's box, at the
+ * height the conversation lays it out at. Measured or estimated, that end is where the row's
+ * `Show all` would land a frame late: the conversation holds the reader's place through any resize
+ * of a row wholly above its box, and a follower's on the tail, so neither a wrong estimate nor the
+ * late `Show all` moves the row toward the box. A row below the box is read at once: rows between
+ * it and the box move it as they are measured. Reads no element.
  */
-function isRowAScreenAboveBox(viewport: MarkdownWindowViewport, rowKey: string): boolean {
+function isRowScreensAboveBox(
+  viewport: MarkdownWindowViewport,
+  rowKey: string,
+  screenCount: number,
+): boolean {
   const scrollTop = viewport.scrollController.geometry?.scrollTop;
   const viewportHeight = viewport.scrollController.geometry?.viewportHeight;
   const rowEndPx = viewport.rowEndPx(rowKey);
@@ -190,7 +205,7 @@ function isRowAScreenAboveBox(viewport: MarkdownWindowViewport, rowKey: string):
     scrollTop !== undefined &&
     viewportHeight !== undefined &&
     rowEndPx !== undefined &&
-    rowEndPx <= scrollTop - viewportHeight
+    rowEndPx <= scrollTop - screenCount * viewportHeight
   );
 }
 
