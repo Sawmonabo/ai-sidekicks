@@ -32,7 +32,9 @@ export interface SubagentAnchor {
  * nothing.
  */
 export class SubagentAnchorIndex {
-  /** Each anchor and its growing row list, keyed by its identity's key, in first-appearance order. */
+  /**
+   * Each anchor and its growing row list, keyed by its identity's key, in first-appearance order.
+   */
   readonly #heldByKey = new Map<string, { anchor: SubagentAnchor; rowIds: string[] }>();
   readonly #anchorsByRowId = new Map<string, SubagentAnchor>();
 

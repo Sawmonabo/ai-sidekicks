@@ -27,7 +27,9 @@ export function useTranscriptFindAndJump(inputs: {
   readonly foldedAwayRows: readonly TranscriptEventRow[];
   /** The unfurled window's system messages, which the feed always draws, folded or not. */
   readonly systemMessageByRowId: ReadonlyMap<string, SystemMessageReading>;
-  /** The renderer's answer to whether it draws a row, so a folded row it would not is not counted. */
+  /**
+   * The renderer's answer to whether it draws a row, so a folded row it would not is not counted.
+   */
   readonly drawsBody: TranscriptRowRenderer["drawsBody"];
   /** The rows the feed draws, in log order, whether or not the viewport's window holds them. */
   readonly rows: readonly TranscriptEventRow[];

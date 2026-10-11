@@ -1,5 +1,6 @@
 // A scroll the list reads as the reader's own: the wheel turns first, so a scroll toward the head
-// ends following the tail, as a person's would, where a bare `scrollTop` write would be landed back.
+// ends following the tail, as a person's would, where a bare `scrollTop` write would be landed
+// back.
 
 import { fireEvent } from "@testing-library/react";
 

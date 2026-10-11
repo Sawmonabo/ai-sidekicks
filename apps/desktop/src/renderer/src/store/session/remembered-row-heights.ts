@@ -29,7 +29,9 @@ const REMEMBERED_ROW_HEIGHT_CAP = 400;
  */
 const LAYOUT_UNITS_PER_PX = 64;
 
-/** One session's measured row heights, bounded, and dropped when the layout they hold for changes. */
+/**
+ * One session's measured row heights, bounded, and dropped when the layout they hold for changes.
+ */
 export class RememberedRowHeights {
   readonly #cap: number;
   /** Insertion-ordered, so the cap evicts the least recently measured. */

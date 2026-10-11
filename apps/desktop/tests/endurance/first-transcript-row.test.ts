@@ -15,11 +15,11 @@
 //
 // The session route is opened, the frozen clock is walked over the concurrent-streaming script, its
 // frame work runs on each of the window's frames from then on, and the first painted transcript row
-// ends the interval, all inside one page function so no driver round trip sits between the steps. The one round trip inside the interval is the gap between the
-// launch handshake settling and this function starting; it is reported separately rather than
-// subtracted. The clock is walked because a fixture build's clock is frozen: the script's opening
-// beats are what a live daemon would deliver at launch, and a run that never advanced would time a
-// session that had not arrived.
+// ends the interval, all inside one page function so no driver round trip sits between the steps.
+// The one round trip inside the interval is the gap between the launch handshake settling and this
+// function starting; it is reported separately rather than subtracted. The clock is walked because
+// a fixture build's clock is frozen: the script's opening beats are what a live daemon would
+// deliver at launch, and a run that never advanced would time a session that had not arrived.
 
 import process from "node:process";
 

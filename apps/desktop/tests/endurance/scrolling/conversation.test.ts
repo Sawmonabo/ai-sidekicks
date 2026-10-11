@@ -523,7 +523,9 @@ function describeFirstMovedFrames(run: ConversationRun): string {
   );
 }
 
-/** Prints one clause's reading with what the host is, so a pass off the pinned class gates nothing. */
+/**
+ * Prints one clause's reading with what the host is, so a pass off the pinned class gates nothing.
+ */
 function report(load: ConversationLoad, reading: string, verdict: BudgetVerdict): void {
   process.stdout.write(
     `[endurance] scrolling the conversation, ${load}: ${reading} against a ` +

@@ -11,7 +11,9 @@ import { type TranscriptRowRenderer } from "../rows/renderer.js";
 import { type TranscriptViewportBinding } from "../viewport/hooks/useTranscriptViewport.js";
 import { type TranscriptWindowModel } from "../window/transcript-window.js";
 
-/** What a window's rows are drawn and estimated by: the feed's own rules and the viewport's table. */
+/**
+ * What a window's rows are drawn and estimated by: the feed's own rules and the viewport's table.
+ */
 export interface DrawnHeightInputs {
   readonly estimatedRowHeightPx: TranscriptViewportBinding["estimatedRowHeightPx"];
   /** The viewport's height in pixels, which a long run's window is cut in. */

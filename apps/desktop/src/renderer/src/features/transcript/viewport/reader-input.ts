@@ -21,7 +21,9 @@ export interface ViewportReaderInputOptions {
   readonly jumpToHead: () => void;
   /** The platform's press for a view's end, End among them, on the log: its last row, following. */
   readonly jumpToTail: () => void;
-  /** The reader pulled toward `side` at `inputAtMs`, which owes a pass where the box stands there. */
+  /**
+   * The reader pulled toward `side` at `inputAtMs`, which owes a pass where the box stands there.
+   */
   readonly reviewPullAt: (side: WindowSide, inputAtMs: number) => void;
 }
 
