@@ -19,7 +19,7 @@ import { open } from "node:fs/promises";
 
 import { FILE_PATH_MAX_LEN } from "@ai-sidekicks/contracts/free-form-string";
 
-import { useThenClose } from "../disk-flush.js";
+import { useThenClose } from "../disk-flush/handle.js";
 import { cutToCodeUnits } from "../text-cut.js";
 import { DetectorRejectedBytesError, type MediaTypeDetector } from "./detection/thread.js";
 import type { PayloadStore } from "./payload-store.js";

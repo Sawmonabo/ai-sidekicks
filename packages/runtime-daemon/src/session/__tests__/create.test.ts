@@ -14,6 +14,7 @@ import * as path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { HOST_OPERATING_SYSTEM } from "../../../tests/helpers/host-operating-system.js";
 import {
   MACHINE_SETTINGS_DEFAULTS,
   type MachineSettings,
@@ -81,6 +82,7 @@ beforeEach(async () => {
   ]);
   emitter = new WorkspaceEventEmitter({ sessionEvents: log.eventLog });
   mounts = new RepoMountService({
+    pathRules: HOST_OPERATING_SYSTEM.pathRules,
     database: log.scratch,
     events: emitter,
     nodeId: mintUuidV7() as NodeId,
@@ -104,8 +106,16 @@ function creationWith(swap: {
     repoMounts: mounts,
     ...(swap.git === undefined ? {} : { git: swap.git }),
   });
-  const settingsFile = new MachineSettingsFile({ filePath: settingsPath, now: () => new Date() });
-  const workspaces = new WorkspaceService({ database: log.scratch, events: emitter });
+  const settingsFile = new MachineSettingsFile({
+    filePath: settingsPath,
+    diskFlush: HOST_OPERATING_SYSTEM.diskFlush,
+    now: () => new Date(),
+  });
+  const workspaces = new WorkspaceService({
+    pathRules: HOST_OPERATING_SYSTEM.pathRules,
+    database: log.scratch,
+    events: emitter,
+  });
   return new SessionCreation({
     reader: log.scratch.reader,
     events: swap.events ?? log.eventLog,

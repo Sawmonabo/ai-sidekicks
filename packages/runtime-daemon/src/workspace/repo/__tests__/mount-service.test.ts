@@ -12,6 +12,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import type { RepoMountId } from "@ai-sidekicks/contracts/repo/mount";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
+import { HOST_OPERATING_SYSTEM } from "../../../../tests/helpers/host-operating-system.js";
 import { EventLogService } from "../../../events/log-service.js";
 import {
   RepoAlreadyAttachedError,
@@ -128,8 +129,11 @@ let harness: RepoMountHarness;
  * Builds a service over the harness database, optionally overriding one seam. With no overrides it
  * drives real git and real directories through the production primitives.
  */
-function createService(overrides: Partial<RepoMountServiceDeps> = {}): RepoMountService {
+function createService(
+  overrides: Partial<Omit<RepoMountServiceDeps, "pathRules">> = {},
+): RepoMountService {
   return new RepoMountService({
+    pathRules: HOST_OPERATING_SYSTEM.pathRules,
     database: harness.database,
     events: harness.emitter,
     nodeId: NODE_ID,

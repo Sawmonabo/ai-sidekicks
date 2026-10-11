@@ -93,14 +93,6 @@ export class AskpassBroker {
   }
 
   /**
-   * Whether the broker has a launcher for git and ssh to run on `platform`. Only the POSIX shell
-   * launcher ships, so on Windows the broker is never started.
-   */
-  static hasLauncherOn(platform: NodeJS.Platform): boolean {
-    return platform !== "win32";
-  }
-
-  /**
    * Opens the broker, first removing the folders a stopped service left: a folder only the
    * person's account opens, holding the launcher and the socket. A folder that cannot be removed
    * is written to the service log; rejects when the broker's own folder, launcher or socket cannot

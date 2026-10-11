@@ -15,6 +15,7 @@ import {
 import type { ProjectId } from "@ai-sidekicks/contracts/project";
 import type { NodeId } from "@ai-sidekicks/contracts/runtime-node/id";
 
+import { HOST_OPERATING_SYSTEM } from "../../../../tests/helpers/host-operating-system.js";
 import {
   openSessionLog,
   type SessionLog,
@@ -33,6 +34,7 @@ beforeEach(async () => {
   log = await openSessionLog();
   home = await mkdtemp(path.join(tmpdir(), "aisk-project-"));
   const mounts = new RepoMountService({
+    pathRules: HOST_OPERATING_SYSTEM.pathRules,
     database: log.scratch,
     events: new WorkspaceEventEmitter({ sessionEvents: log.eventLog }),
     nodeId: mintUuidV7() as NodeId,

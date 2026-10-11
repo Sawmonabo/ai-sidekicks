@@ -33,6 +33,7 @@ import {
   DEFAULT_GIT_COMMAND_TIMEOUT_MS,
   createGitRunner,
 } from "../../../git/process.js";
+import { HOST_OPERATING_SYSTEM } from "../../../../tests/helpers/host-operating-system.js";
 import { mintUuidV7 } from "../../../uuid-v7.js";
 import { WorkspaceEventEmitter } from "../../event-emitter.js";
 import type { ProjectRecords } from "../../project/records.js";
@@ -86,6 +87,7 @@ beforeEach(async () => {
   process.env["no_proxy"] = "127.0.0.1";
   serviceLogLines = [];
   const mounts = new RepoMountService({
+    pathRules: HOST_OPERATING_SYSTEM.pathRules,
     database: log.scratch,
     events: new WorkspaceEventEmitter({ sessionEvents: log.eventLog }),
     nodeId: mintUuidV7() as NodeId,
@@ -122,6 +124,7 @@ afterEach(async () => {
 
 function cloneService(gitExecutablePath = "git"): CloneService {
   return new CloneService({
+    pathRules: HOST_OPERATING_SYSTEM.pathRules,
     projects,
     records,
     askpass: broker,
@@ -132,7 +135,7 @@ function cloneService(gitExecutablePath = "git"): CloneService {
       git: createGitRunner(gitExecutablePath),
       timeoutMs: DEFAULT_GIT_COMMAND_TIMEOUT_MS,
     }),
-    streamedGit: createStreamedGitRunner(gitExecutablePath),
+    streamedGit: createStreamedGitRunner(gitExecutablePath, HOST_OPERATING_SYSTEM.processTree),
     onCloneAttached: () => Promise.resolve(),
     writeServiceLog: (line) => serviceLogLines.push(line),
   });

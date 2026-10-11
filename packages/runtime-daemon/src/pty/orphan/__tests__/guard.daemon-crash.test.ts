@@ -4,20 +4,17 @@
 // started for it is left.
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { execFile } from "node:child_process";
 import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
-import { promisify } from "node:util";
 
 import { describe, expect, it, vi } from "vitest";
 
-import { createProcessIdentityReader } from "@ai-sidekicks/contracts/process-identity";
-
-import { findDarwinProcessesCarryingNonces } from "../darwin/nonce-search.js";
-import { loadDarwinSystemLibrary } from "../darwin/system-library.js";
+import { NODE_SYSTEM_ACCESS } from "../../../node-system-access.js";
+import { MAC_DAEMON_OPERATING_SYSTEM } from "../../../operating-system/mac.js";
+import { findMacProcessesCarryingNonces } from "../mac/nonce-search.js";
+import { loadMacSystemLibrary } from "../mac/system-library.js";
 import { openOrphanGuard } from "../guard.js";
-import { openOrphanOperatingSystem } from "../operating-system.js";
 import { ORPHAN_REGISTRY_FILE_NAME } from "../registry.js";
 import type { OrphanSweepResult } from "../sweep.js";
 
@@ -36,46 +33,34 @@ const HANGUP_IGNORING_SHELL_COMMAND = `trap '' HUP; : > ${HANGUP_IGNORED_FILE_NA
 // at the parent check, or the shell died on the hangup.
 const WINDOW_RUNS = 5;
 
-const runProgram = promisify(execFile);
-const readProcessIdentity = createProcessIdentityReader({
-  platform: process.platform,
-  readTextFile: (filePath) => readFile(filePath, "utf8"),
-  runProgram: (file, args, environment) => runProgram(file, [...args], { env: environment }),
-});
+const readProcessIdentity =
+  MAC_DAEMON_OPERATING_SYSTEM.createProcessIdentityReader(NODE_SYSTEM_ACCESS);
 
 // The daemon's part: a guard over the data folder and a real host that starts one shell. With
 // `CRASH_IN_SPAWN` set, the daemon kills itself the moment `node-pty` has started the child,
 // before its process is recorded; otherwise it starts the shell that ignores the hangup.
 const DAEMON_SCRIPT = `
 import { writeFileSync } from "node:fs";
-import { readFile } from "node:fs/promises";
-import { execFile } from "node:child_process";
 import * as path from "node:path";
-import { promisify } from "node:util";
 import nodePty from "node-pty";
-import { createProcessIdentityReader } from "@ai-sidekicks/contracts/process-identity";
 import { NodePtyHost } from ${JSON.stringify(moduleUrl("../../host/node-pty.ts"))};
 import { openOrphanGuard } from ${JSON.stringify(moduleUrl("../guard.ts"))};
-import { openOrphanOperatingSystem } from ${JSON.stringify(moduleUrl("../operating-system.ts"))};
 import { SPAWN_NONCE_ENVIRONMENT_NAME } from ${JSON.stringify(moduleUrl("../registry.ts"))};
-import { selectTerminalOperatingSystem } from ${JSON.stringify(moduleUrl("../../operating-system/selector.ts"))};
+import { MAC_DAEMON_OPERATING_SYSTEM } from ${JSON.stringify(moduleUrl("../../../operating-system/mac.ts"))};
+import { NODE_SYSTEM_ACCESS } from ${JSON.stringify(moduleUrl("../../../node-system-access.ts"))};
 
 const dataFolder = process.env.DATA_FOLDER;
 const isCrashingInSpawn = process.env.CRASH_IN_SPAWN === "1";
-const runProgram = promisify(execFile);
-const readProcessIdentity = createProcessIdentityReader({
-  platform: process.platform,
-  readTextFile: (filePath) => readFile(filePath, "utf8"),
-  runProgram: (file, args, environment) => runProgram(file, [...args], { env: environment }),
-});
+const readProcessIdentity = MAC_DAEMON_OPERATING_SYSTEM.createProcessIdentityReader(NODE_SYSTEM_ACCESS);
 const daemon = await readProcessIdentity(process.pid);
 const { guard } = await openOrphanGuard({
   dataFolder,
   bootId: daemon.bootId,
   readProcessIdentity,
-  operatingSystem: await openOrphanOperatingSystem(process.platform, (error) => {
+  operatingSystem: await MAC_DAEMON_OPERATING_SYSTEM.openOrphanOperatingSystem((error) => {
     throw error;
   }),
+  diskFlush: MAC_DAEMON_OPERATING_SYSTEM.diskFlush,
   writeServiceLog: (line) => process.stderr.write(line + "\\n"),
 });
 const ptySpawn = (command, args, options) => {
@@ -89,8 +74,7 @@ const ptySpawn = (command, args, options) => {
   }
   return child;
 };
-const operatingSystem = selectTerminalOperatingSystem(process.platform, process.env);
-await new NodePtyHost(guard, operatingSystem, { ptySpawn }).spawn({
+await new NodePtyHost(guard, MAC_DAEMON_OPERATING_SYSTEM.terminal, { ptySpawn }).spawn({
   kind: "spawn_request",
   ...(isCrashingInSpawn
     ? { command: "/bin/zsh", args: ["-l"] }
@@ -148,9 +132,10 @@ async function sweepFolder(dataFolder: string): Promise<OrphanSweepResult> {
     dataFolder,
     bootId: self?.bootId ?? "",
     readProcessIdentity,
-    operatingSystem: await openOrphanOperatingSystem(process.platform, (error) => {
+    operatingSystem: await MAC_DAEMON_OPERATING_SYSTEM.openOrphanOperatingSystem((error) => {
       throw error;
     }),
+    diskFlush: MAC_DAEMON_OPERATING_SYSTEM.diskFlush,
     writeServiceLog: () => {},
   });
   await guard.close();
@@ -217,7 +202,7 @@ describe.skipIf(process.platform !== "darwin")("the orphan sweep after a daemon 
   }, 40_000);
 
   it("leaves nothing running of a spawn a daemon was killed inside", async () => {
-    const library = await loadDarwinSystemLibrary();
+    const library = await loadMacSystemLibrary();
     const userId = process.getuid?.() ?? -1;
     for (let run = 0; run < WINDOW_RUNS; run += 1) {
       const dataFolder = await mkdtemp(path.join(tmpdir(), "orphan-window-"));
@@ -237,7 +222,7 @@ describe.skipIf(process.platform !== "darwin")("the orphan sweep after a daemon 
         await vi.waitFor(
           () => {
             expect(isRunning(processId)).toBe(false);
-            expect(findDarwinProcessesCarryingNonces(library, userId, new Set([nonce]))).toEqual(
+            expect(findMacProcessesCarryingNonces(library, userId, new Set([nonce]))).toEqual(
               new Map(),
             );
           },

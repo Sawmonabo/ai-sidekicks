@@ -19,6 +19,7 @@ import { PayloadStore } from "../artifacts/payload-store.js";
 import { ArtifactPublishService } from "../artifacts/publish.js";
 import { IngestValidation } from "../artifacts/validation.js";
 import type { DatabaseConnections } from "../database/connection/lifecycle.js";
+import type { DiskFlush } from "../disk-flush/contract.js";
 import type { AttachmentResolver } from "../provider/driver/attachments.js";
 import { registerArtifactIngestMethods } from "../ipc/handlers/artifact/ingest.js";
 import { registerArtifactPublish } from "../ipc/handlers/artifact/publish.js";
@@ -39,6 +40,8 @@ export interface ArtifactMethodsDeps {
   readonly scheduler: { scheduleRepeating(job: RepeatingJob): ScheduledJobHandle };
   /** Reads the free bytes on the volume holding a folder. */
   readonly readVolumeFreeBytes: (folderPath: string) => Promise<number>;
+  /** How the system flushes a stored payload and its folder to disk. */
+  readonly diskFlush: DiskFlush;
 }
 
 /** The artifact store's background work, and its binding of a message's files to stored copies. */
@@ -64,7 +67,7 @@ export function registerArtifactMethods(
     DAEMON_DATA_FOLDER_NAME,
     ARTIFACTS_FOLDER_NAME,
   );
-  const payloadStore = new PayloadStore(path.join(storeDirectory, "objects"));
+  const payloadStore = new PayloadStore(path.join(storeDirectory, "objects"), deps.diskFlush);
   const detector = new ThreadedTypeDetector();
   const validation = new IngestValidation({
     payloadStore,

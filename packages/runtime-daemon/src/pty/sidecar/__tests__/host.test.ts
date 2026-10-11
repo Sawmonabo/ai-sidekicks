@@ -7,6 +7,7 @@ import { Buffer } from "node:buffer";
 import { describe, expect, it, type Mock, onTestFinished, vi } from "vitest";
 
 import { RustSidecarPtyHost } from "../host.js";
+import { HOST_OPERATING_SYSTEM } from "../../../../tests/helpers/host-operating-system.js";
 import { PtyBackendUnavailableError } from "../binary-path.js";
 import {
   CRASH_BUDGET_LIMIT,
@@ -37,7 +38,7 @@ interface HostUnderTest {
 function makeHost(): HostUnderTest {
   const children: FakeSidecarChild[] = [];
   const clock = vi.fn<() => number>().mockReturnValue(0);
-  const host = new RustSidecarPtyHost({
+  const host = new RustSidecarPtyHost(HOST_OPERATING_SYSTEM.terminal, {
     resolveBinaryPath: () => "/fake/sidecar",
     spawn: () => {
       const child = makeFakeSidecarChild();
@@ -448,7 +449,7 @@ describe("RustSidecarPtyHost — crash budget", () => {
     const spawn = vi.fn<SidecarSpawnFn>().mockImplementation(() => {
       throw new Error("spawn ENOENT");
     });
-    const host = new RustSidecarPtyHost({
+    const host = new RustSidecarPtyHost(HOST_OPERATING_SYSTEM.terminal, {
       resolveBinaryPath: () => "/fake/sidecar",
       spawn,
       nowMs: () => 0,
@@ -480,7 +481,7 @@ describe("RustSidecarPtyHost — crash budget", () => {
   });
 
   it("rejects spawn with PtyBackendUnavailableError when the binary cannot resolve", async () => {
-    const host = new RustSidecarPtyHost({
+    const host = new RustSidecarPtyHost(HOST_OPERATING_SYSTEM.terminal, {
       resolveBinaryPath: () => {
         throw new Error("custom resolver failure");
       },

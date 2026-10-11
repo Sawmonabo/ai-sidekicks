@@ -9,6 +9,7 @@ import { chmod, mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import type { DiskFlush } from "../../../disk-flush/contract.js";
 import { writeFileAtomically } from "../../../file/atomic-write.js";
 import { isMissingFileError } from "../../../file/missing-error.js";
 
@@ -21,9 +22,13 @@ const PRIVATE_FILE_MODE = 0o600;
 
 /**
  * Makes `<runFolderPath>/zsh` hold this app's zsh startup files, readable by this account alone,
- * and answers its path. A file whose contents differ from the app's is replaced whole.
+ * and answers its path. A file whose contents differ from the app's is replaced whole, flushed as
+ * `diskFlush` says.
  */
-export async function prepareZshStartupFolder(runFolderPath: string): Promise<string> {
+export async function prepareZshStartupFolder(
+  runFolderPath: string,
+  diskFlush: DiskFlush,
+): Promise<string> {
   const folder = path.join(runFolderPath, ZSH_FOLDER_NAME);
   await mkdir(folder, { recursive: true, mode: PRIVATE_FOLDER_MODE });
   // A folder made earlier keeps its own mode, so the mode is set again.
@@ -33,7 +38,7 @@ export async function prepareZshStartupFolder(runFolderPath: string): Promise<st
       const source = await readFile(path.join(ZSH_SOURCE_FOLDER, fileName), "utf8");
       const copyPath = path.join(folder, fileName);
       if ((await readCopy(copyPath)) !== source) {
-        await writeFileAtomically(copyPath, source, PRIVATE_FILE_MODE);
+        await writeFileAtomically(copyPath, source, PRIVATE_FILE_MODE, diskFlush);
       }
     }),
   );

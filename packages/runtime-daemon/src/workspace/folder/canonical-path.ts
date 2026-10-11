@@ -1,23 +1,24 @@
 // The one key every folder comparison uses. Folders are compared by their resolved path, because
 // git prints a tree's folder as it was recorded while the daemon's rows keep the path they were
 // given, and on macOS one folder has two spellings (`/var` and `/private/var`). The resolved path
-// is then compared by the one path rule the trust envelope uses, which folds case on Windows.
+// is then compared by the system's path rules the trust envelope uses, which fold case on Windows.
 
 import { realpath } from "node:fs/promises";
 import * as nodePath from "node:path";
 
+import type { PathRules } from "../../path-rules/contract.js";
 import { toComparableComponents } from "../trust-envelope.js";
 
 /**
  * The key every folder comparison uses: `folder` resolved, or for a folder that no longer exists
  * its nearest existing parent resolved with the rest joined on, or as given when even its root is
- * missing (a drive unplugged), then put in the trust envelope's comparable form. Two folders are
- * the same folder exactly when their keys are equal. Throws when the folder cannot be resolved for
- * another reason (a permission refusal).
+ * missing (a drive unplugged), then put in the trust envelope's comparable form by the system's
+ * `pathRules`. Two folders are the same folder exactly when their keys are equal. Throws when the
+ * folder cannot be resolved for another reason (a permission refusal).
  */
-export async function canonicalFolderPath(folder: string): Promise<string> {
-  return toComparableComponents(await resolveFolder(nodePath.resolve(folder)), nodePath).join(
-    nodePath.sep,
+export async function canonicalFolderPath(folder: string, pathRules: PathRules): Promise<string> {
+  return toComparableComponents(await resolveFolder(nodePath.resolve(folder)), pathRules).join(
+    pathRules.sep,
   );
 }
 

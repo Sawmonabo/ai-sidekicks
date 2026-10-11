@@ -3,7 +3,7 @@
 import { access, readFile } from "node:fs/promises";
 import path from "node:path";
 
-import { defaultSpawnTaskkill } from "../../pty/taskkill-windows.js";
+import { defaultSpawnTaskkill } from "../../process-tree/windows.js";
 import type {
   ProviderOperatingSystem,
   ProviderProgramFinder,
@@ -19,6 +19,9 @@ const SHIM_SCRIPT_PATTERN = /"%~?dp0%?\\([^"]+)"\s+%\*/g;
 
 // A shim whose program is Node names the `node.exe` it prefers, beside the shim.
 const SHIM_NODE_PATTERN = /%~?dp0%?\\node\.exe/i;
+
+// The `PATHEXT` default cmd.exe uses, consulted only when the environment has none.
+const DEFAULT_PATH_EXTENSIONS: readonly string[] = [".COM", ".EXE", ".BAT", ".CMD"];
 
 /**
  * Windows: Claude Code's managed settings under Program Files; its Bash sandbox does not run on
@@ -69,6 +72,21 @@ export const WINDOWS_PROVIDER_OPERATING_SYSTEM: ProviderOperatingSystem = {
   prepareLocalSocketEndpoint: () => Promise.resolve(),
   // A double-quoted word for `cmd.exe`; a Windows path holds no double quote.
   quoteShellWord: (word) => `"${word}"`,
+  isPathCommand: (command) =>
+    path.isAbsolute(command) || command.includes("/") || command.includes("\\"),
+  // `X_OK` acts like `F_OK` here, so the `PATHEXT` expansion is what marks an executable. Like the
+  // shell: a name with an extension as written first; one without through `PATHEXT`, then bare.
+  listExecutableCandidates: (programPath, readVariable) => {
+    const listed = (readVariable("PATHEXT") ?? "")
+      .split(";")
+      .map((extension) => extension.trim())
+      .filter((extension) => extension !== "");
+    const extensions = listed.length === 0 ? DEFAULT_PATH_EXTENSIONS : listed;
+    const withExtensions = extensions.map((extension) => `${programPath}${extension}`);
+    return path.extname(programPath) === ""
+      ? [...withExtensions, programPath]
+      : [programPath, ...withExtensions];
+  },
 };
 
 /**

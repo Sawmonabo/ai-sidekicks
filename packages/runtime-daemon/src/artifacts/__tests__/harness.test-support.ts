@@ -20,6 +20,7 @@ import type {
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 
+import { HOST_OPERATING_SYSTEM } from "../../../tests/helpers/host-operating-system.js";
 import { openScratchDatabase, type ScratchDatabase } from "../../database/__fixtures__/scratch.js";
 import { isMissingFileError } from "../../file/missing-error.js";
 import { registerArtifactIngestMethods } from "../../ipc/handlers/artifact/ingest.js";
@@ -140,7 +141,7 @@ export async function openIngestHarness(
   const openedAt = Date.now();
   let nowMs = openedAt;
   let pipelineRuns = 0;
-  const payloadStore = new PayloadStore(objectsDirectory);
+  const payloadStore = new PayloadStore(objectsDirectory, HOST_OPERATING_SYSTEM.diskFlush);
   const threadedDetector = new ThreadedTypeDetector();
   // Set once the harness exists, so a test's detector can act on it.
   let detectMediaType: MediaTypeDetector = (leadingBytes) => threadedDetector.detect(leadingBytes);

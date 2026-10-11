@@ -40,7 +40,6 @@ import { MACHINE_SETTINGS_FILE_PATH_SEGMENTS } from "@ai-sidekicks/contracts/mac
 import { DeviceIdSchema } from "@ai-sidekicks/contracts/trust-statement";
 import { CURRENT_PROTOCOL_VERSION } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 
-import type { ProcessPeakReader } from "../admission/process-peak/contract.js";
 import { bootstrap } from "../bootstrap/index.js";
 import { waitWithin } from "../bounded-wait.js";
 import { withCleanupFailures } from "../cleanup-failures.js";
@@ -63,9 +62,7 @@ import { StreamingPrimitive } from "../ipc/streaming-primitive.js";
 import { loadAuthorizer, type Authorizer } from "../policy/authorizer.js";
 import { ExecutionPostureService } from "../policy/execution-posture-service.js";
 import { ProviderRegistry } from "../provider/driver/registry.js";
-import type { ProviderOperatingSystem } from "../provider/operating-system/contract.js";
 import type { SpawnEnvPair } from "../provider/spawn-env.js";
-import type { TerminalOperatingSystem } from "../pty/operating-system/contract.js";
 import type { PtyHost } from "../pty/host/contract.js";
 import { PtySessionEvents } from "../pty/host/session-events.js";
 import type { OrphanGuard } from "../pty/orphan/guard.js";
@@ -77,7 +74,7 @@ import {
   recordSessionInAsideCopy,
 } from "../recovery/database-file/aside-copy.js";
 import { reportDamageOf } from "../recovery/database-file/damage.js";
-import type { DatabaseFileOperatingSystem } from "../recovery/database-file/operating-system.js";
+import type { DaemonOperatingSystem } from "../operating-system/contract.js";
 import { ProjectionRebuildService } from "../recovery/projection-rebuild.js";
 import { refuseSessionEvent } from "../recovery/session-write-refusal.js";
 import { StartupRecovery } from "../recovery/startup.js";
@@ -88,7 +85,7 @@ import { RunEngine } from "../session/run/engine.js";
 import { RUNS_PROJECTION } from "../session/run/projection.js";
 import { RunStateReader } from "../session/run/read.js";
 import { SearchThread } from "../session/search/thread/handle.js";
-import { readFolderPlace, type FolderPlace } from "../workspace/folder/place.js";
+import type { FolderPlace } from "../workspace/folder/place.js";
 import { openDatabaseFile, type OpenedDatabaseFile } from "./database-file.js";
 import { takeDataFolderLock, type DataFolderLock } from "./data-folder-lock.js";
 import { registerLifecycleMethods } from "./lifecycle-methods.js";
@@ -142,16 +139,10 @@ export interface DaemonProcessOptions {
   readonly captureProviderBaseEnvironment: (
     signal: AbortSignal,
   ) => Promise<readonly SpawnEnvPair[]>;
-  /** What the database file's check, repair and copies aside take from the operating system. */
-  readonly databaseFileOperatingSystem: DatabaseFileOperatingSystem;
+  /** The operating system the daemon runs on, picked once at its start. */
+  readonly operatingSystem: DaemonOperatingSystem;
   /** The login shell a project's setup commands run in; `null` runs the system's default one. */
   readonly commandShell: string | null;
-  /** The operating system the daemon runs on, chosen once at its start. */
-  readonly providerOperatingSystem: ProviderOperatingSystem;
-  /** The memory gate's read of a provider process's peak, chosen once at the start. */
-  readonly processPeakReader: ProcessPeakReader;
-  /** What the terminal takes from the operating system it runs on, picked once at the start. */
-  readonly terminalOperatingSystem: TerminalOperatingSystem;
   /**
    * Reads the person's login shell at each shell open, so a shell changed with `chsh` opens next;
    * `null` where the account names none.
@@ -329,10 +320,9 @@ export class DaemonProcess {
       searchThread: parts.searchThread,
       whenFileCheckEnds: parts.databaseFile.checkOutcome,
       commandShell: options.commandShell,
-      environmentNameMatch: options.providerOperatingSystem.environmentNameMatch,
+      operatingSystem: options.operatingSystem,
       providerBaseEnvironment: parts.providerBaseEnvironment,
       runFolderPath: options.runFolder.folderPath,
-      terminalOperatingSystem: options.terminalOperatingSystem,
       readLoginShell: options.readLoginShell,
       serviceVersion: options.serviceVersion,
       readVolumeFreeBytes: options.readVolumeFreeBytes,
@@ -381,7 +371,8 @@ export class DaemonProcess {
     const asideOptions = {
       databasePath: parts.databasePath,
       dataFolder: parts.dataFolder,
-      operatingSystem: options.databaseFileOperatingSystem,
+      operatingSystem: options.operatingSystem.databaseFile,
+      diskFlush: options.operatingSystem.diskFlush,
       now: options.now,
       writeServiceLog: options.writeServiceLog,
     };
@@ -398,7 +389,8 @@ export class DaemonProcess {
           writer.holdWhile(() => copyDatabaseFilesAside(asideOptions, stopSignal)),
         findCopyOfSession: (sessionId, headSequence) =>
           findAsideCopyOfSession(asideOptions, sessionId, headSequence),
-        recordSession: recordSessionInAsideCopy,
+        recordSession: (folder, sessionId, headSequence) =>
+          recordSessionInAsideCopy(folder, sessionId, headSequence, asideOptions.diskFlush),
       },
       runs,
       runEngine,
@@ -426,8 +418,10 @@ export class DaemonProcess {
       runFolder: options.runFolder,
       dataFolder: parts.dataFolder,
       providerBaseEnvironment: parts.providerBaseEnvironment,
-      operatingSystem: options.providerOperatingSystem,
-      processPeakReader: options.processPeakReader,
+      operatingSystem: options.operatingSystem.provider,
+      diskFlush: options.operatingSystem.diskFlush,
+      pathRules: options.operatingSystem.pathRules,
+      processPeakReader: options.operatingSystem.processPeak,
       writeServiceLog: options.writeServiceLog,
     });
     this.providerPorts = this.#providers.ports;
@@ -523,6 +517,7 @@ export class DaemonProcess {
       const indexFolderPath = path.join(dataFolder, SEARCH_INDEX_FOLDER_NAME);
       const settingsFile = new MachineSettingsFile({
         filePath: path.join(options.homeDirectory, ...MACHINE_SETTINGS_FILE_PATH_SEGMENTS),
+        diskFlush: options.operatingSystem.diskFlush,
         now: options.now,
       });
       const databaseFile = await openDatabaseFile({
@@ -530,7 +525,8 @@ export class DaemonProcess {
         dataFolder,
         indexFolderPath,
         runFolder: options.runFolder,
-        operatingSystem: options.databaseFileOperatingSystem,
+        operatingSystem: options.operatingSystem.databaseFile,
+        diskFlush: options.operatingSystem.diskFlush,
         readBackupFolder: async () =>
           (await settingsFile.read()).settings.backup.folder ??
           path.join(dataFolder, BACKUP_DEFAULT_FOLDER_NAME),
@@ -574,10 +570,16 @@ export class DaemonProcess {
         }
         const providerBaseEnvironment = capture.value;
         // Found once, along the login shell's PATH; a missing git fails where git is first used.
-        const gitExecutable = await findGitExecutable(providerBaseEnvironment);
+        const gitExecutable = await findGitExecutable(providerBaseEnvironment, {
+          operatingSystem: options.operatingSystem.provider,
+        });
         const git = createGitRunner(gitExecutable);
-        const streamedGit = createStreamedGitRunner(gitExecutable);
-        const folderPlace = await readFolderPlace();
+        const streamedGit = createStreamedGitRunner(
+          gitExecutable,
+          options.operatingSystem.processTree,
+        );
+        // The daemon's own environment says whether it runs inside a WSL distribution.
+        const folderPlace = await options.operatingSystem.readFolderPlace(process.env);
         // A rules file that does not parse or check stops the start.
         const authorizer = await loadAuthorizer();
 

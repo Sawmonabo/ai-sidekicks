@@ -10,7 +10,6 @@ import * as os from "node:os";
 
 import {
   assertPrivateRunFolder,
-  resolveDaemonRunFolder,
   type DaemonRunFolder,
 } from "@ai-sidekicks/contracts/daemon/run-folder";
 import {
@@ -43,8 +42,8 @@ export interface DaemonConnectionObserver {
 
 /** How to open a daemon connection. */
 export interface DaemonConnectionOptions {
-  /** The daemon's run folder; defaults to the one this user's daemon uses. */
-  readonly runFolder?: DaemonRunFolder;
+  /** The daemon's run folder, as the calling process's system resolves it. */
+  readonly runFolder: DaemonRunFolder;
   /** The most unread values one subscription holds; see `JsonRpcClientOptions`. */
   readonly maxQueuedValuesPerSubscription: number;
   /**
@@ -75,14 +74,13 @@ export interface DaemonConnection {
 /**
  * Connects to the daemon and completes `daemon.hello` with its session token. Throws
  * `JsonRpcTransportUnavailableError` when nothing answers on the socket; an `Error` when the run
- * folder is not this user's alone, or, with no `runFolder` given, on Windows, which has none; the
- * token file's read error, `code` `ENOENT` when a daemon has bound its socket and not yet written
- * its token; and `JsonRpcRemoteError` with `auth.token_invalid` when the daemon refuses the token
- * and the token file still holds the one presented; and the signal's reason once it aborts. Any
- * failure after a connect closes it.
+ * folder is not this user's alone; the token file's read error, `code` `ENOENT` when a daemon has
+ * bound its socket and not yet written its token; and `JsonRpcRemoteError` with
+ * `auth.token_invalid` when the daemon refuses the token and the token file still holds the one
+ * presented; and the signal's reason once it aborts. Any failure after a connect closes it.
  */
 export async function connectToDaemon(options: DaemonConnectionOptions): Promise<DaemonConnection> {
-  const runFolder = options.runFolder ?? defaultDaemonRunFolder();
+  const { runFolder } = options;
   let presentedToken: string | undefined;
   const readPresentedToken = async (): Promise<string> => {
     presentedToken = await readFile(runFolder.tokenPath, "utf8");
@@ -186,13 +184,4 @@ function observedTransport(
     },
     close: () => transport.close(),
   };
-}
-
-function defaultDaemonRunFolder(): DaemonRunFolder {
-  return resolveDaemonRunFolder({
-    platform: process.platform,
-    runtimeDirectory: process.env["XDG_RUNTIME_DIR"],
-    temporaryDirectory: os.tmpdir(),
-    userId: os.userInfo().uid,
-  });
 }

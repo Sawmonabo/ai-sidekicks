@@ -8,6 +8,7 @@ import type { ProcessIdentity } from "@ai-sidekicks/contracts/process-identity";
 import pidtree from "pidtree";
 
 import { withCleanupFailures } from "../../cleanup-failures.js";
+import type { DiskFlush } from "../../disk-flush/contract.js";
 import { describeRejection } from "../../rejection.js";
 import type { OrphanOperatingSystem, ProcessExitWatch } from "./operating-system.js";
 import { OrphanRegistry } from "./registry.js";
@@ -19,7 +20,8 @@ export interface OrphanGuardOptions {
   /** This boot's id, which every entry records. */
   bootId: string;
   readProcessIdentity: (processId: number) => Promise<ProcessIdentity | undefined>;
-  exitWatch?: ProcessExitWatch | undefined;
+  /** The kernel's watch on exits, `null` where the system has none. */
+  exitWatch: ProcessExitWatch | null;
   writeServiceLog: (line: string) => void;
 }
 
@@ -32,7 +34,7 @@ export class OrphanGuard {
   readonly #registry: OrphanRegistry;
   readonly #bootId: string;
   readonly #readProcessIdentity: (processId: number) => Promise<ProcessIdentity | undefined>;
-  readonly #exitWatch: ProcessExitWatch | undefined;
+  readonly #exitWatch: ProcessExitWatch | null;
   readonly #writeServiceLog: (line: string) => void;
 
   constructor(options: OrphanGuardOptions) {
@@ -102,6 +104,8 @@ export interface OrphanGuardOpening {
   bootId: string;
   readProcessIdentity: (processId: number) => Promise<ProcessIdentity | undefined>;
   operatingSystem: OrphanOperatingSystem;
+  /** How the registry's file is flushed to disk. */
+  diskFlush: DiskFlush;
   writeServiceLog: (line: string) => void;
 }
 
@@ -113,7 +117,7 @@ export interface OrphanGuardOpening {
 export async function openOrphanGuard(
   opening: OrphanGuardOpening,
 ): Promise<{ guard: OrphanGuard; sweep: OrphanSweepResult }> {
-  const registry = new OrphanRegistry(opening.dataFolder);
+  const registry = new OrphanRegistry(opening.dataFolder, opening.diskFlush);
   let sweep: OrphanSweepResult;
   try {
     sweep = await sweepOrphans(await registry.readLeftover(), {

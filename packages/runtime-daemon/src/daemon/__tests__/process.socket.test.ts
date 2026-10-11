@@ -64,7 +64,7 @@ import {
   whenClosed,
   writeAheadLogPath,
 } from "./process.test-support.js";
-import { selectTerminalOperatingSystem } from "../../pty/operating-system/selector.js";
+import { HOST_OPERATING_SYSTEM } from "../../../tests/helpers/host-operating-system.js";
 
 // Every server this file's daemons create, so a test can fail the daemon's own listener the way
 // the operating system would, with an `error` event on the listening server.
@@ -487,20 +487,16 @@ async function startShellDaemon(): Promise<{
 }> {
   const writers = captureDatabaseWriters();
   const spawned: Parameters<NodePtySpawnFn>[2][] = [];
-  const ptyHost = new NodePtyHost(
-    makeOrphanGuardDouble(),
-    selectTerminalOperatingSystem(process.platform, process.env),
-    {
-      ptySpawn: (_command, _args, options) => {
-        spawned.push(options);
-        const fake = makeFakeChild();
-        vi.mocked(fake.child.kill).mockImplementation(() => {
-          fake.triggerExit(0);
-        });
-        return fake.child;
-      },
+  const ptyHost = new NodePtyHost(makeOrphanGuardDouble(), HOST_OPERATING_SYSTEM.terminal, {
+    ptySpawn: (_command, _args, options) => {
+      spawned.push(options);
+      const fake = makeFakeChild();
+      vi.mocked(fake.child.kill).mockImplementation(() => {
+        fake.triggerExit(0);
+      });
+      return fake.child;
     },
-  );
+  });
   const daemon = await startDaemon(DRAIN_NOTHING, {}, (options) =>
     DaemonProcess.start({ ...options, createPtyHost: () => ptyHost }),
   );

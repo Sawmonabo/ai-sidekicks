@@ -8,6 +8,7 @@ import path from "node:path";
 
 import { afterEach, beforeEach, expect, it } from "vitest";
 
+import { HOST_OPERATING_SYSTEM } from "../../../../../tests/helpers/host-operating-system.js";
 import type { ProviderAskRule } from "../../../port/permission-ask.js";
 import { removeCodexProjectRule, writeCodexProjectRule } from "../rules.js";
 
@@ -47,9 +48,24 @@ it("replaces the opposite rule over a subject, excludes the file once, and revok
     subject: "example.com",
   };
 
-  await writeCodexProjectRule(projectFolder, npmTestAllow, readGitFolder);
-  await writeCodexProjectRule(projectFolder, { ...hostBlock, sense: "allow" }, readGitFolder);
-  await writeCodexProjectRule(projectFolder, hostBlock, readGitFolder);
+  await writeCodexProjectRule(
+    projectFolder,
+    npmTestAllow,
+    readGitFolder,
+    HOST_OPERATING_SYSTEM.diskFlush,
+  );
+  await writeCodexProjectRule(
+    projectFolder,
+    { ...hostBlock, sense: "allow" },
+    readGitFolder,
+    HOST_OPERATING_SYSTEM.diskFlush,
+  );
+  await writeCodexProjectRule(
+    projectFolder,
+    hostBlock,
+    readGitFolder,
+    HOST_OPERATING_SYSTEM.diskFlush,
+  );
 
   expect(await readRuleLines()).toStrictEqual([
     'prefix_rule(pattern=["npm", "test"], decision="allow")',
@@ -60,7 +76,7 @@ it("replaces the opposite rule over a subject, excludes the file once, and revok
     "/.codex/rules/sidekicks.rules\n",
   );
 
-  await removeCodexProjectRule(projectFolder, npmTestAllow);
+  await removeCodexProjectRule(projectFolder, npmTestAllow, HOST_OPERATING_SYSTEM.diskFlush);
 
   expect(await readRuleLines()).toHaveLength(2);
 });
@@ -72,6 +88,7 @@ it.each(["git", "git push", "git branch"])(
       projectFolder,
       { kind: "project", sense: "allow", action: "command", subject },
       readGitFolder,
+      HOST_OPERATING_SYSTEM.diskFlush,
     );
 
     await expect(access(path.join(projectFolder, ".codex"))).rejects.toMatchObject({

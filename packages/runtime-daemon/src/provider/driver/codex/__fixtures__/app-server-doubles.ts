@@ -53,7 +53,8 @@ import type {
   CodexServiceSocketConnector,
   CodexServiceSocketHandlers,
 } from "../transport/socket.js";
-import { DARWIN_PROVIDER_OPERATING_SYSTEM } from "../../../operating-system/darwin.js";
+import { HOST_OPERATING_SYSTEM } from "../../../../../tests/helpers/host-operating-system.js";
+import { MAC_PROVIDER_OPERATING_SYSTEM } from "../../../operating-system/mac.js";
 import { resolveProviderExecutable } from "../../../spawned-version.js";
 
 /** One scripted answer to a request the driver sent. */
@@ -665,11 +666,11 @@ export function createHarness(options: HarnessOptions = {}): Harness {
       await resolveProviderExecutable("codex", EXECUTABLE_PATH, spawnEnvironment, {
         realpath: async (candidate) => candidate,
         isExecutableFile: async () => true,
-        platform: "darwin",
+        operatingSystem: MAC_PROVIDER_OPERATING_SYSTEM,
         workingDirectory: "/",
       }),
     providerBaseEnvironment: [["PATH", "/usr/bin"]],
-    operatingSystem: DARWIN_PROVIDER_OPERATING_SYSTEM,
+    operatingSystem: MAC_PROVIDER_OPERATING_SYSTEM,
     homes: options.homes ?? {
       codexHomeFor: async (providerAccountId) => codexHomeFor(providerAccountId),
     },
@@ -694,6 +695,7 @@ export function createHarness(options: HarnessOptions = {}): Harness {
     helperRolesFolder:
       options.helperRolesFolder ?? path.join(tmpdir(), "codex-helper-roles-unwritten"),
     readGitFolder: async (projectFolder) => await Promise.resolve(path.join(projectFolder, ".git")),
+    diskFlush: HOST_OPERATING_SYSTEM.diskFlush,
     launchProcess: server.launchProcess,
     runCommand: server.runCommand,
     connectSocket: server.connectSocket,

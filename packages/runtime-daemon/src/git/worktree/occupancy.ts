@@ -8,6 +8,7 @@ import type { Database, Statement } from "better-sqlite3";
 import { SessionIdSchema, type SessionId } from "@ai-sidekicks/contracts/session/id";
 import { WorktreeIdSchema, type WorktreeId } from "@ai-sidekicks/contracts/worktree/lifecycle";
 
+import type { PathRules } from "../../path-rules/contract.js";
 import { canonicalFolderPath } from "../../workspace/folder/canonical-path.js";
 import { CHECKOUT_ROOT_METADATA_PATH } from "../../workspace/row-guards.js";
 import { liveWorktreeStatePredicate } from "./rows.js";
@@ -72,8 +73,11 @@ export interface MountOccupancy {
 export class MountOccupancyReader {
   readonly #selectStanding: Statement<{ repoMountId: string }, StandingSessionRow>;
   readonly #selectRunning: Statement<{ repoMountId: string }, RunningSessionRow>;
+  readonly #pathRules: PathRules;
 
-  constructor(reader: Database) {
+  /** Reads through `reader`, keying each folder by the system's `pathRules`. */
+  constructor(reader: Database, pathRules: PathRules) {
+    this.#pathRules = pathRules;
     this.#selectStanding = reader.prepare<{ repoMountId: string }, StandingSessionRow>(
       STANDING_SESSIONS_SQL,
     );
@@ -86,7 +90,7 @@ export class MountOccupancyReader {
   async read(repoMountId: string): Promise<MountOccupancy> {
     const standingByFolder = new Map<string, StandingSession[]>();
     for (const row of this.#selectStanding.all({ repoMountId })) {
-      const folder = await canonicalFolderPath(row.folder);
+      const folder = await canonicalFolderPath(row.folder, this.#pathRules);
       const standing = standingByFolder.get(folder) ?? [];
       standing.push({
         sessionId: SessionIdSchema.parse(row.session_id),
@@ -97,7 +101,7 @@ export class MountOccupancyReader {
     }
     const runningByFolder = new Map<string, SessionId>();
     for (const row of this.#selectRunning.all({ repoMountId })) {
-      const folder = await canonicalFolderPath(row.folder);
+      const folder = await canonicalFolderPath(row.folder, this.#pathRules);
       if (!runningByFolder.has(folder)) {
         runningByFolder.set(folder, SessionIdSchema.parse(row.session_id));
       }

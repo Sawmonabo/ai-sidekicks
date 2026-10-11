@@ -16,6 +16,7 @@ import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 
+import type { PathRules } from "../path-rules/contract.js";
 import { answerProviderAsk } from "../policy/provider-ask-answers.js";
 import type { RespondToRequestParams } from "../provider/driver/contract.js";
 import {
@@ -41,6 +42,8 @@ export interface PermissionAsksDeps {
   readonly rules: Pick<ApprovalRules, "findRule" | "record" | "readProjectFolders">;
   /** The one all-projects agent-memory folder, whose notes an agent reads and writes unasked. */
   readonly agentMemoryFolder: string;
+  /** How the system spells and compares paths. */
+  readonly pathRules: PathRules;
   /** The agent whose run holds the ask, which the card names as its asker. */
   readonly readRunAgent: (sessionId: SessionId, runId: RunId) => string;
   /** Hands an answer to the driver that runs the run holding the ask. */
@@ -221,7 +224,11 @@ export class PermissionAsks implements PermissionAskPort {
   // The daemon's designed answers first, then a rule in force over the ask's subject: a block
   // whatever the ask offers, an allow only on an ask a standing allow may stand on.
   async #answerOwnAsk(ask: ProviderPermissionAsk): Promise<ProviderPermissionAnswer | undefined> {
-    const designed = await answerProviderAsk(ask.action, this.#deps.agentMemoryFolder);
+    const designed = await answerProviderAsk(
+      ask.action,
+      this.#deps.agentMemoryFolder,
+      this.#deps.pathRules,
+    );
     if (designed !== undefined) {
       return designed.decision === "allow"
         ? { decision: "allow" }

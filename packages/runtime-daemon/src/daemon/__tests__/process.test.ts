@@ -43,6 +43,7 @@ import {
 import { EventLogService } from "../../events/log-service.js";
 import { SessionEventAppender } from "../../events/session/appender.js";
 import { connect } from "../../ipc/__fixtures__/local-socket-client.js";
+import { NODE_SYSTEM_ACCESS } from "../../node-system-access.js";
 import { readSocketPathLimit } from "../../ipc/socket-path-limit.js";
 import type { FakeProviderDriver } from "../../provider/driver/__fixtures__/contract-doubles.js";
 import { ExecutionPostureService } from "../../policy/execution-posture-service.js";
@@ -212,7 +213,6 @@ describe("DaemonProcess.start", () => {
     const otherRuntimeDirectory = path.join(scratch, "other-run");
     await mkdir(otherRuntimeDirectory, { mode: 0o700 });
     const otherRunFolder = resolveDaemonRunFolder({
-      platform: process.platform,
       runtimeDirectory: otherRuntimeDirectory,
       temporaryDirectory: os.tmpdir(),
       userId: os.userInfo().uid,
@@ -400,7 +400,6 @@ async function useSleepingLoginShell(): Promise<{
   const logged: string[] = [];
   const capture = (signal: AbortSignal): ReturnType<typeof captureLoginShellEnvironment> =>
     captureLoginShellEnvironment({
-      platform: process.platform,
       shell: shellPath,
       homeDirectory,
       userName: os.userInfo().username,
@@ -409,6 +408,7 @@ async function useSleepingLoginShell(): Promise<{
       deadlineMs: 60_000,
       serviceEnvironment: process.env,
       writeServiceLog: (line) => logged.push(line),
+      readTextFile: NODE_SYSTEM_ACCESS.readTextFile,
       signal,
     });
   return { capture, running, logged, shellPath };
@@ -470,7 +470,6 @@ describe("the socket path's length", () => {
   // A run folder whose socket path is exactly `socketPathBytes` long.
   async function makeRunFolderWithSocketPathOf(socketPathBytes: number): Promise<DaemonRunFolder> {
     const shortest = resolveDaemonRunFolder({
-      platform: process.platform,
       runtimeDirectory: path.join(scratch, "r"),
       temporaryDirectory: os.tmpdir(),
       userId: os.userInfo().uid,
@@ -479,7 +478,6 @@ describe("the socket path's length", () => {
     const runtimeDirectory = path.join(scratch, "r".repeat(1 + padding));
     await mkdir(runtimeDirectory, { mode: 0o700 });
     const sized = resolveDaemonRunFolder({
-      platform: process.platform,
       runtimeDirectory,
       temporaryDirectory: os.tmpdir(),
       userId: os.userInfo().uid,

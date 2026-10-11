@@ -16,6 +16,7 @@ import type {
   RepoBranchListResponse,
 } from "@ai-sidekicks/contracts/repo/git-reads";
 
+import type { PathRules } from "../../path-rules/contract.js";
 import { RepoMountNotFoundError } from "../../workspace/repo/errors.js";
 import { canonicalFolderPath } from "../../workspace/folder/canonical-path.js";
 import type { GitCommand } from "../process.js";
@@ -62,6 +63,8 @@ export interface BranchListReaderDeps {
   readonly git: GitCommand;
   /** When each mount's ahead and behind figures were last true, after a failed fetch. */
   readonly fetch: { countsAsOf(repoMountId: string): string | null };
+  /** How the system spells and compares paths. */
+  readonly pathRules: PathRules;
 }
 
 /** Answers `repo.branchList` for a project's mount. */
@@ -112,7 +115,7 @@ export class BranchListReader {
 
     const appTreeIdByFolder = new Map<string, string>();
     for (const row of this.#selectLiveWorktrees.all({ repoMountId })) {
-      appTreeIdByFolder.set(await canonicalFolderPath(row.fs_root), row.id);
+      appTreeIdByFolder.set(await canonicalFolderPath(row.fs_root, this.#deps.pathRules), row.id);
     }
 
     // Newest commit first, so the last tier needs no further sort.
@@ -142,7 +145,7 @@ export class BranchListReader {
       const appTreeId =
         holderFolder === null
           ? undefined
-          : appTreeIdByFolder.get(await canonicalFolderPath(holderFolder));
+          : appTreeIdByFolder.get(await canonicalFolderPath(holderFolder, this.#deps.pathRules));
       entries.push({
         name: branch.name,
         ...(branch.ahead === null ? {} : { ahead: branch.ahead }),

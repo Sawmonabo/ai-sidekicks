@@ -53,7 +53,6 @@ beforeEach(async () => {
   handshakeAbort = new AbortController();
   scratch = await mkdtemp(path.join(os.tmpdir(), "aisk-sdk-"));
   runFolder = resolveDaemonRunFolder({
-    platform: process.platform,
     runtimeDirectory: scratch,
     temporaryDirectory: os.tmpdir(),
     userId: os.userInfo().uid,

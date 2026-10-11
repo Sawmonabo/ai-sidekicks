@@ -17,6 +17,7 @@ import { SHELL_MARK_NONCE_FILE_ENVIRONMENT_NAME } from "@ai-sidekicks/contracts/
 import { PTY_CONTROL_HELD_BY_OTHER_CODE, type PtyListUpdate } from "@ai-sidekicks/contracts/pty";
 import { SESSION_WORKING_FOLDER_UNAVAILABLE_CODE } from "@ai-sidekicks/contracts/session/methods";
 
+import { HOST_OPERATING_SYSTEM } from "../../../../tests/helpers/host-operating-system.js";
 import { LAPTOP, PHONE, SESSION_ID } from "../../__tests__/control-lease.test-support.js";
 import type { PtyHost } from "../../host/contract.js";
 import type { SpawnRequest } from "../../host/protocol.js";
@@ -136,7 +137,7 @@ describe("ShellTable lifecycle", () => {
   async function expectFallbackFor(
     unstartable: readonly (readonly [loginShell: string, reason: string])[],
   ): Promise<void> {
-    const platformDefaultShell = process.platform === "darwin" ? "/bin/zsh" : "/bin/sh";
+    const platformDefaultShell = HOST_OPERATING_SYSTEM.terminal.defaultShell;
     for (const [loginShell, reason] of unstartable) {
       const { table, openShell, startedPrograms } = openTable({ loginShell });
       const { terminalId, child } = await openShell();

@@ -21,7 +21,8 @@ import {
   composeCodexShellEnvironmentPolicy,
   type SpawnEnvPair,
 } from "../spawn-env.js";
-import { selectProviderOperatingSystem } from "../operating-system/selection.js";
+import { HOST_OPERATING_SYSTEM } from "../../../tests/helpers/host-operating-system.js";
+import { selectDaemonOperatingSystem } from "../../operating-system/selection.js";
 
 const CAPTURED_BASE: readonly SpawnEnvPair[] = [
   ["HOME", "/home/agent"],
@@ -361,9 +362,11 @@ describe("provider spawn environment — per-process mandated pairs", () => {
 
 describe("provider spawn environment — host name-matching semantics", () => {
   it("picks the host's mode by platform, and only Windows is case-insensitive", () => {
-    expect(selectProviderOperatingSystem("win32").environmentNameMatch).toBe("case-insensitive");
-    for (const platform of ["darwin", "linux"] as const) {
-      expect(selectProviderOperatingSystem(platform).environmentNameMatch).toBe("case-sensitive");
+    const nameMatchOn = (platform: string) =>
+      selectDaemonOperatingSystem(platform, {}).provider.environmentNameMatch;
+    expect(nameMatchOn("win32")).toBe("case-insensitive");
+    for (const platform of ["darwin", "linux"]) {
+      expect(nameMatchOn(platform)).toBe("case-sensitive");
     }
   });
 });
@@ -395,7 +398,7 @@ describe("provider child environment carries no ambient inheritance", () => {
         buildProviderSpawnEnv({
           driverName,
           baseEnv: [],
-          hostEnvNameMatch: selectProviderOperatingSystem(process.platform).environmentNameMatch,
+          hostEnvNameMatch: HOST_OPERATING_SYSTEM.provider.environmentNameMatch,
         }),
       );
       expect(Object.fromEntries(composed)).toStrictEqual({

@@ -5,12 +5,12 @@ import { spawn } from "node:child_process";
 
 import { describe, expect, it, vi } from "vitest";
 
-import { DarwinProcessExitWatch } from "../exit-watch.js";
-import { loadDarwinSystemLibrary } from "../system-library.js";
+import { MacProcessExitWatch } from "../exit-watch.js";
+import { loadMacSystemLibrary } from "../system-library.js";
 
-describe.skipIf(process.platform !== "darwin")("DarwinProcessExitWatch", () => {
+describe.skipIf(process.platform !== "darwin")("MacProcessExitWatch", () => {
   it("reports a child's exit, and closes promptly while still watching another", async () => {
-    const watch = new DarwinProcessExitWatch(await loadDarwinSystemLibrary(), (error) => {
+    const watch = new MacProcessExitWatch(await loadMacSystemLibrary(), (error) => {
       throw error;
     });
     const brief = spawn("/bin/sleep", ["0.2"]);

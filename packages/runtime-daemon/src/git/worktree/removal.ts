@@ -37,13 +37,14 @@ import {
   type WorktreeRetireResponse,
 } from "@ai-sidekicks/contracts/worktree/lifecycle";
 
+import type { PathRules } from "../../path-rules/contract.js";
 import { withCleanupFailures } from "../../cleanup-failures.js";
 import type { ServiceLogWriter } from "../../daemon/service-log.js";
 import type { KeyedLock } from "../../keyed-lock.js";
 import { settleAll } from "../../settle-all.js";
 import { mintUuidV7 } from "../../uuid-v7.js";
 import { canonicalFolderPath } from "../../workspace/folder/canonical-path.js";
-import type { GitFilesystem } from "../filesystem.js";
+import type { FolderRenames, GitFilesystem } from "../filesystem.js";
 import { pathExists } from "../../file/path-exists.js";
 import type { GitCommand } from "../process.js";
 import { WorktreeRetireConflictError, WorktreeRetireIncompleteError } from "./errors.js";
@@ -171,6 +172,10 @@ export interface WorktreeRemovalDeps {
   /** The daemon's git entry point. */
   readonly runGit: GitCommand;
   readonly filesystem: Pick<GitFilesystem, "rename" | "removePath">;
+  /** How the system renames a folder, which a discard's move and a record's removal follow. */
+  readonly folderRenames: FolderRenames;
+  /** How the system spells and compares paths. */
+  readonly pathRules: PathRules;
   /** Where a discard's copy across volumes, and its undo's, reports its progress. */
   readonly copies: KeptCopyTools["copies"];
   /** Where the repair writes a tree record it found set aside and left there, its name taken. */
@@ -453,6 +458,8 @@ export class WorktreeRemoval implements RetiredWorktreeKeeper {
         removeStaleTreeRecord(
           {
             filesystem: this.#deps.filesystem,
+            folderRenames: this.#deps.folderRenames,
+            pathRules: this.#deps.pathRules,
             writeServiceLog: this.#deps.writeServiceLog,
             claims: removedWorktrees.claims,
           },
@@ -545,7 +552,13 @@ export class WorktreeRemoval implements RetiredWorktreeKeeper {
     const mount = this.#deps.worktrees.requireAttachedMount(row.repo_mount_id);
     try {
       return await moveWorktreeAside(
-        { runGit: this.#deps.runGit, filesystem: this.#deps.filesystem, copies: this.#deps.copies },
+        {
+          runGit: this.#deps.runGit,
+          filesystem: this.#deps.filesystem,
+          folderRenames: this.#deps.folderRenames,
+          copies: this.#deps.copies,
+          pathRules: this.#deps.pathRules,
+        },
         {
           worktreeId: WorktreeIdSchema.parse(row.id),
           projectId: ProjectIdSchema.parse(mount.project_id),
@@ -604,7 +617,9 @@ export class WorktreeRemoval implements RetiredWorktreeKeeper {
 
   async #occupying(row: WorktreeRow): Promise<SessionId[]> {
     const occupancy = await this.#deps.occupancy.read(row.repo_mount_id);
-    const standing = occupancy.standingByFolder.get(await canonicalFolderPath(row.fs_root));
+    const standing = occupancy.standingByFolder.get(
+      await canonicalFolderPath(row.fs_root, this.#deps.pathRules),
+    );
     return (standing ?? []).map((session) => session.sessionId);
   }
 

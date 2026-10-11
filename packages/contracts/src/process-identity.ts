@@ -4,8 +4,9 @@
 // other process does not, short of its id being reused within the start record's resolution (one
 // second on macOS). The service reports its own; a client that ends a service it found
 // running reads that id again before each signal and signals only on a match. Both sides read
-// through the reader here, so both write the same text for the same process; each hands it the
-// system's file read and program run, since this package stays free of any one runtime.
+// through the reader here of the system they run on, so both write the same text for the same
+// process; each hands it the system's file read and program run, since this package stays free of
+// any one runtime.
 import { z } from "zod";
 
 /** A process as the system knows it. */
@@ -43,10 +44,8 @@ export function isSameProcess(first: ProcessIdentity, second: ProcessIdentity): 
   );
 }
 
-/** What the reader reads the system through: Node's own calls, handed in by each side. */
+/** What a reader reads the system through: Node's own calls, handed in by each side. */
 export interface ProcessIdentitySystem {
-  /** `process.platform`. */
-  readonly platform: string;
   /**
    * Reads a text file; rejects as `fs.promises.readFile` does, with `code` `ENOENT` when absent and
    * `ESRCH` when a process's file goes while it is read.
@@ -64,16 +63,59 @@ export interface ProcessIdentitySystem {
 }
 
 /**
- * A reader of processes on macOS or Linux, which answers `undefined` when no process has the id.
- * It rejects on any other system and when the system's reading fails.
+ * Reads the process with an id as the system knows it, `undefined` when no process has the id.
+ * Rejects when the system's reading fails.
  */
-export function createProcessIdentityReader(
+export type ProcessIdentityReader = (processId: number) => Promise<ProcessIdentity | undefined>;
+
+/** A reader of processes on macOS: `ps` for the start, the boot session id for the boot. */
+export function createMacProcessIdentityReader(
   system: ProcessIdentitySystem,
-): (processId: number) => Promise<ProcessIdentity | undefined> {
-  // The boot is read once and kept, since it cannot change while the reading process runs.
+): ProcessIdentityReader {
+  const readBootId = keepBootIdReading(async () => {
+    const { stdout } = await system.runProgram(
+      "/usr/sbin/sysctl",
+      ["-n", "kern.bootsessionuuid"],
+      {},
+    );
+    return stdout;
+  });
+  return async (processId) => {
+    const startTime = await readMacProcessStartTime(system, processId);
+    if (startTime === undefined) {
+      return undefined;
+    }
+    return { processId, bootId: await readBootId(), processStartTime: startTime };
+  };
+}
+
+/** A reader of processes on Linux: `/proc/<id>/stat` for the start, the kernel's boot id. */
+export function createLinuxProcessIdentityReader(
+  system: ProcessIdentitySystem,
+): ProcessIdentityReader {
+  const readBootId = keepBootIdReading(() =>
+    system.readTextFile("/proc/sys/kernel/random/boot_id"),
+  );
+  return async (processId) => {
+    const startTime = await readLinuxProcessStartTime(system, processId);
+    if (startTime === undefined) {
+      return undefined;
+    }
+    return { processId, bootId: await readBootId(), processStartTime: startTime };
+  };
+}
+
+/** The reader on Windows, whose processes are not read: each reading rejects. */
+export function createWindowsProcessIdentityReader(): ProcessIdentityReader {
+  return () =>
+    Promise.reject(new Error("This system's processes cannot be identified here: win32"));
+}
+
+// The boot is read once and kept, since it cannot change while the reading process runs. A failed
+// reading is dropped, so the next one tries again.
+function keepBootIdReading(read: () => Promise<string>): () => Promise<string> {
   let bootIdReading: Promise<string> | undefined;
-  const readBootId = (read: () => Promise<string>): Promise<string> => {
-    // A failed reading is dropped, so the next one tries again.
+  return () => {
     bootIdReading ??= read().then(
       (text) => text.trim(),
       (failure: unknown) => {
@@ -83,40 +125,6 @@ export function createProcessIdentityReader(
     );
     return bootIdReading;
   };
-  switch (system.platform) {
-    case "darwin":
-      return async (processId) => {
-        const startTime = await readMacProcessStartTime(system, processId);
-        if (startTime === undefined) {
-          return undefined;
-        }
-        const bootId = await readBootId(async () => {
-          const { stdout } = await system.runProgram(
-            "/usr/sbin/sysctl",
-            ["-n", "kern.bootsessionuuid"],
-            {},
-          );
-          return stdout;
-        });
-        return { processId, bootId, processStartTime: startTime };
-      };
-    case "linux":
-      return async (processId) => {
-        const startTime = await readLinuxProcessStartTime(system, processId);
-        if (startTime === undefined) {
-          return undefined;
-        }
-        const bootId = await readBootId(() =>
-          system.readTextFile("/proc/sys/kernel/random/boot_id"),
-        );
-        return { processId, bootId, processStartTime: startTime };
-      };
-    default:
-      return () =>
-        Promise.reject(
-          new Error(`This system's processes cannot be identified here: ${system.platform}`),
-        );
-  }
 }
 
 // `ps` writes the start in the reader's time zone and language, so both are fixed: the service and

@@ -10,6 +10,7 @@ import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import { NodeIdSchema, type NodeId } from "@ai-sidekicks/contracts/runtime-node/id";
 import { SessionIdSchema, type SessionId } from "@ai-sidekicks/contracts/session/id";
 
+import { HOST_OPERATING_SYSTEM } from "../../../../tests/helpers/host-operating-system.js";
 import {
   openScratchDatabase,
   type ScratchDatabase,
@@ -193,6 +194,7 @@ export class PurgeFixture {
     this.managedWorkspaces = new ManagedWorkspaceService({
       homeDirectory,
       repoMounts: new RepoMountService({
+        pathRules: HOST_OPERATING_SYSTEM.pathRules,
         database: scratch,
         events: new WorkspaceEventEmitter({
           sessionEvents: new EventLogService({
@@ -250,6 +252,7 @@ export class PurgeFixture {
     > = {},
   ): SessionPurge {
     return new SessionPurge({
+      pathRules: HOST_OPERATING_SYSTEM.pathRules,
       writer: this.scratch.writer,
       nodeId: NODE,
       eventLog: new RecordingEventLog(),

@@ -74,4 +74,17 @@ export interface ProviderOperatingSystem {
   readonly prepareLocalSocketEndpoint: (endpoint: string) => Promise<void>;
   /** One word of a command line, quoted for the system's command shell. */
   readonly quoteShellWord: (word: string) => string;
+  /**
+   * Whether `command` names a file by its path, anchored at the working folder, rather than a name
+   * looked for along `PATH`.
+   */
+  readonly isPathCommand: (command: string) => boolean;
+  /**
+   * The files a shell tries, in order, for the program at `programPath`; `readVariable` reads the
+   * child's own environment.
+   */
+  readonly listExecutableCandidates: (
+    programPath: string,
+    readVariable: (name: string) => string | undefined,
+  ) => readonly string[];
 }

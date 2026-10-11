@@ -48,7 +48,7 @@ import { connectMainToDaemon, DaemonSupervisor } from "./services/daemon/supervi
 import { installQuitFlush } from "./services/daemon/quit-flush.js";
 import {
   attachToServiceProcess,
-  createSystemProcessIdentityReader,
+  NODE_PROCESS_IDENTITY_SYSTEM,
 } from "./services/daemon/service/process.js";
 import { resolveServiceProgram } from "./services/daemon/service/program.js";
 import { startServiceDetached } from "./services/daemon/service/start.js";
@@ -305,12 +305,12 @@ function startApplication(): void {
       // Before the supervisor starts, so the first link that comes up is told the console theme.
       new ConsoleThemeReport({ link: daemonLink, appearance, log }).start();
       // Built once: it keeps the boot it read for every later attach.
-      const readServiceProcessIdentity = createSystemProcessIdentityReader(
-        operatingSystem.platform,
+      const readServiceProcessIdentity = operatingSystem.createProcessIdentityReader(
+        NODE_PROCESS_IDENTITY_SYSTEM,
       );
       const supervisor = new DaemonSupervisor({
         link: daemonLink,
-        connect: connectMainToDaemon,
+        connect: (observer, signal) => connectMainToDaemon(operatingSystem, observer, signal),
         startService: () =>
           startServiceDetached(resolveServiceProgram(installLocation), process.env),
         attachServiceProcess: (identity) =>

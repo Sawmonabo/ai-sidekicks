@@ -65,7 +65,6 @@ beforeEach(async () => {
   await mkdir(homeDirectory);
   await mkdir(runtimeDirectory, { mode: 0o700 });
   ({ socketPath, tokenPath } = resolveDaemonRunFolder({
-    platform: process.platform,
     runtimeDirectory,
     temporaryDirectory: os.tmpdir(),
     userId: os.userInfo().uid,
@@ -357,7 +356,6 @@ describe("the daemon started from its command", () => {
     async () => {
       // A run folder other accounts can reach, which the start refuses.
       const { folderPath } = resolveDaemonRunFolder({
-        platform: process.platform,
         runtimeDirectory,
         temporaryDirectory: os.tmpdir(),
         userId: os.userInfo().uid,

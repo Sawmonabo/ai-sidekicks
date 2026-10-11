@@ -21,7 +21,7 @@ import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { ProviderCommandSearch } from "../command-search.js";
-import { DARWIN_PROVIDER_OPERATING_SYSTEM } from "../operating-system/darwin.js";
+import { MAC_PROVIDER_OPERATING_SYSTEM } from "../operating-system/mac.js";
 import { resolveProviderExecutable } from "../spawned-version.js";
 
 // Names no real install answers to, so no build or Node already on this machine joins the search.
@@ -70,7 +70,7 @@ describe.skipIf(process.platform === "win32")("ProviderCommandSearch", () => {
     const newestScript = await installNodeScript("v24.21.0", "0.156.0");
     const serviceLog: string[] = [];
     const commandSearch = new ProviderCommandSearch({
-      operatingSystem: DARWIN_PROVIDER_OPERATING_SYSTEM,
+      operatingSystem: MAC_PROVIDER_OPERATING_SYSTEM,
       homeDirectory: home,
       writeServiceLog: (line) => serviceLog.push(line),
     });
@@ -78,9 +78,11 @@ describe.skipIf(process.platform === "win32")("ProviderCommandSearch", () => {
 
     const first = await resolveProviderExecutable("codex", COMMAND, environment, {
       commandSearch,
+      operatingSystem: MAC_PROVIDER_OPERATING_SYSTEM,
     });
     const second = await resolveProviderExecutable("codex", COMMAND, environment, {
       commandSearch,
+      operatingSystem: MAC_PROVIDER_OPERATING_SYSTEM,
     });
 
     expect(first.resolvedExecutablePath).toBe(await realpath(newestScript));

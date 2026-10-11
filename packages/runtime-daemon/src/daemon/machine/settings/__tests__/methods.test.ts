@@ -9,6 +9,7 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { HOST_OPERATING_SYSTEM } from "../../../../../tests/helpers/host-operating-system.js";
 import { type JsonRpcNotification } from "@ai-sidekicks/contracts/jsonrpc/message";
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import {
@@ -47,7 +48,11 @@ beforeEach(async () => {
   registry = new MethodRegistryImpl();
   send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>();
   streamingPrimitive = new StreamingPrimitive({ registry, send });
-  settingsFile = new MachineSettingsFile({ filePath: settingsPath, now: () => REPAIRED_AT });
+  settingsFile = new MachineSettingsFile({
+    filePath: settingsPath,
+    diskFlush: HOST_OPERATING_SYSTEM.diskFlush,
+    now: () => REPAIRED_AT,
+  });
   registerMachineSettingsMethods(registry, {
     settingsFile,
     streamingPrimitive,

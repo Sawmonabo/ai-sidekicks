@@ -15,8 +15,8 @@
 // - The guarantee is point-in-time; TOCTOU hardening belongs to the execution boundary.
 
 import { opendir, realpath as realpathFromFilesystem } from "node:fs/promises";
-import * as nodePath from "node:path";
 
+import type { PathRules } from "../path-rules/contract.js";
 import { TrustEnvelopeViolationError } from "./repo/errors.js";
 import type { WorkingTreeReader } from "./repo/root-resolver.js";
 
@@ -26,7 +26,7 @@ export interface WorkspaceExecutionRootCandidate {
   readonly mountCanonicalRoot: string;
   /**
    * A path relative to the mount root, or an absolute one naming a listed working tree or a folder
-   * inside one; absent or empty picks the root. A win32 driveless rooted form (`\evil`) is refused
+   * inside one; absent or empty picks the root. A driveless rooted form (`\evil`) is refused
    * up front; `..` is left to the filesystem.
    */
   readonly directory?: string | undefined;
@@ -55,16 +55,9 @@ export type PathRealpathResolver = (path: string) => Promise<string>;
 export type DirectoryReadabilityProbe = (path: string) => Promise<void>;
 
 /**
- * The slice of `node:path` this module and the repo-root resolver read; `path.win32` satisfies it,
- * so POSIX CI drives the Windows branch.
+ * Constructor-injectable primitives; every member but `workingTrees` and `pathRules` defaults to
+ * the real one.
  */
-export interface PlatformPathModule {
-  readonly sep: string;
-  isAbsolute(path: string): boolean;
-  parse(path: string): { readonly root: string };
-}
-
-/** Constructor-injectable primitives; every member but `workingTrees` defaults to the real one. */
 export interface TrustEnvelopeValidatorDeps {
   /**
    * Defaults to `node:fs/promises.realpath`, which returns on-disk spelling. The callback form
@@ -78,16 +71,13 @@ export interface TrustEnvelopeValidatorDeps {
    */
   readonly probeDirectoryReadable: DirectoryReadabilityProbe;
   /**
-   * Defaults to `node:path`; the suite injects `path.win32`. Unlike the resolver there is no
-   * real-`node:path` backstop: a seam mismatch fails containment rather than loosening it.
+   * The system's path rules; the suite injects Windows' on any host. A mismatch with the paths the
+   * filesystem resolves fails containment rather than loosening it.
    */
-  readonly platformPath: PlatformPathModule;
+  readonly pathRules: PathRules;
   /** Asks git which working tree a folder sits in and which working trees a repository has. */
   readonly workingTrees: WorkingTreeReader;
 }
-
-/** `path.win32.sep`. The discriminator for case-folded comparison and win32 path rules. */
-export const WINDOWS_PATH_SEPARATOR = "\\";
 
 /** The realpath used when no seam is injected; the repo-root resolver defaults to it too. */
 export const DEFAULT_REALPATH: PathRealpathResolver = realpathFromFilesystem;
@@ -103,37 +93,38 @@ export const DEFAULT_DIRECTORY_READABILITY_PROBE: DirectoryReadabilityProbe = as
   await directoryHandle.close();
 };
 
-/** The validator's seams: the git reader is required, every other one defaults to the real one. */
+/**
+ * The validator's seams: the git reader and the path rules are required, every other one defaults
+ * to the real one.
+ */
 export type TrustEnvelopeValidatorOptions = Partial<
-  Omit<TrustEnvelopeValidatorDeps, "workingTrees">
+  Omit<TrustEnvelopeValidatorDeps, "workingTrees" | "pathRules">
 > &
-  Pick<TrustEnvelopeValidatorDeps, "workingTrees">;
+  Pick<TrustEnvelopeValidatorDeps, "workingTrees" | "pathRules">;
 
 function resolveDeps(options: TrustEnvelopeValidatorOptions): TrustEnvelopeValidatorDeps {
   return {
     realpath: options.realpath ?? DEFAULT_REALPATH,
     probeDirectoryReadable: options.probeDirectoryReadable ?? DEFAULT_DIRECTORY_READABILITY_PROBE,
-    platformPath: options.platformPath ?? nodePath,
+    pathRules: options.pathRules,
     workingTrees: options.workingTrees,
   };
 }
 
 /**
- * Does the path name one complete location? Win32 `isAbsolute` also accepts a driveless
- * `\repos\foo`, which Windows completes against the daemon's current drive, so the verdict would
- * depend on ambient host state; a complete win32 root must parse longer than one character.
+ * Does the path name one complete location? Where a rooted path may name no volume, `isAbsolute`
+ * also accepts a driveless `\repos\foo`, which the system completes against the daemon's current
+ * drive, so the verdict would depend on ambient host state; a complete root there must parse
+ * longer than one character.
  */
-export function namesCompleteLocation(
-  candidatePath: string,
-  platformPath: PlatformPathModule,
-): boolean {
-  if (!platformPath.isAbsolute(candidatePath)) {
+export function namesCompleteLocation(candidatePath: string, pathRules: PathRules): boolean {
+  if (!pathRules.isAbsolute(candidatePath)) {
     return false;
   }
-  if (platformPath.sep !== WINDOWS_PATH_SEPARATOR) {
+  if (!pathRules.hasDrivelessRoots) {
     return true;
   }
-  return platformPath.parse(candidatePath).root.length > 1;
+  return pathRules.parse(candidatePath).root.length > 1;
 }
 
 /** Drops trailing separators; the filesystem root collapses to the empty string. */
@@ -146,18 +137,16 @@ function stripTrailingSeparators(path: string, separator: string): string {
 }
 
 /**
- * The comparable form of a path: its components, lower-cased only when the separator is win32's
- * (`toLowerCase`, never the locale form, which folds Turkish `I` wrongly). A case-insensitive
- * non-win32 filesystem such as APFS compares case-sensitively here, which can only refuse.
+ * The comparable form of a path: its components, lower-cased only where the system's names are
+ * case-insensitive (`toLowerCase`, never the locale form, which folds Turkish `I` wrongly). A
+ * case-insensitive filesystem on a system that compares exactly, such as APFS, compares
+ * case-sensitively here, which can only refuse.
  */
-export function toComparableComponents(
-  path: string,
-  platformPath: PlatformPathModule,
-): readonly string[] {
+export function toComparableComponents(path: string, pathRules: PathRules): readonly string[] {
   // Splitting on `sep` alone is deliberate: `realpath` normalizes separators, and a mixed one fails
   // containment rather than passing it.
-  const components = stripTrailingSeparators(path, platformPath.sep).split(platformPath.sep);
-  if (platformPath.sep !== WINDOWS_PATH_SEPARATOR) {
+  const components = stripTrailingSeparators(path, pathRules.sep).split(pathRules.sep);
+  if (!pathRules.hasCaseInsensitiveNames) {
     return components;
   }
   // Unicode lower-casing is not NTFS's upcase table (`ẞ` and `ß` alias, `İ` folds to two code
@@ -207,20 +196,20 @@ export class TrustEnvelopeValidator {
   public async validateExecutionRoot(
     candidate: WorkspaceExecutionRootCandidate,
   ): Promise<AdmittedExecutionRoot> {
-    const { platformPath } = this.deps;
+    const { pathRules } = this.deps;
     const anchor = candidate.mountCanonicalRoot;
 
     // A relative anchor would be completed against the daemon's working directory by the join.
-    if (!platformPath.isAbsolute(anchor)) {
+    if (!pathRules.isAbsolute(anchor)) {
       throw new TrustEnvelopeViolationError();
     }
 
     // Admission: equality with an attached root, before the filesystem is touched.
-    const anchorComponents = toComparableComponents(anchor, platformPath);
+    const anchorComponents = toComparableComponents(anchor, pathRules);
     const anchorIsAttachedMountRoot = candidate.attachedMountRoots.some(
       (envelopeRoot) =>
-        platformPath.isAbsolute(envelopeRoot) &&
-        componentsEqual(toComparableComponents(envelopeRoot, platformPath), anchorComponents),
+        pathRules.isAbsolute(envelopeRoot) &&
+        componentsEqual(toComparableComponents(envelopeRoot, pathRules), anchorComponents),
     );
     if (!anchorIsAttachedMountRoot) {
       throw new TrustEnvelopeViolationError();
@@ -238,8 +227,8 @@ export class TrustEnvelopeValidator {
     }
 
     // A bare-root anchor (`C:\`, `/`) is one component that a degenerate resolved value (`C:`, ``)
-    // also matches; only a broken seam produces one. The injected module keeps win32 tests valid.
-    if (!platformPath.isAbsolute(resolvedRoot)) {
+    // also matches; only a broken seam produces one. The injected rules keep Windows tests valid.
+    if (!pathRules.isAbsolute(resolvedRoot)) {
       throw new TrustEnvelopeViolationError();
     }
 
@@ -269,8 +258,8 @@ export class TrustEnvelopeValidator {
     workingTree: string | null,
     provenanceRoots: readonly string[],
   ): Promise<string | null> {
-    const { platformPath } = this.deps;
-    const resolvedComponents = toComparableComponents(resolvedRoot, platformPath);
+    const { pathRules } = this.deps;
+    const resolvedComponents = toComparableComponents(resolvedRoot, pathRules);
     for (const provenanceRoot of provenanceRoots) {
       let resolvedProvenanceRoot: string;
       try {
@@ -283,13 +272,13 @@ export class TrustEnvelopeValidator {
         }
         throw new TrustEnvelopeViolationError();
       }
-      const provenanceComponents = toComparableComponents(resolvedProvenanceRoot, platformPath);
+      const provenanceComponents = toComparableComponents(resolvedProvenanceRoot, pathRules);
       if (!isContainedWithin(resolvedComponents, provenanceComponents)) {
         continue;
       }
       // A tree of its own inside the daemon root (a submodule, say) is the folder's checkout.
       if (workingTree !== null) {
-        const treeComponents = toComparableComponents(workingTree, platformPath);
+        const treeComponents = toComparableComponents(workingTree, pathRules);
         if (
           isContainedWithin(resolvedComponents, treeComponents) &&
           isContainedWithin(treeComponents, provenanceComponents)
@@ -312,12 +301,12 @@ export class TrustEnvelopeValidator {
     anchorComponents: readonly string[],
     anchor: string,
   ): Promise<string> {
-    const { platformPath, workingTrees } = this.deps;
+    const { pathRules, workingTrees } = this.deps;
     if (checkoutRoot === null) {
       throw new TrustEnvelopeViolationError();
     }
-    const checkoutComponents = toComparableComponents(checkoutRoot, platformPath);
-    const resolvedComponents = toComparableComponents(resolvedRoot, platformPath);
+    const checkoutComponents = toComparableComponents(checkoutRoot, pathRules);
+    const resolvedComponents = toComparableComponents(resolvedRoot, pathRules);
     if (!isContainedWithin(resolvedComponents, checkoutComponents)) {
       throw new TrustEnvelopeViolationError();
     }
@@ -326,7 +315,7 @@ export class TrustEnvelopeValidator {
     }
     const listedWorkingTrees = await workingTrees.listWorkingTrees(anchor);
     const isListed = listedWorkingTrees.some((listedRoot) =>
-      componentsEqual(toComparableComponents(listedRoot, platformPath), checkoutComponents),
+      componentsEqual(toComparableComponents(listedRoot, pathRules), checkoutComponents),
     );
     if (!isListed) {
       throw new TrustEnvelopeViolationError();
@@ -338,19 +327,19 @@ export class TrustEnvelopeValidator {
    * The anchor, the anchor plus a relative `directory`, or an absolute `directory` on its own.
    * Trailing separators are stripped from the anchor so `/` yields `/sub`, not `//sub`.
    *
-   * @throws {TrustEnvelopeViolationError} for a win32 absolute `directory` that names no volume.
+   * @throws {TrustEnvelopeViolationError} for an absolute `directory` that names no volume.
    */
   private joinCandidatePath(anchor: string, directory: string | undefined): string {
     if (directory === undefined || directory.length === 0) {
       return anchor;
     }
-    const { platformPath } = this.deps;
-    if (platformPath.isAbsolute(directory)) {
-      if (!namesCompleteLocation(directory, platformPath)) {
+    const { pathRules } = this.deps;
+    if (pathRules.isAbsolute(directory)) {
+      if (!namesCompleteLocation(directory, pathRules)) {
         throw new TrustEnvelopeViolationError();
       }
       return directory;
     }
-    return `${stripTrailingSeparators(anchor, platformPath.sep)}${platformPath.sep}${directory}`;
+    return `${stripTrailingSeparators(anchor, pathRules.sep)}${pathRules.sep}${directory}`;
   }
 }

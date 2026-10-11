@@ -225,6 +225,7 @@ export class ClaudeDriver implements ProviderDriver {
       params.rule,
       params.projectFolder,
       readClaudeSessionRules(this.#dependencies.sessionRules, params.sessionId),
+      this.#dependencies.diskFlush,
     );
   }
 

@@ -7,6 +7,7 @@ import type { NodeId } from "@ai-sidekicks/contracts/runtime-node/id";
 import type { RepoAttachResponse } from "@ai-sidekicks/contracts/repo/folders";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
+import { HOST_OPERATING_SYSTEM } from "../../../../tests/helpers/host-operating-system.js";
 import {
   openScratchDatabase,
   type ScratchDatabase,
@@ -83,11 +84,13 @@ export async function openRepoMountHarness(): Promise<RepoMountHarness> {
     emitter,
     worktreeEvents: new WorktreeEventEmitter({ sessionEvents }),
     workspaces: new WorkspaceService({
+      pathRules: HOST_OPERATING_SYSTEM.pathRules,
       database,
       events: emitter,
       newWorkspaceId: makeIdSource(WORKSPACE_ID_POOL, "workspace"),
     }),
     service: new RepoMountService({
+      pathRules: HOST_OPERATING_SYSTEM.pathRules,
       database,
       events: emitter,
       nodeId: NODE_ID,

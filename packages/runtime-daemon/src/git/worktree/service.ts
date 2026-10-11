@@ -20,6 +20,7 @@ import {
   WorktreeStateSchema,
   type WorktreeRetireResponse,
 } from "@ai-sidekicks/contracts/worktree/lifecycle";
+import type { PathRules } from "../../path-rules/contract.js";
 import type { DatabaseConnections } from "../../database/connection/lifecycle.js";
 import type { WriteStatement } from "../../database/statement.js";
 import { WriteRefusedError, type DatabaseWriter } from "../../database/writer.js";
@@ -58,7 +59,7 @@ import {
   type WorktreeRow,
 } from "./rows.js";
 
-/** Dependencies of {@link WorktreeService} and its creator; only the first three are required. */
+/** Dependencies of {@link WorktreeService} and its creator; only the first five are required. */
 export interface WorktreeServiceDeps {
   /** Reads on its reader; a row write without an event goes through its writer. */
   readonly database: DatabaseConnections;
@@ -68,6 +69,8 @@ export interface WorktreeServiceDeps {
   readonly naming: WorktreeNaming;
   /** The daemon's one occupancy reader, for the sessions standing in a tree. */
   readonly occupancy: MountOccupancyReader;
+  /** How the system spells and compares paths. */
+  readonly pathRules: PathRules;
   /** Git process seam; defaults to `execFile` against `git`. */
   readonly git?: GitRunner;
   /** Filesystem seam; defaults to `node:fs/promises`. */
@@ -187,6 +190,7 @@ export class WorktreeService {
   readonly #filesystem: GitFilesystem;
   readonly #now: () => string;
   readonly #newWorktreeId: () => string;
+  readonly #pathRules: PathRules;
 
   readonly #selectAttachedMountStmt: Statement<MountLookupParams, AttachedMountRow>;
   readonly #selectWorktreeStmt: Statement<WorktreeLookupParams, WorktreeRow>;
@@ -200,6 +204,7 @@ export class WorktreeService {
   constructor(deps: WorktreeServiceDeps) {
     this.#events = deps.events;
     this.#naming = deps.naming;
+    this.#pathRules = deps.pathRules;
     this.#filesystem = deps.filesystem ?? DEFAULT_GIT_FILESYSTEM;
     this.#runGit = createGitCommand({
       git: deps.git ?? runGitWithExecFile,
@@ -288,13 +293,13 @@ export class WorktreeService {
    */
   async readRunningSession(worktreeId: string): Promise<string | null> {
     const tree = this.requireWorktree(worktreeId);
-    const treeKey = await canonicalFolderPath(tree.fs_root);
+    const treeKey = await canonicalFolderPath(tree.fs_root, this.#pathRules);
     for (const run of this.#selectUnreleasedRunsStmt.all()) {
       if (run.worktree_id === worktreeId) {
         return run.session_id;
       }
-      const rootKey = await canonicalFolderPath(run.execution_root);
-      if (rootKey === treeKey || rootKey.startsWith(`${treeKey}${sep}`)) {
+      const rootKey = await canonicalFolderPath(run.execution_root, this.#pathRules);
+      if (rootKey === treeKey || rootKey.startsWith(`${treeKey}${this.#pathRules.sep}`)) {
         return run.session_id;
       }
     }
@@ -536,7 +541,7 @@ export class WorktreeService {
     // Read while git still knows the tree: it names the record only from inside it. A pass after
     // a crash that already removed the record reads none and removes the folder alone.
     const recordFolder = (await pathExists(row.fs_root))
-      ? await readLinkedTreeRecord(this.#runGit, row.fs_root)
+      ? await readLinkedTreeRecord(this.#runGit, row.fs_root, this.#pathRules)
       : null;
     // A removal a crash cut short while git still knows the tree is checked again, since work may
     // have been added to it since that pass decided.
@@ -599,7 +604,7 @@ export class WorktreeService {
       return true;
     }
     const occupancy = await this.#occupancy.read(row.repo_mount_id);
-    return occupancy.standingByFolder.has(await canonicalFolderPath(row.fs_root));
+    return occupancy.standingByFolder.has(await canonicalFolderPath(row.fs_root, this.#pathRules));
   }
 
   // Git shows something in the tree to lose beyond what its retirement recorded: anything at all

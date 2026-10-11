@@ -10,6 +10,7 @@ import {
   openScratchDatabase,
   type ScratchDatabase,
 } from "../../../database/__fixtures__/scratch.js";
+import { HOST_OPERATING_SYSTEM } from "../../../../tests/helpers/host-operating-system.js";
 import { EventLogService } from "../../../events/log-service.js";
 import { SessionWorkingFolders } from "../../../session/working-folder/move.js";
 import { KeyedLock } from "../../../keyed-lock.js";
@@ -123,12 +124,13 @@ export async function openWorktreeFixture(
     },
   });
   const runGit = createGitCommand({ git: repository.runner, timeoutMs: FIXTURE_GIT_TIMEOUT_MS });
-  const occupancy = new MountOccupancyReader(scratch.reader);
+  const occupancy = new MountOccupancyReader(scratch.reader, HOST_OPERATING_SYSTEM.pathRules);
   const serviceDeps = {
     database: scratch,
     events: worktreeEvents,
     naming,
     occupancy,
+    pathRules: HOST_OPERATING_SYSTEM.pathRules,
     git: repository.runner,
     gitCommandTimeoutMs: FIXTURE_GIT_TIMEOUT_MS,
     ...(options.newWorktreeId === undefined ? {} : { newWorktreeId: options.newWorktreeId }),
@@ -160,6 +162,9 @@ export async function openWorktreeFixture(
     },
   });
   const removedWorktrees = new RemovedWorktreeStore({
+    pathRules: HOST_OPERATING_SYSTEM.pathRules,
+    folderRenames: HOST_OPERATING_SYSTEM.folderRenames,
+    diskFlush: HOST_OPERATING_SYSTEM.diskFlush,
     database: scratch,
     runGit,
     filesystem: keptCopyFilesystem,
@@ -172,10 +177,12 @@ export async function openWorktreeFixture(
     },
   });
   const workspaces = new WorkspaceService({
+    pathRules: HOST_OPERATING_SYSTEM.pathRules,
     database: scratch,
     events: new WorkspaceEventEmitter({ sessionEvents: eventLog }),
   });
   const executionRoots = new ExecutionRootService({
+    pathRules: HOST_OPERATING_SYSTEM.pathRules,
     database: scratch,
     workspaces,
     worktrees: {
@@ -187,12 +194,14 @@ export async function openWorktreeFixture(
     gitCommandTimeoutMs: FIXTURE_GIT_TIMEOUT_MS,
   });
   const workingFolders = new SessionWorkingFolders({
+    pathRules: HOST_OPERATING_SYSTEM.pathRules,
     database: scratch,
     executionRoots,
     events: worktreeEvents,
   });
   const endedProcessFolders: string[] = [];
   const removal = new WorktreeRemoval({
+    pathRules: HOST_OPERATING_SYSTEM.pathRules,
     worktrees,
     removedWorktrees,
     worktreesDirectory,
@@ -207,6 +216,7 @@ export async function openWorktreeFixture(
     sessions: workingFolders,
     runGit,
     filesystem: keptCopyFilesystem,
+    folderRenames: HOST_OPERATING_SYSTEM.folderRenames,
     copies: worktreeCopies,
     writeServiceLog: (line) => {
       throw new Error(`unexpected service log line: ${line}`);

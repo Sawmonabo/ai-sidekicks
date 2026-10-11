@@ -4,7 +4,7 @@
 // the same queue wakes it, so a close never hangs on a blocked wait.
 
 import type { ProcessExitWatch } from "../operating-system.js";
-import type { DarwinSystemLibrary, KernelEvent } from "./system-library.js";
+import type { MacSystemLibrary, KernelEvent } from "./system-library.js";
 
 // <sys/event.h>
 const EVFILT_PROC = -5;
@@ -17,8 +17,8 @@ const NOTE_TRIGGER = 0x01000000;
 const WAKE_IDENT = 1;
 
 /** Watches processes for their exit through a macOS kernel event queue. */
-export class DarwinProcessExitWatch implements ProcessExitWatch {
-  readonly #library: DarwinSystemLibrary;
+export class MacProcessExitWatch implements ProcessExitWatch {
+  readonly #library: MacSystemLibrary;
   readonly #onWaitFailure: (error: Error) => void;
   readonly #queue: number;
   readonly #watched = new Map<number, () => void>();
@@ -29,7 +29,7 @@ export class DarwinProcessExitWatch implements ProcessExitWatch {
    * Opens the queue. `onWaitFailure` hears a wait the system refused; exits are then seen again
    * from the next `watch()`, which starts a new wait.
    */
-  constructor(library: DarwinSystemLibrary, onWaitFailure: (error: Error) => void) {
+  constructor(library: MacSystemLibrary, onWaitFailure: (error: Error) => void) {
     this.#library = library;
     this.#onWaitFailure = onWaitFailure;
     this.#queue = library.openKernelQueue();

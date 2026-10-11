@@ -11,9 +11,8 @@ import {
   PTY_BACKEND_UNAVAILABLE_CODE,
   type PtyBackendUnavailableDetails,
 } from "@ai-sidekicks/contracts/error";
+import type { DaemonOperatingSystem } from "../../operating-system/contract.js";
 import { describeRejection } from "../../rejection.js";
-
-import { executableFileName } from "../../executable/file-name.js";
 
 /**
  * Thrown when no PTY backend is usable (binary missing, crash budget exhausted). `details` is the
@@ -40,7 +39,6 @@ export interface ResolveSidecarBinaryPathOptions {
   readonly releasePath?: string;
   /** Path probed by step 4 instead of the workspace debug build. */
   readonly debugPath?: string;
-  readonly platform?: NodeJS.Platform;
 }
 
 /** One step's outcome, listed in the error message when every step fails. */
@@ -52,7 +50,7 @@ interface ResolutionAttempt {
 
 /** Module id of the published platform package's binary (step 2); `binaryName` has any `.exe`. */
 function publishedPackageIdFor(
-  platform: NodeJS.Platform,
+  platform: DaemonOperatingSystem["platform"],
   arch: string,
   binaryName: string,
 ): string {
@@ -71,17 +69,21 @@ function workspaceTargetPath(profile: "release" | "debug", binaryName: string): 
 }
 
 /**
- * Finds the sidecar binary: `SIDEKICKS_PTY_SIDECAR_BIN` (an absolute path), the published platform
- * package, then the workspace release and debug builds. Throws `PtyBackendUnavailableError`
- * listing each step's outcome when all miss; `details.cause` is the step 2 error.
+ * Finds the sidecar binary built for `operatingSystem`: `SIDEKICKS_PTY_SIDECAR_BIN` (an absolute
+ * path), the published platform package, then the workspace release and debug builds. Throws
+ * `PtyBackendUnavailableError` listing each step's outcome when all miss; `details.cause` is the
+ * step 2 error.
  */
-export function resolveSidecarBinaryPath(opts?: ResolveSidecarBinaryPathOptions): string {
+export function resolveSidecarBinaryPath(
+  operatingSystem: Pick<DaemonOperatingSystem, "platform" | "executableFileName">,
+  opts?: ResolveSidecarBinaryPathOptions,
+): string {
   const env: NodeJS.ProcessEnv = opts?.env ?? process.env;
   const nodeRequire: { resolve: (id: string) => string } =
     opts?.nodeRequire ?? createRequire(import.meta.url);
   const existsSync: (path: string) => boolean = opts?.existsSync ?? fsExistsSync;
-  const platform: NodeJS.Platform = opts?.platform ?? process.platform;
-  const binaryName: string = executableFileName("sidecar", platform);
+  const { platform } = operatingSystem;
+  const binaryName: string = operatingSystem.executableFileName("sidecar");
 
   const attempts: ResolutionAttempt[] = [];
 

@@ -21,6 +21,7 @@ import {
   SHELL_ORIGINAL_ZDOTDIR_ENVIRONMENT_NAME,
 } from "@ai-sidekicks/contracts/machine-settings";
 
+import type { DiskFlush } from "../../../disk-flush/contract.js";
 import {
   readSpawnEnvValue,
   removeSpawnEnvNames,
@@ -64,18 +65,19 @@ export interface ShellMarkNonce {
 
 /**
  * Prepares the folders every shell's start reads from, inside the daemon's run folder: zsh's
- * startup files, and an empty nonce folder only this account may open, so no nonce file an
- * earlier start left behind outlives this start.
+ * startup files, flushed as `diskFlush` says, and an empty nonce folder only this account may
+ * open, so no nonce file an earlier start left behind outlives this start.
  */
 export async function prepareShellStartupFolders(
   runFolderPath: string,
+  diskFlush: DiskFlush,
 ): Promise<ShellStartupFolders> {
   const nonceFolder = path.join(runFolderPath, NONCE_FOLDER_NAME);
   await rm(nonceFolder, { recursive: true, force: true });
   await mkdir(nonceFolder, { mode: PRIVATE_FOLDER_MODE });
   // The mode a folder is made with is narrowed by the process's mask, so it is set again.
   await chmod(nonceFolder, PRIVATE_FOLDER_MODE);
-  return { zshFolder: await prepareZshStartupFolder(runFolderPath), nonceFolder };
+  return { zshFolder: await prepareZshStartupFolder(runFolderPath, diskFlush), nonceFolder };
 }
 
 /** How one shell is started so its script loads beside the person's own startup files. */

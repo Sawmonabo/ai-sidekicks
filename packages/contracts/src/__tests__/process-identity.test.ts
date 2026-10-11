@@ -3,7 +3,11 @@
 // against the system's own output, its "no such process" answer, and the boot it reads once.
 import { describe, expect, it } from "vitest";
 
-import { createProcessIdentityReader, type ProcessIdentitySystem } from "../process-identity.js";
+import {
+  createLinuxProcessIdentityReader,
+  createMacProcessIdentityReader,
+  type ProcessIdentitySystem,
+} from "../process-identity.js";
 
 const BOOT_ID = "6f1c2b9e-3d4a-4e5f-8a7b-9c0d1e2f3a4b";
 
@@ -14,18 +18,17 @@ function systemFailure(fields: { code: unknown; stdout?: string }): Error {
 
 function linuxSystem(files: Record<string, () => Promise<string>>): ProcessIdentitySystem {
   return {
-    platform: "linux",
     readTextFile: (path) => files[path]?.() ?? Promise.reject(systemFailure({ code: "ENOENT" })),
     runProgram: () => Promise.reject(new Error("Linux runs no program")),
   };
 }
 
-describe("createProcessIdentityReader on Linux", () => {
+describe("createLinuxProcessIdentityReader", () => {
   it("reads the start from field 22, counted after a name holding spaces and parentheses", async () => {
     // Fields 3 to 21 are numbered by their field number, so a miscount reads the wrong one.
     const afterName = Array.from({ length: 19 }, (_, index) => `f${String(index + 3)}`);
     const stat = `4242 (my ) (odd) name) ${afterName.join(" ")} 987654 f23 f24\n`;
-    const read = createProcessIdentityReader(
+    const read = createLinuxProcessIdentityReader(
       linuxSystem({
         "/proc/4242/stat": () => Promise.resolve(stat),
         "/proc/sys/kernel/random/boot_id": () => Promise.resolve(`${BOOT_ID}\n`),
@@ -40,17 +43,17 @@ describe("createProcessIdentityReader on Linux", () => {
   });
 
   it("answers undefined when no process has the id, or it ends while its file is read", async () => {
-    const read = createProcessIdentityReader(linuxSystem({}));
+    const read = createLinuxProcessIdentityReader(linuxSystem({}));
     expect(await read(4242)).toBeUndefined();
 
-    const ending = createProcessIdentityReader(
+    const ending = createLinuxProcessIdentityReader(
       linuxSystem({ "/proc/4242/stat": () => Promise.reject(systemFailure({ code: "ESRCH" })) }),
     );
     expect(await ending(4242)).toBeUndefined();
   });
 });
 
-describe("createProcessIdentityReader on macOS", () => {
+describe("createMacProcessIdentityReader", () => {
   const START = "Mon Oct  5 22:35:01 2026";
 
   function macSystem(
@@ -59,20 +62,19 @@ describe("createProcessIdentityReader on macOS", () => {
       Promise.resolve({ stdout: `${BOOT_ID}\n` }),
   ): ProcessIdentitySystem {
     return {
-      platform: "darwin",
       readTextFile: () => Promise.reject(new Error("macOS reads no file")),
       runProgram: (file) => (file === "/bin/ps" ? runPs() : runSysctl()),
     };
   }
 
   it("answers undefined only for ps's exit 1 with nothing written", async () => {
-    const absent = createProcessIdentityReader(
+    const absent = createMacProcessIdentityReader(
       macSystem(() => Promise.reject(systemFailure({ code: 1, stdout: "" }))),
     );
     expect(await absent(4242)).toBeUndefined();
 
     // Exit 1 with output is a failure of the reading, never an absent process.
-    const failed = createProcessIdentityReader(
+    const failed = createMacProcessIdentityReader(
       macSystem(() => Promise.reject(systemFailure({ code: 1, stdout: "ps: bad option" }))),
     );
     await expect(failed(4242)).rejects.toThrow("the system call failed");
@@ -80,7 +82,7 @@ describe("createProcessIdentityReader on macOS", () => {
 
   it("reads the boot once, and again after a reading of it failed", async () => {
     let sysctlRuns = 0;
-    const read = createProcessIdentityReader(
+    const read = createMacProcessIdentityReader(
       macSystem(
         () => Promise.resolve({ stdout: `${START}\n` }),
         () => {

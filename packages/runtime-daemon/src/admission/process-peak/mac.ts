@@ -39,7 +39,7 @@ async function bindUsageRead(): Promise<UsageRead> {
 }
 
 /** Reads a process's lifetime peak footprint on macOS. */
-export const DARWIN_PROCESS_PEAK_READER: ProcessPeakReader = {
+export const MAC_PROCESS_PEAK_READER: ProcessPeakReader = {
   readPeakBytes: async (processId) => {
     const usageRead = await loadUsageRead();
     const usage = Buffer.alloc(RUSAGE_INFO_V4_BYTES);

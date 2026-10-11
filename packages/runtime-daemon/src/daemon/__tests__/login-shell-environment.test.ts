@@ -14,10 +14,12 @@ import * as path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { LINUX_DAEMON_OPERATING_SYSTEM } from "../../operating-system/linux.js";
+import { MAC_DAEMON_OPERATING_SYSTEM } from "../../operating-system/mac.js";
 import {
   captureLoginShellEnvironment,
-  readDarwinUserTempDirectory,
   type LoginShellCaptureOptions,
+  type ProviderBaseEnvironmentCapture,
 } from "../login-shell-environment.js";
 
 const SERVICE_ENVIRONMENT = {
@@ -42,6 +44,44 @@ afterEach(async () => {
   await rm(scratch, { recursive: true, force: true });
 });
 
+// What a WSL 2 distribution's kernel and mount table say: drives C: and D: at `/mnt/c`, `/mnt/d`.
+const WSL_SYSTEM_FILES: Readonly<Record<string, string>> = {
+  "/proc/sys/kernel/osrelease": "5.15.167.4-microsoft-standard-WSL2\n",
+  "/proc/self/mounts":
+    "C:\\134 /mnt/c 9p rw,aname=drvfs;path=C:\\134;uid=1000 0 0\n" +
+    "D:\\134 /mnt/d 9p rw,aname=drvfs;path=D:\\134;uid=1000 0 0\n",
+};
+
+// What a Linux machine outside WSL says.
+const LINUX_SYSTEM_FILES: Readonly<Record<string, string>> = {
+  "/proc/sys/kernel/osrelease": "6.8.0-45-generic\n",
+  "/proc/self/mounts": "/dev/sda1 / ext4 rw,relatime 0 0\n",
+};
+
+// A capture as the daemon's start hands it to a system's module, over `systemFiles`.
+function systemCapture(
+  shell: string | null,
+  systemFiles: Readonly<Record<string, string>>,
+): ProviderBaseEnvironmentCapture {
+  return {
+    shell,
+    homeDirectory: HOME_DIRECTORY,
+    userName: USER_NAME,
+    deadlineMs: 10_000,
+    serviceEnvironment: SERVICE_ENVIRONMENT,
+    writeServiceLog: (line) => {
+      serviceLog.push(line);
+    },
+    readTextFile: (filePath) => {
+      const text = systemFiles[filePath];
+      return text === undefined
+        ? Promise.reject(new Error(`${filePath} is not a file here`))
+        : Promise.resolve(text);
+    },
+    signal: new AbortController().signal,
+  };
+}
+
 async function writeFakeShell(body: string): Promise<string> {
   const shellPath = path.join(scratch, "fake-shell");
   await writeFile(shellPath, `#!/bin/sh\n${body}\n`);
@@ -53,30 +93,24 @@ function capture(
   shell: string | null,
   deadlineMs: number,
   overrides: Partial<
-    Pick<LoginShellCaptureOptions, "platform" | "readUserTempDirectory" | "readWindowsDriveMounts">
+    Pick<LoginShellCaptureOptions, "readUserTempDirectory" | "readWindowsDriveMounts">
   > = {},
 ) {
+  // A login with its own temporary folder and no Windows drives, unless a test says otherwise.
   return captureLoginShellEnvironment({
-    platform: "darwin",
-    shell,
-    homeDirectory: HOME_DIRECTORY,
-    userName: USER_NAME,
+    ...systemCapture(shell, {}),
     readUserTempDirectory: () => {
       temporaryDirectoryReads += 1;
       return Promise.resolve(USER_TEMP_DIRECTORY);
     },
-    readWindowsDriveMounts: () => Promise.resolve([]),
+    readWindowsDriveMounts: null,
     deadlineMs,
-    serviceEnvironment: SERVICE_ENVIRONMENT,
-    writeServiceLog: (line) => {
-      serviceLog.push(line);
-    },
-    signal: new AbortController().signal,
     ...overrides,
   });
 }
 
-// What a macOS login gives: none of the service's own variables, its PATH included.
+// What a login with its own temporary folder gives: none of the service's own variables, its PATH
+// included.
 function defaultEnvironment(shell: string): readonly (readonly [string, string])[] {
   return [
     ["HOME", HOME_DIRECTORY],
@@ -144,7 +178,7 @@ describe("captureLoginShellEnvironment", () => {
     expect(serviceLog).toStrictEqual([]);
   });
 
-  it("drops the search path's folders on the Windows drives inside WSL", async () => {
+  it("drops the search path's folders on the Windows drives inside WSL, on Linux", async () => {
     // WSL appends the Windows search path under the drive mounts; `/mnt/cx` is no drive.
     const shell = await writeFakeShell(
       [
@@ -154,10 +188,9 @@ describe("captureLoginShellEnvironment", () => {
       ].join("\n"),
     );
 
-    const pairs = await capture(shell, 10_000, {
-      platform: "linux",
-      readWindowsDriveMounts: () => Promise.resolve(["/mnt/c", "/mnt/d"]),
-    });
+    const pairs = await LINUX_DAEMON_OPERATING_SYSTEM.captureProviderBaseEnvironment(
+      systemCapture(shell, WSL_SYSTEM_FILES),
+    );
 
     expect(new Map(pairs).get("PATH")).toBe("/home/person/.local/bin:/mnt/cx/bin:/usr/bin");
     expect(new Map(pairs).get("SERVICE_ONLY")).toBe("from the service");
@@ -199,7 +232,9 @@ describe("captureLoginShellEnvironment", () => {
   });
 
   it("gives an account that names no shell its default environment, with no TMPDIR on Linux", async () => {
-    const pairs = await capture(null, 10_000, { platform: "linux" });
+    const pairs = await LINUX_DAEMON_OPERATING_SYSTEM.captureProviderBaseEnvironment(
+      systemCapture(null, LINUX_SYSTEM_FILES),
+    );
 
     expect(pairs).toStrictEqual([
       ["HOME", HOME_DIRECTORY],
@@ -207,7 +242,6 @@ describe("captureLoginShellEnvironment", () => {
       ["LOGNAME", USER_NAME],
       ["PATH", "/usr/bin:/bin"],
     ]);
-    expect(temporaryDirectoryReads).toBe(0);
     expect(serviceLog).toStrictEqual([
       "The account names no login shell, so providers start with the account's default " +
         "environment.",
@@ -239,11 +273,14 @@ describe("captureLoginShellEnvironment", () => {
   });
 });
 
-describe.runIf(process.platform === "darwin")("readDarwinUserTempDirectory", () => {
-  it("reads the account's own temporary folder from getconf", async () => {
-    const temporaryDirectory = await readDarwinUserTempDirectory();
+describe.runIf(process.platform === "darwin")("macOS's default environment", () => {
+  it("carries the account's own temporary folder, read from getconf", async () => {
+    const pairs = await MAC_DAEMON_OPERATING_SYSTEM.captureProviderBaseEnvironment(
+      systemCapture(null, {}),
+    );
 
+    const temporaryDirectory = new Map(pairs).get("TMPDIR");
     expect(temporaryDirectory).toMatch(/^\/var\/folders\/.+\/T\/$/);
-    expect((await stat(temporaryDirectory)).isDirectory()).toBe(true);
+    expect((await stat(temporaryDirectory!)).isDirectory()).toBe(true);
   });
 });

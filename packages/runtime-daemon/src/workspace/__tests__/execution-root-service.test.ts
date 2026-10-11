@@ -7,6 +7,7 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { HOST_OPERATING_SYSTEM } from "../../../tests/helpers/host-operating-system.js";
 import { captureRejection } from "../../__fixtures__/capture-failure.js";
 import { WorkspaceBranchNameRequiredError } from "../../git/worktree/errors.js";
 import {
@@ -111,6 +112,7 @@ describe("a provisioned-worktree prepare", () => {
       return fixture.repository.runner(argv, options);
     };
     const executionRoots = new ExecutionRootService({
+      pathRules: HOST_OPERATING_SYSTEM.pathRules,
       database: fixture.scratch,
       workspaces: fixture.workspaces,
       worktrees: {

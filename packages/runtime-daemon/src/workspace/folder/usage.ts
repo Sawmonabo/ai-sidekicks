@@ -16,6 +16,7 @@ import { RepoMountIdSchema } from "@ai-sidekicks/contracts/repo/mount";
 import { SessionIdSchema } from "@ai-sidekicks/contracts/session/id";
 import { WorktreeIdSchema } from "@ai-sidekicks/contracts/worktree/lifecycle";
 
+import type { PathRules } from "../../path-rules/contract.js";
 import type { MountOccupancyReader } from "../../git/worktree/occupancy.js";
 import { canonicalFolderPath } from "./canonical-path.js";
 import { LIVE_WORKTREE_STATE_PREDICATE } from "../../git/worktree/rows.js";
@@ -71,8 +72,16 @@ export class RepoFolderUsage {
   readonly #selectMount: Statement<{ repoMountId: string }, MountOriginRow>;
   readonly #selectStandingWorktrees: Statement<{ repoMountId: string }, StandingWorktreeRow>;
   readonly #selectBoundSessions: Statement<{ repoMountId: string }, { session_id: string }>;
+  readonly #pathRules: PathRules;
 
-  constructor(reader: Database, occupancy: MountOccupancyReader, folderPlace: FolderPlace) {
+  /** Reads through `reader`, each folder keyed by the system's `pathRules`. */
+  constructor(
+    reader: Database,
+    occupancy: MountOccupancyReader,
+    folderPlace: FolderPlace,
+    pathRules: PathRules,
+  ) {
+    this.#pathRules = pathRules;
     this.#folderPlace = folderPlace;
     this.#occupancy = occupancy;
     this.#selectAttachedMounts = reader.prepare<[], MountOriginRow>(ATTACHED_MOUNTS_SQL);
@@ -94,7 +103,7 @@ export class RepoFolderUsage {
     for (const mount of this.#selectAttachedMounts.all()) {
       const { standingByFolder } = await this.#occupancy.read(mount.id);
       const usingSessionCount = async (folder: string): Promise<number> =>
-        standingByFolder.get(await canonicalFolderPath(folder))?.length ?? 0;
+        standingByFolder.get(await canonicalFolderPath(folder, this.#pathRules))?.length ?? 0;
       mounts.push({
         path: mount.canonical_root,
         origin: originOf(mount),

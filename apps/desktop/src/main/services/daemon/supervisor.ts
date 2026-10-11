@@ -10,6 +10,8 @@
 // service reports when the link comes up, so a service it found running is ended as one it
 // started. What the supervisor knows is published on main's `DaemonLink`.
 
+import * as os from "node:os";
+
 import {
   connectToDaemon,
   JsonRpcRemoteError,
@@ -49,6 +51,7 @@ import type {
   MainProcessState,
 } from "#shared/daemon/status-topic.js";
 import type { MainDiagnosticLog } from "../diagnostic-log.js";
+import type { MainOperatingSystem } from "../../operating-system/contract.js";
 import { describeFailure } from "#shared/failure-message.js";
 import { NOT_CONNECTED_MESSAGE, unlinkedState, type DaemonLink } from "./link/status.js";
 import { LinkLifetime, type LinkEvents, type LinkLossCause } from "./link/lifetime.js";
@@ -109,14 +112,21 @@ export interface DaemonSupervisorOptions {
 }
 
 /**
- * Connect main to this account's service over its socket, the handshake presenting the session
- * token read from its file at this connect. An abort of `signal` closes the socket and rejects.
+ * Connect main to this account's service over its socket in the run folder `operatingSystem`
+ * resolves at this connect, the handshake presenting the session token read from its file. An
+ * abort of `signal` closes the socket and rejects; a system with no run folder rejects.
  */
-export function connectMainToDaemon(
+export async function connectMainToDaemon(
+  operatingSystem: Pick<MainOperatingSystem, "resolveDaemonRunFolder">,
   observer: DaemonConnectionObserver,
   signal: AbortSignal,
 ): Promise<DaemonClientConnection> {
-  return connectToDaemon({
+  return await connectToDaemon({
+    runFolder: operatingSystem.resolveDaemonRunFolder({
+      runtimeDirectory: process.env["XDG_RUNTIME_DIR"],
+      temporaryDirectory: os.tmpdir(),
+      userId: os.userInfo().uid,
+    }),
     maxQueuedValuesPerSubscription: MAIN_SUBSCRIPTION_QUEUE_LIMIT,
     observer,
     signal,

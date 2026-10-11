@@ -47,10 +47,11 @@ export function listPosixProviderCommandFolders(
 }
 
 /**
- * How macOS and Linux start a build, end a child process and keep a local socket: a build runs as
- * itself, its `#!` line naming its interpreter; a stop is `SIGTERM` and a kill `SIGKILL`.
+ * How macOS and Linux start a build, end a child process, keep a local socket and find a program:
+ * a build runs as itself, its `#!` line naming its interpreter; a stop is `SIGTERM` and a kill
+ * `SIGKILL`; a command with a `/` is a path, and a program's file is its own name.
  */
-export const POSIX_PROCESS_AND_SOCKET_FACTS: Pick<
+export const POSIX_PROVIDER_OPERATING_SYSTEM_PARTS: Pick<
   ProviderOperatingSystem,
   | "startProviderBuild"
   | "endChildProcess"
@@ -58,6 +59,8 @@ export const POSIX_PROCESS_AND_SOCKET_FACTS: Pick<
   | "localSocketEndpoint"
   | "prepareLocalSocketEndpoint"
   | "quoteShellWord"
+  | "isPathCommand"
+  | "listExecutableCandidates"
 > = {
   startProviderBuild: (build) => Promise.resolve({ program: build, leadingArguments: [] }),
   endChildProcess: (child, ending) => {
@@ -67,6 +70,8 @@ export const POSIX_PROCESS_AND_SOCKET_FACTS: Pick<
   localSocketEndpoint: (folder, name) => path.join(folder, `${name}.sock`),
   prepareLocalSocketEndpoint: removeLeftoverSocket,
   quoteShellWord: quoteForPosixShell,
+  isPathCommand: (command) => path.isAbsolute(command) || command.includes("/"),
+  listExecutableCandidates: (programPath) => [programPath],
 };
 
 // A socket at the path is a stopped daemon's, since the path is this daemon's own; anything else

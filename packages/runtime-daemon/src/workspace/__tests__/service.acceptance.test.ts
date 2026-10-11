@@ -15,6 +15,7 @@ import type { RepoAttachResponse } from "@ai-sidekicks/contracts/repo/folders";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { WorkspaceListResponseSchema } from "@ai-sidekicks/contracts/repo/workspace";
 
+import { HOST_OPERATING_SYSTEM } from "../../../tests/helpers/host-operating-system.js";
 import {
   closeDatabaseConnections,
   openDatabaseConnections,
@@ -125,11 +126,17 @@ function buildDaemonStack(database: DatabaseConnections, now: () => string): Dae
     }),
   });
   // The production id sources run; assertions name ids by identity or set membership.
-  const workspaces = new WorkspaceService({ database, events: emitter, now });
+  const workspaces = new WorkspaceService({
+    pathRules: HOST_OPERATING_SYSTEM.pathRules,
+    database,
+    events: emitter,
+    now,
+  });
   return {
     emitter,
     workspaces,
     mounts: new RepoMountService({
+      pathRules: HOST_OPERATING_SYSTEM.pathRules,
       database,
       events: emitter,
       nodeId: NODE_ID,

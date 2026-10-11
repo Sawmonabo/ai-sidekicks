@@ -9,6 +9,7 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { AtomicWriteFileSystem } from "../../../file/atomic-write.js";
+import { HOST_OPERATING_SYSTEM } from "../../../../tests/helpers/host-operating-system.js";
 import { ORPHAN_REGISTRY_FILE_NAME, OrphanRegistry } from "../registry.js";
 
 let dataFolder: string;
@@ -58,7 +59,11 @@ function recordingFileSystem(log: string[]): AtomicWriteFileSystem {
 describe("OrphanRegistry", () => {
   it("writes each change to disk, renames it into place, then flushes the folder", async () => {
     const log: string[] = [];
-    const registry = new OrphanRegistry(dataFolder, recordingFileSystem(log));
+    const registry = new OrphanRegistry(
+      dataFolder,
+      HOST_OPERATING_SYSTEM.diskFlush,
+      recordingFileSystem(log),
+    );
 
     await registry.recordIntent("nonce-1", "boot-1");
 

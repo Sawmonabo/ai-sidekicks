@@ -81,9 +81,11 @@ export function createDriver(dependencies: CodexLifecycleOptions): CodexDriver {
 export class CodexDriver implements ProviderDriver {
   readonly #lifecycle: CodexLifecycleManager;
   readonly #interventions: CodexInterventionDispatcher;
+  readonly #diskFlush: CodexLifecycleOptions["diskFlush"];
 
   constructor(options: CodexLifecycleOptions) {
     this.#lifecycle = new CodexLifecycleManager(options);
+    this.#diskFlush = options.diskFlush;
     // The manager satisfies `CodexInterventionRuntime`; composing them here avoids a cycle.
     this.#interventions = new CodexInterventionDispatcher(this.#lifecycle);
   }
@@ -182,7 +184,7 @@ export class CodexDriver implements ProviderDriver {
    */
   async revokeRule(params: RevokeRuleParams): Promise<void> {
     if (params.projectFolder !== undefined) {
-      await removeCodexProjectRule(params.projectFolder, params.rule);
+      await removeCodexProjectRule(params.projectFolder, params.rule, this.#diskFlush);
     }
   }
 

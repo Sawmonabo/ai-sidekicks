@@ -8,15 +8,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mock } from "vitest";
 
 import { NodePtyHost } from "../node-pty.js";
-import type { ConsoleCtrlEvent } from "../../console-control-windows.js";
 import type { NodePtyChild, NodePtySpawnFn } from "../node-pty.js";
-import type { TaskkillResult } from "../../taskkill-windows.js";
+import type { TaskkillResult } from "../../../process-tree/windows.js";
 import { makeFakeChild, makeOrphanGuardDouble } from "../../__fixtures__/child-doubles.js";
 import { SPAWN_NONCE_ENVIRONMENT_NAME } from "../../orphan/registry.js";
 import type { SpawnRequest } from "../protocol.js";
 import type { TerminalOperatingSystem } from "../../operating-system/contract.js";
 import { LINUX_TERMINAL_OPERATING_SYSTEM } from "../../operating-system/linux.js";
-import { windowsTerminalOperatingSystem } from "../../operating-system/windows.js";
+import {
+  windowsTerminalOperatingSystem,
+  type ConsoleCtrlEvent,
+} from "../../operating-system/windows.js";
 
 // Distinctive, so a failing assertion names the fixture.
 const FIXTURE_PID = 67890;
@@ -66,13 +68,14 @@ beforeEach(() => {
 
   const host = new NodePtyHost(
     makeOrphanGuardDouble(),
-    { ...windowsTerminalOperatingSystem(undefined), endTerminalChild },
     {
-      platform: "win32",
-      ptySpawn: ptySpawnStub,
-      generateConsoleCtrlEvent: mockGCCE,
-      spawnTaskkill: mockTaskkill,
+      ...windowsTerminalOperatingSystem(undefined, {
+        generateConsoleCtrlEvent: mockGCCE,
+        runTaskkill: mockTaskkill,
+      }),
+      endTerminalChild,
     },
+    { ptySpawn: ptySpawnStub },
   );
   host.setOnExit(exitRecorder);
 
@@ -118,7 +121,7 @@ describe("NodePtyHost — hard-stop escalation to taskkill /T /F", () => {
       expect(ctx.mockTaskkill).not.toHaveBeenCalled();
       expect(ctx.exitRecorder).not.toHaveBeenCalled();
 
-      // Crossing 2 s fires the timer and starts `invokeTaskkill`; the async advance also drains
+      // Crossing 2 s fires the timer and starts `taskkill`; the async advance also drains
       // microtasks, so the taskkill mock resolves and `onExit` is observable.
       await vi.advanceTimersByTimeAsync(1);
 
@@ -174,12 +177,27 @@ describe("NodePtyHost — hard-stop escalation to taskkill /T /F", () => {
     expect(ctx.exitRecorder).toHaveBeenCalledWith(session_id, 1);
   });
 
+  it("two SIGTERMs in flight at once end the child with one taskkill", async () => {
+    // A stuck taskkill, so the first ending reports no exit that would stop the second.
+    ctx.mockTaskkill.mockReturnValue(new Promise<TaskkillResult>(() => undefined));
+    const { session_id } = await ctx.host.spawn(SAMPLE_SPAWN);
+
+    // Neither is awaited before the other starts, so both arm an escalation.
+    await Promise.all([ctx.host.kill(session_id, "SIGTERM"), ctx.host.kill(session_id, "SIGTERM")]);
+    expect(ctx.mockGCCE).toHaveBeenCalledTimes(2);
+
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(ctx.mockTaskkill).toHaveBeenCalledTimes(1);
+  });
+
   it("SIGKILL bypasses the 2 s budget and invokes taskkill immediately", async () => {
     const { session_id } = await ctx.host.spawn(SAMPLE_SPAWN);
     await ctx.host.kill(session_id, "SIGKILL");
+    // `kill()` acks once the kill has begun; a zero-time advance settles the taskkill and the
+    // report after it, with no timer let run.
+    await vi.advanceTimersByTimeAsync(0);
 
-    // SIGKILL runs `taskkill /T /F /PID` directly; `host.kill` was awaited, so the mock has
-    // resolved.
+    // SIGKILL runs `taskkill /T /F /PID` directly.
     expect(ctx.mockTaskkill).toHaveBeenCalledTimes(1);
     expect(ctx.mockTaskkill).toHaveBeenCalledWith(FIXTURE_PID);
 
@@ -226,16 +244,15 @@ describe("NodePtyHost — the synthetic exit is reported exactly once", () => {
   });
 });
 
-// `invokeTaskkill` races `spawnTaskkill(pid)` against a 5 s fallback timer (built on the same
-// `setTimer`/`clearTimer` as the 2 s escalation), so a stuck OS-level taskkill cannot keep
-// `onExit` from firing.
+// The Windows ending races `taskkill` against a 5 s fallback timer, so a stuck OS-level taskkill
+// cannot keep `onExit` from firing.
 
-describe("NodePtyHost — invokeTaskkill is wall-clock bounded", () => {
+describe("NodePtyHost — the taskkill ending is wall-clock bounded", () => {
   it(
-    "SIGKILL with a never-resolving spawnTaskkill still fires onExit after the 5 s fallback " +
+    "SIGKILL with a never-resolving taskkill still fires onExit after the 5 s fallback " +
       "timeout",
     async () => {
-      // A `spawnTaskkill` that never settles.
+      // A `taskkill` that never settles.
       const { child } = makeFakeChild(12321);
       const neverResolves: Promise<TaskkillResult> = new Promise<TaskkillResult>(() => {
         // intentionally empty — the promise never settles.
@@ -249,15 +266,13 @@ describe("NodePtyHost — invokeTaskkill is wall-clock bounded", () => {
 
       const host = new NodePtyHost(
         makeOrphanGuardDouble(),
-        windowsTerminalOperatingSystem(undefined),
-        {
-          platform: "win32",
-          ptySpawn: ptySpawnStub,
-          // The SIGKILL path never calls the console-control sender; a no-op keeps the host from
-          // loading the production FFI.
+        // The SIGKILL path never calls the console-control sender; a no-op keeps the system from
+        // loading the production FFI.
+        windowsTerminalOperatingSystem(undefined, {
           generateConsoleCtrlEvent: vi.fn(),
-          spawnTaskkill: stuckTaskkill,
-        },
+          runTaskkill: stuckTaskkill,
+        }),
+        { ptySpawn: ptySpawnStub },
       );
       host.setOnExit(exitRecorder);
 
@@ -267,7 +282,7 @@ describe("NodePtyHost — invokeTaskkill is wall-clock bounded", () => {
       // advanced first.
       const killPromise = host.kill(session_id, "SIGKILL");
 
-      // `spawnTaskkill` was called at once, but the race has not settled, so no onExit.
+      // `taskkill` was called at once, but the race has not settled, so no onExit.
       expect(stuckTaskkill).toHaveBeenCalledTimes(1);
       expect(stuckTaskkill).toHaveBeenCalledWith(12321);
       expect(exitRecorder).not.toHaveBeenCalled();
@@ -287,15 +302,15 @@ describe("NodePtyHost — invokeTaskkill is wall-clock bounded", () => {
   );
 });
 
-// `invokeTaskkill` awaits `spawnTaskkill` (or the 5 s fallback) and captures `record` and
-// `sessionId`. If `close()` runs during that await, `sessions.delete` removes the entry but the
+// The forced end's report waits on `taskkill` (or the 5 s fallback) and captures `record` and
+// `sessionId`. If `close()` runs during that wait, `sessions.delete` removes the entry but the
 // closure still holds the record, so the synthetic `onExit` must be gated on
 // `this.sessions.has(sessionId)`. The SIGTERM escalation and the 5 s fallback reach the same gate.
 
 describe("NodePtyHost — synthetic onExit gated on live session", () => {
   it(
-    "SIGKILL: close() during the direct invokeTaskkill IIFE suppresses the synthetic onExit " +
-      "when spawnTaskkill resolves post-close",
+    "SIGKILL: close() during the outright end suppresses the synthetic onExit " +
+      "when taskkill resolves post-close",
     async () => {
       let resolveTaskkill!: (value: TaskkillResult) => void;
       const taskkillPromise: Promise<TaskkillResult> = new Promise<TaskkillResult>((res) => {
@@ -305,7 +320,7 @@ describe("NodePtyHost — synthetic onExit gated on live session", () => {
 
       const { session_id } = await ctx.host.spawn(SAMPLE_SPAWN);
 
-      // Not awaited: `invokeTaskkill` is in flight on the held-open taskkill.
+      // Not awaited: the outright end is in flight on the held-open taskkill.
       const killPromise: Promise<void> = ctx.host.kill(session_id, "SIGKILL");
 
       // taskkill was called at once; nothing else has happened.
@@ -363,7 +378,7 @@ describe("NodePtyHost — close() ends the child and waits for its exit", () => 
     const host = new NodePtyHost(
       makeOrphanGuardDouble(),
       { ...LINUX_TERMINAL_OPERATING_SYSTEM, endTerminalChild },
-      { platform: "linux", ptySpawn: vi.fn<NodePtySpawnFn>().mockReturnValue(child) },
+      { ptySpawn: vi.fn<NodePtySpawnFn>().mockReturnValue(child) },
     );
     const { session_id } = await host.spawn(SAMPLE_SPAWN);
 
@@ -418,16 +433,15 @@ describe.skipIf(process.platform === "win32")("NodePtyHost — close() of a real
 });
 
 // `KillResponse` acks once the kill cascade has begun, not when the child has exited;
-// `ExitCodeNotification` carries the terminal status. So `kill(SIGKILL)` must not await
-// `invokeTaskkill`, which waits up to 5 s on its fallback timer when `spawnTaskkill` never settles.
+// `ExitCodeNotification` carries the terminal status. So `kill(SIGKILL)` must not await the
+// outright end, which waits up to 5 s on its fallback timer when `taskkill` never settles.
 
 describe("NodePtyHost — kill(SIGKILL) returns once cascade has BEGUN", () => {
   it(
-    "kill(SIGKILL) with a never-resolving spawnTaskkill " +
-      "resolves before the 5 s fallback fires",
+    "kill(SIGKILL) with a never-resolving taskkill " + "resolves before the 5 s fallback fires",
     async () => {
-      // Hold taskkill open. If `kill()` awaited `invokeTaskkill`, the `await kill()` below would
-      // block until the 5 s fallback; it must resolve at once because `spawnTaskkill` is invoked
+      // Hold taskkill open. If `kill()` awaited the outright end, the `await kill()` below would
+      // block until the 5 s fallback; it must resolve at once because `taskkill` is invoked
       // before the first await.
       let resolveTaskkill!: (value: TaskkillResult) => void;
       const taskkillPromise: Promise<TaskkillResult> = new Promise<TaskkillResult>((res) => {
@@ -444,11 +458,11 @@ describe("NodePtyHost — kill(SIGKILL) returns once cascade has BEGUN", () => {
         killResolved = true;
       });
 
-      // Cascade begun: `spawnTaskkill` was invoked synchronously.
+      // Cascade begun: `taskkill` was invoked synchronously.
       expect(ctx.mockTaskkill).toHaveBeenCalledTimes(1);
       expect(ctx.mockTaskkill).toHaveBeenCalledWith(FIXTURE_PID);
 
-      // No synthetic onExit yet: `invokeTaskkill` is still waiting on the held-open taskkill.
+      // No synthetic onExit yet: the outright end is still waiting on the held-open taskkill.
       expect(ctx.exitRecorder).not.toHaveBeenCalled();
 
       // Only microtasks drain here; kill() must resolve without any fake-timer advance.
@@ -516,11 +530,10 @@ describe("NodePtyHost — kill translation", () => {
     expect(ctx.child.kill).not.toHaveBeenCalled();
   });
 
-  it("on platform=linux, SIGINT delegates to child.kill('SIGINT')", async () => {
+  it("on Linux, SIGINT delegates to child.kill('SIGINT')", async () => {
     const { child } = makeFakeChild();
     const ptySpawnStub: Mock<NodePtySpawnFn> = vi.fn<NodePtySpawnFn>().mockReturnValue(child);
     const host = new NodePtyHost(makeOrphanGuardDouble(), LINUX_TERMINAL_OPERATING_SYSTEM, {
-      platform: "linux",
       ptySpawn: ptySpawnStub,
     });
 

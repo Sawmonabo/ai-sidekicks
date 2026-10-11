@@ -5,6 +5,7 @@ import { delimiter, join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { MAC_PROVIDER_OPERATING_SYSTEM } from "../../provider/operating-system/mac.js";
 import { findGitExecutable } from "../process.js";
 
 describe("findGitExecutable", () => {
@@ -12,7 +13,10 @@ describe("findGitExecutable", () => {
     const absoluteFolder = join("/", "usr", "bin");
     const found = await findGitExecutable(
       [["PATH", [".", "tools", absoluteFolder].join(delimiter)]],
-      { platform: "darwin", isExecutableFile: () => Promise.resolve(true) },
+      {
+        operatingSystem: MAC_PROVIDER_OPERATING_SYSTEM,
+        isExecutableFile: () => Promise.resolve(true),
+      },
     );
 
     expect(found).toBe(join(absoluteFolder, "git"));
