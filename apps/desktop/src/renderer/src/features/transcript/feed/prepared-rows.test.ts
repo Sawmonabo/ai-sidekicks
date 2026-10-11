@@ -8,7 +8,7 @@
 // the landing lands on only once it is whole.
 
 import { renderHook } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
@@ -27,6 +27,8 @@ import { OffListTables } from "../rows/markdown/table-window/off-list.js";
 import { prepareTranscriptRow } from "../rows/preparation.js";
 import { type TranscriptRowPreparation, type TranscriptRowSources } from "../rows/renderer.js";
 import { ManualClock } from "#renderer/lib/clock.js";
+import { SteppedTasks } from "#test/helpers/stepped-tasks.js";
+import { TASKS_AT_ONCE } from "#test/helpers/tasks-at-once.js";
 import { createCountingScrollContainer } from "#renderer/lib/scroll/container.test-support.js";
 import { ViewportController } from "../viewport/controller.js";
 import { CALM } from "../viewport/controller.test-support.js";
@@ -94,36 +96,6 @@ function keysOf(rows: readonly { readonly key: string }[]): string[] {
 
 /** Built from its code point: a raw control byte in source is invisible in a diff. */
 const ESCAPE = String.fromCodePoint(0x1b);
-
-/** A window whose scheduled tasks wait until the case runs them, one at a time. */
-class SteppedTasks {
-  readonly #queue: (() => void)[] = [];
-  readonly window = {
-    scheduler: {
-      postTask: async (task: () => unknown) =>
-        await new Promise((resolve, reject) => {
-          this.#queue.push(() => {
-            try {
-              resolve(task());
-            } catch (error) {
-              reject(error as Error);
-            }
-          });
-        }),
-    },
-  } as unknown as Window;
-
-  /** Runs the next task, and lets the work waiting on it queue its next; false with none queued. */
-  public async runNext(): Promise<boolean> {
-    const task = this.#queue.shift();
-    if (task === undefined) {
-      return false;
-    }
-    task();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    return true;
-  }
-}
 
 /** A tool's result row, as the store's first row stands, with the stored body `body` if given. */
 function toolRow(body?: string): TranscriptEventRow {
@@ -288,6 +260,11 @@ describe("PreparedRowGate", () => {
       lastPrune: prune,
     } as unknown as ViewportSnapshot;
 
+    // The release runs in a task of its own, which happy-dom schedules none of.
+    vi.stubGlobal("scheduler", TASKS_AT_ONCE.scheduler);
+    onTestFinished(() => {
+      vi.unstubAllGlobals();
+    });
     renderHook(() => {
       useReleaseOutsideWindow({
         history: {} as TranscriptHistory,
@@ -301,6 +278,21 @@ describe("PreparedRowGate", () => {
 
     expect(store.snapshot().transcript.map((event) => event.id)).toEqual(
       expect.arrayContaining(heldPage),
+    );
+
+    // Without the held page the same prune lets the head go through the rows it cut.
+    renderHook(() => {
+      useReleaseOutsideWindow({
+        history: {} as TranscriptHistory,
+        sessionStore: store,
+        snapshot,
+        unfurledWindow,
+        transcriptWindow: prepared.window,
+        preparingRows: [],
+      });
+    });
+    expect(store.snapshot().transcript.map((event) => event.id)).toEqual(
+      [6, 7, 8, 9].map((index) => transcriptFixtureEventId(index)),
     );
   });
 });

@@ -144,6 +144,7 @@ export function useReveal(options: UseRevealOptions): RevealBinding {
     ),
     retireLanes: useCallback(
       (shouldRetire: (laneId: string) => boolean, isReplyRow: (laneId: string) => boolean) => {
+        let hasRetired = false;
         for (const lane of engine.lanes()) {
           if (!shouldRetire(lane.laneId)) {
             continue;
@@ -158,9 +159,14 @@ export function useReveal(options: UseRevealOptions): RevealBinding {
             });
           }
           engine.retireLane(lane.laneId);
+          hasRetired = true;
         }
-        // Retiring runs in an effect and drains no frame, so nothing else renders the change.
-        setLaneRevision(engine.laneRevision);
+        // Retiring runs in an effect and drains no frame, so nothing else renders the change. A
+        // pass that retired nothing sets nothing: beside the feed's own pending update, React
+        // queues even an unchanged value.
+        if (hasRetired) {
+          setLaneRevision(engine.laneRevision);
+        }
       },
       [engine, drawnReplyText],
     ),

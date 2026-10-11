@@ -71,6 +71,7 @@ describe("the reveal binding — what a row is published", () => {
     });
     const drawnBeforeRetire = binding.result.current.channel.publishedTextFor(LANE_ID);
     expect(drawnBeforeRetire).toBeDefined();
+    const revisionBeforeRetire = binding.result.current.laneRevision;
 
     act(() => {
       binding.result.current.retireLanes(
@@ -80,6 +81,8 @@ describe("the reveal binding — what a row is published", () => {
     });
     expect(binding.result.current.channel.publishedTextFor(LANE_ID)).toBeUndefined();
     expect(binding.result.current.channel.publishedTextFor(otherLaneId)).toBeDefined();
+    // The feed makes its changing-row check again on a new revision, so a retire must reach it.
+    expect(binding.result.current.laneRevision).not.toBe(revisionBeforeRetire);
     // A retired reply row keeps what it drew for its foot until the window lets the row go.
     const drawnReplyText = binding.result.current.channel.drawnReplyText;
     expect(drawnReplyText.drawnTextOf(LANE_ID)?.text).toBe(drawnBeforeRetire);

@@ -7,6 +7,7 @@
 
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { observeElementResize } from "#renderer/lib/element-resize.js";
+import { queueTaskIn } from "#renderer/lib/queued-task.js";
 import { SLICE_MS } from "#renderer/lib/work-slices.js";
 import { type AnsiLineChunk } from "./chunks.js";
 import { ANSI_LINE_CHUNK_INDEX_ATTRIBUTE } from "./markers.js";
@@ -113,15 +114,12 @@ export class AnsiChunkMeasurement {
     }
     this.#isQueued = true;
     const run = this.#run;
-    void view.scheduler.postTask(
-      () => {
-        if (run === this.#run) {
-          this.#isQueued = false;
-          this.#drawSlice(view);
-        }
-      },
-      { priority: "user-visible" },
-    );
+    queueTaskIn(view, () => {
+      if (run === this.#run) {
+        this.#isQueued = false;
+        this.#drawSlice(view);
+      }
+    });
   }
 
   /** Stops measuring and drops the frame under way; `measure` starts again. */

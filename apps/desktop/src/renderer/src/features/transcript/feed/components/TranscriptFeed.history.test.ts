@@ -1,8 +1,9 @@
 // Reading the session's history past the store's window: a stretch asked as the reader nears the
 // top, one per gesture, landing above the row being read without moving it; `Load earlier`, its
 // failure line and `Try again`; the forward read after a tail the store let go as the reader nears
-// the bottom; and a session off screen, which keeps only its newest rows and, when the reader
-// returns, reads the rest forward as the feed opens and rejoins the stream.
+// the bottom; a session off screen, which keeps only its newest rows and, when the reader returns,
+// reads the rest forward as the feed opens and rejoins the stream; and the store letting go of the
+// events outside the window in a task after the pass, never of a row that landed before it.
 
 import { act, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -21,6 +22,7 @@ import { type SessionStore } from "#renderer/store/session/store.js";
 import { withDaemonCall } from "#test/helpers/fixture/bridge.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { openingPageLimit } from "#test/helpers/session/store/fixtures.js";
+import { SteppedTasks } from "#test/helpers/stepped-tasks.js";
 import {
   TRANSCRIPT_APPROACH_SCREEN_HEIGHTS,
   TRANSCRIPT_GESTURE_GAP_MS,
@@ -394,5 +396,46 @@ describe("the transcript feed — a session off screen", () => {
     stopWatchingStream();
     endReturn();
     registry.disposeAll();
+  });
+});
+
+describe("the transcript feed — letting go of events outside the window", () => {
+  it("lets the store go of them in a task after the pass, waiting for a row that lands first", () => {
+    withLaidOutViewport({ content: "laid-out" });
+    const tasks = new SteppedTasks();
+    const lastIndex = LONG_LOG_EVENT_COUNT - 1;
+    const sessionStore = openPagedSessionStore(0, lastIndex);
+    const heldSequences = (): number[] =>
+      sessionStore.snapshot().transcript.map((event) => event.sequence);
+    const releaseOutside = sessionStore.releaseOutside.bind(sessionStore);
+    const drawnRowIdsAtRelease: string[][] = [];
+    vi.spyOn(sessionStore, "releaseOutside").mockImplementation((firstKept, lastKept) => {
+      drawnRowIdsAtRelease.push(drawnRowIds());
+      releaseOutside(firstKept, lastKept);
+    });
+    renderFeed(sessionStore, undefined, RowIdBody, {
+      readTranscriptPage: scriptedTranscriptLog(DAEMON_LOG_ROWS).read,
+      scheduler: tasks.window.scheduler,
+    });
+
+    // The window let rows go far above the bottom it opened at; the store keeps every event until
+    // the task the release waits in runs.
+    expect(heldSequences()).toStrictEqual(logPositions(0, lastIndex));
+    // A row the stream delivers lands before that task: the release, read against the commit
+    // before the row, would let it go, so it waits for the commit that draws the row.
+    act(() => {
+      sessionStore.applyBatch([pagedSessionEventAt(lastIndex + 1)]);
+      tasks.runQueued();
+    });
+    expect(drawnRowIdsAtRelease).toStrictEqual([]);
+    act(() => {
+      tasks.runQueued();
+    });
+
+    expect(drawnRowIdsAtRelease).toHaveLength(1);
+    expect(heldSequences()[0]).toBeGreaterThan(0);
+    expect(heldSequences().at(-1)).toBe(lastIndex + 1);
+    const heldRowIds = new Set(sessionStore.snapshot().transcript.map((event) => event.id));
+    expect(drawnRowIdsAtRelease[0]?.filter((rowId) => !heldRowIds.has(rowId))).toStrictEqual([]);
   });
 });

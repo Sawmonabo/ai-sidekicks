@@ -28,8 +28,8 @@ import {
   type PruneDeferralReason,
   type PruneOutcome,
   type TranscriptWindow,
-  type WindowSide,
 } from "./window-cap.js";
+import { type WindowSide } from "./window-side.js";
 
 /** Dependencies of a `ViewportPruneCycle`. */
 export interface ViewportPruneCycleOptions {

@@ -23,7 +23,7 @@ import {
   TRANSCRIPT_GESTURE_GAP_MS,
   TRANSCRIPT_LEADING_BAND_SCREEN_HEIGHTS,
 } from "./caps.js";
-import { type WindowSide } from "./window-cap.js";
+import { type WindowSide } from "./window-side.js";
 
 /** The band beyond each edge of the viewport, in screen heights. */
 export type DrawnBandScreenHeights = Readonly<Record<WindowSide, number>>;

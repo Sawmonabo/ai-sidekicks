@@ -23,6 +23,7 @@ import {
   TRANSCRIPT_STRETCH_SCREEN_HEIGHTS,
 } from "./caps.js";
 import { type ReadingAnchorPoint } from "./reading-anchor.js";
+import { type WindowSide } from "./window-side.js";
 
 /** One row as the window sees it. The body is nobody's business here. */
 export interface WindowRow {
@@ -32,9 +33,6 @@ export interface WindowRow {
   /** The `transcript.read` cursor this row was read at. */
   readonly rootCursor: string;
 }
-
-/** An end of the window: `head` toward the log's first row, `tail` toward its last. */
-export type WindowSide = "head" | "tail";
 
 /**
  * Why a pass let nothing go, or stopped short. Closed, so a caller can read back every reason.

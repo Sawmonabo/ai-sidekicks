@@ -14,7 +14,8 @@ import { useBridgeClock } from "#renderer/services/platform/hooks/useClock.js";
 import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
 import { type JumpToLogEnd } from "../../viewport/conversation-edge-jump.js";
-import { type WindowSide } from "../../viewport/window-cap.js";
+import { type WindowSide } from "../../viewport/window-side.js";
+import { queueTaskIn } from "#renderer/lib/queued-task.js";
 import {
   TranscriptHistoryReader,
   type TranscriptHistoryState,
@@ -94,14 +95,6 @@ export function useTranscriptHistory(
           },
     [readPage, reader, state, measureWith],
   );
-}
-
-/**
- * Queues `task` behind the work `ownerWindow`'s thread already has, in a task of its own, so a
- * read a scroll event asks for is sent after the frame it lands in rather than inside it.
- */
-function queueTaskIn(ownerWindow: Window, task: () => void): void {
-  void ownerWindow.scheduler.postTask(task, { priority: "user-visible" });
 }
 
 /**

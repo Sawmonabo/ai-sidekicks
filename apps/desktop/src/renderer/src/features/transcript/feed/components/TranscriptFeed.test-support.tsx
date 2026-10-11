@@ -45,7 +45,8 @@ export const LONG_LOG_EVENT_COUNT = 450;
  * the row renderer's answer to which rows it draws, every row unless a case says otherwise,
  * `fixture` the bridge whose frozen clock a case advances, a fresh one unless it says otherwise,
  * and `onCommit` reads the feed as each commit anywhere in it leaves it. happy-dom schedules no
- * tasks, so the case's window runs each queued task at once until the case finishes.
+ * tasks, so the case's window runs each queued task at once until the case finishes, or hands it
+ * to `scheduler` when a case runs the tasks itself.
  */
 export function renderFeed(
   sessionStore: SessionStore,
@@ -57,9 +58,10 @@ export function renderFeed(
     readonly drawsBody?: (row: TranscriptEventRow) => boolean;
     readonly fixture?: FixtureBridge;
     readonly onCommit?: (feed: HTMLElement) => void;
+    readonly scheduler?: Scheduler;
   } = {},
 ): HTMLElement {
-  vi.stubGlobal("scheduler", TASKS_AT_ONCE.scheduler);
+  vi.stubGlobal("scheduler", options.scheduler ?? TASKS_AT_ONCE.scheduler);
   onTestFinished(() => {
     vi.unstubAllGlobals();
   });

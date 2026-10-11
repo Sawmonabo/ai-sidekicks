@@ -9,7 +9,6 @@ import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row"
 import { heldIdAsWireId } from "#renderer/services/daemon/wire/identifiers.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { type ViewportRow } from "../viewport/snapshot.js";
-import { type PruneOutcome } from "../viewport/window-cap.js";
 import { rowSourceSpanReader, type RowSourceWindows } from "../window/row-sources.js";
 
 /** The first and last event the store keeps, by sequence; it lets go of every event outside. */
@@ -25,12 +24,12 @@ export interface KeptEventSources extends RowSourceWindows {
 }
 
 /**
- * The events the store keeps after `prune` let rows go, or `undefined` when nothing it held lies
- * past an edge the pass cut. `heldRows` are the rows the window holds after the pass, and the rows
- * waiting to join it.
+ * The events the store keeps once the window let go of the rows `letGoRowKeys` names, by one pass
+ * or several, or `undefined` when nothing it held lies past an edge those passes cut. `heldRows`
+ * are the rows the window holds now, and the rows waiting to join it.
  */
 export function keptEventCursors(
-  prune: PruneOutcome,
+  letGoRowKeys: readonly string[],
   heldRows: readonly ViewportRow[],
   sources: KeptEventSources,
 ): KeptEventCursors | undefined {
@@ -50,7 +49,7 @@ export function keptEventCursors(
   if (first === undefined || last === undefined || oldest === undefined || newest === undefined) {
     return undefined;
   }
-  const prunedSpans = prune.prunedKeys.flatMap((rowKey) => spanOf(rowKey) ?? []);
+  const prunedSpans = letGoRowKeys.flatMap((rowKey) => spanOf(rowKey) ?? []);
   const keptFirst = first;
   const keptLast = last;
   const isHeadLetGo = prunedSpans.some((span) => span.first.sequence < keptFirst.sequence);

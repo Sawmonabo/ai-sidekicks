@@ -4,7 +4,7 @@
 
 import { HOST_SELECTION_KEYS } from "#renderer/services/platform/text-selection/host.js";
 import { isChordPress, type KeyChord } from "#renderer/services/platform/text-selection/keys.js";
-import { type WindowSide } from "./window-cap.js";
+import { type WindowSide } from "./window-side.js";
 
 /** What the reader's input asks of the frame, each call made as the input is heard. */
 export interface ViewportReaderInputOptions {

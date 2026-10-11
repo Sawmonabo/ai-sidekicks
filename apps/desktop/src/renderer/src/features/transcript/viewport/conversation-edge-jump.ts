@@ -3,7 +3,7 @@
 // its edge row is landed on once the log holding the page is handed over. A jump whose read fails
 // lands nowhere, and a newer jump replaces one under way.
 
-import { type WindowSide } from "./window-cap.js";
+import { type WindowSide } from "./window-side.js";
 
 /**
  * Starts reading the page at an end of the conversation in place of the log, calling

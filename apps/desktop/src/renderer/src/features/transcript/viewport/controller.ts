@@ -41,7 +41,8 @@ import {
 import { ConversationEdgeJump, type JumpToLogEnd } from "./conversation-edge-jump.js";
 import { ViewportTailFollow } from "./tail-follow.js";
 import { VirtualizerOptions, type TranscriptRowVirtualizer } from "./virtualizer-options.js";
-import { TranscriptWindow, type WindowSide } from "./window-cap.js";
+import { TranscriptWindow } from "./window-cap.js";
+import { type WindowSide } from "./window-side.js";
 
 /**
  * How reading back toward a linked message the log lacks stands: still reading back, or ended at
