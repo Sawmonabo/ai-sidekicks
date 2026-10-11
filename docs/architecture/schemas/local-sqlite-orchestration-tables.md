@@ -42,6 +42,8 @@ CREATE TABLE agents (
                                                         -- model's driver-reported `effortLevels` rather than a schema CHECK --
                                                         -- the valid set is per-model and provider-owned, so a CHECK here would
                                                         -- go stale against the provider rather than protect anything
+  ultracode       INTEGER,                              -- D-013-17, Claude Code's Ultracode switch as last set: 0 or 1.
+                                                        -- NULL = never set, so Claude Code's own default stands.
   output_speed    TEXT,                                 -- D-013-17, the output-speed axis: the EFFECTIVE speed mode this
                                                         -- agent spawns under. NULL = never set, so the provider's own default stands --
                                                         -- an agent is not born with a speed mode and no surface sets one at birth.

@@ -450,7 +450,7 @@ CREATE TABLE driver_capabilities (
                       'tool_calls', 'reasoning_stream', 'model_mutation',
                       'structured_output', 'rollback', 'session_fork', 'session_goals',
                       'callback_tools', 'subagents', 'context_compaction',
-                      'provider_commands', 'output_speed'
+                      'provider_commands', 'output_speed', 'ultracode'
                     )),
   supported         INTEGER NOT NULL DEFAULT 0, -- boolean: 0 or 1
                     -- The CHECK above lists every flag the capability union declares. Every driver_name holds one
