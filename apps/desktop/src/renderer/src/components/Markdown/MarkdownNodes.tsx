@@ -262,11 +262,9 @@ function renderTableFrame(frame: MarkdownTableFrame): React.JSX.Element {
 /** The parts of one table, offered to a body that chooses which of its rows to draw. */
 function tableOfferOf(node: Table, context: MarkdownRenderContext): MarkdownTableOffer {
   const [headerRow, ...bodyRows] = node.children;
-  const columnCount = node.align?.length ?? headerRow?.children.length ?? 1;
   return {
     table: node,
     bodyRowCount: bodyRows.length,
-    columnCount,
     drawWhole: () => renderWholeTable(node, context),
     drawFrame: renderTableFrame,
     drawTypeSampleRows: () => (

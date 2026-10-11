@@ -13,6 +13,11 @@ import { primarySelectionFor } from "#renderer/services/platform/primary-selecti
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
 import { type FullBodyReads } from "../../rows/full-body-reads.js";
+import { MARKDOWN_TABLE_KEY_ATTRIBUTE } from "../../rows/markdown/block-window/markers.js";
+import {
+  type DrawnLongTable,
+  type DrawnLongTables,
+} from "../../rows/markdown/table-window/drawn-tables.js";
 import { readRunWindowEdgeKey } from "../../runs/call-window.js";
 import { rowKeyOf, type RowSelection } from "../../viewport/selection/record.js";
 import { type ViewportSelectionTracker } from "../../viewport/selection/tracker.js";
@@ -65,6 +70,8 @@ export interface ConversationCopySource {
   ) => string | undefined;
   /** What a copy reads a large body in full through, or `undefined` where none is read. */
   readonly fullBodyReads: Pick<FullBodyReads, "readFullBody"> | undefined;
+  /** The long tables the feed draws, which a copy reads a table's undrawn rows from. */
+  readonly drawnLongTables: DrawnLongTables;
   /** How rows the store let go are read back, or `undefined` for a composition with no history. */
   readonly history: ConversationCopyHistory | undefined;
 }
@@ -82,8 +89,14 @@ interface HistoryCopy {
   readonly selection: RowSelection;
   readonly span: SelectionEventSpan;
   /** Each end row as it was drawn, taken before anything waits. */
-  readonly endRows: ReadonlyMap<string, Element>;
+  readonly endRows: KeptEndRows;
   readonly held: HeldTranscript;
+}
+
+/** A copy's end rows as they were drawn, and the long tables their spacer rows name, kept. */
+interface KeptEndRows {
+  readonly elements: ReadonlyMap<string, Element>;
+  readonly drawnTables: ReadonlyMap<string, DrawnLongTable>;
 }
 
 /** The rows a copy runs across, in log order, and where each is read from. */
@@ -93,6 +106,8 @@ interface RowSpanCopy {
   readonly transcriptWindow: TranscriptWindowModel;
   /** An end row as it was drawn, or `undefined` when no drawing of it is kept. */
   readonly endRowElement: (rowKey: string) => Element | undefined;
+  /** The long table a spacer row of an end row names, as it is drawn or was kept. */
+  readonly drawnTableOf: (tableKey: string) => DrawnLongTable | undefined;
 }
 
 /** A copy built at once, or one still building in slices from its end rows as they were drawn. */
@@ -135,6 +150,7 @@ export function useConversationCopy(source: ConversationCopySource): void {
     rowBodyText,
     largeBodyRowIdOf,
     fullBodyReads,
+    drawnLongTables,
     history,
   } = source;
   const primarySelection = useMemo(() => primarySelectionFor(bridge), [bridge]);
@@ -170,6 +186,7 @@ export function useConversationCopy(source: ConversationCopySource): void {
             rowKeys,
             transcriptWindow: rowSourceWindows.current.transcriptWindow,
             endRowElement: (rowKey) => selectionTracker.endRowElement(rowKey),
+            drawnTableOf: (tableKey) => drawnLongTables.tableOf(tableKey),
           };
     };
     // Whether the store's log holds each end of the conversation the selection reaches; a copy
@@ -184,20 +201,30 @@ export function useConversationCopy(source: ConversationCopySource): void {
         (selection.end.at !== "conversation-end" || state.transcriptTail.following === "live")
       );
     };
-    // Each end row as `endRowElement` draws it now, copied, for a copy that waits.
+    // Each end row as `endRowElement` draws it now, copied, and the long tables its spacer rows
+    // name, which a table scrolled away lets go, for a copy that waits.
     const keptEndRows = (
       selection: RowSelection,
       endRowElement: (rowKey: string) => Element | undefined,
-    ): ReadonlyMap<string, Element> => {
-      const endRows = new Map<string, Element>();
+    ): KeptEndRows => {
+      const elements = new Map<string, Element>();
+      const drawnTables = new Map<string, DrawnLongTable>();
       for (const boundary of [selection.start, selection.end]) {
         const rowKey = rowKeyOf(boundary);
         const endRow = rowKey === undefined ? undefined : endRowElement(rowKey);
-        if (rowKey !== undefined && endRow !== undefined) {
-          endRows.set(rowKey, endRow.cloneNode(true) as Element);
+        if (rowKey === undefined || endRow === undefined) {
+          continue;
+        }
+        elements.set(rowKey, endRow.cloneNode(true) as Element);
+        for (const spacer of endRow.querySelectorAll(`[${MARKDOWN_TABLE_KEY_ATTRIBUTE}]`)) {
+          const tableKey = spacer.getAttribute(MARKDOWN_TABLE_KEY_ATTRIBUTE) ?? "";
+          const drawnTable = drawnLongTables.tableOf(tableKey);
+          if (drawnTable !== undefined) {
+            drawnTables.set(tableKey, drawnTable);
+          }
         }
       }
-      return endRows;
+      return { elements, drawnTables };
     };
     const rowsOf = (copy: RowSpanCopy): ConversationCopyRows => ({
       selection: copy.selection,
@@ -207,21 +234,27 @@ export function useConversationCopy(source: ConversationCopySource): void {
       rowBodyText: (rowKey, fullBodyOf) => rowBodyText(rowKey, copy.transcriptWindow, fullBodyOf),
       largeBodyRowIdOf: (rowKey) => largeBodyRowIdOf(rowKey, copy.transcriptWindow),
       fullBodyReads,
+      drawnTableOf: copy.drawnTableOf,
       markdownWorker,
     });
     // A copy of rows drawn now, built at once when the slice taken now holds it all; otherwise the
     // rest is built in slices from its end rows copied now, as their drawing may change meanwhile.
     const buildHeldCopy = (copy: RowSpanCopy): CopyBuilding => {
-      let endRowElement = copy.endRowElement;
+      let { endRowElement, drawnTableOf } = copy;
       const build = new ConversationCopyBuild(
-        rowsOf({ ...copy, endRowElement: (rowKey) => endRowElement(rowKey) }),
+        rowsOf({
+          ...copy,
+          endRowElement: (rowKey) => endRowElement(rowKey),
+          drawnTableOf: (tableKey) => drawnTableOf(tableKey),
+        }),
       );
       const firstSlice = build.buildWhile(startSlice());
       if (firstSlice.isBuilt) {
         return firstSlice;
       }
       const endRows = keptEndRows(copy.selection, copy.endRowElement);
-      endRowElement = (rowKey) => endRows.get(rowKey);
+      endRowElement = (rowKey) => endRows.elements.get(rowKey);
+      drawnTableOf = (tableKey) => endRows.drawnTables.get(tableKey);
       return { isBuilt: false, build };
     };
     // Everything the read back needs is taken here, before anything waits.
@@ -275,7 +308,8 @@ export function useConversationCopy(source: ConversationCopySource): void {
         selection: copy.selection,
         rowKeys: rowKeys.slice(first, last + 1),
         transcriptWindow,
-        endRowElement: (rowKey) => copy.endRows.get(rowKey),
+        endRowElement: (rowKey) => copy.endRows.elements.get(rowKey),
+        drawnTableOf: (tableKey) => copy.endRows.drawnTables.get(tableKey),
       };
       return await new ConversationCopyBuild(rowsOf(readBackCopy)).finish(
         ownerWindow,
@@ -400,6 +434,7 @@ export function useConversationCopy(source: ConversationCopySource): void {
     rowBodyText,
     largeBodyRowIdOf,
     fullBodyReads,
+    drawnLongTables,
     history,
     rowSourceWindows,
     eventSpan,

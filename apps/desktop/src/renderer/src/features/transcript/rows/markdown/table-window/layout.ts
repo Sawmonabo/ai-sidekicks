@@ -40,12 +40,12 @@ export type TableRowVirtualizer = Virtualizer<HTMLElement, HTMLElement>;
 export type TableWindowRow =
   | { readonly kind: "row"; readonly index: number }
   | {
-      /** The room of a run of undrawn rows, and the text range they were parsed from. */
+      /** The room of a run of undrawn body rows, and the first and last of them. */
       readonly kind: "spacer";
       readonly key: string;
       readonly heightPx: number;
-      readonly sourceStart: number;
-      readonly sourceEnd: number;
+      readonly firstIndex: number;
+      readonly lastIndex: number;
     };
 
 /**
@@ -636,29 +636,22 @@ export class TableWindowLayout {
     );
   }
 
-  /**
-   * A spacer for undrawn rows `firstIndex` to `lastIndex`, if it has any height, naming the body
-   * text they were parsed from: their block's start, and their own offsets in its parse less the
-   * definitions every offset counts.
-   */
+  /** A spacer for undrawn rows `firstIndex` to `lastIndex`, if it has any height. */
   #pushSpacer(
     rows: TableWindowRow[],
     firstIndex: number,
     lastIndex: number,
     heightPx: number,
   ): void {
-    if (heightPx <= 0) {
-      return;
+    if (heightPx > 0) {
+      rows.push({
+        kind: "spacer",
+        key: firstIndex === 0 ? "before" : `after:${String(firstIndex - 1)}`,
+        heightPx,
+        firstIndex,
+        lastIndex,
+      });
     }
-    const firstRow = this.#table.children[firstIndex + 1];
-    const lastRow = this.#table.children[lastIndex + 1];
-    rows.push({
-      kind: "spacer",
-      key: firstIndex === 0 ? "before" : `after:${String(firstIndex - 1)}`,
-      heightPx,
-      sourceStart: this.#bodyOffsetOf(firstRow?.position?.start.offset ?? 0),
-      sourceEnd: this.#bodyOffsetOf(lastRow?.position?.end.offset ?? 0),
-    });
   }
 }
 
@@ -670,8 +663,8 @@ function isSameRow(row: TableWindowRow, held: TableWindowRow | undefined): boole
     held?.kind === "spacer" &&
     held.key === row.key &&
     held.heightPx === row.heightPx &&
-    held.sourceStart === row.sourceStart &&
-    held.sourceEnd === row.sourceEnd
+    held.firstIndex === row.firstIndex &&
+    held.lastIndex === row.lastIndex
   );
 }
 

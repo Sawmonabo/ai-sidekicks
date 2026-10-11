@@ -6,6 +6,7 @@
 import { createContext, type Context } from "react";
 
 import type { Unsubscribe } from "#shared/preload-api.js";
+import { type BlockParseSource } from "#renderer/components/Markdown/parse.js";
 import { type MarkdownWindowViewport } from "../block-window/context.js";
 import { type MarkdownBodyType } from "../body-type.js";
 import { type StreamingTableGeometries } from "./geometry-memory.js";
@@ -34,6 +35,8 @@ export interface TableBodyPlacement {
   blockSourceStart(index: number): number;
   /** The fingerprint of settled block `index`'s text; `undefined` for the streaming tail. */
   blockFingerprint(index: number): string | undefined;
+  /** What block `index` was parsed from as the body stands now, read when the answer is called. */
+  blockParseSource(index: number): () => BlockParseSource;
   /** The element a table measures its own place from: its block's wrapper, or the body. */
   anchorOf(element: Element): Element | null;
   /**

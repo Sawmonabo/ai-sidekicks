@@ -240,6 +240,7 @@ describe("browser — a long reply drawn as a window over its blocks", () => {
     const windowedCopy = drawnTreeText(
       fromDom(selection.getRangeAt(0).cloneContents()),
       "markdown",
+      () => expect.fail("the reply draws no long table"),
     );
 
     const flowEnds = textEnds(flowBody);
@@ -248,7 +249,11 @@ describe("browser — a long reply drawn as a window over its blocks", () => {
     flowRange.setEnd(flowEnds.last, flowEnds.last.length);
     selection.removeAllRanges();
 
-    expect(windowedCopy).toBe(drawnTreeText(fromDom(flowRange.cloneContents()), "markdown"));
+    expect(windowedCopy).toBe(
+      drawnTreeText(fromDom(flowRange.cloneContents()), "markdown", () =>
+        expect.fail("the reply draws no long table"),
+      ),
+    );
     const drawnAtEnd = drawnBlocks(windowedBody);
     expect(drawnAtEnd.size).toBe(lastIndex + 1);
     expect(

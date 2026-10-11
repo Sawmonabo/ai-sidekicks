@@ -3,9 +3,9 @@
 // the drawn rows, so rows the window let go between its ends are copied too. Each end row gives the
 // part selected in it as it was drawn, and every row between gives its whole text from the source
 // it is drawn from (`row-text.ts`). A long table's rows the window has not drawn inside an end
-// row's part are read from the text of the row's body, from that same source, through the text
-// range each spacer row names, so a copy never waits for rows to draw. A long part is read into its
-// text by the markdown worker, so its part comes once the worker answers. A part inside one table
+// row's part are read from the parse the screen drew the table from, named by each spacer row, so
+// a copy never waits for rows to draw (`undrawn-table-rows.ts`). A long part is read into its text
+// by the markdown worker, so its part comes once the worker answers. A part inside one table
 // is copied as a table of what was selected. A message row gives only its body, never its author
 // line, stamp or controls: a reply's part as the markdown rebuilt from what was selected, and the
 // person's own message or a reasoning aside as plain text. Any other row gives the text selected in
@@ -24,14 +24,21 @@ import {
   makeDrawnText,
   type MarkdownWorkerConnection,
 } from "#renderer/components/Markdown/worker/connection.js";
+import { type PiecedText } from "#renderer/lib/text-pieces.js";
 import { resolveRowTextPosition } from "../viewport/selection/preservation.js";
 import { type RowSelection } from "../viewport/selection/record.js";
-import { withUndrawnTableRows } from "./undrawn-table-rows.js";
+import { type DrawnLongTable } from "../rows/markdown/table-window/drawn-tables.js";
+import { withUndrawnRowsText, withUndrawnTableRows } from "./undrawn-table-rows.js";
 
 /** One row's share of a copy: its text, and the flavor it copies as. */
 export interface SelectedPart {
   readonly flavor: CopyFlavor;
   readonly text: string;
+  /**
+   * A long text the copy read in pieces, which `text` joins: work on the page reads it a piece at
+   * a time, never `text` whole.
+   */
+  readonly pieces?: readonly string[];
 }
 
 /** A selection across the conversation's rows, as a copy reads it. */
@@ -44,10 +51,12 @@ export interface RowSpanSelection {
   /** A whole row's text from the source it is drawn from, or `undefined` for a row with none. */
   readonly rowText: (rowKey: string) => SelectedPart | undefined;
   /**
-   * The text of a row's body alone, from the same source, which an end row's part reads a long
-   * table's undrawn rows and a large body from; `undefined` for a row that draws no body.
+   * The text of a row's body alone, from the same source, which an end row's part reads a large
+   * body from; `undefined` for a row that draws no body.
    */
   readonly rowBodyText: (rowKey: string) => string | undefined;
+  /** The long table a spacer row's key names, which its undrawn rows are read from. */
+  readonly drawnTableOf: (tableKey: string) => DrawnLongTable | undefined;
   /** What reads a long end row's part into its text off the page's thread. */
   readonly markdownWorker: Pick<MarkdownWorkerConnection, "drawnText">;
 }
@@ -65,30 +74,38 @@ export const LARGE_BODY_ATTRIBUTE = "data-large-body";
 export const PART_SEPARATOR = "\n\n";
 
 /**
- * The part of a drawn row that `range` selects: at once, or once `markdownWorker` has read a long
- * part into its text, rejecting with the worker's `Error`; the row is read before anything is
- * waited on. `readBodyText` reads the text of the row's body, which a long table's undrawn rows
- * and a large body drawn as its control are read from; it is read only when the part holds one.
- * Throws when the part holds one and the body has no text.
+ * The part of a drawn row that `range` selects: at once, or once its long table's undrawn rows are
+ * read in slices or `markdownWorker` has read a long part into its text, rejecting with the
+ * worker's `Error`; the row is read before anything is waited on. `readBodyText` reads the text of
+ * the row's body, which a large body drawn as its control is read from, only when the part holds
+ * one; `drawnTableOf` answers the long table a spacer row names. Throws when the part holds a large
+ * body and the body has no text, or a spacer whose table is not held.
  */
 export function readSelectedPart(
   range: Range,
   row: Element,
   readBodyText: () => string | undefined,
   markdownWorker: Pick<MarkdownWorkerConnection, "drawnText">,
+  drawnTableOf: (tableKey: string) => DrawnLongTable | undefined,
 ): SelectedPart | Promise<SelectedPart> {
   const body = row.querySelector(`[${COPY_FLAVOR_ATTRIBUTE}]`);
   // A selection holding only the row's author line or controls clamps to nothing in its body.
   const part = clampedTo(range, body ?? row);
   const flavor = body?.getAttribute(COPY_FLAVOR_ATTRIBUTE) === "markdown" ? "markdown" : "text";
-  const tree = withUndrawnTableRows(
+  const reading = withUndrawnTableRows(
     fromDom(selectedContentOf(part, flavor, readBodyText)),
-    readBodyText,
+    flavor,
+    drawnTableOf,
   );
-  const text = makeDrawnText(tree, flavor, markdownWorker);
-  return typeof text === "string"
-    ? { flavor, text }
-    : text.then((madeText) => ({ flavor, text: madeText }));
+  const drawnText = makeDrawnText(reading.tree, flavor, reading.blockSources, markdownWorker);
+  if (reading.textRuns.length > 0) {
+    return withUndrawnRowsText(drawnText, reading.textRuns, viewOf(row)).then((text) =>
+      partOf(flavor, text),
+    );
+  }
+  return drawnText instanceof Promise
+    ? drawnText.then((made) => partOf(flavor, made))
+    : partOf(flavor, drawnText);
 }
 
 /**
@@ -132,7 +149,13 @@ export function readRowPart(
   ) {
     return span.rowText(rowKey);
   }
-  return readSelectedPart(range, rowElement, () => span.rowBodyText(rowKey), span.markdownWorker);
+  return readSelectedPart(
+    range,
+    rowElement,
+    () => span.rowBodyText(rowKey),
+    span.markdownWorker,
+    span.drawnTableOf,
+  );
 }
 
 /**
@@ -249,6 +272,20 @@ function formulaSourceOf(formula: Element): string {
     throw new Error("A drawn formula holds no TeX source.");
   }
   return sourceHolder.textContent;
+}
+
+/** The part `made` makes in `flavor`, its pieces kept when it has more than one. */
+function partOf(flavor: CopyFlavor, made: PiecedText): SelectedPart {
+  return { flavor, text: made.text, ...(made.pieces.length > 1 ? { pieces: made.pieces } : {}) };
+}
+
+/** The window `row` is drawn in. Throws for a row whose window has closed. */
+function viewOf(row: Element): Window {
+  const view = row.ownerDocument.defaultView;
+  if (view === null) {
+    throw new Error("A copied row's window has closed.");
+  }
+  return view;
 }
 
 /** The part of `range` inside `element`. */
