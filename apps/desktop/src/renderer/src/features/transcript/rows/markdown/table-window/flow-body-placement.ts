@@ -8,19 +8,14 @@ import { Emitter } from "#renderer/lib/emitter.js";
 import { observeElementResize } from "#renderer/lib/element-resize.js";
 import { type MarkdownWindowViewport } from "../block-window/context.js";
 import { isSameBodyType, readMarkdownBodyType, type MarkdownBodyType } from "../body-type.js";
-import { type BlockParseSource } from "#renderer/components/Markdown/parse.js";
-import {
-  blockParseSourceOf,
-  blockSourceStartOf,
-  type MarkdownBodyBlocksSnapshot,
-} from "../body-blocks.js";
+import { blockSourceStartOf, type MarkdownBodyBlocksSnapshot } from "../body-blocks.js";
 import { offsetInRowPx } from "../scroller-window.js";
 import { type TableBodyPlacement, type TablePlacementChange } from "./context.js";
 
 /** The blocks a body drawn whole counts its tables' text in. */
 export type FlowBodyBlocks = Pick<
   MarkdownBodyBlocksSnapshot,
-  "settledBlocks" | "volatileTail" | "definitionPreamble" | "readBlockSource"
+  "settledBlocks" | "volatileTail" | "definitionPreamble"
 >;
 
 /** The placement a body drawn whole gives its tables, observing the body's size. */
@@ -92,10 +87,6 @@ export class FlowBodyPlacement implements TableBodyPlacement {
   /** A settled block's fingerprint; `undefined` for the streaming tail. */
   public blockFingerprint(index: number): string | undefined {
     return this.#blocks.settledBlocks[index]?.fingerprint;
-  }
-
-  public blockParseSource(index: number): () => BlockParseSource {
-    return blockParseSourceOf(this.#blocks, index);
   }
 
   /** Every table here measures its place from the body. */

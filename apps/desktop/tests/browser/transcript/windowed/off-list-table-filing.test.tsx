@@ -72,7 +72,6 @@ function bodyPlacementOf(
     rowKey,
     blockSourceStart,
     blockFingerprint,
-    blockParseSource: () => () => expect.fail("no table here is copied"),
     anchorOf: () => null,
     anchorTopPx: () => undefined,
     subscribeToPlacement: () => () => undefined,

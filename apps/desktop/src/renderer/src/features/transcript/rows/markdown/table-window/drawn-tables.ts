@@ -6,21 +6,12 @@
 import type { Table } from "mdast";
 import { createContext, type Context } from "react";
 
-import { type BlockParseSource } from "#renderer/components/Markdown/parse.js";
-
-/** One long table drawn: the parsed table, and what its block was parsed from. */
-export interface DrawnLongTable {
-  readonly table: Table;
-  /** What the block holding the table was parsed from, read when called, the same each call. */
-  readonly readBlockParseSource: () => BlockParseSource;
-}
-
 /** The long tables one feed draws, by the key their spacer rows carry. */
 export class DrawnLongTables {
-  readonly #tables = new Map<string, DrawnLongTable>();
+  readonly #tables = new Map<string, Table>();
 
   /** Holds `table` under `key`, in place of what the key held, until the key is let go. */
-  public hold(key: string, table: DrawnLongTable): void {
+  public hold(key: string, table: Table): void {
     this.#tables.set(key, table);
   }
 
@@ -30,7 +21,7 @@ export class DrawnLongTables {
   }
 
   /** The table under `key`, or `undefined` once it is let go. */
-  public tableOf(key: string): DrawnLongTable | undefined {
+  public tableOf(key: string): Table | undefined {
     return this.#tables.get(key);
   }
 }

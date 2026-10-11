@@ -83,14 +83,6 @@ export interface HeldSettledBlock {
   readonly release: () => void;
 }
 
-/** What one block of a body was parsed from: its text, and the definitions it was parsed after. */
-export interface BlockParseSource {
-  readonly source: string;
-  readonly definitionPreamble: string;
-  /** Whether it is the body's streaming tail, which is mended before it is parsed. */
-  readonly isVolatileTail: boolean;
-}
-
 /**
  * The definitions a block is parsed against, as a minimal document preamble.
  *
@@ -189,17 +181,6 @@ export function parseAgainstDefinitions(
       (child) => (child.position?.start.offset ?? 0) >= definitionPreamble.length,
     ),
   };
-}
-
-/**
- * The tree a block's parse made, made again from what it was parsed from: the same nodes, offsets
- * included, as the screen drew from it. Uncached, for a reader that needs it once.
- */
-export function parseBlockAgain(parseSource: BlockParseSource): MarkdownRoot {
-  return parseAgainstDefinitions(
-    parseSource.isVolatileTail ? mendVolatileTail(parseSource.source) : parseSource.source,
-    parseSource.definitionPreamble,
-  );
 }
 
 /** The cache key, built in one place so store and lookup agree; no preamble keys on the source. */

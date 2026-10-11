@@ -45,8 +45,7 @@ describe("a long table in a selection", () => {
       fullBodyReads: undefined,
       markdownWorker: {
         html: () => expect.fail("a text part needs no formatted flavor"),
-        drawnText: (tree, flavor, blockSources) =>
-          markdownWorker.drawnText(tree, flavor, blockSources),
+        drawnText: (tree, flavor, tables) => markdownWorker.drawnText(tree, flavor, tables),
       },
     }).finish(
       window,

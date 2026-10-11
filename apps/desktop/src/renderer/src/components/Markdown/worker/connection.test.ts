@@ -1,7 +1,8 @@
 // The markdown worker's connection when its worker fails: a worker that stops fails every text it
 // holds with the reason, so a copy waiting on it says it could not copy, and the next text starts
-// a new worker that answers.
+// a new worker that answers; a worker asking for rows the copy holds no table for fails the copy.
 
+import type { Table, TableCell } from "mdast";
 import { expect, it, vi } from "vitest";
 
 import { decodeTextPieces, encodeTextPieces } from "#renderer/lib/text-pieces.js";
@@ -29,6 +30,11 @@ class StandInWorker implements MarkdownWorkerPort {
     this.isEnded = true;
   }
 
+  /** Says `reply` to the page. */
+  public say(reply: MarkdownWorkerReply): void {
+    this.onmessage?.(new MessageEvent("message", { data: reply }));
+  }
+
   /** Answers the request it was sent last with `html`. */
   public answer(html: string): void {
     const request = this.requests.at(-1) ?? expect.fail("the worker was sent a text");
@@ -37,7 +43,7 @@ class StandInWorker implements MarkdownWorkerPort {
         data: {
           status: "made",
           requestId: request.requestId,
-          text: encodeTextPieces(html),
+          text: encodeTextPieces([html]),
         },
       }),
     );
@@ -72,4 +78,37 @@ it("fails every text when its worker stops, and starts a new one for the next", 
   expect(request?.kind === "html" ? decodeTextPieces(request.markdown) : request).toBe("# three");
   workers[1]?.answer("<h1>three</h1>");
   expect(await third).toBe("<h1>three</h1>");
+});
+
+it.each([
+  { asked: "a table the copy does not hold", tableKey: "other", lastIndex: 0 },
+  { asked: "rows past the table's last", tableKey: "table", lastIndex: 1 },
+])("fails a copy whose worker asks for $asked", async ({ tableKey, lastIndex }) => {
+  const worker = new StandInWorker();
+  const connection = new MarkdownWorkerConnection(() => worker, TASKS_AT_ONCE);
+  const cell: TableCell = { type: "tableCell", children: [{ type: "text", value: "x" }] };
+  const table: Table = {
+    type: "table",
+    align: [null],
+    children: [
+      { type: "tableRow", children: [cell] },
+      { type: "tableRow", children: [cell] },
+    ],
+  };
+
+  const copy = connection.drawnText(
+    { type: "root", children: [] },
+    "markdown",
+    new Map([["table", table]]),
+  );
+  await vi.waitFor(() => {
+    expect(worker.requests).toHaveLength(1);
+  });
+  const requestId = worker.requests[0]?.requestId ?? expect.fail("the worker was sent the copy");
+  worker.say({ status: "pull", requestId, tableKey, firstIndex: 0, lastIndex });
+
+  await expect(copy).rejects.toStrictEqual(
+    new Error("The markdown worker asked for rows no copied table holds"),
+  );
+  expect(worker.isEnded).toBe(true);
 });

@@ -18,16 +18,16 @@
 
 import { isElement } from "@floating-ui/utils/dom";
 import { fromDom } from "hast-util-from-dom";
+import type { Table } from "mdast";
 
 import { type CopyFlavor } from "#renderer/components/Markdown/drawn-text.js";
 import {
   makeDrawnText,
+  type DrawnPartCopy,
   type MarkdownWorkerConnection,
 } from "#renderer/components/Markdown/worker/connection.js";
-import { type PiecedText } from "#renderer/lib/text-pieces.js";
 import { resolveRowTextPosition } from "../viewport/selection/preservation.js";
 import { type RowSelection } from "../viewport/selection/record.js";
-import { type DrawnLongTable } from "../rows/markdown/table-window/drawn-tables.js";
 import { withUndrawnRowsText, withUndrawnTableRows } from "./undrawn-table-rows.js";
 
 /** One row's share of a copy: its text, and the flavor it copies as. */
@@ -39,6 +39,8 @@ export interface SelectedPart {
    * a time, never `text` whole.
    */
   readonly pieces?: readonly string[];
+  /** The part's formatted flavor, when the markdown worker made it with the part's text. */
+  readonly html?: string;
 }
 
 /** A selection across the conversation's rows, as a copy reads it. */
@@ -56,7 +58,7 @@ export interface RowSpanSelection {
    */
   readonly rowBodyText: (rowKey: string) => string | undefined;
   /** The long table a spacer row's key names, which its undrawn rows are read from. */
-  readonly drawnTableOf: (tableKey: string) => DrawnLongTable | undefined;
+  readonly drawnTableOf: (tableKey: string) => Table | undefined;
   /** What reads a long end row's part into its text off the page's thread. */
   readonly markdownWorker: Pick<MarkdownWorkerConnection, "drawnText">;
 }
@@ -86,7 +88,7 @@ export function readSelectedPart(
   row: Element,
   readBodyText: () => string | undefined,
   markdownWorker: Pick<MarkdownWorkerConnection, "drawnText">,
-  drawnTableOf: (tableKey: string) => DrawnLongTable | undefined,
+  drawnTableOf: (tableKey: string) => Table | undefined,
 ): SelectedPart | Promise<SelectedPart> {
   const body = row.querySelector(`[${COPY_FLAVOR_ATTRIBUTE}]`);
   // A selection holding only the row's author line or controls clamps to nothing in its body.
@@ -97,10 +99,12 @@ export function readSelectedPart(
     flavor,
     drawnTableOf,
   );
-  const drawnText = makeDrawnText(reading.tree, flavor, reading.blockSources, markdownWorker);
+  const drawnText = makeDrawnText(reading.tree, flavor, reading.tables, markdownWorker);
   if (reading.textRuns.length > 0) {
-    return withUndrawnRowsText(drawnText, reading.textRuns, viewOf(row)).then((text) =>
-      partOf(flavor, text),
+    const text =
+      drawnText instanceof Promise ? drawnText.then((made) => made.text) : drawnText.text;
+    return withUndrawnRowsText(text, reading.textRuns, viewOf(row)).then((withRows) =>
+      partOf(flavor, { text: withRows }),
     );
   }
   return drawnText instanceof Promise
@@ -275,8 +279,14 @@ function formulaSourceOf(formula: Element): string {
 }
 
 /** The part `made` makes in `flavor`, its pieces kept when it has more than one. */
-function partOf(flavor: CopyFlavor, made: PiecedText): SelectedPart {
-  return { flavor, text: made.text, ...(made.pieces.length > 1 ? { pieces: made.pieces } : {}) };
+function partOf(flavor: CopyFlavor, made: DrawnPartCopy): SelectedPart {
+  const { text, pieces } = made.text;
+  return {
+    flavor,
+    text,
+    ...(pieces.length > 1 ? { pieces } : {}),
+    ...(made.html === undefined ? {} : { html: made.html }),
+  };
 }
 
 /** The window `row` is drawn in. Throws for a row whose window has closed. */

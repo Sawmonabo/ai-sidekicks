@@ -46,9 +46,12 @@ export function joinPieces(pieces: readonly string[]): string {
   return text;
 }
 
-/** `text` as the UTF-8 bytes of each of its pieces, all at once, for a worker's own thread. */
-export function encodeTextPieces(text: string): ArrayBuffer[] {
-  return piecesOf(text).map(utf8BytesOf);
+/**
+ * The text `texts` join to, as the UTF-8 bytes of each piece of each of them, all at once, for a
+ * worker's own thread.
+ */
+export function encodeTextPieces(texts: readonly string[]): ArrayBuffer[] {
+  return texts.flatMap((text) => piecesOf(text).map(utf8BytesOf));
 }
 
 /** The text the UTF-8 pieces in `buffers` hold, all at once, for a worker's own thread. */

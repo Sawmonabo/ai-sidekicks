@@ -3,11 +3,13 @@
 // formatted flavor a part at a time, joined by a blank line into the content of one clipboard
 // write. A large body is read in full just before its row and let go once the row's part is read,
 // so a copy holds one at a time. A reply part too long to make into HTML within a slice is made by
-// the markdown worker, off the page's thread, and so is a long end row's part read into its text.
+// the markdown worker, off the page's thread, and so is a long end row's part read into its text,
+// which, copied as markdown, comes with its HTML.
 // A copy built in slices is the same bytes as one built at once.
 
 import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event/envelope";
 import { toHtml } from "hast-util-to-html";
+import type { Table } from "mdast";
 
 import type { TextClipboardContent } from "#shared/preload-api.js";
 import {
@@ -18,7 +20,6 @@ import { RefusalError } from "#renderer/lib/refusal/contract.js";
 import { joinPieces, piecesOf } from "#renderer/lib/text-pieces.js";
 import { workInSlices } from "#renderer/lib/work-slices.js";
 import { type FullBodyReads } from "../rows/full-body-reads.js";
-import { type DrawnLongTable } from "../rows/markdown/table-window/drawn-tables.js";
 import { type RowSelection } from "../viewport/selection/record.js";
 import {
   PART_SEPARATOR,
@@ -42,7 +43,7 @@ export interface ConversationCopyRows {
   /** The text of a row's body alone, read as `rowText` reads it. */
   readonly rowBodyText: (rowKey: string, fullBodyOf: FullBodyOf) => string | undefined;
   /** The long table a spacer row's key names, as it is drawn or as the copy kept it. */
-  readonly drawnTableOf: (tableKey: string) => DrawnLongTable | undefined;
+  readonly drawnTableOf: (tableKey: string) => Table | undefined;
   /** The id of the row whose large body its text reads, which is read in full first. */
   readonly largeBodyRowIdOf: (rowKey: string) => string | undefined;
   /** What a large body is read in full through, or `undefined` where none is read. */
@@ -207,7 +208,8 @@ export class ConversationCopyBuild {
     while (this.#partHtml.length < parts.length) {
       const part = parts[this.#partHtml.length] ?? throwLostPlace("a part follows the last made");
       if (part.flavor === "markdown") {
-        const html = makeMarkdownHtml(part.text, this.#rows.markdownWorker, part.pieces);
+        const html =
+          part.html ?? makeMarkdownHtml(part.text, this.#rows.markdownWorker, part.pieces);
         if (typeof html !== "string") {
           this.#awaited = { kind: "worker-html", html };
           return NOT_BUILT;

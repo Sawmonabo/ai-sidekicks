@@ -4,7 +4,7 @@
 // rows the same tree.
 
 import { toHtml } from "hast-util-to-html";
-import type { Parents, Table, TableRow } from "mdast";
+import type { Nodes, Parents, Table, TableRow } from "mdast";
 import { toHast, type Handlers } from "mdast-util-to-hast";
 
 import { parseMarkdown } from "./parse.js";
@@ -26,22 +26,28 @@ export function markdownToHast(markdown: string): ReturnType<typeof toHast> {
 }
 
 /**
- * Body rows `firstIndex` to `lastIndex` of `table`, counted from the first row below its head, as
- * elements drawn as the screen draws a table's rows, a footnote marker among them.
+ * The HTML of the body rows of the first table in the markdown tree `tree`, as `markdownToHtml`
+ * writes them for the same table: under the screen's policy, a line break between each.
+ */
+export function tableBodyRowsHtml(tree: Nodes): string {
+  return bodyRowsOf(toHast(tree, { handlers: SCREEN_POLICY_HANDLERS }))
+    .map((row) => toHtml(row))
+    .join("\n");
+}
+
+/**
+ * `rows`, body rows of a table aligned `align`, as elements drawn as the screen draws a table's
+ * rows, a footnote marker among them.
  */
 export function screenTableBodyRows(
-  table: Table,
-  firstIndex: number,
-  lastIndex: number,
+  align: Table["align"],
+  rows: readonly TableRow[],
 ): MarkdownHastElement[] {
-  // Under the head row the rows are body rows, as they are in the whole table.
+  // Under a head row the rows are body rows, as they are in the whole table; the head is not read.
   const rowsUnderHead: Table = {
     type: "table",
-    align: table.align,
-    children: [
-      ...table.children.slice(0, 1),
-      ...table.children.slice(firstIndex + 1, lastIndex + 2),
-    ],
+    align,
+    children: [{ type: "tableRow", children: [] }, ...rows],
   };
   return bodyRowsOf(
     toHast({ type: "root", children: [rowsUnderHead] }, { handlers: SCREEN_TABLE_ROW_HANDLERS }),
