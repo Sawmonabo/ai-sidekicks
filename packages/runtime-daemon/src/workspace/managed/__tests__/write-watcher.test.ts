@@ -1,6 +1,7 @@
 // The one watch over every chat's workspace reports each file and folder a chat writes, once, with
 // its session and its path inside the workspace, and reports neither the workspace's `.git` folder,
-// the workspace folder itself nor a removal. Real folders and the operating system's own change feed.
+// the workspace folder itself nor a removal. Real folders and the operating system's own change
+// feed.
 
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

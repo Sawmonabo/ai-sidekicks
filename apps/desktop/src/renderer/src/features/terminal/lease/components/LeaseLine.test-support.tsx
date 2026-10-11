@@ -26,7 +26,7 @@ export function leaseState(overrides: Partial<TerminalLeaseState>): TerminalLeas
   return { ...UNREAD_TERMINAL_LEASE, ...overrides };
 }
 
-/** The lease line for `TAKE_TARGET`, with its take over the given bridge, for a render or rerender. */
+/** The lease line for `TAKE_TARGET`, its take over the given bridge, for a render or rerender. */
 export function leaseLineWithTake(
   state: TerminalLeaseState,
   holderName: string | undefined,

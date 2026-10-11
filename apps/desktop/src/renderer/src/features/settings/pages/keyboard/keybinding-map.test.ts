@@ -212,7 +212,7 @@ describe("reading a keystroke as a chord", () => {
     ]) {
       expect(hostReasonFor("win32", fields)).toMatch(/Windows key/u);
     }
-    // Negative controls: Microsoft lists no Ctrl+Alt+Esc, and the Windows key is no class elsewhere.
+    // Negative controls: Microsoft lists no Ctrl+Alt+Esc; the Windows key is no class elsewhere.
     expect(hostReasonFor("win32", { ...escape, ctrlKey: true, altKey: true })).toBeUndefined();
     expect(hostReasonFor("linux", { key: "e", code: "KeyE", metaKey: true })).toBeUndefined();
   });

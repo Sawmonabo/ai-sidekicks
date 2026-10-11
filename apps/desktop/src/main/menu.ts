@@ -3,10 +3,13 @@
 // template is rebuilt whenever the kept scheme changes, and again when a pick is not kept: Electron
 // ticks a radio row as it is clicked, and the tick goes back to the scheme in force while main's
 // diagnostic log says why and the window used last says so on its banner. About is the platform's
-// own panel, filled once before the first install with the running app's name and version.
+// own panel, filled once before the first install with the running app's name and version. A
+// development build's View menu also toggles the console document's developer tools in the window
+// the row was chosen in, never the focused page's, which can be a Preview page.
 
 import { app, Menu, type MenuItemConstructorOptions } from "electron";
 
+import { supportedPlatform, type SupportedPlatform } from "#shared/app-facts.js";
 import { SYSTEM_SCHEME_PREFERENCE, type SchemePreference } from "#shared/color-scheme.js";
 
 import type { KeptAppearance } from "./appearance/kept-record.js";
@@ -17,6 +20,17 @@ import { describeFailure } from "#shared/failure-message.js";
 
 /** The About panel's icon. Windows and Linux take it from a file on disk; macOS from the bundle. */
 const ABOUT_ICON_FILE = "icon.png";
+
+/**
+ * The developer-tools row's keys on each platform, the keys Chrome opens its console on. Electron's
+ * own row sits on keys already taken: on macOS Preview's `Inspect`, and on Windows and Linux
+ * Ctrl+Shift+I, `Inspector`'s key while the terminal has focus.
+ */
+const DEVELOPER_TOOLS_ACCELERATORS: Readonly<Record<SupportedPlatform, string>> = {
+  darwin: "Alt+Command+J",
+  linux: "Control+Shift+J",
+  win32: "Control+Shift+J",
+};
 
 /** The View menu's scheme rows, in the order the Appearance page lists them. */
 const SCHEME_CHOICES: readonly { readonly scheme: SchemePreference; readonly label: string }[] = [
@@ -29,13 +43,14 @@ const SCHEME_CHOICES: readonly { readonly scheme: SchemePreference; readonly lab
  * Fills the About panel, builds and installs the application menu, and rebuilds the menu when the
  * kept scheme changes. Call once, inside `app.whenReady()`, after the renderer protocol is
  * installed, so no accelerator can fire against an uninstalled scheme. A pick that is not kept is
- * written to `log` and announced through `openWindows` to the console document; `location` finds
- * the About panel's icon on Windows and Linux.
+ * written to `log` and announced through `openWindows` to the console document, which also opens
+ * a window's developer tools in a development build; `location` finds the About panel's icon on
+ * Windows and Linux.
  */
 export function installApplicationMenu(
   appearance: Pick<KeptAppearance, "scheme" | "chooseScheme" | "subscribe">,
   log: Pick<MainDiagnosticLog, "write">,
-  openWindows: Pick<OpenWindows, "announceUnkeptScheme">,
+  openWindows: Pick<OpenWindows, "announceUnkeptScheme" | "toggleDeveloperTools">,
   location: InstallLocation,
 ): void {
   const isMacOS = process.platform === "darwin";
@@ -47,11 +62,25 @@ export function installApplicationMenu(
       ? { version: app.getVersion() }
       : { iconPath: resolveResourceFile(ABOUT_ICON_FILE, location) }),
   });
+  // Vite's development flag, a literal in the bundle: no other build carries the row.
+  const developerToolsRows: MenuItemConstructorOptions[] = import.meta.env.DEV
+    ? [
+        {
+          label: "Toggle Developer Tools",
+          accelerator: DEVELOPER_TOOLS_ACCELERATORS[supportedPlatform(process.platform)],
+          click: (_menuItem, chosenWindow) => {
+            openWindows.toggleDeveloperTools(chosenWindow);
+          },
+        },
+      ]
+    : [];
   let tickedScheme = appearance.scheme;
   const install = (): void => {
     tickedScheme = appearance.scheme;
     Menu.setApplicationMenu(
-      Menu.buildFromTemplate(applicationMenuTemplate(isMacOS, appearance, pick)),
+      Menu.buildFromTemplate(
+        applicationMenuTemplate(isMacOS, appearance, pick, developerToolsRows),
+      ),
     );
   };
   const pick = (scheme: SchemePreference): void => {
@@ -80,6 +109,7 @@ function applicationMenuTemplate(
   isMacOS: boolean,
   appearance: Pick<KeptAppearance, "scheme">,
   pick: (scheme: SchemePreference) => void,
+  developerToolsRows: readonly MenuItemConstructorOptions[],
 ): MenuItemConstructorOptions[] {
   const template: MenuItemConstructorOptions[] = [];
 
@@ -118,7 +148,7 @@ function applicationMenuTemplate(
         ),
         { type: "separator" },
         { role: "togglefullscreen" },
-        ...(import.meta.env.DEV ? [{ role: "toggleDevTools" } as const] : []),
+        ...developerToolsRows,
       ],
     },
     { role: "windowMenu" },

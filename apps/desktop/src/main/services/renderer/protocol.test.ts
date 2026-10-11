@@ -1,6 +1,6 @@
 // The response policy: statuses, empty refusal bodies, and the locked headers on every response,
-// refusals included; a tree or asset main could not read is written to main's log. Verdicts are tested in
-// `./assets.test.ts`. `electron` is mocked because its real entry point exports a
+// refusals included; a tree or asset main could not read is written to main's log. Verdicts are
+// tested in `./assets.test.ts`. `electron` is mocked because its real entry point exports a
 // binary-path string outside an Electron process.
 
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";

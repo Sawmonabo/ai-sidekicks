@@ -2,13 +2,13 @@
 // the host takes before this application sees them.
 //
 // Every verdict comes from the keybinding table itself: conflicts from
-// `KeybindingTable.conflictsIn` (a pre-flight check that avoids a half-replaced table), and
-// dropped rows from offering each binding to a throwaway table. A second overlap rule or chord
-// parser here would drift from the table. The reserved-chord table below lists chords the
-// operating system consumes, so a binding on one installs but never fires. A chord reaches the
-// lookup in its one spelling, so only its key is folded: `$mod+escape` meets `$mod+Escape`, which
-// on Windows and Linux is Ctrl+Esc. On Windows every chord holding the Windows key is reserved as a class,
-// since Windows keeps that key for itself.
+// `KeybindingTable.conflictsIn` (a pre-flight check that avoids a half-replaced table), and dropped
+// rows from offering each binding to a throwaway table. A second overlap rule or chord parser here
+// would drift from the table. The reserved-chord table below lists chords the operating system
+// consumes, so a binding on one installs but never fires. A chord reaches the lookup in its one
+// spelling, so only its key is folded: `$mod+escape` meets `$mod+Escape`, which on Windows and
+// Linux is Ctrl+Esc. On Windows every chord holding the Windows key is reserved as a class, since
+// Windows keeps that key for itself.
 
 import { CommandRegistry } from "../commands/registry.js";
 import { type Keybinding } from "../commands/keybinding.js";

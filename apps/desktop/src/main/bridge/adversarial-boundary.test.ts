@@ -156,6 +156,9 @@ beforeEach(async () => {
       windowWithId: () =>
         ({
           getBounds: () => ({ x: 0, y: 25, width: 1200, height: 800 }),
+          // The window never moves or closes here.
+          on: () => undefined,
+          once: () => undefined,
           setMinimumSize: (width: number, height: number) => {
             minimumSizes.push([width, height]);
           },

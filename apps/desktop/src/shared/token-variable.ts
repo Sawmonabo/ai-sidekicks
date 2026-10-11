@@ -4,7 +4,7 @@
 
 const TOKEN_PREFIX = "--meridian-";
 
-/** The CSS custom-property name for a token: `transcript-width` is `--meridian-transcript-width`. */
+/** A token's CSS custom-property name: `transcript-width` is `--meridian-transcript-width`. */
 export function tokenVariableName(tokenName: string): string {
   return `${TOKEN_PREFIX}${tokenName}`;
 }

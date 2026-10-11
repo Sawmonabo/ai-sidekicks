@@ -164,7 +164,10 @@ function summary(
 /** A saved workflow's catalog row before its runs are counted. */
 type SavedWorkflowSummary = Omit<WorkflowDefinitionSummary, "runCount">;
 
-/** The saved workflows and their versions, counted into `WORKFLOW_DEFINITION_RECORDS` in `run/records.ts`. */
+/**
+ * The saved workflows and their versions, counted into `WORKFLOW_DEFINITION_RECORDS` in
+ * `run/records.ts`.
+ */
 export const SAVED_WORKFLOWS: readonly (Omit<WorkflowDefinitionRecord, "summary"> & {
   readonly summary: SavedWorkflowSummary;
 })[] = [

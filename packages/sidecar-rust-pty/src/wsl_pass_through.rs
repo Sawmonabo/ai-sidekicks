@@ -1,10 +1,9 @@
 //! Guard that the sidecar does not translate paths.
 //!
 //! `SpawnRequest.cwd` and `SpawnRequest.env` paths go to `portable-pty` verbatim; the sidecar never
-//! runs `wslpath` or any Windows/WSL2 path conversion. WSL path translation is a daemon step
-//! (`spawn-cwd-translator`) that runs before the request reaches the sidecar. [`pass_through`] is
-//! the identity function and its tests assert byte-for-byte identity, so a change that adds
-//! translation fails a test. The dispatcher does not call it yet.
+//! runs `wslpath` or any Windows/WSL2 path conversion. [`pass_through`] is the identity function
+//! and its tests assert byte-for-byte identity, so a change that adds translation here fails a
+//! test. Only its tests call it.
 
 #![cfg(target_os = "windows")]
 
@@ -13,7 +12,7 @@
 #[must_use]
 pub fn pass_through(path: &str) -> String {
     // Deliberately the identity: normalization, slash-flipping or `wslpath` here would break the
-    // forward-verbatim contract, and the daemon owns translation.
+    // forward-verbatim contract.
     path.to_string()
 }
 

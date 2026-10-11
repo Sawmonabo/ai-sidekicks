@@ -58,9 +58,9 @@ const CONFIRMING_TAKE_SHELL: TakeShellPhase = {
 
 /**
  * Drive `Take the shell`, its confirm and the forced `session.takeControl` it sends, against the
- * shell's holder as the fold read it (`holderDeviceId`, `null` while nobody holds it). A served take
- * closes the confirm and sets no holder: the daemon accepting a take is not this device now holding
- * the shell. A refused take keeps the confirm open with the refusal beside it.
+ * shell's holder as the fold read it (`holderDeviceId`, `null` while nobody holds it). A served
+ * take closes the confirm and sets no holder: the daemon accepting a take is not this device now
+ * holding the shell. A refused take keeps the confirm open with the refusal beside it.
  */
 export function useTakeShell(
   bridge: PlatformBridge,

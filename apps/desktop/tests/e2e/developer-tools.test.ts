@@ -23,7 +23,7 @@ const bundleIsBuilt = fixtureBundleExists();
  */
 const DEVELOPER_TOOLS_ANNOUNCEMENT_MS = 5_000;
 
-/** The address a console window a person sees starts on: a blank page the console document draws. */
+/** Where a console window a person sees starts: a blank page the console document draws. */
 const VISIBLE_WINDOW_ADDRESS = "about:blank";
 
 /** One visible window, read once its openers have had their step. */
@@ -104,18 +104,18 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — developer tools outside a develo
           ),
         { address: VISIBLE_WINDOW_ADDRESS, stepMs },
       );
-      const menuRoles = await appUnderTest.application.evaluate(({ Menu }) => {
-        const roles: string[] = [];
+      const menuRows = await appUnderTest.application.evaluate(({ Menu }) => {
+        const rows: { readonly role: string | null; readonly label: string }[] = [];
         const pending = [...(Menu.getApplicationMenu()?.items ?? [])];
         for (let item = pending.pop(); item !== undefined; item = pending.pop()) {
           // Electron answers `null`, not `undefined`, for a row built without a role.
-          if (typeof item.role === "string") {
-            roles.push(item.role);
-          }
+          rows.push({ role: typeof item.role === "string" ? item.role : null, label: item.label });
           pending.push(...(item.submenu?.items ?? []));
         }
-        return roles;
+        return rows;
       });
+      const menuRoles = menuRows.map((row) => row.role);
+      const menuLabels = menuRows.map((row) => row.label);
 
       expect(openerReadings.length, "no window a person sees was found").toBeGreaterThan(0);
       for (const reading of openerReadings) {
@@ -135,6 +135,7 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — developer tools outside a develo
       }
       expect(menuRoles).toContain("togglefullscreen");
       expect(menuRoles).not.toContain("toggledevtools");
+      expect(menuLabels).not.toContain("Toggle Developer Tools");
     });
   });
 });

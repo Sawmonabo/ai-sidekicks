@@ -1,8 +1,8 @@
 // The search index's build, in a child process of its own that the search thread starts and waits
 // on, so the build's memory goes with the process: it opens the daemon's database read-only, builds
 // the index from it and exits. A failed build sends what it threw before the process exits with a
-// failure, and the process exits as soon as the daemon is gone, so it never outlives it; a build cut
-// short leaves only its own folder, which the next build clears.
+// failure, and the process exits as soon as the daemon is gone, so it never outlives it; a build
+// cut short leaves only its own folder, which the next build clears.
 
 import type { Database as DatabaseType } from "better-sqlite3";
 

@@ -1,6 +1,6 @@
 // The `attention.*` wire. A Notify step's entry is the one that names a step, and it is
 // informational and carries its run; the delivery read shows a web address as its host
-// exactly when one is saved.
+// only when one is saved.
 import { describe, expect, it } from "vitest";
 
 import { AttentionDeliveryReadResponseSchema, AttentionProjectionSchema } from "../attention.js";
@@ -68,18 +68,34 @@ describe("attention.deliveryRead", () => {
       emailDigest: digest,
     };
     expect(AttentionDeliveryReadResponseSchema.safeParse(read).success).toBe(true);
+    // An attempt the address gave no answer to says so with a null status, never by leaving it out.
+    const { httpStatus: _httpStatus, ...statusless } = OUTCOME;
+    const omittedStatus = { ...read, webAddress: { ...read.webAddress, lastOutcome: statusless } };
+    expect(AttentionDeliveryReadResponseSchema.safeParse(omittedStatus).success).toBe(false);
   });
 
-  it("carries a host only when an address is saved, and none for a saved text", () => {
-    const savedWithoutHost = {
-      webAddress: { saved: true, host: null, lastOutcome: null },
+  it("always carries host, a string only when an address is saved, null for a saved text", () => {
+    // A saved text with no scheme and host reads a null host, and its test sends nothing.
+    const notAnAddress = {
+      at: "2026-09-24T14:14:00Z",
+      result: "notAnAddress",
+      httpStatus: null,
+      undelivered: 0,
+    };
+    const savedNullHost = {
+      webAddress: { saved: true, host: null, lastOutcome: notAnAddress },
       emailDigest: digest,
     };
     const hostWithoutSave = {
       webAddress: { saved: false, host: "ntfy.sh", lastOutcome: null },
       emailDigest: digest,
     };
-    expect(AttentionDeliveryReadResponseSchema.safeParse(savedWithoutHost).success).toBe(true);
+    const omittedHost = {
+      webAddress: { saved: true, lastOutcome: notAnAddress },
+      emailDigest: digest,
+    };
+    expect(AttentionDeliveryReadResponseSchema.safeParse(savedNullHost).success).toBe(true);
     expect(AttentionDeliveryReadResponseSchema.safeParse(hostWithoutSave).success).toBe(false);
+    expect(AttentionDeliveryReadResponseSchema.safeParse(omittedHost).success).toBe(false);
   });
 });

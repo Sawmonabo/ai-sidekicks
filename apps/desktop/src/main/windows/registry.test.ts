@@ -15,6 +15,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import type { BaseWindow } from "electron";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { appFactsSwitches } from "#shared/app-facts.js";
@@ -666,6 +667,22 @@ describe("a window the console document opens", () => {
 
     second.close();
     expect(openWindows.windowWithId("window/w-2")).toBeUndefined();
+  });
+
+  it("has its own document's developer tools toggled when a menu row is chosen in it", async () => {
+    const openWindows = await createOpenWindows("darwin");
+    openWindows.openHiddenWindow({ additionalArguments: [] });
+    const chosen = openChildWindow("window/w-2");
+    const other = openChildWindow("window/w-3");
+    const toggleIn = (built: MockBaseWindow) =>
+      built.contentView.children[0]?.webContents.toggleDevTools;
+
+    openWindows.toggleDeveloperTools(chosen as unknown as BaseWindow);
+    openWindows.toggleDeveloperTools(undefined);
+
+    expect(toggleIn(chosen)).toHaveBeenCalledOnce();
+    expect(toggleIn(other)).not.toHaveBeenCalled();
+    expect(toggleIn(latestHiddenWindow())).not.toHaveBeenCalled();
   });
 });
 

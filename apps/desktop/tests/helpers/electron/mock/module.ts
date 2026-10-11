@@ -44,7 +44,8 @@ export interface MenuTemplateItem {
   readonly type?: string;
   readonly checked?: boolean;
   readonly accelerator?: string;
-  readonly click?: () => void;
+  /** A row's handler, handed the row and the window it was chosen in, as Electron hands them. */
+  readonly click?: (menuItem?: unknown, chosenWindow?: unknown) => void;
   readonly submenu?: MenuTemplateItem[];
 }
 
@@ -134,7 +135,10 @@ export interface ElectronMock {
    * emit it, and answers whether a listener prevented its default.
    */
   emitAppEvent(eventName: string, ...args: unknown[]): boolean;
-  /** Sets the displays' work areas the mocked `screen` answers from; the first is the primary. */
+  /**
+   * Sets the displays' work areas the mocked `screen` answers from, the first the primary, and
+   * fires `display-metrics-changed` as a display's change does.
+   */
   setDisplayWorkAreas(workAreas: readonly MockRectangle[]): void;
   /** Sets whether the operating system is in its dark scheme, which `system` resolves to. */
   setSystemDark(isSystemDark: boolean): void;
@@ -190,6 +194,7 @@ class ElectronMockImpl implements ElectronMock {
   readonly #openWindows: MockBaseWindow[] = [];
   readonly #appListeners = new Map<string, ((event: MockAppEvent, ...args: unknown[]) => void)[]>();
   readonly #themeListeners: (() => void)[] = [];
+  readonly #displayMetricsListeners: (() => void)[] = [];
   #displayWorkAreas: readonly MockRectangle[] = [MOCK_PRIMARY_WORK_AREA];
   #isSystemDark = false;
   readonly #rendererListeners = new Map<string, ((event: unknown, ...args: unknown[]) => void)[]>();
@@ -254,6 +259,7 @@ class ElectronMockImpl implements ElectronMock {
     this.#openWindows.length = 0;
     this.#appListeners.clear();
     this.#themeListeners.length = 0;
+    this.#displayMetricsListeners.length = 0;
     this.#displayWorkAreas = [MOCK_PRIMARY_WORK_AREA];
     this.#isSystemDark = false;
     this.nativeTheme.themeSource = "system";
@@ -291,6 +297,9 @@ class ElectronMockImpl implements ElectronMock {
 
   public setDisplayWorkAreas(workAreas: readonly MockRectangle[]): void {
     this.#displayWorkAreas = workAreas;
+    for (const listener of this.#displayMetricsListeners) {
+      listener();
+    }
   }
 
   public setSystemDark(isSystemDark: boolean): void {
@@ -420,6 +429,11 @@ class ElectronMockImpl implements ElectronMock {
         getDisplayMatching: vi.fn((bounds: MockRectangle) => ({
           workArea: displayMatching(bounds, this.#displayWorkAreas),
         })),
+        on: vi.fn((eventName: string, listener: () => void) => {
+          if (eventName === "display-metrics-changed") {
+            this.#displayMetricsListeners.push(listener);
+          }
+        }),
       },
       nativeTheme: Object.assign(this.nativeTheme, {
         on: vi.fn((eventName: string, listener: () => void) => {

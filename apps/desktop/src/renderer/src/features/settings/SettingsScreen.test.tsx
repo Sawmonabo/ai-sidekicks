@@ -410,7 +410,7 @@ const STANDING_REFUSAL = "A chord kept for Find was not installed.";
 /** What the probe page draws once its first read is refused. */
 const READ_REFUSAL = "The page could not be read.";
 
-/** A page drawing a standing refusal at once, then the refusal of its first read, if it is refused. */
+/** A page drawing a standing refusal at once, then the refusal of its first read, if refused. */
 function PageReadingOnce(props: { readonly read: Promise<void> }): React.JSX.Element {
   const [isRefused, setIsRefused] = useState(false);
   useEffect(() => {

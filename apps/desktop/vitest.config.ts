@@ -56,7 +56,7 @@ const config: ViteUserConfig = defineConfig({
           // bare identifier is a ReferenceError the moment the ready continuation runs.
           __SMOKE_BUILD__: "false",
           // `main/index.ts`'s fixture-launch check and remote-debugging refusal, and
-          // `src/main/windows/reveal.ts`'s hidden windows; substituted for the same reason as above.
+          // `src/main/windows/reveal.ts`'s hidden windows; substituted for the same reason.
           __FIXTURE_BUILD__: "false",
           __TEST_TIER_BUILD__: "false",
         },
