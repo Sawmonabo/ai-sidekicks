@@ -2,8 +2,8 @@
 // its structured cloning) to main's answers: a chosen appearance is kept and comes back as the
 // first delivery of a subscription, and a request the schema refuses changes nothing; a member
 // naming one window acts on that window alone, its floor held within the display it is on as it
-// moves and as displays change, and brings it forward through main's reveal path;
-// the end of a safe start reaches main's registry; main's ask to reopen a window and its word
+// moves and as displays change, the window shrunk to that display when it no longer fits, and
+// brings it forward through main's reveal path; the end of a safe start reaches main's registry; main's ask to reopen a window and its word
 // that a menu scheme was not kept reach the page; and every member, the read of a held navigation
 // request among them, answers the console document alone.
 
@@ -12,6 +12,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import type { Rectangle } from "electron";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
@@ -43,9 +44,10 @@ const OPEN_WINDOW_ID = "window/w-2";
 
 let userData: string;
 let appearanceFilePath: string;
-let minimumSizes: [number, number][];
+/** What sizing the one open window was asked for, in order: its minimum size, then its bounds. */
+let sizings: (["minimum", number, number] | ["bounds", Rectangle])[];
 /** Where the one open window is, which a case moves. */
-let openWindowBounds: { x: number; y: number; width: number; height: number };
+let openWindowBounds: Rectangle;
 /** The one open window's events, which a case fires as Electron would. */
 let openWindowEvents: EventEmitter;
 /** What bringing the one open window forward asked of it, in order. */
@@ -82,7 +84,13 @@ async function connectWindowBridge() {
   });
   const openWindow = Object.assign(new EventEmitter(), {
     setMinimumSize: (width: number, height: number) => {
-      minimumSizes.push([width, height]);
+      sizings.push(["minimum", width, height]);
+    },
+    // As Electron does, new bounds move the window, which fires `move`.
+    setBounds: (bounds: Rectangle) => {
+      sizings.push(["bounds", bounds]);
+      openWindowBounds = bounds;
+      openWindowEvents.emit("move");
     },
     getBounds: () => openWindowBounds,
     isMinimized: () => true,
@@ -129,7 +137,7 @@ beforeEach(async () => {
   electronMock.setDisplayWorkAreas([WORK_AREA]);
   userData = await mkdtemp(path.join(tmpdir(), "sidekicks-window-bridge-test-"));
   appearanceFilePath = path.join(userData, "appearance.json");
-  minimumSizes = [];
+  sizings = [];
   openWindowBounds = { x: 100, y: 100, width: 900, height: 600 };
   revealCalls = [];
   isAskedFromTheConsole = true;
@@ -181,30 +189,37 @@ describe("the window members", () => {
     // A window no open frame name carries: one that closed while the ask crossed.
     await windowBridge.setMinimumSize("window/w-9", { width: 640, height: 480 });
 
-    expect(minimumSizes).toStrictEqual([
-      [641, 480],
-      [WORK_AREA.width, WORK_AREA.height],
+    expect(sizings).toStrictEqual([
+      ["minimum", 641, 480],
+      ["minimum", WORK_AREA.width, WORK_AREA.height],
     ]);
   });
 
-  it("hold a window's floor within the display it moves to, and again as that display changes", async () => {
+  it("hold a window's floor within the display it moves to, and again as that display changes, shrinking a window that no longer fits", async () => {
     electronMock.setDisplayWorkAreas([WORK_AREA, SIDE_WORK_AREA]);
     const windowBridge = await connectWindowBridge();
     await windowBridge.setMinimumSize(OPEN_WINDOW_ID, { width: 1200, height: 800 });
 
     // A move within the display holds the same floor, so it sets nothing.
     openWindowEvents.emit("move");
-    openWindowBounds = { x: 1500, y: 40, width: 900, height: 600 };
+    // Larger than the smaller display on both sides: the floor is lowered first, then the window
+    // is shrunk to the work area, and the move that shrinking fires sets nothing more.
+    openWindowBounds = { x: 1500, y: 40, width: 1300, height: 820 };
     openWindowEvents.emit("move");
     electronMock.setDisplayWorkAreas([WORK_AREA, { ...SIDE_WORK_AREA, width: 1100 }]);
+    // A display that narrows under the window shrinks it on that side alone.
+    electronMock.setDisplayWorkAreas([WORK_AREA, { ...SIDE_WORK_AREA, width: 1000 }]);
     openWindowBounds = { x: 120, y: 60, width: 900, height: 600 };
     openWindowEvents.emit("move");
 
-    expect(minimumSizes).toStrictEqual([
-      [1200, 800],
-      [SIDE_WORK_AREA.width, SIDE_WORK_AREA.height],
-      [1100, SIDE_WORK_AREA.height],
-      [1200, 800],
+    expect(sizings).toStrictEqual([
+      ["minimum", 1200, 800],
+      ["minimum", SIDE_WORK_AREA.width, SIDE_WORK_AREA.height],
+      ["bounds", SIDE_WORK_AREA],
+      ["minimum", 1100, SIDE_WORK_AREA.height],
+      ["minimum", 1000, SIDE_WORK_AREA.height],
+      ["bounds", { ...SIDE_WORK_AREA, width: 1000 }],
+      ["minimum", 1200, 800],
     ]);
   });
 

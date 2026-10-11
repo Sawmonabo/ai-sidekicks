@@ -1,10 +1,12 @@
 // A window's minimum size: the floor the console document asks for, held within the work area of
 // the display the window is on, in whole pixels. A floor past that work area would leave the
 // window larger than its display, so the hold is worked out again whenever the window moves or a
-// display's metrics change: a window dragged onto a smaller display still fits it, and one dragged
-// back gets its whole floor again. A move only resets the size when the hold it works out changes.
+// display's metrics change, and a window left larger than its display's work area is shrunk to fit
+// it: a window dragged onto a smaller display fits it, and one dragged back gets its whole floor
+// again. A move sets the minimum only when the hold it works out changes, and the bounds only when
+// the window does not fit.
 
-import type { BaseWindow, Screen } from "electron";
+import type { BaseWindow, Rectangle, Screen } from "electron";
 
 import type { WindowSize } from "#shared/window/size.js";
 
@@ -59,14 +61,31 @@ export class WindowFloors {
     if (floor === undefined) {
       return;
     }
-    const { workArea } = this.#screen.getDisplayMatching(baseWindow.getBounds());
+    const bounds = baseWindow.getBounds();
+    const { workArea } = this.#screen.getDisplayMatching(bounds);
     // The platform takes whole pixels; rounding up keeps the floor from cutting a part off.
     const width = Math.min(Math.ceil(floor.asked.width), workArea.width);
     const height = Math.min(Math.ceil(floor.asked.height), workArea.height);
-    if (floor.applied?.[0] === width && floor.applied[1] === height) {
-      return;
+    if (floor.applied?.[0] !== width || floor.applied[1] !== height) {
+      floor.applied = [width, height];
+      baseWindow.setMinimumSize(width, height);
     }
-    floor.applied = [width, height];
-    baseWindow.setMinimumSize(width, height);
+    // After the floor, which would otherwise stop the platform shrinking the window that far.
+    if (bounds.width > workArea.width || bounds.height > workArea.height) {
+      baseWindow.setBounds(fitWithin(bounds, workArea));
+    }
   }
+}
+
+// Shrinks `bounds` to `workArea` on each side it is larger on, starting it at the work area's edge
+// there; a side that already fits keeps its size and place.
+function fitWithin(bounds: Rectangle, workArea: Rectangle): Rectangle {
+  const isTooWide = bounds.width > workArea.width;
+  const isTooTall = bounds.height > workArea.height;
+  return {
+    x: isTooWide ? workArea.x : bounds.x,
+    y: isTooTall ? workArea.y : bounds.y,
+    width: isTooWide ? workArea.width : bounds.width,
+    height: isTooTall ? workArea.height : bounds.height,
+  };
 }

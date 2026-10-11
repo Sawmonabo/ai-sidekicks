@@ -1,10 +1,11 @@
 // The bridge's `window` members main answers: the appearance the renderer chose, the current
 // appearance record a subscription starts from, a window's minimum size, held within the work area
-// of the display the window is on as it moves (`../windows/floor.ts`), a window brought forward, the widths a window with no kept
-// place opens at, the end of a safe start, and the navigation request main held. Only the console
-// document asks, and it names the window by the id its frame name carries. The pushes that follow
-// a subscription's first delivery, and main's ask to reopen a window, come from main's registry of
-// windows (`../windows/registry.ts`), which owns every window and the console document.
+// of the display the window is on as it moves (`../windows/floor.ts`), a window brought forward,
+// the widths a window with no kept place opens at, the end of a safe start, and the navigation
+// request main held. Only the console document asks, and it names the window by the id its frame
+// name carries. The pushes that follow a subscription's first delivery, and main's ask to reopen a
+// window, come from main's registry of windows (`../windows/registry.ts`), which owns every window
+// and the console document.
 
 import { screen, type IpcMainInvokeEvent } from "electron";
 import * as z from "zod/mini";
@@ -16,8 +17,8 @@ import type { WindowDefaultSizes, WindowSize } from "#shared/window/size.js";
 
 import type { KeptAppearance } from "../appearance/kept-record.js";
 import { appearanceChoiceSchema, appearanceGroundsSchema } from "../appearance/record-file.js";
-import type { OpenWindows } from "../windows/registry.js";
 import { WindowFloors } from "../windows/floor.js";
+import type { OpenWindows } from "../windows/registry.js";
 import { bringWindowForward } from "../windows/reveal.js";
 
 /** What the `window` members act on, and the window the platform's dialogs are sheeted on. */
