@@ -23,11 +23,10 @@ export const ARTIFACT_CHUNK_MAX_BYTES: number = 512 * 1024;
 /**
  * Opens an ingest stream for one file.
  *
- * `mediaType` is a hint that can only narrow which content signature is expected. It
- * is omitted when the file declared none, never sent empty: absence is a state of its
- * own, and a payload whose type its bytes cannot show is refused when no type was
- * declared. `declaredSizeBytes` also reserves the stream's spool space, so the
- * stream's decoded bytes may not exceed it.
+ * `mediaType` is the caller's guess, omitted when the file declared none and never sent empty.
+ * It refuses nothing and is recorded nowhere: the daemon reads the type from the bytes.
+ * `declaredSizeBytes` also reserves the stream's spool space, so the stream's decoded bytes may
+ * not exceed it.
  */
 export interface AttachmentIngestInitRequest {
   sessionId: SessionId;
@@ -37,11 +36,7 @@ export interface AttachmentIngestInitRequest {
   mediaType?: string | undefined;
   declaredSizeBytes: number;
 }
-/**
- * Parses an {@link AttachmentIngestInitRequest}; an empty `mediaType` is refused.
- *
- * @consumedBy the daemon's attachment upload, which opens on this request
- */
+/** Parses an {@link AttachmentIngestInitRequest}; an empty `mediaType` is refused. */
 export const AttachmentIngestInitRequestSchema: z.ZodType<
   AttachmentIngestInitRequest,
   AttachmentIngestInitRequest
@@ -62,11 +57,7 @@ export const AttachmentIngestInitRequestSchema: z.ZodType<
 export interface AttachmentIngestInitResponse {
   ingestId: string;
 }
-/**
- * Parses an {@link AttachmentIngestInitResponse}.
- *
- * @consumedBy the daemon's attachment upload, which answers an opened stream with this reply
- */
+/** Parses an {@link AttachmentIngestInitResponse}. */
 export const AttachmentIngestInitResponseSchema: z.ZodType<
   AttachmentIngestInitResponse,
   AttachmentIngestInitResponse
@@ -83,11 +74,7 @@ export interface AttachmentIngestChunkRequest {
   sequenceNumber: number;
   chunk: string;
 }
-/**
- * Parses an {@link AttachmentIngestChunkRequest}; a chunk over the raw cap is refused.
- *
- * @consumedBy the daemon's attachment upload, which takes each chunk on this request
- */
+/** Parses an {@link AttachmentIngestChunkRequest}; a chunk over the raw cap is refused. */
 export const AttachmentIngestChunkRequestSchema: z.ZodType<
   AttachmentIngestChunkRequest,
   AttachmentIngestChunkRequest
@@ -109,11 +96,7 @@ export interface AttachmentIngestChunkResponse {
   ingestId: string;
   receivedBytes: number;
 }
-/**
- * Parses an {@link AttachmentIngestChunkResponse}.
- *
- * @consumedBy the daemon's attachment upload, which acknowledges each chunk with this reply
- */
+/** Parses an {@link AttachmentIngestChunkResponse}. */
 export const AttachmentIngestChunkResponseSchema: z.ZodType<
   AttachmentIngestChunkResponse,
   AttachmentIngestChunkResponse
@@ -126,11 +109,7 @@ export const AttachmentIngestChunkResponseSchema: z.ZodType<
 export interface AttachmentIngestCompleteRequest {
   ingestId: string;
 }
-/**
- * Parses an {@link AttachmentIngestCompleteRequest}.
- *
- * @consumedBy the daemon's attachment upload, which completes on this request
- */
+/** Parses an {@link AttachmentIngestCompleteRequest}. */
 export const AttachmentIngestCompleteRequestSchema: z.ZodType<
   AttachmentIngestCompleteRequest,
   AttachmentIngestCompleteRequest

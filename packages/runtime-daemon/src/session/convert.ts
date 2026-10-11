@@ -50,6 +50,7 @@ import {
   refuseUnchangeableSession,
   type SessionChanges,
 } from "./changes.js";
+import { SESSION_EXISTS_SQL } from "./directory/lookups.js";
 import { sessionLifecycleEvent } from "./lifecycle-event.js";
 import { sessionNotFound } from "./not-found.js";
 import { describeRejection } from "../rejection.js";
@@ -107,8 +108,6 @@ const FILES_DEALT_WITH_SQL = "SELECT path FROM session_convert_files WHERE sessi
 const FILE_COUNTS_SQL = `SELECT count(*) FILTER (WHERE outcome = 'copied') AS copiedCount,
        count(*) FILTER (WHERE outcome <> 'copied') AS skippedCount
   FROM session_convert_files WHERE session_id = ?`;
-
-const SESSION_EXISTS_SQL = "SELECT 1 FROM sessions WHERE id = ?";
 
 // One row past the page shows whether more remain; the first page reads after the empty path,
 // which sorts before every path.
@@ -252,7 +251,7 @@ export class SessionConversion {
   >;
   readonly #selectFilesDealtWith: Statement<[string], { readonly path: string }>;
   readonly #selectFileCounts: Statement<[string], SessionConvertResponse>;
-  readonly #selectSessionExists: Statement<[string]>;
+  readonly #selectSessionExists: Statement<{ sessionId: string }>;
   readonly #selectSkippedFilesPage: Statement<
     [{ sessionId: string; afterPath: string; rowCount: number }],
     SessionConvertSkippedFile
@@ -454,7 +453,7 @@ export class SessionConversion {
   ): SessionConvertSkippedFileListResponse {
     const limit = request.limit ?? SESSION_CONVERT_SKIPPED_FILE_PAGE_LIMIT_MAX;
     const { exists, rows } = this.#reader.transaction(() => ({
-      exists: this.#selectSessionExists.get(request.sessionId) !== undefined,
+      exists: this.#selectSessionExists.get({ sessionId: request.sessionId }) !== undefined,
       rows: this.#selectSkippedFilesPage.all({
         sessionId: request.sessionId,
         afterPath: request.afterCursor === undefined ? "" : skippedFilePathOf(request.afterCursor),

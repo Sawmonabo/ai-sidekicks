@@ -34,7 +34,7 @@ import {
 import type { ServiceLogWriter } from "../../daemon/service-log.js";
 import type { WriteStatement } from "../../database/statement.js";
 import { WriteRefusedError, type DatabaseWriter } from "../../database/writer.js";
-import { pathExists } from "../../git/filesystem.js";
+import { pathExists } from "../../file/path-exists.js";
 import { KeyedLock } from "../../keyed-lock.js";
 import type { SessionChanges } from "../../session/changes.js";
 import { mintUuidV7 } from "../../uuid-v7.js";

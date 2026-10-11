@@ -24,6 +24,7 @@ import type {
   ZodType,
 } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import { METHOD_NAME_FORMAT } from "@ai-sidekicks/contracts/jsonrpc/registry";
+import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 
 // --------------------------------------------------------------------------
 // Method-name format regexes
@@ -275,4 +276,20 @@ export class DelegatingRegistry implements MethodRegistry {
   isMutating(method: string): boolean | undefined {
     return this.#inner.isMutating(method);
   }
+}
+
+// --------------------------------------------------------------------------
+// Calling device
+// --------------------------------------------------------------------------
+
+/**
+ * The device the gateway stamped on a call, which a handler records as the call's author. Throws a
+ * plain `Error` naming `method` when no device is stamped: that is a daemon wiring fault, never a
+ * client's, since every call on the local socket carries the service's own device.
+ */
+export function callingDeviceOf(ctx: HandlerContext, method: string): DeviceId {
+  if (ctx.deviceId === undefined) {
+    throw new Error(`${method} needs the calling device`);
+  }
+  return ctx.deviceId;
 }

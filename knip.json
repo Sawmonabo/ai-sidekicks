@@ -157,7 +157,6 @@
         // naming a file and the limit it hit.
         "src/renderer/src/features/composer/attachments/AttachmentChip.tsx",
         "src/renderer/src/features/composer/attachments/AttachmentStrip.tsx",
-        "src/renderer/src/features/composer/attachments/chip.ts",
         // The definitions a `/workflow run` name autocompletes over.
         "src/renderer/src/features/composer/command-list/workflow/components/WorkflowStartCandidates.tsx",
         // An agent's question card.
@@ -267,12 +266,17 @@
       ]
     },
     "packages/runtime-daemon": {
-      // Files started by path, which knip cannot follow: the database writer's and the search's
-      // worker threads, the database file's copy process and the search index's build process,
-      // each by its file's URL, the askpass program git runs, and the program Codex runs as the
-      // daemon's pre-tool and post-tool hooks.
+      // Files started by path, which knip cannot follow: the database writer's, the search's and
+      // the type detection's worker threads, the database file's copy process and the search
+      // index's build process, each by its file's URL, the askpass program git runs, the program
+      // Codex runs as the daemon's pre-tool and post-tool hooks, and the detectors tests hand the
+      // type detection thread by their URLs.
       "entry": [
         "src/database/worker.ts",
+        "src/artifacts/detection/worker.ts",
+        "src/artifacts/__fixtures__/never-returning-detector.ts",
+        "src/artifacts/__fixtures__/allocating-detector.ts",
+        "src/artifacts/__fixtures__/sleeping-detector.ts",
         "src/recovery/database-file/child.ts",
         "src/session/search/thread/worker.ts",
         "src/session/search/index/child.ts",

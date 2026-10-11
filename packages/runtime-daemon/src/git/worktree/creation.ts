@@ -30,7 +30,8 @@ import { CHECKOUT_ROOT_METADATA_PATH } from "../../workspace/row-guards.js";
 import type { KeyedLock } from "../../keyed-lock.js";
 import { describeRejection } from "../../rejection.js";
 import { canonicalFolderPath } from "../../workspace/folder/canonical-path.js";
-import { DEFAULT_GIT_FILESYSTEM, pathExists, type GitFilesystem } from "../filesystem.js";
+import { DEFAULT_GIT_FILESYSTEM, type GitFilesystem } from "../filesystem.js";
+import { pathExists } from "../../file/path-exists.js";
 import {
   createGitCommand,
   DEFAULT_GIT_COMMAND_TIMEOUT_MS,

@@ -8,9 +8,10 @@
 // JSON columns are TEXT. A table is added here with its test, or in its owner's
 // schema file this script includes: the repository and workspace tables in
 // `workspace/schema.ts`, the worktree tables in `git/worktree/schema.ts`, the
-// search index's in `session/search/index/schema.ts` and the workflow tables in
-// `workflow/schema.ts`. There are no numbered migrations.
+// search index's in `session/search/index/schema.ts`, the workflow tables in `workflow/schema.ts`
+// and the artifact tables in `artifacts/schema.ts`. There are no numbered migrations.
 
+import { ARTIFACT_SCHEMA_SQL } from "../artifacts/schema.js";
 import { DAMAGED_EVENTS_SKIPPED_TYPE } from "../events/session/skipped-ranges.js";
 import { WORKFLOW_SCHEMA_SQL } from "../workflow/schema.js";
 import { WORKTREE_SCHEMA_SQL } from "../git/worktree/schema.js";
@@ -138,6 +139,34 @@ CREATE TABLE session_drafts (
   text        TEXT NOT NULL,
   updated_at  TEXT NOT NULL                     -- RFC 3339 UTC, ms precision
 ) STRICT;
+
+-- The review notes held on the lines of a session's diff, beside its draft and
+-- for the same reason, each until it is sent as a steer, posted with a review
+-- or discarded. The client mints the note's id, so a resent add is one note.
+-- The comparison a note was written in names its head commit or, for
+-- uncommitted lines, the working file's blob; whether its line is still in
+-- that side's file is read from git on each read, never stored.
+CREATE TABLE session_review_notes (
+  session_id            TEXT NOT NULL,
+  note_id               TEXT NOT NULL,
+  scope                 TEXT NOT NULL
+                        CHECK (scope IN ('changes', 'branch', 'change_request')),
+  base                  TEXT NOT NULL,
+  head_commit_id        TEXT,
+  working_tree_blob_id  TEXT,
+  request_number        INTEGER CHECK (request_number IS NULL OR request_number >= 1),
+  path                  TEXT NOT NULL,
+  old_path              TEXT,                   -- the file's earlier path when it was renamed
+  side                  TEXT NOT NULL CHECK (side IN ('added', 'removed')),
+  line                  INTEGER NOT NULL CHECK (line >= 1),
+  start_line            INTEGER CHECK (start_line IS NULL OR start_line BETWEEN 1 AND line),
+  quote                 TEXT NOT NULL,          -- the line's text when the note was added
+  body                  TEXT NOT NULL,
+  created_at            TEXT NOT NULL,          -- RFC 3339 UTC, ms precision
+  updated_at            TEXT NOT NULL,
+  PRIMARY KEY (session_id, note_id),
+  CHECK ((head_commit_id IS NULL) <> (working_tree_blob_id IS NULL))
+) STRICT, WITHOUT ROWID;
 
 -- ---------------------------------------------------------------------------
 -- The session directory: one row per session this daemon hosts, which the
@@ -763,4 +792,5 @@ CREATE TABLE provider_account_usage_windows (
                 CHECK(source IN ('probe', 'run')),
   PRIMARY KEY (account_id, limit_id)
 ) STRICT;
-${WORKFLOW_SCHEMA_SQL}`;
+${WORKFLOW_SCHEMA_SQL}
+${ARTIFACT_SCHEMA_SQL}`;

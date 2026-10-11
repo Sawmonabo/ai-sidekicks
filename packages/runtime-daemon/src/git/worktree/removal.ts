@@ -43,7 +43,8 @@ import type { KeyedLock } from "../../keyed-lock.js";
 import { settleAll } from "../../settle-all.js";
 import { mintUuidV7 } from "../../uuid-v7.js";
 import { canonicalFolderPath } from "../../workspace/folder/canonical-path.js";
-import { pathExists, type GitFilesystem } from "../filesystem.js";
+import type { GitFilesystem } from "../filesystem.js";
+import { pathExists } from "../../file/path-exists.js";
 import type { GitCommand } from "../process.js";
 import { WorktreeRetireConflictError, WorktreeRetireIncompleteError } from "./errors.js";
 import {

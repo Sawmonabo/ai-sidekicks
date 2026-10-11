@@ -69,7 +69,7 @@ import { removeEmptyGroupsOfSessionProjectStatement } from "../../session/groups
 import type { SessionRelatedRanking } from "../../session/related/ranking.js";
 import { SESSION_RUN_IDS_SQL } from "../../session/run/ids.js";
 import { mintUuidV7 } from "../../uuid-v7.js";
-import { pathExists } from "../../git/filesystem.js";
+import { pathExists } from "../../file/path-exists.js";
 import { canonicalFolderPath } from "../../workspace/folder/canonical-path.js";
 import type { ManagedWorkspaceService } from "../../workspace/managed/service.js";
 import { managedMountDeletionStatements } from "../../workspace/repo/mount-service.js";
@@ -552,6 +552,7 @@ function deleteSessionRowsStatements(
     { sql: "DELETE FROM session_snapshots WHERE session_id = ?", bindings: [sessionId] },
     { sql: `DELETE FROM session_events WHERE ${PURGEABLE_WHERE}`, bindings: [sessionId] },
     { sql: "DELETE FROM session_drafts WHERE session_id = ?", bindings: [sessionId] },
+    { sql: "DELETE FROM session_review_notes WHERE session_id = ?", bindings: [sessionId] },
     { sql: "DELETE FROM runs WHERE session_id = ?", bindings: [sessionId] },
     { sql: "DELETE FROM projection_cursors WHERE session_id = ?", bindings: [sessionId] },
     { sql: "DELETE FROM session_console_state WHERE session_id = ?", bindings: [sessionId] },

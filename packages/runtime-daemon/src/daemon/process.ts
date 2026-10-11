@@ -156,6 +156,8 @@ export interface DaemonProcessOptions {
   readonly processIdentity: ProcessIdentity;
   /** Reads the daemon's process and every process under it, for the status read. */
   readonly readProcessTreeUsage: () => Promise<ProcessTreeUsage>;
+  /** Reads the free bytes on the volume holding a folder, which an upload is admitted against. */
+  readonly readVolumeFreeBytes: (folderPath: string) => Promise<number>;
   readonly now: () => Date;
   /** Writes one line to the service log, the daemon's standard error. */
   readonly writeServiceLog: (line: string) => void;
@@ -321,6 +323,7 @@ export class DaemonProcess {
       terminalOperatingSystem: options.terminalOperatingSystem,
       readLoginShell: options.readLoginShell,
       serviceVersion: options.serviceVersion,
+      readVolumeFreeBytes: options.readVolumeFreeBytes,
       refuseSessionWrite: (sessionId, eventType) => {
         refuseSessionEvent(this.#recoveryStatus, sessionId, eventType);
       },

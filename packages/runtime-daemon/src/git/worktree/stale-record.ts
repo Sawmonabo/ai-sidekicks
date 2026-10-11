@@ -14,12 +14,8 @@ import { withCleanupFailures } from "../../cleanup-failures.js";
 import type { ServiceLogWriter } from "../../daemon/service-log.js";
 import { mintUuidV7 } from "../../uuid-v7.js";
 import { canonicalFolderPath } from "../../workspace/folder/canonical-path.js";
-import {
-  pathExists,
-  readFolderNamesOptional,
-  readOptional,
-  type GitFilesystem,
-} from "../filesystem.js";
+import { readFolderNamesOptional, readOptional, type GitFilesystem } from "../filesystem.js";
+import { pathExists } from "../../file/path-exists.js";
 import type { KeptCopyClaims } from "./claims.js";
 import { LEFTOVER_ID_PATTERN } from "./kept-copy.js";
 import { readRecordNamedBy } from "./reads.js";

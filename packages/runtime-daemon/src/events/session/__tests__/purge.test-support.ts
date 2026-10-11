@@ -99,6 +99,7 @@ interface SeedOptions {
 type DirectoryTable =
   | "sessions"
   | "drafts"
+  | "reviewNotes"
   | "groups"
   | "runs"
   | "consoleState"
@@ -121,6 +122,7 @@ type DirectoryTable =
 const DIRECTORY_ROW_QUERIES: Record<DirectoryTable, string> = {
   sessions: "SELECT id FROM sessions ORDER BY id",
   drafts: "SELECT session_id FROM session_drafts ORDER BY session_id",
+  reviewNotes: "SELECT session_id FROM session_review_notes ORDER BY session_id",
   groups: "SELECT id FROM session_groups ORDER BY id",
   runs: "SELECT session_id FROM runs ORDER BY session_id",
   consoleState: "SELECT session_id FROM session_console_state ORDER BY session_id",

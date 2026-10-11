@@ -1,13 +1,13 @@
 // The console's model of an ingest: the states, the declaration, the bytes, and the entry they
 // become. It holds no copy and does no arithmetic. Declared values are advisory hints and the
 // derived summary (the contract's `SessionAttachmentSummary`) replaces them, so they are two
-// shapes. The entry is a union over its state: only arms that can still send carry the user's
+// shapes. The entry is a union over whether it can still send: only that arm carries the user's
 // `Blob`, because a kept handle pins a finished upload's file until the composer unmounts. No
 // shape carries payload bytes, and the caller's filename is never rebuilt into a path.
 
 import type { SessionAttachmentSummary } from "@ai-sidekicks/contracts/session/draft";
 
-import type { IngestRefusalDisposition } from "./policy.js";
+import { canRetryIngest, type IngestRefusalDisposition } from "./policy.js";
 
 /**
  * Where one attachment's ingest stands. `abandoned` is not a flavor of `refused`: the user
@@ -59,38 +59,13 @@ export interface AttachmentSourceInput {
 }
 
 /**
- * Mints one source from the payload a user chose. The only way to make an `AttachmentSource`, so
- * the declared length and the bytes cannot come from two places: the declared size is also the
- * stream's spool reservation, and a mismatch would have the daemon refuse an admitted stream.
+ * The states an entry can still put bytes on a stream from: in flight, or refused with a retry to
+ * offer. A refusal of the file itself offers none, so its entry is settled and lets the bytes go.
  */
-export function attachmentSourceFrom(input: AttachmentSourceInput): AttachmentSource {
-  return {
-    declared: {
-      localId: input.localId,
-      declaredName: input.declaredName,
-      byteLength: input.payload.size,
-      declaredMediaType: input.declaredMediaType,
-    },
-    payload: input.payload,
-  };
-}
+export type SendingAttachmentIngestState = Exclude<AttachmentIngestState, "complete" | "abandoned">;
 
-/**
- * The states an entry can still put bytes on a stream from. Only this half is written down;
- * the settled half is its complement, so the arms cannot drift or overlap. The predicate
- * `isSendingAttachmentIngestState` fails to compile if a member leaves the parent vocabulary.
- * Every refusal disposition offers a retry, so `refused` belongs here.
- */
-export const SENDING_ATTACHMENT_INGEST_STATES = ["declared", "ingesting", "refused"] as const;
-
-/** One state an entry can still send from. */
-export type SendingAttachmentIngestState = (typeof SENDING_ATTACHMENT_INGEST_STATES)[number];
-
-/** One state an entry is finished in. The complement, so the two arms partition the set. */
-export type SettledAttachmentIngestState = Exclude<
-  AttachmentIngestState,
-  SendingAttachmentIngestState
->;
+/** The states an entry can be finished in: complete, abandoned, or refused for the file itself. */
+export type SettledAttachmentIngestState = Exclude<AttachmentIngestState, "declared" | "ingesting">;
 
 /** What one entry records about its own ingest, apart from what it was declared over. */
 export interface AttachmentIngestRecord {
@@ -136,18 +111,28 @@ export type AttachmentReading =
     }
   | { readonly kind: "unresolved"; readonly attachmentId: string };
 
-/** Whether an entry in this state can still put bytes on a stream. */
-export function isSendingAttachmentIngestState(
-  state: AttachmentIngestState,
-): state is SendingAttachmentIngestState {
-  return (SENDING_ATTACHMENT_INGEST_STATES as readonly AttachmentIngestState[]).includes(state);
+/**
+ * Mints one source from the payload a user chose. The only way to make an `AttachmentSource`, so
+ * the declared length and the bytes cannot come from two places: the declared size is also the
+ * stream's spool reservation, and a mismatch would have the daemon refuse an admitted stream.
+ */
+export function attachmentSourceFrom(input: AttachmentSourceInput): AttachmentSource {
+  return {
+    declared: {
+      localId: input.localId,
+      declaredName: input.declaredName,
+      byteLength: input.payload.size,
+      declaredMediaType: input.declaredMediaType,
+    },
+    payload: input.payload,
+  };
 }
 
 /** Whether this entry still holds the bytes, narrowing so a caller can read them. */
 export function isSendingAttachmentIngestEntry(
   entry: AttachmentIngestEntry,
 ): entry is SendingAttachmentIngestEntry {
-  return isSendingAttachmentIngestState(entry.state);
+  return entry.payload !== undefined;
 }
 
 /**
@@ -170,12 +155,17 @@ export function attachmentIngestEntryFrom(
     lastProgressAtMilliseconds: record.lastProgressAtMilliseconds,
     declared: standing.declared,
   };
-  if (!isSendingAttachmentIngestState(record.state)) {
-    return { ...carried, state: record.state };
+  const { state } = record;
+  if (
+    state === "declared" ||
+    state === "ingesting" ||
+    (state === "refused" && canRetryIngest(record))
+  ) {
+    const payload = standing.payload;
+    if (payload === undefined) {
+      return undefined;
+    }
+    return { ...carried, state, payload };
   }
-  const payload = standing.payload;
-  if (payload === undefined) {
-    return undefined;
-  }
-  return { ...carried, state: record.state, payload };
+  return { ...carried, state };
 }

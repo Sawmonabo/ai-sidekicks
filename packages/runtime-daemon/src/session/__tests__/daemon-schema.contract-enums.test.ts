@@ -7,6 +7,7 @@ import Database from "better-sqlite3";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import type { ArtifactState, ArtifactType } from "@ai-sidekicks/contracts/artifacts/manifest";
 import { DRIVER_CAPABILITY_FLAGS } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import { type InterventionType } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type { ProjectState } from "@ai-sidekicks/contracts/project";
@@ -15,6 +16,7 @@ import type { ExecutionMode } from "@ai-sidekicks/contracts/repo/mount";
 import type { InterventionState } from "@ai-sidekicks/contracts/run/control";
 import type { QueueItemState } from "@ai-sidekicks/contracts/run/queue";
 import type { ChildRunProvenance } from "@ai-sidekicks/contracts/run/queued";
+import type { ReviewNoteScope, ReviewNoteSide } from "@ai-sidekicks/contracts/review-note";
 import type { RunState } from "@ai-sidekicks/contracts/run/state";
 import type { SessionConvertSkipReason } from "@ai-sidekicks/contracts/session/convert";
 import type { SessionLinkKind } from "@ai-sidekicks/contracts/session/links";
@@ -121,6 +123,29 @@ const CONVERT_FILE_OUTCOMES: Record<"copied" | SessionConvertSkipReason, true> =
   link: true,
   special_file: true,
 };
+
+const ARTIFACT_TYPES: Record<ArtifactType, true> = {
+  file: true,
+  diff: true,
+  summary: true,
+  log: true,
+  design: true,
+  workflow_output: true,
+};
+
+const ARTIFACT_STATES: Record<ArtifactState, true> = {
+  pending: true,
+  published: true,
+  superseded: true,
+};
+
+const REVIEW_NOTE_SCOPES: Record<ReviewNoteScope, true> = {
+  changes: true,
+  branch: true,
+  change_request: true,
+};
+
+const REVIEW_NOTE_SIDES: Record<ReviewNoteSide, true> = { added: true, removed: true };
 
 const LINK_KINDS: Record<SessionLinkKind, true> = {
   started: true,
@@ -381,6 +406,47 @@ describe("contract enums against the daemon schema", () => {
     expect(() => insertSession({ state: NON_MEMBER })).toThrow(CHECK_FAILURE);
     // A live reading is never a run's outcome.
     expect(() => insertSession({ lastRunOutcome: "running" })).toThrow(CHECK_FAILURE);
+  });
+
+  it("admits every artifact type and state and refuses any other", () => {
+    const insertManifest = db.prepare(
+      `INSERT INTO artifact_manifests
+         (id, session_id, artifact_type, state, content_hash, size_bytes, created_at)
+       VALUES (?, 'session-1', ?, ?, 'sha256:00', 0, ?)`,
+    );
+    for (const artifactType of membersOf(ARTIFACT_TYPES)) {
+      expect(() =>
+        insertManifest.run(newId("artifact"), artifactType, "published", TIMESTAMP),
+      ).not.toThrow();
+    }
+    for (const state of membersOf(ARTIFACT_STATES)) {
+      expect(() => insertManifest.run(newId("artifact"), "file", state, TIMESTAMP)).not.toThrow();
+    }
+    expect(() => insertManifest.run(newId("artifact"), NON_MEMBER, "published", TIMESTAMP)).toThrow(
+      CHECK_FAILURE,
+    );
+    expect(() => insertManifest.run(newId("artifact"), "file", NON_MEMBER, TIMESTAMP)).toThrow(
+      CHECK_FAILURE,
+    );
+  });
+
+  it("admits every review note scope and side and refuses any other", () => {
+    const insertNote = db.prepare(
+      `INSERT INTO session_review_notes
+         (session_id, note_id, scope, base, head_commit_id, path, side, line, quote, body,
+          created_at, updated_at)
+       VALUES ('session-1', ?, ?, 'main', 'abc123', 'src/app.ts', ?, 1, '', 'Rename it', ?, ?)`,
+    );
+    const insert = (scope: string, side: string) => () =>
+      insertNote.run(newId("note"), scope, side, TIMESTAMP, TIMESTAMP);
+    for (const scope of membersOf(REVIEW_NOTE_SCOPES)) {
+      expect(insert(scope, "added")).not.toThrow();
+    }
+    for (const side of membersOf(REVIEW_NOTE_SIDES)) {
+      expect(insert("branch", side)).not.toThrow();
+    }
+    expect(insert(NON_MEMBER, "added")).toThrow(CHECK_FAILURE);
+    expect(insert("branch", NON_MEMBER)).toThrow(CHECK_FAILURE);
   });
 
   it("admits every execution mode a session's create records, and refuses any other", () => {

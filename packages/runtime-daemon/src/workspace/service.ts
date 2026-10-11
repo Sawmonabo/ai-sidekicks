@@ -35,7 +35,7 @@ import type { WriteStatement } from "../database/statement.js";
 import { WriteRefusedError } from "../database/writer.js";
 import { LIVE_WORKTREE_STATE_PREDICATE } from "../git/worktree/rows.js";
 import { SessionNotFoundError } from "../ipc/session-errors.js";
-import { sessionExistsStatement } from "../session/directory/lookups.js";
+import { SESSION_EXISTS_SQL, sessionExistsStatement } from "../session/directory/lookups.js";
 import {
   RepoMountManagedError,
   RepoMountNotFoundError,
@@ -227,7 +227,7 @@ export class WorkspaceService {
 
     const database = deps.database.reader;
 
-    this.#selectSessionStmt = database.prepare("SELECT 1 FROM sessions WHERE id = @session_id");
+    this.#selectSessionStmt = database.prepare(SESSION_EXISTS_SQL);
 
     this.#selectLiveWorkspaceStmt = database.prepare(
       `SELECT id, execution_mode, state
@@ -292,7 +292,7 @@ export class WorkspaceService {
    * folder holds another repository than the one attached there.
    */
   async bind(input: BindWorkspaceInput): Promise<WorkspaceBindResponse> {
-    if (this.#selectSessionStmt.get({ session_id: input.sessionId }) === undefined) {
+    if (this.#selectSessionStmt.get({ sessionId: input.sessionId }) === undefined) {
       throw sessionNotFound(input.sessionId);
     }
     const boundEarlier = this.#readLiveWorkspace(input);

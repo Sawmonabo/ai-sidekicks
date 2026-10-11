@@ -27,7 +27,8 @@ import { mintUuidV7 } from "../../uuid-v7.js";
 import { RepoMountNotFoundError } from "../../workspace/repo/errors.js";
 import { describeRejection } from "../../rejection.js";
 import { canonicalFolderPath } from "../../workspace/folder/canonical-path.js";
-import { DEFAULT_GIT_FILESYSTEM, pathExists, type GitFilesystem } from "../filesystem.js";
+import { DEFAULT_GIT_FILESYSTEM, type GitFilesystem } from "../filesystem.js";
+import { pathExists } from "../../file/path-exists.js";
 import {
   createGitCommand,
   DEFAULT_GIT_COMMAND_TIMEOUT_MS,

@@ -19,7 +19,7 @@ export interface IngestEntryOptions {
   readonly lastProgressAtMilliseconds?: number;
 }
 
-/** One entry mid-ingest or refused, holding the bytes a retry would resend. */
+/** One entry mid-ingest or refused with a retry to offer, holding the bytes a retry resends. */
 export function sendingEntry(
   state: SendingEntry["state"],
   options: IngestEntryOptions = {},
@@ -27,7 +27,7 @@ export function sendingEntry(
   return { ...commonRecord(state, options), state, payload: new Blob(["x"]) };
 }
 
-/** One entry that has stopped — settled into an artifact, or abandoned. */
+/** One entry that has stopped: settled into an artifact, abandoned, or refused for its file. */
 export function settledEntry(
   state: SettledEntry["state"],
   options: IngestEntryOptions = {},

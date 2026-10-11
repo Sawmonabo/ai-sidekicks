@@ -1,12 +1,14 @@
 // Builds the daemon's repository services over the session services' one database and binds every
-// `repo.*` verb they answer, plus `session.setWorkingFolder`. Their start, once the daemon's
-// recovery pass has ended, begins their background work: the scheduler's wake signal, the
-// mount-health probe (at start, which every health read waits for up to the git timeout, then on
-// wake, on its slow tick and when a watched tree's repository may have moved), the watch and fetch
-// each live session's folder holds, the worktree cleanup, which first puts right the discards,
-// put-backs and copies a crash cut short (at start, on wake, and after each removal and detach),
-// and the clone service once git's question program is listening, where the platform has its
-// launcher. Every path that retires a tree then drops its setup card.
+// `repo.*` verb they answer, plus `session.setWorkingFolder` and the review note calls. Their
+// start, once the daemon's recovery pass has ended, begins their background work: the scheduler's
+// wake signal, the mount-health probe (at start, which every health read waits for up to the git
+// timeout, then on wake, on its slow tick and when a watched tree's repository may have moved), the
+// watch and fetch each live session's folder holds, the worktree cleanup, which first puts right
+// the discards, put-backs and copies a crash cut short (at start, on wake, and after each removal
+// and detach), and the clone service once git's question program is listening, where the platform
+// has its launcher. Every path that retires a tree then drops its setup card. The session's review
+// notes are held here too, since whether each still points at a changed line is read from git in
+// the folder the session works in, and their followers follow that folder's watch.
 
 import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 
@@ -42,6 +44,7 @@ import { registerRepoWorkingTreeMethods } from "../ipc/handlers/repo/working-tre
 import { registerRepoWorkspaceMethods } from "../ipc/handlers/repo/workspaces.js";
 import { registerRepoWorktreeMethods } from "../ipc/handlers/repo/worktrees.js";
 import type { OutboundQueue } from "../ipc/handlers/session/subscribe.js";
+import { registerSessionReviewNoteMethods } from "../ipc/handlers/session/review-notes.js";
 import { registerSessionWorkingFolder } from "../ipc/handlers/session/working-folder.js";
 import type { StreamingPrimitive } from "../ipc/streaming-primitive.js";
 import {
@@ -50,6 +53,8 @@ import {
   type SpawnEnvPair,
 } from "../provider/spawn-env.js";
 import type { SessionCreation } from "../session/create.js";
+import { NotedLineReader } from "../session/review-note/diff-line.js";
+import { SessionReviewNoteStore } from "../session/review-note/store.js";
 import type { RunSetupGate } from "../session/run/setup-gates.js";
 import { SessionWorkingFolders } from "../session/working-folder/move.js";
 import { AskpassBroker } from "../workspace/clone/askpass/broker.js";
@@ -70,7 +75,7 @@ import type { RepoRootResolver } from "../workspace/repo/root-resolver.js";
 import { ExecutionRootSetupGate } from "../workspace/run-setup-gate.js";
 import type { WorkspaceService } from "../workspace/service.js";
 import type { MachineSettingsFile } from "./machine/settings/file.js";
-import { Scheduler } from "./scheduler.js";
+import type { Scheduler } from "./scheduler.js";
 
 /** What the repository services are built from: the session services' own, and the daemon's. */
 export interface RepoMethodsDeps {
@@ -101,6 +106,8 @@ export interface RepoMethodsDeps {
   readonly baseEnvironment: readonly SpawnEnvPair[];
   readonly streamingPrimitive: StreamingPrimitive;
   readonly outboundQueue: OutboundQueue;
+  /** The service's one scheduler, which its creator stops through the services' stop. */
+  readonly scheduler: Scheduler;
   readonly writeServiceLog: (line: string) => void;
 }
 
@@ -111,8 +118,11 @@ export interface RepoMethods {
   /**
    * Ends their background work, settling once each has finished or left what it had under way and
    * nothing more writes to the database; one failure is thrown as itself, several together.
+   * `stopScheduler` is the scheduler's creator's stop of it: run once the folder syncs have ended,
+   * so nothing of theirs schedules again, and awaited before the watcher stops and the database
+   * settles, so the job it aborts has ended by then.
    */
-  readonly stop: () => Promise<void>;
+  readonly stop: (stopScheduler: () => Promise<void>) => Promise<void>;
   /** Makes a run's execution root ready before the run starts, for the run engine to register. */
   readonly setupGate: RunSetupGate;
 }
@@ -123,13 +133,12 @@ export interface RepoMethods {
  * not commit in its event's own write.
  */
 export function registerRepoMethods(registry: MethodRegistry, deps: RepoMethodsDeps): RepoMethods {
-  const { database, git, projectListFeed, projectRecords, writeServiceLog } = deps;
+  const { database, git, projectListFeed, projectRecords, scheduler, writeServiceLog } = deps;
   if (!deps.eventLog.writesThrough(database.writer)) {
     throw new Error(
       "The repository services and the event log must write through one database writer",
     );
   }
-  const scheduler = new Scheduler({ writeServiceLog });
   const worktreeEvents = new WorktreeEventEmitter({ sessionEvents: deps.eventLog });
   const readSettings = async () => (await deps.settingsFile.read()).settings;
 
@@ -467,6 +476,21 @@ export function registerRepoMethods(registry: MethodRegistry, deps: RepoMethodsD
     copies: worktreeCopies,
   });
   registerSessionWorkingFolder(registry, { workingFolders });
+  registerSessionReviewNoteMethods(registry, {
+    streamingPrimitive: deps.streamingPrimitive,
+    outboundQueue: deps.outboundQueue,
+    notes: new SessionReviewNoteStore({
+      database,
+      openLineReader: async (sessionId) => {
+        // A chat's managed folder is no repository, so it has no diff to read.
+        const workingFolder = await liveFolders.readWorkingFolder(sessionId);
+        return workingFolder?.isProject === true
+          ? new NotedLineReader(git, workingFolder.folder)
+          : undefined;
+      },
+      followWorkingFolder: (sessionId, onChange) => watcher.subscribe(sessionId, onChange),
+    }),
+  });
 
   // Set by the start: lets go of the triggers it hooked up.
   let detachTriggers: (() => void) | undefined;
@@ -500,7 +524,7 @@ export function registerRepoMethods(registry: MethodRegistry, deps: RepoMethodsD
       requestCleanup();
       liveFolders.start();
     },
-    stop: async () => {
+    stop: async (stopScheduler) => {
       isStopping = true;
       detachTriggers?.();
       if (clonesStart === undefined) {
@@ -521,7 +545,7 @@ export function registerRepoMethods(registry: MethodRegistry, deps: RepoMethodsD
               // which a stopped scheduler refuses.
               await liveFolders.stop();
               // Aborts the running job's signal, so a cleanup ends at its next check.
-              await scheduler.stop();
+              await stopScheduler();
               watcher.stop();
             })(),
           ],

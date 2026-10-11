@@ -34,6 +34,8 @@ export type RecordedChunk = Parameters<AttachmentIngestPort["writeChunk"]>[0];
 export class ScriptedIngestPort {
   readonly initCalls: RecordedInit[] = [];
   readonly chunkCalls: RecordedChunk[] = [];
+  /** How many completions the client asked for, refused ones included. */
+  completeCalls = 0;
   /**
    * The next stream identity this port hands out: `ingest-1` first, one id per opened stream, so a
    * case can tell a restart's new stream from the one it replaced.
@@ -52,6 +54,7 @@ export class ScriptedIngestPort {
    */
   readonly #spooledBytesByIngestId = new Map<string, Map<number, number>>();
   #chunkAcknowledgementOverride: AttachmentIngestChunkResponse | undefined;
+  #completionRefusal: { readonly code: string; readonly message: string } | undefined;
 
   /**
    * Answer every later chunk with this acknowledgement instead of the true one.
@@ -62,6 +65,13 @@ export class ScriptedIngestPort {
    */
   public acknowledgeChunksWith(acknowledgement: AttachmentIngestChunkResponse | undefined): void {
     this.#chunkAcknowledgementOverride = acknowledgement;
+  }
+
+  /** Reject every later completion with this daemon refusal; `undefined` lets them succeed. */
+  public refuseCompletionsWith(
+    refusal: { readonly code: string; readonly message: string } | undefined,
+  ): void {
+    this.#completionRefusal = refusal;
   }
 
   /** Hold the next `begin` until the returned gate is opened; later calls run free. */
@@ -98,13 +108,19 @@ export class ScriptedIngestPort {
           }
         );
       },
-      complete: async () => ({
-        artifactId: "artifact-9" as ArtifactId,
-        contentHash: "sha256-9",
-        normalizedName: "notes-1.md",
-        derivedMediaType: "text/markdown",
-        derivedSizeBytes: 300,
-      }),
+      complete: () => {
+        this.completeCalls += 1;
+        if (this.#completionRefusal !== undefined) {
+          return Promise.reject(this.#completionRefusal);
+        }
+        return Promise.resolve({
+          artifactId: "artifact-9" as ArtifactId,
+          contentHash: "sha256-9",
+          normalizedName: "notes-1.md",
+          derivedMediaType: "text/markdown",
+          derivedSizeBytes: 300,
+        });
+      },
     };
   }
 

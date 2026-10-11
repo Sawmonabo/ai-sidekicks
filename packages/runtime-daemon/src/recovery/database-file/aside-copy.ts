@@ -15,7 +15,7 @@ import { withCleanupFailures } from "../../cleanup-failures.js";
 import { flushPath } from "../../disk-flush.js";
 import { syncFolder, writeFileAtomically } from "../../file/atomic-write.js";
 import { isMissingFileError } from "../../file/missing-error.js";
-import { pathExists } from "../../git/filesystem.js";
+import { pathExists } from "../../file/path-exists.js";
 import type { DatabaseFileOperatingSystem } from "./operating-system.js";
 import { describeRejection } from "../../rejection.js";
 

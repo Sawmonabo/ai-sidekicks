@@ -10,9 +10,10 @@ describe("the send attachment reference", () => {
   it("counts every entry that has minted nothing rather than shortening the list silently", () => {
     const reference = composeSendAttachmentReference([
       sendingEntry("ingesting", { localId: "local-1" }),
-      sendingEntry("refused", {
+      settledEntry("refused", {
         localId: "local-2",
-        refusal: { code: "artifact.too_large", detail: "Past the per-attachment bound." },
+        refusal: { code: "artifact.too_large", detail: "Larger than the disk has room for." },
+        disposition: "attach-another",
       }),
       settledEntry("abandoned", { localId: "local-3" }),
       settledEntry("complete", {
