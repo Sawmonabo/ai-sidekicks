@@ -72,12 +72,15 @@ export function useOutputHeightCut(isCutAtFlowHeight: boolean, rowKey: string): 
     const readRunsPastCut = (): void => {
       setRunsPastCut(contentHeightPx - boxHeightPx > CUT_TOLERANCE_PX);
     };
-    // A row a screen above the box takes its first answer from the first report, in the frame's
-    // own layout: drawn there, its `Show all` reaches the conversation's measurement of the row a
-    // frame later, which nothing on screen shows. Any other row reads both heights once the commit
-    // is done, with every other output the commit brought in, laying the inserted rows out once,
-    // so the conversation measures the row with `Show all` in the first frame and no row is drawn
-    // over it.
+    // A row a screen above the box takes its first answer from the first report. Still a screen
+    // above then, it draws the answer as the next frame starts, before that frame lays out, so the
+    // conversation measures the row with `Show all` there and no frame shows it in the box without;
+    // drawn inside the report, the row would grow while its own report waits behind the cut's,
+    // which the browser raises as a resize loop. A row a scroll brought nearer since its commit
+    // draws the answer inside the report, before the frame paints. Any other row reads both heights
+    // once the commit is done, with every other output the commit brought in, laying the inserted
+    // rows out once, so the conversation measures the row with `Show all` in the first frame and no
+    // row is drawn over it.
     let isFirstReportDeferred = viewport !== undefined && isRowAScreenAboveBox(viewport, rowKey);
     const cancelFirstRead = isFirstReportDeferred
       ? undefined
@@ -88,7 +91,9 @@ export function useOutputHeightCut(isCutAtFlowHeight: boolean, rowKey: string): 
           contentHeightPx = content.getBoundingClientRect().height;
           readRunsPastCut();
         });
-    const watch = watchElementsResize(getWindow(body), (entries) => {
+    const view = getWindow(body);
+    let deferredDrawFrame: number | undefined;
+    const watch = watchElementsResize(view, (entries) => {
       for (const entry of entries) {
         if (entry.target === body) {
           boxHeightPx = entry.contentRect.height;
@@ -98,8 +103,14 @@ export function useOutputHeightCut(isCutAtFlowHeight: boolean, rowKey: string): 
       }
       if (isFirstReportDeferred) {
         isFirstReportDeferred = false;
-        // Drawn now, so the conversation measures it on the next frame, still a screen above.
-        flushSync(readRunsPastCut);
+        if (viewport !== undefined && isRowAScreenAboveBox(viewport, rowKey)) {
+          deferredDrawFrame = view.requestAnimationFrame(() => {
+            deferredDrawFrame = undefined;
+            flushSync(readRunsPastCut);
+          });
+        } else {
+          flushSync(readRunsPastCut);
+        }
       } else {
         readRunsPastCut();
       }
@@ -108,6 +119,9 @@ export function useOutputHeightCut(isCutAtFlowHeight: boolean, rowKey: string): 
     watch.observe(content);
     return () => {
       cancelFirstRead?.();
+      if (deferredDrawFrame !== undefined) {
+        view.cancelAnimationFrame(deferredDrawFrame);
+      }
       watch.disconnect();
     };
   }, [isArmed, viewport, rowKey]);

@@ -4,8 +4,9 @@
 // whole lines and follows each new one, its rest offered under the bytes arrived so far. Whether
 // an output runs past the cut is known in the commit that cuts it, so the conversation measures its
 // row with `Show all` in that frame, except in a row a screen above the box, which takes it from
-// the frame's own layout; the outputs one commit brings in are read together, laid out once.
-// Measured in Chromium, since the cut is CSS line units over the scroller's measured height.
+// its first report and draws it as the next frame starts, raising no resize loop; the outputs one
+// commit brings in are read together, laid out once. Measured in Chromium, since the cut is CSS
+// line units over the scroller's measured height.
 
 import { act, cleanup, fireEvent, render, within } from "@testing-library/react";
 import { useState } from "react";
@@ -409,7 +410,9 @@ describe("a call's output cut at the visible flow", () => {
     expect(inViewFrames.filter((frame) => frame.cutCount > frame.showAllCount)).toStrictEqual([]);
     cleanup();
 
-    // A screen above the box, the first resize report answers it, inside the frame that cut it.
+    // A screen above the box, the first resize report answers it, in the frame that cut it, and
+    // `Show all` is drawn as the next frame starts, before a fling can bring the row into the box:
+    // the third frame starts with what the second drew.
     const above = await renderInScroller(
       <HeldToolOutput body={printedLines(PRINTED_LINE_COUNT)} />,
       () => -SCROLLER_HEIGHT_PX,
@@ -417,8 +420,27 @@ describe("a call's output cut at the visible flow", () => {
     const aboveFrames = await act(
       async () => await recordCutFrames(() => outputsIn(above.container), 6),
     );
-    expect(aboveFrames.some((frame) => frame.cutCount > frame.showAllCount)).toBe(true);
-    expect(aboveFrames.at(-1)).toStrictEqual({ cutCount: 1, showAllCount: 1 });
+    expect(aboveFrames.slice(0, 2)).toStrictEqual([
+      { cutCount: 1, showAllCount: 0 },
+      { cutCount: 1, showAllCount: 0 },
+    ]);
+    expect(aboveFrames.slice(2).filter((frame) => frame.showAllCount === 0)).toStrictEqual([]);
+    cleanup();
+
+    // A screen above when cut but brought nearer before its first report, the row draws `Show all`
+    // in the frame of that report, before it paints.
+    let rowEndPx = -SCROLLER_HEIGHT_PX;
+    const broughtNearer = await renderInScroller(
+      <HeldToolOutput body={printedLines(PRINTED_LINE_COUNT)} />,
+      () => rowEndPx,
+    );
+    rowEndPx = SCROLLER_HEIGHT_PX / 2;
+    const broughtNearerFrames = await act(
+      async () => await recordCutFrames(() => outputsIn(broughtNearer.container), 6),
+    );
+    expect(broughtNearerFrames.slice(1).filter((frame) => frame.showAllCount === 0)).toStrictEqual(
+      [],
+    );
   });
 
   it("reads the outputs one commit brings in together, each cut with `Show all` from its first frame", async () => {
@@ -432,6 +454,15 @@ describe("a call's output cut at the visible flow", () => {
       prepareTranscriptRow,
     );
     const drawnBefore = new Set(scroller.querySelectorAll(OUTPUT_SELECTOR));
+    // A row that grows inside a resize report leaves the conversation's report of it undelivered,
+    // which the browser raises as an error the run would only log.
+    const resizeLoopErrors: string[] = [];
+    const hearResizeLoopError = (event: ErrorEvent): void => {
+      if (event.message.includes("ResizeObserver loop")) {
+        resizeLoopErrors.push(event.message);
+      }
+    };
+    window.addEventListener("error", hearResizeLoopError);
     let entered: Element[] = [];
     let frames: CutFrame[] = [];
     const forcedPasses = await forcedLayoutPassesOf(useOutputHeightCutModuleName, async () => {
@@ -453,5 +484,7 @@ describe("a call's output cut at the visible flow", () => {
     expect(forcedPasses).toStrictEqual({ styleRecalcs: 1, layouts: 1 });
     expect(frames[0]?.cutCount).toBeGreaterThan(0);
     expect(frames.filter((frame) => frame.cutCount > frame.showAllCount)).toStrictEqual([]);
+    window.removeEventListener("error", hearResizeLoopError);
+    expect(resizeLoopErrors).toStrictEqual([]);
   });
 });
