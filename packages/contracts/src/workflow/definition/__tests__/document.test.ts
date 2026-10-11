@@ -312,6 +312,10 @@ describe("WorkflowStepErrorSchema", () => {
       WorkflowStepErrorSchema.safeParse({ ...parkRefused, details: { reason: "out_of_luck" } })
         .success,
     ).toBe(false);
+    // The resolution refusal is the one agent code a step fails with; no other rides it.
+    expect(
+      WorkflowStepErrorSchema.safeParse({ ...parkRefused, code: "agent.update_refused" }).success,
+    ).toBe(false);
   });
 
   it("carries the failing item's index from 0, and no negative one", () => {
