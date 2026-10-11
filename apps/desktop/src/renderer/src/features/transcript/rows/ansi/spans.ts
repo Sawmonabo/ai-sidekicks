@@ -9,7 +9,8 @@ import Anser from "anser";
 
 import { srgbToOklab, type OklabColor } from "#shared/color.js";
 import { type PublishedText } from "../../reveal/published-text.js";
-import { withoutResidualEscapes } from "./escape-sequences.js";
+import { joinPieces } from "#renderer/lib/text-pieces.js";
+import { EscapeSequenceStripper, withoutResidualEscapes } from "./escape-sequences.js";
 
 /**
  * One parsed run, derived from `ansiToJson`'s return type: `anser` publishes `export = Anser`,
@@ -80,49 +81,118 @@ export interface AnsiSpan {
   readonly decorations: readonly AnsiDecoration[];
 }
 
+/** What one read of a growing output parsed: the spans no later read changes, and the rest. */
+export interface AnsiSpanRead {
+  /** Whether the read parsed from the start, so the spans earlier reads settled are gone. */
+  readonly restarted: boolean;
+  /** The spans this read settled, in order, after those earlier reads settled. */
+  readonly settledSpans: readonly AnsiSpan[];
+  /** The spans past the settled ones, which the next read parses again. */
+  readonly tailSpans: readonly AnsiSpan[];
+}
+
 /**
  * Parses one command output into styled spans as it grows, reading only the text past what it
- * already parsed. The result is the same as one parse of the whole text: the same spans, classes
- * and text.
+ * already parsed. Joined, the spans hold the same text in the same styles as one parse of the
+ * whole text, a run that crosses a line split into one span per read at the line ends between.
  *
- * The parsed part always ends where an `ESC [` begins. `anser` splits its input there, and every
- * run between two of them is one entry, so a cut anywhere else would split one run into two
- * spans, or end inside a sequence. Everything before the last `ESC [` is parsed once, on one
- * `anser` instance that carries the style (colors, decorations) from one part to the next exactly
- * as one whole-text parse carries it. The run from the last `ESC [` to the end can still grow, so
- * it is parsed again on each revision, from a copy of that instance's state.
+ * `anser` splits its input where each `ESC [` begins, and every run between two of them is one
+ * entry; a part of the text it parses alone begins unstyled. So everything before the last
+ * `ESC [` is parsed once, on one `anser` instance that carries the style from one part to the
+ * next as one whole-text parse carries it, and the last run's lines up to its last line end are
+ * settled too, in that run's style, the escapes left inside it stripped on from where the run's
+ * earlier lines left off. Only the last run's last line can still change, so it alone is parsed
+ * again on each revision.
  */
 export class AnsiSpanParser {
-  /** The spans of the parsed part. */
-  readonly #parsedSpans: AnsiSpan[] = [];
-  /** The `anser` instance standing where the parsed part ends, its style state carried. */
+  /** The `anser` instance standing where the parsed runs end, its style state carried. */
   #anser = new Anser();
+  /** The run the parsed part ends inside, or `undefined` where it ends before an `ESC [`. */
+  #run: OpenRun | undefined = unstyledRun();
   #parsed: ParsedText | undefined;
 
   /**
-   * The spans of `text` as it stands. The parsed part is kept while `text` is the handle last read
-   * and still begins with it and the `ESC [` after it; a different handle or a rewrite below that
-   * parses from the start.
+   * The spans `text` settles past what earlier reads settled, and its tail. The parsed part is kept
+   * while `text` is the handle last read and still begins with it (and with the `ESC [` it ends
+   * before); a different handle or a rewrite below that parses from the start.
    */
-  public read(text: PublishedText): readonly AnsiSpan[] {
-    if (!this.#continues(text)) {
+  public read(text: PublishedText): AnsiSpanRead {
+    const restarted = !this.#continues(text);
+    if (restarted) {
       this.#reset();
     }
     const parsedLength = this.#parsed?.length ?? 0;
     const unparsed = text.slice(parsedLength);
-    // With no `ESC [` past its first character, the unparsed text is one run and none of it final.
-    const runStart = Math.max(0, unparsed.lastIndexOf(CONTROL_SEQUENCE_INTRODUCER));
-    if (runStart > 0) {
-      appendSpans(
-        this.#anser.ansiToJson(unparsed.slice(0, runStart), anserOptions()),
-        this.#parsedSpans,
-      );
+    const settledSpans: AnsiSpan[] = [];
+    const firstRunStart = unparsed.indexOf(CONTROL_SEQUENCE_INTRODUCER);
+    let parsedThrough: number;
+    let tailSpans: AnsiSpan[];
+    if (firstRunStart === -1) {
+      // The text continues the run the parsed part ends inside, up to its last line end.
+      const run = this.#run;
+      parsedThrough = unparsed.lastIndexOf("\n") + 1;
+      tailSpans = [];
+      if (run !== undefined) {
+        pushRunSpan(settledSpans, run, run.stripper.strip(unparsed.slice(0, parsedThrough)));
+        pushRunSpan(tailSpans, run, run.stripper.copy().strip(unparsed.slice(parsedThrough)));
+      }
+    } else {
+      const run = this.#run;
+      if (run !== undefined) {
+        pushRunSpan(settledSpans, run, run.stripper.strip(unparsed.slice(0, firstRunStart)));
+      }
+      const lastRunStart = unparsed.lastIndexOf(CONTROL_SEQUENCE_INTRODUCER);
+      if (lastRunStart > firstRunStart) {
+        appendSpans(
+          this.#anser.ansiToJson(unparsed.slice(firstRunStart, lastRunStart), anserOptions()),
+          settledSpans,
+        );
+      }
+      const lastRun = unparsed.slice(lastRunStart);
+      const lineEnd = lastRun.lastIndexOf("\n") + 1;
+      if (lineEnd === 0 || !opensWithWholeSequence(lastRun)) {
+        this.#run = undefined;
+        parsedThrough = lastRunStart;
+        tailSpans = [];
+        appendSpans(copyOf(this.#anser).ansiToJson(lastRun, anserOptions()), tailSpans);
+      } else {
+        const lastRunHead = this.#settleRunHead(lastRun.slice(0, lineEnd), settledSpans);
+        this.#run = lastRunHead;
+        parsedThrough = lastRunStart + lineEnd;
+        tailSpans = [];
+        pushRunSpan(
+          tailSpans,
+          lastRunHead,
+          lastRunHead.stripper.copy().strip(lastRun.slice(lineEnd)),
+        );
+      }
     }
-    this.#parsed = { text, revision: text.revision, length: parsedLength + runStart };
+    this.#parsed = { text, revision: text.revision, length: parsedLength + parsedThrough };
+    return { restarted, settledSpans, tailSpans };
+  }
 
-    const spans = [...this.#parsedSpans];
-    appendSpans(copyOf(this.#anser).ansiToJson(unparsed.slice(runStart), anserOptions()), spans);
-    return spans;
+  /**
+   * Settles `head`, a run's opening up to a line end, as one span, and answers the run it opens:
+   * its style, and its escapes stripped as far as the head reaches.
+   */
+  #settleRunHead(head: string, settledSpans: AnsiSpan[]): OpenRun {
+    const entries = this.#anser.ansiToJson(head, anserOptions());
+    const entry = entries[0];
+    // The head holds one `ESC [`, at its start, and a line feed after it: one entry, never empty.
+    if (entry === undefined || entries.length !== 1) {
+      throw new Error("anser read one run of command output as other than one entry.");
+    }
+    const span = toSpan(entry);
+    // The style alone, so the run holds none of the head's text.
+    const style = {
+      foreground: span.foreground,
+      background: span.background,
+      reversed: span.reversed,
+      decorations: span.decorations,
+    };
+    const run: OpenRun = { style, stripper: new EscapeSequenceStripper() };
+    pushRunSpan(settledSpans, run, run.stripper.strip(span.text));
+    return run;
   }
 
   /** Whether the parsed part still stands for `text`. */
@@ -131,15 +201,18 @@ export class AnsiSpanParser {
     return (
       parsed !== undefined &&
       parsed.text === text &&
-      // The `ESC [` the parsed part ends before must stand too: the next part is parsed as
-      // starting with it, so a rewrite of those two characters alone still parses from the start.
-      text.keepsPrefix(parsed.revision, parsed.length + CONTROL_SEQUENCE_INTRODUCER.length)
+      // A part ending before an `ESC [` needs those two characters to stand too: the next part is
+      // parsed as starting with them, so a rewrite of them alone still parses from the start.
+      text.keepsPrefix(
+        parsed.revision,
+        parsed.length + (this.#run === undefined ? CONTROL_SEQUENCE_INTRODUCER.length : 0),
+      )
     );
   }
 
   #reset(): void {
     this.#anser = new Anser();
-    this.#parsedSpans.length = 0;
+    this.#run = unstyledRun();
     this.#parsed = undefined;
   }
 }
@@ -320,6 +393,19 @@ interface ParsedText {
 const CONTROL_SEQUENCE_INTRODUCER = "\u001b[";
 
 /**
+ * Whether `run`, which opens with an `ESC [`, opens with a whole control sequence as `anser` reads
+ * one. `anser` matches a run's sequence at any line's start, so a run whose own opening is no
+ * whole sequence can be read from a later line, and its head is never settled alone.
+ */
+function opensWithWholeSequence(run: string): boolean {
+  SEQUENCE_AFTER_INTRODUCER.lastIndex = CONTROL_SEQUENCE_INTRODUCER.length;
+  return SEQUENCE_AFTER_INTRODUCER.test(run);
+}
+
+/** A control sequence's bytes after its `ESC [`, as `anser` matches them, read where it stands. */
+const SEQUENCE_AFTER_INTRODUCER = /[!\x3c-\x3f]*[\d;]*[\x20-\x2c]*[\x40-\x7e]/uy;
+
+/**
  * The options every `anser` call takes, as a new object each time: `anser` writes into the
  * object it is given. `remove_empty` drops the zero-length runs anser emits around a bare escape.
  */
@@ -327,15 +413,37 @@ function anserOptions(): { json: true; use_classes: true; remove_empty: true } {
   return { json: true, use_classes: true, remove_empty: true };
 }
 
-/** Appends the spans of `entries` to `spans`, skipping the empty entries. */
+/** Appends the spans of `entries` to `spans`, skipping those that hold no text. */
 function appendSpans(entries: readonly AnserJsonEntry[], spans: AnsiSpan[]): void {
   for (const entry of entries) {
-    if (entry.content === "") {
-      continue;
-    }
     const span = toSpan(entry);
     // Anser leaves OSC and two-byte escapes inside a chunk; strip them before they become text.
-    spans.push({ ...span, text: withoutResidualEscapes(span.text) });
+    const text = withoutResidualEscapes(span.text);
+    if (text !== "") {
+      spans.push({ ...span, text });
+    }
+  }
+}
+
+/** A run's text the parse has reached the end of a line in: its style and its escape scan. */
+interface OpenRun {
+  readonly style: Omit<AnsiSpan, "text">;
+  readonly stripper: EscapeSequenceStripper;
+}
+
+/** The run a text opens with before its first `ESC [`, which `anser` reads unstyled. */
+function unstyledRun(): OpenRun {
+  return {
+    style: { foreground: undefined, background: undefined, reversed: false, decorations: [] },
+    stripper: new EscapeSequenceStripper(),
+  };
+}
+
+/** Appends `keptRuns`, a part of `run` stripped of its escapes, as one span, if it holds text. */
+function pushRunSpan(spans: AnsiSpan[], run: OpenRun, keptRuns: readonly string[]): void {
+  const text = joinPieces(keptRuns);
+  if (text !== "") {
+    spans.push({ ...run.style, text });
   }
 }
 

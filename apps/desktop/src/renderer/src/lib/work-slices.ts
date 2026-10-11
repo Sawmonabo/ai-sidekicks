@@ -39,4 +39,4 @@ export function startSlice(): () => boolean {
 }
 
 /** The most one slice works, in milliseconds by the wall clock: well inside a frame. */
-const SLICE_MS = 4;
+export const SLICE_MS = 4;

@@ -41,7 +41,7 @@ describe("a long table in a selection", () => {
       endRowElement: () => row,
       rowText: () => expect.fail("the one row is an end row"),
       rowBodyText: () => expect.fail("the table draws no large body"),
-      drawnTableOf: () => expect.fail("the table draws every row"),
+      drawnSourceOf: () => expect.fail("the table draws every row"),
       largeBodyRowIdOf: () => undefined,
       fullBodyReads: undefined,
       markdownWorker: {

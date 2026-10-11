@@ -4,9 +4,11 @@
 import { describe, expect, it } from "vitest";
 
 import { publishedTextOf } from "../../reveal/published-text.js";
+import { RevealTextRope } from "../../reveal/text-rope.js";
 import {
   carriesAnsiEscapes,
   EscapeSequenceStripper,
+  StrippedText,
   withoutResidualEscapes,
 } from "./escape-sequences.js";
 
@@ -145,5 +147,20 @@ describe("a text stripped a chunk at a time", () => {
       ).toBe(kept);
     }
     expect(strippedInChunks([...corpus])).toBe(kept);
+
+    // A body growing a character at a time, read through one `StrippedText`, holds at each step
+    // what a strip of its text so far keeps; a rewrite below what was read strips from the start.
+    const rope = new RevealTextRope("lane");
+    rope.append(corpus);
+    const stripped = new StrippedText("body");
+    for (let grownTo = 1; grownTo <= corpus.length; grownTo += 1) {
+      rope.advance(1);
+      expect(stripped.read(rope).slice(0), `grown to ${String(grownTo)}`).toBe(
+        withoutResidualEscapes(corpus.slice(0, grownTo)),
+      );
+    }
+    rope.rebase(`x${ESCAPE}[0my`, 0);
+    rope.advance(rope.pendingCharacterCount);
+    expect(stripped.read(rope).slice(0)).toBe("xy");
   });
 });

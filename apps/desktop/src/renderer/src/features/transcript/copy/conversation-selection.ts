@@ -2,23 +2,22 @@
 // joins the parts in log order. The rows come from the viewport's record of the selection, not from
 // the drawn rows, so rows the window let go between its ends are copied too. Each end row gives the
 // part selected in it as it was drawn, and every row between gives its whole text from the source
-// it is drawn from (`row-text.ts`). A long table's rows the window has not drawn inside an end
-// row's part are read from the parse the screen drew the table from, named by each spacer row, so
-// a copy never waits for rows to draw (`undrawn-table-rows.ts`). A long part is read into its text
-// by the markdown worker, so its part comes once the worker answers. A part inside one table
-// is copied as a table of what was selected. A message row gives only its body, never its author
-// line, stamp or controls: a reply's part as the markdown rebuilt from what was selected, and the
-// person's own message or a reasoning aside as plain text. Any other row gives the text selected in
-// it. Plain text is read the way the screen lays it out, a block's lines on lines of their own, and
-// no control's label is ever part of it. An end row's part that reaches a large body, which draws
-// only its control, holds the body read in full in the control's place, from where the part begins,
-// so the body is never dropped and the control's words never copied; a message's body is its row's
-// text, so its part is the whole. A formula copies as its TeX source, whole, once. A selection
-// crossing the conversation copies only the conversation's part.
+// it is drawn from (`row-text.ts`). A long table's rows and a command output's lines the window has
+// not drawn inside an end row's part are read from the source the screen drew them from, named by
+// each spacer, so a copy never waits for them to draw (`undrawn-items.ts`). A long part is read
+// into its text by the markdown worker, so its part comes once the worker answers. A part inside
+// one table is copied as a table of what was selected. A message row gives only its body, never its
+// author line, stamp or controls: a reply's part as the markdown rebuilt from what was selected,
+// and the person's own message or a reasoning aside as plain text. Any other row gives the text
+// selected in it. Plain text is read the way the screen lays it out, a block's lines on lines of
+// their own, and no control's label is ever part of it. An end row's part that reaches a large
+// body, which draws only its control, holds the body read in full in the control's place, from
+// where the part begins, so the body is never dropped and the control's words never copied; a
+// message's body is its row's text, so its part is the whole. A formula copies as its TeX source,
+// whole, once. A selection crossing the conversation copies only the conversation's part.
 
 import { isElement } from "@floating-ui/utils/dom";
 import { fromDom } from "hast-util-from-dom";
-import type { Table } from "mdast";
 
 import { type CopyFlavor } from "#renderer/components/Markdown/drawn-text.js";
 import {
@@ -29,7 +28,8 @@ import {
 import type { PiecedText } from "#renderer/lib/text-pieces.js";
 import { resolveRowTextPosition } from "../viewport/selection/preservation.js";
 import { type RowSelection } from "../viewport/selection/record.js";
-import { withUndrawnRowsText, withUndrawnTableRows } from "./undrawn-table-rows.js";
+import { type DrawnWindowSource } from "../rows/drawn-window-sources.js";
+import { withUndrawnItems, withUndrawnItemsText } from "./undrawn-items.js";
 
 /** One row's share of a copy: its text, and the flavor it copies as. */
 export interface SelectedPart {
@@ -61,8 +61,8 @@ export interface RowSpanSelection {
    * body from; `undefined` for a row that draws no body.
    */
   readonly rowBodyText: (rowKey: string) => string | undefined;
-  /** The long table a spacer row's key names, which its undrawn rows are read from. */
-  readonly drawnTableOf: (tableKey: string) => Table | undefined;
+  /** The source a spacer's key names, which its undrawn items are read from. */
+  readonly drawnSourceOf: (sourceKey: string) => DrawnWindowSource | undefined;
   /** What reads a long end row's part into its text off the page's thread. */
   readonly markdownWorker: Pick<MarkdownWorkerConnection, "drawnText">;
 }
@@ -80,35 +80,35 @@ export const LARGE_BODY_ATTRIBUTE = "data-large-body";
 export const PART_SEPARATOR = "\n\n";
 
 /**
- * The part of a drawn row that `range` selects: at once, or once its long table's undrawn rows are
- * read in slices or `markdownWorker` has read a long part into its text, rejecting with the
- * worker's `Error`; the row is read before anything is waited on. `readBodyText` reads the text of
- * the row's body, which a large body drawn as its control is read from, only when the part holds
- * one; `drawnTableOf` answers the long table a spacer row names. Throws when the part holds a large
- * body and the body has no text, or a spacer whose table is not held.
+ * The part of a drawn row that `range` selects: at once, or once the items its windows have not
+ * drawn are read in slices or `markdownWorker` has read a long part into its text, rejecting with
+ * the worker's `Error`; the row is read before anything is waited on. `readBodyText` reads the text
+ * of the row's body, which a large body drawn as its control is read from, only when the part holds
+ * one; `drawnSourceOf` answers the source a spacer names. Throws when the part holds a large body
+ * and the body has no text, or a spacer whose source is not held.
  */
 export function readSelectedPart(
   range: Range,
   row: Element,
   readBodyText: () => string | undefined,
   markdownWorker: Pick<MarkdownWorkerConnection, "drawnText">,
-  drawnTableOf: (tableKey: string) => Table | undefined,
+  drawnSourceOf: (sourceKey: string) => DrawnWindowSource | undefined,
 ): SelectedPart | Promise<SelectedPart> {
   const body = row.querySelector(`[${COPY_FLAVOR_ATTRIBUTE}]`);
   // A selection holding only the row's author line or controls clamps to nothing in its body.
   const part = clampedTo(range, body ?? row);
   const flavor = body?.getAttribute(COPY_FLAVOR_ATTRIBUTE) === "markdown" ? "markdown" : "text";
-  const reading = withUndrawnTableRows(
+  const reading = withUndrawnItems(
     fromDom(selectedContentOf(part, flavor, readBodyText)),
     flavor,
-    drawnTableOf,
+    drawnSourceOf,
   );
   const drawnText = makeDrawnText(reading.tree, flavor, reading.tables, markdownWorker);
   if (reading.textRuns.length > 0) {
     const text =
       drawnText instanceof Promise ? drawnText.then((made) => made.text) : drawnText.text;
-    return withUndrawnRowsText(text, reading.textRuns, viewOf(row)).then((withRows) =>
-      partOf(flavor, { text: withRows }),
+    return withUndrawnItemsText(text, reading.textRuns, viewOf(row)).then((withItems) =>
+      partOf(flavor, { text: withItems }),
     );
   }
   return drawnText instanceof Promise
@@ -162,7 +162,7 @@ export function readRowPart(
     rowElement,
     () => span.rowBodyText(rowKey),
     span.markdownWorker,
-    span.drawnTableOf,
+    span.drawnSourceOf,
   );
 }
 
@@ -197,7 +197,31 @@ function selectedContentOf(
   for (const formula of content.querySelectorAll(FORMULA_SELECTOR)) {
     formula.replaceWith(formulaSourceNode(formula, flavor));
   }
-  return withinItsTable(content, part.commonAncestorContainer);
+  const tableContent = withinItsTable(content, part.commonAncestorContainer);
+  return flavor === "text"
+    ? withinItsPreformattedBox(tableContent, part.commonAncestorContainer)
+    : tableContent;
+}
+
+/**
+ * `content` put back in the preformatted box its common ancestor sits in, a copy of the box alone,
+ * as a browser wraps a part of one it copies, so the part's text keeps its lines and spaces. A part
+ * reaching past the box holds its own copy of it, and is left as it is.
+ */
+function withinItsPreformattedBox(
+  content: DocumentFragment,
+  commonAncestor: Node,
+): DocumentFragment {
+  const ancestor = isElement(commonAncestor) ? commonAncestor : commonAncestor.parentElement;
+  const box = ancestor?.closest("pre") ?? null;
+  if (box === null) {
+    return content;
+  }
+  const boxCopy = box.cloneNode(false) as Element;
+  boxCopy.append(content);
+  const wrapped = box.ownerDocument.createDocumentFragment();
+  wrapped.append(boxCopy);
+  return wrapped;
 }
 
 /**

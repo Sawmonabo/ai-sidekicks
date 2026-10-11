@@ -32,7 +32,7 @@ import { typesetterLoadFor } from "#renderer/components/Markdown/typesetter/load
 import { readWireString } from "#renderer/lib/wire/strings.js";
 import { projectedPayload } from "#renderer/store/session/events/wire-payload.js";
 import { publishedTextOf, type PublishedText } from "../reveal/published-text.js";
-import { withoutResidualEscapesOf } from "./ansi/escape-sequences.js";
+import { StrippedText } from "./ansi/escape-sequences.js";
 import { outputKindOf } from "./bodies/output-kinds.js";
 import { classifyTranscriptRow } from "./kind.js";
 import { userMessageTextOf } from "./user-message.js";
@@ -69,6 +69,7 @@ class MessageRowPreparation implements TranscriptRowPreparation {
   readonly #onReady: () => void;
   readonly #segmenter = new MarkdownBlockSegmenter();
   readonly #blocks = new MarkdownBodyBlocks();
+  readonly #strippedText: StrippedText;
   /** The text last read, and its revision then. */
   #readText: { readonly text: PublishedText; readonly revision: number } | undefined;
   /** The settled body last read and its source, so a refresh over the same string reads nothing. */
@@ -96,6 +97,7 @@ class MessageRowPreparation implements TranscriptRowPreparation {
 
   public constructor(row: TranscriptEventRow, sources: TranscriptRowSources, onReady: () => void) {
     this.#row = row;
+    this.#strippedText = new StrippedText(row.id);
     this.#sources = sources;
     this.#onReady = onReady;
   }
@@ -241,7 +243,7 @@ class MessageRowPreparation implements TranscriptRowPreparation {
   /** A reply's text as its body draws it as markdown, or `undefined` for any other kind. */
   #proseOf(text: PublishedText): PublishedText | undefined {
     const contentType = readWireString(projectedPayload(this.#row)["contentType"]);
-    return outputKindOf(text, contentType) === "prose" ? withoutResidualEscapesOf(text) : undefined;
+    return outputKindOf(text, contentType) === "prose" ? this.#strippedText.read(text) : undefined;
   }
 
   /** The finished body read from `source`, read once per string. */

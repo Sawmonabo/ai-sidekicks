@@ -4,6 +4,8 @@
 // table and rows, and the markdown sheet reads the final mark to drop a paragraph's last margin
 // only where the body ends.
 
+import { ANSI_LINE_CHUNK_INDEX_ATTRIBUTE } from "../../ansi/lines/markers.js";
+
 /**
  * The attribute a block wrapper carries its index on. Not `data-index`, which marks the
  * transcript's rows: the copy and the row lookups would read a block as a row.
@@ -30,8 +32,12 @@ export const MARKDOWN_TABLE_KEY_ATTRIBUTE = "data-markdown-table";
 export const MARKDOWN_FIRST_UNDRAWN_ROW_ATTRIBUTE = "data-markdown-first-undrawn-row";
 export const MARKDOWN_LAST_UNDRAWN_ROW_ATTRIBUTE = "data-markdown-last-undrawn-row";
 
-/** Every index attribute a window marks its drawn elements with, outermost window first. */
+/**
+ * Every index attribute a window marks its drawn elements with, outermost window first: a body's
+ * blocks, a table's rows, and a command output's chunks of lines.
+ */
 export const WINDOWED_ELEMENT_INDEX_ATTRIBUTES: readonly string[] = [
   MARKDOWN_BLOCK_INDEX_ATTRIBUTE,
   MARKDOWN_TABLE_ROW_INDEX_ATTRIBUTE,
+  ANSI_LINE_CHUNK_INDEX_ATTRIBUTE,
 ];

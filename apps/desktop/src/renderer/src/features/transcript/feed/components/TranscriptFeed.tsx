@@ -29,7 +29,7 @@ import { useFullBodyReads } from "../hooks/useFullBodyReads.js";
 import { FullBodyReadsContext } from "../../rows/full-body-reads.js";
 import { OffListTableFrames } from "../../rows/bodies/OffListTableFrames.js";
 import { ListedBodiesContext } from "../../rows/markdown/table-window/context.js";
-import { DrawnLongTablesContext } from "../../rows/markdown/table-window/drawn-tables.js";
+import { DrawnWindowSourcesContext } from "../../rows/drawn-window-sources.js";
 import {
   useDependentReadFailed,
   useSessionDegraded,
@@ -279,7 +279,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
     rowBodyText,
     largeBodyRowIdOf,
     fullBodyReads,
-    drawnLongTables: windows.drawnLongTables,
+    drawnWindowSources: windows.drawnWindowSources,
     history: copyHistory,
   });
 
@@ -294,7 +294,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
           <RowRevealProvider channel={revealChannel}>
             <FullBodyReadsContext value={fullBodyReads}>
               <ListedBodiesContext value={windows.offListTables}>
-                <DrawnLongTablesContext value={windows.drawnLongTables}>
+                <DrawnWindowSourcesContext value={windows.drawnWindowSources}>
                   <TranscriptViewport
                     binding={viewport}
                     renderRow={renderRow}
@@ -311,7 +311,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
                       )
                     }
                   />
-                </DrawnLongTablesContext>
+                </DrawnWindowSourcesContext>
               </ListedBodiesContext>
             </FullBodyReadsContext>
           </RowRevealProvider>

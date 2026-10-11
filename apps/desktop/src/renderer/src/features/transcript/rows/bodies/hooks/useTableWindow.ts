@@ -24,13 +24,13 @@ import {
   MarkdownBlockIndexContext,
   TableWindowBodyContext,
 } from "../../markdown/table-window/context.js";
-import { DrawnLongTablesContext } from "../../markdown/table-window/drawn-tables.js";
 import {
   TableWindowLayout,
   type TableRowVirtualizer,
   type TableWindowRow,
 } from "../../markdown/table-window/layout.js";
 import { type TableMeasuringFrame } from "../../markdown/table-window/measurement.js";
+import { DrawnWindowSourcesContext } from "../../drawn-window-sources.js";
 import { useSelectionPins } from "./useSelectionPins.js";
 
 /** A long table's elements as one render draws them. */
@@ -79,16 +79,16 @@ export function useTableWindow(offer: MarkdownTableOffer): TableWindow {
 
   // The table a copy reads its undrawn rows from, held from the commit that draws its spacers, so
   // a copy asked after any commit finds the parse that frame drew from.
-  const drawnTables = useContext(DrawnLongTablesContext);
+  const drawnSources = useContext(DrawnWindowSourcesContext);
   const tableKey = useId();
   useLayoutEffect(() => {
-    drawnTables?.hold(tableKey, offer.table);
+    drawnSources?.hold(tableKey, { kind: "table", table: offer.table });
   });
   useLayoutEffect(
     () => () => {
-      drawnTables?.release(tableKey);
+      drawnSources?.release(tableKey);
     },
-    [drawnTables, tableKey],
+    [drawnSources, tableKey],
   );
 
   const heldColumns = layout.heldColumns;

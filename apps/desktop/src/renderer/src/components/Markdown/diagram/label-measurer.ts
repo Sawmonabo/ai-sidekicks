@@ -7,6 +7,7 @@
 // callback while no ask waits, and the faces an ask needs that are still cold back to back after
 // its idle wait, before its labels are measured.
 
+import { SLICE_MS } from "#renderer/lib/work-slices.js";
 import type { LabelFace, LabelMeasureRequest, LabelMeasurements } from "./worker/messages.js";
 
 /** Measures the labels each ask names, in idle time, and answers each ask whole, in order. */
@@ -192,12 +193,6 @@ const IDLE_FLOOR_MS = 1;
 
 /** How long an ask waits for idle time before a slice runs anyway, in milliseconds. */
 const IDLE_WAIT_MS = 50;
-
-/**
- * The most one slice measures, in milliseconds by the wall clock, idle grant or not: well inside a
- * frame.
- */
-const SLICE_MS = 4;
 
 function openContext(): OffscreenCanvasRenderingContext2D {
   const context = new OffscreenCanvas(1, 1).getContext("2d");

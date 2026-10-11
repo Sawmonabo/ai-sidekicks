@@ -19,9 +19,9 @@ import { StreamingMarkdown } from "#renderer/features/transcript/rows/bodies/Str
 import { suiteWindowViewport } from "#renderer/features/transcript/rows/bodies/WindowedMarkdown.test-support.js";
 import { MarkdownWindowViewportContext } from "#renderer/features/transcript/rows/markdown/block-window/context.js";
 import {
-  DrawnLongTables,
-  DrawnLongTablesContext,
-} from "#renderer/features/transcript/rows/markdown/table-window/drawn-tables.js";
+  DrawnWindowSources,
+  DrawnWindowSourcesContext,
+} from "#renderer/features/transcript/rows/drawn-window-sources.js";
 import { MARKDOWN_BLOCK_INDEX_ATTRIBUTE } from "#renderer/features/transcript/rows/markdown/block-window/markers.js";
 import { FootnoteRegistry } from "#renderer/features/transcript/rows/markdown/footnotes/registry.js";
 import { ViewportSelectionTracker } from "#renderer/features/transcript/viewport/selection/tracker.js";
@@ -64,8 +64,8 @@ export interface MountedBodies {
   /** The same reply drawn whole, outside the scroller; absent when the case draws none. */
   readonly flowBody: HTMLElement | undefined;
   readonly handle: BodiesHandle;
-  /** The long tables the windowed body draws, held as the feed holds them for a copy. */
-  readonly drawnTables: DrawnLongTables;
+  /** What the windowed body's windows draw from, held as the feed holds it for a copy. */
+  readonly drawnSources: DrawnWindowSources;
 }
 
 /**
@@ -98,7 +98,7 @@ export async function mountBodies(
     read: () => tracker.selectionRange,
   });
   const handle: BodiesHandle = {};
-  const drawnTables = new DrawnLongTables();
+  const drawnSources = new DrawnWindowSources();
   const Wrapper = liveBridgeWrapper();
 
   function Bodies(): React.JSX.Element {
@@ -137,7 +137,7 @@ export async function mountBodies(
             >
               <div {...{ [COPY_FLAVOR_ATTRIBUTE]: "markdown" }}>
                 <MarkdownWindowViewportContext value={viewport}>
-                  <DrawnLongTablesContext value={drawnTables}>
+                  <DrawnWindowSourcesContext value={drawnSources}>
                     <StreamingMarkdown
                       publishedText={publishedTextOf(text)}
                       sourceId="reply"
@@ -145,7 +145,7 @@ export async function mountBodies(
                       isComplete={options.isComplete}
                       offersBlockCopy
                     />
-                  </DrawnLongTablesContext>
+                  </DrawnWindowSourcesContext>
                 </MarkdownWindowViewportContext>
               </div>
             </div>
@@ -180,7 +180,7 @@ export async function mountBodies(
   if (scroller === null || windowedBody === null || windowedBody === undefined) {
     throw new Error("the windowed body did not mount");
   }
-  return { scroller, windowedBody, flowBody, handle, drawnTables };
+  return { scroller, windowedBody, flowBody, handle, drawnSources };
 }
 
 /** A frame's document holding a copy of every stylesheet on the page, removed after the test. */

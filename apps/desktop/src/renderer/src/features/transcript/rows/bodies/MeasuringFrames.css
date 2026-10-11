@@ -1,10 +1,10 @@
-/* The hidden rows long tables are measured in before their rows are listed. */
+/* The hidden frames content is laid out in to be measured before a reader sees it. */
 
 /*
  * Laid out but never seen: off screen, taking no room, never painted, never selected and out of
- * every reader's tree. Its rows take their own widths inside it.
+ * every reader's tree. What it holds takes its own widths inside it.
  */
-.meridian-off-list-table-frames {
+.meridian-measuring-frames {
   position: fixed;
   top: 0;
   left: -100vw;

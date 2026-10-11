@@ -13,6 +13,7 @@ import {
   publishedTextOf,
   type PublishedText,
 } from "../../reveal/published-text.js";
+import { RevealTextRope } from "../../reveal/text-rope.js";
 
 /** The one byte every ANSI sequence opens with. */
 const ESCAPE = "\u001b";
@@ -63,6 +64,65 @@ export class EscapeSequenceStripper {
     }
     return kept;
   }
+
+  /** A stripper standing where this one stands, which strips on without moving this one. */
+  public copy(): EscapeSequenceStripper {
+    const copy = new EscapeSequenceStripper();
+    copy.#state = this.#state;
+    return copy;
+  }
+}
+
+/**
+ * One body's text without escape sequences, kept as the body grows: each read strips only what
+ * arrived since the last, a piece at a time, into a rope of its own, so no read copies or strips
+ * the whole text again. A body carrying no escape is answered as itself; a different handle, or a
+ * rewrite below what was read, is stripped again from the start.
+ */
+export class StrippedText {
+  readonly #rope: RevealTextRope;
+  #stripper = new EscapeSequenceStripper();
+  /** The handle last read, at the revision and length it was read at. */
+  #read: StrippedRead | undefined;
+
+  /** `bodyId` names the body, as a lane's id names the lane its rope holds. */
+  public constructor(bodyId: string) {
+    this.#rope = new RevealTextRope(bodyId);
+  }
+
+  /**
+   * `source` without escape sequences: `source` itself when it carries none, otherwise this text's
+   * one handle, whose revision changes whenever what it holds does.
+   */
+  public read(source: PublishedText): PublishedText {
+    if (!carriesAnsiEscapes(source)) {
+      return source;
+    }
+    const read = this.#read;
+    if (read?.source === source && source.keepsPrefix(read.revision, read.length)) {
+      if (source.length > read.length) {
+        this.#append([source.slice(read.length)]);
+      }
+    } else {
+      this.#rope.rebase("", 0);
+      this.#stripper = new EscapeSequenceStripper();
+      this.#append(source.chunks());
+    }
+    this.#read = { source, revision: source.revision, length: source.length };
+    return this.#rope;
+  }
+
+  /** Strips `chunks` on from where the last read ended, and shows what they keep. */
+  #append(chunks: readonly string[]): void {
+    for (const chunk of chunks) {
+      for (const piece of piecesOf(chunk)) {
+        for (const run of this.#stripper.strip(piece)) {
+          this.#rope.append(run);
+        }
+      }
+    }
+    this.#rope.advance(this.#rope.pendingCharacterCount);
+  }
 }
 
 /**
@@ -107,6 +167,13 @@ export function withoutResidualEscapesInPieces(
   return carriesAnsiEscapes(text)
     ? joinIntoPiecesInSlices(keptRunsOf(text.chunks()), view)
     : piecedTextOfPublished(text);
+}
+
+/** The handle a `StrippedText` last read, at the revision and length it was read at. */
+interface StrippedRead {
+  readonly source: PublishedText;
+  readonly revision: number;
+  readonly length: number;
 }
 
 /**

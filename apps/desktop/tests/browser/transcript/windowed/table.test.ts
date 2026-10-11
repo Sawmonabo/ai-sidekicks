@@ -136,7 +136,7 @@ async function copiedFromWindowed(bodies: MountedBodies, reply: string): Promise
     rowOf(bodies.windowedBody),
     () => reply,
     markdownWorker,
-    (tableKey) => bodies.drawnTables.tableOf(tableKey),
+    (sourceKey) => bodies.drawnSources.sourceOf(sourceKey),
   );
   selection.removeAllRanges();
   return copied;

@@ -11,7 +11,7 @@ describe("rendering ANSI output", () => {
     // The mapper is the whole path; there is no HTML string anywhere on it, which is why
     // a tool that prints a tag prints a tag rather than creating one.
     const { container } = render(
-      <AnsiOutput publishedText={publishedTextOf("<img src=x>")} label="Output" />,
+      <AnsiOutput publishedText={publishedTextOf("<img src=x>")} label="Output" rowKey="row" />,
     );
     expect(container.querySelector("img")).toBeNull();
     expect(container.textContent).toContain("<img src=x>");

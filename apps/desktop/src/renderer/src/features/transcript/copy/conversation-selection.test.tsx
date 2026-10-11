@@ -27,6 +27,7 @@ import {
 import { classifyTranscriptRow } from "../rows/kind.js";
 import { MessageRow } from "../rows/MessageRow.js";
 import { ToolRow } from "../rows/ToolRow.js";
+import { DrawnWindowSources } from "../rows/drawn-window-sources.js";
 import { FullBodyReads, FullBodyReadsContext } from "../rows/full-body-reads.js";
 import {
   MARKDOWN_FIRST_UNDRAWN_ROW_ATTRIBUTE,
@@ -34,7 +35,6 @@ import {
   MARKDOWN_TABLE_KEY_ATTRIBUTE,
 } from "../rows/markdown/block-window/markers.js";
 import { FootnoteRegistry } from "../rows/markdown/footnotes/registry.js";
-import { DrawnLongTables } from "../rows/markdown/table-window/drawn-tables.js";
 import { characterOffsetWithin } from "../viewport/selection/preservation.js";
 import { ConversationCopyBuild, type ConversationCopyRows } from "./conversation-copy.js";
 import { TASKS_AT_ONCE } from "#test/helpers/tasks-at-once.js";
@@ -64,10 +64,10 @@ function conversationWithFormula(flavor: CopyFlavor, formulaAttributes: string):
 }
 
 /** Row text readers for rows that are all end rows, drawing no long table and no large body. */
-const END_ROWS_ONLY: Pick<ConversationCopyRows, "rowText" | "rowBodyText" | "drawnTableOf"> = {
+const END_ROWS_ONLY: Pick<ConversationCopyRows, "rowText" | "rowBodyText" | "drawnSourceOf"> = {
   rowText: () => expect.fail("every row here is an end row"),
   rowBodyText: () => expect.fail("no row here draws a large body"),
-  drawnTableOf: () => expect.fail("no row here draws a long table"),
+  drawnSourceOf: () => expect.fail("no row here draws a window"),
 };
 
 /**
@@ -95,7 +95,7 @@ function copyOfDrawnRows(
 function buildOfDrawnRows(
   conversation: Element,
   startOffset: number,
-  readers: Pick<ConversationCopyRows, "rowText" | "rowBodyText" | "drawnTableOf">,
+  readers: Pick<ConversationCopyRows, "rowText" | "rowBodyText" | "drawnSourceOf">,
   worker: ConversationCopyRows["markdownWorker"],
 ): ConversationCopyBuild {
   const rows = [...conversation.querySelectorAll(`[${WINDOWED_ROW_INDEX_ATTRIBUTE}]`)];
@@ -352,13 +352,13 @@ const TABLE_KEY = "drawn-table";
 
 /**
  * `drawn` drawn as a long table's window over its first table, its first and last body rows drawn
- * and a spacer standing for the rows between, the table held in `drawnTables` from `markdown`'s
+ * and a spacer standing for the rows between, the table held in `drawnSources` from `markdown`'s
  * parse, as the feed holds it.
  */
 function windowOverFirstTable(
   drawn: HTMLElement,
   markdown: string,
-  drawnTables: DrawnLongTables,
+  drawnSources: DrawnWindowSources,
 ): HTMLElement {
   const windowed = drawn.cloneNode(true) as HTMLElement;
   const bodyRows = [...windowed.querySelectorAll("tbody > tr")];
@@ -372,7 +372,7 @@ function windowOverFirstTable(
   }
   const table =
     tablesIn(parseSettledBlock(markdown))[0] ?? expect.fail("the markdown makes a table");
-  drawnTables.hold(TABLE_KEY, table);
+  drawnSources.hold(TABLE_KEY, { kind: "table", table });
   return windowed;
 }
 
@@ -397,15 +397,15 @@ describe("a long table's undrawn rows in a selection", () => {
   )("copy as $flavor exactly as the same rows drawn: $markdown", async ({ flavor, markdown }) => {
     // Each slice of the undrawn rows' text runs at once.
     vi.stubGlobal("scheduler", TASKS_AT_ONCE.scheduler);
-    const drawnTables = new DrawnLongTables();
+    const drawnSources = new DrawnWindowSources();
     const drawn = conversationDrawing(markdown, flavor);
-    const windowed = windowOverFirstTable(drawn, markdown, drawnTables);
+    const windowed = windowOverFirstTable(drawn, markdown, drawnSources);
     const worker = inThreadMarkdownWorker(window);
     const copyOf = async (conversation: Element) => {
       const build = buildOfDrawnRows(
         conversation,
         0,
-        { ...END_ROWS_ONLY, drawnTableOf: (tableKey) => drawnTables.tableOf(tableKey) },
+        { ...END_ROWS_ONLY, drawnSourceOf: (sourceKey) => drawnSources.sourceOf(sourceKey) },
         worker,
       );
       const firstSlice = build.buildWhile(() => true);
@@ -431,19 +431,19 @@ describe("a long table's undrawn rows in a selection", () => {
     const windowed = windowOverFirstTable(
       conversationDrawing(text, "text"),
       text,
-      new DrawnLongTables(),
+      new DrawnWindowSources(),
     );
     expect(() =>
       buildOfDrawnRows(
         windowed,
         0,
-        { ...END_ROWS_ONLY, drawnTableOf: () => undefined },
+        { ...END_ROWS_ONLY, drawnSourceOf: () => undefined },
         {
           html: () => expect.fail("no part is made into HTML"),
           drawnText: () => expect.fail("no part is read"),
         },
       ).buildWhile(() => true),
-    ).toThrow("A copied table's undrawn rows have no table to be read from.");
+    ).toThrow("A copied window's undrawn items have no source to be read from.");
   });
 });
 

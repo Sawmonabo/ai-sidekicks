@@ -575,9 +575,7 @@ class SampleSelectionRecorder {
       if (selectedCount > drawnCount) {
         const where = [...frames]
           .map((frame) =>
-            frame.closest(".meridian-off-list-table-frames") === null
-              ? "on screen"
-              : "off the list",
+            frame.closest(".meridian-measuring-frames") === null ? "on screen" : "off the list",
           )
           .join(", ");
         this.leaks.push(`a selection of the page took a sample row drawn ${where}`);

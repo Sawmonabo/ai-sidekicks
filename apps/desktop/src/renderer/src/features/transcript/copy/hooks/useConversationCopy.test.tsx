@@ -32,7 +32,7 @@ import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
 import { MessageRow } from "../../rows/MessageRow.js";
 import { classifyTranscriptRow } from "../../rows/kind.js";
 import { FootnoteRegistry } from "../../rows/markdown/footnotes/registry.js";
-import { DrawnLongTables } from "../../rows/markdown/table-window/drawn-tables.js";
+import { DrawnWindowSources } from "../../rows/drawn-window-sources.js";
 import { ViewportSelectionTracker } from "../../viewport/selection/tracker.js";
 import { deriveTranscriptWindow } from "../../window/transcript-window.js";
 import { type SelectedPart } from "../conversation-selection.js";
@@ -103,7 +103,7 @@ function Conversation(props: { readonly rows: typeof ROWS }): React.JSX.Element 
         drawRow: () => {},
       }),
   );
-  const [drawnLongTables] = useState(() => new DrawnLongTables());
+  const [drawnWindowSources] = useState(() => new DrawnWindowSources());
   const [rowElements] = useState(() => new Map<string, Element>());
   useConversationCopy({
     selectionTracker: tracker,
@@ -126,7 +126,7 @@ function Conversation(props: { readonly rows: typeof ROWS }): React.JSX.Element 
     rowBodyText: () => expect.fail("neither row draws a large body"),
     largeBodyRowIdOf: () => undefined,
     fullBodyReads: undefined,
-    drawnLongTables,
+    drawnWindowSources,
     history: undefined,
   });
   return (

@@ -9,7 +9,7 @@
 
 import "./MachineBody.css";
 
-import { useContext, useEffect, useMemo, useSyncExternalStore } from "react";
+import { useContext, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
 import type { TranscriptRowContent } from "@ai-sidekicks/contracts/transcript/content";
 
@@ -18,7 +18,7 @@ import { byteFigurePart } from "#renderer/lib/figure-sentence.js";
 import { LARGE_BODY_ATTRIBUTE } from "../../copy/conversation-selection.js";
 import { publishedTextOf, type PublishedText } from "../../reveal/published-text.js";
 import { AnsiOutput } from "../ansi/AnsiOutput.js";
-import { withoutResidualEscapesOf } from "../ansi/escape-sequences.js";
+import { StrippedText } from "../ansi/escape-sequences.js";
 import { FullBodyReadsContext, type FullBodyReads } from "../full-body-reads.js";
 import { type FootnoteRegistry } from "../markdown/footnotes/registry.js";
 import { FullOutputControl } from "./FullOutputControl.js";
@@ -72,13 +72,12 @@ export function MachineBody(props: MachineBodyProps): React.JSX.Element {
   const bodyText = props.liveText ?? storedText;
   const kind = bodyText === undefined ? undefined : props.readOutputKind(bodyText);
   const revision = bodyText?.revision;
+  const [strippedText] = useState(() => new StrippedText(props.sourceId));
   const drawnText = useMemo(
     () =>
-      bodyText === undefined || kind === "command-output"
-        ? bodyText
-        : withoutResidualEscapesOf(bodyText),
+      bodyText === undefined || kind === "command-output" ? bodyText : strippedText.read(bodyText),
     // A live handle stays the same while it grows; its revision is what changed.
-    [bodyText, revision, kind],
+    [bodyText, revision, kind, strippedText],
   );
 
   const fullBodyReads = useContext(FullBodyReadsContext);
@@ -183,6 +182,7 @@ function renderBodyText(
       <AnsiOutput
         publishedText={drawnText}
         label={props.label}
+        rowKey={props.sourceId}
         opening={props.opening}
         liveByteLength={liveByteLength}
       />

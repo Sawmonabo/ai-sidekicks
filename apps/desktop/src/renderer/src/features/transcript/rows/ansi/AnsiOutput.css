@@ -141,3 +141,10 @@
 .meridian-ansi--strikethrough {
   text-decoration: line-through;
 }
+
+/* The output's lines, and each chunk of them a block in flow: a line wraps and stands in a chunk
+ * as it would in one block of the whole output. */
+.meridian-ansi__lines,
+.meridian-ansi__chunk {
+  display: block;
+}

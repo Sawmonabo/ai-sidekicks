@@ -15,7 +15,7 @@ import { OffListTableFrames } from "#renderer/features/transcript/rows/bodies/Of
 import { longTablesOf } from "#renderer/features/transcript/rows/markdown/table-window/long-tables.js";
 import { OffListTables } from "#renderer/features/transcript/rows/markdown/table-window/off-list.js";
 
-const FRAMES_SELECTOR = ".meridian-off-list-table-frames";
+const FRAMES_SELECTOR = ".meridian-measuring-frames";
 
 /** A table longer than any drawn whole, a visible one beside it for axe to find. */
 const LONG_TABLE = [

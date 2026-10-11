@@ -9,7 +9,6 @@
 
 import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event/envelope";
 import { toHtml } from "hast-util-to-html";
-import type { Table } from "mdast";
 
 import {
   makeMarkdownHtml,
@@ -19,6 +18,7 @@ import { RefusalError } from "#renderer/lib/refusal/contract.js";
 import { joinIntoPieces, piecesOf, type PiecedText } from "#renderer/lib/text-pieces.js";
 import { workInSlices } from "#renderer/lib/work-slices.js";
 import type { PiecedTextClipboardContent } from "#renderer/services/platform/clipboard/late-copy.js";
+import { type DrawnWindowSource } from "../rows/drawn-window-sources.js";
 import { type FullBodyReads } from "../rows/full-body-reads.js";
 import { type RowSelection } from "../viewport/selection/record.js";
 import {
@@ -45,8 +45,8 @@ export interface ConversationCopyRows {
   ) => SelectedPart | Promise<SelectedPart> | undefined;
   /** The text of a row's body alone, read as `rowText` reads it. */
   readonly rowBodyText: (rowKey: string, fullBodyOf: FullBodyOf) => string | undefined;
-  /** The long table a spacer row's key names, as it is drawn or as the copy kept it. */
-  readonly drawnTableOf: (tableKey: string) => Table | undefined;
+  /** The source a spacer's key names, as it is drawn from or as the copy kept it. */
+  readonly drawnSourceOf: (sourceKey: string) => DrawnWindowSource | undefined;
   /** The id of the row whose large body its text reads, which is read in full first. */
   readonly largeBodyRowIdOf: (rowKey: string) => string | undefined;
   /** What a large body is read in full through, or `undefined` where none is read. */
@@ -103,7 +103,7 @@ export class ConversationCopyBuild {
       endRowElement: (rowKey) => rows.endRowElement(rowKey),
       rowText: (rowKey) => rows.rowText(rowKey, fullBodyOf),
       rowBodyText: (rowKey) => rows.rowBodyText(rowKey, fullBodyOf),
-      drawnTableOf: (tableKey) => rows.drawnTableOf(tableKey),
+      drawnSourceOf: (sourceKey) => rows.drawnSourceOf(sourceKey),
       markdownWorker: rows.markdownWorker,
     };
   }
