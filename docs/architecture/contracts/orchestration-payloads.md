@@ -213,18 +213,18 @@ interface AgentConfigUpdateRequest {
   // no Ultracode refuses it as driver.capability_unsupported. Sent as
   // `apply_flag_settings {ultracode}`, it settles in place and applies from the next turn.
   ultracode?: boolean;
-  // Applies at the next boundary the TARGET AXIS permits, never at a fixed one: a turn boundary
-  // for an axis the target driver takes as a per-turn override, a run boundary for a run-bound one
+  // Applies at the next boundary the TARGET AXIS permits, never at a fixed one: a turn boundary for
+  // an axis the target driver takes as a per-turn override, a run boundary for a run-bound one
   // (`driverName` always, and `outputSpeed` on Claude Code — re-derived by listing, not counted). A
   // multi-axis update takes the WIDEST of its axes' boundaries, so no axis applies earlier than its
   // own rule allows. `true` dispatches the documented `interrupt` intervention (`run.intervene`)
   // first and then switches — an entry point into a control the corpus already has, not a new run
-  // control, so Spec-003's V1 control set is unchanged. The interrupt is authorized as
-  // Action::"intervene" on the target run, and a refused interrupt refuses the switch rather than
-  // leaving the agent half-moved. This arm HOLDS THE REQUEST OPEN across the boundary — which is what
-  // lets its response carry the settlement below — and still writes the pending switch to the agent
-  // row BEFORE dispatching the interrupt, so a crash in between costs the caller its answer and not
-  // the switch.
+  // control, so Spec-003's V1 control set is unchanged. The interrupt is authorized as every
+  // intervention is, as the session's user (Spec-010 §Required Behavior), and a refused interrupt
+  // refuses the switch rather than leaving the agent half-moved. This arm HOLDS THE REQUEST OPEN
+  // across the boundary — which is what lets its response carry the settlement below — and still
+  // writes the pending switch to the agent row BEFORE dispatching the interrupt, so a crash in
+  // between costs the caller its answer and not the switch.
   interruptAndSwitch?: boolean;
 }
 interface AgentConfigUpdateResponse {

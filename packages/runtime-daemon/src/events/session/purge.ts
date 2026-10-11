@@ -480,6 +480,9 @@ export class SessionPurge {
 // The session's workspaces, on its project's mount and on its own managed one.
 const SESSION_WORKSPACE_IDS_SQL = "SELECT id FROM workspaces WHERE session_id = ?";
 
+// The session's asks, which its answers and the workflow gate answers it settled name.
+const SESSION_APPROVAL_REQUEST_IDS_SQL = "SELECT id FROM approval_requests WHERE session_id = ?";
+
 // The session's worktrees that may go once their folders are checked: retired and cleaned off
 // disk, or failed at creation, while no branch context or run names them.
 const GONE_WORKTREE_CANDIDATE_PREDICATE = `created_by_session_id = @session_id
@@ -517,7 +520,8 @@ const EVENTS_DELETE_INDEX: number = 2 + DELETE_BY_SESSION_RUN_SQL.length + 1;
  * the events; a snapshot names the event it reflects, so snapshots go before the events too. The
  * run rows and the projection cursor are built from the events, so they go with them, and a
  * restart never settles a run of a purged session. A link or a related-list entry goes whichever
- * side names the session.
+ * side names the session. An ask goes after its answer and the workflow gate answers that name it,
+ * and an artifact after the reference to its stored payload.
  * The group the session leaves empty goes after the session's row and before its workspaces,
  * through which its project is found; no other group is ever empty, because each group write
  * keeps at least one session in it. Every row naming a workspace goes before the workspace, and
@@ -553,6 +557,24 @@ function deleteSessionRowsStatements(
     { sql: `DELETE FROM session_events WHERE ${PURGEABLE_WHERE}`, bindings: [sessionId] },
     { sql: "DELETE FROM session_drafts WHERE session_id = ?", bindings: [sessionId] },
     { sql: "DELETE FROM session_review_notes WHERE session_id = ?", bindings: [sessionId] },
+    {
+      sql: `DELETE FROM workflow_gate_resolutions
+             WHERE approval_request_id IN (${SESSION_APPROVAL_REQUEST_IDS_SQL})`,
+      bindings: [sessionId],
+    },
+    {
+      sql: `DELETE FROM approval_resolutions
+             WHERE request_id IN (${SESSION_APPROVAL_REQUEST_IDS_SQL})`,
+      bindings: [sessionId],
+    },
+    { sql: "DELETE FROM approval_requests WHERE session_id = ?", bindings: [sessionId] },
+    { sql: "DELETE FROM reviewer_denials WHERE session_id = ?", bindings: [sessionId] },
+    {
+      sql: `DELETE FROM artifact_payload_refs
+             WHERE manifest_id IN (SELECT id FROM artifact_manifests WHERE session_id = ?)`,
+      bindings: [sessionId],
+    },
+    { sql: "DELETE FROM artifact_manifests WHERE session_id = ?", bindings: [sessionId] },
     { sql: "DELETE FROM runs WHERE session_id = ?", bindings: [sessionId] },
     { sql: "DELETE FROM projection_cursors WHERE session_id = ?", bindings: [sessionId] },
     { sql: "DELETE FROM session_console_state WHERE session_id = ?", bindings: [sessionId] },

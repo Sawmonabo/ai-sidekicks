@@ -20,6 +20,7 @@ import type { ProviderDriver } from "../../../provider/driver/contract.js";
 import { RuntimeBindingStore } from "../../../provider/runtime-binding-store.js";
 import { EventLogService } from "../../log-service.js";
 import { SessionRelatedRanking } from "../../../session/related/ranking.js";
+import { createFixtureRun } from "../../../workflow/runs/__fixtures__/rows.js";
 import { WorkspaceEventEmitter } from "../../../workspace/event-emitter.js";
 import { ManagedWorkspaceService } from "../../../workspace/managed/service.js";
 import { RepoMountService } from "../../../workspace/repo/mount-service.js";
@@ -117,7 +118,13 @@ type DirectoryTable =
   | "interventions"
   | "runtimeBindings"
   | "commandReceipts"
-  | "worktrees";
+  | "worktrees"
+  | "approvalRequests"
+  | "approvalResolutions"
+  | "gateResolutions"
+  | "reviewerDenials"
+  | "artifactManifests"
+  | "artifactPayloadRefs";
 
 const DIRECTORY_ROW_QUERIES: Record<DirectoryTable, string> = {
   sessions: "SELECT id FROM sessions ORDER BY id",
@@ -141,6 +148,15 @@ const DIRECTORY_ROW_QUERIES: Record<DirectoryTable, string> = {
   runtimeBindings: "SELECT run_id FROM runtime_bindings ORDER BY 1",
   commandReceipts: "SELECT run_id FROM command_receipts ORDER BY 1",
   worktrees: "SELECT id FROM worktrees ORDER BY 1",
+  approvalRequests: "SELECT session_id FROM approval_requests ORDER BY 1",
+  approvalResolutions: `SELECT request.session_id FROM approval_resolutions
+    JOIN approval_requests AS request ON request.id = approval_resolutions.request_id ORDER BY 1`,
+  gateResolutions: "SELECT approval_request_id FROM workflow_gate_resolutions ORDER BY 1",
+  reviewerDenials: "SELECT session_id FROM reviewer_denials ORDER BY 1",
+  artifactManifests: "SELECT session_id FROM artifact_manifests ORDER BY 1",
+  artifactPayloadRefs: `SELECT manifest.session_id FROM artifact_payload_refs
+    JOIN artifact_manifests AS manifest ON manifest.id = artifact_payload_refs.manifest_id
+    ORDER BY 1`,
 };
 
 /**
@@ -317,6 +333,59 @@ export class PurgeFixture {
                                     last_activity_at)
               VALUES (?, 'project', 'archived', ?, ?, ?, ?)`,
         bindings: [sessionId, groupId, PURGE_INSTANT, PURGE_INSTANT, PURGE_INSTANT],
+      },
+    ]);
+  }
+
+  /**
+   * One answered ask of the session, the workflow gate answer it settled on a run of
+   * `workflowVersionId`, a reviewer's block, and an artifact with its stored payload's reference.
+   * The ask's id is `request-<sessionId>`.
+   */
+  async seedApprovalAndArtifactRows(
+    sessionId: SessionId,
+    workflowVersionId: string,
+  ): Promise<void> {
+    const requestId = `request-${sessionId}`;
+    const manifestId = `manifest-${sessionId}`;
+    const workflowRunId = await createFixtureRun(this.scratch.writer, workflowVersionId, {
+      sessionId,
+    });
+    await this.scratch.writer.write([
+      {
+        sql: `INSERT INTO approval_requests (id, session_id, run_id, requested_by, category, scope,
+                                             state, created_at, updated_at)
+              VALUES (?, ?, 'run-1', 'agent-1', 'gate', 'approve', 'approved', ?, ?)`,
+        bindings: [requestId, sessionId, PURGE_INSTANT, PURGE_INSTANT],
+      },
+      {
+        sql: `INSERT INTO approval_resolutions (request_id, device_id, client_resolution_id,
+                                                decision, effective_scope, resolved_at)
+              VALUES (?, 'device-1', 'resolution-1', 'approved', 'approve', ?)`,
+        bindings: [requestId, PURGE_INSTANT],
+      },
+      {
+        sql: `INSERT INTO workflow_gate_resolutions (id, workflow_run_id, sequence, node_id,
+                gate_kind, approval_request_id, outcome, device_id, resolved_at)
+              VALUES (?, ?, 1, 'approve', 'human.approval', ?, 'approved', 'device-1', ?)`,
+        bindings: [`gate-${sessionId}`, workflowRunId, requestId, PURGE_INSTANT],
+      },
+      {
+        sql: `INSERT INTO reviewer_denials (denial_id, session_id, provider_denial)
+              VALUES (?, ?, '{}')`,
+        bindings: [`denial-${sessionId}`, sessionId],
+      },
+      {
+        sql: `INSERT INTO artifact_manifests (id, session_id, artifact_type, content_hash,
+                                              size_bytes, created_at)
+              VALUES (?, ?, 'file', ?, 1, ?)`,
+        bindings: [manifestId, sessionId, `sha256:${"0".repeat(64)}`, PURGE_INSTANT],
+      },
+      {
+        sql: `INSERT INTO artifact_payload_refs (id, manifest_id, storage_path, media_type,
+                                                 size_bytes, created_at)
+              VALUES (?, ?, 'sha256/00/00', 'text/plain', 1, ?)`,
+        bindings: [`ref-${sessionId}`, manifestId, PURGE_INSTANT],
       },
     ]);
   }

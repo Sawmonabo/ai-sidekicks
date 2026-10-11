@@ -109,7 +109,7 @@ interface SessionCallbackTool {
 // into a `CallbackToolInvocation`, invokes the injected dispatcher, and answers the provider with the
 // `CallbackToolResult` — no invocation is left unanswered, no approval bypass invented. The daemon-side
 // dispatcher is Plan-003's callback-tool host (`provider/callback-tool-host.ts`), routing every
-// invocation through Plan-009's Cedar approval pipeline by the daemon's own approval service — the
+// invocation through Plan-009's approval pipeline by the daemon's own approval service — the
 // in-process request create that `approval.requestCreate` names, which the daemon raises from a
 // provider callback and no client calls (CP-003-5 covers driver-host permission callbacks) —
 // Plan-003 authors no Plan-009 symbols — and landing the outcome as an ordinary `tool_activity` row. `CallbackToolInvocation` is normalized
@@ -117,7 +117,7 @@ interface SessionCallbackTool {
 // and trusted. Fail-closed availability: exposure is keyed on the daemon's approval service, not on
 // any wire registration. While that service is not running, spawn WITHHOLDS the callbackTools
 // registry (tools not exposed) and the host's runtime backstop answers any stray invocation `denied`
-// + a DriverDiagnosticRecord — never `completed` without Cedar, never unanswered; the allow path
+// + a DriverDiagnosticRecord — never `completed` without the approval service, never unanswered; the allow path
 // opens once Plan-009's approval service runs (CP-003-5).
 interface CallbackToolInvocation {
   toolName: string; // untrusted provider output — wireFreeFormString-bounded (the trust-boundary header's string enumeration); resolved against the session's registered SessionCallbackTool set, and an UNKNOWN name answers `failed` without dispatch

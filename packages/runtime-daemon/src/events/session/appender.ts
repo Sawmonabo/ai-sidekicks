@@ -56,6 +56,11 @@ export interface SessionEventDraft {
 
 /** The envelope linkage and atomic table write one emission carries. */
 export interface SessionEventLinkage {
+  /**
+   * The instant the event records, for a producer whose rows in the same write carry it too;
+   * defaults to the clock.
+   */
+  readonly occurredAt?: string | undefined;
   readonly correlationId?: string | null | undefined;
   readonly causationId?: string | null | undefined;
   /** Forwarded to the append path (see `EventLogAppendOptions.transactionalPrelude`). */
@@ -172,7 +177,7 @@ export class SessionEventAppender {
     sessionId: SessionId,
     actor: string | null,
     payload: object,
-    linkage: Pick<SessionEventLinkage, "correlationId" | "causationId">,
+    linkage: Pick<SessionEventLinkage, "occurredAt" | "correlationId" | "causationId">,
   ): UnsequencedEventEnvelope {
     // Looked up from the registry: the strict layer refuses an envelope whose category disagrees
     // with its type.
@@ -186,7 +191,7 @@ export class SessionEventAppender {
     return {
       id: this.#newEventId(),
       sessionId,
-      occurredAt: this.#now(),
+      occurredAt: linkage.occurredAt ?? this.#now(),
       category,
       type,
       actor,

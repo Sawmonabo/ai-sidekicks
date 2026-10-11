@@ -20,6 +20,7 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { DatabaseWriter } from "../../../database/writer.js";
 import { sessionAppendLock } from "../append-lock.js";
 import { recordedSessionLinkStatement } from "../../../session/links/recorded.js";
+import { insertWorkflowVersion } from "../../../workflow/runs/__fixtures__/rows.js";
 import { managedWorkspacesDirectoryOf } from "../../../workspace/managed/service.js";
 import type { SessionPurgeEventLog, SessionPurgeOutcome } from "../purge.js";
 import {
@@ -139,6 +140,10 @@ describe("SessionPurge — the session's directory rows and managed workspace", 
     });
     await fixture.seedRowsNamingSession(SESSION, ["run-logged", "run-project", `run-${SESSION}`]);
     await fixture.seedRowsNamingSession(SECOND_SESSION, ["run-kept"]);
+    const workflowVersionId = await insertWorkflowVersion(fixture.scratch.writer, "Review");
+    for (const sessionId of [SESSION, SECOND_SESSION]) {
+      await fixture.seedApprovalAndArtifactRows(sessionId, workflowVersionId);
+    }
     for (const sessionId of [SESSION, SECOND_SESSION]) {
       await fixture.scratch.writer.write([
         {
@@ -215,6 +220,12 @@ describe("SessionPurge — the session's directory rows and managed workspace", 
       runtimeBindings: ["run-kept"],
       commandReceipts: ["run-kept"],
       worktrees: [],
+      approvalRequests: [SECOND_SESSION],
+      approvalResolutions: [SECOND_SESSION],
+      gateResolutions: [`request-${SECOND_SESSION}`],
+      reviewerDenials: [SECOND_SESSION],
+      artifactManifests: [SECOND_SESSION],
+      artifactPayloadRefs: [SECOND_SESSION],
     });
     expect(existsSync(purgedWorkspace.path)).toBe(false);
     expect(existsSync(keptWorkspace.path)).toBe(true);

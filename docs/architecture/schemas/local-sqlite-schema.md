@@ -667,6 +667,8 @@ CREATE TABLE approval_resolutions (
                                               -- The first answer from any device settles the request.
   device_id                TEXT NOT NULL,     -- the answering device, the one whose connection carried the answer; a card
                                               -- answered elsewhere reads it as `Answered on <device>` (Spec-027 §Required Behavior)
+  client_resolution_id     TEXT NOT NULL,     -- minted by the answering client and echoed on the resolution event; the same
+                                              -- id sent again is answered with this row, any other answer is refused
   decision                 TEXT NOT NULL
                            CHECK(decision IN ('approved', 'rejected')),
   effective_scope          TEXT NOT NULL,     -- granted scope; = request scope unless the answer narrowed it (Spec-010 §Required Behavior);
@@ -674,8 +676,19 @@ CREATE TABLE approval_resolutions (
   remembered_scope_kind    TEXT               -- 'session' | 'project' when the answer handed a rule to the provider; NULL otherwise (Spec-010 §Interfaces And Contracts)
                            CHECK(remembered_scope_kind IS NULL OR remembered_scope_kind IN ('session', 'project')),
   remembered_scope_pattern TEXT,              -- the derived subject of that rule, nullable
-  resolved_at              TEXT NOT NULL
+  resolved_at              TEXT NOT NULL,
+  CHECK((remembered_scope_kind IS NULL) = (remembered_scope_pattern IS NULL)) -- a rule names its subject
 ) STRICT;
+
+-- Owner: Plan-009
+CREATE TABLE reviewer_denials (
+  denial_id        TEXT PRIMARY KEY,          -- the denialId its approval.reviewer_denied names
+  session_id       TEXT NOT NULL,
+  provider_denial  TEXT NOT NULL              -- JSON: the provider's own record of the block, whole, written in the
+                                              -- block's approval.reviewer_denied write; `Allow once` hands it back from here
+) STRICT;
+
+CREATE INDEX idx_reviewer_denials_session ON reviewer_denials(session_id);
 ```
 
 The daemon keeps no table of approval rules: the providers keep them ([Spec-010 §Default Behavior](../../specs/010-approvals-permissions-and-trust-boundaries.md#default-behavior)), and a session's own answers are its `approval_resolutions` rows and its `approval.remembered` and `approval.rule_revoked` events, which the inspector's `Rules` reads beside the providers' own rules.
