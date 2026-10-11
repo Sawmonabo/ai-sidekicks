@@ -3,9 +3,10 @@
 //
 //   * A provider's permission ask takes no rule evaluation. The daemon's own designed answer
 //     settles it first; then a rule in force on its subject: a block refuses it whatever it
-//     offers, and an allow answers it only where a standing allow may stand, so a destructive git
-//     command or an ask the provider's own check flagged always reaches the card. Every other ask
-//     raises a card, recorded before the check returns.
+//     offers; then the person's approval of the card whose corrected command or path the ask
+//     carries out; then an allow in force, only where a standing allow may stand, so a
+//     destructive git command or an ask the provider's own check flagged always reaches the card.
+//     Every other ask raises a card, recorded before the check returns.
 //   * A workflow start an agent or a trigger asks for is decided by the built-in rules, for the
 //     machine's owning user, with the asking run's posture among what the rules read.
 //
@@ -58,9 +59,9 @@ export type PermissionCheckRequest = ProviderAskCheck | WorkflowStartCheck;
 /**
  * What the check decided. The action runs on `policy_allow` (the daemon's own designed answer, or
  * a permit of the built-in rules), `remembered_rule` (an allow the session's own answers made,
- * named as `rule`) or `approved` (a person's recorded approval of this exact request). It waits on
- * `pending_approval`, naming the one request it raised, and never runs on `denied`, whose
- * `refusal` is the line the agent reads.
+ * named as `rule`) or `approved` (a person's recorded approval of the card whose corrected command
+ * or path the ask carries out). It waits on `pending_approval`, naming the one request it raised,
+ * and never runs on `denied`, whose `refusal` is the line the agent reads.
  */
 export type PermissionCheckResponse =
   | { readonly allowed: true; readonly reason: "policy_allow" }
@@ -82,7 +83,7 @@ export type WorkflowStartCheckResponse = Extract<
 /** What the check reads its answers from and raises cards through. */
 export interface PermissionCheckDeps {
   readonly authorizer: Authorizer;
-  readonly approvals: Pick<ApprovalService, "create">;
+  readonly approvals: Pick<ApprovalService, "create" | "readRequest">;
   readonly rules: Pick<ApprovalRules, "findRule">;
   /** The one all-projects agent-memory folder, whose notes an agent reads and writes unasked. */
   readonly agentMemoryFolder: string;
@@ -138,6 +139,12 @@ export class PermissionCheckService {
         : this.#deps.rules.findRule(ask.sessionId, ask.action.kind, subject);
     if (rule?.sense === "block") {
       return { allowed: false, reason: "denied", refusal: BLOCKED_BY_RULE_REFUSAL };
+    }
+    if (ask.correctionOf !== undefined) {
+      const corrected = this.#deps.approvals.readRequest(ask.correctionOf);
+      if (corrected?.state === "approved" && corrected.runId === ask.runId) {
+        return { allowed: true, reason: "approved" };
+      }
     }
     if (rule !== undefined && mayAllowStand(ask)) {
       return { allowed: true, reason: "remembered_rule", rule };

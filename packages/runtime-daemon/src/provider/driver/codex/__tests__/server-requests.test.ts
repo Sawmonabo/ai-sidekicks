@@ -506,7 +506,10 @@ describe("Codex approval answers", () => {
     holding(askCommand("item-2", "rm -rf build"));
     const corrected = await answerOf("item-2", {
       decision: "allow",
-      editedAction: "rm -rf build/cache",
+      correction: {
+        editedAction: "rm -rf build/cache",
+        approvalRequestId: "00000000-0000-7000-8000-0000000000c1",
+      },
     });
     holding(askCommand("item-4", "npm publish"));
     const declined = await answerOf("item-4", { decision: "refuse", reason: "Not before review." });
@@ -545,7 +548,7 @@ describe("Codex approval answers", () => {
 });
 
 describe("Codex corrections", () => {
-  it("accepts a corrected command with no card in its own turn, and asks again in a later one", async () => {
+  it("names the card a corrected command carries out in its own turn, and none in a later one", async () => {
     const { harness } = await routedAskHarness(undefined);
     harness.server.on("turn/steer", () => ({ result: { turnId: TURN_ID } }));
     const taken: ProviderPermissionAsk[] = [];
@@ -563,11 +566,17 @@ describe("Codex corrections", () => {
         itemId,
         command,
       });
+    // Each correction is approved on its own card, named by the ask it answers.
+    const cardOf = (ask: ProviderPermissionAsk | undefined): string =>
+      `card-${ask?.requestId ?? ""}`;
     const correct = async (runId: RunId, editedAction: string): Promise<void> => {
       await harness.driver.respondToRequest({
         runId,
         requestId: taken.at(-1)?.requestId ?? "",
-        response: { decision: "allow", editedAction },
+        response: {
+          decision: "allow",
+          correction: { editedAction, approvalRequestId: cardOf(taken.at(-1)) },
+        },
       });
     };
     const corrected = "rm -rf 'my build' && echo done";
@@ -587,13 +596,31 @@ describe("Codex corrections", () => {
     await harness.driver.startRun({ runId: SECOND_RUN_ID, agentConfig: runConfig("again") });
     askCommand("item-2", LATER_TURN_ID, wrappedCorrection).catch(() => undefined);
     await expect.poll(() => taken.length).toBe(2);
+    const correctedCard = cardOf(taken.at(-1));
     await correct(SECOND_RUN_ID, "npm test");
-    const sameTurn = await askCommand("item-3", LATER_TURN_ID, "/bin/zsh -lc 'npm test'");
+    // The ask for that correction in its own turn names its card, and the check's allow runs it.
+    askCommand("item-3", LATER_TURN_ID, "/bin/zsh -lc 'npm test'").catch(() => undefined);
+    await expect.poll(() => taken.length).toBe(3);
+    const sameTurnRequestId = taken.at(-1)?.requestId ?? "";
+    await harness.driver.respondToRequest({
+      runId: SECOND_RUN_ID,
+      requestId: sameTurnRequestId,
+      response: { decision: "allow" },
+    });
 
-    expect(sameTurn["result"]).toStrictEqual({ decision: "accept" });
-    expect(taken.map((ask) => [ask.toolCallId, ask.action])).toStrictEqual([
-      ["item-1", { kind: "command", command: "rm -rf build" }],
-      ["item-2", { kind: "command", command: corrected }],
+    expect(
+      harness.server.writtenFrames().find((frame) => String(frame["id"]) === sameTurnRequestId)?.[
+        "result"
+      ],
+    ).toStrictEqual({ decision: "accept" });
+    // The correction is carried out once: the same command asked again in that turn names no card.
+    askCommand("item-4", LATER_TURN_ID, "/bin/zsh -lc 'npm test'").catch(() => undefined);
+    await expect.poll(() => taken.length).toBe(4);
+    expect(taken.map((ask) => [ask.toolCallId, ask.action, ask.correctionOf])).toStrictEqual([
+      ["item-1", { kind: "command", command: "rm -rf build" }, undefined],
+      ["item-2", { kind: "command", command: corrected }, undefined],
+      ["item-3", { kind: "command", command: "npm test" }, correctedCard],
+      ["item-4", { kind: "command", command: "npm test" }, undefined],
     ]);
   });
 });

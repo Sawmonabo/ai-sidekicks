@@ -1,6 +1,10 @@
 // Where a driver hands a provider's permission ask once the run engine admitted it, so the
 // approval pipeline asks the person and answers through `ProviderDriver.respondToRequest`.
-import type { RememberedRuleSense, RememberedScopeKind } from "@ai-sidekicks/contracts/approval";
+import type {
+  ApprovalRequestId,
+  RememberedRuleSense,
+  RememberedScopeKind,
+} from "@ai-sidekicks/contracts/approval";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
@@ -44,6 +48,11 @@ export interface ProviderPermissionAsk {
   /** The held tool call's id (Claude Code's `tool_use_id`, Codex's `itemId`), where it sent one. */
   toolCallId?: string | undefined;
   prompt?: string | undefined;
+  /**
+   * The approved card whose corrected command or path this ask carries out, named by a driver
+   * whose provider takes no corrected input back and asks for the corrected one instead.
+   */
+  correctionOf?: ApprovalRequestId | undefined;
 }
 
 /** An ask the provider withdrew before anyone answered it, by the request id it was taken under. */
@@ -83,7 +92,10 @@ export interface ProviderAnswerRule {
 export type ProviderPermissionAnswer =
   | {
       readonly decision: "allow";
-      readonly editedAction?: string | undefined;
+      /** The command or path as the person corrected it, and the card they approved it on. */
+      readonly correction?:
+        | { readonly editedAction: string; readonly approvalRequestId: ApprovalRequestId }
+        | undefined;
       readonly madeRule?: ProviderAnswerRule | undefined;
       readonly answeredByRule?: ProviderAskRule | undefined;
     }

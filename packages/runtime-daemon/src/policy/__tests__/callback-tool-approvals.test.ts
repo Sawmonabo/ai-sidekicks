@@ -62,7 +62,10 @@ describe("CallbackToolApprovals", () => {
             : { decision: "allow" };
         },
       },
-      approvals: { create: () => Promise.reject(new Error("no tool here raises a card")) },
+      approvals: {
+        create: () => Promise.reject(new Error("no tool here raises a card")),
+        readRequest: () => undefined,
+      },
       rules: { findRule: () => undefined },
       agentMemoryFolder: "/data/agent-memory",
       readRunAgent: () => "agent-1",

@@ -422,7 +422,13 @@ describe("ClaudeSessionLifecycle ask answers", () => {
       await harness.lifecycle.respondToRequest({ runId: TEST_RUN_ID, requestId, response });
     };
 
-    await answer("ask-edit", { decision: "allow", editedAction: "rm -rf build/cache" });
+    await answer("ask-edit", {
+      decision: "allow",
+      correction: {
+        editedAction: "rm -rf build/cache",
+        approvalRequestId: "00000000-0000-7000-8000-0000000000c1",
+      },
+    });
     await answer("ask-decline", { decision: "refuse", reason: "Keep the build folder." });
     const sentBefore = channel.controlRequests.length;
     await answer("ask-rule", {

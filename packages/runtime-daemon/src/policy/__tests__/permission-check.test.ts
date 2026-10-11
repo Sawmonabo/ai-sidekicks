@@ -39,6 +39,7 @@ function buildCheck(state: { owner: UserId | undefined; posture: ExecutionPostur
     },
     approvals: {
       create: () => Promise.reject(new Error("a workflow start raises no card")),
+      readRequest: () => undefined,
     },
     rules: { findRule: () => undefined },
     agentMemoryFolder: "/data/agent-memory",

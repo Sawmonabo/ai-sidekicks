@@ -11,6 +11,7 @@
 // a rule that cannot be kept never leaves the call waiting. A command allow Codex would keep as a
 // prefix that also lets a force push through is never handed over: the daemon answers each ask.
 
+import type { ApprovalRequestId } from "@ai-sidekicks/contracts/approval";
 import type { QuestionPrompt } from "@ai-sidekicks/contracts/question";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
@@ -156,9 +157,9 @@ export class CodexAskHandOff {
   readonly #readGitFolder: CodexGitFolderReader;
   // The approvals held for their card, by session then Codex's request id.
   readonly #heldBySession = new Map<SessionId, Map<string, CodexHeldApproval>>();
-  // The corrected commands and paths approved, by session, each taken by Codex's next ask for it in
-  // the same turn.
-  readonly #correctionsBySession = new Map<SessionId, Set<string>>();
+  // The corrected commands and paths approved, by session, each with the card it was approved on
+  // and taken by Codex's next ask for it in the same turn.
+  readonly #correctionsBySession = new Map<SessionId, Map<string, ApprovalRequestId>>();
 
   constructor(dependencies: CodexAskHandOffDependencies) {
     this.#dispatch = dependencies.dispatch;
@@ -264,7 +265,7 @@ export class CodexAskHandOff {
   }
 
   // The words a decline is followed by: a decline's reason, or the corrected command or path, which
-  // Codex's next ask for is then answered `accept` by the daemon.
+  // Codex's next ask for then carries out the card it was approved on.
   #steerAfter(
     sessionId: SessionId,
     held: CodexHeldApproval,
@@ -273,20 +274,22 @@ export class CodexAskHandOff {
     if (answer.decision === "refuse") {
       return answer.reason;
     }
-    if (answer.editedAction === undefined) {
+    const { correction } = answer;
+    if (correction === undefined) {
       return undefined;
     }
     const corrected: ProviderAskAction =
       held.action.kind === "command"
-        ? { kind: "command", command: answer.editedAction }
-        : { kind: "file_change", paths: [answer.editedAction] };
+        ? { kind: "command", command: correction.editedAction }
+        : { kind: "file_change", paths: [correction.editedAction] };
     const key = held.turnId === undefined ? undefined : correctionKeyOf(held.turnId, corrected);
     if (key !== undefined) {
-      const corrections = this.#correctionsBySession.get(sessionId) ?? new Set<string>();
-      corrections.add(key);
+      const corrections =
+        this.#correctionsBySession.get(sessionId) ?? new Map<string, ApprovalRequestId>();
+      corrections.set(key, correction.approvalRequestId);
       this.#correctionsBySession.set(sessionId, corrections);
     }
-    return composeCorrectionSteer(held.action, answer.editedAction);
+    return composeCorrectionSteer(held.action, correction.editedAction);
   }
 
   #takeHeld(sessionId: SessionId, requestId: string): CodexHeldApproval | undefined {
@@ -317,8 +320,8 @@ export class CodexAskHandOff {
     }
   }
 
-  // An approval for a command or path a person corrected and approved is answered `accept` at once;
-  // every other is held for its card.
+  // Holds an approval for the approval pipeline, naming the card an ask for a command or path a
+  // person corrected and approved carries out, so the permission check answers it with no card.
   #handApproval(
     sessionId: SessionId,
     runId: RunId,
@@ -334,8 +337,9 @@ export class CodexAskHandOff {
     const turnId = readNonEmptyString(params, "turnId");
     const correctionKey = turnId === undefined ? undefined : correctionKeyOf(turnId, action);
     const corrections = this.#correctionsBySession.get(sessionId);
-    if (correctionKey !== undefined && corrections?.delete(correctionKey) === true) {
-      return { decision: "allow" };
+    const correctionOf = correctionKey === undefined ? undefined : corrections?.get(correctionKey);
+    if (correctionKey !== undefined) {
+      corrections?.delete(correctionKey);
     }
     const port = this.#owners.permissionAsks.port;
     if (port === undefined) {
@@ -361,6 +365,7 @@ export class CodexAskHandOff {
         isProviderFlagged: false,
         ...(itemId === undefined ? {} : { toolCallId: itemId }),
         ...(prompt === undefined ? {} : { prompt }),
+        ...(correctionOf === undefined ? {} : { correctionOf }),
       })
       .catch((cause: unknown) => {
         this.#reportOwnerFailure("permission-ask", sessionId, cause);
@@ -404,7 +409,7 @@ export class CodexAskHandOff {
 // through; a corrected one is a decline that the steer after it carries, and a refusal is a
 // decline.
 function composeCodexAnswer(answer: ProviderPermissionAnswer): CodexServerRequestAnswer {
-  if (answer.decision === "refuse" || answer.editedAction !== undefined) {
+  if (answer.decision === "refuse" || answer.correction !== undefined) {
     return {
       decision: "refuse",
       reason: answer.decision === "refuse" ? (answer.reason ?? "") : "",

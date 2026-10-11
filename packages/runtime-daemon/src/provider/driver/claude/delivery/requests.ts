@@ -571,9 +571,9 @@ function composeAskResponse(
     return { behavior: "deny", message: answer.reason ?? "" };
   }
   const updatedInput =
-    answer.editedAction === undefined
+    answer.correction === undefined
       ? pending.input
-      : withEditedAction(pending.input, pending.action, answer.editedAction);
+      : withEditedAction(pending.input, pending.action, answer.correction.editedAction);
   const projectAllow =
     answer.madeRule?.rule.kind === "project"
       ? composeClaudeProjectAllowUpdate(answer.madeRule.rule)

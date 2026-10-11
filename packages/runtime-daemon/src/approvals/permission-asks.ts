@@ -241,7 +241,14 @@ function composeAnswer(
   if (request.decision === "approved") {
     return {
       decision: "allow",
-      ...(request.editedAction === undefined ? {} : { editedAction: request.editedAction }),
+      ...(request.editedAction === undefined
+        ? {}
+        : {
+            correction: {
+              editedAction: request.editedAction,
+              approvalRequestId: request.approvalRequestId,
+            },
+          }),
       ...(madeRule === undefined ? {} : { madeRule }),
     };
   }

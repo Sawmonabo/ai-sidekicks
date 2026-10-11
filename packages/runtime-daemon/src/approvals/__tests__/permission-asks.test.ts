@@ -4,7 +4,8 @@
 // named still reach the card; an ask delivered again while held raises one card, and its request
 // id once settled a new one; an ask its provider takes back while its card is being raised is
 // canceled once it is; a card's answer reaches the provider once, decision first with the rule it
-// made, which is recorded once the provider kept it and never when it could not.
+// made, which is recorded once the provider kept it and never when it could not; and the ask for a
+// command a person corrected runs with no card only when the card it names was approved.
 
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -12,7 +13,10 @@ import path from "node:path";
 
 import { afterEach, beforeEach, expect, it } from "vitest";
 
-import type { ApprovalResolveRequest } from "@ai-sidekicks/contracts/approval";
+import {
+  ApprovalRequestIdSchema,
+  type ApprovalResolveRequest,
+} from "@ai-sidekicks/contracts/approval";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
@@ -143,6 +147,7 @@ function buildAsks(): PermissionAsks {
         await createGate;
         return await service.create(request, origin);
       },
+      readRequest: (approvalRequestId) => service.readRequest(approvalRequestId),
     },
     rules,
     agentMemoryFolder: memoryFolder,
@@ -326,4 +331,40 @@ it("raises one card for an ask delivered again while held, and a new one once it
   const cards = readCards();
   expect(cards.map((card) => card.state)).toEqual(["approved", "pending"]);
   expect(new Set(cards.map((card) => card.ask_id)).size).toBe(2);
+});
+
+it("runs the corrected command its approved card names with no card, and only that card's", async () => {
+  const asks = buildAsks();
+  await asks.takeAsk(NPM_TEST);
+  await asks.takeAsk({ ...NPM_TEST, requestId: "8" });
+  const [approved, open] = readCards();
+  const approvedId = ApprovalRequestIdSchema.parse(approved?.id);
+  const openId = ApprovalRequestIdSchema.parse(open?.id);
+  await asks.resolve(
+    {
+      approvalRequestId: approvedId,
+      decision: "approved",
+      clientResolutionId: "00000000-0000-4000-8000-0000000000d1",
+      editedAction: "npm test -- --run",
+    },
+    LAPTOP,
+  );
+  const corrected = { kind: "command", command: "npm test -- --run" } as const;
+
+  // The provider asks for the correction, naming the card; one naming a card still open waits.
+  await asks.takeAsk({ ...NPM_TEST, requestId: "9", action: corrected, correctionOf: approvedId });
+  await asks.takeAsk({ ...NPM_TEST, requestId: "10", action: corrected, correctionOf: openId });
+
+  expect(responses).toEqual([
+    {
+      runId: RUN_ID,
+      requestId: "7",
+      response: {
+        decision: "allow",
+        correction: { editedAction: "npm test -- --run", approvalRequestId: approvedId },
+      },
+    },
+    { runId: RUN_ID, requestId: "9", response: { decision: "allow" } },
+  ]);
+  expect(readCards().map((card) => card.state)).toEqual(["approved", "pending", "pending"]);
 });
