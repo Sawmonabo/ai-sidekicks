@@ -16,7 +16,7 @@ import {
 } from "@ai-sidekicks/search-index";
 
 import { withCleanupFailures } from "../../../cleanup-failures.js";
-import { pathExists } from "../../../git/filesystem.js";
+import { pathExists } from "../../../file/path-exists.js";
 import { rebuildError, type CarriedError } from "../../../worker/carried-error.js";
 import { moduleUrlBeside } from "../../../worker/module-url.js";
 import { INDEX_ROW_KINDS, sourceRowidOf } from "./columns.js";

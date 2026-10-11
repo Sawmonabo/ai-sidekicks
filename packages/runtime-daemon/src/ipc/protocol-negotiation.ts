@@ -43,7 +43,7 @@ import {
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 
 import { DaemonDomainError } from "./domain-error.js";
-import { DelegatingRegistry } from "./registry.js";
+import { callingDeviceOf, DelegatingRegistry } from "./registry.js";
 
 /**
  * Codes for gate refusals: any method but `daemon.hello` before a hello completed
@@ -209,10 +209,10 @@ export class ProtocolNegotiator {
   registerHandshakeMethod(registry: MethodRegistry): void {
     const handler: Handler<DaemonHello, DaemonHelloAck> = async (params, ctx) => {
       // A missing transport or device id is a wiring bug, not a client violation, so a plain Error.
-      const { transportId, deviceId } = ctx;
-      if (transportId === undefined || deviceId === undefined) {
-        const missing = transportId === undefined ? "ctx.transportId" : "ctx.deviceId";
-        throw new Error(`${DAEMON_HELLO_METHOD}: handler requires ${missing}`);
+      const deviceId = callingDeviceOf(ctx, DAEMON_HELLO_METHOD);
+      const { transportId } = ctx;
+      if (transportId === undefined) {
+        throw new Error(`${DAEMON_HELLO_METHOD}: handler requires ctx.transportId`);
       }
 
       // A repeated hello is refused and the first outcome stays latched. The ack repeats the first

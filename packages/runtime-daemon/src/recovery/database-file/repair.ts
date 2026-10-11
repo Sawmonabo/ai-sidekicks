@@ -20,7 +20,7 @@ import type { DaemonRepairProgress } from "@ai-sidekicks/contracts/daemon/recove
 
 import { flushPath } from "../../disk-flush.js";
 import { syncFolder, writeFileAtomically } from "../../file/atomic-write.js";
-import { pathExists } from "../../git/filesystem.js";
+import { pathExists } from "../../file/path-exists.js";
 import { copyDatabaseFilesAside, DATABASE_COMPANION_FILE_SUFFIXES } from "./aside-copy.js";
 import { readDatabaseDamage, removeDatabaseDamage } from "./damage.js";
 import { prepareFreshFile } from "./fresh-file.js";

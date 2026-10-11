@@ -203,9 +203,10 @@ interface AttachmentIngestCompleteResponse {
 
 **Plan artifacts and a chat's files.** Two console surfaces are projections of this manifest space and add no store of their own. **A finished plan** is written by the daemon as an artifact of its session in the existing summary family the moment the plan turn ends, keyed by its own stable id and carrying the plan's text as the agent wrote it; its state moves in place as the plan is answered, so the inspector's artifact list reads the plan's word — waiting, accepted, handed on — and the plan reader renders the STORED text and never the provider's own plan file. The artifact survives a restart and is listed on the person's other devices, which is the whole reason the plan is an artifact rather than a rendering of a held request. **A chat session's files** are artifacts too: every file and folder a chat writes into its managed workspace is one, and each write to the same path is a NEW VERSION of that artifact kept with the time it was written — a later write never replaces an earlier one, which is what lets the file pane step through versions and compare one against the one before it. That comparison is the only diff a chat draws and it is never against a repository, so no branch, commit, base or staging concept reaches it.
 
-The session screen reads this manifest space through these methods on the daemon JSON-RPC transport. `artifact.list` is read again on `artifact.published` rather than on a timer.
+A client publishes into this manifest space, and the session screen reads it, through these methods on the daemon JSON-RPC transport. `artifact.list` is read again on `artifact.published` rather than on a timer.
 
-| Method          | Procedure type | Request schema        | Response schema        |
-| --------------- | -------------- | --------------------- | ---------------------- |
-| `artifact.list` | `query`        | `ArtifactListRequest` | `ArtifactListResponse` |
-| `artifact.read` | `query`        | `ArtifactReadRequest` | `ArtifactReadResponse` |
+| Method             | Procedure type | Request schema           | Response schema           |
+| ------------------ | -------------- | ------------------------ | ------------------------- |
+| `artifact.publish` | `mutation`     | `ArtifactPublishRequest` | `ArtifactPublishResponse` |
+| `artifact.list`    | `query`        | `ArtifactListRequest`    | `ArtifactListResponse`    |
+| `artifact.read`    | `query`        | `ArtifactReadRequest`    | `ArtifactReadResponse`    |

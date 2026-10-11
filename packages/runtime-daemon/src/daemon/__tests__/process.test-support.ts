@@ -27,6 +27,7 @@ import { SearchThread, type SearchThreadOptions } from "../../session/search/thr
 import { DaemonProcess, type DaemonProcessOptions } from "../process.js";
 import { readProcessTreeUsage } from "../process-tree-usage.js";
 import { selectTerminalOperatingSystem } from "../../pty/operating-system/selector.js";
+import { readVolumeFreeBytes } from "../volume-free-space.js";
 
 /** A terminal drain that had nothing to end. */
 export const EMPTY_DRAIN: DrainResult = {
@@ -143,6 +144,7 @@ export async function startDaemon(
     serviceVersion: SERVICE_VERSION,
     processIdentity: PROCESS_IDENTITY,
     readProcessTreeUsage: () => readProcessTreeUsage(process.pid),
+    readVolumeFreeBytes,
     now: () => new Date(STARTED_AT),
     writeServiceLog: () => {},
     stopSignal: new AbortController().signal,

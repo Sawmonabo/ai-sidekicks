@@ -18,7 +18,8 @@ import { SessionIdSchema, type SessionId } from "../session/id.js";
 /**
  * Publishes one artifact in a single call. `payload` is UTF-8 text as it is, or RFC 4648 base64
  * when `payloadEncoding` is `base64`; absent means `utf8`. The daemon decodes before it hashes, so
- * the digest and size bind the decoded bytes and are never the caller's to declare.
+ * the digest and size bind the decoded bytes and are never the caller's to declare, and it reads
+ * the recorded type from the bytes. A client's `file` is refused: a file comes in through ingest.
  */
 export interface ArtifactPublishRequest {
   sessionId: SessionId;
@@ -61,11 +62,7 @@ export const ArtifactPublishRequestSchema: z.ZodType<
 export interface ArtifactPublishResponse {
   manifest: ArtifactManifest;
 }
-/**
- * Parses an {@link ArtifactPublishResponse}.
- *
- * @consumedBy the daemon's publish service, which answers a publish with this reply
- */
+/** Parses an {@link ArtifactPublishResponse}. */
 export const ArtifactPublishResponseSchema: z.ZodType<
   ArtifactPublishResponse,
   ArtifactPublishResponse

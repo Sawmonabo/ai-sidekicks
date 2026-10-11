@@ -205,6 +205,22 @@ describe("ingest client — retry resumes or begins again", () => {
     expect(client.snapshot[0]?.ingestId).toBe("ingest-2");
     expect(client.snapshot[0]?.state).toBe("complete");
   });
+
+  it("sends nothing again for a file the daemon refused outright", async () => {
+    const port = new ScriptedIngestPort();
+    const client = clientOver(port);
+    port.refuseCompletionsWith({ code: "artifact.type_unreadable", message: "unreadable" });
+    client.attach(SMALL_SOURCE);
+    await crossMacrotaskBoundary();
+    expect(client.snapshot[0]?.state).toBe("refused");
+    expect(client.snapshot[0]?.disposition).toBe("attach-another");
+
+    client.retry("attachment-1");
+    await crossMacrotaskBoundary();
+
+    expect(port.completeCalls).toBe(1);
+    expect(client.snapshot[0]?.state).toBe("refused");
+  });
 });
 
 describe("ingest client — abandonment, including mid-call", () => {

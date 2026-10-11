@@ -61,12 +61,18 @@ export class AttachmentIngestClient {
 
   /**
    * Sends again after a refusal. `restart` drops the stream identity and begins from the first
-   * byte; every other disposition resumes at the current offset, so a lost response costs one
-   * chunk. Only from `refused`, the last state that still holds the payload.
+   * byte; `attach-another` sends nothing, since the same bytes get the same answer; every other
+   * disposition resumes at the current offset, so a lost response costs one chunk. Only from
+   * `refused`, the last state that still holds the payload.
    */
   public retry(localId: string): void {
     const entry = this.#entries.current(localId);
-    if (entry === undefined || entry.state !== "refused" || this.#streams.isRunning(localId)) {
+    if (
+      entry === undefined ||
+      entry.state !== "refused" ||
+      entry.disposition === "attach-another" ||
+      this.#streams.isRunning(localId)
+    ) {
       return;
     }
     const restarting = entry.disposition === "restart";

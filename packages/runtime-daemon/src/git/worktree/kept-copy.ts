@@ -39,12 +39,8 @@ import { withCleanupFailures } from "../../cleanup-failures.js";
 import { mapWithProcessorBound } from "../../processor-bound.js";
 import { settleAll } from "../../settle-all.js";
 import { mintUuidV7 } from "../../uuid-v7.js";
-import {
-  pathExists,
-  readFolderNamesOptional,
-  readOptional,
-  type GitFilesystem,
-} from "../filesystem.js";
+import { readFolderNamesOptional, readOptional, type GitFilesystem } from "../filesystem.js";
+import { pathExists } from "../../file/path-exists.js";
 import type { GitCommand } from "../process.js";
 import type { WorktreeCopiesUnderWay, WorktreeCopyReport } from "./copy-progress.js";
 import { WorktreeRetireFolderHeldError } from "./errors.js";

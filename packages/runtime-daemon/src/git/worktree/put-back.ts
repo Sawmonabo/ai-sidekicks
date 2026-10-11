@@ -40,7 +40,8 @@ import type { ServiceLogWriter } from "../../daemon/service-log.js";
 import { CAN_FLUSH_FOLDER, flushPath } from "../../disk-flush.js";
 import { settleAll } from "../../settle-all.js";
 import { canonicalFolderPath } from "../../workspace/folder/canonical-path.js";
-import { flushToDisk, pathExists, readdirOptional, readOptional } from "../filesystem.js";
+import { flushToDisk, readdirOptional, readOptional } from "../filesystem.js";
+import { pathExists } from "../../file/path-exists.js";
 import type { GitCommand } from "../process.js";
 import type { KeptCopyClaims } from "./claims.js";
 import {

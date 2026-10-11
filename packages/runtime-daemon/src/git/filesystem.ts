@@ -4,7 +4,7 @@
 // a kept worktree's record and object copies, go to `node:fs/promises` directly.
 
 import type { Dirent, Stats } from "node:fs";
-import { lstat, mkdir, readFile, readdir, rename, rm, stat } from "node:fs/promises";
+import { lstat, mkdir, readFile, readdir, rename, rm } from "node:fs/promises";
 
 import { withCleanupFailures } from "../cleanup-failures.js";
 import { CAN_FLUSH_FOLDER, flushPath } from "../disk-flush.js";
@@ -34,19 +34,6 @@ export const DEFAULT_GIT_FILESYSTEM: GitFilesystem = {
     await rename(fromPath, toPath);
   },
 };
-
-/** Whether anything is at `path`; any failure but a missing entry is thrown. */
-export async function pathExists(path: string): Promise<boolean> {
-  try {
-    await stat(path);
-    return true;
-  } catch (statFailure) {
-    if ((statFailure as NodeJS.ErrnoException).code === "ENOENT") {
-      return false;
-    }
-    throw statFailure;
-  }
-}
 
 /**
  * The entry at `path` itself, a link's own and not its target's, or `undefined` when nothing is

@@ -166,6 +166,15 @@ export const ReviewNoteRemoveRequestSchema: z.ZodType<
   ReviewNoteRemoveRequest
 > = z.object({ sessionId: SessionIdSchema, noteIds: z.array(ReviewNoteIdSchema).min(1) }).strict();
 
+/** The notes a remove discarded; an id the session did not hold is left out. */
+export interface ReviewNoteRemoveResponse {
+  removedNoteIds: ReviewNoteId[];
+}
+/** Parses a {@link ReviewNoteRemoveResponse}. */
+export const ReviewNoteRemoveResponseSchema: z.ZodType<ReviewNoteRemoveResponse> = z
+  .object({ removedNoteIds: z.array(ReviewNoteIdSchema) })
+  .strict();
+
 /** The session's held notes. */
 export interface ReviewNoteSet {
   notes: ReviewNote[];
@@ -198,7 +207,7 @@ export interface ReviewNoteMethodDescriptors {
   readonly "session.reviewNoteRemove": MethodDescriptor<
     "session.reviewNoteRemove",
     ReviewNoteRemoveRequest,
-    ReviewNoteSet
+    ReviewNoteRemoveResponse
   >;
   readonly "session.reviewNoteList": SubscriptionMethodDescriptor<
     "session.reviewNoteList",
@@ -208,11 +217,7 @@ export interface ReviewNoteMethodDescriptors {
   >;
 }
 
-/**
- * The held-note methods, each with its schemas.
- *
- * @consumedBy the daemon's review note handlers
- */
+/** The held-note methods, each with its schemas. */
 export const REVIEW_NOTE_METHOD_DESCRIPTORS: ReviewNoteMethodDescriptors = defineMethodDescriptors({
   "session.reviewNoteAdd": {
     method: "session.reviewNoteAdd",
@@ -233,7 +238,7 @@ export const REVIEW_NOTE_METHOD_DESCRIPTORS: ReviewNoteMethodDescriptors = defin
     procedureType: "mutation",
     mutating: true,
     requestSchema: ReviewNoteRemoveRequestSchema,
-    responseSchema: ReviewNoteSetSchema,
+    responseSchema: ReviewNoteRemoveResponseSchema,
   },
   "session.reviewNoteList": {
     method: "session.reviewNoteList",

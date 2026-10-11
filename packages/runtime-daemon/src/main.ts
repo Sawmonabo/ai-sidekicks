@@ -23,6 +23,7 @@ import { readProcessTreeUsage } from "./daemon/process-tree-usage.js";
 import { DaemonStartStoppedError } from "./daemon/start-stopped-error.js";
 import { openServiceLog } from "./daemon/service-log.js";
 import { readServiceVersion } from "./daemon/service-version.js";
+import { readVolumeFreeBytes } from "./daemon/volume-free-space.js";
 import { readWindowsDriveMounts } from "./daemon/windows-drive-mounts.js";
 import { describeRejection } from "./rejection.js";
 import { selectPtyHost } from "./pty/host/selector.js";
@@ -121,6 +122,7 @@ const daemon = await DaemonProcess.start({
   serviceVersion: readServiceVersion(),
   processIdentity,
   readProcessTreeUsage: () => readProcessTreeUsage(process.pid),
+  readVolumeFreeBytes,
   now: () => new Date(),
   writeServiceLog,
 }).catch((error: unknown) => {

@@ -22,6 +22,7 @@ import type { DatabaseWriter } from "../../database/writer.js";
 import type { ServiceLogWriter } from "../../daemon/service-log.js";
 import type { EventLogService } from "../../events/log-service.js";
 import { retryWaitMs } from "../../retry-waits.js";
+import { SESSION_EXISTS_SQL } from "../directory/lookups.js";
 import { sessionNotFound } from "../not-found.js";
 import {
   SESSION_LINK_KIND_WEIGHT,
@@ -109,7 +110,7 @@ export class SessionRelatedRanking {
   readonly #now: () => Date;
   readonly #selectLinks: Statement<{ sessionId: string }, LinkEndRow>;
   readonly #selectStored: Statement<[string], StoredRelatedRow>;
-  readonly #selectSessionExists: Statement<[string], { readonly found: 1 }>;
+  readonly #selectSessionExists: Statement<{ sessionId: string }, unknown>;
   readonly #followers = new Map<SessionId, Set<(update: SessionRelatedListUpdate) => void>>();
   // Sessions whose links changed since the last round; the next round queues them and their
   // neighbors in `#sessionsToScore`, each once however many changes named it.
@@ -129,7 +130,7 @@ export class SessionRelatedRanking {
     this.#now = deps.now ?? (() => new Date());
     this.#selectLinks = deps.reader.prepare(LINKS_OF_SESSION_SQL);
     this.#selectStored = deps.reader.prepare(STORED_RELATED_SQL);
-    this.#selectSessionExists = deps.reader.prepare("SELECT 1 AS found FROM sessions WHERE id = ?");
+    this.#selectSessionExists = deps.reader.prepare(SESSION_EXISTS_SQL);
   }
 
   /**
@@ -181,7 +182,7 @@ export class SessionRelatedRanking {
    * shares. Throws `session.not_found` for a session the daemon has no record of.
    */
   read(sessionId: SessionId): SessionRelatedListUpdate {
-    if (this.#selectSessionExists.get(sessionId) === undefined) {
+    if (this.#selectSessionExists.get({ sessionId }) === undefined) {
       throw sessionNotFound(sessionId);
     }
     return this.#readStored(sessionId);

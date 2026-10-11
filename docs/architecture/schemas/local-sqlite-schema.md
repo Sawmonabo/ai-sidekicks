@@ -239,7 +239,7 @@ A conversion records each file as its copy lands without waiting for that record
 
 ## Session Console State (Plan-001)
 
-The daemon's own session-scoped store for what a session holds outside its event log. [Spec-001 §State And Data Implications](../../specs/001-session-core.md#state-and-data-implications) declares the composer draft, its staged attachments and the review notes left on a file's lines durable here, so that a half-written message, its files and an unsent review reach the person's other devices; their columns are defined with the verbs that write them: `session.draftUpdate`, `session.attachmentAdd` / `session.attachmentRemove`, and `session.reviewNoteAdd` / `session.reviewNoteUpdate` / `session.reviewNoteRemove` ([api-payload-contracts §Operations Not Yet Built](../contracts/api-payload-contracts.md#operations-not-yet-built)). The block below holds the columns the spawn path reads: the session's own step bound and a Claude Code session's own advisor.
+The daemon's own session-scoped store for what a session holds outside its event log. [Spec-001 §State And Data Implications](../../specs/001-session-core.md#state-and-data-implications) declares the composer draft, its staged attachments and the review notes left on a file's lines durable here, so that a half-written message, its files and an unsent review reach the person's other devices; the draft's and the staged files' columns are defined with the verbs that write them: `session.draftUpdate` and `session.attachmentAdd` / `session.attachmentRemove` ([api-payload-contracts §Operations Not Yet Built](../contracts/api-payload-contracts.md#operations-not-yet-built)). The first block below holds the columns the spawn path reads: the session's own step bound and a Claude Code session's own advisor. The second holds the review notes, which `session.reviewNoteAdd` / `session.reviewNoteUpdate` / `session.reviewNoteRemove` write ([Gitflow Payload Contracts](../contracts/gitflow-payloads.md)).
 
 It is **configuration, not session history**: it is not events-canonical and is not rebuilt from the event log. A session's step bound is a preference the person set, so a log that can rebuild what a turn did has nothing to say about it.
 
@@ -257,6 +257,33 @@ CREATE TABLE session_console_state (
 ```
 
 The number is carried onto a spawn through `runtime_bindings.spawn_config` and realized by the driver, `--max-turns` on one leg and the daemon's own per-turn count on the other; a change reaches the session's next turn and never the turn in flight. The mode is read when a restart resumes the session, so a session left in Plan comes back in Plan. The advisor rides the same path: every Claude Code process started for the session (after a restart, a resume or a provider switch, and a helper the bridge starts) reads `advisor_model` at launch.
+
+```sql
+-- Owner: Plan-008
+CREATE TABLE session_review_notes (
+  session_id            TEXT NOT NULL,
+  note_id               TEXT NOT NULL,  -- minted by the client, so a resent add is one note
+  scope                 TEXT NOT NULL
+                        CHECK (scope IN ('changes', 'branch', 'change_request')),
+  base                  TEXT NOT NULL,
+  head_commit_id        TEXT,  -- the comparison's head commit, for a note on committed lines
+  working_tree_blob_id  TEXT,  -- the working file's blob, for a note on uncommitted lines
+  request_number        INTEGER CHECK (request_number IS NULL OR request_number >= 1),
+  path                  TEXT NOT NULL,
+  old_path              TEXT,  -- the file's earlier path when it was renamed
+  side                  TEXT NOT NULL CHECK (side IN ('added', 'removed')),
+  line                  INTEGER NOT NULL CHECK (line >= 1),
+  start_line            INTEGER CHECK (start_line IS NULL OR start_line BETWEEN 1 AND line),
+  quote                 TEXT NOT NULL,  -- the line's text when the note was added
+  body                  TEXT NOT NULL,
+  created_at            TEXT NOT NULL,  -- RFC 3339 UTC, ms precision
+  updated_at            TEXT NOT NULL,
+  PRIMARY KEY (session_id, note_id),
+  CHECK ((head_commit_id IS NULL) <> (working_tree_blob_id IS NULL))
+) STRICT, WITHOUT ROWID;
+```
+
+A note is held here until it is composed into the draft as a steer, posted with a review or discarded. Whether its line is still in the diff (`stranded`) is read from git on each read and never stored: the note reads stranded once the line is no longer a changed line of the diff its comparison names, or no longer says what `quote` holds. The session's purge deletes its notes in the same write as its other rows.
 
 ---
 

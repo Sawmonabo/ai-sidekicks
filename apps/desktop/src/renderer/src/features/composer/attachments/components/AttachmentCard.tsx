@@ -143,7 +143,9 @@ function renderIngesting(
       )}
 
       <div className="meridian-attachment__acts">
-        {props.onRetry === undefined || entry.state !== "refused" ? null : (
+        {props.onRetry === undefined ||
+        entry.state !== "refused" ||
+        entry.disposition === "attach-another" ? null : (
           <button
             type="button"
             className="meridian-attachment__act"

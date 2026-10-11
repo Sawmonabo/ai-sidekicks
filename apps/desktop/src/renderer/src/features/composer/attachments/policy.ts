@@ -7,12 +7,18 @@ import type { ArtifactRefusalCode } from "@ai-sidekicks/contracts/artifacts/oper
 
 /**
  * What a refusal means for the next act. Every ingest call is retry-safe (a resent chunk or
- * completion is answered without re-appending), so a lost response is retried in place. Two codes
- * differ: `artifact.ingest_stream_invalid` (409) is terminal, so begin again;
+ * completion is answered without re-appending), so a lost response is retried in place. Some codes
+ * differ: `artifact.ingest_stream_invalid` (409) ends the stream, so begin again;
  * `artifact.ingest_capacity_exhausted` (429) is transient with no stream state, so wait and retry.
  * Collapsing them would tell a user to re-upload a hundred megabytes because the daemon was busy.
+ * A refusal of the file itself is final: the same bytes get the same answer, so nothing is resent.
  */
-export const INGEST_REFUSAL_DISPOSITIONS = ["retry-in-place", "wait-and-retry", "restart"] as const;
+export const INGEST_REFUSAL_DISPOSITIONS = [
+  "retry-in-place",
+  "wait-and-retry",
+  "restart",
+  "attach-another",
+] as const;
 
 /** One disposition. */
 export type IngestRefusalDisposition = (typeof INGEST_REFUSAL_DISPOSITIONS)[number];
@@ -22,6 +28,13 @@ export const INGEST_STREAM_INVALID_CODE: ArtifactRefusalCode = "artifact.ingest_
 /** The daemon code for a full ingest capacity, which takes wait-and-retry. */
 export const INGEST_CAPACITY_EXHAUSTED_CODE: ArtifactRefusalCode =
   "artifact.ingest_capacity_exhausted";
+/** The daemon code for a payload over the size limit, which takes attach-another. */
+export const ARTIFACT_TOO_LARGE_CODE: ArtifactRefusalCode = "artifact.too_large";
+/** The daemon code for a payload whose type its bytes do not name, which takes attach-another. */
+export const ARTIFACT_TYPE_UNREADABLE_CODE: ArtifactRefusalCode = "artifact.type_unreadable";
+/** The daemon code for a client publish that names a file, which takes attach-another. */
+export const ARTIFACT_FILE_PUBLISH_REFUSED_CODE: ArtifactRefusalCode =
+  "artifact.file_publish_refused";
 
 /** What a user should do next about this refusal. An unrecognized code takes retry-in-place. */
 export function ingestRefusalDisposition(code: string): IngestRefusalDisposition {
@@ -30,6 +43,13 @@ export function ingestRefusalDisposition(code: string): IngestRefusalDisposition
   }
   if (code === INGEST_CAPACITY_EXHAUSTED_CODE) {
     return "wait-and-retry";
+  }
+  if (
+    code === ARTIFACT_TOO_LARGE_CODE ||
+    code === ARTIFACT_TYPE_UNREADABLE_CODE ||
+    code === ARTIFACT_FILE_PUBLISH_REFUSED_CODE
+  ) {
+    return "attach-another";
   }
   return "retry-in-place";
 }
@@ -47,6 +67,9 @@ export const INGEST_DISPOSITION_COPY: Readonly<Record<IngestRefusalDisposition, 
   restart:
     "This stream is over and cannot be resumed. Retrying begins the " +
     "upload again from the first byte.",
+  "attach-another":
+    "The background service will not take this file. Sending it " +
+    "again gets the same answer, so remove it or attach another file.",
 };
 
 /** What canceling actually does, said exactly rather than as "canceled". */

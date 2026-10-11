@@ -5,10 +5,9 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { DatabaseConnections } from "../database/connection/lifecycle.js";
 import type { WriteStatement } from "../database/statement.js";
 import { WriteRefusedError, type DatabaseWriter } from "../database/writer.js";
+import { sessionExistsStatement } from "./directory/lookups.js";
 import { sessionNotFound } from "./not-found.js";
 
-// Returns one row only while the session has an event, so a guarded write refuses an unknown one.
-const SESSION_EXISTS_SQL = "SELECT 1 FROM session_events WHERE session_id = ? LIMIT 1";
 const UPSERT_DRAFT_SQL = `INSERT INTO session_drafts (session_id, text, updated_at) VALUES (?, ?, ?)
   ON CONFLICT (session_id) DO UPDATE SET text = excluded.text, updated_at = excluded.updated_at`;
 const DELETE_DRAFT_SQL = "DELETE FROM session_drafts WHERE session_id = ?";
@@ -49,10 +48,7 @@ export class SessionDraftStore {
         ? { sql: DELETE_DRAFT_SQL, bindings: [sessionId] }
         : { sql: UPSERT_DRAFT_SQL, bindings: [sessionId, text, updatedAt] };
     try {
-      await this.#writer.write([
-        { sql: SESSION_EXISTS_SQL, bindings: [sessionId], expectedRowCount: 1 },
-        change,
-      ]);
+      await this.#writer.write([sessionExistsStatement(sessionId), change]);
     } catch (error) {
       if (error instanceof WriteRefusedError) {
         throw sessionNotFound(sessionId);

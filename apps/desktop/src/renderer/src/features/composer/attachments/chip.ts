@@ -96,7 +96,7 @@ export function composerAttachmentChip(
                 ? undefined
                 : INGEST_DISPOSITION_COPY[entry.disposition],
           },
-    offersRetry: entry.state === "refused",
+    offersRetry: entry.state === "refused" && entry.disposition !== "attach-another",
     offersAbandon: entry.state === "declared" || entry.state === "ingesting",
     abandonCopy: INGEST_ABANDON_COPY,
   };

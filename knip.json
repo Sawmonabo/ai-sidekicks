@@ -267,12 +267,15 @@
       ]
     },
     "packages/runtime-daemon": {
-      // Files started by path, which knip cannot follow: the database writer's and the search's
-      // worker threads, the database file's copy process and the search index's build process,
-      // each by its file's URL, the askpass program git runs, and the program Codex runs as the
-      // daemon's pre-tool and post-tool hooks.
+      // Files started by path, which knip cannot follow: the database writer's, the search's and
+      // the type detection's worker threads, the database file's copy process and the search
+      // index's build process, each by its file's URL, the askpass program git runs, the program
+      // Codex runs as the daemon's pre-tool and post-tool hooks, and the looping detector a test
+      // hands the type detection thread by its URL.
       "entry": [
         "src/database/worker.ts",
+        "src/artifacts/ingest/detection/worker.ts",
+        "src/artifacts/ingest/__fixtures__/never-returning-detector.ts",
         "src/recovery/database-file/child.ts",
         "src/session/search/thread/worker.ts",
         "src/session/search/index/child.ts",

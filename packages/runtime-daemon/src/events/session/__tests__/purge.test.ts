@@ -159,6 +159,14 @@ describe("SessionPurge — the session's directory rows and managed workspace", 
           sql: "INSERT INTO session_drafts (session_id, text, updated_at) VALUES (?, 'unsent', ?)",
           bindings: [sessionId, PURGE_INSTANT],
         },
+        {
+          sql: `INSERT INTO session_review_notes
+                  (session_id, note_id, scope, base, head_commit_id, path, side, line, quote, body,
+                   created_at, updated_at)
+                VALUES (?, 'note-1', 'branch', 'main', 'abc123', 'src/app.ts', 'added', 3,
+                        'const total = 0;', 'Start from the saved total', ?, ?)`,
+          bindings: [sessionId, PURGE_INSTANT, PURGE_INSTANT],
+        },
       ]);
     }
     for (const [source, target] of [
@@ -188,6 +196,7 @@ describe("SessionPurge — the session's directory rows and managed workspace", 
     expect(fixture.readDirectoryRows()).toEqual({
       sessions: [SECOND_SESSION, THIRD_SESSION],
       drafts: [SECOND_SESSION],
+      reviewNotes: [SECOND_SESSION],
       groups: ["group-kept"],
       runs: [SECOND_SESSION],
       consoleState: [SECOND_SESSION],

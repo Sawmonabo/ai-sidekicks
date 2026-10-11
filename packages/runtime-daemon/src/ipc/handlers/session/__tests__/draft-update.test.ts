@@ -8,13 +8,14 @@ import {
   encodeEventCursor,
   START_OF_LOG_POSITION,
 } from "@ai-sidekicks/contracts/session/event-cursor";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import {
   openScratchDatabase,
   type ScratchDatabase,
 } from "../../../../database/__fixtures__/scratch.js";
 import { SessionDraftStore } from "../../../../session/draft-store.js";
-import { insertStoredEvent } from "../../../../session/__fixtures__/stored-event.js";
+import { seedSessionRow } from "../../../../session/directory/__fixtures__/directory-rows.js";
 import { MethodRegistryImpl } from "../../../registry.js";
 import { SessionNotFoundError } from "../../../session-errors.js";
 import { registerSessionDraftUpdate } from "../draft-update.js";
@@ -56,20 +57,7 @@ function heldDraft(): { text: string; updated_at: string } | undefined {
 
 beforeEach(async () => {
   scratch = await openScratchDatabase();
-  await insertStoredEvent(scratch.writer, {
-    id: "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c0001",
-    sessionId: SESSION_ID,
-    sequence: 0,
-    occurredAt: "2026-09-29T17:00:00.000Z",
-    monotonicNs: 1_000_000_000n,
-    category: "session_lifecycle",
-    type: "session.created",
-    actor: null,
-    payload: { sessionId: SESSION_ID },
-    correlationId: null,
-    causationId: null,
-    version: "1.0",
-  });
+  await seedSessionRow(scratch.writer, SESSION_ID as SessionId);
   registry = new MethodRegistryImpl();
   const draftStore = new SessionDraftStore(scratch, () => new Date(STORED_AT));
   registerSessionDraftUpdate(registry, draftStore);

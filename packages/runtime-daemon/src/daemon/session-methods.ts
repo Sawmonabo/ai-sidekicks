@@ -1,12 +1,13 @@
 // Builds the daemon's session services on its one database and binds every `session.*` verb they
 // answer, plus `transcript.read`, `transcript.search` and the session's shells' `pty.*` verbs, then
-// the repository services over the same database. The daemon's one event log is built here with the
-// session directory's statements, so each event's `sessions` row change commits in the event's own
-// write, and the sessions list follows that log from the start, before any append; the daemon's
-// recovery pass and its damaged history append through the same log, which refuses a damaged
-// session's writes, and every session read and search stops at a damaged session's last good
-// point. One transcript projector serves both the read windows and the run stamp on each streamed
-// change. The services' background work starts only once the recovery pass has ended.
+// the repository services and the artifact store over the same database, sharing the service's one
+// scheduler. The daemon's one event log is built here with the session directory's statements, so
+// each event's `sessions` row change commits in the event's own write, and the sessions list
+// follows that log from the start, before any append; the daemon's recovery pass and its damaged
+// history append through the same log, which refuses a damaged session's writes, and every session
+// read and search stops at a damaged session's last good point. One transcript projector serves
+// both the read windows and the run stamp on each streamed change. The services' background work
+// starts only once the recovery pass has ended.
 
 import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import type { NodeId } from "@ai-sidekicks/contracts/runtime-node/id";
@@ -89,8 +90,10 @@ import { ProjectService } from "../workspace/project/service.js";
 import { RepoMountService } from "../workspace/repo/mount-service.js";
 import { RepoRootResolver } from "../workspace/repo/root-resolver.js";
 import { WorkspaceService } from "../workspace/service.js";
+import { registerArtifactMethods } from "./artifact-methods.js";
 import type { MachineSettingsFile } from "./machine/settings/file.js";
 import { registerRepoMethods } from "./repo-methods.js";
+import { Scheduler } from "./scheduler.js";
 
 /** What the session services are built from. */
 export interface SessionMethodsDeps {
@@ -146,6 +149,8 @@ export interface SessionMethodsDeps {
   readonly readLoginShell: () => string | null;
   /** The service's own release version, which each shell's terminal names when a program asks. */
   readonly serviceVersion: string;
+  /** Reads the free bytes on the volume holding a folder, which an upload is admitted against. */
+  readonly readVolumeFreeBytes: (folderPath: string) => Promise<number>;
   /** Writes one line to the service log. */
   readonly writeServiceLog: (line: string) => void;
   /** The terminal host every session's shells run in. */
@@ -181,15 +186,16 @@ export interface RegisteredSessionServices {
   /**
    * Starts the background work, once the recovery pass has ended: the self-naming, the related
    * lists' rename follow, the index's merging, the passes finishing the creates and removing the
-   * conversions' copies the daemon stopped part way, the managed workspaces' write watch and the
-   * repository services' work. Does nothing once `stop` has been called.
+   * conversions' copies the daemon stopped part way, the managed workspaces' write watch, the
+   * repository services' work and the ingest reaper. Does nothing once `stop` has been called.
    */
   readonly start: () => Promise<void>;
   /**
    * Ends the sessions and projects lists, the background work `start` began, after a start under
-   * way, and the repository services. It settles once each of them has finished what it had under
-   * way: the titles on their way, the merge step at the writer, the related-list round, the two
-   * stopped-work passes and the repository services' own.
+   * way, the ingest reaper's future passes, the repository services and then the service's
+   * scheduler. It settles once each of them has finished what it had under way: the titles on
+   * their way, the merge step at the writer, the related-list round, the two stopped-work passes,
+   * the scheduler's running job and the repository services' own.
    */
   readonly stop: () => Promise<void>;
   /**
@@ -373,6 +379,7 @@ export function registerSessionMethods(
     },
   });
 
+  const scheduler = new Scheduler({ writeServiceLog: deps.writeServiceLog });
   const repo = registerRepoMethods(registry, {
     database,
     eventLog,
@@ -394,6 +401,7 @@ export function registerSessionMethods(
     baseEnvironment: deps.providerBaseEnvironment,
     streamingPrimitive: deps.streamingPrimitive,
     outboundQueue: deps.outboundQueue,
+    scheduler,
     writeServiceLog: deps.writeServiceLog,
   });
   const shellTable = new ShellTable({
@@ -442,6 +450,12 @@ export function registerSessionMethods(
   });
   registerSessionTakeControl(registry, { shellTable });
   registerSessionSetTerminalFlowControl(registry, { shellTable });
+  const artifacts = registerArtifactMethods(registry, {
+    database,
+    homeDirectory: deps.homeDirectory,
+    scheduler,
+    readVolumeFreeBytes: deps.readVolumeFreeBytes,
+  });
 
   const autoTitle = new SessionAutoTitle({
     reader: database.reader,
@@ -505,6 +519,7 @@ export function registerSessionMethods(
       const finishingStoppedCreates = creation.finishStoppedCreates();
       const removingStoppedCopies = conversion.removeStoppedCopies();
       repo.start();
+      artifacts.start();
       stopBackgroundWork = async () => {
         const mergeStopped = indexMerging.stop();
         const titlesStopped = stopAutoTitle();
@@ -525,7 +540,10 @@ export function registerSessionMethods(
       listFeed.close();
       projectListFeed.close();
       await watchStarting;
-      await Promise.all([stopBackgroundWork?.(), repo.stop()]);
+      // The scheduler stops after every user of it: the reaper is canceled here, and the
+      // repository services run the stop once their own work schedules nothing more.
+      artifacts.stop();
+      await Promise.all([stopBackgroundWork?.(), repo.stop(() => scheduler.stop())]);
     },
     releaseConnection: (transportId) => {
       shellTable.releaseConnection(transportId);

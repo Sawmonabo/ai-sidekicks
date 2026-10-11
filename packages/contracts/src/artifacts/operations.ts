@@ -260,8 +260,8 @@ export function decodeArtifactPayloadBytes(
 const ARTIFACT_REFUSAL_CODE_VALUES = [
   "artifact.not_found",
   "artifact.too_large",
-  "artifact.unsupported_media_type",
-  "artifact.scanner_rejected",
+  "artifact.type_unreadable",
+  "artifact.file_publish_refused",
   "artifact.ingest_capacity_exhausted",
   "artifact.ingest_stream_invalid",
   "artifact.hash_mismatch",

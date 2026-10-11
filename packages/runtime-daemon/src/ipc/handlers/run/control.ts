@@ -7,8 +7,7 @@
 // - Pause, resume and the answers reach the driver that runs the run, found as the `driver.*`
 //   handlers find it; an intervention reaches it through the intervention service.
 
-import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
-import type { HandlerContext, MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
+import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import { RUN_CONTROL_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/run/control";
 
@@ -19,6 +18,7 @@ import type {
   ProviderChoiceAnswerOrigin,
   ProviderChoiceResolver,
 } from "../../../session/run/provider-choice.js";
+import { callingDeviceOf } from "../../registry.js";
 import { resolveDriverForRunOrThrow, type DriverDispatchDeps } from "../driver/resolution.js";
 import { registerDescribedMethod } from "../register-described-method.js";
 
@@ -98,12 +98,4 @@ export function registerRunControlMethods(
       return deps.choices.resolveUsageCreditsChoice(request, origin, driver);
     },
   );
-}
-
-// A call with no stamped device is a wiring fault, not a client's, so a plain `Error`.
-function callingDeviceOf(ctx: HandlerContext, method: string): DeviceId {
-  if (ctx.deviceId === undefined) {
-    throw new Error(`${method} needs the calling device`);
-  }
-  return ctx.deviceId;
 }
