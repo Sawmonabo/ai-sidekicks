@@ -10,6 +10,7 @@ import { Terminal, type ILink, type ILinkProvider } from "@xterm/xterm";
 
 import { TerminalRendererPool } from "../renderer-pool.js";
 import { XtermTerminalAdapter } from "./adapter.js";
+import { ignoreTerminalQueries } from "./queries.js";
 import {
   attachedMountElement,
   disposeLiveEmulators,
@@ -124,6 +125,30 @@ describe("questions a program asks its terminal", () => {
 
     expect(adapter.isStdinDisabled).toBe(false);
     expect(onKeystroke).not.toHaveBeenCalled();
+  });
+
+  it("keeps the colors a command sets when it also asks", async () => {
+    // The library's own color handlers stand behind a recorder registered before the filter.
+    const terminal = new Terminal({ allowProposedApi: true });
+    const reached: string[] = [];
+    for (const command of [4, 11]) {
+      terminal.parser.registerOscHandler(command, (data) => {
+        reached.push(`${String(command)};${data}`);
+        return true;
+      });
+    }
+    ignoreTerminalQueries(terminal);
+
+    await new Promise<void>((resolve) => {
+      terminal.write("\x1b]4;1;#ff0000;2;?\x07\x1b]10;?;#000000\x07", resolve);
+    });
+    // The sets are written back behind the questions, so one more write parses them.
+    await new Promise<void>((resolve) => {
+      terminal.write("", resolve);
+    });
+    terminal.dispose();
+
+    expect(reached).toEqual(["4;1;#ff0000", "11;#000000"]);
   });
 });
 

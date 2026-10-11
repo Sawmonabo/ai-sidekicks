@@ -2,7 +2,7 @@
 // current theme's two grounds, and the root element main stamps them on and the renderer keeps
 // current. Main and the renderer both read these values, so they are declared here once.
 
-import { formatSrgbHex, oklchToSrgb, resolveEmittedColor } from "./color.js";
+import { formatPaintedHex } from "./color.js";
 import {
   SYSTEM_SCHEME_PREFERENCE,
   type ColorScheme,
@@ -124,7 +124,7 @@ export function composeRootAppearance(
 
 function paintedGrounds(grounds: SchemePair): AppearanceGrounds {
   return {
-    light: formatSrgbHex(oklchToSrgb(resolveEmittedColor(grounds.light))),
-    dark: formatSrgbHex(oklchToSrgb(resolveEmittedColor(grounds.dark))),
+    light: formatPaintedHex(grounds.light),
+    dark: formatPaintedHex(grounds.dark),
   };
 }
