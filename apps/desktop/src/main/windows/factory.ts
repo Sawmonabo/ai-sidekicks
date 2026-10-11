@@ -18,6 +18,7 @@
 import { BaseWindow, WebContentsView, type Rectangle, type WebContents } from "electron";
 import path from "node:path";
 
+import type { MainOperatingSystem } from "../operating-system/contract.js";
 import type { MainDiagnosticLog } from "../services/diagnostic-log.js";
 import { RENDERER_INDEX_URL } from "../services/renderer/scheme.js";
 import { devServerUrl, installNavigationPolicy, type ChildWindowOpener } from "./navigation.js";
@@ -32,7 +33,10 @@ export interface RendererWindow {
   readonly view: WebContentsView;
 }
 
-/** The options every window shares: its background, its answer to `window.open`, and the log. */
+/**
+ * The options every window shares: its background, its answer to `window.open`, the log, and the
+ * operating system's title bar and unobtrusive reveal.
+ */
 export interface SharedWindowOptions {
   /** The kept ground the first frame is painted in, `#rrggbb`. */
   readonly background: string;
@@ -40,6 +44,8 @@ export interface SharedWindowOptions {
   readonly openChildWindow: ChildWindowOpener;
   /** Main's diagnostic log, where the window's refusals and failures are recorded. */
   readonly log: Pick<MainDiagnosticLog, "write" | "drain" | "lastWriteFailure">;
+  /** The title bar each window is built with, and how a test build keeps it out of the way. */
+  readonly operatingSystem: Pick<MainOperatingSystem, "titleBar" | "unobtrusiveWindows">;
 }
 
 /** Where a window a person sees opens, the state it is revealed into, and its shared options. */
@@ -89,12 +95,7 @@ function constructLockedWindow(options: LockedWindowOptions): RendererWindow {
   const baseWindow = new BaseWindow({
     ...options.bounds,
     show: false,
-    // On macOS the console fills the window under the traffic lights, and the overlay hands the
-    // document their area as `env(titlebar-area-*)`, which is empty in fullscreen, so the rail's
-    // width and top inset follow the buttons. Elsewhere the system's own title strip stays.
-    ...(process.platform === "darwin"
-      ? { titleBarStyle: "hiddenInset", titleBarOverlay: true }
-      : { titleBarStyle: "default" }),
+    ...options.operatingSystem.titleBar,
     backgroundColor: options.background,
   });
   const view = new WebContentsView({
@@ -246,7 +247,7 @@ export function openHiddenWindow(options: HiddenWindowOptions): RendererWindow {
   }
 
   loadDocument(baseWindow, view.webContents, resolveRendererDocumentUrl(), options.log, () => {
-    revealWindow(baseWindow, FAILURE_REVEAL);
+    revealWindow(baseWindow, FAILURE_REVEAL, options.operatingSystem);
   });
   return hiddenWindow;
 }
@@ -265,6 +266,6 @@ export function adoptRendererChild(
     additionalArguments: [],
     adoptedWebContents: handedWebContents,
   });
-  revealWindow(rendererWindow.baseWindow, frame.reveal);
+  revealWindow(rendererWindow.baseWindow, frame.reveal, frame.operatingSystem);
   return rendererWindow;
 }

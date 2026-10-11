@@ -1,4 +1,5 @@
-import { HOST_CHORD_PLATFORM, formatChordForPlatform } from "#renderer/lib/chord-format.js";
+import { HOST_KEYBOARD_CONVENTION } from "#renderer/lib/chord/convention/selection.js";
+import { formatChordForPlatform } from "#renderer/lib/chord/format.js";
 import type { RailDestination } from "#renderer/routing/readers.js";
 import { SESSIONS_LIST_COMMAND } from "../../NavigationRail/commands.js";
 
@@ -13,5 +14,5 @@ export function useRailChords(
   const chord = readBoundChord(SESSIONS_LIST_COMMAND.commandId);
   return chord === undefined
     ? {}
-    : { sessions: formatChordForPlatform(chord, HOST_CHORD_PLATFORM) };
+    : { sessions: formatChordForPlatform(chord, HOST_KEYBOARD_CONVENTION) };
 }

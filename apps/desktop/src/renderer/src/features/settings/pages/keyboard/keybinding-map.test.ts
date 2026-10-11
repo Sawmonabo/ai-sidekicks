@@ -4,7 +4,10 @@
 
 import { describe, expect, it } from "vitest";
 
-import { type ChordPlatform } from "#renderer/lib/chord-format.js";
+import type { KeyboardConvention } from "#renderer/lib/chord/convention/contract.js";
+import { LINUX_KEYBOARD_CONVENTION } from "#renderer/lib/chord/convention/linux.js";
+import { MAC_KEYBOARD_CONVENTION } from "#renderer/lib/chord/convention/mac.js";
+import { WINDOWS_KEYBOARD_CONVENTION } from "#renderer/lib/chord/convention/windows.js";
 import { type Keybinding } from "#renderer/registries/commands/keybinding.js";
 import { type CommandDefinition } from "#renderer/registries/commands/definition.js";
 import { WHEN_SESSION_ACTIVE } from "#renderer/registries/commands/when-clause/vocabulary.js";
@@ -43,12 +46,12 @@ function press(
  * person meets when they record the press on the keyboard page.
  */
 function hostReasonFor(
-  platform: ChordPlatform,
+  convention: KeyboardConvention,
   fields: Parameters<typeof press>[0],
 ): string | undefined {
-  const recording = readChordFromEvent(press(fields), platform);
+  const recording = readChordFromEvent(press(fields), convention);
   return recording.outcome === "captured"
-    ? reservedChordReason(recording.chord, platform)
+    ? reservedChordReason(recording.chord, convention)
     : undefined;
 }
 
@@ -68,7 +71,7 @@ describe("composing rows", () => {
       commands,
       bindings,
       shippedBindings: bindings,
-      platform: "darwin",
+      convention: MAC_KEYBOARD_CONVENTION,
     });
     const workflows = rows.find((row) => row.commandId === "frame.goToWorkflows");
     expect(workflows?.chord).toBe("$mod+Shift+w");
@@ -85,7 +88,7 @@ describe("composing rows", () => {
       commands,
       bindings: [{ chord: "$mod+Space", commandId: "frame.goToSessions" }, ...bindings.slice(1)],
       shippedBindings: bindings,
-      platform: "darwin",
+      convention: MAC_KEYBOARD_CONVENTION,
     });
     expect(rows.find((row) => row.commandId === "frame.goToSessions")?.unavailableReason).toContain(
       "Spotlight",
@@ -102,7 +105,7 @@ describe("composing rows", () => {
       bindings,
       shippedBindings: bindings,
       overrides: { "frame.goToSessions": "$mod+b", "bridge.checkForUpdates": null },
-      platform: "darwin",
+      convention: MAC_KEYBOARD_CONVENTION,
     });
     const changed = rows.filter((row) => row.overridden).map((row) => row.commandId);
     // In the page's order: by group, so `App` before `Help`.
@@ -116,7 +119,7 @@ describe("composing rows", () => {
       bindings: [{ chord: "$mod+9", commandId: "frame.goToSessions" }, ...bindings.slice(1)],
       shippedBindings: bindings,
       overrides: { "frame.goToSessions": "$mod+9" },
-      platform: "darwin",
+      convention: MAC_KEYBOARD_CONVENTION,
     });
     const changed = rows.find((row) => row.commandId === "frame.goToSessions");
     expect(changed?.chord).toBe("$mod+9");
@@ -128,18 +131,25 @@ describe("reading a keystroke as a chord", () => {
   it("composes the held modifiers and the physical key, in the app's order", () => {
     const read = readChordFromEvent(
       press({ key: "K", code: "KeyK", metaKey: true, shiftKey: true }),
-      "darwin",
+      MAC_KEYBOARD_CONVENTION,
     );
     expect(read).toStrictEqual<ChordRecording>({ outcome: "captured", chord: "$mod+Shift+KeyK" });
   });
 
   it("writes the platform's command modifier as `$mod` and the other one literally", () => {
     // On macOS `⌃` and `⌘` are different keys; folding them installs on the wrong one.
-    expect(readChordFromEvent(press({ key: "k", code: "KeyK", ctrlKey: true }), "darwin")).toEqual({
+    expect(
+      readChordFromEvent(press({ key: "k", code: "KeyK", ctrlKey: true }), MAC_KEYBOARD_CONVENTION),
+    ).toEqual({
       outcome: "captured",
       chord: "Control+KeyK",
     });
-    expect(readChordFromEvent(press({ key: "k", code: "KeyK", ctrlKey: true }), "win32")).toEqual({
+    expect(
+      readChordFromEvent(
+        press({ key: "k", code: "KeyK", ctrlKey: true }),
+        WINDOWS_KEYBOARD_CONVENTION,
+      ),
+    ).toEqual({
       outcome: "captured",
       chord: "$mod+KeyK",
     });
@@ -149,12 +159,15 @@ describe("reading a keystroke as a chord", () => {
     // On the way to ⌘⇧K a person passes through ⌘ and ⌘⇧;
     // settling on either binds the wrong chord.
     expect(
-      readChordFromEvent(press({ key: "Meta", code: "MetaLeft", metaKey: true }), "darwin"),
+      readChordFromEvent(
+        press({ key: "Meta", code: "MetaLeft", metaKey: true }),
+        MAC_KEYBOARD_CONVENTION,
+      ),
     ).toEqual({ outcome: "incomplete", heldModifiers: ["$mod"] });
     expect(
       readChordFromEvent(
         press({ key: "Shift", code: "ShiftLeft", metaKey: true, shiftKey: true }),
-        "darwin",
+        MAC_KEYBOARD_CONVENTION,
       ),
     ).toEqual({ outcome: "incomplete", heldModifiers: ["$mod", "Shift"] });
   });
@@ -174,10 +187,16 @@ describe("reading a keystroke as a chord", () => {
   it("negative control: the same keys held with a modifier are chords, not commands", () => {
     // Guards `$mod+Backspace` from being unbindable by reading it as a clearing.
     expect(
-      readChordFromEvent(press({ key: "Backspace", code: "Backspace", metaKey: true }), "darwin"),
+      readChordFromEvent(
+        press({ key: "Backspace", code: "Backspace", metaKey: true }),
+        MAC_KEYBOARD_CONVENTION,
+      ),
     ).toEqual({ outcome: "captured", chord: "$mod+Backspace" });
     expect(
-      readChordFromEvent(press({ key: "Escape", code: "Escape", shiftKey: true }), "darwin"),
+      readChordFromEvent(
+        press({ key: "Escape", code: "Escape", shiftKey: true }),
+        MAC_KEYBOARD_CONVENTION,
+      ),
     ).toEqual({ outcome: "captured", chord: "Shift+Escape" });
   });
 
@@ -191,36 +210,51 @@ describe("reading a keystroke as a chord", () => {
       [{ metaKey: true }, /^GNOME restores its own shortcuts /u],
     ];
     for (const [fields, reason] of chords) {
-      expect(hostReasonFor("linux", { ...escape, ...fields })).toMatch(reason);
+      expect(hostReasonFor(LINUX_KEYBOARD_CONVENTION, { ...escape, ...fields })).toMatch(reason);
     }
     // Negative control: Super+Shift+Esc is held by GNOME only during an input capture session.
-    expect(hostReasonFor("linux", { ...escape, metaKey: true, shiftKey: true })).toBeUndefined();
+    expect(
+      hostReasonFor(LINUX_KEYBOARD_CONVENTION, { ...escape, metaKey: true, shiftKey: true }),
+    ).toBeUndefined();
   });
 
   it("on Windows, reads its Escape chords and every Windows-key chord as chords the host takes", () => {
     const escape = { key: "Escape", code: "Escape" };
-    expect(hostReasonFor("win32", { ...escape, altKey: true })).toMatch(/switches windows/u);
-    expect(hostReasonFor("win32", { ...escape, ctrlKey: true })).toMatch(/Start menu/u);
-    expect(hostReasonFor("win32", { ...escape, ctrlKey: true, shiftKey: true })).toMatch(
-      /Task Manager/u,
+    expect(hostReasonFor(WINDOWS_KEYBOARD_CONVENTION, { ...escape, altKey: true })).toMatch(
+      /switches windows/u,
     );
+    expect(hostReasonFor(WINDOWS_KEYBOARD_CONVENTION, { ...escape, ctrlKey: true })).toMatch(
+      /Start menu/u,
+    );
+    expect(
+      hostReasonFor(WINDOWS_KEYBOARD_CONVENTION, { ...escape, ctrlKey: true, shiftKey: true }),
+    ).toMatch(/Task Manager/u);
     for (const fields of [
       { key: "e", code: "KeyE", metaKey: true },
       { key: "d", code: "KeyD", metaKey: true, ctrlKey: true },
       { key: "S", code: "KeyS", metaKey: true, shiftKey: true },
       { ...escape, metaKey: true },
     ]) {
-      expect(hostReasonFor("win32", fields)).toMatch(/Windows key/u);
+      expect(hostReasonFor(WINDOWS_KEYBOARD_CONVENTION, fields)).toMatch(/Windows key/u);
     }
     // Negative controls: Microsoft lists no Ctrl+Alt+Esc; the Windows key is no class elsewhere.
-    expect(hostReasonFor("win32", { ...escape, ctrlKey: true, altKey: true })).toBeUndefined();
-    expect(hostReasonFor("linux", { key: "e", code: "KeyE", metaKey: true })).toBeUndefined();
+    expect(
+      hostReasonFor(WINDOWS_KEYBOARD_CONVENTION, { ...escape, ctrlKey: true, altKey: true }),
+    ).toBeUndefined();
+    expect(
+      hostReasonFor(LINUX_KEYBOARD_CONVENTION, { key: "e", code: "KeyE", metaKey: true }),
+    ).toBeUndefined();
   });
 
   it("on macOS, reads ⌃⌘Space as a chord the host takes, for Emoji & Symbols", () => {
-    expect(hostReasonFor("darwin", { key: " ", code: "Space", metaKey: true, ctrlKey: true })).toBe(
-      "macOS opens Emoji & Symbols on this chord before any application sees it.",
-    );
+    expect(
+      hostReasonFor(MAC_KEYBOARD_CONVENTION, {
+        key: " ",
+        code: "Space",
+        metaKey: true,
+        ctrlKey: true,
+      }),
+    ).toBe("macOS opens Emoji & Symbols on this chord before any application sees it.");
   });
 
   it("falls back to the key when the host supplies no physical code", () => {
@@ -235,8 +269,11 @@ describe("reading what is held right now", () => {
   it("answers the same tokens a chord is composed from", () => {
     // The hint and the chord read one function, so a modifier has one name in both.
     const held = press({ key: "K", code: "KeyK", metaKey: true, shiftKey: true });
-    expect(readHeldModifiersFromEvent(held, "darwin")).toStrictEqual(["$mod", "Shift"]);
-    expect(readChordFromEvent(held, "darwin")).toStrictEqual<ChordRecording>({
+    expect(readHeldModifiersFromEvent(held, MAC_KEYBOARD_CONVENTION)).toStrictEqual([
+      "$mod",
+      "Shift",
+    ]);
+    expect(readChordFromEvent(held, MAC_KEYBOARD_CONVENTION)).toStrictEqual<ChordRecording>({
       outcome: "captured",
       chord: "$mod+Shift+KeyK",
     });
@@ -248,7 +285,7 @@ describe("reading what is held right now", () => {
     expect(
       readHeldModifiersFromEvent(
         press({ key: "Shift", code: "ShiftLeft", altKey: true, shiftKey: false }),
-        "darwin",
+        MAC_KEYBOARD_CONVENTION,
       ),
     ).toStrictEqual(["Alt"]);
   });
@@ -259,7 +296,7 @@ describe("reading what is held right now", () => {
     expect(
       readHeldModifiersFromEvent(
         press({ key: "Shift", code: "ShiftLeft", shiftKey: true }),
-        "darwin",
+        MAC_KEYBOARD_CONVENTION,
       ),
     ).toStrictEqual(["Shift"]);
   });
@@ -276,16 +313,16 @@ describe("filtering rows", () => {
     ],
     bindings,
     shippedBindings: bindings,
-    platform: "darwin",
+    convention: MAC_KEYBOARD_CONVENTION,
   });
 
   it("answers every row for no query, then narrows on the name and the chord as drawn", () => {
-    expect(matchKeybindingRows(rows, "   ", "darwin")).toHaveLength(2);
+    expect(matchKeybindingRows(rows, "   ", MAC_KEYBOARD_CONVENTION)).toHaveLength(2);
     expect(
-      matchKeybindingRows(rows, "sessions", "darwin").map((row) => row.commandId),
+      matchKeybindingRows(rows, "sessions", MAC_KEYBOARD_CONVENTION).map((row) => row.commandId),
     ).toStrictEqual(["frame.goToSessions"]);
-    expect(matchKeybindingRows(rows, "⌘B", "darwin").map((row) => row.commandId)).toStrictEqual([
-      "frame.goToSessions",
-    ]);
+    expect(
+      matchKeybindingRows(rows, "⌘B", MAC_KEYBOARD_CONVENTION).map((row) => row.commandId),
+    ).toStrictEqual(["frame.goToSessions"]);
   });
 });

@@ -19,11 +19,9 @@ import { auditKeybindings } from "#renderer/registries/keybindings/audit.js";
 import { commandRegistry } from "#renderer/registries/commands/registry.js";
 import { keybindingOverrides } from "#renderer/registries/keybindings/overrides/store.js";
 import { useKeybindingSnapshot } from "#renderer/registries/keybindings/hooks/useKeybindingSnapshot.js";
-import {
-  COMMAND_PALETTE_OPEN_CHORD,
-  HOST_CHORD_PLATFORM,
-  formatChordForPlatform,
-} from "#renderer/lib/chord-format.js";
+import { HOST_KEYBOARD_CONVENTION } from "#renderer/lib/chord/convention/selection.js";
+import { COMMAND_PALETTE_OPEN_CHORD } from "#renderer/lib/chord/command-palette.js";
+import { formatChordForPlatform } from "#renderer/lib/chord/format.js";
 import { ChordHint } from "#renderer/components/ChordHint/ChordHint.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { StandingContent } from "#renderer/components/LiveAnnouncer/StandingContent.js";
@@ -228,7 +226,7 @@ export function KeyboardPage(): ReactNode {
                   <InlineRefusal
                     code={conflict.reason}
                     detail={
-                      `${formatChordForPlatform(conflict.chord, HOST_CHORD_PLATFORM)} ` +
+                      `${formatChordForPlatform(conflict.chord, HOST_KEYBOARD_CONVENTION)} ` +
                       `is claimed by both ${titleOf(conflict.commandIds[0])} and ` +
                       `${titleOf(conflict.commandIds[1])}. ${conflict.detail}`
                     }
@@ -245,7 +243,7 @@ export function KeyboardPage(): ReactNode {
                     code={CHORD_NOT_INSTALLED_CODE}
                     detail={
                       `${titleOf(dropped.commandId)}'s chord ` +
-                      `${formatChordForPlatform(dropped.chord, HOST_CHORD_PLATFORM)} ` +
+                      `${formatChordForPlatform(dropped.chord, HOST_KEYBOARD_CONVENTION)} ` +
                       `was not installed. ${dropped.reason}`
                     }
                   />
@@ -317,7 +315,7 @@ function describeBinding(
   const act =
     chord === null
       ? `${title} now has no chord`
-      : `${title} now runs on ${formatChordForPlatform(chord, HOST_CHORD_PLATFORM)}`;
+      : `${title} now runs on ${formatChordForPlatform(chord, HOST_KEYBOARD_CONVENTION)}`;
   return unsaved === undefined
     ? `${act}, and the change is saved.`
     : `${act} for as long as this window is open, and will not come ` +

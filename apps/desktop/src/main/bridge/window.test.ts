@@ -75,10 +75,14 @@ async function connectWindowBridge() {
   const { KeptAppearance } = await import("../appearance/kept-record.js");
   const { AppearanceRecordFile } = await import("../appearance/record-file.js");
   const { createWindowBridge } = await import("#preload/window.js");
+  // The host's own module, as the record is written to this machine's disk.
+  const { selectMainOperatingSystem } = await import("../operating-system/selection.js");
+  const operatingSystem = selectMainOperatingSystem(process.platform);
   const appearance = new KeptAppearance({
     file: new AppearanceRecordFile({
       filePath: appearanceFilePath,
       log: { write: vi.fn() },
+      operatingSystem,
     }),
     nativeTheme,
   });
@@ -101,25 +105,28 @@ async function connectWindowBridge() {
   });
   openWindowEvents = openWindow;
   for (const [channel, answer] of Object.entries(
-    windowAnswers({
-      appearance,
-      openWindows: {
-        isConsoleDocument: () => isAskedFromTheConsole,
-        windowWithId: (windowId) =>
-          windowId === OPEN_WINDOW_ID ? (openWindow as never) : undefined,
-        windowUsedLast: () => undefined,
-        setDefaultSizes: () => undefined,
-        endSafeStart: () => {
-          safeStartEnds += 1;
-        },
-        readNavigationRequest: () => {
-          navigationRequestReads += 1;
-          const held = heldNavigationRequest;
-          heldNavigationRequest = null;
-          return held;
+    windowAnswers(
+      {
+        appearance,
+        openWindows: {
+          isConsoleDocument: () => isAskedFromTheConsole,
+          windowWithId: (windowId) =>
+            windowId === OPEN_WINDOW_ID ? (openWindow as never) : undefined,
+          windowUsedLast: () => undefined,
+          setDefaultSizes: () => undefined,
+          endSafeStart: () => {
+            safeStartEnds += 1;
+          },
+          readNavigationRequest: () => {
+            navigationRequestReads += 1;
+            const held = heldNavigationRequest;
+            heldNavigationRequest = null;
+            return held;
+          },
         },
       },
-    }),
+      operatingSystem,
+    ),
   )) {
     ipcMain.handle(channel, answer as never);
   }

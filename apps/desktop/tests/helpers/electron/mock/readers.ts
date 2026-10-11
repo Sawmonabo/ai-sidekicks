@@ -28,8 +28,15 @@ interface RecordingWindowLog {
   readonly lastWriteFailure: string | null;
 }
 
-/** A window frame at a fixed rectangle, answering no `window.open`, over a log of its own. */
-export function testWindowFrame(): WindowFrame & { readonly log: RecordingWindowLog } {
+/**
+ * A window frame at a fixed rectangle, answering no `window.open`, over a log of its own, on Linux
+ * for the system's own title strip; a unit build reveals every window as it is. Imported when
+ * called, after the suite's `electron` mock is in place, since the system module reads Electron.
+ */
+export async function testWindowFrame(): Promise<
+  WindowFrame & { readonly log: RecordingWindowLog }
+> {
+  const { LINUX_MAIN_OPERATING_SYSTEM } = await import("#main/operating-system/linux.js");
   return {
     bounds: { x: 0, y: 25, width: 1200, height: 800 },
     reveal: { isMaximized: false, isFullScreen: false },
@@ -40,6 +47,7 @@ export function testWindowFrame(): WindowFrame & { readonly log: RecordingWindow
       drain: vi.fn<MainDiagnosticLog["drain"]>(() => Promise.resolve()),
       lastWriteFailure: null,
     },
+    operatingSystem: LINUX_MAIN_OPERATING_SYSTEM,
   };
 }
 

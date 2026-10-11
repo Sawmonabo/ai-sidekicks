@@ -1,21 +1,22 @@
-// Unobtrusive windows for the automated tiers, in test builds only. On macOS `show()` activates
-// the app: the Dock icon appears, focus moves, and a person on a full-screen Space is switched
-// away. So when a test tier sets one environment variable, a test build:
+// Unobtrusive windows for the automated tiers, in test builds only. An ordinary reveal activates
+// the app: on macOS the Dock icon appears, focus moves, and a person on a full-screen Space is
+// switched away. So when a test tier sets one environment variable, a test build:
 //
-//   1. sets the macOS activation policy to `accessory`: no Dock icon, never activated for a window;
-//   2. never reveals the window on macOS, where `show()` would activate even an accessory app, and
-//      reveals it with `showInactive()` elsewhere;
+//   1. sets the activation policy the operating system has for an app that never activates, where
+//      it has one: no Dock icon, never activated for a window;
+//   2. reveals a window the way the operating system keeps out of the way: never, where a shown
+//      window would activate even such an app, or shown without activating the app;
 //   3. switches background throttling off, so a hidden or occluded window keeps drawing frames and
 //      a measurement describes an unthrottled renderer;
-//   4. puts no menu-bar icon up on macOS, where each launch would add one to the person's menu bar.
+//   4. puts no menu-bar icon up, where each launch would add one to the person's menu bar.
 //
-// The split in (2) is measured: with throttling off, Electron keeps frames running for a hidden
-// window on macOS but not on Windows (electron/electron#31016). Linux runs under Xvfb and takes
-// the inactive reveal. `tests/helpers/launch/readiness.ts` checks on every launch that the
-// document stays visible and draws. A release bundle carries none of this: all four sit behind
-// the compile-time build flag.
+// `tests/helpers/launch/readiness.ts` checks on every launch that the document stays visible and
+// draws. A release bundle carries none of this: all four, and each system's unobtrusive windows,
+// sit behind the compile-time build flag.
 
 import type { App, BaseWindow, WebContents } from "electron";
+
+import type { MainOperatingSystem, UnobtrusiveWindows } from "../operating-system/contract.js";
 
 /**
  * The environment variable the automated tiers set to `"1"`. The harnesses that spawn Electron
@@ -23,46 +24,20 @@ import type { App, BaseWindow, WebContents } from "electron";
  */
 export const UNOBTRUSIVE_WINDOWS_ENV = "SIDEKICKS_UNOBTRUSIVE_WINDOWS";
 
-/**
- * How a ready window is put on screen. `hidden` leaves it as constructed (`show: false`), so
- * nothing is ever ordered onto a screen.
- */
-type WindowRevealMode = "active" | "inactive" | "hidden";
+/** The part of the operating system a reveal reads. */
+type RevealingOperatingSystem = Pick<MainOperatingSystem, "unobtrusiveWindows">;
 
-/** The one activation policy this module ever sets; `null` means leave Electron's default. */
-type ActivationPolicyChange = "accessory" | null;
-
-/**
- * Decides how a window is revealed from the build kind, the environment and the platform. Only
- * the exact string `"1"` opts in. A requested test build stays hidden on macOS and reveals
- * inactive elsewhere.
- */
-function resolveWindowRevealMode(
-  testBuild: boolean,
-  environment: NodeJS.ProcessEnv,
-  platform: NodeJS.Platform,
-): WindowRevealMode {
-  if (!(testBuild && environment[UNOBTRUSIVE_WINDOWS_ENV] === "1")) {
-    return "active";
-  }
-  return platform === "darwin" ? "hidden" : "inactive";
+/** Whether the automated tiers asked this launch to keep out of the way; only `"1"` opts in. */
+function isUnobtrusiveRequested(environment: NodeJS.ProcessEnv): boolean {
+  return environment[UNOBTRUSIVE_WINDOWS_ENV] === "1";
 }
 
-/**
- * Decides whether the activation policy changes. Only macOS has one (`setActivationPolicy`
- * exists nowhere else), so every other platform answers `null`.
- */
-function resolveActivationPolicyChange(
-  testBuild: boolean,
+/** The system's unobtrusive windows when this launch asked for them; absent otherwise. */
+function requestedUnobtrusiveWindows(
   environment: NodeJS.ProcessEnv,
-  platform: NodeJS.Platform,
-): ActivationPolicyChange {
-  if (platform !== "darwin") {
-    return null;
-  }
-  return resolveWindowRevealMode(testBuild, environment, platform) === "active"
-    ? null
-    : "accessory";
+  operatingSystem: RevealingOperatingSystem,
+): UnobtrusiveWindows | undefined {
+  return isUnobtrusiveRequested(environment) ? operatingSystem.unobtrusiveWindows : undefined;
 }
 
 /** The kept state a window is revealed into, beyond its rectangle. */
@@ -79,18 +54,18 @@ export interface RevealState {
 export function revealWindow(
   baseWindow: Pick<BaseWindow, "show" | "showInactive" | "maximize" | "setFullScreen">,
   state: RevealState,
-  platform: NodeJS.Platform = process.platform,
+  operatingSystem: RevealingOperatingSystem,
 ): void {
   // The flag is tested inline as a literal in each wrapper: Vite substitutes it textually, so
   // a release bundle reads `if (false)` and Rollup drops the branch and the variable name.
   // Behind a helper the environment read would survive into the release binary.
   if (__TEST_TIER_BUILD__) {
-    const mode = resolveWindowRevealMode(true, process.env, platform);
-    if (mode === "hidden") {
+    const reveal = requestedUnobtrusiveWindows(process.env, operatingSystem)?.reveal;
+    if (reveal === "hidden") {
       // Left as constructed; with throttling off it paints at full rate once loaded.
       return;
     }
-    if (mode === "inactive") {
+    if (reveal === "inactive") {
       baseWindow.showInactive();
       return;
     }
@@ -109,14 +84,14 @@ export function revealWindow(
  */
 export function bringWindowForward(
   baseWindow: Pick<BaseWindow, "isMinimized" | "restore" | "show" | "showInactive" | "focus">,
-  platform: NodeJS.Platform = process.platform,
+  operatingSystem: RevealingOperatingSystem,
 ): void {
   if (__TEST_TIER_BUILD__) {
-    const mode = resolveWindowRevealMode(true, process.env, platform);
-    if (mode === "hidden") {
+    const reveal = requestedUnobtrusiveWindows(process.env, operatingSystem)?.reveal;
+    if (reveal === "hidden") {
       return;
     }
-    if (mode === "inactive") {
+    if (reveal === "inactive") {
       baseWindow.showInactive();
       return;
     }
@@ -135,9 +110,8 @@ export function bringWindowForward(
  */
 export function applyRevealPreferences(
   webContents: Pick<WebContents, "setBackgroundThrottling">,
-  platform: NodeJS.Platform = process.platform,
 ): void {
-  if (__TEST_TIER_BUILD__ && resolveWindowRevealMode(true, process.env, platform) !== "active") {
+  if (__TEST_TIER_BUILD__ && isUnobtrusiveRequested(process.env)) {
     webContents.setBackgroundThrottling(false);
   }
 }
@@ -149,27 +123,28 @@ export function applyRevealPreferences(
  */
 export function installActivationPolicy(
   app: Pick<App, "setActivationPolicy">,
-  platform: NodeJS.Platform = process.platform,
+  operatingSystem: RevealingOperatingSystem,
 ): void {
-  if (!__TEST_TIER_BUILD__) {
-    return;
-  }
-  const change = resolveActivationPolicyChange(true, process.env, platform);
-  if (change !== null) {
-    app.setActivationPolicy(change);
+  if (__TEST_TIER_BUILD__) {
+    const policy = requestedUnobtrusiveWindows(process.env, operatingSystem)?.activationPolicy;
+    if (policy !== undefined) {
+      app.setActivationPolicy(policy);
+    }
   }
 }
 
 /**
- * Whether this launch puts the menu-bar icon up: on macOS, unless a test build was asked to keep
- * out of the way.
+ * Whether this launch puts the menu-bar icon up: where the system has one, unless a test build was
+ * asked to keep out of the way.
  */
-export function isMenuBarIconShown(platform: NodeJS.Platform = process.platform): boolean {
-  if (platform !== "darwin") {
+export function isMenuBarIconShown(
+  operatingSystem: Pick<MainOperatingSystem, "hasMenuBarIcon">,
+): boolean {
+  if (!operatingSystem.hasMenuBarIcon) {
     return false;
   }
   if (__TEST_TIER_BUILD__) {
-    return resolveWindowRevealMode(true, process.env, platform) === "active";
+    return !isUnobtrusiveRequested(process.env);
   }
   return true;
 }

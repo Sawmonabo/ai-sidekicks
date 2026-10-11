@@ -2,6 +2,7 @@
 // must not retarget the run. The registry records the context each invocation received.
 
 import { fireEvent, render, screen } from "@testing-library/react";
+import { MAC_KEYBOARD_CONVENTION } from "#renderer/lib/chord/convention/mac.js";
 import { describe, expect, it } from "vitest";
 
 import { settle } from "#test/helpers/settle.js";
@@ -118,7 +119,7 @@ function openPaletteOverSession(ledger: RunLedger): {
     onOpenChange: (nextOpen: boolean) => {
       openChanges.push(nextOpen);
     },
-    platform: "darwin" as const,
+    convention: MAC_KEYBOARD_CONVENTION,
   };
   const { rerender } = render(
     <CommandPalette {...shared} context={ON_SESSION} scopeLabel="Session mercury" />,

@@ -79,7 +79,8 @@ async function startLinkHandler(commandLine: readonly string[] = []) {
   const { OpenWindows } = await import("../windows/registry.js");
   const { installAppLinkHandler } = await import("./app-link.js");
   const { windowAnswers } = await import("../bridge/window.js");
-  const { log } = testWindowFrame();
+  const { MAC_MAIN_OPERATING_SYSTEM } = await import("../operating-system/mac.js");
+  const { log } = await testWindowFrame();
   const openWindows = new OpenWindows({
     placeFile: {
       readSync: () => ({ windowUsedLast: undefined, places: new Map() }),
@@ -92,14 +93,17 @@ async function startLinkHandler(commandLine: readonly string[] = []) {
       subscribe: () => () => undefined,
     },
     log,
-    platform: "darwin",
+    operatingSystem: MAC_MAIN_OPERATING_SYSTEM,
   });
   openWindows.installLifecycle(app as never);
   installAppLinkHandler({ app: app as never, windows: openWindows, log });
-  const readHeld = windowAnswers({
-    appearance: { choose: vi.fn(), record: DEFAULT_APPEARANCE_RECORD },
-    openWindows,
-  })[BRIDGE_CHANNELS.readNavigationRequest];
+  const readHeld = windowAnswers(
+    {
+      appearance: { choose: vi.fn(), record: DEFAULT_APPEARANCE_RECORD },
+      openWindows,
+    },
+    MAC_MAIN_OPERATING_SYSTEM,
+  )[BRIDGE_CHANNELS.readNavigationRequest];
   return {
     app,
     log,

@@ -33,11 +33,9 @@ import {
 import { commandRegistry } from "../../commands/registry.js";
 import { type Keybinding } from "../../commands/keybinding.js";
 import { GenerationLatch } from "#renderer/lib/reads/generation-latch.js";
-import {
-  HOST_CHORD_PLATFORM,
-  normalizeChord,
-  type ChordPlatform,
-} from "#renderer/lib/chord-format.js";
+import type { KeyboardConvention } from "#renderer/lib/chord/convention/contract.js";
+import { HOST_KEYBOARD_CONVENTION } from "#renderer/lib/chord/convention/selection.js";
+import { normalizeChord } from "#renderer/lib/chord/format.js";
 import {
   KEYBINDING_OVERRIDE_REFUSAL_ORIGIN,
   composeEffectiveBindings,
@@ -99,7 +97,7 @@ export interface KeybindingOverrideStoreOptions {
    */
   readonly commandTitle: (commandId: string) => string | undefined;
   /** Whose reserved chords to refuse; defaults to the host being run on. */
-  readonly platform?: ChordPlatform;
+  readonly convention?: KeyboardConvention;
 }
 
 /** The one latch key hydration is taken under; a rebinding supersedes every key. */
@@ -113,7 +111,7 @@ const HYDRATION_KEY = "hydrate";
 export class KeybindingOverrideStore {
   readonly #readDefaults: () => readonly Keybinding[];
   readonly #commandTitle: (commandId: string) => string | undefined;
-  readonly #platform: ChordPlatform;
+  readonly #convention: KeyboardConvention;
   readonly #changes = new Emitter<void>("keybinding override change");
   #overrides: KeyboardMap = {};
   #keyboardMap: PlatformBridge["keyboardMap"] | undefined;
@@ -134,7 +132,7 @@ export class KeybindingOverrideStore {
   public constructor(options: KeybindingOverrideStoreOptions) {
     this.#readDefaults = options.defaults;
     this.#commandTitle = options.commandTitle;
-    this.#platform = options.platform ?? HOST_CHORD_PLATFORM;
+    this.#convention = options.convention ?? HOST_KEYBOARD_CONVENTION;
     // Never released: the store and the signal are both window-scoped.
     options.subscribeToDefaults?.(() => {
       this.#publish();
@@ -233,7 +231,7 @@ export class KeybindingOverrideStore {
         admitted[commandId] = null;
         continue;
       }
-      const chord = normalizeChord(override, this.#platform);
+      const chord = normalizeChord(override, this.#convention);
       const refusal = this.#refuse(commandId, chord, admitted);
       if (refusal === undefined) {
         admitted[commandId] = chord;
@@ -363,7 +361,7 @@ export class KeybindingOverrideStore {
       commandId,
       chord,
       commandTitle: this.#commandTitle,
-      platform: this.#platform,
+      convention: this.#convention,
     });
   }
 

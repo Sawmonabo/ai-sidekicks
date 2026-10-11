@@ -36,6 +36,7 @@ beforeEach(async () => {
   const { DaemonLink } = await import("../services/daemon/link/status.js");
   const { FilePathRefs } = await import("./file-path/refs.js");
   const { PASTED_IMAGES_FOLDER_NAME, PastedImages } = await import("./native/file-intake.js");
+  const { selectMainOperatingSystem } = await import("../operating-system/selection.js");
   const link = new DaemonLink();
   log = { write: vi.fn<MainDiagnosticLog["write"]>() };
   const filePathRefs = new FilePathRefs();
@@ -70,6 +71,8 @@ beforeEach(async () => {
         readNavigationRequest: vi.fn(),
       },
     },
+    // The host's own module, as the handlers write to this machine's disk.
+    operatingSystem: selectMainOperatingSystem(process.platform),
   });
 });
 

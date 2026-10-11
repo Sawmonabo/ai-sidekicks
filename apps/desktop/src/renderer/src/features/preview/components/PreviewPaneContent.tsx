@@ -21,7 +21,7 @@ import { describeChordEvent, isCloseTabChord } from "../handback/chord/claim.js"
 import { type NavigationReading } from "../types.js";
 import { activePageOf, type PageListReading } from "../page-list-reading.js";
 import { PageTabStrip } from "./PageTab/PageTabStrip.js";
-import { HOST_CHORD_PLATFORM } from "#renderer/lib/chord-format.js";
+import { HOST_KEYBOARD_CONVENTION } from "#renderer/lib/chord/convention/selection.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { RefusalBanner } from "#renderer/components/Refusal/RefusalBanner.js";
 import { useAnnounceBannerRefusal } from "#renderer/hooks/announce/useAnnounceBannerRefusal.js";
@@ -82,7 +82,7 @@ export function PreviewPaneContent(props: PreviewPaneContentProps): React.JSX.El
 
   const onCloseTabChord = useCallback(
     (event: React.KeyboardEvent<HTMLElement>): void => {
-      if (!isCloseTabChord(describeChordEvent(event.nativeEvent), HOST_CHORD_PLATFORM)) {
+      if (!isCloseTabChord(describeChordEvent(event.nativeEvent), HOST_KEYBOARD_CONVENTION)) {
         return;
       }
       event.preventDefault();

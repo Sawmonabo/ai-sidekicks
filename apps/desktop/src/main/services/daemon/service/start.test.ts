@@ -15,6 +15,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { DAEMON_STOP_DRAIN_BOUND_MS } from "@ai-sidekicks/contracts/daemon/lifecycle";
 import { DAEMON_STATUS_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/daemon/status";
 
+import { supportedPlatform } from "#shared/app-facts.js";
 import type { MainProcessState } from "#shared/daemon/status-topic.js";
 import { TemporaryDirectoryTrail } from "#test/helpers/temporary-directory.js";
 
@@ -32,6 +33,9 @@ const DAEMON_ENTRY = fileURLToPath(import.meta.resolve("@ai-sidekicks/runtime-da
 const SOURCE_LOADER = import.meta.resolve("@ai-sidekicks/runtime-daemon/typescript-source-loader");
 // The daemon's start runs the login shell under its own 5 s deadline before it binds its socket.
 const LINK_WITHIN_MS = 20_000;
+
+/** A reader of the processes of the system the test runs on. */
+const readProcessIdentity = createSystemProcessIdentityReader(supportedPlatform(process.platform));
 
 const trail = new TemporaryDirectoryTrail();
 let started: ServiceProcess[];
@@ -89,7 +93,7 @@ it(
         starts.push(start);
         return start;
       },
-      attachServiceProcess: attachToServiceProcess,
+      attachServiceProcess: (identity) => attachToServiceProcess(identity, readProcessIdentity),
       log: { write: (entry) => logged.push(entry) },
     });
     supervisor = activeSupervisor;
@@ -112,9 +116,7 @@ it(
       statusRead.requestSchema,
       statusRead.responseSchema,
     );
-    expect(processIdentity).toStrictEqual(
-      await createSystemProcessIdentityReader()(service.processId),
-    );
+    expect(processIdentity).toStrictEqual(await readProcessIdentity(service.processId));
 
     const killedAt = Date.now();
     const lost = stateReached(link, (state) => state.connection.kind === "transient_disconnect");
@@ -163,8 +165,8 @@ it.each([
   [
     "found by its identity",
     async (service: ServiceProcess): Promise<ServiceProcess> => {
-      const identity = await createSystemProcessIdentityReader()(service.processId);
-      return attachToServiceProcess(identity!);
+      const identity = await readProcessIdentity(service.processId);
+      return attachToServiceProcess(identity!, readProcessIdentity);
     },
   ],
 ])(

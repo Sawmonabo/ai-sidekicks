@@ -140,6 +140,7 @@ export async function bridgeOverLink(
   const { createPreloadApi } = await import("#preload/api.js");
   const { FilePathRefs } = await import("./file-path/refs.js");
   const { PASTED_IMAGES_FOLDER_NAME, PastedImages } = await import("./native/file-intake.js");
+  const { selectMainOperatingSystem } = await import("../operating-system/selection.js");
 
   const log = { write: vi.fn() };
   const filePathRefs = new FilePathRefs();
@@ -163,6 +164,8 @@ export async function bridgeOverLink(
     daemonLink: link,
     log,
     windowContext,
+    // The host's own module, as the handlers write to this machine's disk.
+    operatingSystem: selectMainOperatingSystem(process.platform),
   });
   return createPreloadApi([
     ...appFactsSwitches({

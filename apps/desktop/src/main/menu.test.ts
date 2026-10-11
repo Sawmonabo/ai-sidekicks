@@ -37,10 +37,7 @@ const CHECKOUT: InstallLocation = {
   resourcesPath: "/unused-in-a-checkout",
 };
 
-const realPlatform = process.platform;
-
 afterEach(async () => {
-  Object.defineProperty(process, "platform", { value: realPlatform });
   vi.restoreAllMocks();
   const { app } = await import("electron");
   vi.mocked(app.getName).mockReset();
@@ -56,7 +53,6 @@ const INSTALLED_RESOURCES_FOLDER = "/sidekicks-installed-resources";
  * template it installed and the developer-tools toggle it was given.
  */
 async function installOn(platform: NodeJS.Platform, isPackaged = false) {
-  Object.defineProperty(process, "platform", { value: platform });
   const location: InstallLocation = isPackaged
     ? { ...CHECKOUT, isPackaged, resourcesPath: INSTALLED_RESOURCES_FOLDER }
     : CHECKOUT;
@@ -69,11 +65,13 @@ async function installOn(platform: NodeJS.Platform, isPackaged = false) {
   setApplicationMenu.mockClear();
   const toggleDeveloperTools = vi.fn();
   const { installApplicationMenu } = await import("./menu.js");
+  const { selectMainOperatingSystem } = await import("./operating-system/selection.js");
   installApplicationMenu(
     { scheme: "system", chooseScheme: () => Promise.resolve(), subscribe: () => () => {} },
     { write: () => {} },
     { announceUnkeptScheme: () => {}, toggleDeveloperTools },
     location,
+    selectMainOperatingSystem(platform),
   );
   expect(setAboutPanelOptions).toHaveBeenCalledOnce();
   expect(setAboutPanelOptions.mock.invocationCallOrder[0]).toBeLessThan(
@@ -104,6 +102,7 @@ describe("the View menu's color scheme", () => {
   it("moves its tick once a pick is written, and puts it back, logged and announced, when one is not", async () => {
     const { KeptAppearance } = await import("./appearance/kept-record.js");
     const { installApplicationMenu } = await import("./menu.js");
+    const { MAC_MAIN_OPERATING_SYSTEM } = await import("./operating-system/mac.js");
     const writes: { land: () => void; fail: (failure: Error) => void }[] = [];
     const appearance = new KeptAppearance({
       file: {
@@ -122,6 +121,7 @@ describe("the View menu's color scheme", () => {
       { write: (entry) => logged.push(entry) },
       { announceUnkeptScheme, toggleDeveloperTools: () => {} },
       CHECKOUT,
+      MAC_MAIN_OPERATING_SYSTEM,
     );
     expect(tickedScheme()).toBe("System");
 

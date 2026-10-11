@@ -16,6 +16,7 @@ import type { NavigationRequest } from "#shared/preload-api.js";
 import type { WindowDefaultSizes, WindowSize } from "#shared/window/size.js";
 
 import type { KeptAppearance } from "../appearance/kept-record.js";
+import type { MainOperatingSystem } from "../operating-system/contract.js";
 import { appearanceChoiceSchema, appearanceGroundsSchema } from "../appearance/record-file.js";
 import { WindowFloors } from "../windows/floor.js";
 import type { OpenWindows } from "../windows/registry.js";
@@ -69,9 +70,13 @@ const minimumSizeRequestSchema = z.strictObject({
   size: windowSizeSchema,
 });
 
-/** The `window` members' answers, by channel. Each throws on a request its schema refuses. */
+/**
+ * The `window` members' answers, by channel, a window brought forward the way `operatingSystem`
+ * reveals one. Each throws on a request its schema refuses.
+ */
 export function windowAnswers(
   context: WindowHandlerContext,
+  operatingSystem: Pick<MainOperatingSystem, "unobtrusiveWindows">,
 ): Readonly<Record<WindowChannel, ChannelAnswer>> {
   const floors = new WindowFloors(screen);
   const requireConsoleDocument = (event: IpcMainInvokeEvent): void => {
@@ -109,7 +114,7 @@ export function windowAnswers(
       // A window that closed while the ask crossed has nothing to bring forward; its close reaches
       // the console document on its own.
       if (baseWindow !== undefined) {
-        bringWindowForward(baseWindow);
+        bringWindowForward(baseWindow, operatingSystem);
       }
     },
     [BRIDGE_CHANNELS.setDefaultSizes]: (event, request) => {

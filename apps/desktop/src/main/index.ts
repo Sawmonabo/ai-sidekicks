@@ -1,12 +1,12 @@
 // Electron main-process entrypoint. Startup order is load-bearing: a release build's refusal of the
 // remote-debugging switches first, then the renderer scheme's registration at module top level,
 // before `app.ready`, then the profile keyed to the install, main's log, the crash reporter, the
-// refusal's log line and the single-instance lock, then the kept appearance, the registry of
-// windows and its lifecycle, and the `sidekicks://` link handler, so a second launch or a link
-// arriving during start, a link that launches the app on macOS among them, is heard; inside
-// `whenReady()`, in order, `installRendererProtocol`, `installApplicationMenu`, the Dock icon of a
-// development run, the macOS menu-bar icon, the bridge handlers, the hidden window, whose console
-// document opens every window a person sees, and the background service's start and watch.
+// refusal's log line and the single-instance lock, then the operating system module, the kept
+// appearance, the registry of windows and its lifecycle, and the `sidekicks://` link handler, so a
+// second launch or a link arriving during start, a link that launches the app among them, is
+// heard; inside `whenReady()`, in order, `installRendererProtocol`, `installApplicationMenu`, the
+// Dock icon of a development run, the menu-bar icon, the bridge handlers, the hidden window, whose
+// console document opens every window a person sees, and the background service's start and watch.
 // `index.test.ts` asserts the order of these Electron calls, all but the profile's, which a
 // packaged build skips, and the two icons'. Electron refuses a scheme registered after ready, and a
 // window created before the handler is installed loads against an unhandled scheme.
@@ -23,19 +23,20 @@ import {
   Tray,
   type NativeImage,
 } from "electron";
-import { appFactsSwitches, supportedPlatform } from "#shared/app-facts.js";
+import { appFactsSwitches } from "#shared/app-facts.js";
 import { fixtureLaunchSwitches, type FixtureLaunch } from "#shared/fixture-launch.js";
 import { ConsoleThemeReport } from "./appearance/console-theme-report.js";
 import { KeptAppearance } from "./appearance/kept-record.js";
 import { APPEARANCE_FILE_NAME, AppearanceRecordFile } from "./appearance/record-file.js";
 import { readAppFacts } from "./bridge/app-facts.js";
-import { machineClockReaderFor } from "./bridge/machine-clock/platform.js";
 import { DaemonForwarding } from "./bridge/daemon.js";
 import { FilePathRefs } from "./bridge/file-path/refs.js";
 import { installBridgeHandlers } from "./bridge/install-handlers.js";
 import { PASTED_IMAGES_FOLDER_NAME, PastedImages } from "./bridge/native/file-intake.js";
 import { checkFixtureLaunchAgainstCatalog, parseFixtureLaunch } from "./fixture-launch.js";
 import { installApplicationMenu } from "./menu.js";
+import type { MainOperatingSystem } from "./operating-system/contract.js";
+import { selectMainOperatingSystem } from "./operating-system/selection.js";
 import { firstWindowContents } from "./probes/first-window-contents.js";
 import { startGcProbe } from "./probes/gc.js";
 import { installReadinessBreadcrumbs, runSmokeProbe } from "./probes/smoke.js";
@@ -44,7 +45,10 @@ import { createCrashReporterDependencies, startCrashReporter } from "./services/
 import { DaemonLink } from "./services/daemon/link/status.js";
 import { connectMainToDaemon, DaemonSupervisor } from "./services/daemon/supervisor.js";
 import { installQuitFlush } from "./services/daemon/quit-flush.js";
-import { attachToServiceProcess } from "./services/daemon/service/process.js";
+import {
+  attachToServiceProcess,
+  createSystemProcessIdentityReader,
+} from "./services/daemon/service/process.js";
 import { resolveServiceProgram } from "./services/daemon/service/program.js";
 import { startServiceDetached } from "./services/daemon/service/start.js";
 import {
@@ -172,12 +176,15 @@ function readResourceImage(fileName: string, location: InstallLocation): NativeI
  * the record is best-effort and the exit is the contract.
  */
 function startApplication(): void {
-  // Before ready: the kept scheme reaches the platform before anything paints, and the registry's
-  // lifecycle and the link handler are installed, so a second launch or a link arriving while the
-  // app starts is heard, a link held until the console document reads it. The executor runs now;
-  // joined with ready at once, a failure here is the startup failure below.
+  // Before ready: the operating system module is picked, once, for everything main builds; the
+  // kept scheme reaches the platform before anything paints, and the registry's lifecycle and the
+  // link handler are installed, so a second launch or a link arriving while the app starts is
+  // heard, a link held until the console document reads it. The executor runs now; joined with
+  // ready at once, a failure here, a platform no build runs on among them, is the startup failure
+  // below.
   const windowsReading = new Promise<{
     readonly log: MainDiagnosticLog;
+    readonly operatingSystem: MainOperatingSystem;
     readonly appearance: KeptAppearance;
     readonly openWindows: OpenWindows;
   }>((resolve) => {
@@ -185,10 +192,12 @@ function startApplication(): void {
       throw mainLogOpening.failure;
     }
     const { log } = mainLogOpening;
+    const operatingSystem = selectMainOperatingSystem(process.platform);
     const appearance = new KeptAppearance({
       file: new AppearanceRecordFile({
         filePath: path.join(app.getPath("userData"), APPEARANCE_FILE_NAME),
         log,
+        operatingSystem,
       }),
       nativeTheme,
     });
@@ -196,19 +205,21 @@ function startApplication(): void {
       placeFile: new WindowPlaceFile(
         path.join(app.getPath("userData"), WINDOW_PLACES_FILE_NAME),
         log,
+        operatingSystem,
       ),
       screen,
       appearance,
       log,
+      operatingSystem,
     });
     openWindows.installLifecycle(app);
     // macOS hands the link that launched the app to `open-url` before ready; a second launch can
     // arrive while the app starts.
     installAppLinkHandler({ app, windows: openWindows, log });
-    resolve({ log, appearance, openWindows });
+    resolve({ log, operatingSystem, appearance, openWindows });
   });
   Promise.all([windowsReading, app.whenReady()])
-    .then(async ([{ log, appearance, openWindows }]) => {
+    .then(async ([{ log, operatingSystem, appearance, openWindows }]) => {
       const installLocation: InstallLocation = {
         isPackaged: app.isPackaged,
         mainBundleFolder: import.meta.dirname,
@@ -217,9 +228,9 @@ function startApplication(): void {
       // First, so a launch this build cannot play stops before anything is installed.
       const fixtureLaunch = await resolveFixtureLaunch();
 
-      // Test builds only, and only when the harness asked: the macOS accessory activation
-      // policy must be in place before the first reveal could activate the application.
-      installActivationPolicy(app);
+      // Test builds only, and only when the harness asked: the system's activation policy for an
+      // app that never activates must be in place before the first reveal could activate it.
+      installActivationPolicy(app, operatingSystem);
       // Before any window, which could otherwise load against an unhandled scheme. The stamp is
       // read at each serve: the record as it stands, the scheme the platform draws in, and whether
       // this load is a safe start.
@@ -238,15 +249,16 @@ function startApplication(): void {
         },
         log,
       );
-      installApplicationMenu(appearance, log, openWindows, installLocation);
+      installApplicationMenu(appearance, log, openWindows, installLocation, operatingSystem);
       // A development run is the stock Electron app, whose bundle shows Electron's icon in the
-      // Dock; an installed app's bundle carries its own. `dock` exists only on macOS.
-      if (!app.isPackaged && app.dock !== undefined) {
-        app.dock.setIcon(readResourceImage(DOCK_ICON_FILE, installLocation));
+      // Dock; an installed app's bundle carries its own. Electron has a `dock` only on macOS,
+      // and the image is read only there.
+      if (!app.isPackaged) {
+        app.dock?.setIcon(readResourceImage(DOCK_ICON_FILE, installLocation));
       }
       // On macOS the menu-bar icon stays when the last window closes, and a click on it brings
       // the window used last back.
-      if (isMenuBarIconShown()) {
+      if (isMenuBarIconShown(operatingSystem)) {
         openWindows.installMenuBarIcon(
           new Tray(readResourceImage(MENU_BAR_IDLE_FACE_FILE, installLocation)),
         );
@@ -254,12 +266,17 @@ function startApplication(): void {
       const daemonLink = new DaemonLink();
       // Before the supervisor starts, so the first link that comes up is told the console theme.
       new ConsoleThemeReport({ link: daemonLink, appearance, log }).start();
+      // Built once: it keeps the boot it read for every later attach.
+      const readServiceProcessIdentity = createSystemProcessIdentityReader(
+        operatingSystem.platform,
+      );
       const supervisor = new DaemonSupervisor({
         link: daemonLink,
         connect: connectMainToDaemon,
         startService: () =>
           startServiceDetached(resolveServiceProgram(installLocation), process.env),
-        attachServiceProcess: attachToServiceProcess,
+        attachServiceProcess: (identity) =>
+          attachToServiceProcess(identity, readServiceProcessIdentity),
         log,
       });
       // One table of the file tokens handed to the pages: the native members mint them and the
@@ -287,15 +304,14 @@ function startApplication(): void {
         daemonLink,
         log,
         windowContext: { appearance, openWindows },
+        operatingSystem,
       });
 
       // Read after ready because the locales are unknown before it. A fact out of range stops the
       // launch here rather than reaching a page as an unchecked value.
-      const platform = supportedPlatform(process.platform);
-      const machineClock = machineClockReaderFor(platform);
-      const appSwitches = appFactsSwitches(readAppFacts(platform, machineClock));
+      const appSwitches = appFactsSwitches(readAppFacts(operatingSystem));
       // Heard from here on, so a region or clock changed while the app runs redraws every figure.
-      machineClock.watch?.((clock) => {
+      operatingSystem.machineClock.watch?.((clock) => {
         openWindows.announceMachineClock(clock);
       }, log);
 

@@ -120,13 +120,22 @@ async function createRegistry(
   const { screen } = (await import("electron")) as unknown as {
     screen: ConstructorParameters<typeof OpenWindows>[0]["screen"];
   };
-  const { log } = testWindowFrame();
+  const { selectMainOperatingSystem } = await import("../operating-system/selection.js");
+  const { hostOwnerOnlyFileOperatingSystem } =
+    await import("../services/owner-only-file.test-support.js");
+  const operatingSystem = selectMainOperatingSystem(platform);
+  const { log } = await testWindowFrame();
   const openWindows = new OpenWindows({
-    placeFile: new WindowPlaceFile(path.join(userData, WINDOW_PLACES_FILE_NAME), log),
+    placeFile: new WindowPlaceFile(
+      path.join(userData, WINDOW_PLACES_FILE_NAME),
+      log,
+      // Written to this machine's disk, so flushed as the host's own module answers.
+      hostOwnerOnlyFileOperatingSystem(),
+    ),
     screen,
     appearance,
     log,
-    platform,
+    operatingSystem,
   });
   return { openWindows, log };
 }

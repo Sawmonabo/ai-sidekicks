@@ -10,7 +10,7 @@ import { ChordHint } from "#renderer/components/ChordHint/ChordHint.js";
 import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { useRowWindow, type RowWindow } from "#renderer/hooks/useRowWindow.js";
-import { type ChordPlatform } from "#renderer/lib/chord-format.js";
+import type { KeyboardConvention } from "#renderer/lib/chord/convention/contract.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
 import {
   ENUMERATION_ROW_HEIGHT_REM,
@@ -33,8 +33,8 @@ export interface PaletteResultListProps {
   readonly rowWindowRef: React.Ref<RowWindow | null>;
   /** The live context keys. Decides which chord is printed beside a row. */
   readonly context: WhenClauseContext;
-  /** Which chord convention to print. Passed in so a fixture can pin it. */
-  readonly platform: ChordPlatform;
+  /** Which system's keyboard to print chords in. Passed in so a fixture can pin it. */
+  readonly convention: KeyboardConvention;
   /**
    * Supplies each row's chord; rows print none when absent. Required-but-`undefined` because
    * `exactOptionalPropertyTypes` makes it a different type from optional, and the overlay
@@ -51,7 +51,7 @@ export interface PaletteResultListProps {
 
 /** The listbox: every match listed, only the rows in view drawn, each category a group. */
 export function PaletteResultList(props: PaletteResultListProps): React.JSX.Element {
-  const { rows, context, platform, bindings, onRunResult } = props;
+  const { rows, context, convention, bindings, onRunResult } = props;
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const scrollerScrollbarRef = useDrawOverlayScrollbar(scrollerRef);
   const scrollerId = useId();
@@ -154,7 +154,7 @@ export function PaletteResultList(props: PaletteResultListProps): React.JSX.Elem
                   )}
                   {chord === undefined ? null : (
                     <span className="command-palette__chord">
-                      <ChordHint chord={chord} platform={platform} />
+                      <ChordHint chord={chord} convention={convention} />
                     </span>
                   )}
                 </Combobox.Item>

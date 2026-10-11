@@ -5,6 +5,9 @@ import { describe, expect, it } from "vitest";
 
 import type { KeyboardMap, KeyboardMapReading } from "#shared/preload-api.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
+import type { KeyboardConvention } from "#renderer/lib/chord/convention/contract.js";
+import { MAC_KEYBOARD_CONVENTION } from "#renderer/lib/chord/convention/mac.js";
+import { WINDOWS_KEYBOARD_CONVENTION } from "#renderer/lib/chord/convention/windows.js";
 import { CommandRegistry } from "../../commands/registry.js";
 import { type Keybinding } from "../../commands/keybinding.js";
 import { KeybindingTable } from "../table.js";
@@ -29,7 +32,7 @@ function overrideStore(): KeybindingOverrideStore {
   return new KeybindingOverrideStore({
     defaults: () => DEFAULTS,
     commandTitle: (commandId) => COMMAND_TITLES.get(commandId),
-    platform: "darwin",
+    convention: MAC_KEYBOARD_CONVENTION,
   });
 }
 
@@ -171,7 +174,7 @@ describe("a chord is held in one spelling", () => {
     const overrides = new KeybindingOverrideStore({
       defaults: () => DEFAULTS,
       commandTitle: (commandId) => COMMAND_TITLES.get(commandId),
-      platform: "win32",
+      convention: WINDOWS_KEYBOARD_CONVENTION,
     });
     await overrides.hydrateFrom(new MemoryKeyboardMap({ "frame.goToSessions": "Ctrl+Escape" }));
     expect(overrides.hydrationRefusals.map((declined) => declined.refusal)).toMatchObject([
@@ -338,7 +341,7 @@ describe("the shipped table is read, not captured", () => {
       readonly defaults: () => readonly Keybinding[];
       readonly subscribeToDefaults: (onDefaultsChange: () => void) => () => void;
       readonly commandTitle: (commandId: string) => string | undefined;
-      readonly platform: "darwin";
+      readonly convention: KeyboardConvention;
     };
     readonly contribute: (binding: Keybinding) => void;
   } {
@@ -353,7 +356,7 @@ describe("the shipped table is read, not captured", () => {
         },
         commandTitle: (commandId) =>
           base.some((binding) => binding.commandId === commandId) ? commandId : undefined,
-        platform: "darwin",
+        convention: MAC_KEYBOARD_CONVENTION,
       },
       contribute: (binding) => {
         base = [...base, binding];

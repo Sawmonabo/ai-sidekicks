@@ -2,7 +2,7 @@
 // window places) are written whole and readable only by the person. A write goes through a
 // flushed temporary file renamed over the real one, and the folder is flushed after the rename, so
 // a reader sees the old file or the new and a crash mid-save never leaves half a file or loses the
-// rename. Windows has no flush for a folder; its rename is already on disk when it returns.
+// rename, on a system whose rename needs that flush to reach the disk.
 
 import { randomBytes } from "node:crypto";
 import {
@@ -17,6 +17,15 @@ import {
 import { mkdir, open, rename, rm } from "node:fs/promises";
 import { dirname } from "node:path";
 
+/** What a write takes from the operating system it runs on. */
+export interface OwnerOnlyFileOperatingSystem {
+  /**
+   * Whether a folder is flushed after a file is renamed into it, so a crash cannot lose the rename;
+   * a system whose rename is on disk when it returns has no folder to flush.
+   */
+  readonly flushesFolderAfterRename: boolean;
+}
+
 /** The mode of a file main writes: read and written by the person alone. */
 export const OWNER_ONLY_FILE_MODE = 0o600;
 
@@ -28,7 +37,11 @@ export const OWNER_ONLY_FOLDER_MODE = 0o700;
  * person, making the folder if it is missing. Rejects with the file system's error, or with an
  * `AggregateError` holding it and the failure to remove the temporary file.
  */
-export async function writeOwnerOnlyJsonFile(filePath: string, value: unknown): Promise<void> {
+export async function writeOwnerOnlyJsonFile(
+  filePath: string,
+  value: unknown,
+  operatingSystem: OwnerOnlyFileOperatingSystem,
+): Promise<void> {
   await mkdir(dirname(filePath), { recursive: true, mode: OWNER_ONLY_FOLDER_MODE });
   const temporaryPath = temporaryPathFor(filePath);
   try {
@@ -48,7 +61,7 @@ export async function writeOwnerOnlyJsonFile(filePath: string, value: unknown): 
     }
     throw error;
   }
-  if (process.platform !== "win32") {
+  if (operatingSystem.flushesFolderAfterRename) {
     const folder = await open(dirname(filePath), "r");
     try {
       await folder.sync();
@@ -63,7 +76,11 @@ export async function writeOwnerOnlyJsonFile(filePath: string, value: unknown): 
  * such as a window's close during a quit, where a pending write would be cut off. Throws as the
  * write rejects.
  */
-export function writeOwnerOnlyJsonFileSync(filePath: string, value: unknown): void {
+export function writeOwnerOnlyJsonFileSync(
+  filePath: string,
+  value: unknown,
+  operatingSystem: OwnerOnlyFileOperatingSystem,
+): void {
   mkdirSync(dirname(filePath), { recursive: true, mode: OWNER_ONLY_FOLDER_MODE });
   const temporaryPath = temporaryPathFor(filePath);
   try {
@@ -83,7 +100,7 @@ export function writeOwnerOnlyJsonFileSync(filePath: string, value: unknown): vo
     }
     throw error;
   }
-  if (process.platform !== "win32") {
+  if (operatingSystem.flushesFolderAfterRename) {
     const folder = openSync(dirname(filePath), "r");
     try {
       fsyncSync(folder);

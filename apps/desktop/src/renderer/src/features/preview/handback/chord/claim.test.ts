@@ -3,6 +3,8 @@
 // modifier too broad takes `S` from a page's search box, and neither shows until somebody types.
 
 import { describe, expect, it } from "vitest";
+import { MAC_KEYBOARD_CONVENTION } from "#renderer/lib/chord/convention/mac.js";
+import { WINDOWS_KEYBOARD_CONVENTION } from "#renderer/lib/chord/convention/windows.js";
 
 import {
   chordCarriesApplicationModifier,
@@ -28,37 +30,59 @@ describe("projectClaimableChords", () => {
 
 describe("isCloseTabChord", () => {
   it("refuses the OTHER platform's modifier, so control-W stays the page's on macOS", () => {
-    expect(isCloseTabChord(chord({ key: "w", code: "KeyW", ctrlKey: true }), "darwin")).toBe(false);
-    expect(isCloseTabChord(chord({ key: "w", code: "KeyW", metaKey: true }), "win32")).toBe(false);
+    expect(
+      isCloseTabChord(chord({ key: "w", code: "KeyW", ctrlKey: true }), MAC_KEYBOARD_CONVENTION),
+    ).toBe(false);
+    expect(
+      isCloseTabChord(
+        chord({ key: "w", code: "KeyW", metaKey: true }),
+        WINDOWS_KEYBOARD_CONVENTION,
+      ),
+    ).toBe(false);
   });
 
   it("refuses both modifiers together, which is a different chord", () => {
     expect(
-      isCloseTabChord(chord({ key: "w", code: "KeyW", metaKey: true, ctrlKey: true }), "darwin"),
+      isCloseTabChord(
+        chord({ key: "w", code: "KeyW", metaKey: true, ctrlKey: true }),
+        MAC_KEYBOARD_CONVENTION,
+      ),
     ).toBe(false);
   });
 
   it("refuses alt, shift, and an in-progress composition", () => {
     expect(
-      isCloseTabChord(chord({ key: "w", code: "KeyW", metaKey: true, altKey: true }), "darwin"),
+      isCloseTabChord(
+        chord({ key: "w", code: "KeyW", metaKey: true, altKey: true }),
+        MAC_KEYBOARD_CONVENTION,
+      ),
     ).toBe(false);
     expect(
-      isCloseTabChord(chord({ key: "w", code: "KeyW", metaKey: true, shiftKey: true }), "darwin"),
+      isCloseTabChord(
+        chord({ key: "w", code: "KeyW", metaKey: true, shiftKey: true }),
+        MAC_KEYBOARD_CONVENTION,
+      ),
     ).toBe(false);
     expect(
       isCloseTabChord(
         chord({ key: "w", code: "KeyW", metaKey: true, isComposing: true }),
-        "darwin",
+        MAC_KEYBOARD_CONVENTION,
       ),
     ).toBe(false);
   });
 
   it("reads the layout-independent code, and falls back to the key when there is none", () => {
-    expect(isCloseTabChord(chord({ key: "∑", code: "KeyW", metaKey: true }), "darwin")).toBe(true);
-    expect(isCloseTabChord(chord({ key: "W", code: "", metaKey: true }), "darwin")).toBe(true);
+    expect(
+      isCloseTabChord(chord({ key: "∑", code: "KeyW", metaKey: true }), MAC_KEYBOARD_CONVENTION),
+    ).toBe(true);
+    expect(
+      isCloseTabChord(chord({ key: "W", code: "", metaKey: true }), MAC_KEYBOARD_CONVENTION),
+    ).toBe(true);
   });
 
   it("refuses every other key", () => {
-    expect(isCloseTabChord(chord({ key: "q", code: "KeyQ", metaKey: true }), "darwin")).toBe(false);
+    expect(
+      isCloseTabChord(chord({ key: "q", code: "KeyQ", metaKey: true }), MAC_KEYBOARD_CONVENTION),
+    ).toBe(false);
   });
 });

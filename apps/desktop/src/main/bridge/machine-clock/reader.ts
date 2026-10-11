@@ -1,9 +1,10 @@
 // The machine's region and 12- or 24-hour clock, which every clock figure and date on every page is
 // written in, never the UI language: `app.getLocale()` carries neither, and Chromium formats in
 // it, so a page left to `Intl`'s default writes a US English clock on a machine set to 24-hour
-// time. Each platform reads them from its own place behind `MachineClockReader`; `platform.ts`
-// picks the reader. This file holds the interface and the reader for a platform whose system
-// locale carries both; a platform that keeps them elsewhere reads them in its own file.
+// time. Each platform reads them from its own place behind `MachineClockReader`, and main's
+// operating system module holds its system's reader. This file holds the interface and the reader
+// for a platform whose system locale carries both; a platform that keeps them elsewhere reads them
+// in its own file.
 
 import { app } from "electron";
 

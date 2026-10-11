@@ -1,7 +1,7 @@
 // The keystroke factory and handback builder every case in this seam drives, in one place so the
 // suites cannot drift on the field a case forgot to set.
 
-import type { ChordPlatform } from "#renderer/lib/chord-format.js";
+import { MAC_KEYBOARD_CONVENTION } from "#renderer/lib/chord/convention/mac.js";
 import { type ChordDescriptor } from "./chord/claim.js";
 import { KeyboardHandback } from "./keyboard.js";
 
@@ -20,14 +20,14 @@ export function chord(overrides: Partial<ChordDescriptor> = {}): ChordDescriptor
 }
 
 /**
- * A handback over a fixed chord set. `darwin` by default because meta is the modifier every
- * case reaches for; the platform cases name theirs.
+ * A handback over a fixed chord set, on the macOS keyboard because meta is the modifier every case
+ * reaches for.
  */
-export function handbackOver(
-  installed: readonly string[] | undefined,
-  platform: ChordPlatform = "darwin",
-): KeyboardHandback {
-  return new KeyboardHandback({ readInstalledChords: () => installed, platform });
+export function handbackOver(installed: readonly string[] | undefined): KeyboardHandback {
+  return new KeyboardHandback({
+    readInstalledChords: () => installed,
+    convention: MAC_KEYBOARD_CONVENTION,
+  });
 }
 
 /** A focusable pane root that is actually in the document, which `forwardChord` requires. */

@@ -5,6 +5,7 @@
 // code and reason as words.
 
 import { render, screen } from "@testing-library/react";
+import { MAC_KEYBOARD_CONVENTION } from "#renderer/lib/chord/convention/mac.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { windowTripwires } from "#renderer/lib/tripwires/registry.js";
@@ -65,7 +66,7 @@ describe("AppFrame — a modal overlay inerts the background and nothing else", 
         context={{}}
         open={openState}
         onOpenChange={() => undefined}
-        platform="darwin"
+        convention={MAC_KEYBOARD_CONVENTION}
       />
     );
 
