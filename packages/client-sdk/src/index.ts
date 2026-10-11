@@ -1,3 +1,4 @@
+export { createDaemonApprovalClient, type ApprovalClient } from "./approval.js";
 export {
   connectToDaemon,
   type DaemonConnection,

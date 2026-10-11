@@ -14,6 +14,7 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { mintUuidV7 } from "../../../../uuid-v7.js";
 import type { ProviderOperatingSystem } from "../../../operating-system/contract.js";
+import type { SessionRulePort } from "../../../port/session-rules.js";
 import type { PortRegistration } from "../../../port/registration.js";
 import type { ToolServerRoute } from "../../../port/tool-server-route.js";
 import type {
@@ -90,6 +91,7 @@ import {
   CLAUDE_RESERVE_READ_WINDOW_TOKENS,
 } from "../session/reply-reserve.js";
 import { composeClaudeArguments, type ClaudeConversationStart } from "./arguments.js";
+import { readClaudeSessionRules } from "../session/permissions.js";
 import { composeClaudeSpawnSettings } from "./settings.js";
 
 /** What the transport resolves and reaches at each spawn. */
@@ -98,6 +100,8 @@ export interface ClaudeProcessTransportDependencies {
   readonly providerCommand: ProviderCommandResolver;
   /** The route to the session's tool servers; while unregistered a session loads none. */
   readonly toolServerRoute: PortRegistration<ToolServerRoute>;
+  /** The session's own standing rules, carried in every spawn's `--settings`. */
+  readonly sessionRules: PortRegistration<SessionRulePort>;
   readonly diagnostics: DriverDiagnosticsEmitter;
   /**
    * The system facts the transport reads: the variable naming the home folder, which a
@@ -687,7 +691,10 @@ export class ClaudeProcessTransport implements ClaudeSessionTransport {
     const args = composeClaudeArguments({
       model: legs.model,
       level: legs.executionPosture?.mode,
-      settings: composeClaudeSpawnSettings(legs),
+      settings: composeClaudeSpawnSettings(
+        legs,
+        readClaudeSessionRules(this.#dependencies.sessionRules, legs.sessionId),
+      ),
       toolServer:
         route === undefined
           ? undefined

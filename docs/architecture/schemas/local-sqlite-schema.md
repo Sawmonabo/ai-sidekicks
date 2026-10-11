@@ -252,6 +252,8 @@ CREATE TABLE session_console_state (
   advisor_model       TEXT,  -- a Claude Code session's own advisor: the model, or NULL when it is off. Copied at `session.create` from the machine settings file's `advisorModel` and changed only by `/advisor` in this session, each change appending `session.advisor_changed`; a later change to the default never reaches it
   session_mode        TEXT NOT NULL DEFAULT 'build'
                       CHECK (session_mode IN ('build', 'plan')),  -- the composer's Build or Plan mode, written once the provider has taken a `session.modeUpdate`; a restart's resume opens in it
+  permission_level    TEXT NOT NULL DEFAULT 'yolo'
+                      CHECK (permission_level IN ('readonly', 'ask', 'reviewed', 'sandboxed', 'yolo')),  -- the session's permission level, written by `session.permissionLevelUpdate` once an open session's provider has taken it; every process the session opens or resumes starts at it, and a new session starts at `yolo`
   updated_at          TEXT NOT NULL
 ) STRICT;
 ```

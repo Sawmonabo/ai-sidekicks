@@ -773,7 +773,7 @@ describe("composeResumeSessionParams", () => {
     onMcpServerStatus: undefined,
   };
 
-  it("re-realizes every spawn-bound leg from the durable row, and never the recorded executable", async () => {
+  it("re-realizes every spawn-bound leg from the durable row at the session's level, never the recorded executable", async () => {
     const store = makeStore();
     const binding = await store.create({
       runId: RUN_ID,
@@ -789,17 +789,19 @@ describe("composeResumeSessionParams", () => {
       SESSION_MODEL,
       SESSION_LARGER_WINDOW,
       "build",
+      "reviewed",
       NO_FUNCTION_LEGS,
     );
 
-    // Strict, so the recorded executable path cannot ride along: every start resolves it again.
+    // Strict, so the recorded executable path cannot ride along: every start resolves it again. The
+    // session's level outranks the mode the binding recorded at its start.
     expect(params).toStrictEqual({
       sessionId: SESSION_ID,
       resumeHandle: "opaque-handle-abc",
       model: SESSION_MODEL,
       largerWindow: SESSION_LARGER_WINDOW,
       mode: "build",
-      executionPosture: EXECUTION_POSTURE,
+      executionPosture: { ...EXECUTION_POSTURE, mode: "reviewed" },
       callbackTools: FULL_SPAWN_CONFIG.callbackTools,
       subagentPolicy: FULL_SPAWN_CONFIG.subagentPolicy,
       toolServers: FULL_SPAWN_CONFIG.toolServers,
@@ -836,6 +838,7 @@ describe("composeResumeSessionParams", () => {
         SESSION_MODEL,
         SESSION_LARGER_WINDOW,
         "build",
+        "yolo",
         NO_FUNCTION_LEGS,
       ).providerAccountId,
     ).toBeUndefined();
@@ -859,6 +862,7 @@ describe("composeResumeSessionParams", () => {
       SESSION_MODEL,
       SESSION_LARGER_WINDOW,
       "build",
+      "yolo",
       { onCallbackToolCall, onMcpServerStatus: undefined },
     );
 
@@ -883,6 +887,7 @@ describe("composeResumeSessionParams", () => {
         SESSION_MODEL,
         SESSION_LARGER_WINDOW,
         "build",
+        "yolo",
         NO_FUNCTION_LEGS,
       );
     });

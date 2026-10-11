@@ -622,7 +622,8 @@ export const ApprovalRuleRevokedPayloadSchema: z.ZodType<ApprovalRuleRevokedPayl
  * `approval.reviewer_denied`: a provider's own reviewer blocked an action. The
  * provider's denial is the row's content part, and the daemon also keeps it whole
  * beside the row, which is what lets the override hold across a restart. `eventId`
- * names the blocked call's own row, whose reason line reads `Blocked · <reason>`.
+ * names the blocked call's own row, whose reason line reads `Blocked · <reason>`, or
+ * `Blocked` alone where the reviewer gave no reason and `reason` is absent.
  * `overridable` is false where the provider lets no person overrule the block, and
  * no `Allow once` is drawn.
  */
@@ -632,7 +633,7 @@ export type ApprovalReviewerDeniedPayload = {
   agentId: string;
   denialId: ReviewerDenialId;
   eventId: string;
-  reason: string;
+  reason?: string | undefined;
   overridable: boolean;
 };
 /** Parses an {@link ApprovalReviewerDeniedPayload}. */
@@ -643,7 +644,7 @@ export const ApprovalReviewerDeniedPayloadSchema: z.ZodType<ApprovalReviewerDeni
     agentId: uuidTextFormSchema,
     denialId: ReviewerDenialIdSchema,
     eventId: z.string().min(1),
-    reason: z.string().min(1),
+    reason: z.string().min(1).optional(),
     overridable: z.boolean(),
   })
   .strict();
@@ -689,11 +690,7 @@ export interface ApprovalMethodDescriptors {
   >;
 }
 
-/**
- * The `approval.*` descriptor table.
- *
- * @consumedBy the daemon's `approval.*` handlers
- */
+/** The `approval.*` descriptor table. */
 export const APPROVAL_METHOD_DESCRIPTORS: ApprovalMethodDescriptors = defineMethodDescriptors({
   "approval.resolve": {
     method: "approval.resolve",

@@ -125,6 +125,8 @@ export interface RepoMethods {
   readonly stop: (stopScheduler: () => Promise<void>) => Promise<void>;
   /** Makes a run's execution root ready before the run starts, for the run engine to register. */
   readonly setupGate: RunSetupGate;
+  /** The working-folder watch, which an approval marks stale since unseen work may land. */
+  readonly workingFolders: Pick<WorkingFolderWatcher, "raiseStaleness">;
 }
 
 /**
@@ -496,6 +498,7 @@ export function registerRepoMethods(registry: MethodRegistry, deps: RepoMethodsD
   let detachTriggers: (() => void) | undefined;
 
   return {
+    workingFolders: watcher,
     start: () => {
       if (isStopping) return;
       startProbeSettled = followReprobe(health.startProbe());

@@ -6,7 +6,10 @@
 import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
-import type { SessionMode } from "@ai-sidekicks/contracts/session/controls/methods";
+import type {
+  PermissionLevel,
+  SessionMode,
+} from "@ai-sidekicks/contracts/session/controls/methods";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { canonicalizeUuid } from "@ai-sidekicks/contracts/uuid-canonical";
 
@@ -46,6 +49,8 @@ export interface ProviderSessionsDeps {
   /** The session's newest binding with a conversation to resume, or `undefined` for none. */
   readonly readSessionLeg: (sessionId: SessionId) => RuntimeBinding | undefined;
   readonly readSessionMode: (sessionId: SessionId) => SessionMode;
+  /** The level the session stands at, which a resumed conversation starts at. */
+  readonly readPermissionLevel: (sessionId: SessionId) => PermissionLevel;
 }
 
 /** Thrown when a session's provider session could not be opened; nothing of it is left live. */
@@ -61,7 +66,7 @@ class ProviderSessionOpenError extends Error {
 
 // One opened session: the posture its process runs at, which each of its runs is requested at.
 interface OpenedSession {
-  readonly executionPosture: ExecutionPosture;
+  executionPosture: ExecutionPosture;
 }
 
 /**
@@ -93,7 +98,23 @@ export class ProviderSessions {
       sessionId,
       this.#deps.readSessionLeg(sessionId),
       await this.#deps.composeOpening(sessionId),
+      this.#deps.readPermissionLevel(sessionId),
     );
+  }
+
+  /** Whether this process has opened the session's provider session. */
+  isOpen(sessionId: SessionId): boolean {
+    return this.#opened.has(canonicalizeUuid(sessionId));
+  }
+
+  /**
+   * Records the level an opened session's process moved to, which its next runs are requested at.
+   */
+  moveLevel(sessionId: SessionId, level: PermissionLevel): void {
+    const opened = this.#opened.get(canonicalizeUuid(sessionId));
+    if (opened !== undefined) {
+      opened.executionPosture = { ...opened.executionPosture, mode: level };
+    }
   }
 
   /**
@@ -157,7 +178,12 @@ export class ProviderSessions {
   async #create(sessionId: SessionId, runId: RunId): Promise<OpenedSession> {
     const opening = await this.#deps.composeOpening(sessionId);
     const { driverName, createParams } = opening;
-    const executionPosture = postureOf(sessionId, undefined, opening);
+    const executionPosture = postureOf(
+      sessionId,
+      undefined,
+      opening,
+      this.#deps.readPermissionLevel(sessionId),
+    );
     const binding = await this.#deps.bindingCursors.create({
       runId,
       driverName,
@@ -195,13 +221,15 @@ export class ProviderSessions {
   // and the binding the resume minted is the run's.
   async #resume(sessionId: SessionId, leg: RuntimeBinding, runId: RunId): Promise<OpenedSession> {
     const opening = await this.#deps.composeOpening(sessionId);
-    const executionPosture = postureOf(sessionId, leg, opening);
+    const level = this.#deps.readPermissionLevel(sessionId);
+    const executionPosture = postureOf(sessionId, leg, opening, level);
     const params = composeResumeSessionParams(
       sessionId,
       leg,
       opening.createParams.model,
       opening.createParams.largerWindow,
       this.#deps.readSessionMode(sessionId),
+      level,
       opening.functionLegsFor(leg.id),
     );
     const result = await this.#deps.resolveDriver(leg.driverName).resumeSession(params);
@@ -237,24 +265,24 @@ export class ProviderSessions {
 }
 
 // The posture a session's process runs at: the one its resumed conversation records, else the one
-// its opening names.
+// its opening names, at the level the session stands at.
 function postureOf(
   sessionId: SessionId,
   leg: RuntimeBinding | undefined,
   opening: ProviderSessionOpening,
+  level: PermissionLevel,
 ): ExecutionPosture {
-  if (leg !== undefined) {
-    const recorded = leg.spawnConfig.executionPosture;
-    if (recorded === undefined) {
-      throw new ProviderSessionOpenError(sessionId, `its binding ${leg.id} records no posture`);
-    }
-    return recorded;
+  const posture =
+    leg === undefined ? opening.createParams.executionPosture : leg.spawnConfig.executionPosture;
+  if (posture === undefined) {
+    throw new ProviderSessionOpenError(
+      sessionId,
+      leg === undefined
+        ? "its lead runs at no posture"
+        : `its binding ${leg.id} records no posture`,
+    );
   }
-  const opened = opening.createParams.executionPosture;
-  if (opened === undefined) {
-    throw new ProviderSessionOpenError(sessionId, "its lead runs at no posture");
-  }
-  return opened;
+  return { ...posture, mode: level };
 }
 
 // The spawn-bound legs a resume rebuilds the session from.

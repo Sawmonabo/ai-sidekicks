@@ -1,8 +1,9 @@
 // The approval service answers a provider ask sent again with the request it already has; it
-// records an ask's answer once, stamped with the device whose connection
-// carried it, and answers the same answer sent again with what was saved; it refuses a block on an
-// ask that is not a network request; and a run's end cancels each ask the run still holds, leaving
-// an answered one and another run's alone.
+// records an ask's answer once, stamped with the device whose connection carried it, and answers
+// the same answer sent again with what was saved; it refuses a block on an ask that is not a
+// network request, and a correction where the ask offers none or beside a rule; a run's end
+// cancels each ask the run still holds, leaving an answered one and another run's alone; and an ask
+// its provider took back is canceled unless it was answered first.
 
 import { afterEach, beforeEach, expect, it } from "vitest";
 
@@ -86,7 +87,13 @@ async function raiseAsk(
       requestedBy: "agent-1",
       category,
       scope: subject,
-      resourceDescriptor: { subject, standingAllowOffered: true, toolName: "Bash" },
+      resourceDescriptor: {
+        subject,
+        standingAllowOffered: true,
+        projectScopeOffered: true,
+        editable: true,
+        toolName: "Bash",
+      },
     },
     { askId },
   );
@@ -217,4 +224,64 @@ it("cancels each ask a run still holds when it ends, leaving answered asks and o
   await expect(
     service.resolve(approval(pending, SECOND_RESOLUTION_ID), LAPTOP),
   ).rejects.toMatchObject({ code: "approval.request_canceled" });
+});
+
+it("cancels an ask its provider took back and tells the run, and keeps an answered one", async () => {
+  const settled: ApprovalRequestId[] = [];
+  service.registerApprovalOutcomeListener({
+    onBlocking: async () => {},
+    onSettled: async (_runId, approvalRequestId) => {
+      settled.push(approvalRequestId);
+    },
+  });
+  const takenBack = await raiseAsk("tool_execution", "git push");
+  const answered = await raiseAsk("tool_execution", "git fetch");
+  await service.resolve(approval(answered, FIRST_RESOLUTION_ID), LAPTOP);
+
+  await service.withdraw(takenBack);
+  await service.withdraw(answered);
+  await service.withdraw(takenBack);
+
+  expect(readRequestState(takenBack)).toBe("canceled");
+  expect(readRequestState(answered)).toBe("approved");
+  expect(settled).toEqual([answered, takenBack]);
+});
+
+it("refuses a correction on an ask that offers none, and one beside a rule", async () => {
+  const { approvalRequestId: uneditable } = await service.create({
+    sessionId: SESSION_ID,
+    runId: RUN_ID,
+    requestedBy: "agent-1",
+    category: "file_write",
+    scope: "a.ts\nb.ts",
+    resourceDescriptor: {
+      subject: "a.ts\nb.ts",
+      standingAllowOffered: false,
+      projectScopeOffered: false,
+      editable: false,
+      toolName: "apply_patch",
+    },
+  });
+  const editable = await raiseAsk("tool_execution", "git push");
+  const corrected = (approvalRequestId: ApprovalRequestId): ApprovalResolveRequest => ({
+    ...approval(approvalRequestId, FIRST_RESOLUTION_ID),
+    editedAction: "git push origin main",
+  });
+
+  await expect(service.resolve(corrected(uneditable), LAPTOP)).rejects.toMatchObject({
+    detail: { reason: "edit_not_offered" },
+  });
+  await expect(
+    service.resolve(
+      {
+        ...corrected(editable),
+        rememberedScope: { kind: "session", pattern: "git push", sense: "allow" },
+      },
+      LAPTOP,
+    ),
+  ).rejects.toMatchObject({ detail: { reason: "edit_with_rule" } });
+  await service.resolve(corrected(editable), LAPTOP);
+
+  expect(readRequestState(uneditable)).toBe("pending");
+  expect(readRequestState(editable)).toBe("approved");
 });

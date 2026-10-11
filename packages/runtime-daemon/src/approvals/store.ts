@@ -23,7 +23,9 @@ import type { WriteStatement } from "../database/statement.js";
 import { RUN_TERMINAL_STATES } from "../session/run/transitions.js";
 import type { ApprovalResourceDescriptor } from "./request-create.js";
 
-/** An ask as its rows hold it, with the answers its card may offer and its answer once it has one. */
+/**
+ * An ask as its rows hold it, with the answers its card may offer and its answer once it has one.
+ */
 export interface StoredApprovalRequest {
   readonly approvalRequestId: ApprovalRequestId;
   readonly sessionId: SessionId;
@@ -32,14 +34,17 @@ export interface StoredApprovalRequest {
   readonly category: ApprovalCategory;
   readonly scope: string;
   readonly resourceDescriptor: ApprovalResourceDescriptor;
+  /** The daemon's own id of the provider ask the request was minted for; absent on its own card. */
+  readonly askId: string | undefined;
   readonly state: ApprovalState;
   readonly createdAt: string;
   readonly updatedAt: string;
   /** Whether an answer may make a rule: never on an ask the provider forbids one on. */
   readonly standingAllowOffered: boolean;
   /**
-   * Whether that rule may be the project's: never on a chat, which has no project, nor on a card
-   * the daemon raised itself, which no provider relayed.
+   * Whether that rule may be the project's: never on a chat, which has no project, on a card the
+   * daemon raised itself, which no provider relayed, nor on an ask its provider keeps no project
+   * rule for.
    */
   readonly projectScopeOffered: boolean;
   readonly resolution: StoredApprovalResolution | undefined;
@@ -289,11 +294,7 @@ export class ApprovalRequestReader {
     return row === undefined ? undefined : storedRequestOf(row);
   }
 
-  /**
-   * One session's asks, oldest first, narrowed as `filter` asks.
-   *
-   * @consumedBy the approval projection read
-   */
+  /** One session's asks, oldest first, narrowed as `filter` asks. */
   listSessionRequests(filter: ApprovalRequestFilter): StoredApprovalRequest[] {
     return this.#selectSessionRequests
       .all({
@@ -337,12 +338,16 @@ function storedRequestOf(row: ApprovalRequestRow): StoredApprovalRequest {
     category: row.category,
     scope: row.scope,
     resourceDescriptor,
+    askId: row.ask_id ?? undefined,
     state: row.state,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     standingAllowOffered,
     projectScopeOffered:
-      standingAllowOffered && row.ask_id !== null && row.session_shape === "project",
+      standingAllowOffered &&
+      resourceDescriptor.projectScopeOffered &&
+      row.ask_id !== null &&
+      row.session_shape === "project",
     resolution: resolutionOf(row),
   };
 }

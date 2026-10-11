@@ -23,6 +23,7 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { CodexInterventionDispatcher } from "./intervention.js";
 import { CodexLifecycleManager } from "./lifecycle.js";
 import { listCodexModes } from "./permission-level.js";
+import { removeCodexProjectRule } from "./rules.js";
 import type { CodexLifecycleOptions } from "./session/state.js";
 import type {
   ClearSessionGoalParams,
@@ -63,6 +64,7 @@ import type {
   ProviderBuildChange,
   ProviderCommandsListener,
   PurgeSessionParams,
+  RevokeRuleParams,
   SessionCommandAnswer,
   StartReviewParams,
   SubscribeProviderCommandsParams,
@@ -171,6 +173,17 @@ export class CodexDriver implements ProviderDriver {
   /** Moves the session to another permission level from its next turn. */
   async updatePermissionLevel(params: UpdatePermissionLevelParams): Promise<void> {
     await this.#lifecycle.updatePermissionLevel(params);
+  }
+
+  /**
+   * Takes a revoked project rule out of the project's rule file. A session rule Codex keeps for the
+   * conversation has no verb to drop it, so the daemon's pre-tool hook holds the next call on its
+   * subject for a card instead, and nothing is sent here.
+   */
+  async revokeRule(params: RevokeRuleParams): Promise<void> {
+    if (params.projectFolder !== undefined) {
+      await removeCodexProjectRule(params.projectFolder, params.rule);
+    }
   }
 
   /** Moves every conversation onto the new provider build. */

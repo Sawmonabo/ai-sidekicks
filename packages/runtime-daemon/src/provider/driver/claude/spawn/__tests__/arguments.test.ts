@@ -1,5 +1,5 @@
 // `spawn/arguments.ts` with `spawn/settings.ts`: the command line each spawn path starts Claude
-// Code with, at every level.
+// Code with, at every level, and the background Claude Code commands it denies where none asks.
 
 import type { PermissionLevel } from "@ai-sidekicks/contracts/session/controls/methods";
 import { describe, expect, it } from "vitest";
@@ -48,17 +48,20 @@ describe("composeClaudeArguments", () => {
   it("runs each level in its mode with only the daemon's tool server, on every path", () => {
     for (const [level, mode] of LEVEL_MODES) {
       for (const [conversation, conversationArguments] of CONVERSATIONS) {
-        const settings = composeClaudeSpawnSettings({
-          credentialDenyPaths: [],
-          memoryFolders: [],
-          advisorModel: null,
-          outputStyle: null,
-          executionPosture: {
-            mode: level,
-            writableRoots: ["/workspace"],
-            credentialPolicyRef: "policy://default",
+        const settings = composeClaudeSpawnSettings(
+          {
+            credentialDenyPaths: [],
+            memoryFolders: [],
+            advisorModel: null,
+            outputStyle: null,
+            executionPosture: {
+              mode: level,
+              writableRoots: ["/workspace"],
+              credentialPolicyRef: "policy://default",
+            },
           },
-        });
+          [],
+        );
         const args = composeClaudeArguments({
           model: "claude-test-model",
           level,
@@ -91,6 +94,12 @@ describe("composeClaudeArguments", () => {
                 filesystem: { allowWrite: ["/workspace"] },
               }
             : undefined,
+        );
+        // The levels that never ask deny background Claude Code by name, since no ask reaches the
+        // daemon there; the levels that ask leave it to the daemon's answer.
+        const { deny } = written["permissions"] as { readonly deny: readonly string[] };
+        expect(deny.includes("Bash(claude --bg *)")).toBe(
+          level === "sandboxed" || level === "yolo",
         );
       }
     }

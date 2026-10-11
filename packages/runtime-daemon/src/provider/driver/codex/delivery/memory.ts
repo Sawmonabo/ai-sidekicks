@@ -122,6 +122,8 @@ export interface CodexDeliveryMemory {
   readonly itemStartedAtMsByTurnId: Map<string, Map<string, number>>;
   /** Each command whose row is open, by item id; it leaves on the command's own end. */
   readonly runningCommandByItemId: Map<string, CodexRunningCommand>;
+  /** The files each change item in flight touches, by item id, which its approval names. */
+  readonly changedPathsByItemId: Map<string, readonly string[]>;
   /**
    * The turn Codex started by itself whose run is opening, and the opening's end, which never
    * rejects; `undefined` when none opens.
@@ -159,6 +161,7 @@ export function createCodexDeliveryMemory(
     spawnCallsByThreadId: new Map(),
     itemStartedAtMsByTurnId: new Map(),
     runningCommandByItemId: new Map(),
+    changedPathsByItemId: new Map(),
     selfStartedTurnOpening: undefined,
     unownedTurnIds: new Set(),
     selfStartedTurnIds: new Set(),

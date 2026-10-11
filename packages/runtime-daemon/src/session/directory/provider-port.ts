@@ -36,7 +36,11 @@ import {
   BOUND_ROOT_METADATA_PATH,
   CHECKOUT_ROOT_METADATA_PATH,
 } from "../../workspace/row-guards.js";
-import { readSessionAdvisorModel, readSessionMode } from "../console-state.js";
+import {
+  readSessionAdvisorModel,
+  readSessionMode,
+  readSessionPermissionLevel,
+} from "../console-state.js";
 import { SESSION_RUN_IDS_SQL } from "../run/ids.js";
 import { SESSION_EXISTS_SQL } from "./lookups.js";
 
@@ -80,11 +84,9 @@ interface SessionLead {
   readonly runningModel: string;
 }
 
-// The posture a session's provider session opens at: the session's level, YOLO, since every new
-// session starts there and no other level is kept for one. YOLO writes anywhere, so it names no
-// writable root.
-const OPENING_POSTURE: ExecutionPosture = {
-  mode: "yolo",
+// The posture a session's provider session opens at, beside the level the session stands at. It
+// names no writable root beyond the working folder at any level.
+const OPENING_POSTURE: Omit<ExecutionPosture, "mode"> = {
   writableRoots: [],
   credentialPolicyRef: CURATED_CREDENTIAL_POLICY_REF,
 };
@@ -178,7 +180,8 @@ export class SessionDirectoryProviderPort {
 
   /**
    * What the session's provider session opens with: its lead's provider, the model it runs on now
-   * and the account and output speed it names, at YOLO. Throws for a session with no lead.
+   * and the account and output speed it names, at the level it stands at. Throws for a session
+   * with no lead.
    */
   composeOpening(sessionId: SessionId): Promise<ProviderSessionOpening> {
     const lead = this.#readLead(sessionId);
@@ -193,7 +196,10 @@ export class SessionDirectoryProviderPort {
         config: {},
         model: lead.runningModel,
         largerWindow: binding.largerWindow,
-        executionPosture: OPENING_POSTURE,
+        executionPosture: {
+          ...OPENING_POSTURE,
+          mode: readSessionPermissionLevel(this.#reader, sessionId),
+        },
         outputSpeed: binding.outputSpeed,
         providerAccountId: binding.providerAccountId ?? undefined,
       },
@@ -219,6 +225,7 @@ export class SessionDirectoryProviderPort {
         lead.runningModel,
         lead.binding.largerWindow,
         readSessionMode(this.#reader, sessionId),
+        readSessionPermissionLevel(this.#reader, sessionId),
         {},
       ),
     };
@@ -271,8 +278,13 @@ export class SessionDirectoryProviderPort {
     });
   }
 
+  /** The folder of the session's newest live workspace, or `undefined` before its root is ready. */
+  readWorkingDirectory(sessionId: SessionId): string | undefined {
+    return this.#selectWorkingDirectory.get(sessionId)?.workingDirectory;
+  }
+
   async #resolveSpawnContext(sessionId: SessionId): Promise<SessionSpawnContext> {
-    const workingDirectory = this.#selectWorkingDirectory.get(sessionId)?.workingDirectory;
+    const workingDirectory = this.readWorkingDirectory(sessionId);
     if (workingDirectory === undefined) {
       throw new Error(`Session ${sessionId} has no workspace ready to run in`);
     }

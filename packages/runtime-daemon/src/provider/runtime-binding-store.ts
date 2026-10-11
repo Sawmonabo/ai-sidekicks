@@ -15,7 +15,10 @@ import { ProviderNameSchema, type ProviderName } from "@ai-sidekicks/contracts/p
 import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import type { SessionCallbackTool } from "@ai-sidekicks/contracts/provider/driver/tools";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
-import type { SessionMode } from "@ai-sidekicks/contracts/session/controls/methods";
+import type {
+  PermissionLevel,
+  SessionMode,
+} from "@ai-sidekicks/contracts/session/controls/methods";
 import type { Statement } from "better-sqlite3";
 
 import type { DatabaseConnections } from "../database/connection/lifecycle.js";
@@ -249,8 +252,8 @@ export class RuntimeBindingNotResumableError extends Error {
 
 /**
  * Rebuilds a resumed leg's spawn-bound surface from its durable binding and the session's current
- * model, its recorded larger window and its mode. Throws `RuntimeBindingNotResumableError` when
- * `resumeHandle` is null or empty, as it names no session.
+ * model, its recorded larger window, its mode and its permission level. Throws
+ * `RuntimeBindingNotResumableError` when `resumeHandle` is null or empty, as it names no session.
  */
 export function composeResumeSessionParams(
   sessionId: SessionId,
@@ -258,6 +261,7 @@ export function composeResumeSessionParams(
   model: string,
   largerWindow: number | undefined,
   mode: SessionMode,
+  level: PermissionLevel,
   functionLegs: ResumeFunctionLegInjection,
 ): ResumeSessionParams {
   const resumeHandle = binding.resumeHandle;
@@ -273,7 +277,11 @@ export function composeResumeSessionParams(
   const spawnConfig = binding.spawnConfig;
   // Enumerated, not spread, so the `provenance` member stays off the params.
   const resumeLegs = {
-    executionPosture: spawnConfig.executionPosture,
+    // The level the session was last moved to, which may be another than the one it launched at.
+    executionPosture:
+      spawnConfig.executionPosture === undefined
+        ? undefined
+        : { ...spawnConfig.executionPosture, mode: level },
     callbackTools: spawnConfig.callbackTools,
     subagentPolicy: spawnConfig.subagentPolicy,
     toolServers: spawnConfig.toolServers,

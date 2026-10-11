@@ -5,6 +5,7 @@
 import type { PermissionLevel } from "@ai-sidekicks/contracts/session/controls/methods";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
+import { refuseBackgroundClaude } from "../../../../policy/provider-ask-answers.js";
 import { isPlainObject, readNonEmptyString } from "../../../record-readers.js";
 import type { DriverDiagnosticsEmitter } from "../../diagnostics.js";
 import { CLAUDE_DRIVER_NAME } from "../capabilities.js";
@@ -90,6 +91,14 @@ export class ClaudeHookCallbacks {
           fields.agentId,
         );
         return;
+      case CLAUDE_HOOK_CALLBACK_IDS.backgroundClaude:
+        answerClaudeRequest(
+          live,
+          request.requestId,
+          composeBackgroundClaudeAnswer(request),
+          this.#dependencies.diagnostics,
+        );
+        return;
       case CLAUDE_HOOK_CALLBACK_IDS.helperLimit:
         this.#answerHelperStart(live, request.requestId, fields.toolUseId ?? request.requestId);
         return;
@@ -157,6 +166,27 @@ export class ClaudeHookCallbacks {
       answerClaudeRequest(live, requestId, {}, this.#dependencies.diagnostics);
     }
   }
+}
+
+// A shell call that would start background Claude Code work is denied with the reason the agent
+// reads, at every level, since a level that never asks never reaches the answer to an ask; any
+// other call passes with no decision.
+function composeBackgroundClaudeAnswer(
+  request: ClaudeInboundControlRequest,
+): Record<string, unknown> {
+  const input = isPlainObject(request.request["input"]) ? request.request["input"] : {};
+  const toolInput = isPlainObject(input["tool_input"]) ? input["tool_input"] : {};
+  const command = readNonEmptyString(toolInput, "command");
+  const reason = command === undefined ? undefined : refuseBackgroundClaude(command);
+  return reason === undefined
+    ? {}
+    : {
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "deny",
+          permissionDecisionReason: reason,
+        },
+      };
 }
 
 /**

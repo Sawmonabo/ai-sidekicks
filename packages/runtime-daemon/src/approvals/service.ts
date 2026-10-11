@@ -7,9 +7,9 @@
 //     waits until it is answered, or until its run ends or its session closes, which cancel it.
 //   * The first answer from any device settles an ask. The same answer sent again, under the same
 //     client resolution id, is answered with what was saved; any other is refused.
-//   * The run is told once an ask blocks it and once its answer lands, each after the commit, by
-//     the listener the run engine registers; a cancellation tells it nothing, since the run has
-//     already ended.
+//   * The run is told once an ask blocks it and once the ask settles, each after the commit, by the
+//     listener the run engine registers: an answer, or the provider taking its ask back. A
+//     cancellation with the run's or the session's end tells it nothing, since the run has ended.
 //   * An approval marks the session's working folder stale, after the commit, since work the person
 //     has not seen may land there; a decline and a cancellation mark nothing.
 
@@ -17,7 +17,6 @@ import type { Database } from "better-sqlite3";
 
 import {
   ApprovalRequestIdSchema,
-  type ApprovalDecision,
   type ApprovalRequestedPayload,
   type ApprovalRequestId,
   type ApprovalResolveRequest,
@@ -61,30 +60,16 @@ import {
 } from "./store.js";
 
 /**
- * Hears each ask that blocks a run, once it is recorded, and its answer, once that is recorded.
- * Every ask blocks its run as `waiting_for_approval`; a decline lets the run go on with the action
- * refused, never ends it.
- *
- * @consumedBy the run engine, which parks a run on its ask and resumes it on the answer
+ * Hears each ask that blocks a run, once it is recorded, and each that settles while its run goes
+ * on, once that is recorded: answered, or taken back by its provider. Every ask blocks its run as
+ * `waiting_for_approval`; a decline lets the run go on with the action refused, never ends it.
  */
 export interface ApprovalOutcomeListener {
-  onBlocking(
-    runId: RunId,
-    approvalRequestId: ApprovalRequestId,
-    blockingState: "waiting_for_approval",
-  ): Promise<void>;
-  onResolved(
-    runId: RunId,
-    approvalRequestId: ApprovalRequestId,
-    outcome: ApprovalDecision,
-  ): Promise<void>;
+  onBlocking(runId: RunId, approvalRequestId: ApprovalRequestId): Promise<void>;
+  onSettled(runId: RunId, approvalRequestId: ApprovalRequestId): Promise<void>;
 }
 
-/**
- * What the approval service reads, writes and follows.
- *
- * @consumedBy the daemon's start, which runs the approval service
- */
+/** What the approval service reads, writes and follows. */
 export interface ApprovalServiceDeps {
   /** The read-only connection the asks and the sessions are read on. */
   readonly reader: Database;
@@ -126,10 +111,8 @@ export class ApprovalService {
   }
 
   /**
-   * Registers the one listener the run engine keeps on blocked and answered asks. Throws when one is
+   * Registers the one listener the run engine keeps on blocked and settled asks. Throws when one is
    * already registered. Until one is, no run hears of its asks.
-   *
-   * @consumedBy the run engine, which parks a run on its ask and resumes it on the answer
    */
   registerApprovalOutcomeListener(listener: ApprovalOutcomeListener): void {
     if (this.#listener !== undefined) {
@@ -141,8 +124,6 @@ export class ApprovalService {
   /**
    * Follows the log to cancel the asks of every session that closes, and cancels at once those of
    * sessions that closed while the daemon was down.
-   *
-   * @consumedBy the daemon's start, which runs the approval service
    */
   start(): void {
     this.#detachFromLog = this.#deps.followAll(
@@ -162,11 +143,7 @@ export class ApprovalService {
     }
   }
 
-  /**
-   * Stops following the log and waits for the sweeps under way.
-   *
-   * @consumedBy the daemon's stop
-   */
+  /** Stops following the log and waits for the sweeps under way. */
   async stop(): Promise<void> {
     this.#detachFromLog?.();
     await Promise.all(this.#sweeps);
@@ -225,7 +202,7 @@ export class ApprovalService {
       }
       throw new ApprovalPersistenceUnavailableError(error);
     }
-    await this.#listener?.onBlocking(parsed.runId, approvalRequestId, "waiting_for_approval");
+    await this.#listener?.onBlocking(parsed.runId, approvalRequestId);
     return { approvalRequestId };
   }
 
@@ -306,7 +283,7 @@ export class ApprovalService {
       }
       throw new ApprovalPersistenceUnavailableError(error);
     }
-    await this.#listener?.onResolved(stored.runId, stored.approvalRequestId, request.decision);
+    await this.#listener?.onSettled(stored.runId, stored.approvalRequestId);
     if (request.decision === "approved") {
       await this.#raiseStaleness(stored.sessionId);
     }
@@ -317,6 +294,33 @@ export class ApprovalService {
       effectiveScope,
       resolvedAt,
     };
+  }
+
+  /**
+   * Cancels one ask its provider took back before anyone answered it, and tells the run once that
+   * is recorded; an ask already settled keeps how it settled and tells nothing.
+   */
+  async withdraw(approvalRequestId: ApprovalRequestId): Promise<void> {
+    const stored = this.#requests.readRequest(approvalRequestId);
+    if (stored?.state !== "pending" || !(await this.#cancel(stored))) {
+      return;
+    }
+    await this.#listener?.onSettled(stored.runId, approvalRequestId);
+  }
+
+  /** The ask under `approvalRequestId`, or `undefined` when the daemon holds none. */
+  readRequest(approvalRequestId: ApprovalRequestId): StoredApprovalRequest | undefined {
+    return this.#requests.readRequest(approvalRequestId);
+  }
+
+  /** The request minted for the run's provider ask `askId`, or `undefined` when it has none. */
+  readAskRequest(runId: RunId, askId: string): StoredApprovalRequest | undefined {
+    return this.#requests.readAskRequest(runId, askId);
+  }
+
+  /** Whether the run still holds an ask no one has answered. */
+  hasPendingForRun(runId: RunId): boolean {
+    return this.#requests.listPendingForRun(runId).length > 0;
   }
 
   /**
@@ -351,7 +355,8 @@ export class ApprovalService {
     }
   }
 
-  async #cancel(request: StoredApprovalRequest): Promise<void> {
+  // Answers whether this cancel settled the ask.
+  async #cancel(request: StoredApprovalRequest): Promise<boolean> {
     const canceledAt = this.#now();
     try {
       await this.#events.canceled(
@@ -370,10 +375,11 @@ export class ApprovalService {
     } catch (error) {
       // An answer that landed first keeps the ask.
       if (error instanceof WriteRefusedError && error.statementIndex === PENDING_GUARD_INDEX) {
-        return;
+        return false;
       }
       throw error;
     }
+    return true;
   }
 
   // No caller waits on a sweep, so its failure goes to the service log; the next start retries.
@@ -428,8 +434,9 @@ function answerSettled(
 }
 
 // Refuses an answer its ask cannot take. The scope a free-text ask names has no order the daemon
-// can check a narrowing against, so only the ask's own scope is taken. A rule names exactly the
-// subject the card showed, only where the ask offers one, and a block only on a network request.
+// can check a narrowing against, so only the ask's own scope is taken. A correction is taken only
+// where the ask offers one, and never beside a rule. A rule names exactly the subject the card
+// showed, only where the ask offers one, and a block only on a network request.
 function refuseUnfitAnswer(
   stored: StoredApprovalRequest,
   request: ApprovalResolveRequest,
@@ -440,8 +447,14 @@ function refuseUnfitAnswer(
     throw new ApprovalResolutionInvalidError(approvalRequestId, "effective_scope_broader");
   }
   const rule = request.rememberedScope;
+  if (request.editedAction !== undefined && !stored.resourceDescriptor.editable) {
+    throw new ApprovalResolutionInvalidError(approvalRequestId, "edit_not_offered");
+  }
   if (rule === undefined) {
     return;
+  }
+  if (request.editedAction !== undefined) {
+    throw new ApprovalResolutionInvalidError(approvalRequestId, "edit_with_rule");
   }
   if (rule.sense === "block" && stored.category !== "network_access") {
     throw new ApprovalResolutionInvalidError(approvalRequestId, "block_outside_network_access");

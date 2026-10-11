@@ -88,6 +88,9 @@ export class FakeProviderDriver implements ProviderDriver {
   updatePermissionLevel(): never {
     throw refuseCall("updatePermissionLevel");
   }
+  revokeRule(): never {
+    throw refuseCall("revokeRule");
+  }
   moveToProviderBuild(): never {
     throw refuseCall("moveToProviderBuild");
   }

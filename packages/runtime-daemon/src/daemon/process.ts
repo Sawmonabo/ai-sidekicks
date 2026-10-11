@@ -61,6 +61,7 @@ import { LocalIpcGateway } from "../ipc/local-gateway.js";
 import { ProtocolNegotiator } from "../ipc/protocol-negotiation.js";
 import { DelegatingRegistry, MethodRegistryImpl } from "../ipc/registry.js";
 import { StreamingPrimitive } from "../ipc/streaming-primitive.js";
+import { loadAuthorizer, type Authorizer } from "../policy/authorizer.js";
 import { ExecutionPostureService } from "../policy/execution-posture-service.js";
 import { ProviderRegistry } from "../provider/driver/registry.js";
 import type { ProviderOperatingSystem } from "../provider/operating-system/contract.js";
@@ -240,6 +241,8 @@ export class DaemonProcess {
     /** The same `git`, run streamed for a clone or a fetch. */
     streamedGit: StreamedGitRunner;
     folderPlace: FolderPlace;
+    /** The workflow actions' rules, loaded and checked before the daemon listens. */
+    authorizer: Authorizer;
     sessionToken: string;
     registerSessionMethods: typeof registerSessionMethods;
   }) {
@@ -412,6 +415,8 @@ export class DaemonProcess {
       providerRegistry,
       runEngine,
       executionPostures,
+      nodeId: parts.localMachine.nodeId,
+      authorizer: parts.authorizer,
       homeDirectory: options.homeDirectory,
       runFolder: options.runFolder,
       dataFolder: parts.dataFolder,
@@ -568,6 +573,8 @@ export class DaemonProcess {
         const git = createGitRunner(gitExecutable);
         const streamedGit = createStreamedGitRunner(gitExecutable);
         const folderPlace = await readFolderPlace();
+        // A rules file that does not parse or check stops the start.
+        const authorizer = await loadAuthorizer();
 
         await prepareRunFolder(options.runFolder);
         // A new token at every start, so the previous start's token no longer opens a connection.
@@ -587,6 +594,7 @@ export class DaemonProcess {
           git,
           streamedGit,
           folderPlace,
+          authorizer,
           sessionToken,
           registerSessionMethods: sessionMethods.value.registerSessionMethods,
         });
@@ -617,6 +625,7 @@ export class DaemonProcess {
         // does damage the pass met, whose stop starts once this turn ends.
         if (daemon.#processState !== "stopping" && !damageWatch.isFound) {
           await daemon.#sessionServices.start();
+          daemon.#providers.approvals.start();
           // Not awaited, as the registration it follows is not: the runs the pass settled are
           // ended, and a queued run the restart left starts once its driver has registered.
           const providers = daemon.#providers;

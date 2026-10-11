@@ -1,9 +1,11 @@
 // The blocks a provider's own reviewer makes at Reviewed, and `Allow once` on them. A block is
 // recorded once, on the blocked call's own row, with the provider's own record of it as the event's
-// body. The body is cut short past the content bound, so the record is also kept whole in its own
-// row, which the override hands back after a restart and from any linked device. The first press
-// hands that record back to the provider and is recorded; every later press is answered with the
-// first one's instant and sends the provider nothing. A block raises no card and settles no ask.
+// body. A block can arrive before that row (Codex reviews a command before its item starts), so it
+// waits for the row to commit and is refused only when its run ends with no row for it. The body is
+// cut short past the content bound, so the record is also kept whole in its own row, which the
+// override hands back after a restart and from any linked device. The first press hands that record
+// back to the provider and is recorded; every later press is answered with the first one's instant
+// and sends the provider nothing. A block raises no card and settles no ask.
 
 import type { Database, Statement } from "better-sqlite3";
 
@@ -17,6 +19,10 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { SessionState } from "@ai-sidekicks/contracts/session/methods";
 import { canonicalizeUuid } from "@ai-sidekicks/contracts/uuid-canonical";
 
+import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
+import type { RunId } from "@ai-sidekicks/contracts/run/id";
+import type { RunState } from "@ai-sidekicks/contracts/run/state";
+
 import type { SessionEventLog } from "../events/session/appender.js";
 import { KeyedLock } from "../keyed-lock.js";
 import type { ProviderDriver } from "../provider/driver/contract.js";
@@ -26,6 +32,7 @@ import type {
 } from "../provider/port/reviewer-denial.js";
 import { refuseUnchangeableSession } from "../session/changes.js";
 import { RunAgentReader } from "../session/run/agent.js";
+import { RUN_TERMINAL_EVENT_TYPES, isTerminalState } from "../session/run/transitions.js";
 import { mintUuidV7 } from "../uuid-v7.js";
 import { ApprovalEventEmitter } from "./event-emitter.js";
 import { ReviewerDenialNotFoundError, ReviewerDenialNotOverridableError } from "./refusals.js";
@@ -35,6 +42,11 @@ export interface ReviewerDenialsDeps {
   /** The read-only connection the log and the sessions are read on. */
   readonly reader: Database;
   readonly sessionEvents: SessionEventLog;
+  /** Follows every session's events; `onGap` names a session whose missed events went unread. */
+  readonly followAll: (
+    onCommitted: (event: EventEnvelope) => void,
+    onGap: (sessionId: SessionId) => void,
+  ) => () => void;
   /** The driver that runs `sessionId`, which tells its agent it may retry the blocked action. */
   readonly resolveDriver: (sessionId: SessionId) => Pick<ProviderDriver, "overrideDenial">;
   /** Source of every recorded instant (ISO 8601, millisecond precision). */
@@ -75,6 +87,19 @@ const SELECT_OVERRIDE_SQL = `SELECT occurred_at FROM session_events
 
 const SELECT_SESSION_STATE_SQL = "SELECT state FROM sessions WHERE id = ?";
 
+const SELECT_RUN_STATE_SQL = "SELECT state FROM runs WHERE run_id = ?";
+
+/** A block waiting for its call's row, settled when the row commits or its run ends without it. */
+interface WaitingDenial {
+  readonly denial: ProviderReviewerDenial;
+  readonly settle: (outcome: Promise<void> | Error) => void;
+}
+
+// One waiting block per blocked call of a session.
+function waitingKeyOf(sessionId: SessionId, toolCallId: string): string {
+  return `${sessionId}\u0000${toolCallId}`;
+}
+
 /**
  * Records each block a provider's reviewer makes and allows one once on a person's press: the port
  * the drivers hand their blocks to, and what the `approval.denialOverride` handler calls.
@@ -94,6 +119,10 @@ export class ReviewerDenials implements ReviewerDenialPort {
   >;
   readonly #selectOverride: Statement<DenialKey, { readonly occurred_at: string }>;
   readonly #selectSessionState: Statement<[SessionId], { readonly state: SessionState }>;
+  readonly #selectRunState: Statement<[RunId], { readonly state: RunState }>;
+  // The blocks whose call has no row yet, by session and call: at most one per blocked call.
+  readonly #waiting = new Map<string, WaitingDenial>();
+  #detachFromLog: (() => void) | undefined;
   // Orders the presses on one block, so two at once hand it to the provider once.
   readonly #overrideLock: KeyedLock<ReviewerDenialId> = new KeyedLock<ReviewerDenialId>(
     canonicalizeUuid,
@@ -108,24 +137,125 @@ export class ReviewerDenials implements ReviewerDenialPort {
     this.#selectDenial = deps.reader.prepare(SELECT_DENIAL_SQL);
     this.#selectOverride = deps.reader.prepare(SELECT_OVERRIDE_SQL);
     this.#selectSessionState = deps.reader.prepare(SELECT_SESSION_STATE_SQL);
+    this.#selectRunState = deps.reader.prepare(SELECT_RUN_STATE_SQL);
   }
 
   /**
-   * Records one block on the blocked call's own row. Rejects when the call has no row to carry it,
-   * since a block must not be recorded where no row can show it, and when the provider's record of
-   * the block is not JSON.
+   * Follows the log, so a block waiting for its call's row is recorded once the row commits and
+   * refused once its run ends without one.
+   */
+  start(): void {
+    this.#detachFromLog = this.#deps.followAll(
+      (event) => {
+        this.#settleWaitingOn(event);
+      },
+      (sessionId) => {
+        for (const waiting of [...this.#waiting.values()]) {
+          if (waiting.denial.sessionId === sessionId) {
+            this.#settleFromRows(waiting);
+          }
+        }
+      },
+    );
+  }
+
+  /**
+   * Stops following the log and refuses every block still waiting, since nothing will now record
+   * it.
+   */
+  stop(): void {
+    this.#detachFromLog?.();
+    for (const waiting of [...this.#waiting.values()]) {
+      this.#refuseWaiting(waiting, "the daemon stopped before the blocked call's row was written");
+    }
+  }
+
+  /**
+   * Records one block on the blocked call's own row, waiting for that row when the block arrived
+   * first. Rejects when the call's run ends with no row for it, since a block must not be recorded
+   * where no row can show it, and when the provider's record of the block is not JSON.
    */
   async takeDenial(denial: ProviderReviewerDenial): Promise<void> {
-    const toolCallEvent = this.#selectToolCallEvent.get({
+    const toolCallEventId = this.#readToolCallEventId(denial);
+    if (toolCallEventId !== undefined) {
+      await this.#record(denial, toolCallEventId);
+      return;
+    }
+    if (this.#hasRunEnded(denial.runId)) {
+      throw noRowError(denial);
+    }
+    const key = waitingKeyOf(denial.sessionId, denial.toolCallId);
+    if (this.#waiting.has(key)) {
+      // A driver captures each block once, so a second report of one call is a fault.
+      throw new Error(`The block of tool call ${denial.toolCallId} is already waiting for its row`);
+    }
+    await new Promise<void>((resolve, reject) => {
+      this.#waiting.set(key, {
+        denial,
+        settle: (outcome) => {
+          this.#waiting.delete(key);
+          if (outcome instanceof Error) {
+            reject(outcome);
+          } else {
+            outcome.then(resolve, reject);
+          }
+        },
+      });
+    });
+  }
+
+  #settleWaitingOn(event: EventEnvelope): void {
+    if (event.type === "tool.invoked") {
+      const toolCallId = (event.payload as { readonly toolCallId?: unknown }).toolCallId;
+      const waiting =
+        typeof toolCallId === "string"
+          ? this.#waiting.get(waitingKeyOf(event.sessionId, toolCallId))
+          : undefined;
+      waiting?.settle(this.#record(waiting.denial, event.id));
+      return;
+    }
+    if (RUN_TERMINAL_EVENT_TYPES.has(event.type)) {
+      for (const waiting of [...this.#waiting.values()]) {
+        if (
+          waiting.denial.sessionId === event.sessionId &&
+          waiting.denial.runId === event.payload["runId"]
+        ) {
+          this.#settleFromRows(waiting);
+        }
+      }
+    }
+  }
+
+  // Reads the call's row again: a block whose row is there is recorded, and one whose run has
+  // ended with none is refused; otherwise it keeps waiting.
+  #settleFromRows(waiting: WaitingDenial): void {
+    const toolCallEventId = this.#readToolCallEventId(waiting.denial);
+    if (toolCallEventId !== undefined) {
+      waiting.settle(this.#record(waiting.denial, toolCallEventId));
+    } else if (this.#hasRunEnded(waiting.denial.runId)) {
+      waiting.settle(noRowError(waiting.denial));
+    }
+  }
+
+  #refuseWaiting(waiting: WaitingDenial, why: string): void {
+    waiting.settle(
+      new Error(`The block of tool call ${waiting.denial.toolCallId} was not recorded: ${why}`),
+    );
+  }
+
+  #readToolCallEventId(denial: ProviderReviewerDenial): string | undefined {
+    return this.#selectToolCallEvent.get({
       session_id: denial.sessionId,
       tool_call_id: denial.toolCallId,
-    });
-    if (toolCallEvent === undefined) {
-      throw new Error(
-        `The blocked tool call ${denial.toolCallId} of session ${denial.sessionId} has no row to ` +
-          "carry its block",
-      );
-    }
+    })?.id;
+  }
+
+  #hasRunEnded(runId: RunId): boolean {
+    const run = this.#selectRunState.get(runId);
+    return run === undefined || isTerminalState(run.state);
+  }
+
+  async #record(denial: ProviderReviewerDenial, toolCallEventId: string): Promise<void> {
     const providerDenialBody = JSON.stringify(denial.providerDenial);
     if (typeof providerDenialBody !== "string") {
       throw new TypeError("A provider's record of a block is kept as JSON");
@@ -137,8 +267,8 @@ export class ReviewerDenials implements ReviewerDenialPort {
         runId: denial.runId,
         agentId: this.#agents.readAgent(denial.sessionId, denial.runId),
         denialId,
-        eventId: toolCallEvent.id,
-        reason: denial.reason,
+        eventId: toolCallEventId,
+        ...(denial.reason === undefined ? {} : { reason: denial.reason }),
         overridable: denial.overridable,
       },
       providerDenialBody,
@@ -160,10 +290,10 @@ export class ReviewerDenials implements ReviewerDenialPort {
   }
 
   /**
-   * Allows the blocked action once: hands the provider's own record of the block back to its
-   * driver and records the override. A block already allowed is answered with the first press's
-   * instant and sends nothing. Throws `approval.denial_not_found`, `approval.denial_not_overridable`,
-   * and `session.already_closed` for a session that has closed.
+   * Allows the blocked action once: hands the provider's own record of the block back to its driver
+   * and records the override. A block already allowed is answered with the first press's instant
+   * and sends nothing. Throws `approval.denial_not_found`, `approval.denial_not_overridable`, and
+   * `session.already_closed` for a session that has closed.
    */
   async overrideDenial(
     request: ApprovalDenialOverrideRequest,
@@ -197,4 +327,12 @@ export class ReviewerDenials implements ReviewerDenialPort {
       return { denialId: request.denialId, overriddenAt };
     });
   }
+}
+
+// The refusal of a block whose run ended before its call had a row to carry it.
+function noRowError(denial: ProviderReviewerDenial): Error {
+  return new Error(
+    `The blocked tool call ${denial.toolCallId} of session ${denial.sessionId} ended its run with ` +
+      "no row to carry its block",
+  );
 }

@@ -94,6 +94,7 @@ import { purgeClaudeConversations } from "./session/purge.js";
 import { scheduleUnrefTimer } from "./session/control-requests.js";
 import { ClaudeSessionControls } from "./session/controls.js";
 import { ClaudeSessionRestarts } from "./session/restart.js";
+import { readClaudeSessionRules } from "./session/permissions.js";
 import { ClaudeSessionSlots } from "./session/slots.js";
 import type { ClaudeSessionLifecycleDependencies, LiveClaudeSession } from "./session/state.js";
 import {
@@ -209,6 +210,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
       runFor: (live, agentId) => this.#runFor(live.sessionId, agentId),
       permissionModeFor: (sessionId) => this.#stream.permissionModeFor(sessionId),
       childRunStarting: (sessionId, agentId) => this.#stream.childRunStarting(sessionId, agentId),
+      sessionRules: dependencies.sessionRules,
     });
     this.#controls = new ClaudeSessionControls({
       transport: dependencies.transport,
@@ -579,6 +581,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
       this.#requireLive(params.sessionId),
       params.level,
       this.#dependencies.operatingSystem,
+      readClaudeSessionRules(this.#dependencies.sessionRules, params.sessionId),
     );
   }
 
@@ -717,6 +720,11 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
   /** The id of the session's Claude Code process, while one is live. */
   readProcessId(sessionId: SessionId): number | undefined {
     return this.#slots.findLiveSession(sessionId)?.channel.processId;
+  }
+
+  /** The session's live process, or `undefined` while none runs. */
+  findLiveSession(sessionId: SessionId): LiveClaudeSession | undefined {
+    return this.#slots.findLiveSession(sessionId);
   }
 
   /**

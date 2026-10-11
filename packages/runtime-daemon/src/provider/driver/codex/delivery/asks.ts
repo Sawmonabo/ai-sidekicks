@@ -1,12 +1,23 @@
 // Codex's approvals and questions: each is first a permission ask the run engine attributes to its
 // run's execution, then, once admitted, the approvals' or the questions card's to answer. Until
 // that owner is registered the ask stays pending at Codex; nothing answers it in its place.
+//
+// Codex's answer to an approval carries only its decision, so the rest of a person's answer is
+// carried by Codex's own means: a rule as `acceptForSession`, written into the project's rule file
+// first where it is the project's; a decline's reason as the words steered into the same turn after
+// the decline; and a command or path the person corrected as a decline, a steer asking the agent to
+// use the corrected one, and an `accept` the daemon gives itself to the ask for exactly that one.
 
 import type { QuestionPrompt } from "@ai-sidekicks/contracts/question";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
-import type { PermissionAskPort } from "../../../port/permission-ask.js";
+import { mintUuidV7 } from "../../../../uuid-v7.js";
+import type {
+  PermissionAskPort,
+  ProviderAskAction,
+  ProviderPermissionAnswer,
+} from "../../../port/permission-ask.js";
 import type { QuestionPort } from "../../../port/question.js";
 import type { PortRegistration } from "../../../port/registration.js";
 import { isPlainObject, readNonEmptyString } from "../../../record-readers.js";
@@ -14,13 +25,22 @@ import type {
   CodexAskKind,
   CodexAskOwner,
   CodexInboundServerRequest,
+  CodexServerRequestAnswer,
   CodexServerRequestDecision,
 } from "../server-requests.js";
+import { readCodexQuestionAnswer } from "../server-requests.js";
 import { normalizeProviderFailureDetail } from "../session/errors.js";
 import {
   type CodexDiagnosticSink,
   reportDiagnosticFromDetachedFrame,
 } from "../transport/diagnostics.js";
+import type { RespondToRequestParams } from "../../contract.js";
+import { SteerTurnEndedError } from "../../run-control.js";
+import { writeCodexProjectRule, type CodexGitFolderReader } from "../rules.js";
+import type { CodexService } from "../service/supervisor.js";
+import type { CodexSessionRecord } from "../session/state.js";
+import { steerActiveTurn } from "../steer.js";
+import { readCodexAskAction } from "./ask-action.js";
 import type { CodexDeliveryDispatch } from "./dispatch.js";
 import { readCodexElicitationQuestions } from "./elicitation-form.js";
 
@@ -82,20 +102,58 @@ function readCodexQuestionPrompts(method: string, params: unknown): QuestionProm
   });
 }
 
+/** An approval held for its card: the turn it holds, the run it is on, and what it would do. */
+interface CodexHeldApproval {
+  readonly turnId: string | undefined;
+  readonly runId: RunId;
+  readonly action: ProviderAskAction;
+}
+
+/** What the hand-off reads, reports through and writes a project's rules with. */
+export interface CodexAskHandOffDependencies {
+  readonly dispatch: CodexDeliveryDispatch;
+  readonly owners: CodexAskOwners;
+  readonly reportDiagnostic: CodexDiagnosticSink;
+  /** The session's record, whose memory names a change item's files. */
+  readonly recordFor: (sessionId: SessionId) => CodexSessionRecord | undefined;
+  readonly readGitFolder: CodexGitFolderReader;
+}
+
+// The words steered into the turn after the decline that carries a corrected command or path.
+function composeCorrectionSteer(action: ProviderAskAction, editedAction: string): string {
+  return action.kind === "command"
+    ? `The person changed this command before approving it. Run this instead: ${editedAction}`
+    : `The person changed this path before approving it. Use this path instead: ${editedAction}`;
+}
+
+// What a corrected action is matched by when Codex asks for it again.
+function correctionKeyOf(action: ProviderAskAction): string | undefined {
+  if (action.kind === "command") {
+    return `command\u0000${action.command}`;
+  }
+  return action.kind === "file_change" && action.paths.length === 1
+    ? `file_change\u0000${action.paths[0] ?? ""}`
+    : undefined;
+}
+
 /** Hands Codex's approvals and questions to the run engine, then to their owner. */
 export class CodexAskHandOff {
   readonly #dispatch: CodexDeliveryDispatch;
   readonly #owners: CodexAskOwners;
   readonly #reportDiagnostic: CodexDiagnosticSink;
+  readonly #recordFor: CodexAskHandOffDependencies["recordFor"];
+  readonly #readGitFolder: CodexGitFolderReader;
+  // The approvals held for their card, by session then Codex's request id.
+  readonly #heldBySession = new Map<SessionId, Map<string, CodexHeldApproval>>();
+  // The corrected commands and paths approved, by session, each taken by Codex's next ask for it.
+  readonly #correctionsBySession = new Map<SessionId, Set<string>>();
 
-  constructor(dependencies: {
-    readonly dispatch: CodexDeliveryDispatch;
-    readonly owners: CodexAskOwners;
-    readonly reportDiagnostic: CodexDiagnosticSink;
-  }) {
+  constructor(dependencies: CodexAskHandOffDependencies) {
     this.#dispatch = dependencies.dispatch;
     this.#owners = dependencies.owners;
     this.#reportDiagnostic = dependencies.reportDiagnostic;
+    this.#recordFor = dependencies.recordFor;
+    this.#readGitFolder = dependencies.readGitFolder;
   }
 
   /**
@@ -135,10 +193,90 @@ export class CodexAskHandOff {
     }
     if (request.askKind === "question") {
       this.#handQuestion(sessionId, owner.runId, request);
-    } else {
-      this.#handApproval(sessionId, owner.runId, request);
+      return { decision: "held" };
     }
-    return { decision: "held" };
+    return this.#handApproval(sessionId, owner.runId, request);
+  }
+
+  /**
+   * Answers a held ask on `service`: a question with its answers, an approval with the approval
+   * pipeline's answer carried by Codex's own means. Throws as writing a project rule or the answer
+   * throws; a steer whose turn has ended is reported, since its decline already landed.
+   */
+  async answer(
+    record: CodexSessionRecord | undefined,
+    service: CodexService,
+    params: RespondToRequestParams,
+  ): Promise<void> {
+    const held =
+      record === undefined ? undefined : this.#takeHeld(record.sessionId, params.requestId);
+    if (record === undefined || held === undefined) {
+      await service.answerHeldRequest(params.requestId, readCodexQuestionAnswer(params.response));
+      return;
+    }
+    const answer = params.response as ProviderPermissionAnswer;
+    if (answer.rule?.kind === "project") {
+      await writeCodexProjectRule(
+        record.threadSettings.workingDirectory,
+        answer.rule,
+        this.#readGitFolder,
+      );
+    }
+    await service.answerHeldRequest(params.requestId, composeCodexAnswer(answer));
+    const steer = this.#steerAfter(record.sessionId, held, answer);
+    if (steer !== undefined && held.turnId !== undefined) {
+      await steerActiveTurn(record, held.turnId, {
+        runId: held.runId,
+        content: steer,
+        skills: undefined,
+        attachments: Promise.resolve([]),
+        clientIdempotencyKey: mintUuidV7(),
+      }).catch((cause: unknown) => {
+        if (!(cause instanceof SteerTurnEndedError)) {
+          throw cause;
+        }
+        this.#reportOwnerFailure("permission-ask", record.sessionId, cause);
+      });
+    }
+  }
+
+  /** Forgets the approvals a closed session held and the corrections it waited on. */
+  forgetSession(sessionId: SessionId): void {
+    this.#heldBySession.delete(sessionId);
+    this.#correctionsBySession.delete(sessionId);
+  }
+
+  // The words a decline is followed by: a decline's reason, or the corrected command or path, which
+  // Codex's next ask for is then answered `accept` by the daemon.
+  #steerAfter(
+    sessionId: SessionId,
+    held: CodexHeldApproval,
+    answer: ProviderPermissionAnswer,
+  ): string | undefined {
+    if (answer.decision === "refuse") {
+      return answer.reason;
+    }
+    if (answer.editedAction === undefined) {
+      return undefined;
+    }
+    const corrected: ProviderAskAction =
+      held.action.kind === "command"
+        ? { kind: "command", command: answer.editedAction }
+        : { kind: "file_change", paths: [answer.editedAction] };
+    const key = correctionKeyOf(corrected);
+    if (key !== undefined) {
+      const corrections = this.#correctionsBySession.get(sessionId) ?? new Set<string>();
+      corrections.add(key);
+      this.#correctionsBySession.set(sessionId, corrections);
+    }
+    return composeCorrectionSteer(held.action, answer.editedAction);
+  }
+
+  #takeHeld(sessionId: SessionId, requestId: string): CodexHeldApproval | undefined {
+    const held = this.#heldBySession.get(sessionId);
+    const approval = held?.get(requestId);
+    held?.delete(requestId);
+    return approval;
   }
 
   /**
@@ -147,6 +285,7 @@ export class CodexAskHandOff {
    */
   withdraw(sessionId: SessionId, requestId: string, askKind: CodexAskKind): void {
     if (askKind === "approval") {
+      this.#takeHeld(sessionId, requestId);
       this.#owners.permissionAsks.port
         ?.withdrawAsk({ sessionId, requestId })
         .catch((cause: unknown) => {
@@ -161,19 +300,37 @@ export class CodexAskHandOff {
     }
   }
 
-  #handApproval(sessionId: SessionId, runId: RunId, request: CodexInboundServerRequest): void {
+  // An approval for a command or path a person corrected and approved is answered `accept` at once;
+  // every other is held for its card.
+  #handApproval(
+    sessionId: SessionId,
+    runId: RunId,
+    request: CodexInboundServerRequest,
+  ): CodexServerRequestDecision {
+    const params = isPlainObject(request.params) ? request.params : {};
+    const itemId = readNonEmptyString(params, "itemId");
+    const changedPaths =
+      itemId === undefined
+        ? undefined
+        : this.#recordFor(sessionId)?.delivery.changedPathsByItemId.get(itemId);
+    const { action, ruleScopes } = readCodexAskAction(request.method, params, changedPaths);
+    const correctionKey = correctionKeyOf(action);
+    const corrections = this.#correctionsBySession.get(sessionId);
+    if (correctionKey !== undefined && corrections?.delete(correctionKey) === true) {
+      return { decision: "allow" };
+    }
     const port = this.#owners.permissionAsks.port;
     if (port === undefined) {
-      return;
+      return { decision: "held" };
     }
-    const params = isPlainObject(request.params) ? request.params : {};
+    const held = this.#heldBySession.get(sessionId) ?? new Map<string, CodexHeldApproval>();
+    held.set(request.requestId, { turnId: readNonEmptyString(params, "turnId"), runId, action });
+    this.#heldBySession.set(sessionId, held);
     const toolName =
       CODEX_APPROVAL_TOOL_BY_METHOD.get(request.method) ??
       readNonEmptyString(params, "serverName") ??
       request.method;
     const prompt = readNonEmptyString(params, "reason") ?? readNonEmptyString(params, "message");
-    // The answers Codex offers, as it sent them; the card offers these and no others.
-    const providerDecisions = params["availableDecisions"];
     port
       .takeAsk({
         sessionId,
@@ -181,12 +338,15 @@ export class CodexAskHandOff {
         requestId: request.requestId,
         toolName,
         input: request.params,
+        action,
+        ruleScopes,
+        ...(itemId === undefined ? {} : { toolCallId: itemId }),
         ...(prompt === undefined ? {} : { prompt }),
-        ...(Array.isArray(providerDecisions) ? { providerDecisions } : {}),
       })
       .catch((cause: unknown) => {
         this.#reportOwnerFailure("permission-ask", sessionId, cause);
       });
+    return { decision: "held" };
   }
 
   #handQuestion(sessionId: SessionId, runId: RunId, request: CodexInboundServerRequest): void {
@@ -218,4 +378,17 @@ export class CodexAskHandOff {
       detail: normalizeProviderFailureDetail(cause),
     });
   }
+}
+
+// The approval pipeline's answer as Codex's own decision: an allow with a rule is kept for the
+// conversation, a corrected one is a decline that the steer after it carries, and a refusal is a
+// decline.
+function composeCodexAnswer(answer: ProviderPermissionAnswer): CodexServerRequestAnswer {
+  if (answer.decision === "refuse" || answer.editedAction !== undefined) {
+    return {
+      decision: "refuse",
+      reason: answer.decision === "refuse" ? (answer.reason ?? "") : "",
+    };
+  }
+  return { decision: "allow", forSession: answer.rule !== undefined };
 }

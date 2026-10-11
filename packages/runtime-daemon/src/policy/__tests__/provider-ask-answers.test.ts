@@ -1,5 +1,5 @@
-// The daemon refuses an agent's background Claude Code commands and allows an agent's `.md` notes in
-// the agent-memory folder, by their own path or through a configuration home's link; every other
+// The daemon refuses an agent's background Claude Code commands and allows an agent's `.md` notes
+// in the agent-memory folder, by their own path or through a configuration home's link; every other
 // ask gets no answer of the daemon's and goes to the person.
 
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
@@ -97,7 +97,9 @@ describe("answerProviderAsk", () => {
       path.join(memoryLink, "reviewer", "MEMORY.md"),
       path.join(memoryLink, "new-agent", "MEMORY.md"),
     ]) {
-      expect(await answerProviderAsk({ kind: "file", path: filePath }, memoryFolder)).toEqual({
+      expect(
+        await answerProviderAsk({ kind: "file_change", paths: [filePath] }, memoryFolder),
+      ).toEqual({
         decision: "allow",
       });
     }
@@ -116,8 +118,17 @@ describe("answerProviderAsk", () => {
       "reviewer/MEMORY.md",
     ]) {
       expect(
-        await answerProviderAsk({ kind: "file", path: filePath }, memoryFolder),
+        await answerProviderAsk({ kind: "file_change", paths: [filePath] }, memoryFolder),
       ).toBeUndefined();
     }
+    // A change that touches a note and a project file at once.
+    const mixedChange = {
+      kind: "file_change",
+      paths: [
+        path.join(memoryFolder, "reviewer", "MEMORY.md"),
+        path.join(outsideFolder, "README.md"),
+      ],
+    } as const;
+    expect(await answerProviderAsk(mixedChange, memoryFolder)).toBeUndefined();
   });
 });

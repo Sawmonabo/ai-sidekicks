@@ -1,11 +1,15 @@
 // A session's own console settings, over the `session_console_state` table: the advisor a Claude
-// Code session keeps from its creation, changed only by `/advisor` in that session, and the Build
-// or Plan mode the provider last took. Every process the daemon starts for the session reads the
-// advisor at launch, and a restart resumes in the mode.
+// Code session keeps from its creation, changed only by `/advisor` in that session, the Build or
+// Plan mode the provider last took, and the permission level the session runs at. Every process
+// the daemon starts for the session reads the advisor and the level at launch, and a restart
+// resumes in the mode.
 
 import type { Database } from "better-sqlite3";
 
-import type { SessionMode } from "@ai-sidekicks/contracts/session/controls/methods";
+import type {
+  PermissionLevel,
+  SessionMode,
+} from "@ai-sidekicks/contracts/session/controls/methods";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import type { WriteStatement } from "../database/statement.js";
@@ -63,4 +67,35 @@ export function readSessionMode(reader: Database, sessionId: SessionId): Session
     >("SELECT session_mode AS sessionMode FROM session_console_state WHERE session_id = ?")
     .get(sessionId);
   return row?.sessionMode ?? "build";
+}
+
+const UPSERT_PERMISSION_LEVEL_SQL = `INSERT INTO session_console_state
+  (session_id, permission_level, updated_at) VALUES (@sessionId, @permissionLevel, @updatedAt)
+  ON CONFLICT(session_id) DO UPDATE
+    SET permission_level = excluded.permission_level, updated_at = excluded.updated_at`;
+
+/** The statement storing the level a `session.permissionLevelUpdate` moved the session to. */
+export function permissionLevelChangeStatement(
+  sessionId: SessionId,
+  permissionLevel: PermissionLevel,
+  updatedAt: string,
+): WriteStatement {
+  return {
+    sql: UPSERT_PERMISSION_LEVEL_SQL,
+    bindings: { sessionId, permissionLevel, updatedAt },
+  };
+}
+
+/** The level the session runs at: YOLO for a session never moved. */
+export function readSessionPermissionLevel(
+  reader: Database,
+  sessionId: SessionId,
+): PermissionLevel {
+  const row = reader
+    .prepare<
+      [string],
+      { permissionLevel: PermissionLevel }
+    >("SELECT permission_level AS permissionLevel FROM session_console_state WHERE session_id = ?")
+    .get(sessionId);
+  return row?.permissionLevel ?? "yolo";
 }

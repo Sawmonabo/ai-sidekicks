@@ -68,21 +68,12 @@ export class ApprovalEventEmitter {
     await this.#append("approval.canceled", payload, write);
   }
 
-  /**
-   * Records the rule an answer handed to its provider.
-   *
-   * @consumedBy the rule handover to the provider that keeps it
-   */
+  /** Records the rule an answer handed to its provider. */
   async remembered(payload: ApprovalRememberedPayload, write: ApprovalEventWrite): Promise<void> {
     await this.#append("approval.remembered", payload, write);
   }
 
-  /**
-   * Records the end of a rule, with what ended it.
-   *
-   * @consumedBy the rule revocation, the session-close end of a session's rules and a tool server's
-   * removal
-   */
+  /** Records the end of a rule, with what ended it. */
   async ruleRevoked(payload: ApprovalRuleRevokedPayload, write: ApprovalEventWrite): Promise<void> {
     await this.#append("approval.rule_revoked", payload, write);
   }
@@ -90,8 +81,6 @@ export class ApprovalEventEmitter {
   /**
    * Records a block by the provider's own reviewer, with the provider's own record of it as the
    * row's visible body, cut short past the content bound like any body.
-   *
-   * @consumedBy the reviewer blocks the drivers hand over
    */
   async reviewerDenied(
     payload: ApprovalReviewerDeniedPayload,
@@ -105,11 +94,7 @@ export class ApprovalEventEmitter {
     });
   }
 
-  /**
-   * Records that a person allowed a blocked action once.
-   *
-   * @consumedBy the `Allow once` on a reviewer's block
-   */
+  /** Records that a person allowed a blocked action once. */
   async denialOverridden(
     payload: ApprovalDenialOverriddenPayload,
     occurredAt: string,

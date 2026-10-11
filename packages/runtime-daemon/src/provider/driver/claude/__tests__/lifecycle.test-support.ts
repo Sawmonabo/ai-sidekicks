@@ -14,6 +14,7 @@ import type { PermissionAskPort } from "../../../port/permission-ask.js";
 import type { QuestionPort } from "../../../port/question.js";
 import { PortRegistration } from "../../../port/registration.js";
 import type { ReviewerDenialPort } from "../../../port/reviewer-denial.js";
+import type { SessionRulePort } from "../../../port/session-rules.js";
 import type { DriverDiagnosticsEmitter } from "../../diagnostics.js";
 import type {
   CreateSessionParams,
@@ -118,6 +119,7 @@ export function buildHarness(
   const permissionAsks = new PortRegistration<PermissionAskPort>("permission ask");
   const questions = new PortRegistration<QuestionPort>("question");
   const reviewerDenials = new PortRegistration<ReviewerDenialPort>("reviewer denial");
+  const sessionRules = new PortRegistration<SessionRulePort>("session rules");
   let childRunCount = 0;
   const dependencies: ClaudeSessionLifecycleDependencies = {
     transport,
@@ -169,6 +171,7 @@ export function buildHarness(
     permissionAsks,
     questions,
     reviewerDenials,
+    sessionRules,
     stagedChanges: {
       openStagedWorktree: async () => {
         await Promise.resolve();

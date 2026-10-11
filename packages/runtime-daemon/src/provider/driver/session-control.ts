@@ -1,7 +1,8 @@
-// The params of the driver operations that act on a whole session rather than one run: the live
-// permission-level and mode moves, the commands the daemon answers itself, the side question and
-// the review, the live command list, the move onto a new provider build, and the purge of the
-// provider's own copy of its conversations.
+// The params of the driver operations that act on a whole session rather than one run, and the
+// refusal of a level a provider cannot run: the live permission-level and mode moves, a revoked
+// rule's removal, the commands the daemon answers
+// itself, the side question and the review, the live command list, the move onto a new provider
+// build, and the purge of the provider's own copy of its conversations.
 import type { ProviderCommandListResult } from "@ai-sidekicks/contracts/provider/driver/commands";
 import type {
   PermissionLevel,
@@ -11,6 +12,11 @@ import type {
 } from "@ai-sidekicks/contracts/session/controls/methods";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
+import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
+
+import { DaemonDomainError } from "../../ipc/domain-error.js";
+import type { ProviderAskRule } from "../port/permission-ask.js";
+
 /**
  * Params of `updatePermissionLevel`: the level the session moves to, applied by the provider from
  * its next request without a relaunch.
@@ -18,6 +24,31 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 export interface UpdatePermissionLevelParams {
   sessionId: SessionId;
   level: PermissionLevel;
+}
+
+/**
+ * Params of `revokeRule`: a revoked rule taken out of force at one session's provider, out of the
+ * project's rule file in `projectFolder` when one is given, else out of the session's own rules,
+ * which the provider reads again.
+ */
+export interface RevokeRuleParams {
+  readonly sessionId: SessionId;
+  readonly rule: ProviderAskRule;
+  readonly projectFolder: string | undefined;
+}
+
+/**
+ * `session.permission_level_unavailable`: the session's provider, its account or its model cannot
+ * run at `level`, so nothing was changed.
+ */
+export class PermissionLevelUnavailableError extends DaemonDomainError {
+  constructor(level: PermissionLevel) {
+    super("The session's provider cannot run at that permission level.", {
+      code: "session.permission_level_unavailable",
+      jsonRpcCode: JsonRpcErrorCode.InvalidParams,
+      detail: { level },
+    });
+  }
 }
 
 /** The provider build a driver's sessions move from and to, as each build printed its version. */

@@ -25,6 +25,7 @@ import {
   type GitRunner,
 } from "../git/process.js";
 import { worktreesDirectoryOf } from "../git/worktree/naming.js";
+import type { WorkingFolderWatcher } from "../git/worktree/watch.js";
 import { registerPtyInputOutputMethods } from "../ipc/handlers/pty/input-output.js";
 import { registerPtyShellMethods } from "../ipc/handlers/pty/shells.js";
 import { registerSessionConvert } from "../ipc/handlers/session/convert.js";
@@ -184,6 +185,8 @@ export interface RegisteredSessionServices {
    * held once it ends, for the run engine to register.
    */
   readonly setupGate: RunSetupGate;
+  /** The working-folder watch, which an approval marks stale since unseen work may land. */
+  readonly workingFolders: Pick<WorkingFolderWatcher, "raiseStaleness">;
   /** Binds the files a message carries to their stored copies, for the drivers to hand over. */
   readonly attachments: AttachmentResolver;
   /**
@@ -510,6 +513,7 @@ export function registerSessionMethods(
     }),
     managedWorkspaceWrites: writeWatcher,
     setupGate: repo.setupGate,
+    workingFolders: repo.workingFolders,
     attachments: artifacts.attachments,
     start: () => {
       if (isStopped) {

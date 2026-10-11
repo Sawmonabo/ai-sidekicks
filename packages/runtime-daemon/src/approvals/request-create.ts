@@ -1,8 +1,8 @@
-// The daemon's own call that raises an ask: what the permission-ask intake, a daemon-hosted tool and
-// a workflow's command step hand the approval service. No client calls it and no method registers
-// it, so its schema is the daemon's alone. The request carries no deadline, since an ask waits until
-// it is answered, and no provider ask id, which only the daemon mints, so a forged pairing cannot
-// route another ask's answer.
+// The daemon's own call that raises an ask: what the permission-ask intake, a daemon-hosted tool
+// and a workflow's command step hand the approval service. No client calls it and no method
+// registers it, so its schema is the daemon's alone. The request carries no deadline, since an ask
+// waits until it is answered, and no provider ask id, which only the daemon mints, so a forged
+// pairing cannot route another ask's answer.
 import { z } from "zod";
 
 import {
@@ -15,20 +15,43 @@ import { FILE_PATH_MAX_LEN, wireFreeFormString } from "@ai-sidekicks/contracts/f
 import { RunIdSchema, type RunId } from "@ai-sidekicks/contracts/run/id";
 import { SessionIdSchema, type SessionId } from "@ai-sidekicks/contracts/session/id";
 
+import type { ProviderAskAction } from "../provider/port/permission-ask.js";
+
 /**
- * What an ask is about, kept as the request row's descriptor and drawn by the card. `subject` is the
- * words the standing allow names, derived from the ask when it is raised: a command's program and
- * first subcommand, a network request's host, a written file's name. `prompt` is the provider's own
- * line saying why it stopped. Any other member is a detail of the target, kept as given.
+ * What an ask is about, kept as the request row's descriptor and drawn by the card. `subject` is
+ * the words the standing allow names, derived from the ask when it is raised: a command's program
+ * and first subcommand, a network request's host, a written file's name. `action` is what a
+ * provider's held call would do, whole, which the card shows and a rule names the kind of. `prompt`
+ * is the provider's own line saying why it stopped. Any other member is a detail of the target,
+ * kept as given.
  */
 export type ApprovalResourceDescriptor = {
   subject: string;
   /** False on an ask that may not carry a standing allow, such as input to a running command. */
   standingAllowOffered: boolean;
+  /**
+   * False where the provider keeps no project rule for the ask, as Codex keeps none on a file
+   * change; the project scope is offered only where this and the standing allow both are.
+   */
+  projectScopeOffered: boolean;
+  /** Whether the person may correct the command or path before approving it. */
+  editable: boolean;
+  action?: ProviderAskAction | undefined;
   toolName?: string | undefined;
   prompt?: string | undefined;
   [detail: string]: unknown;
 };
+
+const ProviderAskActionSchema: z.ZodType<ProviderAskAction, ProviderAskAction> =
+  z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("plan") }).strict(),
+    z.object({ kind: z.literal("command"), command: z.string() }).strict(),
+    z.object({ kind: z.literal("command_input"), input: z.string() }).strict(),
+    z.object({ kind: z.literal("file_change"), paths: z.array(z.string()).readonly() }).strict(),
+    z.object({ kind: z.literal("file_read"), path: z.string() }).strict(),
+    z.object({ kind: z.literal("network"), host: z.string() }).strict(),
+    z.object({ kind: z.literal("tool"), toolName: z.string() }).strict(),
+  ]);
 /**
  * Parses an {@link ApprovalResourceDescriptor}.
  *
@@ -41,6 +64,9 @@ export const ApprovalResourceDescriptorSchema: z.ZodType<
   .object({
     subject: wireFreeFormString(FILE_PATH_MAX_LEN, "ApprovalResourceDescriptor.subject"),
     standingAllowOffered: z.boolean(),
+    projectScopeOffered: z.boolean(),
+    editable: z.boolean(),
+    action: ProviderAskActionSchema.optional(),
     toolName: z.string().min(1).optional(),
     prompt: z.string().min(1).optional(),
   })
@@ -58,8 +84,8 @@ export interface ApprovalRequestCreateRequest {
   resourceDescriptor: ApprovalResourceDescriptor;
 }
 /**
- * Parses an {@link ApprovalRequestCreateRequest}. Refused: a category outside the canonical set, and
- * any member it does not name, a provider ask id among them.
+ * Parses an {@link ApprovalRequestCreateRequest}. Refused: a category outside the canonical set,
+ * and any member it does not name, a provider ask id among them.
  */
 export const ApprovalRequestCreateRequestSchema: z.ZodType<
   ApprovalRequestCreateRequest,

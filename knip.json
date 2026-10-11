@@ -336,13 +336,7 @@
         "src/workflow/runs/step-payload.ts",
         // The permission check's request and answer, read by the permission check every sensitive
         // action passes.
-        "src/policy/permission-check.ts",
-        // A session's asks as the approval card reads them, served by the `approval.projectionRead`
-        // handler.
-        "src/approvals/projection-service.ts",
-        // The reviewer's blocks and `Allow once` on them, registered as the drivers' reviewer-denial
-        // port and served by the `approval.denialOverride` handler.
-        "src/approvals/reviewer-denials.ts"
+        "src/policy/permission-check.ts"
       ]
     }
   }

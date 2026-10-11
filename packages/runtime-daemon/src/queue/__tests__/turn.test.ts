@@ -165,6 +165,7 @@ async function openTurnFixture(
       bindingCursors,
       resolveDriver: () => driver,
       readContractVersion: () => "1.0.0",
+      readPermissionLevel: () => "yolo",
       composeOpening: (openingSessionId) =>
         Promise.resolve({
           driverName,

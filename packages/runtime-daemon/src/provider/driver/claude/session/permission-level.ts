@@ -10,9 +10,10 @@ import type { PermissionLevel } from "@ai-sidekicks/contracts/session/controls/m
 
 import { CURATED_CREDENTIAL_POLICY_REF } from "../../../../policy/execution-posture-service.js";
 import type { ProviderOperatingSystem } from "../../../operating-system/contract.js";
+import type { ProviderAskRule } from "../../../port/permission-ask.js";
 import { CLAUDE_PERMISSION_MODE_BY_LEVEL } from "../spawn/arguments.js";
 import { composeClaudePermissions, composeClaudeSandboxSettings } from "../spawn/settings.js";
-import { ClaudeSessionUnavailableError } from "./errors.js";
+import { PermissionLevelUnavailableError } from "../../session-control.js";
 import type { LiveClaudeSession } from "./state.js";
 import { sendClaudeControlRequest, type ClaudeInitializeDeclaration } from "./transport.js";
 
@@ -48,22 +49,20 @@ export function canRunClaudeLevel(
 
 /**
  * Moves a live session to `level`: its permission mode, unless the session plans, then its whole
- * permission rules, which add or remove the removal ask rule of Reviewed, and the Bash sandbox, on
- * at Sandboxed and cleared at every other level. Throws `permission_level_unavailable` for
- * Reviewed on a model without auto mode and for a level the system does not run, before
- * anything is sent, and `ClaudeControlRequestRefusedError` when the process refuses either
- * request.
+ * permission rules with the rules in force, `sessionRules`, which add or remove the removal ask
+ * rule of Reviewed, and the Bash sandbox, on at Sandboxed and cleared at every other level. Throws
+ * `PermissionLevelUnavailableError` for Reviewed on a model without auto mode and for a level the
+ * system does not run, before anything is sent, and `ClaudeControlRequestRefusedError` when the
+ * process refuses either request.
  */
 export async function moveClaudePermissionLevel(
   live: LiveClaudeSession,
   level: PermissionLevel,
   operatingSystem: ClaudeLevelSystem,
+  sessionRules: readonly ProviderAskRule[],
 ): Promise<void> {
   if (!canRunClaudeLevel(level, live.runningModel, live.initialize, operatingSystem)) {
-    throw new ClaudeSessionUnavailableError("permission_level_unavailable", {
-      sessionId: live.sessionId,
-      detail: `Level ${level}.`,
-    });
+    throw new PermissionLevelUnavailableError(level);
   }
   const posture: ExecutionPosture = {
     writableRoots: [],
@@ -81,7 +80,12 @@ export async function moveClaudePermissionLevel(
   await sendClaudeControlRequest(live.channel, {
     subtype: "apply_flag_settings",
     settings: {
-      permissions: composeClaudePermissions(live.spawnBoundLegs, posture.writableRoots, level),
+      permissions: composeClaudePermissions(
+        live.spawnBoundLegs,
+        posture.writableRoots,
+        level,
+        sessionRules,
+      ),
       // `null` removes the key from the flag-settings layer, so leaving Sandboxed turns it off.
       sandbox: level === "sandboxed" ? composeClaudeSandboxSettings(posture.writableRoots) : null,
     },

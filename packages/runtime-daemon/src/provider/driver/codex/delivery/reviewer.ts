@@ -215,12 +215,14 @@ function handOverReviewBlock(
   ) {
     return;
   }
+  // A review with no rationale records no reason, so its row reads `Blocked` alone.
+  const reason = readNonEmptyString(review, "rationale");
   port
     .takeDenial({
       sessionId: run.sessionId,
       runId: run.runId,
       toolCallId,
-      reason: readNonEmptyString(review, "rationale") ?? "",
+      ...(reason === undefined ? {} : { reason }),
       overridable: status === "denied",
       providerDenial: params,
     })

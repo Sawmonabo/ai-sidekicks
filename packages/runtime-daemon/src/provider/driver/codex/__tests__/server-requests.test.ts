@@ -1,6 +1,7 @@
 // Routed server requests against a fake service: an approval is held for its card and answered
-// through the driver, a callback tool call goes to the host, and every ask the daemon does not
-// allow is answered in the method's own refusal shape.
+// through the driver, the rest of a person's answer carried by Codex's own means; a callback tool
+// call goes to the host; and every ask the daemon does not allow is answered in the method's own
+// refusal shape.
 
 import { describe, expect, it } from "vitest";
 
@@ -436,6 +437,76 @@ describe("Codex routed server requests", () => {
         method: "item/commandExecution/requestApproval",
         detail: "socket write failed: broken pipe",
       },
+    ]);
+  });
+});
+
+describe("Codex approval answers", () => {
+  it("keeps a rule's allow for the conversation, and carries a correction and a reason by steer", async () => {
+    const { harness } = await routedAskHarness(undefined);
+    harness.server.on("turn/steer", () => ({ result: { turnId: TURN_ID } }));
+    const taken: ProviderPermissionAsk[] = [];
+    harness.ports.permissionAsks.register({
+      takeAsk: async (ask) => {
+        taken.push(ask);
+      },
+      withdrawAsk: async () => undefined,
+    });
+    await harness.driver.startRun({ runId: RUN_ID, agentConfig: runConfig("tidy up") });
+    const askCommand = (itemId: string, command: string): Promise<Record<string, unknown>> =>
+      harness.server.askProvider("item/commandExecution/requestApproval", {
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+        itemId,
+        command,
+      });
+    const answerOf = async (
+      itemId: string,
+      response: Record<string, unknown>,
+    ): Promise<unknown> => {
+      await expect.poll(() => taken.some((ask) => ask.toolCallId === itemId)).toBe(true);
+      const ask = taken.find((candidate) => candidate.toolCallId === itemId);
+      await harness.driver.respondToRequest({
+        runId: RUN_ID,
+        requestId: ask?.requestId ?? "",
+        response,
+      });
+      return harness.server
+        .writtenFrames()
+        .find((frame) => String(frame["id"]) === ask?.requestId)?.["result"];
+    };
+
+    // A held ask reads as unanswered to the fake, which gives up on it after one tick.
+    const holding = (ask: Promise<unknown>): void => {
+      ask.catch(() => undefined);
+    };
+    holding(askCommand("item-1", "npm test"));
+    const kept = await answerOf("item-1", {
+      decision: "allow",
+      rule: { kind: "session", sense: "allow", action: "command", subject: "npm test" },
+    });
+    holding(askCommand("item-2", "rm -rf build"));
+    const corrected = await answerOf("item-2", {
+      decision: "allow",
+      editedAction: "rm -rf build/cache",
+    });
+    // Codex asks again for the corrected command, which the daemon accepts with no card.
+    const again = await askCommand("item-3", "rm -rf build/cache");
+    holding(askCommand("item-4", "npm publish"));
+    const declined = await answerOf("item-4", { decision: "refuse", reason: "Not before review." });
+
+    expect([kept, corrected, again["result"], declined]).toStrictEqual([
+      { decision: "acceptForSession" },
+      { decision: "decline" },
+      { decision: "accept" },
+      { decision: "decline" },
+    ]);
+    expect(taken.map((ask) => ask.toolCallId)).toStrictEqual(["item-1", "item-2", "item-4"]);
+    expect(
+      harness.server.paramsFor("turn/steer").map((params) => JSON.stringify(params["input"])),
+    ).toStrictEqual([
+      expect.stringContaining("Run this instead: rm -rf build/cache"),
+      expect.stringContaining("Not before review."),
     ]);
   });
 });

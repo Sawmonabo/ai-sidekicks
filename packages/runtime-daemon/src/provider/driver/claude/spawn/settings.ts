@@ -8,7 +8,10 @@ import path from "node:path";
 import type { PermissionLevel } from "@ai-sidekicks/contracts/session/controls/methods";
 import type { SessionCallbackTool } from "@ai-sidekicks/contracts/provider/driver/tools";
 import { CLAUDE_AGENT_VIEW_OFF_SETTINGS } from "../../../../orchestration/native-subagent-governor.js";
+import { BACKGROUND_CLAUDE_COMMAND_PREFIXES } from "../../../../policy/provider-ask-answers.js";
 import { DAEMON_TOOL_SERVER_NAME } from "../../../tool-server-name.js";
+import type { ProviderAskRule } from "../../../port/permission-ask.js";
+import { composeClaudeSessionRuleLists } from "../session/rules.js";
 import type { ClaudePermissionsDocument, ClaudeSpawnBoundLegs } from "../session/transport.js";
 
 /**
@@ -126,15 +129,30 @@ function absolutePathRule(tool: "Read" | "Edit", absolutePath: string, glob: str
 /**
  * The session's whole permission rules at `level`: the curated credential paths denied to every
  * file-reading tool, a shared `.git` root's `hooks/` and `config` denied to every editing tool, the
- * removal ask rule at Reviewed, and the memory folder's `.md` files allowed at Sandboxed.
- * `apply_flag_settings` replaces the document whole, so a level move resends all of it.
+ * removal ask rule at Reviewed, the memory folder's `.md` files allowed at Sandboxed, the
+ * background Claude Code commands denied at Sandboxed and YOLO, and the session's own
+ * `sessionRules`. `apply_flag_settings` replaces the document whole, so a level move
+ * and a rule's grant or revoke each resend all of it.
  */
 export function composeClaudePermissions(
   legs: Pick<ClaudeSpawnBoundLegs, "credentialDenyPaths" | "memoryFolders">,
   writableRoots: readonly string[],
   level: PermissionLevel | undefined,
+  sessionRules: readonly ProviderAskRule[],
 ): ClaudePermissionsDocument {
-  const deny = legs.credentialDenyPaths.map((denied) => absolutePathRule("Read", denied, "**"));
+  const own = composeClaudeSessionRuleLists(sessionRules);
+  const deny = [
+    ...legs.credentialDenyPaths.map((denied) => absolutePathRule("Read", denied, "**")),
+    ...own.deny,
+    // The levels that never ask never reach the daemon's answer to an ask, so a background Claude
+    // Code command written plainly is denied here; the pre-tool hook reads every other spelling.
+    ...(level === "sandboxed" || level === "yolo"
+      ? BACKGROUND_CLAUDE_COMMAND_PREFIXES.flatMap((prefix) => [
+          `${CLAUDE_SHELL_TOOL_NAME}(${prefix})`,
+          `${CLAUDE_SHELL_TOOL_NAME}(${prefix} *)`,
+        ])
+      : []),
+  ];
   for (const root of writableRoots) {
     // The shared `.git` folder of a linked worktree, which the sandbox lets Bash write except its
     // hooks and config; the editing tools get the same exclusions.
@@ -145,13 +163,15 @@ export function composeClaudePermissions(
       );
     }
   }
-  const allow =
-    level === "sandboxed"
+  const allow = [
+    ...(level === "sandboxed"
       ? legs.memoryFolders.flatMap((folder) => [
           absolutePathRule("Read", folder, "**/*.md"),
           absolutePathRule("Edit", folder, "**/*.md"),
         ])
-      : [];
+      : []),
+    ...own.allow,
+  ];
   return {
     allow,
     ask: level === "reviewed" ? [CLAUDE_REVIEWED_REMOVAL_ASK_RULE] : [],
@@ -160,20 +180,26 @@ export function composeClaudePermissions(
 }
 
 /**
- * Composes the `--settings` document for a spawn at the session's current posture, advisor and
- * output style.
+ * Composes the `--settings` document for a spawn at the session's current posture, advisor, output
+ * style and own rules.
  */
 export function composeClaudeSpawnSettings(
   legs: Pick<
     ClaudeSpawnBoundLegs,
     "credentialDenyPaths" | "memoryFolders" | "executionPosture" | "advisorModel" | "outputStyle"
   >,
+  sessionRules: readonly ProviderAskRule[],
 ): ClaudeSpawnSettings {
   const posture = legs.executionPosture;
   const settings: ClaudeSpawnSettings = {
     cleanupPeriodDays: CLAUDE_CLEANUP_PERIOD_DAYS,
     ...CLAUDE_AGENT_VIEW_OFF_SETTINGS,
-    permissions: composeClaudePermissions(legs, posture?.writableRoots ?? [], posture?.mode),
+    permissions: composeClaudePermissions(
+      legs,
+      posture?.writableRoots ?? [],
+      posture?.mode,
+      sessionRules,
+    ),
     advisorModel: claudeAdvisorSetting(legs.advisorModel),
     ...(legs.outputStyle === null ? {} : { outputStyle: legs.outputStyle }),
   };

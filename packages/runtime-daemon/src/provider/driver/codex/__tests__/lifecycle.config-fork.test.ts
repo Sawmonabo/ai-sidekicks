@@ -207,7 +207,15 @@ describe("a fork's conversation across a daemon restart", () => {
       }
       await expect(
         afterRestart.driver.resumeSession(
-          composeResumeSessionParams(SESSION_ID, stored, TEST_MODEL, LARGER_WINDOW, "build", {}),
+          composeResumeSessionParams(
+            SESSION_ID,
+            stored,
+            TEST_MODEL,
+            LARGER_WINDOW,
+            "build",
+            "yolo",
+            {},
+          ),
         ),
       ).resolves.toMatchObject({ status: "resumed", resumeHandle: "thread-after-restart" });
 

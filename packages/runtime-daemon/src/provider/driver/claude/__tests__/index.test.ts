@@ -1,14 +1,16 @@
 // Covers `index.ts`, the composition root: a steer sent through the driver is the newest message
 // a later conversation cut names as seen, since Claude Code refuses a cut past a prompt it was not
-// told about; and every staged file reaches Claude Code with its message, at a run's start and on
-// a send into the running turn alike.
+// told about; every staged file reaches Claude Code with its message, at a run's start and on a
+// send into the running turn alike; and a revoked rule leaves the project's file, or the live
+// process's rules, while the rules still in force stay.
 
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import type { ProviderAskRule } from "../../../port/permission-ask.js";
 import {
   FakeAttachmentResolver,
   ONE_PIXEL_PNG,
@@ -115,6 +117,77 @@ describe("ClaudeDriver", () => {
         filesAfter("what is wrong here"),
         filesAfter("and here"),
       ]);
+    });
+  });
+
+  describe("a revoked rule", () => {
+    let folder: string | undefined;
+    afterEach(async () => {
+      if (folder !== undefined) {
+        await rm(folder, { recursive: true, force: true });
+      }
+    });
+
+    const npmTest: ProviderAskRule = {
+      kind: "project",
+      sense: "allow",
+      action: "command",
+      subject: "npm test",
+    };
+    const npmRun: ProviderAskRule = { ...npmTest, kind: "session", subject: "npm run" };
+
+    it("leaves the project's file, keeping the person's other entries, and sends nothing", async () => {
+      folder = await mkdtemp(path.join(tmpdir(), "claude-rules-"));
+      const settingsPath = path.join(folder, ".claude", "settings.local.json");
+      await mkdir(path.dirname(settingsPath));
+      await writeFile(
+        settingsPath,
+        JSON.stringify({
+          permissions: { allow: ["Bash(npm test)", "Bash(npm test *)", "Bash(ls)"] },
+          model: "kept",
+        }),
+      );
+      const harness = buildHarness();
+      const driver = new ClaudeDriver({
+        ...harness.dependencies,
+        readBuild: () => Promise.reject(new Error("no build is read here")),
+      });
+      await driver.createSession(buildCreateSessionParams());
+      const channel = spawnedChannel(harness);
+      const sentBefore = channel.controlRequests.length;
+
+      await driver.revokeRule({ sessionId: TEST_SESSION_ID, rule: npmTest, projectFolder: folder });
+
+      expect(JSON.parse(await readFile(settingsPath, "utf8"))).toStrictEqual({
+        permissions: { allow: ["Bash(ls)"] },
+        model: "kept",
+      });
+      expect(channel.controlRequests).toHaveLength(sentBefore);
+    });
+
+    it("resends a live process its rules still in force", async () => {
+      const harness = buildHarness();
+      harness.dependencies.sessionRules.register({
+        readSessionRules: () => [npmRun],
+        findRevokedRule: () => undefined,
+      });
+      const driver = new ClaudeDriver({
+        ...harness.dependencies,
+        readBuild: () => Promise.reject(new Error("no build is read here")),
+      });
+      await driver.createSession(buildCreateSessionParams());
+      const channel = spawnedChannel(harness);
+
+      await driver.revokeRule({
+        sessionId: TEST_SESSION_ID,
+        rule: { ...npmTest, kind: "session" },
+        projectFolder: undefined,
+      });
+
+      expect(channel.controlRequests.at(-1)).toMatchObject({
+        subtype: "apply_flag_settings",
+        settings: { permissions: { allow: ["Bash(npm run)", "Bash(npm run *)"] } },
+      });
     });
   });
 });

@@ -14,6 +14,8 @@ import type { PermissionAskPort } from "../../../port/permission-ask.js";
 import type { QuestionPort } from "../../../port/question.js";
 import type { PortRegistration } from "../../../port/registration.js";
 import type { CommandOutputPublisher } from "../../../port/command-output-publisher.js";
+import type { SessionRulePort } from "../../../port/session-rules.js";
+import type { CodexGitFolderReader } from "../rules.js";
 import type { ReviewerDenialPort } from "../../../port/reviewer-denial.js";
 import type { RuntimeBindingRebind } from "../../../runtime-binding-store.js";
 import type { ToolServerRoute } from "../../../port/tool-server-route.js";
@@ -414,6 +416,13 @@ export interface CodexLifecycleOptions {
   readonly questions: PortRegistration<QuestionPort>;
   /** The approval service's intake of the blocks Codex's own reviewer made at Reviewed. */
   readonly reviewerDenials: PortRegistration<ReviewerDenialPort>;
+  /**
+   * The session's own rules, whose taken-back subjects the pre-tool hook holds for a new card,
+   * since Codex cannot drop an allow it kept for the conversation.
+   */
+  readonly sessionRules: PortRegistration<SessionRulePort>;
+  /** Reads a project folder's repository git folder, whose exclude list hides the rule file. */
+  readonly readGitFolder: CodexGitFolderReader;
   /** The daemon's tool-server client's prompts for the `/` list; absent, the list has none. */
   readonly serverPrompts: PortRegistration<CodexServerPromptPort>;
   /** The running-commands stream's live output; absent, a command's output is dropped. */

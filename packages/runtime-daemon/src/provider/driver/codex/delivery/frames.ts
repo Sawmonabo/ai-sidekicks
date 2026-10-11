@@ -53,6 +53,7 @@ import {
   readCodexWarning,
   releaseReroute,
 } from "./notices.js";
+import { readCodexPatchFiles } from "./patches.js";
 import { CodexReviewerDelivery, holdGuardianWarning } from "./reviewer.js";
 import {
   CODEX_COMMAND_ITEM_TYPE,
@@ -428,6 +429,12 @@ export class CodexFrameDelivery {
           startedAtMs: itemStartedAtMs,
         });
       }
+      if (item["type"] === "fileChange") {
+        record.delivery.changedPathsByItemId.set(
+          itemId,
+          readCodexPatchFiles(item).map((file) => file.path),
+        );
+      }
       if (item["type"] === "agentMessage") {
         record.delivery.replyStartedTurnIds.add(run.turnId);
         // A reply's start can already carry its first words, which no delta repeats.
@@ -532,6 +539,7 @@ export class CodexFrameDelivery {
       this.#children.settleSpawnCall(record, threadId, itemId);
     }
     record.delivery.toolRowEventIdByItemId.delete(itemId);
+    record.delivery.changedPathsByItemId.delete(itemId);
     if (item["type"] === CODEX_TOOL_OUTPUT_ITEM_TYPE) {
       this.#dependencies.diagnostics.emit({
         provider: CODEX_DRIVER_NAME,

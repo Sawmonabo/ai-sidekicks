@@ -1,9 +1,14 @@
 // The approval service's refusals, each projected onto the wire by its code: an ask the daemon
 // holds no row for, one already answered or canceled, an answer that does not fit its ask, an ask
-// raised after its run or its session ended, a record that could not be kept, and an `Allow once`
-// on a block the daemon holds no record of or no person may overrule.
+// raised after its run or its session ended, a record that could not be kept, an `Allow once` on a
+// block the daemon holds no record of or no person may overrule, and a revoke of a rule never made
+// or no longer in force.
 
-import type { ApprovalRequestId, ReviewerDenialId } from "@ai-sidekicks/contracts/approval";
+import type {
+  ApprovalRequestId,
+  RememberedRuleId,
+  ReviewerDenialId,
+} from "@ai-sidekicks/contracts/approval";
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
@@ -15,14 +20,18 @@ type LateCreateReason = "run_ended" | "session_closed";
 
 /**
  * Why an answer does not fit its ask: a block on an ask that is not a network request, a rule the
- * ask does not offer, a rule over other words than the subject the card named, or a scope other
- * than the one asked.
+ * ask does not offer, a rule over other words than the subject the card named, a scope other than
+ * the one asked, a correction on an ask whose command or path cannot be corrected, or a correction
+ * and a rule together, since the rule's subject was derived from what was asked and not from the
+ * correction.
  */
 type ResolutionInvalidReason =
   | "block_outside_network_access"
   | "rule_not_offered"
   | "subject_mismatch"
-  | "effective_scope_broader";
+  | "effective_scope_broader"
+  | "edit_not_offered"
+  | "edit_with_rule";
 
 /** `approval.not_found`: the daemon holds no ask under the id. */
 export class ApprovalNotFoundError extends DaemonDomainError {
@@ -103,11 +112,7 @@ export class ApprovalPersistenceUnavailableError extends DaemonDomainError {
   }
 }
 
-/**
- * `approval.denial_not_found`: the daemon holds no block by a reviewer under the id.
- *
- * @consumedBy the `Allow once` on a reviewer's block
- */
+/** `approval.denial_not_found`: the daemon holds no block by a reviewer under the id. */
 export class ReviewerDenialNotFoundError extends DaemonDomainError {
   constructor(sessionId: SessionId, denialId: ReviewerDenialId) {
     super("This session holds no such blocked action", {
@@ -118,17 +123,35 @@ export class ReviewerDenialNotFoundError extends DaemonDomainError {
   }
 }
 
-/**
- * `approval.denial_not_overridable`: the provider lets no person overrule this block.
- *
- * @consumedBy the `Allow once` on a reviewer's block
- */
+/** `approval.denial_not_overridable`: the provider lets no person overrule this block. */
 export class ReviewerDenialNotOverridableError extends DaemonDomainError {
   constructor(sessionId: SessionId, denialId: ReviewerDenialId) {
     super("The provider lets no one allow this blocked action", {
       code: "approval.denial_not_overridable",
       jsonRpcCode: JsonRpcErrorCode.InvalidRequest,
       detail: { sessionId, denialId },
+    });
+  }
+}
+
+/** `approval.rule_not_found`: no rule was ever made under the id. */
+export class ApprovalRuleNotFoundError extends DaemonDomainError {
+  constructor(ruleId: RememberedRuleId) {
+    super("No such rule was made", {
+      code: "approval.rule_not_found",
+      jsonRpcCode: JsonRpcErrorCode.InvalidParams,
+      detail: { ruleId },
+    });
+  }
+}
+
+/** `approval.rule_already_revoked`: the rule is no longer in force. */
+export class ApprovalRuleAlreadyRevokedError extends DaemonDomainError {
+  constructor(ruleId: RememberedRuleId) {
+    super("The rule was already revoked", {
+      code: "approval.rule_already_revoked",
+      jsonRpcCode: JsonRpcErrorCode.InvalidRequest,
+      detail: { ruleId },
     });
   }
 }

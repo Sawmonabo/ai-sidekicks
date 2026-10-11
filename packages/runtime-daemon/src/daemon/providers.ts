@@ -11,13 +11,20 @@ import { DAEMON_STOP_DRAIN_BOUND_MS } from "@ai-sidekicks/contracts/daemon/lifec
 import type { DaemonRunFolder } from "@ai-sidekicks/contracts/daemon/run-folder";
 import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
+import type { NodeId } from "@ai-sidekicks/contracts/runtime-node/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { createMemoryGate } from "../admission/memory-gate.js";
 import type { ProcessPeakReader } from "../admission/process-peak/contract.js";
 import type { DatabaseConnections } from "../database/connection/lifecycle.js";
+import type { Authorizer } from "../policy/authorizer.js";
 import { describeRejection } from "../rejection.js";
-import type { GitRunner } from "../git/process.js";
+import {
+  createGitCommand,
+  DEFAULT_GIT_COMMAND_TIMEOUT_MS,
+  readGitCommonFolder,
+  type GitRunner,
+} from "../git/process.js";
 import { worktreesDirectoryOf } from "../git/worktree/naming.js";
 import { StagedChangesWorktrees } from "../git/worktree/staged-changes.js";
 import { InterventionService } from "../interventions/service.js";
@@ -75,6 +82,7 @@ import { LiveRunBindings } from "../provider/live-run-bindings.js";
 import type { PermissionAskPort } from "../provider/port/permission-ask.js";
 import type { QuestionPort } from "../provider/port/question.js";
 import { PortRegistration } from "../provider/port/registration.js";
+import type { SessionRulePort } from "../provider/port/session-rules.js";
 import type { ReviewerDenialPort } from "../provider/port/reviewer-denial.js";
 import type { CommandOutputPublisher } from "../provider/port/command-output-publisher.js";
 import type { ToolServerRoute } from "../provider/port/tool-server-route.js";
@@ -94,13 +102,19 @@ import { RunBindingCursors } from "../session/run/binding-cursors.js";
 import { RunInboundDispatch } from "../session/run/inbound.js";
 import { RunPauseControl } from "../session/run/pause.js";
 import { ProviderChoiceResolver } from "../session/run/provider-choice.js";
-import { readSessionMode, sessionModeChangeStatement } from "../session/console-state.js";
+import {
+  permissionLevelChangeStatement,
+  readSessionMode,
+  readSessionPermissionLevel,
+  sessionModeChangeStatement,
+} from "../session/console-state.js";
 import type {
   SessionDirectoryProviderPort,
   SessionSpawnContextResolver,
 } from "../session/directory/provider-port.js";
 import { RunStateReader } from "../session/run/read.js";
 import { RunAlreadyEndedError, RunNotFoundError } from "../session/run/refusals.js";
+import { DaemonApprovals } from "./approvals.js";
 import type { RegisteredSessionServices } from "./session-methods.js";
 
 // The socket Codex's hook programs reach the daemon on, beside the daemon's own socket.
@@ -137,6 +151,8 @@ interface SessionDirectoryPort {
   readonly readSessionLeg: SessionDirectoryProviderPort["readSessionLeg"];
   /** The folder the session's runs work in, which a skill pick is read against. */
   readonly requireRunFolder: SessionDirectoryProviderPort["requireRunFolder"];
+  /** The folder of the session's live workspace, whose provider files hold its project's rules. */
+  readonly readWorkingDirectory: SessionDirectoryProviderPort["readWorkingDirectory"];
 }
 
 /** The run queue's reads and calls that the drivers make. */
@@ -174,6 +190,8 @@ export interface ProviderPorts {
    * block stays the provider's own, its agent told why and nothing recorded.
    */
   readonly reviewerDenials: PortRegistration<ReviewerDenialPort>;
+  /** The approval pipeline's read of each session's own rules; until then a session holds none. */
+  readonly sessionRules: PortRegistration<SessionRulePort>;
   /** The running-commands stream's live output; until then a command's output is dropped. */
   readonly commandOutput: PortRegistration<CommandOutputPublisher>;
   /** The daemon's tool-server client's prompts for Codex's `/` list; until then it has none. */
@@ -203,8 +221,12 @@ interface DaemonProvidersContext {
    */
   readonly sessionServices: Pick<
     RegisteredSessionServices,
-    "eventLog" | "runtimeBindings" | "attachments"
+    "eventLog" | "runtimeBindings" | "attachments" | "workingFolders"
   >;
+  /** The machine whose providers keep the rules its approvals make. */
+  readonly nodeId: NodeId;
+  /** The workflow actions' rules, loaded and checked at the daemon's start. */
+  readonly authorizer: Authorizer;
   /** The runner for the `git` found along the login shell's `PATH`. */
   readonly git: GitRunner;
   /** The method registry every daemon method is bound onto. */
@@ -240,6 +262,8 @@ interface DaemonProvidersContext {
 export class DaemonProviders {
   /** The ports later parts of the daemon register; see {@link ProviderPorts}. */
   readonly ports: ProviderPorts;
+  /** The approval pipeline, which registers the ask, block and rule ports as it is built. */
+  readonly approvals: DaemonApprovals;
 
   readonly #providerRegistry: ProviderRegistry;
   readonly #drivers: ReadonlyMap<ProviderName, ProviderDriver>;
@@ -265,6 +289,7 @@ export class DaemonProviders {
       permissionAsks: new PortRegistration("permission asks"),
       questions: new PortRegistration("questions"),
       reviewerDenials: new PortRegistration("reviewer denials"),
+      sessionRules: new PortRegistration("session rules"),
       commandOutput: new PortRegistration("command output"),
       serverPrompts: new PortRegistration("tool-server prompts"),
       sessionDirectory: new PortRegistration("session directory"),
@@ -355,6 +380,7 @@ export class DaemonProviders {
       permissionAsks: ports.permissionAsks,
       questions: ports.questions,
       reviewerDenials: ports.reviewerDenials,
+      sessionRules: ports.sessionRules,
     };
     const personalCodexHome: CodexServiceHome = {
       codexHome:
@@ -438,6 +464,11 @@ export class DaemonProviders {
           CODEX_HOOK_SOCKET_NAME,
         ),
         helperRolesFolder: path.join(context.dataFolder, CODEX_HELPER_ROLES_FOLDER_NAME),
+        readGitFolder: async (projectFolder) =>
+          await readGitCommonFolder(
+            createGitCommand({ git: context.git, timeoutMs: DEFAULT_GIT_COMMAND_TIMEOUT_MS }),
+            projectFolder,
+          ),
         reportDiagnostic: (diagnostic) => {
           writeServiceLog(`codex-transport ${JSON.stringify(boundDiagnosticDetail(diagnostic))}`);
         },
@@ -500,23 +531,43 @@ export class DaemonProviders {
       resolveDriverForSession: (sessionId: SessionId) =>
         sessionDirectory.requirePort().resolveDriverForSession(sessionId),
     };
+    this.approvals = new DaemonApprovals({
+      database,
+      eventLog: sessionEvents,
+      nodeId: context.nodeId,
+      dataFolder: context.dataFolder,
+      authorizer: context.authorizer,
+      runEngine,
+      runDispatch,
+      sessionDrivers,
+      sessionDirectory: {
+        readWorkingDirectory: (sessionId) =>
+          sessionDirectory.requirePort().readWorkingDirectory(sessionId),
+      },
+      workingFolders: context.sessionServices.workingFolders,
+      ports,
+      methods: context.methods,
+      writeServiceLog,
+    });
+    const providerSessions = new ProviderSessions({
+      runtimeBindings,
+      bindingCursors,
+      resolveDriver: (driverName) => drivers[driverName],
+      readContractVersion: (driverName) =>
+        capabilityCache.read(driverName).capabilities.contractVersion,
+      composeOpening: async (sessionId) =>
+        await sessionDirectory.requirePort().composeOpening(sessionId),
+      readSessionLeg: (sessionId) => sessionDirectory.requirePort().readSessionLeg(sessionId),
+      readSessionMode: (sessionId) => readSessionMode(database.reader, sessionId),
+      readPermissionLevel: (sessionId) => readSessionPermissionLevel(database.reader, sessionId),
+    });
     const queue = new RunQueue({
       sessionEvents,
       reader: database.reader,
       writer: database.writer,
       readNewestCursor,
       engine: runEngine,
-      providerSessions: new ProviderSessions({
-        runtimeBindings,
-        bindingCursors,
-        resolveDriver: (driverName) => drivers[driverName],
-        readContractVersion: (driverName) =>
-          capabilityCache.read(driverName).capabilities.contractVersion,
-        composeOpening: async (sessionId) =>
-          await sessionDirectory.requirePort().composeOpening(sessionId),
-        readSessionLeg: (sessionId) => sessionDirectory.requirePort().readSessionLeg(sessionId),
-        readSessionMode: (sessionId) => readSessionMode(database.reader, sessionId),
-      }),
+      providerSessions,
       sessions: sessionDrivers,
       memoryGate: createMemoryGate({ peakReader: context.processPeakReader }),
       startsCodexAccountService: async (sessionId) =>
@@ -622,6 +673,15 @@ export class DaemonProviders {
           sessionModeChangeStatement(sessionId, mode, new Date().toISOString()),
         ]);
       },
+      permissionLevels: {
+        read: (sessionId) => readSessionPermissionLevel(database.reader, sessionId),
+        record: async (sessionId, level) => {
+          await database.writer.write([
+            permissionLevelChangeStatement(sessionId, level, new Date().toISOString()),
+          ]);
+        },
+      },
+      providerSessions,
     });
     registerDriverListCapabilities(methods, { providerRegistry, capabilityCache });
     registerDriverListModels(methods, { providerRegistry });
@@ -709,24 +769,29 @@ export class DaemonProviders {
    * Ends the run queue's follow of the log, the capability refresh and the registration, so no
    * run's end moves the queue, no read starts and no driver registers after it; waits, within the
    * stop's drain bound, for a registration read still running, so the processes it started are
-   * among those ended; then has every driver end the provider processes it started, side by side,
-   * never the person's own Codex service. Rejects with what failed once every driver has stopped.
+   * among those ended; then, side by side, ends the approval pipeline's follows and has every
+   * driver end the provider processes it started, never the person's own Codex service. Rejects
+   * with what failed once every one has stopped.
    */
   async stop(): Promise<void> {
     this.#isStopping = true;
     this.#detachRunFollowers();
     this.#refresher.shutdown();
     await settleReadWithinDeadline(() => this.#registration, DAEMON_STOP_DRAIN_BOUND_MS);
-    const outcomes = await Promise.allSettled(
-      [...this.#drivers.values()].map(async (driver) => {
+    const outcomes = await Promise.allSettled([
+      this.approvals.stop(),
+      ...[...this.#drivers.values()].map(async (driver) => {
         await driver.shutdown();
       }),
-    );
+    ]);
     const failures = outcomes.flatMap((outcome) =>
       outcome.status === "rejected" ? [outcome.reason] : [],
     );
     if (failures.length > 0) {
-      throw new AggregateError(failures, "Ending the provider processes at the stop failed");
+      throw new AggregateError(
+        failures,
+        "Stopping the approvals or ending the provider processes at the stop failed",
+      );
     }
   }
 }

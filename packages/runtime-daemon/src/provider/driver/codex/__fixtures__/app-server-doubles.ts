@@ -22,6 +22,7 @@ import type { QuestionPort } from "../../../port/question.js";
 import { PortRegistration } from "../../../port/registration.js";
 import type { CommandOutputPublisher } from "../../../port/command-output-publisher.js";
 import type { ReviewerDenialPort } from "../../../port/reviewer-denial.js";
+import type { SessionRulePort } from "../../../port/session-rules.js";
 import type { ToolServerRoute } from "../../../port/tool-server-route.js";
 import type { CumulativeAxisReadings, MeteredUsageDelta } from "../../../usage-delta-accountant.js";
 import type { AttachmentResolver } from "../../attachments.js";
@@ -551,6 +552,7 @@ interface HarnessPorts {
   readonly permissionAsks: PortRegistration<PermissionAskPort>;
   readonly questions: PortRegistration<QuestionPort>;
   readonly reviewerDenials: PortRegistration<ReviewerDenialPort>;
+  readonly sessionRules: PortRegistration<SessionRulePort>;
   readonly serverPrompts: PortRegistration<CodexServerPromptPort>;
   readonly commandOutput: PortRegistration<CommandOutputPublisher>;
 }
@@ -649,6 +651,7 @@ export function createHarness(options: HarnessOptions = {}): Harness {
     permissionAsks: new PortRegistration<PermissionAskPort>("permission asks"),
     questions: new PortRegistration<QuestionPort>("questions"),
     reviewerDenials: new PortRegistration<ReviewerDenialPort>("reviewer denials"),
+    sessionRules: new PortRegistration<SessionRulePort>("session rules"),
     serverPrompts: new PortRegistration<CodexServerPromptPort>("server prompts"),
     commandOutput: new PortRegistration<CommandOutputPublisher>("command output"),
   };
@@ -690,6 +693,7 @@ export function createHarness(options: HarnessOptions = {}): Harness {
     // A session that defines no helper writes nothing, so the default folder stays empty.
     helperRolesFolder:
       options.helperRolesFolder ?? path.join(tmpdir(), "codex-helper-roles-unwritten"),
+    readGitFolder: async (projectFolder) => await Promise.resolve(path.join(projectFolder, ".git")),
     launchProcess: server.launchProcess,
     runCommand: server.runCommand,
     connectSocket: server.connectSocket,
