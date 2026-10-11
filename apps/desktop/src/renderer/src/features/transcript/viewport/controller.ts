@@ -284,7 +284,7 @@ export class ViewportController {
     });
     this.#readerInput = new ViewportReaderInput({
       noteReaderInput: (inputAtMs, towardSide) => {
-        this.anchor.noteReaderInput(inputAtMs);
+        this.anchor.noteReaderInput(inputAtMs, towardSide);
         this.#drawnBand.widenFully(towardSide);
       },
       notePointerDown: (isDown) => {

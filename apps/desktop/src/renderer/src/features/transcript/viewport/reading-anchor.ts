@@ -9,7 +9,8 @@
 //     they sit within its let-go distance and the browser's selection stays anchored; the held set
 //     lives here because engagement is a reading fact.
 //   - Following resumes on arrival at the tail or through the pill, never on a timer, and ends
-//     only on the reader's own act: their scroll toward the head, or a move they asked for.
+//     only on the reader's own act: their input or scroll toward the head, or a move they asked
+//     for.
 
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { Emitter } from "#renderer/lib/emitter.js";
@@ -18,6 +19,7 @@ import {
   type ScrollGeometry,
 } from "#renderer/lib/scroll/geometry/sample.js";
 import { TRANSCRIPT_GESTURE_GAP_MS } from "./caps.js";
+import { type WindowSide } from "./window-cap.js";
 
 /**
  * The three reading states. Closed.
@@ -94,14 +96,16 @@ export class ReadingAnchor {
    * Leaving the tail keeps the last anchor point, since dropping it would leave a frame with
    * nothing to restore.
    *
-   * Only the reader leaves the tail: a `"scroll"` sample whose offset moved toward the head and
-   * whose scroll event came within a gesture gap of the reader's own wheel, key or touch, or while
-   * their pointer is down in the box. A write the transcript or the library made, a
-   * shrinking viewport and content growing under a still offset never stop following; the
-   * controller lands the follower on the tail again. A scroll toward the head is a decision and
-   * releases the follow at once, however small, even inside the tail band; arriving back within
-   * the band re-engages it. A move the reader asked for elsewhere (a link, a find hit) releases
-   * through {@link readFrom}.
+   * Only the reader leaves the tail: their wheel, key or touch toward the head
+   * ({@link noteReaderInput}), or a `"scroll"` sample whose offset moved toward the head and whose
+   * scroll event came within a gesture gap of their own wheel, key or touch, either side of it, or
+   * while their pointer is down in the box. The platform stamps a scroll event when the box moved,
+   * which can be before an input it dispatched ahead of that event. A write the transcript or the
+   * library made, a shrinking viewport and content growing under a still offset never stop
+   * following; the controller lands the follower on the tail again. A scroll toward the head is a
+   * decision and releases the follow at once, however small, even inside the tail band; arriving
+   * back within the band re-engages it. A move the reader asked for elsewhere (a link, a find hit)
+   * releases through {@link readFrom}.
    */
   public observeGeometry(geometry: ScrollGeometry): void {
     const previous = this.#lastGeometry;
@@ -119,10 +123,20 @@ export class ReadingAnchor {
 
   /**
    * The reader turned the wheel, pressed a key or moved a touch on the log, at `inputAtMs` on the
-   * page's performance timeline, the timeline scroll events stamp their samples on.
+   * page's performance timeline, the timeline scroll events stamp their samples on, toward
+   * `towardSide` when the input says which way. An input toward the head of a box that can move
+   * there lets go of the tail at once: the platform moves the box for it before its scroll event
+   * is read, and a follower held meanwhile is pulled back.
    */
-  public noteReaderInput(inputAtMs: number): void {
+  public noteReaderInput(inputAtMs: number, towardSide?: WindowSide): void {
     this.#lastReaderInputAtMs = inputAtMs;
+    if (
+      towardSide === "head" &&
+      this.#mode === "following" &&
+      (this.#lastGeometry?.scrollTop ?? 0) >= SCROLL_GEOMETRY_EPSILON_PX
+    ) {
+      this.#transition("reading", this.#newRowCount);
+    }
   }
 
   /**
@@ -238,9 +252,7 @@ export class ReadingAnchor {
     const sinceReaderInputMs =
       this.#lastReaderInputAtMs === undefined ? undefined : inputAtMs - this.#lastReaderInputAtMs;
     return (
-      sinceReaderInputMs !== undefined &&
-      sinceReaderInputMs >= 0 &&
-      sinceReaderInputMs <= TRANSCRIPT_GESTURE_GAP_MS
+      sinceReaderInputMs !== undefined && Math.abs(sinceReaderInputMs) <= TRANSCRIPT_GESTURE_GAP_MS
     );
   }
 

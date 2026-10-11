@@ -82,6 +82,15 @@ describe("the reading anchor — distance from the tail the reader did not make"
     expect(anchor.state.mode).toBe("reading");
   });
 
+  it("keeps following through a wheel toward the head of a box that cannot move there", () => {
+    // A log shorter than its box stands at the head and the tail at once; the wheel moves nothing,
+    // so no scroll sample would ever bring the follow back.
+    const anchor = new ReadingAnchor();
+    anchor.observeGeometry(geometry(0, true));
+    anchor.noteReaderInput(1_000, "head");
+    expect(anchor.state.mode).toBe("following");
+  });
+
   it("keeps following when the box shrank rather than the reader moving", () => {
     // A shorter viewport raises the distance from the tail on its own; folding that as "the
     // reader left the tail" would stop following because the window got smaller.

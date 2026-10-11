@@ -151,6 +151,36 @@ describe("the transcript viewport — a reader taking the scroll back", () => {
   });
 });
 
+describe("the transcript viewport — a follower's wheel toward the head", () => {
+  it("lets go of the tail in the wheel's own event, and the follower writes nothing after", () => {
+    // The platform scrolls the box for a passive wheel before the page hears it, and stamps the
+    // scroll event that brings the box's move earlier than the wheel heard first. A follower still
+    // held when a row above measures, or when that scroll is read, is pulled back to the tail.
+    const subject = mountViewport("tail");
+    const { scrollContainer, controller } = subject;
+    const wheelAtMs = 1_000_000;
+    const followWritesBefore = controller.scroll.writeCount("follow-tail");
+    const wheel = new WheelEvent("wheel", { deltaY: -100 });
+    Object.defineProperty(wheel, "timeStamp", { value: wheelAtMs });
+    act(() => {
+      scrollContainer.dispatchEvent(wheel);
+    });
+    act(() => {
+      subject.virtualizer.resizeItem(0, MOUNTED_ROW_ESTIMATE_PX + 40);
+    });
+    const scroll = new Event("scroll");
+    Object.defineProperty(scroll, "timeStamp", { value: wheelAtMs - 20 });
+    act(() => {
+      scrollContainer.scrollTop -= SCROLL_TAIL_TOLERANCE_PX / 2;
+      scrollContainer.dispatchEvent(scroll);
+    });
+    runFrames(SETTLING_FRAMES);
+
+    expect(subject.binding.result.current.snapshot.reading.mode).not.toBe("following");
+    expect(controller.scroll.writeCount("follow-tail")).toBe(followWritesBefore);
+  });
+});
+
 describe("the transcript viewport — Home and End on the log", () => {
   it("land exactly on the last and the first row once the rows near them measure", () => {
     const subject = mountViewport(600);
