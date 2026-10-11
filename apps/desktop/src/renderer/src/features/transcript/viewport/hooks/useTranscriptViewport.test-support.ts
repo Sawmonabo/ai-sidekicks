@@ -61,7 +61,8 @@ export interface MountedViewport {
  * the attach. `startAt` is where the reader starts, scrolled up to from the tail;
  * `rememberedRowHeights` is the session's record of its row heights, a fresh one when omitted;
  * `feed` is what the feed hands the binding beyond its rows: which rows draw whole (every row when
- * omitted), which reveal text, and the frame its writes join (none when omitted). It stubs
+ * omitted), whose command outputs are parsed (every row's when omitted), which reveal text, and
+ * the frame its writes join (none when omitted). It stubs
  * `ResizeObserver` and spies on the controller, so the suite restores with `vi.unstubAllGlobals()`
  * and `vi.restoreAllMocks()`.
  */
@@ -70,7 +71,11 @@ export function mountViewport(
   rememberedRowHeights?: RememberedRowHeights,
   feed?: Pick<
     UseTranscriptViewportOptions,
-    "isRowPrepared" | "subscribeToRowWork" | "isRowRevealing" | "frameScheduler"
+    | "isRowPrepared"
+    | "subscribeToRowWork"
+    | "isRowOutputParsed"
+    | "isRowRevealing"
+    | "frameScheduler"
   >,
 ): MountedViewport {
   const resizeObserver = installFakeResizeObserver();

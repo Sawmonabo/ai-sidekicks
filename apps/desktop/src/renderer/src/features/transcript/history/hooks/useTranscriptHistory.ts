@@ -6,6 +6,7 @@
 
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 
+import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { useSubjectScopedResource } from "#renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { type SubjectScopedDisposal } from "#renderer/lib/subject-scoped/disposal.js";
 import { type TranscriptPageRead } from "#renderer/services/daemon/transcript/page.js";
@@ -49,10 +50,14 @@ export function useTranscriptHistory(
   const bridge = usePlatformBridge();
   // The clock moves with the bridge, as the reader does.
   const clock = useBridgeClock();
+  const ownerWindow = useOwnerWindow();
   const held = useSubjectScopedResource(
     bridge,
     sessionStore.sessionId,
-    () => new TranscriptHistoryReader(sessionStore, clock, queueTask),
+    () =>
+      new TranscriptHistoryReader(sessionStore, clock, (task) => {
+        queueTaskIn(ownerWindow, task);
+      }),
     TRANSCRIPT_HISTORY_READER_DISPOSAL,
   );
   const reader = held.value;
@@ -92,11 +97,11 @@ export function useTranscriptHistory(
 }
 
 /**
- * Queues `task` behind the work the renderer's thread already has, in a task of its own, so a
+ * Queues `task` behind the work `ownerWindow`'s thread already has, in a task of its own, so a
  * read a scroll event asks for is sent after the frame it lands in rather than inside it.
  */
-function queueTask(task: () => void): void {
-  void globalThis.scheduler.postTask(task, { priority: "user-visible" });
+function queueTaskIn(ownerWindow: Window, task: () => void): void {
+  void ownerWindow.scheduler.postTask(task, { priority: "user-visible" });
 }
 
 /**

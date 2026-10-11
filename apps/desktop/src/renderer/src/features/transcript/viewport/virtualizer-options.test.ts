@@ -19,6 +19,7 @@ import {
   MOUNTED_ROW_COUNT,
   MOUNTED_ROW_ESTIMATE_PX,
   MOUNTED_ROW_WIDTH_PX,
+  MOUNTED_VIEWPORT_HEIGHT_PX,
   type MountedViewport,
   attachRow,
   mountViewport,
@@ -267,5 +268,48 @@ describe("the virtualizer options — a follower after arriving text", () => {
     expect(subject.scrollContainer.scrollTop).toBe(subject.tailOffsetPx());
     expect(subject.controller.scroll.writeCount("follow-arriving-text")).toBe(0);
     expect(subject.controller.scroll.isEasing).toBe(false);
+  });
+});
+
+describe("the virtualizer options — a row whose output parses after the band reached it", () => {
+  it("draws the rows its work brings in once that work lands, with no scroll after it", () => {
+    // A row coming into the band is left undrawn until its output parses; the band is walked again
+    // when a row's work lands. A walk the next render never makes leaves the box blank until the
+    // reader scrolls again.
+    const unparsedRowKeys = new Set<string>();
+    const rowWorkListeners = new Set<() => void>();
+    const subject = mountViewport("tail", undefined, {
+      isRowOutputParsed: (rowKey) => !unparsedRowKeys.has(rowKey),
+      subscribeToRowWork: (listener) => {
+        rowWorkListeners.add(listener);
+        return () => rowWorkListeners.delete(listener);
+      },
+    });
+    for (let index = 0; index < MOUNTED_ROW_COUNT; index += 1) {
+      unparsedRowKeys.add(`row-${String(index)}`);
+    }
+    const startPx = subject.scrollContainer.scrollTop;
+    act(() => {
+      subject.scrollContainer.moveTo(startPx - 3 * MOUNTED_VIEWPORT_HEIGHT_PX, 1_000_000);
+    });
+    const boxStartPx = subject.scrollContainer.scrollTop;
+    const isInBox = (item: { readonly start: number; readonly end: number }): boolean =>
+      item.end > boxStartPx && item.start < boxStartPx + MOUNTED_VIEWPORT_HEIGHT_PX;
+    expect(subject.binding.result.current.virtualItems.filter(isInBox)).toStrictEqual([]);
+
+    unparsedRowKeys.clear();
+    act(() => {
+      for (const listener of [...rowWorkListeners]) {
+        listener();
+      }
+    });
+
+    const boxRowIndexes = subject.virtualizer.measurementsCache
+      .filter(isInBox)
+      .map((item) => item.index);
+    expect(boxRowIndexes.length).toBeGreaterThan(0);
+    expect(
+      subject.binding.result.current.virtualItems.filter(isInBox).map((item) => item.index),
+    ).toStrictEqual(boxRowIndexes);
   });
 });

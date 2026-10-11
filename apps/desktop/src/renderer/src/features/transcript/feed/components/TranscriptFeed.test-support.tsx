@@ -5,6 +5,7 @@
 // `features/transcript/viewport/controller.test-support.ts`.
 
 import { act, fireEvent, render } from "@testing-library/react";
+import { onTestFinished, vi } from "vitest";
 import { Profiler, useRef, type ReactNode } from "react";
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
@@ -15,6 +16,7 @@ import {
   type FixtureBridge,
 } from "#renderer/services/platform/bridge.fixture.js";
 import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
+import { TASKS_AT_ONCE } from "#test/helpers/tasks-at-once.js";
 import { useRowToggle } from "../../rows/hooks/useRowToggle.js";
 import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
 import { commandContributionRegistry } from "#renderer/registries/commands/contributions.js";
@@ -42,7 +44,8 @@ export const LONG_LOG_EVENT_COUNT = 450;
  * `readTranscriptPage` is the `transcript.read` the feed reads its history with, `drawsBody` is
  * the row renderer's answer to which rows it draws, every row unless a case says otherwise,
  * `fixture` the bridge whose frozen clock a case advances, a fresh one unless it says otherwise,
- * and `onCommit` reads the feed as each commit anywhere in it leaves it.
+ * and `onCommit` reads the feed as each commit anywhere in it leaves it. happy-dom schedules no
+ * tasks, so the case's window runs each queued task at once until the case finishes.
  */
 export function renderFeed(
   sessionStore: SessionStore,
@@ -56,6 +59,10 @@ export function renderFeed(
     readonly onCommit?: (feed: HTMLElement) => void;
   } = {},
 ): HTMLElement {
+  vi.stubGlobal("scheduler", TASKS_AT_ONCE.scheduler);
+  onTestFinished(() => {
+    vi.unstubAllGlobals();
+  });
   const fixture = options.fixture ?? createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO });
   const { container } = render(
     <FixtureBridgeProvider fixture={fixture}>

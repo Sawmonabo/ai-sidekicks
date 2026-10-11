@@ -859,7 +859,7 @@ export class ViewportController {
       lastPrune: this.#pruneCycle.lastOutcome,
       headHeightPx: this.historyLine.heightPx,
       heldRowKeys: this.anchor.heldRowKeys(),
-      drawnBandScreenHeights: this.#drawnBand.screenHeights,
+      rangeExtractor: this.virtualizerOptions.rangeExtractor,
       nestedBandScreenHeights: this.#drawnBand.nestedScreenHeights,
     };
   }

@@ -2,6 +2,8 @@
 // them. Nothing here holds state, so views and the React binding import the row type from here
 // without holding the controller, and the rules are tested directly.
 
+import type { Range } from "@tanstack/react-virtual";
+
 import { type DrawnBandScreenHeights } from "./drawn-band.js";
 import { type ReadingAnchorState } from "./reading-anchor.js";
 import { type RowKeyProjection } from "./row-measurement-table.js";
@@ -34,8 +36,11 @@ export interface ViewportSnapshot {
    * draws the rows re-runs when the held set changes. The anchor's own array, by identity.
    */
   readonly heldRowKeys: readonly string[];
-  /** How far beyond each edge of the box the rows are drawn, in screen heights, by identity. */
-  readonly drawnBandScreenHeights: DrawnBandScreenHeights;
+  /**
+   * The function the list's rows are drawn through, by identity: a new one each time the band
+   * must be walked again, as when it widens or a row's work lands.
+   */
+  readonly rangeExtractor: (range: Range) => number[];
   /**
    * How far beyond each edge of the box a window nested in a row draws its items, in screen
    * heights, by identity.
