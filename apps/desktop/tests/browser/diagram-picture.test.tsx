@@ -1,10 +1,11 @@
 // A diagram drawn by merman in its worker in Chromium, since happy-dom has no worker, no layout, no
 // image decoding and no canvas: the place held for the picture, a picture an image can show, the
 // kept picture a remount lands at, the PNG `Copy as picture` writes, a picture taller than one of
-// the strips it is drawn and encoded in copied whole and in place, the reason a refused diagram
-// shows, a drawing that ran out of time, labels sized from the page's widths, a page that never
-// measures them and one that grants no idle time, a link that goes nowhere, a diagram that cannot
-// loosen its security, the layout a diagram asks for, and one worker for every window.
+// the strips it is drawn and encoded in and one cut into columns, each copied whole and in place,
+// the reason a refused diagram shows, a drawing that ran out of time, labels sized from the page's
+// widths, a page that never measures them and one that grants no idle time, a link that goes
+// nowhere, a diagram that cannot loosen its security, the layout a diagram asks for, and one worker
+// for every window.
 
 import { initMerman, type HostTextMeasurer } from "@mermanjs/web-render";
 import { cleanup, render, waitFor } from "@testing-library/react";
@@ -29,6 +30,7 @@ import {
 import {
   DRAWING_DEADLINE_MS,
   type DiagramOutcome,
+  type DrawnDiagram,
 } from "#renderer/components/Markdown/diagram/worker/messages.js";
 import { LabelWidths } from "#renderer/components/Markdown/diagram/worker/text-measurer.js";
 import { OwnerWindowProvider } from "#renderer/components/OwnerWindow/OwnerWindowProvider.js";
@@ -61,6 +63,11 @@ const LONG_SOURCE = `flowchart TD\n${Array.from(
     `  n${String(step)}[step ${String(step)}] --> n${String(step + 1)}[step ${String(step + 1)}]\n` +
     `  n${String(step % 5)} --> n${String(step + 1)}`,
 ).join("\n")}\n`;
+
+/** A first step that forks to two and joins at a last, drawn left to right, its edges curving. */
+const FORKED_SOURCE =
+  "flowchart LR\n  plan[Plan] --> build[Build]\n  plan --> test[Test]\n  build --> ship[Ship]\n" +
+  "  test --> ship\n";
 
 /** A flowchart with a node left open, which the parser refuses. */
 const REFUSED_SOURCE = "flowchart TD\n  A --> B\n  B --> [Fix it\n";
@@ -139,6 +146,45 @@ async function drawnPicture(pictures: DiagramPictures, source: string): Promise<
     pictures.request(source, palette, () => 0, resolve);
   });
   return markupOf(outcome);
+}
+
+/**
+ * How many color values of `png`, the copy of `picture`, differ from the picture painted whole on
+ * one canvas, as a picture small enough for one is, out of how many.
+ */
+async function differenceFromWhole(
+  picture: DrawnDiagram,
+  png: Uint8Array<ArrayBuffer>,
+): Promise<{ differing: number; values: number }> {
+  const copied = await createImageBitmap(new Blob([png], { type: "image/png" }));
+  const scale = Math.max(window.devicePixelRatio, 2);
+  const width = Math.ceil(picture.width * scale);
+  const height = Math.ceil(picture.height * scale);
+  expect([copied.width, copied.height]).toStrictEqual([width, height]);
+  const image = new Image();
+  const pictureUrl = URL.createObjectURL(pictureBlobOf(picture));
+  image.src = pictureUrl;
+  await image.decode();
+  URL.revokeObjectURL(pictureUrl);
+  const pixelsOf = (paint: (context: OffscreenCanvasRenderingContext2D) => void) => {
+    const canvas = new OffscreenCanvas(width, height);
+    const context = canvas.getContext("2d", { willReadFrequently: true }) ?? expect.fail("2d");
+    paint(context);
+    return context.getImageData(0, 0, width, height).data;
+  };
+  const whole = pixelsOf((context) => {
+    context.fillStyle = picture.groundColor;
+    context.fillRect(0, 0, width, height);
+    context.drawImage(image, 0, 0, width, height);
+  });
+  const fromTiles = pixelsOf((context) => {
+    context.drawImage(copied, 0, 0);
+  });
+  let differing = 0;
+  for (let index = 0; index < whole.length; index += 1) {
+    differing += whole[index] === fromTiles[index] ? 0 : 1;
+  }
+  return { differing, values: whole.length };
 }
 
 /** Script a picture could run or a place it could send the reader, wherever it is written. */
@@ -235,39 +281,29 @@ it("copies a picture taller than one strip as the whole drawing, each strip's ro
   const outcome = await pictures.drawCopy(LONG_SOURCE, watchDiagramPalette(window).read());
   const picture = outcome.kind === "drawn" ? outcome : expect.fail("the diagram is drawn");
 
-  const png = await encodeDiagramPng(picture, window);
-  const copied = await createImageBitmap(new Blob([png], { type: "image/png" }));
-  const scale = Math.max(window.devicePixelRatio, 2);
-  const width = Math.ceil(picture.width * scale);
-  const height = Math.ceil(picture.height * scale);
-  expect([copied.width, copied.height]).toStrictEqual([width, height]);
-  // The same picture painted whole on one canvas, as a picture small enough for one is.
-  const image = new Image();
-  const pictureUrl = URL.createObjectURL(pictureBlobOf(picture));
-  image.src = pictureUrl;
-  await image.decode();
-  URL.revokeObjectURL(pictureUrl);
-  const pixelsOf = (paint: (context: OffscreenCanvasRenderingContext2D) => void) => {
-    const canvas = new OffscreenCanvas(width, height);
-    const context = canvas.getContext("2d", { willReadFrequently: true }) ?? expect.fail("2d");
-    paint(context);
-    return context.getImageData(0, 0, width, height).data;
-  };
-  const whole = pixelsOf((context) => {
-    context.fillStyle = picture.groundColor;
-    context.fillRect(0, 0, width, height);
-    context.drawImage(image, 0, 0, width, height);
-  });
-  const fromStrips = pixelsOf((context) => {
-    context.drawImage(copied, 0, 0);
-  });
-  let differing = 0;
-  for (let index = 0; index < whole.length; index += 1) {
-    differing += whole[index] === fromStrips[index] ? 0 : 1;
-  }
-  // The graphics card may draw a curve the canvas's edge cuts a pixel apart; a strip out of place
-  // moves thousands.
-  expect(differing).toBeLessThan(whole.length / 100_000);
+  const { differing, values } = await differenceFromWhole(
+    picture,
+    await encodeDiagramPng(picture, window),
+  );
+  // A curve a cut crosses is drawn whole when it ends within the margin, and these steps' longer
+  // edges run along the cuts; a strip out of place moves thousands.
+  expect(differing).toBeLessThan(values / 100_000);
+});
+
+it("copies a picture wider than one tile as the whole drawing, each tile's columns in place", async () => {
+  const pictures = new DiagramPictures(TEST_CACHE_BYTE_CAP, startDiagramWorker, keepUnusedMemory);
+  const outcome = await pictures.drawCopy(FORKED_SOURCE, watchDiagramPalette(window).read());
+  const picture = outcome.kind === "drawn" ? outcome : expect.fail("the diagram is drawn");
+
+  // Tiles a third of the picture wide, far narrower than the app's, so its curves cross the cuts.
+  const tileColumns = Math.ceil((picture.width * Math.max(window.devicePixelRatio, 2)) / 3);
+  const { differing, values } = await differenceFromWhole(
+    picture,
+    await encodeDiagramPng(picture, window, tileColumns),
+  );
+  // A curve a cut crosses is drawn whole when it ends within the margin; a tile out of place or
+  // drawn without its margin moves hundreds.
+  expect(differing).toBeLessThan(values / 100_000);
 });
 
 it("shows the parser's reason above the source of a diagram it refuses", async () => {

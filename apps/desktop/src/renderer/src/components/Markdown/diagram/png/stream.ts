@@ -8,7 +8,6 @@
  * rows written do not fill the picture.
  */
 export class PngStream {
-  readonly #width: number;
   readonly #height: number;
   readonly #writer: WritableStreamDefaultWriter<Uint8Array<ArrayBuffer>>;
   /** The file's chunks so far, the signature and header first. */
@@ -18,7 +17,6 @@ export class PngStream {
   #rowsWritten = 0;
 
   public constructor(width: number, height: number) {
-    this.#width = width;
     this.#height = height;
     const header = new Uint8Array(13);
     const view = new DataView(header.buffer);
@@ -34,18 +32,12 @@ export class PngStream {
   }
 
   /**
-   * Writes the next `rows` rows from `pixels`, RGBA bytes with no padding between rows; resolves
-   * once the compression has taken them, so the caller holds one strip at a time.
+   * Writes the next `rows` rows from `scanlines`, each row its filter-type byte and then its RGBA
+   * bytes; resolves once the compression has taken them, so the caller holds one strip at a time.
    */
-  public async writeRows(pixels: Uint8ClampedArray, rows: number): Promise<void> {
-    const rowBytes = this.#width * 4;
-    const filtered = new Uint8Array(rows * (rowBytes + 1));
-    for (let row = 0; row < rows; row += 1) {
-      // Each row opens on its filter type: none, the bytes as they are.
-      filtered.set(pixels.subarray(row * rowBytes, (row + 1) * rowBytes), row * (rowBytes + 1) + 1);
-    }
+  public async writeRows(scanlines: Uint8Array<ArrayBuffer>, rows: number): Promise<void> {
     this.#rowsWritten += rows;
-    await this.#writer.write(filtered);
+    await this.#writer.write(scanlines);
   }
 
   /** The whole file, once the rows written fill the picture. */
