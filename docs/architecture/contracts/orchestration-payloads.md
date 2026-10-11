@@ -171,12 +171,13 @@ type SessionGoalClearResponse = { sessionId: SessionId }; // clearing with no go
 // it in the composer, so there is no step that binds a saved agent to a running session and none to
 // undo. The verbs here mutate and read what the session already holds.
 // wire: agent.configUpdate / agent.list
-// The running agent's model, window, effort, output speed and provider, each moved by the person from
-// the composer's controls. Every member is optional and an omitted member is UNCHANGED, never reset.
-// Every accepted update is a switch of the agent's provider binding (`AgentProviderBinding`,
-// agent-definition-payloads.md §Plan-024) and settles with `agent.provider_binding_changed` or
-// `agent.provider_binding_change_failed`; no other event records it. A change of model, effort or
-// speed alone settles in place and draws no transcript row.
+// The running agent's model, window, effort, output speed, Ultracode and provider, each moved by
+// the person from the composer's controls. Every member is optional and an omitted member is
+// UNCHANGED, never reset. Every accepted update is a switch of the agent's provider binding
+// (`AgentProviderBinding`, agent-definition-payloads.md §Plan-024) and settles with
+// `agent.provider_binding_changed` or `agent.provider_binding_change_failed`; no other event
+// records it. A change of model, effort, speed or Ultracode alone settles in place and draws no
+// transcript row.
 interface AgentConfigUpdateRequest {
   agentId: AgentId;
   modelId?: string;
@@ -208,6 +209,10 @@ interface AgentConfigUpdateRequest {
   // vocabulary makes the axis unsettable and the mutation refuses `agent.provider_axis_invalid`
   // (400) fail-closed, so no unvalidated value is ever forwarded to a provider.
   outputSpeed?: string;
+  // Claude Code's Ultracode, on or off at any effort; Claude Code only. A driver that declares
+  // no Ultracode refuses it as driver.capability_unsupported. Sent as
+  // `apply_flag_settings {ultracode}`, it settles in place and applies from the next turn.
+  ultracode?: boolean;
   // Applies at the next boundary the TARGET AXIS permits, never at a fixed one: a turn boundary
   // for an axis the target driver takes as a per-turn override, a run boundary for a run-bound one
   // (`driverName` always, and `outputSpeed` on Claude Code — re-derived by listing, not counted). A
@@ -361,6 +366,7 @@ interface AgentBindingSwitchTarget {
   largerWindow?: number | null;
   effort?: string;
   outputSpeed?: string;
+  ultracode?: boolean;
 }
 
 type AgentProviderAxis = keyof AgentBindingSwitchTarget;
@@ -456,8 +462,9 @@ interface AgentListEntry {
   name: string;
   // D-013-17: the agent's EFFECTIVE binding — the one it runs under now, never the pending one.
   // `providerAccountId` null = the agent follows the provider's current account (the one marked
-  // `Default`); `effort` null = the driver's own default for the model; absent `outputSpeed` = never
-  // set, so the provider's own default stands; absent `largerWindow` = the model's default window.
+  // `Default`); `effort` null = the driver's own default for the model; absent `outputSpeed` or
+  // `ultracode` = never set, so the provider's own default stands; absent `largerWindow` = the
+  // model's default window.
   // Each member is served from its own column on the agent row, the columns an applying switch
   // commits into, so every member a switch can move is read back here once it applies; a run-bound
   // member readable only as a PENDING intent would go dark then.
@@ -487,6 +494,12 @@ interface AgentListEntry {
   // `output_speed_unavailable` keeps its own narrower meaning (the mode could not be requested
   // at all: the vocabulary is gone, or the target driver stopped declaring the flag).
   observedOutputSpeed?: ProviderOutputSpeedState;
+  // Claude Code's Ultracode as the provider reports it: `isOn` from `get_settings`'
+  // `applied.ultracode` and `isAvailable` from its `applied.ultracodeAvailable`, read after each
+  // spawn and each change. The effort control's switch and its `<effort> · Ultracode` read this,
+  // never `binding.ultracode`. Absent where the binding's driver declares no Ultracode or no
+  // binding for this agent is live, as `observedOutputSpeed` is; absence is never read as "off".
+  observedUltracode?: { isOn: boolean; isAvailable: boolean };
   // Present exactly while a switch is pending on this agent, so the deferred intent is readable
   // rather than inferable — including after a daemon restart, which re-arms it from the durable
   // agent row. A live list is how a caller that was not the mutator learns a switch is queued.
@@ -576,7 +589,7 @@ interface OrchestrationRunLinkCarrier {
 | `orchestration.costReceiptRead` | RPC | `SessionCostReceiptRequest` → `SessionCostReceiptResponse` | Read-only decomposition of the committed-spend fold (D-013-16 — shapes below); served from the same accountant accessor as `orchestration.budgetRead`, so the two can never disagree |
 | `session.goalUpdate` | RPC | `SessionGoalUpdateRequest` → `SessionGoalUpdateResponse` | [Spec-014 §Session Goals](../../specs/014-multi-agent-orchestration.md#session-goals); an accepted update emits `session.goal_updated` carrying the same canonical `goal` |
 | `session.goalClear` | RPC | `SessionGoalClearRequest` → `SessionGoalClearResponse` | An accepted clear emits `session.goal_cleared` (clearing is the distinct operation — an update without a goal is malformed) |
-| `agent.configUpdate` | RPC | `AgentConfigUpdateRequest` → `AgentConfigUpdateResponse` | The running agent's model, window, effort, speed and provider; never the account, which is `providerAccount.setCurrent` (provider-account-payloads.md §Plan-023). Settles with `agent.provider_binding_changed` or `agent.provider_binding_change_failed` |
+| `agent.configUpdate` | RPC | `AgentConfigUpdateRequest` → `AgentConfigUpdateResponse` | The running agent's model, window, effort, speed, Ultracode and provider; never the account, which is `providerAccount.setCurrent` (provider-account-payloads.md §Plan-023). Settles with `agent.provider_binding_changed` or `agent.provider_binding_change_failed` |
 | `agent.list` | subscription | `AgentListRequest` → `AgentListResponse` | Agents-table projection, live: the list, then each change |
 | `session.terminalProviderSessionList` | RPC | `SessionTerminalProviderSessionListParams` → `SessionTerminalProviderSessionListResult` | The provider sessions typed in a terminal, each a `TerminalProviderSession` with its `provider`; shapes in local-ipc-payloads.md §Plan-005; empty while `Reach Codex sessions started in a terminal` is off |
 
