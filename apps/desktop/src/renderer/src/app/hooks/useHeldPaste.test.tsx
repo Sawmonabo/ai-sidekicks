@@ -38,19 +38,19 @@ function pasteInto(target: Element, text: string): Event {
 }
 
 /**
- * A fixture bridge, on `platform` where one is named, over a clipboard holding the person's older
- * copy, whose late write lands when `land` is called, and whose window paste pastes what the
- * clipboard holds then into the focused field, as main's does.
+ * A fixture bridge, keeping a primary selection where `hasPrimarySelection` says so, over a
+ * clipboard holding the person's older copy, whose late write lands when `land` is called, and
+ * whose window paste pastes what the clipboard holds then into the focused field, as main's does.
  */
-function bridgeOverClipboard(platform?: PlatformBridge["app"]["platform"]): {
+function bridgeOverClipboard(hasPrimarySelection?: boolean): {
   readonly bridge: PlatformBridge;
   readonly land: () => Promise<void>;
 } {
   const fixture = createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO });
   const bridge =
-    platform === undefined
+    hasPrimarySelection === undefined
       ? fixture.bridge
-      : { ...fixture.bridge, app: { ...fixture.bridge.app, platform } };
+      : { ...fixture.bridge, app: { ...fixture.bridge.app, hasPrimarySelection } };
   const clipboard = { text: OLDER_COPY };
   const landings: (() => void)[] = [];
   vi.spyOn(bridge.native, "copyToClipboardUnlessChanged").mockImplementation((copyId) => {
@@ -229,7 +229,7 @@ describe("a paste while a copy is being written", () => {
   });
 
   it("lets a middle-click paste through where it pastes the primary selection, and holds ⌘V after", async () => {
-    const { bridge } = bridgeOverClipboard("linux");
+    const { bridge } = bridgeOverClipboard(true);
     const { field, pasted } = renderField(bridge);
     void copyOnceBuilt(bridge, TASKS_AT_ONCE, (write) => write({ text: piecedTextOf(NEW_COPY) }));
 
