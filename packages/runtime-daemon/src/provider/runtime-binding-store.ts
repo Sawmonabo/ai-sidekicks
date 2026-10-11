@@ -139,7 +139,7 @@ export interface RuntimeBindingRebind {
  * A resume a driver started on its own, after its process ended or on a new provider build, and the
  * binding it minted for the session's leg.
  */
-interface RuntimeBindingRelaunch {
+export interface RuntimeBindingRelaunch {
   /** The binding the session ran on before, whose run, driver and spawn record carry over. */
   readonly predecessorId: string;
   /** The id the driver minted for the relaunched leg. */

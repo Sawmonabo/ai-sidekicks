@@ -64,7 +64,7 @@ import type {
   RunUsageCreditsChoiceRequestedPayload,
   RunUsageCreditsChoiceResolvedPayload,
 } from "../run/provider-choice.js";
-import type { UserMessagePayload } from "../run/queue.js";
+import type { QueueItemEventPayload, UserMessagePayload } from "../run/queue.js";
 import type { RunQueuedPayload } from "../run/queued.js";
 import type {
   InterventionEventPayload,
@@ -196,6 +196,36 @@ export type UserMessageEvent = SessionEventVariant<
   "user.message",
   "interactive_request",
   UserMessagePayload
+>;
+/** Emitted when a message the person sent is queued. */
+export type QueueItemCreatedEvent = SessionEventVariant<
+  "queue_item.created",
+  "interactive_request",
+  QueueItemEventPayload<"queued">
+>;
+/** Emitted when the agent takes a queued message. */
+export type QueueItemAdmittedEvent = SessionEventVariant<
+  "queue_item.admitted",
+  "interactive_request",
+  QueueItemEventPayload<"admitted">
+>;
+/** Emitted when an edit replaces a waiting message, naming the message that replaced it. */
+export type QueueItemSupersededEvent = SessionEventVariant<
+  "queue_item.superseded",
+  "interactive_request",
+  QueueItemEventPayload<"superseded">
+>;
+/** Emitted when a waiting message is removed before the agent takes it. */
+export type QueueItemCanceledEvent = SessionEventVariant<
+  "queue_item.canceled",
+  "interactive_request",
+  QueueItemEventPayload<"canceled">
+>;
+/** Emitted when a taken message could not be delivered, with the reason. */
+export type QueueItemNotDeliveredEvent = SessionEventVariant<
+  "queue_item.not_delivered",
+  "interactive_request",
+  QueueItemEventPayload<"not_delivered">
 >;
 /** Emitted when an MCP server sign-in ends, in success or failure. */
 export type McpServerOauthCompletedEvent = SessionEventVariant<
@@ -764,6 +794,11 @@ export type SessionEvent =
   | PlanHandedOffEvent
   | QuestionAskedEvent
   | UserMessageEvent
+  | QueueItemCreatedEvent
+  | QueueItemAdmittedEvent
+  | QueueItemSupersededEvent
+  | QueueItemCanceledEvent
+  | QueueItemNotDeliveredEvent
   | McpServerOauthCompletedEvent
   | CloudTaskUpdatedEvent
   | SessionRestoreFinishedEvent

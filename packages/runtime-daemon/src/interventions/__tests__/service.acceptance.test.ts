@@ -1,7 +1,6 @@
 // The intervention service, the run engine and the inbound dispatch composed over one scratch
-// database, with the driver as the only double: a person's interrupt ends the run once without
-// waiting behind a steer, a stale or late arrival changes nothing, and an unsupported steer lands
-// as an explicit degraded outcome.
+// database, with the driver and the faster-model retry as the only doubles: a person's interrupt
+// ends the run once without waiting behind a retry, and a stale or late arrival changes nothing.
 
 import { randomUUID } from "node:crypto";
 
@@ -16,14 +15,13 @@ import type {
   InterventionRequestPayload,
   InterventionRequestResponse,
 } from "@ai-sidekicks/contracts/run/control";
-import { DAEMON_INTERVENTION_ACTOR } from "@ai-sidekicks/contracts/run/events";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import { DeviceIdSchema, type DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 
 import { makeSilentDriverDiagnostics } from "../../provider/__fixtures__/silent-driver-diagnostics.js";
 import { CodexRequestTimeoutError } from "../../provider/driver/codex/session/errors.js";
-import { STEER_FALLBACK_ACTION } from "../../provider/driver/contract.js";
 import type { DriverDiagnosticsEmitter } from "../../provider/driver/diagnostics.js";
+import type { FasterModelRetryOutcome } from "../../provider/driver/run-control.js";
 import { PortRegistration } from "../../provider/port/registration.js";
 import type { RunStatePublisher } from "../../provider/port/run-state-publisher.js";
 import type { InterruptRoute } from "../../session/run/engine.js";
@@ -33,6 +31,7 @@ import {
   TEST_EXECUTION_POSTURE,
   makeQueueItem,
   makeRecordingDriver,
+  startOnDriver,
   openRunEngineFixture,
   type RunEngineFixture,
 } from "../../session/run/__tests__/engine.test-support.js";
@@ -42,7 +41,6 @@ import { InterventionReader } from "../store.js";
 interface InterventionRow {
   readonly state: string;
   readonly device_id: string | null;
-  readonly fallback_action: string | null;
 }
 
 describe("intervention service with the run engine and inbound dispatch", () => {
@@ -55,6 +53,8 @@ describe("intervention service with the run engine and inbound dispatch", () => 
   let answerDriver: (params: ApplyInterventionParams) => Promise<DriverInterventionResult>;
   // Routes each interrupt the service sends; the default is the engine's own route.
   let routeInterrupt: (runId: RunId) => Promise<InterruptRoute>;
+  // Answers each faster-model retry; the default refuses, since most tests send none.
+  let answerRetry: () => Promise<FasterModelRetryOutcome>;
 
   beforeEach(async () => {
     fixture = await openRunEngineFixture();
@@ -63,6 +63,7 @@ describe("intervention service with the run engine and inbound dispatch", () => 
     driverResult = { status: "applied" };
     answerDriver = () => Promise.resolve(driverResult);
     routeInterrupt = (runId) => fixture.engine.routeInterrupt(runId);
+    answerRetry = () => Promise.reject(new Error("No faster-model retry is sent here"));
     service = new InterventionService({
       runs: fixture.runs,
       interventions: new InterventionReader(fixture.database.reader),
@@ -73,7 +74,7 @@ describe("intervention service with the run engine and inbound dispatch", () => 
           return answerDriver(params);
         },
       }),
-      retryOnFasterModel: () => Promise.reject(new Error("No faster-model retry is sent here")),
+      retryOnFasterModel: () => answerRetry(),
       runEngine: {
         endRunForInterrupt: (runId, verdict) => fixture.engine.endRunForInterrupt(runId, verdict),
         routeInterrupt: (runId) => routeInterrupt(runId),
@@ -95,22 +96,23 @@ describe("intervention service with the run engine and inbound dispatch", () => 
     } satisfies InterventionRequestPayload;
   }
 
-  function steer(runId: RunId, expectedRunVersion: number) {
+  function fasterModelRetry(runId: RunId, expectedRunVersion: number) {
     return {
-      type: "steer",
+      type: "faster_model_retry",
       targetRunId: runId,
       expectedRunVersion,
       clientIdempotencyKey: randomUUID(),
-      content: "use the other branch",
+      expectedTurnId: "turn-7",
+      model: "gpt-5.4-mini",
     } satisfies InterventionRequestPayload;
   }
 
   function readIntervention(interventionId: InterventionId): InterventionRow | undefined {
     return fixture.database.reader
-      .prepare<[InterventionId], InterventionRow>(
-        `SELECT state, device_id, fallback_action FROM interventions
-          WHERE id = ?`,
-      )
+      .prepare<
+        [InterventionId],
+        InterventionRow
+      >("SELECT state, device_id FROM interventions WHERE id = ?")
       .get(interventionId);
   }
 
@@ -158,8 +160,8 @@ describe("intervention service with the run engine and inbound dispatch", () => 
       runId,
       queueItem: makeQueueItem(),
       provider: "claude",
-      driver: makeRecordingDriver(),
-      driverParams: { agentConfig: {} },
+      outputSpeed: undefined,
+      startDriver: startOnDriver(makeRecordingDriver(), runId),
       executionPosture: TEST_EXECUTION_POSTURE,
     });
     const deviceId = DeviceIdSchema.parse(randomUUID());
@@ -276,37 +278,6 @@ describe("intervention service with the run engine and inbound dispatch", () => 
     expect(countTerminals(runId)).toBe(1);
   });
 
-  it("lands an unsupported steer as degraded with its fallback, whoever sent it", async () => {
-    const runId = await fixture.runThrough(["starting", "running"]);
-
-    const fromDaemon = await service.applyIntervention(steer(runId, readVersion(runId)), {
-      actor: DAEMON_INTERVENTION_ACTOR,
-    });
-    driverResult = { status: "degraded", fallbackAction: STEER_FALLBACK_ACTION };
-    const deviceId = DeviceIdSchema.parse(randomUUID());
-    const degraded = await service.applyIntervention(steer(runId, fromDaemon.runVersion), {
-      actor: deviceId,
-    });
-
-    expect(fromDaemon).toMatchObject({ state: "applied" });
-    expect(readIntervention(fromDaemon.interventionId)).toMatchObject({
-      state: "applied",
-      device_id: null,
-    });
-    expect(degraded).toMatchObject({ state: "degraded", runVersion: fromDaemon.runVersion + 1 });
-    expect(readIntervention(degraded.interventionId)).toEqual({
-      state: "degraded",
-      device_id: deviceId,
-      fallback_action: STEER_FALLBACK_ACTION,
-    });
-    expect(fixture.runs.getRun(runId)).toEqual({
-      sessionId: fixture.sessionId,
-      state: "running",
-      version: fromDaemon.runVersion + 1,
-    });
-    expect(fixture.readRunEvents(runId).at(-1)?.type).toBe("run.running");
-  });
-
   it("ends a run interrupted while its setup gate is still pending, and the gate's release lets the start end", async () => {
     // A gate that waits until the run ends, as one waiting on a setup step's retry would.
     const gateCalled = Promise.withResolvers<void>();
@@ -328,8 +299,8 @@ describe("intervention service with the run engine and inbound dispatch", () => 
         runId,
         queueItem: makeQueueItem(),
         provider: "claude",
-        driver: providerDriver,
-        driverParams: { agentConfig: {} },
+        outputSpeed: undefined,
+        startDriver: startOnDriver(providerDriver, runId),
         executionPosture: TEST_EXECUTION_POSTURE,
       })
       .catch((error: unknown) => error);
@@ -374,14 +345,12 @@ describe("intervention service with the run engine and inbound dispatch", () => 
         runId,
         queueItem: makeQueueItem(),
         provider: "codex",
-        driver: {
-          startRun: async (params) => {
-            startCalled.resolve();
-            await settleStart.promise;
-            boundRuns.add(params.runId);
-          },
+        outputSpeed: undefined,
+        startDriver: async () => {
+          startCalled.resolve();
+          await settleStart.promise;
+          boundRuns.add(runId);
         },
-        driverParams: { agentConfig: {} },
         executionPosture: TEST_EXECUTION_POSTURE,
       })
       .catch((error: unknown) => error);
@@ -443,8 +412,11 @@ describe("intervention service with the run engine and inbound dispatch", () => 
         runId,
         queueItem: makeQueueItem(),
         provider: "codex",
-        driver: { startRun: () => Promise.reject(new Error("spawn codex ENOENT")) },
-        driverParams: { agentConfig: {} },
+        outputSpeed: undefined,
+        startDriver: startOnDriver(
+          { startRun: () => Promise.reject(new Error("spawn codex ENOENT")) },
+          runId,
+        ),
         executionPosture: TEST_EXECUTION_POSTURE,
       })
       .catch((error: unknown) => error);
@@ -481,8 +453,8 @@ describe("intervention service with the run engine and inbound dispatch", () => 
         runId,
         queueItem: makeQueueItem(),
         provider: "claude",
-        driver: makeRecordingDriver(),
-        driverParams: { agentConfig: {} },
+        outputSpeed: undefined,
+        startDriver: startOnDriver(makeRecordingDriver(), runId),
         executionPosture: TEST_EXECUTION_POSTURE,
       })
       .catch((error: unknown) => error);
@@ -509,43 +481,41 @@ describe("intervention service with the run engine and inbound dispatch", () => 
     expect(driverCalls).toEqual([]);
   });
 
-  it("dispatches a stop past a stuck steer, keeps the steer's verdict, and expires the steer behind it", async () => {
+  it("dispatches a stop past a stuck retry, keeps the retry's verdict, and expires the retry behind it", async () => {
     const runId = await fixture.runThrough(["starting", "running"]);
     const runningVersion = readVersion(runId);
     const origin = { actor: DeviceIdSchema.parse(randomUUID()) };
-    const stuckSteerCalled = Promise.withResolvers<void>();
-    const stuckSteerVerdict = Promise.withResolvers<DriverInterventionResult>();
-    answerDriver = () => {
-      answerDriver = () => Promise.resolve(driverResult);
-      stuckSteerCalled.resolve();
-      return stuckSteerVerdict.promise;
+    const stuckRetryCalled = Promise.withResolvers<void>();
+    const stuckRetryOutcome = Promise.withResolvers<FasterModelRetryOutcome>();
+    let retryCalls = 0;
+    answerRetry = () => {
+      retryCalls += 1;
+      stuckRetryCalled.resolve();
+      return stuckRetryOutcome.promise;
     };
 
-    const stuckSteer = service.applyIntervention(steer(runId, runningVersion), origin);
-    await stuckSteerCalled.promise;
-    const queuedSteer = service.applyIntervention(steer(runId, runningVersion), origin);
+    const stuckRetry = service.applyIntervention(fasterModelRetry(runId, runningVersion), origin);
+    await stuckRetryCalled.promise;
+    const queuedRetry = service.applyIntervention(fasterModelRetry(runId, runningVersion), origin);
     const stop = await service.applyIntervention(interrupt(runId, runningVersion), origin);
 
-    // The stop reached the driver and ended the run while the first steer was still in dispatch.
-    expect(driverCalls.map((params) => params.type)).toEqual(["steer", "interrupt"]);
+    // The stop reached the driver and ended the run while the first retry was still in dispatch.
+    expect(driverCalls.map((params) => params.type)).toEqual(["interrupt"]);
     expect(stop).toMatchObject({ interventionType: "interrupt", state: "applied" });
     expect(fixture.runs.getRun(runId)?.state).toBe("interrupted");
     expect(countTerminals(runId)).toBe(1);
     const interruptedVersion = readVersion(runId);
 
-    stuckSteerVerdict.resolve({ status: "degraded", fallbackAction: STEER_FALLBACK_ACTION });
-    const [stuck, queued] = await Promise.all([stuckSteer, queuedSteer]);
+    stuckRetryOutcome.resolve({ state: "applied" });
+    const [stuck, queued] = await Promise.all([stuckRetry, queuedRetry]);
 
-    expect(stuck).toMatchObject({ state: "degraded" });
-    expect(readIntervention(stuck.interventionId)).toMatchObject({
-      state: "degraded",
-      fallback_action: STEER_FALLBACK_ACTION,
-    });
+    expect(stuck).toMatchObject({ state: "applied" });
+    expect(readIntervention(stuck.interventionId)).toMatchObject({ state: "applied" });
     // The verdict that landed after the run's end moved nothing past it.
     expect(stuck.runVersion).toBe(interruptedVersion);
     expect(queued).toMatchObject({ state: "expired", runVersion: interruptedVersion });
     expect(readIntervention(queued.interventionId)).toMatchObject({ state: "expired" });
-    expect(driverCalls).toHaveLength(2);
+    expect(retryCalls).toBe(1);
     expect(fixture.runs.getRun(runId)).toMatchObject({
       state: "interrupted",
       version: interruptedVersion,

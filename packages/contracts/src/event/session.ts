@@ -71,7 +71,7 @@ import {
   RunUsageCreditsChoiceRequestedPayloadSchema,
   RunUsageCreditsChoiceResolvedPayloadSchema,
 } from "../run/provider-choice.js";
-import { UserMessagePayloadSchema } from "../run/queue.js";
+import { QUEUE_ITEM_EVENT_PAYLOAD_SCHEMAS, UserMessagePayloadSchema } from "../run/queue.js";
 import { RunQueuedPayloadSchema } from "../run/queued.js";
 import {
   INTERVENTION_EVENT_PAYLOAD_SCHEMAS,
@@ -285,6 +285,31 @@ const SESSION_EVENT_VARIANT_REGISTRATIONS = [
   registerSessionEventVariant("plan.handed_off", "approval_flow", PlanHandedOffPayloadSchema),
   registerSessionEventVariant("question.asked", "interactive_request", QuestionAskedPayloadSchema),
   registerSessionEventVariant("user.message", "interactive_request", UserMessagePayloadSchema),
+  registerSessionEventVariant(
+    "queue_item.created",
+    "interactive_request",
+    QUEUE_ITEM_EVENT_PAYLOAD_SCHEMAS.queued,
+  ),
+  registerSessionEventVariant(
+    "queue_item.admitted",
+    "interactive_request",
+    QUEUE_ITEM_EVENT_PAYLOAD_SCHEMAS.admitted,
+  ),
+  registerSessionEventVariant(
+    "queue_item.superseded",
+    "interactive_request",
+    QUEUE_ITEM_EVENT_PAYLOAD_SCHEMAS.superseded,
+  ),
+  registerSessionEventVariant(
+    "queue_item.canceled",
+    "interactive_request",
+    QUEUE_ITEM_EVENT_PAYLOAD_SCHEMAS.canceled,
+  ),
+  registerSessionEventVariant(
+    "queue_item.not_delivered",
+    "interactive_request",
+    QUEUE_ITEM_EVENT_PAYLOAD_SCHEMAS.not_delivered,
+  ),
   registerSessionEventVariant(
     "mcp.server_oauth_completed",
     "mcp_governance",

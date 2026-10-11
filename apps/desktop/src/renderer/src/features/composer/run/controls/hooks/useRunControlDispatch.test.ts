@@ -17,13 +17,14 @@ import {
 import { useRunControlDispatch, type RunControlAdmission } from "./useRunControlDispatch.js";
 import { inFlightKeyFor } from "../keys.js";
 import { inertBridge } from "#renderer/features/composer/Composer.test-support.js";
-import { OTHER_RUN_ID, RUN_ID, STUB_ACK, appliedIntervention } from "../commands.test-support.js";
+import { OTHER_RUN_ID, RUN_ID, STUB_ACK, appliedInterrupt } from "../commands.test-support.js";
 
 /** Calls no latch case reaches: each hands `dispatch` its own `perform`. */
 const UNUSED_CALLS: RunControlCalls = {
   pause: () => Promise.reject(new Error("this case dispatches through its own perform")),
   resume: () => Promise.reject(new Error("this case dispatches through its own perform")),
   intervene: () => Promise.reject(new Error("this case dispatches through its own perform")),
+  childSteer: () => Promise.reject(new Error("this case dispatches through its own perform")),
 };
 
 const ACKNOWLEDGED: RunControlOutcome = {
@@ -41,7 +42,7 @@ describe("one control per run is in flight at a time", () => {
       ...UNUSED_CALLS,
       intervene: (request) => {
         requests.push(request);
-        return Promise.resolve(appliedIntervention("interrupt", 5));
+        return Promise.resolve(appliedInterrupt(5));
       },
     };
     const bridge = inertBridge();

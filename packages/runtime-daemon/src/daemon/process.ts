@@ -15,7 +15,8 @@
 // runs its recovery pass, refusing every write until the pass has listed the sessions it rebuilds,
 // then a listed session's and one naming no session until the pass ends, and after it only the
 // writes of a session whose history is damaged; the session services' background work starts once
-// the pass has ended. A client that reads the previous token in the moment between the bind and
+// the pass has ended, and the run queue starts the queued runs the restart left once the drivers
+// have registered. A client that reads the previous token in the moment between the bind and
 // the write is refused once, and its next read finds this start's token. Its stop, asked for over
 // the socket or by a terminate signal, ends it cleanly at any point of the start or after it, and
 // records the clean stop once the database has closed; a start that nothing stopped says the
@@ -189,8 +190,8 @@ export class DaemonProcess {
   readonly providerBaseEnvironment: readonly SpawnEnvPair[];
   /**
    * The ports later parts of the daemon register on its provider side.
-   * @consumedBy the approval pipeline, the questions card, the run queue, the session directory,
-   * the agent tree, the tool-server front and the provider accounts, each registering its own port
+   * @consumedBy the approval pipeline, the questions card, the session directory, the agent tree,
+   * the tool-server front and the provider accounts, each registering its own port
    */
   readonly providerPorts: ProviderPorts;
 
@@ -294,9 +295,13 @@ export class DaemonProcess {
       streamingPrimitive,
       findBranchPatternRefusal: (pattern) => findBranchPatternRefusal(pattern, parts.git),
     });
-    // The drivers the provider side registers, which a session's close ends its provider leg
-    // through.
+    // The drivers the provider side registers; a session's close ends its leg through them.
     const providerRegistry = new ProviderRegistry();
+    // The gateway is built just below; a stream reads its queues only once it listens.
+    const outboundQueue: Parameters<typeof registerSessionMethods>[1]["outboundQueue"] = {
+      isFull: (transportId) => this.#gateway.isFull(transportId),
+      onceDrained: (transportId, listener) => this.#gateway.onceDrained(transportId, listener),
+    };
     // Every local connection comes from this machine, so its id is the calling device.
     const machineDeviceId = DeviceIdSchema.parse(parts.localMachine.nodeId);
     const sessionServices = parts.registerSessionMethods(registry, {
@@ -309,11 +314,7 @@ export class DaemonProcess {
       settingsFile: parts.settingsFile,
       providers: providerRegistry,
       streamingPrimitive,
-      // The gateway is built just below; a stream reads its queues only once it listens.
-      outboundQueue: {
-        isFull: (transportId) => this.#gateway.isFull(transportId),
-        onceDrained: (transportId, listener) => this.#gateway.onceDrained(transportId, listener),
-      },
+      outboundQueue,
       searchThread: parts.searchThread,
       whenFileCheckEnds: parts.databaseFile.checkOutcome,
       commandShell: options.commandShell,
@@ -399,12 +400,12 @@ export class DaemonProcess {
     });
     this.#providers = new DaemonProviders({
       database: this.#database,
-      runtimeBindings: sessionServices.runtimeBindings,
+      sessionServices,
       git: parts.git,
       methods: registry,
       streamingPrimitive,
+      outboundQueue,
       providerRegistry,
-      eventLog: sessionServices.eventLog,
       runEngine,
       executionPostures,
       homeDirectory: options.homeDirectory,
@@ -587,6 +588,8 @@ export class DaemonProcess {
         await daemon.#listen(options.runFolder, sessionToken);
         const listening = daemon;
         void damageWatch.whenFound.then((damage) => listening.#stopForRepair(damage));
+        // The drivers' registration, which the run queue's recovery waits for.
+        let registration: Promise<void> = Promise.resolve();
         // A stop signaled during the start, before this point included, stops the daemon as one
         // over the socket does; the pass then never starts.
         if (options.stopSignal.aborted) {
@@ -600,7 +603,7 @@ export class DaemonProcess {
           // reported. Each driver that fails to register says why in the service log; none
           // rejects.
           const providers = daemon.#providers;
-          void searchThread.whenOpenSettled().then(() => providers.start());
+          registration = searchThread.whenOpenSettled().then(() => providers.start());
           daemon.#recoveryPass = daemon.#startupRecovery.run();
           await daemon.#recoveryPass;
         }
@@ -609,6 +612,10 @@ export class DaemonProcess {
         // does damage the pass met, whose stop starts once this turn ends.
         if (daemon.#processState !== "stopping" && !damageWatch.isFound) {
           await daemon.#sessionServices.start();
+          // Not awaited, as the registration it follows is not: the runs the pass settled are
+          // ended, and a queued run the restart left starts once its driver has registered.
+          const providers = daemon.#providers;
+          void registration.then(() => providers.recoverRunQueue());
           options.writeServiceLog(
             `${DAEMON_READY_LINE} (process ${String(options.processIdentity.processId)}, ` +
               `protocol ${CURRENT_PROTOCOL_VERSION}).`,

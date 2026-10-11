@@ -2,22 +2,17 @@
 // router, not in it, so the controller, the command zone and the Send button read one
 // declaration.
 
-import type { InterventionRequestPayload } from "@ai-sidekicks/contracts/run/control";
 import type { QueueItemCreateRequest } from "@ai-sidekicks/contracts/run/queue";
 
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
-import type { ComposerSendPath } from "../../target.js";
 
-/** The new-turn arm: a message addressed to the session. */
-export interface ComposerNewTurnResolution {
-  readonly outcome: "new-turn";
+/**
+ * The queue arm: a message for the session's queue, whether a turn is running or not. The agent
+ * takes it at its next step.
+ */
+export interface ComposerQueueResolution {
+  readonly outcome: "queue";
   readonly request: QueueItemCreateRequest;
-}
-
-/** The steer arm: text handed to a run that is already going. */
-export interface ComposerSteerResolution {
-  readonly outcome: "steer";
-  readonly request: InterventionRequestPayload;
 }
 
 /**
@@ -36,17 +31,14 @@ export interface ComposerRefusedResolution {
 }
 
 /** What a message resolves to once no slash rule applies: a wire call, or a refusal. */
-export type ComposerMessageResolution =
-  | ComposerNewTurnResolution
-  | ComposerSteerResolution
-  | ComposerRefusedResolution;
+export type ComposerMessageResolution = ComposerQueueResolution | ComposerRefusedResolution;
 
-/** What Send resolves to: one of the four arms. */
+/** What Send resolves to: one of the three arms. */
 export type ComposerSendResolution = ComposerMessageResolution | ComposerConsoleCommandResolution;
 
 /** What a message dispatch settled as: it reached the wire, or it was refused. */
 export type ComposerMessageOutcome =
-  | { readonly status: "sent"; readonly path: ComposerSendPath }
+  | { readonly status: "sent" }
   | { readonly status: "refused"; readonly refusal: Refusal };
 
 /** What a send settled as. The composer renders exactly one of these. */

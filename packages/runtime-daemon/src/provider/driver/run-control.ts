@@ -1,12 +1,14 @@
 // The params and results of the driver operations that act on one live run: pause and continue,
 // withdrawing a waiting message, overruling a reviewer's block, answering a provider's choice and
-// resending a held turn on a faster model.
+// resending a held turn on a faster model; and what the run queue serves a driver starting a run.
 import type { AgentId } from "@ai-sidekicks/contracts/agent/definition";
+import type { ArtifactId } from "@ai-sidekicks/contracts/artifacts/id";
 import type {
   RunRefusalChoice,
   RunUsageCreditsChoice,
 } from "@ai-sidekicks/contracts/run/provider-choice";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
+import type { PickedSkill } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type { QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
@@ -19,8 +21,13 @@ export interface PauseRunParams {
   runId: RunId;
 }
 
-/** A message waiting for a run, as the queue holds it, for delivery when the run continues. */
-export type WaitingMessage = Pick<QueueItemSummary, "id" | "content" | "attachments">;
+/**
+ * A message waiting for a run, as the queue holds it, for delivery when the run continues: its
+ * words, files and the skills picked for it.
+ */
+export type WaitingMessage = Pick<QueueItemSummary, "id" | "content" | "attachments"> & {
+  readonly skills?: readonly PickedSkill[] | undefined;
+};
 
 /**
  * Params of `resumeRun`: the paused or pausing run to continue from where it stopped, with the
@@ -97,10 +104,34 @@ export type FasterModelRetryOutcome =
   | { readonly state: "applied" }
   | { readonly state: "rejected"; readonly rejectionReason: string };
 
+/**
+ * A tool call of a run's turn finished while the turn still runs: the step boundary at which the
+ * run queue hands the driver every message it holds for that run, in send order.
+ */
+export interface RunToolBoundary {
+  readonly sessionId: SessionId;
+  readonly runId: RunId;
+}
+
 /** The binding a turn the daemon starts on a session itself runs on, and the session's agent. */
 export interface DaemonTurnBinding {
   readonly bindingId: string;
   readonly agentId: AgentId;
+}
+
+/**
+ * The daemon-owned facts the Claude driver's `startRun` needs that `StartRunParams` lacks, which the
+ * run queue serves. `messageId` is the person's message the opening text is, a UUID, stamped on
+ * the user frame so a later cut can name it.
+ */
+export interface ClaudeRunDispatch {
+  readonly sessionId: SessionId;
+  /** The runtime binding the run's deliveries are attributed on, opened by the daemon. */
+  readonly bindingId: string;
+  readonly openingText: string;
+  /** The message's staged files, in staging order. */
+  readonly attachments: readonly ArtifactId[];
+  readonly messageId: string;
 }
 
 /** Opens the binding of a turn the daemon starts on a session itself; the run queue serves it. */

@@ -3,7 +3,8 @@
 // session's routes when its turn settles, a rewind supersedes it or it closes; a bound route, or a
 // command Claude Code runs as a turn of its own, is the session's one turn in flight. A run's
 // binding outlives its turn's hold, since a paused run takes its next turn on the same binding,
-// and goes when the run ends. A helper Claude Code started is a child run, routed by the
+// and goes when the run ends; a run whose turn ended with a steer Claude Code has yet to take
+// keeps its hold through that turn's settlement, into the turn Claude Code starts with it. A helper Claude Code started is a child run, routed by the
 // provider's own agent id, which its frames and hook callbacks carry. A run apart from the
 // session's process, such as a review of the staged changes, holds no turn there and is routed
 // only to how it is stopped.
@@ -47,6 +48,9 @@ export class ClaudeRunRoutes {
   readonly #bindingByRunId: Map<RunId, ClaudeRunBinding> = new Map();
   readonly #childByRunId: Map<RunId, ClaudeChildRunRoute> = new Map();
   readonly #apartStopByRunId: Map<RunId, ClaudeApartRunStop> = new Map();
+  // The runs that hold their session's turn past its settlement, into the turn Claude Code starts
+  // next.
+  readonly #carriedRunIds: Set<RunId> = new Set();
   // The sessions whose turn a command such as `/compact` holds, until that turn settles.
   readonly #commandTurnSessions: Set<SessionId> = new Set();
   // Who waits for a session's turn to be free, each answered once and dropped.
@@ -177,6 +181,11 @@ export class ClaudeRunRoutes {
     return true;
   }
 
+  /** Keeps `runId` holding its session's turn through the turn's settlement, into the next turn. */
+  carryTurnOver(runId: RunId): void {
+    this.#carriedRunIds.add(runId);
+  }
+
   /** Drops one run's turn hold; its binding stays until the run ends. */
   unbindRun(runId: RunId): void {
     const sessionId = this.#sessionIdByRunId.get(runId);
@@ -188,6 +197,7 @@ export class ClaudeRunRoutes {
   forgetRun(runId: RunId): void {
     const sessionId = this.#sessionIdByRunId.get(runId);
     this.#sessionIdByRunId.delete(runId);
+    this.#carriedRunIds.delete(runId);
     this.#bindingByRunId.delete(runId);
     this.#answerTurnWaiters(sessionId);
   }
@@ -235,11 +245,26 @@ export class ClaudeRunRoutes {
     return runId === null || bindingId === undefined ? undefined : { runId, bindingId };
   }
 
+  /**
+   * Drops the session's turn holds as its turn settles, a command's included, but a run's that
+   * carries over into the next turn; bindings and the slot stay.
+   */
+  settleTurnHolds(sessionId: SessionId): void {
+    for (const [runId, boundSessionId] of this.#sessionIdByRunId) {
+      if (boundSessionId === sessionId && !this.#carriedRunIds.delete(runId)) {
+        this.#sessionIdByRunId.delete(runId);
+      }
+    }
+    this.#commandTurnSessions.delete(sessionId);
+    this.#answerTurnWaiters(sessionId);
+  }
+
   /** Drops every turn hold on this session, a command's included; bindings and the slot stay. */
   retireRunRoutes(sessionId: SessionId): void {
     for (const [runId, boundSessionId] of this.#sessionIdByRunId) {
       if (boundSessionId === sessionId) {
         this.#sessionIdByRunId.delete(runId);
+        this.#carriedRunIds.delete(runId);
       }
     }
     this.#commandTurnSessions.delete(sessionId);

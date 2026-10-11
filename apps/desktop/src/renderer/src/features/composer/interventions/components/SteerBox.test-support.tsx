@@ -3,7 +3,7 @@
 
 import { useState } from "react";
 import { act, render, within } from "@testing-library/react";
-import type { InterventionRequestResponse } from "@ai-sidekicks/contracts/run/control";
+import type { QueueItemCreateResponse } from "@ai-sidekicks/contracts/run/queue";
 import type { RunState } from "@ai-sidekicks/contracts/run/state";
 import { type RecordedDaemonCall } from "#test/helpers/fixture/bridge.js";
 import { SteerBox } from "./SteerBox.js";
@@ -17,33 +17,36 @@ import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAn
 /** The agent every mounted box steers. */
 export const STEERED_AGENT_NAME = "builder";
 
-/** What the stub answers one intervention with. */
+/** The handle of the child every mounted box steers. */
+export const STEERED_CHILD_HANDLE = "agent-builder-1";
+
+/** What the stub answers one queued message with. */
 export type ScriptedAnswer = () => unknown;
 
-/** The applied settlement every case that is not about settlement rides on. */
-export const APPLIED_STEER: ScriptedAnswer = () => ({
-  interventionId: "d5f2c3e4-6071-4182-ac93-1e4f50617283",
-  interventionType: "steer",
-  state: "applied",
-  runVersion: 9,
-});
+/** The daemon's answer to a child's steer, for a case that releases a held call with it. */
+export const QUEUED_STEER_RESPONSE = {
+  queueItemId: "d5f2c3e4-6071-4182-ac93-1e4f50617283",
+  state: "queued",
+  createdAt: "2026-09-02T09:00:00.000Z",
+} as QueueItemCreateResponse;
+
+/** The queued settlement every case that is not about settlement rides on. */
+export const QUEUED_STEER: ScriptedAnswer = () => QUEUED_STEER_RESPONSE;
 
 /**
- * The calls the run control dispatch is given, recording each intervention into the case's
- * own array. Only `intervene` answers; no case here presses pause or resume.
+ * The calls the run control dispatch is given, recording each steer into the case's own array.
+ * Only `childSteer` answers; no case here presses pause, resume or interrupt.
  */
-export function interventionCalls(
-  calls: RecordedDaemonCall[],
-  answer: ScriptedAnswer,
-): RunControlCalls {
+export function steerCalls(calls: RecordedDaemonCall[], answer: ScriptedAnswer): RunControlCalls {
   const unused = (): Promise<never> =>
-    Promise.reject(new Error("the intervention composer calls only intervene"));
+    Promise.reject(new Error("the steer box calls only childSteer"));
   return {
     pause: unused,
     resume: unused,
-    intervene: async (request) => {
-      calls.push({ method: "run.intervene", params: request });
-      return answer() as InterventionRequestResponse;
+    intervene: unused,
+    childSteer: async (request) => {
+      calls.push({ method: "run.childSteer", params: request });
+      return answer() as QueueItemCreateResponse;
     },
   };
 }
@@ -66,12 +69,13 @@ export function SteerBoxHarness(props: {
   // Pinned: the dispatch state keys its holders on the bridge, so a rebuilt stub would be a
   // new transport every render.
   const [bridge] = useState(inertBridge);
-  const [runControlCalls] = useState(() => interventionCalls(props.calls, props.answer));
+  const [runControlCalls] = useState(() => steerCalls(props.calls, props.answer));
   const dispatchState = useRunControlDispatch(bridge, runControlCalls);
   return (
     <SteerBox
       bridge={bridge}
       run={runAt("paused")}
+      childHandle={STEERED_CHILD_HANDLE}
       agentName={STEERED_AGENT_NAME}
       dispatchState={dispatchState}
       onDismiss={props.onDismiss}
@@ -80,7 +84,7 @@ export function SteerBoxHarness(props: {
 }
 
 /** Render the harness with the case's answer, returning what it recorded and dismissed. */
-export function renderSteerBox(answer: ScriptedAnswer = APPLIED_STEER): {
+export function renderSteerBox(answer: ScriptedAnswer = QUEUED_STEER): {
   container: HTMLElement;
   calls: RecordedDaemonCall[];
   dismissCount: () => number;

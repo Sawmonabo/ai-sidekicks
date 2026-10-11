@@ -22,7 +22,6 @@ import type { DaemonLifecycleMethodDescriptors } from "./lifecycle.js";
 import type { DaemonRetentionMethodDescriptors } from "./retention.js";
 import type { DaemonStatusMethodDescriptors } from "./status.js";
 import type { ControlPlaneMethodDescriptors, DeviceMethodDescriptors } from "../device.js";
-import type { DriverEventMethodDescriptors } from "../provider/driver/event.js";
 import type { GitflowMethodDescriptors } from "../gitflow/methods.js";
 import type { HighlightMethodDescriptors } from "../highlight.js";
 import type { MachineSettingsMethodDescriptors } from "../machine-settings.js";
@@ -98,7 +97,6 @@ export type DaemonMethodDescriptors = AgentMethodDescriptors &
   PreviewMethodDescriptors &
   ProviderAccountMethodDescriptors &
   DriverMethodDescriptors &
-  DriverEventMethodDescriptors &
   SessionImportMethodDescriptors &
   ProviderMethodDescriptors &
   PtyMethodDescriptors &

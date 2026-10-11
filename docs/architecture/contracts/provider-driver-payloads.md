@@ -478,6 +478,9 @@ type ApplyInterventionParams =
 interface SteerPayload {
   content: string;
   attachments?: ArtifactId[];
+  // The skills the person picked for this message, by name and folder; a Codex agent receives each as
+  // its own skill input item naming the folder's `SKILL.md`, a Claude Code agent the `/name` text alone.
+  skills?: { name: string; folderPath: string }[];
   expectedTurnId?: string;
 }
 

@@ -5,6 +5,7 @@
 
 import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import type { SessionMode } from "@ai-sidekicks/contracts/session/controls/methods";
+import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { StagedChangesWorktree } from "../../../../git/worktree/staged-changes.js";
 import type { ExecutionPostureService } from "../../../../policy/execution-posture-service.js";
@@ -33,6 +34,7 @@ import {
   type CumulativeAxisReadings,
   type MeteredUsageDelta,
 } from "../../../usage-delta-accountant.js";
+import type { AttachmentResolver } from "../../attachments.js";
 import type { DriverResumeResult } from "../../contract.js";
 import type { ClaudeAttachedAdvisor, ClaudeCommandChoices } from "./answered-commands.js";
 import type { ClaudeDeadlineScheduler } from "./control-requests.js";
@@ -237,6 +239,8 @@ export interface ClaudeSessionLifecycleDependencies {
   /** Resolves the curated credential list a posture names into the paths every spawn denies. */
   readonly credentialPolicy: Pick<ExecutionPostureService, "resolveCredentialPolicy">;
   readonly runDispatchResolver: ClaudeRunDispatchResolver;
+  /** Binds the files a message carries to their stored copies, in staging order. */
+  readonly attachments: AttachmentResolver;
   readonly runEngine: ClaudeRunEnginePort;
   readonly inbound: ClaudeInboundDispatchPort;
   /**
@@ -255,6 +259,11 @@ export interface ClaudeSessionLifecycleDependencies {
    * or on a provider build change, so the daemon records the binding it minted or the failure.
    */
   readonly onSessionRelaunched: (sessionId: SessionId, result: DriverResumeResult) => void;
+  /**
+   * Claude Code replayed a message the daemon handed it, which is how it says it took the message
+   * into the lead run's turn; the id is the message's uuid.
+   */
+  readonly onMessageTaken: (sessionId: SessionId, messageId: string, runId: RunId) => void;
   /**
    * Points the session's binding at the session a rewind forked, so a later resume opens that one,
    * and records in the same write the session it left. Rejects when it was not recorded.

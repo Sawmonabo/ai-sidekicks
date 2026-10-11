@@ -1,7 +1,8 @@
 // Builds the artifact store over the daemon's one database and binds the `artifact.*` calls it
 // answers: the three ingest calls and the publish. The store sits in the data folder: the
 // content-addressed payloads in `objects/` and the spools of ingests and publishes beside them in
-// `spool/`, on one volume, so a spool moves into the store by a rename. Its start schedules the
+// `spool/`, on one volume, so a spool moves into the store by a rename. A message's files are
+// bound to their stored copies there for the drivers. Its start schedules the
 // ingest reaper on the service's one scheduler: a pass at once, which clears the spools a stopped
 // daemon left, then one every ten minutes; its stop cancels the reaper and the type detector.
 
@@ -11,12 +12,14 @@ import { DAEMON_DATA_FOLDER_NAME } from "@ai-sidekicks/contracts/daemon/data";
 import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 
 import { UploadAdmission } from "../artifacts/admission.js";
+import { ArtifactAttachmentResolver } from "../artifacts/attachment-resolver.js";
 import { ThreadedTypeDetector } from "../artifacts/detection/thread.js";
 import { AttachmentIngestService } from "../artifacts/ingest/service.js";
 import { PayloadStore } from "../artifacts/payload-store.js";
 import { ArtifactPublishService } from "../artifacts/publish.js";
 import { IngestValidation } from "../artifacts/validation.js";
 import type { DatabaseConnections } from "../database/connection/lifecycle.js";
+import type { AttachmentResolver } from "../provider/driver/attachments.js";
 import { registerArtifactIngestMethods } from "../ipc/handlers/artifact/ingest.js";
 import { registerArtifactPublish } from "../ipc/handlers/artifact/publish.js";
 import type { RepeatingJob, ScheduledJobHandle } from "./scheduler.js";
@@ -38,8 +41,10 @@ export interface ArtifactMethodsDeps {
   readonly readVolumeFreeBytes: (folderPath: string) => Promise<number>;
 }
 
-/** The artifact store's background work. */
+/** The artifact store's background work, and its binding of a message's files to stored copies. */
 export interface ArtifactMethods {
+  /** Binds the files a message carries to their stored copies, for the drivers to hand over. */
+  readonly attachments: AttachmentResolver;
   /** Schedules the ingest reaper; called once, after the daemon's recovery pass has ended. */
   readonly start: () => void;
   /**
@@ -88,6 +93,7 @@ export function registerArtifactMethods(
 
   let reaperTick: ScheduledJobHandle | undefined;
   return {
+    attachments: new ArtifactAttachmentResolver(deps.database.reader, payloadStore),
     start: () => {
       reaperTick = deps.scheduler.scheduleRepeating({
         name: "ingest reaper",

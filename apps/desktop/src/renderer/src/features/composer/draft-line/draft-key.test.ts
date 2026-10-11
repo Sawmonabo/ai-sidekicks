@@ -30,7 +30,6 @@ function runTarget(axes: TargetAxes = {}): ComposerRunTarget {
     agentId: axes.agentId ?? "agent-implementer",
     driverName: "claude",
     targetRunId: axes.targetRunId ?? "run-01",
-    expectedRunVersion: 4,
   };
 }
 

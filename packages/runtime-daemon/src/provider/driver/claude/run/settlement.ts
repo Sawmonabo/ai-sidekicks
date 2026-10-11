@@ -1,6 +1,7 @@
 // A Claude Code turn that settled on its terminal frame: the output speed it ran at is settled, a
-// compaction still waiting on it ends uncompacted, the session's turn is released, helper starts
-// the turn held are let go, and a build move that waited for the turn goes.
+// compaction still waiting on it ends uncompacted, the session's turn is released unless its run
+// carries over into the turn Claude Code starts next, helper starts the turn held are let go, and a
+// build move that waited for the session's turn goes once nothing holds it.
 
 import type { PendingCompactionRegistry } from "../../../compaction-wait.js";
 import type { ClaudeHandshakeRegister } from "../handshake-register.js";
@@ -31,8 +32,8 @@ export class ClaudeTurnSettlement {
 
   /**
    * Settles the session's turn. Claude Code takes one turn at a time per session, so whatever held
-   * the turn is what just ended; the stream delivered its end first. Only routes retire, never the
-   * slot.
+   * the turn is what just ended; the stream delivered its end first, or carried its run over.
+   * Only routes retire, never the slot.
    */
   settleTurn(live: LiveClaudeSession): void {
     const { handshakes, runRoutes, helpers, hookCallbacks, pendingCompactions, moveAfterTurn } =
@@ -42,8 +43,10 @@ export class ClaudeTurnSettlement {
     // A compaction holds the turn while it waits, so a turn ending under a wait is the compaction's
     // own, whose frame came first if it compacted.
     pendingCompactions.observeTurnEnd(live.sessionId);
-    runRoutes.retireRunRoutes(live.sessionId);
+    runRoutes.settleTurnHolds(live.sessionId);
     hookCallbacks.admitHelperStarts(live, helpers.turnEnded(live.sessionId));
-    moveAfterTurn(live);
+    if (!runRoutes.isTurnHeld(live.sessionId)) {
+      moveAfterTurn(live);
+    }
   }
 }

@@ -24,7 +24,7 @@ import {
   ExecutionPostureService,
 } from "../../../policy/execution-posture-service.js";
 import type { ProviderDriver, StartRunParams } from "../../../provider/driver/contract.js";
-import { RunEngine, type RunTransitionRequest } from "../engine.js";
+import { RunEngine, type RunStartRequest, type RunTransitionRequest } from "../engine.js";
 import { insertQueuedRunStatement } from "../projection.js";
 import { RunStateReader } from "../read.js";
 
@@ -90,13 +90,23 @@ export function makeRecordingDriver(): RecordingDriver {
   };
 }
 
+/** The start of `runId` on `driver`, handed the posture the gates resolved and no agent config. */
+export function startOnDriver(
+  driver: Pick<ProviderDriver, "startRun">,
+  runId: RunId,
+): RunStartRequest["startDriver"] {
+  return async (executionPosture) => {
+    await driver.startRun({ runId, agentConfig: {}, executionPosture });
+  };
+}
+
 /** A queue item for a run's setup context. */
 export function makeQueueItem(): QueueItemSummary {
   const now = new Date().toISOString();
   return {
     id: QueueItemIdSchema.parse(randomUUID()),
     state: "admitted",
-    priority: 0,
+    position: 0,
     content: "Add the retry to the upload",
     createdAt: now,
     updatedAt: now,

@@ -182,7 +182,11 @@ function eventTypesIn(category: EventCategory): readonly SessionEventType[] {
 
 /** The event types of the `run_lifecycle` category. */
 export const RUN_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = eventTypesIn("run_lifecycle");
-/** The event types of the `assistant_output` category. */
+/**
+ * The event types of the `assistant_output` category.
+ *
+ * @consumedBy a reader of the `assistant_output` events
+ */
 export const ASSISTANT_OUTPUT_EVENT_TYPES: readonly SessionEventType[] =
   eventTypesIn("assistant_output");
 /** The event types of the `tool_activity` category. */
@@ -190,7 +194,11 @@ export const TOOL_ACTIVITY_EVENT_TYPES: readonly SessionEventType[] = eventTypes
 /** The event types of the `interactive_request` category. */
 export const INTERACTIVE_REQUEST_EVENT_TYPES: readonly SessionEventType[] =
   eventTypesIn("interactive_request");
-/** The event types of the `artifact_publication` category. */
+/**
+ * The event types of the `artifact_publication` category.
+ *
+ * @consumedBy a reader of the `artifact_publication` events
+ */
 export const ARTIFACT_PUBLICATION_EVENT_TYPES: readonly SessionEventType[] =
   eventTypesIn("artifact_publication");
 /**
@@ -208,7 +216,11 @@ export const SESSION_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] =
  * @consumedBy a reader of the `approval_flow` events
  */
 export const APPROVAL_FLOW_EVENT_TYPES: readonly SessionEventType[] = eventTypesIn("approval_flow");
-/** The event types of the `usage_telemetry` category. */
+/**
+ * The event types of the `usage_telemetry` category.
+ *
+ * @consumedBy a reader of the `usage_telemetry` events
+ */
 export const USAGE_TELEMETRY_EVENT_TYPES: readonly SessionEventType[] =
   eventTypesIn("usage_telemetry");
 /**

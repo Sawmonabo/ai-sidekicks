@@ -1,6 +1,7 @@
 // Shared setup for the `lifecycle.ts` tests: a lifecycle wired to the transport and dispatch
 // doubles, plus the arrangements most tests open with.
 
+import type { ArtifactId } from "@ai-sidekicks/contracts/artifacts/id";
 import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import type { ProviderOutputSpeedState } from "@ai-sidekicks/contracts/provider/driver/output-speed";
 import type { ProcessExit } from "@ai-sidekicks/contracts/run/control";
@@ -21,6 +22,7 @@ import type {
   ResumeSessionParams,
 } from "../../contract.js";
 import { makeSilentDriverDiagnostics } from "../../../__fixtures__/silent-driver-diagnostics.js";
+import { FakeAttachmentResolver } from "../../__fixtures__/attachment-doubles.js";
 import { ClaudeSessionLifecycle } from "../lifecycle.js";
 import type { ClaudeSessionLifecycleDependencies } from "../session/state.js";
 import {
@@ -176,6 +178,7 @@ export function buildHarness(
     onSessionRelaunched: (sessionId, result) => {
       relaunches.push({ sessionId, result });
     },
+    onMessageTaken: () => undefined,
     rebindRuntimeBinding: async () => {
       await Promise.resolve();
     },
@@ -194,6 +197,7 @@ export function buildHarness(
       };
     },
     runDispatchResolver,
+    attachments: new FakeAttachmentResolver(),
     diagnostics: makeSilentDriverDiagnostics(),
     mintProviderSessionId: () => TEST_PINNED_PROVIDER_SESSION_ID,
     mintBindingId: () => TEST_BINDING_ID,
@@ -280,11 +284,13 @@ export function armRunDispatch(
   runId: RunId = TEST_RUN_ID,
   openingText = "review the diff",
   sessionId: SessionId = TEST_SESSION_ID,
+  attachments: readonly ArtifactId[] = [],
 ): void {
   harness.runDispatchResolver.dispatchByRunId.set(runId, {
     sessionId,
     bindingId: TEST_BINDING_ID,
     openingText,
+    attachments,
     messageId: TEST_MESSAGE_ID,
   });
 }

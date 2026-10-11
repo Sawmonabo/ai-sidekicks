@@ -11,7 +11,7 @@ import { WindowStore } from "#renderer/store/window/store.js";
 import { SessionStore } from "#renderer/store/session/store.js";
 import type { ComposerProps } from "#renderer/registries/composer/registry.js";
 import type { PaneAddress } from "#renderer/routing/panes/address.js";
-import { SESSION_ID, STEER_APPLIED } from "../send/router.test-support.js";
+import { QUEUE_CREATED, SESSION_ID } from "../send/router.test-support.js";
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { DraftLine } from "./DraftLine.js";
 import { agentPane, inertBridge } from "../../Composer.test-support.js";
@@ -105,9 +105,9 @@ export const FIRST_AGENT_ID = "agent-ada";
 /** The second agent in `storeWithTwoSteerableAgents`. */
 export const SECOND_AGENT_ID = "agent-grace";
 
-/** An answering arm that serves a steer and nothing else. */
-export async function answerSteer(call: RecordedDaemonCall): Promise<unknown> {
-  return call.method === "run.intervene" ? STEER_APPLIED : undefined;
+/** An answering arm that queues a message and serves nothing else. */
+export async function answerQueued(call: RecordedDaemonCall): Promise<unknown> {
+  return call.method === "run.queueCreate" ? QUEUE_CREATED : undefined;
 }
 
 /** The first agent's steerable run. */

@@ -1,5 +1,6 @@
 // The Claude driver's interventions on a running turn: a steer is a user message written into the
-// turn, which Claude Code reads at its next step, and an interrupt is Claude Code's `interrupt`.
+// turn with its staged files, which Claude Code reads at its next step, and an interrupt is Claude
+// Code's `interrupt`.
 //
 // Failure polarity, for every arm:
 //   * A typed `control_response` error means the provider answered and refused: `degraded`, with
@@ -27,6 +28,8 @@ import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { isPlainObject } from "../../record-readers.js";
+import type { AttachmentResolver } from "../attachments.js";
+import { composeClaudeAttachmentBlocks } from "./attachments.js";
 import { ClaudeRequestTimeoutError, ClaudeSessionUnavailableError } from "./session/errors.js";
 import { attemptClaudeFrameWrite } from "./session/stdin-write.js";
 import type {
@@ -34,6 +37,7 @@ import type {
   ClaudeControlResponse,
   ClaudeProviderProcess,
   ClaudeRunProcessLookup,
+  ClaudeUserContentBlock,
 } from "./session/transport.js";
 
 // The `system/init` capability that makes `interrupt` take `cancel_queued`.
@@ -86,11 +90,16 @@ export interface ClaudeInterventionSettlement {
    */
   settleChoiceForMessage(runId: RunId): Promise<SessionId | undefined>;
   /**
-   * Sends a message as the session's next turn, its own run, once the ended run's turn is released,
-   * and resolves with that run's id. Throws `session_turn_in_flight` when the turn is not released
-   * within the request deadline.
+   * Sends a message and its files' blocks as the session's next turn, its own run, once the ended
+   * run's turn is released, and resolves with that run's id. Throws `session_turn_in_flight` when
+   * the turn is not released within the request deadline.
    */
-  sendAsNextTurn(sessionId: SessionId, content: string, messageId: string): Promise<RunId>;
+  sendAsNextTurn(
+    sessionId: SessionId,
+    content: string,
+    messageId: string,
+    attachmentBlocks: readonly ClaudeUserContentBlock[],
+  ): Promise<RunId>;
   /** The interrupt is about to go, so the run's turn end is held until it settles. */
   holdTurnEndForInterrupt(runId: RunId): void;
   /**
@@ -110,22 +119,33 @@ export interface ClaudeInterventionSettlement {
 export interface ClaudeInterventionDispatcherDependencies {
   readonly channelLookup: ClaudeRunProcessLookup;
   readonly settlement: ClaudeInterventionSettlement;
-  /** Records a steer written into the run's turn, the newest message its session was sent. */
+  readonly attachments: AttachmentResolver;
+  /**
+   * Records a steer about to be written into the run's turn, the newest message its session was
+   * sent, before the write, since Claude Code may replay it before the write settles.
+   */
   readonly onSteerSent: (runId: RunId, messageUuid: string) => void;
+  /** Forgets a steer whose write failed, which Claude Code never takes. */
+  readonly onSteerUnsent: (runId: RunId, messageUuid: string) => void;
 }
 
 /** Applies interventions to Claude runs; every arm resolves to a `DriverInterventionResult`. */
 export class ClaudeInterventionDispatcher {
   readonly #dependencies: ClaudeInterventionDispatcherDependencies;
+  // Each session's newest steer, settled either way, which the next one waits for; dropped once
+  // no later steer follows it.
+  readonly #lastSteerBySession = new Map<SessionId, Promise<void>>();
 
   constructor(dependencies: ClaudeInterventionDispatcherDependencies) {
     this.#dependencies = dependencies;
   }
 
   /**
-   * Writes a steer into the run's turn and sends an interrupt as Claude Code's `interrupt`.
-   * Throws `ClaudeSessionUnavailableError` when the run has no channel, and a failed steer write's
-   * cause; nothing is written twice.
+   * Writes a steer and its files into the run's turn and sends an interrupt as Claude Code's
+   * `interrupt`. Steers on one session are written in the order they were handed over, however
+   * long their files take to read. Throws `ClaudeSessionUnavailableError` when the run has no
+   * channel, the files' resolution or read failure before anything is sent, and a failed steer
+   * write's cause; nothing is written twice.
    */
   async applyIntervention(params: ApplyInterventionParams): Promise<DriverInterventionResult> {
     const { settlement } = this.#dependencies;
@@ -133,36 +153,70 @@ export class ClaudeInterventionDispatcher {
     if (params.type === "interrupt" && settlement.stopApartRun(params.targetRunId)) {
       return DriverInterventionResultSchema.parse({ status: "applied" });
     }
-    const channel = this.#dependencies.channelLookup.findProcessForRun(params.targetRunId);
-    if (channel === undefined) {
+    const { channelLookup } = this.#dependencies;
+    const channel = channelLookup.findProcessForRun(params.targetRunId);
+    const sessionId = channelLookup.sessionIdForRun(params.targetRunId);
+    if (channel === undefined || sessionId === undefined) {
       throw new ClaudeSessionUnavailableError("no_live_run", { runId: params.targetRunId });
     }
     switch (params.type) {
       case "steer": {
-        const nextTurnSessionId = await settlement.settleChoiceForMessage(params.targetRunId);
-        if (nextTurnSessionId !== undefined) {
-          const deliveredRunId = await settlement.sendAsNextTurn(
-            nextTurnSessionId,
-            params.payload.content,
-            params.clientIdempotencyKey,
-          );
-          return DriverInterventionResultSchema.parse({ status: "applied", deliveredRunId });
-        }
-        const attempt = await attemptClaudeFrameWrite(
-          channel,
-          { text: params.payload.content, origin: "human_text" },
-          params.clientIdempotencyKey,
+        // Its files are read from the moment it is handed over, and it takes its place behind the
+        // session's steer before it with nothing awaited, so the order it came in is kept.
+        const attachmentBlocks = composeClaudeAttachmentBlocks(
+          this.#dependencies.attachments,
+          sessionId,
+          params.payload.attachments,
         );
-        if (attempt.settled === "failed") {
-          throw attempt.cause;
-        }
-        this.#dependencies.onSteerSent(params.targetRunId, params.clientIdempotencyKey);
-        return DriverInterventionResultSchema.parse({ status: "applied" });
+        const previousSteer = this.#lastSteerBySession.get(sessionId) ?? Promise.resolve();
+        const steer = Promise.all([previousSteer, attachmentBlocks]).then(
+          async ([, blocks]) => await this.#writeSteer(channel, params, blocks),
+        );
+        const settled = Promise.allSettled([previousSteer, steer]).then(() => undefined);
+        this.#lastSteerBySession.set(sessionId, settled);
+        void settled.then(() => {
+          if (this.#lastSteerBySession.get(sessionId) === settled) {
+            this.#lastSteerBySession.delete(sessionId);
+          }
+        });
+        return await steer;
       }
       case "interrupt": {
         return await this.#dispatchInterrupt(channel, params.targetRunId, params.payload);
       }
     }
+  }
+
+  // Writes one steer and its files, or, when settling the choice the run was held on ended it,
+  // sends them as the session's next turn. A file that cannot be read has settled nothing.
+  async #writeSteer(
+    channel: ClaudeProviderProcess,
+    params: Extract<ApplyInterventionParams, { type: "steer" }>,
+    attachmentBlocks: readonly ClaudeUserContentBlock[],
+  ): Promise<DriverInterventionResult> {
+    const { settlement } = this.#dependencies;
+    const nextTurnSessionId = await settlement.settleChoiceForMessage(params.targetRunId);
+    if (nextTurnSessionId !== undefined) {
+      const deliveredRunId = await settlement.sendAsNextTurn(
+        nextTurnSessionId,
+        params.payload.content,
+        params.clientIdempotencyKey,
+        attachmentBlocks,
+      );
+      return DriverInterventionResultSchema.parse({ status: "applied", deliveredRunId });
+    }
+    this.#dependencies.onSteerSent(params.targetRunId, params.clientIdempotencyKey);
+    const attempt = await attemptClaudeFrameWrite(
+      channel,
+      { text: params.payload.content, origin: "human_text" },
+      params.clientIdempotencyKey,
+      attachmentBlocks,
+    );
+    if (attempt.settled === "failed") {
+      this.#dependencies.onSteerUnsent(params.targetRunId, params.clientIdempotencyKey);
+      throw attempt.cause;
+    }
+    return DriverInterventionResultSchema.parse({ status: "applied" });
   }
 
   async #dispatchInterrupt(
@@ -204,7 +258,7 @@ export class ClaudeInterventionDispatcher {
     }
     const receipt = isPlainObject(response.response) ? response.response : undefined;
     if (cancelQueued && countSurvivingQueuedMessages(receipt) > 0) {
-      // Survivors are already queued, so `queue_and_interrupt` would queue them twice.
+      // Messages Claude Code still holds outlived the interrupt, so not all went back to the draft.
       return DriverInterventionResultSchema.parse({ status: "degraded" });
     }
     return DriverInterventionResultSchema.parse({ status: "applied" });

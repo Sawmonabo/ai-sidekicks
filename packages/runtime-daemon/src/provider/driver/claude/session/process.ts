@@ -29,6 +29,7 @@ import {
   type ClaudeInboundFrameObservation,
   type ClaudeInboundRequestEvent,
   type ClaudeProviderProcess,
+  type ClaudeUserContentBlock,
   type ClaudeUserTextWriteAttempt,
 } from "./transport.js";
 
@@ -105,6 +106,10 @@ export class ClaudeCodeProcess implements ClaudeProviderProcess {
   #inboundRequestObserver: ((event: ClaudeInboundRequestEvent) => void) | undefined;
   #exitObserver: ((exit: ProcessExit) => void) | undefined;
 
+  get processId(): number | undefined {
+    return this.#child.pid;
+  }
+
   constructor(child: ChildProcessWithoutNullStreams, launch: ClaudeCodeProcessLaunch) {
     this.providerSessionId = launch.providerSessionId;
     this.#child = child;
@@ -155,8 +160,9 @@ export class ClaudeCodeProcess implements ClaudeProviderProcess {
   async sendUserText(
     outboundText: OutboundText,
     messageUuid: string,
+    attachmentBlocks?: readonly ClaudeUserContentBlock[],
   ): Promise<ClaudeUserTextWriteAttempt> {
-    const frame = composeClaudeUserFrame(outboundText, messageUuid);
+    const frame = composeClaudeUserFrame(outboundText, messageUuid, attachmentBlocks);
     return await writeStdinLine(this.#child.stdin, `${JSON.stringify(frame)}\n`);
   }
 

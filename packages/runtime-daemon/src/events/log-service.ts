@@ -20,7 +20,11 @@ import type { Database } from "better-sqlite3";
 
 import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
 import { type SessionId } from "@ai-sidekicks/contracts/session/id";
-import { type EventCursor, encodeEventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
+import {
+  type EventCursor,
+  encodeEventCursor,
+  START_OF_LOG_POSITION,
+} from "@ai-sidekicks/contracts/session/event-cursor";
 
 import type { ServiceLogWriter } from "../daemon/service-log.js";
 import type { WriteStatement } from "../database/statement.js";
@@ -283,6 +287,14 @@ export class EventLogService {
       nextCursor: encodeEventCursor(lastEvent === undefined ? afterPosition : lastEvent.sequence),
       hasMore,
     };
+  }
+
+  /**
+   * The cursor of the session's newest readable event, below its last good point while its history
+   * is damaged, or the start of its log when it has none.
+   */
+  readNewestCursor(sessionId: SessionId): EventCursor {
+    return encodeEventCursor(this.#reads.readHead(sessionId) ?? START_OF_LOG_POSITION);
   }
 
   /** Reads the events with a sequence from `fromSequence` to `toSequence`, in sequence order. */

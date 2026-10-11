@@ -139,6 +139,7 @@ export type SessionAttachmentRefusedCode = typeof SESSION_ATTACHMENT_REFUSED_COD
  * - `folder`: a folder was offered; an agent reads a folder where it is.
  * - `provider_takes_no_attachments`: the session's provider accepts no files.
  * - `card_waiting`: a card above the composer is waiting on the person.
+ * - `provider_refused`: the provider will not take the file, for example a picture too large.
  * - `copy_failed`: the copy to the daemon did not complete.
  */
 export const SESSION_ATTACHMENT_REFUSED_REASONS = [
@@ -146,15 +147,20 @@ export const SESSION_ATTACHMENT_REFUSED_REASONS = [
   "folder",
   "provider_takes_no_attachments",
   "card_waiting",
+  "provider_refused",
   "copy_failed",
 ] as const;
 /** One of {@link SESSION_ATTACHMENT_REFUSED_REASONS}. */
 export type SessionAttachmentRefusedReason = (typeof SESSION_ATTACHMENT_REFUSED_REASONS)[number];
 
-/** Why one item was not staged: the code and its reason. */
+/**
+ * Why one item was not staged: the code, its reason, and for `provider_refused` the provider's own
+ * words naming the limit, for `copy_failed` the daemon's own cause.
+ */
 export interface SessionAttachmentRefusalCause {
   code: SessionAttachmentRefusedCode;
   reason: SessionAttachmentRefusedReason;
+  detail?: string | undefined;
 }
 
 /** One item the daemon did not stage, by the name the refusal line shows. */
@@ -171,6 +177,7 @@ const SessionAttachmentRefusalSchema: z.ZodType<SessionAttachmentRefusal> = z
       .object({
         code: z.literal(SESSION_ATTACHMENT_REFUSED_CODE),
         reason: z.enum(SESSION_ATTACHMENT_REFUSED_REASONS),
+        detail: z.string().min(1).optional(),
       })
       .strict(),
   })

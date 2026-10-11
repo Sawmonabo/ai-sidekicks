@@ -1,11 +1,12 @@
 // A process's memory as the system charges it, and the processes it started: on macOS through
-// `koffi`, `proc_pid_rusage`'s footprint and lifetime peak footprint and `proc_listchildpids`; on
-// Linux `/proc/<pid>/status`'s resident and peak resident memory and each thread's `children`.
+// `koffi`, `proc_pid_rusage`'s footprint and `proc_listchildpids`; on Linux `/proc/<pid>/status`'s
+// resident memory and each thread's `children`. The peak is the memory gate's own read.
 
 import { readdir, readFile } from "node:fs/promises";
 
+import { selectProcessPeakReader } from "../../src/admission/process-peak/selector.js";
 import { isMissingFileError } from "../../src/file/missing-error.js";
-import { importKoffi } from "../../src/pty/koffi.js";
+import { importKoffi } from "../../src/koffi.js";
 
 // A process's memory now and at its peak since it started, in bytes.
 interface ProcessMemory {
@@ -23,11 +24,17 @@ export interface ProcessMemoryReader {
   listChildren(processId: number): Promise<readonly number[]>;
 }
 
-// <sys/resource.h>: RUSAGE_INFO_V4, and the byte offsets of `ri_phys_footprint` and
-// `ri_lifetime_max_phys_footprint` in `struct rusage_info_v4`.
+// One system's reads: a live process's memory now, `undefined` as `ProcessMemoryReader` says, and
+// its children.
+interface SystemReads {
+  readCurrentBytes(processId: number): Promise<number | undefined>;
+  listChildren(processId: number): Promise<readonly number[]>;
+}
+
+// <sys/resource.h>: RUSAGE_INFO_V4, and the byte offset of `ri_phys_footprint` in
+// `struct rusage_info_v4`.
 const RUSAGE_INFO_V4 = 4;
 const PHYS_FOOTPRINT_OFFSET = 72;
-const LIFETIME_MAX_PHYS_FOOTPRINT_OFFSET = 240;
 const RUSAGE_INFO_V4_BYTES = 296;
 // <sys/errno.h>: the process runs as another user, and no process has the id.
 const EPERM = 1;
@@ -37,16 +44,32 @@ const CHILD_IDS_AT_MOST = 256;
 
 /** The reads of the system the test runs on; throws on a system with neither. */
 export async function loadProcessMemoryReader(): Promise<ProcessMemoryReader> {
+  const system = await loadSystemReads();
+  const peakReader = selectProcessPeakReader(process.platform);
+  return {
+    readMemory: async (processId) => {
+      const currentBytes = await system.readCurrentBytes(processId);
+      const peakBytes =
+        currentBytes === undefined ? undefined : await peakReader.readPeakBytes(processId);
+      return currentBytes === undefined || peakBytes === undefined
+        ? undefined
+        : { currentBytes, peakBytes };
+    },
+    listChildren: (processId) => system.listChildren(processId),
+  };
+}
+
+async function loadSystemReads(): Promise<SystemReads> {
   if (process.platform === "darwin") {
-    return loadDarwinReader();
+    return loadDarwinReads();
   }
   if (process.platform === "linux") {
-    return linuxReader;
+    return linuxReads;
   }
   throw new Error(`No process memory read is written for ${process.platform}.`);
 }
 
-async function loadDarwinReader(): Promise<ProcessMemoryReader> {
+async function loadDarwinReads(): Promise<SystemReads> {
   const koffi = await importKoffi("reading a process's memory footprint on macOS");
   const system = koffi.load("/usr/lib/libSystem.B.dylib");
   const procPidRusage = system.func(
@@ -58,7 +81,7 @@ async function loadDarwinReader(): Promise<ProcessMemoryReader> {
   const usage = Buffer.alloc(RUSAGE_INFO_V4_BYTES);
   const childIds = new Int32Array(CHILD_IDS_AT_MOST);
   return {
-    readMemory: (processId) => {
+    readCurrentBytes: (processId) => {
       if ((procPidRusage(processId, RUSAGE_INFO_V4, usage) as number) !== 0) {
         const errno = koffi.errno();
         if (errno === ESRCH || errno === EPERM) {
@@ -66,10 +89,7 @@ async function loadDarwinReader(): Promise<ProcessMemoryReader> {
         }
         throw new Error(`proc_pid_rusage(${String(processId)}) failed with errno ${String(errno)}`);
       }
-      return Promise.resolve({
-        currentBytes: Number(usage.readBigUInt64LE(PHYS_FOOTPRINT_OFFSET)),
-        peakBytes: Number(usage.readBigUInt64LE(LIFETIME_MAX_PHYS_FOOTPRINT_OFFSET)),
-      });
+      return Promise.resolve(Number(usage.readBigUInt64LE(PHYS_FOOTPRINT_OFFSET)));
     },
     listChildren: (processId) => {
       const count = procListChildPids(processId, childIds, childIds.byteLength) as number;
@@ -81,18 +101,12 @@ async function loadDarwinReader(): Promise<ProcessMemoryReader> {
   };
 }
 
-const linuxReader: ProcessMemoryReader = {
-  readMemory: async (processId) => {
+const linuxReads: SystemReads = {
+  readCurrentBytes: async (processId) => {
     const status = await readUnlessGone(() =>
       readFile(`/proc/${String(processId)}/status`, "utf8"),
     );
-    if (status === undefined) {
-      return undefined;
-    }
-    return {
-      currentBytes: statusKibibytes(status, "VmRSS") * 1024,
-      peakBytes: statusKibibytes(status, "VmHWM") * 1024,
-    };
+    return status === undefined ? undefined : statusKibibytes(status, "VmRSS") * 1024;
   },
   listChildren: async (processId) => {
     const taskFolder = `/proc/${String(processId)}/task`;

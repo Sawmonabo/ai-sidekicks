@@ -40,11 +40,7 @@ import {
 } from "../../events/session/appender.js";
 import { moveInterventionStatement, runAtVersionStatement } from "../../interventions/store.js";
 import type { ExecutionPostureService } from "../../policy/execution-posture-service.js";
-import {
-  boundFailureDetail,
-  type ProviderDriver,
-  type StartRunParams,
-} from "../../provider/driver/contract.js";
+import { boundFailureDetail } from "../../provider/driver/contract.js";
 import { PROVIDER_DRIVER_DESCRIPTORS } from "../../provider/driver/descriptor.js";
 import { mintUuidV7 } from "../../uuid-v7.js";
 import { insertQueuedRunStatement } from "./projection.js";
@@ -126,19 +122,24 @@ interface LiveAppend extends SessionEventDraft {
   readonly statements?: readonly WriteStatement[] | undefined;
 }
 
-/** What {@link RunEngine.startRun} needs: the admitted item, the driver, and what it is handed. */
+/**
+ * What {@link RunEngine.startRun} needs: the admitted item, its provider, and the start of the run
+ * on that provider.
+ */
 export interface RunStartRequest {
   readonly runId: RunId;
   readonly queueItem: QueueItemSummary;
   /** The provider the run runs on; its settled output speed is read against this one's standard. */
   readonly provider: ProviderName;
-  readonly driver: Pick<ProviderDriver, "startRun">;
-  readonly driverParams: Omit<StartRunParams, "runId" | "executionPosture">;
+  /** The output speed the run starts at, held until its provider reports the speed settled. */
+  readonly outputSpeed: string | undefined;
   /**
    * The posture the run was requested at; the posture gate checks it, and its resolved form is what
    * the driver is handed and `run.running` is stamped with.
    */
   readonly executionPosture: ExecutionPosture;
+  /** Starts the run on its provider at the resolved posture, once every setup gate has passed. */
+  readonly startDriver: (resolvedPosture: ExecutionPosture) => Promise<void>;
 }
 
 /**
@@ -160,12 +161,7 @@ export interface DaemonTurnStartRequest {
 }
 
 // How one start reaches its driver, handed the run's resolved posture, and the posture requested.
-interface RunStartPath {
-  readonly provider: ProviderName;
-  readonly outputSpeed: string | undefined;
-  readonly executionPosture: ExecutionPosture;
-  readonly startDriver: (resolvedPosture: ExecutionPosture) => Promise<void>;
-}
+type RunStartPath = Omit<RunStartRequest, "runId" | "queueItem">;
 
 /** What the run engine reads and writes through. */
 export interface RunEngineDeps extends SessionEventAppenderDeps {
@@ -254,15 +250,7 @@ export class RunEngine {
    * the start settles (see {@link routeInterrupt}).
    */
   async startRun(request: RunStartRequest): Promise<RunRead> {
-    const { runId, queueItem, provider, driver, driverParams, executionPosture } = request;
-    return await this.#start(runId, queueItem, {
-      provider,
-      outputSpeed: driverParams.outputSpeedForTurn ?? driverParams.outputSpeed,
-      executionPosture,
-      startDriver: async (resolvedPosture) => {
-        await driver.startRun({ ...driverParams, runId, executionPosture: resolvedPosture });
-      },
-    });
+    return await this.#start(request.runId, request.queueItem, request);
   }
 
   /**

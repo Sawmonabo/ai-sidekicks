@@ -1,8 +1,9 @@
 // The daemon's provider side, built once at its start: the run engine and what it writes through,
 // the interventions, pauses and provider choices on a run, each provider's driver built from its
-// factory, and the `run.*`, `session.restart`, session control and `driver.*` methods they serve.
-// What a part of the daemon still to be built supplies reaches it through `ProviderPorts`, each
-// registered once by the part that owns it.
+// factory, the run queue that starts a person's turns through the memory gate, and the `run.*`,
+// `session.restart`, session control and `driver.*` methods they serve. What another part of the
+// daemon supplies reaches it through `ProviderPorts`, each registered once by the part that owns
+// it; the drivers reach the run queue, which is built over them, through a registration of its own.
 
 import * as path from "node:path";
 
@@ -12,9 +13,10 @@ import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
+import { createMemoryGate } from "../admission/memory-gate.js";
+import { selectProcessPeakReader } from "../admission/process-peak/selector.js";
 import type { DatabaseConnections } from "../database/connection/lifecycle.js";
 import { describeRejection } from "../rejection.js";
-import type { EventLogService } from "../events/log-service.js";
 import type { GitRunner } from "../git/process.js";
 import { worktreesDirectoryOf } from "../git/worktree/naming.js";
 import { StagedChangesWorktrees } from "../git/worktree/staged-changes.js";
@@ -36,19 +38,15 @@ import {
   type DriverDispatchDeps,
   type SessionDriverDeps,
 } from "../ipc/handlers/driver/resolution.js";
-import {
-  registerDriverSubscribeEvents,
-  type DriverSubscribeEventsDeps,
-} from "../ipc/handlers/driver/subscribe.js";
-import {
-  registerRunControlMethods,
-  type RunControlHandlerDeps,
-} from "../ipc/handlers/run/control.js";
+import { registerRunControlMethods } from "../ipc/handlers/run/control.js";
+import { registerRunQueueMethods } from "../ipc/handlers/run/queue.js";
+import { registerRunStateSubscribe, RunSafetyHolds } from "../ipc/handlers/run/state.js";
 import { registerSessionControlMethods } from "../ipc/handlers/session/control.js";
 import {
   registerSessionRestart,
   type SessionRestartDeps,
 } from "../ipc/handlers/session/restart.js";
+import type { OutboundQueue } from "../ipc/handlers/session/subscribe.js";
 import type { StreamingPrimitive } from "../ipc/streaming-primitive.js";
 import type { ExecutionPostureService } from "../policy/execution-posture-service.js";
 import { DriverCapabilityCache } from "../provider/capability/cache.js";
@@ -81,11 +79,10 @@ import type { ReviewerDenialPort } from "../provider/port/reviewer-denial.js";
 import type { CommandOutputPublisher } from "../provider/port/command-output-publisher.js";
 import type { RunStatePublisher } from "../provider/port/run-state-publisher.js";
 import type { ToolServerRoute } from "../provider/port/tool-server-route.js";
-import type {
-  RuntimeBindingRebind,
-  RuntimeBindingStore,
-} from "../provider/runtime-binding-store.js";
+import type { RuntimeBindingRebind } from "../provider/runtime-binding-store.js";
 import type { ProviderOperatingSystem } from "../provider/operating-system/contract.js";
+import { ProviderSessions } from "../queue/provider-session.js";
+import { RunQueue } from "../queue/service.js";
 import { readSpawnEnvValue, type SpawnEnvPair } from "../provider/spawn-env.js";
 import {
   ProviderExecutableUnresolvableError,
@@ -94,13 +91,18 @@ import {
 } from "../provider/spawned-version.js";
 import type { RunEngine } from "../session/run/engine.js";
 import { ExecutionEpochs } from "../session/run/epochs.js";
+import { bindingStoreWithCursors, RunBindingCursors } from "../session/run/binding-cursors.js";
 import { RunInboundDispatch } from "../session/run/inbound.js";
 import { RunPauseControl } from "../session/run/pause.js";
 import { ProviderChoiceResolver } from "../session/run/provider-choice.js";
-import { sessionModeChangeStatement } from "../session/console-state.js";
-import type { SessionSpawnContextResolver } from "../session/directory/provider-port.js";
+import { readSessionMode, sessionModeChangeStatement } from "../session/console-state.js";
+import type {
+  SessionDirectoryProviderPort,
+  SessionSpawnContextResolver,
+} from "../session/directory/provider-port.js";
 import { RunStateReader } from "../session/run/read.js";
 import { RunAlreadyEndedError, RunNotFoundError } from "../session/run/refusals.js";
+import type { RegisteredSessionServices } from "./session-methods.js";
 
 // The socket Codex's hook programs reach the daemon on, beside the daemon's own socket.
 const CODEX_HOOK_SOCKET_NAME = "codex-hooks";
@@ -128,12 +130,20 @@ interface SessionDirectoryPort {
   readonly resolveRestartTarget: SessionRestartDeps["resolveRestartTarget"];
   /** Records the binding, or the failure, of each resume a driver started on its own. */
   readonly onSessionRelaunched: ClaudeDependencies["onSessionRelaunched"];
+  /** The binding the session's lead runs on, whose account a Codex start is weighed against. */
+  readonly readLeadBinding: SessionDirectoryProviderPort["readLeadBinding"];
+  /** What the session's provider session opens with, at its first admitted run. */
+  readonly composeOpening: SessionDirectoryProviderPort["composeOpening"];
+  /** The session's newest binding with a conversation to resume. */
+  readonly readSessionLeg: SessionDirectoryProviderPort["readSessionLeg"];
 }
 
-/** The run queue's reads that the provider side calls. */
+/** The run queue's reads and calls that the drivers make. */
 interface RunQueuePort {
-  readonly readWaitingMessages: RunControlHandlerDeps["readWaitingMessages"];
-  readonly subscribeToDriverEvents: DriverSubscribeEventsDeps["subscribeToDriverEvents"];
+  /** Hands a Codex run the messages the queue holds for it, at a tool boundary of its turn. */
+  readonly onToolBoundary: CodexDependencies["onToolBoundary"];
+  /** Admits a message Claude Code replayed as taken into the run whose turn took it. */
+  readonly onMessageTaken: ClaudeDependencies["onMessageTaken"];
   /** The queued run each Claude Code start dispatches. */
   readonly claudeRunDispatch: Pick<ClaudeDependencies["runDispatchResolver"], "resolveRunDispatch">;
   /** The binding a turn the daemon starts on a session itself opens. */
@@ -161,16 +171,12 @@ export interface ProviderPorts {
    * block stays the provider's own, its agent told why and nothing recorded.
    */
   readonly reviewerDenials: PortRegistration<ReviewerDenialPort>;
-  /** The run queue's live run state stream; until then a live state is dropped. */
-  readonly runStatePublisher: PortRegistration<RunStatePublisher>;
   /** The running-commands stream's live output; until then a command's output is dropped. */
   readonly commandOutput: PortRegistration<CommandOutputPublisher>;
   /** The daemon's tool-server client's prompts for Codex's `/` list; until then it has none. */
   readonly serverPrompts: CodexDependencies["serverPrompts"];
   /** The session directory's reads and records; until then each call that needs one is refused. */
   readonly sessionDirectory: PortRegistration<SessionDirectoryPort>;
-  /** The run queue's reads; until then each call that needs one is refused. */
-  readonly runQueue: PortRegistration<RunQueuePort>;
   /** The agent tree's reads; until then the provider command list is refused. */
   readonly agentTree: PortRegistration<AgentTreePort>;
   /**
@@ -188,17 +194,23 @@ export interface ProviderPorts {
 /** What the daemon hands its provider side at its start. */
 interface DaemonProvidersContext {
   readonly database: DatabaseConnections;
-  /** The store of every run's provider bindings, which the session services read too. */
-  readonly runtimeBindings: RuntimeBindingStore;
+  /**
+   * The session services' parts the provider side writes and reads through: the daemon's one
+   * event log, every run's provider bindings, and the binding of a message's files.
+   */
+  readonly sessionServices: Pick<
+    RegisteredSessionServices,
+    "eventLog" | "runtimeBindings" | "attachments"
+  >;
   /** The runner for the `git` found along the login shell's `PATH`. */
   readonly git: GitRunner;
   /** The method registry every daemon method is bound onto. */
   readonly methods: MethodRegistry;
   readonly streamingPrimitive: StreamingPrimitive;
+  /** The outbound queues of the daemon's connections, which the run streams read. */
+  readonly outboundQueue: OutboundQueue;
   /** The registry each driver registers on, which the session services look drivers up in. */
   readonly providerRegistry: ProviderRegistry;
-  /** The daemon's one event log, which every provider event is appended through. */
-  readonly eventLog: EventLogService;
   /** The daemon's one run engine. */
   readonly runEngine: RunEngine;
   /** The posture service each driver reads a session's level and credential policy from. */
@@ -233,6 +245,9 @@ export class DaemonProviders {
   ) => ReturnType<DriverCapabilitiesWriter["declare"]>;
   readonly #writeServiceLog: (line: string) => void;
   readonly #stagedChanges: StagedChangesWorktrees;
+  readonly #queue: RunQueue;
+  // Ends the run queue's and the binding cursors' follow of every session's committed events.
+  readonly #detachRunFollowers: () => void;
   // The registration `start` began, which `stop` waits on; settled until `start` is called.
   #registration: Promise<void> = Promise.resolve();
   #isStopping = false;
@@ -245,17 +260,17 @@ export class DaemonProviders {
       permissionAsks: new PortRegistration("permission asks"),
       questions: new PortRegistration("questions"),
       reviewerDenials: new PortRegistration("reviewer denials"),
-      runStatePublisher: new PortRegistration("run state publisher"),
       commandOutput: new PortRegistration("command output"),
       serverPrompts: new PortRegistration("tool-server prompts"),
       sessionDirectory: new PortRegistration("session directory"),
-      runQueue: new PortRegistration("run queue"),
       agentTree: new PortRegistration("agent tree"),
       toolServerRoute: new PortRegistration("tool-server route"),
       providerAccounts: new PortRegistration("provider accounts' Codex homes"),
     };
     this.ports = ports;
-    const { sessionDirectory, runQueue } = ports;
+    const { sessionDirectory } = ports;
+    // The drivers reach the run queue, which is built over them below, through its registration.
+    const runQueue = new PortRegistration<RunQueuePort>("run queue");
 
     const diagnostics = new DriverDiagnosticsEmitter({
       logSink: {
@@ -264,17 +279,22 @@ export class DaemonProviders {
         },
       },
     });
-    const sessionEvents = context.eventLog;
+    const { eventLog: sessionEvents, runtimeBindings, attachments } = context.sessionServices;
     const executionPosture = context.executionPostures;
+    const readNewestCursor = (sessionId: SessionId) => sessionEvents.readNewestCursor(sessionId);
+    // The run state streams take Codex's safety holds, which the log never records.
+    const holds = new RunSafetyHolds(readNewestCursor);
+    const runStatePublisher = new PortRegistration<RunStatePublisher>("run state publisher");
+    runStatePublisher.register(holds);
+    const epochs = new ExecutionEpochs({ diagnostics });
     const inbound = new RunInboundDispatch({
       sessionEvents,
       engine: runEngine,
-      epochs: new ExecutionEpochs({ diagnostics }),
+      epochs,
       diagnostics,
-      runStatePublisher: ports.runStatePublisher,
+      runStatePublisher,
     });
     const runs = new RunStateReader(database.reader);
-    const { runtimeBindings } = context;
     // Both drivers point a session's binding at the conversation a fork or rewind moved it onto.
     const rebindRuntimeBinding = async (rebind: RuntimeBindingRebind): Promise<void> => {
       await runtimeBindings.rebind(rebind);
@@ -314,8 +334,25 @@ export class DaemonProviders {
           spawnEnvironment,
           { commandSearch, operatingSystem: context.operatingSystem },
         );
+    const bindingCursors = new RunBindingCursors({ store: runtimeBindings, epochs, runs });
+    // The binding a resume the driver started on its own minted opens its cursor before the
+    // directory records it, since the resumed provider delivers under it at once.
     const onSessionRelaunched: ClaudeDependencies["onSessionRelaunched"] = (sessionId, result) => {
-      sessionDirectory.requirePort().onSessionRelaunched(sessionId, result);
+      const directory = sessionDirectory.requirePort();
+      const predecessor =
+        result.status === "resumed" ? directory.readSessionLeg(sessionId) : undefined;
+      // The directory logs a relaunch with no binding to replace.
+      if (predecessor !== undefined && result.status === "resumed") {
+        try {
+          bindingCursors.continueBinding(predecessor, result.bindingId);
+        } catch (error) {
+          writeServiceLog(
+            `The relaunched binding of session ${sessionId} opened no epoch cursor: ` +
+              describeRejection(error),
+          );
+        }
+      }
+      directory.onSessionRelaunched(sessionId, result);
     };
     const askPorts = {
       permissionAsks: ports.permissionAsks,
@@ -333,110 +370,111 @@ export class DaemonProviders {
       isManaged: false,
     };
 
-    this.#drivers = new Map<ProviderName, ProviderDriver>([
-      [
-        "claude",
-        PROVIDER_DRIVER_FACTORIES.claude({
-          ...askPorts,
-          providerCommand: providerCommandOf("claude"),
-          toolServerRoute: ports.toolServerRoute,
-          spawnContext: {
-            resolveSpawnContext: async (sessionId, providerAccountId) =>
-              await sessionDirectory
-                .requirePort()
-                .spawnContext.resolveSpawnContext(sessionId, providerAccountId),
-          },
-          runDispatchResolver: {
-            resolveRunDispatch: async (params) =>
-              await runQueue.requirePort().claudeRunDispatch.resolveRunDispatch(params),
-            openDaemonTurnBinding: async (runId, sessionId) =>
-              await runQueue
-                .requirePort()
-                .daemonTurnBindings.openDaemonTurnBinding(runId, sessionId),
-          },
-          stagedChanges,
-          onSessionRelaunched,
-          rebindRuntimeBinding,
-          providerBaseEnvironment,
-          operatingSystem: context.operatingSystem,
-          credentialPolicy: executionPosture,
-          runEngine,
-          inbound,
-          diagnostics,
-        }),
-      ],
-      [
-        "codex",
-        PROVIDER_DRIVER_FACTORIES.codex({
-          ...askPorts,
-          providerCommand: providerCommandOf("codex"),
-          serverPrompts: ports.serverPrompts,
-          commandOutput: ports.commandOutput,
-          toolServerRoute: ports.toolServerRoute,
-          daemonTurnBindings: {
-            openDaemonTurnBinding: async (runId, sessionId) =>
-              await runQueue
-                .requirePort()
-                .daemonTurnBindings.openDaemonTurnBinding(runId, sessionId),
-          },
-          homes: {
-            codexHomeFor: async (providerAccountId) =>
-              ports.providerAccounts.port === undefined
-                ? personalCodexHome
-                : await ports.providerAccounts.port.codexHomeFor(providerAccountId),
-          },
-          spawnContext: {
-            resolveSpawnContext: async (sessionId, providerAccountId) =>
-              await sessionDirectory
-                .requirePort()
-                .spawnContext.resolveSpawnContext(sessionId, providerAccountId),
-          },
-          onSessionRelaunched,
-          providerBaseEnvironment,
-          operatingSystem: context.operatingSystem,
-          credentialPolicy: executionPosture,
-          runEngine,
-          inbound,
-          hookEndpoint: context.operatingSystem.localSocketEndpoint(
-            context.runFolder.folderPath,
-            CODEX_HOOK_SOCKET_NAME,
-          ),
-          helperRolesFolder: path.join(context.dataFolder, CODEX_HELPER_ROLES_FOLDER_NAME),
-          reportDiagnostic: (diagnostic) => {
-            writeServiceLog(`codex-transport ${JSON.stringify(boundDiagnosticDetail(diagnostic))}`);
-          },
-          diagnostics,
-          rebindRuntimeBinding,
-          // No provider frame ends a run whose turn the driver lost, so the daemon ends it. A run
-          // that ended meanwhile needs nothing; a failed end is a diagnostic the person sees.
-          onLostRunFailure: (sessionId, runId, failure) => {
-            runEngine
-              .applyProviderStateChange({
-                runId,
-                newState: "failed",
-                failureCategory: failure.failureCategory,
-                recoveryCondition: failure.recoveryCondition,
-                providerFailureDetail: failure.providerFailureDetail,
-              })
-              .catch((cause: unknown) => {
-                if (cause instanceof RunAlreadyEndedError) {
-                  return;
-                }
-                diagnostics.emit({
-                  provider: "codex",
-                  kind: "delivery_dispatch_failed",
-                  rawWireType: null,
-                  dispositionReason: boundFailureDetail(
-                    describeRejection(cause),
-                    UNDESCRIBED_DIAGNOSTIC_DETAIL,
-                  ),
-                  details: { deliveryKind: "run_lifecycle", sessionId, runId },
-                });
+    const drivers = {
+      claude: PROVIDER_DRIVER_FACTORIES.claude({
+        ...askPorts,
+        providerCommand: providerCommandOf("claude"),
+        toolServerRoute: ports.toolServerRoute,
+        spawnContext: {
+          resolveSpawnContext: async (sessionId, providerAccountId) =>
+            await sessionDirectory
+              .requirePort()
+              .spawnContext.resolveSpawnContext(sessionId, providerAccountId),
+        },
+        runDispatchResolver: {
+          resolveRunDispatch: async (params) =>
+            await runQueue.requirePort().claudeRunDispatch.resolveRunDispatch(params),
+          openDaemonTurnBinding: async (runId, sessionId) =>
+            await runQueue.requirePort().daemonTurnBindings.openDaemonTurnBinding(runId, sessionId),
+        },
+        attachments,
+        stagedChanges,
+        onSessionRelaunched,
+        onMessageTaken: (sessionId, messageId, runId) => {
+          runQueue.requirePort().onMessageTaken(sessionId, messageId, runId);
+        },
+        rebindRuntimeBinding,
+        providerBaseEnvironment,
+        operatingSystem: context.operatingSystem,
+        credentialPolicy: executionPosture,
+        runEngine,
+        inbound,
+        diagnostics,
+      }),
+      codex: PROVIDER_DRIVER_FACTORIES.codex({
+        ...askPorts,
+        providerCommand: providerCommandOf("codex"),
+        serverPrompts: ports.serverPrompts,
+        commandOutput: ports.commandOutput,
+        toolServerRoute: ports.toolServerRoute,
+        daemonTurnBindings: {
+          openDaemonTurnBinding: async (runId, sessionId) =>
+            await runQueue.requirePort().daemonTurnBindings.openDaemonTurnBinding(runId, sessionId),
+        },
+        homes: {
+          codexHomeFor: async (providerAccountId) =>
+            ports.providerAccounts.port === undefined
+              ? personalCodexHome
+              : await ports.providerAccounts.port.codexHomeFor(providerAccountId),
+        },
+        spawnContext: {
+          resolveSpawnContext: async (sessionId, providerAccountId) =>
+            await sessionDirectory
+              .requirePort()
+              .spawnContext.resolveSpawnContext(sessionId, providerAccountId),
+        },
+        onSessionRelaunched,
+        providerBaseEnvironment,
+        operatingSystem: context.operatingSystem,
+        credentialPolicy: executionPosture,
+        runEngine,
+        inbound,
+        attachments,
+        onToolBoundary: (boundary) => {
+          runQueue.requirePort().onToolBoundary(boundary);
+        },
+        hookEndpoint: context.operatingSystem.localSocketEndpoint(
+          context.runFolder.folderPath,
+          CODEX_HOOK_SOCKET_NAME,
+        ),
+        helperRolesFolder: path.join(context.dataFolder, CODEX_HELPER_ROLES_FOLDER_NAME),
+        reportDiagnostic: (diagnostic) => {
+          writeServiceLog(`codex-transport ${JSON.stringify(boundDiagnosticDetail(diagnostic))}`);
+        },
+        diagnostics,
+        rebindRuntimeBinding,
+        // No provider frame ends a run whose turn the driver lost, so the daemon ends it. A run
+        // that ended meanwhile needs nothing; a failed end is a diagnostic the person sees.
+        onLostRunFailure: (sessionId, runId, failure) => {
+          runEngine
+            .applyProviderStateChange({
+              runId,
+              newState: "failed",
+              failureCategory: failure.failureCategory,
+              recoveryCondition: failure.recoveryCondition,
+              providerFailureDetail: failure.providerFailureDetail,
+            })
+            .catch((cause: unknown) => {
+              if (cause instanceof RunAlreadyEndedError) {
+                return;
+              }
+              diagnostics.emit({
+                provider: "codex",
+                kind: "delivery_dispatch_failed",
+                rawWireType: null,
+                dispositionReason: boundFailureDetail(
+                  describeRejection(cause),
+                  UNDESCRIBED_DIAGNOSTIC_DETAIL,
+                ),
+                details: { deliveryKind: "run_lifecycle", sessionId, runId },
               });
-          },
-          readCapabilities: () => capabilityCache.read("codex").capabilities,
-        }),
-      ],
+            });
+        },
+      }),
+    } satisfies Record<ProviderName, ProviderDriver>;
+    this.#drivers = new Map<ProviderName, ProviderDriver>([
+      ["claude", drivers.claude],
+      ["codex", drivers.codex],
     ]);
 
     this.#refresher = new CapabilityRefresher({
@@ -477,14 +515,90 @@ export class DaemonProviders {
     });
     const resolveSessionAccess = (sessionId: SessionId): boolean =>
       sessionDirectory.requirePort().resolveSessionAccess(sessionId);
+    const sessionDrivers = {
+      providerRegistry,
+      resolveDriverForSession: (sessionId: SessionId) =>
+        sessionDirectory.requirePort().resolveDriverForSession(sessionId),
+    };
+    const queue = new RunQueue({
+      sessionEvents,
+      reader: database.reader,
+      writer: database.writer,
+      readNewestCursor,
+      engine: runEngine,
+      providerSessions: new ProviderSessions({
+        // Every binding a run is opened on is recorded with its epoch cursor open.
+        runtimeBindings: bindingStoreWithCursors(runtimeBindings, bindingCursors),
+        resolveDriver: (driverName) => drivers[driverName],
+        readContractVersion: (driverName) =>
+          capabilityCache.read(driverName).capabilities.contractVersion,
+        composeOpening: async (sessionId) =>
+          await sessionDirectory.requirePort().composeOpening(sessionId),
+        readSessionLeg: (sessionId) => sessionDirectory.requirePort().readSessionLeg(sessionId),
+        readSessionMode: (sessionId) => readSessionMode(database.reader, sessionId),
+      }),
+      sessions: sessionDrivers,
+      memoryGate: createMemoryGate({ peakReader: selectProcessPeakReader(process.platform) }),
+      startsCodexAccountService: async (sessionId) =>
+        await drivers.codex.startsAccountService(
+          sessionDirectory.requirePort().readLeadBinding(sessionId)?.providerAccountId ?? undefined,
+        ),
+      readCodexSkillFiles: async (sessionId) =>
+        await drivers.codex.readSkillFiles(
+          sessionId,
+          sessionDirectory.requirePort().readLeadBinding(sessionId)?.providerAccountId ?? undefined,
+        ),
+      readProviderProcessId: (sessionId) => {
+        const driverName = sessionDrivers.resolveDriverForSession(sessionId);
+        return driverName === undefined ? undefined : drivers[driverName].readProcessId(sessionId);
+      },
+      writeServiceLog,
+    });
+    this.#queue = queue;
+    // A session whose events could not all be read has its waiting messages read again.
+    this.#detachRunFollowers = sessionEvents.followAll(
+      (event) => {
+        bindingCursors.observe(event);
+        queue.lifecycle.observe(event);
+      },
+      (sessionId) => void queue.lifecycle.reconcile(sessionId),
+    );
+    runQueue.register({
+      onToolBoundary: (boundary) => {
+        queue.delivery.onToolBoundary(boundary);
+      },
+      onMessageTaken: (sessionId, messageId, runId) => {
+        queue.delivery.messageTaken(sessionId, messageId, runId);
+      },
+      claudeRunDispatch: queue.admission,
+      daemonTurnBindings: queue.admission,
+    });
 
-    const { methods, streamingPrimitive } = context;
+    const { methods, streamingPrimitive, outboundQueue } = context;
     registerRunControlMethods(methods, {
       ...runDispatch,
       interventions,
       pauseControl: new RunPauseControl({ runs, engine: runEngine }),
       choices: new ProviderChoiceResolver({ reader: database.reader, runs, engine: runEngine }),
-      readWaitingMessages: (runId) => runQueue.requirePort().readWaitingMessages(runId),
+      readWaitingMessages: (runId) => queue.delivery.readWaitingMessages(runId),
+      releaseContinued: (runId) => {
+        queue.delivery.releaseContinued(runId);
+      },
+    });
+    registerRunQueueMethods(methods, {
+      queue,
+      recorder: queue.recorder,
+      sessions: sessionDrivers,
+      streamingPrimitive,
+      outboundQueue,
+    });
+    registerRunStateSubscribe(methods, {
+      streamingPrimitive,
+      outboundQueue,
+      readNewestCursor,
+      followSession: (sessionId, afterCursor, listener) =>
+        sessionEvents.follow(sessionId, afterCursor, listener),
+      holds,
     });
     registerSessionRestart(methods, {
       providerRegistry,
@@ -492,9 +606,7 @@ export class DaemonProviders {
         sessionDirectory.requirePort().resolveRestartTarget(sessionId),
     });
     registerSessionControlMethods(methods, {
-      providerRegistry,
-      resolveDriverForSession: (sessionId) =>
-        sessionDirectory.requirePort().resolveDriverForSession(sessionId),
+      ...sessionDrivers,
       streamingPrimitive,
       recordSessionMode: async (sessionId, mode) => {
         await database.writer.write([
@@ -518,11 +630,6 @@ export class DaemonProviders {
       resolveAgentBindings: (sessionId, agentId) =>
         ports.agentTree.requirePort().resolveAgentBindings(sessionId, agentId),
     });
-    registerDriverSubscribeEvents(methods, {
-      streamingPrimitive,
-      subscribeToDriverEvents: (runId, onEvent) =>
-        runQueue.requirePort().subscribeToDriverEvents(runId, onEvent),
-    });
   }
 
   /**
@@ -538,6 +645,24 @@ export class DaemonProviders {
       this.#registration = this.#register();
     }
     return this.#registration;
+  }
+
+  /**
+   * Reads every session's waiting messages again, so a queued run a restart left starts on its
+   * driver; call it once `start` has settled and the start's recovery pass has settled the runs it
+   * found live. After a stop it starts nothing; a failure is logged.
+   */
+  async recoverRunQueue(): Promise<void> {
+    if (this.#isStopping) {
+      return;
+    }
+    try {
+      await this.#queue.recover();
+    } catch (error) {
+      this.#writeServiceLog(
+        `The run queue's waiting messages were not read again: ${describeRejection(error)}`,
+      );
+    }
   }
 
   async #register(): Promise<void> {
@@ -572,14 +697,15 @@ export class DaemonProviders {
   }
 
   /**
-   * Ends the capability refresh and the registration, so no read starts and no driver registers
-   * after it; waits, within the stop's drain bound, for a registration read still running, so the
-   * processes it started are among those ended; then has every driver end the provider processes
-   * it started, side by side, never the person's own Codex service. Rejects with what failed once
-   * every driver has stopped.
+   * Ends the run queue's follow of the log, the capability refresh and the registration, so no
+   * run's end moves the queue, no read starts and no driver registers after it; waits, within the
+   * stop's drain bound, for a registration read still running, so the processes it started are
+   * among those ended; then has every driver end the provider processes it started, side by side,
+   * never the person's own Codex service. Rejects with what failed once every driver has stopped.
    */
   async stop(): Promise<void> {
     this.#isStopping = true;
+    this.#detachRunFollowers();
     this.#refresher.shutdown();
     await settleReadWithinDeadline(() => this.#registration, DAEMON_STOP_DRAIN_BOUND_MS);
     const outcomes = await Promise.allSettled(

@@ -12,7 +12,7 @@ import type { ZodType } from "zod";
 import { readWireString } from "#renderer/lib/wire/strings.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 
-/** One registered payload a narrowed run stream delivers. */
+/** One registered payload a narrowed run stream delivers inside a frame's change. */
 export type RunStreamDelivery = RunStateChangeEvent | RunRolledBackEvent | QueueItemSummary;
 
 /**

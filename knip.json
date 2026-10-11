@@ -159,6 +159,9 @@
         "src/renderer/src/features/composer/attachments/AttachmentStrip.tsx",
         // The definitions a `/workflow run` name autocompletes over.
         "src/renderer/src/features/composer/command-list/workflow/components/WorkflowStartCandidates.tsx",
+        // A waiting message's `Not delivered · Retry` line, for the queue's pending rows.
+        "src/renderer/src/features/composer/components/NotDeliveredLine.tsx",
+        "src/renderer/src/features/composer/not-delivered.ts",
         // An agent's question card.
         "src/renderer/src/features/composer/question-card/SessionQuestionCard.tsx",
         // Interrupt and Interrupt everything on the run controls.

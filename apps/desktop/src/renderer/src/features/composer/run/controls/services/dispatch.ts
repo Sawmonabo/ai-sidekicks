@@ -1,12 +1,13 @@
 // The run controls' one chokepoint: guards threaded, keys minted, answers read.
 //
 // A button assembling its own request could omit a comparand or reuse a key across a changed
-// body, so every request carries `expectedRunVersion` from the caller's target, and steer and
-// interrupt carry a `clientIdempotencyKey` minted per dispatch. The fresh comparand is the
-// newer of the answer's version and the state stream's, since the run also advances with no
-// control pressed. Eligibility is decided by the daemon, not here; a rejected call propagates.
-// Only steer is gated on the bound driver, in `gating.ts`. The daemon calls are an
-// argument (`RunControlCalls`), so this module holds no bridge.
+// body, so every run call carries `expectedRunVersion` from the caller's target, and steer and
+// interrupt carry a `clientIdempotencyKey` minted per dispatch. A steer is a message on one
+// child's own queue, which the child takes at its next step. The fresh comparand is the newer of
+// the answer's version and the state stream's, since the run also advances with no control
+// pressed. Eligibility is decided by the daemon, not here; a rejected call propagates. Only steer
+// is gated on the bound driver, in `gating.ts`. The daemon calls are an argument
+// (`RunControlCalls`), so this module holds no bridge.
 
 import type {
   InterventionRequestPayload,
@@ -15,24 +16,28 @@ import type {
   RunPauseRequest,
   RunResumeRequest,
 } from "@ai-sidekicks/contracts/run/control";
+import type { ChildSteerRequest } from "@ai-sidekicks/contracts/run/children";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
+import type { QueueItemCreateResponse } from "@ai-sidekicks/contracts/run/queue";
 
-import { readRunId } from "#renderer/services/daemon/wire/identifiers.js";
-import { AnsweredRunVersions } from "#renderer/features/composer/answered-run-versions.js";
+import { heldIdAsWireId, readRunId } from "#renderer/services/daemon/wire/identifiers.js";
+import { AnsweredRunVersions } from "../answered-run-versions.js";
 
-/** The three daemon methods the controls reach, each taking the contract's request. */
+/** The four daemon methods the controls reach, each taking the contract's request. */
 export interface RunControlCalls {
   /** `run.pause`. */
   readonly pause: (request: RunPauseRequest) => Promise<RunControlAck>;
   /** `run.resume`. */
   readonly resume: (request: RunResumeRequest) => Promise<RunControlAck>;
-  /** `run.intervene`: steer and interrupt are its two arms used here. */
+  /** `run.intervene`, for its interrupt arm. */
   readonly intervene: (request: InterventionRequestPayload) => Promise<InterventionRequestResponse>;
+  /** `run.childSteer`, which puts a steer on a child's queue and answers as a queue send. */
+  readonly childSteer: (request: ChildSteerRequest) => Promise<QueueItemCreateResponse>;
 }
 
 /**
- * The controls, declared once: pause and resume (`run.pause`, `run.resume`), and steer and
- * interrupt through the generic `run.intervene` dispatch.
+ * The controls, declared once: pause and resume (`run.pause`, `run.resume`), steer onto a child's
+ * queue (`run.childSteer`), and interrupt through `run.intervene`.
  */
 export const RUN_CONTROLS = ["pause", "resume", "steer", "interrupt"] as const;
 
@@ -46,10 +51,16 @@ export type RunControlOutcome =
       readonly kind: "settled";
       readonly control: RunControl;
       readonly response: InterventionRequestResponse;
+    }
+  | {
+      readonly kind: "queued";
+      readonly control: RunControl;
+      readonly response: QueueItemCreateResponse;
     };
 
-/** What a steer dispatch carries. */
+/** What a steer dispatch carries: the child whose queue takes it, and the person's text. */
 export interface SteerRequest {
+  readonly childHandle: string;
   readonly content: string;
 }
 
@@ -102,13 +113,14 @@ export class RunControlDispatcher {
     return this.#acknowledged("resume", target, ack);
   }
 
-  /** Steer: `run.intervene` with a fresh key, carrying the person's text as typed. */
+  /** Steer: `run.childSteer` with a fresh key, carrying the person's text as typed. */
   public async steer(target: RunControlTarget, request: SteerRequest): Promise<RunControlOutcome> {
-    return await this.#settle("steer", target, {
-      type: "steer",
+    const response = await this.#calls.childSteer({
       ...this.#interventionGuards(target),
+      childHandle: heldIdAsWireId(request.childHandle),
       content: request.content,
     });
+    return { kind: "queued", control: "steer", response };
   }
 
   /** Interrupt: `run.intervene` with a fresh key and, where given, the reason. */

@@ -33,7 +33,6 @@ export function targetForAgent(agentId: string): ComposerTarget {
     agentId,
     driverName: "claude",
     targetRunId: "019b7a11-1100-740e-8110-d1a4c1150311",
-    expectedRunVersion: 4,
   };
 }
 

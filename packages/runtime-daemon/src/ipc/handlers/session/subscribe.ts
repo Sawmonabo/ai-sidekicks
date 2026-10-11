@@ -5,14 +5,11 @@
 // `$/subscription/cancel`.
 //
 // How changes reach the screen:
-//   * Batched. The first change opens a window of `SESSION_STREAM_WINDOW_MS`; its changes go out
-//     as one frame when it closes, or at once at `STREAM_FRAME_MAX_CHANGES`. It is a throttle,
-//     not a debounce, so no change waits longer than one window. Every change carries its cursor.
-//   * Never waiting for a screen once caught up. When the connection's outbound queue is full,
-//     the live frame that would not fit is dropped and the next frame that fits carries the drop
-//     mark, so the screen repairs from the daemon's record by cursor. If nothing new happens after
-//     a drop, one frame with no changes, the drop mark and the newest cursor goes out as soon as
-//     the queue has room, so a session that went quiet still tells the screen it is behind.
+//   * Batched by the stream batcher every stream shares, every change carrying its cursor. Once
+//     caught up, a live frame that meets a full outbound queue is dropped, holding nothing, and the
+//     next frame that fits carries the drop mark, so the screen repairs from the daemon's record
+//     by cursor; a session that went quiet after a drop still gets one frame with no changes, the
+//     drop mark and the newest cursor, once the queue has room.
 //   * Catching up at the connection's pace, dropping nothing. The upstream reads the log a page at
 //     a time and hands over a stored change only while the outbound queue has room, so a client
 //     that reads nothing never makes the daemon read the whole log for it. A catch-up frame that
@@ -41,14 +38,11 @@ import {
   SessionSubscribeRequestSchema,
   SessionSubscribeResponseSchema,
 } from "@ai-sidekicks/contracts/session/methods";
-import { STREAM_FRAME_MAX_CHANGES } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 
 import type { SessionEventListener } from "../../../events/session/followers.js";
+import { createStreamFrameBatcher } from "../../stream-frame-batcher.js";
 import { createSubscriptionAckBarrier } from "../../subscription-ack-barrier.js";
 import { cancelAfterDetachedFailure, type StreamingPrimitive } from "../../streaming-primitive.js";
-
-/** How long the first change of a batch waits for others before its frame goes out. */
-export const SESSION_STREAM_WINDOW_MS = 16;
 
 type SessionChange = SessionStreamChange<EventEnvelope>;
 type SessionFrame = SessionStreamFrame<EventEnvelope>;
@@ -87,109 +81,6 @@ export interface SessionSubscribeDeps {
   ) => () => void;
 }
 
-/** Where a batcher sends frames and how it reads its connection's queue. */
-interface FrameOutlet {
-  emit(frame: SessionFrame): void;
-  isFull(): boolean;
-  onceDrained(listener: () => void): () => void;
-}
-
-interface FrameBatcher {
-  add(change: SessionChange): void;
-  /** Ends the catch-up: its last changes go out now, and a later frame that does not fit drops. */
-  endCatchUp(): void;
-  stop(): void;
-}
-
-function createFrameBatcher(outlet: FrameOutlet): FrameBatcher {
-  let pending: SessionChange[] = [];
-  let windowTimer: ReturnType<typeof setTimeout> | undefined;
-  let newestDroppedCursor: EventCursor | undefined;
-  let detachDrained: (() => void) | undefined;
-  let isCatchingUp = true;
-  let stopped = false;
-
-  const flushWhenDrained = (): void => {
-    detachDrained ??= outlet.onceDrained(() => {
-      detachDrained = undefined;
-      flush();
-    });
-  };
-
-  const flush = (): void => {
-    if (windowTimer !== undefined) {
-      clearTimeout(windowTimer);
-      windowTimer = undefined;
-    }
-    if (outlet.isFull()) {
-      if (isCatchingUp) {
-        // A stored change is never dropped: it waits for room, and the upstream hands over no
-        // more until then.
-        if (pending.length > 0) {
-          flushWhenDrained();
-        }
-        return;
-      }
-      const newest = pending.at(-1);
-      if (newest !== undefined) {
-        newestDroppedCursor = newest.cursor;
-        pending = [];
-      }
-      if (newestDroppedCursor !== undefined) {
-        flushWhenDrained();
-      }
-      return;
-    }
-    const changes = pending;
-    pending = [];
-    let frame: SessionFrame;
-    if (newestDroppedCursor === undefined) {
-      if (changes.length === 0) {
-        return;
-      }
-      frame = { changes };
-    } else if (changes.length === 0) {
-      frame = { changes, dropped: true, cursor: newestDroppedCursor };
-    } else {
-      frame = { changes, dropped: true };
-    }
-    newestDroppedCursor = undefined;
-    detachDrained?.();
-    detachDrained = undefined;
-    outlet.emit(frame);
-  };
-
-  return {
-    add(change: SessionChange): void {
-      if (stopped) {
-        return;
-      }
-      pending.push(change);
-      if (pending.length >= STREAM_FRAME_MAX_CHANGES) {
-        flush();
-      } else if (windowTimer === undefined) {
-        windowTimer = setTimeout(flush, SESSION_STREAM_WINDOW_MS);
-      }
-    },
-    endCatchUp(): void {
-      isCatchingUp = false;
-      // The upstream ends its catch-up only while the queue has room, so the stored changes still
-      // pending go out now rather than meet a full queue at the window's close.
-      flush();
-    },
-    stop(): void {
-      stopped = true;
-      if (windowTimer !== undefined) {
-        clearTimeout(windowTimer);
-        windowTimer = undefined;
-      }
-      detachDrained?.();
-      detachDrained = undefined;
-      pending = [];
-    },
-  };
-}
-
 /**
  * Registers `session.subscribe` on `registry`.
  *
@@ -219,13 +110,16 @@ export function registerSessionSubscribe(
       SESSION_DIRECTORY_METHOD_DESCRIPTORS["session.subscribe"].emissionSchema,
     );
     const barrier = createSubscriptionAckBarrier(sub, "session.subscribe");
-    const batcher = createFrameBatcher({
-      emit: (frame) => {
-        barrier.emit(frame);
+    const batcher = createStreamFrameBatcher<SessionChange, EventCursor>(
+      {
+        emit: (frame) => {
+          barrier.emit(frame);
+        },
+        isFull: () => deps.outboundQueue.isFull(transportId),
+        onceDrained: (listener) => deps.outboundQueue.onceDrained(transportId, listener),
       },
-      isFull: () => deps.outboundQueue.isFull(transportId),
-      onceDrained: (listener) => deps.outboundQueue.onceDrained(transportId, listener),
-    });
+      { isCatchingUp: true, heldChangesMax: 0 },
+    );
     sub.onCancel(() => {
       batcher.stop();
     });

@@ -17,11 +17,12 @@ import type {
   ApplyInterventionParams,
   DriverInterventionResult,
   InterruptRunParams,
+  PickedSkill,
 } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type { ProviderOutputSpeedState } from "@ai-sidekicks/contracts/provider/driver/output-speed";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
-import { CodexInterventionDispatcher, type CodexCapabilitySnapshotReader } from "./intervention.js";
+import { CodexInterventionDispatcher } from "./intervention.js";
 import { CodexLifecycleManager } from "./lifecycle.js";
 import { listCodexModes } from "./permission-level.js";
 import type { CodexLifecycleOptions } from "./session/state.js";
@@ -69,14 +70,8 @@ import type {
   UpdateSessionModeParams,
 } from "../session-control.js";
 
-/** Construction inputs for the Codex driver. */
-export interface CodexDriverOptions extends CodexLifecycleOptions {
-  /** Read live at every intervention dispatch. */
-  readonly readCapabilities: CodexCapabilitySnapshotReader;
-}
-
 /** Builds the Codex driver; the daemon's startup reaches it through the driver factory table. */
-export function createDriver(dependencies: CodexDriverOptions): ProviderDriver {
+export function createDriver(dependencies: CodexLifecycleOptions): CodexDriver {
   return new CodexDriver(dependencies);
 }
 
@@ -85,13 +80,10 @@ export class CodexDriver implements ProviderDriver {
   readonly #lifecycle: CodexLifecycleManager;
   readonly #interventions: CodexInterventionDispatcher;
 
-  constructor(options: CodexDriverOptions) {
+  constructor(options: CodexLifecycleOptions) {
     this.#lifecycle = new CodexLifecycleManager(options);
-    this.#interventions = new CodexInterventionDispatcher({
-      // The manager satisfies `CodexInterventionRuntime`; composing them here avoids a cycle.
-      runtime: this.#lifecycle,
-      readCapabilities: options.readCapabilities,
-    });
+    // The manager satisfies `CodexInterventionRuntime`; composing them here avoids a cycle.
+    this.#interventions = new CodexInterventionDispatcher(this.#lifecycle);
   }
 
   /** Starts a fresh conversation for the session on its account's service. */
@@ -119,7 +111,7 @@ export class CodexDriver implements ProviderDriver {
     await this.#lifecycle.interruptRun(params);
   }
 
-  /** Routes a steer or interrupt onto the provider, or returns `degraded`. */
+  /** Routes a steer, with its files, or an interrupt onto the provider. */
   async applyIntervention(params: ApplyInterventionParams): Promise<DriverInterventionResult> {
     return await this.#interventions.applyIntervention(params);
   }
@@ -274,5 +266,26 @@ export class CodexDriver implements ProviderDriver {
   /** The tier the session's thread declared; see the lifecycle's reader. */
   observedOutputSpeedFor(sessionId: SessionId): ProviderOutputSpeedState | undefined {
     return this.#lifecycle.observedOutputSpeedFor(sessionId);
+  }
+
+  /** Whether a conversation on the account would start its Codex service process. */
+  async startsAccountService(providerAccountId: string | undefined): Promise<boolean> {
+    return await this.#lifecycle.startsAccountService(providerAccountId);
+  }
+
+  /**
+   * Each skill Codex lists for the session, by its name and the file it loads it from, which a
+   * person's pick is resolved against.
+   */
+  async readSkillFiles(
+    sessionId: SessionId,
+    providerAccountId: string | undefined,
+  ): Promise<readonly PickedSkill[]> {
+    return await this.#lifecycle.readSkillFiles(sessionId, providerAccountId);
+  }
+
+  /** The id of the service process the session runs on, while the daemon runs it. */
+  readProcessId(sessionId: SessionId): number | undefined {
+    return this.#lifecycle.readServiceProcessId(sessionId);
   }
 }

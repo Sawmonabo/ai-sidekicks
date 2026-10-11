@@ -49,7 +49,7 @@ export class PayloadStore {
     recordReference: () => Promise<Recorded>,
   ): Promise<Recorded> {
     return this.#storageKeyLock.run(contentHash, async () => {
-      const objectPath = this.#objectPathOf(contentHash);
+      const objectPath = this.objectPathOf(contentHash);
       const isStored = await pathExists(objectPath);
       if (isStored) {
         await rm(sourcePath);
@@ -78,8 +78,11 @@ export class PayloadStore {
     });
   }
 
-  // `sha256/ab/abcd…`: the first two hex digits fan the payloads out over 256 folders.
-  #objectPathOf(contentHash: string): string {
+  /**
+   * Where the payload stored under `contentHash` sits, `sha256/ab/abcd…` under the store's folder:
+   * the first two hex digits fan the payloads out over 256 folders.
+   */
+  objectPathOf(contentHash: string): string {
     const hex = contentHash.slice(CONTENT_HASH_ALGORITHM.length + 1);
     return path.join(this.#objectsDirectory, CONTENT_HASH_ALGORITHM, hex.slice(0, 2), hex);
   }

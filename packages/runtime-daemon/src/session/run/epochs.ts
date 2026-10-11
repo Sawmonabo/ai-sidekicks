@@ -100,6 +100,30 @@ export class ExecutionEpochs {
     });
   }
 
+  /**
+   * Opens the cursor of a binding that carries `predecessorId`'s conversation on in a new process:
+   * where the predecessor's stands, with what it remembers, while its cursor is open, else at
+   * `start`. Throws for a binding that already has a cursor.
+   */
+  continueBinding(binding: EpochBinding, predecessorId: string, start: EpochPosition): void {
+    const predecessor = this.#cursorByBinding.get(predecessorId);
+    if (predecessor === undefined) {
+      this.openBinding(binding, start);
+      return;
+    }
+    if (this.#cursorByBinding.has(binding.id)) {
+      throw new Error(`Runtime binding ${binding.id} already has an epoch cursor`);
+    }
+    this.#cursorByBinding.set(binding.id, {
+      binding,
+      current: predecessor.current,
+      frozenAt: predecessor.frozenAt,
+      closedGenerations: [...predecessor.closedGenerations],
+      associations: new Map(predecessor.associations),
+      newestEvictedEpoch: predecessor.newestEvictedEpoch,
+    });
+  }
+
   /** Drops a binding's cursor once the binding has ended and delivers nothing more. */
   closeBinding(bindingId: string): void {
     this.#cursorByBinding.delete(bindingId);

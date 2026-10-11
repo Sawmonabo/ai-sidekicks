@@ -3,6 +3,7 @@
 // process, touches the filesystem or reads an environment variable.
 
 import type { AgentId } from "@ai-sidekicks/contracts/agent/definition";
+import type { ArtifactId } from "@ai-sidekicks/contracts/artifacts/id";
 import type {
   ApplyInterventionParams,
   InterruptPendingChoice,
@@ -17,6 +18,7 @@ import { CLAUDE_DRIVER_DESCRIPTOR } from "../descriptor.js";
 import type { ThreadFrameRoute } from "../../../thread-frame-router.js";
 import {
   composeClaudeUserFrame,
+  type ClaudeUserContentBlock,
   type ClaudeAuthProbeReading,
   type ClaudeAuthProbeRequest,
   type ClaudeChannelDisposalReason,
@@ -35,7 +37,6 @@ import {
   type ClaudeOneTurnReply,
   type ClaudeOneTurnRequest,
   type ClaudeResumedSessionAttachment,
-  type ClaudeRunDispatch,
   type ClaudeRunDispatchResolver,
   type ClaudeSessionAttachment,
   type ClaudeProviderProcess,
@@ -48,7 +49,7 @@ import {
   type ClaudeUserTextWriteAttempt,
 } from "../session/transport.js";
 import type { CreateSessionParams, StartRunParams } from "../../contract.js";
-import type { DaemonTurnBinding } from "../../run-control.js";
+import type { ClaudeRunDispatch, DaemonTurnBinding } from "../../run-control.js";
 
 /** The session id every test session uses. */
 export const TEST_SESSION_ID: SessionId = "session-1" as SessionId;
@@ -79,6 +80,7 @@ const DELIVERED_ROUTE_DECISIONS: ReadonlySet<ThreadFrameRoute["decision"]> = new
 /** In-memory channel that records every write and control request and lets a test drive frames. */
 export class FakeClaudeProviderProcess implements ClaudeProviderProcess {
   readonly providerSessionId: string;
+  readonly processId: number | undefined = undefined;
   /** Each written text as the user frame a real transport puts on stdin. */
   readonly sentUserFrames: ClaudeUserFrame[] = [];
   readonly controlRequests: ClaudeControlRequest[] = [];
@@ -116,14 +118,21 @@ export class FakeClaudeProviderProcess implements ClaudeProviderProcess {
     return this.sentUserFrames.length + this.controlRequests.length;
   }
 
-  /** The text each written frame carried, in order. */
+  /** The words each written frame carried, in order, without its files' blocks. */
   get sentTexts(): string[] {
-    return this.sentUserFrames.map((frame) => frame.message.content);
+    return this.sentUserFrames.map((frame) => {
+      const content = frame.message.content;
+      if (typeof content === "string") {
+        return content;
+      }
+      return content[0]?.type === "text" ? content[0].text : "";
+    });
   }
 
   async sendUserText(
     outboundText: OutboundText,
     messageUuid: string,
+    attachmentBlocks?: readonly ClaudeUserContentBlock[],
   ): Promise<ClaudeUserTextWriteAttempt> {
     this.sendUserTextAttempts += 1;
     if (this.sendUserTextRejection !== undefined) {
@@ -138,7 +147,7 @@ export class FakeClaudeProviderProcess implements ClaudeProviderProcess {
         cause: this.sendUserTextFailure,
       };
     }
-    this.sentUserFrames.push(composeClaudeUserFrame(outboundText, messageUuid));
+    this.sentUserFrames.push(composeClaudeUserFrame(outboundText, messageUuid, attachmentBlocks));
     await Promise.resolve();
     return { settled: "written" };
   }
@@ -535,14 +544,17 @@ export function buildStartRunParams(): StartRunParams {
   return { runId: TEST_RUN_ID, agentConfig: {} };
 }
 
-/** A steer intervention on the first test run carrying `content`. */
-export function buildSteerParams(content: string): ApplyInterventionParams {
+/** A steer intervention on the first test run carrying `content` and any staged files. */
+export function buildSteerParams(
+  content: string,
+  attachments?: ArtifactId[],
+): ApplyInterventionParams {
   return {
     type: "steer",
     targetRunId: TEST_RUN_ID,
     expectedRunVersion: 3,
     clientIdempotencyKey: "3f1d2b4c-0000-4000-8000-000000000001",
-    payload: { content },
+    payload: attachments === undefined ? { content } : { content, attachments },
   };
 }
 

@@ -194,15 +194,13 @@ interface AttachmentIngestCompleteResponse {
 //     unresolved marker in its declared position naming its cause, `deleted` — silently dropping it
 //     is prohibited (Spec-012 §Fallback Behavior). A carrier holds as many attachments as the daemon
 //     and the provider accept, with no count of the app's own.
-//     The driver-boundary
-//     steer and intervention arms were typed `unknown[]` and DELIBERATELY NOT edited from the Plan-011
-//     side, because those wire arms belong to the plans that own the driver boundary and retyping them
-//     was registered as the Plan-011 cross-plan follow-up obligation CP-011-1 so the change would land
-//     under its owners. IT HAS: both arms are `ArtifactId[]`, typed by Plan-003
-//     (SteerPayload, provider-driver-payloads.md §Plan-003 — where the carrier contract is stated once) and Plan-002 (the
-//     message's `attachments` on QueueItemCreateRequest, `run.queueCreate`, run-control-payloads.md §Plan-002), so every V1 attachment carrier registered
-//     here is typed and CP-011-1's prerequisite — no V1 carrier may be wired to deliver an
-//     attachment over an untyped arm — holds. ---
+//     The two carriers are typed `ArtifactId[]` by the plans that own them, never from the Plan-011
+//     side (CP-011-1): Plan-003 types the driver boundary's SteerPayload.attachments
+//     (provider-driver-payloads.md §Plan-003, where the carrier contract is stated once), and Plan-002
+//     types `run.queueCreate`'s attachments, the message's `attachments` on QueueItemCreateRequest
+//     (run-control-payloads.md §Plan-002), which is how a person's steer carries its files; no
+//     intervention carries attachments. So every V1 attachment carrier is typed, and no V1 carrier is
+//     wired to deliver an attachment over an untyped arm. ---
 ```
 
 > **The artifact manifest envelope.** The ArtifactPublish/ArtifactRead pair composes a single named `ArtifactManifest` envelope ([Spec-012 §Interfaces And Contracts](../../specs/012-artifacts-files-and-attachments.md#interfaces-and-contracts)) instead of inlining and duplicating the fields — this is the `ArtifactManifest` shape Plan-011 Task 1 mints. `ArtifactPublishResponse` embeds `manifest: ArtifactManifest` per [Spec-012 §Interfaces And Contracts](../../specs/012-artifacts-files-and-attachments.md#interfaces-and-contracts) ("must return artifact id **and manifest metadata**"): the `ArtifactRead` clause grants handle/inline latitude to the **payload** on _Read_ only, never to the manifest, so both responses return the manifest metadata inline (D-011-2). `ArtifactReadResponse` is `manifest` + `payloadHandle?`/`payload?` ([Spec-012 §Interfaces And Contracts](../../specs/012-artifacts-files-and-attachments.md#interfaces-and-contracts)). The wire envelope mirrors the `artifact_manifests` row in [Local SQLite Schema](../schemas/local-sqlite-schema.md) 1:1: `digest`/`size` are **required** on the wire because a content-addressed manifest always carries both (I-011-1), and the at-rest `content_hash`/`size_bytes` columns are correspondingly **`NOT NULL`** — each producer (AttachmentIngest, ArtifactPublish) computes the SHA-256 + byte length from its own payload and inserts its manifest with both columns set in the same transaction as the payload-ref, and AttachmentIngest and ArtifactPublish are independent producers (the `artifactId` `AttachmentIngestCompleteResponse` returns resolves from the ingest-written manifest, not a later publish), so there is no payload-less manifest to reconcile (D-011-1). Producer inputs are closed too (D-011-2): `size`/`digest` stay server-derived from `payload`, and the file name rides in `metadata`. An artifact is never changed in place.

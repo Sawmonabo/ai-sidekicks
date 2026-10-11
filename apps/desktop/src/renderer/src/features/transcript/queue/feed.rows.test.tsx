@@ -61,8 +61,8 @@ describe("the ordering rule holds through the hook", () => {
     // The race the fold exists for: the tail opens with the snapshot still in flight,
     // so a delivery made before the snapshot lands is one that arrived first.
     const { bridge, clock, queueCalls, deliver } = queueFeedBridge([
-      queueRow(QUEUE_ITEM_A, "queued", "2026-09-02T09:00:01.000Z"),
-      queueRow(QUEUE_ITEM_B, "queued", "2026-09-02T09:00:01.000Z"),
+      queueRow(QUEUE_ITEM_A, "queued", "2026-09-02T09:00:01.000Z", 0),
+      queueRow(QUEUE_ITEM_B, "queued", "2026-09-02T09:00:01.000Z", 1),
     ]);
     let held: QueueFeed | undefined;
     render(
@@ -75,7 +75,7 @@ describe("the ordering rule holds through the hook", () => {
       { wrapper: bridgeWrapper(bridge, clock) },
     );
     act(() => {
-      deliver(queueRow(QUEUE_ITEM_B, "admitted", "2026-09-02T09:00:02.000Z"));
+      deliver(queueRow(QUEUE_ITEM_B, "admitted", "2026-09-02T09:00:02.000Z", 1));
     });
     await settleScheduledRead(clock);
     expect(held?.items.map((item) => item.id)).toStrictEqual([QUEUE_ITEM_A, QUEUE_ITEM_B]);

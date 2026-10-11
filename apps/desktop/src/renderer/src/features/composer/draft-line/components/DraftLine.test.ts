@@ -21,7 +21,7 @@ import { WORKFLOW_START_COMMAND_GROUP } from "../../command-list/workflow/hooks/
 import {
   FIRST_AGENT_ID,
   SECOND_AGENT_ID,
-  answerSteer,
+  answerQueued,
   mountAddressable,
   mountDraftLine,
   openSessionStore,
@@ -84,23 +84,14 @@ describe("DraftLine — the unsent body lives in the supplied draft store", () =
   });
 });
 
-describe("DraftLine — a rejected steer keeps the message in the line", () => {
+describe("DraftLine — a refused message stays in the line", () => {
   it("leaves the text and renders the daemon's cause", async () => {
-    // Nothing in the reply says the message traveled, so the line must not clear for an
-    // intervention the run declined.
-    const bar = mountAddressable(
-      sendCallsAnswering(async ({ method }) =>
-        method === "run.intervene"
-          ? {
-              interventionId: "6f708192-0314-4526-8738-bc9d0e1f2a34",
-              interventionType: "steer",
-              state: "rejected",
-              runVersion: 4,
-              rejectionReason: "run.invalid_transition",
-            }
-          : undefined,
-      ),
-    );
+    // Nothing reached the queue, so clearing the line would lose what the person wrote.
+    const rejection = {
+      code: "queue.persistence_unavailable",
+      message: "The queue cannot be stored right now.",
+    };
+    const bar = mountAddressable(sendCallsAnswering(vi.fn().mockRejectedValue(rejection)));
 
     fireEvent.change(bar.line(), { target: { value: "keep going on the parser" } });
     await act(async () => {
@@ -109,50 +100,12 @@ describe("DraftLine — a rejected steer keeps the message in the line", () => {
 
     expect(bar.line().value).toBe("keep going on the parser");
     const refusal = bar.result.container.querySelector(".meridian-refusal--inline");
-    expect(refusal?.textContent).toContain("The run did not take this steer, so nothing was sent.");
-    expect(refusal?.textContent).toContain("still in the line");
+    expect(refusal?.textContent).toContain("The queue cannot be stored right now.");
   });
 
-  it("reads Not delivered · Retry, and Retry sends the message again and clears the line", async () => {
-    let answers = 0;
-    const bar = mountAddressable(
-      sendCallsAnswering(async (call) => {
-        if (call.method !== "run.intervene") {
-          return undefined;
-        }
-        answers += 1;
-        return answers === 1
-          ? {
-              interventionId: "6f708192-0314-4526-8738-bc9d0e1f2a34",
-              interventionType: "steer",
-              state: "failed",
-              runVersion: 4,
-              failureReason: "driver.transport_closed",
-            }
-          : answerSteer(call);
-      }),
-    );
-
-    fireEvent.change(bar.line(), { target: { value: "keep going on the parser" } });
-    await act(async () => {
-      pressSend(bar.result.container);
-    });
-
-    expect(bar.line().value).toBe("keep going on the parser");
-    const line = bar.result.container.querySelector(".meridian-composer__not-delivered");
-    expect(line?.textContent).toBe("Not delivered · Retry");
-    const retry = line?.querySelector(".meridian-clickable-word");
-    await act(async () => {
-      (retry as HTMLButtonElement).click();
-    });
-    expect(answers).toBe(2);
-    expect(bar.line().value).toBe("");
-    expect(bar.result.container.querySelector(".meridian-composer__not-delivered")).toBeNull();
-  });
-
-  it("negative control: the same send against an applied answer clears the line", async () => {
+  it("negative control: the same send against a queued answer clears the line", async () => {
     // Without this, the case above would pass a bar that never clears the draft at all.
-    const bar = mountAddressable(sendCallsAnswering(answerSteer));
+    const bar = mountAddressable(sendCallsAnswering(answerQueued));
 
     fireEvent.change(bar.line(), { target: { value: "keep going on the parser" } });
     await act(async () => {

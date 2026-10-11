@@ -19,11 +19,11 @@
 // A Zod discriminated union that matches no branch reports a single issue at `path: ["type"]`,
 // while a branch it did enter reports issues inside that branch. A failure whose every issue is
 // on the discriminator therefore means the strict layer registers nothing for this kind yet, and
-// the beat is held to the other legs. That escape is scoped: `run-and-queue-semantics.ts` covers
-// the `run.` root and the `queue_item.` root between four legs, each keyed off a table declared
-// `satisfies Record<<census-derived union>, ...>`, so a run or queue kind cannot fall into the
-// escape by being forgotten; it would have to leave both its stream and the excluded-payload
-// table, and each is a compile error in its own module.
+// the beat is held to the other legs. That escape is scoped: every `queue_item.` kind registers a
+// strict variant, and `run-and-queue-semantics.ts` covers the `run.` root between three legs, each
+// keyed off a table declared `satisfies Record<<census-derived union>, ...>`, so a run kind cannot
+// fall into the escape by being forgotten; it would have to leave both its stream and the
+// excluded-payload table, and each is a compile error in its own module.
 
 import { EventEnvelopeSchema } from "@ai-sidekicks/contracts/event/envelope";
 import {

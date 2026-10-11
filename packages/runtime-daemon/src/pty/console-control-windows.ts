@@ -2,7 +2,7 @@
 // expose `GenerateConsoleCtrlEvent`, so it is bound through `koffi`, loaded on the first Windows
 // kill.
 
-import { importKoffi } from "./koffi.js";
+import { importKoffi } from "../koffi.js";
 
 /** Windows console-control event codes per Win32 `GenerateConsoleCtrlEvent`. */
 export type ConsoleCtrlEvent = 0 | 1; // CTRL_C_EVENT | CTRL_BREAK_EVENT

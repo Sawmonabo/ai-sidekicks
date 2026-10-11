@@ -49,7 +49,7 @@ Queue item states:
 | `admitted` | Taken by the agent. A user message sent while a run is active is admitted into that run at its next step boundary, on both V1 providers, and never becomes a second run ([Spec-003 §Required Behavior](../specs/003-queue-steer-pause-resume.md#required-behavior)); an orchestration-authored item is admitted as a new run. |
 | `superseded` | Replaced in place by an edit before the agent took it: the edit is one `run.queueCreate` carrying `replacesQueueItemId`, the edited message keeps the old item's place, and the old item stays in history reading `superseded`. |
 | `canceled` | Removed before the agent took it (`Remove`, `run.queueCancel`); nothing reaches the agent. |
-| `not_delivered` | The daemon took the message but could not deliver it: it waited longer than the daemon's own delivery timeout, or its delivery failed outright. The item carries its reason and is sent again from itself (`Retry`). While the daemon is only unreachable the item stays `queued` and reads as waiting to be delivered. |
+| `not_delivered` | The daemon took the message but could not deliver it: it waited longer than the daemon's own delivery timeout, or its delivery failed outright. The item carries its reason and is sent again from itself (`Retry`). While the daemon is only unreachable the item stays `queued` and reads as waiting to be delivered. A Claude Code message whose withdraw went unanswered reads `not_delivered` and turns `admitted` if Claude Code then shows it took it. |
 
 Intervention states:
 

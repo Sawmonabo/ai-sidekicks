@@ -8,11 +8,9 @@
 // settlement identity, so a return to an earlier address does not find a latch held by a parked
 // call. A late settlement releases exactly the key it claimed, but its reading is dropped.
 //
-// The history walk and the comparand record are held here: the record must outlive the router,
-// which is rebuilt whenever the addressed target changes, and the unsent body lives only in
-// the supplied `DraftStore`.
+// The history walk is held here, and the unsent body lives only in the supplied `DraftStore`.
 
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useMemo } from "react";
 
 import { useGenerationLatch } from "#renderer/hooks/useGenerationLatch.js";
 import { normalizeWireRejection } from "#renderer/lib/wire/rejection.js";
@@ -24,7 +22,6 @@ import { composerRefusal, DAEMON_REFUSAL_ORIGIN } from "../refusals.js";
 import { useSentMessageRecall } from "../../hooks/useSentMessageRecall.js";
 import { addressedOperationKey } from "../settlement.js";
 import { ComposerSendRouter } from "../router.js";
-import { AnsweredRunVersions } from "#renderer/features/composer/answered-run-versions.js";
 import type { SendController, SendControllerDependencies } from "../controller-contract.js";
 
 /** What a recognized command with nowhere to run says; the text is still in the line. */
@@ -36,17 +33,13 @@ const NO_EXECUTOR_DETAIL =
 export function useSendController(dependencies: SendControllerDependencies): SendController {
   const { bridge, calls, target, draftStore, commandExecutor, recognizeConsoleCommand } =
     dependencies;
-  // Allocated on first use, not on every render.
-  const runVersionsRef = useRef<AnsweredRunVersions | null>(null);
-  const runVersions = (runVersionsRef.current ??= new AnsweredRunVersions());
   const router = useMemo(
     () =>
       new ComposerSendRouter({
         calls,
-        runVersions,
         ...(recognizeConsoleCommand === undefined ? {} : { recognizeConsoleCommand }),
       }),
-    [calls, runVersions, recognizeConsoleCommand],
+    [calls, recognizeConsoleCommand],
   );
   // Claimed before the await and released in `finally`, so every settlement releases the round
   // on one path.

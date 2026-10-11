@@ -1,19 +1,21 @@
 // The steer form: a body typed for one run is never sent to or cleared by another, a dispatch
 // is recorded only where the dispatch state admitted it, and the text survives a refusal and
-// reaches the wire as typed.
+// reaches the child's queue as typed.
 
 import { useLayoutEffect, useState } from "react";
-import { act, render, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { act, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import { SteerBox } from "./SteerBox.js";
 import { useRunControlDispatch } from "../../run/controls/hooks/useRunControlDispatch.js";
 import {
-  APPLIED_STEER,
+  QUEUED_STEER,
+  QUEUED_STEER_RESPONSE,
   bodyValue,
-  interventionCalls,
   renderSteerBox,
   runAt,
   STEERED_AGENT_NAME,
+  STEERED_CHILD_HANDLE,
+  steerCalls,
   steerField,
   submit,
   type ScriptedAnswer,
@@ -59,7 +61,7 @@ describe("the form is keyed by what it is composing against", () => {
     readonly onCommit?: (committed: { body: string; isConfirmDisabled: boolean }) => void;
   }): React.JSX.Element {
     const [bridge] = useState(inertBridge);
-    const [runControlCalls] = useState(() => interventionCalls([], props.answer));
+    const [runControlCalls] = useState(() => steerCalls([], props.answer));
     const dispatchState = useRunControlDispatch(bridge, runControlCalls);
     const { onCommit } = props;
     return (
@@ -68,6 +70,7 @@ describe("the form is keyed by what it is composing against", () => {
           key={props.keyed ? props.runId : "fixed"}
           bridge={bridge}
           run={runAt("paused", 8, props.runId)}
+          childHandle={STEERED_CHILD_HANDLE}
           agentName={STEERED_AGENT_NAME}
           dispatchState={dispatchState}
           onDismiss={() => undefined}
@@ -79,7 +82,7 @@ describe("the form is keyed by what it is composing against", () => {
 
   function renderSwitchable(
     keyed: boolean,
-    answer: ScriptedAnswer = APPLIED_STEER,
+    answer: ScriptedAnswer = QUEUED_STEER,
   ): {
     container: HTMLElement;
     retarget: (runId: string) => void;
@@ -100,8 +103,8 @@ describe("the form is keyed by what it is composing against", () => {
 
   it("shows the new target's own empty form in the commit that re-addresses", async () => {
     // The commit itself, not the settled state after it: a reset done in a passive effect is
-    // one commit late, and a submit in that commit would send the old run's text against the
-    // new run's comparand.
+    // one commit late, and a submit in that commit would send the old run's text as the new
+    // run's steer.
     const committed: { body: string; isConfirmDisabled: boolean }[] = [];
     const { container, rerender } = render(
       <TargetSwitchHarness
@@ -169,13 +172,14 @@ describe("a dispatch is recorded only where the dispatch state admitted one", ()
     readonly onDismiss: () => void;
   }): React.JSX.Element {
     const [bridge] = useState(inertBridge);
-    const [runControlCalls] = useState(() => interventionCalls([], props.answer));
+    const [runControlCalls] = useState(() => steerCalls([], props.answer));
     const dispatchState = useRunControlDispatch(bridge, runControlCalls);
     return (
       <SteerBox
         key={props.formKey}
         bridge={bridge}
         run={runAt("paused")}
+        childHandle={STEERED_CHILD_HANDLE}
         agentName={STEERED_AGENT_NAME}
         dispatchState={dispatchState}
         onDismiss={props.onDismiss}
@@ -245,14 +249,9 @@ describe("a dispatch is recorded only where the dispatch state admitted one", ()
     });
     typeInto(steerField(container), "the second body");
     await submit(container);
-    // The first request lands, applied; it is not this form's settlement.
+    // The first request lands, queued; it is not this form's settlement.
     await act(async () => {
-      held.release({
-        interventionId: "d5f2c3e4-6071-4182-ac93-1e4f50617283",
-        interventionType: "steer",
-        state: "applied",
-        runVersion: 9,
-      });
+      held.release(QUEUED_STEER_RESPONSE);
       await crossMacrotaskBoundary();
     });
     expect(dismissals).toBe(0);
@@ -270,61 +269,24 @@ describe("a dispatch is recorded only where the dispatch state admitted one", ()
 });
 
 describe("the composer outlives its dispatch", () => {
-  const REJECTED_STEER: ScriptedAnswer = () => ({
-    interventionId: "d5f2c3e4-6071-4182-ac93-1e4f50617283",
-    interventionType: "steer",
-    state: "rejected",
-    rejectionReason: "run_not_paused",
-    runVersion: 9,
-  });
-
-  it("keeps the text and says it was not applied when the intervention is rejected", async () => {
-    const { container, dismissCount } = renderSteerBox(REJECTED_STEER);
+  it("keeps the text and says why when the message is refused", async () => {
+    const refusal = {
+      code: "run.child_control_refused",
+      message: "The child has ended.",
+    };
+    const { container, dismissCount } = renderSteerBox(vi.fn().mockRejectedValue(refusal));
     typeInto(steerField(container), "stop editing that file");
     await submit(container);
     expect(dismissCount()).toBe(0);
     expect(bodyValue(container)).toBe("stop editing that file");
     expect(container.querySelector(".meridian-refusal")?.textContent).toContain(
-      "The background service did not apply this.",
+      "The child has ended.",
     );
   });
 });
 
-describe("a steer the background service could not deliver", () => {
-  it("reads Not delivered · Retry, and Retry sends the same text again", async () => {
-    let answers = 0;
-    const failedThenApplied: ScriptedAnswer = () => {
-      answers += 1;
-      return answers === 1
-        ? {
-            interventionId: "d5f2c3e4-6071-4182-ac93-1e4f50617283",
-            interventionType: "steer",
-            state: "failed",
-            failureReason: "driver.transport_closed",
-            runVersion: 9,
-          }
-        : APPLIED_STEER();
-    };
-    const { container, calls, dismissCount } = renderSteerBox(failedThenApplied);
-    typeInto(steerField(container), "stop editing that file");
-    await submit(container);
-    expect(dismissCount()).toBe(0);
-    expect(bodyValue(container)).toBe("stop editing that file");
-    const line = container.querySelector(".meridian-composer__not-delivered");
-    expect(line?.textContent).toBe("Not delivered · Retry");
-
-    const retry = within(container).getByRole("button", { name: "Retry" });
-    await act(async () => {
-      retry.click();
-    });
-    expect(calls).toHaveLength(2);
-    expect(calls[1]?.params).toMatchObject({ type: "steer", content: "stop editing that file" });
-    expect(dismissCount()).toBe(1);
-  });
-});
-
 describe("what reaches the wire", () => {
-  it("dispatches a typed steer byte-identical", async () => {
+  it("sends a typed steer to the child byte-identical, at the run's version", async () => {
     // A trim before the wire would cost a pasted block the shape that was the reason for
     // pasting it.
     const indented = "  if (ready) {\n    ship();\n  }\n\n";
@@ -332,7 +294,12 @@ describe("what reaches the wire", () => {
     typeInto(steerField(container), indented);
     await submit(container);
     expect(calls).toHaveLength(1);
-    expect(calls[0]?.method).toBe("run.intervene");
-    expect(calls[0]?.params).toMatchObject({ type: "steer", content: indented });
+    expect(calls[0]?.method).toBe("run.childSteer");
+    expect(calls[0]?.params).toMatchObject({
+      targetRunId: RUN_ID,
+      childHandle: STEERED_CHILD_HANDLE,
+      expectedRunVersion: 8,
+      content: indented,
+    });
   });
 });

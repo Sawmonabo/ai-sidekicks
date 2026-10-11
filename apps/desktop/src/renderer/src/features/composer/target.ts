@@ -4,25 +4,22 @@
 // the resolver can answer with an incomplete target; defaulting a missing field would assert facts
 // nobody established.
 
-import { readWireNumber, readWireString } from "#renderer/lib/wire/strings.js";
+import { readWireString } from "#renderer/lib/wire/strings.js";
 import type { StoredEntity } from "#renderer/store/session/entities/vocabulary.js";
 import type { EntityRef } from "#renderer/lib/entity-kinds.js";
 import type { PaneAddress } from "#renderer/routing/panes/address.js";
 import { resolveAddressedRun } from "./addressed-run.js";
 
-/** The two paths a composed message can travel; the union is derived so a third is not missed. */
-export const COMPOSER_SEND_PATHS = ["session-message", "provider-bound"] as const;
-
-/** One send path. Derived from the enumeration, never restated. */
-export type ComposerSendPath = (typeof COMPOSER_SEND_PATHS)[number];
-
-/** A message addressed to the session: the new-turn path. */
+/** A message addressed to the session. */
 export interface ComposerSessionTarget {
   readonly path: "session-message";
   readonly sessionId: string;
 }
 
-/** A message addressed to an agent's running turn: the steer path. */
+/**
+ * A message addressed to an agent's running turn. It is sent as any message is, onto the
+ * session's queue; the address keys the draft and names the agent the command list reads.
+ */
 export interface ComposerRunTarget {
   readonly path: "provider-bound";
   readonly sessionId: string;
@@ -33,11 +30,6 @@ export interface ComposerRunTarget {
    */
   readonly driverName: string | undefined;
   readonly targetRunId: string;
-  /**
-   * The optimistic-concurrency comparand (`RunStateChangeEvent.runVersion`). `run.intervene`
-   * fails closed without it, so `undefined` refuses dispatch and is never sent as `0`.
-   */
-  readonly expectedRunVersion: number | undefined;
 }
 
 /** Where a composed message goes: the session or a bound agent's run. */
@@ -70,7 +62,6 @@ export function resolveComposerTarget(input: ComposerTargetInput): ComposerTarge
       agentId: agentRef.id,
       driverName: readWireString(agent?.body?.["driverName"]),
       targetRunId: run.id,
-      expectedRunVersion: readWireNumber(run.body?.["runVersion"]),
     };
   }
   return { path: "session-message", sessionId: input.sessionId };

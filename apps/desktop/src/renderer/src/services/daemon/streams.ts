@@ -23,10 +23,12 @@ export interface DaemonStreamOpen<StreamName extends RunStreamName> {
 }
 
 /**
- * A session-scoped daemon subscription, forwarding the registered request as its scope. The open
- * is also reported to `transport/observed-subscription.ts`, so any stream opening can show the
- * transport is back. `onEnded` hears a stream that stopped without being closed, so its owner can
- * open it again from where it got to.
+ * A session-scoped daemon subscription, forwarding the registered request as its scope. Each
+ * delivery is one frame of the stream's changes, each at its event cursor; a frame marked
+ * `dropped` says changes were left out, so its owner repairs from a fresh read. The open is also
+ * reported to `transport/observed-subscription.ts`, so any stream opening can show the transport
+ * is back. `onEnded` hears a stream that stopped without being closed, so its owner can open it
+ * again from where it got to.
  */
 export function subscribeDaemon<StreamName extends RunStreamName>(
   bridge: PlatformBridge,

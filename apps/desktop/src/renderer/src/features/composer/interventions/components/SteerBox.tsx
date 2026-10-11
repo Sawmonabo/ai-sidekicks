@@ -1,24 +1,18 @@
-// A child's steer box: a body typed against one run, sent as a steer intervention.
+// A child's steer box: a body typed against one run, sent as a message on the child's own queue.
 //
 // All form state sits in one subject-scoped holder keyed by run id, so it re-seeds during the
-// render that first sees a new run and a submit never sends text written for another run. The
-// form reads only the settlement recorded under its own dispatch token, and closes only on one
-// that landed: the dispatch record keeps a refusal, but nothing else keeps the text.
+// render that first sees a new run and a submit never sends text written for another run. A steer
+// is a queue send, so the form closes once the dispatch recorded under its own token settles; a
+// refused send records nothing, and the form keeps the text and says why.
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { TextBox } from "#renderer/components/TextBox/TextBox.js";
 import { useSubjectScopedState } from "#renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 import { normalizeWireRejection } from "#renderer/lib/wire/rejection.js";
-import {
-  RUN_INTERVENTION_REFUSAL_ORIGIN,
-  admissionRefusal,
-  readInterventionFormSettlement,
-} from "../form-settlement.js";
-import type { InterventionFormSettlement } from "../form-settlement.js";
-import { NotDeliveredLine } from "../../components/NotDeliveredLine.js";
+import { RUN_INTERVENTION_REFUSAL_ORIGIN, admissionRefusal } from "../refusals.js";
 import type { RunControlCommandRun } from "../../run/controls/contributions/commands.js";
 import type {
   RunControlDispatcher,
@@ -29,17 +23,19 @@ import type { RunControlDispatchState } from "../../run/controls/hooks/useRunCon
 import "./SteerBox.css";
 
 /**
- * What the steer box is given: the run it addresses, the agent it is named for, and the dispatch
- * state it goes through.
+ * What the steer box is given: the run it addresses, the child of that run whose queue takes the
+ * message, the agent it is named for, and the dispatch state it goes through.
  */
 export interface SteerBoxProps {
   /** The transport this form's state is scoped to; a replacement retires that state. */
   readonly bridge: PlatformBridge;
   readonly run: RunControlCommandRun;
+  /** The daemon's handle for the child the box steers. */
+  readonly childHandle: string;
   /** The agent the box steers, as the transcript names it: `Steer <name>`. */
   readonly agentName: string;
   readonly dispatchState: RunControlDispatchState;
-  /** Close the box. Raised on a settlement that landed. */
+  /** Close the box. Raised once the steer is sent. */
   readonly onDismiss: () => void;
 }
 
@@ -76,7 +72,7 @@ const EMPTY_FORM: ComposedForm = Object.freeze({
 
 /** The box that sends a steer to one run. */
 export function SteerBox(props: SteerBoxProps): React.JSX.Element {
-  const { bridge, run, agentName, dispatchState, onDismiss } = props;
+  const { bridge, run, childHandle, agentName, dispatchState, onDismiss } = props;
   const comparand = dispatchState.dispatcher.comparandFor(run.runId, run.runVersion);
   const composedIdentity = run.runId;
   const { value: form, publish: publishForm } = useSubjectScopedState<ComposedForm>(
@@ -97,33 +93,26 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
 
   // Read off the record whose id is this form's dispatch token, so another request's
   // settlement is never mistaken for it.
-  const settlement = useMemo((): InterventionFormSettlement | undefined => {
-    if (pendingDispatch === undefined || pendingDispatch.composedIdentity !== composedIdentity) {
-      return undefined;
-    }
-    const own = dispatchState.records.find(
-      (record) => record.recordId === pendingDispatch.dispatchToken,
-    );
-    return own === undefined ? undefined : readInterventionFormSettlement(own.outcome);
-  }, [pendingDispatch, dispatchState.records, composedIdentity]);
-
-  const isSending = pendingDispatch !== undefined && settlement === undefined;
-  const isConfirmLatched = isSending || settlement?.kind === "recorded";
+  const hasLanded =
+    pendingDispatch !== undefined &&
+    pendingDispatch.composedIdentity === composedIdentity &&
+    dispatchState.records.some((record) => record.recordId === pendingDispatch.dispatchToken);
+  const isSending = pendingDispatch !== undefined && !hasLanded;
 
   const hasAskedToClose = form.hasAskedToClose;
   useEffect(() => {
-    if (settlement?.kind === "landed" && !hasAskedToClose) {
+    if (hasLanded && !hasAskedToClose) {
       publishForm((held) => ({ ...held, hasAskedToClose: true }));
       onDismiss();
     }
-  }, [settlement, hasAskedToClose, publishForm, onDismiss]);
+  }, [hasLanded, hasAskedToClose, publishForm, onDismiss]);
 
   const onSubmit = useCallback(
     (event: React.FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      if (isConfirmLatched) {
+      if (isSending) {
         // A latched confirm is still reachable by Enter in a field; a second dispatch of one body
-        // would be a second intervention.
+        // would queue it twice.
         return;
       }
       if (body.trim().length === 0) {
@@ -138,7 +127,10 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
         return;
       }
       const steer = (dispatcher: RunControlDispatcher): Promise<RunControlOutcome> =>
-        dispatcher.steer({ runId: run.runId, expectedRunVersion: comparand }, { content: body });
+        dispatcher.steer(
+          { runId: run.runId, expectedRunVersion: comparand },
+          { childHandle, content: body },
+        );
       // Nothing is recorded unless the dispatch state admitted the call.
       const admission = dispatchState.dispatch(run.runId, "steer", steer);
       if (!admission.admitted) {
@@ -164,7 +156,16 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
         );
       });
     },
-    [body, dispatchState, run.runId, comparand, isConfirmLatched, composedIdentity, publishForm],
+    [
+      body,
+      dispatchState,
+      run.runId,
+      comparand,
+      childHandle,
+      isSending,
+      composedIdentity,
+      publishForm,
+    ],
   );
 
   return (
@@ -187,17 +188,6 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
           attempt={localRefusal}
         />
       )}
-      {settlement === undefined || settlement.kind === "landed" ? null : settlement.kind ===
-        "undelivered" ? (
-        <NotDeliveredLine
-          failureReason={settlement.failureReason}
-          onRetry={() => {
-            formRef.current?.requestSubmit();
-          }}
-        />
-      ) : (
-        <InlineRefusal code={settlement.notice.code} detail={settlement.notice.detail} />
-      )}
       <div className="meridian-run-composer__actions">
         <button
           type="submit"
@@ -205,7 +195,7 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
             "meridian-action-button " +
             "meridian-action-button--small meridian-action-button--raised"
           }
-          disabled={isConfirmLatched}
+          disabled={isSending}
           aria-busy={isSending}
         >
           Send

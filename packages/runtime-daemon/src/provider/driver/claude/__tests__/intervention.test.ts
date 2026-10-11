@@ -1,8 +1,9 @@
-// `intervention.ts`: a steer is one user message written into the running turn; an interrupt drops
-// the waiting messages only when they return to the draft and the process can drop them, and its
-// receipt says whether it did.
+// `intervention.ts`: a steer is one user message written into the running turn, steers keeping the
+// order they came in; an interrupt drops the waiting messages only when they return to the draft
+// and the process can drop them, and its receipt says whether it did.
 
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -15,7 +16,13 @@ import {
   buildInterruptParams,
   buildSteerParams,
   FakeClaudeProviderProcess,
+  TEST_SESSION_ID,
 } from "../__fixtures__/transport-doubles.js";
+import { drainMicrotasks } from "../../../__fixtures__/drain-microtasks.js";
+import {
+  FakeAttachmentResolver,
+  STAGED_ATTACHMENT_IDS,
+} from "../../__fixtures__/attachment-doubles.js";
 
 const CANCEL_QUEUED_CAPABILITY = "interrupt_cancel_queued_v1";
 
@@ -26,6 +33,10 @@ class StubRunProcessLookup implements ClaudeRunProcessLookup {
   constructor(channel: FakeClaudeProviderProcess | undefined, capabilities: readonly string[]) {
     this.channel = channel;
     this.capabilities = new Set(capabilities);
+  }
+
+  sessionIdForRun(): SessionId | undefined {
+    return this.channel === undefined ? undefined : TEST_SESSION_ID;
   }
 
   findProcessForRun(): ClaudeProviderProcess | undefined {
@@ -62,9 +73,11 @@ function buildHarness(
   const dispatcher = new ClaudeInterventionDispatcher({
     channelLookup: new StubRunProcessLookup(channel, capabilities),
     settlement: SETTLEMENT_WITH_NO_CHOICE,
+    attachments: new FakeAttachmentResolver(),
     onSteerSent: (runId, messageUuid) => {
       steersSent.push({ runId, messageUuid });
     },
+    onSteerUnsent: () => undefined,
   });
   return { dispatcher, channel, steersSent };
 }
@@ -90,6 +103,44 @@ describe("ClaudeInterventionDispatcher steer", () => {
     expect(harness.steersSent).toStrictEqual([
       { runId: params.targetRunId, messageUuid: params.clientIdempotencyKey },
     ]);
+  });
+});
+
+describe("ClaudeInterventionDispatcher steer order", () => {
+  it("writes steers in the order they came, however long their files take to read", async () => {
+    const filesRead = Promise.withResolvers<void>();
+    const channel = new FakeClaudeProviderProcess("provider-session-live");
+    const dispatcher = new ClaudeInterventionDispatcher({
+      channelLookup: new StubRunProcessLookup(channel, []),
+      settlement: SETTLEMENT_WITH_NO_CHOICE,
+      attachments: {
+        resolveAttachments: async (_sessionId, artifactIds) => {
+          await filesRead.promise;
+          return artifactIds.map((artifactId) => ({
+            kind: "unresolved" as const,
+            artifactId,
+            cause: "deleted" as const,
+          }));
+        },
+      },
+      onSteerSent: () => undefined,
+      onSteerUnsent: () => undefined,
+    });
+
+    const first = dispatcher.applyIntervention(
+      buildSteerParams("first", [STAGED_ATTACHMENT_IDS.deleted]),
+    );
+    const second = dispatcher.applyIntervention({
+      ...buildSteerParams("second"),
+      clientIdempotencyKey: "3f1d2b4c-0000-4000-8000-000000000002",
+    });
+    await drainMicrotasks();
+    // The second carries no file, yet waits for the first, whose file is still being read.
+    expect(channel.sentUserFrames).toStrictEqual([]);
+    filesRead.resolve();
+    await Promise.all([first, second]);
+
+    expect(channel.sentTexts).toStrictEqual(["first", "second"]);
   });
 });
 
@@ -141,7 +192,9 @@ describe("ClaudeInterventionDispatcher interrupt", () => {
     const unrouted = new ClaudeInterventionDispatcher({
       channelLookup: new StubRunProcessLookup(undefined, []),
       settlement: SETTLEMENT_WITH_NO_CHOICE,
+      attachments: new FakeAttachmentResolver(),
       onSteerSent: () => undefined,
+      onSteerUnsent: () => undefined,
     });
     await expect(unrouted.applyIntervention(buildInterruptParams())).rejects.toBeInstanceOf(
       ClaudeSessionUnavailableError,

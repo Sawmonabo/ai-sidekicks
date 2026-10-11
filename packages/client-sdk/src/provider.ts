@@ -13,15 +13,13 @@
 //
 // Every verb validates its request before the wire write and the daemon's reply before resolving.
 // `DriverInterventionResultSchema` is `.strict()`, so a degraded envelope that lost its
-// `fallbackAction` or gained an unknown key rejects instead of reaching a caller. Streamed events
-// are parsed against `DriverEventSchema`, so a daemon that filters wrongly ends the subscription
-// loudly instead of handing a driver consumer an approval or audit row.
+// `fallbackAction` or gained an unknown key rejects instead of reaching a caller.
 //
 // Catalog reads answer with a list of groups keyed by driver name, not a flat array: model ids
 // collide across providers, and a flat reply would lose which provider published a value.
 
 import type {
-  ApplyInterventionParams,
+  ApplyInterventionRequest,
   DriverInterventionResult,
   InterruptRunParams,
 } from "@ai-sidekicks/contracts/provider/driver/intervention";
@@ -29,7 +27,6 @@ import {
   DRIVER_METHOD_DESCRIPTORS,
   type CompactContextRequest,
   type DriverReadParams,
-  type DriverSubscribeEventsParams,
   type ListCapabilitiesResult,
   type ListModelsRequest,
   type ListModelsResult,
@@ -37,19 +34,14 @@ import {
 } from "@ai-sidekicks/contracts/provider/driver/methods";
 import type { EmptyPayload } from "@ai-sidekicks/contracts/method-descriptor";
 import type { DriverCompactionResult } from "@ai-sidekicks/contracts/provider/driver/compaction";
-import {
-  DRIVER_EVENT_METHOD_DESCRIPTORS,
-  type DriverEvent,
-} from "@ai-sidekicks/contracts/provider/driver/event";
 
-import { callMethod, subscribeMethod, type JsonRpcClient } from "./transport/json-rpc.js";
-import type { LocalSubscriptionConsumer } from "./transport/subscription-consumer.js";
+import { callMethod, type JsonRpcClient } from "./transport/json-rpc.js";
 
 /** The request the two no-arg reads send, frozen so no caller can alter what a later call sends. */
 const EMPTY_READ_PARAMS: DriverReadParams = Object.freeze({});
 
 /**
- * The client-facing driver surface: six request/response verbs plus `subscribeEvents`.
+ * The client-facing driver surface: six request/response verbs.
  *
  * `compactContext` and `applyIntervention` resolve refusals as values: a `refused` or `failed`
  * compaction and a `degraded` intervention are data a caller branches on. Only address, liveness
@@ -63,9 +55,6 @@ const EMPTY_READ_PARAMS: DriverReadParams = Object.freeze({});
  * `applyIntervention` reaches the driver even for an unsupported intervention, so it can answer
  * `degraded` with the daemon's fallback; the daemon does not pre-gate it on the capability flag.
  * Callers must branch on `status`.
- *
- * `subscribeEvents` returns synchronously, unlike `sessionClient.subscribe`, and hands back the
- * raw consumer handle (`next()`, `for await`, idempotent `cancel()`).
  */
 export interface DriverClient {
   /**
@@ -81,8 +70,8 @@ export interface DriverClient {
   /** Interrupt the run's in-flight turn. Resolves the empty ack on success. */
   interruptRun(params: InterruptRunParams): Promise<EmptyPayload>;
 
-  /** Apply a `steer` / `interrupt` / `cancel` intervention to a run. */
-  applyIntervention(params: ApplyInterventionParams): Promise<DriverInterventionResult>;
+  /** Apply an `interrupt` to a run; a steer goes through the run queue. */
+  applyIntervention(params: ApplyInterventionRequest): Promise<DriverInterventionResult>;
 
   /** Read every loaded driver's model catalog for one session, grouped by driver. */
   listModels(params: ListModelsRequest): Promise<ListModelsResult>;
@@ -97,20 +86,6 @@ export interface DriverClient {
    * must branch on `status`.
    */
   compactContext(params: CompactContextRequest): Promise<DriverCompactionResult>;
-
-  /**
-   * Open a subscription to one run's driver event stream.
-   *
-   * The value type is `DriverEvent`, the contracts-owned union over the driver-event
-   * categories, so a caller never has to handle an approval or audit event on a driver stream.
-   * The daemon already filters non-driver events, so a refused value means its filter regressed
-   * or a peer widened the stream; the subscription then ends in a `value`-phase
-   * `JsonRpcSchemaError`.
-   *
-   * @throws JsonRpcSchemaError when `params` fail the request schema (a bad `runId`), from this
-   *   call and before anything is sent, so no daemon state is orphaned.
-   */
-  subscribeEvents(params: DriverSubscribeEventsParams): LocalSubscriptionConsumer<DriverEvent>;
 }
 
 /**
@@ -138,7 +113,5 @@ export function createDaemonProviderClient(client: JsonRpcClient): DriverClient 
       callMethod(client, DRIVER_METHOD_DESCRIPTORS["driver.listModes"], EMPTY_READ_PARAMS),
     compactContext: (params) =>
       callMethod(client, DRIVER_METHOD_DESCRIPTORS["driver.compactContext"], params),
-    subscribeEvents: (params) =>
-      subscribeMethod(client, DRIVER_EVENT_METHOD_DESCRIPTORS["driver.subscribeEvents"], params),
   };
 }

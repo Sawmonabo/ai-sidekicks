@@ -94,7 +94,7 @@ function setUp(
   const queueItem: QueueItemSummary = {
     id: QueueItemIdSchema.parse(mintUuidV7()),
     state: "admitted",
-    priority: 0,
+    position: 0,
     content: "please fix the flaky test",
     createdAt: NOW,
     updatedAt: NOW,

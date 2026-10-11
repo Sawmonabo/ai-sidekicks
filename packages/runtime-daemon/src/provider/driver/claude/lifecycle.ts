@@ -193,6 +193,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
         this.#goals.observeLeadFrame(sessionId, frameKind, frame);
         this.#controls.observeLeadFrame(sessionId, frameKind, frame);
       },
+      onMessageTaken: dependencies.onMessageTaken,
       now,
     });
     this.#requests = new ClaudeInboundRequests({
@@ -350,6 +351,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
       handshakes: this.#handshakes,
       diagnostics,
       prompts: this.#prompts,
+      attachments: dependencies.attachments,
     });
     this.#runControls = new ClaudeRunControls({
       slots: this.#slots,
@@ -361,6 +363,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
       stream: this.#stream,
       startDaemonTurn: async (live, opening) => await this.#runStart.startDaemonTurn(live, opening),
       prompts: this.#prompts,
+      attachments: dependencies.attachments,
     });
     this.#cuts = new ClaudeConversationCuts({
       runRoutes: this.#runRoutes,
@@ -671,6 +674,11 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
     return this.#handshakes.observedOutputSpeedFor(sessionId, live.providerSessionId);
   }
 
+  /** The id of the session's Claude Code process, while one is live. */
+  readProcessId(sessionId: SessionId): number | undefined {
+    return this.#slots.findLiveSession(sessionId)?.channel.processId;
+  }
+
   /**
    * Closes the session's channel, chaining behind any in-flight transition and retrying a
    * quarantined channel. Idempotent; rejects if the process will not exit.
@@ -734,6 +742,11 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
     }
   }
 
+  /** The session a run's turn is bound to, or `undefined` when it is bound to none. */
+  sessionIdForRun(runId: RunId): SessionId | undefined {
+    return this.#runRoutes.sessionIdFor(runId);
+  }
+
   /** The live channel a run's turn is bound to, or `undefined` when no channel is bound to it. */
   findProcessForRun(runId: RunId): ClaudeProviderProcess | undefined {
     const sessionId = this.#runRoutes.sessionIdFor(runId);
@@ -751,11 +764,19 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
     return new Set(held?.declaration.capabilities ?? []);
   }
 
-  /** Records a steer written into a run's turn as its session's newest message. */
+  /** Records a steer written into a run's turn as its session's newest message, not yet taken. */
   recordSteerSent(runId: RunId, messageUuid: string): void {
     const sessionId = this.#runRoutes.sessionIdFor(runId);
     if (sessionId !== undefined) {
-      this.#prompts.recordSent(sessionId, messageUuid);
+      this.#prompts.recordSteer(sessionId, runId, messageUuid);
+    }
+  }
+
+  /** Forgets a steer whose write failed. */
+  forgetSteer(runId: RunId, messageUuid: string): void {
+    const sessionId = this.#runRoutes.sessionIdFor(runId);
+    if (sessionId !== undefined) {
+      this.#prompts.forgetSent(sessionId, messageUuid);
     }
   }
 

@@ -159,7 +159,8 @@ Daemon-local run-queue control codes (Plan-002). Run-control authority is daemon
 | Code | Description | HTTP Status |
 | --- | --- | --- |
 | `queue.persistence_unavailable` | New queued run-control work was rejected fail-closed because the daemon's queue-persistence layer is unavailable (Plan-002 I-002-1 / ADR-003 — block new queued work when persistence is unavailable) | 503 |
-| `queue.change_refused` | A change to a waiting message refused: an edit (`run.queueCreate` with `replacesQueueItemId`) of a message the agent has already taken, or a `run.queueReorder` whose list is not exactly the waiting items. `data.fields.reason` is `already_taken` or `order_mismatch` | 409 |
+| `queue.item_not_found` | A change (`run.queueCancel`, an edit through `run.queueCreate` with `replacesQueueItemId`, or `run.queueReorder`) named a queue item the queue does not hold: an id it never stored, an item of another session, or one of another queue than the call names | 404 |
+| `queue.change_refused` | A change to a waiting message refused: a removal (`run.queueCancel`) or an edit (`run.queueCreate` with `replacesQueueItemId`) of a message the agent has already taken, a removal or an edit of one Claude Code did not give back, its withdraw failing or passing the daemon's ten-second withdraw deadline, which then reads not delivered, or a `run.queueReorder` whose list is not exactly the waiting items. `data.fields.reason` is `already_taken`, `not_delivered` or `order_mismatch` | 409 |
 
 ### Intervention
 
@@ -392,7 +393,7 @@ Skill-library refusals ([Spec-029](../../specs/029-skills.md)).
 
 | Code | Description | HTTP Status |
 | --- | --- | --- |
-| `skill.path_refused` | `skill.update` refused a path in the folder it would save, or `run.queueCreate` refused a picked skill whose name and folder match no row of `skill.list`. `data.fields`: the path, and `reason` — `escapes_folder`, `duplicate_path` or `names_entry_file` from `skill.update`, `not_listed` from `run.queueCreate` | 422 |
+| `skill.path_refused` | `skill.update` refused a path in the folder it would save, or `run.queueCreate` refused a picked skill whose name and folder match no row of `skill.list`, or, for a Codex agent, no skill Codex's own list names in that folder. `data.fields`: the path, and `reason` — `escapes_folder`, `duplicate_path` or `names_entry_file` from `skill.update`, `not_listed` from `run.queueCreate` | 422 |
 | `skill.name_taken` | A save would rename a folder of ours onto a name another folder of ours already holds in the same place; nothing is renamed and nothing is written. `data.fields`: `folderPath`, the folder already holding the name, which the screen names under the Name field | 409 |
 | `skill.write_refused` | A write to a skill was refused. `data.fields.reason` is one of `plugin_read_only` (every operation that writes refuses a plugin's skill, which is read-only) or `not_orphaned` (`skill.recordReattach` named a record that is not orphaned) | 409 |
 

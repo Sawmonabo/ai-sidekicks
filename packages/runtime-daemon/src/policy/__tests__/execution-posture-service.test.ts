@@ -15,6 +15,7 @@ import { captureRejection } from "../../__fixtures__/capture-failure.js";
 import {
   makeQueueItem,
   makeRecordingDriver,
+  startOnDriver,
   openRunEngineFixture,
   type RunEngineFixture,
 } from "../../session/run/__tests__/engine.test-support.js";
@@ -115,8 +116,8 @@ describe("execution posture service — the run setup gate", () => {
           runId,
           queueItem: makeQueueItem(),
           provider: "claude",
-          driver,
-          driverParams: { agentConfig: {} },
+          outputSpeed: undefined,
+          startDriver: startOnDriver(driver, runId),
           executionPosture: violating(),
         }),
       );
@@ -138,8 +139,8 @@ describe("execution posture service — the run setup gate", () => {
       runId,
       queueItem: makeQueueItem(),
       provider: "claude",
-      driver: makeRecordingDriver(),
-      driverParams: { agentConfig: {} },
+      outputSpeed: undefined,
+      startDriver: startOnDriver(makeRecordingDriver(), runId),
       executionPosture: posture({ writableRoots: [linkedRoot] }),
     });
 

@@ -2,8 +2,9 @@
 // The list, tail and cancel are calls it is handed. The tail opens first and the snapshot is
 // read behind it, since a list read with no stream up is stale on arrival. Rows change only
 // when the daemon says so (a cancel only confirms the request); canceled rows stay in the feed.
+// A frame marked dropped means the daemon left changes out, so the list is read again.
 
-import type { QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
+import type { QueueItemSummary, RunQueueStreamFrame } from "@ai-sidekicks/contracts/run/queue";
 
 import {
   NO_TRIGGERING_EVENT_KINDS,
@@ -28,12 +29,12 @@ import { type WireReadPhase, type WireReadState } from "#renderer/lib/reads/wire
 export type QueueListCall = (sessionId: string) => Promise<readonly QueueItemSummary[]>;
 
 /**
- * Opens one session's live queue stream, hands each row change to `onItem` already
- * parsed, and returns the function that closes it. Throws where the stream cannot open.
+ * Opens one session's live queue stream, hands each frame to `onFrame` already parsed, and
+ * returns the function that closes it. Throws where the stream cannot open.
  */
 export type QueueTailCall = (
   sessionId: string,
-  onItem: (item: QueueItemSummary) => void,
+  onFrame: (frame: RunQueueStreamFrame) => void,
 ) => () => void;
 
 /** The three calls one queue reading makes. */
@@ -48,7 +49,7 @@ export interface QueueCalls {
  * `refused` when the newest one failed, so an empty list is never mistaken for an empty queue.
  */
 export interface QueueFeed extends QueueCancellationState, WireReadState {
-  /** Canonical order: the snapshot's, with live-only rows appended in arrival order. */
+  /** In queue order: each row's `position`, lowest first. */
   readonly items: readonly QueueItemSummary[];
 }
 
@@ -59,7 +60,7 @@ export interface QueueFeed extends QueueCancellationState, WireReadState {
 export class SessionQueueReading implements ReadTriggerTarget {
   /**
    * Empty: the tail carries every row change, so no session event makes this list stale. Only
-   * the window returning or a repaired connection does.
+   * the window returning, a repaired connection or a dropped frame does.
    */
   public readonly triggeringEventKinds: ReadonlySet<string> = NO_TRIGGERING_EVENT_KINDS;
   readonly #sessionId: string;
@@ -143,10 +144,18 @@ export class SessionQueueReading implements ReadTriggerTarget {
     if (this.#closeTail !== undefined) {
       return;
     }
-    this.#closeTail = this.#calls.tail(this.#sessionId, (item) => {
-      this.#order.merge(item);
-      this.#items = this.#order.items();
-      this.#publish();
+    this.#closeTail = this.#calls.tail(this.#sessionId, (frame) => {
+      if (frame.changes.length > 0) {
+        for (const change of frame.changes) {
+          this.#order.merge(change.item);
+        }
+        this.#items = this.#order.items();
+        this.#publish();
+      }
+      if (frame.dropped === true) {
+        // The changes that did not fit are gone from the stream; only a fresh list has them.
+        this.#refresh.request("gap-repull");
+      }
     });
     // Taken now rather than behind the scheduler's window: the tail is already up, and the
     // fold accounts for the rows it delivers before the snapshot lands.

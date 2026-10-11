@@ -1,15 +1,14 @@
 // The rules the shipped schemas do not carry, each read off the module that owns it; where no
-// module owns one, it is written here once.
+// module owns one, it is written here once. The `queue_item.*` payloads, `state` included, are
+// held by their strict variants, so no leg here repeats them.
 //
 // - The run state machine's transition table: a self-transition passes every schema layer.
-// - The queue payload's required `state`: the `queue_item.*` kinds are census-only in the strict
-//   layer.
 // - The payload of each run kind that reaches a subscriber only through `session.subscribe`,
 //   keyed by the census's `run.` kinds less those `session/event/stream-kinds.ts` narrows, so a
 //   newly excluded kind is a compile error here.
 // - The projection `projection.fixture.ts` delivers to a `run.subscribeState`
 //   subscriber, called rather than copied. Queue kinds stay off it, because its queue arm needs
-//   `priority` and `createdAt`, which only the queue rows' own read supplies.
+//   `position` and `createdAt`, which only the queue rows' own read supplies.
 
 import {
   RunProviderInitializedPayloadSchema,
@@ -39,23 +38,21 @@ import { projectRunStreamDelivery } from "#renderer/services/run-streams/project
 import type { ScenarioBeat } from "#fixtures/scenario.js";
 import { RUN_STATE_EVENT_STREAM } from "#shared/daemon/streams.js";
 import {
-  runQueueStreamStateFor,
   runStateStreamArmFor,
   type RunStateStreamKind,
 } from "#renderer/services/daemon/session/event/stream-kinds.js";
 
 /**
- * What one beat gets wrong about the run or queue rule its kind is under, or `undefined`.
+ * What one beat gets wrong about the run rule its kind is under, or `undefined`.
  *
- * Four legs in the order the defects compound: a self-transition, a missing queue state, an
- * unprojected run payload, and the stream projection. Each answers `undefined` for a kind it does
- * not claim. The last two partition the `run.` root by construction, since one claims exactly the
- * kinds `runStateStreamArmFor` names and the other exactly the rest.
+ * Three legs in the order the defects compound: a self-transition, an unprojected run payload,
+ * and the stream projection. Each answers `undefined` for a kind it does not claim. The last two
+ * partition the `run.` root by construction, since one claims exactly the kinds
+ * `runStateStreamArmFor` names and the other exactly the rest.
  */
 export function describeRunAndQueueSemanticsDefect(beat: ScenarioBeat): string | undefined {
   return (
     describeSelfTransitionDefect(beat) ??
-    describeQueueStateDefect(beat) ??
     describeUnprojectedRunPayloadDefect(beat) ??
     describeRunStreamProjectionDefect(beat)
   );
@@ -151,38 +148,6 @@ function describeSelfTransitionDefect(beat: ScenarioBeat): string | undefined {
     "transition this beat means, or, for a run being created, name the state it is in " +
     "and no state it came from."
   );
-}
-
-/**
- * A queue beat that names no state, or names one its kind contradicts.
- *
- * The queue payload is `{sessionId, queueItemId, state}` and no `queue_item.*` kind has a
- * registered variant, so `state` is required by the wire and enforced by nothing else. Without it
- * the projection would take the row's state from the kind alone. The kind-to-state mapping is
- * `session/event/stream-kinds.ts`'s, read here so a second copy cannot let a scenario pass this
- * leg and fail the projection. A kind it does not claim is not a queue beat.
- */
-function describeQueueStateDefect(beat: ScenarioBeat): string | undefined {
-  const announcedState = runQueueStreamStateFor(beat.event.kind);
-  if (announcedState === undefined) {
-    return undefined;
-  }
-  const statedState = beat.event.payload?.["state"];
-  if (statedState === undefined) {
-    return (
-      "this beat names no `state`, which is a required member of every queue payload " +
-      "the daemon emits. Name the state this row moved to — " +
-      `\`"${announcedState}"\`, which is what its kind announces.`
-    );
-  }
-  if (statedState !== announcedState) {
-    return (
-      `this beat announces "${announcedState}" by its kind and ` +
-      `${JSON.stringify(statedState)} in its payload, so it reports two queue states at ` +
-      "once. One of the two is the row this beat means; script that one."
-    );
-  }
-  return undefined;
 }
 
 /**

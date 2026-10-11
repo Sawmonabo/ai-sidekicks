@@ -38,14 +38,11 @@ export interface RecordedRunControlCall {
   readonly expectedRunVersion: number;
 }
 
-/** An applied non-rollback intervention at the given run version, as a stub call answers it. */
-export function appliedIntervention(
-  interventionType: "steer" | "interrupt",
-  runVersion: number,
-): InterventionRequestResponse {
+/** An applied interrupt at the given run version, as a stub call answers it. */
+export function appliedInterrupt(runVersion: number): InterventionRequestResponse {
   return {
     interventionId: "c4e1b2d3-5f60-4071-9b82-0d3e4f506172",
-    interventionType,
+    interventionType: "interrupt",
     state: "applied",
     runVersion,
   } as InterventionRequestResponse;

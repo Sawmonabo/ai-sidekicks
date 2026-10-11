@@ -5,6 +5,7 @@
 
 import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
+import type { PickedSkill } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type { ProviderOutputSpeedState } from "@ai-sidekicks/contracts/provider/driver/output-speed";
 import type { SessionMode } from "@ai-sidekicks/contracts/session/controls/methods";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
@@ -51,8 +52,13 @@ import type { CodexServiceSocketConnector } from "../transport/socket.js";
 import type { CodexSpawnContextResolver } from "./config.js";
 import type { CodexSessionSlotState } from "./errors.js";
 import { isPlainObject } from "../../../record-readers.js";
+import type { AttachmentResolver, ProviderAttachment } from "../../attachments.js";
 import type { DriverResumeResult } from "../../contract.js";
-import type { DaemonTurnBindingResolver, ResumeRunParams } from "../../run-control.js";
+import type {
+  DaemonTurnBindingResolver,
+  ResumeRunParams,
+  RunToolBoundary,
+} from "../../run-control.js";
 
 /** Terminal `TurnStatus` values; `inProgress` is excluded so a live route is never retired. */
 const CODEX_TERMINAL_TURN_STATUSES: ReadonlySet<string> = new Set([
@@ -71,19 +77,22 @@ const CODEX_INTERRUPTED_ROUTE_MEMORY = 64;
 /** Settled turn ids remembered per session (see `CodexSessionRecord.settledTurnIds`). */
 const CODEX_SETTLED_TURN_MEMORY = 64;
 
-/** What a turn was sent with, kept so a faster-model retry can send it again. */
-interface CodexTurnInput {
-  readonly texts: readonly string[];
-  readonly clientMessageIds: readonly string[];
-  readonly skill: CodexPickedSkill | undefined;
-  /** The level the turn alone ran at, which a resend of the turn keeps. */
-  readonly outputSpeedForTurn: string | undefined;
+/**
+ * One of the person's messages a turn is sent with: its words as typed, the skills picked for it,
+ * then its staged files.
+ */
+export interface CodexTurnMessage {
+  readonly text: string;
+  readonly skills: readonly PickedSkill[];
+  readonly attachments: readonly ProviderAttachment[];
 }
 
-/** A skill the person picked for a turn, as Codex's skill input names it. */
-export interface CodexPickedSkill {
-  readonly name: string;
-  readonly path: string;
+/** What a turn was sent with, kept so a faster-model retry can send it again, files and all. */
+interface CodexTurnInput {
+  readonly messages: readonly CodexTurnMessage[];
+  readonly clientMessageIds: readonly string[];
+  /** The level the turn alone ran at, which a resend of the turn keeps. */
+  readonly outputSpeedForTurn: string | undefined;
 }
 
 /** Everything the lifecycle keeps for one live Codex session. */
@@ -364,6 +373,14 @@ export interface CodexLifecycleOptions {
   /** Answers callback tool calls with session and run identity attached; absent, they refuse. */
   readonly answerCallbackToolCall?: CodexSessionServerRequestResponder | undefined;
   readonly runEngine: CodexRunEnginePort;
+  /** Binds the files a message carries to their stored copies, in staging order. */
+  readonly attachments: AttachmentResolver;
+  /**
+   * Receives each tool call of the session's own thread that finished while its turn still runs,
+   * in frame order, so the run queue hands over the messages it holds for that run. Never one for a
+   * helper's thread, nor for a command that ends after its turn.
+   */
+  readonly onToolBoundary: (boundary: RunToolBoundary) => void;
   /** The binding a turn the daemon starts itself (a review, a goal, `Allow once`) runs on. */
   readonly daemonTurnBindings: DaemonTurnBindingResolver;
   /**

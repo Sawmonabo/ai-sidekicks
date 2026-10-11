@@ -12,10 +12,7 @@ import type {
   ApplyInterventionParams,
   DriverInterventionResult,
 } from "@ai-sidekicks/contracts/provider/driver/intervention";
-import type {
-  InterventionId,
-  InterventionRequestPayload,
-} from "@ai-sidekicks/contracts/run/control";
+import type { InterventionId } from "@ai-sidekicks/contracts/run/control";
 import { DAEMON_INTERVENTION_ACTOR } from "@ai-sidekicks/contracts/run/events";
 import { RunIdSchema, type RunId } from "@ai-sidekicks/contracts/run/id";
 import type { RunState } from "@ai-sidekicks/contracts/run/state";
@@ -26,7 +23,6 @@ import { openScratchDatabase, type ScratchDatabase } from "../../database/__fixt
 import { EventLogService } from "../../events/log-service.js";
 import { SessionEventAppender } from "../../events/session/appender.js";
 import { DaemonDomainError } from "../../ipc/domain-error.js";
-import { STEER_FALLBACK_ACTION } from "../../provider/driver/contract.js";
 import { insertQueuedRunStatement, swapRunStateStatement } from "../../session/run/projection.js";
 import { RunStateReader } from "../../session/run/read.js";
 import type { FasterModelRetryOutcome } from "../../provider/driver/run-control.js";
@@ -57,7 +53,6 @@ describe("InterventionService", () => {
   let sessionId: SessionId;
   let runId: RunId;
   let driverCalls: ApplyInterventionParams[];
-  let driverResult: DriverInterventionResult;
   // Runs inside the driver's dispatch, before it answers.
   let duringDispatch: () => Promise<void>;
   let retryCalls: FasterModelRetryRequest[];
@@ -80,7 +75,6 @@ describe("InterventionService", () => {
     sessionId = SessionIdSchema.parse(randomUUID());
     runId = RunIdSchema.parse(randomUUID());
     driverCalls = [];
-    driverResult = { status: "applied" };
     duringDispatch = async () => {};
     retryCalls = [];
     retryOutcome = { state: "applied" };
@@ -89,20 +83,20 @@ describe("InterventionService", () => {
       interventions: new InterventionReader(database.reader),
       sessionEvents,
       resolveDriver: () => ({
-        applyIntervention: async (params) => {
+        applyIntervention: (params) => {
           driverCalls.push(params);
-          await duringDispatch();
-          return driverResult;
+          return Promise.resolve<DriverInterventionResult>({ status: "applied" });
         },
       }),
       retryOnFasterModel: async (request) => {
         retryCalls.push(request);
+        await duringDispatch();
         return retryOutcome;
       },
       runEngine: {
-        // Only an interrupt's verdict ends its run; a steer or a retry reaching here fails the test.
+        // Only an interrupt's verdict ends its run; a retry reaching here fails the test.
         endRunForInterrupt: () =>
-          Promise.reject(new Error("A steer or a faster-model retry never ends its run")),
+          Promise.reject(new Error("A faster-model retry never ends its run")),
         routeInterrupt: () => Promise.resolve("driver"),
       },
     });
@@ -131,24 +125,17 @@ describe("InterventionService", () => {
     });
   }
 
-  function steer(expectedRunVersion: number, content = "use the other branch") {
-    return {
-      type: "steer",
-      targetRunId: runId,
-      expectedRunVersion,
-      clientIdempotencyKey: randomUUID(),
-      content,
-    } satisfies InterventionRequestPayload;
-  }
-
-  function fasterModelRetry(expectedRunVersion: number): FasterModelRetryRequest {
+  function fasterModelRetry(
+    expectedRunVersion: number,
+    model = "gpt-5.4-mini",
+  ): FasterModelRetryRequest {
     return {
       type: "faster_model_retry",
       targetRunId: runId,
       expectedRunVersion,
       clientIdempotencyKey: randomUUID(),
       expectedTurnId: "turn-7",
-      model: "gpt-5.4-mini",
+      model,
     };
   }
 
@@ -187,11 +174,14 @@ describe("InterventionService", () => {
     await moveRun("queued", "running");
 
     for (const expectedRunVersion of [0, 2]) {
-      const response = await service.applyIntervention(steer(expectedRunVersion), DAEMON_ORIGIN);
+      const response = await service.applyIntervention(
+        fasterModelRetry(expectedRunVersion),
+        DAEMON_ORIGIN,
+      );
 
       expect(response).toEqual({
         interventionId: response.interventionId,
-        interventionType: "steer",
+        interventionType: "faster_model_retry",
         state: "expired",
         runVersion: 1,
       });
@@ -204,7 +194,7 @@ describe("InterventionService", () => {
         "intervention.expired",
       ]);
     }
-    expect(driverCalls).toHaveLength(0);
+    expect(retryCalls).toHaveLength(0);
     expect(runs.getRun(runId)?.version).toBe(1);
   });
 
@@ -236,29 +226,29 @@ describe("InterventionService", () => {
     expect(runs.getRun(runId)?.version).toBe(0);
   });
 
-  it("lands applied and degraded on the row with one version advance each", async () => {
+  it("hands an admitted retry to its leg alone, landing applied and rejected on the row", async () => {
     await moveRun("queued", "running");
     const deviceId = DeviceIdSchema.parse(randomUUID());
 
-    const applied = await service.applyIntervention(steer(1), { actor: deviceId });
-    driverResult = { status: "degraded", fallbackAction: STEER_FALLBACK_ACTION };
-    const degraded = await service.applyIntervention(steer(2), DAEMON_ORIGIN);
+    const admitted = fasterModelRetry(1);
+    const applied = await service.applyIntervention(admitted, { actor: deviceId });
+    retryOutcome = { state: "rejected", rejectionReason: "turn_not_latest" };
+    const rejected = await service.applyIntervention(fasterModelRetry(2), DAEMON_ORIGIN);
 
     expect(applied).toMatchObject({ state: "applied", runVersion: 2 });
-    expect(degraded).toMatchObject({ state: "degraded", runVersion: 3 });
+    expect(rejected).toMatchObject({ state: "rejected", runVersion: 2 });
     expect(readRow(applied.interventionId)).toMatchObject({
       state: "applied",
       device_id: deviceId,
-      fallback_action: null,
     });
-    expect(readRow(degraded.interventionId)).toMatchObject({
-      state: "degraded",
+    expect(readRow(rejected.interventionId)).toMatchObject({
+      state: "rejected",
       device_id: null,
-      fallback_action: STEER_FALLBACK_ACTION,
+      rejection_reason: "turn_not_latest",
     });
     // Every event names who asked, the calling device or the daemon, on its envelope too.
     expect(eventActorsOf(applied.interventionId)).toEqual(Array(3).fill([deviceId, deviceId]));
-    expect(eventActorsOf(degraded.interventionId)).toEqual(
+    expect(eventActorsOf(rejected.interventionId)).toEqual(
       Array(3).fill([DAEMON_INTERVENTION_ACTOR, DAEMON_INTERVENTION_ACTOR]),
     );
     expect(eventTypesOf(applied.interventionId)).toEqual([
@@ -266,28 +256,21 @@ describe("InterventionService", () => {
       "intervention.accepted",
       "intervention.applied",
     ]);
-    expect(eventTypesOf(degraded.interventionId)).toEqual([
+    expect(eventTypesOf(rejected.interventionId)).toEqual([
       "intervention.requested",
       "intervention.accepted",
-      "intervention.degraded",
+      "intervention.rejected",
     ]);
-    expect(driverCalls).toEqual([
-      {
-        type: "steer",
-        targetRunId: runId,
-        expectedRunVersion: 1,
-        clientIdempotencyKey: expect.any(String),
-        payload: { content: "use the other branch" },
-      },
-      expect.objectContaining({ expectedRunVersion: 2 }),
-    ]);
+    // An admitted retry goes to its leg as asked, and never to the driver.
+    expect(retryCalls).toEqual([admitted, expect.objectContaining({ expectedRunVersion: 2 })]);
+    expect(driverCalls).toHaveLength(0);
   });
 
-  it("records the driver's verdict when the run moved after dispatch, advancing from where it is", async () => {
+  it("records the retry's verdict when the run moved after dispatch, advancing from where it is", async () => {
     await moveRun("queued", "running");
     duringDispatch = () => moveRun("running", "waiting_for_input");
 
-    const response = await service.applyIntervention(steer(1), DAEMON_ORIGIN);
+    const response = await service.applyIntervention(fasterModelRetry(1), DAEMON_ORIGIN);
 
     expect(response).toMatchObject({ state: "applied", runVersion: 3 });
     expect(readRow(response.interventionId)).toMatchObject({ state: "applied" });
@@ -297,7 +280,7 @@ describe("InterventionService", () => {
       "intervention.applied",
     ]);
     expect(runs.getRun(runId)).toMatchObject({ state: "waiting_for_input", version: 3 });
-    expect(driverCalls).toHaveLength(1);
+    expect(retryCalls).toHaveLength(1);
   });
 
   it.each([
@@ -313,14 +296,14 @@ describe("InterventionService", () => {
     async ({ thrown, failureReason }) => {
       await moveRun("queued", "running");
       duringDispatch = () => Promise.reject(thrown);
-      const request = steer(1);
+      const request = fasterModelRetry(1);
 
       const failed = await service.applyIntervention(request, DAEMON_ORIGIN);
       const retried = await service.applyIntervention(request, DAEMON_ORIGIN);
 
       expect(failed).toEqual({
         interventionId: failed.interventionId,
-        interventionType: "steer",
+        interventionType: "faster_model_retry",
         state: "failed",
         failureReason,
         runVersion: 1,
@@ -347,14 +330,14 @@ describe("InterventionService", () => {
           )
           .get(retried.interventionId),
       ).toEqual({ failure_reason: failureReason });
-      expect(driverCalls).toHaveLength(1);
+      expect(retryCalls).toHaveLength(1);
     },
   );
 
   it("applies concurrent requests on one run in turn, so one version reaches the driver once", async () => {
     await moveRun("queued", "running");
-    const first = steer(1);
-    const competing = steer(1, "use the first branch");
+    const first = fasterModelRetry(1);
+    const competing = fasterModelRetry(1, "gpt-5.4");
 
     const [applied, expired, retried] = await Promise.all([
       service.applyIntervention(first, DAEMON_ORIGIN),
@@ -369,29 +352,21 @@ describe("InterventionService", () => {
       "intervention.requested",
       "intervention.expired",
     ]);
-    expect(driverCalls).toEqual([expect.objectContaining({ expectedRunVersion: 1 })]);
+    expect(retryCalls).toEqual([expect.objectContaining({ expectedRunVersion: 1 })]);
     expect(runs.getRun(runId)?.version).toBe(2);
   });
 
   it("returns the saved result for a reused key and dispatches once, and refuses a differing body", async () => {
     await moveRun("queued", "running");
-    const steerRequest = steer(1);
-    const first = await service.applyIntervention(steerRequest, DAEMON_ORIGIN);
-    const retriedSteer = await service.applyIntervention(steerRequest, DAEMON_ORIGIN);
+    const retryRequest = fasterModelRetry(1);
+    const first = await service.applyIntervention(retryRequest, DAEMON_ORIGIN);
+    const repeated = await service.applyIntervention(retryRequest, DAEMON_ORIGIN);
 
-    const retryRequest = fasterModelRetry(2);
-    const firstRetry = await service.applyIntervention(retryRequest, DAEMON_ORIGIN);
-    const repeatedRetry = await service.applyIntervention(retryRequest, DAEMON_ORIGIN);
-
-    expect(retriedSteer).toEqual(
-      expect.objectContaining({ interventionId: first.interventionId, state: "applied" }),
-    );
-    expect(repeatedRetry).toEqual({ ...firstRetry, runVersion: 3 });
-    expect(driverCalls).toHaveLength(1);
+    expect(repeated).toEqual(first);
     expect(retryCalls).toHaveLength(1);
 
     const conflict: unknown = await service
-      .applyIntervention({ ...steerRequest, content: "use the first branch" }, DAEMON_ORIGIN)
+      .applyIntervention({ ...retryRequest, model: "gpt-5.4" }, DAEMON_ORIGIN)
       .catch((error: unknown) => error);
     expect(conflict).toBeInstanceOf(DaemonDomainError);
     expect(conflict).toMatchObject({
@@ -400,31 +375,8 @@ describe("InterventionService", () => {
     });
     expect(readRow(first.interventionId)).toMatchObject({
       state: "applied",
-      payload: JSON.stringify({ content: "use the other branch" }),
+      payload: JSON.stringify({ expectedTurnId: "turn-7", model: "gpt-5.4-mini" }),
     });
-    expect(driverCalls).toHaveLength(1);
-  });
-
-  it("hands an admitted faster-model retry to its leg alone, and refuses a stale one before it", async () => {
-    await moveRun("queued", "running");
-    const stale = await service.applyIntervention(fasterModelRetry(0), DAEMON_ORIGIN);
-    expect(stale.state).toBe("expired");
-    expect(retryCalls).toHaveLength(0);
-
-    const admitted = fasterModelRetry(1);
-    const applied = await service.applyIntervention(admitted, DAEMON_ORIGIN);
-    retryOutcome = { state: "rejected", rejectionReason: "turn_not_latest" };
-    const refused = await service.applyIntervention(fasterModelRetry(2), DAEMON_ORIGIN);
-
-    expect(retryCalls[0]).toEqual(admitted);
-    expect(retryCalls).toHaveLength(2);
-    expect(driverCalls).toHaveLength(0);
-    expect(applied).toMatchObject({ state: "applied", runVersion: 2 });
-    expect(refused).toMatchObject({
-      state: "rejected",
-      rejectionReason: "turn_not_latest",
-      runVersion: 2,
-    });
-    expect(readRow(refused.interventionId)).toMatchObject({ rejection_reason: "turn_not_latest" });
+    expect(retryCalls).toHaveLength(1);
   });
 });

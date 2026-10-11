@@ -1,7 +1,7 @@
 // The Codex leg's provider commands: the readers that turn a `skills/list` reply into command
-// entries, the per-session enumeration, read once per session and discarded on `skills/changed`
-// and with the session, the tool servers' prompts beside it, and the listeners that follow a
-// session's list as it changes.
+// entries and the file each skill loads from, the per-session enumeration, read once per session
+// and discarded on `skills/changed` and with the session, the tool servers' prompts beside it, and
+// the listeners that follow a session's list as it changes.
 
 import {
   DRIVER_PROVIDER_COMMAND_DESCRIPTION_MAX_LEN,
@@ -14,21 +14,16 @@ import {
   type ProviderCommandListResult,
 } from "@ai-sidekicks/contracts/provider/driver/commands";
 import { wireFreeFormString } from "@ai-sidekicks/contracts/free-form-string";
+import type { PickedSkill } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { PortRegistration } from "../../port/registration.js";
 import { isPlainObject } from "../../record-readers.js";
 import type { ProviderCommandsListener } from "../session-control.js";
 import { CODEX_DRIVER_NAME } from "./capabilities.js";
-import {
-  CodexDriverConfigError,
-  CodexTransportError,
-  normalizeProviderFailureDetail,
-} from "./session/errors.js";
-import {
-  type CodexPickedSkill,
-  type CodexSessionRecord,
-  soleActiveRunIdIn,
-} from "./session/state.js";
+import type { CodexService } from "./service/supervisor.js";
+import type { CodexSpawnContextResolver } from "./session/config.js";
+import { CodexTransportError, normalizeProviderFailureDetail } from "./session/errors.js";
+import { type CodexSessionRecord, soleActiveRunIdIn } from "./session/state.js";
 import type { DriverDiagnosticsEmitter } from "../diagnostics.js";
 import {
   type CodexDiagnosticSink,
@@ -55,12 +50,8 @@ export interface CodexProviderCommandCacheDependencies {
   readonly reportDiagnostic: CodexDiagnosticSink;
   readonly serverPrompts: PortRegistration<CodexServerPromptPort>;
   readonly recordFor: (sessionId: SessionId) => CodexSessionRecord | undefined;
-}
-
-// One session's skills as Codex listed them, with each skill's file by its name.
-interface CodexHeldSkills {
-  readonly entries: readonly ProviderCommandEntry[];
-  readonly pathsByName: ReadonlyMap<string, string>;
+  readonly serviceFor: (providerAccountId: string | undefined) => Promise<CodexService>;
+  readonly spawnContext: CodexSpawnContextResolver;
 }
 
 /** Holds each session's command enumeration and composes the capped reply from it. */
@@ -68,7 +59,7 @@ export class CodexProviderCommandCache {
   readonly #options: CodexProviderCommandCacheDependencies;
   // Live command enumeration per session, held uncapped: the cap applies when a result is
   // composed. Discarded on `skills/changed` and with the session.
-  readonly #providerCommandEnumerations = new Map<SessionId, CodexHeldSkills>();
+  readonly #providerCommandEnumerations = new Map<SessionId, CodexSkillListing>();
   // Each session's listeners, each with the call that stops its watch of the tool servers' prompts.
   readonly #listenersBySession = new Map<
     SessionId,
@@ -90,7 +81,7 @@ export class CodexProviderCommandCache {
   ): Promise<ProviderCommandListResult> {
     const providerAccountId = record.providerAccountId ?? null;
     const binding: ProviderCommandBinding = { driverName: CODEX_DRIVER_NAME, providerAccountId };
-    const skills = await this.#heldProviderCommandsFor(sessionId, record, providerAccountId);
+    const { entries: skills } = await this.#heldListingFor(sessionId, record, providerAccountId);
     const prompts = (await this.#options.serverPrompts.port?.readPrompts(sessionId, binding)) ?? [];
     return {
       bindings: [
@@ -99,21 +90,49 @@ export class CodexProviderCommandCache {
           // stamp the successor's run here.
           runId: soleActiveRunIdIn(record),
           binding,
-          entries: [...skills.entries, ...prompts],
+          entries: [...skills, ...prompts],
         },
       ],
     };
   }
 
   /**
-   * The held enumeration, read from the provider if absent. The epoch captured before the request
-   * is re-checked before storing, so an invalidation mid-flight leaves the reading uncached.
+   * Each skill Codex lists for the session, by its name and the file it loads it from: the live
+   * session's held listing, else a read from the account's service over the session's folder.
    */
-  async #heldProviderCommandsFor(
+  async readSkillFiles(
+    sessionId: SessionId,
+    providerAccountId: string | undefined,
+  ): Promise<readonly PickedSkill[]> {
+    const record = this.#options.recordFor(sessionId);
+    if (record !== undefined) {
+      const listing = await this.#heldListingFor(
+        sessionId,
+        record,
+        record.providerAccountId ?? null,
+      );
+      return listing.skillFiles;
+    }
+    const [service, context] = await Promise.all([
+      this.#options.serviceFor(providerAccountId),
+      this.#options.spawnContext.resolveSpawnContext(sessionId, providerAccountId),
+    ]);
+    await service.ensureStarted();
+    const response = await service.request(CODEX_SKILLS_LIST_METHOD, {
+      cwds: [context.workingDirectory],
+    });
+    return readCodexProviderCommandEntries(response, providerAccountId ?? null).skillFiles;
+  }
+
+  /**
+   * The held listing, read from the provider if absent. The epoch captured before the request is
+   * re-checked before storing, so an invalidation mid-flight leaves the reading uncached.
+   */
+  async #heldListingFor(
     sessionId: SessionId,
     record: CodexSessionRecord,
     providerAccountId: string | null,
-  ): Promise<CodexHeldSkills> {
+  ): Promise<CodexSkillListing> {
     const held = this.#providerCommandEnumerations.get(sessionId);
     if (held !== undefined) {
       return held;
@@ -128,34 +147,10 @@ export class CodexProviderCommandCache {
     for (const rejection of reading.rejections) {
       this.#reportProviderCommandEntryRejected(sessionId, rejection);
     }
-    const skills: CodexHeldSkills = {
-      entries: reading.entries,
-      pathsByName: reading.pathsByName,
-    };
     if (this.#providerCommandEnumerationEpochs.get(sessionId) === readEpoch) {
-      this.#providerCommandEnumerations.set(sessionId, skills);
+      this.#providerCommandEnumerations.set(sessionId, reading);
     }
-    return skills;
-  }
-
-  /**
-   * The skill a run picked by name, with the file Codex listed for it. Throws
-   * `CodexDriverConfigError` for a name Codex does not list for the session.
-   */
-  async readPickedSkill(record: CodexSessionRecord, name: string): Promise<CodexPickedSkill> {
-    const skills = await this.#heldProviderCommandsFor(
-      record.sessionId,
-      record,
-      record.providerAccountId ?? null,
-    );
-    const path = skills.pathsByName.get(name);
-    if (path === undefined) {
-      throw new CodexDriverConfigError(
-        `The skill "${name}" is not one Codex lists for this session.`,
-        "StartRunParams.agentConfig.skill",
-      );
-    }
-    return { name, path };
+    return reading;
   }
 
   /**
@@ -260,8 +255,8 @@ export class CodexProviderCommandCache {
 const CODEX_SKILLS_LIST_METHOD = "skills/list" as const;
 
 /**
- * Maps the provider's `skills/list` reply onto command entries, concatenating per-directory
- * groups. Pure: rejections are returned, not emitted. `providerAccountId` is the bound account or
+ * Maps the provider's `skills/list` reply onto command entries and each skill's file,
+ * concatenating per-directory groups. Pure: rejections are returned, not emitted. `providerAccountId` is the bound account or
  * `null`, never `""` or a wildcard; entries are deep-frozen because the list is shared state.
  * Throws `CodexTransportError` for a reply with no `data` list: reading it as no commands would
  * hold a false claim that the provider has none.
@@ -278,7 +273,7 @@ function readCodexProviderCommandEntries(
     );
   }
   const entries: ProviderCommandEntry[] = [];
-  const pathsByName = new Map<string, string>();
+  const skillFiles: PickedSkill[] = [];
   const rejections: CodexProviderCommandRejection[] = [];
   for (const group of groups) {
     if (!isPlainObject(group)) {
@@ -292,9 +287,9 @@ function readCodexProviderCommandEntries(
       const reading = readCodexProviderCommandEntry(skill, providerAccountId);
       if (reading.entry !== null) {
         entries.push(deepFreezeProviderCommandEntry(reading.entry));
-        const path = isPlainObject(skill) ? skill["path"] : undefined;
-        if (typeof path === "string" && path.length > 0) {
-          pathsByName.set(reading.entry.name, path);
+        // A row with no readable file cannot be picked: no path but Codex's own reaches it.
+        if (isPlainObject(skill) && typeof skill["path"] === "string") {
+          skillFiles.push(Object.freeze({ name: reading.entry.name, path: skill["path"] }));
         }
       }
       rejections.push(...reading.rejections);
@@ -302,7 +297,7 @@ function readCodexProviderCommandEntries(
   }
   return {
     entries: Object.freeze(entries),
-    pathsByName,
+    skillFiles: Object.freeze(skillFiles),
     rejections: Object.freeze(rejections),
   };
 }
@@ -321,10 +316,14 @@ interface CodexProviderCommandRejection {
   readonly rejectedValueLength: number | null;
 }
 
-/** One `skills/list` reply's entries, each skill's file, and every field reading it refused. */
-interface CodexProviderCommandReading {
+/** One `skills/list` reply's entries and the file each listed skill loads from. */
+interface CodexSkillListing {
   readonly entries: readonly ProviderCommandEntry[];
-  readonly pathsByName: ReadonlyMap<string, string>;
+  readonly skillFiles: readonly PickedSkill[];
+}
+
+/** One `skills/list` reply's listing and every field reading it refused. */
+interface CodexProviderCommandReading extends CodexSkillListing {
   readonly rejections: readonly CodexProviderCommandRejection[];
 }
 

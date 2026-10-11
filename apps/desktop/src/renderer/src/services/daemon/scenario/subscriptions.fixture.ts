@@ -17,12 +17,17 @@ import type { Unsubscribe } from "#shared/preload-api.js";
 
 import { FixtureBridgeError } from "../refusal.fixture.js";
 import { isWireRecord } from "#renderer/lib/wire/record.js";
-import { projectRunStreamDelivery } from "../../run-streams/projection.fixture.js";
+import {
+  composeRunStreamChange,
+  projectRunStreamDelivery,
+  type ScenarioRunStreamChange,
+} from "../../run-streams/projection.fixture.js";
 import { ScenarioEngine } from "../engine.fixture.js";
 import { assertOpeningOnContract, requestStampReaderFor } from "../scripted/reply.fixture.js";
 import {
   composeScenarioEventEnvelope,
   composeScenarioSessionFrames,
+  composeScenarioStreamFrames,
 } from "../event/envelope.fixture.js";
 import { sessionEventStreamFor, subscriptionDeliversEventKind } from "../session/event/streams.js";
 import { ScenarioTurnAttribution } from "./turn-attribution.fixture.js";
@@ -38,9 +43,10 @@ const START_OF_LOG_CURSOR = encodeEventCursor(START_OF_LOG_POSITION);
  * catches up on what follows that change alone (on the whole log after the start-of-log cursor),
  * and one this playback never delivered ends the subscription refused, as the daemon refuses a
  * cursor it cannot resolve. A bare event-type name carries only itself, one envelope per beat. The
- * two `run.*` streams are registered projections (`RunStateChangeEvent | RunRolledBackEvent` and
- * `QueueItemSummary`) built by `projection.fixture.ts`, with no catch-up because they are live; the
- * envelope would teach subscribers a frame the live bridge cannot send. A beat the projection
+ * two `run.*` streams send frames of registered projections (`RunStateChangeEvent |
+ * RunRolledBackEvent` and `QueueItemSummary`) built by `projection.fixture.ts`, each at its beat's
+ * cursor, with no catch-up because they are live; the envelope would teach subscribers a frame the
+ * live bridge cannot send. A beat the projection
  * cannot build throws, and `lib/emitter.ts` re-raises after every sink has run, so the authoring
  * error reaches whoever advanced the clock without silencing other subscribers. The presence
  * subscription is not an event feed: the fixture scripts no device, so it is accepted and never
@@ -116,6 +122,8 @@ export function subscribeToScenario(
     );
   }
   return engine.subscribe((events) => {
+    // One batch of beats is one run of frames on a run stream, as the daemon coalesces them.
+    const runStreamChanges: ScenarioRunStreamChange[] = [];
     for (const event of events) {
       if (!subscriptionDeliversEventKind(subscriptionName, event.kind)) {
         continue;
@@ -132,7 +140,10 @@ export function subscribeToScenario(
       if (projection.status === "unprojectable") {
         throw new FixtureBridgeError(subscriptionName, "beat-unprojectable", projection.detail);
       }
-      deliver(projection.delivery);
+      runStreamChanges.push(composeRunStreamChange(subscriptionName, event, projection.delivery));
+    }
+    for (const frame of composeScenarioStreamFrames(runStreamChanges)) {
+      deliver(frame);
     }
   });
 }

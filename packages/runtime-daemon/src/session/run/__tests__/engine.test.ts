@@ -22,6 +22,7 @@ import {
   TEST_EXECUTION_POSTURE,
   makeQueueItem,
   makeRecordingDriver,
+  startOnDriver,
   openRunEngineFixture,
   type RunEngineFixture,
 } from "./engine.test-support.js";
@@ -61,8 +62,8 @@ describe("run engine", () => {
       runId,
       queueItem: makeQueueItem(),
       provider: "claude",
-      driver: makeRecordingDriver(),
-      driverParams: { agentConfig: {} },
+      outputSpeed: undefined,
+      startDriver: startOnDriver(makeRecordingDriver(), runId),
       executionPosture: TEST_EXECUTION_POSTURE,
     });
   }
@@ -83,19 +84,16 @@ describe("run engine", () => {
       fixture.engine.registerSetupGate(recordingGate("first", log));
       fixture.engine.registerSetupGate(recordingGate("second", log));
       const driver = makeRecordingDriver();
-      const originalStart = driver.startRun;
       const gated = await fixture.queueRun();
       await fixture.engine.startRun({
         runId: gated,
         queueItem: makeQueueItem(),
         provider: "claude",
-        driver: {
-          startRun: async (params) => {
-            log.push("driver");
-            await originalStart(params);
-          },
+        outputSpeed: undefined,
+        startDriver: async (resolvedPosture) => {
+          log.push("driver");
+          await startOnDriver(driver, gated)(resolvedPosture);
         },
-        driverParams: { agentConfig: {} },
         executionPosture: { ...TEST_EXECUTION_POSTURE, writableRoots: [linkedRoot] },
       });
 
@@ -125,8 +123,8 @@ describe("run engine", () => {
           runId,
           queueItem: makeQueueItem(),
           provider: "claude",
-          driver,
-          driverParams: { agentConfig: {} },
+          outputSpeed: undefined,
+          startDriver: startOnDriver(driver, runId),
           executionPosture: TEST_EXECUTION_POSTURE,
         })
         .catch((error: unknown) => error);
@@ -169,8 +167,8 @@ describe("run engine", () => {
             runId,
             queueItem: makeQueueItem(),
             provider: "claude",
-            driver,
-            driverParams: { agentConfig: {} },
+            outputSpeed: undefined,
+            startDriver: startOnDriver(driver, runId),
             executionPosture: TEST_EXECUTION_POSTURE,
           })
           .catch((error: unknown) => error);
@@ -217,8 +215,8 @@ describe("run engine", () => {
           runId,
           queueItem: makeQueueItem(),
           provider: "claude",
-          driver: makeRecordingDriver(),
-          driverParams: { agentConfig: {} },
+          outputSpeed: undefined,
+          startDriver: startOnDriver(makeRecordingDriver(), runId),
           executionPosture: TEST_EXECUTION_POSTURE,
         }),
       ).rejects.toBe(gateError);
@@ -241,8 +239,8 @@ describe("run engine", () => {
           runId,
           queueItem: makeQueueItem(),
           provider: "claude",
-          driver,
-          driverParams: { agentConfig: {} },
+          outputSpeed: undefined,
+          startDriver: startOnDriver(driver, runId),
           executionPosture: TEST_EXECUTION_POSTURE,
         }),
       ).rejects.toMatchObject({ code: "run.invalid_transition", fromState: "interrupted" });
@@ -259,8 +257,8 @@ describe("run engine", () => {
           runId,
           queueItem: makeQueueItem(),
           provider: "claude",
-          driver: { startRun: () => Promise.reject(driverError) },
-          driverParams: { agentConfig: {} },
+          outputSpeed: undefined,
+          startDriver: startOnDriver({ startRun: () => Promise.reject(driverError) }, runId),
           executionPosture: TEST_EXECUTION_POSTURE,
         })
         .catch((error: unknown) => error);
@@ -489,8 +487,8 @@ describe("run engine", () => {
         runId,
         queueItem: makeQueueItem(),
         provider,
-        driver: makeRecordingDriver(),
-        driverParams: { agentConfig: {}, outputSpeed },
+        outputSpeed: outputSpeed,
+        startDriver: startOnDriver(makeRecordingDriver(), runId),
         executionPosture: TEST_EXECUTION_POSTURE,
       });
       return runId;

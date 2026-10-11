@@ -12,7 +12,10 @@ import { isDeepStrictEqual } from "node:util";
 import type { ProviderModel } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import type { DriverCompactionResult } from "@ai-sidekicks/contracts/provider/driver/compaction";
 import type { ProviderCommandListResult } from "@ai-sidekicks/contracts/provider/driver/commands";
-import type { InterruptRunParams } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type {
+  InterruptRunParams,
+  PickedSkill,
+} from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type { ProviderOutputSpeedState } from "@ai-sidekicks/contracts/provider/driver/output-speed";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
@@ -174,6 +177,8 @@ export class CodexLifecycleManager {
       reportDiagnostic,
       serverPrompts: options.serverPrompts,
       recordFor: (sessionId) => this.#slots.recordFor(sessionId),
+      serviceFor: async (providerAccountId) => await this.#services.serviceFor(providerAccountId),
+      spawnContext: options.spawnContext,
     });
     this.#pauses = new CodexRunPauses({
       onTookEffect: (pause) => {
@@ -274,6 +279,7 @@ export class CodexLifecycleManager {
         void this.#rewind.cutOversizedTurn(record, turnId);
       },
       pendingCompactions: this.#pendingCompactions,
+      onToolBoundary: options.onToolBoundary,
       now,
     });
     this.#notificationRouting = new CodexNotificationRouting({
@@ -354,9 +360,9 @@ export class CodexLifecycleManager {
       forks: this.#forks,
       runRoutes: this.#runRoutes,
       outputSpeed: this.#outputSpeed,
-      providerCommands: this.#providerCommands,
       runEngine: options.runEngine,
       daemonTurnBindings: options.daemonTurnBindings,
+      attachments: options.attachments,
       reportDiagnostic,
       scheduleTimeout,
       turnStartTimeoutMs: options.turnStartTimeoutMs,
@@ -641,6 +647,14 @@ export class CodexLifecycleManager {
     return await this.#providerCommands.composeProviderCommandList(params.sessionId, record);
   }
 
+  /** Each skill Codex lists for the session, by its name and the file it loads it from. */
+  async readSkillFiles(
+    sessionId: SessionId,
+    providerAccountId: string | undefined,
+  ): Promise<readonly PickedSkill[]> {
+    return await this.#providerCommands.readSkillFiles(sessionId, providerAccountId);
+  }
+
   /**
    * Closes the session's conversation: its running commands end, then it unsubscribes; the
    * service stays. Idempotent: an unknown session resolves.
@@ -673,6 +687,20 @@ export class CodexLifecycleManager {
     if (failures.length > 0) {
       throw new AggregateError(failures, "The Codex driver did not shut down cleanly.");
     }
+  }
+
+  /**
+   * Whether a conversation on `providerAccountId`'s home would start its service process, the
+   * daemon running none there yet; never for the person's own service, which the daemon never
+   * starts.
+   */
+  async startsAccountService(providerAccountId: string | undefined): Promise<boolean> {
+    return (await this.#services.serviceFor(providerAccountId)).wouldStart;
+  }
+
+  /** The id of the service process the session's conversation is on, while the daemon runs it. */
+  readServiceProcessId(sessionId: SessionId): number | undefined {
+    return this.#slots.recordFor(sessionId)?.service.processId;
   }
 
   /**

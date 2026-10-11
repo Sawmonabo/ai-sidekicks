@@ -6,10 +6,10 @@
 // The accept is the version gate: a request whose run moved before it expires undispatched, and
 // once dispatched the driver's verdict is recorded whatever the run did meanwhile. An applied or
 // degraded interrupt's verdict is written with the run's end, in the same write. A dispatch that
-// throws ends the request `failed`. Steers and retries on one run take turns under a per-run lock,
-// so two at one version never both reach the driver; an interrupt takes a lock of its own, so a
-// stop never waits behind a steer, and a steer still queued when it lands meets the advanced
-// version at its accept and expires.
+// throws ends the request `failed`. Retries on one run take turns under a per-run lock, so two at
+// one version never both reach the provider; an interrupt takes a lock of its own, so a stop never
+// waits behind a retry, and a retry still queued when it lands meets the advanced version at its
+// accept and expires. A person's message mid-turn is a queue send, never an intervention.
 
 import { EventEnvelopeVersionSchema } from "@ai-sidekicks/contracts/event/envelope";
 import type {
@@ -86,7 +86,7 @@ export interface InterventionServiceDeps {
   readonly runs: Pick<RunStateReader, "getRun">;
   readonly interventions: Pick<InterventionReader, "getByIdempotencyKey">;
   readonly sessionEvents: SessionEventLog;
-  /** The driver that runs `runId`, which applies its steers and interrupts. */
+  /** The driver that runs `runId`, which applies its interrupts. */
   readonly resolveDriver: (runId: RunId) => Pick<ProviderDriver, "applyIntervention">;
   /** Carries out a faster-model retry; the driver's `applyIntervention` never sees one. */
   readonly retryOnFasterModel: (
@@ -96,9 +96,10 @@ export interface InterventionServiceDeps {
 }
 
 // The run states each type is accepted in: an interrupt ends any run the table lets move to
-// `interrupted`, while a steer and a retry act on the turn in flight.
-const RUN_STATES_ACCEPTING_INTERVENTION: Readonly<Record<InterventionType, readonly RunState[]>> = {
-  steer: ["running"],
+// `interrupted`, while a retry acts on the turn in flight.
+const RUN_STATES_ACCEPTING_INTERVENTION: Readonly<
+  Record<InterventionRequestPayload["type"], readonly RunState[]>
+> = {
   interrupt: statesThatMayEnter("interrupted"),
   faster_model_retry: ["running"],
 };
@@ -121,14 +122,9 @@ interface InterventionTarget {
   readonly actor: InterventionActor;
 }
 
-// What dispatch produced, as the row's next move from `accepted`; an applied steer whose message
-// started another run names it.
+// What dispatch produced, as the row's next move from `accepted`.
 type DispatchOutcome =
-  | {
-      readonly from: "accepted";
-      readonly to: "applied";
-      readonly deliveredRunId?: RunId | undefined;
-    }
+  | { readonly from: "accepted"; readonly to: "applied" }
   | {
       readonly from: "accepted";
       readonly to: "degraded";
@@ -144,9 +140,9 @@ type DispatchOutcome =
 export class InterventionService {
   readonly #deps: InterventionServiceDeps;
   readonly #appender: SessionEventAppender;
-  // Orders each run's steers and retries; a run id spelled in either hex case takes one lock.
+  // Orders each run's retries; a run id spelled in either hex case takes one lock.
   readonly #runLock: KeyedLock<RunId> = new KeyedLock<RunId>(canonicalizeUuid);
-  // Orders each run's interrupts among themselves, apart from its steers and retries.
+  // Orders each run's interrupts among themselves, apart from its retries.
   readonly #interruptLock: KeyedLock<RunId> = new KeyedLock<RunId>(canonicalizeUuid);
 
   constructor(deps: InterventionServiceDeps) {
@@ -159,9 +155,9 @@ export class InterventionService {
 
   /**
    * Records `request`, accepts it if the run is still at `expectedRunVersion` and in a state its
-   * type acts on, dispatches it once and answers with the state it reached. Steers and retries on
-   * one run apply one at a time in arrival order, and so do interrupts, which never wait behind a
-   * steer. A reused idempotency key answers with the saved result and dispatches nothing. Throws
+   * type acts on, dispatches it once and answers with the state it reached. Retries on one run
+   * apply one at a time in arrival order, and so do interrupts, which never wait behind a retry. A
+   * reused idempotency key answers with the saved result and dispatches nothing. Throws
    * `run.not_found` for a run the daemon has no row for, and `intervention.idempotency_conflict`
    * for a reused key whose request differs; a dispatch that throws answers `failed` with what it
    * threw as the `failureReason`. An interrupt of a run no driver has yet calls no driver: it
@@ -243,7 +239,10 @@ export class InterventionService {
       return this.#resolve(target, outcome);
     }
     const move = moveInterventionStatement(target.interventionId, outcome);
-    const verdict = verdictEventOf(target, outcome);
+    const verdict: InterventionEventPayload<"applied" | "degraded"> = {
+      ...target,
+      state: outcome.to,
+    };
     // An interrupt ends its run in the verdict's own write; a run that ended first keeps its end.
     const hasEndedRun =
       target.type === "interrupt" &&
@@ -295,12 +294,9 @@ export class InterventionService {
     const result = await this.#deps
       .resolveDriver(request.targetRunId)
       .applyIntervention(driverParamsOf(request));
-    if (result.status === "degraded") {
-      return { from: "accepted", to: "degraded", fallbackAction: result.fallbackAction };
-    }
-    return result.deliveredRunId === undefined
-      ? { from: "accepted", to: "applied" }
-      : { from: "accepted", to: "applied", deliveredRunId: result.deliveredRunId };
+    return result.status === "degraded"
+      ? { from: "accepted", to: "degraded", fallbackAction: result.fallbackAction }
+      : { from: "accepted", to: "applied" };
   }
 
   // Ends the intervention in an outcome that applies nothing, with its event.
@@ -431,17 +427,6 @@ function interventionEventOf(
   return { ...target, state };
 }
 
-// The verdict's event, naming the run an applied steer's message went to as its row does.
-function verdictEventOf(
-  target: InterventionTarget,
-  outcome: Extract<DispatchOutcome, { to: "applied" | "degraded" }>,
-): InterventionEventPayload<"applied"> | InterventionEventPayload<"degraded"> {
-  if (outcome.to === "degraded" || outcome.deliveredRunId === undefined) {
-    return { ...target, state: outcome.to };
-  }
-  return { ...target, state: "applied", deliveredRunId: outcome.deliveredRunId };
-}
-
 // What a dispatch throw records: a domain error's code, else its message.
 function failureTextOf(error: unknown): string {
   if (error instanceof DaemonDomainError) {
@@ -454,12 +439,6 @@ function failureTextOf(error: unknown): string {
 // text exactly when it asks for the same thing.
 function interventionPayloadOf(request: InterventionRequestPayload): string {
   switch (request.type) {
-    case "steer":
-      return JSON.stringify({
-        content: request.content,
-        attachments: request.attachments,
-        expectedTurnId: request.expectedTurnId,
-      });
     case "interrupt":
       return JSON.stringify({
         pending: request.pending,
@@ -474,24 +453,10 @@ function interventionPayloadOf(request: InterventionRequestPayload): string {
 function driverParamsOf(
   request: Exclude<InterventionRequestPayload, FasterModelRetryRequest>,
 ): ApplyInterventionParams {
-  const guards = {
+  return {
     targetRunId: request.targetRunId,
     expectedRunVersion: request.expectedRunVersion,
     clientIdempotencyKey: request.clientIdempotencyKey,
-  };
-  if (request.type === "steer") {
-    return {
-      ...guards,
-      type: "steer",
-      payload: {
-        content: request.content,
-        attachments: request.attachments,
-        expectedTurnId: request.expectedTurnId,
-      },
-    };
-  }
-  return {
-    ...guards,
     type: "interrupt",
     payload: { pending: request.pending, reason: request.reason },
   };

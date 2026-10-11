@@ -1,6 +1,5 @@
 // The `driver.*` request/response JSON-RPC handlers, bound onto the `MethodRegistry` and
-// dispatched into the in-daemon `ProviderRegistry`. `driver.subscribeEvents` lives in
-// `subscribe.ts`.
+// dispatched into the in-daemon `ProviderRegistry`.
 //
 // - Driver authority is local: every handler resolves a driver from the local registry.
 // - `createSession`, `resumeSession`, `startRun`, `closeSession` and `respondToRequest` have no
@@ -12,7 +11,7 @@
 //   `runtime_bindings` (1:many per run, superseded rows kept) is judged in one place.
 
 import type {
-  ApplyInterventionParams,
+  ApplyInterventionRequest,
   DriverInterventionResult,
   InterruptRunParams,
 } from "@ai-sidekicks/contracts/provider/driver/intervention";
@@ -136,24 +135,6 @@ function refuseNoLiveBinding(): never {
   });
 }
 
-/**
- * Refuses a steer with attachment references before any driver method runs: nothing downstream
- * resolves an id to bytes (the Codex dispatcher builds `steerRun` without them), so the steer
- * would answer `applied` with them dropped. It names the operation, since no capability flag
- * governs it.
- */
-function refuseAttachmentDeliveryUnsupported(driverName: ProviderName): never {
-  throw new DaemonDomainError(
-    "Attachment references on a steer cannot be delivered, so the whole intervention is refused " +
-      "rather than applied with its attachments dropped. Re-send the steer without attachments.",
-    {
-      code: "driver.capability_unsupported",
-      jsonRpcCode: JsonRpcErrorCode.InvalidRequest,
-      detail: { driverId: driverName, operation: "applyIntervention" },
-    },
-  );
-}
-
 /** Sorted, because registration order depends on bootstrap timing and a list must not reorder. */
 function sortedDriverNames(
   providerRegistry: Pick<ProviderRegistry, "listAvailable">,
@@ -235,19 +216,16 @@ export function registerDriverInterruptRun(
 }
 
 /**
- * Binds `driver.applyIntervention`. It is not pre-gated by `checkCapability`, so the driver can
- * answer `{ status: "degraded", fallbackAction }`; the attachment guard runs last, after address,
- * availability and operation.
+ * Binds `driver.applyIntervention`, which takes an interrupt alone: its schema refuses a steer,
+ * which only the run queue hands a driver. It is not pre-gated by `checkCapability`: the driver
+ * answers for itself.
  */
 export function registerDriverApplyIntervention(
   registry: MethodRegistry,
   deps: DriverDispatchDeps,
 ): void {
-  const handler: Handler<ApplyInterventionParams, DriverInterventionResult> = async (params) => {
-    const { driverName, driver } = resolveDriverForRunOrThrow(deps, params.targetRunId);
-    if (params.type === "steer" && (params.payload.attachments?.length ?? 0) > 0) {
-      refuseAttachmentDeliveryUnsupported(driverName);
-    }
+  const handler: Handler<ApplyInterventionRequest, DriverInterventionResult> = async (params) => {
+    const { driver } = resolveDriverForRunOrThrow(deps, params.targetRunId);
     return driver.applyIntervention(params);
   };
 

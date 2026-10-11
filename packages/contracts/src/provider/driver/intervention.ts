@@ -49,12 +49,39 @@ export type ApplyInterventionParams =
       payload: InterruptPayload;
     };
 
-/** Payload of a `steer` intervention: the message content, its attachments and a target turn. */
+/**
+ * The request of `driver.applyIntervention`: an interrupt. A steer reaches a driver only from the
+ * run queue, which delivers each message a person sends (`run.queueCreate`), never over the wire.
+ */
+export type ApplyInterventionRequest = Extract<ApplyInterventionParams, { type: "interrupt" }>;
+
+/**
+ * A skill picked for a message as its provider listed it: its name and the file the provider loads
+ * it from, absolute. The daemon resolves a person's pick to it, so no path a client sent reaches a
+ * provider.
+ */
+export interface PickedSkill {
+  name: string;
+  path: string;
+}
+/** Parses a {@link PickedSkill}. */
+export const PickedSkillSchema: z.ZodType<PickedSkill, PickedSkill> = z
+  .object({
+    name: z.string().min(1),
+    path: z.string().min(1),
+  })
+  .strict();
+
+/**
+ * Payload of a `steer` intervention: the message content, its attachments, the skills the person
+ * picked for it and a target turn.
+ */
 export interface SteerPayload {
   content: string;
   // Order-preserving: an attachment the turn cannot resolve becomes an unresolved marker with its
   // cause in its own position, never dropped. No count of the app's own bounds the list.
   attachments?: ArtifactId[] | undefined;
+  skills?: PickedSkill[] | undefined;
   expectedTurnId?: string | undefined;
 }
 
@@ -77,7 +104,7 @@ export interface InterruptPayload {
 
 /**
  * Return of `ProviderDriver.applyIntervention()`. `fallbackAction` names the fallback for a
- * `degraded` result (e.g. `queue_and_interrupt` for a steer) and is absent when `applied`.
+ * `degraded` result and is absent when `applied`.
  * `deliveredRunId` names the run an `applied` steer's message went to when that is not its target:
  * settling a choice the target was held on ended it, so the message started the session's next
  * turn as a run of its own.

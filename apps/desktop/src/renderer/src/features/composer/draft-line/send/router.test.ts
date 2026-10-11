@@ -1,17 +1,15 @@
-// Resolution: what a body and a target would do before anything is sent. The same text routes
-// differently by target, a registered slash command is intercepted, a slash word on no list and a
-// doubled slash are sent as typed, a provider entry is named rather than sent, and the daemon
-// receives the user's own text.
+// Resolution: what a body and a target would do before anything is sent. A message sent while a
+// run is going is queued like any other, a registered slash command is intercepted, a slash word
+// on no list and a doubled slash are sent as typed, the daemon receives the user's own text, and
+// a rejected call reaches the caller.
 
 import { describe, expect, it, vi } from "vitest";
 import {
   SESSION_TARGET,
   PINNED_REQUEST_UUID,
   QUEUE_CREATED,
-  RUN_ID,
   RUN_TARGET,
   SESSION_ID,
-  STEER_APPLIED,
   routerWith,
 } from "./router.test-support.js";
 
@@ -20,7 +18,7 @@ describe("ComposerSendRouter — Send is a router, not a verb", () => {
     const call = vi.fn().mockResolvedValue(QUEUE_CREATED);
     const outcome = await routerWith(call).send("ship the fix", SESSION_TARGET);
 
-    expect(outcome).toStrictEqual({ status: "sent", path: "session-message" });
+    expect(outcome).toStrictEqual({ status: "sent" });
     expect(call).toHaveBeenCalledWith("run.queueCreate", {
       sessionId: SESSION_ID,
       clientIdempotencyKey: PINNED_REQUEST_UUID,
@@ -28,31 +26,18 @@ describe("ComposerSendRouter — Send is a router, not a verb", () => {
     });
   });
 
-  it("routes a run-addressed message to the steer, with the read comparand", async () => {
-    const call = vi.fn().mockResolvedValue(STEER_APPLIED);
+  it("queues a message sent while a run is going, never as an intervention", async () => {
+    // Fails if a run-addressed send takes any other call, or addresses anything but the session.
+    const call = vi.fn().mockResolvedValue(QUEUE_CREATED);
     const outcome = await routerWith(call).send("try the other branch", RUN_TARGET);
 
-    expect(outcome).toStrictEqual({ status: "sent", path: "provider-bound" });
-    expect(call).toHaveBeenCalledWith("run.intervene", {
-      type: "steer",
-      targetRunId: RUN_ID,
-      expectedRunVersion: 7,
+    expect(outcome).toStrictEqual({ status: "sent" });
+    expect(call).toHaveBeenCalledTimes(1);
+    expect(call).toHaveBeenCalledWith("run.queueCreate", {
+      sessionId: SESSION_ID,
       clientIdempotencyKey: PINNED_REQUEST_UUID,
       content: "try the other branch",
     });
-  });
-
-  it("refuses a steer whose run version is unread, rather than sending a zero", async () => {
-    const call = vi.fn().mockResolvedValue({});
-    const outcome = await routerWith(call).send("steer me", {
-      ...RUN_TARGET,
-      expectedRunVersion: undefined,
-    });
-
-    expect(outcome.status).toBe("refused");
-    expect(outcome.status === "refused" && outcome.refusal.code).toBe("run-version-unread");
-    // Nothing reached the wire, so the refusal is not a send that also complained.
-    expect(call).not.toHaveBeenCalled();
   });
 });
 
@@ -69,7 +54,7 @@ describe("ComposerSendRouter — the slash prefix", () => {
     const call = vi.fn().mockResolvedValue(QUEUE_CREATED);
     const outcome = await routerWith(call).send("/compact now", SESSION_TARGET);
 
-    expect(outcome).toStrictEqual({ status: "sent", path: "session-message" });
+    expect(outcome).toStrictEqual({ status: "sent" });
     expect(call).toHaveBeenCalledWith("run.queueCreate", {
       sessionId: SESSION_ID,
       clientIdempotencyKey: PINNED_REQUEST_UUID,
@@ -96,28 +81,18 @@ describe("ComposerSendRouter — the daemon receives the text the user wrote", (
   // same arm and send different bytes.
   const INDENTED_BODY = "  if (ready) {\n    ship();\n  }\n\n";
 
-  it("queues a session message byte-identical, indentation and blank line included", async () => {
-    const call = vi.fn().mockResolvedValue(QUEUE_CREATED);
-    await routerWith(call).send(INDENTED_BODY, SESSION_TARGET);
+  it("queues a message byte-identical, indentation and blank line included", async () => {
+    // Both addresses, so a message sent mid-turn reaches the agent as typed too.
+    for (const target of [SESSION_TARGET, RUN_TARGET]) {
+      const call = vi.fn().mockResolvedValue(QUEUE_CREATED);
+      await routerWith(call).send(INDENTED_BODY, target);
 
-    expect(call).toHaveBeenCalledWith("run.queueCreate", {
-      sessionId: SESSION_ID,
-      clientIdempotencyKey: PINNED_REQUEST_UUID,
-      content: INDENTED_BODY,
-    });
-  });
-
-  it("steers with the same bytes, so the running turn reads what was typed", async () => {
-    const call = vi.fn().mockResolvedValue(STEER_APPLIED);
-    await routerWith(call).send(INDENTED_BODY, RUN_TARGET);
-
-    expect(call).toHaveBeenCalledWith("run.intervene", {
-      type: "steer",
-      targetRunId: RUN_ID,
-      expectedRunVersion: 7,
-      clientIdempotencyKey: PINNED_REQUEST_UUID,
-      content: INDENTED_BODY,
-    });
+      expect(call).toHaveBeenCalledWith("run.queueCreate", {
+        sessionId: SESSION_ID,
+        clientIdempotencyKey: PINNED_REQUEST_UUID,
+        content: INDENTED_BODY,
+      });
+    }
   });
 
   it("sends an indented line beginning with a slash as the prose it is", async () => {
@@ -125,11 +100,20 @@ describe("ComposerSendRouter — the daemon receives the text the user wrote", (
     const call = vi.fn().mockResolvedValue(QUEUE_CREATED);
     const outcome = await routerWith(call, ["help"]).send("  /help me read this", SESSION_TARGET);
 
-    expect(outcome).toStrictEqual({ status: "sent", path: "session-message" });
+    expect(outcome).toStrictEqual({ status: "sent" });
     expect(call).toHaveBeenCalledWith("run.queueCreate", {
       sessionId: SESSION_ID,
       clientIdempotencyKey: PINNED_REQUEST_UUID,
       content: "  /help me read this",
     });
+  });
+});
+
+describe("ComposerSendRouter — a rejected call is not caught", () => {
+  it("propagates a rejected queue-create to the caller of send", async () => {
+    const rejection = new Error("socket closed");
+    const call = vi.fn().mockRejectedValue(rejection);
+
+    await expect(routerWith(call).send("go", SESSION_TARGET)).rejects.toBe(rejection);
   });
 });

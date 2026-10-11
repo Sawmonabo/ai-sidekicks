@@ -1,8 +1,8 @@
 // `SessionEventSchema` builds each type's schema on first use instead of holding a Zod
 // discriminated union over every registered variant. The oracle below is that union, built over
 // the very same variant schemas, so any difference in what is accepted, what comes out or which
-// issues are reported is the dispatcher's. The two schemas stacked on it are compared against the
-// union carrying their very own checks, so a stacked refinement must run exactly when it did.
+// issues are reported is the dispatcher's. The schema stacked on it is compared against the union
+// carrying its very own checks, so a stacked refinement must run exactly when it did.
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
@@ -15,7 +15,6 @@ import {
 } from "../session.js";
 import { EVENT_ENVELOPE_SEQUENCE_MAX } from "../envelope.js";
 import { McpGovernanceEventSchema } from "../../mcp/event.js";
-import { DriverEventSchema } from "../../provider/driver/event.js";
 import {
   SESSION_EVENT_PAYLOAD_SAMPLES,
   buildAssistantMessageEvent,
@@ -75,7 +74,6 @@ const stackOnOracle = (stacked: z.ZodType): z.ZodType =>
 const STACKED_SCHEMAS: ReadonlyArray<
   readonly [name: string, stacked: z.ZodType, oracle: z.ZodType]
 > = [
-  ["DriverEventSchema", DriverEventSchema, stackOnOracle(DriverEventSchema)],
   ["McpGovernanceEventSchema", McpGovernanceEventSchema, stackOnOracle(McpGovernanceEventSchema)],
 ];
 

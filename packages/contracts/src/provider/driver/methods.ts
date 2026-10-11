@@ -25,13 +25,12 @@ import {
 import {
   DriverInterventionResultSchema,
   InterruptPendingChoiceSchema,
-  type ApplyInterventionParams,
+  type ApplyInterventionRequest,
   type DriverInterventionResult,
   type InterruptRunParams,
 } from "./intervention.js";
-import { ArtifactIdSchema } from "../../artifacts/id.js";
 import { RunIdSchema, type RunId } from "../../run/id.js";
-import { wireFreeFormString, wireUncappedFreeFormString } from "../../free-form-string.js";
+import { wireFreeFormString } from "../../free-form-string.js";
 import { SessionIdSchema, type SessionId } from "../../session/id.js";
 import { countSchema } from "../../internal/wire-scalars.js";
 
@@ -40,7 +39,7 @@ import { countSchema } from "../../internal/wire-scalars.js";
 // These guard client input crossing into the daemon, and the daemon's own replies. Only methods
 // that act on an existing session or run are here: the lifecycle operations (`createSession`,
 // `resumeSession`, `startRun`, `closeSession`) have no client-facing shape, so a client cannot
-// reach them. `driver.subscribeEvents` is registered in `provider/driver/event.ts`.
+// reach them.
 //
 // Every reply answers for every driver as a list grouped by `driverName`, never a merged array:
 // model and mode ids collide across providers, so grouping keeps one provider's value from being
@@ -55,8 +54,8 @@ import { countSchema } from "../../internal/wire-scalars.js";
  */
 export const DRIVER_WIRE_TOKEN_MAX_LEN = 128;
 /**
- * Max length of an opaque provider handle a client echoes back (`SteerPayload.expectedTurnId`);
- * roomier than a token, because refusing a real handle would make a valid steer unsendable.
+ * Max length of an opaque provider handle a client echoes back (a turn's id); roomier than a
+ * token, because refusing a real handle would make a valid request unsendable.
  */
 export const DRIVER_WIRE_HANDLE_MAX_LEN = 256;
 /** Max length of the person's `reason` on an interrupt or a cancel. */
@@ -240,65 +239,30 @@ export const InterruptRunParamsSchema: z.ZodType<InterruptRunParams, InterruptRu
   .strict();
 
 /**
- * Validates `driver.applyIntervention` input, arm for arm with `ApplyInterventionParams`, so an
- * unknown `type` is refused at parse. `clientIdempotencyKey` must be a UUID, so an unbounded
+ * Validates `driver.applyIntervention` input: an interrupt alone, so a steer, which only the run
+ * queue delivers, is refused at parse. `clientIdempotencyKey` must be a UUID, so an unbounded
  * caller string never lands in a stored receipt.
  */
-export const ApplyInterventionParamsSchema: z.ZodType<
-  ApplyInterventionParams,
-  ApplyInterventionParams
-> = z.discriminatedUnion("type", [
-  z
-    .object({
-      type: z.literal("steer"),
-      targetRunId: RunIdSchema,
-      expectedRunVersion: countSchema,
-      clientIdempotencyKey: z.uuid(),
-      payload: z
-        .object({
-          content: wireUncappedFreeFormString("SteerPayload.content"),
-          // How many files a message carries is what the daemon and the provider accept.
-          attachments: z.array(ArtifactIdSchema).optional(),
-          expectedTurnId: wireFreeFormString(
-            DRIVER_WIRE_HANDLE_MAX_LEN,
-            "SteerPayload.expectedTurnId",
-          ).optional(),
-        })
-        .strict(),
-    })
-    .strict(),
-  z
-    .object({
-      type: z.literal("interrupt"),
-      targetRunId: RunIdSchema,
-      expectedRunVersion: countSchema,
-      clientIdempotencyKey: z.uuid(),
-      payload: z
-        .object({
-          pending: InterruptPendingChoiceSchema,
-          reason: wireFreeFormString(
-            DRIVER_WIRE_REASON_MAX_LEN,
-            "InterruptPayload.reason",
-          ).optional(),
-        })
-        .strict(),
-    })
-    .strict(),
-]);
-
-/**
- * Request of `driver.subscribeEvents`: one run's driver event stream. The reply is the shared
- * `SubscribeAckResponse`, with events arriving as later `$/subscription/notify` frames.
- */
-export interface DriverSubscribeEventsParams {
-  runId: RunId;
-}
-
-/** Validates a {@link DriverSubscribeEventsParams}. */
-export const DriverSubscribeEventsParamsSchema: z.ZodType<
-  DriverSubscribeEventsParams,
-  DriverSubscribeEventsParams
-> = z.object({ runId: RunIdSchema }).strict();
+export const ApplyInterventionRequestSchema: z.ZodType<
+  ApplyInterventionRequest,
+  ApplyInterventionRequest
+> = z
+  .object({
+    type: z.literal("interrupt"),
+    targetRunId: RunIdSchema,
+    expectedRunVersion: countSchema,
+    clientIdempotencyKey: z.uuid(),
+    payload: z
+      .object({
+        pending: InterruptPendingChoiceSchema,
+        reason: wireFreeFormString(
+          DRIVER_WIRE_REASON_MAX_LEN,
+          "InterruptPayload.reason",
+        ).optional(),
+      })
+      .strict(),
+  })
+  .strict();
 
 // ---- Session-addressed requests ----
 
@@ -373,9 +337,6 @@ export const ProviderCommandListResultSchema: z.ZodType<
 
 // ---- Method table ----
 
-// `driver.subscribeEvents` is in the table in `provider/driver/event.ts`: its emission is the
-// session event.
-
 /** The driver methods a client calls, each a query or a mutation. */
 export interface DriverMethodDescriptors {
   readonly "driver.listCapabilities": MethodDescriptor<
@@ -400,7 +361,7 @@ export interface DriverMethodDescriptors {
   >;
   readonly "driver.applyIntervention": MethodDescriptor<
     "driver.applyIntervention",
-    ApplyInterventionParams,
+    ApplyInterventionRequest,
     DriverInterventionResult
   >;
   readonly "driver.compactContext": MethodDescriptor<
@@ -449,7 +410,7 @@ export const DRIVER_METHOD_DESCRIPTORS: DriverMethodDescriptors = defineMethodDe
     method: "driver.applyIntervention",
     procedureType: "mutation",
     mutating: true,
-    requestSchema: ApplyInterventionParamsSchema,
+    requestSchema: ApplyInterventionRequestSchema,
     responseSchema: DriverInterventionResultSchema,
   },
   "driver.compactContext": {

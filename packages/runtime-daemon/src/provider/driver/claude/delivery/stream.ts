@@ -4,8 +4,9 @@
 // of their message, the provider's status, warnings and model switches, a helper's child run, and
 // the turn's end. The end passes the terminal-emission gate once per turn;
 // a turn whose end the daemon writes itself (a refusal the driver settled) delivers none, a turn
-// an interrupt stopped delivers `interrupted`, and a turn that ended on the run's pause delivers
-// `paused`. An end the run engine could not take is followed by a failed end, so no run is left
+// an interrupt stopped delivers `interrupted`, a turn that ended on the run's pause delivers
+// `paused`, and a turn that completed with a steer Claude Code has yet to take delivers none, its
+// run going on into the turn Claude Code starts with that steer. An end the run engine could not take is followed by a failed end, so no run is left
 // open, and an ended run's per-run readings go with it.
 
 import type { ProviderSpentRetriesSignal } from "@ai-sidekicks/contracts/provider/driver/usage-limit";
@@ -69,6 +70,8 @@ export interface ClaudeDeliveryStreamDependencies {
     frameKind: string,
     frame: Readonly<Record<string, unknown>>,
   ) => void;
+  /** Claude Code replayed a handed message on the lead thread: it took that message. */
+  readonly onMessageTaken: (sessionId: SessionId, messageId: string, runId: RunId) => void;
   readonly now: () => number;
 }
 
@@ -371,7 +374,18 @@ export class ClaudeDeliveryStream {
         for (const failed of reading.failedResults) {
           session.failedCallWords.set(failed.toolCallId, failed.text);
         }
-        this.#sendRows(session, lead, frameKind, reading.rows, readNonEmptyString(frame, "uuid"));
+        const uuid = readNonEmptyString(frame, "uuid");
+        // `--replay-user-messages` echoes each message Claude Code took off its input, with the
+        // uuid it was sent under; a helper's replay carries its parent call and is not handed.
+        if (
+          frame["isReplay"] === true &&
+          frame["parent_tool_use_id"] == null &&
+          uuid !== undefined
+        ) {
+          this.#dependencies.prompts.recordTaken(uuid);
+          this.#dependencies.onMessageTaken(live.sessionId, uuid, lead.runId);
+        }
+        this.#sendRows(session, lead, frameKind, reading.rows, uuid);
         return;
       }
       default:
@@ -598,6 +612,19 @@ export class ClaudeDeliveryStream {
     const isInterrupted = session.interruptedRuns.delete(lead.runId);
     const isPaused =
       !isInterrupted && pausedRunId === lead.runId && end.change.newState === "completed";
+    // Claude Code starts its next turn at once with a steer this turn did not take, so a run that
+    // completed with one waiting goes on into that turn, which takes it; its end ends the run.
+    if (
+      !isInterrupted &&
+      !isPaused &&
+      !decision.intendedClose &&
+      end.change.newState === "completed" &&
+      !this.#daemonEndedRuns.has(lead.runId) &&
+      this.#dependencies.prompts.hasUntakenSteer(lead.runId)
+    ) {
+      this.#dependencies.runRoutes.carryTurnOver(lead.runId);
+      return;
+    }
     const change: ClaudeTurnEndDelivery = {
       kind: "run_lifecycle",
       bindingId: lead.bindingId,
@@ -659,6 +686,7 @@ export class ClaudeDeliveryStream {
   // calls its turn left open, which can no longer complete.
   #forgetEndedRun(session: ClaudeStreamSession, runId: RunId): void {
     this.#dependencies.runRoutes.forgetRun(runId);
+    this.#dependencies.prompts.forgetRun(runId);
     session.turnEpochByRun.delete(runId);
     session.initializedRuns.delete(runId);
     session.openToolCalls.clear();

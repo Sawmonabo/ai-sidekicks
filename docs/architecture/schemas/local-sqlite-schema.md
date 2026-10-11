@@ -328,16 +328,25 @@ CREATE TABLE queue_items (
                                               -- prompt (a workflow step's input, an orchestrated
                                               -- child-run prompt), as plain text (Plan-002 T1.4,
                                               -- Spec-003). Every drain-selection field is its own
-                                              -- column (state, target_run_id, session_id).
+                                              -- column (state, target_run_id, session_id,
+                                              -- child_handle, position).
   target_run_id   TEXT,                       -- the run a user message is delivered into; NULL on an
                                               -- orchestration-authored item, which is admitted as a new run
   device_id       TEXT,                       -- the device a person's message came from (the machine's own
                                               -- screen or a linked device's channel), found from the
                                               -- connection at acceptance; NULL on an orchestration-authored
                                               -- item, the system's own (Queue And Intervention Model)
+  child_handle    TEXT,                       -- the child whose queue holds the item, the handle the queue
+                                              -- verbs name it by; NULL on the lead's queue
+  position        INTEGER NOT NULL CHECK(position >= 0),  -- the item's place in its queue's order, lowest
+                                              -- first: send order until run.queueReorder replaces it, and an
+                                              -- edit takes the place of the item it supersedes
+  client_idempotency_key TEXT,                -- the send's own key, so a retried send returns the saved item;
+                                              -- NULL on an orchestration-authored item
   created_at      TEXT NOT NULL,
   updated_at      TEXT NOT NULL,
-  CHECK((state = 'not_delivered') = (not_delivered_reason IS NOT NULL))  -- a not_delivered item always says why
+  CHECK((state = 'not_delivered') = (not_delivered_reason IS NOT NULL)),  -- a not_delivered item always says why
+  UNIQUE(session_id, client_idempotency_key)  -- SQLite treats each NULL as distinct, so only sends dedupe
 ) STRICT;
 
 CREATE INDEX idx_queue_items_session_state ON queue_items(session_id, state);

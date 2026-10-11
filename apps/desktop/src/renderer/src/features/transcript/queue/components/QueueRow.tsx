@@ -8,7 +8,7 @@ import { Chip } from "#renderer/components/Chip/Chip.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "#renderer/components/WireFigure/WireFigure.js";
 import { codeWords } from "#renderer/lib/code-words.js";
-import { formatAge, formatCount, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
+import { formatAge, formatZonedDateTime } from "#renderer/lib/wire/figures.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
 import { type Refusal } from "#renderer/lib/refusal/contract.js";
@@ -58,12 +58,6 @@ export function QueueRow(props: {
         <WireFigure value={item.id} />
       </div>
       <dl className="meridian-queue__figures">
-        <div className="meridian-queue__figure">
-          <dt>Priority</dt>
-          <dd>
-            <WireFigure value={formatCount(item.priority)} />
-          </dd>
-        </div>
         <div className="meridian-queue__figure">
           <dt>Created</dt>
           <dd>

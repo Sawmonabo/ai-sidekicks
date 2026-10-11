@@ -192,15 +192,15 @@ Payload shape: `{sessionId, runId, runVersion, previousState, newState, failureC
 
 #### Queue Events
 
-Payload shape: `{sessionId, queueItemId, state}`
+Payload shape: `{sessionId, queueItemId, state}`, where `state` is `queued` on `queue_item.created` and the event's own state on the other four: `admitted`, `superseded`, `canceled` or `not_delivered`. Three events add a member of their own, below; no event carries another's member, and the message's words stay on `user.message`.
 
 | Type | Description |
 | --- | --- |
 | `queue_item.created` | A new item has been added to the queue. |
-| `queue_item.admitted` | A queued item has been admitted to execution. |
-| `queue_item.superseded` | A queued item has been replaced by a newer item. |
+| `queue_item.admitted` | A queued item has been admitted to execution. Payload: `{sessionId, queueItemId, state, runId}`, `runId` naming the run that took it: the run the message was sent toward, or the next run when that run ended before taking it. An item that reads `not_delivered` because Claude Code did not answer its withdraw in time is admitted the same way when Claude Code then shows it took the message, so the record follows what the agent got. |
+| `queue_item.superseded` | A queued item has been replaced by a newer item. Payload: `{sessionId, queueItemId, state, replacedByQueueItemId}`, `replacedByQueueItemId` naming the item that replaced it. |
 | `queue_item.canceled` | A queued item has been canceled before execution. |
-| `queue_item.not_delivered` | The daemon took a queued item but could not deliver it — it waited longer than the daemon's delivery timeout, or its delivery failed outright; the item carries its reason and can be sent again. |
+| `queue_item.not_delivered` | The daemon took a queued item but could not deliver it, and it can be sent again; only a later `queue_item.admitted` follows it, for a message the agent took after all. Payload: `{sessionId, queueItemId, state, notDeliveredReason}`, `notDeliveredReason` being `timed_out` when it waited longer than the daemon's delivery timeout and `failed` when its delivery failed outright. |
 
 #### Intervention Events
 
@@ -218,7 +218,7 @@ Payload shape: `{sessionId, interventionId, targetRunId, type: InterventionType,
 
 #### User Message Events
 
-The durable user-message row — the third set of `interactive_request` events beside queue items and interventions: a user's message into the session becomes first-class transcript history, not merely queue metadata. Emission is owned by the **queue-submit surface** ([Plan-002](../plans/002-queue-steer-pause-resume.md)): the accepting daemon appends the row when it accepts the send. The `user_text` wire echo from the provider **correlates** into this row via `correlationId` as delivery confirmation — the echo never appends a second row. Payload shape: `{sessionId, queueItemId?, runId?, actor, deviceId?, message, origin?: 'voice', answersQuestionId?}` — `message` is the user-authored text, `origin: 'voice'` marks the words a Codex voice call heard (§Voice), `answersQuestionId` names the question a message answers (§An Agent's Question) and is absent on every other message, and `deviceId` is the device the message was sent from, the device the connection carries, present wherever one of the person's devices sent it; the transcript draws no device mark ([Spec-027 §Answering from another device](./027-remote-control.md#answering-from-another-device)). The answer to an agent's question is written as this row (§An Agent's Question), so it names the device that answered.
+The durable user-message row — the third set of `interactive_request` events beside queue items and interventions: a user's message into the session becomes first-class transcript history, not merely queue metadata. Emission is owned by the **queue-submit surface** ([Plan-002](../plans/002-queue-steer-pause-resume.md)): the accepting daemon appends the row when it accepts the send. The `user_text` wire echo from the provider **correlates** into this row via `correlationId` as delivery confirmation — the echo never appends a second row. Payload shape: `{sessionId, queueItemId?, runId?, actor, deviceId?, message, origin?: 'voice', answersQuestionId?}` — `message` is the user-authored text, `origin: 'voice'` marks the words a Codex voice call heard (§Voice), `answersQuestionId` names the question a message answers (§An Agent's Question) and is absent on every other message, `runId` is the run the message was sent toward, which `queue_item.admitted` may name differently when that run ended first, and `deviceId` is the device the message was sent from, the device the connection carries, present wherever one of the person's devices sent it; the transcript draws no device mark ([Spec-027 §Answering from another device](./027-remote-control.md#answering-from-another-device)). The answer to an agent's question is written as this row (§An Agent's Question), so it names the device that answered.
 
 | Type | Description |
 | --- | --- |

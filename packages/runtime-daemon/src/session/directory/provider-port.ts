@@ -1,14 +1,17 @@
 // What the session directory answers the provider side: whether a session exists, the provider
-// its lead runs on, where and as whom each of its provider processes runs, the resume a restart
-// opens, and the binding each resume a driver started on its own minted.
+// its lead runs on, where and as whom each of its provider processes runs, what its provider
+// session opens with, the resume a restart opens, and the binding each resume a driver started on
+// its own minted.
 //
 // The lead is read from the session's log: `session.created` names it, a provider switch moves it,
 // and a session-long model switch the provider made moves the model it runs on. A session's leg is
-// its newest binding with a conversation to resume.
+// its newest binding with a conversation to resume. A session opens at its own permission level,
+// which is YOLO: a new session starts there, and no level a person picks is kept for it.
 
 import type { Database, Statement } from "better-sqlite3";
 
 import type { AgentProviderBinding } from "@ai-sidekicks/contracts/agent/definition";
+import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import type { AgentProviderBindingChangedPayload } from "@ai-sidekicks/contracts/agent/provider-binding";
 import type { UsageModelReroutedPayload } from "@ai-sidekicks/contracts/event/declared-variants";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
@@ -17,6 +20,7 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { describeRejection } from "../../rejection.js";
 import type { MachineSettingsFile } from "../../daemon/machine/settings/file.js";
+import { CURATED_CREDENTIAL_POLICY_REF } from "../../policy/execution-posture-service.js";
 import { readGitCommonFolder, type GitCommand } from "../../git/process.js";
 import type { DriverResumeResult, ResumeSessionParams } from "../../provider/driver/contract.js";
 import type { ClaudeAccountFolders, SessionEnvironmentRows } from "../../provider/spawn-env.js";
@@ -25,6 +29,7 @@ import {
   type RuntimeBinding,
   type RuntimeBindingStore,
 } from "../../provider/runtime-binding-store.js";
+import type { ProviderSessionOpening } from "../../queue/provider-session.js";
 import type { ProjectRecords } from "../../workspace/project/records.js";
 import { readSessionAdvisorModel, readSessionMode } from "../console-state.js";
 import { SESSION_RUN_IDS_SQL } from "../run/ids.js";
@@ -69,6 +74,15 @@ interface SessionLead {
   readonly binding: AgentProviderBinding;
   readonly runningModel: string;
 }
+
+// The posture a session's provider session opens at: the session's level, YOLO, since every new
+// session starts there and no other level is kept for one. YOLO writes anywhere, so it names no
+// writable root.
+const OPENING_POSTURE: ExecutionPosture = {
+  mode: "yolo",
+  writableRoots: [],
+  credentialPolicyRef: CURATED_CREDENTIAL_POLICY_REF,
+};
 
 // The events that name or move the lead, oldest first. A damaged row's payload may not be JSON.
 const LEAD_EVENTS_SQL = `SELECT type, payload FROM session_events
@@ -141,13 +155,43 @@ export class SessionDirectoryProviderPort {
     return this.#readLead(sessionId)?.binding.driverName;
   }
 
+  /** The provider binding the session's lead runs on, or `undefined` for a session with no lead. */
+  readLeadBinding(sessionId: SessionId): AgentProviderBinding | undefined {
+    return this.#readLead(sessionId)?.binding;
+  }
+
+  /**
+   * What the session's provider session opens with: its lead's provider, the model it runs on now
+   * and the account and output speed it names, at YOLO. Throws for a session with no lead.
+   */
+  composeOpening(sessionId: SessionId): Promise<ProviderSessionOpening> {
+    const lead = this.#readLead(sessionId);
+    if (lead === undefined) {
+      return Promise.reject(new Error(`Session ${sessionId} names no lead to open`));
+    }
+    const { binding } = lead;
+    return Promise.resolve({
+      driverName: binding.driverName,
+      createParams: {
+        sessionId,
+        config: {},
+        model: lead.runningModel,
+        largerWindow: binding.largerWindow,
+        executionPosture: OPENING_POSTURE,
+        outputSpeed: binding.outputSpeed,
+        providerAccountId: binding.providerAccountId ?? undefined,
+      },
+      functionLegsFor: () => ({}),
+    });
+  }
+
   /**
    * The resume that brings the session's leg back on the model its lead runs on now, in the mode
    * it was last moved to, or `undefined` for a session with no lead or no conversation to resume.
    */
   resolveRestartTarget(sessionId: SessionId): SessionRestartTarget | undefined {
     const lead = this.#readLead(sessionId);
-    const binding = this.#readLeg(sessionId);
+    const binding = this.readSessionLeg(sessionId);
     if (lead === undefined || binding === undefined) {
       return undefined;
     }
@@ -188,7 +232,7 @@ export class SessionDirectoryProviderPort {
     sessionId: SessionId,
     result: Extract<DriverResumeResult, { status: "resumed" }>,
   ): Promise<void> {
-    const predecessor = this.#readLeg(sessionId);
+    const predecessor = this.readSessionLeg(sessionId);
     if (predecessor?.resumeHandle == null) {
       throw new Error("the session has no binding the relaunch replaced");
     }
@@ -231,8 +275,8 @@ export class SessionDirectoryProviderPort {
     };
   }
 
-  // The session's newest binding with a conversation to resume.
-  #readLeg(sessionId: SessionId): RuntimeBinding | undefined {
+  /** The session's newest binding with a conversation to resume, or `undefined` for none. */
+  readSessionLeg(sessionId: SessionId): RuntimeBinding | undefined {
     const runIds = this.#selectRunIds.all({ sessionId }).map((row) => row.runId);
     let newest: RuntimeBinding | undefined;
     for (const binding of this.#runtimeBindings.findByRuns(runIds)) {

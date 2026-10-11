@@ -1,18 +1,16 @@
 // The comparand a guarded run call carries: `expectedRunVersion` is mandatory on `run.intervene`,
-// `run.pause` and `run.resume`. An applied native steer advances the run version without a
-// `run.*` event, so the store's projection falls one behind; the run also advances through the
-// state stream with no call. Neither reading is always fresher, so the larger (both are
-// monotonic per run) is used, and a run with neither reading has no comparand rather than an
-// invented zero. The send path and the run controls each hold one.
+// `run.pause` and `run.resume`. Each answer carries the run's version after the call, and the run
+// also advances through the state stream with no call. Neither reading is always fresher, so the
+// larger (both are monotonic per run) is used, and a run with neither reading has no comparand
+// rather than an invented zero.
 
 /** The newest run version the daemon has answered for each run, used as the comparand. */
 export class AnsweredRunVersions {
   readonly #answeredByRunId = new Map<string, number>();
 
   /**
-   * Keep what the daemon answered for one run, from every parsed intervention response
-   * (a rejected one carries the current version too). Monotonic: a late response never
-   * lowers it.
+   * Keep what the daemon answered for one run, from every parsed answer (a rejected
+   * intervention carries the current version too). Monotonic: a late answer never lowers it.
    */
   public record(runId: string, runVersion: number): void {
     const answered = this.#answeredByRunId.get(runId);

@@ -378,8 +378,8 @@ export class PurgeFixture {
   async seedRowsNamingSession(sessionId: SessionId, runIds: readonly string[]): Promise<void> {
     await this.scratch.writer.write([
       {
-        sql: `INSERT INTO queue_items (id, session_id, payload, created_at, updated_at)
-              VALUES (?, ?, '{"text":"typed by the person"}', ?, ?)`,
+        sql: `INSERT INTO queue_items (id, session_id, payload, position, created_at, updated_at)
+              VALUES (?, ?, '{"content":"typed by the person"}', 0, ?, ?)`,
         bindings: [`queue-${sessionId}`, sessionId, PURGE_INSTANT, PURGE_INSTANT],
       },
       {

@@ -92,6 +92,7 @@ export function useRunControlDispatch(
           pause: (request) => callsRef.current.pause(request),
           resume: (request) => callsRef.current.resume(request),
           intervene: (request) => callsRef.current.intervene(request),
+          childSteer: (request) => callsRef.current.childSteer(request),
         },
         mintIdempotencyKey,
       ),

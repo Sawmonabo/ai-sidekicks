@@ -80,7 +80,7 @@ export function offeredRunControls(
   }
   return {
     primary,
-    // Not gated on liveness: the daemon refuses a steer at a run that cannot take one.
+    // Not gated on liveness: a steer joins the child's queue, which the daemon delivers.
     overflow: OVERFLOW_CONTROLS.filter((control) => isControlOffered(control, readout, run.runId)),
   };
 }

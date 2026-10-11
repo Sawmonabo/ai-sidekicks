@@ -2,7 +2,12 @@
 
 import { useEffect, type ReactElement } from "react";
 import { act, render } from "@testing-library/react";
-import { QueueItemSummarySchema, type QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
+import {
+  QueueItemSummarySchema,
+  type QueueItemSummary,
+  type RunQueueStreamFrame,
+} from "@ai-sidekicks/contracts/run/queue";
+import { encodeEventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
 
 import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { createFixture } from "#test/helpers/fixture/bridge.js";
@@ -23,16 +28,17 @@ export const QUEUE_ITEM_A = "1a2b3c4d-5e6f-4071-8283-94a5b6c7d8e9";
 /** The second of two distinct queue items. */
 export const QUEUE_ITEM_B = "2b3c4d5e-6f70-4182-9394-a5b6c7d8e9f0";
 
-/** One row of the registered shape, at one state and one `updatedAt`. */
+/** One row of the registered shape, at one state, one `updatedAt` and one place in the queue. */
 export function queueRow(
   id: string,
   state: QueueItemSummary["state"],
   updatedAt: string,
+  position = 0,
 ): QueueItemSummary {
   return QueueItemSummarySchema.parse({
     id,
     state,
-    priority: 0,
+    position,
     content: "Also run the linter",
     createdAt: "2026-09-02T09:00:00.000Z",
     updatedAt,
@@ -63,7 +69,7 @@ export function queueFeedBridge(snapshot: readonly QueueItemSummary[] = []): {
   const tailedSessionIds: string[] = [];
   const listedSessionIds: string[] = [];
   const canceledItemIds: string[] = [];
-  const tails = new Set<(item: QueueItemSummary) => void>();
+  const tails = new Set<(frame: RunQueueStreamFrame) => void>();
   const { bridge, engine } = createFixture();
   return {
     bridge,
@@ -73,11 +79,11 @@ export function queueFeedBridge(snapshot: readonly QueueItemSummary[] = []): {
         listedSessionIds.push(sessionId);
         return snapshot;
       },
-      tail: (sessionId, onItem) => {
+      tail: (sessionId, onFrame) => {
         tailedSessionIds.push(sessionId);
-        tails.add(onItem);
+        tails.add(onFrame);
         return () => {
-          tails.delete(onItem);
+          tails.delete(onFrame);
         };
       },
       cancel: async (queueItemId) => {
@@ -85,8 +91,10 @@ export function queueFeedBridge(snapshot: readonly QueueItemSummary[] = []): {
       },
     },
     deliver: (item) => {
-      for (const onItem of tails) {
-        onItem(item);
+      // One change per frame, at a cursor no case reads.
+      const frame: RunQueueStreamFrame = { changes: [{ cursor: encodeEventCursor(0), item }] };
+      for (const onFrame of tails) {
+        onFrame(frame);
       }
     },
     tailedSessionIds,

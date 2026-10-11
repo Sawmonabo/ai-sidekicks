@@ -6,7 +6,7 @@
 // `RuntimeBindingStore` are separate components.
 //
 // The gate fails closed: a flag is supported only when its cached value is exactly `true`.
-// `applyIntervention` is not gated here, because its degraded fallback must reach the driver.
+// `applyIntervention` is not gated here: a steer is how the run queue delivers a held message.
 //
 // The error classes are daemon domain errors: a stable `driver.*` code and a leak-safe message,
 // with structured detail the wire carries as `data.fields`.

@@ -1,13 +1,14 @@
-// Starting a Codex turn for a run: the person's words and picked skill, the turn's model, window,
-// speed and reviewer, and the route that lets the run's steers, interrupts and terminal find the
-// turn. The permission profile is the thread's, so a turn carries only the level's reviewer. A turn
-// the daemon starts itself, such as a review, a goal or `Allow once`, is started as the session's
-// own run through the run engine before its request is sent, so every row of the turn has a run.
+// Starting a Codex turn for a run: the person's words, picked skills and staged files, the turn's
+// model, window, speed and reviewer, and the route that lets the run's steers, interrupts and
+// terminal find the turn. The permission profile is the thread's, so a turn carries only the
+// level's reviewer. A turn the daemon starts itself, such as a review, a goal or `Allow once`, is
+// started as the session's own run through the run engine before its request is sent, so every
+// row of the turn has a run.
 
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { PermissionLevel } from "@ai-sidekicks/contracts/session/controls/methods";
 
-import type { CodexProviderCommandCache } from "../commands.js";
+import { composeCodexMessageInput } from "../attachments.js";
 import type { CodexOutputSpeed } from "../output-speed.js";
 import { composeCodexServiceTier } from "../output-speed.js";
 import { CODEX_DRIVER_NAME } from "../capabilities.js";
@@ -24,9 +25,9 @@ import type { CodexConfigForks } from "../session/config-fork.js";
 import type { CodexConversationForks } from "../session/fork.js";
 import type { CodexSessionSlots } from "../session/slots.js";
 import {
-  type CodexPickedSkill,
   type CodexRunEnginePort,
   type CodexSessionRecord,
+  type CodexTurnMessage,
   isTurnInFlight,
   newestActiveTurnForRun,
 } from "../session/state.js";
@@ -36,6 +37,7 @@ import {
   type CodexScheduleTimeout,
   reportDiagnosticFromDetachedFrame,
 } from "../transport/diagnostics.js";
+import { resolveMessageAttachments, type AttachmentResolver } from "../../attachments.js";
 import type { StartRunParams } from "../../contract.js";
 import type { DaemonTurnBindingResolver } from "../../run-control.js";
 import type { CodexRunRoutes } from "./routes.js";
@@ -47,8 +49,8 @@ const DEFAULT_TURN_START_TIMEOUT_MS = 60_000;
 /** One turn to start on a session's conversation for a run. */
 export interface CodexTurnRequest {
   readonly runId: RunId;
-  /** The person's messages, as typed, in send order. */
-  readonly texts: readonly string[];
+  /** The person's messages, as typed and with their skills and files, in send order. */
+  readonly messages: readonly CodexTurnMessage[];
   /** The ids of those messages, which an undo's cut later names. */
   readonly clientMessageIds: readonly string[];
   readonly model: string | undefined;
@@ -63,8 +65,6 @@ export interface CodexTurnRequest {
   readonly outputSchema: Record<string, unknown> | undefined;
   /** The run's level, whose reviewer the turn carries; `undefined` keeps the thread's. */
   readonly level: PermissionLevel | undefined;
-  /** The skill the person picked, sent beside the words. */
-  readonly skill: CodexPickedSkill | undefined;
 }
 
 /**
@@ -81,9 +81,9 @@ export interface CodexRunStartDependencies {
   readonly forks: Pick<CodexConversationForks, "bindFirstRun">;
   readonly runRoutes: CodexRunRoutes;
   readonly outputSpeed: CodexOutputSpeed;
-  readonly providerCommands: CodexProviderCommandCache;
   readonly runEngine: Pick<CodexRunEnginePort, "startDaemonTurn">;
   readonly daemonTurnBindings: DaemonTurnBindingResolver;
+  readonly attachments: AttachmentResolver;
   readonly reportDiagnostic: CodexDiagnosticSink;
   readonly scheduleTimeout: CodexScheduleTimeout;
   readonly turnStartTimeoutMs?: number | undefined;
@@ -96,9 +96,9 @@ export class CodexRunStart {
   readonly #forks: CodexRunStartDependencies["forks"];
   readonly #runRoutes: CodexRunRoutes;
   readonly #outputSpeed: CodexOutputSpeed;
-  readonly #providerCommands: CodexProviderCommandCache;
   readonly #runEngine: Pick<CodexRunEnginePort, "startDaemonTurn">;
   readonly #daemonTurnBindings: DaemonTurnBindingResolver;
+  readonly #attachments: AttachmentResolver;
   readonly #reportDiagnostic: CodexDiagnosticSink;
   // Each record's latest binding adoption, so a failed start undoes only an adoption no later
   // start has made since, even one adopting the same binding.
@@ -113,9 +113,9 @@ export class CodexRunStart {
     this.#forks = dependencies.forks;
     this.#runRoutes = dependencies.runRoutes;
     this.#outputSpeed = dependencies.outputSpeed;
-    this.#providerCommands = dependencies.providerCommands;
     this.#runEngine = dependencies.runEngine;
     this.#daemonTurnBindings = dependencies.daemonTurnBindings;
+    this.#attachments = dependencies.attachments;
     this.#reportDiagnostic = dependencies.reportDiagnostic;
     this.#scheduleTimeout = dependencies.scheduleTimeout;
     this.turnStartTimeoutMs = dependencies.turnStartTimeoutMs ?? DEFAULT_TURN_START_TIMEOUT_MS;
@@ -154,13 +154,20 @@ export class CodexRunStart {
       if (adoption.previousBindingId === undefined) {
         await this.#forks.bindFirstRun(record, runConfig.bindingId);
       }
-      const skill =
-        runConfig.skill === undefined
-          ? undefined
-          : await this.#providerCommands.readPickedSkill(record, runConfig.skill);
+      const attachments = await resolveMessageAttachments(
+        this.#attachments,
+        record.sessionId,
+        runConfig.attachments,
+      );
       await this.startTurn(record, {
         runId: params.runId,
-        texts: [runConfig.input],
+        messages: [
+          {
+            text: runConfig.input,
+            skills: runConfig.skills ?? [],
+            attachments,
+          },
+        ],
         clientMessageIds:
           runConfig.clientUserMessageId === undefined ? [] : [runConfig.clientUserMessageId],
         model: runConfig.model,
@@ -173,7 +180,6 @@ export class CodexRunStart {
         outputSpeedForTurn: params.outputSpeedForTurn,
         outputSchema: params.outputSchema,
         level: params.executionPosture?.mode,
-        skill,
       });
     } catch (cause) {
       this.#runRoutes.forgetRun(params.runId);
@@ -241,12 +247,7 @@ export class CodexRunStart {
           "turn/start",
           {
             threadId: record.threadId,
-            input: [
-              ...turn.texts.map((text) => ({ type: "text", text, text_elements: [] })),
-              ...(turn.skill === undefined
-                ? []
-                : [{ type: "skill", name: turn.skill.name, path: turn.skill.path }]),
-            ],
+            input: composeCodexMessageInput(turn.messages),
             approvalsReviewer: composeCodexApprovalsReviewer(
               turn.level ?? record.threadSettings.level,
             ),
@@ -302,9 +303,8 @@ export class CodexRunStart {
     }
     if (this.#routeAcceptedTurn(record, turn.runId, turnId)) {
       record.turnInputByTurnId.set(turnId, {
-        texts: turn.texts,
+        messages: turn.messages,
         clientMessageIds: turn.clientMessageIds,
-        skill: turn.skill,
         outputSpeedForTurn: turn.outputSpeedForTurn,
       });
     } else {

@@ -52,7 +52,6 @@ describe("resolveComposerTarget — never guesses, and never sends with no targe
       agentId: AGENT.id,
       driverName: "claude",
       targetRunId: RUN.id,
-      expectedRunVersion: 4,
     });
   });
 

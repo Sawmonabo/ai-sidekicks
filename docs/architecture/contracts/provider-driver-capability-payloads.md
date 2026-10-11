@@ -296,7 +296,9 @@ interface GetCapabilitiesResult {
   // `driver.listCapabilities` payload, which this member does not widen. The client-facing `driver.*`
   // set is the method table in `packages/contracts/src/provider/driver/methods.ts`: `driver.listModes`,
   // `driver.listModels`, `driver.listCapabilities`, `driver.interruptRun`,
-  // `driver.applyIntervention`, `driver.compactContext` and `driver.listProviderCommands`
+  // `driver.applyIntervention` (an interrupt alone: a steer reaches a driver only from the run
+  // queue's `run.queueCreate`, so the wire schema refuses one), `driver.compactContext` and
+  // `driver.listProviderCommands`
   // (`{sessionId, agentId}` → `ProviderCommandListResult`, an agent's `/` list read once),
   // registered under Plan-005's CP-005-4. Each
   // reads the driver or acts on an already-existing session, and none establishes, restores, starts,

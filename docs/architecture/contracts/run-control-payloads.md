@@ -13,10 +13,9 @@ type ChildHandle = string & { readonly __brand: "ChildHandle" };
 interface QueueItemCreateRequest {
   sessionId: SessionId;
   to?: SessionId; // addresses another session instead: the message arrives there as that session's own row
-  // Binds the run a send starts to its repository; neither it nor `priority` reorders what the person
-  // sees, which is the daemon's order (`run.queueReorder`).
+  // Binds the run a send starts to its repository; it never reorders what the person sees, which is
+  // the daemon's order (`run.queueReorder`).
   workspaceId?: WorkspaceId;
-  priority?: number; // a whole number; a negative one de-prioritizes
   clientIdempotencyKey: string; // a UUID; a retried send returns the saved result
   content: string;
   attachments?: ArtifactId[]; // in staging order; how many a message carries is what the daemon and the provider accept
@@ -24,15 +23,18 @@ interface QueueItemCreateRequest {
   // front-matter name and its folder, both as `skill.list` gives them. The daemon writes the
   // provider's call form into the text either way; to a Codex agent each pick also travels in the
   // turn's input as Codex's own skill item `{type: "skill", name, path}`, its `path` the `SKILL.md`
-  // file the daemon builds from the folder, so of two Codex folders sharing one name the row picked
-  // is the one that runs. A Claude Code agent receives only the `/name` text. Absent when nothing was
-  // picked. The folder crosses in from the client and reaches the provider as a file it loads, so the
-  // daemon accepts a pick only when its name and folder match a row of `skill.list`, and refuses the
-  // send otherwise (`skill.path_refused`, `not_listed`).
+  // file Codex's own `skills/list` names for a skill of that name in that folder, so of two Codex
+  // folders sharing one name the row picked is the one that runs. A Claude Code agent receives only
+  // the `/name` text. Absent when nothing was picked. The folder crosses in from the client, so the
+  // daemon accepts a pick only when its name and folder match a row of `skill.list`, and for a Codex
+  // agent a skill Codex lists there, and refuses the send otherwise (`skill.path_refused`,
+  // `not_listed`); no path a client sent reaches a provider.
   skills?: { name: string; folderPath: string }[];
   // An edit of a message still waiting, made in one call: the named item reads `superseded` and this
   // one takes its place in the order, so the edited message keeps its position. Refused once the agent
-  // has taken the named message (`queue.change_refused`, `already_taken`). The daemon does the replacing
+  // has taken the named message (`queue.change_refused`, `already_taken`), when Claude Code does not
+  // give it back, which then reads not delivered (`not_delivered`), and when the queue holds no such
+  // item (`queue.item_not_found`). The daemon does the replacing
   // itself — on Claude Code a cancel and a resend inside this call, on Codex a replacement in its own
   // hold, because a resend there would move the message to the end of the queue — and a client never
   // sends a cancel and a resend for an edit.
@@ -71,20 +73,27 @@ interface QueueItemListResponse {
   items: QueueItemSummary[];
 }
 
+// Why a taken message was never delivered: it waited past the daemon's own delivery timeout
+// (`timed_out`), or its delivery failed outright (`failed`). Either way it can be sent again.
+type QueueItemNotDeliveredReason = "timed_out" | "failed";
+
 // One queued message, as a pending row draws it.
 interface QueueItemSummary {
   id: QueueItemId;
   state: QueueItemState;
-  priority: number;
+  // Its place in its queue's order, lowest first; an edit takes the place of the message it replaced.
+  position: number;
   content: string;
   attachments?: ArtifactId[];
   childHandle?: ChildHandle; // the child whose queue holds it; absent on the lead's
-  notDeliveredReason?: string; // the daemon's reason; present exactly on a not_delivered item
+  notDeliveredReason?: QueueItemNotDeliveredReason; // present exactly on a not_delivered item
   createdAt: string;
   updatedAt: string;
 }
 
-// QueueItemCancel
+// QueueItemCancel — `Remove`. Refused for an item the queue does not hold (`queue.item_not_found`), one
+// the agent has taken (`queue.change_refused`, `already_taken`), and one Claude Code does not give back,
+// which then reads not delivered (`not_delivered`).
 interface QueueItemCancelRequest {
   queueItemId: QueueItemId;
   childHandle?: ChildHandle; // the child whose queue holds the item
@@ -354,14 +363,50 @@ interface RunControlAck {
 
 // Subscription request shapes. Both subscriptions are session-scoped: the canonical event stream is
 // per-session (Spec-005) and ADR-001 makes the session the authorization unit, so a caller subscribes
-// within a session it can reach and fans out per run client-side via RunStateChangeEvent.runId.
+// within a session it can reach and fans out per run client-side by each change's `runId`. Each takes
+// an optional resume cursor, the newest one the subscriber holds: the daemon first replays from its
+// record what changed past it, then follows live. Without one the stream starts at the newest event.
 interface RunStateSubscribeRequest {
   sessionId: SessionId;
+  // Replays each run-state change after this cursor before the live ones.
+  afterCursor?: EventCursor;
 }
 interface RunQueueSubscribeRequest {
   sessionId: SessionId;
   childHandle?: ChildHandle; // a live child's own queue in place of the lead's
+  // Replays each item that changed after this cursor, at the cursor of its newest change, and each
+  // item still waiting that nothing changed, at the newest cursor, before the live changes.
+  afterCursor?: EventCursor;
 }
+
+// Each notify's value on both run streams, the frame the session stream sends too (`SessionStreamFrame`,
+// session-payloads.md §Plan-001 — Session Core): the changes since the previous frame, oldest first, at
+// most 50, each with its own cursor. The daemon never waits for a subscriber: changes that do not fit are
+// dropped and `dropped` rides the next frame, and the subscriber repairs from the daemon's record by
+// cursor. When a subscriber that fell behind has caught up, the daemon sends it one frame with no
+// changes, carrying `dropped` and the stream's newest cursor, so a session that goes quiet right after a
+// drop still tells the subscriber it is behind. A frame with changes carries no frame cursor.
+interface StreamFrame<Change, Cursor> {
+  changes: Change[]; // at most 50
+  dropped?: true;
+  cursor?: Cursor; // only on the frame with no changes, which always carries `dropped`
+}
+// One change on run.subscribeState: the delivery and the cursor of the event it came from, or, for
+// Codex's safety hold, which the session's history never records, the session's newest cursor when it
+// went out.
+interface RunStateStreamChange {
+  cursor: EventCursor;
+  event: RunStateChangeEvent | RunRolledBackEvent | RunSafetyBufferingUpdatedPayload;
+}
+type RunStateStreamFrame = StreamFrame<RunStateStreamChange, EventCursor>;
+// One change on run.subscribeQueue: the item as it now stands, and the cursor of the `queue_item.*`
+// event that changed it, or, for a reorder, which no event records, the session's newest cursor when
+// the change went out.
+interface RunQueueStreamChange {
+  cursor: EventCursor;
+  item: QueueItemSummary;
+}
+type RunQueueStreamFrame = StreamFrame<RunQueueStreamChange, EventCursor>;
 
 // A child's three controls: the session's own steer, interrupt and pause addressed at one live child
 // (Spec-003 §Required Behavior). A child is addressed by the run it belongs to, `targetRunId`, PLUS
@@ -448,8 +493,8 @@ Plan-002's queue / intervention / pause-resume operations and a child's controls
 | `run.childInterrupt` | `mutation` | `ChildInterruptRequest` | `ChildInterruptResponse` |
 | `run.childPauseSet` | `mutation` | `ChildPauseSetRequest` | `ChildPauseSetResponse` |
 | `run.childrenStop` | `mutation` | `ChildrenStopRequest` | `ChildrenStopResponse` |
-| `run.subscribeState` | `subscription` | `RunStateSubscribeRequest` | `RunStateChangeEvent \| RunRolledBackEvent \| RunSafetyBufferingUpdatedPayload` (stream) |
-| `run.subscribeQueue` | `subscription` | `RunQueueSubscribeRequest` | `QueueItemSummary` (stream) |
+| `run.subscribeState` | `subscription` | `RunStateSubscribeRequest` | `RunStateStreamFrame` (stream) |
+| `run.subscribeQueue` | `subscription` | `RunQueueSubscribeRequest` | `RunQueueStreamFrame` (stream) |
 
 **What `run.pause` and `run.resume` realize, per provider.** Pause is a daemon feature, not a provider verb, and it writes no file. On a Claude Code lead it is two hooks registered in the session's `initialize` request and answered over the wire; on a child, on either provider, it is the daemon's pre-tool hook holding that child's next tool call, taken through the approval pipeline the daemon already owns; on a Codex lead it is the boundary interrupt. A hold ends only by an answer — allow from the resume, or deny carrying the person's typed words, which the child reads as its instruction — never by ending the hook, because any exit but a deny lets the held call run. The daemon sets each hook's timeout far past any wait a person would sit through — on Codex the largest timeout Codex accepts, which the Codex driver measures, with the hook answering deny a few seconds before it, because a Codex hook that times out lets the call run — so a hold is lossless: the held call simply goes unanswered, the leg burns no tokens and loses nothing. A cancellation of a held callback is treated as a LOST pause and never as a release. There is no separate "pause now" operation: `run.pause` and `run.resume` are the whole control, and a continue after a pause is a send rather than an operation of its own.
 
@@ -463,4 +508,4 @@ Plan-002's queue / intervention / pause-resume operations and a child's controls
 
 A refusal of any of the three is `run.child_control_refused`, with `reason` `child_unknown`, `child_ended` or `provider_refused`. Spec-003's V1 control set is the same three controls; these address them at a child.
 
-`run.queueList` is the only `query` (idempotent read); the mutations are state-changing per the tRPC procedure-type convention in remote-control-payloads.md §Plan-025 — Remote Control Bootstrap. The lead's interrupt is `run.intervene {type: "interrupt"}`, and the person's steer is always a queue send, `run.queueCreate`: an edit of a waiting message is one `run.queueCreate` carrying `replacesQueueItemId`, and a new order is one `run.queueReorder`, never a client's cancel and resend. The `subscription`s stream their payload type per emission rather than returning a single response — `run.subscribeState` streams `RunStateChangeEvent | RunRolledBackEvent | RunSafetyBufferingUpdatedPayload` (the last is Codex's live safety-check hold, never appended; the state shape carries the `runVersion` comparand clients pass back as `expectedRunVersion`; the per-type non-state rollback arm — [Spec-005 §Run Lifecycle (run_lifecycle)](../../specs/005-session-event-taxonomy-and-audit-log.md#run-lifecycle-run_lifecycle) — rides the same stream so subscribers observe position rewinds without a fabricated transition), and `run.subscribeQueue` streams the `QueueItemSummary` projection (no separate queue-change event type exists). All request/response shapes are the interfaces defined directly above; the canonical Zod schemas live in `packages/contracts/src/run/control.ts` (CP-002-3), with the queue's in `run/queue.ts` and a child's controls in `run/children.ts`, per the api-payload-contracts.md §Source-of-Truth Policy.
+`run.queueList` is the only `query` (idempotent read); the mutations are state-changing per the tRPC procedure-type convention in remote-control-payloads.md §Plan-025 — Remote Control Bootstrap. The lead's interrupt is `run.intervene {type: "interrupt"}`, and the person's steer is always a queue send, `run.queueCreate`: an edit of a waiting message is one `run.queueCreate` carrying `replacesQueueItemId`, and a new order is one `run.queueReorder`, never a client's cancel and resend. The two `subscription`s answer the shared subscribe acknowledgment and then send `StreamFrame` frames, never single events: each frame carries a batch of changes, each change with the cursor of the event it came from, or, after a drop, the caught-up frame with no changes, the drop mark and the newest event cursor; a request carrying `afterCursor` first gets what the record holds past it, in the same frames. A `run.subscribeState` change carries `RunStateChangeEvent | RunRolledBackEvent | RunSafetyBufferingUpdatedPayload` (the last is Codex's live safety-check hold, never appended, whose change carries the session's newest cursor; the state shape carries the `runVersion` comparand clients pass back as `expectedRunVersion`; the per-type non-state rollback arm — [Spec-005 §Run Lifecycle (run_lifecycle)](../../specs/005-session-event-taxonomy-and-audit-log.md#run-lifecycle-run_lifecycle) — rides the same stream so subscribers observe position rewinds without a fabricated transition). A `run.subscribeQueue` change carries the item as it now stands, the `QueueItemSummary` projection, with the cursor of the `queue_item.*` event that changed it; a reorder, which no event records, carries the session's newest cursor (no separate queue-change event type exists). All request/response shapes are the interfaces defined directly above; the canonical Zod schemas live in `packages/contracts/src/run/control.ts` (CP-002-3), with the queue's in `run/queue.ts` and a child's controls in `run/children.ts`, per the api-payload-contracts.md §Source-of-Truth Policy.

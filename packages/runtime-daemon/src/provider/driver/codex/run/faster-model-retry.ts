@@ -87,7 +87,7 @@ export async function retryCodexTurnOnFasterModel(
     );
     await runStart.startTurn(record, {
       runId: params.runId,
-      texts: input.texts,
+      messages: input.messages,
       clientMessageIds: input.clientMessageIds,
       model: params.model,
       modelContextWindow: undefined,
@@ -95,7 +95,6 @@ export async function retryCodexTurnOnFasterModel(
       outputSpeedForTurn: input.outputSpeedForTurn,
       outputSchema: undefined,
       level: undefined,
-      skill: input.skill,
     });
   } catch (cause) {
     const reason = normalizeProviderFailureDetail(cause);

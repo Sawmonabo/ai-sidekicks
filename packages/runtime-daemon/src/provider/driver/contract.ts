@@ -190,12 +190,6 @@ export interface ProviderDriver {
 }
 
 /**
- * The `fallbackAction` of a steer a driver does not deliver natively: the daemon queues the steer
- * text and interrupts the running turn.
- */
-export const STEER_FALLBACK_ACTION = "queue_and_interrupt";
-
-/**
  * The refusal code of a session created on a larger window its model's catalog does not offer at
  * that figure now: the request was made against a catalog that has since changed.
  */

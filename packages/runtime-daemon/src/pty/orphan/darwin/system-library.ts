@@ -2,7 +2,7 @@
 // the kernel event queue that reports a process's exit, the list of one user's processes, and the
 // read of a process's arguments and environment.
 
-import { importKoffi } from "../../koffi.js";
+import { importKoffi } from "../../../koffi.js";
 
 /** One kernel event, the `struct kevent` of `<sys/event.h>`. */
 export interface KernelEvent {
