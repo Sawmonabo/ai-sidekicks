@@ -105,8 +105,13 @@ export interface TranscriptFeedWindows {
   readonly offListTables: OffListTables;
   /** What the feed's windows draw from, which a copy reads their undrawn items from. */
   readonly drawnWindowSources: DrawnWindowSources;
-  /** The command outputs of the rows the window holds, parsed before each row is listed. */
+  /** The command outputs of the rows within the drawn band's reach, parsed before each is drawn. */
   readonly preparedOutputs: PreparedAnsiOutputs;
+  /**
+   * Runs a press on a call's chevron: a fold at once, and an opening once the call's output is
+   * parsed whole, so it opens formatted.
+   */
+  readonly toggleCall: (rowId: string, press: () => void) => void;
   /** The history past the store's window, or `undefined` for a composition with no read. */
   readonly history: TranscriptHistory | undefined;
   /** How reading back toward a linked message the log lacks stands, or `undefined` for none. */
@@ -202,6 +207,7 @@ export function useTranscriptFeedWindows(
     reveal.channel,
     offListTables,
     preparedOutputs,
+    folds.foldedCallRowIds,
     inputs.sessionStore.sessionId,
   );
   const transcriptWindow = preparedRows.window;
@@ -289,6 +295,8 @@ export function useTranscriptFeedWindows(
       isRowHeldOut: preparedRows.isHeldOut,
       holdsRowAfter: preparedRows.holdsRowAfter,
       subscribeToRowWork: preparedRows.subscribeToWork,
+      observeRowReach: preparedRows.observeReach,
+      isRowOutputParsed: preparedRows.isOutputParsed,
       isRowRevealing: isRevealing,
       frameScheduler,
     }),
@@ -307,6 +315,8 @@ export function useTranscriptFeedWindows(
       preparedRows.isHeldOut,
       preparedRows.holdsRowAfter,
       preparedRows.subscribeToWork,
+      preparedRows.observeReach,
+      preparedRows.isOutputParsed,
       isRevealing,
       frameScheduler,
     ],
@@ -410,6 +420,7 @@ export function useTranscriptFeedWindows(
     offListTables,
     drawnWindowSources,
     preparedOutputs,
+    toggleCall: preparedRows.toggleCall,
     history,
     messageReadBack: readBack,
     openRunStretch,

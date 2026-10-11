@@ -30,6 +30,7 @@ import {
   type MessageReadBack,
   type ViewportControllerOptions,
 } from "../controller.js";
+import { type RowOutputParses } from "../row-reach.js";
 import { type ViewportSelectionTracker } from "../selection/tracker.js";
 import { type DrawnBandScreenHeights } from "../drawn-band.js";
 import {
@@ -184,6 +185,12 @@ export interface UseTranscriptViewportOptions extends ViewportConditions {
   readonly isRowHeldOut?: ((rowKey: string) => boolean) | undefined;
   readonly holdsRowAfter?: ((rowKey: string | undefined) => boolean) | undefined;
   readonly subscribeToRowWork?: ((listener: () => void) => Unsubscribe) | undefined;
+  /**
+   * The feed's parses of its rows' command outputs: where the rows within the drawn band's reach
+   * are handed, and whether a row's output is parsed; see `ViewportControllerOptions.rowOutputs`.
+   */
+  readonly observeRowReach?: RowOutputParses["observeReach"] | undefined;
+  readonly isRowOutputParsed?: RowOutputParses["isOutputParsed"] | undefined;
   /** Whether the feed is still revealing a row's text; see `ViewportControllerOptions`. */
   readonly isRowRevealing?: ((rowKey: string) => boolean) | undefined;
   /**
@@ -518,6 +525,7 @@ function mintViewportController(
     | "isRowHeldOut"
     | "holdsRowAfter"
     | "subscribeToRowWork"
+    | "rowOutputs"
     | "isRowRevealing"
   >,
   latestOptions: React.RefObject<UseTranscriptViewportOptions>,
@@ -532,6 +540,12 @@ function mintViewportController(
     holdsRowAfter: (rowKey) => latestOptions.current.holdsRowAfter?.(rowKey) ?? false,
     subscribeToRowWork: (listener) =>
       latestOptions.current.subscribeToRowWork?.(listener) ?? NO_UNSUBSCRIBE,
+    rowOutputs: {
+      observeReach: (rowKeys, viewRowKeys) => {
+        latestOptions.current.observeRowReach?.(rowKeys, viewRowKeys);
+      },
+      isOutputParsed: (rowKey) => latestOptions.current.isRowOutputParsed?.(rowKey) ?? true,
+    },
     isRowRevealing: (rowKey) => latestOptions.current.isRowRevealing?.(rowKey) ?? false,
   });
 }

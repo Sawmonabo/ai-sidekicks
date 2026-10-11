@@ -1,8 +1,9 @@
 // What a row's first frame waits on: in a message row, the formula typesetter, once the row holds a
 // finished formula, the picture of each finished diagram, and each long table's geometry; in a
-// reply or a tool's result drawn as command output, its parse, read in slices. The feed lists a
-// row that arrives (a page read, a jump, a row read back) only once these have landed, and keeps
-// every row it holds ready to scroll to by reading each one's text again as it grows. A row's text
+// reply or a tool's result drawn as command output, its parse, read in slices while the row is
+// within the drawn band's reach and, for a call, open. The feed lists a row that arrives (a page
+// read, a jump, a row read back) only once these have landed, and keeps every row it holds ready to
+// scroll to by reading each one's text again as it grows. A row's text
 // is read as its body reads it: a person's message, finished; a reply's live text, whose tail is
 // still streaming and shows its source until it settles, or a tool's; and, with no lane, or once
 // its lane retires, the stored body, finished. A typesetter, diagram or table failure counts as
@@ -37,7 +38,7 @@ import { publishedTextOf, type PublishedText } from "../reveal/published-text.js
 import { StrippedText } from "./ansi/escape-sequences.js";
 import { AnsiOutputPreparation } from "./ansi/preparation.js";
 import { outputKindOf, toolOutputKindOf } from "./bodies/output-kinds.js";
-import { classifyTranscriptRow } from "./kind.js";
+import { classifyTranscriptRow, isFoldableCall } from "./kind.js";
 import { userMessageTextOf } from "./user-message.js";
 import { MarkdownBodyBlocks, type MarkdownBodyBlocksSnapshot } from "./markdown/body-blocks.js";
 import { MarkdownBlockSegmenter } from "./markdown/parse/block-segmenter.js";
@@ -80,6 +81,8 @@ class MessageRowPreparation implements TranscriptRowPreparation {
   readonly #strippedText: StrippedText;
   /** The reply's body parsed as command output, while it is drawn as one. */
   readonly #output: AnsiOutputPreparation;
+  /** The reply's text last read as command output, or `undefined` while its body draws none. */
+  #outputText: PublishedText | undefined;
   /** The text last read, and its revision then. */
   #readText: { readonly text: PublishedText; readonly revision: number } | undefined;
   /** The settled body last read and its source, so a refresh over the same string reads nothing. */
@@ -126,8 +129,13 @@ class MessageRowPreparation implements TranscriptRowPreparation {
     return this.#pendingCount === 0 && this.#output.isReady;
   }
 
+  public get isOutputReady(): boolean {
+    return this.#output.isReady;
+  }
+
   public refresh(): void {
     this.#readNewBlocks();
+    this.#output.read(this.#outputText, this.#sources.reachOf(this.#row.id));
     this.#askForDiagrams();
   }
 
@@ -257,7 +265,7 @@ class MessageRowPreparation implements TranscriptRowPreparation {
     // read from that are kept.
     const content = this.#row.content;
     if (content?.status !== "available") {
-      this.#output.read(undefined);
+      this.#outputText = undefined;
       return undefined;
     }
     return this.#settledBodyOf(content.body, (source) => this.#proseOf(publishedTextOf(source)));
@@ -265,12 +273,12 @@ class MessageRowPreparation implements TranscriptRowPreparation {
 
   /**
    * A reply's text as its body draws it as markdown, or `undefined` for any other kind; a text
-   * drawn as command output is parsed for its output box.
+   * drawn as command output is kept for its output box's parse.
    */
   #proseOf(text: PublishedText): PublishedText | undefined {
     const contentType = readWireString(projectedPayload(this.#row)["contentType"]);
     const kind = outputKindOf(text, contentType);
-    this.#output.read(kind === "command-output" ? text : undefined);
+    this.#outputText = kind === "command-output" ? text : undefined;
     return kind === "prose" ? this.#strippedText.read(text) : undefined;
   }
 
@@ -385,8 +393,8 @@ class MessageRowPreparation implements TranscriptRowPreparation {
 }
 
 /**
- * One tool row's preparation: its result parsed while it is drawn as command output, read as its
- * body reads it, the lane's live text first and then the stored body.
+ * One tool row's preparation: its result parsed while it is drawn as command output and the call is
+ * open, read as its body reads it, the lane's live text first and then the stored body.
  */
 class ToolRowPreparation implements TranscriptRowPreparation {
   readonly #row: TranscriptEventRow;
@@ -410,10 +418,23 @@ class ToolRowPreparation implements TranscriptRowPreparation {
     return this.#output.isReady;
   }
 
+  public get isOutputReady(): boolean {
+    return this.#output.isReady;
+  }
+
   public refresh(): void {
-    const liveText = this.#sources.publishedTextFor(this.#row.id);
+    const rowId = this.#row.id;
+    const liveText = this.#sources.publishedTextFor(rowId);
+    // A folded call draws no output, so it waits on no parse until it opens.
+    const isFolded =
+      this.#sources.isCallFolded(rowId) && isFoldableCall(this.#row, liveText !== undefined);
     this.#output.read(
-      liveText === undefined ? this.#readStoredOutput() : commandOutputOf(liveText),
+      isFolded
+        ? undefined
+        : liveText === undefined
+          ? this.#readStoredOutput()
+          : commandOutputOf(liveText),
+      this.#sources.reachOf(rowId),
     );
   }
 

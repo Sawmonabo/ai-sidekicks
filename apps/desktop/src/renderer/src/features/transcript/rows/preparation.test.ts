@@ -38,6 +38,8 @@ function sourcesWith(
     diagramPictures: pictures,
     offListTables: new OffListTables(document, () => undefined),
     preparedOutputs: new PreparedAnsiOutputs(),
+    reachOf: () => "view",
+    isCallFolded: () => false,
   };
 }
 

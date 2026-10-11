@@ -27,6 +27,7 @@ import { ViewportLanding } from "./landing.js";
 import { ViewportPruneCycle } from "./prune-cycle.js";
 import { ViewportPublication } from "./publication.js";
 import { ViewportReaderInput } from "./reader-input.js";
+import { ViewportRowReach, type RowOutputParses } from "./row-reach.js";
 import { rowKeyOf } from "./selection/record.js";
 import { ViewportSelectionTracker } from "./selection/tracker.js";
 import {
@@ -86,6 +87,8 @@ export interface ViewportControllerOptions {
   readonly holdsRowAfter?: ((rowKey: string | undefined) => boolean) | undefined;
   /** Hear each time any row's work lands, so a waiting landing asks again. */
   readonly subscribeToRowWork?: ((listener: () => void) => Unsubscribe) | undefined;
+  /** The feed's parses of its rows' command outputs, which the drawn band's reach drives. */
+  readonly rowOutputs?: RowOutputParses | undefined;
   /**
    * Whether the feed is still revealing a row's text, which a follower glides along rather than
    * jumps to and whose growth moves no estimate until it settles; none when omitted.
@@ -121,6 +124,7 @@ export class ViewportController {
   readonly #readerInput: ViewportReaderInput;
   /** How far beyond the box the rows are drawn, narrowed by each land. */
   readonly #drawnBand: ViewportDrawnBand;
+  readonly #rowReach: ViewportRowReach;
   /** A follower landed on the tail again when something other than the reader moved it off. */
   readonly #tailFollow: ViewportTailFollow;
   /** Home, End, the tail pill and the palette's jump, reading an end the log lacks first. */
@@ -169,6 +173,15 @@ export class ViewportController {
       isRowRevealing: options.isRowRevealing,
     });
     this.rowWindow = new TranscriptWindow();
+    this.#rowReach = new ViewportRowReach({
+      rowKeyAt: (index) => this.#rowKeys[index],
+      outputs: options.rowOutputs,
+      subscribeToRowWork: options.subscribeToRowWork ?? NO_ROW_WORK,
+      redrawBand: () => {
+        this.virtualizerOptions.redrawBand();
+        this.#publication.publish();
+      },
+    });
     this.virtualizerOptions = new VirtualizerOptions({
       scroll: this.scroll,
       measurements: this.measurements,
@@ -182,6 +195,7 @@ export class ViewportController {
       virtualizer: () => this.#virtualizer,
       landingTargetPx: () => this.#landingTargetPx(),
       drawnBandScreenHeights: () => this.#drawnBand.screenHeights,
+      rowReach: this.#rowReach,
     });
     this.#tailFollow = new ViewportTailFollow({
       anchor: this.anchor,
@@ -244,6 +258,7 @@ export class ViewportController {
       isRowHeldOut: options.isRowHeldOut ?? NEVER_HELD_OUT,
       holdsRowAfter: options.holdsRowAfter ?? NEVER_HELD_OUT,
       subscribeToRowWork: options.subscribeToRowWork ?? NO_ROW_WORK,
+      rowReach: this.#rowReach,
       onLanding: () => {
         this.#drawnBand.narrow();
       },
@@ -601,6 +616,7 @@ export class ViewportController {
     this.detach();
     this.#deferredHold.disarm();
     this.landing.dispose();
+    this.#rowReach.dispose();
     this.#drawnBand.dispose();
     this.historyLine.dispose();
     // Drop the retry's hold on the last row set so a disposed controller keeps no window

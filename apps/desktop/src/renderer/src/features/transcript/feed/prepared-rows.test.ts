@@ -3,7 +3,8 @@
 // withdrawn when the window lets it go; a page read back above the list waits with its last held
 // row; the store keeps a held page's events through a prune that lets the window's head go; and a
 // listed command output parsing in slices draws only what is parsed, its last version while a
-// changed one parses.
+// changed one parses; and an output is parsed only while the viewport's band or a waiting landing
+// reaches its row, which the band draws again, and the landing lands on, only once it is whole.
 
 import { renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -24,13 +25,17 @@ import { PreparedAnsiOutputs } from "../rows/ansi/preparation.js";
 import { OffListTables } from "../rows/markdown/table-window/off-list.js";
 import { prepareTranscriptRow } from "../rows/preparation.js";
 import { type TranscriptRowPreparation, type TranscriptRowSources } from "../rows/renderer.js";
+import { ManualClock } from "#renderer/lib/clock.js";
+import { createCountingScrollContainer } from "#renderer/lib/scroll/container.test-support.js";
+import { ViewportController } from "../viewport/controller.js";
+import { CALM } from "../viewport/controller.test-support.js";
 import { type ViewportSnapshot } from "../viewport/snapshot.js";
 import { type PruneOutcome } from "../viewport/window-cap.js";
 import { deriveTranscriptWindow, type TranscriptWindowModel } from "../window/transcript-window.js";
-import { PreparedRowGate } from "./prepared-rows.js";
+import { PreparedRowGate, type FeedRowSources } from "./prepared-rows.js";
 
 /** The gate never reads these: the stand-in preparation below decides every row itself. */
-const SOURCES: TranscriptRowSources = {
+const SOURCES: FeedRowSources = {
   publishedTextFor: () => undefined,
   ownerWindow: window,
   diagramPictures: undefined,
@@ -67,6 +72,7 @@ class HeldPreparations {
       get isReady() {
         return isReady;
       },
+      isOutputReady: true,
       refresh: () => {
         this.refreshedRowIds.push(row.id);
       },
@@ -303,7 +309,7 @@ describe("PreparedRowGate over a command output", () => {
     const tasks = new SteppedTasks();
     const preparedOutputs = new PreparedAnsiOutputs();
     let liveText: RevealTextRope | undefined = new RevealTextRope("call");
-    const sources: TranscriptRowSources = {
+    const sources: FeedRowSources = {
       ...SOURCES,
       publishedTextFor: () => liveText,
       ownerWindow: tasks.window,
@@ -315,6 +321,9 @@ describe("PreparedRowGate over a command output", () => {
     liveText.advance(firstLines.length);
     const streamedRow = toolRow();
     const streamed = windowOf(streamedRow);
+    // Its parse waits its turn, a task of its own.
+    expect(gate.filter(streamed, prepareTranscriptRow, sources).window.rows).toEqual([]);
+    expect(await tasks.runNext()).toBe(true);
     expect(gate.filter(streamed, prepareTranscriptRow, sources).window.rows).toEqual([streamedRow]);
     const streamedChunks = preparedOutputs.chunksOf(streamedRow.id);
     expect(streamedChunks === undefined ? "" : chunksTextOf(streamedChunks)).not.toContain(ESCAPE);
@@ -369,4 +378,111 @@ describe("PreparedRowGate over a command output", () => {
     expect(drawnAfter).not.toBe(drawnBefore);
     expect(chunksTextOf(drawnAfter)).toBe(wholeText);
   });
+
+  it("parses an output only within the band's reach, and draws a row coming back once parsed whole", async () => {
+    const feed = await openFortyRowFeed();
+    const { controller, gate, preparedOutputs, tasks } = feed;
+
+    // The band at the head: the last row leaves its reach and lets its parse go.
+    expect(feed.drawnRowKeysAt(0, 1)).not.toContain(FAR_ROW_ID);
+    expect(preparedOutputs.chunksOf(FAR_ROW_ID)).toBeUndefined();
+    expect(gate.isPrepared(FAR_ROW_ID)).toBe(false);
+
+    // Back at the tail: the row is parsed again, and drawn only once its parse is whole.
+    let sliceCount = 1;
+    while (!feed.drawnRowKeysAt(38, 39).includes(FAR_ROW_ID)) {
+      expect(gate.isOutputParsed(FAR_ROW_ID)).toBe(false);
+      expect(await tasks.runNext()).toBe(true);
+      sliceCount += 1;
+    }
+    expect(sliceCount).toBeGreaterThan(2);
+    const drawn = preparedOutputs.chunksOf(FAR_ROW_ID) ?? expect.fail("an output is drawn");
+    expect(chunksTextOf(drawn)).toBe(feed.longOutputText);
+    controller.dispose();
+    gate.dispose();
+  });
+
+  it("lands on a row outside the band's reach only once its output is parsed whole", async () => {
+    const feed = await openFortyRowFeed();
+    const { controller, gate, preparedOutputs, tasks } = feed;
+    expect(feed.drawnRowKeysAt(0, 1)).not.toContain(FAR_ROW_ID);
+    expect(preparedOutputs.chunksOf(FAR_ROW_ID)).toBeUndefined();
+
+    // A find step onto the last row: the landing hands its screen over as within reach and waits
+    // on the row's parse, moving nothing until it is whole.
+    controller.landing.landOnRow(FAR_ROW_ID, "find-match");
+    let sliceCount = 0;
+    while (!controller.landing.isPending) {
+      expect(gate.isPrepared(FAR_ROW_ID)).toBe(false);
+      expect(await tasks.runNext()).toBe(true);
+      sliceCount += 1;
+    }
+    expect(sliceCount).toBeGreaterThan(2);
+    const drawn = preparedOutputs.chunksOf(FAR_ROW_ID) ?? expect.fail("an output is drawn");
+    expect(chunksTextOf(drawn)).toBe(feed.longOutputText);
+    controller.dispose();
+    gate.dispose();
+  });
 });
+
+/** The last of forty rows, whose output takes many slices to parse. */
+const FAR_ROW_ID = "row-39";
+
+/**
+ * Forty tool rows through a real gate, every output parsed as the feed opens, and a viewport over
+ * them whose band a case walks at a range of its own.
+ */
+async function openFortyRowFeed(): Promise<{
+  readonly gate: PreparedRowGate;
+  readonly controller: ViewportController;
+  readonly tasks: SteppedTasks;
+  readonly preparedOutputs: PreparedAnsiOutputs;
+  /** The whole parse of the last row's output, as its chunks' text. */
+  readonly longOutputText: string;
+  /** Walks the band over the rows from `startIndex` to `endIndex` in view: the rows it draws. */
+  readonly drawnRowKeysAt: (startIndex: number, endIndex: number) => string[];
+}> {
+  const tasks = new SteppedTasks();
+  const preparedOutputs = new PreparedAnsiOutputs();
+  const sources: FeedRowSources = { ...SOURCES, ownerWindow: tasks.window, preparedOutputs };
+  const gate = new PreparedRowGate();
+  const longOutput = coloredLines(0, 60_000);
+  const rows = Array.from({ length: 40 }, (_unused, index) => ({
+    ...toolRow(index === 39 ? longOutput : coloredLines(index, 3)),
+    id: `row-${String(index)}`,
+  }));
+  const model: TranscriptWindowModel = {
+    ...windowOf(toolRow()),
+    rows,
+    viewportRows: rows.map((row) => ({ key: row.id, parentKey: undefined, rootCursor: row.id })),
+    rowsByKey: new Map(rows.map((row) => [row.id, row])),
+  };
+  // The feed opens at its tail, where every row is within reach until the band is walked.
+  while (gate.filter(model, prepareTranscriptRow, sources).preparingRows.length > 0) {
+    expect(await tasks.runNext()).toBe(true);
+  }
+  const controller = new ViewportController({
+    clock: new ManualClock(),
+    isRowPrepared: gate.isPrepared,
+    isRowHeldOut: gate.isHeldOut,
+    holdsRowAfter: gate.holdsRowAfter,
+    subscribeToRowWork: gate.subscribeToWork,
+    rowOutputs: gate,
+  });
+  controller.attach(createCountingScrollContainer({ clientHeight: 400, scrollHeight: 10_000 }));
+  controller.reconcile({ rows: model.viewportRows, ...CALM });
+  const options = controller.virtualizerOptions;
+  return {
+    gate,
+    controller,
+    tasks,
+    preparedOutputs,
+    longOutputText: chunksTextOf(
+      new AnsiLineChunks().read(publishedTextOf(longOutput), () => true).chunks,
+    ),
+    drawnRowKeysAt: (startIndex, endIndex) =>
+      options
+        .rangeExtractor({ startIndex, endIndex, overscan: 0, count: rows.length })
+        .map((index) => options.getItemKey(index)),
+  };
+}

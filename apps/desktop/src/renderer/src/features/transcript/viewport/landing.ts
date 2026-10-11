@@ -3,15 +3,17 @@
 // moves the reading state, so the landing wins over a return to the tail.
 //
 // A landing first waits for the screen it will show: the row and the rows around it, as far as
-// the drawn band reaches, each drawn whole (its formulas and pictures ready), and no row the feed
-// still holds out of the list among them, the landing's own row included, since a held row joins
-// the list where it sits. Nothing moves while it waits, and a newer landing replaces a waiting
-// one. The tail's jump waits the same way.
+// the drawn band reaches, each drawn whole (its formulas, pictures and command output ready), and
+// no row the feed still holds out of the list among them, the landing's own row included, since a
+// held row joins the list where it sits. Those rows are handed to the feed as within reach while
+// it waits, so their outputs are parsed. Nothing moves while it waits, and a newer landing replaces
+// a waiting one. The tail's jump waits the same way.
 
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { type ScrollCaller } from "#renderer/lib/scroll/callers.js";
 import { TRANSCRIPT_DRAWN_BAND_SCREEN_HEIGHTS } from "./caps.js";
 import { type ReadingAnchor } from "./reading-anchor.js";
+import { type ViewportRowReach } from "./row-reach.js";
 import { type ViewportRow } from "./snapshot.js";
 import { type TranscriptRowVirtualizer, type VirtualizerOptions } from "./virtualizer-options.js";
 
@@ -49,6 +51,8 @@ export interface ViewportLandingOptions {
   readonly holdsRowAfter: (rowKey: string | undefined) => boolean;
   /** Hear each time any row's work lands. Returns the unsubscribe. */
   readonly subscribeToRowWork: (listener: () => void) => Unsubscribe;
+  /** Where a waiting landing hands over the rows it will show as within reach. */
+  readonly rowReach: ViewportRowReach;
   /** A landing starts: the frame draws the rows it ends on first, the band beyond them after. */
   readonly onLanding: () => void;
 }
@@ -82,6 +86,7 @@ export class ViewportLanding {
   readonly #isRowHeldOut: (rowKey: string) => boolean;
   readonly #holdsRowAfter: (rowKey: string | undefined) => boolean;
   readonly #subscribeToRowWork: (listener: () => void) => Unsubscribe;
+  readonly #rowReach: ViewportRowReach;
   readonly #onLanding: () => void;
   /** The landing waiting for its screen, and the row and alignment that screen is read around. */
   #waiting:
@@ -114,6 +119,7 @@ export class ViewportLanding {
     this.#isRowHeldOut = options.isRowHeldOut;
     this.#holdsRowAfter = options.holdsRowAfter;
     this.#subscribeToRowWork = options.subscribeToRowWork;
+    this.#rowReach = options.rowReach;
     this.#onLanding = options.onLanding;
   }
 
@@ -171,6 +177,7 @@ export class ViewportLanding {
   ): void {
     this.#stopWaiting();
     if (this.#isScreenPrepared(rowKey, alignment)) {
+      this.#rowReach.reachLanding(NO_ROW_KEYS);
       land(false);
       return;
     }
@@ -256,15 +263,14 @@ export class ViewportLanding {
   /**
    * Whether every row the box would show with `rowKey` at `alignment` draws whole, the band the
    * virtualizer draws beyond the box included, walked over the log at the heights the rows are
-   * laid out at, with no held row beside any of them.
+   * laid out at, with no held row beside any of them. The walked rows are handed over as within
+   * reach first, so the answer counts the parses that finish at once.
    */
   #isScreenPrepared(rowKey: string, alignment: LandingAlignment): boolean {
-    if (this.#isRowHeldOut(rowKey) || !this.#isRowPrepared(rowKey)) {
-      return false;
-    }
     const position = this.#logPositionOf(rowKey);
     if (position === undefined) {
-      return true;
+      this.#rowReach.reachLanding([rowKey]);
+      return !this.#isRowHeldOut(rowKey) && this.#isRowPrepared(rowKey);
     }
     const rows = this.#logRows();
     const viewportHeightPx = this.#viewportHeightPx();
@@ -277,11 +283,7 @@ export class ViewportLanding {
           ? [halfPx, halfPx]
           : [viewportHeightPx + bandPx, 0];
     // The row at the foot of the box fills it from below; any other row fills it from its top.
-    // A held row joins right after the listed row it follows, so each walked row is asked
-    // whether one follows it, and the row above the walk too.
-    if (this.#holdsRowAfter(rowKey)) {
-      return false;
-    }
+    const screenRowKeys = [rowKey];
     let walkedPx = alignment === "end" ? this.#rowHeightPx(rowKey) : 0;
     let index = position - 1;
     for (; index >= 0 && walkedPx < abovePx; index -= 1) {
@@ -289,30 +291,34 @@ export class ViewportLanding {
       if (row === undefined) {
         break;
       }
-      if (!this.#isRowPrepared(row.key) || this.#holdsRowAfter(row.key)) {
-        return false;
-      }
+      screenRowKeys.push(row.key);
       walkedPx += this.#rowHeightPx(row.key);
     }
-    if (this.#holdsRowAfter(rows[index]?.key)) {
-      return false;
-    }
+    const rowKeyAboveScreen = rows[index]?.key;
     walkedPx = this.#rowHeightPx(rowKey);
     for (index = position + 1; index < rows.length && walkedPx < belowPx; index += 1) {
       const row = rows[index];
       if (row === undefined) {
         break;
       }
-      if (!this.#isRowPrepared(row.key) || this.#holdsRowAfter(row.key)) {
-        return false;
-      }
+      screenRowKeys.push(row.key);
       walkedPx += this.#rowHeightPx(row.key);
     }
-    return true;
+    this.#rowReach.reachLanding(screenRowKeys);
+    // A held row joins right after the listed row it follows, so each walked row is asked whether
+    // one follows it, and the row above the walk too.
+    return (
+      !this.#isRowHeldOut(rowKey) &&
+      !this.#holdsRowAfter(rowKeyAboveScreen) &&
+      screenRowKeys.every(
+        (screenRowKey) => this.#isRowPrepared(screenRowKey) && !this.#holdsRowAfter(screenRowKey),
+      )
+    );
   }
 
   #stopWaiting(): void {
     this.#waiting = undefined;
+    this.#rowReach.reachLanding(NO_ROW_KEYS);
     this.#stopHearingRowWork?.();
     this.#stopHearingRowWork = undefined;
   }
@@ -322,3 +328,6 @@ export class ViewportLanding {
 function alignmentOf(caller: RowLandingCaller): Exclude<LandingAlignment, "end"> {
   return caller === "find-match" ? "center" : "start";
 }
+
+/** What a landing hands over once it stops waiting. */
+const NO_ROW_KEYS: readonly string[] = Object.freeze([]);

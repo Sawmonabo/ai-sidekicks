@@ -9,22 +9,31 @@ import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatform
 import { type RowRevealContextValue } from "../../reveal/components/RowRevealProvider.js";
 import { type PreparedAnsiOutputs } from "../../rows/ansi/preparation.js";
 import { type OffListTables } from "../../rows/markdown/table-window/off-list.js";
-import { type TranscriptRowPreparer, type TranscriptRowSources } from "../../rows/renderer.js";
+import { type TranscriptRowPreparer } from "../../rows/renderer.js";
 import { type TranscriptWindowModel } from "../../window/transcript-window.js";
-import { PreparedRowGate, type PreparedRows } from "../prepared-rows.js";
+import { PreparedRowGate, type FeedRowSources, type PreparedRows } from "../prepared-rows.js";
 
 /** One pass's rows, and the gate's answers a landing waits on. */
 export interface PreparedRowsBinding
   extends
     PreparedRows,
-    Pick<PreparedRowGate, "isPrepared" | "isHeldOut" | "holdsRowAfter" | "subscribeToWork"> {}
+    Pick<
+      PreparedRowGate,
+      | "isPrepared"
+      | "isHeldOut"
+      | "holdsRowAfter"
+      | "subscribeToWork"
+      | "observeReach"
+      | "isOutputParsed"
+      | "toggleCall"
+    > {}
 
 /**
  * Hold each drawn row out of the window until it draws whole, and keep the listed rows ready to
  * scroll to, reading a row's live text through the reveal channel its body reads. One gate per
  * session, disposed with the feed, so a held row of one log never waits in another's. A held row's
- * long tables are measured in `offListTables`, and its command output is parsed into
- * `preparedOutputs`.
+ * long tables are measured in `offListTables`, and the command output of a row within the drawn
+ * band's reach, unless its call is among `foldedCallRowIds`, is parsed into `preparedOutputs`.
  */
 export function usePreparedRows(
   model: TranscriptWindowModel,
@@ -32,6 +41,7 @@ export function usePreparedRows(
   revealChannel: RowRevealContextValue,
   offListTables: OffListTables,
   preparedOutputs: PreparedAnsiOutputs,
+  foldedCallRowIds: ReadonlySet<string>,
   sessionId: string,
 ): PreparedRowsBinding {
   const bridge = usePlatformBridge();
@@ -40,7 +50,7 @@ export function usePreparedRows(
   const ownerWindow = useOwnerWindow();
   const diagramPictures = useContext(DiagramPicturesContext);
   const publishedTextFor = revealChannel.publishedTextFor;
-  const sources = useMemo<TranscriptRowSources>(
+  const sources = useMemo<FeedRowSources>(
     () => ({ publishedTextFor, ownerWindow, diagramPictures, offListTables, preparedOutputs }),
     [publishedTextFor, ownerWindow, diagramPictures, offListTables, preparedOutputs],
   );
@@ -58,6 +68,7 @@ export function usePreparedRows(
       stopPalette();
     };
   }, [gate, subscribeToFrames, ownerWindow]);
+  gate.observeFolds(foldedCallRowIds);
   return useMemo(
     () => ({
       ...gate.filter(model, prepareRow, sources),
@@ -65,6 +76,9 @@ export function usePreparedRows(
       isHeldOut: gate.isHeldOut,
       holdsRowAfter: gate.holdsRowAfter,
       subscribeToWork: gate.subscribeToWork,
+      observeReach: gate.observeReach,
+      isOutputParsed: gate.isOutputParsed,
+      toggleCall: gate.toggleCall,
     }),
     // A held row becoming ready is what `readiness` reports; the pass reads it from the gate.
     [gate, model, prepareRow, sources, readiness],

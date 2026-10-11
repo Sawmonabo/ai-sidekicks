@@ -160,11 +160,14 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
     },
     [runCallWindows, holdRowInPlace, openWindowedRunStretch],
   );
+  const toggleCallOncePrepared = windows.toggleCall;
   const rowToggle = useMemo<RowToggle>(
     () => ({
       toggleCallFold: (rowId) => {
-        holdRowInPlace(rowId);
-        toggleCall(rowId);
+        toggleCallOncePrepared(rowId, () => {
+          holdRowInPlace(rowId);
+          toggleCall(rowId);
+        });
       },
       openOutput: (rowId) => {
         holdRowInPlace(rowId);
@@ -172,7 +175,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
       },
       holdRowInPlace,
     }),
-    [holdRowInPlace, toggleCall, openOutput],
+    [toggleCallOncePrepared, holdRowInPlace, toggleCall, openOutput],
   );
   // Named off the props object because the callback below keys on it and `props` is a fresh
   // object every render; depending on the whole object rebuilt `renderRow` on every render and

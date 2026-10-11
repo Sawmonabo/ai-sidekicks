@@ -27,7 +27,7 @@ export function prepareOutputForTest(
   const preparation = new AnsiOutputPreparation(rowKey, outputs, window, () => {
     landWhole();
   });
-  preparation.read(typeof output === "string" ? publishedTextOf(output) : output);
+  preparation.read(typeof output === "string" ? publishedTextOf(output) : output, "view");
   if (preparation.isReady) {
     landWhole();
   }

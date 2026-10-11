@@ -13,7 +13,7 @@ import { type DiagramPictures } from "#renderer/components/Markdown/diagram/pict
 import { type AgentHueAssignment } from "#renderer/styles/agent-hue.js";
 import { SingleEntryRegistry } from "#renderer/lib/single-entry-registry.js";
 import { type PublishedText } from "../reveal/published-text.js";
-import { type PreparedAnsiOutputs } from "./ansi/preparation.js";
+import { type OutputReach, type PreparedAnsiOutputs } from "./ansi/preparation.js";
 import { type OffListTables } from "./markdown/table-window/off-list.js";
 
 /**
@@ -83,12 +83,21 @@ export interface TranscriptRowSources {
   readonly offListTables: OffListTables;
   /** Where a row's command output is parsed before it is listed, and drawn from after. */
   readonly preparedOutputs: PreparedAnsiOutputs;
+  /**
+   * How near the viewport a row stands, which decides when its command output is parsed; a row
+   * outside the drawn band's reach waits on its parse again.
+   */
+  readonly reachOf: (rowId: string) => OutputReach;
+  /** Whether a call is folded, so its output is not drawn and waits on no parse. */
+  readonly isCallFolded: (rowId: string) => boolean;
 }
 
 /** The work one row's first frame waits on, kept while the window holds the row. */
 export interface TranscriptRowPreparation {
   /** Whether every piece of work started so far has landed or failed. */
   readonly isReady: boolean;
+  /** Whether the row's command output, if it draws one, is parsed whole. */
+  readonly isOutputReady: boolean;
   /**
    * Reads the row's text again and starts what its newly finished blocks wait on. A text that did
    * not change costs nothing, and a grown one costs its growth.

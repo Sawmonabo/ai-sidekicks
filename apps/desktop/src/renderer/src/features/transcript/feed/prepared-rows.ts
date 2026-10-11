@@ -10,9 +10,17 @@
 // or a jump reaches it. A listed row that changes, as one does when its large body is read in
 // full, is drawn as it last stood until the changed row draws whole, so the change lands formatted
 // on its first frame. A row the window lets go is prepared again when it comes back.
+//
+// A command output is parsed only while its row is within the drawn band's reach, which the
+// viewport hands over each time it walks the band with the rows in view, and only while its call is
+// open. A row leaving the reach lets its parse go, and the viewport mounts a row coming into it
+// only once its output is parsed whole again. A row that has never been listed is within reach as
+// the listed row it joins after is; one outside is listed at once, unparsed. A folded call opens
+// once its output is parsed whole, so it draws formatted on the frame it opens.
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
+import { type OutputReach } from "../rows/ansi/preparation.js";
 import {
   type TranscriptRowPreparation,
   type TranscriptRowPreparer,
@@ -21,6 +29,9 @@ import {
 import { type ViewportRow } from "../viewport/snapshot.js";
 import { holdsSameObjects } from "../window/row-positions.js";
 import { type TranscriptWindowModel } from "../window/transcript-window.js";
+
+/** What the feed hands the gate for its rows to read: everything but what the gate itself says. */
+export type FeedRowSources = Omit<TranscriptRowSources, "reachOf" | "isCallFolded">;
 
 /** One pass's answer: the window the viewport draws, and the rows still held out of it. */
 export interface PreparedRows {
@@ -56,6 +67,21 @@ export class PreparedRowGate {
   #listedKeysBeforeHeldRows: ReadonlySet<string | undefined> = new Set<string | undefined>();
   /** Every row's preparation the window holds, listed or held, by row id. */
   readonly #preparations = new Map<string, HeldPreparation>();
+  /**
+   * How near the viewport each row within the drawn band's reach stands, by id, a row outside it
+   * absent: a listed row as the viewport last walked the band, and a row joining the list as the
+   * pass decided until then.
+   */
+  readonly #reachByRowId = new Map<string, Exclude<OutputReach, "outside">>();
+  /** The calls a person folded, as the feed last handed them over. */
+  #foldedCallRowIds: ReadonlySet<string> = new Set<string>();
+  /**
+   * The folded calls opening, read as open so their outputs are parsed, each with its press while
+   * it waits on the parse and `undefined` once pressed, until the folds handed over open it.
+   */
+  readonly #openingCallRowIds = new Map<string, (() => void) | undefined>();
+  /** The feed's sources last handed over, and the ones its rows read with the gate's answers. */
+  #rowSources: { readonly feed: FeedRowSources; readonly row: TranscriptRowSources } | undefined;
   /** Raised each time a held row becomes ready: what a pass is memoized on beside its inputs. */
   #readiness = 0;
   #last: GatePass | undefined;
@@ -100,27 +126,108 @@ export class PreparedRowGate {
     };
   };
 
+  /**
+   * Hands over the rows within the drawn band's reach and, among them, the rows in view, by key,
+   * each time the viewport walks the band: a listed row coming into it is parsed, at once in view,
+   * and one leaving it lets its parse go.
+   */
+  public readonly observeReach = (
+    rowKeys: ReadonlySet<string>,
+    viewRowKeys: ReadonlySet<string>,
+  ): void => {
+    for (const rowId of this.#reachByRowId.keys()) {
+      // A row still held out keeps what its pass decided.
+      if (!rowKeys.has(rowId) && !this.#heldOutRowIds.has(rowId)) {
+        this.#setReach(rowId, "outside");
+      }
+    }
+    for (const rowKey of rowKeys) {
+      this.#setReach(rowKey, viewRowKeys.has(rowKey) ? "view" : "band");
+    }
+  };
+
+  /**
+   * Whether a row's command output, if it draws one, is parsed whole as the row would draw now: a
+   * row the viewport mounts only once it is.
+   */
+  public readonly isOutputParsed = (rowKey: string): boolean => {
+    const held = this.#preparations.get(rowKey);
+    return held === undefined || (held.drawn ?? held).preparation.isOutputReady;
+  };
+
+  /**
+   * Runs `press`, a press on a call's chevron: at once on an open call, which it folds, and on a
+   * folded one once its output is parsed whole, so the call opens formatted.
+   */
+  public readonly toggleCall = (rowId: string, press: () => void): void => {
+    const held = this.#preparations.get(rowId);
+    if (!this.#foldedCallRowIds.has(rowId) || held === undefined) {
+      press();
+      return;
+    }
+    this.#openingCallRowIds.set(rowId, press);
+    held.preparation.refresh();
+    this.#openOnceReady(rowId, held.preparation);
+  };
+
+  /** How near the viewport a row stands; see `TranscriptRowSources.reachOf`. */
+  public readonly reachOf = (rowId: string): OutputReach =>
+    this.#reachByRowId.get(rowId) ?? "outside";
+
+  /** Whether a call is folded and not opening; see `TranscriptRowSources.isCallFolded`. */
+  public readonly isCallFolded = (rowId: string): boolean =>
+    this.#foldedCallRowIds.has(rowId) && !this.#openingCallRowIds.has(rowId);
+
   /** Whether `dispose` has run; a disposed gate prepares nothing and is replaced. */
   public get isDisposed(): boolean {
     return this.#isDisposed;
+  }
+
+  /**
+   * Hands over the calls a person folded: a call folding lets its parse go, and one opening any
+   * other way than `toggleCall` starts it. Called with each pass, before `filter`.
+   */
+  public observeFolds(foldedCallRowIds: ReadonlySet<string>): void {
+    const lastFoldedCallRowIds = this.#foldedCallRowIds;
+    if (foldedCallRowIds === lastFoldedCallRowIds) {
+      return;
+    }
+    this.#foldedCallRowIds = foldedCallRowIds;
+    for (const [rowId, press] of this.#openingCallRowIds) {
+      if (press === undefined && !foldedCallRowIds.has(rowId)) {
+        this.#openingCallRowIds.delete(rowId);
+      }
+    }
+    for (const rowId of foldedCallRowIds) {
+      if (!lastFoldedCallRowIds.has(rowId)) {
+        this.#preparations.get(rowId)?.preparation.refresh();
+      }
+    }
+    for (const rowId of lastFoldedCallRowIds) {
+      if (!foldedCallRowIds.has(rowId)) {
+        this.#preparations.get(rowId)?.preparation.refresh();
+      }
+    }
   }
 
   /** One pass over the drawn window: every row that draws whole, and the rows still held. */
   public filter(
     model: TranscriptWindowModel,
     prepareRow: TranscriptRowPreparer,
-    sources: TranscriptRowSources,
+    feedSources: FeedRowSources,
   ): PreparedRows {
     const last = this.#last;
     if (
       last !== undefined &&
       last.model === model &&
       last.prepareRow === prepareRow &&
-      last.sources === sources &&
+      last.sources === feedSources &&
       last.readiness === this.#readiness
     ) {
       return last.output;
     }
+    const sources = this.#rowSourcesOf(feedSources);
+    this.#reachUnlistedRows(model.rows);
     const viewportRows: ViewportRow[] = [];
     const rows: TranscriptEventRow[] = [];
     const preparingRows: ViewportRow[] = [];
@@ -199,7 +306,7 @@ export class PreparedRowGate {
                   ? last.output.preparingRows
                   : preparingRows,
           };
-    this.#last = { model, prepareRow, sources, readiness: this.#readiness, output };
+    this.#last = { model, prepareRow, sources: feedSources, readiness: this.#readiness, output };
     return output;
   }
 
@@ -224,6 +331,83 @@ export class PreparedRowGate {
     }
     this.#listeners.clear();
     this.#workListeners.clear();
+  }
+
+  /** The sources the rows read: the feed's, with the gate's answers on reach and folds. */
+  #rowSourcesOf(feedSources: FeedRowSources): TranscriptRowSources {
+    if (this.#rowSources?.feed !== feedSources) {
+      this.#rowSources = {
+        feed: feedSources,
+        row: {
+          ...feedSources,
+          reachOf: this.reachOf,
+          isCallFolded: this.isCallFolded,
+        },
+      };
+    }
+    return this.#rowSources.row;
+  }
+
+  /**
+   * Decides, for each row not listed last pass, whether it is within reach: as the listed row it
+   * joins after is, or above every listed row, as the first of them is. With none listed, the
+   * feed is opening at its tail, and every row is.
+   */
+  #reachUnlistedRows(rows: readonly TranscriptEventRow[]): void {
+    const firstListedRow = rows.find((row) => this.#listedRowIds.has(row.id));
+    let isWithinReach = firstListedRow === undefined || this.#reachByRowId.has(firstListedRow.id);
+    for (const row of rows) {
+      if (this.#listedRowIds.has(row.id)) {
+        isWithinReach = this.#reachByRowId.has(row.id);
+      } else {
+        this.#setReach(row.id, isWithinReach ? "band" : "outside");
+      }
+    }
+  }
+
+  /**
+   * Moves a row to `reach`, reading its preparation again: one coming within reach starts its
+   * parse, at once in view, and one leaving lets its parse go, the last version drawn while a
+   * change of it was prepared included, so the next pass lists the changed row.
+   */
+  #setReach(rowId: string, reach: OutputReach): void {
+    if (this.reachOf(rowId) === reach) {
+      return;
+    }
+    if (reach === "outside") {
+      this.#reachByRowId.delete(rowId);
+    } else {
+      this.#reachByRowId.set(rowId, reach);
+    }
+    const held = this.#preparations.get(rowId);
+    if (held === undefined) {
+      return;
+    }
+    held.preparation.refresh();
+    if (reach === "outside" && held.drawn !== undefined) {
+      held.drawn.preparation.release();
+      this.#preparations.set(rowId, { ...held, drawn: undefined });
+      this.#readiness += 1;
+      // Told once the walk ends: the viewport walks the band while it renders.
+      queueMicrotask(() => {
+        this.#tellReadiness();
+      });
+    }
+  }
+
+  /** Opens an opening call whose press waits, once its output is parsed whole. */
+  #openOnceReady(rowId: string, preparation: TranscriptRowPreparation): void {
+    const press = this.#openingCallRowIds.get(rowId);
+    if (press !== undefined && preparation.isReady) {
+      this.#openingCallRowIds.set(rowId, undefined);
+      press();
+    }
+  }
+
+  #tellReadiness(): void {
+    for (const listener of this.#listeners) {
+      listener();
+    }
   }
 
   /**
@@ -285,23 +469,23 @@ export class PreparedRowGate {
       for (const listener of this.#workListeners) {
         listener();
       }
+      this.#openOnceReady(row.id, current.preparation);
       // A listed row drawn as itself is not held, so the list has nothing to change for it.
       if (this.#listedRowIds.has(row.id) && current.drawn === undefined) {
         return;
       }
       this.#readiness += 1;
-      for (const listener of this.#listeners) {
-        listener();
-      }
+      this.#tellReadiness();
     });
     if (preparation === undefined) {
       drawn?.preparation.release();
       return row;
     }
-    if (preparation.isReady || drawn === undefined) {
+    // A row outside the reach is not mounted, so its last version need not be drawn meanwhile.
+    if (preparation.isReady || drawn === undefined || !this.#reachByRowId.has(row.id)) {
       drawn?.preparation.release();
       this.#preparations.set(row.id, { row, preparation, drawn: undefined });
-      return wasListed || preparation.isReady ? row : undefined;
+      return wasListed || this.#isListable(row.id, preparation) ? row : undefined;
     }
     this.#preparations.set(row.id, { row, preparation, drawn });
     return drawn.row;
@@ -310,7 +494,7 @@ export class PreparedRowGate {
   /** What a row held since the last pass is listed as, letting its last version go once whole. */
   #settledRowOf(held: HeldPreparation, wasListed: boolean): TranscriptEventRow | undefined {
     if (held.drawn === undefined) {
-      return wasListed || held.preparation.isReady ? held.row : undefined;
+      return wasListed || this.#isListable(held.row.id, held.preparation) ? held.row : undefined;
     }
     if (!held.preparation.isReady) {
       return held.drawn.row;
@@ -320,8 +504,15 @@ export class PreparedRowGate {
     return held.row;
   }
 
+  /** Whether a row not listed before joins the list: once it draws whole, or outside the reach. */
+  #isListable(rowId: string, preparation: TranscriptRowPreparation): boolean {
+    return preparation.isReady || !this.#reachByRowId.has(rowId);
+  }
+
   #withdraw(rowId: string, held: HeldPreparation): void {
     this.#preparations.delete(rowId);
+    this.#reachByRowId.delete(rowId);
+    this.#openingCallRowIds.delete(rowId);
     held.preparation.release();
     held.drawn?.preparation.release();
   }
@@ -339,7 +530,7 @@ interface HeldPreparation {
 interface GatePass {
   readonly model: TranscriptWindowModel;
   readonly prepareRow: TranscriptRowPreparer;
-  readonly sources: TranscriptRowSources;
+  readonly sources: FeedRowSources;
   readonly readiness: number;
   readonly output: PreparedRows;
 }

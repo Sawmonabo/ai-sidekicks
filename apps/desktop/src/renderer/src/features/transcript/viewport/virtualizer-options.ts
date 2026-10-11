@@ -9,9 +9,10 @@
 // per scroll event. Every offset the library writes reaches the scroll chokepoint through
 // `scrollToFn`, named for whoever it is made for. While a land is on its way the rows are drawn at
 // the offset it ends at, not the one the box stands at, and a band narrowed for it keeps the
-// rows already drawn near it rather than taking them down to draw them again. A follower's tail
-// growing with arriving text is eased after rather than jumped to; every other write is placed at
-// once.
+// rows already drawn near it rather than taking them down to draw them again. Each walk of the band
+// hands over the rows within its reach, whose command outputs the feed parses, and a row coming
+// into the band is drawn once it draws whole. A follower's tail growing with arriving text is
+// eased after rather than jumped to; every other write is placed at once.
 
 import type { Range, Rect, Virtualizer } from "@tanstack/react-virtual";
 
@@ -22,6 +23,7 @@ import {
 } from "./caps.js";
 import { type DrawnBandScreenHeights } from "./drawn-band.js";
 import { RowMeasurementTable } from "./row-measurement-table.js";
+import { type ViewportRowReach } from "./row-reach.js";
 import { prefersReducedMotion } from "#renderer/lib/reduced-motion.js";
 import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { type ScrollCaller } from "#renderer/lib/scroll/callers.js";
@@ -58,6 +60,11 @@ export interface VirtualizerOptionsInputs {
   readonly landingTargetPx: () => number | undefined;
   /** How far beyond each edge of the viewport the rows are drawn now, in screen heights. */
   readonly drawnBandScreenHeights: () => DrawnBandScreenHeights;
+  /**
+   * Where each walk of the band hands over the rows within its reach, asks whether a row coming
+   * into it draws whole, and waits on a row's work for one that does not.
+   */
+  readonly rowReach: ViewportRowReach;
 }
 
 /** The stable option members the transcript's virtualizer is constructed with. */
@@ -71,6 +78,7 @@ export class VirtualizerOptions {
   readonly #virtualizer: () => TranscriptRowVirtualizer | undefined;
   readonly #landingTargetPx: () => number | undefined;
   readonly #drawnBandScreenHeights: () => DrawnBandScreenHeights;
+  readonly #rowReach: ViewportRowReach;
 
   #scrollContainer: HTMLElement | undefined;
   /** Whom the library's writes are made for while a jump runs. */
@@ -207,6 +215,7 @@ export class VirtualizerOptions {
     this.#virtualizer = options.virtualizer;
     this.#landingTargetPx = options.landingTargetPx;
     this.#drawnBandScreenHeights = options.drawnBandScreenHeights;
+    this.#rowReach = options.rowReach;
   }
 
   /**
@@ -219,8 +228,11 @@ export class VirtualizerOptions {
    * moves every index: the narrowed band mounts no new row off screen, and takes down none it would
    * draw again as it widens. The library offers only a row count of its own, so the band is walked
    * in pixels here, over the sizes it laid the rows out at, or their estimates before it is bound.
-   * The library re-asks only when the intersected range or this function's identity moves, so a
-   * viewport that changed height without moving that range keeps its band until the next scroll.
+   * The band's reach, handed over at each walk, runs as far as the whole band even while a land has
+   * narrowed it, so the rows the band widens back to are parsed by then; a row coming into the band
+   * is left undrawn until it draws whole, and one drawn before stays. The library re-asks only when
+   * the intersected range or this function's identity moves, so a viewport that changed height
+   * without moving that range keeps its band until the next scroll.
    */
   public get rangeExtractor(): (range: Range) => number[] {
     return this.#rangeExtractor;
@@ -354,15 +366,27 @@ export class VirtualizerOptions {
         }
       }
     }
-    const drawnIndexes = Array.from(
-      { length: endIndex - startIndex + 1 },
-      (_unused, offset) => startIndex + offset,
+    const wholeBandPx = viewportHeightPx * TRANSCRIPT_DRAWN_BAND_SCREEN_HEIGHTS;
+    const reach = widenRangeByPixels(
+      range,
+      Math.max(viewportHeightPx * bandScreenHeights.head, wholeBandPx),
+      Math.max(viewportHeightPx * bandScreenHeights.tail, wholeBandPx),
+      this.#laidOutSizeOf,
     );
-    if (outsideIndexes.length > 0) {
-      drawnIndexes.push(...outsideIndexes);
-      // Ascending, so the rows are drawn in log order and a selection's range runs in reading
-      // order.
-      drawnIndexes.sort((left, right) => left - right);
+    const reachedIndexes = indexesBetween(reach.startIndex, reach.endIndex);
+    reachedIndexes.push(...outsideIndexes);
+    // First, so a row in view whose parse the hand-over finishes at once is drawn in this walk.
+    this.#rowReach.reachBand(reachedIndexes, indexesBetween(range.startIndex, range.endIndex));
+    const bandIndexes = indexesBetween(startIndex, endIndex);
+    bandIndexes.push(...outsideIndexes);
+    // Ascending, so the rows are drawn in log order and a selection's range runs in reading order.
+    bandIndexes.sort((left, right) => left - right);
+    const drawnIndexes = bandIndexes.filter(
+      (index) =>
+        this.#drawnRowKeys.has(this.getItemKey(index)) || this.#rowReach.isOutputParsedAt(index),
+    );
+    if (drawnIndexes.length < bandIndexes.length) {
+      this.#rowReach.awaitRowWork();
     }
     this.#drawnRowKeys = new Set(drawnIndexes.map((index) => this.getItemKey(index)));
     return drawnIndexes;
@@ -414,6 +438,14 @@ export class VirtualizerOptions {
     const isReaim = writeOptions.behavior !== undefined && writeOptions.adjustments === undefined;
     return isReaim ? this.#reaimCaller : "measurement-compensation";
   }
+}
+
+/** The indexes from `startIndex` to `endIndex`, both included, ascending. */
+function indexesBetween(startIndex: number, endIndex: number): number[] {
+  return Array.from(
+    { length: endIndex - startIndex + 1 },
+    (_unused, offset) => startIndex + offset,
+  );
 }
 
 /** How a follower is eased after arriving text: the settle duration and the settle curve. */
