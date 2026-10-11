@@ -51,12 +51,8 @@ const ProviderAskActionSchema: z.ZodType<ProviderAskAction, ProviderAskAction> =
     z.object({ kind: z.literal("network"), host: z.string() }).strict(),
     z.object({ kind: z.literal("tool"), toolName: z.string() }).strict(),
   ]);
-/**
- * Parses an {@link ApprovalResourceDescriptor}.
- *
- * @consumedBy the permission check's request
- */
-export const ApprovalResourceDescriptorSchema: z.ZodType<
+// Parses an `ApprovalResourceDescriptor`.
+const ApprovalResourceDescriptorSchema: z.ZodType<
   ApprovalResourceDescriptor,
   ApprovalResourceDescriptor
 > = z

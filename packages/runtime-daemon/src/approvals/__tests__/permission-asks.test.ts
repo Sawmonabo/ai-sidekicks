@@ -1,9 +1,14 @@
-// The intake of provider asks: an ask the daemon answers itself goes straight back with no card,
+// The intake of provider asks, through the permission check: an ask the daemon answers itself goes
+// straight back with no card, and an allow among them marks the session's working folder stale,
 // while a destructive git command, an ask the provider's own check flagged and an ask a rule never
 // named still reach the card; an ask delivered again while held raises one card, and its request
 // id once settled a new one; an ask its provider takes back while its card is being raised is
 // canceled once it is; a card's answer reaches the provider once, decision first with the rule it
 // made, which is recorded once the provider kept it and never when it could not.
+
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 import { afterEach, beforeEach, expect, it } from "vitest";
 
@@ -14,6 +19,7 @@ import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 
 import { openScratchDatabase, type ScratchDatabase } from "../../database/__fixtures__/scratch.js";
 import { EventLogService } from "../../events/log-service.js";
+import { PermissionCheckService } from "../../policy/permission-check.js";
 import type { RespondToRequestParams } from "../../provider/driver/contract.js";
 import {
   ProviderRuleNotKeptError,
@@ -51,6 +57,9 @@ const NPM_TEST_RULE: ProviderAskRule = {
 
 let database: ScratchDatabase;
 let service: ApprovalService;
+let memoryFolder: string;
+// The sessions whose working folder was marked stale, once per mark.
+let staleSessions: SessionId[];
 let responses: RespondToRequestParams[];
 let rulesInForce: ProviderAskRule[];
 let recordFailure: Error | undefined;
@@ -61,6 +70,10 @@ let createGate: Promise<void> | undefined;
 let onCreate: () => void;
 
 beforeEach(async () => {
+  memoryFolder = await mkdtemp(path.join(tmpdir(), "permission-asks-memory-"));
+  await mkdir(path.join(memoryFolder, "reviewer"));
+  await writeFile(path.join(memoryFolder, "reviewer", "MEMORY.md"), "# Notes\n");
+  staleSessions = [];
   database = await openScratchDatabase();
   await database.writer.write([
     {
@@ -83,7 +96,11 @@ beforeEach(async () => {
       },
     }),
     followAll: () => () => {},
-    workingFolders: { raiseStaleness: async () => {} },
+    workingFolders: {
+      raiseStaleness: async (sessionId) => {
+        staleSessions.push(sessionId);
+      },
+    },
     writeServiceLog: (line) => {
       throw new Error(`unexpected service log line: ${line}`);
     },
@@ -99,6 +116,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await database.close();
+  await rm(memoryFolder, { recursive: true, force: true });
 });
 
 function buildAsks(): PermissionAsks {
@@ -113,21 +131,29 @@ function buildAsks(): PermissionAsks {
     },
     readProjectFolders: () => PROJECT_FOLDERS,
   };
-  return new PermissionAsks({
+  const permissionCheck = new PermissionCheckService({
+    authorizer: {
+      decide: () => {
+        throw new Error("a provider ask takes no rule evaluation");
+      },
+    },
     approvals: {
       create: async (request, origin) => {
         onCreate();
         await createGate;
         return await service.create(request, origin);
       },
-      resolve: service.resolve.bind(service),
-      withdraw: service.withdraw.bind(service),
-      readRequest: service.readRequest.bind(service),
-      readAskRequest: service.readAskRequest.bind(service),
     },
     rules,
-    agentMemoryFolder: "/data/agent-memory",
+    agentMemoryFolder: memoryFolder,
     readRunAgent: () => "agent-1",
+    readOwner: () => undefined,
+    readPosture: () => undefined,
+  });
+  return new PermissionAsks({
+    approvals: service,
+    permissionCheck,
+    rules,
     respondToRequest: async (params) => {
       responses.push(params);
       if (providerFailure !== undefined) {
@@ -159,20 +185,30 @@ function approveAlways(
   } as ApprovalResolveRequest;
 }
 
-it("answers itself, with no card, a background command and an ask a rule in force covers", async () => {
+it("answers itself, with no card, a background command, a memory note and an ask a rule covers", async () => {
   const asks = buildAsks();
   rulesInForce = [NPM_TEST_RULE, { ...NPM_TEST_RULE, sense: "block", subject: "npm publish" }];
 
   await asks.takeAsk({ ...NPM_TEST, action: { kind: "command", command: "claude --bg fix" } });
-  await asks.takeAsk(NPM_TEST);
   await asks.takeAsk({ ...NPM_TEST, action: { kind: "command", command: "npm publish" } });
+  // Each refusal leaves the working folder as it was.
+  expect(staleSessions).toEqual([]);
+  await asks.takeAsk(NPM_TEST);
+  await asks.takeAsk({
+    ...NPM_TEST,
+    requestId: "8",
+    action: { kind: "file_change", paths: [path.join(memoryFolder, "reviewer", "MEMORY.md")] },
+  });
 
-  expect(responses.map(({ response }) => (response as ProviderPermissionAnswer).decision)).toEqual([
-    "refuse",
-    "allow",
-    "refuse",
+  expect(responses.map(({ response }) => response as ProviderPermissionAnswer)).toEqual([
+    { decision: "refuse", reason: expect.stringContaining("claude --bg") as unknown },
+    { decision: "refuse", reason: "A rule in force on this session blocks this." },
+    { decision: "allow", answeredByRule: NPM_TEST_RULE },
+    { decision: "allow" },
   ]);
   expect(readCards()).toEqual([]);
+  // Each allow the daemon gave marks the folder stale once, after its answer went back.
+  expect(staleSessions).toEqual([SESSION_ID, SESSION_ID]);
 });
 
 it("answers a block in force itself on an ask that offers no rule", async () => {

@@ -36,8 +36,9 @@ export default defineConfig({
         : [
             {
               // Tier: endurance. The session directory's budgets on a seeded set of a million
-              // messages, timed. Runs only by name, outside `pnpm test` and CI, and one file at a
-              // time, so no other test shares the machine it measures.
+              // messages, and the permission check's cost per decision, timed. Runs only by name,
+              // outside `pnpm test` and CI, and one file at a time, so no other test shares the
+              // machine it measures.
               extends: true,
               test: {
                 name: "endurance",

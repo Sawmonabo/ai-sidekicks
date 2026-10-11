@@ -4,6 +4,8 @@
 
 import type { Statement } from "better-sqlite3";
 
+import type { UserId } from "@ai-sidekicks/contracts/session/id";
+
 import type { DatabaseConnections } from "./database/connection/lifecycle.js";
 import type { DatabaseWriter } from "./database/writer.js";
 
@@ -30,6 +32,7 @@ const UPSERT_REGISTRATION_SQL = `INSERT INTO node_trust_state (node_id, owner_us
 export class NodeRegistry {
   readonly #writer: Pick<DatabaseWriter, "write">;
   readonly #selectRegistrationStatement: Statement;
+  readonly #selectOwnersStatement: Statement<[string], { readonly owner_user_id: UserId }>;
   readonly #now: () => string;
 
   constructor(database: DatabaseConnections, now: () => string = () => new Date().toISOString()) {
@@ -39,6 +42,10 @@ export class NodeRegistry {
       `SELECT node_id, owner_user_id, established_at, updated_at
          FROM node_trust_state
         WHERE node_id = ? AND owner_user_id = ?`,
+    );
+    // Two rows at most, enough to tell one owner from several.
+    this.#selectOwnersStatement = database.reader.prepare(
+      "SELECT owner_user_id FROM node_trust_state WHERE node_id = ? LIMIT 2",
     );
   }
 
@@ -57,5 +64,14 @@ export class NodeRegistry {
     return this.#selectRegistrationStatement.get(nodeId, ownerUserId) as
       | NodeTrustStateRow
       | undefined;
+  }
+
+  /**
+   * The user who owns the machine, the principal of every policy check, or `undefined` when the
+   * machine is registered for no user or for more than one, so no one owner can be named.
+   */
+  readOwner(nodeId: string): UserId | undefined {
+    const owners = this.#selectOwnersStatement.all(nodeId);
+    return owners.length === 1 ? owners[0]?.owner_user_id : undefined;
   }
 }

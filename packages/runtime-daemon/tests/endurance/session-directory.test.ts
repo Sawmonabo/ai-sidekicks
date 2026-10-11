@@ -45,6 +45,7 @@ import { SearchThread } from "../../src/session/search/thread/handle.js";
 import { mintUuidV7 } from "../../src/uuid-v7.js";
 import { loadProcessMemoryReader } from "./process-memory.js";
 import { SEEDED_SET_SIZE, seedDirectorySet, type SeededSet } from "./seeded-set.js";
+import { timingOf, type Timing } from "./timing.js";
 
 // A search, its first page or a later one, answers within this at p95.
 const SEARCH_P95_BUDGET_MS = 50;
@@ -106,11 +107,6 @@ const DAEMON_ENTRY = fileURLToPath(new URL("../../dist/main.js", import.meta.url
 // What the daemon's search thread logs once it has built the index and answers searches.
 const INDEX_REBUILT_LINE = "search_index_rebuilt: missing";
 
-interface Timing {
-  readonly p50Ms: number;
-  readonly p95Ms: number;
-}
-
 // The main thread's longest turn while a measurement ran, and how late its timer fired at most.
 interface MainThreadTurns {
   readonly longestTurnMs: number;
@@ -133,13 +129,6 @@ interface MeasuredClass {
   readonly label: string;
   readonly line: string;
   readonly misses: readonly string[];
-}
-
-function timingOf(durationsMs: readonly number[]): Timing {
-  const sorted = [...durationsMs].sort((left, right) => left - right);
-  const at = (percent: number): number =>
-    sorted[Math.min(sorted.length - 1, Math.ceil((percent / 100) * sorted.length) - 1)] ?? 0;
-  return { p50Ms: at(50), p95Ms: at(95) };
 }
 
 function formatTiming(timing: Timing): string {

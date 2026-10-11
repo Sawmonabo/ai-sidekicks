@@ -1,5 +1,6 @@
-// NodeRegistry over a real SQLite file: the registration is keyed by machine and owning user,
-// needs no session, and a re-registration keeps the first-seen time.
+// NodeRegistry over a real SQLite file: the registration is keyed by machine and owning user, and
+// names the machine's owner only while it has exactly one; it needs no session, and a
+// re-registration keeps the first-seen time.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -30,15 +31,21 @@ function tableRowCount(tableName: string): number {
 }
 
 describe("NodeRegistry", () => {
-  it("keys the registration by machine and owning user", async () => {
+  it("keys the registration by machine and owning user, and names an owner only when one", async () => {
     const registry = new NodeRegistry(scratch);
     expect(registry.lookup(NODE_ID, OWNER_USER_ID)).toBeUndefined();
+    expect(registry.readOwner(NODE_ID)).toBeUndefined();
 
     await registry.register({ nodeId: NODE_ID, ownerUserId: OWNER_USER_ID });
 
     expect(registry.lookup(NODE_ID, OWNER_USER_ID)).toBeDefined();
     expect(registry.lookup(NODE_ID, OTHER_USER_ID)).toBeUndefined();
     expect(registry.lookup("node-never-registered", OWNER_USER_ID)).toBeUndefined();
+    expect(registry.readOwner(NODE_ID)).toBe(OWNER_USER_ID);
+
+    // Registered for a second user too, the machine has no one owner to decide as.
+    await registry.register({ nodeId: NODE_ID, ownerUserId: OTHER_USER_ID });
+    expect(registry.readOwner(NODE_ID)).toBeUndefined();
   });
 
   it("registers without a session: only the registration row is written", async () => {

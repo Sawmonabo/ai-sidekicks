@@ -1,14 +1,12 @@
-// The approval pipeline's intake of provider permission asks, and the way back of each answer. An
-// ask the daemon answers itself goes straight back to its provider with no card and no record: the
-// refusal of a background Claude Code command, the allow of an agent's own memory note, and an ask
-// a rule in force already answers, as a Codex conversation started again asks for a subject its
-// session allowed; an allow never answers a destructive git command or an ask the provider's own
-// check flagged, which always reach the card. Every other ask raises a card. Its answer is
-// recorded, then goes back to the provider that holds the call, decision first, with the rule it
-// made, which is recorded once the provider kept it.
+// The approval pipeline's intake of provider permission asks, and the way back of each answer. Each
+// ask passes the permission check, which answers it itself where the daemon has an answer (the
+// refusal of a background Claude Code command, the allow of an agent's own memory note, a rule in
+// force on its subject) and else raises its card. An answer the daemon gives goes straight back to
+// its provider with no record, and an allow among them marks the session's working folder stale,
+// as an approved card does. A card's answer is recorded, then goes back to the provider that holds
+// the call, decision first, with the rule it made, which is recorded once the provider kept it.
 
 import type {
-  ApprovalRequestId,
   ApprovalResolveRequest,
   ApprovalResolveResponse,
 } from "@ai-sidekicks/contracts/approval";
@@ -16,7 +14,10 @@ import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 
-import { answerProviderAsk } from "../policy/provider-ask-answers.js";
+import type {
+  PermissionCheckResponse,
+  PermissionCheckService,
+} from "../policy/permission-check.js";
 import type { RespondToRequestParams } from "../provider/driver/contract.js";
 import {
   ProviderRuleNotKeptError,
@@ -27,7 +28,6 @@ import {
   type ProviderPermissionAsk,
 } from "../provider/port/permission-ask.js";
 import { mintUuidV7 } from "../uuid-v7.js";
-import { deriveRuleSubject, describeProviderAsk, mayAllowStand } from "./ask-description.js";
 import { ApprovalRuleNotKeptError } from "./refusals.js";
 import type { ApprovalRules } from "./rules.js";
 import type { ApprovalService } from "./service.js";
@@ -36,13 +36,10 @@ import type { ApprovalService } from "./service.js";
 export interface PermissionAsksDeps {
   readonly approvals: Pick<
     ApprovalService,
-    "create" | "resolve" | "withdraw" | "readRequest" | "readAskRequest"
+    "resolve" | "withdraw" | "readRequest" | "readAskRequest" | "markAllowed"
   >;
-  readonly rules: Pick<ApprovalRules, "findRule" | "record" | "readProjectFolders">;
-  /** The one all-projects agent-memory folder, whose notes an agent reads and writes unasked. */
-  readonly agentMemoryFolder: string;
-  /** The agent whose run holds the ask, which the card names as its asker. */
-  readonly readRunAgent: (sessionId: SessionId, runId: RunId) => string;
+  readonly permissionCheck: Pick<PermissionCheckService, "check">;
+  readonly rules: Pick<ApprovalRules, "record" | "readProjectFolders">;
   /** Hands an answer to the driver that runs the run holding the ask. */
   readonly respondToRequest: (params: RespondToRequestParams) => Promise<void>;
 }
@@ -55,11 +52,9 @@ interface HeldAsk {
   readonly requestId: string;
   readonly askId: string;
   readonly action: ProviderAskAction;
-  isWithdrawn: boolean;
+  // Aborted once the provider takes the ask back.
+  readonly withdrawal: AbortController;
 }
-
-// What the agent reads when a rule in force blocks the subject its call names.
-const BLOCKED_BY_RULE_REASON = "A rule in force on this session blocks this.";
 
 /** Takes each admitted provider ask and carries each card's answer back to its provider. */
 export class PermissionAsks implements PermissionAskPort {
@@ -73,9 +68,9 @@ export class PermissionAsks implements PermissionAskPort {
   }
 
   /**
-   * Answers the ask itself where the daemon has an answer for it, else raises its card under an
-   * ask id the daemon mints, so a provider that numbers its asks afresh after a restart never
-   * reaches a card already settled; the same ask delivered again while held raises nothing.
+   * Answers the ask itself where the permission check has an answer for it, else raises its card
+   * under an ask id the daemon mints, so a provider that numbers its asks afresh after a restart
+   * never reaches a card already settled; the same ask delivered again while held raises nothing.
    * Rejects when the card could not be raised, as the approval service's create does.
    */
   async takeAsk(ask: ProviderPermissionAsk): Promise<void> {
@@ -90,39 +85,43 @@ export class PermissionAsks implements PermissionAskPort {
       requestId: ask.requestId,
       askId,
       action: ask.action,
-      isWithdrawn: false,
+      withdrawal: new AbortController(),
     };
     // Held from the first moment, so a withdrawal that arrives while the ask is read finds it.
     this.#heldByKey.set(key, held);
-    let approvalRequestId: ApprovalRequestId;
+    let checked: PermissionCheckResponse;
     try {
-      const ownAnswer = await this.#answerOwnAsk(ask);
-      if (ownAnswer !== undefined || held.isWithdrawn) {
-        this.#heldByKey.delete(key);
-        if (ownAnswer !== undefined && !held.isWithdrawn) {
-          await this.#deps.respondToRequest({
-            runId: ask.runId,
-            requestId: ask.requestId,
-            response: ownAnswer,
-          });
-        }
-        return;
-      }
-      ({ approvalRequestId } = await this.#deps.approvals.create(
-        {
-          sessionId: ask.sessionId,
-          runId: ask.runId,
-          requestedBy: this.#deps.readRunAgent(ask.sessionId, ask.runId),
-          ...describeProviderAsk(ask),
-        },
-        { askId, toolCallId: ask.toolCallId },
-      ));
+      checked = await this.#deps.permissionCheck.check({
+        kind: "provider_ask",
+        ask,
+        askId,
+        signal: held.withdrawal.signal,
+      });
     } catch (error) {
       this.#heldByKey.delete(key);
+      // Taken back before its card was raised: there is no card and no one to answer.
+      if (held.withdrawal.signal.aborted && error === held.withdrawal.signal.reason) {
+        return;
+      }
       throw error;
     }
-    if (held.isWithdrawn) {
-      await this.#deps.approvals.withdraw(approvalRequestId);
+    if (checked.reason === "pending_approval") {
+      if (held.withdrawal.signal.aborted) {
+        await this.#deps.approvals.withdraw(checked.approvalRequestId);
+      }
+      return;
+    }
+    this.#heldByKey.delete(key);
+    if (held.withdrawal.signal.aborted) {
+      return;
+    }
+    await this.#deps.respondToRequest({
+      runId: ask.runId,
+      requestId: ask.requestId,
+      response: providerAnswerOf(checked),
+    });
+    if (checked.allowed) {
+      await this.#deps.approvals.markAllowed(ask.sessionId);
     }
   }
 
@@ -133,7 +132,7 @@ export class PermissionAsks implements PermissionAskPort {
     for (const [key, held] of this.#heldByKey) {
       if (held.sessionId === withdrawal.sessionId && held.requestId === withdrawal.requestId) {
         this.#heldByKey.delete(key);
-        held.isWithdrawn = true;
+        held.withdrawal.abort(new Error("The provider took the ask back"));
         const stored = this.#deps.approvals.readAskRequest(held.runId, held.askId);
         if (stored !== undefined) {
           await this.#deps.approvals.withdraw(stored.approvalRequestId);
@@ -217,32 +216,22 @@ export class PermissionAsks implements PermissionAskPort {
     }
     return undefined;
   }
-
-  // The daemon's designed answers first, then a rule in force over the ask's subject: a block
-  // whatever the ask offers, an allow only on an ask a standing allow may stand on.
-  async #answerOwnAsk(ask: ProviderPermissionAsk): Promise<ProviderPermissionAnswer | undefined> {
-    const designed = await answerProviderAsk(ask.action, this.#deps.agentMemoryFolder);
-    if (designed !== undefined) {
-      return designed.decision === "allow"
-        ? { decision: "allow" }
-        : { decision: "refuse", reason: designed.reason };
-    }
-    const subject = deriveRuleSubject(ask.action);
-    const rule =
-      subject === undefined
-        ? undefined
-        : this.#deps.rules.findRule(ask.sessionId, ask.action.kind, subject);
-    if (rule?.sense === "block") {
-      return { decision: "refuse", reason: BLOCKED_BY_RULE_REASON };
-    }
-    return rule !== undefined && mayAllowStand(ask)
-      ? { decision: "allow", answeredByRule: rule }
-      : undefined;
-  }
 }
 
 function heldKeyOf(runId: RunId, requestId: string): string {
   return `${runId}\u0000${requestId}`;
+}
+
+// The provider's answer to an ask the permission check settled without a card.
+function providerAnswerOf(
+  checked: Exclude<PermissionCheckResponse, { reason: "pending_approval" }>,
+): ProviderPermissionAnswer {
+  if (!checked.allowed) {
+    return { decision: "refuse", reason: checked.refusal };
+  }
+  return checked.reason === "remembered_rule"
+    ? { decision: "allow", answeredByRule: checked.rule }
+    : { decision: "allow" };
 }
 
 function composeAnswer(

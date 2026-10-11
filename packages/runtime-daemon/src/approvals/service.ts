@@ -11,7 +11,8 @@
 //     listener the run engine registers: an answer, or the provider taking its ask back. A
 //     cancellation with the run's or the session's end tells it nothing, since the run has ended.
 //   * An approval marks the session's working folder stale, after the commit, since work the person
-//     has not seen may land there; a decline and a cancellation mark nothing.
+//     has not seen may land there, as does an allow the daemon gives an ask itself; a decline and a
+//     cancellation mark nothing.
 
 import type { Database } from "better-sqlite3";
 
@@ -279,7 +280,7 @@ export class ApprovalService {
     }
     await this.#listener?.onSettled(stored.runId, stored.approvalRequestId);
     if (request.decision === "approved") {
-      await this.#raiseStaleness(stored.sessionId);
+      await this.markAllowed(stored.sessionId);
     }
     return {
       response: {
@@ -401,14 +402,17 @@ export class ApprovalService {
     this.#sweeps.add(sweep);
   }
 
-  // The answer is already kept, so a folder that could not be marked goes to the service log rather
-  // than failing an answer that stands.
-  async #raiseStaleness(sessionId: SessionId): Promise<void> {
+  /**
+   * Marks the session's working folder stale once an action was allowed, since work the person has
+   * not seen may land there. The allow already stands, so a folder that could not be marked goes to
+   * the service log rather than failing it.
+   */
+  async markAllowed(sessionId: SessionId): Promise<void> {
     try {
       await this.#deps.workingFolders.raiseStaleness(sessionId);
     } catch (error) {
       this.#deps.writeServiceLog(
-        `Marking the working folder of session ${sessionId} stale after an approval failed: ` +
+        `Marking the working folder of session ${sessionId} stale after an allow failed: ` +
           describeRejection(error),
       );
     }

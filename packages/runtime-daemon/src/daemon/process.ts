@@ -55,6 +55,7 @@ import {
   createStreamedGitRunner,
   type StreamedGitRunner,
 } from "../workspace/clone/streamed-git.js";
+import { APPROVALS_PROJECTION } from "../approvals/projection.js";
 import { InFlightMutations } from "../ipc/in-flight-mutations.js";
 import { LocalIpcGateway } from "../ipc/local-gateway.js";
 import { ProtocolNegotiator } from "../ipc/protocol-negotiation.js";
@@ -365,7 +366,7 @@ export class DaemonProcess {
       reader,
       writer,
       sessionEvents: sessionServices.sessions,
-      projections: [SESSION_DIRECTORY_PROJECTION, RUNS_PROJECTION],
+      projections: [SESSION_DIRECTORY_PROJECTION, RUNS_PROJECTION, APPROVALS_PROJECTION],
     });
     const damagedHistory = new DamagedHistory({
       reader,

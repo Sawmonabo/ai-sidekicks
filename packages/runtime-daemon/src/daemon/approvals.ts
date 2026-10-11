@@ -1,5 +1,6 @@
-// The daemon's approval pipeline, built once with the provider side: the asks and their answers,
-// the rules the providers keep and a purge takes out of them, the reviewer's blocks, the hold an
+// The daemon's approval pipeline, built once with the provider side: the permission check every
+// sensitive action passes, the asks and their answers, the rules the providers keep and a purge
+// takes out of them, the reviewer's blocks, the hold an
 // ask puts on its run, and the `approval.*` methods. Its ports are registered as it is built, so
 // no ask waits on a missing intake; its log follows begin at `start`, once the start's recovery
 // pass has settled the runs.
@@ -26,7 +27,10 @@ import {
   type SessionDriverDeps,
 } from "../ipc/handlers/driver/resolution.js";
 import { registerApprovalMethods } from "../ipc/handlers/approval.js";
+import { NodeRegistry } from "../node-registry.js";
 import type { Authorizer } from "../policy/authorizer.js";
+import type { ExecutionPostureService } from "../policy/execution-posture-service.js";
+import { PermissionCheckService } from "../policy/permission-check.js";
 import type { PermissionAskPort } from "../provider/port/permission-ask.js";
 import type { PortRegistration } from "../provider/port/registration.js";
 import type { ReviewerDenialPort } from "../provider/port/reviewer-denial.js";
@@ -48,6 +52,8 @@ export interface DaemonApprovalsContext {
   readonly dataFolder: string;
   /** The workflow actions' rules, loaded and checked at the daemon's start. */
   readonly authorizer: Authorizer;
+  /** The posture each live run runs at, which the workflow rules read. */
+  readonly executionPostures: Pick<ExecutionPostureService, "resolvedPostureFor">;
   readonly runEngine: RunEngine;
   /** The driver a run or a session runs on. */
   readonly runDispatch: DriverDispatchDeps;
@@ -66,10 +72,10 @@ export interface DaemonApprovalsContext {
 /** Builds and runs the approval pipeline. */
 export class DaemonApprovals {
   /**
-   * The workflow actions' rules, which a workflow start an agent or a trigger asks for checks.
-   * @consumedBy the workflow engine's run-start path, which checks each start against them
+   * The permission check, which a workflow start an agent or a trigger asks for passes.
+   * @consumedBy the workflow engine's run-start path, which checks each start through it
    */
-  readonly authorizer: Authorizer;
+  readonly permissionCheck: PermissionCheckService;
   readonly #service: ApprovalService;
   readonly #rules: ApprovalRules;
   readonly #reviewerDenials: ReviewerDenials;
@@ -78,7 +84,6 @@ export class DaemonApprovals {
   constructor(context: DaemonApprovalsContext) {
     const { database, eventLog, runEngine, ports } = context;
     const followAll = eventLog.followAll.bind(eventLog);
-    this.authorizer = context.authorizer;
     this.#service = new ApprovalService({
       reader: database.reader,
       sessionEvents: eventLog,
@@ -108,11 +113,20 @@ export class DaemonApprovals {
         resolveDriverForSessionOrThrow(context.sessionDrivers, sessionId).driver,
     });
     const agents = new RunAgentReader(database.reader);
-    const asks = new PermissionAsks({
+    const nodes = new NodeRegistry(database);
+    this.permissionCheck = new PermissionCheckService({
+      authorizer: context.authorizer,
       approvals: this.#service,
       rules: this.#rules,
       agentMemoryFolder: path.join(context.dataFolder, AGENT_MEMORY_FOLDER_NAME),
       readRunAgent: (sessionId, runId) => agents.readAgent(sessionId, runId),
+      readOwner: () => nodes.readOwner(context.nodeId),
+      readPosture: (runId) => context.executionPostures.resolvedPostureFor(runId),
+    });
+    const asks = new PermissionAsks({
+      approvals: this.#service,
+      permissionCheck: this.permissionCheck,
+      rules: this.#rules,
       respondToRequest: async (params) => {
         await resolveDriverForRunOrThrow(context.runDispatch, params.runId).driver.respondToRequest(
           params,

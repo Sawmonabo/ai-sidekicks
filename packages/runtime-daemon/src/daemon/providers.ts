@@ -536,6 +536,7 @@ export class DaemonProviders {
       nodeId: context.nodeId,
       dataFolder: context.dataFolder,
       authorizer: context.authorizer,
+      executionPostures: context.executionPostures,
       runEngine,
       runDispatch,
       sessionDrivers,
