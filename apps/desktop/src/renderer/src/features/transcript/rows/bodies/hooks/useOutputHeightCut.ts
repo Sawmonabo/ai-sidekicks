@@ -74,17 +74,20 @@ export function useOutputHeightCut(isCutAtFlowHeight: boolean, rowKey: string): 
     };
     // A row a screen above the box takes its first answer from the first report, in the frame's
     // own layout: drawn there, its `Show all` reaches the conversation's measurement of the row a
-    // frame later, which nothing on screen shows. Any other row reads both heights now, laying the
-    // inserted rows out, so the conversation measures the row with `Show all` in the first frame
-    // and no row is drawn over it.
+    // frame later, which nothing on screen shows. Any other row reads both heights once the commit
+    // is done, with every other output the commit brought in, laying the inserted rows out once,
+    // so the conversation measures the row with `Show all` in the first frame and no row is drawn
+    // over it.
     let isFirstReportDeferred = viewport !== undefined && isRowAScreenAboveBox(viewport, rowKey);
-    if (!isFirstReportDeferred) {
-      const style = getComputedStyle(body);
-      boxHeightPx =
-        body.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
-      contentHeightPx = content.getBoundingClientRect().height;
-      readRunsPastCut();
-    }
+    const cancelFirstRead = isFirstReportDeferred
+      ? undefined
+      : firstCutReads.request(() => {
+          const style = getComputedStyle(body);
+          boxHeightPx =
+            body.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+          contentHeightPx = content.getBoundingClientRect().height;
+          readRunsPastCut();
+        });
     const watch = watchElementsResize(getWindow(body), (entries) => {
       for (const entry of entries) {
         if (entry.target === body) {
@@ -104,6 +107,7 @@ export function useOutputHeightCut(isCutAtFlowHeight: boolean, rowKey: string): 
     watch.observe(body);
     watch.observe(content);
     return () => {
+      cancelFirstRead?.();
       watch.disconnect();
     };
   }, [isArmed, viewport, rowKey]);
@@ -113,6 +117,47 @@ export function useOutputHeightCut(isCutAtFlowHeight: boolean, rowKey: string): 
 
 /** Under half a pixel is the layout's rounding, not a line past the cut. */
 const CUT_TOLERANCE_PX = 0.5;
+
+/**
+ * The first reads of the cuts one commit arms, each measuring its box and content and answering
+ * whether the output runs past the cut, made once the commit is done and before the frame paints.
+ * The conversation writes each inserted row's place as it measures it, between the rows' effects,
+ * so a read in each effect lays the rows out again; read together after the commit, the inserted
+ * rows are laid out once.
+ */
+class FirstCutReads {
+  readonly #pending = new Set<() => void>();
+
+  /** Runs `read` with the others its commit armed; the returned call drops it unrun. */
+  public request(read: () => void): () => void {
+    if (this.#pending.size === 0) {
+      queueMicrotask(() => {
+        this.#readPending();
+      });
+    }
+    this.#pending.add(read);
+    return () => {
+      this.#pending.delete(read);
+    };
+  }
+
+  #readPending(): void {
+    const reads = [...this.#pending];
+    this.#pending.clear();
+    if (reads.length === 0) {
+      return;
+    }
+    // The answers are drawn together once every read is made, before the frame paints, so the
+    // conversation measures each row with its `Show all`.
+    flushSync(() => {
+      for (const read of reads) {
+        read();
+      }
+    });
+  }
+}
+
+const firstCutReads = new FirstCutReads();
 
 /**
  * Whether row `rowKey` ends a whole screen or more above the conversation's box, at the height the

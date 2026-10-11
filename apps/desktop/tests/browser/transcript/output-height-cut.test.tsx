@@ -4,14 +4,16 @@
 // whole lines and follows each new one, its rest offered under the bytes arrived so far. Whether
 // an output runs past the cut is known in the commit that cuts it, so the conversation measures its
 // row with `Show all` in that frame, except in a row a screen above the box, which takes it from
-// the frame's own layout. Measured in Chromium, since the cut is CSS line units over the
-// scroller's measured height.
+// the frame's own layout; the outputs one commit brings in are read together, laid out once.
+// Measured in Chromium, since the cut is CSS line units over the scroller's measured height.
 
-import { act, cleanup, render, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, within } from "@testing-library/react";
 import { useState } from "react";
+import { cdp } from "vitest/browser";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { applyAppearance, installMeridianTokens } from "#renderer/app/token-installation.js";
+import { openPagedSessionStore } from "#renderer/features/transcript/logs.test-support.js";
 import { PreparedAnsiOutputsContext } from "#renderer/features/transcript/rows/ansi/preparation.js";
 import { prepareOutputForTest } from "#renderer/features/transcript/rows/ansi/preparation.test-support.js";
 import { OUTPUT_CUT_FLOW_SHARE } from "#renderer/features/transcript/rows/bodies/hooks/useOutputHeightCut.js";
@@ -23,6 +25,7 @@ import {
   type MarkdownWindowViewport,
 } from "#renderer/features/transcript/rows/markdown/block-window/context.js";
 import { FootnoteRegistry } from "#renderer/features/transcript/rows/markdown/footnotes/registry.js";
+import { prepareTranscriptRow } from "#renderer/features/transcript/rows/preparation.js";
 import {
   publishedTextOf,
   type PublishedText,
@@ -32,6 +35,8 @@ import { measureUtf8ByteLength } from "#renderer/lib/utf8-byte-length.js";
 import { formatByteQuantity } from "#renderer/lib/wire/figures.js";
 import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { DEFAULT_APPEARANCE_RECORD, TEXT_SIZES } from "#shared/appearance.js";
+import { toolOutputEventAt } from "./colored-output-event.js";
+import { FEED_HEIGHT_PX, ROW_SELECTOR, mountTranscriptFeed } from "./long-tool-feed.js";
 import { settleFrames } from "./windowed/reply.js";
 
 const SCROLLER_HEIGHT_PX = 600;
@@ -40,6 +45,18 @@ const PRINTED_LINE_COUNT = 120;
 const ARRIVING_LINE_COUNT = 10;
 const ESCAPE = String.fromCodePoint(0x1b);
 const LARGEST_TEXT_SIZE = TEXT_SIZES.reduce((largest, size) => (size > largest ? size : largest));
+/** The calls in the feed one commit brings a band of outputs in from. */
+const FEED_OUTPUT_COUNT = 60;
+/** The fewest outputs the jump brings in with one commit, as a fling's entering rows do. */
+const MIN_OUTPUTS_IN_ONE_COMMIT = 5;
+/** Every drawn output, its box and its `Show all`. */
+const OUTPUT_SELECTOR = ".meridian-output-cut";
+/** An output's box while it is cut. */
+const CUT_BODY_SELECTOR = ".meridian-output-cut__body--cut";
+/** The control that draws an output whole. */
+const SHOW_ALL_SELECTOR = ".meridian-full-output";
+/** The module whose reads the trace counts, as its stack frames name it. */
+const useOutputHeightCutModuleName = "useOutputHeightCut.ts";
 
 afterEach(() => {
   cleanup();
@@ -136,13 +153,13 @@ function HeldToolOutput(props: {
  * The outputs drawn in a measured scroller, as a transcript's list draws them; `rowEndPx`, when
  * given, is where the conversation lays the rows' ends.
  */
-function renderInScroller(
+async function renderInScroller(
   children: React.ReactNode,
   rowEndPx?: MarkdownWindowViewport["rowEndPx"],
-): {
+): Promise<{
   readonly container: HTMLElement;
   readonly rerender: (children: React.ReactNode) => void;
-} {
+}> {
   installMeridianTokens(document);
   applyAppearance(document, DEFAULT_APPEARANCE_RECORD);
   const scrollController = new ScrollController({ clock: new ManualClock() });
@@ -166,7 +183,13 @@ function renderInScroller(
       <MarkdownWindowViewportContext value={viewport}>{drawn}</MarkdownWindowViewportContext>
     </div>
   );
-  const rendered = render(scroller(children));
+  // The outputs a commit brings in are read once it is done, before the frame paints, in the same
+  // act scope as the commit.
+  const rendered = await act(async () => {
+    const result = render(scroller(children));
+    await Promise.resolve();
+    return result;
+  });
   return {
     container: rendered.container,
     rerender: (drawn) => {
@@ -175,23 +198,26 @@ function renderInScroller(
   };
 }
 
-/** What a frame shows of the output before its own layout: whether it is cut, and `Show all`. */
+/** What a frame shows of the outputs before its own layout: how many are cut, and `Show all`s. */
 interface CutFrame {
-  readonly isCut: boolean;
-  readonly hasShowAll: boolean;
+  readonly cutCount: number;
+  readonly showAllCount: number;
 }
 
 /**
- * What each of the next `count` frames shows of the one output in `container` as it starts, before
- * the frame's layout and its resize reports: what the commits before it drew.
+ * What each of the next `count` frames shows of the outputs `outputsOf` answers as it starts,
+ * before the frame's layout and its resize reports: what the commits before it drew.
  */
-function recordCutFrames(container: HTMLElement, count: number): Promise<CutFrame[]> {
+function recordCutFrames(outputsOf: () => readonly Element[], count: number): Promise<CutFrame[]> {
   const frames: CutFrame[] = [];
   return new Promise((resolve) => {
     const record = (): void => {
+      const outputs = outputsOf();
       frames.push({
-        isCut: container.querySelector(".meridian-output-cut__body--cut") !== null,
-        hasShowAll: container.querySelector(".meridian-full-output") !== null,
+        cutCount: outputs.filter((output) => output.querySelector(CUT_BODY_SELECTOR) !== null)
+          .length,
+        showAllCount: outputs.filter((output) => output.querySelector(SHOW_ALL_SELECTOR) !== null)
+          .length,
       });
       if (frames.length === count) {
         resolve(frames);
@@ -203,6 +229,84 @@ function recordCutFrames(container: HTMLElement, count: number): Promise<CutFram
   });
 }
 
+/** The outputs drawn in `container`. */
+function outputsIn(container: Element): Element[] {
+  return [...container.querySelectorAll(OUTPUT_SELECTOR)];
+}
+
+/**
+ * The outputs in `scroller` whose rows end well under a screen above its box: they read their
+ * heights at once, while a row a screen above takes its first answer from its first report.
+ */
+function outputsReadAtOnce(scroller: HTMLElement): Element[] {
+  const readsFromPx = scroller.getBoundingClientRect().top - FEED_HEIGHT_PX / 2;
+  return outputsIn(scroller).filter(
+    (output) =>
+      (output.closest(ROW_SELECTOR)?.getBoundingClientRect().bottom ?? readsFromPx) > readsFromPx,
+  );
+}
+
+/** One trace event of Chromium's main thread, as far as the count reads it. */
+interface TraceEvent {
+  readonly name: string;
+  readonly ph: string;
+  readonly args?: {
+    readonly beginData?: { readonly stackTrace?: readonly { readonly url: string }[] };
+    readonly data?: { readonly stackTrace?: readonly { readonly url: string }[] };
+  };
+}
+
+/**
+ * The style passes and layouts script in `moduleName` forced while `run` ran, read from a trace of
+ * the page: a pass the frame runs carries no script stack, and one script forced names it.
+ */
+async function forcedLayoutPassesOf(
+  moduleName: string,
+  run: () => Promise<void>,
+): Promise<{ readonly styleRecalcs: number; readonly layouts: number }> {
+  const session = cdp();
+  // The runner opens its protocol session on the first call; a listener added before that can
+  // land on a second session the trace never reports to.
+  await session.send("Tracing.getCategories");
+  // The trace is read back as a stream, whose handle the end announces.
+  const stream = new Promise<string>((resolve) => {
+    session.on("Tracing.tracingComplete", (payload) => {
+      resolve(payload.stream ?? expect.fail("the trace is returned as a stream"));
+    });
+  });
+  await session.send("Tracing.start", {
+    traceConfig: {
+      includedCategories: [
+        "devtools.timeline",
+        "disabled-by-default-devtools.timeline",
+        "disabled-by-default-devtools.timeline.stack",
+      ],
+    },
+    transferMode: "ReturnAsStream",
+  });
+  await run();
+  await session.send("Tracing.end");
+  const handle = await stream;
+  let text = "";
+  for (let isAtEnd = false; !isAtEnd; ) {
+    const chunk = await session.send("IO.read", { handle });
+    text += chunk.data;
+    isAtEnd = chunk.eof;
+  }
+  await session.send("IO.close", { handle });
+  const { traceEvents } = JSON.parse(text) as { readonly traceEvents: readonly TraceEvent[] };
+  const forcedBy = (name: string): number =>
+    traceEvents.filter(
+      (event) =>
+        event.name === name &&
+        event.ph === "X" &&
+        (event.args?.beginData?.stackTrace ?? event.args?.data?.stackTrace ?? []).some((frame) =>
+          frame.url.includes(moduleName),
+        ),
+    ).length;
+  return { styleRecalcs: forcedBy("UpdateLayoutTree"), layouts: forcedBy("Layout") };
+}
+
 describe("a call's output cut at the visible flow", () => {
   it("cuts at whole lines, paints none of the next, follows the text size, opens in place", async () => {
     const coloredOutput = Array.from(
@@ -210,7 +314,7 @@ describe("a call's output cut at the visible flow", () => {
       (_line, index) => `${ESCAPE}[32mok${ESCAPE}[39m line ${String(index + 1)}`,
     ).join("\n");
     const prepared = prepareOutputForTest(HELD_CALL_ROW_KEY, coloredOutput);
-    const { container } = renderInScroller(
+    const { container } = await renderInScroller(
       <PreparedAnsiOutputsContext value={prepared.outputs}>
         <div data-call="colored">
           <HeldToolOutput body={coloredOutput} />
@@ -267,7 +371,7 @@ describe("a call's output cut at the visible flow", () => {
     const runningOutput = (body: string): React.JSX.Element => (
       <HeldToolOutput body={body} liveText={publishedTextOf(body)} />
     );
-    const { container, rerender } = renderInScroller(runningOutput(firstOutput));
+    const { container, rerender } = await renderInScroller(runningOutput(firstOutput));
     await settleFrames();
     const box = drawnElement(container, ".meridian-machine-body__plain");
     const lastFirstLine = PRINTED_LINE_COUNT;
@@ -286,7 +390,7 @@ describe("a call's output cut at the visible flow", () => {
     expect(isLineSeen(box, PRINTED_LINE_COUNT + ARRIVING_LINE_COUNT)).toBe(true);
     expect(isLineSeen(box, lastFirstLine)).toBe(false);
     // Its rest is offered under the bytes arrived so far, never a line count.
-    expect(drawnElement(container, ".meridian-full-output").textContent).toBe(
+    expect(drawnElement(container, SHOW_ALL_SELECTOR).textContent).toBe(
       `Show full output (${formatByteQuantity(measureUtf8ByteLength(grownOutput)).text})`,
     );
   });
@@ -294,22 +398,60 @@ describe("a call's output cut at the visible flow", () => {
   it("knows an output runs past the cut in the commit that cuts it, but from its first report in a row a screen above the box", async () => {
     // In view, the commit that cuts the output draws `Show all` too, so no frame starts with the
     // cut drawn and `Show all` missing, which the conversation would measure the row without.
-    const inView = renderInScroller(
+    const inView = await renderInScroller(
       <HeldToolOutput body={printedLines(PRINTED_LINE_COUNT)} />,
       () => SCROLLER_HEIGHT_PX / 2,
     );
-    const inViewFrames = await act(async () => await recordCutFrames(inView.container, 6));
-    expect(inViewFrames.some((frame) => frame.isCut)).toBe(true);
-    expect(inViewFrames.filter((frame) => frame.isCut && !frame.hasShowAll)).toStrictEqual([]);
+    const inViewFrames = await act(
+      async () => await recordCutFrames(() => outputsIn(inView.container), 6),
+    );
+    expect(inViewFrames.some((frame) => frame.cutCount > 0)).toBe(true);
+    expect(inViewFrames.filter((frame) => frame.cutCount > frame.showAllCount)).toStrictEqual([]);
     cleanup();
 
     // A screen above the box, the first resize report answers it, inside the frame that cut it.
-    const above = renderInScroller(
+    const above = await renderInScroller(
       <HeldToolOutput body={printedLines(PRINTED_LINE_COUNT)} />,
       () => -SCROLLER_HEIGHT_PX,
     );
-    const aboveFrames = await act(async () => await recordCutFrames(above.container, 6));
-    expect(aboveFrames.some((frame) => frame.isCut && !frame.hasShowAll)).toBe(true);
-    expect(aboveFrames.at(-1)).toStrictEqual({ isCut: true, hasShowAll: true });
+    const aboveFrames = await act(
+      async () => await recordCutFrames(() => outputsIn(above.container), 6),
+    );
+    expect(aboveFrames.some((frame) => frame.cutCount > frame.showAllCount)).toBe(true);
+    expect(aboveFrames.at(-1)).toStrictEqual({ cutCount: 1, showAllCount: 1 });
+  });
+
+  it("reads the outputs one commit brings in together, each cut with `Show all` from its first frame", async () => {
+    const { scroller } = await mountTranscriptFeed(
+      openPagedSessionStore(0, FEED_OUTPUT_COUNT - 1, undefined, (index) =>
+        toolOutputEventAt(index, printedLines(PRINTED_LINE_COUNT)),
+      ),
+      undefined,
+      undefined,
+      undefined,
+      prepareTranscriptRow,
+    );
+    const drawnBefore = new Set(scroller.querySelectorAll(OUTPUT_SELECTOR));
+    let entered: Element[] = [];
+    let frames: CutFrame[] = [];
+    const forcedPasses = await forcedLayoutPassesOf(useOutputHeightCutModuleName, async () => {
+      // The reader leaves the tail and the offset jumps two screens toward the head, bringing a
+      // band of outputs in with one commit; the reads it arms run before the first frame.
+      act(() => {
+        scroller.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -FEED_HEIGHT_PX }));
+        scroller.scrollTop -= 2 * FEED_HEIGHT_PX;
+        fireEvent.scroll(scroller);
+      });
+      entered = [...scroller.querySelectorAll(OUTPUT_SELECTOR)].filter(
+        (output) => !drawnBefore.has(output),
+      );
+      frames = await act(async () => await recordCutFrames(() => outputsReadAtOnce(scroller), 6));
+    });
+
+    expect(entered.length).toBeGreaterThanOrEqual(MIN_OUTPUTS_IN_ONE_COMMIT);
+    // One style pass and one layout for the whole band, not one for each output.
+    expect(forcedPasses).toStrictEqual({ styleRecalcs: 1, layouts: 1 });
+    expect(frames[0]?.cutCount).toBeGreaterThan(0);
+    expect(frames.filter((frame) => frame.cutCount > frame.showAllCount)).toStrictEqual([]);
   });
 });

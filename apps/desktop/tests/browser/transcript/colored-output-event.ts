@@ -1,5 +1,5 @@
-// A finished tool call whose output is colored terminal text, for the suites that check how the
-// feed formats a command output before its row is drawn.
+// A finished tool call and its output, for the suites that check how the feed draws a command's
+// output: colored terminal text, which the feed formats before its row is drawn, or any text.
 
 import { CONTENT_LENGTH_PAYLOAD_KEY } from "@ai-sidekicks/contracts/event/declared-variants";
 
@@ -20,7 +20,11 @@ export function coloredOutputEventAt(index: number, length: number): ProjectedSe
     lines.push(text);
     total += text.length + 1;
   }
-  const body = lines.join("\n").slice(0, length);
+  return toolOutputEventAt(index, lines.join("\n").slice(0, length));
+}
+
+/** The paged log's event at `index`: a finished call whose output is `body`. */
+export function toolOutputEventAt(index: number, body: string): ProjectedSessionEvent {
   return {
     ...pagedSessionEventAt(index),
     kind: "tool.result",
