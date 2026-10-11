@@ -13,9 +13,9 @@
 // content, in milliseconds, whose 95th percentile may pass one refresh by 1 ms. The share of the
 // frames that moved the content that Chromium judged janky. The frames drawn with content not yet
 // rastered. And how soon each fling first moved the content, against a plain page flung the same
-// way afterwards in the same window: the conversation's markup and the app's sheets replaced by
-// static paragraphs, with nothing streaming. The window's own listeners stay, so the difference
-// is what the conversation costs.
+// way afterwards in the same window: the app's sheets removed and its markup hidden under static
+// paragraphs, with nothing streaming. The window's own listeners stay, so the difference is what
+// the conversation costs.
 //
 // All four depend on how fast the machine draws, rasters and delivers input, so they gate on the
 // pinned runner class (`../pinned-runner-class.ts`) and are printed everywhere else, as the other
@@ -388,9 +388,11 @@ async function flingUpward(
 }
 
 /**
- * Replaces the window's markup and sheets with a static page of paragraphs and code taller than
- * `requiredTravelPx` past one screen, scrolled to its end as the conversation starts at its tail,
- * and returns the point over its middle.
+ * Removes the window's sheets, hides its markup and draws a static page of paragraphs and code
+ * taller than `requiredTravelPx` past one screen, scrolled to its end as the conversation starts at
+ * its tail, and returns the point over its middle. The app's nodes stay in the document, hidden:
+ * the app still renders into them once its observers see them hidden, and a node it had drawn
+ * that is gone fails that render and closes the window.
  */
 async function showPlainPage(
   appUnderTest: AppUnderTest,
@@ -412,7 +414,10 @@ async function showPlainPage(
         font: "15px/1.5 system-ui, sans-serif",
         padding: "0 24px",
       });
-      document.body.replaceChildren(page);
+      for (const child of document.body.children) {
+        (child as HTMLElement).style.display = "none";
+      }
+      document.body.append(page);
       let blockIndex = 0;
       while (page.scrollHeight < travelPx + 2 * page.clientHeight) {
         for (let index = 0; index < batch; index += 1, blockIndex += 1) {
