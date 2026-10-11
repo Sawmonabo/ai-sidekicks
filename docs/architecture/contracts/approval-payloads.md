@@ -65,7 +65,8 @@ interface ApprovalRequestedPayload {
   scope: string;
   requestedBy: string; // recorded requester actor (the agent's actor id, or the device a person's request came from, Spec-010 §Required Behavior)
   resourceDescriptor: Record<string, unknown>; // audit-grade target (Spec-010 §Interfaces And Contracts); on a provider permission ask it also holds the ask's tool name and the provider's own prompt text, where sent
-  askId?: string; // present when the request originates from a provider permission ask (Claude Code's can_use_tool for any tool but its question tool, or a Codex approval request), which it records once: the daemon's own id for the ask, a ULID (the provider's request id is delivery routing state, never this id), persisted at creation as the durable ask↔approval association — a restart's rebuild reconstructs which native ask an outcome must answer when several asks are in flight on one run, so the answer reaches the provider across a restart; its presence is required at the CP-009-5 normalizer emission seam (T2.8 — the sole requester a provider ask originates), since the schema cannot know whether a request came from a provider ask; set only by the daemon's in-process create from a provider ask, and never supplied by a client; persisted on the approval_requests projection row (ask_id — local-sqlite-schema.md §Approval Tables)
+  askId?: string; // present when the request originates from a provider permission ask (Claude Code's can_use_tool for any tool but its question tool, or a Codex approval request), which it records once: the daemon's own id for the ask, a UUIDv7 (the provider's request id is delivery routing state, never this id), persisted at creation as the durable ask↔approval association — a restart's rebuild reconstructs which native ask an outcome must answer when several asks are in flight on one run, so the answer reaches the provider across a restart; its presence is required at the CP-009-5 normalizer emission seam (T2.8 — the sole requester a provider ask originates), since the schema cannot know whether a request came from a provider ask; set only by the daemon's in-process create from a provider ask, and never supplied by a client; persisted on the approval_requests projection row (ask_id — local-sqlite-schema.md §Approval Tables)
+  toolCallId?: string; // present when the ask holds a tool call: that call's id, Claude Code's `tool_use_id` on `can_use_tool` or Codex's `itemId` on its approval request, the same id the call's Tool Activity rows carry as `payload.toolCallId` (Spec-005 §Tool Activity), so that row draws its held mark and `Declined`; bounded as those rows bound it
 }
 // approval.approved and approval.rejected
 interface ApprovalResolvedPayload {
@@ -149,8 +150,9 @@ interface ApprovalReviewerDeniedPayload {
   // The event of the blocked call, whose row carries the reason line and the button.
   eventId: string;
   // The reviewer's reason in the provider's own words: Claude Code's denial reason, such as
-  // `[Data Exfiltration]`; Codex's review rationale.
-  reason: string;
+  // `[Data Exfiltration]`; Codex's review rationale. Absent where the reviewer gave none, and the
+  // row then reads `Blocked` alone.
+  reason?: string;
   // False where the provider lets no person overrule the block — Claude Code's block without a
   // classifier verdict, and Codex's review that timed out — and the row then carries no button.
   overridable: boolean;
@@ -208,15 +210,15 @@ interface PermissionCheckResponse {
   allowed: boolean;
   reason: "policy_allow" | "remembered_rule" | "approved" | "pending_approval" | "denied";
   // D-009-17 semantics: policy_allow = a built-in permit with no human approval artifact — plain
-  // code answering a provider's ask, Cedar for the app's own tools (Spec-010 §Required Behavior);
-  // remembered_rule = the session's own answers carry an allow on this subject that the daemon
-  // answers for a provider with no verb of its own (a Codex session allow after a restart);
+  // code answering a provider's ask, Cedar only for the workflow actions (Spec-010 §Required
+  // Behavior); remembered_rule = the session's own answers carry an allow on this subject that the
+  // daemon answers for a provider with no verb of its own (a Codex session allow after a restart);
   // approved = a recorded approved resolution covers this exact request; pending_approval = request
   // created/open (allowed=false); denied = a built-in refusal (plain code on a provider's ask, a
-  // Cedar forbid on the app's own tools), a rejected
-  // resolution, a host the session blocked on Codex, which has no session block of its own, or
-  // fail-closed refusal (the typed `approval.persistence_unavailable`
-  // error additionally surfaces on fail-closed paths so audit can distinguish them).
+  // Cedar forbid, only ever on a workflow action), a rejected resolution, a host the session
+  // blocked on Codex, which has no session block of its own, or fail-closed refusal (the typed
+  // `approval.persistence_unavailable` error additionally surfaces on fail-closed paths so audit
+  // can distinguish them).
   // Invariants: allowed === (reason ∈ {policy_allow, remembered_rule, approved});
   approvalRequestId?: ApprovalRequestId; // present iff reason = 'pending_approval': the one request
   // the ask opened, which the first answer from any device settles.

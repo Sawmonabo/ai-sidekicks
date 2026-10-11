@@ -38,7 +38,11 @@ async function sessionHoldingItsFirstConversation(harness: Harness): Promise<() 
     },
   }));
   await createdSession(harness);
-  await harness.driver.updatePermissionLevel({ sessionId: SESSION_ID, level: "yolo" });
+  await harness.driver.updatePermissionLevel({
+    sessionId: SESSION_ID,
+    level: "yolo",
+    writableRoots: [],
+  });
   await drainMicrotasks();
   return () => {
     isCommandRunning = false;

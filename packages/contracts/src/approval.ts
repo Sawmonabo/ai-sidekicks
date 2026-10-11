@@ -15,6 +15,7 @@
 // below, and an import back would close an eager module cycle.
 import { z } from "zod";
 
+import { EVENT_FIELD_MAX_LEN } from "./event/version.js";
 import { FILE_PATH_MAX_LEN, wireFreeFormString } from "./free-form-string.js";
 import { brandedUuidIdSchema, uuidTextFormSchema } from "./internal/branded.js";
 import { isoDateTimeSchema } from "./internal/wire-scalars.js";
@@ -119,6 +120,26 @@ export type RememberedRuleSense = "allow" | "block";
 export const RememberedRuleSenseSchema: z.ZodType<RememberedRuleSense, RememberedRuleSense> =
   z.enum(["allow", "block"]);
 
+/**
+ * Why `approval.resolution_invalid` refused an answer, its `reason`: a block on an ask that is not
+ * a network request, a rule the ask does not offer, a rule over other words than the subject the
+ * card named, a scope other than the one asked, a correction on an ask whose command or path
+ * cannot be corrected, or a correction and a rule together.
+ */
+export type ApprovalResolutionInvalidReason =
+  | "block_outside_network_access"
+  | "rule_not_offered"
+  | "subject_mismatch"
+  | "effective_scope_broader"
+  | "edit_not_offered"
+  | "edit_with_rule";
+
+/**
+ * Why `approval.request_canceled` refused a create, its `reason`: the run ended or the session
+ * closed.
+ */
+export type ApprovalLateCreateReason = "run_ended" | "session_closed";
+
 const INVALIDATION_TRIGGER_VALUES = ["explicit", "session_end", "server_removed"] as const;
 
 /**
@@ -152,7 +173,7 @@ export const RememberedScopeSchema: z.ZodType<RememberedScope, RememberedScope> 
   .strict();
 
 /** The sense a decision mints: an approval allows, a decline blocks. */
-const SENSE_BY_DECISION: Readonly<Record<ApprovalDecision, RememberedRuleSense>> = {
+export const SENSE_BY_DECISION: Readonly<Record<ApprovalDecision, RememberedRuleSense>> = {
   approved: "allow",
   rejected: "block",
 };
@@ -481,7 +502,9 @@ export const ApprovalDenialOverrideResponseSchema: z.ZodType<ApprovalDenialOverr
  * `approval.requested`. `askId` is present when the request is a provider's
  * permission ask: the daemon's own durable id for the ask, which it mints and no
  * client can, so an answer reaches the right ask after a restart when several are
- * open on one run. The ask's tool name and the provider's prompt text ride
+ * open on one run. `toolCallId` names the tool call the ask holds, Claude Code's
+ * `tool_use_id` or Codex's `itemId`, so that call's row draws its held mark and
+ * `Declined`. The ask's tool name and the provider's prompt text ride
  * `resourceDescriptor`.
  */
 export type ApprovalRequestedPayload = {
@@ -493,6 +516,7 @@ export type ApprovalRequestedPayload = {
   requestedBy: string;
   resourceDescriptor: Record<string, unknown>;
   askId?: string | undefined;
+  toolCallId?: string | undefined;
 };
 /** Parses an {@link ApprovalRequestedPayload}. */
 export const ApprovalRequestedPayloadSchema: z.ZodType<ApprovalRequestedPayload> = z
@@ -505,6 +529,11 @@ export const ApprovalRequestedPayloadSchema: z.ZodType<ApprovalRequestedPayload>
     requestedBy: z.string().min(1),
     resourceDescriptor: z.record(z.string(), z.unknown()),
     askId: z.string().min(1).optional(),
+    // Bounded as the tool rows bound it, so no id accepted here is one a tool row refuses.
+    toolCallId: wireFreeFormString(
+      EVENT_FIELD_MAX_LEN,
+      "ApprovalRequestedPayload.toolCallId",
+    ).optional(),
   })
   .strict();
 
@@ -611,10 +640,12 @@ export const ApprovalRuleRevokedPayloadSchema: z.ZodType<ApprovalRuleRevokedPayl
 
 /**
  * `approval.reviewer_denied`: a provider's own reviewer blocked an action. The
- * provider's denial is kept in the row's content part, which is what lets the
- * override hold across a restart. `eventId` names the blocked call's own row,
- * whose reason line reads `Blocked · <reason>`. `overridable` is false where the
- * provider lets no person overrule the block, and no `Allow once` is drawn.
+ * provider's denial is the row's content part, and the daemon also keeps it whole
+ * beside the row, which is what lets the override hold across a restart. `eventId`
+ * names the blocked call's own row, whose reason line reads `Blocked · <reason>`, or
+ * `Blocked` alone where the reviewer gave no reason and `reason` is absent.
+ * `overridable` is false where the provider lets no person overrule the block, and
+ * no `Allow once` is drawn.
  */
 export type ApprovalReviewerDeniedPayload = {
   sessionId: SessionId;
@@ -622,7 +653,7 @@ export type ApprovalReviewerDeniedPayload = {
   agentId: string;
   denialId: ReviewerDenialId;
   eventId: string;
-  reason: string;
+  reason?: string | undefined;
   overridable: boolean;
 };
 /** Parses an {@link ApprovalReviewerDeniedPayload}. */
@@ -633,7 +664,7 @@ export const ApprovalReviewerDeniedPayloadSchema: z.ZodType<ApprovalReviewerDeni
     agentId: uuidTextFormSchema,
     denialId: ReviewerDenialIdSchema,
     eventId: z.string().min(1),
-    reason: z.string().min(1),
+    reason: z.string().min(1).optional(),
     overridable: z.boolean(),
   })
   .strict();
@@ -679,11 +710,7 @@ export interface ApprovalMethodDescriptors {
   >;
 }
 
-/**
- * The `approval.*` descriptor table.
- *
- * @consumedBy the daemon's `approval.*` handlers
- */
+/** The `approval.*` descriptor table. */
 export const APPROVAL_METHOD_DESCRIPTORS: ApprovalMethodDescriptors = defineMethodDescriptors({
   "approval.resolve": {
     method: "approval.resolve",

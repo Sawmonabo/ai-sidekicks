@@ -207,7 +207,15 @@ describe("a fork's conversation across a daemon restart", () => {
       }
       await expect(
         afterRestart.driver.resumeSession(
-          composeResumeSessionParams(SESSION_ID, stored, TEST_MODEL, LARGER_WINDOW, "build", {}),
+          composeResumeSessionParams(
+            SESSION_ID,
+            stored,
+            TEST_MODEL,
+            LARGER_WINDOW,
+            "build",
+            { ...TEST_POSTURE, mode: "yolo" },
+            {},
+          ),
         ),
       ).resolves.toMatchObject({ status: "resumed", resumeHandle: "thread-after-restart" });
 
@@ -223,7 +231,11 @@ describe("a fork's conversation across a daemon restart", () => {
       const harness = createHarness({ rebindRuntimeBinding });
       await createdSession(harness);
       answerTurnStarts(harness);
-      await harness.driver.updatePermissionLevel({ sessionId: SESSION_ID, level: "yolo" });
+      await harness.driver.updatePermissionLevel({
+        sessionId: SESSION_ID,
+        level: "yolo",
+        writableRoots: [],
+      });
       await drainMicrotasks();
 
       await harness.driver.startRun({
@@ -245,7 +257,11 @@ describe("a level move that changes config `thread/settings/update` cannot carry
     const harness = createHarness();
     await createdSession(harness);
 
-    await harness.driver.updatePermissionLevel({ sessionId: SESSION_ID, level: "yolo" });
+    await harness.driver.updatePermissionLevel({
+      sessionId: SESSION_ID,
+      level: "yolo",
+      writableRoots: [],
+    });
     await drainMicrotasks();
 
     const forks = harness.server.paramsFor("thread/fork");
@@ -264,7 +280,11 @@ describe("a level move that changes config `thread/settings/update` cannot carry
     answerTurnStarts(harness);
     await startRunOnWindow(harness, RUN_ID);
 
-    await harness.driver.updatePermissionLevel({ sessionId: SESSION_ID, level: "yolo" });
+    await harness.driver.updatePermissionLevel({
+      sessionId: SESSION_ID,
+      level: "yolo",
+      writableRoots: [],
+    });
     await drainMicrotasks();
     expect(harness.server.framesForMethod("thread/fork")).toHaveLength(0);
 
@@ -280,7 +300,11 @@ describe("a level move that changes config `thread/settings/update` cannot carry
     await createdSession(harness);
     answerTurnStarts(harness);
     const releaseFork = harness.server.holdAnswers("thread/fork");
-    await harness.driver.updatePermissionLevel({ sessionId: SESSION_ID, level: "yolo" });
+    await harness.driver.updatePermissionLevel({
+      sessionId: SESSION_ID,
+      level: "yolo",
+      writableRoots: [],
+    });
     await drainMicrotasks();
 
     const starting = startRunOnWindow(harness, RUN_ID);
@@ -306,7 +330,11 @@ describe("the conversation a fork leaves", () => {
     harness.server.emitFrame(turnCompletedFrame("turn-1", "completed"));
     await drainMicrotasks();
 
-    await harness.driver.updatePermissionLevel({ sessionId: SESSION_ID, level: "yolo" });
+    await harness.driver.updatePermissionLevel({
+      sessionId: SESSION_ID,
+      level: "yolo",
+      writableRoots: [],
+    });
     await drainMicrotasks();
     expect(harness.server.paramsFor("thread/backgroundTerminals/list")).toStrictEqual([
       { threadId: THREAD_ID },
@@ -341,7 +369,11 @@ describe("the conversation a fork leaves", () => {
     });
     harness.server.on("thread/backgroundTerminals/list", () => listAnswer());
 
-    await harness.driver.updatePermissionLevel({ sessionId: SESSION_ID, level: "yolo" });
+    await harness.driver.updatePermissionLevel({
+      sessionId: SESSION_ID,
+      level: "yolo",
+      writableRoots: [],
+    });
     await drainMicrotasks();
     expect(harness.server.framesForMethod("thread/unsubscribe")).toHaveLength(0);
 
@@ -365,8 +397,16 @@ describe("config changes around a turn", () => {
     answerTurnStarts(harness);
     await startRunOnWindow(harness, RUN_ID);
 
-    await harness.driver.updatePermissionLevel({ sessionId: SESSION_ID, level: "readonly" });
-    await harness.driver.updatePermissionLevel({ sessionId: SESSION_ID, level: "yolo" });
+    await harness.driver.updatePermissionLevel({
+      sessionId: SESSION_ID,
+      level: "readonly",
+      writableRoots: [],
+    });
+    await harness.driver.updatePermissionLevel({
+      sessionId: SESSION_ID,
+      level: "yolo",
+      writableRoots: [],
+    });
     harness.server.emitFrame(turnCompletedFrame("turn-1", "completed"));
     await drainMicrotasks();
 
@@ -389,7 +429,11 @@ describe("config changes around a turn", () => {
     const releaseStarts = harness.server.holdAnswers("turn/start");
     const refused = startRunOnWindow(harness, RUN_ID);
     await drainMicrotasks();
-    await harness.driver.updatePermissionLevel({ sessionId: SESSION_ID, level: "yolo" });
+    await harness.driver.updatePermissionLevel({
+      sessionId: SESSION_ID,
+      level: "yolo",
+      writableRoots: [],
+    });
     const waiting = startRunOnWindow(harness, SECOND_RUN_ID);
     await drainMicrotasks();
     expect(harness.server.framesForMethod("thread/fork")).toHaveLength(0);
@@ -421,7 +465,11 @@ describe("a turn on the session's larger window", () => {
     // A later fork still carries the larger window.
     harness.server.emitFrame(turnCompletedFrame("turn-1", "completed"));
     await drainMicrotasks();
-    await harness.driver.updatePermissionLevel({ sessionId: SESSION_ID, level: "yolo" });
+    await harness.driver.updatePermissionLevel({
+      sessionId: SESSION_ID,
+      level: "yolo",
+      writableRoots: [],
+    });
     await drainMicrotasks();
     expect(sentContextWindow(harness, "thread/fork")).toBe(LARGER_WINDOW);
   });

@@ -1,5 +1,5 @@
-// The session controls the session's provider driver carries out: the Build or Plan mode, the side
-// question, the provider's own review, and the live `/` list.
+// The session controls the session's provider driver carries out: the permission level, the Build
+// or Plan mode, the side question, the provider's own review, and the live `/` list.
 //
 // - The registry parses each request against its descriptor's schema before the handler runs, and
 //   the streaming primitive parses every emitted list against the descriptor's emission schema.
@@ -7,6 +7,9 @@
 //   node does not hold is refused `session.not_found` before any driver is looked up.
 // - The `/` list is gated on `provider_commands` before its subscription is allocated, so a
 //   refusal leaves nothing behind.
+// - A level is moved at the provider first where the session's process is open, and stored once
+//   the provider took it, so the record never names a level the provider refused; a session not
+//   open yet starts at the stored level. The move takes the lock the session's opening takes.
 
 import type { Handler, MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import type { SubscribeAckResponse } from "@ai-sidekicks/contracts/jsonrpc/streaming";
@@ -25,6 +28,7 @@ import {
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import type { ProviderDriver } from "../../../provider/driver/contract.js";
+import type { ProviderSessions } from "../../../queue/provider-session.js";
 import type { ProviderRegistry } from "../../../provider/driver/registry.js";
 import { mintUuidV7 } from "../../../uuid-v7.js";
 import type { StreamingPrimitive } from "../../streaming-primitive.js";
@@ -40,19 +44,38 @@ export interface SessionControlHandlerDeps extends SessionDriverDeps {
   readonly streamingPrimitive: StreamingPrimitive;
   /** Stores the mode the provider took, which a restart resumes in. */
   readonly recordSessionMode: (sessionId: SessionId, mode: SessionMode) => Promise<void>;
+  /** The sessions whose process this daemon opened, which store and move each one's level. */
+  readonly providerSessions: Pick<ProviderSessions, "changeLevel">;
 }
 
 /**
- * Binds `session.modeUpdate`, `session.sideQuestionAsk`, `session.reviewStart` and
- * `session.providerCommandsSubscribe` onto the registry. A session this node does not hold is
- * refused `session.not_found`, a driver this node has not loaded `driver.unavailable`, and a `/`
- * list on a driver without `provider_commands` `driver.capability_unsupported`; a second binding
- * on one registry throws.
+ * Binds `session.permissionLevelUpdate`, `session.modeUpdate`, `session.sideQuestionAsk`,
+ * `session.reviewStart` and `session.providerCommandsSubscribe` onto the registry. A session this
+ * node does not hold is refused `session.not_found`, a driver this node has not loaded
+ * `driver.unavailable`, a level the session's provider cannot run
+ * `session.permission_level_unavailable`, and a `/` list on a driver without `provider_commands`
+ * `driver.capability_unsupported`; a second binding on one registry throws.
  */
 export function registerSessionControlMethods(
   registry: MethodRegistry,
   deps: SessionControlHandlerDeps,
 ): void {
+  registerDescribedMethod(
+    registry,
+    SESSION_CONTROL_METHOD_DESCRIPTORS["session.permissionLevelUpdate"],
+    async ({ sessionId, level }) => {
+      const { driver } = resolveDriverForSessionOrThrow(deps, sessionId);
+      await deps.providerSessions.changeLevel(sessionId, level, async (posture) => {
+        await driver.updatePermissionLevel({
+          sessionId,
+          level: posture.mode,
+          writableRoots: posture.writableRoots,
+        });
+      });
+      return { sessionId, level };
+    },
+  );
+
   registerDescribedMethod(
     registry,
     SESSION_CONTROL_METHOD_DESCRIPTORS["session.modeUpdate"],

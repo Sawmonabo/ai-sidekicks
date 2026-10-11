@@ -99,7 +99,11 @@ describe("two starts on one binding", () => {
     harness.server.emitFrame(turnCompletedFrame("turn-2", "completed"));
     await drainMicrotasks();
     // A level move forks the idle conversation onto the session's own binding.
-    await harness.driver.updatePermissionLevel({ sessionId: SESSION_ID, level: "yolo" });
+    await harness.driver.updatePermissionLevel({
+      sessionId: SESSION_ID,
+      level: "yolo",
+      writableRoots: [],
+    });
     await drainMicrotasks();
 
     expect(rebinds.map((rebind) => rebind.bindingId)).toStrictEqual(["binding-abc"]);
@@ -153,7 +157,11 @@ describe("a turn the daemon stopped, until Codex ends it", () => {
         harness.driver.startReview({ sessionId: SESSION_ID, target: "workingTree" }),
       ).rejects.toMatchObject({ fields: { reason: "session_turn_in_flight" } });
       expect(harness.server.framesForMethod("review/start")).toHaveLength(0);
-      await harness.driver.updatePermissionLevel({ sessionId: SESSION_ID, level: "yolo" });
+      await harness.driver.updatePermissionLevel({
+        sessionId: SESSION_ID,
+        level: "yolo",
+        writableRoots: [],
+      });
       await drainMicrotasks();
       expect(harness.server.framesForMethod("thread/fork")).toHaveLength(0);
 

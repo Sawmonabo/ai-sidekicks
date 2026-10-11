@@ -4,7 +4,11 @@
 // once, and a late or second answer finds nothing pending; a refusal names the rows it retracts by
 // their event ids, and a message that cancels it starts the session's next turn as its own run;
 // a rewound session keeps its helper limit, holding a start past it until the turn ends; a plan
-// asking to leave plan mode is recorded from the ask's own text while the ask stays held.
+// asking to leave plan mode is recorded from the ask's own text while the ask stays held; an ask
+// Claude Code flagged as one no standing allow may answer offers no rule; an answer goes back with
+// the person's correction, decline reason or session rule, the call answered even when the rule
+// could not be kept; and a shell call that starts background Claude Code is refused at the pre-tool
+// hook.
 
 import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import { describe, expect, it, vi } from "vitest";
@@ -94,6 +98,7 @@ function emitBashAsk(
   channel: FakeClaudeProviderProcess,
   requestId: string,
   decisionReasonType: string,
+  flags: Record<string, unknown> = {},
 ): void {
   channel.emitInboundRequest({
     kind: "request",
@@ -107,6 +112,7 @@ function emitBashAsk(
         tool_use_id: `toolu_${requestId}`,
         decision_reason_type: decisionReasonType,
         title: "Claude wants to run rm -rf build",
+        ...flags,
       },
     },
   });
@@ -140,8 +146,12 @@ describe("ClaudeSessionLifecycle requests at Reviewed", () => {
           sessionId: TEST_SESSION_ID,
           runId: TEST_RUN_ID,
           requestId: "ask-safety",
+          toolCallId: "toolu_ask-safety",
           toolName: "Bash",
           input: REMOVAL,
+          action: { kind: "command", command: "rm -rf build" },
+          ruleScopes: ["session", "project"],
+          isProviderFlagged: false,
           prompt: "Claude wants to run rm -rf build",
         },
       ]);
@@ -369,5 +379,151 @@ describe("ClaudeSessionLifecycle plan exit", () => {
       },
     ]);
     expect(channel.answeredRequests).toStrictEqual([]);
+  });
+});
+
+describe("ClaudeSessionLifecycle flagged asks", () => {
+  it("offers no rule on an ask Claude Code flagged as one no standing allow may answer", async () => {
+    const harness = buildHarness();
+    const { channel, asks } = await startReviewedRun(harness);
+
+    emitBashAsk(channel, "ask-flagged", "safetyCheck", {
+      suppress_always_allow_rule: true,
+      permission_suggestions: [],
+    });
+
+    await vi.waitFor(() => {
+      expect(asks).toMatchObject([{ isProviderFlagged: true, ruleScopes: [] }]);
+    });
+  });
+});
+
+describe("ClaudeSessionLifecycle ask answers", () => {
+  it("hands back a correction, a decline's reason, and a session rule with the rules resent", async () => {
+    const harness = buildHarness();
+    const removalRule = {
+      kind: "session",
+      sense: "allow",
+      action: "command",
+      subject: "rm",
+    } as const;
+    harness.dependencies.sessionRules.register({
+      readSessionRules: () => [removalRule],
+      findRevokedRule: () => undefined,
+    });
+    const { channel, asks } = await startReviewedRun(harness);
+    for (const requestId of ["ask-edit", "ask-decline", "ask-rule"]) {
+      emitBashAsk(channel, requestId, "safetyCheck");
+    }
+    await vi.waitFor(() => {
+      expect(asks).toHaveLength(3);
+    });
+    const answer = async (requestId: string, response: unknown): Promise<void> => {
+      await harness.lifecycle.respondToRequest({ runId: TEST_RUN_ID, requestId, response });
+    };
+
+    await answer("ask-edit", { decision: "allow", editedAction: "rm -rf build/cache" });
+    await answer("ask-decline", { decision: "refuse", reason: "Keep the build folder." });
+    const sentBefore = channel.controlRequests.length;
+    await answer("ask-rule", {
+      decision: "allow",
+      madeRule: { rule: removalRule, projectFolders: [] },
+    });
+
+    expect(channel.answeredRequests).toStrictEqual([
+      {
+        requestId: "ask-edit",
+        response: { behavior: "allow", updatedInput: { command: "rm -rf build/cache" } },
+      },
+      {
+        requestId: "ask-decline",
+        response: { behavior: "deny", message: "Keep the build folder." },
+      },
+      { requestId: "ask-rule", response: { behavior: "allow", updatedInput: REMOVAL } },
+    ]);
+    // The session's rules, the new one among them, went to the process with the answer.
+    expect(channel.controlRequests.slice(sentBefore)).toMatchObject([
+      {
+        subtype: "apply_flag_settings",
+        settings: { permissions: { allow: expect.arrayContaining(["Bash(rm)", "Bash(rm *)"]) } },
+      },
+    ]);
+  });
+});
+
+describe("ClaudeSessionLifecycle rule not kept", () => {
+  it("answers the call first, then says the rule its process refused was not kept", async () => {
+    const harness = buildHarness();
+    harness.dependencies.sessionRules.register({
+      readSessionRules: () => [],
+      findRevokedRule: () => undefined,
+    });
+    const { channel, asks } = await startReviewedRun(harness);
+    emitBashAsk(channel, "ask-rule", "safetyCheck");
+    await vi.waitFor(() => {
+      expect(asks).toHaveLength(1);
+    });
+    channel.controlResponseBySubtype.set("apply_flag_settings", {
+      subtype: "error",
+      error: "settings are read-only",
+    });
+
+    await expect(
+      harness.lifecycle.respondToRequest({
+        runId: TEST_RUN_ID,
+        requestId: "ask-rule",
+        response: {
+          decision: "allow",
+          madeRule: {
+            rule: { kind: "session", sense: "allow", action: "command", subject: "rm" },
+            projectFolders: [],
+          },
+        },
+      }),
+    ).rejects.toMatchObject({ name: "ProviderRuleNotKeptError" });
+
+    expect(channel.answeredRequests).toStrictEqual([
+      { requestId: "ask-rule", response: { behavior: "allow", updatedInput: REMOVAL } },
+    ]);
+  });
+});
+
+describe("ClaudeSessionLifecycle background Claude Code", () => {
+  it("refuses a shell call that starts background Claude Code at its pre-tool hook, at YOLO", async () => {
+    const harness = buildHarness();
+    const channel = await createLiveSession(harness, {
+      executionPosture: { ...REVIEWED_POSTURE, mode: "yolo" },
+    });
+    const emitShellCall = (requestId: string, command: string): void => {
+      channel.emitInboundRequest({
+        kind: "request",
+        request: {
+          requestId,
+          subtype: "hook_callback",
+          request: {
+            subtype: "hook_callback",
+            callback_id: "sidekicks-background-claude",
+            tool_use_id: `toolu_${requestId}`,
+            input: { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command } },
+          },
+        },
+      });
+    };
+
+    emitShellCall("hook-bg", "FOO=1 bash -lc 'claude daemon start'");
+    emitShellCall("hook-plain", "npm test");
+
+    await vi.waitFor(() => {
+      expect(channel.answeredRequests).toHaveLength(2);
+    });
+    expect(channel.answeredRequests).toMatchObject([
+      {
+        requestId: "hook-bg",
+        response: {
+          hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny" },
+        },
+      },
+      { requestId: "hook-plain", response: {} },
+    ]);
   });
 });

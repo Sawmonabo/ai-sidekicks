@@ -29,7 +29,7 @@ interface ClaudeBlockReport {
   readonly sessionId: SessionId;
   readonly runId: RunId;
   readonly toolCallId: string;
-  readonly reason: string;
+  readonly reason?: string | undefined;
   readonly overridable: boolean;
   readonly providerDenial: ClaudeProviderDenial;
 }
@@ -54,7 +54,7 @@ export function readClaudeHookDenial(
   }
   return {
     toolCallId,
-    reason: sanitizeFailureDetail(readNonEmptyString(input, "reason") ?? ""),
+    ...readReason(readNonEmptyString(input, "reason")),
     overridable: true,
     providerDenial: {
       tool_name: toolName,
@@ -89,7 +89,7 @@ export function readClaudeResultDenials(
     return [
       {
         toolCallId,
-        reason: sanitizeFailureDetail(reasonFor(toolCallId) ?? ""),
+        ...readReason(reasonFor(toolCallId)),
         overridable: false,
         providerDenial: {
           tool_name: toolName,
@@ -99,6 +99,14 @@ export function readClaudeResultDenials(
       },
     ];
   });
+}
+
+// The reviewer's words, made safe to show; none where Claude Code sent none, so the row reads
+// `Blocked` alone rather than a stand-in sentence.
+function readReason(reason: string | undefined): { readonly reason?: string } {
+  return reason === undefined || reason.trim() === ""
+    ? {}
+    : { reason: sanitizeFailureDetail(reason) };
 }
 
 /**

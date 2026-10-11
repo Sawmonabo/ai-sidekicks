@@ -71,6 +71,7 @@ import type {
   ProviderBuildChange,
   ProviderCommandsListener,
   PurgeSessionParams,
+  RevokeRuleParams,
   StartReviewParams,
   SessionCommandAnswer,
   SubscribeProviderCommandsParams,
@@ -125,6 +126,10 @@ export interface ProviderDriver {
   // Not gated and required of every driver: moves the live session to another permission level
   // from its next request, never by relaunch.
   updatePermissionLevel(params: UpdatePermissionLevelParams): Promise<void>;
+  // Not gated and required of every driver: takes a revoked rule out of force where its provider
+  // keeps it, before it resolves; a session that is not live has nothing to drop until it opens,
+  // when it reads its rules again.
+  revokeRule(params: RevokeRuleParams): Promise<void>;
   // Gated on `resume`. Starts a session whose provider process ended and stayed down, and resumes
   // it as `resumeSession` does; where one process serves several sessions, it restarts that
   // process and resumes every conversation it held.

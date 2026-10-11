@@ -30,6 +30,8 @@ export interface CodexHookInput {
   readonly toolName: string | undefined;
   readonly toolUseId: string | undefined;
   readonly toolInput: unknown;
+  /** The folder the call runs in, which a patch's relative file paths are read against. */
+  readonly cwd: string | undefined;
 }
 
 /**
@@ -337,5 +339,6 @@ function readCodexHookInput(message: unknown): CodexHookInput {
     toolName: readNonEmptyString(input, "tool_name"),
     toolUseId: readNonEmptyString(input, "tool_use_id"),
     toolInput: input["tool_input"],
+    cwd: readNonEmptyString(input, "cwd"),
   };
 }

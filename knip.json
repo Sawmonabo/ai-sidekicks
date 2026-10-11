@@ -286,8 +286,6 @@
         // The sandbox a workflow code step, and a person's own tool server at Sandboxed, runs in on
         // Claude Code.
         "@anthropic-ai/sandbox-runtime",
-        // The approval policy engine that judges each action against the built-in rules.
-        "@cedar-policy/cedar-wasm",
         // Laying out a workflow an agent wrote with no layout of its own.
         "@dagrejs/dagre",
         // Sealing a push notice to a linked device's push key.
@@ -335,7 +333,10 @@
         // reads above.
         "src/workflow/definitions/versions/difference.ts",
         // A step's input, output or log read, served by the workflow step read handler.
-        "src/workflow/runs/step-payload.ts"
+        "src/workflow/runs/step-payload.ts",
+        // The permission check's request and answer, read by the permission check every sensitive
+        // action passes.
+        "src/policy/permission-check.ts"
       ]
     }
   }

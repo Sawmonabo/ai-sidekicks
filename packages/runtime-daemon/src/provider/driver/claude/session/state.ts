@@ -14,6 +14,7 @@ import type { RunInboundDispatch } from "../../../../session/run/inbound.js";
 import type { PermissionAskPort } from "../../../port/permission-ask.js";
 import type { QuestionPort } from "../../../port/question.js";
 import type { PortRegistration } from "../../../port/registration.js";
+import type { SessionRulePort } from "../../../port/session-rules.js";
 import type { ReviewerDenialPort } from "../../../port/reviewer-denial.js";
 import type { RuntimeBindingRebind } from "../../../runtime-binding-store.js";
 import type { DriverDiagnosticsEmitter } from "../../diagnostics.js";
@@ -252,6 +253,8 @@ export interface ClaudeSessionLifecycleDependencies {
   readonly questions: PortRegistration<QuestionPort>;
   /** The approval service's intake of the blocks Claude Code's reviewer made at Reviewed. */
   readonly reviewerDenials: PortRegistration<ReviewerDenialPort>;
+  /** The session's own standing rules, which every spawn and every permissions resend carries. */
+  readonly sessionRules: PortRegistration<SessionRulePort>;
   /** Opens the temporary worktree a review of the staged changes runs in. */
   readonly stagedChanges: ClaudeStagedChangesSource;
   /**

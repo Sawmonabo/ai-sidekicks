@@ -92,11 +92,11 @@ describe("ClaudeSessionLifecycle restart", () => {
 
     const [first] = harness.transport.spawnRequests;
     const [relaunch] = harness.transport.resumeRequests;
-    expect(first === undefined ? undefined : composeClaudeSpawnSettings(first).outputStyle).toBe(
-      undefined,
-    );
     expect(
-      relaunch === undefined ? undefined : composeClaudeSpawnSettings(relaunch).outputStyle,
+      first === undefined ? undefined : composeClaudeSpawnSettings(first, []).outputStyle,
+    ).toBe(undefined);
+    expect(
+      relaunch === undefined ? undefined : composeClaudeSpawnSettings(relaunch, []).outputStyle,
     ).toBe("Explanatory");
   });
 

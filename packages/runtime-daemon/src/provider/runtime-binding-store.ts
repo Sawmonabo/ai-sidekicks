@@ -249,8 +249,8 @@ export class RuntimeBindingNotResumableError extends Error {
 
 /**
  * Rebuilds a resumed leg's spawn-bound surface from its durable binding and the session's current
- * model, its recorded larger window and its mode. Throws `RuntimeBindingNotResumableError` when
- * `resumeHandle` is null or empty, as it names no session.
+ * model, its recorded larger window, its mode and the posture of its permission level. Throws
+ * `RuntimeBindingNotResumableError` when `resumeHandle` is null or empty, as it names no session.
  */
 export function composeResumeSessionParams(
   sessionId: SessionId,
@@ -258,6 +258,7 @@ export function composeResumeSessionParams(
   model: string,
   largerWindow: number | undefined,
   mode: SessionMode,
+  executionPosture: ExecutionPosture,
   functionLegs: ResumeFunctionLegInjection,
 ): ResumeSessionParams {
   const resumeHandle = binding.resumeHandle;
@@ -273,7 +274,8 @@ export function composeResumeSessionParams(
   const spawnConfig = binding.spawnConfig;
   // Enumerated, not spread, so the `provenance` member stays off the params.
   const resumeLegs = {
-    executionPosture: spawnConfig.executionPosture,
+    // The level the session was last moved to, which may be another than the one it launched at.
+    executionPosture,
     callbackTools: spawnConfig.callbackTools,
     subagentPolicy: spawnConfig.subagentPolicy,
     toolServers: spawnConfig.toolServers,

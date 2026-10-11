@@ -6,7 +6,9 @@
 // the database file or its write-ahead log, truncating it every time and trying again a bounded
 // number of times while a reader keeps it busy, keeps every worktree folder and the rows of those
 // still on disk, waits for the session lock, and never runs inside an append-lock hold. A run's
-// rows go whether its log, its `runs` row or its execution root names it.
+// rows go whether its log, its `runs` row or its execution root names it. The project rules the
+// session made leave the providers' files before its rows go, a failure keeping every row, and the
+// project's other sessions are handed their rules again after.
 
 import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -20,8 +22,10 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { DatabaseWriter } from "../../../database/writer.js";
 import { sessionAppendLock } from "../append-lock.js";
 import { recordedSessionLinkStatement } from "../../../session/links/recorded.js";
+import { insertWorkflowVersion } from "../../../workflow/runs/__fixtures__/rows.js";
 import { managedWorkspacesDirectoryOf } from "../../../workspace/managed/service.js";
-import type { SessionPurgeEventLog, SessionPurgeOutcome } from "../purge.js";
+import { PortRegistration } from "../../../provider/port/registration.js";
+import type { ProjectRuleWithdrawal, SessionPurgeEventLog, SessionPurgeOutcome } from "../purge.js";
 import {
   onlyOutcome,
   PurgeFixture,
@@ -139,6 +143,10 @@ describe("SessionPurge — the session's directory rows and managed workspace", 
     });
     await fixture.seedRowsNamingSession(SESSION, ["run-logged", "run-project", `run-${SESSION}`]);
     await fixture.seedRowsNamingSession(SECOND_SESSION, ["run-kept"]);
+    const workflowVersionId = await insertWorkflowVersion(fixture.scratch.writer, "Review");
+    for (const sessionId of [SESSION, SECOND_SESSION]) {
+      await fixture.seedApprovalAndArtifactRows(sessionId, workflowVersionId);
+    }
     for (const sessionId of [SESSION, SECOND_SESSION]) {
       await fixture.scratch.writer.write([
         {
@@ -215,6 +223,12 @@ describe("SessionPurge — the session's directory rows and managed workspace", 
       runtimeBindings: ["run-kept"],
       commandReceipts: ["run-kept"],
       worktrees: [],
+      approvalRequests: [SECOND_SESSION],
+      approvalResolutions: [SECOND_SESSION],
+      gateResolutions: [`request-${SECOND_SESSION}`],
+      reviewerDenials: [SECOND_SESSION],
+      artifactManifests: [SECOND_SESSION],
+      artifactPayloadRefs: [SECOND_SESSION],
     });
     expect(existsSync(purgedWorkspace.path)).toBe(false);
     expect(existsSync(keptWorkspace.path)).toBe(true);
@@ -387,6 +401,42 @@ describe("SessionPurge — the session's directory rows and managed workspace", 
     expect(onlyOutcome(await purging).refusedReason).toBeUndefined();
     expect(existsSync(workspace.path)).toBe(false);
     expect(fixture.rowExists("session_events", message.id)).toBe(false);
+  });
+});
+
+describe("SessionPurge — the project rules the session made", () => {
+  it("takes them out before any row goes, then hands the others their rules; a refusal keeps rows", async () => {
+    await fixture.seedSessionRow(SESSION);
+    const message = await fixture.seedMessage("kept while its rules stay");
+    const steps: string[] = [];
+    let withdrawalFailure: Error | undefined = new Error("the settings file is not writable");
+    const projectRules = new PortRegistration<ProjectRuleWithdrawal>("project rules");
+    projectRules.register({
+      withdrawProjectRules: async (sessionId) => {
+        if (withdrawalFailure !== undefined) {
+          throw withdrawalFailure;
+        }
+        steps.push(
+          `withdrawn ${sessionId}, rows ${String(fixture.rowExists("session_events", message.id))}`,
+        );
+        return async () => {
+          steps.push(`handed out, rows ${String(fixture.rowExists("session_events", message.id))}`);
+        };
+      },
+    });
+
+    const refused = onlyOutcome(await fixture.buildPurge({ projectRules }).purge([SESSION]));
+
+    expect(refused.refusedReason).toContain(
+      "project rules the session made could not be taken out",
+    );
+    expect(fixture.rowExists("session_events", message.id)).toBe(true);
+
+    withdrawalFailure = undefined;
+    const purged = onlyOutcome(await fixture.buildPurge({ projectRules }).purge([SESSION]));
+
+    expect(purged.refusedReason).toBeUndefined();
+    expect(steps).toEqual([`withdrawn ${SESSION}, rows true`, "handed out, rows false"]);
   });
 });
 

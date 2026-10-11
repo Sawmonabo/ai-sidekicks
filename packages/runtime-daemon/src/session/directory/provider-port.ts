@@ -5,13 +5,12 @@
 //
 // The lead is read from the session's log: `session.created` names it, a provider switch moves it,
 // and a session-long model switch the provider made moves the model it runs on. A session's leg is
-// its newest binding with a conversation to resume. A session opens at its own permission level,
-// which is YOLO: a new session starts there, and no level a person picks is kept for it.
+// its newest binding with a conversation to resume. A session opens and resumes at the permission
+// level stored on it, at the posture that level runs at in the session's repository.
 
 import type { Database, Statement } from "better-sqlite3";
 
 import type { AgentProviderBinding } from "@ai-sidekicks/contracts/agent/definition";
-import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import type { AgentProviderBindingChangedPayload } from "@ai-sidekicks/contracts/agent/provider-binding";
 import type { UsageModelReroutedPayload } from "@ai-sidekicks/contracts/event/declared-variants";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
@@ -20,7 +19,7 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { describeRejection } from "../../rejection.js";
 import type { MachineSettingsFile } from "../../daemon/machine/settings/file.js";
-import { CURATED_CREDENTIAL_POLICY_REF } from "../../policy/execution-posture-service.js";
+import { composeExecutionPosture } from "../../policy/execution-posture-service.js";
 import { readGitCommonFolder, type GitCommand } from "../../git/process.js";
 import type { DriverResumeResult, ResumeSessionParams } from "../../provider/driver/contract.js";
 import type { ClaudeAccountFolders, SessionEnvironmentRows } from "../../provider/spawn-env.js";
@@ -37,6 +36,7 @@ import {
   CHECKOUT_ROOT_METADATA_PATH,
 } from "../../workspace/row-guards.js";
 import { readSessionAdvisorModel, readSessionMode } from "../console-state.js";
+import { readSessionPermissionLevel } from "../permission-level.js";
 import { SESSION_RUN_IDS_SQL } from "../run/ids.js";
 import { SESSION_EXISTS_SQL } from "./lookups.js";
 
@@ -79,15 +79,6 @@ interface SessionLead {
   readonly binding: AgentProviderBinding;
   readonly runningModel: string;
 }
-
-// The posture a session's provider session opens at: the session's level, YOLO, since every new
-// session starts there and no other level is kept for one. YOLO writes anywhere, so it names no
-// writable root.
-const OPENING_POSTURE: ExecutionPosture = {
-  mode: "yolo",
-  writableRoots: [],
-  credentialPolicyRef: CURATED_CREDENTIAL_POLICY_REF,
-};
 
 // The events that name or move the lead, oldest first. A damaged row's payload may not be JSON.
 const LEAD_EVENTS_SQL = `SELECT type, payload FROM session_events
@@ -178,34 +169,42 @@ export class SessionDirectoryProviderPort {
 
   /**
    * What the session's provider session opens with: its lead's provider, the model it runs on now
-   * and the account and output speed it names, at YOLO. Throws for a session with no lead.
+   * and the account and output speed it names, at the posture of the level it stands at. Throws
+   * for a session with no lead or no workspace, and what reading its repository's git folder
+   * throws.
    */
-  composeOpening(sessionId: SessionId): Promise<ProviderSessionOpening> {
+  async composeOpening(sessionId: SessionId): Promise<ProviderSessionOpening> {
     const lead = this.#readLead(sessionId);
     if (lead === undefined) {
-      return Promise.reject(new Error(`Session ${sessionId} names no lead to open`));
+      throw new Error(`Session ${sessionId} names no lead to open`);
     }
     const { binding } = lead;
-    return Promise.resolve({
+    const gitFolder = await this.#readGitFolder(sessionId);
+    return {
       driverName: binding.driverName,
+      gitFolder,
       createParams: {
         sessionId,
         config: {},
         model: lead.runningModel,
         largerWindow: binding.largerWindow,
-        executionPosture: OPENING_POSTURE,
+        executionPosture: composeExecutionPosture(
+          readSessionPermissionLevel(this.#reader, sessionId),
+          gitFolder,
+        ),
         outputSpeed: binding.outputSpeed,
         providerAccountId: binding.providerAccountId ?? undefined,
       },
       functionLegsFor: () => ({}),
-    });
+    };
   }
 
   /**
    * The resume that brings the session's leg back on the model its lead runs on now, in the mode
-   * it was last moved to, or `undefined` for a session with no lead or no conversation to resume.
+   * it was last moved to and at the posture of the level it stands at, or `undefined` for a
+   * session with no lead or no conversation to resume.
    */
-  resolveRestartTarget(sessionId: SessionId): SessionRestartTarget | undefined {
+  async resolveRestartTarget(sessionId: SessionId): Promise<SessionRestartTarget | undefined> {
     const lead = this.#readLead(sessionId);
     const binding = this.readSessionLeg(sessionId);
     if (lead === undefined || binding === undefined) {
@@ -219,6 +218,10 @@ export class SessionDirectoryProviderPort {
         lead.runningModel,
         lead.binding.largerWindow,
         readSessionMode(this.#reader, sessionId),
+        composeExecutionPosture(
+          readSessionPermissionLevel(this.#reader, sessionId),
+          await this.#readGitFolder(sessionId),
+        ),
         {},
       ),
     };
@@ -271,8 +274,13 @@ export class SessionDirectoryProviderPort {
     });
   }
 
+  /** The folder of the session's newest live workspace, or `undefined` before its root is ready. */
+  readWorkingDirectory(sessionId: SessionId): string | undefined {
+    return this.#selectWorkingDirectory.get(sessionId)?.workingDirectory;
+  }
+
   async #resolveSpawnContext(sessionId: SessionId): Promise<SessionSpawnContext> {
-    const workingDirectory = this.#selectWorkingDirectory.get(sessionId)?.workingDirectory;
+    const workingDirectory = this.readWorkingDirectory(sessionId);
     if (workingDirectory === undefined) {
       throw new Error(`Session ${sessionId} has no workspace ready to run in`);
     }
@@ -301,6 +309,12 @@ export class SessionDirectoryProviderPort {
       throw new Error(`Session ${sessionId} has no workspace to work in`);
     }
     return folder;
+  }
+
+  // The git folder of the repository the session works in, the common one every worktree of it
+  // shares, read before its first run has prepared its own root too.
+  async #readGitFolder(sessionId: SessionId): Promise<string> {
+    return await readGitCommonFolder(this.#git, this.requireRunFolder(sessionId));
   }
 
   /** The session's newest binding with a conversation to resume, or `undefined` for none. */

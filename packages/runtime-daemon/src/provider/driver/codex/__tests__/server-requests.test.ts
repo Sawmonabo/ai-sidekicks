@@ -1,8 +1,17 @@
 // Routed server requests against a fake service: an approval is held for its card and answered
-// through the driver, a callback tool call goes to the host, and every ask the daemon does not
-// allow is answered in the method's own refusal shape.
+// through the driver, its command read off the shell wrapper Codex runs it in, the rest of a
+// person's answer carried by Codex's own means, a correction accepted with no card only in its
+// own turn, and a project rule that could not be written taken back after the call is answered;
+// a callback tool call goes to the host; and every ask the daemon does not allow is answered in
+// the method's own refusal shape.
+
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 import { describe, expect, it } from "vitest";
+
+import type { RunId } from "@ai-sidekicks/contracts/run/id";
 
 import { drainMicrotasks } from "../../../__fixtures__/drain-microtasks.js";
 import type { ProviderPermissionAsk } from "../../../port/permission-ask.js";
@@ -22,10 +31,14 @@ import {
   type Harness,
   RUN_ID,
   runConfig,
+  SECOND_RUN_ID,
   THREAD_ID,
   TURN_ID,
   turnCompletedFrame,
 } from "../__fixtures__/app-server-doubles.js";
+
+// A turn after the harness's first.
+const LATER_TURN_ID = "turn-02";
 
 /** A live test session whose callback tool calls reach `responder`, and a way to raise asks. */
 async function routedAskHarness(
@@ -226,6 +239,7 @@ describe("Codex routed server requests", () => {
     const legacy = harness.server.askProvider("execCommandApproval", {
       conversationId: THREAD_ID,
       callId: "call-9",
+      command: ["bash", "-lc", "git push --force"],
     });
     // Held, not answered: the card answers.
     await expect(named).rejects.toThrow("never answered");
@@ -240,6 +254,8 @@ describe("Codex routed server requests", () => {
       [RUN_ID, "commandExecution", "run the tests"],
       [RUN_ID, "commandExecution", undefined],
     ]);
+    // The legacy ask's words are read as the line its shell runs, not joined into another.
+    expect(taken[1]?.action).toStrictEqual({ kind: "command", command: "git push --force" });
     expect(
       harness.diagnostics.filter((diagnostic) => diagnostic.kind === "routed-ask-turn-unresolved"),
     ).toStrictEqual([]);
@@ -437,5 +453,199 @@ describe("Codex routed server requests", () => {
         detail: "socket write failed: broken pipe",
       },
     ]);
+  });
+});
+
+describe("Codex approval answers", () => {
+  it("keeps a rule's allow for the conversation, and carries a correction and a reason by steer", async () => {
+    // Each command arrives as Codex wraps it in the person's shell.
+    const { harness } = await routedAskHarness(undefined);
+    harness.server.on("turn/steer", () => ({ result: { turnId: TURN_ID } }));
+    const taken: ProviderPermissionAsk[] = [];
+    harness.ports.permissionAsks.register({
+      takeAsk: async (ask) => {
+        taken.push(ask);
+      },
+      withdrawAsk: async () => undefined,
+    });
+    await harness.driver.startRun({ runId: RUN_ID, agentConfig: runConfig("tidy up") });
+    const askCommand = (itemId: string, command: string): Promise<Record<string, unknown>> =>
+      harness.server.askProvider("item/commandExecution/requestApproval", {
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+        itemId,
+        command: `/bin/zsh -lc '${command}'`,
+        proposedExecpolicyAmendment: command.split(" ").slice(0, 1),
+      });
+    const answerOf = async (
+      itemId: string,
+      response: Record<string, unknown>,
+    ): Promise<unknown> => {
+      await expect.poll(() => taken.some((ask) => ask.toolCallId === itemId)).toBe(true);
+      const ask = taken.find((candidate) => candidate.toolCallId === itemId);
+      await harness.driver.respondToRequest({
+        runId: RUN_ID,
+        requestId: ask?.requestId ?? "",
+        response,
+      });
+      return harness.server
+        .writtenFrames()
+        .find((frame) => String(frame["id"]) === ask?.requestId)?.["result"];
+    };
+
+    // A held ask reads as unanswered to the fake, which gives up on it after one tick.
+    const holding = (ask: Promise<unknown>): void => {
+      ask.catch(() => undefined);
+    };
+    holding(askCommand("item-1", "npm test"));
+    const npmTest = { kind: "session", sense: "allow", action: "command", subject: "npm test" };
+    const kept = await answerOf("item-1", {
+      decision: "allow",
+      madeRule: { rule: npmTest, projectFolders: [] },
+    });
+    holding(askCommand("item-2", "rm -rf build"));
+    const corrected = await answerOf("item-2", {
+      decision: "allow",
+      editedAction: "rm -rf build/cache",
+    });
+    holding(askCommand("item-4", "npm publish"));
+    const declined = await answerOf("item-4", { decision: "refuse", reason: "Not before review." });
+    // A rule in force answers an ask itself, as after a restart: kept for the conversation too,
+    // never one over a push, whose prefix would let a force push through.
+    holding(askCommand("item-5", "npm test --watch"));
+    const byRule = await answerOf("item-5", { decision: "allow", answeredByRule: npmTest });
+    holding(askCommand("item-6", "git push origin main"));
+    const byPushRule = await answerOf("item-6", {
+      decision: "allow",
+      answeredByRule: { ...npmTest, subject: "git push" },
+    });
+
+    expect([kept, corrected, declined, byRule, byPushRule]).toStrictEqual([
+      { decision: "acceptForSession" },
+      { decision: "decline" },
+      { decision: "decline" },
+      { decision: "acceptForSession" },
+      { decision: "accept" },
+    ]);
+    expect(taken.map((ask) => ask.toolCallId)).toStrictEqual([
+      "item-1",
+      "item-2",
+      "item-4",
+      "item-5",
+      "item-6",
+    ]);
+    expect(taken[0]?.action).toStrictEqual({ kind: "command", command: "npm test" });
+    expect(
+      harness.server.paramsFor("turn/steer").map((params) => JSON.stringify(params["input"])),
+    ).toStrictEqual([
+      expect.stringContaining("Run this instead: rm -rf build/cache"),
+      expect.stringContaining("Not before review."),
+    ]);
+  });
+});
+
+describe("Codex corrections", () => {
+  it("accepts a corrected command with no card in its own turn, and asks again in a later one", async () => {
+    const { harness } = await routedAskHarness(undefined);
+    harness.server.on("turn/steer", () => ({ result: { turnId: TURN_ID } }));
+    const taken: ProviderPermissionAsk[] = [];
+    harness.ports.permissionAsks.register({
+      takeAsk: async (ask) => {
+        taken.push(ask);
+      },
+      withdrawAsk: async () => undefined,
+    });
+    // Each command as a live Codex ask carries it; one holding a single quote rides double ones.
+    const askCommand = (itemId: string, turnId: string, command: string) =>
+      harness.server.askProvider("item/commandExecution/requestApproval", {
+        threadId: THREAD_ID,
+        turnId,
+        itemId,
+        command,
+      });
+    const correct = async (runId: RunId, editedAction: string): Promise<void> => {
+      await harness.driver.respondToRequest({
+        runId,
+        requestId: taken.at(-1)?.requestId ?? "",
+        response: { decision: "allow", editedAction },
+      });
+    };
+    const corrected = "rm -rf 'my build' && echo done";
+    const wrappedCorrection = `/bin/zsh -lc "${corrected}"`;
+
+    // The first turn corrects a command and ends before Codex asks for the correction.
+    await harness.driver.startRun({ runId: RUN_ID, agentConfig: runConfig("tidy up") });
+    askCommand("item-1", TURN_ID, "/bin/zsh -lc 'rm -rf build'").catch(() => undefined);
+    await expect.poll(() => taken.length).toBe(1);
+    await correct(RUN_ID, corrected);
+    harness.server.emitFrame(turnCompletedFrame(TURN_ID, "completed"));
+    await drainMicrotasks();
+
+    // A later turn asking for that command raises its card; corrected there, it runs with none.
+    harness.server.on("turn/start", () => ({ result: { turn: { id: LATER_TURN_ID } } }));
+    harness.server.on("turn/steer", () => ({ result: { turnId: LATER_TURN_ID } }));
+    await harness.driver.startRun({ runId: SECOND_RUN_ID, agentConfig: runConfig("again") });
+    askCommand("item-2", LATER_TURN_ID, wrappedCorrection).catch(() => undefined);
+    await expect.poll(() => taken.length).toBe(2);
+    await correct(SECOND_RUN_ID, "npm test");
+    const sameTurn = await askCommand("item-3", LATER_TURN_ID, "/bin/zsh -lc 'npm test'");
+
+    expect(sameTurn["result"]).toStrictEqual({ decision: "accept" });
+    expect(taken.map((ask) => [ask.toolCallId, ask.action])).toStrictEqual([
+      ["item-1", { kind: "command", command: "rm -rf build" }],
+      ["item-2", { kind: "command", command: corrected }],
+    ]);
+  });
+});
+
+describe("Codex project rules", () => {
+  it("answers the call first, then says the rule was not kept, taken back out of every folder", async () => {
+    const { harness } = await routedAskHarness(undefined);
+    const taken: ProviderPermissionAsk[] = [];
+    harness.ports.permissionAsks.register({
+      takeAsk: async (ask) => {
+        taken.push(ask);
+      },
+      withdrawAsk: async () => undefined,
+    });
+    await harness.driver.startRun({ runId: RUN_ID, agentConfig: runConfig("tidy up") });
+    const projectFolder = await mkdtemp(path.join(tmpdir(), "codex-project-rule-"));
+    try {
+      harness.server
+        .askProvider("item/commandExecution/requestApproval", {
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          itemId: "item-1",
+          command: "/bin/zsh -lc 'npm test'",
+        })
+        .catch(() => undefined);
+      await expect.poll(() => taken.length).toBe(1);
+
+      // The second folder is a file, so the rule cannot be written under it.
+      await expect(
+        harness.driver.respondToRequest({
+          runId: RUN_ID,
+          requestId: taken[0]?.requestId ?? "",
+          response: {
+            decision: "allow",
+            madeRule: {
+              rule: { kind: "project", sense: "allow", action: "command", subject: "npm test" },
+              projectFolders: [projectFolder, "/dev/null"],
+            },
+          },
+        }),
+      ).rejects.toMatchObject({ name: "ProviderRuleNotKeptError" });
+
+      expect(
+        harness.server
+          .writtenFrames()
+          .find((frame) => String(frame["id"]) === taken[0]?.requestId)?.["result"],
+      ).toStrictEqual({ decision: "acceptForSession" });
+      expect(
+        await readFile(path.join(projectFolder, ".codex", "rules", "sidekicks.rules"), "utf8"),
+      ).toBe("\n");
+    } finally {
+      await rm(projectFolder, { recursive: true, force: true });
+    }
   });
 });

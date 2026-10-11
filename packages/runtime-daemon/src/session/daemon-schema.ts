@@ -8,9 +8,11 @@
 // JSON columns are TEXT. A table is added here with its test, or in its owner's
 // schema file this script includes: the repository and workspace tables in
 // `workspace/schema.ts`, the worktree tables in `git/worktree/schema.ts`, the
-// search index's in `session/search/index/schema.ts`, the workflow tables in `workflow/schema.ts`
-// and the artifact tables in `artifacts/schema.ts`. There are no numbered migrations.
+// search index's in `session/search/index/schema.ts`, the approval tables in `approvals/schema.ts`,
+// the workflow tables in `workflow/schema.ts` and the artifact tables in `artifacts/schema.ts`.
+// There are no numbered migrations.
 
+import { APPROVAL_SCHEMA_SQL } from "../approvals/schema.js";
 import { ARTIFACT_SCHEMA_SQL } from "../artifacts/schema.js";
 import { DAMAGED_EVENTS_SKIPPED_TYPE } from "../events/session/skipped-ranges.js";
 import { WORKFLOW_SCHEMA_SQL } from "../workflow/schema.js";
@@ -213,7 +215,11 @@ CREATE TABLE sessions (
   group_id                   TEXT REFERENCES session_groups(id),
   -- The folder a requested working-folder move goes to, applied at the active
   -- run's next boundary; NULL while no move waits.
-  pending_working_folder     TEXT
+  pending_working_folder     TEXT,
+  -- The permission level the session runs at, which the run queue's admission reads; every
+  -- process it opens or resumes starts at it.
+  permission_level           TEXT NOT NULL DEFAULT 'yolo'
+    CHECK(permission_level IN ('readonly', 'ask', 'reviewed', 'sandboxed', 'yolo'))
 ) STRICT;
 
 CREATE INDEX idx_sessions_group ON sessions(group_id);
@@ -236,6 +242,9 @@ CREATE TABLE session_create_requests (
     CHECK(execution_mode IN ('bound-root', 'provisioned-worktree')),
   group_id                TEXT
 ) STRICT;
+
+-- A project's sessions, which its rules reach, found by the project they were made in.
+CREATE INDEX idx_session_create_requests_project ON session_create_requests(project_id);
 
 -- A chat's conversion: the session.convert key it runs under, which the latest request that
 -- resumed it takes over, the project mount it attached and the working tree it copies into.
@@ -800,5 +809,6 @@ CREATE TABLE provider_account_usage_windows (
                 CHECK(source IN ('probe', 'run')),
   PRIMARY KEY (account_id, limit_id)
 ) STRICT;
+${APPROVAL_SCHEMA_SQL}
 ${WORKFLOW_SCHEMA_SQL}
 ${ARTIFACT_SCHEMA_SQL}`;

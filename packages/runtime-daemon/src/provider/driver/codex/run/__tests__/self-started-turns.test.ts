@@ -163,7 +163,11 @@ describe("a turn Codex started by itself", () => {
       await drainMicrotasks();
       // A change that moves the conversation, owed while the start waits for that turn's run.
       if (isForkOwed) {
-        await harness.driver.updatePermissionLevel({ sessionId: SESSION_ID, level: "yolo" });
+        await harness.driver.updatePermissionLevel({
+          sessionId: SESSION_ID,
+          level: "yolo",
+          writableRoots: [],
+        });
       }
       expect(isSettled).toBe(false);
       runOpening.resolve();
@@ -195,7 +199,11 @@ describe("a turn Codex started by itself", () => {
     harness.server.on("review/start", () => ({ result: { turn: { id: TURN_ID } } }));
     await createdSession(harness);
     // A fork before the session's first run leaves a conversation that run's binding records.
-    await harness.driver.updatePermissionLevel({ sessionId: SESSION_ID, level: "yolo" });
+    await harness.driver.updatePermissionLevel({
+      sessionId: SESSION_ID,
+      level: "yolo",
+      writableRoots: [],
+    });
     await drainMicrotasks();
     const review = harness.driver
       .startReview({ sessionId: SESSION_ID, target: "workingTree" })

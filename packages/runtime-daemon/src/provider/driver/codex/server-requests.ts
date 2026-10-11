@@ -72,13 +72,14 @@ export interface CodexRoutedServerRequestDescriptor {
   /** Which host answers one ask, read from its untrusted `params`. */
   readonly classifyAsk: (params: unknown) => CodexAskKind;
   /**
-   * The allowed answer. `payload` carries data the daemon supplies (a granted permission profile,
-   * an elicitation's content, a question's answers) and is merged, not substituted for the
-   * decision member; `params` are the ask's own, untrusted.
+   * The allowed answer, kept for the rest of the conversation where `forSession`. `payload` carries
+   * data the daemon supplies (a granted permission profile, an elicitation's content) and is
+   * merged, not substituted for the decision member; `params` are the ask's own, untrusted.
    */
   readonly composeAllowedResult: (
     payload: Readonly<Record<string, unknown>> | undefined,
     params: unknown,
+    forSession: boolean,
   ) => CodexServerRequestResult;
   /** The refusal answer. Never carries data: a refusal grants nothing. */
   readonly composeRefusedResult: (reason: string) => CodexServerRequestResult;
@@ -119,7 +120,9 @@ export const CODEX_ROUTED_SERVER_REQUEST_DESCRIPTORS: ReadonlyMap<
     "item/commandExecution/requestApproval",
     {
       classifyAsk: () => "approval",
-      composeAllowedResult: () => ({ decision: "accept" }),
+      composeAllowedResult: (_payload, _params, forSession) => ({
+        decision: forSession ? "acceptForSession" : "accept",
+      }),
       composeRefusedResult: () => ({ decision: "decline" }),
     },
   ],
@@ -127,7 +130,9 @@ export const CODEX_ROUTED_SERVER_REQUEST_DESCRIPTORS: ReadonlyMap<
     "item/fileChange/requestApproval",
     {
       classifyAsk: () => "approval",
-      composeAllowedResult: () => ({ decision: "accept" }),
+      composeAllowedResult: (_payload, _params, forSession) => ({
+        decision: forSession ? "acceptForSession" : "accept",
+      }),
       composeRefusedResult: () => ({ decision: "decline" }),
     },
   ],
@@ -148,7 +153,9 @@ export const CODEX_ROUTED_SERVER_REQUEST_DESCRIPTORS: ReadonlyMap<
     "execCommandApproval",
     {
       classifyAsk: () => "approval",
-      composeAllowedResult: () => ({ decision: "approved" }),
+      composeAllowedResult: (_payload, _params, forSession) => ({
+        decision: forSession ? "approved_for_session" : "approved",
+      }),
       composeRefusedResult: (reason) => ({ decision: { denied: { rejection: reason } } }),
     },
   ],
@@ -156,7 +163,9 @@ export const CODEX_ROUTED_SERVER_REQUEST_DESCRIPTORS: ReadonlyMap<
     "applyPatchApproval",
     {
       classifyAsk: () => "approval",
-      composeAllowedResult: () => ({ decision: "approved" }),
+      composeAllowedResult: (_payload, _params, forSession) => ({
+        decision: forSession ? "approved_for_session" : "approved",
+      }),
       composeRefusedResult: (reason) => ({ decision: { denied: { rejection: reason } } }),
     },
   ],
@@ -181,8 +190,12 @@ export const CODEX_ROUTED_SERVER_REQUEST_DESCRIPTORS: ReadonlyMap<
       // Codex's own approval of a tool-server call is the approval card; any other is a question.
       classifyAsk: (params) =>
         isCodexToolCallApprovalElicitation(params) ? "approval" : "question",
-      composeAllowedResult: (payload) =>
-        payload === undefined ? { action: "accept" } : { action: "accept", content: payload },
+      // A tool-server call allowed for the session says so in `_meta.persist`.
+      composeAllowedResult: (payload, _params, forSession) => ({
+        action: "accept",
+        ...(payload === undefined ? {} : { content: payload }),
+        ...(forSession ? { _meta: { persist: "session" } } : {}),
+      }),
       composeRefusedResult: () => ({ action: "decline" }),
       // A question's answers fill the form's fields.
       composeAnsweredResult: (answers, params) => ({
@@ -208,39 +221,31 @@ export interface CodexInboundServerRequest {
 }
 
 /**
- * The daemon-side answer to one ask. `payload` is read only by arms whose provider response
- * carries daemon-composed content (a granted permission profile, a tool-server approval's
- * content); a question is `answered` with the questions card's answers, one per question.
+ * The daemon-side answer to one ask. An allow is kept for the rest of the conversation where
+ * `forSession`; `payload` is read only by arms whose provider response carries daemon-composed
+ * content (a granted permission profile, a tool-server approval's content); a question is
+ * `answered` with the questions card's answers, one per question.
  */
 export type CodexServerRequestAnswer =
-  | { readonly decision: "allow"; readonly payload?: Record<string, unknown> | undefined }
+  | {
+      readonly decision: "allow";
+      readonly forSession?: boolean | undefined;
+      readonly payload?: Record<string, unknown> | undefined;
+    }
   | { readonly decision: "refuse"; readonly reason: string }
   | { readonly decision: "answered"; readonly answers: readonly QuestionAnswer[] };
 
 /**
- * Reads the person's answer to a held ask as it arrives: a question's `{answers}`, one per
- * question in order, or the approval pipeline's `allow` (with an optional object `payload`) or
- * `refuse` with a reason. Throws `TypeError` for anything else.
+ * Reads the questions card's answer to a held question as it arrives, `{answers}`, one per
+ * question in order. Throws `TypeError` for anything else.
  */
-export function readCodexServerRequestAnswer(response: unknown): CodexServerRequestAnswer {
-  if (isPlainObject(response)) {
-    const answers = response["answers"];
-    if (Array.isArray(answers)) {
-      // The questions service validated each answer against the questions contract.
-      return { decision: "answered", answers: answers as readonly QuestionAnswer[] };
-    }
-    const payload = response["payload"];
-    if (response["decision"] === "allow" && (payload === undefined || isPlainObject(payload))) {
-      return payload === undefined ? { decision: "allow" } : { decision: "allow", payload };
-    }
-    const reason = response["reason"];
-    if (response["decision"] === "refuse" && typeof reason === "string") {
-      return { decision: "refuse", reason };
-    }
+export function readCodexQuestionAnswer(response: unknown): CodexServerRequestAnswer {
+  const answers = isPlainObject(response) ? response["answers"] : undefined;
+  if (!Array.isArray(answers)) {
+    throw new TypeError("A Codex question is answered with every question's answer, in order.");
   }
-  throw new TypeError(
-    "A Codex ask is answered with its answers, an allow, or a refusal with its reason.",
-  );
+  // The questions service validated each answer against the questions contract.
+  return { decision: "answered", answers: answers as readonly QuestionAnswer[] };
 }
 
 /**

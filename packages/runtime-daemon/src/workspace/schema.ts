@@ -103,6 +103,8 @@ CREATE UNIQUE INDEX idx_repo_mounts_managed_session
 -- A project has one attached mount, which every session of the project binds to.
 CREATE UNIQUE INDEX idx_repo_mounts_active_project
   ON repo_mounts(project_id) WHERE state = 'attached';
+-- A project's sessions, which its rules reach, found through every mount it attached.
+CREATE INDEX idx_repo_mounts_project ON repo_mounts(project_id);
 
 CREATE TABLE workspaces (
   id              TEXT PRIMARY KEY,

@@ -56,17 +56,22 @@ export interface SessionEventDraft {
 
 /** The envelope linkage and atomic table write one emission carries. */
 export interface SessionEventLinkage {
+  /**
+   * The instant the event records, for a producer whose rows in the same write carry it too;
+   * defaults to the clock.
+   */
+  readonly occurredAt?: string | undefined;
   readonly correlationId?: string | null | undefined;
   readonly causationId?: string | null | undefined;
   /** Forwarded to the append path (see `EventLogAppendOptions.transactionalPrelude`). */
   readonly transactionalPrelude?: readonly WriteStatement[] | undefined;
-  /** A body-bearing event's prose, stored beside its payload (see `EventLogAppendOptions.content`). */
+  /** A body-bearing event's prose, kept beside its payload (`EventLogAppendOptions.content`). */
   readonly content?: EventLogAppendOptions["content"] | undefined;
   /** Events committed just before this one in its write (see `EventLogAppendOptions`). */
   readonly precedingEvents?: readonly SessionEventDraft[] | undefined;
 }
 
-/** The members the envelope reads back from a payload: its session and, when one acted, its actor. */
+/** What the envelope reads back from a payload: its session and, when one acted, its actor. */
 export interface AppendedPayload {
   readonly sessionId: SessionId;
   readonly actor?: string | null | undefined;
@@ -172,7 +177,7 @@ export class SessionEventAppender {
     sessionId: SessionId,
     actor: string | null,
     payload: object,
-    linkage: Pick<SessionEventLinkage, "correlationId" | "causationId">,
+    linkage: Pick<SessionEventLinkage, "occurredAt" | "correlationId" | "causationId">,
   ): UnsequencedEventEnvelope {
     // Looked up from the registry: the strict layer refuses an envelope whose category disagrees
     // with its type.
@@ -186,7 +191,7 @@ export class SessionEventAppender {
     return {
       id: this.#newEventId(),
       sessionId,
-      occurredAt: this.#now(),
+      occurredAt: linkage.occurredAt ?? this.#now(),
       category,
       type,
       actor,

@@ -5,9 +5,10 @@
 // its source sits, and a module that finds a file from its own location keeps its source path in a
 // chunk of its own, so the worker beside the module that starts it, a program beside the module
 // that names its path and the package's manifest are found from the build as from the source. The
-// shell scripts a module loads at run time are copied into the build at the path they have in the
-// source, so they sit beside that module there too. `tsc` only type-checks, so the bundle's folder
-// is emptied before each build and holds no chunk an earlier build wrote.
+// files a module reads at run time, the shell scripts and the approval rules, are copied into the
+// build at the path they have in the source, so they sit beside that module there too. `tsc` only
+// type-checks, so the bundle's folder is emptied before each build and holds no chunk an earlier
+// build wrote.
 import { globSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
@@ -77,8 +78,12 @@ function readsItsOwnLocation(modulePath: string): boolean {
 
 const keptPathNames = new Set<string>();
 
-// The scripts each shell loads to report its marks, found beside the module that starts the shell.
-const SHELL_SCRIPTS_FOLDER = path.join(SOURCE_FOLDER, "pty", "shell", "integration", "scripts");
+// The folders of files modules read at run time, each found beside the module that reads it: the
+// scripts each shell loads to report its marks, and the approval rules and their schema.
+const RUN_TIME_FILE_FOLDERS = [
+  path.join(SOURCE_FOLDER, "pty", "shell", "integration", "scripts"),
+  path.join(SOURCE_FOLDER, "policy", "rules"),
+];
 
 const config: RolldownOptions = {
   input: Object.fromEntries(ENTRY_PATHS.map((entry) => [buildNameOf(entry), entry])),
@@ -89,9 +94,11 @@ const config: RolldownOptions = {
   external: (id) => INSTALLED_PACKAGES.some((name) => id === name || id.startsWith(`${name}/`)),
   plugins: [
     {
-      name: "shell-scripts",
+      name: "run-time-files",
       buildStart() {
-        const entries = readdirSync(SHELL_SCRIPTS_FOLDER, { recursive: true, withFileTypes: true });
+        const entries = RUN_TIME_FILE_FOLDERS.flatMap((folder) =>
+          readdirSync(folder, { recursive: true, withFileTypes: true }),
+        );
         for (const entry of entries.filter((candidate) => candidate.isFile())) {
           const sourcePath = path.join(entry.parentPath, entry.name);
           this.emitFile({

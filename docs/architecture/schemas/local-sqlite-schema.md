@@ -130,6 +130,7 @@ The daemon keeps one row per session it hosts in `sessions`, the directory that 
 - `muted_at TEXT` — RFC 3339 UTC; NULL while the session is not muted. `session.muted` sets it and `session.unmuted` clears it, and a rebuild restores it from those events; it reaches clients as `muted` on `session.read` and `session.list`. While it is set, the session's `Finished` and `Failed` moments reach no channel and no device; `Waiting on you` and a workflow's Notify step are never silenced by it. The attention service reads it when it writes an entry.
 - `group_id TEXT REFERENCES session_groups(id)` — the one group of its project the session sits in; NULL for a session in no group and for every chat. Indexed (`idx_sessions_group`), because the sessions list and search read a group's sessions by it. An archived session keeps it.
 - `pending_working_folder TEXT` — the folder a `session.setWorkingFolder` move goes to, applied at the active run's next boundary; NULL while no move waits. Written by the session service with no event of its own, so a rebuild, which rewrites only the row's event-derived columns, keeps it; it reaches clients as `pendingWorkingFolder` on `session.read`, and a purge keeps every worktree a pending move names.
+- `permission_level TEXT NOT NULL DEFAULT 'yolo' CHECK (permission_level IN ('readonly', 'ask', 'reviewed', 'sandboxed', 'yolo'))` — the session's permission level, which the run queue's admission reads: every process the session opens or resumes starts at it, and a new session starts at `yolo`. `session.permissionLevelUpdate` writes it once an open session's provider has taken the level, under the lock the session's opening takes, so the process never runs at another level than the stored one. Written with no event of its own, so a rebuild keeps it.
 
 A session's groups, links and tags are the three layers of [Spec-001 §Groups, Links And Tags](../../specs/001-session-core.md#groups-links-and-tags): one place in the list, any number of relationships, any number of categories. All three are row-canonical daemon state written by the session service and the session tools, not rebuilt from the event log, and removed with their session.
 
@@ -206,6 +207,9 @@ CREATE TABLE session_create_requests (
     CHECK (execution_mode IN ('bound-root', 'provisioned-worktree')),
   group_id                TEXT
 ) STRICT;
+
+-- A project's sessions, which its rules reach, found by the project they were made in.
+CREATE INDEX idx_session_create_requests_project ON session_create_requests(project_id);
 
 -- A chat's conversion: the session.convert key it runs under, which the latest request that
 -- resumed it takes over, the project mount it attached and the working tree it copies into.
@@ -655,9 +659,9 @@ CREATE INDEX idx_approval_requests_run ON approval_requests(run_id);
 CREATE INDEX idx_approval_requests_session ON approval_requests(session_id);
 CREATE INDEX idx_approval_requests_state ON approval_requests(state) WHERE state = 'pending';
 CREATE UNIQUE INDEX idx_approval_requests_ask ON approval_requests(run_id, ask_id) WHERE ask_id IS NOT NULL;
--- UNIQUE (run_id, ask_id): exactly one approval row per native ask — a normalizer retry or a rebuild's
--- re-mint collides here instead of persisting a duplicate pending row whose outcome routing
--- would then fan out or pick arbitrarily (Spec-010 one ask↔one approval)
+-- UNIQUE (run_id, ask_id): one approval row per ask id. The daemon mints the id once for each
+-- provider ask it takes, and a provider ask delivered again while it is held is matched to the held
+-- one in memory, so no second row is minted for it (Spec-010 one ask↔one approval)
 
 -- Owner: Plan-009
 CREATE TABLE approval_resolutions (
@@ -667,15 +671,30 @@ CREATE TABLE approval_resolutions (
                                               -- The first answer from any device settles the request.
   device_id                TEXT NOT NULL,     -- the answering device, the one whose connection carried the answer; a card
                                               -- answered elsewhere reads it as `Answered on <device>` (Spec-027 §Required Behavior)
+  client_resolution_id     TEXT NOT NULL,     -- minted by the answering client and echoed on the resolution event; the same
+                                              -- id sent again is answered with this row, any other answer is refused
   decision                 TEXT NOT NULL
                            CHECK(decision IN ('approved', 'rejected')),
   effective_scope          TEXT NOT NULL,     -- granted scope; = request scope unless the answer narrowed it (Spec-010 §Required Behavior);
                                               -- never broader than requested (domain invariant; Phase-2 enforced)
-  remembered_scope_kind    TEXT               -- 'session' | 'project' when the answer handed a rule to the provider; NULL otherwise (Spec-010 §Interfaces And Contracts)
+  remembered_scope_kind    TEXT               -- 'session' | 'project' when the answer made a rule, written with the rule's own
+                                              -- record once its provider kept it; NULL for a one-time answer and for a rule
+                                              -- its provider did not keep (Spec-010 §Interfaces And Contracts)
                            CHECK(remembered_scope_kind IS NULL OR remembered_scope_kind IN ('session', 'project')),
   remembered_scope_pattern TEXT,              -- the derived subject of that rule, nullable
-  resolved_at              TEXT NOT NULL
+  resolved_at              TEXT NOT NULL,
+  CHECK((remembered_scope_kind IS NULL) = (remembered_scope_pattern IS NULL)) -- a rule names its subject
 ) STRICT;
+
+-- Owner: Plan-009
+CREATE TABLE reviewer_denials (
+  denial_id        TEXT PRIMARY KEY,          -- the denialId its approval.reviewer_denied names
+  session_id       TEXT NOT NULL,
+  provider_denial  TEXT NOT NULL              -- JSON: the provider's own record of the block, whole, written in the
+                                              -- block's approval.reviewer_denied write; `Allow once` hands it back from here
+) STRICT;
+
+CREATE INDEX idx_reviewer_denials_session ON reviewer_denials(session_id);
 ```
 
 The daemon keeps no table of approval rules: the providers keep them ([Spec-010 §Default Behavior](../../specs/010-approvals-permissions-and-trust-boundaries.md#default-behavior)), and a session's own answers are its `approval_resolutions` rows and its `approval.remembered` and `approval.rule_revoked` events, which the inspector's `Rules` reads beside the providers' own rules.

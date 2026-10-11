@@ -623,7 +623,11 @@ function composeAnswerResult(
 ): CodexServerRequestResult {
   switch (answer.decision) {
     case "allow":
-      return held.descriptor.composeAllowedResult(answer.payload, held.params);
+      return held.descriptor.composeAllowedResult(
+        answer.payload,
+        held.params,
+        answer.forSession === true,
+      );
     case "refuse":
       return held.descriptor.composeRefusedResult(answer.reason);
     case "answered": {

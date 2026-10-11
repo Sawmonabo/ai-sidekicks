@@ -88,6 +88,11 @@ export class CodexSessionSlots {
     return this.#records.get(sessionId);
   }
 
+  /** The record whose conversation is `threadId`, or `undefined` when no session's is. */
+  recordForThread(threadId: string): CodexSessionRecord | undefined {
+    return [...this.#records.values()].find((record) => record.threadId === threadId);
+  }
+
   /** Every record on one service. */
   recordsOn(service: CodexService): CodexSessionRecord[] {
     return [...this.#records.values()].filter((record) => record.service === service);

@@ -30,6 +30,7 @@ import { SessionIdSchema, type SessionId } from "@ai-sidekicks/contracts/session
 import { EventLogService } from "../../events/log-service.js";
 import { SessionEventAppender } from "../../events/session/appender.js";
 import { SessionPurge } from "../../events/session/purge.js";
+import { projectRulesWithdrawingNothing } from "../../events/session/__tests__/purge.test-support.js";
 import { MethodRegistryImpl } from "../../ipc/registry.js";
 import { KeyedLock } from "../../keyed-lock.js";
 import { ExecutionPostureService } from "../../policy/execution-posture-service.js";
@@ -246,6 +247,7 @@ describe("the recovery pass at a restart", () => {
         relatedRanking: { rescoreAround: () => {} },
         whenFileCheckEnds: Promise.resolve(),
         shellTable: { closeSessionShells: async () => () => undefined },
+        projectRules: projectRulesWithdrawingNothing(),
       }),
       runs: fixture.runs,
       runEngine,

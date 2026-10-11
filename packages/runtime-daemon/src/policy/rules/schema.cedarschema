@@ -1,0 +1,23 @@
+// What the built-in rules decide over. Every check's principal is the machine's owning user, the
+// one person the daemon serves, whichever device or agent the request came through.
+entity User;
+
+// A saved workflow, named by its definition id.
+entity Workflow;
+
+// One run of a workflow, named by its run id.
+entity WorkflowRun;
+
+// The workflow tools: authoring a workflow, updating it, setting its schedule, enabling or
+// disabling it and posting a run's results into a chat; starting a run or executing one of its
+// steps; canceling a run; resuming one. Each is its own action because each commits something
+// different: what a workflow will do, new work, the end of work, and further spend.
+action "workflow::author", "workflow::start" appliesTo {
+  principal: User,
+  resource: Workflow,
+};
+
+action "workflow::cancel", "workflow::resume" appliesTo {
+  principal: User,
+  resource: WorkflowRun,
+};

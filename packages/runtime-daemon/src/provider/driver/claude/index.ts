@@ -56,6 +56,7 @@ import type {
   ProviderBuildChange,
   ProviderCommandsListener,
   PurgeSessionParams,
+  RevokeRuleParams,
   SessionCommandAnswer,
   StartReviewParams,
   SubscribeProviderCommandsParams,
@@ -71,6 +72,7 @@ import {
 } from "./capabilities.js";
 import { ClaudeInterventionDispatcher } from "./intervention.js";
 import { ClaudeSessionLifecycle } from "./lifecycle.js";
+import { readClaudeSessionRules, revokeClaudeRule } from "./session/permissions.js";
 import type { ClaudeSessionLifecycleDependencies } from "./session/state.js";
 import { composeClaudeSpawnEnvironment } from "./spawn/environment.js";
 import { ClaudeProcessTransport, type ClaudeProcessTransportDependencies } from "./spawn/launch.js";
@@ -93,6 +95,7 @@ export function createDriver(
   const transport = new ClaudeProcessTransport({
     providerCommand,
     toolServerRoute,
+    sessionRules: driverDependencies.sessionRules,
     diagnostics: driverDependencies.diagnostics,
     operatingSystem,
   });
@@ -213,6 +216,16 @@ export class ClaudeDriver implements ProviderDriver {
   /** Moves a session to another level; see {@link ClaudeSessionLifecycle.updatePermissionLevel}. */
   async updatePermissionLevel(params: UpdatePermissionLevelParams): Promise<void> {
     await this.#lifecycle.updatePermissionLevel(params);
+  }
+
+  /** Takes a revoked rule out of the project's local settings or the live process's rules. */
+  async revokeRule(params: RevokeRuleParams): Promise<void> {
+    await revokeClaudeRule(
+      this.#lifecycle.findLiveSession(params.sessionId),
+      params.rule,
+      params.projectFolder,
+      readClaudeSessionRules(this.#dependencies.sessionRules, params.sessionId),
+    );
   }
 
   /** Moves sessions onto a new build; see {@link ClaudeSessionLifecycle.moveToProviderBuild}. */

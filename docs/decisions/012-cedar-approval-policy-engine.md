@@ -11,11 +11,11 @@
 
 ## Context
 
-The app's own tools (workflows, messaging other sessions, the browser) need a policy that decides what an agent may do with them on its own and what needs a person's confirmation. Microsoft's Agent Governance Toolkit uses Cedar for agent policy enforcement. Cedar's principal-action-resource-context model maps directly to approval decisions (who is requesting, what action, on what resource, under what session context). Keeping the rules as policy text in their own files, apart from the code that asks for a decision, makes them one rule set that can be read and tested on its own.
+The workflow actions — authoring a workflow, starting a run, canceling one and resuming one — need a policy that decides what an agent may do on its own and what needs a person's confirmation. Microsoft's Agent Governance Toolkit uses Cedar for agent policy enforcement. Cedar's principal-action-resource-context model maps directly to approval decisions (who is requesting, what action, on what resource, under what session context). Keeping the rules as policy text in their own files, apart from the code that asks for a decision, makes them one rule set that can be read and tested on its own.
 
 ## Problem Statement
 
-What policy engine should decide the app's own tools so that authorization decisions stay readable, testable as one rule set, and separate from the code that asks for them?
+What policy engine should decide the workflow actions so that authorization decisions stay readable, testable as one rule set, and separate from the code that asks for them?
 
 ### Trigger
 
@@ -25,7 +25,7 @@ Approval logic spread through application code has no single rule set to read or
 
 Use Cedar (CNCF sandbox) as the approval policy engine. The built-in approval rules are `.cedar` files in the service's own source, compiled into the service with it, and changed and shipped only by an app update, like any other code. The service evaluates them in-process with the resident `@cedar-policy/cedar-wasm` authorizer: the policy set and schema are parsed once at start and held resident, then evaluated **per request with no decision cache**, so a decision is never served stale against a changed approval rule, project trust or posture. A decision cache buys nothing at in-process latency for this local authorizer.
 
-The rules decide only the app's own tools: workflows, messaging other sessions and the browser. A provider's own ask gets either one of the few designed answers, written as plain code — the refusal of `claude agents`, `claude daemon` and `claude --bg`, the allow of an agent's own memory-folder `.md` file, and the answer to a Codex ask Codex has no command of its own for — or the person's approval card; no Cedar rule decides it, because each permission level is one of the provider's own modes underneath. These are fixed answers, not policy, so they sit outside the rule set.
+The rules decide the workflow actions: `workflow::author`, `workflow::start`, `workflow::cancel` and `workflow::resume`. Messaging other sessions and the browser tools hold no rules: each call is gated by the calling session's permission level alone, like any other tool call ([Spec-014 §Sessions Talking To Each Other](../specs/014-multi-agent-orchestration.md#sessions-talking-to-each-other)). A provider's own ask gets either one of the few designed answers, written as plain code — the refusal of `claude agents`, `claude daemon` and `claude --bg`, the allow of an agent's own memory-folder `.md` file, and the answer to a Codex ask Codex has no command of its own for — or the person's approval card; no Cedar rule decides it, because each permission level is one of the provider's own modes underneath. These are fixed answers, not policy, so they sit outside the rule set.
 
 ## Alternatives Considered
 
@@ -48,7 +48,7 @@ The rules decide only the app's own tools: workflows, messaging other sessions a
 
 | # | Assumption | Evidence | What Breaks If Wrong |
 | --- | --- | --- | --- |
-| 1 | Cedar's principal-action-resource-context model can express every action of the app's own tools without contortion. | Cedar is purpose-built for authorization; Microsoft's Agent Governance Toolkit uses it for agent policy. | We would need a second policy language for tools that do not fit, fragmenting the engine. |
+| 1 | Cedar's principal-action-resource-context model can express every workflow action without contortion. | Cedar is purpose-built for authorization; Microsoft's Agent Governance Toolkit uses it for agent policy. | We would need a second policy language for actions that do not fit, fragmenting the engine. |
 | 2 | Cedar WASM is usable in-process from a TypeScript host without unacceptable startup or evaluation overhead. | Cedar publishes WASM artifacts; the microsecond policy-evaluation benchmarks are **native-engine** figures — the WASM path (including JS↔WASM marshaling) has no published benchmark and stays unvalidated until the end-to-end benchmark in §Decision Validation is run. | We would need a sidecar policy service or a native Go/Rust binding, complicating deployment. |
 | 3 | Cedar remains an actively maintained CNCF project over the product lifetime. | Cedar is a CNCF sandbox project with AWS and Microsoft involvement and a published roadmap. | If Cedar stagnates, we would migrate to OPA/Rego or a bespoke engine — a multi-quarter effort. |
 
@@ -66,7 +66,7 @@ The rules decide only the app's own tools: workflows, messaging other sessions a
 - **Reversal cost:** Medium. Policies and their evaluation sites are well isolated, but every approval path calls the policy engine, so replacement touches each integration.
 - **Blast radius:** Approval service, CLI/desktop approval prompts, approval records, and any runtime code that branches on approval decisions.
 - **Migration path:** Every check goes through the daemon's one permission-check service, so replacing Cedar means rewriting the `.cedar` rules for the new engine, swapping the evaluator behind that service, and passing the same reference cases, shipped in one app update.
-- **Point of no return:** The rule set grows with each of the app's own tools, so a later replacement means translating every rule.
+- **Point of no return:** The rule set grows with each action it decides, so a later replacement means translating every rule.
 
 ## Consequences
 
@@ -91,7 +91,7 @@ The daemon depends on `@cedar-policy/cedar-wasm` on the Cedar **v4.13** line (12
 
 | Metric | Target | Measurement Method | Check Date |
 | --- | --- | --- | --- |
-| Decisions about the app's own tools expressible purely in Cedar (no app-side fallback) | Every action of the app's own tools | Policy spec review | When the approval policy set lands |
+| Decisions about the workflow actions expressible purely in Cedar (no app-side fallback) | Every workflow action | Policy spec review | When the approval policy set lands |
 | Cedar end-to-end policy decision latency per request — WASM build, **including JS↔WASM marshaling** (empirical target; no published WASM benchmark exists) | < 1 ms at p95 | End-to-end benchmark, then approval service metrics | When the composed approval gate is benchmarked, before it ships |
 
 ## References

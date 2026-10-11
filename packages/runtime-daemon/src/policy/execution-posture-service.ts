@@ -1,13 +1,14 @@
-// A run's execution posture from its request to its `run.running` stamp, and the one curated
-// credential deny list every provider process is handed. The posture is checked and its writable
-// roots resolved before the provider starts the run; a posture that fails a check refuses the run
-// and is never rewritten into one that passes.
+// A run's execution posture from its request to its `run.running` stamp, the posture each level
+// runs at, and the one curated credential deny list every provider process is handed. The posture
+// is checked and its writable roots resolved before the provider starts the run; a posture that
+// fails a check refuses the run and is never rewritten into one that passes.
 
 import { realpath } from "node:fs/promises";
 import path from "node:path";
 
 import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
+import type { PermissionLevel } from "@ai-sidekicks/contracts/session/controls/methods";
 
 import type {
   RunSetupContext,
@@ -17,6 +18,23 @@ import type {
 
 /** The reference every run's posture carries; it names the daemon's one curated credential list. */
 export const CURATED_CREDENTIAL_POLICY_REF = "curated-credentials";
+
+/**
+ * The posture a session's process runs at at `level` in the repository whose git folder, the
+ * common one for a linked worktree, is `gitFolder`: at Sandboxed that folder is writable, its
+ * `hooks` and `config` aside, so a commit from a linked worktree lands; no other level names a
+ * writable root.
+ */
+export function composeExecutionPosture(
+  level: PermissionLevel,
+  gitFolder: string,
+): ExecutionPosture {
+  return {
+    mode: level,
+    writableRoots: level === "sandboxed" ? [gitFolder] : [],
+    credentialPolicyRef: CURATED_CREDENTIAL_POLICY_REF,
+  };
+}
 
 // Relative to the person's home; resolved to canonical absolute paths on each read.
 const CURATED_CREDENTIAL_DENY_PATHS: readonly string[] = Object.freeze([".ssh", ".aws"]);

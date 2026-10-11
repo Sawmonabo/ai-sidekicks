@@ -8,8 +8,14 @@
 import type { QuestionAnswer, QuestionPrompt } from "@ai-sidekicks/contracts/question";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
-import type { PermissionAskPort } from "../../../port/permission-ask.js";
+import {
+  ProviderRuleNotKeptError,
+  type PermissionAskPort,
+  type ProviderAskAction,
+  type ProviderPermissionAnswer,
+} from "../../../port/permission-ask.js";
 import type { QuestionPort } from "../../../port/question.js";
+import type { SessionRulePort } from "../../../port/session-rules.js";
 import type { PortRegistration } from "../../../port/registration.js";
 import { isPlainObject, readNonEmptyString } from "../../../record-readers.js";
 import type { RespondToRequestParams } from "../../contract.js";
@@ -28,7 +34,10 @@ import type {
   ClaudeInboundRequestEvent,
 } from "../session/transport.js";
 import { CLAUDE_PERMISSION_MODE_BY_LEVEL } from "../spawn/arguments.js";
+import { keepClaudeAnswerRule, readClaudeSessionRules } from "../session/permissions.js";
+import { composeClaudeProjectAllowUpdate } from "../session/rules.js";
 import { matchesClaudeReviewedRemovalRule } from "../spawn/settings.js";
+import { readClaudeAskAction } from "./ask-action.js";
 import type { ClaudeProviderDialogs } from "./dialogs.js";
 import type { ClaudeDeliveryDispatch } from "./dispatch.js";
 import { readClaudeHookDenial, type ClaudeReviewerCapture } from "./reviewer.js";
@@ -36,9 +45,17 @@ import { readClaudeHookDenial, type ClaudeReviewerCapture } from "./reviewer.js"
 // The decision reason of an ask an ask rule sent to the host.
 const CLAUDE_RULE_DECISION = "rule";
 
+// The input members a file tool names its file or folder by, in the order they are read.
+const CLAUDE_PATH_MEMBERS = ["file_path", "notebook_path", "path"] as const;
+
 /** A request the daemon handed, or is handing, to a service, holding the provider's answer open. */
 type ClaudePendingRequestKind =
-  | { readonly kind: "ask" }
+  | {
+      readonly kind: "ask";
+      /** The call's input as Claude Code sent it, which an allow hands back, corrected or not. */
+      readonly input: Readonly<Record<string, unknown>>;
+      readonly action: ProviderAskAction;
+    }
   | {
       readonly kind: "question";
       /** How the question arrived, which decides the shape its answer goes back in. */
@@ -70,6 +87,8 @@ export interface ClaudeInboundRequestsDependencies {
   readonly permissionModeFor: (sessionId: SessionId) => string | undefined;
   /** Settles once a helper's child run that is being started has its route, if one is. */
   readonly childRunStarting: (sessionId: SessionId, agentId: string) => Promise<void> | undefined;
+  /** The session's own standing rules, which an answer's session rule is resent with. */
+  readonly sessionRules: PortRegistration<SessionRulePort>;
 }
 
 // The question tool's questions as the questions card asks them; a malformed one is left out.
@@ -185,20 +204,39 @@ export class ClaudeInboundRequests {
 
   /**
    * Answers one request a run is held on under its own id: a question with `{answers}`, one per
-   * question in order, composed into the question tool's own answer; any other request with the
-   * provider-shaped object the caller built. Throws when the answer is not an object.
+   * question in order, composed into the question tool's own answer; an ask with the approval
+   * pipeline's {@link ProviderPermissionAnswer}, the decision first and then the rule it made.
+   * Throws for a request the session no longer holds, as the answer's send throws, and
+   * {@link ProviderRuleNotKeptError} once the call is answered but its rule could not be kept.
    */
   async respond(live: LiveClaudeSession, params: RespondToRequestParams): Promise<void> {
     const pending = this.#pendingBySession.get(live.sessionId)?.get(params.requestId);
-    const response =
-      pending?.kind === "question"
-        ? composeQuestionResponse(pending, readQuestionAnswers(params.response))
-        : params.response;
-    if (!isPlainObject(response)) {
-      throw new TypeError("A Claude Code request is answered with an object.");
+    if (pending === undefined) {
+      throw new Error(`Claude Code holds no request ${params.requestId} of this session open`);
     }
-    await live.channel.answerInboundRequest(params.requestId, response);
+    if (pending.kind === "question") {
+      await live.channel.answerInboundRequest(
+        params.requestId,
+        composeQuestionResponse(pending, readQuestionAnswers(params.response)),
+      );
+      this.#pendingBySession.get(live.sessionId)?.delete(params.requestId);
+      return;
+    }
+    const answer = params.response as ProviderPermissionAnswer;
+    await live.channel.answerInboundRequest(params.requestId, composeAskResponse(pending, answer));
     this.#pendingBySession.get(live.sessionId)?.delete(params.requestId);
+    if (answer.madeRule === undefined) {
+      return;
+    }
+    try {
+      await keepClaudeAnswerRule(
+        live,
+        answer.madeRule,
+        readClaudeSessionRules(this.#dependencies.sessionRules, live.sessionId),
+      );
+    } catch (error) {
+      throw new ProviderRuleNotKeptError(error);
+    }
   }
 
   /**
@@ -317,13 +355,19 @@ export class ClaudeInboundRequests {
     }
     const toolCallId = readNonEmptyString(body, "tool_use_id");
     const prompt = readNonEmptyString(body, "title") ?? readNonEmptyString(body, "description");
-    this.#admit(live, request.requestId, run, toolCallId, { kind: "ask" }, async (port) => {
+    const { action, ruleScopes, isProviderFlagged } = readClaudeAskAction(toolName, input, body);
+    const pending = { kind: "ask", input, action } as const;
+    this.#admit(live, request.requestId, run, toolCallId, pending, async (port) => {
       await port.asks?.takeAsk({
         sessionId: live.sessionId,
         runId: run.runId,
         requestId: request.requestId,
         toolName,
         input,
+        action,
+        ruleScopes,
+        isProviderFlagged,
+        ...(toolCallId === undefined ? {} : { toolCallId }),
         ...(prompt === undefined ? {} : { prompt }),
       });
     });
@@ -513,4 +557,46 @@ function composeQuestionResponse(
           updatedInput,
         },
       };
+}
+
+// The ask's answer in Claude Code's own words: an allow hands back the call's input, with the
+// command or path as the person corrected it, and a project allow its rule for Claude Code to write
+// into its own folder's local settings, where Claude Code can keep it; a refusal carries the
+// decline's reason, and none for a bare decline.
+function composeAskResponse(
+  pending: Extract<ClaudePendingRequestKind, { kind: "ask" }>,
+  answer: ProviderPermissionAnswer,
+): Record<string, unknown> {
+  if (answer.decision === "refuse") {
+    return { behavior: "deny", message: answer.reason ?? "" };
+  }
+  const updatedInput =
+    answer.editedAction === undefined
+      ? pending.input
+      : withEditedAction(pending.input, pending.action, answer.editedAction);
+  const projectAllow =
+    answer.madeRule?.rule.kind === "project"
+      ? composeClaudeProjectAllowUpdate(answer.madeRule.rule)
+      : undefined;
+  return {
+    behavior: "allow",
+    updatedInput,
+    ...(projectAllow === undefined ? {} : { updatedPermissions: [projectAllow] }),
+  };
+}
+
+// The input with the command or path the person corrected in place of the one the call named.
+function withEditedAction(
+  input: Readonly<Record<string, unknown>>,
+  action: ProviderAskAction,
+  editedAction: string,
+): Record<string, unknown> {
+  if (action.kind === "command") {
+    return { ...input, command: editedAction };
+  }
+  const pathMember = CLAUDE_PATH_MEMBERS.find((member) => typeof input[member] === "string");
+  if (pathMember === undefined || (action.kind !== "file_change" && action.kind !== "file_read")) {
+    throw new TypeError(`A Claude Code ${action.kind} ask takes no corrected action`);
+  }
+  return { ...input, [pathMember]: editedAction };
 }
