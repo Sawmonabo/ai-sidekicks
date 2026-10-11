@@ -1,7 +1,8 @@
 // What the shell table holds for one shell of a session, and how a new one is built: its control
 // lease, flow control, screen copy, marks, scrollback window and input and size queues, each host
 // call naming the shell's terminal host session while it runs. A change of holder closes a paste
-// the shell had open and forgets the appearance the last holder's pane reported.
+// the shell had open and forgets the appearance the last holder's pane reported; a terminal answer
+// that comes while a marked paste is open follows that paste's end mark.
 
 import type { SubscriptionId } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 import {
@@ -157,12 +158,12 @@ export function createShellRecord(start: ShellRecordStart, hooks: ShellRecordHoo
       }),
       answer: (answer) => {
         // A program that has stopped running takes no answer.
-        if (shell.hostSessionId !== null) {
-          hooks.writeInput(
-            shell,
-            Buffer.from(answer, "utf8"),
-            "could not take its terminal's answer",
-          );
+        if (shell.hostSessionId === null) {
+          return;
+        }
+        const bytes = Buffer.from(answer, "utf8");
+        if (!shell.pastes.holdAnswer(bytes)) {
+          hooks.writeInput(shell, bytes, "could not take its terminal's answer");
         }
       },
       onTitleChange: () => {

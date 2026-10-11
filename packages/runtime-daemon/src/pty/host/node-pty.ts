@@ -11,23 +11,33 @@
 //     - SIGTERM maps to CTRL_BREAK_EVENT, then escalates to `taskkill /T /F` after 2 s.
 //     - SIGKILL runs `taskkill /T /F` on the whole descendant tree (a single-PID kill orphans
 //       children on Windows). The reap is bounded to 5 s, and `onExit` fires either way.
-// - `node-pty` does not expose `GenerateConsoleCtrlEvent`, so it is bound through `koffi`, loaded
-//   on the first Windows kill.
+// - `node-pty` does not expose `GenerateConsoleCtrlEvent`, so `console-control-windows.ts` binds
+//   it through `koffi` on the first Windows kill.
+// - A close resolves once the child has exited, each ending through the operating system: a
+//   hangup, then a stop, then a kill, so a program that ignores the hangup cannot outlive it.
 // - Every effectful primitive (`node-pty.spawn`, the FFI binding, the `taskkill` spawn, timers)
 //   is injectable through `NodePtyHostDeps`, so tests run on every platform without `node-pty`,
 //   `koffi` or Windows.
 
 import { randomUUID } from "node:crypto";
 
-import { importKoffi } from "../koffi.js";
+import { waitWithin } from "../../bounded-wait.js";
+import { loadGenerateConsoleCtrlEvent, type ConsoleCtrlEvent } from "../console-control-windows.js";
 import { HeldSessionEvents } from "./held-events.js";
-import type { TerminalOperatingSystem } from "../operating-system/contract.js";
+import {
+  TERMINAL_CHILD_ENDINGS,
+  type TerminalOperatingSystem,
+} from "../operating-system/contract.js";
 import type { OrphanGuard } from "../orphan/guard.js";
 import { SPAWN_NONCE_ENVIRONMENT_NAME } from "../orphan/registry.js";
 import { PtyBackendUnavailableError } from "../sidecar/binary-path.js";
 import { defaultSpawnTaskkill, type TaskkillResult } from "../taskkill-windows.js";
 import type { PtySignal, SpawnRequest, SpawnResponse } from "./protocol.js";
 import type { DrainResult, PtyHost } from "./contract.js";
+
+// How long each ending of a closed child waits for its exit before the next: as long as the
+// Windows hangup is given before its taskkill.
+const TERMINAL_CHILD_ENDING_STEP_MS = 2_000;
 
 // Local types instead of `node-pty`'s own: the file never imports `node-pty` at the type layer
 // (it is loaded lazily), and the types list exactly what is consumed: `pid`, `onData`,
@@ -79,9 +89,6 @@ export type NodePtySpawnFn = (
   options: NodePtySpawnOptions,
 ) => NodePtyChild;
 
-/** Windows console-control event codes per Win32 `GenerateConsoleCtrlEvent`. */
-export type ConsoleCtrlEvent = 0 | 1; // CTRL_C_EVENT | CTRL_BREAK_EVENT
-
 /**
  * Effectful primitives `NodePtyHost` reaches through, all injectable so tests run on every
  * platform with `vi.fn()` doubles. Callers pass `Partial<NodePtyHostDeps>` to the constructor;
@@ -102,18 +109,14 @@ export interface NodePtyHostDeps {
   readonly clearTimer: (handle: NodeJS.Timeout) => void;
   /** Signals a whole process group, as `process.kill(-leaderId, signal)` does. */
   readonly signalProcessGroup: (leaderId: number, signal: NodeJS.Signals) => void;
+  /** How long each ending of a closed child waits for its exit before the next, in milliseconds. */
+  readonly endingStepMs: number;
 }
 
 /** `NodePtyHostDeps` after defaults; a `null` `ptySpawn` means `node-pty` loads on first spawn. */
-interface ResolvedNodePtyHostDeps {
-  readonly platform: NodeJS.Platform;
+type ResolvedNodePtyHostDeps = Omit<NodePtyHostDeps, "ptySpawn"> & {
   readonly ptySpawn: NodePtySpawnFn | null;
-  readonly generateConsoleCtrlEvent?: (event: ConsoleCtrlEvent, pid: number) => void;
-  readonly spawnTaskkill?: (pid: number) => Promise<TaskkillResult>;
-  readonly setTimer: (cb: () => void, ms: number) => NodeJS.Timeout;
-  readonly clearTimer: (handle: NodeJS.Timeout) => void;
-  readonly signalProcessGroup: (leaderId: number, signal: NodeJS.Signals) => void;
-}
+};
 
 interface PtySessionRecord {
   /** Underlying `node-pty` child. */
@@ -125,14 +128,17 @@ interface PtySessionRecord {
   /** Whether the consumer paused the read, and whether the read is paused now. */
   isPausedByConsumer: boolean;
   isReadPaused: boolean;
-  /** The consumer-facing listeners on the child, which `close()` disposes. */
-  readonly subscriptions: Array<{ dispose: () => void }>;
+  /** The consumer's listener on the child's output, which `close()` disposes. */
+  readonly dataSubscription: { dispose: () => void };
   /**
    * `true` once `onExit` has fired for this session, from the child's own exit or the synthetic
    * taskkill exit. Write-once, so the exit is reported exactly once and a later `kill()` sends
    * nothing.
    */
   hasExited: boolean;
+  /** Settles once the child's own process has exited, which a synthetic exit does not settle. */
+  readonly childExited: Promise<void>;
+  hasChildExited: boolean;
   /** Pending escalation timer, if `SIGTERM` is mid-flight on Windows. */
   pendingEscalation: NodeJS.Timeout | null;
   /**
@@ -167,25 +173,6 @@ async function loadNodePtySpawn(): Promise<NodePtySpawnFn> {
     );
   }
   return nodePty.spawn;
-}
-
-/**
- * Binds `GenerateConsoleCtrlEvent` from `kernel32.dll` through `koffi` on first use.
- * Throws with an install hint when `koffi` cannot be loaded. Only the Windows kill path calls it.
- */
-async function loadGenerateConsoleCtrlEvent(): Promise<
-  (event: ConsoleCtrlEvent, pid: number) => void
-> {
-  // No platform guard: tests inject the FFI seam directly, and a real Windows failure surfaces
-  // with its own diagnostics.
-  const koffi = await importKoffi("Windows kill-translation");
-  const kernel32 = koffi.load("kernel32.dll");
-  const binding = kernel32.func(
-    "int __stdcall GenerateConsoleCtrlEvent(uint32 dwCtrlEvent, uint32 dwProcessGroupId)",
-  );
-  return (event: ConsoleCtrlEvent, pid: number): void => {
-    binding(event, pid);
-  };
 }
 
 /**
@@ -296,6 +283,7 @@ export class NodePtyHost implements PtyHost {
     // Not `mintUuidV7`: this is a host-local handle, dead when the PTY closes, with a
     // backend-private format (the Rust sidecar backend mints `s-{n}`), and no row stores it.
     const sessionId: string = randomUUID();
+    const childExit = Promise.withResolvers<void>();
     // One record shared by the listeners and the map, so exits seen in `child.onExit` are
     // visible to `kill()`.
     const record: PtySessionRecord = {
@@ -306,47 +294,47 @@ export class NodePtyHost implements PtyHost {
       }),
       isPausedByConsumer: false,
       isReadPaused: false,
-      subscriptions: [],
-      hasExited: false,
-      pendingEscalation: null,
-      escalated: false,
-    };
-
-    // Kept through `close()`, so a closed child that ignores the hangup is retired when it ends.
-    child.onExit(() => {
-      this.orphanGuard.retire(nonce);
-    });
-    record.subscriptions.push(
-      child.onData((chunk: string | Uint8Array) => {
+      dataSubscription: child.onData((chunk: string | Uint8Array) => {
         const bytes: Uint8Array =
           typeof chunk === "string" ? new TextEncoder().encode(chunk) : chunk;
         record.heldEvents.deliver(() => {
           this.dataListener(sessionId, bytes);
         }, bytes.byteLength);
       }),
-    );
-    record.subscriptions.push(
-      child.onExit((event: { exitCode: number; signal?: number | undefined }) => {
-        // The child exited on its own, so the taskkill escalation is no longer needed.
-        this.clearPendingEscalation(record);
-        // `invokeTaskkill` already reported a synthetic exit (code 1); the exit is reported once.
-        if (record.hasExited) {
-          // The synthetic exit only happens after the forced kill, so a waiting `shutdown()`
-          // gets `"forced"`.
-          this.notifyShutdownWaiter(sessionId, "forced");
-          return;
-        }
-        record.hasExited = true;
-        record.heldEvents.deliver(() => {
-          this.fireExit(sessionId, event.exitCode, event.signal);
-        }, 0);
-        // Notify after `fireExit` so listeners see the exit before the drain completes. On Windows
-        // the 2 s taskkill escalation can win before the drain timeout, so the outcome reads
-        // `record.escalated`. The closure-captured `record` is used, not a `sessions` lookup, so a
-        // concurrent `close()` cannot change it.
-        this.notifyShutdownWaiter(sessionId, record.escalated ? "forced" : "drained");
-      }),
-    );
+      hasExited: false,
+      childExited: childExit.promise,
+      hasChildExited: false,
+      pendingEscalation: null,
+      escalated: false,
+    };
+
+    // Kept through `close()`, so a closed child that outlives its hangup is still retired and
+    // waited on when it ends; only an open session's exit is reported.
+    child.onExit((event: { exitCode: number; signal?: number | undefined }) => {
+      this.orphanGuard.retire(nonce);
+      record.hasChildExited = true;
+      childExit.resolve();
+      // The child exited on its own, so the taskkill escalation is no longer needed.
+      this.clearPendingEscalation(record);
+      if (this.sessions.get(sessionId) !== record) {
+        return;
+      }
+      // `invokeTaskkill` already reported a synthetic exit (code 1); the exit is reported once.
+      if (record.hasExited) {
+        // The synthetic exit only happens after the forced kill, so a waiting `shutdown()`
+        // gets `"forced"`.
+        this.notifyShutdownWaiter(sessionId, "forced");
+        return;
+      }
+      record.hasExited = true;
+      record.heldEvents.deliver(() => {
+        this.fireExit(sessionId, event.exitCode, event.signal);
+      }, 0);
+      // Notify after `fireExit` so listeners see the exit before the drain completes. On Windows
+      // the 2 s taskkill escalation can win before the drain timeout, so the outcome reads
+      // `record.escalated`.
+      this.notifyShutdownWaiter(sessionId, record.escalated ? "forced" : "drained");
+    });
 
     this.sessions.set(sessionId, record);
     // Listeners attach before this read, so an exit during it is still seen.
@@ -440,7 +428,12 @@ export class NodePtyHost implements PtyHost {
     record.child.kill(signal);
   }
 
-  /** Disposes the session and stops its child. Closing an unknown session is not an error. */
+  /**
+   * Ends the session and resolves once its child has exited: the child is asked to hang up, as a
+   * closed terminal asks, then to stop, then killed, each ending through the operating system and
+   * given `endingStepMs` to take. Nothing about the session is reported once close begins. Throws
+   * when the child outlives its kill; closing an unknown session is not an error.
+   */
   public async close(sessionId: string): Promise<void> {
     const record: PtySessionRecord | undefined = this.sessions.get(sessionId);
     if (record === undefined) {
@@ -448,30 +441,20 @@ export class NodePtyHost implements PtyHost {
     }
     // Cancel a pending escalation so a stale `taskkill` cannot fire 2 s after close.
     this.clearPendingEscalation(record);
-    // Dispose listeners before killing, so an exit landing during the kill reaches nobody.
-    for (const sub of record.subscriptions) {
-      sub.dispose();
-    }
-    // On Windows `child.kill()` would orphan descendants (see the file header), so use the same
-    // `taskkill /T /F` as `kill(SIGKILL)`. Fire-and-forget: close must not wait for the reap.
-    if (!record.hasExited) {
-      if (this.deps.platform === "win32") {
-        // The synthetic exit from `invokeTaskkill` is suppressed by the `sessions.delete` below:
-        // after `close()` nothing is emitted for this session.
-        void this.invokeTaskkill(sessionId, record, record.child.pid);
-      } else {
-        // POSIX: the TTY's foreground-process-group semantics carry the kill to descendants.
-        // Close does not fail on a child that is already gone; the failure is logged.
-        try {
-          record.child.kill();
-        } catch (err: unknown) {
-          console.warn(`NodePtyHost: close: child.kill() threw for session=${sessionId}.`, {
-            cause: err,
-          });
-        }
-      }
-    }
+    record.dataSubscription.dispose();
     this.sessions.delete(sessionId);
+    for (const ending of TERMINAL_CHILD_ENDINGS) {
+      if (record.hasChildExited) {
+        return;
+      }
+      this.operatingSystem.endTerminalChild(record.child, ending);
+      await waitWithin(record.childExited, this.deps.endingStepMs);
+    }
+    if (!record.hasChildExited) {
+      throw new Error(
+        `The terminal's program, process ${String(record.child.pid)}, did not end when killed`,
+      );
+    }
   }
 
   // A child the orphan registry could not record must not outlive its spawn, which rejects with
@@ -483,12 +466,18 @@ export class NodePtyHost implements PtyHost {
   ): Promise<never> {
     if (this.deps.platform === "win32") {
       // There `close()` ends the tree with `taskkill /T /F`.
-      await this.close(sessionId);
+      try {
+        await this.close(sessionId);
+      } catch (closeError: unknown) {
+        throw new AggregateError(
+          [failure, closeError],
+          "The orphan registry could not record a terminal child, and ending it failed",
+          { cause: closeError },
+        );
+      }
       throw failure;
     }
-    for (const subscription of record.subscriptions) {
-      subscription.dispose();
-    }
+    record.dataSubscription.dispose();
     this.sessions.delete(sessionId);
     try {
       // The child leads its own process group.
@@ -864,13 +853,7 @@ function envTuplesToRecord(
 function resolveDefaultDeps(partial: Partial<NodePtyHostDeps>): ResolvedNodePtyHostDeps {
   // The optional fields are spread conditionally: `exactOptionalPropertyTypes` forbids assigning
   // `undefined` to them, and spreading `false` from `cond && obj` fails type inference.
-  const base: {
-    readonly platform: NodeJS.Platform;
-    readonly ptySpawn: NodePtySpawnFn | null;
-    readonly setTimer: (cb: () => void, ms: number) => NodeJS.Timeout;
-    readonly clearTimer: (handle: NodeJS.Timeout) => void;
-    readonly signalProcessGroup: (leaderId: number, signal: NodeJS.Signals) => void;
-  } = {
+  const base: Omit<ResolvedNodePtyHostDeps, "generateConsoleCtrlEvent" | "spawnTaskkill"> = {
     platform: partial.platform ?? process.platform,
     ptySpawn: partial.ptySpawn ?? null,
     setTimer: partial.setTimer ?? ((cb, ms) => setTimeout(cb, ms)),
@@ -880,6 +863,7 @@ function resolveDefaultDeps(partial: Partial<NodePtyHostDeps>): ResolvedNodePtyH
       ((leaderId, signal) => {
         process.kill(-leaderId, signal);
       }),
+    endingStepMs: partial.endingStepMs ?? TERMINAL_CHILD_ENDING_STEP_MS,
   };
   return {
     ...base,

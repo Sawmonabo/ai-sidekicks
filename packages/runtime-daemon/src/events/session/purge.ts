@@ -26,8 +26,8 @@
 //   - Each session is purged under its session lock, so no conversion copies out of a folder being
 //     removed, and its rows under one hold of its append lock. The receipt is appended after every
 //     session, outside every hold, because the append takes its own lock.
-//   - The session's shells end first, so none keeps running in a folder about to go; a shell that
-//     cannot be let go refuses the session with its folder and every row kept.
+//   - The session's shells end first, so none keeps running in a folder about to go; a shell whose
+//     program will not end, even killed, refuses the session with its folder and every row kept.
 //   - The provider's conversations go next, while the rows naming them and the folder they ran in
 //     are still there, then the folder, then the rows: a deletion that fails refuses the session
 //     with every row kept, and a row write that fails after it keeps the rows naming files already

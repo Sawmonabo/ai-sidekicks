@@ -2,7 +2,8 @@
 // fixed at its first part, by whether the program in the shell asked for bracketed paste then. A
 // shell has at most one paste open, which belongs to the pane output subscription its newest part
 // came through: a paste another part starts closes the open one first, so two panes' pastes never
-// interleave and the program is never left inside a paste.
+// interleave and the program is never left inside a paste. An answer to the program that comes
+// while a marked paste is open waits for its end mark, so it never lands inside the pasted text.
 
 import type { SubscriptionId } from "@ai-sidekicks/contracts/jsonrpc/streaming";
 
@@ -33,6 +34,8 @@ class ShellPaste {
   #hasStarted = false;
   // The end of the last part that may begin an end mark, held until the next part shows.
   #heldText = "";
+  // The answers to the program that came while the paste was open, written after its end mark.
+  readonly #heldAnswers: Uint8Array[] = [];
 
   constructor(isBracketed: boolean) {
     this.#isBracketed = isBracketed;
@@ -51,21 +54,34 @@ class ShellPaste {
     }
     if (isLastPart) {
       this.#heldText = "";
-      return Buffer.from(`${opening}${pasted}${PASTE_END}`, "utf8");
+      return Buffer.concat([
+        Buffer.from(`${opening}${pasted}${PASTE_END}`, "utf8"),
+        ...this.#heldAnswers.splice(0),
+      ]);
     }
     const keptLength = pasted.length - heldEndMarkPrefixLength(pasted);
     this.#heldText = pasted.slice(keptLength);
     return Buffer.from(`${opening}${pasted.slice(0, keptLength)}`, "utf8");
   }
 
-  // The bytes that close a paste whose last part never came: what it held, and its end mark.
+  // The bytes that close a paste whose last part never came: what it held, its end mark and the
+  // answers that waited for it.
   close(): Uint8Array {
     if (!this.#isBracketed) {
       return NO_BYTES;
     }
     const closing = `${this.#heldText}${PASTE_END}`;
     this.#heldText = "";
-    return Buffer.from(closing, "utf8");
+    return Buffer.concat([Buffer.from(closing, "utf8"), ...this.#heldAnswers.splice(0)]);
+  }
+
+  // Holds an answer until the end mark when the paste is marked; a paste with no marks holds none.
+  holdAnswer(answer: Uint8Array): boolean {
+    if (!this.#isBracketed) {
+      return false;
+    }
+    this.#heldAnswers.push(answer);
+    return true;
   }
 }
 
@@ -116,7 +132,15 @@ export class ShellPastes {
     return open === null ? NO_BYTES : open.paste.close();
   }
 
-  /** Forgets the open paste, for a shell that takes no more input. */
+  /**
+   * Holds an answer to the program until the open paste's end mark, which the bytes that close it
+   * carry after them, when that paste is marked as pasted; whether it held it.
+   */
+  holdAnswer(answer: Uint8Array): boolean {
+    return this.#open?.paste.holdAnswer(answer) ?? false;
+  }
+
+  /** Forgets the open paste and the answers it held, for a shell that takes no more input. */
   clear(): void {
     this.#open = null;
   }

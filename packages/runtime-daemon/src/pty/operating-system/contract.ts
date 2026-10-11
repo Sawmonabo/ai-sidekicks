@@ -1,15 +1,31 @@
 // What the terminal takes from the operating system it runs on: the shell the system starts for an
 // account that names none, how a shell with no marks script starts as a login shell, the data
 // folders fish reads by default, how bash starts with the marks script loaded beside the person's
-// login files, and how a terminal child starts. Each system's module answers, and the daemon picks
-// one at its start, so no caller tests the platform.
+// login files, and how a terminal child starts and is ended. Each system's module answers, and the
+// daemon picks one at its start, so no caller tests the platform.
 
-import type { SpawnEnvPair } from "../../provider/spawn-env.js";
+import type { SpawnEnvNameMatch, SpawnEnvPair } from "../../provider/spawn-env.js";
 
 /** How a terminal child is started: the program run, and its arguments. */
 export interface TerminalChildLaunch {
   readonly command: string;
   readonly args: string[];
+}
+
+/**
+ * The ways a terminal child is ended, gentlest first: asked to hang up, as a closed terminal asks,
+ * asked to stop, and killed.
+ */
+export const TERMINAL_CHILD_ENDINGS = ["hangup", "stop", "kill"] as const;
+
+/** One way a terminal child is ended. */
+export type TerminalChildEnding = (typeof TERMINAL_CHILD_ENDINGS)[number];
+
+/** A running terminal child, as an ending reaches it. */
+export interface TerminalChildProcess {
+  readonly pid: number;
+  /** Sends the POSIX signal named to the child itself. */
+  kill(signal: string): void;
 }
 
 /** What the terminal takes from the operating system it runs on. */
@@ -37,6 +53,8 @@ export interface TerminalOperatingSystem {
     args: readonly string[],
     daemonProcessId: number,
   ): TerminalChildLaunch;
+  /** Ends a terminal child by `ending`; its exit follows unless the child withstands it. */
+  endTerminalChild(child: TerminalChildProcess, ending: TerminalChildEnding): void;
 }
 
 /** What a bash start is decided from. */
@@ -46,6 +64,8 @@ export interface BashStartInput {
   readonly scriptPath: string;
   /** The environment the shell would start with. */
   readonly environment: readonly SpawnEnvPair[];
+  /** How this system compares environment variable names. */
+  readonly environmentNameMatch: SpawnEnvNameMatch;
 }
 
 /** How one bash starts: the program, its arguments and the variables laid over its environment. */

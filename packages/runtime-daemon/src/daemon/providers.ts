@@ -86,7 +86,7 @@ import type {
   RuntimeBindingStore,
 } from "../provider/runtime-binding-store.js";
 import type { ProviderOperatingSystem } from "../provider/operating-system/contract.js";
-import type { SpawnEnvPair } from "../provider/spawn-env.js";
+import { readSpawnEnvValue, type SpawnEnvPair } from "../provider/spawn-env.js";
 import {
   ProviderExecutableUnresolvableError,
   resolveProviderExecutable,
@@ -324,8 +324,11 @@ export class DaemonProviders {
     };
     const personalCodexHome: CodexServiceHome = {
       codexHome:
-        providerBaseEnvironment.find(([name]) => name === "CODEX_HOME")?.[1] ??
-        path.join(context.homeDirectory, CODEX_PERSONAL_HOME_FOLDER_NAME),
+        readSpawnEnvValue(
+          providerBaseEnvironment,
+          "CODEX_HOME",
+          context.operatingSystem.environmentNameMatch,
+        ) ?? path.join(context.homeDirectory, CODEX_PERSONAL_HOME_FOLDER_NAME),
       providerAccountId: undefined,
       isManaged: false,
     };

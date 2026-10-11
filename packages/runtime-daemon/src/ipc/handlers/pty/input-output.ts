@@ -1,5 +1,6 @@
 // One shell's output stream and what a pane sends it: `pty.outputSubscribe`, `pty.write`,
-// `pty.resize` and `pty.reportTerminalAppearance`, which also carries the console theme's colors. `pty.outputSubscribe` answers only the `subscriptionId`; its frames follow as
+// `pty.resize` and `pty.reportTerminalAppearance`, which also carries the console theme's colors.
+// `pty.outputSubscribe` answers only the `subscriptionId`; its frames follow as
 // `$/subscription/notify` values through the subscription ack barrier, which holds each until the
 // `{subscriptionId}` response is written. Its end, by the client's cancel or its connection
 // closing, ends what the subscription carried. The registry parses each request before its

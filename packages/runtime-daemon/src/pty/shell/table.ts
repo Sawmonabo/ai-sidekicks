@@ -247,9 +247,11 @@ export class ShellTable {
   /**
    * Ends every shell of a session being deleted, whoever holds it and those still opening, so none
    * keeps running in a folder about to go, and refuses the session's opens `session.not_found`
-   * until the returned call. Resolves once the host has let every shell go, and rejects with the
-   * first failure, the session's opens no longer refused. A hold whose release cannot be appended
-   * is reported to the service log, as its shell has ended all the same.
+   * until the returned call. Resolves once every shell's program has exited and each release of
+   * the holds its panes carried has settled, so no holder row lands after the session's rows go;
+   * rejects with the first program that will not end, the session's opens no longer refused. A
+   * hold whose release cannot be appended is reported to the service log, as its shell has ended
+   * all the same.
    */
   async closeSessionShells(sessionId: SessionId): Promise<() => void> {
     const session = this.#sessionShellsOf(sessionId);
@@ -264,11 +266,13 @@ export class ShellTable {
       await Promise.all(
         [...session.shells.values()].map((shell) => {
           const { released, hostClosed } = this.#endShell({ session, shell });
-          this.#reportFailure(
-            released,
-            `Shell ${shell.terminalId}'s hold could not be released as its session was deleted`,
-          );
-          return hostClosed;
+          return Promise.all([
+            this.#loggingFailure(
+              released,
+              `Shell ${shell.terminalId}'s hold could not be released as its session was deleted`,
+            ),
+            hostClosed,
+          ]);
         }),
       );
     } catch (error) {
@@ -576,6 +580,11 @@ export class ShellTable {
     if (start.fallbackNotice !== null) {
       this.#appendOutput(shell, Buffer.from(start.fallbackNotice, "utf8"));
     }
+    if (hostSessionId === null) {
+      // A shell that never started takes no more output and is asked nothing, so its screen copy
+      // goes; its record keeps the scrollback.
+      shell.screen.dispose();
+    }
     this.#refreshList(request.sessionId);
     return { terminalId: shell.terminalId };
   }
@@ -812,8 +821,15 @@ export class ShellTable {
   }
 
   #reportFailure(work: Promise<void>, what: string): void {
-    void work.catch((error: unknown) => {
+    void this.#loggingFailure(work, what);
+  }
+
+  // Settles once `work` has, its failure written to the service log rather than thrown.
+  async #loggingFailure(work: Promise<void>, what: string): Promise<void> {
+    try {
+      await work;
+    } catch (error) {
       this.#deps.writeServiceLog(`${what}: ${describeError(error)}`);
-    });
+    }
   }
 }

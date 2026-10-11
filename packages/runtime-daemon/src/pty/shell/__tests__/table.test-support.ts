@@ -122,6 +122,12 @@ export function openTable(options: TableOptions = {}): TableUnderTest {
           throw new Error("the parent check names no program");
         }
         const fake = makeFakeChild();
+        // A shell ends on its terminal's hangup, which is how a close ends it.
+        vi.mocked(fake.child.kill).mockImplementation((signal) => {
+          if (signal === "SIGHUP") {
+            fake.triggerExit(0, 1);
+          }
+        });
         children.push(fake);
         startedPrograms.push(program);
         return fake.child;

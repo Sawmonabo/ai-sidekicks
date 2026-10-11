@@ -92,6 +92,12 @@ export const SHELL_BASH_SCRIPT_ENVIRONMENT_NAME: string = "SIDEKICKS_BASH_SCRIPT
 export const SHELL_ORIGINAL_PROMPT_COMMAND_ENVIRONMENT_NAME: string =
   "SIDEKICKS_ORIGINAL_PROMPT_COMMAND";
 
+/**
+ * Carries macOS's own bash's `HISTFILE` past the empty one it starts with, so it reads no history
+ * before a Terminal pane's shell script has run the login files that size it.
+ */
+export const SHELL_ORIGINAL_HISTFILE_ENVIRONMENT_NAME: string = "SIDEKICKS_ORIGINAL_HISTFILE";
+
 /** Carries zsh's own `ZDOTDIR` past the folder that loads a Terminal pane's shell script. */
 export const SHELL_ORIGINAL_ZDOTDIR_ENVIRONMENT_NAME: string = "SIDEKICKS_ORIGINAL_ZDOTDIR";
 
@@ -111,6 +117,7 @@ export const APP_SET_ENVIRONMENT_NAMES: readonly string[] = Object.freeze([
   SHELL_ORIGINAL_ENV_ENVIRONMENT_NAME,
   SHELL_BASH_SCRIPT_ENVIRONMENT_NAME,
   SHELL_ORIGINAL_PROMPT_COMMAND_ENVIRONMENT_NAME,
+  SHELL_ORIGINAL_HISTFILE_ENVIRONMENT_NAME,
   SHELL_ORIGINAL_ZDOTDIR_ENVIRONMENT_NAME,
   SHELL_ORIGINAL_XDG_DATA_DIRS_ENVIRONMENT_NAME,
 ]);

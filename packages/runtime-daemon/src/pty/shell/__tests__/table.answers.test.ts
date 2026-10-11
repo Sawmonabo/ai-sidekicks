@@ -1,7 +1,9 @@
 // A program's questions to its terminal, answered once by the daemon's copy of the shell's screen:
 // one answer however many panes show the shell, and the colors and cell size from the console
 // theme the desktop reported until the holding pane reports its own, which a change of holder
-// forgets.
+// forgets; an answer that comes while a marked paste is open follows its end mark.
+
+import { randomUUID } from "node:crypto";
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -13,6 +15,7 @@ import {
   holdHostCalls,
   openTable,
   paneOutlet,
+  pasteThrough,
   textOf,
 } from "./table.test-support.js";
 
@@ -36,8 +39,11 @@ function colorsWithBackground(background: string): TerminalColors {
 // A table and the answers the host was given for one shell whose fake child asks its terminal.
 interface AskedShell extends ReturnType<typeof openTable> {
   readonly terminalId: TerminalId;
+  readonly child: Awaited<ReturnType<ReturnType<typeof openTable>["openShell"]>>["child"];
   /** Asks the question, then the status, and resolves to every answer before the status's. */
   readonly ask: (question: string) => Promise<string>;
+  /** Everything the host has written to the shell so far. */
+  readonly readWritten: () => string;
 }
 
 async function openAskedShell(): Promise<AskedShell> {
@@ -46,11 +52,12 @@ async function openAskedShell(): Promise<AskedShell> {
   const { writes, letWritesThrough } = holdHostCalls(table.host);
   letWritesThrough();
   let answered = 0;
+  const readWritten = (): string => writes.map((write) => write.request.toString()).join("");
   const ask = async (question: string): Promise<string> => {
     child.emitData(question + STATUS_QUESTION);
     let text = "";
     await vi.waitFor(() => {
-      text = writes.map((write) => write.request.toString()).join("");
+      text = readWritten();
       expect(text.indexOf(STATUS_ANSWER, answered)).toBeGreaterThanOrEqual(0);
     });
     const end = text.indexOf(STATUS_ANSWER, answered);
@@ -58,7 +65,7 @@ async function openAskedShell(): Promise<AskedShell> {
     answered = end + STATUS_ANSWER.length;
     return answers;
   };
-  return { ...table, terminalId, ask };
+  return { ...table, terminalId, child, ask, readWritten };
 }
 
 describe("ShellTable answers", () => {
@@ -123,5 +130,30 @@ describe("ShellTable answers", () => {
     expect(await ask(colorAndCellQuestions)).toBe(
       "\x1b]11;rgb:1010/1818/2020\x1b\\\x1b]4;1;rgb:0000/0000/0101\x1b\\",
     );
+  });
+
+  it("holds an answer while a marked paste is open and writes it after the end mark", async () => {
+    const { table, terminalId, child, readWritten } = await openAskedShell();
+    const shell = { sessionId: SESSION_ID, terminalId };
+    const laptop = paneOutlet(LAPTOP, 1);
+    await table.subscribeOutput(shell, laptop.outlet);
+    await table
+      .leaseForOutputSubscription(SESSION_ID, terminalId, laptop.caller)
+      .take(laptop.caller, false);
+    const pasteId = randomUUID();
+    const paste = (data: string, isLastPart: boolean): Promise<void> =>
+      table.write(
+        pasteThrough(shell, laptop.caller.outputSubscriptionId, { pasteId, data, isLastPart }),
+        laptop.caller,
+      );
+
+    child.emitData("\x1b[?2004h");
+    await paste("a", false);
+    // A part waits for the output before it to be read, so the question is read before "b".
+    child.emitData("\x1b[6n");
+    await paste("b", false);
+    await paste("c", true);
+
+    expect(readWritten()).toBe("\x1b[200~abc\x1b[201~\x1b[1;1R");
   });
 });

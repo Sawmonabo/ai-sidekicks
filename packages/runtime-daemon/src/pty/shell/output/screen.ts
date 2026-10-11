@@ -5,7 +5,9 @@
 // size from the screen itself, the version from the daemon, and the colors and cell size from the
 // appearance last reported, with no answer before one is. It also reads the title the program
 // sets (OSC 0 or OSC 2) and whether it asked for pasted text to be marked as pasted (mode 2004).
-// The parse runs a turn after the output arrives; `settle` waits for it.
+// The parse runs a turn after the output arrives; `settle` waits for it. The parser is handed one
+// chunk at a time, the next as the last is parsed, so a dispose leaves at most that one chunk to
+// parse.
 
 import xtermHeadless from "@xterm/headless";
 import type { Terminal } from "@xterm/headless";
@@ -26,7 +28,11 @@ const STRING_TERMINATOR = `${ESCAPE}\\`;
 // OSC 4 names a palette color; OSC 10, 11 and 12 the foreground, background and cursor, and one
 // of them may ask for the next ones too, separated by `;`.
 const PALETTE_COLOR_COMMAND = 4;
-const DYNAMIC_COLOR_COMMANDS = [10, 11, 12] as const;
+const DYNAMIC_COLORS: ReadonlyMap<number, "foreground" | "background" | "cursor"> = new Map([
+  [10, "foreground"],
+  [11, "background"],
+  [12, "cursor"],
+]);
 const QUERY = "?";
 // The two window reports answered from the cell size: the text area and one cell, in pixels.
 const TEXT_AREA_PIXELS_REPORT = 14;
@@ -64,6 +70,11 @@ export class ShellScreen {
   readonly #options: ShellScreenOptions;
   #title: string | null = null;
   #isDisposed = false;
+  // Output waiting for the parser to finish the chunk it has, oldest first.
+  readonly #unparsed: Uint8Array[] = [];
+  #isParsing = false;
+  // Each `settle` waiting for the parser to run out of output.
+  readonly #settleWaiters: (() => void)[] = [];
 
   constructor(options: ShellScreenOptions) {
     this.#options = options;
@@ -98,7 +109,7 @@ export class ShellScreen {
     });
     parser.registerCsiHandler({ final: "t" }, (params) => this.#answerWindowReport(params[0]));
     parser.registerOscHandler(PALETTE_COLOR_COMMAND, (data) => this.#answerPaletteColors(data));
-    for (const command of DYNAMIC_COLOR_COMMANDS) {
+    for (const command of DYNAMIC_COLORS.keys()) {
       parser.registerOscHandler(command, (data) => this.#answerDynamicColors(command, data));
     }
   }
@@ -118,18 +129,23 @@ export class ShellScreen {
 
   /** Feeds the shell's next output, its marks taken out. */
   write(output: Uint8Array): void {
-    if (!this.#isDisposed) {
-      this.#terminal.write(output);
+    if (this.#isDisposed) {
+      return;
     }
+    if (this.#isParsing) {
+      this.#unparsed.push(output);
+      return;
+    }
+    this.#parse(output);
   }
 
-  /** Resolves once every output written so far is parsed. */
+  /** Resolves once every output written so far is parsed, or the screen is let go. */
   settle(): Promise<void> {
-    if (this.#isDisposed) {
+    if (this.#isDisposed || !this.#isParsing) {
       return Promise.resolve();
     }
     return new Promise((resolve) => {
-      this.#terminal.write("", resolve);
+      this.#settleWaiters.push(resolve);
     });
   }
 
@@ -140,11 +156,37 @@ export class ShellScreen {
     }
   }
 
-  /** Lets the screen go once the shell takes no more output; the title stays readable. */
+  /**
+   * Lets the screen go once the shell takes no more output, and the output not yet parsed with it;
+   * the title stays readable.
+   */
   dispose(): void {
     if (!this.#isDisposed) {
       this.#isDisposed = true;
+      this.#unparsed.length = 0;
       this.#terminal.dispose();
+      this.#endParsing();
+    }
+  }
+
+  // Hands the parser one chunk, and the next waiting as each is parsed. A chunk handed from the
+  // parse callback joins the parser's run under way, so the chain costs no extra turn.
+  #parse(output: Uint8Array): void {
+    this.#isParsing = true;
+    this.#terminal.write(output, () => {
+      const next = this.#unparsed.shift();
+      if (next !== undefined && !this.#isDisposed) {
+        this.#parse(next);
+        return;
+      }
+      this.#endParsing();
+    });
+  }
+
+  #endParsing(): void {
+    this.#isParsing = false;
+    for (const resolve of this.#settleWaiters.splice(0)) {
+      resolve();
     }
   }
 
@@ -182,23 +224,13 @@ export class ShellScreen {
   }
 
   // OSC 10, 11 or 12 with `?` asks for that color, and each `;?` after it for the next one.
-  #answerDynamicColors(command: (typeof DYNAMIC_COLOR_COMMANDS)[number], data: string): boolean {
+  #answerDynamicColors(command: number, data: string): boolean {
     const { colors } = this.#options.readAppearance();
     data.split(";").forEach((spec, offset) => {
       const asked = command + offset;
-      if (spec !== QUERY || colors === null) {
-        return;
-      }
-      const color =
-        asked === 10
-          ? colors.foreground
-          : asked === 11
-            ? colors.background
-            : asked === 12
-              ? colors.cursor
-              : undefined;
-      if (color !== undefined) {
-        this.#answerColor(String(asked), color);
+      const role = DYNAMIC_COLORS.get(asked);
+      if (spec === QUERY && colors !== null && role !== undefined) {
+        this.#answerColor(String(asked), colors[role]);
       }
     });
     return true;

@@ -10,7 +10,7 @@ import type { BashStart, BashStartInput } from "./contract.js";
 /** Starts bash as a posix-mode login shell whose `ENV` names the marks script. */
 export function startBashThroughEnv(bash: BashStartInput): BashStart {
   // The script puts the person's own `ENV` back, or erases it where none came.
-  const personEnv = readSpawnEnvValue(bash.environment, "ENV");
+  const personEnv = readSpawnEnvValue(bash.environment, "ENV", bash.environmentNameMatch);
   return {
     command: bash.shellPath,
     args: ["--posix", "-l"],

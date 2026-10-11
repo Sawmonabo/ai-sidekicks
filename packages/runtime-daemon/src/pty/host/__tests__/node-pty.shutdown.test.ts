@@ -5,7 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mock } from "vitest";
 
 import { NodePtyHost } from "../node-pty.js";
-import type { ConsoleCtrlEvent, NodePtyChild, NodePtySpawnFn } from "../node-pty.js";
+import type { ConsoleCtrlEvent } from "../../console-control-windows.js";
+import type { NodePtyChild, NodePtySpawnFn } from "../node-pty.js";
 import type { TaskkillResult } from "../../taskkill-windows.js";
 import { PtyBackendUnavailableError } from "../../sidecar/binary-path.js";
 import { makeFakeChild, makeOrphanGuardDouble } from "../../__fixtures__/child-doubles.js";

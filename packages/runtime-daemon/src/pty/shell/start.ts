@@ -19,6 +19,7 @@ import { SESSION_WORKING_FOLDER_UNAVAILABLE_CODE } from "@ai-sidekicks/contracts
 import { DaemonDomainError } from "../../ipc/domain-error.js";
 import {
   buildCommandSpawnEnv,
+  removeSpawnEnvNames,
   type SessionEnvironmentRows,
   type SpawnEnvNameMatch,
   type SpawnEnvPair,
@@ -160,11 +161,14 @@ async function launchShell(input: ShellStartInput, shellPath: string): Promise<S
       environmentRows: input.environmentRows,
       hostEnvNameMatch: input.environmentNameMatch,
     }),
+    environmentNameMatch: input.environmentNameMatch,
     startupFolders: input.startupFolders,
     operatingSystem: input.operatingSystem,
   });
-  const environment = launch.environment.filter(
-    ([name]) => name !== CLAUDE_SCREEN_READER_ENVIRONMENT_NAME,
+  const environment = removeSpawnEnvNames(
+    launch.environment,
+    [CLAUDE_SCREEN_READER_ENVIRONMENT_NAME],
+    input.environmentNameMatch,
   );
   return {
     ...launch,

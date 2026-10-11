@@ -11,11 +11,7 @@ import { promisify } from "node:util";
 
 import semver from "semver";
 
-import {
-  findExecutables,
-  readSpawnEnvValue,
-  type ExecutableSearchDependencies,
-} from "../executable/search.js";
+import { findExecutables, type ExecutableSearchDependencies } from "../executable/search.js";
 import { describeRejection } from "../rejection.js";
 import { parseCliVersionReport } from "./capability/refresh.js";
 import type {
@@ -23,7 +19,7 @@ import type {
   ProviderOperatingSystem,
   ProviderProgramStart,
 } from "./operating-system/contract.js";
-import { placeFolderFirstOnSearchPath, type SpawnEnvPair } from "./spawn-env.js";
+import { placeFolderFirstOnSearchPath, readSpawnEnvValue, type SpawnEnvPair } from "./spawn-env.js";
 import { startResolvedBuild } from "./spawned-version.js";
 
 /** How long one build may take to print its version before it ranks below every build that did. */

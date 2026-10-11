@@ -22,7 +22,11 @@ import type {
   ResolvedProviderExecutable,
 } from "../../../spawned-version.js";
 import { DAEMON_TOOL_SERVER_NAME } from "../../../tool-server-name.js";
-import type { SpawnEnvPair } from "../../../spawn-env.js";
+import {
+  readSpawnEnvValue,
+  type SpawnEnvNameMatch,
+  type SpawnEnvPair,
+} from "../../../spawn-env.js";
 import { McpServerStatusEmissionSchema } from "../../contract.js";
 import type { DriverDiagnosticsEmitter } from "../../diagnostics.js";
 import { isPlainObject, readNonEmptyString } from "../../../record-readers.js";
@@ -99,7 +103,10 @@ export interface ClaudeProcessTransportDependencies {
    * The system facts the transport reads: the variable naming the home folder, which a
    * conversation file is found by, and how a process it started is ended.
    */
-  readonly operatingSystem: Pick<ProviderOperatingSystem, "homeVariable" | "endChildProcess">;
+  readonly operatingSystem: Pick<
+    ProviderOperatingSystem,
+    "homeVariable" | "environmentNameMatch" | "endChildProcess"
+  >;
 }
 
 /** The reads of one build, on one process that keeps nothing: its version first, then probes. */
@@ -134,9 +141,12 @@ const CLAUDE_ONE_TURN_ASK_DENIAL =
 
 // The Agent SDK's own rule: `initialize` waits the larger of the request deadline and the stream
 // close timeout the process was given, which is in milliseconds.
-function initializeDeadlineMs(spawnEnvironment: readonly SpawnEnvPair[]): number {
+function initializeDeadlineMs(
+  spawnEnvironment: readonly SpawnEnvPair[],
+  nameMatch: SpawnEnvNameMatch,
+): number {
   const configured = Number(
-    spawnEnvironment.find(([name]) => name === "CLAUDE_CODE_STREAM_CLOSE_TIMEOUT")?.[1],
+    readSpawnEnvValue(spawnEnvironment, "CLAUDE_CODE_STREAM_CLOSE_TIMEOUT", nameMatch),
   );
   return Number.isFinite(configured)
     ? Math.max(CLAUDE_REQUEST_DEADLINE_MS, configured)
@@ -261,7 +271,10 @@ export class ClaudeProcessTransport implements ClaudeSessionTransport {
       const reply = await this.#expectSuccess(
         claudeProcess,
         composeClaudeInitializeRequest(undefined),
-        initializeDeadlineMs(request.spawnEnvironment),
+        initializeDeadlineMs(
+          request.spawnEnvironment,
+          this.#dependencies.operatingSystem.environmentNameMatch,
+        ),
       );
       const account = reply?.["account"];
       const signInSource = isPlainObject(account)
@@ -284,7 +297,10 @@ export class ClaudeProcessTransport implements ClaudeSessionTransport {
       const initialize = await this.#expectSuccess(
         claudeProcess,
         composeClaudeInitializeRequest(undefined),
-        initializeDeadlineMs(request.spawnEnvironment),
+        initializeDeadlineMs(
+          request.spawnEnvironment,
+          this.#dependencies.operatingSystem.environmentNameMatch,
+        ),
       );
       return { initialize, contextUsage: await this.#readContextUsage(claudeProcess) };
     } finally {
@@ -304,7 +320,10 @@ export class ClaudeProcessTransport implements ClaudeSessionTransport {
       const initialize = await this.#expectSuccess(
         claudeProcess,
         composeClaudeInitializeRequest(undefined),
-        initializeDeadlineMs(request.spawnEnvironment),
+        initializeDeadlineMs(
+          request.spawnEnvironment,
+          this.#dependencies.operatingSystem.environmentNameMatch,
+        ),
       );
       const listed = readListedCommandNames(initialize);
       // One at a time: each command is answered by its own `result`.
@@ -337,7 +356,10 @@ export class ClaudeProcessTransport implements ClaudeSessionTransport {
       await this.#expectSuccess(
         claudeProcess,
         composeClaudeInitializeRequest(undefined),
-        initializeDeadlineMs(request.spawnEnvironment),
+        initializeDeadlineMs(
+          request.spawnEnvironment,
+          this.#dependencies.operatingSystem.environmentNameMatch,
+        ),
       );
       return await this.#readReplyReserve(claudeProcess);
     } finally {
@@ -646,7 +668,7 @@ export class ClaudeProcessTransport implements ClaudeSessionTransport {
     providerSessionId: string,
   ): Promise<ClaudeConversationOutline | undefined> {
     const filePath = await findClaudeConversationFile(
-      claudeConfigFolderFor(spawnEnvironment, this.#dependencies.operatingSystem.homeVariable),
+      claudeConfigFolderFor(spawnEnvironment, this.#dependencies.operatingSystem),
       providerSessionId,
     );
     return filePath === undefined ? undefined : await readClaudeConversationOutline(filePath);
@@ -688,7 +710,10 @@ export class ClaudeProcessTransport implements ClaudeSessionTransport {
       const initializeReply = await this.#expectSuccess(
         claudeProcess,
         composeClaudeInitializeRequest(policy),
-        initializeDeadlineMs(legs.spawnEnvironment),
+        initializeDeadlineMs(
+          legs.spawnEnvironment,
+          this.#dependencies.operatingSystem.environmentNameMatch,
+        ),
       );
       await this.#expectSuccess(claudeProcess, {
         subtype: "set_max_thinking_tokens",

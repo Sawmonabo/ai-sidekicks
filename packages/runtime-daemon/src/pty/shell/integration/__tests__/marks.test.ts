@@ -191,8 +191,15 @@ function appleSystemProfile(isManaged: boolean): BashSystemProfile {
   };
 }
 
-// The bash cases, for one bash: beside the person's own prompt command and DEBUG trap, which
-// reads the managed profile where `systemProfile` has one, and beside bash-preexec.
+// A history longer than bash's default size of 500 lines, which a login file sizes to keep whole.
+const PERSON_HISTORY_LINES = Array.from(
+  { length: 600 },
+  (_, index) => `echo fixture-history-${String(index + 1).padStart(4, "0")}`,
+);
+
+// The bash cases, for one bash: beside the person's own prompt command and DEBUG trap and a
+// history longer than bash's default size, which reads the managed profile where `systemProfile`
+// has one, and beside bash-preexec.
 function bashCases(
   bashName: string,
   shellPath: string | undefined,
@@ -206,7 +213,13 @@ function bashCases(
       operatingSystem: systemProfiles.beside.operatingSystem,
       files: {
         ...systemProfiles.beside.files,
-        ".bash_profile": "export FIXTURE_BASH_PROFILE=loaded-bash-profile\n. ~/.bashrc",
+        ".bash_profile": [
+          "export FIXTURE_BASH_PROFILE=loaded-bash-profile",
+          "HISTSIZE=100000",
+          "HISTFILESIZE=100000",
+          ". ~/.bashrc",
+        ].join("\n"),
+        ".bash_history": PERSON_HISTORY_LINES.join("\n"),
         ".bashrc": [
           "export FIXTURE_BASHRC=loaded-bashrc",
           `PROMPT_COMMAND='history -a; printf "\\033]133;A;aid=person\\007"'`,
@@ -215,19 +228,25 @@ function bashCases(
         ".profile": "export FIXTURE_PROFILE=read-though-bash-profile-exists",
         ".bash_logout": "echo logged-out > ~/logout.txt",
       },
+      // The oldest line of the person's history is the shell's first, read whole after the login
+      // files sized it.
       checkCommand:
         `echo "$FIXTURE_SYSTEM_PROFILE,$FIXTURE_BASH_PROFILE,$FIXTURE_BASHRC,$FIXTURE_DEBUG_TRAP,` +
-        `$FIXTURE_PROFILE,${login},\${ENV-unset}"`,
+        `$FIXTURE_PROFILE,${login},\${ENV-unset},$(history | sed -n '1s/^ *[0-9]* *//p')"`,
       expectedCheckOutput: () =>
-        `${systemProfiles.beside.expected},loaded-bash-profile,loaded-bashrc,ran,,login,unset`,
+        `${systemProfiles.beside.expected},loaded-bash-profile,loaded-bashrc,ran,,login,unset,` +
+        PERSON_HISTORY_LINES[0],
       passedThrough: [PERSON_PROMPT_MARK],
       traceCommand: "set -x",
       groupedRedirectCommand: (file) => `{ echo grouped; } > ${file}`,
       exitCommand: "logout",
       checkAfterExit: (home) => {
         expect(readFileSync(path.join(home, "logout.txt"), "utf8")).toBe("logged-out\n");
-        // `history -a` at each prompt wrote the lines typed to the person's own history file.
-        expect(readFileSync(path.join(home, ".bash_history"), "utf8")).toContain("\nfalse\n");
+        // `history -a` at each prompt wrote the lines typed to the person's own history file, which
+        // kept every line it held.
+        const history = readFileSync(path.join(home, ".bash_history"), "utf8");
+        expect(history).toContain("\nfalse\n");
+        expect(history.startsWith(`${PERSON_HISTORY_LINES.join("\n")}\n`)).toBe(true);
       },
     },
     {
@@ -355,6 +374,7 @@ describe.skipIf(process.platform === "win32")("each shell's marks in a real logi
             ["PATH", process.env["PATH"] ?? "/usr/bin:/bin"],
             ["TERM", "xterm-256color"],
           ],
+          environmentNameMatch: "case-sensitive",
           startupFolders: await prepareShellStartupFolders(runFolder),
           operatingSystem,
         });
@@ -436,7 +456,7 @@ describe.skipIf(process.platform === "win32")("each shell's marks in a real logi
           const launchNames = launch.environment
             .map(([name]) => name)
             .filter((name) => name.startsWith("SIDEKICKS_"));
-          for (const name of [...launchNames, "PROMPT_COMMAND"]) {
+          for (const name of [...launchNames, "PROMPT_COMMAND", "HISTFILE"]) {
             expect(inherited.output).not.toContain(`${name}=`);
           }
 

@@ -28,7 +28,14 @@ import type {
   SpawnResponse,
 } from "../host/protocol.js";
 import type { DrainResult, PtyHost } from "../host/contract.js";
+import { waitWithin } from "../../bounded-wait.js";
 import { describeRejection } from "../../rejection.js";
+
+// What a close sends, in turn, until the session's child exits.
+const CLOSE_SIGNALS = ["SIGTERM", "SIGKILL"] as const satisfies readonly PtySignal[];
+
+/** How long a close waits for the child's exit after each signal, in milliseconds. */
+const CLOSE_STEP_MS = 2_000;
 
 /** Effectful primitives `RustSidecarPtyHost` reaches through; tests inject a double for each. */
 export interface RustSidecarPtyHostDeps {
@@ -100,6 +107,9 @@ export class RustSidecarPtyHost implements PtyHost {
 
   /** Per-session drain resolvers made at `shutdown()` entry; settled by `notifyShutdownWaiter`. */
   private readonly shutdownWaiters: Map<string, () => void> = new Map();
+
+  /** The exit each closing session waits for, settled when its exit reaches the wire. */
+  private readonly closingExits: Map<string, () => void> = new Map();
 
   /** Pending requests by response kind, oldest first; normally at most one per kind. */
   private readonly outstanding: Map<Envelope["kind"], OutstandingRequest[]> = new Map();
@@ -198,7 +208,11 @@ export class RustSidecarPtyHost implements PtyHost {
     );
   }
 
-  /** Closes a session; no listener fires for it afterwards. Closing an unknown id is a no-op. */
+  /**
+   * Closes a session and resolves once its child has exited: SIGTERM, then SIGKILL, each given 2 s
+   * for the exit to reach the wire. No listener fires for the session
+   * afterwards. Throws when the child outlives its kill; closing an unknown id is a no-op.
+   */
   public async close(sessionId: string): Promise<void> {
     // Delete the record and remember the id before the kill request goes out, so an exit or data
     // frame arriving during the await is suppressed, not buffered as pre-spawn. The kill response
@@ -209,18 +223,31 @@ export class RustSidecarPtyHost implements PtyHost {
     }
     this.sessions.delete(sessionId);
     this.preSpawnBuffer.recordClosedSessionId(sessionId);
-    if (!record.hasExited) {
-      try {
-        await this.sendRequest(
-          { kind: "kill_request", session_id: sessionId, signal: "SIGTERM" },
-          "kill_response",
-        );
-      } catch (err: unknown) {
-        // close() does not throw when the child exited mid-request; the failure is logged.
-        console.warn(`RustSidecarPtyHost: close: kill request failed for session ${sessionId}.`, {
-          cause: err,
-        });
+    if (record.hasExited) {
+      return;
+    }
+    const exited = Promise.withResolvers<void>();
+    this.closingExits.set(sessionId, exited.resolve);
+    try {
+      for (const signal of CLOSE_SIGNALS) {
+        try {
+          await this.sendRequest(
+            { kind: "kill_request", session_id: sessionId, signal },
+            "kill_response",
+          );
+        } catch (err: unknown) {
+          // The child may have exited mid-request; whether it did is the exit's to say.
+          console.warn(`RustSidecarPtyHost: close: ${signal} request failed for ${sessionId}.`, {
+            cause: err,
+          });
+        }
+        if (await waitWithin(exited.promise, CLOSE_STEP_MS)) {
+          return;
+        }
       }
+      throw new Error(`RustSidecarPtyHost: session ${sessionId}'s child did not end when killed`);
+    } finally {
+      this.closingExits.delete(sessionId);
     }
   }
 
@@ -521,12 +548,16 @@ export class RustSidecarPtyHost implements PtyHost {
       return;
     }
     if (this.preSpawnBuffer.isClosed(notification.session_id)) {
-      // This warn is the one most likely to fire in a normal close(): SIGTERM, then a late exit.
-      console.warn(
-        `RustSidecarPtyHost: late ExitCodeNotification for closed ` +
-          `session_id ${notification.session_id} (exit_code=` +
-          `${notification.exit_code}); suppressed.`,
-      );
+      const closing = this.closingExits.get(notification.session_id);
+      if (closing !== undefined) {
+        closing();
+      } else {
+        console.warn(
+          `RustSidecarPtyHost: late ExitCodeNotification for closed ` +
+            `session_id ${notification.session_id} (exit_code=` +
+            `${notification.exit_code}); suppressed.`,
+        );
+      }
       // Tick anyway: the drain budget is measured against the exit reaching the wire.
       this.notifyShutdownWaiter(notification.session_id);
       return;

@@ -301,10 +301,25 @@ export function placeFolderFirstOnSearchPath(
   return isPathSet ? placed : [...placed, ["PATH", folder]];
 }
 
-/** The value of the first pair named exactly `name`, or `undefined` where none is. */
+/**
+ * The value of the first pair named `name` under the system's name matching, or `undefined` where
+ * none is.
+ */
 export function readSpawnEnvValue(
   environment: readonly SpawnEnvPair[],
   name: string,
+  nameMatch: SpawnEnvNameMatch,
 ): string | undefined {
-  return environment.find(([pairName]) => pairName === name)?.[1];
+  const key = toMatchKey(name, nameMatch);
+  return environment.find(([pairName]) => toMatchKey(pairName, nameMatch) === key)?.[1];
+}
+
+/** `environment` without any pair a name in `names` names, under the system's name matching. */
+export function removeSpawnEnvNames(
+  environment: readonly SpawnEnvPair[],
+  names: readonly string[],
+  nameMatch: SpawnEnvNameMatch,
+): readonly SpawnEnvPair[] {
+  const removedKeys = new Set(names.map((name) => toMatchKey(name, nameMatch)));
+  return environment.filter(([name]) => !removedKeys.has(toMatchKey(name, nameMatch)));
 }

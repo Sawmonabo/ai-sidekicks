@@ -400,7 +400,7 @@ describe("ShellTable lifecycle", () => {
   });
 
   it("ends every shell of a session being deleted, whoever holds it, and no other's", async () => {
-    const { table, changes, openShell } = openTable();
+    const { table, changes, openShell, holdNextControlChange } = openTable();
     const first = await openShell();
     const second = await openShell();
     const other = await openShell(OTHER_SESSION_ID);
@@ -411,7 +411,19 @@ describe("ShellTable lifecycle", () => {
       .leaseForOutputSubscription(SESSION_ID, first.terminalId, laptop.caller)
       .take(laptop.caller, false);
 
-    await table.closeSessionShells(SESSION_ID);
+    // The deletion waits for the hold's release to land, so it never lands after the rows go.
+    const letReleaseLand = holdNextControlChange();
+    let isDeleted = false;
+    const deleting = table.closeSessionShells(SESSION_ID).then(() => {
+      isDeleted = true;
+    });
+    await vi.waitFor(() => {
+      expect(first.child.child.kill).toHaveBeenCalled();
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(isDeleted).toBe(false);
+    letReleaseLand();
+    await deleting;
 
     expect(first.child.child.kill).toHaveBeenCalledTimes(1);
     expect(second.child.child.kill).toHaveBeenCalledTimes(1);

@@ -1,16 +1,20 @@
 // `NodePtyHost` kill and close: the Windows translation (SIGINT to CTRL_C_EVENT, SIGTERM and SIGHUP
 // to CTRL_BREAK_EVENT then `taskkill /T /F` after 2 s, SIGKILL to `taskkill /T /F`), the bounded
-// reap, and the POSIX pass-through. Only the root PID is asserted; `/T` makes the OS walk the tree.
+// reap, the POSIX pass-through, and a close that ends the child through the operating system and
+// waits for its exit, a real program that ignores the hangup and the stop included. Only the root
+// PID is asserted; `/T` makes the OS walk the tree.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mock } from "vitest";
 
 import { NodePtyHost } from "../node-pty.js";
-import type { ConsoleCtrlEvent, NodePtyChild, NodePtySpawnFn } from "../node-pty.js";
+import type { ConsoleCtrlEvent } from "../../console-control-windows.js";
+import type { NodePtyChild, NodePtySpawnFn } from "../node-pty.js";
 import type { TaskkillResult } from "../../taskkill-windows.js";
 import { makeFakeChild, makeOrphanGuardDouble } from "../../__fixtures__/child-doubles.js";
 import { SPAWN_NONCE_ENVIRONMENT_NAME } from "../../orphan/registry.js";
 import type { SpawnRequest } from "../protocol.js";
+import type { TerminalOperatingSystem } from "../../operating-system/contract.js";
 import { LINUX_TERMINAL_OPERATING_SYSTEM } from "../../operating-system/linux.js";
 import { windowsTerminalOperatingSystem } from "../../operating-system/windows.js";
 
@@ -35,6 +39,8 @@ interface KillCtx {
   mockTaskkill: Mock<(pid: number) => Promise<TaskkillResult>>;
   ptySpawnStub: Mock<NodePtySpawnFn>;
   exitRecorder: Mock<(sessionId: string, exitCode: number, signalCode?: number) => void>;
+  /** The operating system's ending of a child, which ends the fake child at once. */
+  endTerminalChild: Mock<TerminalOperatingSystem["endTerminalChild"]>;
 }
 
 let ctx: KillCtx;
@@ -54,12 +60,20 @@ beforeEach(() => {
   const exitRecorder: Mock<(sessionId: string, exitCode: number, signalCode?: number) => void> =
     vi.fn();
 
-  const host = new NodePtyHost(makeOrphanGuardDouble(), windowsTerminalOperatingSystem(undefined), {
-    platform: "win32",
-    ptySpawn: ptySpawnStub,
-    generateConsoleCtrlEvent: mockGCCE,
-    spawnTaskkill: mockTaskkill,
+  const endTerminalChild = vi.fn<TerminalOperatingSystem["endTerminalChild"]>(() => {
+    triggerExit(1);
   });
+
+  const host = new NodePtyHost(
+    makeOrphanGuardDouble(),
+    { ...windowsTerminalOperatingSystem(undefined), endTerminalChild },
+    {
+      platform: "win32",
+      ptySpawn: ptySpawnStub,
+      generateConsoleCtrlEvent: mockGCCE,
+      spawnTaskkill: mockTaskkill,
+    },
+  );
   host.setOnExit(exitRecorder);
 
   ctx = {
@@ -70,6 +84,7 @@ beforeEach(() => {
     mockTaskkill,
     ptySpawnStub,
     exitRecorder,
+    endTerminalChild,
   };
 });
 
@@ -312,103 +327,94 @@ describe("NodePtyHost — synthetic onExit gated on live session", () => {
   );
 });
 
-// `node-pty` `kill()` on Windows signals one PID and does not walk the process tree, so routing
-// `close()` through `record.child.kill()` would orphan descendants. On Windows `close()` instead
-// runs the same `taskkill /T /F /PID` as `kill(SIGKILL)`, without waiting for the reap. The
-// synthetic `onExit` is suppressed because `close()` deletes the session right after dispatching:
-// closing means the consumer wants no more events.
+// A close ends the child through the operating system, never through `node-pty`'s own kill, which
+// on Windows orphans descendants, and resolves once the child has exited; closing means the
+// consumer wants no more events, so neither the child's exit nor a synthetic one is reported.
 
-describe("NodePtyHost — close() on Windows routes through taskkill", () => {
-  it(
-    "close() on Windows invokes taskkill (not record.child.kill); descendants are reaped via " +
-      "/T /F",
-    async () => {
-      const { session_id } = await ctx.host.spawn(SAMPLE_SPAWN);
+describe("NodePtyHost — close() ends the child and waits for its exit", () => {
+  it("asks the child to hang up through the operating system and reports nothing", async () => {
+    const { session_id } = await ctx.host.spawn(SAMPLE_SPAWN);
 
-      // Clear the spy (the fake child's `kill` is a `vi.fn()` from `child-doubles.ts`);
-      // close() must not call it on Windows.
-      const childKillSpy: Mock = ctx.child.kill as unknown as Mock;
-      childKillSpy.mockClear();
+    await ctx.host.close(session_id);
 
-      // Before close, taskkill has not run.
-      expect(ctx.mockTaskkill).not.toHaveBeenCalled();
-
-      await ctx.host.close(session_id);
-
-      // close() ran `taskkill /T /F /PID` with the session's root pid; `/T` (set in
-      // `defaultSpawnTaskkill`) walks the descendants.
-      expect(ctx.mockTaskkill).toHaveBeenCalledTimes(1);
-      expect(ctx.mockTaskkill).toHaveBeenCalledWith(FIXTURE_PID);
-
-      // node-pty's `kill` is the path that orphans descendants, so it must not be used.
-      expect(childKillSpy).not.toHaveBeenCalled();
-
-      // No synthetic onExit: `close()` deleted the session before the emit block ran, and closing
-      // means no more events.
-      await vi.runAllTimersAsync();
-      expect(ctx.exitRecorder).not.toHaveBeenCalled();
-    },
-  );
-
-  it("close() on POSIX uses record.child.kill()", async () => {
-    // A POSIX host: `record.child.kill()` signals the session leader and the TTY foreground
-    // process group carries the signal to descendants, so POSIX has no orphan hazard.
-    const { child } = makeFakeChild(54321);
-    const ptySpawnStub: Mock<NodePtySpawnFn> = vi.fn<NodePtySpawnFn>().mockReturnValue(child);
-    const mockTaskkill: Mock<(pid: number) => Promise<TaskkillResult>> = vi
-      .fn<(pid: number) => Promise<TaskkillResult>>()
-      .mockResolvedValue({ exitCode: 0 });
-    const exitRecorder: Mock<(sessionId: string, exitCode: number, signalCode?: number) => void> =
-      vi.fn();
-
-    const host = new NodePtyHost(makeOrphanGuardDouble(), LINUX_TERMINAL_OPERATING_SYSTEM, {
-      platform: "linux",
-      ptySpawn: ptySpawnStub,
-      spawnTaskkill: mockTaskkill,
-    });
-    host.setOnExit(exitRecorder);
-
-    const { session_id } = await host.spawn(SAMPLE_SPAWN);
-    const childKillSpy: Mock = child.kill as unknown as Mock;
-    childKillSpy.mockClear();
-
-    await host.close(session_id);
-
-    // POSIX: child.kill() is called once.
-    expect(childKillSpy).toHaveBeenCalledTimes(1);
-
-    // taskkill is Windows-only.
-    expect(mockTaskkill).not.toHaveBeenCalled();
+    expect(ctx.endTerminalChild.mock.calls).toEqual([[ctx.child, "hangup"]]);
+    expect(ctx.child.kill).not.toHaveBeenCalled();
+    await vi.runAllTimersAsync();
+    expect(ctx.exitRecorder).not.toHaveBeenCalled();
   });
 
-  it(
-    "close() during in-flight SIGTERM clears the escalation timer; only the close-dispatched " +
-      "taskkill fires",
-    async () => {
-      // SIGTERM arms the 2 s timer and close() lands at T+1s; `clearPendingEscalation` in close()
-      // cancels it, so only close's own taskkill runs and no second taskkill fires 2 s later on the
-      // same pid.
-      const { session_id } = await ctx.host.spawn(SAMPLE_SPAWN);
+  it("close() during in-flight SIGTERM clears the escalation timer, so no stale taskkill fires", async () => {
+    const { session_id } = await ctx.host.spawn(SAMPLE_SPAWN);
 
-      // T+0: SIGTERM sends CTRL_BREAK_EVENT and arms the 2 s timer.
-      await ctx.host.kill(session_id, "SIGTERM");
-      expect(ctx.mockGCCE).toHaveBeenCalledWith(1, FIXTURE_PID);
-      expect(ctx.mockTaskkill).not.toHaveBeenCalled();
+    // T+0: SIGTERM sends CTRL_BREAK_EVENT and arms the 2 s timer; close lands at T+1s.
+    await ctx.host.kill(session_id, "SIGTERM");
+    expect(ctx.mockGCCE).toHaveBeenCalledWith(1, FIXTURE_PID);
+    await vi.advanceTimersByTimeAsync(1000);
+    await ctx.host.close(session_id);
 
-      // T+1s: still inside the budget.
-      await vi.advanceTimersByTimeAsync(1000);
-      expect(ctx.mockTaskkill).not.toHaveBeenCalled();
+    // Past the original 2 s point the canceled timer must not run taskkill on the pid.
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(ctx.mockTaskkill).not.toHaveBeenCalled();
+  });
 
-      // close() cancels the SIGTERM timer and dispatches its own taskkill.
-      await ctx.host.close(session_id);
-      expect(ctx.mockTaskkill).toHaveBeenCalledTimes(1);
-      expect(ctx.mockTaskkill).toHaveBeenCalledWith(FIXTURE_PID);
+  it("stops then kills a child that withstands each ending, and throws when it outlives its kill", async () => {
+    const { child } = makeFakeChild(54321);
+    const endTerminalChild = vi.fn<TerminalOperatingSystem["endTerminalChild"]>();
+    const host = new NodePtyHost(
+      makeOrphanGuardDouble(),
+      { ...LINUX_TERMINAL_OPERATING_SYSTEM, endTerminalChild },
+      { platform: "linux", ptySpawn: vi.fn<NodePtySpawnFn>().mockReturnValue(child) },
+    );
+    const { session_id } = await host.spawn(SAMPLE_SPAWN);
 
-      // Past the original 2 s point the canceled timer must not run taskkill again.
-      await vi.advanceTimersByTimeAsync(1500);
-      expect(ctx.mockTaskkill).toHaveBeenCalledTimes(1);
-    },
-  );
+    const closing = host.close(session_id);
+    const refusal = expect(closing).rejects.toThrow("process 54321, did not end when killed");
+    await vi.advanceTimersByTimeAsync(5999);
+    expect(endTerminalChild.mock.calls.map(([, ending]) => ending)).toEqual([
+      "hangup",
+      "stop",
+      "kill",
+    ]);
+    await vi.advanceTimersByTimeAsync(1);
+    await refusal;
+  });
+});
+
+describe.skipIf(process.platform === "win32")("NodePtyHost — close() of a real program", () => {
+  it("ends one that ignores the hangup and the stop, resolving only once it is gone", async () => {
+    vi.useRealTimers();
+    const host = new NodePtyHost(makeOrphanGuardDouble(), LINUX_TERMINAL_OPERATING_SYSTEM, {
+      endingStepMs: 200,
+    });
+    // The program prints its own process id once its traps are set; `exec` keeps the id and the
+    // ignored signals.
+    const printed = Promise.withResolvers<number>();
+    let output = "";
+    host.setOnData((_sessionId, chunk) => {
+      output += new TextDecoder().decode(chunk);
+      const match = /pid (\d+)/.exec(output);
+      if (match?.[1] !== undefined) {
+        printed.resolve(Number(match[1]));
+      }
+    });
+    const { session_id } = await host.spawn({
+      kind: "spawn_request",
+      command: "/bin/sh",
+      args: ["-c", "trap '' HUP TERM; echo pid $$; exec sleep 60"],
+      env: [["PATH", "/usr/bin:/bin"]],
+      cwd: "/",
+      rows: 24,
+      cols: 80,
+    });
+    const programPid = await printed.promise;
+
+    const startedAt = performance.now();
+    await host.close(session_id);
+
+    // The hangup and the stop each waited their step out; the kill ended it.
+    expect(performance.now() - startedAt).toBeGreaterThanOrEqual(400);
+    expect(() => process.kill(programPid, 0)).toThrow(expect.objectContaining({ code: "ESRCH" }));
+  }, 15_000);
 });
 
 // `KillResponse` acks once the kill cascade has begun, not when the child has exited;

@@ -1,9 +1,10 @@
 # Loaded one of two ways, and either way the shell is a login shell that has read no login file
 # yet. A bash started in posix mode reads only the file `ENV` names, this one: it turns posix mode
 # off and puts the person's own `ENV` back. macOS's own bash, which skips that `ENV`, starts with
-# its login files skipped and evaluates this file from its first prompt command, which names the
-# system profile that bash reads. Either way this file then runs the login files as bash would
-# have, and adds the hooks that write the shell's marks. Runs in bash 3.2 as well as bash 5.
+# its login files and its history skipped and evaluates this file from its first prompt command,
+# which names the system profile that bash reads. Either way this file then runs the login files
+# as bash would have, and adds the hooks that write the shell's marks. Runs in bash 3.2 as well as
+# bash 5.
 
 if builtin shopt -oq posix; then
   __sidekicks_from_prompt=
@@ -49,6 +50,19 @@ elif [ -r ~/.bash_login ]; then
   builtin . ~/.bash_login
 elif [ -r ~/.profile ]; then
   builtin . ~/.profile
+fi
+
+# macOS's own bash started with an empty history file name, so it read no history at bash's
+# default size; it reads it now, at the size the login files set, from bash's own file where
+# neither the person nor a login file named another or unset the name.
+if [ -n "$__sidekicks_from_prompt" ]; then
+  if [ -n "${__sidekicks_default_history_file-}" ] && [ -z "${HISTFILE-unset}" ]; then
+    HISTFILE=~/.bash_history
+  fi
+  builtin unset __sidekicks_default_history_file
+  if [ -n "${HISTFILE-}" ]; then
+    builtin history -r
+  fi
 fi
 
 __sidekicks_command_started=

@@ -41,6 +41,7 @@ describe.skipIf(process.platform === "win32")("prepareShellStartupFolders", () =
     const { markNonce } = await prepareShellLaunch({
       shellPath: "/bin/zsh",
       environment: [],
+      environmentNameMatch: "case-sensitive",
       startupFolders,
       operatingSystem: selectTerminalOperatingSystem(process.platform, process.env),
     });

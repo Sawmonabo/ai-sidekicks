@@ -1,7 +1,9 @@
 // Windows: the command interpreter `ComSpec` names is the default shell, its shells have no login
 // form, a bash reads a posix-mode start's `ENV`, and a terminal child starts as it is, with no
-// `/bin/sh` to run a parent check.
+// `/bin/sh` to run a parent check. Windows has no signal a program answers, so every ending ends
+// the child and every process it started.
 
+import { defaultSpawnTaskkill } from "../taskkill-windows.js";
 import { startBashThroughEnv } from "./bash-env-start.js";
 import type { TerminalOperatingSystem } from "./contract.js";
 
@@ -15,5 +17,9 @@ export function windowsTerminalOperatingSystem(
     defaultXdgDataFolders: [],
     startBash: startBashThroughEnv,
     launchTerminalChild: (command, args) => ({ command, args: [...args] }),
+    // The taskkill never rejects, and the child's exit, or its absence, says how it went.
+    endTerminalChild: (child) => {
+      void defaultSpawnTaskkill(child.pid);
+    },
   };
 }

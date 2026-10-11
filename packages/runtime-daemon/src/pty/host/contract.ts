@@ -36,7 +36,12 @@ export interface PtyHost {
    */
   kill(sessionId: string, signal: PtySignal): Promise<void>;
 
-  /** Tear down the session and release all per-session resources. */
+  /**
+   * Tear down the session, release all per-session resources and resolve once its child has
+   * exited, escalating to a kill for a child that ignores the gentler endings. Nothing about the
+   * session is reported once close begins. Rejects when the child outlives its kill, so a caller
+   * that must not go on while it runs, such as a session's deletion, does not.
+   */
   close(sessionId: string): Promise<void>;
 
   /**

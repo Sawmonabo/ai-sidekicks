@@ -21,7 +21,12 @@ import {
   SHELL_ORIGINAL_ZDOTDIR_ENVIRONMENT_NAME,
 } from "@ai-sidekicks/contracts/machine-settings";
 
-import { readSpawnEnvValue, type SpawnEnvPair } from "../../../provider/spawn-env.js";
+import {
+  readSpawnEnvValue,
+  removeSpawnEnvNames,
+  type SpawnEnvNameMatch,
+  type SpawnEnvPair,
+} from "../../../provider/spawn-env.js";
 import type { TerminalOperatingSystem } from "../../operating-system/contract.js";
 import { prepareZshStartupFolder } from "./zsh-startup.js";
 
@@ -93,12 +98,14 @@ export interface ShellLaunch {
 export async function prepareShellLaunch(input: {
   readonly shellPath: string;
   readonly environment: readonly SpawnEnvPair[];
+  /** How this system compares environment variable names. */
+  readonly environmentNameMatch: SpawnEnvNameMatch;
   /** The folders the daemon prepared at its start. */
   readonly startupFolders: ShellStartupFolders;
   /** What the terminal takes from the operating system it runs on. */
   readonly operatingSystem: TerminalOperatingSystem;
 }): Promise<ShellLaunch> {
-  const { shellPath, environment, operatingSystem } = input;
+  const { shellPath, environment, environmentNameMatch, operatingSystem } = input;
   const shellName = path.basename(shellPath);
   if (!isScriptedShellName(shellName)) {
     const args = [...operatingSystem.loginShellArgs];
@@ -116,14 +123,14 @@ export async function prepareShellLaunch(input: {
   ): ShellLaunch => ({
     command,
     args,
-    environment: laidOver(environment, [noncePair, ...pairs]),
+    environment: laidOver(environment, [noncePair, ...pairs], environmentNameMatch),
     markNonce,
   });
   switch (shellName) {
     case "zsh": {
       const personFolder =
-        readSpawnEnvValue(environment, "ZDOTDIR") ??
-        readSpawnEnvValue(environment, "HOME") ??
+        readSpawnEnvValue(environment, "ZDOTDIR", environmentNameMatch) ??
+        readSpawnEnvValue(environment, "HOME", environmentNameMatch) ??
         homedir();
       return launch(
         ["-l"],
@@ -138,13 +145,18 @@ export async function prepareShellLaunch(input: {
         shellPath,
         scriptPath: BASH_SCRIPT_PATH,
         environment,
+        environmentNameMatch,
       });
       return launch(bash.args, bash.pairs, bash.command);
     }
     case "fish": {
       // The script puts the person's own value back, or erases the variable where none came; the
       // folders fish reads without one stay in reach meanwhile.
-      const personDataFolders = readSpawnEnvValue(environment, "XDG_DATA_DIRS");
+      const personDataFolders = readSpawnEnvValue(
+        environment,
+        "XDG_DATA_DIRS",
+        environmentNameMatch,
+      );
       const dataFolders =
         personDataFolders === undefined || personDataFolders.length === 0
           ? operatingSystem.defaultXdgDataFolders
@@ -187,10 +199,12 @@ function isScriptedShellName(name: string): name is ScriptedShellName {
   return (SCRIPTED_SHELL_NAMES as readonly string[]).includes(name);
 }
 
+// `environment` with each pair replacing every pair its name names under the system's matching.
 function laidOver(
   environment: readonly SpawnEnvPair[],
   pairs: readonly SpawnEnvPair[],
+  nameMatch: SpawnEnvNameMatch,
 ): readonly SpawnEnvPair[] {
-  const replacedNames = new Set(pairs.map(([name]) => name));
-  return [...environment.filter(([name]) => !replacedNames.has(name)), ...pairs];
+  const replacedNames = pairs.map(([name]) => name);
+  return [...removeSpawnEnvNames(environment, replacedNames, nameMatch), ...pairs];
 }
