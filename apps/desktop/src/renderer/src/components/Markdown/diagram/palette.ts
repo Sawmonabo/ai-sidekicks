@@ -12,7 +12,7 @@ import {
   THEME_ATTRIBUTE,
 } from "#shared/appearance.js";
 import { COLOR_SCHEMES, type ColorScheme } from "#shared/color-scheme.js";
-import { formatSrgbHex, oklchToSrgb, resolveEmittedColor } from "#shared/color.js";
+import { formatPaintedHex } from "#shared/color.js";
 import type { ColorRole } from "#shared/theme/palette.js";
 import { APPEARANCE_THEMES, THEME_PALETTES, type AppearanceTheme } from "#shared/theme/registry.js";
 import { scaleStep } from "#renderer/styles/palette.js";
@@ -165,8 +165,7 @@ function composeDiagramPalette(ownerWindow: Window): DiagramPalette {
   const scheme = readScheme(root.getAttribute(RESOLVED_SCHEME_ATTRIBUTE), ownerWindow);
   const rootFontSizePx = Number.parseFloat(ownerWindow.getComputedStyle(root).fontSize);
   const themeColors = THEME_PALETTES[theme].colors;
-  const hexOf = (role: ColorRole): string =>
-    formatSrgbHex(oklchToSrgb(resolveEmittedColor(themeColors[role][scheme])));
+  const hexOf = (role: ColorRole): string => formatPaintedHex(themeColors[role][scheme]);
   return {
     identity: `${theme}|${scheme}|${String(rootFontSizePx)}`,
     isDark: scheme === "dark",

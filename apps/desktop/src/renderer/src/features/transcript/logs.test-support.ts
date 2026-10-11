@@ -95,7 +95,7 @@ export function openSessionStoreWithFeedLog(count: number): SessionStore {
  */
 export function openSessionStoreWithToolRows(count: number): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-  sessionStore.initialize({ cursor: -1, entities: [] });
+  sessionStore.initialize({ shape: "project", cursor: -1, entities: [] });
   sessionStore.applyBatch(
     Array.from({ length: count }, (_unused, index) => ({
       id: transcriptFixtureEventId(index),

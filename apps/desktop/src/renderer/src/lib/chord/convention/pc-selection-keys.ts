@@ -2,10 +2,10 @@
 // which only its share of the page bounds. Select All is Control-A, and Home and End take a scroll
 // view to its start and end, with Control or without, as the browser's own scroll keys do.
 
-import type { SelectionKeys } from "./keys.js";
+import type { SelectionKeys } from "./selection-keys.js";
 
 /** The browser's key table for selecting and for a view's ends on Windows and Linux. */
-export const WINDOWS_AND_LINUX_SELECTION_KEYS: SelectionKeys = {
+export const PC_SELECTION_KEYS: SelectionKeys = {
   bindings: {
     ArrowLeft: { none: "character", ctrl: "word" },
     ArrowRight: { none: "character", ctrl: "word" },

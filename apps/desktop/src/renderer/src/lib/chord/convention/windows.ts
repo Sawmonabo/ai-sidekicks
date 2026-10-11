@@ -3,6 +3,7 @@
 import type { ResolvedModifierToken } from "../modifiers.js";
 import type { ChordKeyRendering, KeyboardConvention } from "./contract.js";
 import { PC_KEY_PRINTING, PC_MODIFIER_KEYS } from "./pc-keycaps.js";
+import { PC_SELECTION_KEYS } from "./pc-selection-keys.js";
 
 /**
  * Windows: `$mod` is Control, the Meta key is the Windows key, which Windows keeps for itself in
@@ -16,6 +17,7 @@ export const WINDOWS_KEYBOARD_CONVENTION: KeyboardConvention = {
     Meta: { glyph: "Win", spoken: "Windows" },
   } satisfies Readonly<Record<ResolvedModifierToken, ChordKeyRendering>>,
   ...PC_KEY_PRINTING,
+  selectionKeys: PC_SELECTION_KEYS,
   reservedChords: [
     {
       chord: "Alt+Tab",

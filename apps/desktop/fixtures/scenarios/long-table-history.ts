@@ -127,6 +127,7 @@ function composeTableTurn(): readonly ScriptEntry[] {
     lane.output(TABLE_RUN_ID, {
       atMs: TABLE_AT_MS,
       kind: "assistant.message",
+      providerMessageId: "msg_long_table_1",
       contentType: "text/markdown",
       body: tableBody(),
     }),

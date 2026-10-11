@@ -6,7 +6,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { MAIN_TASK_CHUNK } from "./host.js";
-import { clipboardHostsFor } from "./platform.js";
+import { selectMainOperatingSystem } from "../../../operating-system/selection.js";
 
 vi.mock("electron", () => ({
   ClipboardItem: class {
@@ -45,7 +45,9 @@ async function readsOf(
   electronClipboard: Electron.Clipboard,
   flavors: readonly string[],
 ): Promise<string[]> {
-  const [entry] = await clipboardHostsFor(platform, electronClipboard).system.readHeld();
+  const [entry] = await selectMainOperatingSystem(platform)
+    .clipboards(electronClipboard)
+    .system.readHeld();
   const held = entry ?? expect.fail("the clipboard holds an entry");
   return await Promise.all(flavors.map(async (flavor) => (await held.read(flavor)).text()));
 }
@@ -83,9 +85,13 @@ describe("the plain text's read", () => {
     const text = `${"a".repeat(MAIN_TASK_CHUNK - 1)}—z`;
     const held = holding(["text/plain", NS_STRING], { [NS_STRING]: new Blob([text]) });
 
-    await expect(clipboardHostsFor("darwin", held).system.readText()).resolves.toBe(text);
     await expect(
-      clipboardHostsFor("darwin", holding(["image/png"])).system.readText(),
+      selectMainOperatingSystem("darwin").clipboards(held).system.readText(),
+    ).resolves.toBe(text);
+    await expect(
+      selectMainOperatingSystem("darwin")
+        .clipboards(holding(["image/png"]))
+        .system.readText(),
     ).resolves.toBe("");
   });
 
@@ -93,9 +99,9 @@ describe("the plain text's read", () => {
     const held = holding(["text/plain", NS_STRING]);
 
     for (const platform of ["win32", "linux"] as const) {
-      await expect(clipboardHostsFor(platform, held).system.readText()).resolves.toBe(
-        "read as text",
-      );
+      await expect(
+        selectMainOperatingSystem(platform).clipboards(held).system.readText(),
+      ).resolves.toBe("read as text");
     }
   });
 });
@@ -114,7 +120,7 @@ describe("a copy's write", () => {
           written.push(...items);
         },
       } as unknown as Electron.Clipboard;
-      const { system } = clipboardHostsFor(platform, electronClipboard);
+      const { system } = selectMainOperatingSystem(platform).clipboards(electronClipboard);
 
       await system.write({ "image/png": png });
       await system.write({ "text/plain": "a", "text/html": "<b>a</b>" });

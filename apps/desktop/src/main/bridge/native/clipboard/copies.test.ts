@@ -18,7 +18,7 @@ import {
   takeClipboardSnapshot,
 } from "./copies.js";
 import type { ClipboardFlavors, ClipboardHost, ClipboardHosts } from "./host.js";
-import { clipboardHostsFor } from "./platform.js";
+import { selectMainOperatingSystem } from "../../../operating-system/selection.js";
 
 // Electron's entry holds no `ClipboardItem` outside its own process; this one keeps its flavors.
 vi.mock("electron", () => ({
@@ -96,10 +96,13 @@ describe("the clipboard copy", () => {
     } as Electron.Clipboard;
     const request = { content: { text: "a settled line" }, clipboard: "selection" };
 
-    await copyToClipboard(clipboardHostsFor("linux", electronClipboard), request);
+    await copyToClipboard(
+      selectMainOperatingSystem("linux").clipboards(electronClipboard),
+      request,
+    );
     for (const platform of ["darwin", "win32"] as const) {
       await expect(
-        copyToClipboard(clipboardHostsFor(platform, electronClipboard), request),
+        copyToClipboard(selectMainOperatingSystem(platform).clipboards(electronClipboard), request),
       ).rejects.toThrow("This system keeps no selection clipboard.");
     }
 

@@ -53,6 +53,7 @@ function runReadingOf(store: SessionStore): {
 function storeFollowingTheStream(): SessionStore {
   const store = new SessionStore({ sessionId: SESSION_ID, projectors: RUN_LIFECYCLE_PROJECTORS });
   store.initialize({
+    shape: "project",
     cursor: 9,
     entities: [],
     transcript: [5, 6, 7, 8, 9].map((sequence) =>

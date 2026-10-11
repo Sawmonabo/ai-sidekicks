@@ -49,7 +49,7 @@ export function longRunCallIds(events: readonly ProjectedSessionEvent[]): readon
 /** A store holding the first `eventCount` events of the long run. */
 export function openSessionStoreWithLongRun(eventCount: number): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-  sessionStore.initialize({ cursor: -1, entities: [] });
+  sessionStore.initialize({ shape: "project", cursor: -1, entities: [] });
   sessionStore.applyBatch(longRunEvents(eventCount));
   return sessionStore;
 }

@@ -4,6 +4,7 @@ import { resolveDaemonRunFolder } from "@ai-sidekicks/contracts/daemon/run-folde
 import { createMacProcessIdentityReader } from "@ai-sidekicks/contracts/process-identity";
 
 import { MacMachineClockReader } from "../bridge/machine-clock/mac.js";
+import { macClipboardHost } from "../bridge/native/clipboard/mac.js";
 import { MacInstalledEditors } from "../bridge/native/editors/mac.js";
 import type { MainOperatingSystem } from "./contract.js";
 
@@ -17,6 +18,10 @@ export const MAC_MAIN_OPERATING_SYSTEM: MainOperatingSystem = {
   machineClock: new MacMachineClockReader(),
   installedEditors: (runProgram) => new MacInstalledEditors(runProgram),
   flushesFolderAfterRename: true,
+  clipboards: (electronClipboard) => ({
+    system: macClipboardHost(electronClipboard),
+    selection: undefined,
+  }),
   // The overlay hands the document the traffic lights' area as `env(titlebar-area-*)`, which is
   // empty in fullscreen, so the rail's width and top inset follow the buttons.
   titleBar: { titleBarStyle: "hiddenInset", titleBarOverlay: true },

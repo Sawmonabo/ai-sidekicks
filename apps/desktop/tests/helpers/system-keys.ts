@@ -4,14 +4,15 @@
 
 import { cdp } from "vitest/browser";
 
-import { HOST_CHORD_PLATFORM, PLATFORM_MODIFIER_TOKEN } from "#renderer/lib/chord-format.js";
+import { MAC_KEYBOARD_CONVENTION } from "#renderer/lib/chord/convention/mac.js";
+import { HOST_KEYBOARD_CONVENTION } from "#renderer/lib/chord/convention/selection.js";
 
 /** The bits of a protocol key event's modifiers, by the name the app's chords spell them. */
 const MODIFIER = { Alt: 1, Control: 2, Meta: 4, Shift: 8 } as const;
 /** Whether this host is macOS, as the app reads it, whose keydowns carry their editing command. */
-const IS_MACOS = HOST_CHORD_PLATFORM === "darwin";
+const IS_MACOS = HOST_KEYBOARD_CONVENTION === MAC_KEYBOARD_CONVENTION;
 /** The modifier the system's shortcuts hold, as the app's chords resolve it on this host. */
-const SHORTCUT_MODIFIER = MODIFIER[PLATFORM_MODIFIER_TOKEN[HOST_CHORD_PLATFORM]];
+const SHORTCUT_MODIFIER = MODIFIER[HOST_KEYBOARD_CONVENTION.applicationModifier];
 /**
  * The modifier the system's own word step holds: Option on macOS, Control elsewhere. A fact of the
  * system, not read from the app's tables, so a case pressing it checks the table the app picked.

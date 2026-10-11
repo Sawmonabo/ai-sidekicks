@@ -2,8 +2,8 @@
 // them on the scroll container and its document and tells the frame what the reader did; every
 // decision about the window, the position and the selection stays with the frame.
 
-import { HOST_SELECTION_KEYS } from "#renderer/services/platform/text-selection/host.js";
-import { isChordPress, type KeyChord } from "#renderer/services/platform/text-selection/keys.js";
+import { HOST_KEYBOARD_CONVENTION } from "#renderer/lib/chord/convention/selection.js";
+import { isChordPress, type KeyChord } from "#renderer/lib/chord/convention/selection-keys.js";
 import { type WindowSide } from "./window-side.js";
 
 /** What the reader's input asks of the frame, each call made as the input is heard. */
@@ -50,13 +50,13 @@ export class ViewportReaderInput {
     if (event.target !== event.currentTarget) {
       return;
     }
-    if (isAnyChordPress(event, HOST_SELECTION_KEYS.selectAll)) {
+    if (isAnyChordPress(event, HOST_KEYBOARD_CONVENTION.selectionKeys.selectAll)) {
       event.preventDefault();
       this.#options.selectWholeConversation();
-    } else if (isAnyChordPress(event, HOST_SELECTION_KEYS.jumps.start)) {
+    } else if (isAnyChordPress(event, HOST_KEYBOARD_CONVENTION.selectionKeys.jumps.start)) {
       event.preventDefault();
       this.#options.jumpToHead();
-    } else if (isAnyChordPress(event, HOST_SELECTION_KEYS.jumps.end)) {
+    } else if (isAnyChordPress(event, HOST_KEYBOARD_CONVENTION.selectionKeys.jumps.end)) {
       event.preventDefault();
       this.#options.jumpToTail();
     } else if (hasModifier(event)) {

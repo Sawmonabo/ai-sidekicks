@@ -1,7 +1,7 @@
 // The shape of one operating system's selection keys: the shift-presses that move the focus end of
 // a selection in read-only text, as its own text bindings move it, how much of the page a page
 // step leaves in view, the press that selects everything, and the presses that take a read-only
-// view to its start or its end. Each system's table is a module of its own.
+// view to its start or its end. Each system's table sits in its keyboard convention.
 
 /** How far one shift-press moves the focus end. */
 export type SelectionGranularity =

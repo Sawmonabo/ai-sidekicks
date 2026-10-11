@@ -21,6 +21,7 @@ function eventsAt(sequences: readonly number[]): ReturnType<typeof eventOfKind>[
 function storeInTheMiddle(): SessionStore {
   const store = new SessionStore({ sessionId: SESSION_ID });
   store.initialize({
+    shape: "project",
     cursor: STREAM_SEQUENCE,
     entities: [],
     transcript: eventsAt([20, 21, 22, 23]),

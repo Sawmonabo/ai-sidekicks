@@ -145,7 +145,7 @@ describe("the transcript windows held across a session's revisions", () => {
   it("publish what a whole derivation of each revision's log publishes", () => {
     const { headEvents, longRunEvents, tailEvents } = scriptedSession();
     const store = new SessionStore({ sessionId: SESSION_ID });
-    store.initialize({ cursor: -1, entities: [] });
+    store.initialize({ shape: "project", cursor: -1, entities: [] });
     // Twenty pixels a row on a hundred-pixel screen, so the long run's first turn passes the
     // distance at which its window lets its oldest calls go.
     const heldRunWindowInputs = measuredRunWindowInputs({
@@ -577,6 +577,7 @@ function longRunScript(): readonly ScriptEntry[] {
     lane.output(runId, {
       atMs: nextAtMs(),
       kind: "assistant.message",
+      providerMessageId: `msg_${runId}`,
       contentType: "text/markdown",
       body: "The reply.",
     });

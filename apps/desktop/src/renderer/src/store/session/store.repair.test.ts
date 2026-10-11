@@ -320,6 +320,7 @@ describe("what a window keeps across its repair", () => {
         eventOfKind(SESSION_ID, "assistant.message", sequence, { sessionId: SESSION_ID, runId });
       const store = new SessionStore({ sessionId: SESSION_ID });
       store.initialize({
+        shape: "project",
         cursor: 2,
         entities: [],
         transcript: [runRowAt(2)],

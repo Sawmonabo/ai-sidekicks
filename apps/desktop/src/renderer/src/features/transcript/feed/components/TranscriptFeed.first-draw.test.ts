@@ -90,7 +90,7 @@ describe("the transcript feed — its first draw", () => {
     advance(firstReadFixture, 1);
     const saidAtTheDelay = saysLoading(unreadFeed);
     act(() => {
-      unreadStore.initialize({ cursor: -1, entities: [] });
+      unreadStore.initialize({ shape: "project", cursor: -1, entities: [] });
     });
 
     // The first read landed, the faces still loading.

@@ -2,8 +2,8 @@
 // browser would: the host's own text bindings, each a `Selection.modify` step, and a page step,
 // which `Selection.modify` lacks, taken line by line as the browser's own page move takes it.
 
-import { HOST_SELECTION_KEYS } from "#renderer/services/platform/text-selection/host.js";
-import type { SelectionGranularity } from "#renderer/services/platform/text-selection/keys.js";
+import { HOST_KEYBOARD_CONVENTION } from "#renderer/lib/chord/convention/selection.js";
+import type { SelectionGranularity } from "#renderer/lib/chord/convention/selection-keys.js";
 
 /** How one shift-press moves the focus end. */
 export interface SelectionExtension {
@@ -30,7 +30,7 @@ export function extensionOf(event: KeyboardEvent): SelectionExtension | undefine
   if (held.length > 1) {
     return undefined;
   }
-  const bindings = HOST_SELECTION_KEYS.bindings[event.key];
+  const bindings = HOST_KEYBOARD_CONVENTION.selectionKeys.bindings[event.key];
   const granularity = bindings?.[held[0] ?? "none"];
   // With no scroll box focused, the browser's page step moves nothing and the press scrolls.
   if (
@@ -92,7 +92,11 @@ function pageStepOf(ownerDocument: Document): number | undefined {
     return undefined;
   }
   const heightPx = Math.min(focused.clientHeight, ownerWindow.innerHeight);
-  return Math.max(heightPx * PAGE_STEP_FRACTION, heightPx - HOST_SELECTION_KEYS.pageOverlapPx, 1);
+  return Math.max(
+    heightPx * PAGE_STEP_FRACTION,
+    heightPx - HOST_KEYBOARD_CONVENTION.selectionKeys.pageOverlapPx,
+    1,
+  );
 }
 
 /** The top of the caret at the selection's focus end, or `undefined` where it draws none. */
