@@ -95,10 +95,12 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
     prepareRow: props.rowRenderer.prepareRow,
   });
   const { folds, transcriptWindow, viewport, history } = windows;
-  // The first rows are in the document once the virtualizer holds some, or there are none to hold.
+  // The first rows are in the document once the virtualizer holds some, or there are none to hold,
+  // and no row whose output is still parsing waits to join between the rows in view.
   const areRowsCommitted =
     windows.firstReadSettled &&
-    (transcriptWindow.viewportRows.length === 0 || viewport.virtualItems.length > 0);
+    (transcriptWindow.viewportRows.length === 0 || viewport.virtualItems.length > 0) &&
+    !windows.holdsUnparsedRowInView();
   const isDrawable = useTypefacesSettled(areRowsCommitted);
   // The line under the session header stands whenever either holds, and nothing repeats it.
   const isWindowDegraded = useSessionDegraded(props.sessionStore);

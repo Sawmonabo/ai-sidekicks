@@ -112,6 +112,11 @@ export interface TranscriptFeedWindows {
    * parsed whole, so it opens formatted.
    */
   readonly toggleCall: (rowId: string, press: () => void) => void;
+  /**
+   * Whether a row is held out beside a row in view until its output parses, so it would join
+   * between rows on screen: the feed's first frame waits until none is.
+   */
+  readonly holdsUnparsedRowInView: () => boolean;
   /** The history past the store's window, or `undefined` for a composition with no read. */
   readonly history: TranscriptHistory | undefined;
   /** How reading back toward a linked message the log lacks stands, or `undefined` for none. */
@@ -421,6 +426,7 @@ export function useTranscriptFeedWindows(
     drawnWindowSources,
     preparedOutputs,
     toggleCall: preparedRows.toggleCall,
+    holdsUnparsedRowInView: preparedRows.holdsUnparsedRowInView,
     history,
     messageReadBack: readBack,
     openRunStretch,

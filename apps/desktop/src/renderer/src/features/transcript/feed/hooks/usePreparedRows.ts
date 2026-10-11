@@ -26,6 +26,7 @@ export interface PreparedRowsBinding
       | "observeReach"
       | "isOutputParsed"
       | "toggleCall"
+      | "holdsUnparsedRowInView"
     > {}
 
 /**
@@ -79,6 +80,7 @@ export function usePreparedRows(
       observeReach: gate.observeReach,
       isOutputParsed: gate.isOutputParsed,
       toggleCall: gate.toggleCall,
+      holdsUnparsedRowInView: gate.holdsUnparsedRowInView,
     }),
     // A held row becoming ready is what `readiness` reports; the pass reads it from the gate.
     [gate, model, prepareRow, sources, readiness],

@@ -16,7 +16,9 @@
 // open. A row leaving the reach lets its parse go, and the viewport mounts a row coming into it
 // only once its output is parsed whole again. A row that has never been listed is within reach as
 // the listed row it joins after is; one outside is listed at once, unparsed. A folded call opens
-// once its output is parsed whole, so it draws formatted on the frame it opens.
+// once its output is parsed whole, so it draws formatted on the frame it opens. The feed is first
+// shown only once no row held until its output parses would join beside a row in view, so a
+// session opens with each output it shows formatted where it stays.
 
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
@@ -65,6 +67,10 @@ export class PreparedRowGate {
    * row held out before the first listed one.
    */
   #listedKeysBeforeHeldRows: ReadonlySet<string | undefined> = new Set<string | undefined>();
+  /** The listed rows the last pass held a row out next to until its output parses, either side. */
+  #listedKeysBesideUnparsedRows: ReadonlySet<string> = new Set<string>();
+  /** The rows in view as the viewport last walked the band, by key. */
+  #viewRowKeys: ReadonlySet<string> = new Set<string>();
   /** Every row's preparation the window holds, listed or held, by row id. */
   readonly #preparations = new Map<string, HeldPreparation>();
   /**
@@ -118,6 +124,19 @@ export class PreparedRowGate {
   public readonly holdsRowAfter = (rowKey: string | undefined): boolean =>
     this.#listedKeysBeforeHeldRows.has(rowKey);
 
+  /**
+   * Whether the last pass held a row out beside a row in view until its output parses, so it would
+   * join between rows on screen: what the feed's first frame waits on.
+   */
+  public readonly holdsUnparsedRowInView = (): boolean => {
+    for (const rowKey of this.#listedKeysBesideUnparsedRows) {
+      if (this.#viewRowKeys.has(rowKey)) {
+        return true;
+      }
+    }
+    return false;
+  };
+
   /** Hear each time any row's work lands, so a landing waiting on it can ask again. */
   public readonly subscribeToWork = (listener: () => void): (() => void) => {
     this.#workListeners.add(listener);
@@ -135,6 +154,7 @@ export class PreparedRowGate {
     rowKeys: ReadonlySet<string>,
     viewRowKeys: ReadonlySet<string>,
   ): void => {
+    this.#viewRowKeys = viewRowKeys;
     for (const rowId of this.#reachByRowId.keys()) {
       // A row still held out keeps what its pass decided.
       if (!rowKeys.has(rowId) && !this.#heldOutRowIds.has(rowId)) {
@@ -235,6 +255,16 @@ export class PreparedRowGate {
     const heldRowIds = new Set<string>();
     const heldOutRowIds = new Set<string>();
     const listedKeysBeforeHeldRows = new Set<string | undefined>();
+    const listedKeysBesideUnparsedRows = new Set<string>();
+    // Whether a row held out until its output parses waits for the next listed row as its neighbor.
+    let isAfterUnparsedRow = false;
+    const list = (identity: ViewportRow): void => {
+      viewportRows.push(identity);
+      if (isAfterUnparsedRow) {
+        listedKeysBesideUnparsedRows.add(identity.key);
+        isAfterUnparsedRow = false;
+      }
+    };
     // What each row is listed as, its last version while a change of it is prepared.
     const listedRowById = new Map<string, TranscriptEventRow | undefined>();
     const lastVersionById = new Map<string, TranscriptEventRow>();
@@ -249,7 +279,7 @@ export class PreparedRowGate {
     for (const identity of model.viewportRows) {
       const row = model.rows[rowPosition];
       if (row === undefined || row.id !== identity.key) {
-        viewportRows.push(identity);
+        list(identity);
         continue;
       }
       rowPosition += 1;
@@ -260,7 +290,7 @@ export class PreparedRowGate {
       }
       if (listedRow !== undefined) {
         listedRowIds.add(row.id);
-        viewportRows.push(identity);
+        list(identity);
         rows.push(listedRow);
         if (listedRow !== row) {
           lastVersionById.set(row.id, listedRow);
@@ -268,7 +298,14 @@ export class PreparedRowGate {
       } else {
         preparingRows.push(identity);
         heldOutRowIds.add(row.id);
-        listedKeysBeforeHeldRows.add(viewportRows.at(-1)?.key);
+        const listedKeyBefore = viewportRows.at(-1)?.key;
+        listedKeysBeforeHeldRows.add(listedKeyBefore);
+        if (!this.isOutputParsed(row.id)) {
+          if (listedKeyBefore !== undefined) {
+            listedKeysBesideUnparsedRows.add(listedKeyBefore);
+          }
+          isAfterUnparsedRow = true;
+        }
       }
     }
     // A row the window let go is withdrawn: it is prepared again if it returns.
@@ -280,6 +317,7 @@ export class PreparedRowGate {
     this.#listedRowIds = listedRowIds;
     this.#heldOutRowIds = heldOutRowIds;
     this.#listedKeysBeforeHeldRows = listedKeysBeforeHeldRows;
+    this.#listedKeysBesideUnparsedRows = listedKeysBesideUnparsedRows;
     const output: PreparedRows =
       preparingRows.length === 0 && lastVersionById.size === 0
         ? { window: model, preparingRows: NO_ROWS }

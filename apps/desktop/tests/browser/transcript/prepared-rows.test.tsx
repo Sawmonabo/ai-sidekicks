@@ -8,11 +8,16 @@
 // as the daemon serves history, and the reply is prepared from it before it is listed. The
 // pictures' decodes are held too, so a reply whose picture is drawn but not decoded is seen still
 // out of the list. A listed reply whose large body is opened keeps drawing as it stood until the
-// body it read draws whole.
+// body it read draws whole. A session opening on calls whose colored output stands in the box is
+// first shown with each output formatted where it stays.
 
 import { act, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import {
+  CONTENT_LENGTH_PAYLOAD_KEY,
+  CONTENT_PAYLOAD_PLAINTEXT_MAX,
+} from "@ai-sidekicks/contracts/event/declared-variants";
 import type { TranscriptRowContent } from "@ai-sidekicks/contracts/transcript/content";
 import type { TranscriptReadRequest } from "@ai-sidekicks/contracts/transcript/operations";
 
@@ -33,7 +38,9 @@ import type {
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { TranscriptFeed } from "#renderer/features/transcript/feed/components/TranscriptFeed.js";
 import {
+  PAGED_SESSION_ID,
   openPagedSessionStore,
+  pagedSessionEventAt,
   scriptedTranscriptLog,
   transcriptFixtureEventId,
   transcriptFixtureStreamCursor,
@@ -48,6 +55,8 @@ import {
 import { type TranscriptBodyRead } from "#renderer/services/daemon/transcript/body.js";
 import { type TranscriptPageRead } from "#renderer/services/daemon/transcript/page.js";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
+import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
+import { type SessionStore } from "#renderer/store/session/store.js";
 import { letFramesPass, nextFrame } from "../../helpers/animation-frame.js";
 import { ROW_SELECTOR } from "./long-tool-feed.js";
 import { PaintedFrameReader } from "./painted-frames.js";
@@ -302,19 +311,19 @@ function heldHistoryRead(
 }
 
 /**
- * The feed over the store's last rows, its history behind `read`, drawing diagrams in `pictures`,
- * a large body read in full through `readBody`.
+ * The feed over `sessionStore`, the log's last rows unless given, its history behind `read`,
+ * drawing diagrams in `pictures`, a large body read in full through `readBody`.
  */
 async function mountFeed(
-  read: TranscriptPageRead,
+  read: TranscriptPageRead | undefined,
   pictures: DiagramPictures,
   readBody?: TranscriptBodyRead,
-): Promise<HTMLElement> {
-  installMeridianTokens(document);
-  const sessionStore = openPagedSessionStore(FIRST_OPEN_INDEX, LOG_ROW_COUNT - 1, {
+  sessionStore: SessionStore = openPagedSessionStore(FIRST_OPEN_INDEX, LOG_ROW_COUNT - 1, {
     cursor: transcriptFixtureStreamCursor(FIRST_OPEN_INDEX - 1),
     hasMore: true,
-  });
+  }),
+): Promise<HTMLElement> {
+  installMeridianTokens(document);
   // The wall clock, not the scenario's frozen one, so the feed runs on real frames.
   const Wrapper = bridgeWrapper(createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO }).bridge);
   const { container } = await renderSettled(
@@ -736,6 +745,132 @@ describe("a listed reply whose large body is opened", () => {
       expect(row.querySelector(".meridian-math--display")).not.toBe(null);
       expect(row.querySelector("table[aria-rowcount]")).not.toBe(null);
       expect(row.querySelector(".meridian-full-output")).toBe(null);
+    },
+  );
+});
+
+const ESCAPE = String.fromCodePoint(0x1b);
+/** The calls whose colored output stands in the box at the log's tail, by index, with lengths. */
+const OPENING_OUTPUT_LENGTHS: ReadonlyMap<number, number> = new Map([
+  [LOG_ROW_COUNT - 4, CONTENT_PAYLOAD_PLAINTEXT_MAX],
+  [LOG_ROW_COUNT - 2, 60_000],
+]);
+
+/** A message at each log position, and a call's colored output at each `OPENING_OUTPUT_LENGTHS`. */
+function openingEventAt(index: number): ProjectedSessionEvent {
+  const event = pagedSessionEventAt(index);
+  const length = OPENING_OUTPUT_LENGTHS.get(index);
+  if (length === undefined) {
+    return event;
+  }
+  const lines: string[] = [];
+  for (let line = 0, total = 0; total < length; line += 1) {
+    const text = `${ESCAPE}[3${String(line % 8)}mok${ESCAPE}[39m line ${String(line)}`;
+    lines.push(text);
+    total += text.length + 1;
+  }
+  const body = lines.join("\n").slice(0, length);
+  return {
+    ...event,
+    kind: "tool.result",
+    payload: {
+      sessionId: PAGED_SESSION_ID,
+      toolName: "build",
+      toolCallId: `call-${String(index)}`,
+      [CONTENT_LENGTH_PAYLOAD_KEY]: new TextEncoder().encode(body).byteLength,
+    },
+    content: { status: "available", body },
+  };
+}
+
+/** What one shown frame of the opening paints: where each row stands, and the outputs formatted. */
+interface OpeningFrame {
+  readonly rowTops: ReadonlyMap<string, number>;
+  readonly formattedOutputIds: readonly string[];
+}
+
+/** The frame as painted, or `undefined` while the feed is still hidden. */
+function readOpeningFrame(): OpeningFrame | undefined {
+  const viewport = document.querySelector(".meridian-transcript-viewport");
+  const scrollContainer = viewport?.querySelector<HTMLElement>(
+    ".meridian-transcript-viewport__scroll-container",
+  );
+  if (
+    viewport === null ||
+    scrollContainer === null ||
+    scrollContainer === undefined ||
+    getComputedStyle(viewport).visibility !== "visible"
+  ) {
+    return undefined;
+  }
+  const rowTops = rowsOnScreen(scrollContainer);
+  const formattedOutputIds = [...OPENING_OUTPUT_LENGTHS.keys()]
+    .map((index) => transcriptFixtureEventId(index))
+    .filter((rowId) => {
+      const output = scrollContainer.querySelector(`[data-row-id="${rowId}"] .meridian-ansi__body`);
+      return (
+        rowTops.has(rowId) &&
+        output !== null &&
+        output.querySelector("span[class], span[style]") !== null &&
+        !output.textContent.includes(ESCAPE)
+      );
+    });
+  return { rowTops, formattedOutputIds };
+}
+
+describe("a session opening on command outputs", () => {
+  it(
+    "is first shown with each output in the box formatted where it stays",
+    { timeout: CASE_TIMEOUT_MS },
+    async () => {
+      const painted: OpeningFrame[] = [];
+      let frames: PaintedFrameReader<OpeningFrame | undefined> | undefined;
+      // Read from the frame the first row mounts in, as the reader requires.
+      const firstRow = new MutationObserver(() => {
+        if (frames === undefined && document.querySelector(ROW_SELECTOR) !== null) {
+          frames = new PaintedFrameReader(ROW_SELECTOR, readOpeningFrame, (frame) => {
+            if (frame !== undefined) {
+              painted.push(frame);
+            }
+          });
+        }
+      });
+      firstRow.observe(document.body, { childList: true, subtree: true });
+      const pictures = new DiagramPictures(
+        PICTURE_CACHE_BYTE_CAP,
+        startDiagramWorker,
+        () => undefined,
+      );
+      // The faces in first, as a session switched to finds them, so the rows show once committed.
+      installMeridianTokens(document);
+      await document.fonts.ready;
+      await mountFeed(
+        undefined,
+        pictures,
+        undefined,
+        openPagedSessionStore(0, LOG_ROW_COUNT - 1, undefined, openingEventAt),
+      );
+      await waitFor(() => {
+        expect(painted.length).toBeGreaterThan(0);
+      });
+      await letFramesPass(10);
+      firstRow.disconnect();
+      frames?.stop();
+
+      const outputIds = [...OPENING_OUTPUT_LENGTHS.keys()].map((index) =>
+        transcriptFixtureEventId(index),
+      );
+      const [first] = painted;
+      for (const frame of painted) {
+        expect(frame.formattedOutputIds).toEqual(outputIds);
+        expect([...frame.rowTops.keys()]).toEqual([...(first?.rowTops.keys() ?? [])]);
+        for (const [rowId, topPx] of frame.rowTops) {
+          expect({
+            rowId,
+            isInPlace: Math.abs((first?.rowTops.get(rowId) ?? Infinity) - topPx) < 1,
+          }).toEqual({ rowId, isInPlace: true });
+        }
+      }
     },
   );
 });
