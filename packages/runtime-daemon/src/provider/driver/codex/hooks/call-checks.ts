@@ -21,6 +21,7 @@ import type {
   ProviderAskAction,
   ProviderPermissionAnswer,
 } from "../../../port/permission-ask.js";
+import { TOOL_SERVER_TOOL_PREFIX } from "../../../mcp/tool-name.js";
 import type { PortRegistration } from "../../../port/registration.js";
 import type { SessionRulePort } from "../../../port/session-rules.js";
 import { isPlainObject, readNonEmptyString } from "../../../record-readers.js";
@@ -53,7 +54,6 @@ export interface CodexCallChecksDependencies {
 // server's tool.
 const CODEX_HOOK_SHELL_TOOL = "Bash";
 const CODEX_HOOK_PATCH_TOOL = "apply_patch";
-const CODEX_HOOK_TOOL_SERVER_PREFIX = "mcp__";
 
 // The lines of a patch that name a file it adds, changes, deletes or moves to.
 const PATCH_FILE_LINE = /^\*\*\* (?:Add File|Update File|Delete File|Move to): (.+)$/u;
@@ -200,7 +200,7 @@ function readHookAction(input: CodexHookInput): ProviderAskAction | undefined {
     });
     return paths.length === 0 ? undefined : { kind: "file_change", paths };
   }
-  return input.toolName?.startsWith(CODEX_HOOK_TOOL_SERVER_PREFIX) === true
+  return input.toolName?.startsWith(TOOL_SERVER_TOOL_PREFIX) === true
     ? { kind: "tool", toolName: input.toolName }
     : undefined;
 }

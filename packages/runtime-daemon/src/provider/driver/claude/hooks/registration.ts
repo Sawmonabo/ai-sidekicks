@@ -2,6 +2,7 @@
 // is answered over the same channel as a `hook_callback`, so nothing is written to any settings
 // file and the person's own hooks are untouched.
 
+import { TOOL_SERVER_TOOL_PREFIX } from "../../../mcp/tool-name.js";
 import { DAEMON_TOOL_SERVER_NAME } from "../../../tool-server-name.js";
 import type { SubagentDefinition, SubagentPolicy } from "../../contract.js";
 import { CLAUDE_QUESTION_TOOL_NAME } from "../event-normalizer.js";
@@ -34,7 +35,7 @@ const CLAUDE_HOOK_HOLD_TIMEOUT_SECONDS = 86_400;
 const CLAUDE_HELPER_TOOL_NAME = "Agent";
 
 // The question tool and every daemon tool, which at Sandboxed run only through this hook's allow.
-const CLAUDE_DAEMON_TOOL_PATTERN = `mcp__${DAEMON_TOOL_SERVER_NAME}__.*`;
+const CLAUDE_DAEMON_TOOL_PATTERN = `${TOOL_SERVER_TOOL_PREFIX}${DAEMON_TOOL_SERVER_NAME}__.*`;
 const CLAUDE_QUESTION_BRIDGE_MATCHER = `^(${CLAUDE_QUESTION_TOOL_NAME}|${CLAUDE_DAEMON_TOOL_PATTERN})$`;
 
 // The shell tool, whose commands the background Claude Code refusal reads.
