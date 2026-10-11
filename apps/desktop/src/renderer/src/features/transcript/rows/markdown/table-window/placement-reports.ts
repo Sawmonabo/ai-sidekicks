@@ -1,6 +1,6 @@
 // The changes a markdown body tells its long tables of, and the observation of the body's size
-// behind its layouts. A table subscribes in an effect that can run a frame after the body's first
-// layout, so a layout no table heard is told again in the body's next report, before it paints.
+// behind its layouts. A table subscribes in an effect that can run a frame after it read the body,
+// so a layout made in between is told again in the body's next report, before it paints.
 
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { Emitter } from "#renderer/lib/emitter.js";
@@ -16,8 +16,10 @@ export class TablePlacementReports {
   readonly #onLaidOut: (element: HTMLElement, entry: ResizeObserverEntry | undefined) => void;
   #element: HTMLElement | undefined;
   #stopObserving: Unsubscribe | undefined;
-  /** Whether the body was laid out anew while no table listened, and no table has heard of it. */
-  #isLayoutUnheard = false;
+  /** How many times the body was laid out anew, so a table can tell a layout made since it read. */
+  #layoutCount = 0;
+  /** Whether a table subscribed after a layout it missed, and is owed the body's next report. */
+  #isReplayOwed = false;
 
   /**
    * `describeWhat` names the changes in a listener's failure; `onLaidOut` is called with the
@@ -36,6 +38,11 @@ export class TablePlacementReports {
     return this.#element;
   }
 
+  /** How many times the body was laid out anew; a table notes it when it reads the body. */
+  public get layoutCount(): number {
+    return this.#layoutCount;
+  }
+
   /** Whether any table listens, so the body can leave a read only a table needs until asked. */
   public get hasListeners(): boolean {
     return this.#changes.hasSinks;
@@ -52,23 +59,29 @@ export class TablePlacementReports {
   }
 
   /**
-   * Hears each change that may move the body's tables. Where a layout went unheard, the body is
-   * observed anew, so its next report, before the next paint, tells this table of it.
+   * Hears each change that may move the body's tables. Where the body was laid out since the table
+   * read it at `seenLayoutCount`, the body is observed anew, so its next report, before the next
+   * paint, tells this table of it.
    */
-  public subscribe(listener: (change: TablePlacementChange) => void): Unsubscribe {
+  public subscribe(
+    listener: (change: TablePlacementChange) => void,
+    seenLayoutCount: number,
+  ): Unsubscribe {
     const unsubscribe = this.#changes.subscribe(listener);
     // A fresh observation reports the body's size in the next frame, before it paints; telling the
     // table here would redraw it from inside the effect that subscribes, where React defers it.
-    if (this.#isLayoutUnheard && this.#element !== undefined) {
+    if (seenLayoutCount !== this.#layoutCount && this.#element !== undefined) {
+      this.#isReplayOwed = true;
       this.#observe(this.#element);
     }
     return unsubscribe;
   }
 
-  /** Tells every listening table of `change`, noting a layout none heard. */
+  /** Tells every listening table of `change`, counting a layout. */
   public announce(change: TablePlacementChange): void {
     if (change === "laid-out") {
-      this.#isLayoutUnheard = !this.#changes.hasSinks;
+      this.#layoutCount += 1;
+      this.#isReplayOwed = false;
     }
     this.#changes.emit(change);
   }
@@ -77,9 +90,11 @@ export class TablePlacementReports {
     this.#stopObserving?.();
     this.#stopObserving = observeElementResize(element, (entries) => {
       this.#onLaidOut(element, entries.at(-1));
-      // A body that reads only a change of its type announces none for this report.
-      if (this.#isLayoutUnheard && this.#changes.hasSinks) {
-        this.announce("laid-out");
+      // A body that reads only a change of its type announces none for this report; the replay
+      // is no new layout, so it leaves the count.
+      if (this.#isReplayOwed) {
+        this.#isReplayOwed = false;
+        this.#changes.emit("laid-out");
       }
     });
   }

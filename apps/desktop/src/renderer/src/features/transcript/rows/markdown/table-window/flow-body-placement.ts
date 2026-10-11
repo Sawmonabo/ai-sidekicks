@@ -103,8 +103,15 @@ export class FlowBodyPlacement implements TableBodyPlacement {
     return this.#rowStartPx + this.#bodyOffsetInRowPx;
   }
 
-  public subscribeToPlacement(listener: (change: TablePlacementChange) => void): Unsubscribe {
-    return this.#reports.subscribe(listener);
+  public get layoutCount(): number {
+    return this.#reports.layoutCount;
+  }
+
+  public subscribeToPlacement(
+    listener: (change: TablePlacementChange) => void,
+    seenLayoutCount: number,
+  ): Unsubscribe {
+    return this.#reports.subscribe(listener, seenLayoutCount);
   }
 
   /**

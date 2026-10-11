@@ -74,6 +74,7 @@ function bodyPlacementOf(
     blockFingerprint,
     anchorOf: () => null,
     anchorTopPx: () => undefined,
+    layoutCount: 0,
     subscribeToPlacement: () => () => undefined,
   };
 }

@@ -60,6 +60,8 @@ export class TableWindowLayout {
   #bodyElement: HTMLElement | undefined;
   #stopObservingBody: Unsubscribe | undefined;
   #stopFollowingPlacement: Unsubscribe | undefined;
+  /** The body's layout count when the table last read the body, for the layouts it missed since. */
+  #seenLayoutCount = 0;
   #virtualizer: TableRowVirtualizer | undefined;
   /** Keeps a row drawn wherever the window stands, given by the hook that draws the table. */
   #keepRowDrawn: ((index: number) => void) | undefined;
@@ -244,6 +246,7 @@ export class TableWindowLayout {
    * measurement replaces it. A streaming table hands what it holds to its next mount each time.
    */
   public update(): void {
+    this.#seenLayoutCount = this.#body.placement.layoutCount;
     const bodyType = this.bodyType;
     if (this.#measurement?.measurement.geometry !== undefined) {
       this.#holdMeasured(this.#measurement.measurement, this.#measurement.bodyType);
@@ -362,8 +365,8 @@ export class TableWindowLayout {
 
   /**
    * Calls `listener` after each change the markdown body announces that may move the table or
-   * change the body's width; the table's place is read again where the body was laid out anew,
-   * and its offset sent again, first.
+   * change the body's width, a layout made since the table last read the body included; the
+   * table's place is read again where the body was laid out anew, and its offset sent again, first.
    */
   public followPlacement(listener: () => void): Unsubscribe {
     this.#stopFollowingPlacement?.();
@@ -374,7 +377,7 @@ export class TableWindowLayout {
       }
       this.#scroller.resendOffset();
       listener();
-    });
+    }, this.#seenLayoutCount);
     this.#stopFollowingPlacement = stop;
     return () => {
       stop();

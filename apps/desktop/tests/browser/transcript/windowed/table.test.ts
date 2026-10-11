@@ -51,6 +51,8 @@ import {
 const LEAD_HEIGHT_PX = 48;
 /** The width of the body below it, in CSS pixels. */
 const LEAD_BODY_WIDTH_PX = 600;
+/** The body's width once its row narrows, in CSS pixels. */
+const NARROWED_BODY_WIDTH_PX = 480;
 
 /** A table long enough that the fastest fling ends inside it. */
 const FLUNG_TABLE_ROW_COUNT = 3_000;
@@ -395,39 +397,17 @@ describe("browser — a long table drawn as a window over its rows", () => {
     // body's type while the body is unattached, the body is laid out with no table listening, and
     // the table listens only after. Its next scroll sample asks the body's top, and the body tells
     // it of that layout before the next paint, though the body is not laid out again.
-    const row = document.createElement("div");
-    row.setAttribute(WINDOWED_ROW_INDEX_ATTRIBUTE, "0");
-    const lead = document.createElement("div");
-    lead.style.height = `${String(LEAD_HEIGHT_PX)}px`;
-    const text = "A reply whose long table mounts with it.";
-    const body = document.createElement("div");
-    body.style.width = `${String(LEAD_BODY_WIDTH_PX)}px`;
-    body.textContent = text;
-    row.append(lead, body);
-    document.body.append(row);
-    onTestFinished(() => {
-      row.remove();
-    });
-    const scrollController = new ScrollController({ clock: new ManualClock() });
-    const viewport = suiteWindowViewport(scrollController, {
-      subscribe: () => () => {},
-      read: () => undefined,
-    });
-    const placement = new FlowBodyPlacement(
-      viewport,
-      "reply",
-      { settledBlocks: [], volatileTail: text, definitionPreamble: "" },
-      text.length,
-    );
+    const { body, placement } = flowBodyOnPage();
     const heard: { readonly widthPx: number | undefined; readonly topPx: number | undefined }[] =
       [];
 
     expect(placement.bodyType).toBeUndefined();
+    const seenLayoutCount = placement.layoutCount;
     placement.attachBody(body);
     await settleFrames();
     placement.subscribeToPlacement(() => {
       heard.push({ widthPx: placement.bodyType?.widthPx, topPx: placement.anchorTopPx() });
-    });
+    }, seenLayoutCount);
 
     expect(placement.anchorTopPx()).toBe(LEAD_HEIGHT_PX);
     await settleFrames();
@@ -465,13 +445,66 @@ describe("browser — a long table drawn as a window over its rows", () => {
     const heard: { readonly change: TablePlacementChange; readonly widthPx: number | undefined }[] =
       [];
 
+    const seenLayoutCount = layout.layoutCount;
     layout.attachBody(body);
     await settleFrames();
     layout.subscribeToPlacement((change) => {
       heard.push({ change, widthPx: layout.bodyType?.widthPx });
-    });
+    }, seenLayoutCount);
     await settleFrames();
 
     expect(heard).toStrictEqual([{ change: "laid-out", widthPx: LEAD_BODY_WIDTH_PX }]);
   });
+
+  it("tells a second table of a layout it missed while the first table heard it", async () => {
+    // The second table reads the body, the body is laid out at a new width while only the first
+    // listens, and the second listens only after.
+    const { body, placement } = flowBodyOnPage();
+    const heardBySecond: (number | undefined)[] = [];
+    placement.attachBody(body);
+    placement.subscribeToPlacement(() => {}, placement.layoutCount);
+    await settleFrames();
+
+    expect(placement.bodyType?.widthPx).toBe(LEAD_BODY_WIDTH_PX);
+    const seenBySecond = placement.layoutCount;
+    body.style.width = `${String(NARROWED_BODY_WIDTH_PX)}px`;
+    await settleFrames();
+    placement.subscribeToPlacement(() => {
+      heardBySecond.push(placement.bodyType?.widthPx);
+    }, seenBySecond);
+    await settleFrames();
+
+    expect(heardBySecond).toStrictEqual([NARROWED_BODY_WIDTH_PX]);
+  });
 });
+
+/**
+ * A body drawn whole in a row, below `LEAD_HEIGHT_PX` of the row's own, and its placement, which
+ * has not been handed the body yet; both leave the page after the test.
+ */
+function flowBodyOnPage(): { readonly body: HTMLElement; readonly placement: FlowBodyPlacement } {
+  const row = document.createElement("div");
+  row.setAttribute(WINDOWED_ROW_INDEX_ATTRIBUTE, "0");
+  const lead = document.createElement("div");
+  lead.style.height = `${String(LEAD_HEIGHT_PX)}px`;
+  const text = "A reply whose long table mounts with it.";
+  const body = document.createElement("div");
+  body.style.width = `${String(LEAD_BODY_WIDTH_PX)}px`;
+  body.textContent = text;
+  row.append(lead, body);
+  document.body.append(row);
+  onTestFinished(() => {
+    row.remove();
+  });
+  const viewport = suiteWindowViewport(new ScrollController({ clock: new ManualClock() }), {
+    subscribe: () => () => {},
+    read: () => undefined,
+  });
+  const placement = new FlowBodyPlacement(
+    viewport,
+    "reply",
+    { settledBlocks: [], volatileTail: text, definitionPreamble: "" },
+    text.length,
+  );
+  return { body, placement };
+}

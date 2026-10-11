@@ -216,6 +216,10 @@ export class BlockWindowLayout implements TableBodyPlacement {
     return this.#bodyType;
   }
 
+  public get layoutCount(): number {
+    return this.#reports.layoutCount;
+  }
+
   public get ownerDocument(): Document | undefined {
     return this.#reports.element?.ownerDocument;
   }
@@ -261,11 +265,14 @@ export class BlockWindowLayout implements TableBodyPlacement {
 
   /**
    * Hears each change that may move a block: `"moved"` when a block measured or the drawn blocks
-   * changed, `"laid-out"` when the body was laid out at a new width, or after this table started
-   * to listen to a body laid out while no table did.
+   * changed, `"laid-out"` when the body was laid out at a new width, or when a table that read the
+   * body at `seenLayoutCount` starts to listen having missed such a layout.
    */
-  public subscribeToPlacement(listener: (change: TablePlacementChange) => void): Unsubscribe {
-    return this.#reports.subscribe(listener);
+  public subscribeToPlacement(
+    listener: (change: TablePlacementChange) => void,
+    seenLayoutCount: number,
+  ): Unsubscribe {
+    return this.#reports.subscribe(listener, seenLayoutCount);
   }
 
   /** Tells the tables inside the body's blocks that a block may have moved. */

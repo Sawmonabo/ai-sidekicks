@@ -41,8 +41,16 @@ export interface TableBodyPlacement {
    * pixels, reading no element; `undefined` while the body cannot place it.
    */
   anchorTopPx(blockIndex: number): number | undefined;
-  /** Hears each change that may move the body's tables. */
-  subscribeToPlacement(listener: (change: TablePlacementChange) => void): Unsubscribe;
+  /** How many times the body was laid out anew; a table notes it each time it reads the body. */
+  readonly layoutCount: number;
+  /**
+   * Hears each change that may move the body's tables; a table that read the body at
+   * `seenLayoutCount` and missed a layout since hears of it before the next paint.
+   */
+  subscribeToPlacement(
+    listener: (change: TablePlacementChange) => void,
+    seenLayoutCount: number,
+  ): Unsubscribe;
 }
 
 /** The markdown body a long table is drawn in. */
