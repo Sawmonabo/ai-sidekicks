@@ -4,6 +4,8 @@
 // lands only while the clipboard holds what it held then, and a formatted flavor added after its
 // text joins it only while the clipboard still holds that text.
 
+import { createHash } from "node:crypto";
+
 import { describe, expect, it, vi } from "vitest";
 
 import { ClipboardPieces } from "#shared/clipboard-pieces.js";
@@ -52,9 +54,11 @@ function holdingClipboard(): ClipboardHost & { held: ClipboardFlavors | undefine
         : [
             {
               types: Object.keys(held),
-              readText: async (type) => {
+              read: async (type) => {
                 const flavor = held[type];
-                return typeof flavor === "string" ? flavor : expect.fail(`${type} is no text`);
+                return typeof flavor === "string"
+                  ? new Blob([flavor])
+                  : expect.fail(`${type} is no text`);
               },
             },
           ];
@@ -233,5 +237,49 @@ describe("a copy written after it was asked for", () => {
       "text/plain": "a long selection, read",
       "text/html": "<b>theirs</b>",
     });
+  });
+});
+
+describe("a long copy on main's thread", () => {
+  it("digests what the clipboard holds a chunk at a time as one read would", async () => {
+    const clipboard = holdingClipboard();
+    // Several mebibytes, a character of three bytes and one of four sitting across every chunk.
+    const text = "€ and 😀 then a line\n".repeat(200_000);
+    await clipboard.write({ "text/plain": text });
+    const bytes = new TextEncoder().encode(text);
+    const oneRead = createHash("sha256")
+      .update("entry:1\u0000")
+      .update(`text/plain\u0000${String(bytes.length)}\u0000`)
+      .update(bytes)
+      .digest("hex");
+
+    await expect(takeClipboardSnapshot(systemOnly(clipboard), {})).resolves.toStrictEqual({
+      digest: oneRead,
+    });
+  });
+
+  it("stops joining a copy whose pieces are let go mid-join, and writes nothing", async () => {
+    const clipboard = holdingClipboard();
+    const readHeld = vi.spyOn(clipboard, "readHeld");
+    const clipboards = systemOnly(clipboard);
+    const pieces = new ClipboardPieces();
+    const since = await takeClipboardSnapshot(clipboards, {});
+    readHeld.mockClear();
+    const piece = "a".repeat(700_000);
+    for (const index of [0, 1, 2]) {
+      takeClipboardPiece(pieces, { copyId: "older", flavor: "text", index, piece });
+    }
+
+    const writing = copyToClipboardUnlessChanged(clipboards, pieces, {
+      content: { copyId: "older" },
+      since,
+    });
+    // A newer copy's first piece arrives while the older one's pieces are joined.
+    takeClipboardPiece(pieces, { copyId: "newer", flavor: "text", index: 0, piece: "newer" });
+
+    await expect(writing).resolves.toBe(false);
+    // The join stopped where it stood: the clipboard was never read for the older copy.
+    expect(readHeld).not.toHaveBeenCalled();
+    expect(clipboard.held).toBeUndefined();
   });
 });

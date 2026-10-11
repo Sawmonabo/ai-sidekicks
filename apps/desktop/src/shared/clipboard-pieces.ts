@@ -4,6 +4,13 @@
 
 import type { ClipboardPiece, TextClipboardContent } from "./preload-api.js";
 
+/** The pieces held for one late copy, each flavor's in the order they were sent. */
+export interface HeldClipboardCopy {
+  readonly copyId: string;
+  readonly text: readonly string[];
+  readonly html: readonly string[];
+}
+
 /**
  * The pieces of the one late copy held, sent ahead of its write: a copy's first text piece takes
  * the place of the copy held, so one copy's text is held at a time.
@@ -36,6 +43,16 @@ export class ClipboardPieces {
     }
   }
 
+  /** Whether the copy `copyId` names is still the one held. */
+  public isHeld(copyId: string): boolean {
+    return this.#copy?.copyId === copyId;
+  }
+
+  /** The pieces held for the copy `copyId` names, unjoined. Throws for a copy not held. */
+  public copyOf(copyId: string): HeldClipboardCopy {
+    return this.#piecesOf(copyId);
+  }
+
   /**
    * The text of the copy `copyId` names, and its formatted flavor when pieces of one were sent.
    * Throws for a copy not held.
@@ -47,7 +64,11 @@ export class ClipboardPieces {
       : { text: text.join(""), html: html.join("") };
   }
 
-  #piecesOf(copyId: string): { readonly text: string[]; readonly html: string[] } {
+  #piecesOf(copyId: string): {
+    readonly copyId: string;
+    readonly text: string[];
+    readonly html: string[];
+  } {
     if (this.#copy?.copyId !== copyId) {
       throw new Error("A clipboard piece names a copy that is not held.");
     }
