@@ -1,4 +1,4 @@
-// Main's own JSONL log: async append, size rotation, level filter. Main's failures have no
+// Main's own JSONL log: async append, size and age rotation, level filter. Main's failures have no
 // other reporter, since a window that never opened has no renderer to capture from. It
 // forwards nowhere; it writes a file and stops. It is built in-house because it is one append
 // path, one rotation rule and one level filter, and a library such as `electron-log` would add
@@ -8,18 +8,25 @@
 // and a failure case drives a sink that throws.
 //
 // The size ceiling belongs to the file, not the process: main appends to the same path every
-// launch, so the byte count is seeded from the file on the first queued write (lazily, so a
-// log that never writes never touches the disk). The seeded count is still per process: two
-// processes appending would rotate the file out from under each other. The single-instance
-// lock in `index.ts` prevents that except for a relaunch overlapping a first instance that is
-// still failing to start.
+// launch, so the byte count is seeded from the file on the first queued write. The seeded count
+// is still per process: two processes appending would rotate the file out from under each other.
+// The single-instance lock in `index.ts` prevents that except for a relaunch overlapping a first
+// instance that is still failing to start.
+//
+// The age rule keeps the app's diagnostic-log retention without a sweeper of its own, since the
+// service's expiry never reaches the folder this log is in: the live file rotates once its first
+// entry is older than `Keep diagnostic logs for`, and the previous file goes once it was last
+// written longer ago than that. Main checks both as it starts and the live file again at every
+// write, so a file is dropped whole past its bound, as the service's own logs are.
 //
 // A write never throws at its caller and never fails silently: it stops accepting and records
 // why (`lastWriteFailure`), which the quit and exit paths read. The file and its folder are
 // readable only by the person, as main's other files are: a line can quote a path.
 
-import { appendFile, mkdir, rename, rm, stat } from "node:fs/promises";
+import { appendFile, mkdir, open, rename, rm, stat, type FileHandle } from "node:fs/promises";
 import path from "node:path";
+
+import { DEFAULT_KEEP_DIAGNOSTIC_LOGS_DAYS } from "@ai-sidekicks/contracts/daemon/retention";
 
 import { describeFailure } from "#shared/failure-message.js";
 import { isMissingPath } from "./missing-path.js";
@@ -44,10 +51,14 @@ export interface MainDiagnosticLine extends MainDiagnosticEntry {
   readonly at: string;
 }
 
-/** The file operations the log performs. Injected, so a test owns all four. */
+/** The file operations the log performs. Injected, so a test owns all of them. */
 export interface DiagnosticLogFileSink {
   /** Bytes the file already holds, or `0` when there is no such file (the first launch). */
   byteCountOf(filePath: string): Promise<number>;
+  /** The file's first bytes as text, at most `byteCount` of them, or `null` when there is none. */
+  startOf(filePath: string, byteCount: number): Promise<string | null>;
+  /** When the file was last written, or `null` when there is no such file. */
+  modifiedAtOf(filePath: string): Promise<Date | null>;
   /** Append, creating the containing directory if it is not there yet. */
   appendUtf8(filePath: string, text: string): Promise<void>;
   /** Replace `toPath` with `fromPath`. Rotation, and the only rename this log does. */
@@ -63,6 +74,8 @@ export interface MainDiagnosticLogOptions {
   readonly minimumLevel: DiagnosticLogLevel;
   /** Bytes the live file may reach before it rotates. */
   readonly fileByteCeiling: number;
+  /** How long an entry is kept, in milliseconds: `Keep diagnostic logs for`. */
+  readonly keepMs: number;
   /** The clock each entry is stamped from as it is written. */
   readonly now: () => Date;
 }
@@ -71,6 +84,12 @@ export interface MainDiagnosticLogOptions {
 export function rotatedPathFor(filePath: string): string {
   return `${filePath}.1`;
 }
+
+// A line starts with its stamp, as `toLogLine` writes it, so the first bytes say when a file began.
+const LINE_STAMP = /^\{"at":"([^"]+)"/;
+
+// Enough of the first line to hold its stamp.
+const LINE_STAMP_BYTE_COUNT = 64;
 
 function levelRank(level: DiagnosticLogLevel): number {
   return DIAGNOSTIC_LOG_LEVELS.indexOf(level);
@@ -99,10 +118,13 @@ export class MainDiagnosticLog {
   readonly #sink: DiagnosticLogFileSink;
   readonly #minimumRank: number;
   readonly #fileByteCeiling: number;
+  readonly #keepMs: number;
   readonly #now: () => Date;
   #writeChain: Promise<void> = Promise.resolve();
   /** `null` until the first queued write reads the file's own size. */
   #liveFileByteCount: number | null = null;
+  /** When the live file's first entry was written; `null` for no file, `undefined` until read. */
+  #liveFileStartedAt: Date | null | undefined = undefined;
   #writtenEntryCount = 0;
   #rotationCount = 0;
   #writeFailureCount = 0;
@@ -114,6 +136,7 @@ export class MainDiagnosticLog {
     this.#sink = options.sink;
     this.#minimumRank = levelRank(options.minimumLevel);
     this.#fileByteCeiling = options.fileByteCeiling;
+    this.#keepMs = options.keepMs;
     this.#now = options.now;
   }
 
@@ -125,29 +148,75 @@ export class MainDiagnosticLog {
     if (levelRank(entry.level) > this.#minimumRank || !this.#accepting) {
       return;
     }
-    const line = toLogLine({ at: this.#now().toISOString(), ...entry });
+    const at = this.#now();
+    const line = toLogLine({ at: at.toISOString(), ...entry });
     const lineByteCount = Buffer.byteLength(line, "utf8");
+    this.#enqueue(async () => {
+      let liveByteCount = await this.#resolveLiveFileByteCount();
+      if (
+        liveByteCount + lineByteCount > this.#fileByteCeiling ||
+        (await this.#isLiveFilePastKeeping(at))
+      ) {
+        await this.#rotate();
+        liveByteCount = await this.#resolveLiveFileByteCount();
+      }
+      await this.#sink.appendUtf8(this.#filePath, line);
+      this.#liveFileByteCount = liveByteCount + lineByteCount;
+      this.#liveFileStartedAt ??= at;
+      this.#writtenEntryCount += 1;
+    });
+  }
+
+  /**
+   * Drop what is past `Keep diagnostic logs for`: the live file rotates once its first entry is
+   * older, and the previous file goes once it was last written longer ago. Main calls it as it
+   * starts, so a launch that writes nothing still drops an old file.
+   */
+  public dropPastKeeping(): void {
+    this.#enqueue(async () => {
+      const now = this.#now();
+      if (await this.#isLiveFilePastKeeping(now)) {
+        await this.#rotate();
+      }
+      const rotatedPath = rotatedPathFor(this.#filePath);
+      const rotatedAt = await this.#sink.modifiedAtOf(rotatedPath);
+      if (rotatedAt !== null && now.getTime() - rotatedAt.getTime() > this.#keepMs) {
+        await this.#sink.remove(rotatedPath);
+      }
+    });
+  }
+
+  // Every file operation runs on one chain, so appends never interleave and the carried counts
+  // stay exact. A failure stops the log rather than retrying: a full disk or a revoked path would
+  // fail once per line and spend the quit budget.
+  #enqueue(operation: () => Promise<void>): void {
     this.#writeChain = this.#writeChain.then(async () => {
       if (!this.#accepting) {
         return;
       }
       try {
-        let liveByteCount = await this.#resolveLiveFileByteCount();
-        if (liveByteCount + lineByteCount > this.#fileByteCeiling) {
-          await this.#rotate();
-          liveByteCount = await this.#resolveLiveFileByteCount();
-        }
-        await this.#sink.appendUtf8(this.#filePath, line);
-        this.#liveFileByteCount = liveByteCount + lineByteCount;
-        this.#writtenEntryCount += 1;
+        await operation();
       } catch (writeFailure) {
-        // Stop accepting rather than retry: a full disk or a revoked path would fail once
-        // per line and spend the quit budget.
         this.#accepting = false;
         this.#writeFailureCount += 1;
         this.#lastWriteFailure = describeFailure(writeFailure);
       }
     });
+  }
+
+  // Whether the live file began longer ago than an entry is kept. A first line with no readable
+  // stamp proves no age, so the file is taken as past keeping rather than kept for good.
+  async #isLiveFilePastKeeping(now: Date): Promise<boolean> {
+    if (this.#liveFileStartedAt === undefined) {
+      const start = await this.#sink.startOf(this.#filePath, LINE_STAMP_BYTE_COUNT);
+      this.#liveFileStartedAt =
+        start === null || start === "" ? null : new Date(LINE_STAMP.exec(start)?.[1] ?? Number.NaN);
+    }
+    if (this.#liveFileStartedAt === null) {
+      return false;
+    }
+    const age = now.getTime() - this.#liveFileStartedAt.getTime();
+    return Number.isNaN(age) || age > this.#keepMs;
   }
 
   /**
@@ -176,6 +245,7 @@ export class MainDiagnosticLog {
     await this.#sink.replace(this.#filePath, rotatedPath);
     this.#rotationCount += 1;
     this.#liveFileByteCount = 0;
+    this.#liveFileStartedAt = null;
   }
 
   /** Settle every write issued so far. The quit and exit paths and every test await this. */
@@ -244,6 +314,35 @@ class FileSystemDiagnosticLogSink implements DiagnosticLogFileSink {
     await appendFile(filePath, text, { encoding: "utf8", mode: OWNER_ONLY_FILE_MODE });
   }
 
+  public async startOf(filePath: string, byteCount: number): Promise<string | null> {
+    let file: FileHandle;
+    try {
+      file = await open(filePath, "r");
+    } catch (openFailure) {
+      if (isMissingPath(openFailure)) {
+        return null;
+      }
+      throw openFailure;
+    }
+    try {
+      const { buffer, bytesRead } = await file.read(Buffer.alloc(byteCount), 0, byteCount, 0);
+      return buffer.toString("utf8", 0, bytesRead);
+    } finally {
+      await file.close();
+    }
+  }
+
+  public async modifiedAtOf(filePath: string): Promise<Date | null> {
+    try {
+      return (await stat(filePath)).mtime;
+    } catch (statFailure) {
+      if (isMissingPath(statFailure)) {
+        return null;
+      }
+      throw statFailure;
+    }
+  }
+
   public async replace(fromPath: string, toPath: string): Promise<void> {
     await rename(fromPath, toPath);
   }
@@ -266,17 +365,22 @@ const MAIN_DIAGNOSTIC_LOG_BYTE_CEILING = 2 * 1024 * 1024;
 export const MAIN_DIAGNOSTIC_LOG_FILE_NAME = "main.jsonl";
 
 /**
- * Build main's log under `logDirectory`. `notice` is the floor because main writes few lines
- * and they are the only record of a process that may not have produced a window.
+ * Build main's log under `logDirectory` and drop what it holds past `Keep diagnostic logs for`.
+ * `notice` is the floor because main writes few lines and they are the only record of a process
+ * that may not have produced a window.
  */
 export function createMainDiagnosticLog(logDirectory: string): MainDiagnosticLog {
-  return new MainDiagnosticLog({
+  const log = new MainDiagnosticLog({
     filePath: path.join(logDirectory, MAIN_DIAGNOSTIC_LOG_FILE_NAME),
     sink: createFileSystemDiagnosticLogSink(),
     minimumLevel: "notice",
     fileByteCeiling: MAIN_DIAGNOSTIC_LOG_BYTE_CEILING,
+    // The service holds no `Keep diagnostic logs for` setting yet, so its default is the bound.
+    keepMs: DEFAULT_KEEP_DIAGNOSTIC_LOGS_DAYS * 24 * 60 * 60 * 1000,
     now: () => new Date(),
   });
+  log.dropPastKeeping();
+  return log;
 }
 
 /** Where a log that could not be written says so. Main passes `console.error`. */

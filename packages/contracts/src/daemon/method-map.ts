@@ -15,7 +15,7 @@ import type { BrowserMethodDescriptors } from "../browser.js";
 import type { CallbackToolMethodDescriptors } from "../callback-tool.js";
 import type { CloudMethodDescriptors } from "../cloud.js";
 import type { CommandMethodDescriptors } from "../command.js";
-import type { DaemonAppErrorMethodDescriptors } from "./app-error.js";
+import type { DaemonAppDiagnosticMethodDescriptors } from "./app-diagnostic.js";
 import type { DaemonBackupMethodDescriptors } from "./backup.js";
 import type { DaemonConfigMethodDescriptors } from "./config.js";
 import type { DaemonDataMethodDescriptors } from "./data.js";
@@ -76,7 +76,7 @@ export type DaemonMethodDescriptors = AgentMethodDescriptors &
   CallbackToolMethodDescriptors &
   CloudMethodDescriptors &
   CommandMethodDescriptors &
-  DaemonAppErrorMethodDescriptors &
+  DaemonAppDiagnosticMethodDescriptors &
   DaemonBackupMethodDescriptors &
   DaemonConfigMethodDescriptors &
   DaemonDataMethodDescriptors &

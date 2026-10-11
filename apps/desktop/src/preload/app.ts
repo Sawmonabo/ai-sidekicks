@@ -1,7 +1,7 @@
 // The `app` members as the preload carries them: the facts main started the window with, the
-// machine's region and clock as main pushes each change, and a window's unhandled errors handed to
-// main. The newest clock is held here, so a page that subscribes late, or a push that came before
-// it subscribed, still reads the current one.
+// machine's region and clock as main pushes each change, and what a window records about itself
+// handed to main. The newest clock is held here, so a page that subscribes late, or a push that
+// came before it subscribed, still reads the current one.
 
 import { readAppFactsSwitches, type MachineClock } from "#shared/app-facts.js";
 import { BRIDGE_CHANNELS, MACHINE_CLOCK_CHANNEL } from "#shared/bridge-channels.js";
@@ -22,8 +22,8 @@ export function createAppBridge(
   return {
     ...facts,
     subscribeMachineClock: (handler) => machineClock.subscribe(handler),
-    reportUnhandledError: async (report): Promise<void> => {
-      await ipc.invoke(BRIDGE_CHANNELS.reportUnhandledError, report);
+    reportWindowDiagnostics: async (reports): Promise<void> => {
+      await ipc.invoke(BRIDGE_CHANNELS.reportWindowDiagnostics, reports);
     },
   };
 }

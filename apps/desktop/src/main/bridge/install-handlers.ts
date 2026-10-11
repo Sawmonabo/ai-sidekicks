@@ -30,7 +30,7 @@ import type { MainOperatingSystem } from "../operating-system/contract.js";
 import type { DaemonLink } from "../services/daemon/link/status.js";
 import type { DaemonSupervisor } from "../services/daemon/supervisor.js";
 import type { MainDiagnosticLog } from "../services/diagnostic-log.js";
-import type { UnhandledErrorRelay } from "../services/unhandled-errors/relay.js";
+import type { AppDiagnosticRelay } from "../services/app-diagnostics/relay.js";
 import type { DaemonForwarding } from "./daemon.js";
 import type { FilePathRefs } from "./file-path/refs.js";
 import { KEYBOARD_MAP_FILE_NAME, KeyboardMapFile, parseKeyboardMap } from "./keyboard-map-file.js";
@@ -43,7 +43,7 @@ import { refForDroppedFile, type PastedImages } from "./native/file-intake.js";
 import { readNotificationPermission } from "./native/notification-permission.js";
 import { showOpenDialog } from "./native/open-dialog.js";
 import { pageSafeFailure, pageSafeMessage } from "./page-safe-message.js";
-import { parseUnhandledErrorReport } from "./unhandled-error.js";
+import { parseWindowDiagnosticReports } from "./window-diagnostics.js";
 import { type ChannelAnswer, windowAnswers, type WindowHandlerContext } from "./window.js";
 
 /** The channels main answers: every channel the preload invokes but the updater's. */
@@ -61,8 +61,8 @@ export interface BridgeHandlerServices {
   readonly supervisor: Pick<DaemonSupervisor, "requestStart">;
   readonly daemonLink: Pick<DaemonLink, "client">;
   readonly log: Pick<MainDiagnosticLog, "write">;
-  /** Where a window's unhandled errors go, on to the background service's diagnostic log. */
-  readonly unhandledErrors: Pick<UnhandledErrorRelay, "reportFromWindow">;
+  /** Where what a window records about itself goes, on to the background service's diagnostic log. */
+  readonly appDiagnostics: Pick<AppDiagnosticRelay, "reportFromWindow">;
   readonly windowContext: WindowHandlerContext;
   readonly operatingSystem: Pick<
     MainOperatingSystem,
@@ -83,7 +83,7 @@ export function installBridgeHandlers(services: BridgeHandlerServices): void {
     supervisor,
     daemonLink,
     log,
-    unhandledErrors,
+    appDiagnostics,
     windowContext,
     operatingSystem,
   } = services;
@@ -184,8 +184,8 @@ export function installBridgeHandlers(services: BridgeHandlerServices): void {
     [BRIDGE_CHANNELS.readKeyboardMap]: () => keyboardMapFile.read(),
     [BRIDGE_CHANNELS.writeKeyboardMap]: (_event, map) =>
       keyboardMapFile.write(parseKeyboardMap(map)),
-    [BRIDGE_CHANNELS.reportUnhandledError]: (_event, report) => {
-      unhandledErrors.reportFromWindow(parseUnhandledErrorReport(report));
+    [BRIDGE_CHANNELS.reportWindowDiagnostics]: (_event, reports) => {
+      appDiagnostics.reportFromWindow(parseWindowDiagnosticReports(reports));
     },
     ...machineSettingsAnswers(daemonForwarding),
     ...windowAnswers(windowContext, operatingSystem),

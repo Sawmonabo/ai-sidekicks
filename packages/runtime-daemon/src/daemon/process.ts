@@ -101,7 +101,7 @@ import { DaemonProviders, type ProviderPorts } from "./providers.js";
 import { bindSocket, mintSessionToken, prepareRunFolder } from "./run-folder.js";
 import { describeDrain, endWithinDrainBound } from "./stop-drain.js";
 import type { registerSessionMethods, RegisteredSessionServices } from "./session-methods.js";
-import { registerAppErrorMethods } from "./app-error-methods.js";
+import { registerAppDiagnosticMethods } from "./app-diagnostic-methods.js";
 import { registerStatusMethods } from "./status-methods.js";
 
 /** The daemon's database file in its data folder. */
@@ -280,7 +280,7 @@ export class DaemonProcess {
       },
       acceptStop: () => this.#acceptStop(),
     });
-    registerAppErrorMethods(registry, options.writeServiceLog);
+    registerAppDiagnosticMethods(registry, options.writeServiceLog);
     registerStatusMethods(registry, {
       processIdentity: options.processIdentity,
       readProcessState: () => this.#processState,

@@ -3,19 +3,15 @@
 
 import { describe, expect, it } from "vitest";
 
-import { windowDiagnosticCapture } from "#renderer/lib/diagnostic-capture/capture.js";
+import { collectSentDiagnostics } from "#test/helpers/sent-diagnostics.js";
 import { diffLineText } from "../model.js";
 import { hunkLines } from "./lines.js";
 
 describe("hunkLines — an unknown prefix", () => {
-  it("draws the line as unchanged, keeps the numbers advancing, and records it", () => {
-    const forwarded: string[] = [];
-    const detach = windowDiagnosticCapture.installForwarder((jsonLines) => {
-      forwarded.push(jsonLines);
-    });
+  it("draws the line as unchanged, keeps the numbers advancing, and records it", async () => {
+    const diagnostics = await collectSentDiagnostics();
     try {
       const lines = hunkLines([" before", "?odd", "+after"], 10, 20);
-      windowDiagnosticCapture.flush();
 
       expect(lines.map((line) => [line.kind, diffLineText(line)])).toEqual([
         ["context", "before"],
@@ -24,9 +20,11 @@ describe("hunkLines — an unknown prefix", () => {
       ]);
       expect(lines[1]).toMatchObject({ baseLineNumber: 11, headLineNumber: 21 });
       expect(lines[2]).toMatchObject({ headLineNumber: 22 });
-      expect(forwarded.join("\n")).toContain('"kind":"unknown-hunk-prefix"');
+      expect((await diagnostics.records()).map((record) => record.kind)).toContain(
+        "unknown-hunk-prefix",
+      );
     } finally {
-      detach();
+      diagnostics.stop();
     }
   });
 });

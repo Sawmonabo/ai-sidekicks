@@ -205,10 +205,10 @@ interface PlatformBridge {
     ): Unsubscribe;
     // after a session's decoded pictures are released: frees the cached memory nothing draws any more (`webFrame.clearCache()`)
     freeUnusedMemory(): void;
-    // an error nothing in a window handled, an uncaught exception or a rejected promise with no handler, which main bounds,
-    // strips and rate-limits and hands the background service for its diagnostic log; settles once main has taken it
-    reportUnhandledError(
-      report:
+    // a batch of what a window recorded about itself, at most 32 reports, which main redacts, bounds and rate-limits
+    // and hands the background service for its diagnostic log; settles once main has taken it
+    reportWindowDiagnostics(
+      reports: ReadonlyArray<
         | {
             kind: "uncaught-error" | "unhandled-rejection";
             role: "console-document" | "console-window" | "pane-window"; // which window it went unhandled in
@@ -218,10 +218,20 @@ interface PlatformBridge {
             source: { address: string; line: number; column: number } | null; // where a script error was thrown
           }
         | {
-            kind: "held-back"; // the errors past those the window held until the bridge resolved
-            role: "console-document" | "console-window" | "pane-window";
+            kind: "captured"; // a line the window's diagnostic capture took
+            record: {
+              at: string; // when it was captured, ISO-8601
+              severity: "error" | "warning" | "notice";
+              source: string; // the module that captured it
+              kind: string; // what kind of line it is, in that module's words
+              detail: string;
+            };
+          }
+        | {
+            kind: "held-back"; // the reports past those the window held while it waited to send
             count: number;
-          },
+          }
+      >,
     ): Promise<void>;
   };
 }

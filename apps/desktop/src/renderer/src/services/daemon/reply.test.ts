@@ -8,7 +8,7 @@
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { vi } from "vitest";
 
-import { windowDiagnosticCapture } from "#renderer/lib/diagnostic-capture/capture.js";
+import { collectSentDiagnostics } from "#test/helpers/sent-diagnostics.js";
 import { isRefusal } from "#renderer/lib/refusal/contract.js";
 import type { PlatformBridge } from "../platform/bridge.js";
 import { callDaemon, DAEMON_REPLY_REFUSAL_ORIGIN } from "./reply.js";
@@ -38,24 +38,15 @@ function servedPresenceReply(appVisible: unknown): unknown {
   };
 }
 
-/**
- * What the window's diagnostic capture received while `act` ran, as JSONL text. Whatever was
- * pending before is drained first so the reading holds only this act's records.
- */
+/** What the window's diagnostic capture sent while `act` ran, as JSON text. */
 async function diagnosticsDuring(act: () => Promise<unknown>): Promise<string> {
-  const lines: string[] = [];
-  const detach = windowDiagnosticCapture.installForwarder(() => undefined);
-  detach();
-  const detachCollector = windowDiagnosticCapture.installForwarder((jsonLines) => {
-    lines.push(jsonLines);
-  });
+  const diagnostics = await collectSentDiagnostics();
   try {
     await act();
-    windowDiagnosticCapture.flush();
+    return JSON.stringify(await diagnostics.records());
   } finally {
-    detachCollector();
+    diagnostics.stop();
   }
-  return lines.join("\n");
 }
 
 describe("callDaemon — a served reply is a parsed reply", () => {

@@ -6,15 +6,18 @@
 import { lstat, readdir, rm } from "node:fs/promises";
 import * as path from "node:path";
 
+import { DEFAULT_KEEP_DIAGNOSTIC_LOGS_DAYS } from "@ai-sidekicks/contracts/daemon/retention";
+
 import { isMissingFileError } from "../file/missing-error.js";
 import { describeRejection } from "../rejection.js";
 import type { ServiceLogWriter } from "./service-log.js";
 
 /**
- * How long a diagnostic log is kept: seven days, the default of `Keep diagnostic logs for`, which
- * the service holds no setting for yet.
+ * How long a diagnostic log is kept: the default of `Keep diagnostic logs for`, which the service
+ * holds no setting for yet.
  */
-export const DIAGNOSTIC_LOG_KEEP_MS: number = 7 * 24 * 60 * 60 * 1000;
+export const DIAGNOSTIC_LOG_KEEP_MS: number =
+  DEFAULT_KEEP_DIAGNOSTIC_LOGS_DAYS * 24 * 60 * 60 * 1000;
 
 /** How often the expiry runs: hourly, so no log outlives its bound by more than an hour. */
 export const DIAGNOSTIC_LOG_EXPIRY_INTERVAL_MS: number = 60 * 60 * 1000;

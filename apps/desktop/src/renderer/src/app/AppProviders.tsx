@@ -6,16 +6,16 @@
 // The registries are named here so a test or another window composes into registries of its own.
 // The tripwire route is armed first because a registrar can report during composition (a second
 // owner on one name, a colliding projector claim), and the console document's unhandled errors are
-// heard from then on, before any bridge resolves.
+// recorded from then on, before any bridge resolves.
 
 import { useState } from "react";
 
 import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
 import type { BridgeComposition } from "#renderer/services/platform/bridge-context.js";
 import { RealClock } from "#renderer/lib/clock.js";
+import { windowDiagnosticCapture } from "#renderer/lib/diagnostic-capture/capture.js";
 import { routeWindowTripwiresToDiagnosticCapture } from "#renderer/lib/diagnostic-capture/tripwire-route.js";
 import { ForwardingClock } from "#renderer/lib/forwarding-clock.js";
-import { UnhandledErrorReports } from "#renderer/services/platform/unhandled-error-reports.js";
 import { OpenWindowFrames } from "#renderer/lib/open-window-frames.js";
 import { type WindowOpener } from "#renderer/services/window/open-windows.js";
 import { commandContributionRegistry } from "#renderer/registries/commands/contributions.js";
@@ -39,9 +39,7 @@ const tripwireRouteClock = new ForwardingClock(new RealClock());
 // The route lives as long as the renderer process, so its detach is dropped.
 routeWindowTripwiresToDiagnosticCapture(tripwireRouteClock);
 
-/** The console document's unhandled error reports, which every window it opens joins. */
-const unhandledErrorReports = new UnhandledErrorReports();
-unhandledErrorReports.listenTo(window, "console-document");
+windowDiagnosticCapture.listenTo(window, "console-document");
 
 registerFeatureContributions({
   commands: commandContributionRegistry,
@@ -73,7 +71,7 @@ export function AppProviders(props: AppProvidersProps): React.JSX.Element {
       frames={frames}
       clockToRebind={tripwireRouteClock}
     >
-      <AppBootstrap openWindows={openWindows} unhandledErrorReports={unhandledErrorReports} />
+      <AppBootstrap openWindows={openWindows} />
     </PlatformBridgeProvider>
   );
 }

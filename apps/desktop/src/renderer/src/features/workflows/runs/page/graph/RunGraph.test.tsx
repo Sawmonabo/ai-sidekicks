@@ -12,7 +12,7 @@ import {
 } from "#fixtures/data/workflow/run/records.js";
 import { EMPTY_SESSION_SCENARIO } from "#fixtures/scenarios/empty-session.js";
 import { ManualClock } from "#renderer/lib/clock.js";
-import { windowDiagnosticCapture } from "#renderer/lib/diagnostic-capture/capture.js";
+import { collectSentDiagnostics, type SentDiagnostics } from "#test/helpers/sent-diagnostics.js";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
 import { RunGraph } from "./RunGraph.js";
@@ -31,11 +31,11 @@ vi.mock("./loader.js", async () => {
   };
 });
 
-let detachForwarder: (() => void) | undefined;
+let diagnostics: SentDiagnostics | undefined;
 
 afterEach(() => {
-  detachForwarder?.();
-  detachForwarder = undefined;
+  diagnostics?.stop();
+  diagnostics = undefined;
 });
 
 describe("the run graph when its canvas code fails to load", () => {
@@ -49,10 +49,8 @@ describe("the run graph when its canvas code fails to load", () => {
     if (run === undefined || document === undefined) {
       throw new Error("the fixture's finished run or its document is missing");
     }
-    const batches: string[] = [];
-    detachForwarder = windowDiagnosticCapture.installForwarder((jsonLines) => {
-      batches.push(jsonLines);
-    });
+    const sent = await collectSentDiagnostics();
+    diagnostics = sent;
     const fixture = createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO });
     const { container } = render(
       <PlatformBridgeProvider bridge={fixture.bridge} clock={new ManualClock(0)}>
@@ -73,11 +71,7 @@ describe("the run graph when its canvas code fails to load", () => {
     expect(container.textContent).not.toContain("sidekicks-renderer://");
     expect(container.textContent).not.toContain("Failed to fetch");
 
-    windowDiagnosticCapture.flush();
-    const records = batches
-      .flatMap((batch) => batch.split("\n"))
-      .map((line) => JSON.parse(line) as { severity: string; detail: string });
-    expect(records).toContainEqual(
+    expect(await sent.records()).toContainEqual(
       expect.objectContaining({ severity: "error", detail: CHUNK_FAILURE_TEXT }),
     );
   });

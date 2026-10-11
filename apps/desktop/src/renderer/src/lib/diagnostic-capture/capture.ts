@@ -1,180 +1,166 @@
-// The app's always-on error capture: JSONL batching under named caps, a record whenever a probe
-// cannot be read, and a forward that carries a batch out of the window. Without that record an
-// app that cannot see looks like a healthy one; without the forward a finding dies with the
-// window. A probe the app cannot read is "not checked", never "empty".
+// What a window records about itself, on its way to the background service's diagnostic log: the
+// lines the app captures (a read it could not make, a value it refused) and every error nothing in
+// a window handled, an uncaught exception or a rejected promise with no handler. Nothing is shown.
+// Without it a finding dies with the window, and an app that cannot see looks like a healthy one.
 //
-// It is on in every build, unlike the performance meters in `performance-meters/`, which
-// measure an app someone is watching.
+// It is on in every build, unlike the performance meters in `performance-meters/`, which measure
+// an app someone is watching. It owns no wire: the window's composition hands it the bridge member
+// that carries a batch to main, because `lib/` imports nothing above it.
 //
-// It owns no wire: it batches and hands the batch to a forwarder the window composition
-// installs, because `lib/` imports nothing above it and each window has its own capture.
+// Each window is listened to once, from the app's composition. A browser notice that carries no
+// error, such as the ResizeObserver loop notice, is recorded as its message says, like any other.
+// A report is redacted and bounded before it is held (`#shared/app-diagnostic/redaction.ts`), so
+// what waits is bounded too. Reports wait under one bound until the bridge member is handed over,
+// and the rest are counted and sent as a count. Once it is, what arrived in one turn goes together
+// at the end of the turn, in batches, so a cascade crosses to main as a few batches a turn rather
+// than a crossing per report; nothing is scheduled past the turn, so an idle window is never woken.
 //
-// Nothing here schedules. A batch leaves when it is full or a caller flushes, so an idle
-// process is never woken to check for work.
+// A batch main does not take is written to main's own log by main's bridge, and here only to the
+// developer console, never back into this capture, so a refused batch cannot loop.
+
+import { redactErrorParts, redactMessage } from "#shared/app-diagnostic/redaction.js";
+import {
+  readThrownValue,
+  WINDOW_DIAGNOSTIC_BATCH_BOUND,
+  type DiagnosticRecord,
+  type WindowDiagnosticReport,
+  type WindowDiagnosticRole,
+} from "#shared/app-diagnostic/report.js";
+import { isConsoleWindowId } from "#shared/window/frame-name.js";
 
 import type { Clock } from "../clock.js";
-import { elideText } from "../elide-text.js";
-import { DIAGNOSTIC_CAPTURE_BOUNDS } from "./bounds.js";
-
-/** How bad one record is. */
-export const DIAGNOSTIC_SEVERITIES = ["error", "warning", "notice"] as const;
-
-/** One severity from {@link DIAGNOSTIC_SEVERITIES}. */
-export type DiagnosticSeverity = (typeof DIAGNOSTIC_SEVERITIES)[number];
-
-/** One thing the app captured. */
-export interface DiagnosticRecord {
-  /** When it happened, ISO-8601, from the caller's clock rather than a clock here. */
-  readonly at: string;
-  readonly severity: DiagnosticSeverity;
-  /** The subsystem that captured it — a module path or a registry name. */
-  readonly source: string;
-  /** What class of thing it is, in the capturing subsystem's own vocabulary. */
-  readonly kind: string;
-  /** What happened, in the imperative a reader needs to act on. */
-  readonly detail: string;
-}
 
 /**
- * What the window's composition installs to carry a batch to the daemon's diagnostic band.
- *
- * Takes the JSONL text the band ingests, so there is one encoder. It may throw: the capture
- * then marks the forward seam unreadable and keeps the batch.
+ * How many reports wait to be sent before the rest are only counted. At the bounds a report's
+ * texts are cut to, 128 errors with full stacks are about 3 MB, and 128 captured lines about a
+ * quarter of a megabyte; the first are kept, since a cascade's first report is usually its cause.
  */
-export type DiagnosticBatchForwarder = (jsonLines: string) => void;
+export const WINDOW_DIAGNOSTICS_HELD = 128;
 
-/** Detaches a forwarder; inert once another forwarder has replaced it. */
-export type DiagnosticForwarderDetach = () => void;
+/** The bridge member a batch of reports is handed to main through. */
+export type WindowDiagnosticSender = (reports: readonly WindowDiagnosticReport[]) => Promise<void>;
 
-/** The source string every record this module mints for itself carries. */
-const CAPTURE_SOURCE = "lib/diagnostic-capture";
+/**
+ * A window as the capture listens to it, its uncaught errors and its rejections nothing handled;
+ * named by shape so the module stays readable where no DOM types are.
+ */
+export interface ErrorRaisingWindow {
+  addEventListener(type: "error", listener: (event: ScriptErrorEvent) => void): void;
+  addEventListener(
+    type: "unhandledrejection",
+    listener: (event: { readonly reason: unknown }) => void,
+  ): void;
+}
 
-/** The probe name the forward seam is unreadable under when no forwarder is installed. */
-const DIAGNOSTIC_FORWARD_PROBE = "diagnostic-forward";
+/** What an error event says: the thrown value, or none for a notice, and where it was thrown. */
+export interface ScriptErrorEvent {
+  readonly error: unknown;
+  readonly message: string;
+  readonly filename: string;
+  readonly lineno: number;
+  readonly colno: number;
+}
 
-/** The app's diagnostic capture; a class so a test gets its own. */
+/** A window's diagnostic capture; a class so a test gets its own. */
 export class DiagnosticCapture {
-  readonly #pending: DiagnosticRecord[] = [];
-  readonly #unreadableProbes = new Set<string>();
-  #forwarder: DiagnosticBatchForwarder | null = null;
-  #announcedFullProbeSet = false;
+  readonly #listened = new WeakSet<ErrorRaisingWindow>();
+  readonly #pending: WindowDiagnosticReport[] = [];
+  /** Reports past what waits, since the last count sent. */
+  #heldBackCount = 0;
+  #send: WindowDiagnosticSender | undefined;
+  #isSendQueued = false;
+
+  /** Capture one line. */
+  public record(record: DiagnosticRecord): void {
+    this.#hold({ kind: "captured", record: { ...record, detail: redactMessage(record.detail) } });
+  }
+
+  /** Records every unhandled error of `target` from now on; a window listened to stays so. */
+  public listenTo(target: ErrorRaisingWindow, role: WindowDiagnosticRole): void {
+    if (this.#listened.has(target)) {
+      return;
+    }
+    this.#listened.add(target);
+    target.addEventListener("error", (event) => {
+      this.#hold(reportOfError(event, role));
+    });
+    target.addEventListener("unhandledrejection", (event) => {
+      this.#hold({
+        kind: "unhandled-rejection",
+        role,
+        ...redactErrorParts({
+          ...readThrownValue(event.reason, "unhandled-rejection"),
+          source: null,
+        }),
+      });
+    });
+  }
 
   /**
-   * Attach the forwarder that carries batches to the band.
-   *
-   * Installing flushes what has accumulated, since records captured before wiring finished are
-   * boot failures nobody else will see. A second install replaces the first, and the first's
-   * detach then does nothing.
+   * Hands every report to `send` from now on, those that waited first and then their count, until
+   * the returned call. Reports go at the end of the turn they arrive in.
    */
-  public installForwarder(forwarder: DiagnosticBatchForwarder): DiagnosticForwarderDetach {
-    this.#forwarder = forwarder;
-    this.#unreadableProbes.delete(DIAGNOSTIC_FORWARD_PROBE);
-    this.flush();
+  public sendThrough(send: WindowDiagnosticSender): () => void {
+    this.#send = send;
+    this.#queueSend();
     return () => {
-      if (this.#forwarder === forwarder) {
-        this.#forwarder = null;
+      if (this.#send === send) {
+        this.#send = undefined;
       }
     };
   }
 
-  /** Capture one record. It is stored before any forward, so a throwing forwarder loses nothing. */
-  public record(record: DiagnosticRecord): void {
-    this.#pending.push({ ...record, detail: boundedDetail(record.detail) });
-    while (this.#pending.length > DIAGNOSTIC_CAPTURE_BOUNDS.pendingRecordCount) {
-      this.#pending.shift();
+  #hold(report: WindowDiagnosticReport): void {
+    if (this.#pending.length < WINDOW_DIAGNOSTICS_HELD) {
+      this.#pending.push(report);
+    } else {
+      this.#heldBackCount += 1;
     }
-    if (this.#pending.length >= DIAGNOSTIC_CAPTURE_BOUNDS.batchRecordCount) {
-      this.flush();
-    }
+    this.#queueSend();
   }
 
-  /**
-   * Hand what is pending to the forwarder, one bounded batch at a time.
-   *
-   * With no forwarder the seam is marked unreadable and the records stay pending under their
-   * bound. A batch leaves the buffer only after the forward returns, so a throwing forwarder
-   * loses nothing; the seam is then marked unreadable with the thrown reason.
-   */
-  public flush(): void {
-    const forwarder = this.#forwarder;
-    if (forwarder === null) {
-      const oldest = this.#pending[0];
-      if (oldest !== undefined) {
-        this.#markUnreadable(
-          DIAGNOSTIC_FORWARD_PROBE,
-          "no diagnostic forwarder is installed in this window",
-          oldest.at,
-        );
-      }
+  #queueSend(): void {
+    if (this.#send === undefined || this.#isSendQueued) {
       return;
     }
-    while (this.#pending.length > 0) {
-      const batch = this.#pending.slice(0, DIAGNOSTIC_CAPTURE_BOUNDS.batchRecordCount);
-      try {
-        forwarder(toJsonLines(batch));
-      } catch (forwardFailure) {
-        const reason = forwardFailure instanceof Error ? forwardFailure.message : "unknown failure";
-        const oldest = batch[0];
-        this.#forwarder = null;
-        if (oldest !== undefined) {
-          this.#markUnreadable(DIAGNOSTIC_FORWARD_PROBE, reason, oldest.at);
-        }
-        return;
-      }
-      this.#pending.splice(0, batch.length);
-    }
-  }
-
-  /**
-   * Say that a probe cannot be read, and why.
-   *
-   * Idempotent per probe name, so a permanently unsupported probe does not fill the buffer, and
-   * the first marking is captured as a record. At the bound the first refusal is announced once
-   * by an `unreadable-probe-set-full` record; the flag is set before the record is captured, so a
-   * re-entrant call does not announce twice. The capture's own forward seam is never announced,
-   * as the bounds table explains.
-   */
-  #markUnreadable(probe: string, reason: string, at: string): void {
-    if (this.#unreadableProbes.has(probe)) {
-      return;
-    }
-    if (this.#unreadableProbes.size >= DIAGNOSTIC_CAPTURE_BOUNDS.unreadableProbeCount) {
-      if (probe === DIAGNOSTIC_FORWARD_PROBE || this.#announcedFullProbeSet) {
-        return;
-      }
-      this.#announcedFullProbeSet = true;
-      this.record({
-        at,
-        severity: "warning",
-        source: CAPTURE_SOURCE,
-        kind: "unreadable-probe-set-full",
-        detail:
-          `the unreadable-probe set is full at ` +
-          `${String(DIAGNOSTIC_CAPTURE_BOUNDS.unreadableProbeCount)} names, ` +
-          `so "${probe}" and every probe refused after it go unrecorded.`,
-      });
-      return;
-    }
-    this.#unreadableProbes.add(probe);
-    this.record({
-      at,
-      severity: "warning",
-      source: CAPTURE_SOURCE,
-      kind: "probe-unsupported",
-      detail: `${probe} cannot be read: ${reason}`,
+    this.#isSendQueued = true;
+    queueMicrotask(() => {
+      this.#isSendQueued = false;
+      this.#sendWaiting();
     });
+  }
+
+  #sendWaiting(): void {
+    const send = this.#send;
+    if (send === undefined) {
+      return;
+    }
+    const waiting = this.#pending.splice(0);
+    if (this.#heldBackCount > 0) {
+      waiting.push({ kind: "held-back", count: this.#heldBackCount });
+      this.#heldBackCount = 0;
+    }
+    for (let start = 0; start < waiting.length; start += WINDOW_DIAGNOSTIC_BATCH_BOUND) {
+      void this.#deliver(send, waiting.slice(start, start + WINDOW_DIAGNOSTIC_BATCH_BOUND));
+    }
+  }
+
+  // Async, so a send that throws at once is caught here like one that rejects.
+  async #deliver(send: WindowDiagnosticSender, batch: WindowDiagnosticReport[]): Promise<void> {
+    try {
+      await send(batch);
+    } catch (failure) {
+      console.error(
+        "[ai-sidekicks/desktop] main did not take this window's diagnostics; its log says why:",
+        failure,
+      );
+    }
   }
 }
 
-/** One record as one JSON line, with a fixed field order so equal records encode alike. */
-export function toJsonLine(record: DiagnosticRecord): string {
-  return JSON.stringify({
-    at: record.at,
-    severity: record.severity,
-    source: record.source,
-    kind: record.kind,
-    detail: boundedDetail(record.detail),
-  });
+/** Which window an opened window is, from the frame name it was opened under. */
+export function windowDiagnosticRoleOf(frameName: string): WindowDiagnosticRole {
+  return isConsoleWindowId(frameName) ? "console-window" : "pane-window";
 }
 
 /** An ISO-8601 stamp from the app's clock, so a frozen clock stamps consistently. */
@@ -182,22 +168,32 @@ export function diagnosticStampAt(clock: Clock): string {
   return new Date(clock.now()).toISOString();
 }
 
-/** A batch as JSONL: one record per line, newline-separated, no trailing newline. */
-export function toJsonLines(records: readonly DiagnosticRecord[]): string {
-  return records.map(toJsonLine).join("\n");
-}
-
-function boundedDetail(detail: string): string {
-  return elideText(detail, DIAGNOSTIC_CAPTURE_BOUNDS.detailCharacterCount, {
-    ellipsisWithinBound: true,
-  });
+// An error event carries the thrown value as `error`, or none for a notice the browser raised
+// itself, whose message is the browser's own words; the script's address, line and column say
+// where it was thrown.
+function reportOfError(
+  event: ScriptErrorEvent,
+  role: WindowDiagnosticRole,
+): WindowDiagnosticReport {
+  const parts =
+    event.error === null || event.error === undefined
+      ? { name: null, message: event.message, stack: null }
+      : readThrownValue(event.error, "uncaught-error");
+  return {
+    kind: "uncaught-error",
+    role,
+    ...redactErrorParts({
+      ...parts,
+      source:
+        event.filename === ""
+          ? null
+          : { address: event.filename, line: event.lineno, column: event.colno },
+    }),
+  };
 }
 
 /**
- * The app's capture, one per renderer process.
- *
- * Producers are the tripwire route (`tripwire-route.ts`) and warnings a person can
- * do nothing about on screen. Until a forwarder is installed it marks its forward seam unreadable
- * and holds records under the pending bound.
+ * The app's capture, one per renderer process: the console document draws every window, so every
+ * window's lines and errors come here.
  */
 export const windowDiagnosticCapture: DiagnosticCapture = new DiagnosticCapture();

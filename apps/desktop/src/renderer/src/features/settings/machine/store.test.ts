@@ -12,7 +12,7 @@ import {
 } from "@ai-sidekicks/contracts/machine-settings";
 import type { DaemonSubscriptionEnd } from "#shared/daemon/forwarding.js";
 import { NOT_ANSWERING_MESSAGE } from "#shared/daemon/status-topic.js";
-import { windowDiagnosticCapture } from "#renderer/lib/diagnostic-capture/capture.js";
+import { collectSentDiagnostics } from "#test/helpers/sent-diagnostics.js";
 import { REOPEN_WAITS_MS } from "#renderer/services/transport/reopen-backoff.js";
 import { TransportReconnectSignal } from "#renderer/services/transport/reconnect.js";
 import { MachineSettingsStore, type MachineSettingsService } from "./store.js";
@@ -136,17 +136,12 @@ describe("machine settings — the feed is the read", () => {
 });
 
 describe("machine settings — a feed that ends", () => {
-  it("opens again at once after one that delivered, on the return after one it could not, and after a wait when it ends at once again", () => {
+  it("opens again at once after one that delivered, on the return after one it could not, and after a wait when it ends at once again", async () => {
     vi.useFakeTimers();
     onTestFinished(() => {
       vi.useRealTimers();
     });
-    windowDiagnosticCapture.flush();
-    const batches: string[] = [];
-    const detachForwarder = windowDiagnosticCapture.installForwarder((jsonLines) => {
-      batches.push(jsonLines);
-    });
-    batches.length = 0;
+    const diagnostics = await collectSentDiagnostics();
     const signal = new TransportReconnectSignal();
     const { store, service } = startedStore(signal);
     service.deliver({ settings: MACHINE_SETTINGS_DEFAULTS });
@@ -168,11 +163,7 @@ describe("machine settings — a feed that ends", () => {
     expect(service.subscriptions).toBe(1);
 
     // Nothing is drawn for a feed that stopped, so the diagnostics are where each one is seen.
-    windowDiagnosticCapture.flush();
-    detachForwarder();
-    const feedRecords = batches
-      .flatMap((batch) => batch.split("\n"))
-      .map((line) => JSON.parse(line) as { kind: string; detail: string })
+    const feedRecords = (await diagnostics.records())
       .filter((record) => record.detail.startsWith("daemon.machineSettingsSubscribe:"))
       .map((record) => record.kind);
     expect(feedRecords).toStrictEqual([
@@ -180,6 +171,7 @@ describe("machine settings — a feed that ends", () => {
       "subscription-open-failed",
       "subscription-ended",
     ]);
+    diagnostics.stop();
   });
 });
 

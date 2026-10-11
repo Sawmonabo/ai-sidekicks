@@ -7,7 +7,7 @@ import { act } from "@testing-library/react";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { describe, expect, it, vi } from "vitest";
 import { NOT_ANSWERING_MESSAGE } from "#shared/daemon/status-topic.js";
-import { windowDiagnosticCapture } from "#renderer/lib/diagnostic-capture/capture.js";
+import { collectSentDiagnostics } from "#test/helpers/sent-diagnostics.js";
 import { LIVE_ANNOUNCEMENT_HOLD_MS } from "#renderer/components/LiveAnnouncer/caps.js";
 import { ManualClock } from "#renderer/lib/clock.js";
 import { liveRegionText } from "#test/helpers/live-region.js";
@@ -102,32 +102,26 @@ describe("the updates block — a call main does not answer is drawn in the bloc
 describe("the updates block — the updater's failure is drawn in the block's words", () => {
   it("draws the fixed sentence with Try again and sends the updater's words to the log", async () => {
     const updaterWords = "ENOENT: /private/var/folders/xy/update.zip";
-    const batches: string[] = [];
-    const detach = windowDiagnosticCapture.installForwarder((jsonLines) => {
-      batches.push(jsonLines);
-    });
+    const diagnostics = await collectSentDiagnostics();
     try {
       const requestCheck = vi.fn(() => Promise.resolve());
       const { block } = await renderSettled(
         updaterReporting({ status: "error", message: updaterWords }, { requestCheck }),
       );
-      windowDiagnosticCapture.flush();
-
       expect(block.querySelector(".meridian-refusal__message")?.textContent).toBe(
         UPDATE_FAILED_DETAIL,
       );
       expect(document.body.textContent).not.toContain(updaterWords);
-      const logged = batches
-        .flatMap((batch) => batch.split("\n"))
-        .map((line) => JSON.parse(line) as { kind: string; detail: string })
-        .filter((record) => record.kind === "update-failed");
+      const logged = (await diagnostics.records()).filter(
+        (record) => record.kind === "update-failed",
+      );
       expect(logged.map((record) => record.detail)).toStrictEqual([updaterWords]);
 
       await pressControl(block, "Try again");
 
       expect(requestCheck).toHaveBeenCalledTimes(1);
     } finally {
-      detach();
+      diagnostics.stop();
     }
   });
 });

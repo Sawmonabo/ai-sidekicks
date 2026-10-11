@@ -29,7 +29,7 @@ export const BRIDGE_CHANNELS = {
   bringWindowForward: "window.bringForward",
   setDefaultSizes: "window.setDefaultSizes",
   endSafeStart: "window.endSafeStart",
-  reportUnhandledError: "app.reportUnhandledError",
+  reportWindowDiagnostics: "app.reportWindowDiagnostics",
   readUpdateState: "update.getState",
   requestUpdateCheck: "update.requestCheck",
   requestUpdateDownload: "update.requestDownload",
@@ -140,5 +140,5 @@ export const BRIDGE_MEMBER_CHANNELS: Readonly<
   "window.subscribeToNavigationRequest": [BRIDGE_CHANNELS.readNavigationRequest],
   // Pushed by main alone, on `MACHINE_CLOCK_CHANNEL`: the first delivery is the preload's newest.
   "app.subscribeMachineClock": [],
-  "app.reportUnhandledError": [BRIDGE_CHANNELS.reportUnhandledError],
+  "app.reportWindowDiagnostics": [BRIDGE_CHANNELS.reportWindowDiagnostics],
 };

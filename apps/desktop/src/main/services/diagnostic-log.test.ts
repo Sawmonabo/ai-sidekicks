@@ -1,8 +1,8 @@
 // Rotation is one generation at a byte ceiling measured on the file (not on one process's
-// writes), appends never interleave, the sink creates its directory, and a failure stops the log
-// and is readable afterwards.
+// writes) and at an age, so no file outlives its keeping; appends never interleave, the sink
+// creates its directory, and a failure stops the log and is readable afterwards.
 
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -20,6 +20,10 @@ import {
 } from "./diagnostic-log.js";
 
 const AT = "2026-09-08T00:00:00.000Z";
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+const KEEP_MS = 7 * DAY_MS;
 
 /** The log's clock in every case, so a written line is known to the byte. */
 const STOPPED_CLOCK = (): Date => new Date(AT);
@@ -40,6 +44,8 @@ const realFileSink: DiagnosticLogFileSink = createFileSystemDiagnosticLogSink();
 function rejectingSink(failureMessage: string): DiagnosticLogFileSink {
   return {
     byteCountOf: () => Promise.resolve(0),
+    startOf: () => Promise.resolve(null),
+    modifiedAtOf: () => Promise.resolve(null),
     appendUtf8: () => Promise.reject(new Error(failureMessage)),
     replace: () => Promise.resolve(),
     remove: () => Promise.resolve(),
@@ -66,6 +72,7 @@ describe("main diagnostic log", () => {
       sink: realFileSink,
       minimumLevel: "notice",
       now: STOPPED_CLOCK,
+      keepMs: KEEP_MS,
       // Two lines fit; the third rotates.
       fileByteCeiling: Buffer.byteLength(oneLine, "utf8") * 2,
     });
@@ -87,6 +94,7 @@ describe("main diagnostic log", () => {
       sink: realFileSink,
       minimumLevel: "notice",
       now: STOPPED_CLOCK,
+      keepMs: KEEP_MS,
       fileByteCeiling: Buffer.byteLength(oneLine, "utf8"),
     });
     log.write(entry("error", "a"));
@@ -105,6 +113,7 @@ describe("main diagnostic log", () => {
       sink: realFileSink,
       minimumLevel: "notice",
       now: STOPPED_CLOCK,
+      keepMs: KEEP_MS,
       fileByteCeiling: 64 * 1024,
     });
     for (let index = 0; index < 40; index += 1) {
@@ -127,6 +136,7 @@ describe("main diagnostic log", () => {
       sink: realFileSink,
       minimumLevel: "notice",
       now: STOPPED_CLOCK,
+      keepMs: KEEP_MS,
       fileByteCeiling,
     });
     beforeRestart.write(entry("error", "a"));
@@ -141,6 +151,7 @@ describe("main diagnostic log", () => {
       sink: realFileSink,
       minimumLevel: "notice",
       now: STOPPED_CLOCK,
+      keepMs: KEEP_MS,
       fileByteCeiling,
     });
     afterRestart.write(entry("error", "b"));
@@ -152,6 +163,61 @@ describe("main diagnostic log", () => {
     expect(rotated.split("\n").filter((line) => line.length > 0)).toHaveLength(2);
   });
 
+  it("drops a file whole once it is past keeping, as it starts and as it writes", async () => {
+    const at = (dayOffset: number): Date => new Date(Date.parse(AT) + dayOffset * DAY_MS);
+    const logAt = (now: Date): MainDiagnosticLog =>
+      new MainDiagnosticLog({
+        filePath,
+        sink: realFileSink,
+        minimumLevel: "notice",
+        now: () => now,
+        fileByteCeiling: 64 * 1024,
+        keepMs: KEEP_MS,
+      });
+    // A live file begun eight days ago and last written yesterday, and a previous file last
+    // written eight days ago.
+    const oldLive = toLogLine({ at: at(-8).toISOString(), ...entry("error", "old") });
+    await writeFile(filePath, oldLive);
+    await utimes(filePath, at(-1), at(-1));
+    await writeFile(rotatedPathFor(filePath), lineOf("error", "older"));
+    await utimes(rotatedPathFor(filePath), at(-8), at(-8));
+
+    const starting = logAt(at(0));
+    starting.dropPastKeeping();
+    await starting.drain();
+
+    // The start rotated the live file, its first line past keeping, and dropped the file it
+    // replaced; the rotated file, last written yesterday, stays.
+    await expect(stat(filePath)).rejects.toThrow();
+    expect(await readFile(rotatedPathFor(filePath), "utf8")).toBe(oldLive);
+    starting.write(entry("error", "b"));
+    await starting.drain();
+    expect(await readFile(filePath, "utf8")).toBe(lineOf("error", "b"));
+
+    // Eight days on, the live file begun at the last start rotates at its next write, and the
+    // file it replaces goes with the rotation.
+    const writing = logAt(at(8));
+    writing.write(entry("error", "c"));
+    await writing.drain();
+
+    expect(writing.rotationCount).toBe(1);
+    expect(await readFile(rotatedPathFor(filePath), "utf8")).toBe(lineOf("error", "b"));
+    // The disk stamps the file with the machine's clock; the log's clock says it was written then.
+    await utimes(rotatedPathFor(filePath), at(0), at(0));
+
+    // A start six days on keeps the live file, begun six days before, and drops the previous
+    // file, last written fourteen days before.
+    const restarting = logAt(at(14));
+    restarting.dropPastKeeping();
+    await restarting.drain();
+
+    expect(restarting.rotationCount).toBe(0);
+    expect(await readFile(filePath, "utf8")).toBe(
+      toLogLine({ at: at(8).toISOString(), ...entry("error", "c") }),
+    );
+    await expect(stat(rotatedPathFor(filePath))).rejects.toThrow();
+  });
+
   it("creates the log folder and file, readable by the person alone", async () => {
     // `app.getPath("logs")` names a directory Electron has not necessarily made.
     const nestedFilePath = join(directory, "logs", "main.jsonl");
@@ -160,6 +226,7 @@ describe("main diagnostic log", () => {
       sink: realFileSink,
       minimumLevel: "notice",
       now: STOPPED_CLOCK,
+      keepMs: KEEP_MS,
       fileByteCeiling: 64 * 1024,
     });
     log.write(entry("error", "sidecar refused to start"));
@@ -182,6 +249,7 @@ describe("main diagnostic log", () => {
       sink: rejectingSink("no space left on device"),
       minimumLevel: "notice",
       now: STOPPED_CLOCK,
+      keepMs: KEEP_MS,
       fileByteCeiling: 64 * 1024,
     });
     expect(() => log.write(entry("error", "first"))).not.toThrow();
@@ -215,6 +283,7 @@ describe("reporting what the log could not write", () => {
       sink: rejectingSink("no space left on device"),
       minimumLevel: "notice",
       now: STOPPED_CLOCK,
+      keepMs: KEEP_MS,
       fileByteCeiling: 64 * 1024,
     });
     log.write(entry("error", "startup failed"));
