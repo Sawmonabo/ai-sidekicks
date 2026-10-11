@@ -68,11 +68,20 @@ describe("attention.deliveryRead", () => {
       emailDigest: digest,
     };
     expect(AttentionDeliveryReadResponseSchema.safeParse(read).success).toBe(true);
+    // An attempt the address gave no answer to says so with a null status, never by leaving it out.
+    const { httpStatus: _httpStatus, ...statusless } = OUTCOME;
+    const omittedStatus = { ...read, webAddress: { ...read.webAddress, lastOutcome: statusless } };
+    expect(AttentionDeliveryReadResponseSchema.safeParse(omittedStatus).success).toBe(false);
   });
 
   it("always carries host, a string only when an address is saved, null for a saved text", () => {
     // A saved text with no scheme and host reads a null host, and its test sends nothing.
-    const notAnAddress = { at: "2026-09-24T14:14:00Z", result: "notAnAddress", undelivered: 0 };
+    const notAnAddress = {
+      at: "2026-09-24T14:14:00Z",
+      result: "notAnAddress",
+      httpStatus: null,
+      undelivered: 0,
+    };
     const savedNullHost = {
       webAddress: { saved: true, host: null, lastOutcome: notAnAddress },
       emailDigest: digest,

@@ -114,7 +114,7 @@ interface AttentionDeliveryOutcome {
     | "signInRefused"
     | "notEncrypted"
     | "notAnAddress";
-  httpStatus?: number;
+  httpStatus: number | null; // null where the address gave no answer
   undelivered: number;
 }
 interface AttentionDeliveryReadRequest {}
@@ -139,7 +139,7 @@ interface AttentionWebAddressSaveRequest {
 }
 interface AttentionWebAddressSaveResponse {
   host: string | null; // null for saved text with no scheme and host, which reads masked
-  signingSecret?: string; // present only on the first save, which mints it
+  signingSecret: string | null; // minted by the first save and shown once; null on every later save
 }
 interface AttentionWebAddressSecretRotateRequest {}
 interface AttentionWebAddressSecretRotateResponse {
