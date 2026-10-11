@@ -101,6 +101,7 @@ import { DaemonProviders, type ProviderPorts } from "./providers.js";
 import { bindSocket, mintSessionToken, prepareRunFolder } from "./run-folder.js";
 import { describeDrain, endWithinDrainBound } from "./stop-drain.js";
 import type { registerSessionMethods, RegisteredSessionServices } from "./session-methods.js";
+import { registerAppErrorMethods } from "./app-error-methods.js";
 import { registerStatusMethods } from "./status-methods.js";
 
 /** The daemon's database file in its data folder. */
@@ -167,6 +168,8 @@ export interface DaemonProcessOptions {
   readonly now: () => Date;
   /** Writes one line to the service log, the daemon's standard error. */
   readonly writeServiceLog: (line: string) => void;
+  /** The file this start's service log writes, which the diagnostic-log expiry keeps. */
+  readonly serviceLogFile: string;
   /**
    * Aborts when a terminate signal asks the daemon to stop. Before the daemon listens it ends the
    * start; once it listens it stops the daemon as a stop over the socket does.
@@ -277,6 +280,7 @@ export class DaemonProcess {
       },
       acceptStop: () => this.#acceptStop(),
     });
+    registerAppErrorMethods(registry, options.writeServiceLog);
     registerStatusMethods(registry, {
       processIdentity: options.processIdentity,
       readProcessState: () => this.#processState,
@@ -338,6 +342,7 @@ export class DaemonProcess {
       readDamagedFromSequence: (sessionId) =>
         this.#recoveryStatus.readDamagedFromSequence(sessionId),
       writeServiceLog: options.writeServiceLog,
+      serviceLogFile: options.serviceLogFile,
       ptyHost: this.#ptyHost,
       ptySessionEvents: this.#ptySessionEvents,
       machineDeviceId,

@@ -155,7 +155,7 @@ Sources:
 
 A crash the reload brings back would otherwise loop: a session that crashes the renderer when drawn, or a kept layout that cannot be read, is restored and crashes it again. Main therefore counts renderer crashes in a row and acts on each in three steps.
 
-- **First and second crash: restore.** Main logs `render-process-gone` with its reason and exit code, and reacts on a later task, never inside the event's own handler, because a reload started from inside it can crash the main process (Electron PR #51900). It builds the hidden console document again, and the reloaded renderer reopens every window from its kept layout.
+- **First and second crash: restore.** Main logs `render-process-gone` with its reason and exit code, in its own log and, as one record, in the background service's diagnostic log (§Unhandled errors), and reacts on a later task, never inside the event's own handler, because a reload started from inside it can crash the main process (Electron PR #51900). It builds the hidden console document again, and the reloaded renderer reopens every window from its kept layout.
 - **Third crash in a row: safe start.** Main reloads the renderer without the kept layout and marks the load as a safe start on the console document it serves, as it stamps the appearance record. The renderer opens one window on the sessions list, reads no kept window layout and leaves it untouched, and shows one line above the list: `The app restarted after repeated problems and did not reopen its windows.` with `Restore windows` beside it. `Restore windows` reopens every window from the kept layout and then ends the safe start through `window.endSafeStart`, so main keeps each window's place again; until then main keeps no places. A crash after it counts on from three, so it lands on the safe start again.
 - **The count clears** once a reloaded renderer has run five minutes with no crash. Sessions live in the background service, so no step loses work.
 
@@ -169,6 +169,21 @@ Sources:
 - [Android Rescue Party](https://source.android.com/docs/core/tests/debug/rescue-party) — the thresholds and the step-by-step escalation
 - [VS Code `windowImpl.ts`](https://github.com/microsoft/vscode/blob/main/src/vs/platform/windows/electron-main/windowImpl.ts) — `The window terminated unexpectedly`, `Reopen` / `Close`, `Don't restore editors`
 - [Electron PR #51900](https://releases.electronjs.org/pr/51900) — `render-process-gone` deferred one task because a synchronous reload from its handler crashed the browser process
+
+### Unhandled errors
+
+An error nothing handles, in a window or in main, is written to the background service's diagnostic log, as one line of its service log, so it is kept and dropped with the service's own lines past `Keep diagnostic logs for` ([Spec-018 §PII in Diagnostics](../specs/018-observability-and-failure-recovery.md#pii-in-diagnostics)). Nothing is shown on screen.
+
+- **Where it is heard.** The console document listens for `error` and `unhandledrejection` once, at its composition, and on every window it opens, before anything is drawn in it; nothing listens per component. A browser notice that carries no error, the ResizeObserver loop notice among them, is recorded as its message says, like any other. Main hears its own through `uncaughtExceptionMonitor`, which leaves Electron's own handling of an uncaught exception as it is, and `unhandledRejection`. In Electron's main process an unhandled rejection neither crashes nor raises an uncaught exception, it prints a warning, and a listener silences that warning (measured on Electron 44.5.1), so main writes the rejection to standard error itself. The renderer process going away (`render-process-gone`) is written by main on its behalf.
+- **What is kept.** The error's name, its message with everything from its first quote mark to its last taken out (a message quotes the value it choked on), its stack's frame lines, the script's address without its query or fragment, with line and column, the window it happened in (the console document, a window of session views or a pane's own window) and the time. A thrown or rejected value that is no error is told only by its type. Each text has a bound, in the contract `daemon.appError.record` carries: 128 characters for a name, 1,024 for a message, 8,192 for a stack and 2,048 for an address.
+- **The rate.** Main writes each distinct error at most three times a minute and thirty errors in all, and sends the number it held back as one record when the minute ends, so a window that throws on every frame cannot fill the log.
+- **While the service cannot be reached.** The first thirty-two records wait in main and go, in order, once a link is up; the console document holds its first sixteen until the bridge resolves. Every record past those, and every record the service did not take, is counted and sent as one record once the service is back; a record the service did not take is never sent again, so an outage never loops, and main's own log says once per outage that the service is not taking them.
+- **Built, not adopted.** The service log already holds the service's diagnostic lines under the bound, so the app writes there through main's one connection; `electron-log`, whose renderer hook and transports this would need, stays declined (§Console Libraries).
+
+Sources:
+
+- [Node.js: `uncaughtExceptionMonitor`](https://nodejs.org/api/process.html#event-uncaughtexceptionmonitor) — a listener that observes an uncaught exception without changing how it is handled
+- [HTML: runtime script errors](https://html.spec.whatwg.org/multipage/webappapis.html#runtime-script-errors) — the `error` event on the global and `unhandledrejection`
 
 ## Console Libraries
 

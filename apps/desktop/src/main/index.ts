@@ -1,7 +1,8 @@
 // Electron main-process entrypoint. Startup order is load-bearing: a release build's refusal of the
 // remote-debugging switches first, then the renderer scheme's registration at module top level,
 // before `app.ready`, then the profile keyed to the install, main's log, the crash reporter, the
-// refusal's log line and the single-instance lock, then the operating system module, the kept
+// refusal's log line, the link to the background service with the relay of unhandled errors
+// over it, and the single-instance lock, then the operating system module, the kept
 // appearance, the registry of windows and its lifecycle, and the `sidekicks://` link handler, so a
 // second launch or a link arriving during start, a link that launches the app among them, is
 // heard; inside `whenReady()`, in order, `installRendererProtocol`, `installApplicationMenu`, the
@@ -61,6 +62,7 @@ import { logRefusedRemoteDebugging, refuseRemoteDebugging } from "./services/rem
 import { describeFailure } from "#shared/failure-message.js";
 import { installRendererProtocol, registerRendererScheme } from "./services/renderer/protocol.js";
 import { resolveResourceFile, type InstallLocation } from "./services/resource-file.js";
+import { UnhandledErrorRelay } from "./services/unhandled-errors/relay.js";
 import { OpenWindows } from "./windows/registry.js";
 import { WINDOW_PLACES_FILE_NAME, WindowPlaceFile } from "./windows/places/file.js";
 import { installActivationPolicy, isMenuBarIconShown } from "./windows/reveal.js";
@@ -117,6 +119,28 @@ logRefusedRemoteDebugging(
   refusedRemoteDebugging,
   "log" in mainLogOpening ? mainLogOpening.log : STDERR_LOG,
 );
+
+// Main's link to the background service, made now and attached by the supervisor once ready, so
+// an error main has before then waits on it for the service.
+const daemonLink = new DaemonLink();
+
+// Every error nothing in main or a window handles goes on to the service's diagnostic log. The
+// monitor leaves Electron's own handling of an uncaught exception as it is; a rejection listener
+// silences Node's warning, so the rejection is still written to standard error for a developer.
+const unhandledErrors = new UnhandledErrorRelay({
+  link: daemonLink,
+  log: "log" in mainLogOpening ? mainLogOpening.log : STDERR_LOG,
+  now: () => new Date(),
+});
+process.on("uncaughtExceptionMonitor", (error, origin) => {
+  if (origin === "uncaughtException") {
+    unhandledErrors.reportFromMain(error, "uncaught-error");
+  }
+});
+process.on("unhandledRejection", (reason) => {
+  console.error("[ai-sidekicks/desktop] unhandled rejection:", reason);
+  unhandledErrors.reportFromMain(reason, "unhandled-rejection");
+});
 
 // Compile-time flag: `true` in `electron-vite build --mode=smoke`, `false` in the default
 // build. In a release bundle the smoke branch folds away and Rollup drops the probe modules.
@@ -210,6 +234,7 @@ function startApplication(): void {
       screen,
       appearance,
       log,
+      unhandledErrors,
       operatingSystem,
     });
     openWindows.installLifecycle(app);
@@ -263,7 +288,6 @@ function startApplication(): void {
           new Tray(readResourceImage(MENU_BAR_IDLE_FACE_FILE, installLocation)),
         );
       }
-      const daemonLink = new DaemonLink();
       // Before the supervisor starts, so the first link that comes up is told the console theme.
       new ConsoleThemeReport({ link: daemonLink, appearance, log }).start();
       // Built once: it keeps the boot it read for every later attach.
@@ -303,6 +327,7 @@ function startApplication(): void {
         supervisor,
         daemonLink,
         log,
+        unhandledErrors,
         windowContext: { appearance, openWindows },
         operatingSystem,
       });

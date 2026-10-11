@@ -70,6 +70,7 @@ export function createFixtureBridge(options: FixtureBridgeOptions): FixtureBridg
   const app: PlatformBridge["app"] = {
     ...FIXTURE_APP_META,
     subscribeMachineClock: (): Unsubscribe => () => undefined,
+    reportUnhandledError: () => refuseAbsentCapability("app.reportUnhandledError"),
   };
   const bridge: PlatformBridge = {
     daemon: createFixtureDaemon(scenarioEngine),

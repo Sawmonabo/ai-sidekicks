@@ -18,17 +18,24 @@ const SERVICE_LOG_FOLDER_NAME = "logs";
 /** Writes one line to the service log. */
 export type ServiceLogWriter = (line: string) => void;
 
+/** This start's service log: the writer every line goes through, and the file it writes. */
+export interface ServiceLog {
+  readonly write: ServiceLogWriter;
+  /** The file this start writes, which the diagnostic-log expiry never deletes. */
+  readonly filePath: string;
+}
+
 /**
- * Opens this start's service log file in `dataFolder` and answers the writer every service-log
- * line goes through. Never throws: a file that cannot be opened is reported on `standardError`,
- * and a failed `standardError` stream, a closed pipe among them, is reported in the file.
+ * Opens this start's service log file in `dataFolder`. Never throws: a file that cannot be opened
+ * is reported on `standardError`, and a failed `standardError` stream, a closed pipe among them, is
+ * reported in the file.
  */
 export function openServiceLog(options: {
   readonly dataFolder: string;
   readonly startedAt: Date;
   /** The process's standard error; the log takes over its `error` event. */
   readonly standardError: Writable;
-}): ServiceLogWriter {
+}): ServiceLog {
   const { standardError } = options;
   const folder = path.join(options.dataFolder, SERVICE_LOG_FOLDER_NAME);
   const filePath = path.join(folder, `service-${formatFileSafeTime(options.startedAt)}.log`);
@@ -87,10 +94,13 @@ export function openServiceLog(options: {
         `standard error alone: ${describeRejection(failure)}\n`,
     );
   }
-  return (line) => {
-    const text = `${line}\n`;
-    writeStandardError(text);
-    writeFile(text);
+  return {
+    write: (line) => {
+      const text = `${line}\n`;
+      writeStandardError(text);
+      writeFile(text);
+    },
+    filePath,
   };
 }
 

@@ -96,6 +96,11 @@ import { WorkspaceService } from "../workspace/service.js";
 import { registerArtifactMethods } from "./artifact-methods.js";
 import type { MachineSettingsFile } from "./machine/settings/file.js";
 import { registerRepoMethods } from "./repo-methods.js";
+import {
+  DIAGNOSTIC_LOG_EXPIRY_INTERVAL_MS,
+  DIAGNOSTIC_LOG_KEEP_MS,
+  expireDiagnosticLogs,
+} from "./diagnostic-log-expiry.js";
 import { Scheduler } from "./scheduler.js";
 
 /** What the session services are built from. */
@@ -156,6 +161,8 @@ export interface SessionMethodsDeps {
   readonly readVolumeFreeBytes: (folderPath: string) => Promise<number>;
   /** Writes one line to the service log. */
   readonly writeServiceLog: (line: string) => void;
+  /** The file this start's service log writes, which the diagnostic-log expiry keeps. */
+  readonly serviceLogFile: string;
   /** The terminal host every session's shells run in. */
   readonly ptyHost: PtyHost;
   /** Hands each of the host's sessions its own output and exit. */
@@ -196,7 +203,8 @@ export interface RegisteredSessionServices {
    * Starts the background work, once the recovery pass has ended: the self-naming, the related
    * lists' rename follow, the index's merging, the passes finishing the creates and removing the
    * conversions' copies the daemon stopped part way, the managed workspaces' write watch, the
-   * repository services' work and the ingest reaper. Does nothing once `stop` has been called.
+   * repository services' work, the ingest reaper and the diagnostic-log expiry. Does nothing once
+   * `stop` has been called.
    */
   readonly start: () => Promise<void>;
   /**
@@ -534,7 +542,19 @@ export function registerSessionMethods(
       const removingStoppedCopies = conversion.removeStoppedCopies();
       repo.start();
       artifacts.start();
+      const diagnosticLogExpiry = scheduler.scheduleRepeating({
+        name: "diagnostic-log expiry",
+        intervalMs: DIAGNOSTIC_LOG_EXPIRY_INTERVAL_MS,
+        run: () =>
+          expireDiagnosticLogs({
+            serviceLogFile: deps.serviceLogFile,
+            keepMs: DIAGNOSTIC_LOG_KEEP_MS,
+            now: Date.now,
+            writeServiceLog: deps.writeServiceLog,
+          }),
+      });
       stopBackgroundWork = async () => {
+        diagnosticLogExpiry.cancel();
         const mergeStopped = indexMerging.stop();
         const titlesStopped = stopAutoTitle();
         writeWatcher.close();

@@ -205,6 +205,24 @@ interface PlatformBridge {
     ): Unsubscribe;
     // after a session's decoded pictures are released: frees the cached memory nothing draws any more (`webFrame.clearCache()`)
     freeUnusedMemory(): void;
+    // an error nothing in a window handled, an uncaught exception or a rejected promise with no handler, which main bounds,
+    // strips and rate-limits and hands the background service for its diagnostic log; settles once main has taken it
+    reportUnhandledError(
+      report:
+        | {
+            kind: "uncaught-error" | "unhandled-rejection";
+            role: "console-document" | "console-window" | "pane-window"; // which window it went unhandled in
+            name: string | null; // the error's name, or null for a thrown value that is no error
+            message: string; // the error's message, or for a value that is no error a sentence naming its type
+            stack: string | null;
+            source: { address: string; line: number; column: number } | null; // where a script error was thrown
+          }
+        | {
+            kind: "held-back"; // the errors past those the window held until the bridge resolved
+            role: "console-document" | "console-window" | "pane-window";
+            count: number;
+          },
+    ): Promise<void>;
   };
 }
 ```

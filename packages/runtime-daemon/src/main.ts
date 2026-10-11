@@ -36,11 +36,12 @@ import { selectProcessPeakReader } from "./admission/process-peak/selector.js";
 
 // First, so every service-log line from here on is kept in the file too.
 const homeDirectory = os.homedir();
-const writeServiceLog = openServiceLog({
+const serviceLog = openServiceLog({
   dataFolder: resolveDataFolder(homeDirectory),
   startedAt: new Date(),
   standardError: process.stderr,
 });
+const writeServiceLog = serviceLog.write;
 
 let isStarted = false;
 // Node would print an error nothing handled to standard error alone, which whoever started the
@@ -127,6 +128,7 @@ const daemon = await DaemonProcess.start({
   readVolumeFreeBytes,
   now: () => new Date(),
   writeServiceLog,
+  serviceLogFile: serviceLog.filePath,
 }).catch((error: unknown) => {
   // A start a stop ended before the daemon listened has let go of what it took, so it exits as a
   // clean stop does; anything that failed beside it is a failed start.

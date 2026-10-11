@@ -11,6 +11,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { recordRejectedRequest } from "#renderer/lib/diagnostic-capture/rejected-request-record.js";
 import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
+import type { UnhandledErrorReports } from "#renderer/services/platform/unhandled-error-reports.js";
 import { type OpenWindows } from "#renderer/services/window/open-windows.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "#renderer/store/persistence/caps.js";
 import { DraftStore } from "#renderer/store/drafts.js";
@@ -26,6 +27,7 @@ import { useLazyBodyIdleWarm } from "./hooks/useLazyBodyIdleWarm.js";
 import { useSessionStoreRegistry } from "./hooks/useSessionStoreRegistry.js";
 import { useLastSettingsPage } from "./hooks/useLastSettingsPage.js";
 import { useUiStateStore } from "./hooks/useUiStateStore.js";
+import { useUnhandledErrorReports } from "./hooks/useUnhandledErrorReports.js";
 import { useWindowStores } from "./hooks/useWindowStores.js";
 import { AppWindow, type AppStores } from "./AppWindow.js";
 import { discloseUnkeptMenuSchemes } from "./unkept-scheme.js";
@@ -37,6 +39,8 @@ export interface AppWindowsProps {
   readonly readSession: SessionBaseStateReader;
   /** The windows the console document opens. */
   readonly openWindows: OpenWindows;
+  /** The console document's unhandled error reports, which every window it opens joins. */
+  readonly unhandledErrorReports: UnhandledErrorReports;
 }
 
 /**
@@ -49,6 +53,7 @@ export interface AppWindowsProps {
 export function AppWindows(props: AppWindowsProps): React.JSX.Element {
   const { bridge, openWindows } = props;
   const consoleDocument = document;
+  useUnhandledErrorReports(props.unhandledErrorReports, bridge, openWindows);
 
   // Opening the database connection returns at once, so first paint waits on no storage.
   const uiStateStore = useUiStateStore();

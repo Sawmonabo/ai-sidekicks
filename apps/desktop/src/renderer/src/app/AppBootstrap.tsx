@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 
 import { useBridgeResolution } from "#renderer/services/platform/hooks/useBridgeResolution.js";
 import type { BridgeUnavailable } from "#renderer/services/platform/bridge-context.js";
+import type { UnhandledErrorReports } from "#renderer/services/platform/unhandled-error-reports.js";
 import type { OpenWindows } from "#renderer/services/window/open-windows.js";
 import { sessionReadThroughDaemon } from "#renderer/services/daemon/session/read/base-state.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
@@ -17,6 +18,8 @@ import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAn
 export interface AppBootstrapProps {
   /** The windows the console document opens. */
   readonly openWindows: OpenWindows;
+  /** The console document's unhandled error reports, sent once the bridge resolves. */
+  readonly unhandledErrorReports: UnhandledErrorReports;
 }
 
 /**
@@ -41,6 +44,7 @@ export function AppBootstrap(props: AppBootstrapProps): React.JSX.Element {
       bridge={resolution.bridge}
       readSession={sessionReadThroughDaemon(resolution.bridge)}
       openWindows={props.openWindows}
+      unhandledErrorReports={props.unhandledErrorReports}
     />
   );
 }

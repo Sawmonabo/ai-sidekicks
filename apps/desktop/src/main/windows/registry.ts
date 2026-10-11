@@ -47,6 +47,7 @@ import type { WindowDefaultSizes } from "#shared/window/size.js";
 import type { KeptAppearance } from "../appearance/kept-record.js";
 import type { MainOperatingSystem } from "../operating-system/contract.js";
 import type { MainDiagnosticLog } from "../services/diagnostic-log.js";
+import type { UnhandledErrorRelay } from "../services/unhandled-errors/relay.js";
 import { describeFailure } from "#shared/failure-message.js";
 import { paneKindOfPlaceKey, placeKeyForFrameName } from "./places/key.js";
 import { newWindowBounds } from "./places/new-bounds.js";
@@ -69,6 +70,8 @@ export interface OpenWindowsOptions {
   readonly appearance: Pick<KeptAppearance, "ground" | "record" | "subscribe">;
   /** Main's diagnostic log, where a window's failures are recorded. */
   readonly log: Pick<MainDiagnosticLog, "write" | "drain" | "lastWriteFailure">;
+  /** Where the renderer's loss goes on to the background service's diagnostic log. */
+  readonly unhandledErrors: Pick<UnhandledErrorRelay, "reportRendererGone">;
   /** What the system says of a window's title bar and reveal and of the app with no window. */
   readonly operatingSystem: Pick<
     MainOperatingSystem,
@@ -98,6 +101,7 @@ export class OpenWindows {
   readonly #screen: OpenWindowsOptions["screen"];
   readonly #appearance: OpenWindowsOptions["appearance"];
   readonly #log: OpenWindowsOptions["log"];
+  readonly #unhandledErrors: OpenWindowsOptions["unhandledErrors"];
   readonly #operatingSystem: OpenWindowsOptions["operatingSystem"];
   readonly #places: Map<string, WindowPlace>;
   /** The windows a person sees, most recently used first. */
@@ -141,6 +145,7 @@ export class OpenWindows {
     this.#screen = options.screen;
     this.#appearance = options.appearance;
     this.#log = options.log;
+    this.#unhandledErrors = options.unhandledErrors;
     this.#operatingSystem = options.operatingSystem;
     const kept = this.#placeFile.readSync();
     this.#places = new Map(kept.places);
@@ -628,6 +633,7 @@ export class OpenWindows {
         `${String(details.exitCode)}); reopening its ${String(lost.length)} window(s)` +
         (reload === "safe-start" ? " as a safe start, after repeated losses." : "."),
     });
+    this.#unhandledErrors.reportRendererGone(details.reason, details.exitCode);
     for (const openWindow of lost) {
       this.#closingWithTheirDocument.add(openWindow);
     }
