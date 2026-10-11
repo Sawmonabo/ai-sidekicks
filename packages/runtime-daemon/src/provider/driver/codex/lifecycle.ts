@@ -199,10 +199,10 @@ export class CodexLifecycleManager {
       pauses: this.#pauses,
       release: this.#release,
       // A turn waiting on the record's running turn would otherwise wait for good.
-      onRecordLeft: (record) => {
+      onRecordLeft: (record, exit) => {
         this.#configForks.stopWaiting(record);
         // No turn of a record that left will end, so nothing waits on one.
-        this.#turnEnds.abandon(record);
+        this.#turnEnds.abandon(record, exit);
       },
     });
     this.#hooks =

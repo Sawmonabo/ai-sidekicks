@@ -1,4 +1,5 @@
-// What the feed does with the rows themselves: one cancel, and the order the list is kept in.
+// What the feed does with the rows themselves: one cancel, one retry in the row's own words, and
+// the order the list is kept in.
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -53,6 +54,27 @@ describe("a queued item is canceled once", () => {
       void latest().cancelItem(QUEUE_ITEM_ID);
     });
     expect(canceledItemIds).toStrictEqual([QUEUE_ITEM_ID, QUEUE_ITEM_ID]);
+  });
+});
+
+describe("a not-delivered item is retried once", () => {
+  // Mutations: a fresh key per press queues the message twice; leaving out the replaced id sends a
+  // new message beside the failed one, which stays not delivered.
+  it("replaces the row's message in its own words, keyed by its id, for two presses", async () => {
+    const failed = queueRow(QUEUE_ITEM_ID, "not_delivered", "2026-09-02T09:00:00.000Z");
+    const { latest, retryRequests } = await openFeed([failed]);
+    act(() => {
+      void latest().retryItem(QUEUE_ITEM_ID);
+      void latest().retryItem(QUEUE_ITEM_ID);
+    });
+    expect(retryRequests).toStrictEqual([
+      {
+        sessionId: SESSION_ID,
+        clientIdempotencyKey: QUEUE_ITEM_ID,
+        content: failed.content,
+        replacesQueueItemId: QUEUE_ITEM_ID,
+      },
+    ]);
   });
 });
 

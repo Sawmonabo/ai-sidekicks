@@ -50,6 +50,9 @@ export const MERIDIAN_PALETTE: ThemePalette = {
     // 6.18:1. Both legs clear 3:1 on the grounds, because a pressed face is still the boundary a
     // person must find.
     "accent-pressed": { light: oklch(0.565, 0.099, 215), dark: oklch(0.68, 0.095, 205) },
+    // The edge of a field that has the caret: a step past the accent toward contrast in each
+    // scheme.
+    focus: { light: oklch(0.55, 0.11, 215), dark: oklch(0.8, 0.09, 205) },
     "code-keyword": { light: oklch(0.45, 0.12, 300), dark: oklch(0.8, 0.11, 300) },
     "code-name": { light: oklch(0.44, 0.1, 250), dark: oklch(0.82, 0.09, 250) },
     "code-string": { light: oklch(0.42, 0.1, 150), dark: oklch(0.83, 0.1, 150) },

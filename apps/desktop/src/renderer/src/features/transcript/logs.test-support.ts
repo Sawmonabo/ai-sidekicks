@@ -67,7 +67,7 @@ export const LIVE_RUN_ID = "019b793b-7b60-740e-8120-d1a4c1150112";
 /** A real store holding a log of `count` run events, oldest first. */
 export function openSessionStoreWithFeedLog(count: number): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-  sessionStore.initialize({ cursor: -1, entities: [] });
+  sessionStore.initialize({ shape: "project", cursor: -1, entities: [] });
   sessionStore.applyBatch(
     Array.from({ length: count }, (_unused, index) => ({
       id: transcriptFixtureEventId(index),
@@ -89,7 +89,7 @@ export function openSessionStoreWithFeedLog(count: number): SessionStore {
  */
 export function openSessionStoreWithGeneralLog(count: number): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-  sessionStore.initialize({ cursor: -1, entities: [] });
+  sessionStore.initialize({ shape: "project", cursor: -1, entities: [] });
   sessionStore.applyBatch(
     Array.from({ length: count }, (_unused, index) => ({
       id: transcriptFixtureEventId(index),
@@ -145,6 +145,7 @@ export function openPagedSessionStore(
 ): SessionStore {
   const sessionStore = new SessionStore({ sessionId: PAGED_SESSION_ID });
   sessionStore.initialize({
+    shape: "project",
     cursor: lastIndex,
     entities: [],
     transcript: Array.from({ length: lastIndex - firstIndex + 1 }, (_unused, offset) =>

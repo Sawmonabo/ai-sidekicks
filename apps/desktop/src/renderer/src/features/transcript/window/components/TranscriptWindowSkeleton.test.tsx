@@ -33,7 +33,7 @@ describe("when the first read itself failed", () => {
 describe("once the window has been read", () => {
   it("draws nothing at all", () => {
     const sessionStore = openStore();
-    sessionStore.initialize({ cursor: 0, entities: [] });
+    sessionStore.initialize({ shape: "project", cursor: 0, entities: [] });
     expect(skeletonOf(sessionStore).textContent).toBe("");
   });
 });

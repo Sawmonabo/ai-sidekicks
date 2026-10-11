@@ -154,6 +154,7 @@ describe("sessionReadThroughDaemon — the base state a store opens on", () => {
       [atFloor, FLOOR],
     ] as const) {
       expect(read.baseState).toStrictEqual({
+        shape: "project",
         entities: [],
         standingEvents: expect.any(Array),
         streamAfterCursor,

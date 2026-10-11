@@ -18,7 +18,9 @@
 // the stream up again: the newest row folded whole before it, with the partitions as they stood
 // there. An admitted rollback marks the held rows it supersedes.
 
+import type { SessionEventType } from "@ai-sidekicks/contracts/event/registry";
 import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
+import type { SessionShape } from "@ai-sidekicks/contracts/session/methods";
 
 import { AgentHueAllocator } from "#renderer/styles/agent-hue.js";
 import { worstDegradedCause } from "../degradation.js";
@@ -211,6 +213,7 @@ export function foldAppliedBatch(
       lastAdmittedEvents: admittedEvents,
       // Like the register, from the admitted rows, not the transcript they may not join.
       standingEvents: mergeStandingEvents(current.standingEvents, admittedEvents),
+      shape: shapeAfter(current.shape, admittedEvents),
       cursor: dependencies.reconciler.cursor,
       streamAfterCursor,
       // A drop at the cap is incomplete like a skipped sequence, so it takes the same cause. Its
@@ -226,6 +229,17 @@ export function foldAppliedBatch(
       revision: current.revision + 1,
     },
   };
+}
+
+/** The event that turns a chat into a project, keeping the session's id. */
+const CONVERTED_EVENT_KIND: SessionEventType = "session.converted";
+
+/** The session's shape once `admittedEvents` folded: a project from a conversion on. */
+function shapeAfter(
+  shape: SessionShape | undefined,
+  admittedEvents: readonly ProjectedSessionEvent[],
+): SessionShape | undefined {
+  return admittedEvents.some((event) => event.kind === CONVERTED_EVENT_KIND) ? "project" : shape;
 }
 
 /**

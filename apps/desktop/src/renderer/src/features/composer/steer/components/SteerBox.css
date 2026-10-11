@@ -25,3 +25,8 @@
   font-size: var(--meridian-text-12-5);
   background: var(--meridian-ground);
 }
+
+/* The field's edge takes the focus color while it has the caret; the focus mark stays too. */
+.meridian-run-composer__body:focus-within {
+  border-color: var(--meridian-focus);
+}

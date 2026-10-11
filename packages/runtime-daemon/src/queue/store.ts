@@ -130,6 +130,11 @@ const ADMIT_UNDELIVERED_SQL = `UPDATE queue_items
     SET state = 'admitted', not_delivered_reason = NULL, updated_at = @now
   WHERE id = @id AND state = 'not_delivered'`;
 
+// A message read not delivered that a retry sends again.
+const SUPERSEDE_UNDELIVERED_SQL = `UPDATE queue_items
+    SET state = 'superseded', not_delivered_reason = NULL, updated_at = @now
+  WHERE id = @id AND state = 'not_delivered'`;
+
 const RETARGET_SQL = `UPDATE queue_items SET target_run_id = @run_id, updated_at = @now
   WHERE id = @id AND state = 'queued'`;
 
@@ -266,6 +271,14 @@ export function leaveQueuedStatement(
 /** The statement that admits an item read not delivered; refused unless it reads not delivered. */
 export function admitUndeliveredStatement(id: QueueItemId, now: string): WriteStatement {
   return { sql: ADMIT_UNDELIVERED_SQL, bindings: { id, now }, expectedRowCount: 1 };
+}
+
+/**
+ * The statement that marks an item read not delivered superseded by its retry; refused unless it
+ * reads not delivered.
+ */
+export function supersedeUndeliveredStatement(id: QueueItemId, now: string): WriteStatement {
+  return { sql: SUPERSEDE_UNDELIVERED_SQL, bindings: { id, now }, expectedRowCount: 1 };
 }
 
 /** The statement that points a waiting item at the run it now goes to; refused once it has left. */

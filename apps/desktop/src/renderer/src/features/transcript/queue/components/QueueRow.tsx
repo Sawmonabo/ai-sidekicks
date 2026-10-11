@@ -1,6 +1,7 @@
 // One queued item in the queue list, split from `QueueContents.tsx`, which owns the read and
-// the empty case. The states a row may be canceled from are a closed set kept beside the
-// control they gate, so the two cannot drift; the tone table sits with it for the same reason.
+// the empty case. The state a row may be canceled from and the one it may be retried from sit
+// beside the controls they gate, so the two cannot drift; the tone table sits with them for the
+// same reason.
 
 import { useState } from "react";
 
@@ -14,14 +15,11 @@ import { coerceToRefusal } from "#renderer/lib/coerce-to-refusal.js";
 import { type Refusal } from "#renderer/lib/refusal/contract.js";
 import type { QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
 
-/** The origin a refused cancel is reported under. */
-const QUEUE_CANCEL_ORIGIN = "queue-cancel";
-
-/** The code a rejected cancel carries when the rejection named none of its own. */
-const QUEUE_CANCEL_FAILED = "queue-cancel-failed";
-
 /** The one state a queue item can still be taken back from. */
 const CANCELABLE_STATE: QueueItemSummary["state"] = "queued";
+
+/** The one state a queue item can be sent again from. */
+const RETRYABLE_STATE: QueueItemSummary["state"] = "not_delivered";
 
 /**
  * The tone each of the five states takes. A failed delivery is red; a replaced or canceled message
@@ -37,19 +35,19 @@ const QUEUE_STATE_TONES: Readonly<Record<QueueItemSummary["state"], ChipTone>> =
 };
 
 /**
- * One queued item: its state, its figures, and `Remove`, which cancels it, where cancel applies.
- * A refused cancel is drawn beside the control in the daemon's own words, and the control stays
- * to be pressed again.
+ * One queued item: its state, its figures, `Remove`, which cancels it, where cancel applies, and
+ * `Retry`, which sends it again in its own words, where it was not delivered.
  */
 export function QueueRow(props: {
   readonly item: QueueItemSummary;
   readonly isCancelPending: boolean;
   readonly onCancel: (queueItemId: string) => Promise<void>;
+  readonly isRetryPending: boolean;
+  readonly onRetry: (queueItemId: string) => Promise<void>;
   /** The instant the row's ages are drawn against, on the list's one beat. */
   readonly nowMilliseconds: number;
 }): React.JSX.Element {
   const { item } = props;
-  const [cancelRefusal, setCancelRefusal] = useState<Refusal | undefined>(undefined);
   const clockLocale = useClockLocale();
   return (
     <li className="meridian-queue__row">
@@ -78,29 +76,60 @@ export function QueueRow(props: {
         </div>
       </dl>
       {item.state === CANCELABLE_STATE ? (
-        <button
-          type="button"
-          className={
-            "meridian-queue__cancel meridian-action-button " +
-            "meridian-action-button--small meridian-action-button--raised"
-          }
-          disabled={props.isCancelPending}
-          aria-busy={props.isCancelPending}
-          onClick={() => {
-            setCancelRefusal(undefined);
-            props.onCancel(item.id).catch((rejection: unknown) => {
-              setCancelRefusal(
-                coerceToRefusal(rejection, QUEUE_CANCEL_ORIGIN, QUEUE_CANCEL_FAILED),
-              );
-            });
-          }}
-        >
-          Remove
-        </button>
+        <QueueRowAction
+          word="Remove"
+          className="meridian-queue__cancel"
+          refusalOrigin="queue-cancel"
+          isPending={props.isCancelPending}
+          onPress={() => props.onCancel(item.id)}
+        />
       ) : null}
-      {cancelRefusal === undefined ? null : (
-        <InlineRefusal code={cancelRefusal.code} detail={cancelRefusal.detail} />
-      )}
+      {item.state === RETRYABLE_STATE ? (
+        <QueueRowAction
+          word="Retry"
+          className="meridian-queue__retry"
+          refusalOrigin="queue-retry"
+          isPending={props.isRetryPending}
+          onPress={() => props.onRetry(item.id)}
+        />
+      ) : null}
     </li>
+  );
+}
+
+// One row control. A refused call is drawn beside it in the daemon's own words, and the control
+// stays to be pressed again.
+function QueueRowAction(props: {
+  readonly word: string;
+  readonly className: string;
+  /** The origin a refusal is reported under; its code, when the rejection named none, adds `-failed`. */
+  readonly refusalOrigin: string;
+  readonly isPending: boolean;
+  readonly onPress: () => Promise<void>;
+}): React.JSX.Element {
+  const [refusal, setRefusal] = useState<Refusal | undefined>(undefined);
+  return (
+    <>
+      <button
+        type="button"
+        className={
+          `${props.className} meridian-action-button ` +
+          "meridian-action-button--small meridian-action-button--raised"
+        }
+        disabled={props.isPending}
+        aria-busy={props.isPending}
+        onClick={() => {
+          setRefusal(undefined);
+          props.onPress().catch((rejection: unknown) => {
+            setRefusal(
+              coerceToRefusal(rejection, props.refusalOrigin, `${props.refusalOrigin}-failed`),
+            );
+          });
+        }}
+      >
+        {props.word}
+      </button>
+      {refusal === undefined ? null : <InlineRefusal code={refusal.code} detail={refusal.detail} />}
+    </>
   );
 }

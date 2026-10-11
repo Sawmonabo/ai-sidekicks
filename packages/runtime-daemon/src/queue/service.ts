@@ -6,7 +6,8 @@
 // A change to a message Claude Code was handed takes it back with Claude Code's own withdraw first,
 // all at once; an edit takes back the message and every one after it and sends them again in order,
 // and a reorder takes back every waiting message and sends them in the new order. A message Claude
-// Code does not give back reads not delivered and leaves the change. Codex's messages wait in the
+// Code does not give back reads not delivered and leaves the change; a retry sends it again as a
+// new message with its words and files, and it reads superseded. Codex's messages wait in the
 // daemon's own hold, where a change acts on them in place. A skill picked for a Codex send is
 // resolved against the skills Codex lists, before the session's lock is taken, so only a file Codex
 // named reaches it. A closed session takes no message. A send while the session's current lead run
@@ -24,12 +25,9 @@ import path from "node:path";
 
 import type { Database } from "better-sqlite3";
 
-import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
-import { RunIdSchema, type RunId } from "@ai-sidekicks/contracts/run/id";
+import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import {
-  QUEUE_PERSISTENCE_UNAVAILABLE_CODE,
-  QUEUE_RUN_CHANGED_CODE,
   QueueItemIdSchema,
   type QueueItemCancelRequest,
   type QueueItemCancelResponse,
@@ -55,16 +53,14 @@ import { canonicalizeUuid } from "@ai-sidekicks/contracts/uuid-canonical";
 import type { MemoryGate } from "../admission/memory-gate.js";
 import type { ServiceLogWriter } from "../daemon/service-log.js";
 import type { WriteStatement } from "../database/statement.js";
-import { WriteRefusedError, type DatabaseWriter } from "../database/writer.js";
+import type { DatabaseWriter } from "../database/writer.js";
 import type { SessionEventAppenderDeps } from "../events/session/appender.js";
-import { DaemonDomainError } from "../ipc/domain-error.js";
 import {
   resolveDriverForSessionOrThrow,
   type SessionDriverDeps,
 } from "../ipc/handlers/driver/resolution.js";
 import { KeyedLock } from "../keyed-lock.js";
 import { describeRejection } from "../rejection.js";
-import { refuseUnchangeableSession } from "../session/changes.js";
 import type { InterruptChoice, InterruptEnd } from "../interventions/service.js";
 import type { RunEngine } from "../session/run/engine.js";
 import { RunAgentReader } from "../session/run/agent.js";
@@ -82,14 +78,9 @@ import {
   skillNotListed,
   unreturnedRefusal,
 } from "./refusals.js";
-import {
-  outcomeDraftOf,
-  QueueRecorder,
-  SEND_GUARD_STATEMENT_INDEX,
-  SEND_SESSION_GUARD_STATEMENT_INDEX,
-  type RecordedSend,
-} from "./recorder.js";
+import { outcomeDraftOf, QueueRecorder } from "./recorder.js";
 import { QueueRunLifecycle } from "./run-lifecycle.js";
+import { QueueSends, refuseClosedSession, type QueueSendMessage } from "./send.js";
 import {
   placementStatements,
   QueueItemReader,
@@ -98,9 +89,6 @@ import {
   type QueueItemRecord,
 } from "./store.js";
 import type { PickedSkill } from "../provider/driver/run-control.js";
-
-// Reads and writes of a send before a run that keeps moving under it is refused.
-const SEND_ATTEMPTS = 3;
 
 const EMPTIED_RUN_DETAIL = "Every message the run was queued for was removed before it started";
 
@@ -149,7 +137,7 @@ export class RunQueue {
   readonly lifecycle: QueueRunLifecycle;
   readonly #items: QueueItemReader;
   readonly #runs: RunStateReader;
-  readonly #agents: RunAgentReader;
+  readonly #sends: QueueSends;
   readonly #sessions: SessionDriverDeps;
   readonly #sessionLock = new KeyedLock<SessionId>(canonicalizeUuid);
   readonly #now: () => string;
@@ -166,7 +154,6 @@ export class RunQueue {
     const sessionLock = this.#sessionLock;
     this.#items = items;
     this.#runs = runs;
-    this.#agents = agents;
     this.#sessions = deps.sessions;
     this.#now = now;
     this.#readNewestCursor = deps.readNewestCursor;
@@ -232,14 +219,28 @@ export class RunQueue {
       writeServiceLog: deps.writeServiceLog,
       now,
     });
+    this.#sends = new QueueSends({
+      items,
+      recorder: this.recorder,
+      delivery: this.delivery,
+      admission,
+      lifecycle: this.lifecycle,
+      readLeadAgent,
+      handOrContinue: (sessionId, runId) => {
+        this.#handOrContinue(sessionId, runId);
+      },
+      now,
+    });
   }
 
   /**
    * Sends one message from `deviceId` to the lead of `to`, else of `sessionId`, and answers it as
-   * saved; a retry under the same key answers what the first send saved. Refuses a session that is
-   * closed (`session.already_closed`) or being purged (`session.change_refused`), an edit of a
-   * message the agent has taken (`queue.change_refused`, `already_taken`) or Claude Code did not
-   * give back (`not_delivered`), a picked skill Codex does not list (`skill.path_refused`,
+   * saved; a send again under the same key answers what the first send saved. `replacesQueueItemId`
+   * edits a waiting message, or sends one not delivered again. Refuses a session that is closed
+   * (`session.already_closed`) or being purged (`session.change_refused`), an edit of a message the
+   * agent has taken (`queue.change_refused`, `already_taken`) or Claude Code did not give back
+   * (`not_delivered`), a retry in other words than the failed message's (`not_delivered`), a
+   * picked skill Codex does not list (`skill.path_refused`,
    * `not_listed`), a pick whose read waited past the delivery timeout for Codex's service
    * (`driver.timeout`), a send the store cannot keep (`queue.persistence_unavailable`) and one
    * whose session's lead run kept moving under it (`queue.run_changed`), writing nothing.
@@ -255,7 +256,7 @@ export class RunQueue {
     if (saved !== undefined) {
       return createdResponseOf(saved);
     }
-    this.#refuseClosedSession(sessionId);
+    refuseClosedSession(this.#items, sessionId);
     // Resolved before the lock: a read that waits at the memory gate never holds the session's
     // writes, which the run ahead of it at the gate needs to start.
     const skills = await this.#resolveSkillPicks(sessionId, driverName, request.skills);
@@ -267,15 +268,18 @@ export class RunQueue {
       if (savedMeanwhile !== undefined) {
         return createdResponseOf(savedMeanwhile);
       }
-      const body = bodyOf(request, skills);
-      const itemId = QueueItemIdSchema.parse(mintUuidV7());
+      const message: QueueSendMessage = {
+        itemId: QueueItemIdSchema.parse(mintUuidV7()),
+        body: bodyOf(request, skills),
+        clientIdempotencyKey: request.clientIdempotencyKey,
+      };
       const recorded =
         request.replacesQueueItemId === undefined
-          ? await this.#send(sessionId, itemId, body, request.clientIdempotencyKey, deviceId)
-          : await this.#edit(
+          ? await this.#sends.send(sessionId, message, deviceId)
+          : await this.#sends.replace(
               sessionId,
               canonicalizeUuid(request.replacesQueueItemId),
-              { itemId, body, clientIdempotencyKey: request.clientIdempotencyKey },
+              message,
               deviceId,
             );
       return createdResponseOf(recorded);
@@ -546,163 +550,6 @@ export class RunQueue {
     });
   }
 
-  // A new message: into the lead run that is live, or as the opening of the next one.
-  async #send(
-    sessionId: SessionId,
-    itemId: QueueItemId,
-    body: QueueItemBody,
-    clientIdempotencyKey: string,
-    deviceId: DeviceId,
-  ): Promise<QueueItemRecord> {
-    for (let attempt = 1; ; attempt += 1) {
-      const liveRunId = this.#items.readLiveLeadRun(sessionId);
-      const current =
-        liveRunId === undefined ? this.#items.readCurrentLeadRun(sessionId) : undefined;
-      const interruptedRunId = current?.state === "interrupted" ? current.runId : undefined;
-      const runId = liveRunId ?? interruptedRunId ?? RunIdSchema.parse(mintUuidV7());
-      const send: RecordedSend = {
-        item: {
-          id: itemId,
-          sessionId,
-          body,
-          targetRunId: runId,
-          deviceId,
-          clientIdempotencyKey,
-          replacesQueueItemId: undefined,
-          now: this.#now(),
-        },
-        deviceId,
-        route:
-          liveRunId !== undefined
-            ? { kind: "live_run" }
-            : interruptedRunId !== undefined
-              ? { kind: "interrupted_run" }
-              : {
-                  kind: "new_run",
-                  queued: {
-                    sessionId,
-                    runId,
-                    runVersion: 0,
-                    newState: "queued",
-                    agentId: this.#agents.readLeadAgent(sessionId),
-                  },
-                },
-      };
-      let recorded: QueueItemRecord;
-      try {
-        recorded = await this.#record(send);
-      } catch (error) {
-        // The lead run ended, started or was continued between the read and the write.
-        if (!isRefusalAt(error, SEND_GUARD_STATEMENT_INDEX)) {
-          throw error;
-        }
-        if (attempt < SEND_ATTEMPTS) {
-          continue;
-        }
-        throw new DaemonDomainError(
-          "The session's lead run kept changing while the message was queued; nothing was queued",
-          {
-            code: QUEUE_RUN_CHANGED_CODE,
-            jsonRpcCode: JsonRpcErrorCode.InvalidRequest,
-            cause: error,
-          },
-        );
-      }
-      if (liveRunId !== undefined) {
-        this.delivery.acceptSend(recorded, runId);
-      } else if (interruptedRunId !== undefined) {
-        this.lifecycle.continueInterruptedRun(sessionId, runId);
-      } else {
-        this.admission.start(sessionId, runId);
-      }
-      return recorded;
-    }
-  }
-
-  // An edit: the message takes the waiting one's place, which reads `superseded`. Claude Code
-  // gives back the old message and every one after it first, and they go again in order after.
-  async #edit(
-    sessionId: SessionId,
-    replacesQueueItemId: QueueItemId,
-    message: {
-      readonly itemId: QueueItemId;
-      readonly body: QueueItemBody;
-      readonly clientIdempotencyKey: string;
-    },
-    deviceId: DeviceId,
-  ): Promise<QueueItemRecord> {
-    const replaces = this.#items.get(replacesQueueItemId);
-    const runId = replaces?.targetRunId;
-    if (
-      replaces === undefined ||
-      runId === undefined ||
-      replaces.sessionId !== sessionId ||
-      replaces.childHandle !== undefined
-    ) {
-      throw queueItemNotFound(replacesQueueItemId);
-    }
-    // The edited message and every one after it are taken back at once; one the provider took or
-    // kept meanwhile stays out, and the rest go again after the edit.
-    const later = this.#items
-      .listWaitingForRun(runId)
-      .filter((item) => item.id !== replaces.id && item.position > replaces.position);
-    try {
-      const withdrawal =
-        (await this.delivery.takeBack(sessionId, [replaces, ...later])).get(replaces.id) ?? "taken";
-      if (withdrawal !== "returned") {
-        throw unreturnedRefusal(replaces.id, withdrawal);
-      }
-      return await this.#record({
-        item: {
-          id: message.itemId,
-          sessionId,
-          body: message.body,
-          targetRunId: runId,
-          deviceId,
-          clientIdempotencyKey: message.clientIdempotencyKey,
-          replacesQueueItemId: replaces.id,
-          now: this.#now(),
-        },
-        deviceId,
-        route: { kind: "edit", replaces },
-      });
-    } catch (error) {
-      if (isRefusalAt(error, SEND_GUARD_STATEMENT_INDEX)) {
-        throw changeRefused("already_taken", `Queue item ${replaces.id} has left the queue`);
-      }
-      throw error;
-    } finally {
-      this.#handOrContinue(sessionId, runId);
-    }
-  }
-
-  // Writes a send: a session that stopped taking messages is refused as such, and a store that
-  // cannot keep it as unavailable.
-  async #record(send: RecordedSend): Promise<QueueItemRecord> {
-    try {
-      return await this.recorder.recordSend(send);
-    } catch (error) {
-      if (isRefusalAt(error, SEND_SESSION_GUARD_STATEMENT_INDEX)) {
-        this.#refuseClosedSession(send.item.sessionId);
-      }
-      if (error instanceof WriteRefusedError) {
-        throw error;
-      }
-      throw new DaemonDomainError("The queue could not store the message; nothing was queued", {
-        code: QUEUE_PERSISTENCE_UNAVAILABLE_CODE,
-        cause: error,
-      });
-    }
-  }
-
-  // Refuses a session that no longer takes messages: closed, or being purged.
-  #refuseClosedSession(sessionId: SessionId): void {
-    const state = this.#items.readSessionState(sessionId);
-    if (state !== undefined) {
-      refuseUnchangeableSession(sessionId, state);
-    }
-  }
-
   // Each pick as Codex lists it, matched by name and folder, so Codex is handed its own file; the
   // read follows a start of the session's queued run, and waits at the memory gate when it would
   // start the account's service itself. Claude Code takes a pick as its text alone, so a Claude
@@ -849,8 +696,4 @@ function placementsOf(
 ): WriteStatement[] {
   const ordered = reorderedOf(waiting, deliverFirst);
   return ordered === waiting ? [] : placementStatements(ordered, now);
-}
-
-function isRefusalAt(error: unknown, statementIndex: number): boolean {
-  return error instanceof WriteRefusedError && error.statementIndex === statementIndex;
 }

@@ -2,8 +2,8 @@
 //
 // A button assembling its own request could omit a comparand or reuse a key across a changed
 // body, so every run call carries `expectedRunVersion` from the caller's target, and steer and
-// interrupt carry a `clientIdempotencyKey` minted per dispatch, except that a retried steer reuses
-// the key it first went out with. A steer is a message on one child's own queue, which the child
+// interrupt carry a `clientIdempotencyKey` minted per dispatch, except that a retry of a steer not
+// delivered goes under the failed steer's own id, so a second press answers as the first. A steer is a message on one child's own queue, which the child
 // takes at its next step. The fresh comparand is the newer of the answer's version and the state
 // stream's, since the run also advances with no control pressed. Eligibility is decided by the
 // daemon, not here; a rejected call propagates. The daemon calls are an argument
@@ -18,7 +18,7 @@ import type {
 } from "@ai-sidekicks/contracts/run/control";
 import type { ChildSteerRequest } from "@ai-sidekicks/contracts/run/children";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
-import type { QueueItemCreateResponse } from "@ai-sidekicks/contracts/run/queue";
+import type { QueueItemCreateResponse, QueueItemId } from "@ai-sidekicks/contracts/run/queue";
 
 import { heldIdAsWireId, readRunId } from "#renderer/services/daemon/wire/identifiers.js";
 import { AnsweredRunVersions } from "../answered-versions.js";
@@ -56,25 +56,24 @@ export type RunControlOutcome =
       readonly kind: "queued";
       readonly control: RunControl;
       readonly response: QueueItemCreateResponse;
-      /** The steer as it went out, key included, so a retry sends that same steer again. */
+      /** The steer as it went out, so a retry sends its words again. */
       readonly sent: SentSteer;
     };
 
 /**
  * What a steer dispatch carries: the child whose queue takes it and the person's text, and, on a
- * retry of a steer that went out, that steer's own key.
+ * retry, the queue item of the steer that was not delivered, which the retry replaces.
  */
 export interface SteerRequest {
   readonly childHandle: string;
   readonly content: string;
-  readonly clientIdempotencyKey?: string | undefined;
+  readonly retriesQueueItemId?: QueueItemId | undefined;
 }
 
-/** A steer as it went out on the wire, under the key it was sent with. */
+/** A steer as it went out on the wire: the child it went to and its words. */
 export interface SentSteer {
   readonly childHandle: string;
   readonly content: string;
-  readonly clientIdempotencyKey: string;
 }
 
 /** The comparand every dispatch threads, plus the run it names. */
@@ -127,20 +126,18 @@ export class RunControlDispatcher {
   }
 
   /**
-   * Steer: `run.childSteer` carrying the person's text as typed, under a fresh key, or under the
-   * key a retried steer went out with so the daemon reads it as that same steer.
+   * Steer: `run.childSteer` carrying the person's text as typed under a fresh key, or, for a
+   * retry, replacing the steer not delivered under that steer's own id as its key.
    */
   public async steer(target: RunControlTarget, request: SteerRequest): Promise<RunControlOutcome> {
-    const sent: SentSteer = {
-      childHandle: request.childHandle,
-      content: request.content,
-      clientIdempotencyKey: request.clientIdempotencyKey ?? this.#mintIdempotencyKey(),
-    };
+    const sent: SentSteer = { childHandle: request.childHandle, content: request.content };
+    const retried = request.retriesQueueItemId;
     const response = await this.#calls.childSteer({
       ...this.#guardedRequest(target),
-      clientIdempotencyKey: sent.clientIdempotencyKey,
+      clientIdempotencyKey: retried ?? this.#mintIdempotencyKey(),
       childHandle: heldIdAsWireId(sent.childHandle),
       content: sent.content,
+      ...(retried === undefined ? {} : { replacesQueueItemId: retried }),
     });
     return { kind: "queued", control: "steer", response, sent };
   }

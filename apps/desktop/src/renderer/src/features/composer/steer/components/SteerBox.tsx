@@ -4,10 +4,12 @@
 // render that first sees a new run and a submit never sends text written for another run. A steer
 // is a queue send, so the form closes once the dispatch recorded under its own token settles on
 // the child's queue. A steer the daemon answers as not delivered keeps the text and reads
-// `Not delivered · Retry` under the box, and `Retry` sends that same steer again under its own
-// key; a refused send records nothing, and the form keeps the text and says why.
+// `Not delivered · Retry` under the box, and `Retry` sends that steer's words again in its place,
+// keyed by the failed steer, so a second press answers as the first; a refused send records
+// nothing, and the form keeps the text and says why.
 
 import { useCallback, useEffect } from "react";
+import type { QueueItemId } from "@ai-sidekicks/contracts/run/queue";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { TextBox } from "#renderer/components/TextBox/TextBox.js";
@@ -114,8 +116,8 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
     }
   }, [hasLanded, hasAskedToClose, publishForm, onDismiss]);
 
-  // Send and Retry both go out here, through one latch: Send with the box's text under a fresh
-  // key, Retry with the steer that was not delivered under the key it went out with.
+  // Send and Retry both go out here, through one latch: Send with the box's text, Retry with the
+  // words of the steer that was not delivered, in its place.
   const sendSteer = useCallback(
     (request: SteerRequest) => {
       if (isSending) {
@@ -207,7 +209,7 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
           failureReason={undelivered.failureReason}
           attempt={ownRecord}
           onRetry={() => {
-            sendSteer(undelivered.sent);
+            sendSteer({ ...undelivered.sent, retriesQueueItemId: undelivered.queueItemId });
           }}
         />
       )}
@@ -216,18 +218,22 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
 }
 
 /**
- * Why a steer's answer says it was not delivered and the steer that was not, or `undefined` for
- * one now on the child's queue. The daemon gives a reason only with a `not_delivered` answer, so
- * its presence is the test.
+ * Why a steer's answer says it was not delivered, the steer that was not and its queue item, or
+ * `undefined` for one now on the child's queue. The daemon gives a reason only with a
+ * `not_delivered` answer, so its presence is the test.
  */
-function readUndeliveredSteer(
-  outcome: RunControlOutcome,
-): { readonly failureReason: string; readonly sent: SentSteer } | undefined {
+function readUndeliveredSteer(outcome: RunControlOutcome):
+  | {
+      readonly failureReason: string;
+      readonly sent: SentSteer;
+      readonly queueItemId: QueueItemId;
+    }
+  | undefined {
   if (outcome.kind !== "queued") {
     return undefined;
   }
-  const { notDeliveredReason } = outcome.response;
+  const { notDeliveredReason, queueItemId } = outcome.response;
   return notDeliveredReason === undefined
     ? undefined
-    : { failureReason: notDeliveredReason, sent: outcome.sent };
+    : { failureReason: notDeliveredReason, sent: outcome.sent, queueItemId };
 }

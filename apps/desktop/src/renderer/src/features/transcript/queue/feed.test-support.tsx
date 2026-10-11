@@ -4,6 +4,7 @@ import { useEffect, type ReactElement } from "react";
 import { act, render } from "@testing-library/react";
 import {
   QueueItemSummarySchema,
+  type QueueItemCreateRequest,
   type QueueItemSummary,
   type RunQueueStreamFrame,
 } from "@ai-sidekicks/contracts/run/queue";
@@ -40,6 +41,7 @@ export function queueRow(
     state,
     position,
     content: "Also run the linter",
+    ...(state === "not_delivered" ? { notDeliveredReason: "failed" } : {}),
     createdAt: "2026-09-02T09:00:00.000Z",
     updatedAt,
   });
@@ -66,10 +68,12 @@ export function queueFeedBridge(snapshot: readonly QueueItemSummary[] = []): {
   tailedSessionIds: readonly string[];
   listedSessionIds: readonly string[];
   canceledItemIds: readonly string[];
+  retryRequests: readonly QueueItemCreateRequest[];
 } {
   const tailedSessionIds: string[] = [];
   const listedSessionIds: string[] = [];
   const canceledItemIds: string[] = [];
+  const retryRequests: QueueItemCreateRequest[] = [];
   const tails = new Set<(frame: RunQueueStreamFrame) => void>();
   const deliverFrame = (frame: RunQueueStreamFrame): void => {
     for (const onFrame of tails) {
@@ -95,6 +99,9 @@ export function queueFeedBridge(snapshot: readonly QueueItemSummary[] = []): {
       cancel: async (queueItemId) => {
         canceledItemIds.push(queueItemId);
       },
+      retry: async (request) => {
+        retryRequests.push(request);
+      },
     },
     deliver: (item) => {
       // One change per frame, at a cursor no case reads.
@@ -104,6 +111,7 @@ export function queueFeedBridge(snapshot: readonly QueueItemSummary[] = []): {
     tailedSessionIds,
     listedSessionIds,
     canceledItemIds,
+    retryRequests,
   };
 }
 
@@ -124,14 +132,16 @@ export function QueueFeedProbe(props: {
 
 /**
  * Mounts one view on a fresh reading, settles the snapshot, and returns the feed it reads and
- * the cancels the stub calls recorded.
+ * the cancels and retries the stub calls recorded.
  */
 export async function openFeed(snapshot: readonly QueueItemSummary[] = []): Promise<{
   deliver: (item: QueueItemSummary) => void;
   latest: () => QueueFeed;
   canceledItemIds: readonly string[];
+  retryRequests: readonly QueueItemCreateRequest[];
 }> {
-  const { bridge, clock, queueCalls, deliver, canceledItemIds } = queueFeedBridge(snapshot);
+  const { bridge, clock, queueCalls, deliver, canceledItemIds, retryRequests } =
+    queueFeedBridge(snapshot);
   let held: QueueFeed | undefined;
   render(
     <QueueFeedProbe
@@ -156,6 +166,7 @@ export async function openFeed(snapshot: readonly QueueItemSummary[] = []): Prom
       return held;
     },
     canceledItemIds,
+    retryRequests,
   };
 }
 

@@ -19,7 +19,7 @@ import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 /** A session whose snapshot has landed, which is what makes a repair observable. */
 function initializedStore(): SessionStore {
   const store = new SessionStore({ sessionId: "019b7a33-3300-75e5-8510-ada11a5a55a5" });
-  store.initialize({ cursor: 0, entities: [] });
+  store.initialize({ shape: "project", cursor: 0, entities: [] });
   return store;
 }
 
@@ -54,7 +54,7 @@ describe("the queue reading re-reads on a repair", () => {
     expect(listedSessionIds).toHaveLength(1);
 
     act(() => {
-      sessionStore.initialize({ cursor: 4, entities: [] });
+      sessionStore.initialize({ shape: "project", cursor: 4, entities: [] });
     });
     await settleScheduledRead(clock);
     expect(listedSessionIds).toHaveLength(2);

@@ -27,7 +27,13 @@ export interface ChildSteerRequest {
   childHandle: ChildHandle;
   content: string;
   expectedRunVersion: number;
+  /** A retry's key is the failed steer's queue item id, so a second press answers the first. */
   clientIdempotencyKey: string;
+  /**
+   * A retry of the child's steer that reads not delivered, with its own words: it goes again as a
+   * new message at the end of the child's queue, and the failed one reads `superseded`.
+   */
+  replacesQueueItemId?: QueueItemId | undefined;
 }
 /** Parses a {@link ChildSteerRequest}. */
 export const ChildSteerRequestSchema: z.ZodType<ChildSteerRequest, ChildSteerRequest> = z
@@ -37,6 +43,7 @@ export const ChildSteerRequestSchema: z.ZodType<ChildSteerRequest, ChildSteerReq
     content: wireUncappedFreeFormString("ChildSteerRequest.content"),
     expectedRunVersion: countSchema,
     clientIdempotencyKey: z.uuid(),
+    replacesQueueItemId: QueueItemIdSchema.optional(),
   })
   .strict();
 

@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 
 import type { AgentId } from "@ai-sidekicks/contracts/agent/definition";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
+import { SESSION_ALREADY_CLOSED_CODE } from "@ai-sidekicks/contracts/session/methods";
 
 import { captureRejection } from "../../../../../__fixtures__/capture-failure.js";
 import { drainMicrotasks } from "../../../../__fixtures__/drain-microtasks.js";
@@ -405,9 +406,9 @@ describe("a turn the daemon stopped, until Codex ends it", () => {
     },
   );
 
-  // Mutation: leaving a wait on a record that left holds `Allow once` until its deadline, though no
-  // turn of a closed session will end.
-  it("refuses `Allow once` waiting on a stopped turn at once when the session closes", async () => {
+  // Mutations: leaving a wait on a record that left holds `Allow once` until its deadline, though no
+  // turn of a closed session will end; settling it as not ended refuses it as a turn in flight.
+  it("refuses `Allow once` waiting on a stopped turn as closed when the session closes", async () => {
     const harness = await stoppableSession();
     harness.server.on("thread/unsubscribe", () => ({ result: {} }));
     await harness.driver.startRun({ runId: RUN_ID, agentConfig: runConfig("go") });
@@ -422,7 +423,7 @@ describe("a turn the daemon stopped, until Codex ends it", () => {
 
     await harness.driver.closeSession({ sessionId: SESSION_ID });
 
-    expect(await refused).toMatchObject({ fields: { reason: "session_turn_in_flight" } });
+    expect(await refused).toMatchObject({ code: SESSION_ALREADY_CLOSED_CODE });
     expect(harness.server.framesForMethod("thread/approveGuardianDeniedAction")).toHaveLength(0);
   });
 });

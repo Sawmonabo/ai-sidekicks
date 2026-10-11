@@ -6,6 +6,8 @@
 // and a validating body read needs the canonical shape, which only the daemon service owns. A
 // store hook that wants one takes it as an injected reader.
 
+import type { SessionShape } from "@ai-sidekicks/contracts/session/methods";
+
 import type { ProjectedSessionEvent, StoredEntity } from "./entities/vocabulary.js";
 import type { EntityKind, EntityRef } from "#renderer/lib/entity-kinds.js";
 import type { SessionStoreState } from "./state.js";
@@ -16,6 +18,11 @@ import type { SessionStoreState } from "./state.js";
  */
 export function selectTranscript(state: SessionStoreState): readonly ProjectedSessionEvent[] {
   return state.transcript;
+}
+
+/** Whether the session is a chat or a project, or `undefined` until its first read lands. */
+export function selectSessionShape(state: SessionStoreState): SessionShape | undefined {
+  return state.shape;
 }
 
 /** The events the newest batch admitted, the transcript's tail held or not. */

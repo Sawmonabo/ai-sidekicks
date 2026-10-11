@@ -279,6 +279,7 @@ describe("the transcript feed — a session off screen", () => {
     const registry = new SessionStoreRegistry({
       read: () =>
         Promise.resolve({
+          shape: "project",
           cursor: OPENED_THROUGH,
           entities: [],
           transcript: logPositions(0, OPENED_THROUGH).map(pagedSessionEventAt),

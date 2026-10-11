@@ -1,17 +1,20 @@
 // Waiting on a session's turns: an undo, a faster-model retry, a start, a goal set or clear and
 // `Allow once` wait, after the daemon sent `turn/interrupt`, which Codex answers on acceptance, for
 // the turn's `turn/completed`, and `Allow once` also waits for a turn still starting to run. A wait
-// is bound by a deadline, so a turn that never ends or starts cannot hold anything forever, and a
-// turn its service dropped ends the wait as not ended. Several waits of one act share one
+// is bound by a deadline, so a turn that never ends or starts cannot hold anything forever; a turn
+// its service dropped ends the wait as not ended, and a session's close refuses the wait. Several waits of one act share one
 // deadline, whose clock starts at the first of them, so their bounds never add up.
 
 import type { CodexScheduleTimeout } from "../transport/diagnostics.js";
+import { CodexSessionClosedError } from "../session/errors.js";
+import type { CodexRecordExit } from "../session/slots.js";
 import { type CodexSessionRecord, endingTurnIds, isTurnInFlight } from "../session/state.js";
 
 interface CodexTurnEndWaiter {
   readonly record: CodexSessionRecord;
   readonly isOwed: () => boolean;
   readonly settle: (hasEnded: boolean) => void;
+  readonly refuse: (error: Error) => void;
 }
 
 /**
@@ -132,10 +135,18 @@ export class CodexTurnEndWaiters {
     return await this.#wait(record, () => !isTurnInFlight(record), deadline);
   }
 
-  /** Settles every wait on `record`'s turns as not ended: its turns were dropped unended. */
-  abandon(record: CodexSessionRecord): void {
+  /**
+   * Ends every wait on `record`'s turns, which were dropped unended: refused with
+   * `session.already_closed` when its session closed, else settled as not ended.
+   */
+  abandon(record: CodexSessionRecord, exit: CodexRecordExit): void {
     for (const waiter of [...this.#waiters]) {
-      if (waiter.record === record) {
+      if (waiter.record !== record) {
+        continue;
+      }
+      if (exit === "session_closed") {
+        waiter.refuse(new CodexSessionClosedError(record.sessionId));
+      } else {
         waiter.settle(false);
       }
     }
@@ -164,15 +175,22 @@ export class CodexTurnEndWaiters {
     }
     const bound = deadline ?? this.openDeadline();
     try {
-      return await new Promise<boolean>((resolve) => {
+      return await new Promise<boolean>((resolve, reject) => {
         let unbind = (): void => {};
+        const leave = (): void => {
+          this.#waiters.delete(waiter);
+          unbind();
+        };
         const waiter: CodexTurnEndWaiter = {
           record,
           isOwed,
           settle: (hasEnded) => {
-            this.#waiters.delete(waiter);
-            unbind();
+            leave();
             resolve(hasEnded);
+          },
+          refuse: (error) => {
+            leave();
+            reject(error);
           },
         };
         this.#waiters.add(waiter);

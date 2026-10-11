@@ -38,7 +38,7 @@ export function createHarness(
 ): SubscriberHarness {
   const { bridge, scenarioEngine: engine } = createFixtureBridge({ scenario });
   const registry = new SessionStoreRegistry({
-    read: () => Promise.resolve({ entities: [] }),
+    read: () => Promise.resolve({ shape: "project", entities: [] }),
     clock: engine.clock,
     openingPageLimit,
     offScreenRowLimit,

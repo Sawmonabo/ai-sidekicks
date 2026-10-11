@@ -1,5 +1,6 @@
 /* The round Send. Its face is the shared filled accent (`styles/accent-fill.css`); this sheet adds
-   the circle, its two diameters and the dim. Every value is a Meridian token. */
+   the circle, its two diameters, its hover and press, and the dim. Every size is a Meridian
+   token. */
 
 .meridian-composer__send-icon {
   display: inline-flex;
@@ -20,10 +21,34 @@
   block-size: var(--meridian-space-5);
 }
 
+/*
+ * The circle's own response, in place of the shared face's: hover takes the pressed accent and
+ * grows the circle a little, a press shrinks it. Compounded with the shared class so it outranks
+ * that sheet's hover and press whichever loads first; the ink on the pressed face clears the 4.5:1
+ * text floor in every rendering.
+ */
+.meridian-composer__send-icon.meridian-accent-fill {
+  transition:
+    background-color var(--meridian-motion-quick) var(--meridian-ease-settle),
+    border-color var(--meridian-motion-quick) var(--meridian-ease-settle),
+    transform var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-composer__send-icon.meridian-accent-fill:not(:disabled):hover {
+  border-color: var(--meridian-accent-pressed);
+  background: var(--meridian-accent-pressed);
+  filter: none;
+  transform: scale(1.05);
+}
+
+.meridian-composer__send-icon.meridian-accent-fill:not(:disabled):active {
+  transform: scale(0.95);
+}
+
 /* Dim while the message holds nothing, and while a send is already going. */
 .meridian-composer__send-icon[data-empty],
 .meridian-composer__send-icon:disabled {
-  opacity: 0.6;
+  opacity: 0.45;
 }
 
 .meridian-composer__send-icon:disabled {

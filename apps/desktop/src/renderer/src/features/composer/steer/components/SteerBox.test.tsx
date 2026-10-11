@@ -286,7 +286,7 @@ describe("the composer outlives its dispatch", () => {
 });
 
 describe("a steer the background service could not deliver", () => {
-  it("reads Not delivered · Retry, and Retry sends that same steer again under its key", async () => {
+  it("reads Not delivered · Retry, and Retry sends that steer's words again in its place", async () => {
     // Negative control: the second answer is queued, and that one closes the box.
     let answers = 0;
     const undeliveredThenQueued: ScriptedAnswer = () => {
@@ -312,12 +312,12 @@ describe("a steer the background service could not deliver", () => {
       retry.click();
     });
     expect(calls).toHaveLength(2);
-    // The same key, so the daemon reads it as the steer that failed, not a second one.
+    // It replaces the failed steer, keyed by it, so a second press answers as the first.
     expect(calls[1]?.params).toMatchObject({
       childHandle: STEERED_CHILD_HANDLE,
       content: "stop editing that file",
-      clientIdempotencyKey: (calls[0]?.params as { clientIdempotencyKey: string })
-        .clientIdempotencyKey,
+      replacesQueueItemId: QUEUED_STEER_RESPONSE.queueItemId,
+      clientIdempotencyKey: QUEUED_STEER_RESPONSE.queueItemId,
     });
     expect(dismissCount()).toBe(1);
   });

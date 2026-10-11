@@ -40,7 +40,7 @@ describe("artifact list reader — what makes it read again", () => {
       await readThrough(clock);
       expect(reader.performCount).toBe(1);
 
-      sessionStore.initialize({ cursor: 0, entities: [] });
+      sessionStore.initialize({ shape: "project", cursor: 0, entities: [] });
       sessionStore.applyBatch([eventOfKind(SESSION_ID, kind, 1)]);
       await readThrough(clock);
 
@@ -58,7 +58,7 @@ describe("artifact list reader — what makes it read again", () => {
     await readThrough(clock);
 
     sessionStore.markDegraded("subscription-closed");
-    sessionStore.initialize({ cursor: 0, entities: [] });
+    sessionStore.initialize({ shape: "project", cursor: 0, entities: [] });
     await readThrough(clock);
 
     expect(reader.performCount).toBe(2);
@@ -73,7 +73,7 @@ describe("artifact list reader — what makes it read again", () => {
     reader.start();
     await readThrough(clock);
 
-    sessionStore.initialize({ cursor: 0, entities: [] });
+    sessionStore.initialize({ shape: "project", cursor: 0, entities: [] });
     sessionStore.applyBatch([
       eventOfKind(SESSION_ID, "run.queued", 1),
       eventOfKind(SESSION_ID, "workspace.stale", 2),
@@ -98,7 +98,7 @@ describe("artifact list reader — what makes it read again", () => {
     // Counted rather than inferred from silence: a disposed reader also ignores what a
     // listener it forgot to release would hear.
     expect(liveListeners()).toBe(0);
-    sessionStore.initialize({ cursor: 0, entities: [] });
+    sessionStore.initialize({ shape: "project", cursor: 0, entities: [] });
     sessionStore.applyBatch([eventOfKind(SESSION_ID, "artifact.published", 1)]);
     window.dispatchEvent(new Event("focus"));
     await readThrough(clock);

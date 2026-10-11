@@ -520,7 +520,7 @@ export class CodexServiceRecovery {
     );
     // No turn of the record will end now, so an undo, a retry or a turn owing a fork waiting on
     // one stops waiting.
-    this.#dependencies.turnEnds.abandon(record);
+    this.#dependencies.turnEnds.abandon(record, "session_continues");
     this.#dependencies.configForks.stopWaiting(record);
     return runIds;
   }

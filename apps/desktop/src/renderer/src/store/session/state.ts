@@ -3,6 +3,7 @@
 // writing class would force every reader to import the writer.
 
 import type { EventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
+import type { SessionShape } from "@ai-sidekicks/contracts/session/methods";
 
 import { worstDegradedCause, type SessionDegradedCause } from "./degradation.js";
 import {
@@ -39,6 +40,8 @@ export interface SessionStoreState {
   readonly sessionId: string;
   /** `false` until `initialize()` supplies a read response. */
   readonly initialized: boolean;
+  /** Whether the session is a chat or a project, as its newest read said; unknown until one lands. */
+  readonly shape: SessionShape | undefined;
   /** Entity maps, one per kind. Only touched partitions change identity. */
   readonly partitions: SessionPartitions;
   /**
@@ -139,6 +142,8 @@ export type RepairResumePoint =
 
 /** The base state a read response establishes. */
 export interface SessionBaseState {
+  /** Whether the session is a chat or a project, as the session's record says. */
+  readonly shape: SessionShape;
   /**
    * The sequence the base state is current as of: the newest row it carried. Absent when it
    * carried none, and the store learns the sequence from the first event the stream delivers.
@@ -245,6 +250,7 @@ export function uninitializedState(input: {
   return {
     sessionId: input.sessionId,
     initialized: false,
+    shape: undefined,
     partitions: emptyPartitions(),
     transcript: [],
     cursor: UNPLACED_CURSOR,
@@ -293,6 +299,7 @@ export function establishedState(input: {
   return {
     sessionId: input.sessionId,
     initialized: true,
+    shape: input.baseState.shape,
     partitions: input.partitions,
     transcript: input.orderedTranscript,
     cursor: input.cursor,

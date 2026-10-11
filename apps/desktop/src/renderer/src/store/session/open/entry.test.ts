@@ -25,7 +25,7 @@ import {
 
 /** A daemon read's base state: no sequence and no rows, the stream opening after `position`. */
 function baseStateAt(position: number): SessionBaseState {
-  return { entities: [], streamAfterCursor: encodeEventCursor(position) };
+  return { shape: "project", entities: [], streamAfterCursor: encodeEventCursor(position) };
 }
 
 /** One event of the entry's session at `sequence`. */
@@ -35,7 +35,11 @@ function eventAt(sequence: number): ProjectedSessionEvent {
 
 /** A repair read's base state: the stream reopened after the row at `sequence`. */
 function afterRow(sequence: number): SessionBaseState {
-  return { entities: [], streamAfterCursor: eventAt(sequence).cursor as EventCursor };
+  return {
+    shape: "project",
+    entities: [],
+    streamAfterCursor: eventAt(sequence).cursor as EventCursor,
+  };
 }
 
 /** A snapshot's base state: the window `sequences` at the log's newest rows, more before it. */
@@ -43,6 +47,7 @@ function windowOf(sequences: readonly number[]): SessionBaseState {
   const transcript = sequences.map(eventAt);
   const newest = transcript.at(-1)!;
   return {
+    shape: "project",
     cursor: newest.sequence,
     entities: [],
     transcript,

@@ -14,7 +14,7 @@ import "./NotDeliveredLine.css";
 export interface NotDeliveredLineProps {
   /** Why the delivery failed, in the daemon's own word, carried on the root for diagnostics. */
   readonly failureReason: string;
-  /** Sends the steer that was not delivered again, under its own key. */
+  /** Sends the steer that was not delivered again, in its place. */
   readonly onRetry: () => void;
   /**
    * The delivery this line answers: a new value, a retry that failed too, says the words again.

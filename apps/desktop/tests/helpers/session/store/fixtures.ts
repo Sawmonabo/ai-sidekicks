@@ -56,7 +56,7 @@ export function runEventAt(sequence: number, runId: string): ProjectedSessionEve
 
 /** A base state at `cursor` holding nothing, which the read answers with. */
 export function emptyBaseState(cursor: number): SessionBaseState {
-  return { cursor, entities: [] };
+  return { shape: "project", cursor, entities: [] };
 }
 
 /**

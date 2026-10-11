@@ -42,7 +42,7 @@ describe("the apply chokepoint admits what arrives, in order and once", () => {
     expect(early.buffered).toBe(2);
     expect(store.snapshot().transcript).toHaveLength(0);
 
-    store.initialize({ cursor: 1, entities: [] });
+    store.initialize({ shape: "project", cursor: 1, entities: [] });
 
     // Both buffered events land ordered with no gap: they were only early, never missing.
     const transcript = store.snapshot().transcript;
@@ -53,7 +53,7 @@ describe("the apply chokepoint admits what arrives, in order and once", () => {
 
   it("refuses an event addressed to another session instead of mixing it in", () => {
     const store = new SessionStore({ sessionId: "session-1" });
-    store.initialize({ cursor: 0, entities: [] });
+    store.initialize({ shape: "project", cursor: 0, entities: [] });
 
     const outcome = store.applyBatch([eventAt(1, { sessionId: "session-2" })]);
 
@@ -64,7 +64,7 @@ describe("the apply chokepoint admits what arrives, in order and once", () => {
 
   it("records the missing sequences when a gap opens rather than renumbering", () => {
     const store = new SessionStore({ sessionId: "session-1" });
-    store.initialize({ cursor: 0, entities: [] });
+    store.initialize({ shape: "project", cursor: 0, entities: [] });
 
     const outcome = store.applyBatch([eventAt(1), eventAt(4)]);
 
@@ -74,7 +74,7 @@ describe("the apply chokepoint admits what arrives, in order and once", () => {
 
   it("queues the re-entrant batch, applies it, and names the subscriber as the defect", () => {
     const store = new SessionStore({ sessionId: "session-1" });
-    store.initialize({ cursor: 0, entities: [] });
+    store.initialize({ shape: "project", cursor: 0, entities: [] });
 
     let hasReentered = false;
     const unsubscribe = store.readable.subscribe(() => {
@@ -100,7 +100,7 @@ describe("the apply chokepoint admits what arrives, in order and once", () => {
 
   it("applies a duplicate sequence exactly once", () => {
     const store = new SessionStore({ sessionId: "session-1" });
-    store.initialize({ cursor: 0, entities: [] });
+    store.initialize({ shape: "project", cursor: 0, entities: [] });
 
     store.applyBatch([eventAt(1)]);
     const second = store.applyBatch([eventAt(1)]);
@@ -115,7 +115,7 @@ describe("a delivered sequence the store cannot reconcile", () => {
   // The per-case timeout is part of the claim: enumerating the jump would take far longer.
   it("settles a jump of a billion into the repair path instead of enumerating it", () => {
     const store = new SessionStore({ sessionId: "session-1" });
-    store.initialize({ cursor: 0, entities: [] });
+    store.initialize({ shape: "project", cursor: 0, entities: [] });
 
     const outcome = store.applyBatch([eventAt(1_000_000_000)]);
 
@@ -132,7 +132,7 @@ describe("a delivered sequence the store cannot reconcile", () => {
 
   it("refuses a sequence too large to increment reliably rather than poisoning the cursor", () => {
     const store = new SessionStore({ sessionId: "session-1" });
-    store.initialize({ cursor: 0, entities: [] });
+    store.initialize({ shape: "project", cursor: 0, entities: [] });
 
     const outcome = store.applyBatch([
       eventAt(Number.MAX_SAFE_INTEGER),
@@ -153,7 +153,7 @@ describe("a delivered sequence the store cannot reconcile", () => {
     // A subtracting comparator answers `NaN` here and leaves the batch order undefined; one
     // hostile sequence must not decide where the real ones land.
     const store = new SessionStore({ sessionId: "session-1" });
-    store.initialize({ cursor: 0, entities: [] });
+    store.initialize({ shape: "project", cursor: 0, entities: [] });
 
     const outcome = store.applyBatch([eventAt(3), eventAt(Number.NaN), eventAt(1)]);
 
@@ -175,7 +175,7 @@ describe("events arrive before initialization and the read never comes", () => {
     const overflowBy = 3;
     store.applyBatch(eventsFrom(PRE_INITIALIZATION_BUFFER_CAP + overflowBy));
 
-    store.initialize({ cursor: 0, entities: [] });
+    store.initialize({ shape: "project", cursor: 0, entities: [] });
 
     const transcript = store.snapshot().transcript;
     expect(transcript).toHaveLength(PRE_INITIALIZATION_BUFFER_CAP);
@@ -211,7 +211,7 @@ describe("a registered projector throws on an event", () => {
 
   it("costs the event its entity contribution, never the batch and never the process", () => {
     const store = storeWithProjectorThrowingAt(REJECTED_SEQUENCE);
-    store.initialize({ cursor: 0, entities: [] });
+    store.initialize({ shape: "project", cursor: 0, entities: [] });
 
     const outcome = store.applyBatch([1, 2, 3, 4, 5].map((sequence) => eventAt(sequence)));
 
@@ -244,7 +244,7 @@ describe("a registered projector throws on an event", () => {
         ],
       },
     });
-    store.initialize({ cursor: 0, entities: [] });
+    store.initialize({ shape: "project", cursor: 0, entities: [] });
 
     const outcome = store.applyBatch([eventAt(1)]);
 
@@ -289,6 +289,7 @@ describe("a read places a window whose rows imply entities", () => {
     const store = storeProjectingRunRows();
 
     store.initialize({
+      shape: "project",
       cursor: 3,
       entities: [
         {
@@ -324,6 +325,7 @@ describe("a read places a window whose rows imply entities", () => {
     const store = storeProjectingRunRows();
 
     store.initialize({
+      shape: "project",
       cursor: 2,
       entities: [],
       transcript: [
@@ -347,6 +349,7 @@ describe("the standing events stand whatever rows the window holds", () => {
         windowMaxTokens: 100,
       });
     store.initialize({
+      shape: "project",
       cursor: 3,
       entities: [],
       // The birth row lies below the window; only the read carries it.
@@ -412,6 +415,7 @@ describe("the hue wheel follows the order agents joined", () => {
     const joins = [opens, helperJoins(2, "agent-helper", null)];
     const atHead = new SessionStore({ sessionId: "session-1" });
     atHead.initialize({
+      shape: "project",
       cursor: 4,
       entities: [],
       standingEvents: joins,
@@ -420,6 +424,7 @@ describe("the hue wheel follows the order agents joined", () => {
     // The tail holds only the helper's rows, the lead's lying above the window.
     const atTail = new SessionStore({ sessionId: "session-1" });
     atTail.initialize({
+      shape: "project",
       cursor: 91,
       entities: [],
       standingEvents: joins,
@@ -444,7 +449,13 @@ describe("the hue wheel follows the order agents joined", () => {
       helperJoins(2, "agent-chosen", "hue-07"),
       helperJoins(3, "agent-unchosen", null),
     ];
-    store.initialize({ cursor: 3, entities: [], standingEvents: joins, transcript: joins });
+    store.initialize({
+      shape: "project",
+      cursor: 3,
+      entities: [],
+      standingEvents: joins,
+      transcript: joins,
+    });
     // A stream's helper choosing the lead's step wears it too, and says it shares it.
     store.applyBatch([helperJoins(4, "agent-sharing", "hue-00")]);
 

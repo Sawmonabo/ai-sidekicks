@@ -41,6 +41,7 @@ import {
   type RunToolBoundary,
   type WaitingMessage,
 } from "../provider/driver/run-control.js";
+import { WriteRefusedError } from "../database/writer.js";
 import { describeRejection } from "../rejection.js";
 import type { RunStateReader } from "../session/run/read.js";
 import { RunNotFoundError } from "../session/run/refusals.js";
@@ -572,12 +573,29 @@ export class QueueDelivery {
     return "returned";
   }
 
-  // Admits an item that reads not delivered into `runId`, unless something moved it meanwhile.
+  // Admits an item that reads not delivered into `runId`, unless something moved it meanwhile. One
+  // a retry superseded, before or during the write, stays so; its retry reaches the agent too.
   async #admitUndelivered(itemId: QueueItemId, runId: RunId): Promise<void> {
     const item = this.#deps.items.get(itemId);
     if (item?.state === "not_delivered") {
-      await this.#deps.recorder.recordLateAdmission(item, runId, this.#deps.now());
+      try {
+        await this.#deps.recorder.recordLateAdmission(item, runId, this.#deps.now());
+        return;
+      } catch (error) {
+        if (!(error instanceof WriteRefusedError) || !this.#isSuperseded(itemId)) {
+          throw error;
+        }
+      }
     }
+    if (this.#isSuperseded(itemId)) {
+      this.#deps.writeServiceLog(
+        `run queue: the agent took message ${itemId} after a retry sent it again, so it has it twice`,
+      );
+    }
+  }
+
+  #isSuperseded(itemId: QueueItemId): boolean {
+    return this.#deps.items.get(itemId)?.state === "superseded";
   }
 
   async #admit(item: QueueItemRecord, runId: RunId): Promise<void> {

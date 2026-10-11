@@ -30,7 +30,7 @@ import { fixtureWorkflowStartOperations } from "../../command-list/workflow/star
 /** An initialized, empty session store for the default session. */
 export function openSessionStore(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-  sessionStore.initialize({ cursor: 0, entities: [] });
+  sessionStore.initialize({ shape: "project", cursor: 0, entities: [] });
   return sessionStore;
 }
 
@@ -200,7 +200,7 @@ export function mountOverLead(calls: ComposerSendCalls): LeadDraftLine {
     projectors: RUN_LIFECYCLE_PROJECTORS,
   });
   // The script numbers its beats from 0, so the store starts before the first.
-  sessionStore.initialize({ cursor: START_OF_LOG_POSITION, entities: [] });
+  sessionStore.initialize({ shape: "project", cursor: START_OF_LOG_POSITION, entities: [] });
   sessionStore.applyBatch(LEAD_SESSION_BEATS.slice(0, 1));
   const result = render(
     <LineAndSend

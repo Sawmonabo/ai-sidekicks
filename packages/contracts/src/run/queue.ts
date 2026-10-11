@@ -65,7 +65,10 @@ export interface QueueItemCreateRequest {
   to?: SessionId | undefined;
   /** Binds the run a send starts to its repository. */
   workspaceId?: WorkspaceId | undefined;
-  /** A retried send with the same key returns the saved result. */
+  /**
+   * A send again under the same key answers what the first saved. A retry's key is the failed
+   * message's id, so a second press answers as the first did.
+   */
   clientIdempotencyKey: string;
   content: string;
   /** The message's files in staging order; one the daemon cannot deliver stays, marked. */
@@ -78,7 +81,9 @@ export interface QueueItemCreateRequest {
   skills?: QueuedSkillPick[] | undefined;
   /**
    * Edits this waiting message in place: it keeps its place and the old item reads `superseded`.
-   * Refused once the agent has taken it.
+   * Refused once the agent has taken it. Naming a message not delivered, with its own words, is a
+   * retry: the daemon queues its words and files again as a new message at the queue's end, which
+   * waits as any send does, and the failed one reads `superseded`.
    */
   replacesQueueItemId?: QueueItemId | undefined;
   /**
@@ -231,8 +236,8 @@ const NOT_DELIVERED_REASON_ISSUE = {
 };
 
 /**
- * The queued message, as a send or a child's steer answers, and, when a retry answers one whose
- * delivery failed, the daemon's reason.
+ * The queued message, as a send or a child's steer answers, and, when a send again under the same
+ * key answers one whose delivery failed, the daemon's reason.
  */
 export interface QueueItemCreateResponse {
   queueItemId: QueueItemId;
@@ -425,7 +430,8 @@ export const QUEUE_ITEM_NOT_FOUND_CODE = "queue.item_not_found" as const;
 /**
  * The refusal of a change to a waiting message: an edit or removal of a message the agent has
  * already taken, an edit or removal of one the provider did not give back, which then reads not
- * delivered, or a reorder whose list is not exactly the waiting items.
+ * delivered, a retry of a not-delivered message in other words than its own, or a reorder whose
+ * list is not exactly the waiting items.
  */
 export const QUEUE_CHANGE_REFUSED_CODE = "queue.change_refused" as const;
 

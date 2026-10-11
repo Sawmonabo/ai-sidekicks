@@ -164,6 +164,7 @@ export const NON_TEXT_FLOOR_TOKEN_NAMES: readonly string[] = [
   "red-mark",
   "accent",
   "accent-pressed",
+  "focus",
   ...Object.keys(TOOL_HUE_ALIASES),
 ];
 

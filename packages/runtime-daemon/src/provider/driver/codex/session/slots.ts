@@ -37,6 +37,12 @@ import {
 /** Deadline for the courtesy `thread/unsubscribe`; short so a wedged service cannot hold close. */
 const UNSUBSCRIBE_TIMEOUT_MS = 5_000;
 
+/**
+ * How a record stopped being its session's: its session closed, or the session goes on without it,
+ * replaced, let go with a turn it could not account for, or its service gone.
+ */
+export type CodexRecordExit = "session_closed" | "session_continues";
+
 /** What the slots release when a session is let go. */
 export interface CodexSessionSlotsDependencies {
   readonly options: Pick<CodexLifecycleOptions, "reportDiagnostic" | "diagnostics">;
@@ -46,8 +52,8 @@ export interface CodexSessionSlotsDependencies {
   readonly pauses: CodexRunPauses;
   /** Keeps a conversation the session moved off while a command of it runs, past the session. */
   readonly release: Pick<CodexConversationRelease, "releaseSessionThreads">;
-  /** Told each record that stops being its session's, replaced or let go. */
-  readonly onRecordLeft: (record: CodexSessionRecord) => void;
+  /** Told each record that stops being its session's, and whether its session closed. */
+  readonly onRecordLeft: (record: CodexSessionRecord, exit: CodexRecordExit) => void;
 }
 
 /** Every session's record, slot, routing band and close latch. */
@@ -58,7 +64,7 @@ export class CodexSessionSlots {
   readonly #providerCommands: CodexProviderCommandCache;
   readonly #pauses: CodexRunPauses;
   readonly #release: CodexSessionSlotsDependencies["release"];
-  readonly #onRecordLeft: (record: CodexSessionRecord) => void;
+  readonly #onRecordLeft: CodexSessionSlotsDependencies["onRecordLeft"];
   readonly #records = new Map<SessionId, CodexSessionRecord>();
   readonly #transitions = new Map<SessionId, CodexSessionTransition>();
   // Keyed beside the records: a frame or a close can arrive while the slot is establishing,
@@ -92,7 +98,7 @@ export class CodexSessionSlots {
     const replaced = this.#records.get(record.sessionId);
     this.#records.set(record.sessionId, record);
     if (replaced !== undefined && replaced !== record) {
-      this.#onRecordLeft(replaced);
+      this.#onRecordLeft(replaced, "session_continues");
     }
   }
 
@@ -253,7 +259,7 @@ export class CodexSessionSlots {
       // A close during establishment chains behind it; no establishment path closes a session,
       // so the wait cannot deadlock.
       await this.claim(sessionId, "closing", async () => {
-        await this.#letGo(sessionId);
+        await this.#letGo(sessionId, "session_closed");
       });
     }
     // After the release: a terminal it provokes must still find the latch set.
@@ -268,7 +274,7 @@ export class CodexSessionSlots {
   async dispose(record: CodexSessionRecord): Promise<void> {
     await this.claim(record.sessionId, "closing", async () => {
       if (this.#records.get(record.sessionId) === record) {
-        await this.#letGo(record.sessionId);
+        await this.#letGo(record.sessionId, "session_continues");
       }
     });
   }
@@ -278,7 +284,7 @@ export class CodexSessionSlots {
    * running service its commands end and it unsubscribes. The record leaves in a `finally`, so a
    * failed step cannot leave it stuck.
    */
-  async #letGo(sessionId: SessionId): Promise<void> {
+  async #letGo(sessionId: SessionId, exit: CodexRecordExit): Promise<void> {
     const record = this.#records.get(sessionId);
     if (record === undefined) {
       // The establishment this close chained behind failed and released its thread.
@@ -314,7 +320,7 @@ export class CodexSessionSlots {
       this.#records.delete(sessionId);
       this.#pendingCompactions.releaseBinding(codexCompactionWaitKey(sessionId, record.threadId));
       this.#providerCommands.discardProviderCommandEnumeration(sessionId);
-      this.#onRecordLeft(record);
+      this.#onRecordLeft(record, exit);
     }
   }
 

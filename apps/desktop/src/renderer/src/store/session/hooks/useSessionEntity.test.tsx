@@ -75,6 +75,7 @@ describe("useSessionEntity — a row re-renders for its own entity and no other"
     });
     const store = registry.open("session-1");
     store.initialize({
+      shape: "project",
       cursor: 0,
       entities: [
         { kind: "run", id: "run-1", state: "queued" },

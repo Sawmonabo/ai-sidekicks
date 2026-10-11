@@ -6,6 +6,7 @@
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import { DRIVER_TIMEOUT_CODE } from "@ai-sidekicks/contracts/provider/driver/methods";
+import { SESSION_ALREADY_CLOSED_CODE } from "@ai-sidekicks/contracts/session/methods";
 import { DaemonDomainError } from "../../../../ipc/domain-error.js";
 import { CODEX_DRIVER_NAME } from "../capabilities.js";
 import {
@@ -184,6 +185,20 @@ function describeSlotRefusal(sessionId: string, holderState: CodexSessionSlotSta
         `Codex session "${sessionId}" is still being torn down; create would spawn a ` +
         `replacement beside a process that is still exiting.`
       );
+  }
+}
+
+/**
+ * A wait on a session's turns that its session's close ended: no turn of it will end now, so what
+ * waited is refused with `session.already_closed`.
+ */
+export class CodexSessionClosedError extends DaemonDomainError {
+  constructor(sessionId: string) {
+    super(`Codex session "${sessionId}" closed while a request waited on its turns.`, {
+      code: SESSION_ALREADY_CLOSED_CODE,
+      detail: { sessionId },
+    });
+    this.name = "CodexSessionClosedError";
   }
 }
 

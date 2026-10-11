@@ -1,15 +1,15 @@
-// The popover listing what the console can do and what the run's provider enumerated.
+// The popover listing what the console can do and what the run's provider enumerated, the
+// console's commands first and then the provider's, each provider row carrying its origin mark.
 // Every provider entry is one the provider enumerated for the addressed binding; nothing here
-// composes or completes a provider command. `CommandList.tsx` owns when the popover opens.
-// Two labeled groups, never one flat run: console commands are acts this window performs, provider
-// entries are names it will not send. The partition keeps each row's flat position.
+// composes or completes a provider command. `CommandList.tsx` owns when the line asks for the
+// popover; the popover draws only while a row matches what is typed, because a word no row matches
+// goes to the provider as typed.
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
-import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
 import type { CommandOutcome } from "../../types.js";
-import { CommandListGroup, type CommandListGroupRow } from "./CommandListGroup.js";
+import { CommandListRow } from "./CommandListRow.js";
 import { createConsoleCommandExecutor } from "../console/executor.js";
 import { noComposerCommandLineHandlers } from "../line-handlers.js";
 import { type ComposerCommands } from "../registry-view.js";
@@ -32,34 +32,22 @@ import { AnnouncedLine } from "#renderer/components/AnnouncedLine/AnnouncedLine.
  */
 const PICKED_ENTRY_READS_NO_LINE: readonly string[] = [];
 
-/**
- * Why pressing a key on a provider row runs nothing.
- *
- * Shown only in answer to the press: the lede already states the standing claim.
- */
+/** Why pressing a key on a provider row runs nothing, shown only in answer to the press. */
 const PROVIDER_ENTRY_NOT_RUNNABLE =
   "Provider commands and skills are listed for reference. This app " +
   "starts no turn from one, so there is nothing here to run.";
 
-/** The console group's heading: it names the act, so a person knows what pressing does. */
-const CONSOLE_GROUP_LABEL = "This app's commands — these run here";
-
-/**
- * The provider group's heading. The entries are the provider's own enumeration and this console
- * starts no turn from one, so the group says so once on entering the section.
- */
-const PROVIDER_GROUP_LABEL = "Discovery, not runnable";
-
 /**
  * The popover, mounted only while the line opens it so the active-entry cursor dies with the list.
  * The catalog is read on every render, not memoized: the command registry fills after a child
- * mounts, so a list captured once would stay empty.
+ * mounts, so a list captured once would stay empty. It draws nothing while no row matches, and
+ * once every source has answered with none it closes the list for the typed text, so the line's
+ * own keys work again; the next edit asks afresh.
  */
-export function CommandListPopover(props: CommandListPopoverProps): React.JSX.Element {
+export function CommandListPopover(props: CommandListPopoverProps): React.JSX.Element | null {
   const { prefix, readCommands, enumeration, addressed, stepIntoListToken } = props;
   const { onDismiss } = props;
   const listId = useId();
-  const ledeId = `${listId}-lede`;
   const listRef = useRef<HTMLUListElement | null>(null);
   const scrollerScrollbarRef = useDrawOverlayScrollbar<HTMLDivElement>();
   const [activeIndex, setActiveIndex] = useState(0);
@@ -78,7 +66,12 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
     providerGroups: addressedGroup === undefined ? [] : [addressedGroup],
   });
   const entries = filterCommandList(catalog, prefix);
-  const isServedEmpty = entries.length === 0 && haveAllSourcesAnswered(enumeration);
+  const hasNoMatchToCome = entries.length === 0 && haveAllSourcesAnswered(enumeration);
+  useEffect(() => {
+    if (hasNoMatchToCome) {
+      onDismiss();
+    }
+  }, [hasNoMatchToCome, onDismiss]);
 
   const executor = useMemo(
     () =>
@@ -97,11 +90,6 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
   );
   const boundedIndex =
     actableIndexes.find((index) => index >= activeIndex) ?? actableIndexes.at(-1) ?? -1;
-  // Rows keep their flat position: the cursor, aria-activedescendant and Enter all count over
-  // `entries`, so per-group numbering would light one row and activate another.
-  const consoleRows = groupRowsOf(entries, "console");
-  const providerRows = groupRowsOf(entries, "provider");
-
   // The token at mount is the baseline, so a reopened list does not steal focus on appearing.
   const stepIntoListBaselineRef = useRef(stepIntoListToken);
   useEffect(() => {
@@ -154,62 +142,40 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
     [activateEntry, actableIndexes, boundedIndex, entries, onDismiss],
   );
 
+  if (entries.length === 0) {
+    return null;
+  }
   return (
     <div className="meridian-command-discovery">
-      <p className="meridian-command-discovery__lede" id={ledeId}>
-        What this app can do, and what the addressed sidekick&rsquo;s provider offers. Choosing an
-        entry starts no turn.
-      </p>
-      {entries.length === 0 ? null : (
-        // The bar is drawn inside the scroller, so the scroller is not the listbox: a listbox
-        // holds only its groups and options.
-        <div className="meridian-command-discovery__scroller" ref={scrollerScrollbarRef}>
-          <ul
-            className="meridian-command-discovery__list"
-            id={listId}
-            ref={listRef}
-            role="listbox"
-            tabIndex={0}
-            aria-label="Commands and skills"
-            aria-describedby={ledeId}
-            aria-activedescendant={boundedIndex < 0 ? undefined : rowId(listId, boundedIndex)}
-            onKeyDown={onListKeyDown}
-          >
-            {/* An empty group is left out: a heading over no rows would assert a category the
-                filtered catalog does not have. */}
-            {consoleRows.length === 0 ? null : (
-              <CommandListGroup
-                rows={consoleRows}
-                labelText={CONSOLE_GROUP_LABEL}
-                labelElementId={`${listId}-group-console`}
-                activeFlatIndex={boundedIndex}
-                rowElementId={(flatIndex) => rowId(listId, flatIndex)}
-                onSelect={setActiveIndex}
-                onActivate={activateEntry}
-              />
-            )}
-            {providerRows.length === 0 ? null : (
-              <CommandListGroup
-                rows={providerRows}
-                labelText={PROVIDER_GROUP_LABEL}
-                labelElementId={`${listId}-group-provider`}
-                activeFlatIndex={boundedIndex}
-                rowElementId={(flatIndex) => rowId(listId, flatIndex)}
-                onSelect={setActiveIndex}
-                onActivate={activateEntry}
-              />
-            )}
-          </ul>
-        </div>
-      )}
-      {isServedEmpty ? (
-        <Nothing
-          kind="empty"
-          placement="block"
-          title="No command matches what you have typed"
-          detail="Clear the line to see everything on offer."
-        />
-      ) : null}
+      {/* The bar is drawn inside the scroller, so the scroller is not the listbox: a listbox
+          holds only its options. */}
+      <div className="meridian-command-discovery__scroller" ref={scrollerScrollbarRef}>
+        <ul
+          className="meridian-command-discovery__list"
+          id={listId}
+          ref={listRef}
+          role="listbox"
+          tabIndex={0}
+          aria-label="Commands"
+          aria-activedescendant={boundedIndex < 0 ? undefined : rowId(listId, boundedIndex)}
+          onKeyDown={onListKeyDown}
+        >
+          {entries.map((entry, index) => (
+            <CommandListRow
+              key={entry.key}
+              entry={entry}
+              rowElementId={rowId(listId, index)}
+              isActive={index === boundedIndex}
+              onSelect={() => {
+                setActiveIndex(index);
+              }}
+              onActivate={() => {
+                activateEntry(entry);
+              }}
+            />
+          ))}
+        </ul>
+      </div>
       {activationNotice === undefined ? null : (
         <AnnouncedLine
           element="p"
@@ -268,20 +234,6 @@ function cursorMove(
     default:
       return undefined;
   }
-}
-
-/** One group's rows, each keeping its position in the flat sequence; catalog order is kept. */
-function groupRowsOf(
-  entries: readonly CommandListEntry[],
-  source: CommandListEntry["source"],
-): readonly CommandListGroupRow[] {
-  const rows: CommandListGroupRow[] = [];
-  entries.forEach((entry, flatIndex) => {
-    if (entry.source === source) {
-      rows.push({ entry, flatIndex });
-    }
-  });
-  return rows;
 }
 
 /**

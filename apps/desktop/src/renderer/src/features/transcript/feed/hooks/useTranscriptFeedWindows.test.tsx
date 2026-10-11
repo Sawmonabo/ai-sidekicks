@@ -27,7 +27,7 @@ afterEach(() => {
 /** A store holding one agent reply per body length, oldest first, outside any run. */
 function openSessionStoreWithReplies(bodyLengths: readonly number[]): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-  sessionStore.initialize({ cursor: -1, entities: [] });
+  sessionStore.initialize({ shape: "project", cursor: -1, entities: [] });
   sessionStore.applyBatch(
     bodyLengths.map((contentLength, index) => ({
       id: transcriptFixtureEventId(index),

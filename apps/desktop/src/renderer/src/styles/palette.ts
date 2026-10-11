@@ -47,6 +47,14 @@ export const TOOL_HUE_ALIASES: Readonly<Record<string, string>> = {
   "tool-hue-workflow": "code-name",
 };
 
+/**
+ * How much of `edge` the hover wash carries over whatever it lies on, in percent: the ground a
+ * list's selected row takes. A share mixed toward transparent, not a color of the table, so it
+ * follows each theme's edge in both schemes; it sits under text and marks no boundary, so the 3:1
+ * floor does not apply to it.
+ */
+export const HOVER_WASH_EDGE_PERCENT = 45;
+
 /** Steps on the agent wheel, one per hue the wire names. */
 export const HUE_WHEEL_STEPS: number = AGENT_ACCENT_HUES.length;
 

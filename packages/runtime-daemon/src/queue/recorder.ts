@@ -1,8 +1,9 @@
 // Records each change to a queue in its session's log, its row moving in the same write as its
 // `queue_item.*` event, and tells the queue's followers the item as it now stands. A send is one
 // write: its row, its `user.message`, its `queue_item.created` and, when it starts a run, the
-// `run.queued` and row of that run, so an acknowledged send never exists without its transcript
-// row and a refused one leaves nothing.
+// `run.queued` and row of that run, and, for a retry, the superseding of the message it sends
+// again, so an acknowledged send never exists without its transcript row and a refused one leaves
+// nothing.
 
 import type { ChildHandle } from "@ai-sidekicks/contracts/agent/tree";
 import { EventEnvelopeVersionSchema } from "@ai-sidekicks/contracts/event/envelope";
@@ -35,6 +36,7 @@ import {
   noLiveLeadRunStatement,
   placementStatements,
   retargetStatement,
+  supersedeUndeliveredStatement,
   runLiveStatement,
   currentInterruptedLeadRunStatement,
   sessionTakesMessagesStatement,
@@ -62,6 +64,12 @@ export const SEND_SESSION_GUARD_STATEMENT_INDEX = 1;
 export const SEND_GUARD_STATEMENT_INDEX = 2;
 
 /**
+ * The position of a retry's guard, right after its route's, that the message it sends again still
+ * reads not delivered.
+ */
+export const RETRY_GUARD_STATEMENT_INDEX = 3;
+
+/**
  * Where one person's send goes: a run it starts, the live run it goes into, the interrupted run it
  * continues, or the place of the waiting item it edits, which goes into that item's run.
  */
@@ -71,11 +79,15 @@ type SendRoute =
   | { readonly kind: "interrupted_run" }
   | { readonly kind: "edit"; readonly replaces: QueueItemRecord };
 
-/** One person's send as it is recorded: the new row, its device and where it goes. */
+/**
+ * One person's send as it is recorded: the new row, its device, where it goes and, for a retry,
+ * the not-delivered message it sends again, which then reads superseded.
+ */
 export interface RecordedSend {
   readonly item: NewQueueItem;
   readonly deviceId: DeviceId;
   readonly route: SendRoute;
+  readonly retries: QueueItemRecord | undefined;
 }
 
 /** Hears each change to one queue: the item as it now stands, and the cursor after its change. */
@@ -127,7 +139,8 @@ export class QueueRecorder {
   /**
    * Records `send` in one write and resolves with its row. Throws the write's `WriteRefusedError`
    * at {@link SEND_SESSION_GUARD_STATEMENT_INDEX} when the session no longer takes messages, at
-   * {@link SEND_GUARD_STATEMENT_INDEX} when its route's guard no longer holds, and at its insert
+   * {@link SEND_GUARD_STATEMENT_INDEX} when its route's guard no longer holds, at
+   * {@link RETRY_GUARD_STATEMENT_INDEX} when a retry's message no longer reads not delivered, and at its insert
    * for a key already spent in the session, writing nothing either way.
    */
   async recordSend(send: RecordedSend): Promise<QueueItemRecord> {
@@ -157,16 +170,24 @@ export class QueueRecorder {
         statements.push(leaveQueuedStatement(route.replaces.id, { to: "superseded" }, item.now));
         break;
     }
+    if (send.retries !== undefined) {
+      statements.splice(
+        RETRY_GUARD_STATEMENT_INDEX,
+        0,
+        supersedeUndeliveredStatement(send.retries.id, item.now),
+      );
+    }
     const created: QueueItemEventPayload<"queued"> = {
       sessionId: item.sessionId,
       queueItemId: item.id,
       state: "queued",
     };
     precedingEvents.push({ type: "queue_item.created", payload: created });
-    if (route.kind === "edit") {
+    const replaced = route.kind === "edit" ? route.replaces : send.retries;
+    if (replaced !== undefined) {
       const superseded: QueueItemEventPayload<"superseded"> = {
         sessionId: item.sessionId,
-        queueItemId: route.replaces.id,
+        queueItemId: replaced.id,
         state: "superseded",
         replacedByQueueItemId: item.id,
       };
@@ -190,8 +211,8 @@ export class QueueRecorder {
       precedingEvents,
     });
     const cursor = encodeEventCursor(receipt.sequence);
-    if (route.kind === "edit") {
-      this.#publish(cursor, this.#require(route.replaces.id));
+    if (replaced !== undefined) {
+      this.#publish(cursor, this.#require(replaced.id));
     }
     const recorded = this.#require(item.id);
     this.#publish(cursor, recorded);

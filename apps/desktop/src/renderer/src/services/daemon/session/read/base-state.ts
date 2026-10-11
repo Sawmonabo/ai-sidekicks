@@ -103,6 +103,7 @@ function windowBaseStateOf(
   );
   return {
     ...(newest === undefined ? {} : { cursor: newest.sequence }),
+    shape: record.session.shape,
     entities: record.liveRuns.map(projectLiveRun),
     transcript: page.events,
     standingEvents: standingEventsOf(record),
@@ -126,6 +127,7 @@ function repairBaseStateOf(
       ? reopening.rowCursor
       : (reopening.headCursor ?? record.transcriptCursors.earliest);
   return {
+    shape: record.session.shape,
     entities: record.liveRuns.map(projectLiveRun),
     standingEvents: standingEventsOf(record),
     streamAfterCursor: openableCursor(position, refusedCursors),

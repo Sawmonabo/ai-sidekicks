@@ -23,6 +23,7 @@ function eventsAt(sequences: readonly number[]): ReturnType<typeof eventOfKind>[
 function openStore(): SessionStore {
   const store = new SessionStore({ sessionId: SESSION_ID });
   store.initialize({
+    shape: "project",
     cursor: 20,
     entities: [],
     transcript: eventsAt([18, 19, 20]),

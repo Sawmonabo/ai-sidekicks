@@ -72,6 +72,7 @@ export function mountToolbar(
 ): HTMLElement {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
   sessionStore.initialize({
+    shape: "project",
     cursor: 0,
     entities: [...(addressing.entities ?? [])],
     standingEvents: [sessionCreatedEvent(SESSION_ID, LEAD)],
