@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ClipboardPieces } from "#shared/clipboard-pieces.js";
 import { createStubBridge, type ClipboardContent } from "#shared/preload-api.js";
 import { TRANSIENT_STATUS_DURATION_MS } from "#renderer/lib/transient-status.js";
 import { createLiveBridge } from "#renderer/services/platform/live-bridge.js";
@@ -8,30 +9,39 @@ import { type PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { FIXTURE_APP_META, FIXTURE_WINDOW_ID } from "#renderer/services/platform/bridge.fixture.js";
 import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
 import { CopyButton } from "#renderer/components/CopyButton/CopyButton.js";
+import { TASKS_AT_ONCE } from "#test/helpers/tasks-at-once.js";
 import { useClipboardCopy } from "./useClipboardCopy.js";
 
 const MESSAGE_TEXT = "Rename `readFrozenRecord` and keep its callers.\n\nTwo files.";
 
 /**
- * A bridge writing each copy through `copyToClipboard`, a late one only while `isUnchanged`
- * answers that no newer copy took the clipboard.
+ * A bridge writing each copy through `copyToClipboard`, a late one, joined from the pieces sent
+ * ahead of it as main joins them, only while `isUnchanged` answers that no newer copy took the
+ * clipboard.
  */
 function bridgeCopyingWith(
   copyToClipboard: (content: ClipboardContent) => Promise<void>,
   isUnchanged = () => true,
 ): PlatformBridge {
   const bridge = createLiveBridge(createStubBridge({ ...FIXTURE_APP_META }, FIXTURE_WINDOW_ID));
+  const pieces = new ClipboardPieces();
   return {
     ...bridge,
     native: {
       ...bridge.native,
       copyToClipboard,
       takeClipboardSnapshot: async () => ({ digest: "held" }),
-      copyToClipboardUnlessChanged: async (content) => {
+      sendClipboardPiece: async (piece) => {
+        pieces.take(piece);
+      },
+      dropClipboardPieces: async (copyId) => {
+        pieces.drop(copyId);
+      },
+      copyToClipboardUnlessChanged: async (copyId) => {
         if (!isUnchanged()) {
           return false;
         }
-        await copyToClipboard("png" in content ? content : expect.fail("a late copy is a picture"));
+        await copyToClipboard(pieces.contentOf(copyId));
         return true;
       },
     },
@@ -61,10 +71,13 @@ async function pressCopy(
 
 beforeEach(() => {
   vi.useFakeTimers();
+  // happy-dom schedules no tasks; a picture's pieces are sent in the slices they start in.
+  vi.stubGlobal("scheduler", TASKS_AT_ONCE.scheduler);
 });
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 describe("a message's Copy control", () => {

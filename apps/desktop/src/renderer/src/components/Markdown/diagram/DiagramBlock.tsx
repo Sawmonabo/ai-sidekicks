@@ -9,7 +9,7 @@ import { useRef } from "react";
 
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import type { BlockCopyOffer, BlockCopyRenderer } from "../block-copy-offer.js";
-import { encodeDiagramPng } from "./png.js";
+import { encodeDiagramPng } from "./png/encoding.js";
 import { useDrawnDiagram, type DrawnDiagramView } from "./useDrawnDiagram.js";
 
 /** What one diagram block is drawn from. */

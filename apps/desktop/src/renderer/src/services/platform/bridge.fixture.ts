@@ -109,10 +109,12 @@ export function createFixtureBridge(options: FixtureBridgeOptions): FixtureBridg
       dropClipboardPieces: async (copyId) => {
         clipboardPieces.drop(copyId);
       },
-      copyToClipboardUnlessChanged: async (content) => {
-        await bridge.native.copyToClipboard(
-          "png" in content ? content : clipboardPieces.contentOf(content.copyId),
-        );
+      // A picture lands nowhere, the fixture keeping no clipboard; its pieces stay for a test.
+      copyToClipboardUnlessChanged: async (copyId) => {
+        const content = clipboardPieces.contentOf(copyId);
+        if (!("png" in content)) {
+          await bridge.native.copyToClipboard(content);
+        }
         return true;
       },
       // The fixture keeps no clipboard, so none still holds a copy's text; the copy is let go.

@@ -30,13 +30,13 @@ import type { FilePathRefs } from "./file-path/refs.js";
 import { KEYBOARD_MAP_FILE_NAME, KeyboardMapFile, parseKeyboardMap } from "./keyboard-map-file.js";
 import {
   addClipboardFormatting,
-  clipboardHostsFor,
   copyToClipboard,
   copyToClipboardUnlessChanged,
   dropClipboardPieces,
   takeClipboardPiece,
   takeClipboardSnapshot,
-} from "./native/clipboard.js";
+} from "./native/clipboard/copies.js";
+import { clipboardHostsFor } from "./native/clipboard/platform.js";
 import { listEditors } from "./native/editors/installed.js";
 import { openInEditor, parseEditorOpenRequest, readChosenEditorId } from "./native/editors/open.js";
 import { runProgram } from "./native/editors/program-runner.js";

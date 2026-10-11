@@ -27,12 +27,9 @@ function bridgeOn(platform: PlatformBridge["app"]["platform"]): {
     clipboard === "selection" ? { clipboard, digest: "held" } : expect.fail("the selection one"),
   );
   vi.spyOn(fixture.bridge.native, "copyToClipboardUnlessChanged").mockImplementation(
-    async (content, since) => {
-      copyIds.push("copyId" in content ? content.copyId : "");
-      writes.push([
-        "copyId" in content ? fixture.clipboardPieces.contentOf(content.copyId) : content,
-        since,
-      ]);
+    async (copyId, since) => {
+      copyIds.push(copyId);
+      writes.push([fixture.clipboardPieces.contentOf(copyId), since]);
       return true;
     },
   );

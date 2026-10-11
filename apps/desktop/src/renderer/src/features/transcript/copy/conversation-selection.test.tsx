@@ -297,9 +297,10 @@ describe("a selection across the conversation", () => {
  * Tables whose rows copy unlike plain text: a reference link, a footnote marker by its label,
  * inline code, escapes and entities, a link, an image and raw HTML, wide characters, an empty cell
  * and rows of fewer and more cells than the head; a table in a quote whose marks vary by line and
- * one in a list item, each copied with its quote or list; and one long enough that its part is
- * read by the markdown worker, its undrawn rows rebuilt a few hundred at a time and its widest
- * cells among its last rows.
+ * one in a list item, each copied with its quote or list; and the shortest whose drawn text
+ * reaches `PAGE_DRAWN_TEXT_CHARACTER_LIMIT`, so its whole part is read by the markdown worker, its
+ * undrawn rows take several reads of `ROWS_PER_READ` as text and several asks as markdown, and its
+ * widest cells are among its last rows.
  */
 const IDENTITY_TABLES: readonly string[] = [
   [
@@ -344,7 +345,7 @@ const IDENTITY_TABLES: readonly string[] = [
     "  | 3 | `4` |",
     "  | 5 | 6 |",
   ].join("\n"),
-  tableReply(1_100).text,
+  tableReply(74).text,
 ];
 
 /** The key the long table drawn in `IDENTITY_TABLES`' cases is held under. */

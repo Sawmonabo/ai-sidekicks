@@ -10,7 +10,7 @@
 // that got around it would; the two daemon-backed members go through the page's bridge, which
 // turns main's failed answer into a rejection.
 
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -35,7 +35,7 @@ import {
   REQUEST_UNSENDABLE_MESSAGE,
   type DaemonSubscriptionRequest,
 } from "#shared/daemon/forwarding.js";
-import type { PreloadApi } from "#shared/preload-api.js";
+import type { ClipboardSnapshot, PreloadApi } from "#shared/preload-api.js";
 import { createElectronMock } from "#test/helpers/electron/mock/module.js";
 import {
   bridgeOverLink,
@@ -74,12 +74,14 @@ vi.mock("electron", () => ({
     write: (items: unknown) => {
       clipboardWrites.push(items);
     },
-    // Holds the text every accepted formatting request names, so an accepted one writes.
+    // Holds the text every accepted formatting request names, so an accepted one writes, read as
+    // text or from its one entry as each system reads it.
     readText: () => Promise.resolve("a"),
-    // Holds no entry, so a snapshot of it is the digest of nothing.
     read: () => {
       clipboardReads.push("read");
-      return Promise.resolve([]);
+      return Promise.resolve([
+        { types: ["text/plain"], getType: () => Promise.resolve(new Blob(["a"])) },
+      ]);
     },
   },
   ClipboardItem: class {
@@ -92,8 +94,8 @@ const SESSION_ID = "00000000-0000-4000-8000-000000000001" as SessionId;
 /** The file a served `session.memoryRead` offers to open. */
 const MEMORY_FILE = "/Users/person/.claude/projects/app/CLAUDE.md";
 
-/** What a snapshot of a clipboard holding no entry reads. */
-const EMPTY_DIGEST = createHash("sha256").digest("hex");
+/** A digest of the right shape for a payload refused before any clipboard is read. */
+const ANY_DIGEST = "0";
 
 /** A refusal from a member's schema: a Zod issue list, never a runtime error from main's code. */
 const SCHEMA_REFUSAL = /"code": "[a-z_]+"/;
@@ -259,11 +261,16 @@ async function sendTextPiece(copyId: string): Promise<void> {
   });
 }
 
-/** Writes the late copy `copyId` names onto an empty clipboard. */
-function writeLateCopy(copyId: string): Promise<unknown> {
+/** The digest main's snapshot reads of what the clipboard holds, which no test changes. */
+async function heldDigest(): Promise<string> {
+  return ((await invoke(BRIDGE_CHANNELS.takeClipboardSnapshot, {})) as ClipboardSnapshot).digest;
+}
+
+/** Writes the late copy `copyId` names onto the clipboard as it is held. */
+async function writeLateCopy(copyId: string): Promise<unknown> {
   return invoke(BRIDGE_CHANNELS.copyToClipboardUnlessChanged, {
-    content: { copyId },
-    since: { digest: EMPTY_DIGEST },
+    copyId,
+    since: { digest: await heldDigest() },
   });
 }
 
@@ -279,6 +286,7 @@ async function pastedPictures(): Promise<string[]> {
 
 /** The cases whose accepted payload is built in the case: a token, a real file. */
 async function intakeCases(): Promise<readonly IntakeCase[]> {
+  const digest = await heldDigest();
   const droppedFile = path.join(userData, "dropped.txt");
   await writeFile(droppedFile, "dropped");
   // A token main minted to attach the file, which no verb that opens a path takes.
@@ -394,8 +402,7 @@ async function intakeCases(): Promise<readonly IntakeCase[]> {
         { content: { html: "<b>a</b>" } },
         { content: { text: "a", html: 7 } },
         { content: { text: "a", extra: true } },
-        { content: { png: new Uint8Array([71, 73, 70]) } },
-        { content: { png: "iVBORw0KGgo=" } },
+        { content: { png: new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]) } },
         { content: { text: "a", png: new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]) } },
         { content: { text: "a" }, clipboard: "system" },
         { content: { text: "a" }, extra: true },
@@ -425,6 +432,8 @@ async function intakeCases(): Promise<readonly IntakeCase[]> {
         { copyId: "piece-probe", flavor: "text", index: 0.5, piece: "a" },
         { copyId: 7, flavor: "text", index: 0, piece: "a" },
         { copyId: "piece-probe", flavor: "text", index: 0, piece: "a", extra: true },
+        { copyId: "piece-probe", flavor: "text", index: 0, piece: new Uint8Array([97]) },
+        { copyId: "piece-probe", flavor: "png", index: 0, piece: "iVBORw0KGgo=" },
         "a",
         null,
       ],
@@ -451,17 +460,18 @@ async function intakeCases(): Promise<readonly IntakeCase[]> {
     {
       member: "native.copyToClipboardUnlessChanged",
       refused: [
-        { content: { copyId: "late" } },
-        { content: { copyId: "late" }, since: { digest: 7 } },
-        { content: { copyId: "late" }, since: { clipboard: "system", digest: EMPTY_DIGEST } },
-        { content: { copyId: 7 }, since: { digest: EMPTY_DIGEST } },
-        { content: { text: "a" }, since: { digest: EMPTY_DIGEST } },
-        { content: { copyId: "late" }, since: { digest: EMPTY_DIGEST }, extra: true },
+        { copyId: "late" },
+        { copyId: "late", since: { digest: 7 } },
+        { copyId: "late", since: { clipboard: "system", digest: ANY_DIGEST } },
+        { copyId: 7, since: { digest: ANY_DIGEST } },
+        { content: { copyId: "late" }, since: { digest: ANY_DIGEST } },
+        { png: new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), since: { digest: ANY_DIGEST } },
+        { copyId: "late", since: { digest: ANY_DIGEST }, extra: true },
         "a",
         null,
       ],
       refusal: SCHEMA_REFUSAL,
-      accepted: { content: { copyId: "late" }, since: { digest: EMPTY_DIGEST } },
+      accepted: { copyId: "late", since: { digest } },
       send: async (payload) => {
         await sendTextPiece("late");
         return await invoke(BRIDGE_CHANNELS.copyToClipboardUnlessChanged, payload);

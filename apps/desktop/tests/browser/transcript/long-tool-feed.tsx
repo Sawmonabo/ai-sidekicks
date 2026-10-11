@@ -160,11 +160,12 @@ export async function mountTranscriptFeed(
   const fixture = createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO });
   const copied: TextClipboardContent[] = [];
   vi.spyOn(fixture.bridge.native, "copyToClipboard").mockImplementation(async (content) => {
-    copied.push("text" in content ? content : expect.fail("the transcript copies text"));
+    copied.push(content);
   });
   // A formatted flavor added after its text is a write, while the clipboard still holds the text.
   vi.spyOn(fixture.bridge.native, "addClipboardFormatting").mockImplementation(async (copyId) => {
-    const content = fixture.clipboardPieces.contentOf(copyId);
+    const held = fixture.clipboardPieces.contentOf(copyId);
+    const content = "text" in held ? held : expect.fail("the transcript copies text");
     fixture.clipboardPieces.drop(copyId);
     if (copied.at(-1)?.text !== content.text) {
       return false;

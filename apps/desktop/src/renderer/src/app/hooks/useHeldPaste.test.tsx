@@ -53,11 +53,9 @@ function bridgeOverClipboard(platform?: PlatformBridge["app"]["platform"]): {
       : { ...fixture.bridge, app: { ...fixture.bridge.app, platform } };
   const clipboard = { text: OLDER_COPY };
   const landings: (() => void)[] = [];
-  vi.spyOn(bridge.native, "copyToClipboardUnlessChanged").mockImplementation((content) => {
-    const { text } =
-      "copyId" in content
-        ? fixture.clipboardPieces.contentOf(content.copyId)
-        : expect.fail("the copy is text");
+  vi.spyOn(bridge.native, "copyToClipboardUnlessChanged").mockImplementation((copyId) => {
+    const content = fixture.clipboardPieces.contentOf(copyId);
+    const { text } = "text" in content ? content : expect.fail("the copy is text");
     return new Promise((resolve) => {
       landings.push(() => {
         clipboard.text = text;

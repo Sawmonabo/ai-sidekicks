@@ -70,9 +70,9 @@ export function createPreloadApi(argv: readonly string[]): PreloadApi {
       dropClipboardPieces: async (copyId): Promise<void> => {
         await ipcRenderer.invoke(BRIDGE_CHANNELS.dropClipboardPieces, { copyId });
       },
-      copyToClipboardUnlessChanged: async (content, since): Promise<boolean> =>
+      copyToClipboardUnlessChanged: async (copyId, since): Promise<boolean> =>
         (await ipcRenderer.invoke(BRIDGE_CHANNELS.copyToClipboardUnlessChanged, {
-          content,
+          copyId,
           since,
         })) as boolean,
       addClipboardFormatting: async (copyId): Promise<boolean> =>

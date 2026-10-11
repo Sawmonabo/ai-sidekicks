@@ -1,6 +1,7 @@
 // A diagram drawn by merman in its worker in Chromium, since happy-dom has no worker, no layout, no
 // image decoding and no canvas: the place held for the picture, a picture an image can show, the
-// kept picture a remount lands at, the PNG `Copy as picture` writes, the reason a refused diagram
+// kept picture a remount lands at, the PNG `Copy as picture` writes, a picture taller than one of
+// the strips it is drawn and encoded in copied whole and in place, the reason a refused diagram
 // shows, a drawing that ran out of time, labels sized from the page's widths, a page that never
 // measures them and one that grants no idle time, a link that goes nowhere, a diagram that cannot
 // loosen its security, the layout a diagram asks for, and one worker for every window.
@@ -17,7 +18,9 @@ import { watchDiagramPalette } from "#renderer/components/Markdown/diagram/palet
 import {
   DiagramPictures,
   DiagramPicturesContext,
+  pictureBlobOf,
 } from "#renderer/components/Markdown/diagram/pictures.js";
+import { encodeDiagramPng } from "#renderer/components/Markdown/diagram/png/encoding.js";
 import { startDiagramWorker } from "#renderer/components/Markdown/diagram/worker/connection.js";
 import {
   drawDiagram,
@@ -50,6 +53,14 @@ const SCRIPT_LINK_SOURCE =
 
 /** The same links, under front matter that asks for the loose security level. */
 const LOOSE_SECURITY_SOURCE = `---\nconfig:\n  securityLevel: loose\n---\n${SCRIPT_LINK_SOURCE}`;
+
+/** A flowchart of thirty steps, drawn at twice its size taller than several strips. */
+const LONG_SOURCE = `flowchart TD\n${Array.from(
+  { length: 29 },
+  (_unused, step) =>
+    `  n${String(step)}[step ${String(step)}] --> n${String(step + 1)}[step ${String(step + 1)}]\n` +
+    `  n${String(step % 5)} --> n${String(step + 1)}`,
+).join("\n")}\n`;
 
 /** A flowchart with a node left open, which the parser refuses. */
 const REFUSED_SOURCE = "flowchart TD\n  A --> B\n  B --> [Fix it\n";
@@ -217,6 +228,46 @@ it("copies a mindmap as a picture with no HTML labels, which would taint the can
   const [content] = copied;
   const png = content !== undefined && "png" in content ? content.png : expect.fail("a PNG copy");
   expect([...png.slice(0, PNG_SIGNATURE.length)]).toStrictEqual(PNG_SIGNATURE);
+});
+
+it("copies a picture taller than one strip as the whole drawing, each strip's rows in place", async () => {
+  const pictures = new DiagramPictures(TEST_CACHE_BYTE_CAP, startDiagramWorker, keepUnusedMemory);
+  const outcome = await pictures.drawCopy(LONG_SOURCE, watchDiagramPalette(window).read());
+  const picture = outcome.kind === "drawn" ? outcome : expect.fail("the diagram is drawn");
+
+  const png = await encodeDiagramPng(picture, window);
+  const copied = await createImageBitmap(new Blob([png], { type: "image/png" }));
+  const scale = Math.max(window.devicePixelRatio, 2);
+  const width = Math.ceil(picture.width * scale);
+  const height = Math.ceil(picture.height * scale);
+  expect([copied.width, copied.height]).toStrictEqual([width, height]);
+  // The same picture painted whole on one canvas, as a picture small enough for one is.
+  const image = new Image();
+  const pictureUrl = URL.createObjectURL(pictureBlobOf(picture));
+  image.src = pictureUrl;
+  await image.decode();
+  URL.revokeObjectURL(pictureUrl);
+  const pixelsOf = (paint: (context: OffscreenCanvasRenderingContext2D) => void) => {
+    const canvas = new OffscreenCanvas(width, height);
+    const context = canvas.getContext("2d", { willReadFrequently: true }) ?? expect.fail("2d");
+    paint(context);
+    return context.getImageData(0, 0, width, height).data;
+  };
+  const whole = pixelsOf((context) => {
+    context.fillStyle = picture.groundColor;
+    context.fillRect(0, 0, width, height);
+    context.drawImage(image, 0, 0, width, height);
+  });
+  const fromStrips = pixelsOf((context) => {
+    context.drawImage(copied, 0, 0);
+  });
+  let differing = 0;
+  for (let index = 0; index < whole.length; index += 1) {
+    differing += whole[index] === fromStrips[index] ? 0 : 1;
+  }
+  // The graphics card may draw a curve the canvas's edge cuts a pixel apart; a strip out of place
+  // moves thousands.
+  expect(differing).toBeLessThan(whole.length / 100_000);
 });
 
 it("shows the parser's reason above the source of a diagram it refuses", async () => {

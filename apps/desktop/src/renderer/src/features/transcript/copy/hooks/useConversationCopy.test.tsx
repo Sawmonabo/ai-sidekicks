@@ -10,11 +10,7 @@ import { fireEvent, render } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type {
-  ClipboardContent,
-  LateClipboardContent,
-  TextClipboardContent,
-} from "#shared/preload-api.js";
+import type { ClipboardContent, TextClipboardContent } from "#shared/preload-api.js";
 import { piecedTextOf, TEXT_PIECE_LENGTH, type PiecedText } from "#renderer/lib/text-pieces.js";
 import { TASKS_AT_ONCE } from "#test/helpers/tasks-at-once.js";
 import { inThreadMarkdownWorker } from "#renderer/components/Markdown/worker/connection.test-support.js";
@@ -184,7 +180,7 @@ interface HeldClipboard {
  */
 function renderSession(rows = ROWS): {
   readonly native: ReturnType<typeof createFixtureBridge>["bridge"]["native"];
-  readonly lateContentOf: (content: LateClipboardContent) => ClipboardContent;
+  readonly lateContentOf: (copyId: string) => ClipboardContent;
   readonly clipboard: HeldClipboard;
   readonly copied: TextClipboardContent[];
   readonly formatted: TextClipboardContent[];
@@ -210,18 +206,18 @@ function renderSession(rows = ROWS): {
     land(content);
   });
   // A late copy's content, joined from the pieces sent ahead of it, as main joins it.
-  const lateContentOf = (content: LateClipboardContent): ClipboardContent =>
-    "copyId" in content ? fixture.clipboardPieces.contentOf(content.copyId) : content;
+  const lateContentOf = (copyId: string): ClipboardContent =>
+    fixture.clipboardPieces.contentOf(copyId);
   // Main's snapshot is the text held; a later write lands only while the clipboard still holds it.
   vi.spyOn(fixture.bridge.native, "takeClipboardSnapshot").mockImplementation(async () => ({
     digest: clipboard.text,
   }));
   vi.spyOn(fixture.bridge.native, "copyToClipboardUnlessChanged").mockImplementation(
-    async (content, since) => {
+    async (copyId, since) => {
       if (since.digest !== clipboard.text) {
         return false;
       }
-      land(lateContentOf(content));
+      land(lateContentOf(copyId));
       return true;
     },
   );
@@ -233,7 +229,8 @@ function renderSession(rows = ROWS): {
   const formatted: TextClipboardContent[] = [];
   // The formatted flavor joins the text only while the clipboard still holds it, as main's does.
   vi.spyOn(fixture.bridge.native, "addClipboardFormatting").mockImplementation(async (copyId) => {
-    const content = fixture.clipboardPieces.contentOf(copyId);
+    const held = fixture.clipboardPieces.contentOf(copyId);
+    const content = "text" in held ? held : expect.fail("the conversation copies text");
     fixture.clipboardPieces.drop(copyId);
     formatted.push(content);
     if (clipboard.text !== content.text) {
@@ -385,8 +382,8 @@ describe("⌘C in a session", () => {
     const { native, lateContentOf, copied, formatted, sessionDocument } = renderSession(LONG_ROWS);
     vi.spyOn(markdownWorker, "html").mockResolvedValue(piecedTextOf("<p>made by the worker</p>"));
     const textWrites: (() => void)[] = [];
-    vi.spyOn(native, "copyToClipboardUnlessChanged").mockImplementationOnce((content) => {
-      const written = lateContentOf(content);
+    vi.spyOn(native, "copyToClipboardUnlessChanged").mockImplementationOnce((copyId) => {
+      const written = lateContentOf(copyId);
       return new Promise((resolve) => {
         textWrites.push(() => {
           copied.push("text" in written ? written : expect.fail("the copy is text"));

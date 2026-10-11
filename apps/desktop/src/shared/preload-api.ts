@@ -132,30 +132,38 @@ export interface TextClipboardContent {
 }
 
 /**
- * What one copy puts on the clipboard: text with its formatted flavor, or a picture alone as PNG
- * bytes. A picture carries no text flavor, so a paste target that reads both never prefers text.
+ * A picture a copy puts on the clipboard, as PNG bytes. Its bytes reach main as `png` pieces, a
+ * piece a message, so no one message carries the whole picture.
  */
-export type ClipboardContent = TextClipboardContent | { readonly png: Uint8Array<ArrayBuffer> };
-
-/**
- * One piece of a late copy's text or of its formatted flavor, sent to main ahead of the write that
- * names the copy, so no one message carries a long text. `index` counts the flavor's pieces from
- * 0, and the text's first piece starts the copy, in place of any copy main holds.
- */
-export interface ClipboardPiece {
-  readonly copyId: string;
-  readonly flavor: "text" | "html";
-  readonly index: number;
-  readonly piece: string;
+export interface PictureClipboardContent {
+  readonly png: Uint8Array<ArrayBuffer>;
 }
 
 /**
- * What a late copy writes: the text and any formatted flavor whose pieces were sent under
- * `copyId`, or a picture alone as PNG bytes.
+ * What one copy puts on the clipboard: text with its formatted flavor, or a picture alone. A
+ * picture carries no text flavor, so a paste target that reads both never prefers text.
  */
-export type LateClipboardContent =
-  | { readonly copyId: string }
-  | Extract<ClipboardContent, { readonly png: unknown }>;
+export type ClipboardContent = TextClipboardContent | PictureClipboardContent;
+
+/**
+ * One piece of a late copy, sent to main ahead of the write that names the copy, so no one message
+ * carries a long text or a whole picture: a piece of its text or of its formatted flavor, or of a
+ * picture's PNG bytes. `index` counts the flavor's pieces from 0, and the first piece of the text
+ * or of the picture starts the copy, in place of any copy main holds.
+ */
+export type ClipboardPiece =
+  | {
+      readonly copyId: string;
+      readonly flavor: "text" | "html";
+      readonly index: number;
+      readonly piece: string;
+    }
+  | {
+      readonly copyId: string;
+      readonly flavor: "png";
+      readonly index: number;
+      readonly piece: Uint8Array<ArrayBuffer>;
+    };
 
 /**
  * What a clipboard held when a copy was asked for, as a digest main reads: the copy's content,
@@ -444,32 +452,32 @@ export interface PreloadApi {
     /** The operating system's notification permission for this app. */
     getNotificationPermission(): Promise<NotificationPermission>;
     /**
-     * Put the text, with its formatted flavor where one is given, or the PNG picture on the
-     * clipboard in one write: the system clipboard, or, named `"selection"`, the selection one a
-     * middle-click pastes, which Linux alone keeps and is refused elsewhere.
+     * Put the text, with its formatted flavor where one is given, on the clipboard in one write:
+     * the system clipboard, or, named `"selection"`, the selection one a middle-click pastes,
+     * which Linux alone keeps and is refused elsewhere.
      */
-    copyToClipboard(content: ClipboardContent, clipboard?: "selection"): Promise<void>;
+    copyToClipboard(content: TextClipboardContent, clipboard?: "selection"): Promise<void>;
     /**
      * What the system clipboard, or the selection one, holds now, for a copy whose content comes
      * later to write against; refused as `copyToClipboard` refuses the clipboard.
      */
     takeClipboardSnapshot(clipboard?: "selection"): Promise<ClipboardSnapshot>;
     /**
-     * Hand main one piece of a late copy's text or formatted flavor. Refused for a piece naming a
-     * copy main does not hold, and for one out of its flavor's order, which also lets the copy go.
+     * Hand main one piece of a late copy's text, formatted flavor or picture. Refused for a piece
+     * naming a copy main does not hold, and for one out of its flavor's order, which also lets the
+     * copy go.
      */
     sendClipboardPiece(piece: ClipboardPiece): Promise<void>;
     /** Let the pieces of the copy `copyId` names go, when main holds them. */
     dropClipboardPieces(copyId: string): Promise<void>;
     /**
-     * Put `content` on the clipboard `since` names in one write, only while that clipboard still
-     * holds what it held when `since` was taken; resolves `false`, writing nothing, once a newer
-     * copy, from this app or another, holds it. Refused for a copy whose pieces main does not hold.
+     * Put the copy whose pieces were sent under `copyId`, its text and formatted flavor or its
+     * picture, on the clipboard `since` names in one write, only while that clipboard still holds
+     * what it held when `since` was taken; resolves `false`, writing nothing, once a newer copy,
+     * from this app or another, holds it, or once its pieces were let go. Refused for a copy whose
+     * pieces main does not hold, and for a picture that is not a PNG.
      */
-    copyToClipboardUnlessChanged(
-      content: LateClipboardContent,
-      since: ClipboardSnapshot,
-    ): Promise<boolean>;
+    copyToClipboardUnlessChanged(copyId: string, since: ClipboardSnapshot): Promise<boolean>;
     /**
      * Put the formatted flavor whose pieces were sent under `copyId` beside the copy's text on the
      * system clipboard, in one write, only while the clipboard still holds that text, then let the
