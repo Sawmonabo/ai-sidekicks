@@ -56,6 +56,24 @@ export const TRANSCRIPT_DRAWN_BAND_SCREEN_HEIGHTS = 1;
 export const TRANSCRIPT_LEADING_BAND_SCREEN_HEIGHTS = 1.5;
 
 /**
+ * The furthest the side a fling moves toward reaches, in screen heights.
+ *
+ * A fling's leading side reaches as far as the box travels at its speed over
+ * `TRANSCRIPT_GESTURE_GAP_MS`, the longest gap between two samples still read as one gesture, so
+ * a frame the main thread draws late still lands on rows already drawn. Twice the leading band
+ * keeps a flick's draw bounded; a reach past the rows the window holds is clamped to them.
+ */
+export const TRANSCRIPT_FLING_BAND_MAX_SCREEN_HEIGHTS = 3;
+
+/**
+ * The step a fling's reach grows and shrinks by, in screen heights.
+ *
+ * Each change to the band redraws the list, so the reach moves a step at a time: a fling redraws
+ * it a few times as it speeds and slows rather than on every frame.
+ */
+export const TRANSCRIPT_FLING_BAND_STEP_SCREEN_HEIGHTS = 0.5;
+
+/**
  * How far the drawn band widens beyond each edge of the viewport per task after a land, in screen
  * heights.
  *

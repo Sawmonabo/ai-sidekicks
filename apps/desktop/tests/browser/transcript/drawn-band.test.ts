@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { userEvent } from "vitest/browser";
 
 import { letFramesPassUntil } from "../../helpers/animation-frame.js";
+import { TRANSCRIPT_LEADING_BAND_SCREEN_HEIGHTS } from "#renderer/features/transcript/viewport/caps.js";
 import { RealClock, type Clock, type ScheduledHandle } from "#renderer/lib/clock.js";
 import {
   FEED_HEIGHT_PX,
@@ -40,6 +41,8 @@ const CONTROL_FRAME_LIMIT = 120;
 const GESTURES_BEFORE_NEAR_END = 2;
 /** The wheel gestures before a take-back a case may start at, deep in the window's middle. */
 const GESTURES_BEFORE_MIDDLE = 8;
+/** How long a busy machine holds the page's main thread for one frame drawn late. */
+const LATE_FRAME_STALL_MS = 100;
 
 /**
  * The wall clock, except that its timeouts wait until the case runs them, so the band a land
@@ -237,6 +240,50 @@ async function wheelToTakeBack(scroller: HTMLElement, minimumGestureCount: numbe
   expect.fail("no gesture took rows back from the head");
 }
 
+/**
+ * Holds the page's main thread for `LATE_FRAME_STALL_MS` on one frame, as a busy machine draws a
+ * frame late while the compositor carries a fling on: the first frame after the box takes rows
+ * back at its head and moves half a screen further. `travelPx` answers how far the box moved
+ * from that frame to the next, `undefined` before the late frame has passed.
+ */
+function drawOneFrameLate(scroller: HTMLElement): {
+  readonly travelPx: () => number | undefined;
+  readonly stop: () => void;
+} {
+  const startScrollHeightPx = scroller.scrollHeight;
+  let isWatching = true;
+  let takenBackAtPx: number | undefined;
+  let lateAtPx: number | undefined;
+  let travelPx: number | undefined;
+  const onFrame = (): void => {
+    if (!isWatching) {
+      return;
+    }
+    const scrollTopPx = scroller.scrollTop;
+    if (lateAtPx !== undefined) {
+      travelPx ??= Math.abs(scrollTopPx - lateAtPx);
+    } else if (takenBackAtPx === undefined) {
+      if (scroller.scrollHeight > startScrollHeightPx) {
+        takenBackAtPx = scrollTopPx;
+      }
+    } else if (takenBackAtPx - scrollTopPx >= FEED_HEIGHT_PX / 2) {
+      lateAtPx = scrollTopPx;
+      const stallEndMs = performance.now() + LATE_FRAME_STALL_MS;
+      while (performance.now() < stallEndMs) {
+        // The main thread is busy; the compositor carries the fling on without it.
+      }
+    }
+    requestAnimationFrame(onFrame);
+  };
+  requestAnimationFrame(onFrame);
+  return {
+    travelPx: () => travelPx,
+    stop: () => {
+      isWatching = false;
+    },
+  };
+}
+
 /** The unfilled height of the box after every change to the rows while `drive` runs. */
 async function unfilledFramesPxDuring(
   scroller: HTMLElement,
@@ -361,6 +408,32 @@ describe("a land draws the rows the reader ends on first", () => {
       });
       // The control: the fling reached the head, taking rows back on the way.
       expect(scroller.scrollTop).toBe(0);
+      expect(unfilledFramesPx).toEqual([]);
+    },
+  );
+
+  it(
+    "fills the box when a frame of a touch fling is drawn late",
+    { timeout: CASE_TIMEOUT_MS },
+    async () => {
+      // The band's own steps never run, so only the fling's own scroll keeps it wide.
+      const { scroller } = await mountLongToolFeed(new HeldTimeoutClock());
+      await wheelToTakeBack(scroller, GESTURES_BEFORE_NEAR_END);
+      const lateFrame = drawOneFrameLate(scroller);
+      const unfilledFramesPx = await unfilledFramesPxDuring(scroller, async () => {
+        await touchFling(scroller, TOUCH_FLING_PX, QUICK_FLICK_SPEED);
+        await letFramesPassUntil(
+          () => scroller.scrollTop === 0,
+          CONTROL_FRAME_LIMIT,
+          "the fling never reached the head",
+        );
+      });
+      lateFrame.stop();
+      // The control: across the late frame the box moved further than the leading band reaches
+      // at rest, so a band sized from the window height alone leaves part of the box undrawn.
+      expect(lateFrame.travelPx()).toBeGreaterThan(
+        FEED_HEIGHT_PX * TRANSCRIPT_LEADING_BAND_SCREEN_HEIGHTS,
+      );
       expect(unfilledFramesPx).toEqual([]);
     },
   );

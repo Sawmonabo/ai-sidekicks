@@ -275,7 +275,7 @@ export class ViewportController {
       notePointerDown: (isDown) => {
         this.anchor.notePointerDown(isDown);
         if (isDown) {
-          this.#drawnBand.widenFully();
+          this.#drawnBand.notePress();
         }
       },
       selectWholeConversation: () => {

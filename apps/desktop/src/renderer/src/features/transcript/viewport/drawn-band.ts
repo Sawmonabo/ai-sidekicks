@@ -7,7 +7,8 @@
 // landing on its tail. A window nested in a row draws its own items within the same band, except
 // before the reader has moved one way: a fling's first frame can carry the box further than the
 // band before the next render draws, so each side the box can still move toward reaches as far as
-// the leading side does.
+// the leading side does. A fling's leading side reaches as far as its speed carries the box over a
+// late frame, a step at a time, and back once it slows or a press stops it.
 
 import { type Clock, type ScheduledHandle } from "#renderer/lib/clock.js";
 import {
@@ -17,6 +18,9 @@ import {
 import {
   TRANSCRIPT_BAND_WIDENING_SCREEN_HEIGHTS,
   TRANSCRIPT_DRAWN_BAND_SCREEN_HEIGHTS,
+  TRANSCRIPT_FLING_BAND_MAX_SCREEN_HEIGHTS,
+  TRANSCRIPT_FLING_BAND_STEP_SCREEN_HEIGHTS,
+  TRANSCRIPT_GESTURE_GAP_MS,
   TRANSCRIPT_LEADING_BAND_SCREEN_HEIGHTS,
 } from "./caps.js";
 import { type WindowSide } from "./window-cap.js";
@@ -52,6 +56,10 @@ export class ViewportDrawnBand {
   #isAtTail = false;
   /** The offset of the last sample, so a scroll event's sample tells which way the reader moved. */
   #lastScrollTopPx: number | undefined;
+  /** The scroll event time stamp of the last sample one published, so its speed is told. */
+  #lastInputAt: number | undefined;
+  /** How far the leading side reaches for the fling under way, in screen heights; `0` at rest. */
+  #flingScreenHeights = 0;
   #widening: ScheduledHandle | undefined;
   /** Whether a step found a land on its way and waits for `review` to find it landed. */
   #isWaitingForLand = false;
@@ -110,10 +118,17 @@ export class ViewportDrawnBand {
     }
   }
 
+  /** A press on the box: it stops a fling, so the leading side's reach goes back to rest. */
+  public notePress(): void {
+    this.#flingScreenHeights = 0;
+    this.widenFully();
+  }
+
   /**
    * A geometry sample: one a scroll event published is the reader's own scroll, a fling's after
-   * the hand let go among them, which sends no input, so it widens the band as input does. The
-   * transcript's own writes publish theirs without an event, and only move the offset compared.
+   * the hand let go among them, which sends no input, so it widens the band as input does, and
+   * its travel since the last such sample sets the fling's reach. The transcript's own writes
+   * publish theirs without an event, and only move the offset compared.
    */
   public observeGeometry(geometry: ScrollGeometry): void {
     const lastScrollTopPx = this.#lastScrollTopPx;
@@ -127,6 +142,16 @@ export class ViewportDrawnBand {
       }
       return;
     }
+    const lastInputAt = this.#lastInputAt;
+    this.#lastInputAt = geometry.inputAt;
+    this.#flingScreenHeights = flingScreenHeightsAfter(
+      this.#flingScreenHeights,
+      flingReachScreenHeights(
+        Math.abs(geometry.scrollTop - lastScrollTopPx),
+        lastInputAt === undefined ? undefined : geometry.inputAt - lastInputAt,
+        geometry.viewportHeight,
+      ),
+    );
     this.widenFully(
       geometry.scrollTop < lastScrollTopPx
         ? "head"
@@ -188,10 +213,13 @@ export class ViewportDrawnBand {
     return true;
   }
 
-  /** The leading side's width: further than the others only once the band is whole. */
+  /**
+   * The leading side's width: further than the others only once the band is whole, and further
+   * still while a fling carries the box.
+   */
   #leadingScreenHeights(): number {
     return this.#sideScreenHeights === TRANSCRIPT_DRAWN_BAND_SCREEN_HEIGHTS
-      ? TRANSCRIPT_LEADING_BAND_SCREEN_HEIGHTS
+      ? Math.max(TRANSCRIPT_LEADING_BAND_SCREEN_HEIGHTS, this.#flingScreenHeights)
       : this.#sideScreenHeights;
   }
 
@@ -227,6 +255,42 @@ export class ViewportDrawnBand {
       this.#widening = undefined;
     }
   }
+}
+
+/**
+ * How far the box travels over the longest gap still read as one gesture, at the speed of
+ * `travelPx` over `gapMs`, in screen heights; `0` for a gesture's first sample or a hidden box.
+ */
+function flingReachScreenHeights(
+  travelPx: number,
+  gapMs: number | undefined,
+  viewportHeightPx: number,
+): number {
+  if (
+    gapMs === undefined ||
+    gapMs <= 0 ||
+    gapMs > TRANSCRIPT_GESTURE_GAP_MS ||
+    viewportHeightPx <= 0
+  ) {
+    return 0;
+  }
+  return (travelPx / gapMs) * (TRANSCRIPT_GESTURE_GAP_MS / viewportHeightPx);
+}
+
+/**
+ * The fling's reach after a sample asking `reachScreenHeights`, a whole step up at once and down
+ * only once the ask is two steps under, so a speed that wavers by a step redraws nothing.
+ */
+function flingScreenHeightsAfter(currentScreenHeights: number, reachScreenHeights: number): number {
+  const step = TRANSCRIPT_FLING_BAND_STEP_SCREEN_HEIGHTS;
+  const askedScreenHeights = Math.min(
+    TRANSCRIPT_FLING_BAND_MAX_SCREEN_HEIGHTS,
+    Math.ceil(reachScreenHeights / step) * step,
+  );
+  return askedScreenHeights > currentScreenHeights ||
+    askedScreenHeights <= currentScreenHeights - 2 * step
+    ? askedScreenHeights
+    : currentScreenHeights;
 }
 
 function isSameBand(left: DrawnBandScreenHeights, right: DrawnBandScreenHeights): boolean {

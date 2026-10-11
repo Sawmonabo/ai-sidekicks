@@ -297,7 +297,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the app held open", () => {
         ).toBeLessThan(transcriptWindow.totalRowCount);
         // Bounded by the box plus its declared band: the rows the box intersects, and either side
         // the rows within the leading side's `TRANSCRIPT_LEADING_BAND_SCREEN_HEIGHTS` of the
-        // box's own height, the furthest either side reaches.
+        // box's own height, the furthest either side reaches at rest; only a fling reaches further.
         expect(
           transcriptWindow.drawnBandPx,
           "the transcript drew further than its band beyond the rows the box intersects",
