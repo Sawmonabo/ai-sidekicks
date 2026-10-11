@@ -33,7 +33,11 @@ import { replyClipboardContent } from "../copy/clipboard-flavors.js";
 import { COPY_FLAVOR_ATTRIBUTE } from "../copy/conversation-selection.js";
 import { replyCopyFlavorOf } from "../copy/drawn-reply-text.js";
 import { useReplyText } from "../copy/hooks/useReplyText.js";
-import { publishedTextOf, type PublishedText } from "../reveal/published-text.js";
+import {
+  piecedTextOfPublished,
+  publishedTextOf,
+  type PublishedText,
+} from "../reveal/published-text.js";
 
 /** What a mount hands a message card, beyond the row itself. */
 export interface MessageRowProps extends TranscriptCardProps {
@@ -92,7 +96,7 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
   );
   const clipboardCopy = useClipboardCopy(() => {
     if (!isReply) {
-      return { text: copyText?.slice(0) ?? "" };
+      return copyText === undefined ? { text: "" } : { text: piecedTextOfPublished(copyText) };
     }
     const wholeReply = replyText.read();
     return replyText.flavor === "markdown"

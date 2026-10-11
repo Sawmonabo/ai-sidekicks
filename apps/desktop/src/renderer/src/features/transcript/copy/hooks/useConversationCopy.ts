@@ -11,6 +11,7 @@ import { type TranscriptPageRead } from "#renderer/services/daemon/transcript/pa
 import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
 import {
   copyOnceBuilt,
+  copyReadyContent,
   type PiecedTextClipboardContent,
 } from "#renderer/services/platform/clipboard/late-copy.js";
 import { primarySelectionFor } from "#renderer/services/platform/primary-selection/host.js";
@@ -323,14 +324,6 @@ export function useConversationCopy(source: ConversationCopySource): void {
     const sayCopyFailed = (): void => {
       announce(COPY_FAILED_ANNOUNCEMENT, "assertive");
     };
-    // A copy built within its slice is short, so it goes as one message.
-    const write = ({ text, html }: PiecedTextClipboardContent): void => {
-      bridge.native
-        .copyToClipboard(
-          html === undefined ? { text: text.text } : { text: text.text, html: html.text },
-        )
-        .catch(sayCopyFailed);
-    };
     // The plain text first, once every row is read, then its formatted flavor beside it while the
     // clipboard still holds that text; a copy whose text and flavor come together is one write.
     // Each write lands only while no newer copy, from any app, took the clipboard.
@@ -391,7 +384,7 @@ export function useConversationCopy(source: ConversationCopySource): void {
         }
         if (building.content !== undefined) {
           event.preventDefault();
-          write(building.content);
+          copyReadyContent(bridge, ownerWindow, building.content).catch(sayCopyFailed);
         }
         return;
       }

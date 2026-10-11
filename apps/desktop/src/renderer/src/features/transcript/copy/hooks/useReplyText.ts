@@ -1,6 +1,7 @@
 import { useCallback, useContext, useEffect, useSyncExternalStore } from "react";
 
 import type { Unsubscribe } from "#shared/preload-api.js";
+import { joinIntoPieces, type PiecedText } from "#renderer/lib/text-pieces.js";
 import { RowRevealContext } from "../../reveal/components/RowRevealProvider.js";
 import { type CopyFlavor } from "#renderer/components/Markdown/drawn-text.js";
 import { PART_SEPARATOR } from "../conversation-selection.js";
@@ -11,9 +12,9 @@ import { replyRowTextOf } from "../row-text.js";
 export interface ReplyText {
   /**
    * The whole reply's text, for its Copy: each of the reply's rows that has drawn text, in log
-   * order, joined by a blank line. Built when called, for the copy alone.
+   * order, a blank line between each, held in pieces. Built when called, for the copy alone.
    */
-  readonly read: () => string;
+  readonly read: () => PiecedText;
   /**
    * Whether any of the reply's rows has drawn text, even text since dropped from its row, so the
    * foot, its time and its Copy stay for the rest of the turn once drawn.
@@ -67,9 +68,11 @@ export function useReplyText(
   const parts = drawnPartsOf(replyRowIds, partOf);
   const read = useCallback(
     () =>
-      drawnPartsOf(replyRowIds, partOf)
-        .map((part) => part.text.slice(0))
-        .join(PART_SEPARATOR),
+      joinIntoPieces(
+        drawnPartsOf(replyRowIds, partOf)
+          .flatMap((part) => [PART_SEPARATOR, ...part.text.chunks()])
+          .slice(1),
+      ),
     [replyRowIds, partOf],
   );
   return {

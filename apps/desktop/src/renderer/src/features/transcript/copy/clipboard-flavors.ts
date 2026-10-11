@@ -3,25 +3,23 @@
 // never copied from the screen, so it carries no app classes, and it follows the screen's own
 // policy.
 
-import type { TextClipboardContent } from "#shared/preload-api.js";
 import {
   makeMarkdownHtml,
   markdownWorker,
 } from "#renderer/components/Markdown/worker/connection.js";
-import { piecedTextOf } from "#renderer/lib/text-pieces.js";
+import type { PiecedText } from "#renderer/lib/text-pieces.js";
 import type { PiecedTextClipboardContent } from "#renderer/services/platform/clipboard/late-copy.js";
 
 /**
- * A reply's two flavors: the markdown as written, and the formatted flavor made from it, at once
- * for a short reply and, in pieces, by the markdown worker for a long one, rejecting when the
+ * A reply's two flavors, each in pieces: the markdown as written, and the formatted flavor made
+ * from it, at once for a short reply and by the markdown worker for a long one, rejecting when the
  * worker fails.
  */
 export function replyClipboardContent(
-  markdown: string,
-): TextClipboardContent | Promise<PiecedTextClipboardContent> {
-  const text = piecedTextOf(markdown);
-  const html = makeMarkdownHtml(markdown, markdownWorker, text.pieces);
+  markdown: PiecedText,
+): PiecedTextClipboardContent | Promise<PiecedTextClipboardContent> {
+  const html = makeMarkdownHtml(markdown.text, markdownWorker, markdown.pieces);
   return html instanceof Promise
-    ? html.then((madeHtml) => ({ text, html: madeHtml }))
-    : { text: markdown, html: html.text };
+    ? html.then((madeHtml) => ({ text: markdown, html: madeHtml }))
+    : { text: markdown, html };
 }

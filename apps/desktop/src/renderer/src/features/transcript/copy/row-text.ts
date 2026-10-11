@@ -21,7 +21,11 @@ import { readWireString } from "#renderer/lib/wire/strings.js";
 import { projectedPayload } from "#renderer/store/session/events/wire-payload.js";
 import { SUPERSEDED_MARK_LABEL } from "../components/TranscriptRowLayout/TranscriptRowLayout.js";
 import { type RowRevealContextValue } from "../reveal/components/RowRevealProvider.js";
-import { publishedTextOf, type PublishedText } from "../reveal/published-text.js";
+import {
+  piecedTextOfPublished,
+  publishedTextOf,
+  type PublishedText,
+} from "../reveal/published-text.js";
 import { carriesAnsiEscapes, withoutResidualEscapes } from "../rows/ansi/escape-sequences.js";
 import { UNREAD_BODY_TITLE } from "../rows/bodies/MachineBody.js";
 import { UNAVAILABLE_BODY_TITLE } from "../rows/bodies/UnavailableBody.js";
@@ -89,7 +93,7 @@ export function readRowText(rowKey: string, sources: RowTextSources): SelectedPa
     case "agent-message": {
       const body = rowBodyOf(row, sources);
       if (body?.from === "drawing") {
-        return { flavor: body.flavor, text: body.text.slice(0) };
+        return { flavor: body.flavor, ...piecedTextOfPublished(body.text) };
       }
       const content = loggedContentOf(row, sources);
       const stored = storedBodyOf(content);

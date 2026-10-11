@@ -15,7 +15,7 @@ import type {
   LateClipboardContent,
   TextClipboardContent,
 } from "#shared/preload-api.js";
-import { piecedTextOf, type PiecedText } from "#renderer/lib/text-pieces.js";
+import { piecedTextOf, TEXT_PIECE_LENGTH, type PiecedText } from "#renderer/lib/text-pieces.js";
 import { TASKS_AT_ONCE } from "#test/helpers/tasks-at-once.js";
 import { inThreadMarkdownWorker } from "#renderer/components/Markdown/worker/connection.test-support.js";
 import {
@@ -35,6 +35,7 @@ import { FootnoteRegistry } from "../../rows/markdown/footnotes/registry.js";
 import { DrawnLongTables } from "../../rows/markdown/table-window/drawn-tables.js";
 import { ViewportSelectionTracker } from "../../viewport/selection/tracker.js";
 import { deriveTranscriptWindow } from "../../window/transcript-window.js";
+import { type SelectedPart } from "../conversation-selection.js";
 import { useConversationCopy } from "./useConversationCopy.js";
 
 const USER_MESSAGE = "please rename the reader";
@@ -70,6 +71,25 @@ const LONG_ROWS = [
   sampleUserMessageRow({ id: "event-04", message: CLOSING_MESSAGE }),
 ];
 
+/** A person's message longer than one piece of text, which a copy reads as a whole row. */
+const LONG_MESSAGE = `Long message ${"plain words ".repeat(TEXT_PIECE_LENGTH / 6)}message end`;
+
+/**
+ * The person's message, a long message of theirs, and their closing message: a copy across all
+ * three is plain text alone, built at once.
+ */
+const LONG_MESSAGE_ROWS = [
+  ROWS[0] ?? expect.fail("the person's message is a row"),
+  sampleUserMessageRow({ id: "event-05", message: LONG_MESSAGE }),
+  sampleUserMessageRow({ id: "event-06", message: CLOSING_MESSAGE }),
+];
+
+/** The whole text of each row a copy reads between its ends, by its id. */
+const MIDDLE_ROW_PARTS: ReadonlyMap<string, SelectedPart> = new Map([
+  [LONG_ROWS[1]?.id ?? "", { flavor: "markdown", text: LONG_REPLY }],
+  [LONG_MESSAGE_ROWS[1]?.id ?? "", { flavor: "text", text: LONG_MESSAGE }],
+]);
+
 /** No log behind the rows: the store holds both, so nothing is read back. */
 const NO_WINDOW = deriveTranscriptWindow([], {});
 
@@ -101,11 +121,8 @@ function Conversation(props: { readonly rows: typeof ROWS }): React.JSX.Element 
         );
       }),
     rowSourceWindows: { unfurledWindow: NO_WINDOW, transcriptWindow: NO_WINDOW },
-    // Only the long reply is ever a row between a copy's ends.
-    rowText: (rowKey) =>
-      rowKey === LONG_ROWS[1]?.id
-        ? { flavor: "markdown", text: LONG_REPLY }
-        : expect.fail(`${rowKey} is an end row`),
+    // Only a long row is ever a row between a copy's ends.
+    rowText: (rowKey) => MIDDLE_ROW_PARTS.get(rowKey) ?? expect.fail(`${rowKey} is an end row`),
     rowBodyText: () => expect.fail("neither row draws a large body"),
     largeBodyRowIdOf: () => undefined,
     fullBodyReads: undefined,
@@ -288,6 +305,32 @@ describe("⌘C in a session", () => {
     expect(clipboard.text).toBe(copied[0]?.text);
     expect(clipboard.html).toContain("<strong>the plan</strong>");
     expect(clipboard.html).toContain(`<p>${USER_MESSAGE}</p>`);
+  });
+
+  it("sends a copy built at once but longer than one piece to main in pieces", async () => {
+    const { native, copied, sessionDocument } = renderSession(LONG_MESSAGE_ROWS);
+    // Every slice has time, so the copy is built within the slice ⌘C starts it in.
+    vi.spyOn(performance, "now").mockReturnValue(0);
+    const pieceLengths: number[] = [];
+    const sendPiece = native.sendClipboardPiece.bind(native);
+    vi.spyOn(native, "sendClipboardPiece").mockImplementation(async (piece) => {
+      pieceLengths.push(piece.piece.length);
+      await sendPiece(piece);
+    });
+    const start = textNodeHolding(sessionDocument, USER_MESSAGE);
+    const end = textNodeHolding(sessionDocument, CLOSING_MESSAGE);
+    sessionDocument.getSelection()?.setBaseAndExtent(start, 0, end, end.length);
+
+    fireEvent.copy(start);
+
+    await vi.waitFor(() => {
+      expect(copied).toHaveLength(1);
+    });
+    expect(copied).toStrictEqual([
+      { text: `${USER_MESSAGE}\n\n${LONG_MESSAGE}\n\n${CLOSING_MESSAGE}` },
+    ]);
+    expect(pieceLengths.length).toBeGreaterThan(1);
+    expect(pieceLengths.filter((length) => length > TEXT_PIECE_LENGTH)).toStrictEqual([]);
   });
 
   it("writes a long part's text at once, and adds its formatting unless a newer copy took over", async () => {

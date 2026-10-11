@@ -4,7 +4,7 @@
 import { formatByteQuantity } from "#renderer/lib/wire/figures.js";
 import type { TranscriptRowContent } from "@ai-sidekicks/contracts/transcript/content";
 import { act, fireEvent, render, renderHook, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 
 import {
   inlineCardRegistry,
@@ -17,6 +17,8 @@ import {
 import type { ClipboardContent } from "#shared/preload-api.js";
 import { FixtureBridgeProvider } from "#test/helpers/app/frame-fixtures.js";
 import { ManualClock } from "#renderer/lib/clock.js";
+import { TEXT_PIECE_LENGTH } from "#renderer/lib/text-pieces.js";
+import { TASKS_AT_ONCE } from "#test/helpers/tasks-at-once.js";
 import { MessageRow } from "./MessageRow.js";
 import { classifyTranscriptRow } from "./kind.js";
 import { FootnoteRegistry } from "./markdown/footnotes/registry.js";
@@ -234,6 +236,42 @@ describe("a message's Copy", () => {
     const copied = await pressCopy({ message: "Rename **the reader**" });
 
     expect(copied).toStrictEqual([{ text: "Rename **the reader**" }]);
+  });
+
+  it("sends a plain-text reply longer than one piece to main in pieces, and writes it whole", async () => {
+    // happy-dom schedules no tasks; the pieces are sent in slices.
+    vi.stubGlobal("scheduler", TASKS_AT_ONCE.scheduler);
+    onTestFinished(() => {
+      vi.unstubAllGlobals();
+    });
+    const reply = `Opening ${"a line of output\n".repeat(TEXT_PIECE_LENGTH / 8)}done`;
+    const fixture = createFixtureBridge({ scenario: FIRST_RUN_SCENARIO });
+    const copied: ClipboardContent[] = [];
+    vi.spyOn(fixture.bridge.native, "copyToClipboard").mockImplementation(async (content) => {
+      copied.push(content);
+    });
+    const pieceLengths: number[] = [];
+    const sendPiece = fixture.bridge.native.sendClipboardPiece.bind(fixture.bridge.native);
+    vi.spyOn(fixture.bridge.native, "sendClipboardPiece").mockImplementation(async (piece) => {
+      pieceLengths.push(piece.piece.length);
+      await sendPiece(piece);
+    });
+    renderMessageCard({
+      id: "reply-long",
+      payload: { contentType: "text/plain" },
+      content: { status: "available", body: reply },
+      replyRowIds: ["reply-long"],
+      fixture,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+
+    await vi.waitFor(() => {
+      expect(copied).toHaveLength(1);
+    });
+    expect(copied).toStrictEqual([{ text: reply }]);
+    expect(pieceLengths.length).toBeGreaterThan(1);
+    expect(pieceLengths.filter((length) => length > TEXT_PIECE_LENGTH)).toStrictEqual([]);
   });
 });
 

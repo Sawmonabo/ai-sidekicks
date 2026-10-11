@@ -1,13 +1,13 @@
 // A copy whose content comes after it was asked for, as a long selection's text read in slices
-// or a picture's encoding does. Main reads what the clipboard holds when the copy is asked for,
-// and the content, once made, is written only while the clipboard still holds that, so a copy
-// made meanwhile, in this app or another, stands. The content's text and formatted flavor go to
-// main a few pieces a slice before the write that names them, so no message, and no task on the
-// page, grows with the text; main holds one copy's pieces at a time, and a copy that settles lets
-// its pieces go. Until a system-clipboard copy has written or given up it is held in the bridge's
-// pending copies, which a paste in this app waits for.
+// or a picture's encoding does, or whose text is ready but too long for one message. Main reads
+// what the clipboard holds when the copy is asked for, and the content is written only while the
+// clipboard still holds that, so a copy made meanwhile, in this app or another, stands. The
+// content's text and formatted flavor go to main a few pieces a slice before the write that names
+// them, so no message, and no task on the page, grows with the text; main holds one copy's pieces
+// at a time, and a copy that settles lets its pieces go. Until a system-clipboard copy has written
+// or given up it is held in the bridge's pending copies, which a paste in this app waits for.
 
-import type { PiecedText } from "#renderer/lib/text-pieces.js";
+import { piecedTextOf, TEXT_PIECE_LENGTH, type PiecedText } from "#renderer/lib/text-pieces.js";
 import { workInSlices } from "#renderer/lib/work-slices.js";
 import type { ClipboardContent, ClipboardPiece } from "#shared/preload-api.js";
 import type { PlatformBridge } from "../bridge.js";
@@ -31,6 +31,9 @@ export type LateClipboardWrite = (content: PiecedClipboardContent) => Promise<bo
  * holds that text: whether it was added.
  */
 export type LateClipboardFormatting = (html: PiecedText) => Promise<boolean>;
+
+/** Content ready when its copy is asked for: text and any formatted flavor, whole or in pieces. */
+export type ReadyClipboardContent = ClipboardContent | PiecedClipboardContent;
 
 /**
  * Starts a copy now whose content `build` writes later through the write it is handed, which
@@ -90,6 +93,43 @@ export async function copyOnceBuilt<Result>(
       await bridge.native.dropClipboardPieces(copyId);
     }
   }
+}
+
+/**
+ * Puts content ready now on the system clipboard: a picture, or text whose flavors together fit
+ * one piece, as one message; longer text sent in pieces a few a slice in `view` and written as a
+ * late copy's is, so no message, and no task on the page, grows with the text, and a paste in this
+ * app waits for it. Resolves whether it was written: `false` once a newer copy took the clipboard
+ * while the pieces were sent. Rejects when main refuses a piece or the write.
+ */
+export async function copyReadyContent(
+  bridge: PlatformBridge,
+  view: Window,
+  content: ReadyClipboardContent,
+): Promise<boolean> {
+  if ("png" in content) {
+    await bridge.native.copyToClipboard(content);
+    return true;
+  }
+  const text = wholeTextOf(content.text);
+  const html = content.html === undefined ? undefined : wholeTextOf(content.html);
+  if (text.length + (html?.length ?? 0) <= TEXT_PIECE_LENGTH) {
+    await bridge.native.copyToClipboard(html === undefined ? { text } : { text, html });
+    return true;
+  }
+  const pieced: PiecedTextClipboardContent =
+    content.html === undefined
+      ? { text: piecedOf(content.text) }
+      : { text: piecedOf(content.text), html: piecedOf(content.html) };
+  return await copyOnceBuilt(bridge, view, (write) => write(pieced));
+}
+
+function wholeTextOf(text: string | PiecedText): string {
+  return typeof text === "string" ? text : text.text;
+}
+
+function piecedOf(text: string | PiecedText): PiecedText {
+  return typeof text === "string" ? piecedTextOf(text) : text;
 }
 
 /**
