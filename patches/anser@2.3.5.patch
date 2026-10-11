@@ -1,0 +1,57 @@
+diff --git a/lib/index.js b/lib/index.js
+index 04384163ef504dc1a300404bc47d58cd980b24bc..de2e2e6222e68afac00aabff17bee3061ac95168 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -370,23 +370,23 @@ class Anser {
+                 self.fg = self.bg = null;
+                 self.decorations = [];
+             } else if (num === 1) {
+-                self.decorations.push("bold");
++                self.addDecoration("bold");
+             } else if (num === 2) {
+-                self.decorations.push("dim");
++                self.addDecoration("dim");
+             // Enable code 2 to get string
+             } else if (num === 3) {
+-                  self.decorations.push("italic");
++                  self.addDecoration("italic");
+             } else if (num === 4) {
+-                self.decorations.push("underline");
++                self.addDecoration("underline");
+             } else if (num === 5) {
+-                self.decorations.push("blink");
++                self.addDecoration("blink");
+             } else if (num === 7) {
+-                self.decorations.push("reverse");
++                self.addDecoration("reverse");
+             } else if (num === 8) {
+-                self.decorations.push("hidden");
++                self.addDecoration("hidden");
+             // Enable code 9 to get strikethrough
+             } else if (num === 9) {
+-                self.decorations.push("strikethrough");
++                self.addDecoration("strikethrough");
+             /**
+              * Add several widely used style codes
+              * @see https://en.wikipedia.org/wiki/ANSI_escape_code#SGR_(Select_Graphic_Rendition)_parameters
+@@ -622,11 +622,18 @@ class Anser {
+         }
+     }
+ 
++    addDecoration(decoration) {
++        if (this.decorations.indexOf(decoration) < 0) {
++            this.decorations.push(decoration);
++        }
++    }
++
+     removeDecoration(decoration) {
+-        const index = this.decorations.indexOf(decoration);
++        let index = this.decorations.indexOf(decoration);
+ 
+-        if (index >= 0) {
++        while (index >= 0) {
+             this.decorations.splice(index, 1);
++            index = this.decorations.indexOf(decoration);
+         }
+     }
+ }

@@ -1,8 +1,10 @@
 // A long command output drawn as a window over its chunks of lines in a scroller, as the transcript
 // draws it, in the engine that lays it out: a selection dragged from one line to another far past
 // the window copies every line between from the output's chunks, assistive technology is told the
-// output's name and reads its drawn lines as the output holds them, never a spacer, and the
-// output's whole height is laid out, its undrawn lines measured off screen, before any scroll.
+// output's name and reads its drawn lines as the output holds them, never a spacer, the output's
+// whole height is laid out, its undrawn lines measured off screen, before any scroll, and an
+// output that sets a style again and again and never resets it mounts in heap that grows with its
+// text alone.
 
 import { act, render, within } from "@testing-library/react";
 import { describe, expect, it, onTestFinished } from "vitest";
@@ -50,8 +52,11 @@ const OUTPUT = LINES.map(
     `${ESCAPE}[3${String(index % 8)}m${index % 7 === 0 ? `${ESCAPE}[1m` : ""}${line}`,
 ).join("\n");
 
-/** Draws the output in a scroller inside a viewport, as the transcript draws a tool's row. */
-async function mountOutput(): Promise<{
+/**
+ * Draws `output`, the suite's own unless given, in a scroller inside a viewport, as the transcript
+ * draws a tool's row.
+ */
+async function mountOutput(output: string = OUTPUT): Promise<{
   readonly scroller: HTMLElement;
   readonly row: HTMLElement;
   readonly sources: DrawnWindowSources;
@@ -99,7 +104,7 @@ async function mountOutput(): Promise<{
       >
         <MarkdownWindowViewportContext value={viewport}>
           <DrawnWindowSourcesContext value={sources}>
-            <AnsiOutput publishedText={publishedTextOf(OUTPUT)} label={LABEL} rowKey={ROW_KEY} />
+            <AnsiOutput publishedText={publishedTextOf(output)} label={LABEL} rowKey={ROW_KEY} />
           </DrawnWindowSourcesContext>
         </MarkdownWindowViewportContext>
       </div>
@@ -153,6 +158,44 @@ async function scrollToLine(
   throw new Error(`line ${String(index)} never drew`);
 }
 
+/**
+ * The page's heap in use after a full collection. The browser tiers run Chromium with `gc()`
+ * exposed and `performance.memory` precise, so the reading is exact and taken now.
+ */
+function collectedHeapBytes(): number {
+  const { gc } = globalThis as { gc?: () => void };
+  const { memory } = performance as { memory?: { readonly usedJSHeapSize: number } };
+  if (gc === undefined || memory === undefined) {
+    return expect.fail("the page cannot collect its garbage and read its heap");
+  }
+  gc();
+  return memory.usedJSHeapSize;
+}
+
+/**
+ * Eight mebibytes of the suite's colored lines, numbered on past its own: every seventh sets bold
+ * again and none resets it, so one style stays open the whole way, set over and over.
+ */
+function eightMebibytesWithStyleLeftOpen(): string {
+  const lines: string[] = [];
+  let length = 0;
+  for (let index = 0; length < 8 * 1_048_576; index += 1) {
+    const line =
+      `${ESCAPE}[3${String(index % 8)}m${index % 7 === 0 ? `${ESCAPE}[1m` : ""}` +
+      `L${String(index).padStart(6, "0")}: done`;
+    lines.push(line);
+    length += line.length + 1;
+  }
+  return lines.join("\n");
+}
+
+/**
+ * The most heap a mounted output may keep for each character of its text: a few dozen bytes hold
+ * a character in its spans and chunks, where a style list copied into every run the style spans
+ * would take gigabytes.
+ */
+const KEPT_HEAP_BYTES_PER_CHARACTER = 32;
+
 /** Waits until no chunk has stood in the measuring frames for a few frames running. */
 async function settleMeasuring(): Promise<void> {
   for (let quietRounds = 0, round = 0; quietRounds < 3; round += 1) {
@@ -168,6 +211,16 @@ async function settleMeasuring(): Promise<void> {
 }
 
 describe("browser — a long command output drawn as a window over its lines", () => {
+  it("mounts 8 MiB that never resets a style it sets again and again in heap that grows with its text", async () => {
+    const output = eightMebibytesWithStyleLeftOpen();
+    const heapBeforeBytes = collectedHeapBytes();
+    const { row } = await mountOutput(output);
+    const keptHeapBytes = collectedHeapBytes() - heapBeforeBytes;
+    // The style is still open at the top: the first line set bold is drawn bold.
+    expect(row.querySelector(".meridian-ansi--bold")?.textContent).toBe("L000000: done\n");
+    expect(keptHeapBytes).toBeLessThan(KEPT_HEAP_BYTES_PER_CHARACTER * output.length);
+  });
+
   it("lays out the whole output's height before any scroll, its undrawn lines measured off screen", async () => {
     const { scroller, row } = await mountOutput();
     // The same output drawn whole, at the same width, outside any window.

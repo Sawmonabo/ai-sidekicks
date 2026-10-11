@@ -104,6 +104,20 @@ describe("parsing ANSI output", () => {
     }
   });
 
+  it("draws text normal once its style is cleared, however often the style was set", () => {
+    // A terminal holds a style as on or off: setting bold twice and clearing it once leaves it off.
+    const spans = wholeParse(
+      `${ESCAPE}[1m${ESCAPE}[1mbold ${ESCAPE}[22mnormal ` +
+        `${ESCAPE}[3;3;23mupright ${ESCAPE}[4m${ESCAPE}[4m${ESCAPE}[24mplain`,
+    );
+    expect(spans.map((span) => [span.text, span.decorations])).toEqual([
+      ["bold ", ["bold"]],
+      ["normal ", []],
+      ["upright ", []],
+      ["plain", []],
+    ]);
+  });
+
   it("parses a growing output a part at a time into what one parse of the whole draws", () => {
     // Red opens before a boundary and closes after it, and growth steps stop inside an escape and
     // past a line end inside a run, where an OSC sequence crossing the end is stripped whole; the

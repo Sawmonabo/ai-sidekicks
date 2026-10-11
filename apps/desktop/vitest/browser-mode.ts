@@ -76,7 +76,9 @@ export const BROWSER_MODE_VIEWPORT = { width: 1440, height: 900 };
  * with "the project name ... was already defined".
  *
  * `screenshotFailures` is off so a failing test writes no picture into a `__screenshots__` folder
- * beside it in the source tree.
+ * beside it in the source tree. Chromium runs with `gc()` exposed and `performance.memory` precise,
+ * so a test can read the heap a mount keeps after a full collection: by default the reading is
+ * rounded and cached, and stands still while the heap grows.
  */
 export function browserModeOptions(): {
   enabled: true;
@@ -88,7 +90,9 @@ export function browserModeOptions(): {
 } {
   return {
     enabled: true,
-    provider: playwright(),
+    provider: playwright({
+      launchOptions: { args: ["--enable-precise-memory-info", "--js-flags=--expose-gc"] },
+    }),
     headless: true,
     screenshotFailures: false,
     viewport: { ...BROWSER_MODE_VIEWPORT },
