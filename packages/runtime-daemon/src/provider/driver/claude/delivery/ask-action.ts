@@ -1,7 +1,8 @@
 // What a Claude Code tool call held on a permission ask would do, read from its tool and input,
 // and the scopes a rule on it may take: Claude Code keeps a rule of every kind for the session and
 // in the project's `.claude/settings.local.json`, but none on the plan it asks to leave plan mode
-// with, which is a verdict and not a permission.
+// with, which is a verdict and not a permission, and none on a call its own safety check flagged
+// (`suppress_always_allow_rule`), which only a person may allow, each time.
 
 import type { RememberedScopeKind } from "@ai-sidekicks/contracts/approval";
 
@@ -19,21 +20,34 @@ const CLAUDE_READ_PATH_MEMBER_BY_TOOL: ReadonlyMap<string, string> = new Map([
 
 const EVERY_RULE_SCOPE: readonly RememberedScopeKind[] = ["session", "project"];
 
-/** What a held Claude Code call would do, and the scopes a rule on it may take. */
+// The member of an ask Claude Code's safety check set to offer no standing allow.
+const CLAUDE_SUPPRESS_ALLOW_MEMBER = "suppress_always_allow_rule";
+
+/**
+ * What a held Claude Code call would do, the scopes a rule on it may take, and whether Claude Code
+ * flagged it as one no standing allow may answer.
+ */
 export interface ClaudeAskReading {
   readonly action: ProviderAskAction;
   readonly ruleScopes: readonly RememberedScopeKind[];
+  readonly isProviderFlagged: boolean;
 }
 
-/** Reads a held call's action from Claude Code's own tool name and input. */
+/** Reads a held call's action from its `can_use_tool` request's tool name, input and flags. */
 export function readClaudeAskAction(
   toolName: string,
   input: Readonly<Record<string, unknown>>,
+  request: Readonly<Record<string, unknown>>,
 ): ClaudeAskReading {
   if (toolName === CLAUDE_PLAN_EXIT_TOOL_NAME) {
-    return { action: { kind: "plan" }, ruleScopes: [] };
+    return { action: { kind: "plan" }, ruleScopes: [], isProviderFlagged: false };
   }
-  return { action: readAction(toolName, input), ruleScopes: EVERY_RULE_SCOPE };
+  const isProviderFlagged = request[CLAUDE_SUPPRESS_ALLOW_MEMBER] === true;
+  return {
+    action: readAction(toolName, input),
+    ruleScopes: isProviderFlagged ? [] : EVERY_RULE_SCOPE,
+    isProviderFlagged,
+  };
 }
 
 function readAction(toolName: string, input: Readonly<Record<string, unknown>>): ProviderAskAction {

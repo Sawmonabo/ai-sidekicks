@@ -102,12 +102,11 @@ import { RunBindingCursors } from "../session/run/binding-cursors.js";
 import { RunInboundDispatch } from "../session/run/inbound.js";
 import { RunPauseControl } from "../session/run/pause.js";
 import { ProviderChoiceResolver } from "../session/run/provider-choice.js";
+import { readSessionMode, sessionModeChangeStatement } from "../session/console-state.js";
 import {
   permissionLevelChangeStatement,
-  readSessionMode,
   readSessionPermissionLevel,
-  sessionModeChangeStatement,
-} from "../session/console-state.js";
+} from "../session/permission-level.js";
 import type {
   SessionDirectoryProviderPort,
   SessionSpawnContextResolver,
@@ -221,7 +220,7 @@ interface DaemonProvidersContext {
    */
   readonly sessionServices: Pick<
     RegisteredSessionServices,
-    "eventLog" | "runtimeBindings" | "attachments" | "workingFolders"
+    "eventLog" | "runtimeBindings" | "attachments" | "workingFolders" | "projectRules"
   >;
   /** The machine whose providers keep the rules its approvals make. */
   readonly nodeId: NodeId;
@@ -540,12 +539,8 @@ export class DaemonProviders {
       runEngine,
       runDispatch,
       sessionDrivers,
-      sessionDirectory: {
-        readWorkingDirectory: (sessionId) =>
-          sessionDirectory.requirePort().readWorkingDirectory(sessionId),
-      },
       workingFolders: context.sessionServices.workingFolders,
-      ports,
+      ports: { ...ports, projectRules: context.sessionServices.projectRules },
       methods: context.methods,
       writeServiceLog,
     });
@@ -560,6 +555,9 @@ export class DaemonProviders {
       readSessionLeg: (sessionId) => sessionDirectory.requirePort().readSessionLeg(sessionId),
       readSessionMode: (sessionId) => readSessionMode(database.reader, sessionId),
       readPermissionLevel: (sessionId) => readSessionPermissionLevel(database.reader, sessionId),
+      recordPermissionLevel: async (sessionId, level) => {
+        await database.writer.write([permissionLevelChangeStatement(sessionId, level)]);
+      },
     });
     const queue = new RunQueue({
       sessionEvents,
@@ -672,14 +670,6 @@ export class DaemonProviders {
         await database.writer.write([
           sessionModeChangeStatement(sessionId, mode, new Date().toISOString()),
         ]);
-      },
-      permissionLevels: {
-        read: (sessionId) => readSessionPermissionLevel(database.reader, sessionId),
-        record: async (sessionId, level) => {
-          await database.writer.write([
-            permissionLevelChangeStatement(sessionId, level, new Date().toISOString()),
-          ]);
-        },
       },
       providerSessions,
     });

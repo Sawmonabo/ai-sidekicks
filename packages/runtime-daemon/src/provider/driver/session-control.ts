@@ -1,8 +1,8 @@
 // The params of the driver operations that act on a whole session rather than one run, and the
 // refusal of a level a provider cannot run: the live permission-level and mode moves, a revoked
-// rule's removal, the commands the daemon answers
-// itself, the side question and the review, the live command list, the move onto a new provider
-// build, and the purge of the provider's own copy of its conversations.
+// rule's removal, the commands the daemon answers itself, the side question and the review, the
+// live command list, the move onto a new provider build, and the purge of the provider's own copy
+// of its conversations.
 import type { ProviderCommandListResult } from "@ai-sidekicks/contracts/provider/driver/commands";
 import type {
   PermissionLevel,
@@ -18,12 +18,13 @@ import { DaemonDomainError } from "../../ipc/domain-error.js";
 import type { ProviderAskRule } from "../port/permission-ask.js";
 
 /**
- * Params of `updatePermissionLevel`: the level the session moves to, applied by the provider from
- * its next request without a relaunch.
+ * Params of `updatePermissionLevel`: the level the session moves to and the roots it opens to
+ * writes, applied by the provider from its next request without a relaunch.
  */
 export interface UpdatePermissionLevelParams {
   sessionId: SessionId;
   level: PermissionLevel;
+  writableRoots: string[];
 }
 
 /**

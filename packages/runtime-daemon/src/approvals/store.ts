@@ -56,7 +56,10 @@ interface StoredApprovalResolution {
   readonly clientResolutionId: string;
   readonly decision: ApprovalDecision;
   readonly effectiveScope: string;
-  /** The rule the answer handed to the provider; absent for a one-time answer. */
+  /**
+   * The rule the answer made, written once its provider kept it and its record landed; absent for
+   * a one-time answer and for a rule that could not be kept.
+   */
   readonly rememberedScope: RememberedScope | undefined;
   readonly resolvedAt: string;
 }
@@ -81,7 +84,6 @@ interface InsertedApprovalResolution {
   readonly clientResolutionId: string;
   readonly decision: ApprovalDecision;
   readonly effectiveScope: string;
-  readonly rememberedScope: RememberedScope | undefined;
   readonly resolvedAt: string;
 }
 
@@ -117,10 +119,13 @@ const SETTLE_PENDING_SQL = `UPDATE approval_requests
     AND state = 'pending'`;
 
 const INSERT_RESOLUTION_SQL = `INSERT INTO approval_resolutions
-    (request_id, device_id, client_resolution_id, decision, effective_scope,
-     remembered_scope_kind, remembered_scope_pattern, resolved_at)
+    (request_id, device_id, client_resolution_id, decision, effective_scope, resolved_at)
   VALUES (@request_id, @device_id, @client_resolution_id, @decision, @effective_scope,
-          @remembered_scope_kind, @remembered_scope_pattern, @resolved_at)`;
+          @resolved_at)`;
+
+const SET_REMEMBERED_SCOPE_SQL = `UPDATE approval_resolutions
+    SET remembered_scope_kind = @kind, remembered_scope_pattern = @pattern
+  WHERE request_id = @request_id`;
 
 const SELECT_REQUESTS_SQL = `SELECT request.id, request.session_id, request.run_id,
        request.requested_by, request.category, request.scope, request.resource_descriptor,
@@ -239,9 +244,23 @@ export function insertResolutionStatement(resolution: InsertedApprovalResolution
       client_resolution_id: resolution.clientResolutionId,
       decision: resolution.decision,
       effective_scope: resolution.effectiveScope,
-      remembered_scope_kind: resolution.rememberedScope?.kind ?? null,
-      remembered_scope_pattern: resolution.rememberedScope?.pattern ?? null,
       resolved_at: resolution.resolvedAt,
+    },
+    expectedRowCount: 1,
+  };
+}
+
+/** The statement that writes onto an ask's answer the rule it made, in that rule's own record. */
+export function rememberedScopeStatement(
+  approvalRequestId: ApprovalRequestId,
+  rememberedScope: RememberedScope,
+): WriteStatement {
+  return {
+    sql: SET_REMEMBERED_SCOPE_SQL,
+    bindings: {
+      request_id: approvalRequestId,
+      kind: rememberedScope.kind,
+      pattern: rememberedScope.pattern,
     },
     expectedRowCount: 1,
   };

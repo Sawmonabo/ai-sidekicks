@@ -215,7 +215,11 @@ CREATE TABLE sessions (
   group_id                   TEXT REFERENCES session_groups(id),
   -- The folder a requested working-folder move goes to, applied at the active
   -- run's next boundary; NULL while no move waits.
-  pending_working_folder     TEXT
+  pending_working_folder     TEXT,
+  -- The permission level the session runs at, which the run queue's admission reads; every
+  -- process it opens or resumes starts at it.
+  permission_level           TEXT NOT NULL DEFAULT 'yolo'
+    CHECK(permission_level IN ('readonly', 'ask', 'reviewed', 'sandboxed', 'yolo'))
 ) STRICT;
 
 CREATE INDEX idx_sessions_group ON sessions(group_id);
@@ -238,6 +242,9 @@ CREATE TABLE session_create_requests (
     CHECK(execution_mode IN ('bound-root', 'provisioned-worktree')),
   group_id                TEXT
 ) STRICT;
+
+-- A project's sessions, which its rules reach, found by the project they were made in.
+CREATE INDEX idx_session_create_requests_project ON session_create_requests(project_id);
 
 -- A chat's conversion: the session.convert key it runs under, which the latest request that
 -- resumed it takes over, the project mount it attached and the working tree it copies into.
@@ -276,10 +283,6 @@ CREATE TABLE session_console_state (
   -- The composer's Build or Plan mode the provider last took; a restart resumes in it.
   session_mode        TEXT NOT NULL DEFAULT 'build'
                       CHECK (session_mode IN ('build', 'plan')),
-  -- The permission level the session runs at; every process it opens or resumes starts at it.
-  permission_level    TEXT NOT NULL DEFAULT 'yolo'
-                      CHECK (permission_level IN
-                        ('readonly', 'ask', 'reviewed', 'sandboxed', 'yolo')),
   updated_at          TEXT NOT NULL
 ) STRICT;
 

@@ -120,6 +120,26 @@ export type RememberedRuleSense = "allow" | "block";
 export const RememberedRuleSenseSchema: z.ZodType<RememberedRuleSense, RememberedRuleSense> =
   z.enum(["allow", "block"]);
 
+/**
+ * Why `approval.resolution_invalid` refused an answer, its `reason`: a block on an ask that is not
+ * a network request, a rule the ask does not offer, a rule over other words than the subject the
+ * card named, a scope other than the one asked, a correction on an ask whose command or path
+ * cannot be corrected, or a correction and a rule together.
+ */
+export type ApprovalResolutionInvalidReason =
+  | "block_outside_network_access"
+  | "rule_not_offered"
+  | "subject_mismatch"
+  | "effective_scope_broader"
+  | "edit_not_offered"
+  | "edit_with_rule";
+
+/**
+ * Why `approval.request_canceled` refused a create, its `reason`: the run ended or the session
+ * closed.
+ */
+export type ApprovalLateCreateReason = "run_ended" | "session_closed";
+
 const INVALIDATION_TRIGGER_VALUES = ["explicit", "session_end", "server_removed"] as const;
 
 /**

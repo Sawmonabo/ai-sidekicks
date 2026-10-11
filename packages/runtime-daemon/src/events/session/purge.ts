@@ -29,9 +29,11 @@
 //   - The session's shells end first, so none keeps running in a folder about to go; a shell whose
 //     program will not end, even killed, refuses the session with its folder and every row kept.
 //   - The provider's conversations go next, while the rows naming them and the folder they ran in
-//     are still there, then the folder, then the rows: a deletion that fails refuses the session
-//     with every row kept, and a row write that fails after it keeps the rows naming files already
-//     gone, so either way purging the session again finishes it.
+//     are still there, then the folder, then the project rules the session made come out of the
+//     providers' files, then the rows: a deletion that fails refuses the session with every row
+//     kept, and a row write that fails after it keeps the rows naming files already gone, so either
+//     way purging the session again finishes it. Once the rows are gone, the project's other
+//     sessions are handed their rules again without the purged ones.
 //   - The live sessions list is told of each session whose rows went as soon as they commit, so a
 //     receipt that fails after them never leaves a purged session on screen.
 //   - The sessions a purged one was linked to are read in the write that deletes its links, and
@@ -62,6 +64,7 @@ import type {
 import { sessionAppendLock } from "./append-lock.js";
 import type { KeyedLock } from "../../keyed-lock.js";
 import type { ProviderConversationPurge } from "../../provider/conversation-purge.js";
+import type { PortRegistration } from "../../provider/port/registration.js";
 import { RETRY_WAITS_MS } from "../../retry-waits.js";
 import type { ShellTable } from "../../pty/shell/table.js";
 import type { SessionListFeed } from "../../session/directory/list-feed.js";
@@ -124,6 +127,15 @@ export interface SessionPurgeResult {
   readonly refusedReason?: string | undefined;
 }
 
+/**
+ * Takes the project rules a session made out of its project's files before its purge, resolving
+ * with the hand-out that gives the project's other sessions their rules again once its rows are
+ * gone.
+ */
+export interface ProjectRuleWithdrawal {
+  withdrawProjectRules(sessionId: SessionId): Promise<() => Promise<void>>;
+}
+
 /** The durable append seam for the receipt; structural, so a test can pass a recording double. */
 export interface SessionPurgeEventLog {
   append(
@@ -156,6 +168,8 @@ export interface SessionPurgeDeps {
   readonly relatedRanking: Pick<SessionRelatedRanking, "rescoreAround">;
   /** Ends a session's shells, whoever holds them. */
   readonly shellTable: Pick<ShellTable, "closeSessionShells">;
+  /** The approval pipeline's rules, registered once it is built; a purge before then refuses. */
+  readonly projectRules: PortRegistration<ProjectRuleWithdrawal>;
   /** The clock for the receipt's timestamps. */
   readonly now?: () => Date;
   /** Mints the receipt's `operationId`. Defaults to `mintUuidV7`. */
@@ -188,10 +202,12 @@ interface PendingWorkingFolderRow {
   readonly pending_working_folder: string;
 }
 
-// One session's outcome, and the sessions it was linked to when its rows were deleted.
+// One session's outcome, the sessions it was linked to when its rows were deleted, and why the
+// project's other sessions were not handed their rules again once they were.
 interface SessionRowsDeletion {
   readonly outcome: SessionPurgeOutcome;
   readonly linkedSessionIds: readonly SessionId[];
+  readonly handOutFailure?: string | undefined;
 }
 
 // Thrown to refuse one session. Caught in `purge` and turned into its `refusedReason`; never
@@ -214,6 +230,7 @@ export class SessionPurge {
   readonly #sessionList: Pick<SessionListFeed, "refresh">;
   readonly #relatedRanking: Pick<SessionRelatedRanking, "rescoreAround">;
   readonly #shellTable: Pick<ShellTable, "closeSessionShells">;
+  readonly #projectRules: PortRegistration<ProjectRuleWithdrawal>;
   readonly #now: () => Date;
   readonly #operationIdFactory: () => string;
   readonly #newEventId: () => string;
@@ -230,6 +247,7 @@ export class SessionPurge {
     this.#sessionList = deps.sessionList;
     this.#relatedRanking = deps.relatedRanking;
     this.#shellTable = deps.shellTable;
+    this.#projectRules = deps.projectRules;
     this.#now = deps.now ?? ((): Date => new Date());
     this.#operationIdFactory = deps.operationIdFactory ?? mintUuidV7;
     this.#newEventId = deps.newEventId ?? mintUuidV7;
@@ -266,8 +284,11 @@ export class SessionPurge {
     const failures: string[] = [];
     const formerlyLinkedSessionIds = new Set<SessionId>();
     for (const sessionId of sessionIds) {
-      const { outcome, linkedSessionIds } = await this.#purgeSession(sessionId);
+      const { outcome, linkedSessionIds, handOutFailure } = await this.#purgeSession(sessionId);
       outcomes.push(outcome);
+      if (handOutFailure !== undefined) {
+        failures.push(handOutFailure);
+      }
       for (const linkedSessionId of linkedSessionIds) {
         formerlyLinkedSessionIds.add(linkedSessionId);
       }
@@ -343,11 +364,25 @@ export class SessionPurge {
                 describeRejection(error),
             );
           });
+          const handOutRules = await Promise.resolve()
+            .then(() => this.#projectRules.requirePort().withdrawProjectRules(sessionId))
+            .catch((error: unknown) => {
+              throw new SessionPurgeRefusal(
+                "the project rules the session made could not be taken out of the providers' " +
+                  `files, so no row was deleted: ${describeRejection(error)}`,
+              );
+            });
           const deletion = await sessionAppendLock.run(sessionId, () =>
             this.#deleteSessionRows(sessionId),
           );
           this.#sessionList.refresh([sessionId]);
-          return deletion;
+          const handOutFailure = await handOutRules().then(
+            () => undefined,
+            (error: unknown) =>
+              `the project's other sessions were not handed their rules again after session ` +
+              `${sessionId} was purged: ${describeRejection(error)}`,
+          );
+          return { ...deletion, handOutFailure };
         } finally {
           allowShellOpens();
         }

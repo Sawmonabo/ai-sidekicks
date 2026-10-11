@@ -1,7 +1,8 @@
 // The daemon's approval pipeline, built once with the provider side: the asks and their answers,
-// the rules the providers keep, the reviewer's blocks, the hold an ask puts on its run, and the
-// `approval.*` methods. Its ports are registered as it is built, so no ask waits on a missing
-// intake; its log follows begin at `start`, once the start's recovery pass has settled the runs.
+// the rules the providers keep and a purge takes out of them, the reviewer's blocks, the hold an
+// ask puts on its run, and the `approval.*` methods. Its ports are registered as it is built, so
+// no ask waits on a missing intake; its log follows begin at `start`, once the start's recovery
+// pass has settled the runs.
 
 import path from "node:path";
 
@@ -16,6 +17,7 @@ import { ApprovalRunBlocking } from "../approvals/run-blocking.js";
 import { ApprovalService } from "../approvals/service.js";
 import type { DatabaseConnections } from "../database/connection/lifecycle.js";
 import type { EventLogService } from "../events/log-service.js";
+import type { ProjectRuleWithdrawal } from "../events/session/purge.js";
 import type { WorkingFolderWatcher } from "../git/worktree/watch.js";
 import {
   resolveDriverForRunOrThrow,
@@ -29,7 +31,6 @@ import type { PermissionAskPort } from "../provider/port/permission-ask.js";
 import type { PortRegistration } from "../provider/port/registration.js";
 import type { ReviewerDenialPort } from "../provider/port/reviewer-denial.js";
 import type { SessionRulePort } from "../provider/port/session-rules.js";
-import type { SessionDirectoryProviderPort } from "../session/directory/provider-port.js";
 import { RunAgentReader } from "../session/run/agent.js";
 import type { RunEngine } from "../session/run/engine.js";
 import type { ServiceLogWriter } from "./service-log.js";
@@ -51,12 +52,12 @@ export interface DaemonApprovalsContext {
   /** The driver a run or a session runs on. */
   readonly runDispatch: DriverDispatchDeps;
   readonly sessionDrivers: SessionDriverDeps;
-  readonly sessionDirectory: Pick<SessionDirectoryProviderPort, "readWorkingDirectory">;
   readonly workingFolders: Pick<WorkingFolderWatcher, "raiseStaleness">;
   readonly ports: {
     readonly permissionAsks: PortRegistration<PermissionAskPort>;
     readonly reviewerDenials: PortRegistration<ReviewerDenialPort>;
     readonly sessionRules: PortRegistration<SessionRulePort>;
+    readonly projectRules: PortRegistration<ProjectRuleWithdrawal>;
   };
   readonly methods: MethodRegistry;
   readonly writeServiceLog: ServiceLogWriter;
@@ -64,11 +65,15 @@ export interface DaemonApprovalsContext {
 
 /** Builds and runs the approval pipeline. */
 export class DaemonApprovals {
-  /** The workflow actions' rules, which a workflow start an agent or a trigger asks for checks. */
+  /**
+   * The workflow actions' rules, which a workflow start an agent or a trigger asks for checks.
+   * @consumedBy the workflow engine's run-start path, which checks each start against them
+   */
   readonly authorizer: Authorizer;
   readonly #service: ApprovalService;
   readonly #rules: ApprovalRules;
   readonly #reviewerDenials: ReviewerDenials;
+  readonly #runBlocking: ApprovalRunBlocking;
 
   constructor(context: DaemonApprovalsContext) {
     const { database, eventLog, runEngine, ports } = context;
@@ -86,7 +91,6 @@ export class DaemonApprovals {
       sessionEvents: eventLog,
       nodeId: context.nodeId,
       followAll,
-      readWorkingFolder: (sessionId) => context.sessionDirectory.readWorkingDirectory(sessionId),
       revokeAtProvider: async (revocation) => {
         const { driver } = resolveDriverForSessionOrThrow(
           context.sessionDrivers,
@@ -115,18 +119,21 @@ export class DaemonApprovals {
         );
       },
     });
-    const runBlocking = new ApprovalRunBlocking({
+    this.#runBlocking = new ApprovalRunBlocking({
       runEngine,
       approvals: this.#service,
       forgetRun: (runId) => {
         asks.forgetRun(runId);
       },
+      followAll,
+      writeServiceLog: context.writeServiceLog,
     });
-    this.#service.registerApprovalOutcomeListener(runBlocking);
-    runEngine.registerSetupGate(runBlocking);
+    this.#service.registerApprovalOutcomeListener(this.#runBlocking);
+    runEngine.registerSetupGate(this.#runBlocking);
     ports.permissionAsks.register(asks);
     ports.reviewerDenials.register(this.#reviewerDenials);
     ports.sessionRules.register(this.#rules);
+    ports.projectRules.register(this.#rules);
     registerApprovalMethods(context.methods, {
       asks,
       projection: new ApprovalProjectionService(database.reader),
@@ -137,18 +144,19 @@ export class DaemonApprovals {
 
   /**
    * Follows the log: cancels the asks and ends the session rules of every session that closes,
-   * those closed while the daemon was down at once, and records the reviewer blocks waiting for
-   * their call's row.
+   * those closed while the daemon was down at once, holds each run that runs again with an ask
+   * open, and records the reviewer blocks waiting for their call's row.
    */
   start(): void {
     this.#service.start();
     this.#rules.start();
+    this.#runBlocking.start();
     this.#reviewerDenials.start();
   }
 
   /** Stops following the log and waits for the work under way; a block still waiting is refused. */
   async stop(): Promise<void> {
     this.#reviewerDenials.stop();
-    await Promise.all([this.#service.stop(), this.#rules.stop()]);
+    await Promise.all([this.#service.stop(), this.#rules.stop(), this.#runBlocking.stop()]);
   }
 }

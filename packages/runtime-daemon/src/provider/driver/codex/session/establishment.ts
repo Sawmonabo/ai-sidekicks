@@ -433,7 +433,6 @@ export class CodexSessionEstablishment {
       profileFolders: {
         workingDirectory: context.workingDirectory,
         gitCommonFolder: context.gitCommonFolder,
-        writableRoots: posture.writableRoots,
         denyPaths: credentialPolicy.denyPaths,
       },
       shellEnvironment: composeCodexShellEnvironmentPolicy({

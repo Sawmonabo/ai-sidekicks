@@ -87,8 +87,18 @@ export interface ApprovalServiceDeps {
 // The positions of the create's two guards among its statements.
 const SESSION_OPEN_GUARD_INDEX = 0;
 const RUN_LIVE_GUARD_INDEX = 1;
-// The position of the answer's pending guard among its statements.
+// The positions of the answer's pending guard and its run's live guard among its statements.
 const PENDING_GUARD_INDEX = 0;
+const ANSWER_RUN_LIVE_GUARD_INDEX = 1;
+
+/**
+ * One answer as `resolve` settled it: what the caller is answered, and whether this call recorded
+ * it, false for the same answer sent again, which hands nothing on.
+ */
+export interface ResolvedAnswer {
+  readonly response: ApprovalResolveResponse;
+  readonly wasRecorded: boolean;
+}
 
 /** Raises asks, records their answers and cancels the ones their run or session leaves open. */
 export class ApprovalService {
@@ -150,9 +160,10 @@ export class ApprovalService {
   /**
    * Raises one ask, pending until it is answered or canceled, and tells the run it blocks once it
    * is recorded. `origin` carries what only the daemon knows: the provider ask it was minted for
-   * and the tool call it holds. Throws the schema's error for a request that does not parse, before anything is written;
-   * `approval.request_canceled` with a `reason` when the session has closed or the run has ended;
-   * and `approval.persistence_unavailable` when the record could not be kept.
+   * and the tool call it holds. Throws the schema's error for a request that does not parse,
+   * before anything is written; `approval.request_canceled` with a `reason` when the session has
+   * closed or the run has ended; and `approval.persistence_unavailable` when the record could not
+   * be kept.
    */
   async create(
     request: ApprovalRequestCreateRequest,
@@ -197,22 +208,23 @@ export class ApprovalService {
   /**
    * Records one answer to an ask, stamped with `answeringDeviceId`, the device whose connection
    * carried it, and tells the run once it is recorded. The scope defaults to the ask's own. Throws
-   * `approval.not_found`, `approval.request_canceled`, `approval.already_resolved` for an ask
-   * another answer settled (the same client resolution id is answered with what was saved),
-   * `approval.resolution_invalid` for an answer that does not fit its ask, and
-   * `approval.persistence_unavailable` when the record could not be kept. The `approval.resolve`
-   * handler reads the answering device off the call it arrived on.
+   * `approval.not_found`, `approval.request_canceled` for an ask canceled or whose run has ended,
+   * `approval.already_resolved` for an ask another answer settled (the same client resolution id
+   * is answered with what was saved), `approval.resolution_invalid` for an answer that does not fit
+   * its ask, and `approval.persistence_unavailable` when the record could not be kept. The rule
+   * the answer asks for is not recorded here: its record follows once its provider kept it. The
+   * `approval.resolve` handler reads the answering device off the call it arrived on.
    */
   async resolve(
     request: ApprovalResolveRequest,
     answeringDeviceId: DeviceId,
-  ): Promise<ApprovalResolveResponse> {
+  ): Promise<ResolvedAnswer> {
     const stored = this.#requests.readRequest(request.approvalRequestId);
     if (stored === undefined) {
       throw new ApprovalNotFoundError(request.approvalRequestId);
     }
     if (stored.state !== "pending") {
-      return answerSettled(stored, request);
+      return { response: answerSettled(stored, request), wasRecorded: false };
     }
     const effectiveScope = request.effectiveScope ?? stored.scope;
     refuseUnfitAnswer(stored, request, effectiveScope);
@@ -234,13 +246,13 @@ export class ApprovalService {
           occurredAt: resolvedAt,
           statements: [
             settlePendingStatement(stored.approvalRequestId, request.decision, resolvedAt),
+            runLiveStatement(stored.sessionId, stored.runId),
             insertResolutionStatement({
               approvalRequestId: stored.approvalRequestId,
               deviceId: answeringDeviceId,
               clientResolutionId: request.clientResolutionId,
               decision: request.decision,
               effectiveScope,
-              rememberedScope: request.rememberedScope,
               resolvedAt,
             }),
           ],
@@ -254,7 +266,14 @@ export class ApprovalService {
         if (settled === undefined) {
           throw new ApprovalNotFoundError(stored.approvalRequestId);
         }
-        return answerSettled(settled, request);
+        return { response: answerSettled(settled, request), wasRecorded: false };
+      }
+      // The run ended before its end canceled the ask, which that cancel is about to do.
+      if (
+        error instanceof WriteRefusedError &&
+        error.statementIndex === ANSWER_RUN_LIVE_GUARD_INDEX
+      ) {
+        throw new ApprovalRequestCanceledError(stored.approvalRequestId);
       }
       throw new ApprovalPersistenceUnavailableError(error);
     }
@@ -263,11 +282,14 @@ export class ApprovalService {
       await this.#raiseStaleness(stored.sessionId);
     }
     return {
-      approvalRequestId: stored.approvalRequestId,
-      state: request.decision,
-      deviceId: answeringDeviceId,
-      effectiveScope,
-      resolvedAt,
+      response: {
+        approvalRequestId: stored.approvalRequestId,
+        state: request.decision,
+        deviceId: answeringDeviceId,
+        effectiveScope,
+        resolvedAt,
+      },
+      wasRecorded: true,
     };
   }
 
@@ -296,6 +318,13 @@ export class ApprovalService {
   /** Whether the run still holds an ask no one has answered. */
   hasPendingForRun(runId: RunId): boolean {
     return this.#requests.listPendingForRun(runId).length > 0;
+  }
+
+  /** The session's runs that still hold an ask no one has answered. */
+  listRunsHoldingAsks(sessionId: SessionId): readonly RunId[] {
+    return [
+      ...new Set(this.#requests.listPendingForSession(sessionId).map((request) => request.runId)),
+    ];
   }
 
   /**

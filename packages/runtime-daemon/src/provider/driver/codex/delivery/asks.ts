@@ -3,20 +3,27 @@
 // that owner is registered the ask stays pending at Codex; nothing answers it in its place.
 //
 // Codex's answer to an approval carries only its decision, so the rest of a person's answer is
-// carried by Codex's own means: a rule as `acceptForSession`, written into the project's rule file
-// first where it is the project's; a decline's reason as the words steered into the same turn after
-// the decline; and a command or path the person corrected as a decline, a steer asking the agent to
-// use the corrected one, and an `accept` the daemon gives itself to the ask for exactly that one.
+// carried by Codex's own means: a rule as `acceptForSession`, then written into the rule file of
+// each of the project's working folders where it is the project's; a decline's reason as the words
+// steered into the same turn after the decline; and a command or path the person corrected as a
+// decline, a steer asking the agent to use the corrected one, and an `accept` the daemon gives
+// itself to the ask for exactly that one later in the same turn. The decision always goes first, so
+// a rule that cannot be kept never leaves the call waiting. A command allow Codex would keep as a
+// prefix that also lets a force push through is never handed over: the daemon answers each ask.
 
 import type { QuestionPrompt } from "@ai-sidekicks/contracts/question";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
+import { coversDestructiveGit } from "../../../../policy/destructive-git.js";
 import { mintUuidV7 } from "../../../../uuid-v7.js";
-import type {
-  PermissionAskPort,
-  ProviderAskAction,
-  ProviderPermissionAnswer,
+import { writeIntoProjectFolders } from "../../../project-rule-folders.js";
+import {
+  ProviderRuleNotKeptError,
+  type PermissionAskPort,
+  type ProviderAskAction,
+  type ProviderAskRule,
+  type ProviderPermissionAnswer,
 } from "../../../port/permission-ask.js";
 import type { QuestionPort } from "../../../port/question.js";
 import type { PortRegistration } from "../../../port/registration.js";
@@ -36,7 +43,11 @@ import {
 } from "../transport/diagnostics.js";
 import type { RespondToRequestParams } from "../../contract.js";
 import { SteerTurnEndedError } from "../../run-control.js";
-import { writeCodexProjectRule, type CodexGitFolderReader } from "../rules.js";
+import {
+  removeCodexProjectRule,
+  writeCodexProjectRule,
+  type CodexGitFolderReader,
+} from "../rules.js";
 import type { CodexService } from "../service/supervisor.js";
 import type { CodexSessionRecord } from "../session/state.js";
 import { steerActiveTurn } from "../steer.js";
@@ -126,13 +137,13 @@ function composeCorrectionSteer(action: ProviderAskAction, editedAction: string)
     : `The person changed this path before approving it. Use this path instead: ${editedAction}`;
 }
 
-// What a corrected action is matched by when Codex asks for it again.
-function correctionKeyOf(action: ProviderAskAction): string | undefined {
+// What a corrected action is matched by when Codex asks for it again in the turn it was made in.
+function correctionKeyOf(turnId: string, action: ProviderAskAction): string | undefined {
   if (action.kind === "command") {
-    return `command\u0000${action.command}`;
+    return `${turnId}\u0000command\u0000${action.command}`;
   }
   return action.kind === "file_change" && action.paths.length === 1
-    ? `file_change\u0000${action.paths[0] ?? ""}`
+    ? `${turnId}\u0000file_change\u0000${action.paths[0] ?? ""}`
     : undefined;
 }
 
@@ -145,7 +156,8 @@ export class CodexAskHandOff {
   readonly #readGitFolder: CodexGitFolderReader;
   // The approvals held for their card, by session then Codex's request id.
   readonly #heldBySession = new Map<SessionId, Map<string, CodexHeldApproval>>();
-  // The corrected commands and paths approved, by session, each taken by Codex's next ask for it.
+  // The corrected commands and paths approved, by session, each taken by Codex's next ask for it in
+  // the same turn.
   readonly #correctionsBySession = new Map<SessionId, Set<string>>();
 
   constructor(dependencies: CodexAskHandOffDependencies) {
@@ -200,8 +212,10 @@ export class CodexAskHandOff {
 
   /**
    * Answers a held ask on `service`: a question with its answers, an approval with the approval
-   * pipeline's answer carried by Codex's own means. Throws as writing a project rule or the answer
-   * throws; a steer whose turn has ended is reported, since its decline already landed.
+   * pipeline's answer carried by Codex's own means, the decision first. Throws as the answer
+   * throws, and {@link ProviderRuleNotKeptError} once the call is answered but its project rule
+   * could not be written; a steer whose turn has ended is reported, since its decline already
+   * landed.
    */
   async answer(
     record: CodexSessionRecord | undefined,
@@ -215,13 +229,6 @@ export class CodexAskHandOff {
       return;
     }
     const answer = params.response as ProviderPermissionAnswer;
-    if (answer.rule?.kind === "project") {
-      await writeCodexProjectRule(
-        record.threadSettings.workingDirectory,
-        answer.rule,
-        this.#readGitFolder,
-      );
-    }
     await service.answerHeldRequest(params.requestId, composeCodexAnswer(answer));
     const steer = this.#steerAfter(record.sessionId, held, answer);
     if (steer !== undefined && held.turnId !== undefined) {
@@ -236,6 +243,16 @@ export class CodexAskHandOff {
           throw cause;
         }
         this.#reportOwnerFailure("permission-ask", record.sessionId, cause);
+      });
+    }
+    if (answer.madeRule?.rule.kind === "project") {
+      await writeIntoProjectFolders(
+        answer.madeRule.projectFolders,
+        answer.madeRule.rule,
+        (projectFolder, rule) => writeCodexProjectRule(projectFolder, rule, this.#readGitFolder),
+        removeCodexProjectRule,
+      ).catch((error: unknown) => {
+        throw new ProviderRuleNotKeptError(error);
       });
     }
   }
@@ -263,7 +280,7 @@ export class CodexAskHandOff {
       held.action.kind === "command"
         ? { kind: "command", command: answer.editedAction }
         : { kind: "file_change", paths: [answer.editedAction] };
-    const key = correctionKeyOf(corrected);
+    const key = held.turnId === undefined ? undefined : correctionKeyOf(held.turnId, corrected);
     if (key !== undefined) {
       const corrections = this.#correctionsBySession.get(sessionId) ?? new Set<string>();
       corrections.add(key);
@@ -314,7 +331,8 @@ export class CodexAskHandOff {
         ? undefined
         : this.#recordFor(sessionId)?.delivery.changedPathsByItemId.get(itemId);
     const { action, ruleScopes } = readCodexAskAction(request.method, params, changedPaths);
-    const correctionKey = correctionKeyOf(action);
+    const turnId = readNonEmptyString(params, "turnId");
+    const correctionKey = turnId === undefined ? undefined : correctionKeyOf(turnId, action);
     const corrections = this.#correctionsBySession.get(sessionId);
     if (correctionKey !== undefined && corrections?.delete(correctionKey) === true) {
       return { decision: "allow" };
@@ -324,7 +342,7 @@ export class CodexAskHandOff {
       return { decision: "held" };
     }
     const held = this.#heldBySession.get(sessionId) ?? new Map<string, CodexHeldApproval>();
-    held.set(request.requestId, { turnId: readNonEmptyString(params, "turnId"), runId, action });
+    held.set(request.requestId, { turnId, runId, action });
     this.#heldBySession.set(sessionId, held);
     const toolName =
       CODEX_APPROVAL_TOOL_BY_METHOD.get(request.method) ??
@@ -340,6 +358,7 @@ export class CodexAskHandOff {
         input: request.params,
         action,
         ruleScopes,
+        isProviderFlagged: false,
         ...(itemId === undefined ? {} : { toolCallId: itemId }),
         ...(prompt === undefined ? {} : { prompt }),
       })
@@ -380,8 +399,9 @@ export class CodexAskHandOff {
   }
 }
 
-// The approval pipeline's answer as Codex's own decision: an allow with a rule is kept for the
-// conversation, a corrected one is a decline that the steer after it carries, and a refusal is a
+// The approval pipeline's answer as Codex's own decision: an allow a rule made or answered is kept
+// for the conversation, unless Codex could keep it only as a prefix that also lets a force push
+// through; a corrected one is a decline that the steer after it carries, and a refusal is a
 // decline.
 function composeCodexAnswer(answer: ProviderPermissionAnswer): CodexServerRequestAnswer {
   if (answer.decision === "refuse" || answer.editedAction !== undefined) {
@@ -390,5 +410,6 @@ function composeCodexAnswer(answer: ProviderPermissionAnswer): CodexServerReques
       reason: answer.decision === "refuse" ? (answer.reason ?? "") : "",
     };
   }
-  return { decision: "allow", forSession: answer.rule !== undefined };
+  const rule: ProviderAskRule | undefined = answer.madeRule?.rule ?? answer.answeredByRule;
+  return { decision: "allow", forSession: rule !== undefined && !coversDestructiveGit(rule) };
 }

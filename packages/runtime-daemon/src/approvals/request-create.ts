@@ -7,7 +7,6 @@ import { z } from "zod";
 
 import {
   ApprovalCategorySchema,
-  ApprovalRequestIdSchema,
   type ApprovalCategory,
   type ApprovalRequestId,
 } from "@ai-sidekicks/contracts/approval";
@@ -105,16 +104,6 @@ export const ApprovalRequestCreateRequestSchema: z.ZodType<
 export interface ApprovalRequestCreateResponse {
   approvalRequestId: ApprovalRequestId;
 }
-/**
- * Parses an {@link ApprovalRequestCreateResponse}.
- *
- * @consumedBy the in-process create entry the permission-ask intake calls
- */
-export const ApprovalRequestCreateResponseSchema: z.ZodType<
-  ApprovalRequestCreateResponse,
-  ApprovalRequestCreateResponse
-> = z.object({ approvalRequestId: ApprovalRequestIdSchema }).strict();
-
 /**
  * What only the daemon knows about where an ask came from, passed beside the request and never in
  * it: the daemon's own id of the provider ask it was minted for, and the tool call the ask holds,

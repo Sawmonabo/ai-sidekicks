@@ -37,6 +37,7 @@ import {
   SEARCH_INDEX_FOLDER_NAME,
 } from "../../src/daemon/process.js";
 import { SessionPurge } from "../../src/events/session/purge.js";
+import { projectRulesWithdrawingNothing } from "../../src/events/session/__tests__/purge.test-support.js";
 import { KeyedLock } from "../../src/keyed-lock.js";
 import { SessionLinkService } from "../../src/session/links/service.js";
 import { SessionRelatedRanking } from "../../src/session/related/ranking.js";
@@ -573,9 +574,9 @@ describe("the session directory's budgets on the seeded set", () => {
   it("answers a search right after the largest session's purge, then merges its rows away", async () => {
     const { largeSessionId } = seeded;
     // The daemon's own purge deletes the session's rows. The seeded sessions are projects, with no
-    // managed folder to remove and no provider conversation; no list is on screen and no re-score
-    // is measured here; and the log gets one try, so a search's open read holds the purge no
-    // longer.
+    // managed folder to remove, no provider conversation and no project rule; no list is on screen
+    // and no re-score is measured here; and the log gets one try, so a search's open read holds
+    // the purge no longer.
     const purge = new SessionPurge({
       writer: database.writer,
       nodeId: NodeIdSchema.parse("node-endurance"),
@@ -586,6 +587,7 @@ describe("the session directory's budgets on the seeded set", () => {
       sessionList: { refresh: () => undefined },
       relatedRanking: { rescoreAround: () => undefined },
       shellTable: { closeSessionShells: async () => () => undefined },
+      projectRules: projectRulesWithdrawingNothing(),
       checkpointRetryDelaysMs: [],
       whenFileCheckEnds: Promise.resolve(),
     });

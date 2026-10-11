@@ -1,7 +1,12 @@
 // The standing rules: a project rule reaches every session of its project and no other; a new rule
-// over a subject replaces the old one everywhere its provider keeps it; a revoke takes a project
-// rule out of the project's file before it is recorded, and a failed removal leaves it in force; a
-// closed session's own rules end with it; and a revoked subject is held until a rule covers it.
+// over a subject replaces the old one everywhere its provider keeps it; a rule whose record fails
+// is taken back out of its provider; a revoke takes a project rule out of every working folder of
+// the project before it is recorded, a failed removal leaves it in force, and two revokes at once
+// record one; a purge takes a session's project rules out of the providers; a closed session's own
+// rules end with it, at the next start when it closed while the daemon was down; and a revoked
+// subject is held until a rule covers it.
+
+import { randomUUID } from "node:crypto";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -10,13 +15,14 @@ import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { NodeId } from "@ai-sidekicks/contracts/runtime-node/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 
 import { openScratchDatabase, type ScratchDatabase } from "../../database/__fixtures__/scratch.js";
 import { EventLogService } from "../../events/log-service.js";
 import type { RevokeRuleParams } from "../../provider/driver/session-control.js";
 import type { ProviderAskAction } from "../../provider/port/permission-ask.js";
 import { describeProviderAsk } from "../ask-description.js";
-import { ApprovalRules, type RecordedRule } from "../rules.js";
+import { ApprovalRules } from "../rules.js";
 import { ApprovalService } from "../service.js";
 import type { StoredApprovalRequest } from "../store.js";
 
@@ -38,7 +44,11 @@ function runOf(sessionId: SessionId): RunId {
   }
   return runId;
 }
+// The working folders of the project: each session's worktree, and one A archived.
 const FOLDER_A = "/work/project-a";
+const FOLDER_A_ARCHIVED = "/work/project-a-old";
+const FOLDER_B = "/work/project-b";
+const PROJECT_FOLDERS = [FOLDER_A, FOLDER_A_ARCHIVED, FOLDER_B];
 const CREATED_AT = "2026-10-11T00:00:00.000Z";
 const HOST = { kind: "network", host: "example.com" } as const;
 
@@ -48,6 +58,7 @@ let rules: ApprovalRules;
 // Each provider handover, in order, with whether the revoke was already recorded when it ran.
 let handovers: (RevokeRuleParams & { revokeRecorded: boolean })[];
 let failFileRemoval: boolean;
+let failRuleRecord: boolean;
 let committedListener: ((event: EventEnvelope) => void) | undefined;
 
 beforeEach(async () => {
@@ -81,14 +92,42 @@ beforeEach(async () => {
             VALUES (?, ?, 'running', 1), (?, ?, 'running', 1), (?, ?, 'running', 1)`,
       bindings: [SESSION_A, SESSION_B, CHAT].flatMap((id) => [runOf(id), id]),
     },
+    {
+      sql: `INSERT INTO repo_mounts (id, node_id, local_path, canonical_root, project_id,
+              attached_at, updated_at)
+            VALUES ('mount-1', 'node-local', '/repos/project', '/repos/project', 'project-1', ?, ?)`,
+      bindings: [CREATED_AT, CREATED_AT],
+    },
+    {
+      sql: `INSERT INTO workspaces (id, session_id, repo_mount_id, execution_mode, fs_root, state,
+              created_at, updated_at)
+            VALUES ('ws-a', ?, 'mount-1', 'provisioned-worktree', ?, 'ready', ?, ?),
+                   ('ws-a-old', ?, 'mount-1', 'provisioned-worktree', ?, 'archived', ?, ?),
+                   ('ws-b', ?, 'mount-1', 'provisioned-worktree', ?, 'ready', ?, ?)`,
+      bindings: [
+        [SESSION_A, FOLDER_A],
+        [SESSION_A, FOLDER_A_ARCHIVED],
+        [SESSION_B, FOLDER_B],
+      ].flatMap(([id, folder]) => [id, folder, CREATED_AT, CREATED_AT]),
+    },
   ]);
-  const sessionEvents = new EventLogService({
+  const eventLog = new EventLogService({
     writer: database.writer,
     reader: database.reader,
     writeServiceLog: (line) => {
       throw new Error(`unexpected service log line: ${line}`);
     },
   });
+  // The log as the rules write it, refusing a rule's record while `failRuleRecord` is set.
+  const sessionEvents = {
+    append: async (...args: Parameters<EventLogService["append"]>) => {
+      if (failRuleRecord && args[0].type === "approval.remembered") {
+        throw new Error("the log is full");
+      }
+      return await eventLog.append(...args);
+    },
+    appendThinkingUpdate: eventLog.appendThinkingUpdate.bind(eventLog),
+  };
   service = new ApprovalService({
     reader: database.reader,
     sessionEvents,
@@ -100,6 +139,7 @@ beforeEach(async () => {
   });
   handovers = [];
   failFileRemoval = false;
+  failRuleRecord = false;
   committedListener = undefined;
   rules = new ApprovalRules({
     reader: database.reader,
@@ -109,7 +149,6 @@ beforeEach(async () => {
       committedListener = onCommitted;
       return () => {};
     },
-    readWorkingFolder: (sessionId) => (sessionId === SESSION_A ? FOLDER_A : undefined),
     revokeAtProvider: async (revocation) => {
       if (revocation.projectFolder !== undefined && failFileRemoval) {
         throw new Error("the project's settings file is not writable");
@@ -131,7 +170,7 @@ async function makeRule(
   sessionId: SessionId,
   action: ProviderAskAction,
   scope: Pick<RememberedScope, "kind" | "sense">,
-): Promise<{ stored: StoredApprovalRequest; recorded: RecordedRule }> {
+): Promise<{ stored: StoredApprovalRequest }> {
   const description = describeProviderAsk({
     sessionId,
     runId: runOf(sessionId),
@@ -140,6 +179,7 @@ async function makeRule(
     input: {},
     action,
     ruleScopes: ["session", "project"],
+    isProviderFlagged: false,
   });
   const { approvalRequestId } = await service.create({
     sessionId,
@@ -147,15 +187,30 @@ async function makeRule(
     requestedBy: "agent-1",
     ...description,
   });
+  // The answer is recorded first, as a resolve records it before its rule.
+  await service.resolve(
+    { approvalRequestId, decision: "approved", clientResolutionId: randomUUID() },
+    "device-laptop" as DeviceId,
+  );
   const stored = service.readRequest(approvalRequestId);
   if (stored === undefined) {
     throw new Error(`no request ${approvalRequestId}`);
   }
-  const recorded = await rules.record(stored, action.kind, {
-    ...scope,
-    pattern: description.resourceDescriptor.subject,
+  await rules.record(stored, {
+    rule: { ...scope, action: action.kind, subject: description.resourceDescriptor.subject },
+    projectFolders: scope.kind === "project" ? rules.readProjectFolders(sessionId) : [],
   });
-  return { stored, recorded };
+  return { stored };
+}
+
+// The handovers, each session's hand-out of its rules in session order, since the project's
+// sessions are read in no set order.
+function readHandovers(): (RevokeRuleParams & { revokeRecorded: boolean })[] {
+  return handovers.toSorted((first, second) =>
+    first.projectFolder === undefined && second.projectFolder === undefined
+      ? first.sessionId.localeCompare(second.sessionId)
+      : 0,
+  );
 }
 
 function ruleIdOf(stored: StoredApprovalRequest): RememberedRuleId {
@@ -191,32 +246,56 @@ describe("ApprovalRules", () => {
     expect(rules.readSessionRules(CHAT)).toEqual([]);
   });
 
-  it("replaces a project rule over the same subject, out of its file and every session's rules", async () => {
+  it("replaces a project rule over the same subject, out of every folder and session's rules", async () => {
     const { stored: blocked } = await makeRule(SESSION_A, HOST, {
       kind: "project",
       sense: "block",
     });
     handovers = [];
 
-    const { recorded: replacing } = await makeRule(SESSION_B, HOST, {
-      kind: "project",
-      sense: "allow",
-    });
-    await rules.handOutRules(SESSION_B, replacing.replaced);
+    await makeRule(SESSION_B, HOST, { kind: "project", sense: "allow" });
 
     const block = { kind: "project", sense: "block", action: "network", subject: "example.com" };
-    expect(replacing.replaced).toEqual([block]);
     expect(readRevokeTriggers()).toMatchObject([
       { ruleId: blocked.approvalRequestId, invalidationTrigger: "explicit" },
     ]);
-    // Out of the file the session that made it works in, before the revoke was recorded; then
-    // each session of the project reads its rules again.
-    expect(handovers).toEqual([
-      { sessionId: SESSION_A, rule: block, projectFolder: FOLDER_A, revokeRecorded: false },
+    // Out of every working folder of the project, an archived one's too, before the revoke was
+    // recorded; then each session of the project reads its rules again.
+    expect(readHandovers()).toEqual([
+      ...PROJECT_FOLDERS.map((projectFolder) => ({
+        sessionId: SESSION_A,
+        rule: block,
+        projectFolder,
+        revokeRecorded: false,
+      })),
       { sessionId: SESSION_A, rule: block, projectFolder: undefined, revokeRecorded: true },
       { sessionId: SESSION_B, rule: block, projectFolder: undefined, revokeRecorded: true },
     ]);
     expect(rules.findRule(SESSION_A, "network", "example.com")?.sense).toBe("allow");
+  });
+
+  it("takes a rule whose record failed back out of its provider, and keeps the rule it replaced", async () => {
+    await makeRule(SESSION_A, HOST, { kind: "project", sense: "block" });
+    handovers = [];
+    failRuleRecord = true;
+
+    await expect(makeRule(SESSION_B, HOST, { kind: "project", sense: "allow" })).rejects.toThrow(
+      "the log is full",
+    );
+
+    const allow = { kind: "project", sense: "allow", action: "network", subject: "example.com" };
+    expect(readHandovers()).toEqual([
+      ...PROJECT_FOLDERS.map((projectFolder) => ({
+        sessionId: SESSION_B,
+        rule: allow,
+        projectFolder,
+        revokeRecorded: false,
+      })),
+      { sessionId: SESSION_A, rule: allow, projectFolder: undefined, revokeRecorded: false },
+      { sessionId: SESSION_B, rule: allow, projectFolder: undefined, revokeRecorded: false },
+    ]);
+    expect(readRevokeTriggers()).toEqual([]);
+    expect(rules.findRule(SESSION_B, "network", "example.com")?.sense).toBe("block");
   });
 
   it("leaves a project rule in force when its file removal fails, and revokes it on a retry", async () => {
@@ -232,13 +311,17 @@ describe("ApprovalRules", () => {
     await rules.revoke(ruleIdOf(made));
 
     expect(
-      handovers.map(({ sessionId, projectFolder, revokeRecorded }) => ({
+      readHandovers().map(({ sessionId, projectFolder, revokeRecorded }) => ({
         sessionId,
         projectFolder,
         revokeRecorded,
       })),
     ).toEqual([
-      { sessionId: SESSION_A, projectFolder: FOLDER_A, revokeRecorded: false },
+      ...PROJECT_FOLDERS.map((projectFolder) => ({
+        sessionId: SESSION_A,
+        projectFolder,
+        revokeRecorded: false,
+      })),
       { sessionId: SESSION_A, projectFolder: undefined, revokeRecorded: true },
       { sessionId: SESSION_B, projectFolder: undefined, revokeRecorded: true },
     ]);
@@ -249,6 +332,48 @@ describe("ApprovalRules", () => {
     await expect(
       rules.revoke("00000000-0000-7000-8000-0000000000ff" as RememberedRuleId),
     ).rejects.toMatchObject({ code: "approval.rule_not_found" });
+  });
+
+  it("records one revoke when two revokes of a rule come at once", async () => {
+    const { stored: made } = await makeRule(SESSION_A, HOST, { kind: "session", sense: "allow" });
+
+    const outcomes = await Promise.allSettled([
+      rules.revoke(ruleIdOf(made)),
+      rules.revoke(ruleIdOf(made)),
+    ]);
+
+    expect(outcomes.map((outcome) => outcome.status).toSorted()).toEqual(["fulfilled", "rejected"]);
+    expect(readRevokeTriggers()).toHaveLength(1);
+  });
+
+  it("takes the project rules a purged session made out of every folder, then the others' rules", async () => {
+    await makeRule(SESSION_A, HOST, { kind: "project", sense: "allow" });
+    await makeRule(
+      SESSION_A,
+      { kind: "command", command: "npm test" },
+      {
+        kind: "session",
+        sense: "allow",
+      },
+    );
+    handovers = [];
+
+    const handOutRules = await rules.withdrawProjectRules(SESSION_A);
+    const allow = { kind: "project", sense: "allow", action: "network", subject: "example.com" };
+    expect(handovers).toEqual(
+      PROJECT_FOLDERS.map((projectFolder) => ({
+        sessionId: SESSION_A,
+        rule: allow,
+        projectFolder,
+        revokeRecorded: false,
+      })),
+    );
+    handovers = [];
+    await handOutRules();
+
+    expect(handovers).toEqual([
+      { sessionId: SESSION_B, rule: allow, projectFolder: undefined, revokeRecorded: false },
+    ]);
   });
 
   it("ends a closed session's own rules and keeps its project's", async () => {
@@ -273,6 +398,20 @@ describe("ApprovalRules", () => {
       }),
     ]);
     expect(rules.readSessionRules(SESSION_B)).toHaveLength(1);
+  });
+
+  it("ends at its start the rules of a session that closed while the daemon was down", async () => {
+    const { stored: own } = await makeRule(SESSION_A, HOST, { kind: "session", sense: "allow" });
+    await database.writer.write([
+      { sql: "UPDATE sessions SET state = 'closed' WHERE id = ?", bindings: [SESSION_A] },
+    ]);
+
+    rules.start();
+    await rules.stop();
+
+    expect(readRevokeTriggers()).toMatchObject([
+      { ruleId: own.approvalRequestId, invalidationTrigger: "session_end" },
+    ]);
   });
 
   it("names a revoked subject until a rule in force covers it again", async () => {

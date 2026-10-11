@@ -1,8 +1,9 @@
-// The intake of provider asks: an ask the daemon answers itself goes straight back with no card;
-// an ask delivered again while held raises one card, and its request id once settled a new one;
-// an ask its provider takes back while its card is being raised is canceled once it is; a card's
-// answer reaches the provider once, with the rule it made, even when that rule could not be
-// recorded; and the sessions a replaced rule reached read their rules again after the answer.
+// The intake of provider asks: an ask the daemon answers itself goes straight back with no card,
+// while a destructive git command, an ask the provider's own check flagged and an ask a rule never
+// named still reach the card; an ask delivered again while held raises one card, and its request
+// id once settled a new one; an ask its provider takes back while its card is being raised is
+// canceled once it is; a card's answer reaches the provider once, decision first with the rule it
+// made, which is recorded once the provider kept it and never when it could not.
 
 import { afterEach, beforeEach, expect, it } from "vitest";
 
@@ -14,13 +15,15 @@ import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 import { openScratchDatabase, type ScratchDatabase } from "../../database/__fixtures__/scratch.js";
 import { EventLogService } from "../../events/log-service.js";
 import type { RespondToRequestParams } from "../../provider/driver/contract.js";
-import type {
-  ProviderAskRule,
-  ProviderPermissionAnswer,
-  ProviderPermissionAsk,
+import {
+  ProviderRuleNotKeptError,
+  type ProviderAnswerRule,
+  type ProviderAskRule,
+  type ProviderPermissionAnswer,
+  type ProviderPermissionAsk,
 } from "../../provider/port/permission-ask.js";
 import { PermissionAsks } from "../permission-asks.js";
-import type { ApprovalRules, RecordedRule } from "../rules.js";
+import type { ApprovalRules } from "../rules.js";
 import { ApprovalService } from "../service.js";
 
 const SESSION_ID = "00000000-0000-7000-8000-000000000001" as SessionId;
@@ -36,7 +39,9 @@ const NPM_TEST: ProviderPermissionAsk = {
   input: { command: "npm test" },
   action: { kind: "command", command: "npm test" },
   ruleScopes: ["session", "project"],
+  isProviderFlagged: false,
 };
+const PROJECT_FOLDERS = ["/work/repo", "/work/repo-feature"];
 const NPM_TEST_RULE: ProviderAskRule = {
   kind: "session",
   sense: "allow",
@@ -49,8 +54,8 @@ let service: ApprovalService;
 let responses: RespondToRequestParams[];
 let rulesInForce: ProviderAskRule[];
 let recordFailure: Error | undefined;
-let replacedRules: ProviderAskRule[];
-let handedOut: { sessionId: SessionId; rules: readonly ProviderAskRule[]; afterAnswers: number }[];
+let providerFailure: Error | undefined;
+let recorded: { made: ProviderAnswerRule; afterAnswers: number }[];
 // Holds a card's raising until the test lets it go, when set, after telling the test it began.
 let createGate: Promise<void> | undefined;
 let onCreate: () => void;
@@ -86,8 +91,8 @@ beforeEach(async () => {
   responses = [];
   rulesInForce = [];
   recordFailure = undefined;
-  replacedRules = [];
-  handedOut = [];
+  providerFailure = undefined;
+  recorded = [];
   createGate = undefined;
   onCreate = () => {};
 });
@@ -97,21 +102,16 @@ afterEach(async () => {
 });
 
 function buildAsks(): PermissionAsks {
-  const rules: Pick<ApprovalRules, "findRule" | "record" | "handOutRules"> = {
+  const rules: Pick<ApprovalRules, "findRule" | "record" | "readProjectFolders"> = {
     findRule: (_sessionId, action, subject) =>
       rulesInForce.find((rule) => rule.action === action && rule.subject === subject),
-    record: async (_request, action, scope): Promise<RecordedRule> => {
+    record: async (_request, made) => {
       if (recordFailure !== undefined) {
         throw recordFailure;
       }
-      return {
-        rule: { kind: scope.kind, sense: scope.sense, action, subject: scope.pattern },
-        replaced: replacedRules,
-      };
+      recorded.push({ made, afterAnswers: responses.length });
     },
-    handOutRules: async (sessionId, handed) => {
-      handedOut.push({ sessionId, rules: handed, afterAnswers: responses.length });
-    },
+    readProjectFolders: () => PROJECT_FOLDERS,
   };
   return new PermissionAsks({
     approvals: {
@@ -130,6 +130,9 @@ function buildAsks(): PermissionAsks {
     readRunAgent: () => "agent-1",
     respondToRequest: async (params) => {
       responses.push(params);
+      if (providerFailure !== undefined) {
+        throw providerFailure;
+      }
     },
   });
 }
@@ -146,12 +149,13 @@ function readCards(): { id: string; state: string; ask_id: string | null }[] {
 function approveAlways(
   approvalRequestId: string,
   clientResolutionId: string,
+  kind: "session" | "project" = "session",
 ): ApprovalResolveRequest {
   return {
     approvalRequestId,
     decision: "approved",
     clientResolutionId,
-    rememberedScope: { kind: "session", sense: "allow", pattern: "npm test" },
+    rememberedScope: { kind, sense: "allow", pattern: "npm test" },
   } as ApprovalResolveRequest;
 }
 
@@ -169,6 +173,34 @@ it("answers itself, with no card, a background command and an ask a rule in forc
     "refuse",
   ]);
   expect(readCards()).toEqual([]);
+});
+
+it("answers a block in force itself on an ask that offers no rule", async () => {
+  const asks = buildAsks();
+  rulesInForce = [{ kind: "session", sense: "block", action: "network", subject: "evil.test" }];
+
+  await asks.takeAsk({
+    ...NPM_TEST,
+    action: { kind: "network", host: "evil.test" },
+    ruleScopes: [],
+  });
+
+  expect(responses).toMatchObject([{ response: { decision: "refuse" } }]);
+  expect(readCards()).toEqual([]);
+});
+
+it.each([
+  ["a force push under an allow on its subject", "git push --force origin main", "git push", false],
+  ["a destructive push behind git's own options", "git -C . push -f", "git push", false],
+  ["a removal the provider's own check flagged", "rm -rf ./*", "rm", true],
+])("brings %s to the card", async (_case, command, subject, isProviderFlagged) => {
+  const asks = buildAsks();
+  rulesInForce = [{ ...NPM_TEST_RULE, subject }];
+
+  await asks.takeAsk({ ...NPM_TEST, action: { kind: "command", command }, isProviderFlagged });
+
+  expect(responses).toEqual([]);
+  expect(readCards()).toMatchObject([{ state: "pending" }]);
 });
 
 it("raises no card, or cancels the card, of an ask its provider took back meanwhile", async () => {
@@ -197,23 +229,38 @@ it("raises no card, or cancels the card, of an ask its provider took back meanwh
   expect(service.hasPendingForRun(RUN_ID)).toBe(false);
 });
 
-it("hands the answer and its rule to the provider once, then the replaced rule's sessions", async () => {
+it("hands the provider the answer and its rule once, then records the rule it kept", async () => {
   const asks = buildAsks();
-  replacedRules = [{ ...NPM_TEST_RULE, kind: "project", sense: "block" }];
   await asks.takeAsk(NPM_TEST);
   const [card] = readCards();
-  const answer = approveAlways(card?.id ?? "", "00000000-0000-4000-8000-0000000000d1");
+  const answer = approveAlways(card?.id ?? "", "00000000-0000-4000-8000-0000000000d1", "project");
+  const madeRule = { rule: { ...NPM_TEST_RULE, kind: "project" }, projectFolders: PROJECT_FOLDERS };
 
   await asks.resolve(answer, LAPTOP);
   await asks.resolve(answer, LAPTOP);
 
   expect(responses).toEqual([
-    { runId: RUN_ID, requestId: "7", response: { decision: "allow", rule: NPM_TEST_RULE } },
+    { runId: RUN_ID, requestId: "7", response: { decision: "allow", madeRule } },
   ]);
-  expect(handedOut).toEqual([{ sessionId: SESSION_ID, rules: replacedRules, afterAnswers: 1 }]);
+  expect(recorded).toEqual([{ made: madeRule, afterAnswers: 1 }]);
 });
 
-it("answers the call without its rule when the rule could not be recorded, and says so", async () => {
+it("records no rule its provider could not keep, and says so with the call answered", async () => {
+  const asks = buildAsks();
+  providerFailure = new ProviderRuleNotKeptError(new Error("settings file is not writable"));
+  await asks.takeAsk(NPM_TEST);
+  const [card] = readCards();
+
+  await expect(
+    asks.resolve(approveAlways(card?.id ?? "", "00000000-0000-4000-8000-0000000000d1"), LAPTOP),
+  ).rejects.toMatchObject({ code: "approval.rule_not_kept" });
+
+  expect(responses).toMatchObject([{ response: { decision: "allow" } }]);
+  expect(recorded).toEqual([]);
+  expect(readCards()).toMatchObject([{ state: "approved" }]);
+});
+
+it("throws what the record threw once the provider kept the rule, with the answer kept", async () => {
   const asks = buildAsks();
   recordFailure = new Error("the log is full");
   await asks.takeAsk(NPM_TEST);
@@ -223,7 +270,7 @@ it("answers the call without its rule when the rule could not be recorded, and s
     asks.resolve(approveAlways(card?.id ?? "", "00000000-0000-4000-8000-0000000000d1"), LAPTOP),
   ).rejects.toThrow("the log is full");
 
-  expect(responses).toEqual([{ runId: RUN_ID, requestId: "7", response: { decision: "allow" } }]);
+  expect(responses).toMatchObject([{ response: { decision: "allow" } }]);
   expect(readCards()).toMatchObject([{ state: "approved" }]);
 });
 

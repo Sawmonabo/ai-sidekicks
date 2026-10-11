@@ -789,12 +789,12 @@ describe("composeResumeSessionParams", () => {
       SESSION_MODEL,
       SESSION_LARGER_WINDOW,
       "build",
-      "reviewed",
+      { ...EXECUTION_POSTURE, mode: "reviewed" },
       NO_FUNCTION_LEGS,
     );
 
     // Strict, so the recorded executable path cannot ride along: every start resolves it again. The
-    // session's level outranks the mode the binding recorded at its start.
+    // session's posture outranks the one the binding recorded at its start.
     expect(params).toStrictEqual({
       sessionId: SESSION_ID,
       resumeHandle: "opaque-handle-abc",
@@ -838,7 +838,7 @@ describe("composeResumeSessionParams", () => {
         SESSION_MODEL,
         SESSION_LARGER_WINDOW,
         "build",
-        "yolo",
+        EXECUTION_POSTURE,
         NO_FUNCTION_LEGS,
       ).providerAccountId,
     ).toBeUndefined();
@@ -862,7 +862,7 @@ describe("composeResumeSessionParams", () => {
       SESSION_MODEL,
       SESSION_LARGER_WINDOW,
       "build",
-      "yolo",
+      EXECUTION_POSTURE,
       { onCallbackToolCall, onMcpServerStatus: undefined },
     );
 
@@ -887,7 +887,7 @@ describe("composeResumeSessionParams", () => {
         SESSION_MODEL,
         SESSION_LARGER_WINDOW,
         "build",
-        "yolo",
+        EXECUTION_POSTURE,
         NO_FUNCTION_LEGS,
       );
     });

@@ -1,7 +1,9 @@
 // A session's provider session, opened by its first admission: the driver's `createSession` and
 // the runtime binding that records it, or, when the session already has a conversation from before
 // the daemon started, the driver's `resumeSession` of it and the binding the resume minted. Each
-// run after that gets a binding of its own on the session's current leg.
+// run after that gets a binding of its own on the session's current leg. A session's opening, its
+// run bindings and its level moves take one lock, so a process never opens at a level a move is
+// about to replace, and two moves never store one level while the process runs at the other.
 
 import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
@@ -14,6 +16,7 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { canonicalizeUuid } from "@ai-sidekicks/contracts/uuid-canonical";
 
 import { KeyedLock } from "../keyed-lock.js";
+import { composeExecutionPosture } from "../policy/execution-posture-service.js";
 import type { CreateSessionParams, ProviderDriver } from "../provider/driver/contract.js";
 import {
   composeResumeSessionParams,
@@ -27,7 +30,12 @@ import type { RunBindingCursors } from "../session/run/binding-cursors.js";
 /** What a session's provider session opens with, composed from the session's lead. */
 export interface ProviderSessionOpening {
   readonly driverName: ProviderName;
-  /** The create's data legs; the function legs are bound to the binding once it is minted. */
+  /** The git folder of the session's repository, which the posture of each level is built on. */
+  readonly gitFolder: string;
+  /**
+   * The create's data legs, its posture the one of the level the session stands at; the function
+   * legs are bound to the binding once it is minted.
+   */
   readonly createParams: Omit<CreateSessionParams, "onCallbackToolCall" | "onMcpServerStatus">;
   /** The callbacks a process of the leg `bindingId` is handed, bound to that leg. */
   readonly functionLegsFor: (bindingId: string) => ResumeFunctionLegInjection;
@@ -51,6 +59,8 @@ export interface ProviderSessionsDeps {
   readonly readSessionMode: (sessionId: SessionId) => SessionMode;
   /** The level the session stands at, which a resumed conversation starts at. */
   readonly readPermissionLevel: (sessionId: SessionId) => PermissionLevel;
+  /** Stores the level the session moved to. */
+  readonly recordPermissionLevel: (sessionId: SessionId, level: PermissionLevel) => Promise<void>;
 }
 
 /** Thrown when a session's provider session could not be opened; nothing of it is left live. */
@@ -64,9 +74,11 @@ class ProviderSessionOpenError extends Error {
   }
 }
 
-// One opened session: the posture its process runs at, which each of its runs is requested at.
+// One opened session: the posture its process runs at, which each of its runs is requested at, and
+// the git folder each level's posture is built on.
 interface OpenedSession {
   executionPosture: ExecutionPosture;
+  readonly gitFolder: string;
 }
 
 /**
@@ -86,35 +98,57 @@ export class ProviderSessions {
 
   /**
    * The posture the session's process runs at, which each of its runs is requested at: the open
-   * one's, else the conversation's it resumes, else the one it opens with. Throws
-   * {@link ProviderSessionOpenError} for a session with no posture.
+   * one's, else the one it opens at. Throws {@link ProviderSessionOpenError} for a session with no
+   * posture.
    */
   async readExecutionPosture(sessionId: SessionId): Promise<ExecutionPosture> {
     const opened = this.#opened.get(canonicalizeUuid(sessionId));
     if (opened !== undefined) {
       return opened.executionPosture;
     }
-    return postureOf(
-      sessionId,
-      this.#deps.readSessionLeg(sessionId),
-      await this.#deps.composeOpening(sessionId),
-      this.#deps.readPermissionLevel(sessionId),
-    );
-  }
-
-  /** Whether this process has opened the session's provider session. */
-  isOpen(sessionId: SessionId): boolean {
-    return this.#opened.has(canonicalizeUuid(sessionId));
+    return postureOf(sessionId, await this.#deps.composeOpening(sessionId));
   }
 
   /**
-   * Records the level an opened session's process moved to, which its next runs are requested at.
+   * Moves the session to `level` and stores it, unless it stands there already. An open process
+   * is moved first, by `moveProcess` to the level's posture, so the record never names a level the
+   * provider refused; a store that fails then moves it back and throws. A process not open yet
+   * opens at the stored level. Throws what `moveProcess` throws, with nothing changed.
    */
-  moveLevel(sessionId: SessionId, level: PermissionLevel): void {
-    const opened = this.#opened.get(canonicalizeUuid(sessionId));
-    if (opened !== undefined) {
-      opened.executionPosture = { ...opened.executionPosture, mode: level };
-    }
+  async changeLevel(
+    sessionId: SessionId,
+    level: PermissionLevel,
+    moveProcess: (posture: ExecutionPosture) => Promise<void>,
+  ): Promise<void> {
+    await this.#openLock.run(sessionId, async () => {
+      if (this.#deps.readPermissionLevel(sessionId) === level) {
+        return;
+      }
+      const opened = this.#opened.get(canonicalizeUuid(sessionId));
+      if (opened === undefined) {
+        await this.#deps.recordPermissionLevel(sessionId, level);
+        return;
+      }
+      const postureBefore = opened.executionPosture;
+      const posture = composeExecutionPosture(level, opened.gitFolder);
+      await moveProcess(posture);
+      opened.executionPosture = posture;
+      try {
+        await this.#deps.recordPermissionLevel(sessionId, level);
+      } catch (recordError) {
+        try {
+          await moveProcess(postureBefore);
+          opened.executionPosture = postureBefore;
+        } catch (moveBackError) {
+          throw new AggregateError(
+            [recordError, moveBackError],
+            `Session ${sessionId}'s level was not stored, and its process could not move back`,
+            { cause: moveBackError },
+          );
+        }
+        throw recordError;
+      }
+    });
   }
 
   /**
@@ -178,12 +212,7 @@ export class ProviderSessions {
   async #create(sessionId: SessionId, runId: RunId): Promise<OpenedSession> {
     const opening = await this.#deps.composeOpening(sessionId);
     const { driverName, createParams } = opening;
-    const executionPosture = postureOf(
-      sessionId,
-      undefined,
-      opening,
-      this.#deps.readPermissionLevel(sessionId),
-    );
+    const executionPosture = postureOf(sessionId, opening);
     const binding = await this.#deps.bindingCursors.create({
       runId,
       driverName,
@@ -214,22 +243,21 @@ export class ProviderSessions {
     if (recorded === undefined) {
       throw new ProviderSessionOpenError(sessionId, `its binding ${binding.id} is gone`);
     }
-    return { executionPosture };
+    return { executionPosture, gitFolder: opening.gitFolder };
   }
 
   // The session ran before this daemon started: its conversation is resumed in a fresh process,
   // and the binding the resume minted is the run's.
   async #resume(sessionId: SessionId, leg: RuntimeBinding, runId: RunId): Promise<OpenedSession> {
     const opening = await this.#deps.composeOpening(sessionId);
-    const level = this.#deps.readPermissionLevel(sessionId);
-    const executionPosture = postureOf(sessionId, leg, opening, level);
+    const executionPosture = postureOf(sessionId, opening);
     const params = composeResumeSessionParams(
       sessionId,
       leg,
       opening.createParams.model,
       opening.createParams.largerWindow,
       this.#deps.readSessionMode(sessionId),
-      level,
+      executionPosture,
       opening.functionLegsFor(leg.id),
     );
     const result = await this.#deps.resolveDriver(leg.driverName).resumeSession(params);
@@ -256,7 +284,7 @@ export class ProviderSessions {
       resumeHandle: result.resumeHandle,
       leftConversations,
     });
-    const session: OpenedSession = { executionPosture };
+    const session: OpenedSession = { executionPosture, gitFolder: opening.gitFolder };
     // The resumed leg sits on the run it was first opened for; this run gets its own.
     this.#opened.set(canonicalizeUuid(sessionId), session);
     await this.openRunBinding(runId, sessionId);
@@ -264,25 +292,13 @@ export class ProviderSessions {
   }
 }
 
-// The posture a session's process runs at: the one its resumed conversation records, else the one
-// its opening names, at the level the session stands at.
-function postureOf(
-  sessionId: SessionId,
-  leg: RuntimeBinding | undefined,
-  opening: ProviderSessionOpening,
-  level: PermissionLevel,
-): ExecutionPosture {
-  const posture =
-    leg === undefined ? opening.createParams.executionPosture : leg.spawnConfig.executionPosture;
+// The posture a session's process opens or resumes at, the one its opening names.
+function postureOf(sessionId: SessionId, opening: ProviderSessionOpening): ExecutionPosture {
+  const posture = opening.createParams.executionPosture;
   if (posture === undefined) {
-    throw new ProviderSessionOpenError(
-      sessionId,
-      leg === undefined
-        ? "its lead runs at no posture"
-        : `its binding ${leg.id} records no posture`,
-    );
+    throw new ProviderSessionOpenError(sessionId, "its lead runs at no posture");
   }
-  return { ...posture, mode: level };
+  return posture;
 }
 
 // The spawn-bound legs a resume rebuilds the session from.

@@ -8,8 +8,8 @@ import type { Authorizer, PolicyDecision } from "./authorizer.js";
 
 /**
  * Decides whether a start an agent made through its workflow tools, or a run a trigger fired, may
- * begin under the `workflow::start` rules. Each start is evaluated afresh, so a rule changed after a
- * trigger was armed still stops its next run; `owner` is the machine's owning user as the daemon
+ * begin under the `workflow::start` rules. Each start is evaluated afresh, so a rule changed after
+ * a trigger was armed still stops its next run; `owner` is the machine's owning user as the daemon
  * resolved it, and a start whose owner did not resolve is denied without evaluation.
  */
 export function checkWorkflowStart(

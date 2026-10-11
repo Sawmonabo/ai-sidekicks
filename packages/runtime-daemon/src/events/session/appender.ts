@@ -65,13 +65,13 @@ export interface SessionEventLinkage {
   readonly causationId?: string | null | undefined;
   /** Forwarded to the append path (see `EventLogAppendOptions.transactionalPrelude`). */
   readonly transactionalPrelude?: readonly WriteStatement[] | undefined;
-  /** A body-bearing event's prose, stored beside its payload (see `EventLogAppendOptions.content`). */
+  /** A body-bearing event's prose, kept beside its payload (`EventLogAppendOptions.content`). */
   readonly content?: EventLogAppendOptions["content"] | undefined;
   /** Events committed just before this one in its write (see `EventLogAppendOptions`). */
   readonly precedingEvents?: readonly SessionEventDraft[] | undefined;
 }
 
-/** The members the envelope reads back from a payload: its session and, when one acted, its actor. */
+/** What the envelope reads back from a payload: its session and, when one acted, its actor. */
 export interface AppendedPayload {
   readonly sessionId: SessionId;
   readonly actor?: string | null | undefined;

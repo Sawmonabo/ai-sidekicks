@@ -166,9 +166,11 @@ async function openTurnFixture(
       resolveDriver: () => driver,
       readContractVersion: () => "1.0.0",
       readPermissionLevel: () => "yolo",
+      recordPermissionLevel: () => Promise.reject(new Error("No level move is part of this test")),
       composeOpening: (openingSessionId) =>
         Promise.resolve({
           driverName,
+          gitFolder: "/work/repo/.git",
           createParams: {
             sessionId: openingSessionId,
             config: {},

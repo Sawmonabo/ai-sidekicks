@@ -55,7 +55,11 @@ describe("Codex conversation settings", () => {
     const harness = createHarness();
     await createdSession(harness, { posture: { ...TEST_POSTURE, mode: "yolo" } });
     await createdSession(harness, { sessionId: ASK_SESSION_ID });
-    await harness.driver.updatePermissionLevel({ sessionId: ASK_SESSION_ID, level: "yolo" });
+    await harness.driver.updatePermissionLevel({
+      sessionId: ASK_SESSION_ID,
+      level: "yolo",
+      writableRoots: [],
+    });
 
     const started = harness.server.paramsFor("thread/start")[0] ?? {};
     const moved = harness.server.paramsFor("thread/settings/update")[0] ?? {};

@@ -27,7 +27,7 @@ export class ApprovalProjectionService {
     this.#requests = new ApprovalRequestReader(reader);
   }
 
-  /** The session's asks, oldest first, narrowed by state or category where the request names one. */
+  /** The session's asks, oldest first, narrowed by state or category where the request names it. */
   read(request: ApprovalProjectionReadRequest): ApprovalProjectionReadResponse {
     return { approvals: this.#requests.listSessionRequests(request).map(projectionRowOf) };
   }

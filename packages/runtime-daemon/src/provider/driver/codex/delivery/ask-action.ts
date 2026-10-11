@@ -3,11 +3,15 @@
 // offers that answer, and then one for the project too, in the project's rule file; a change to
 // one file takes the session's alone, since Codex keeps no project rule on a file; input to a
 // running command, a permissions grant and a tool server's call Codex keeps for the session only
-// where it says so.
+// where it says so. A command is read as the whole line it runs, the one its `<shell> -lc '…'`
+// wrapper hands the shell. A tool server's call is named as Codex's pre-tool hook names it,
+// `mcp__<server>__<tool>`.
 
 import type { RememberedScopeKind } from "@ai-sidekicks/contracts/approval";
 import { parse } from "unbash";
 
+import { joinShellWords, unwrapShellCommandLine } from "../../../../policy/shell-commands.js";
+import { composeToolServerToolName } from "../../../mcp/tool-name.js";
 import type { ProviderAskAction } from "../../../port/permission-ask.js";
 import { isPlainObject, readNonEmptyString } from "../../../record-readers.js";
 
@@ -60,13 +64,15 @@ export function readCodexAskAction(
     const keepsForSession =
       persist === CODEX_PERSIST_SESSION ||
       (Array.isArray(persist) && persist.includes(CODEX_PERSIST_SESSION));
+    const serverName = readNonEmptyString(params, "serverName");
+    const serverToolName = readNonEmptyString(meta, "tool_name");
     return {
       action: {
         kind: "tool",
         toolName:
-          readNonEmptyString(meta, "tool_title") ??
-          readNonEmptyString(params, "serverName") ??
-          method,
+          serverName !== undefined && serverToolName !== undefined
+            ? composeToolServerToolName(serverName, serverToolName)
+            : (serverName ?? method),
       },
       ruleScopes: keepsForSession ? ["session"] : [],
     };
@@ -75,10 +81,12 @@ export function readCodexAskAction(
 }
 
 function readCommandAsk(params: Readonly<Record<string, unknown>>): CodexAskReading {
-  const command = readCommandText(params["command"]);
   if (params["kind"] === "writeStdin") {
-    return { action: { kind: "command_input", input: readWrittenInput(command) }, ruleScopes: [] };
+    const written = typeof params["command"] === "string" ? params["command"] : "";
+    return { action: { kind: "command_input", input: readWrittenInput(written) }, ruleScopes: [] };
   }
+  // Never the rule words Codex proposes, which may name one command of several or a prefix.
+  const command = readCommandText(params["command"]);
   const decisions = params["availableDecisions"];
   // A server that lists no answers offers its whole set, `acceptForSession` among them.
   const keepsForSession = !Array.isArray(decisions) || decisions.includes(CODEX_SESSION_DECISION);
@@ -91,14 +99,18 @@ function readCommandAsk(params: Readonly<Record<string, unknown>>): CodexAskRead
   return { action: { kind: "command", command }, ruleScopes };
 }
 
-// The modern ask names its command as one line, the legacy one as its words.
+// The modern ask names its command as one line, the legacy one as its words; either is read
+// through the shell wrapper Codex runs it in.
 function readCommandText(command: unknown): string {
-  if (typeof command === "string") {
-    return command;
-  }
-  return Array.isArray(command)
-    ? command.filter((word): word is string => typeof word === "string").join(" ")
-    : "";
+  return unwrapShellCommandLine(
+    typeof command === "string" ? command : joinShellWords(readWords(command)),
+  );
+}
+
+function readWords(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((word): word is string => typeof word === "string")
+    : [];
 }
 
 // An input ask's command is `write_stdin --session-id <n> <input>`, shell-quoted: its last word is

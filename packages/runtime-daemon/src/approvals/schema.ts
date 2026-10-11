@@ -3,9 +3,9 @@
 //
 // The request and resolution tables are projections of the `approval.*` events, written in each
 // event's own write and rebuildable from the log. The daemon keeps no table of approval rules: the
-// providers keep them, and a resolution's remembered scope is the record of the rule its answer
-// handed over. The reviewer blocks table keeps each provider's own record of a block whole, which
-// the event's body may hold only cut short, so an `Allow once` can hand it back.
+// providers keep them, and a resolution's remembered scope is written with the record of the rule
+// its answer made. The reviewer blocks table keeps each provider's own record of a block whole,
+// which the event's body may hold only cut short, so an `Allow once` can hand it back.
 
 /** The SQL of the approval tables and their indexes, run as part of the daemon schema's script. */
 export const APPROVAL_SCHEMA_SQL: string = `
@@ -43,8 +43,8 @@ CREATE TABLE approval_requests (
 CREATE INDEX idx_approval_requests_run ON approval_requests(run_id);
 CREATE INDEX idx_approval_requests_session ON approval_requests(session_id);
 CREATE INDEX idx_approval_requests_state ON approval_requests(state) WHERE state = 'pending';
--- One request per provider ask: a retried or rebuilt mint collides here instead of leaving a
--- second pending row whose answer would reach the ask twice.
+-- One request per ask id. The id is minted once for each provider ask the intake takes, so a
+-- provider's resent ask is matched to the one it holds in memory, never by this index.
 CREATE UNIQUE INDEX idx_approval_requests_ask ON approval_requests(run_id, ask_id)
   WHERE ask_id IS NOT NULL;
 
@@ -62,8 +62,8 @@ CREATE TABLE approval_resolutions (
                            CHECK(decision IN ('approved', 'rejected')),
   -- The request's scope, never broader.
   effective_scope          TEXT NOT NULL,
-  -- The rule the answer handed to the provider, NULL for a one-time answer; its sense follows the
-  -- decision.
+  -- The rule the answer made, written with the rule's own record once its provider kept it; NULL
+  -- for a one-time answer and for a rule its provider did not keep. Its sense follows the decision.
   remembered_scope_kind    TEXT
                            CHECK(remembered_scope_kind IS NULL
                              OR remembered_scope_kind IN ('session', 'project')),

@@ -8,10 +8,11 @@
 import type { QuestionAnswer, QuestionPrompt } from "@ai-sidekicks/contracts/question";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
-import type {
-  PermissionAskPort,
-  ProviderAskAction,
-  ProviderPermissionAnswer,
+import {
+  ProviderRuleNotKeptError,
+  type PermissionAskPort,
+  type ProviderAskAction,
+  type ProviderPermissionAnswer,
 } from "../../../port/permission-ask.js";
 import type { QuestionPort } from "../../../port/question.js";
 import type { SessionRulePort } from "../../../port/session-rules.js";
@@ -204,28 +205,38 @@ export class ClaudeInboundRequests {
   /**
    * Answers one request a run is held on under its own id: a question with `{answers}`, one per
    * question in order, composed into the question tool's own answer; an ask with the approval
-   * pipeline's {@link ProviderPermissionAnswer}, its rule handed over first. Throws for a request
-   * the session no longer holds, and as handing over the rule throws.
+   * pipeline's {@link ProviderPermissionAnswer}, the decision first and then the rule it made.
+   * Throws for a request the session no longer holds, as the answer's send throws, and
+   * {@link ProviderRuleNotKeptError} once the call is answered but its rule could not be kept.
    */
   async respond(live: LiveClaudeSession, params: RespondToRequestParams): Promise<void> {
     const pending = this.#pendingBySession.get(live.sessionId)?.get(params.requestId);
     if (pending === undefined) {
       throw new Error(`Claude Code holds no request ${params.requestId} of this session open`);
     }
-    let response: Record<string, unknown>;
     if (pending.kind === "question") {
-      response = composeQuestionResponse(pending, readQuestionAnswers(params.response));
-    } else {
-      const answer = params.response as ProviderPermissionAnswer;
+      await live.channel.answerInboundRequest(
+        params.requestId,
+        composeQuestionResponse(pending, readQuestionAnswers(params.response)),
+      );
+      this.#pendingBySession.get(live.sessionId)?.delete(params.requestId);
+      return;
+    }
+    const answer = params.response as ProviderPermissionAnswer;
+    await live.channel.answerInboundRequest(params.requestId, composeAskResponse(pending, answer));
+    this.#pendingBySession.get(live.sessionId)?.delete(params.requestId);
+    if (answer.madeRule === undefined) {
+      return;
+    }
+    try {
       await keepClaudeAnswerRule(
         live,
-        answer,
+        answer.madeRule,
         readClaudeSessionRules(this.#dependencies.sessionRules, live.sessionId),
       );
-      response = composeAskResponse(pending, answer);
+    } catch (error) {
+      throw new ProviderRuleNotKeptError(error);
     }
-    await live.channel.answerInboundRequest(params.requestId, response);
-    this.#pendingBySession.get(live.sessionId)?.delete(params.requestId);
   }
 
   /**
@@ -344,7 +355,7 @@ export class ClaudeInboundRequests {
     }
     const toolCallId = readNonEmptyString(body, "tool_use_id");
     const prompt = readNonEmptyString(body, "title") ?? readNonEmptyString(body, "description");
-    const { action, ruleScopes } = readClaudeAskAction(toolName, input);
+    const { action, ruleScopes, isProviderFlagged } = readClaudeAskAction(toolName, input, body);
     const pending = { kind: "ask", input, action } as const;
     this.#admit(live, request.requestId, run, toolCallId, pending, async (port) => {
       await port.asks?.takeAsk({
@@ -355,6 +366,7 @@ export class ClaudeInboundRequests {
         input,
         action,
         ruleScopes,
+        isProviderFlagged,
         ...(toolCallId === undefined ? {} : { toolCallId }),
         ...(prompt === undefined ? {} : { prompt }),
       });
@@ -549,8 +561,8 @@ function composeQuestionResponse(
 
 // The ask's answer in Claude Code's own words: an allow hands back the call's input, with the
 // command or path as the person corrected it, and a project allow its rule for Claude Code to write
-// into the project's local settings; a refusal carries the decline's reason, and none for a bare
-// decline.
+// into its own folder's local settings, where Claude Code can keep it; a refusal carries the
+// decline's reason, and none for a bare decline.
 function composeAskResponse(
   pending: Extract<ClaudePendingRequestKind, { kind: "ask" }>,
   answer: ProviderPermissionAnswer,
@@ -562,12 +574,14 @@ function composeAskResponse(
     answer.editedAction === undefined
       ? pending.input
       : withEditedAction(pending.input, pending.action, answer.editedAction);
+  const projectAllow =
+    answer.madeRule?.rule.kind === "project"
+      ? composeClaudeProjectAllowUpdate(answer.madeRule.rule)
+      : undefined;
   return {
     behavior: "allow",
     updatedInput,
-    ...(answer.rule?.kind === "project"
-      ? { updatedPermissions: [composeClaudeProjectAllowUpdate(answer.rule)] }
-      : {}),
+    ...(projectAllow === undefined ? {} : { updatedPermissions: [projectAllow] }),
   };
 }
 

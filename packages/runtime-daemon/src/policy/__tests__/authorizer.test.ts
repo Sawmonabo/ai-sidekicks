@@ -1,5 +1,5 @@
-// A decision is an allow only when a rule permits the request, no rule forbids it and nothing in the
-// evaluation errored; a rules folder that will not load stops the start.
+// A decision is an allow only when a rule permits the request, no rule forbids it and nothing in
+// the evaluation errored; a rules folder that will not load stops the start.
 
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";

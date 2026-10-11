@@ -51,8 +51,6 @@ export interface CodexProfileFolders {
    * a repository.
    */
   readonly gitCommonFolder: string | undefined;
-  /** More folders the posture lets the conversation write, absolute. */
-  readonly writableRoots: readonly string[];
   /** The credential paths no level may read, absolute. */
   readonly denyPaths: readonly string[];
 }
@@ -134,12 +132,10 @@ export function composeCodexPermissionConfig(
   folders: CodexProfileFolders,
 ): { readonly permissions: Record<string, CodexPermissionProfile>; default_permissions: string } {
   const denies = Object.fromEntries(folders.denyPaths.map((denied) => [denied, "deny" as const]));
-  const writableRoots = Object.fromEntries(
-    folders.writableRoots.map((root) => [root, "write" as const]),
-  );
   // `:workspace` makes both temporary folders writable by itself; they stay readable only, so
-  // nothing outside the worktree is written where the daemon's own data could stand.
-  const workspaceBase = { ":tmpdir": "read", ":slash_tmp": "read", ...writableRoots } as const;
+  // nothing outside the worktree is written where the daemon's own data could stand. The one root
+  // a posture names, the git folder at Sandboxed, is the repository entries' own.
+  const workspaceBase = { ":tmpdir": "read", ":slash_tmp": "read" } as const;
   const workspace: CodexPermissionProfile = {
     extends: ":workspace",
     filesystem: { ...workspaceBase, ...denies },

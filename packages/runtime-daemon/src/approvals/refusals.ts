@@ -1,11 +1,13 @@
 // The approval service's refusals, each projected onto the wire by its code: an ask the daemon
 // holds no row for, one already answered or canceled, an answer that does not fit its ask, an ask
-// raised after its run or its session ended, a record that could not be kept, an `Allow once` on a
-// block the daemon holds no record of or no person may overrule, and a revoke of a rule never made
-// or no longer in force.
+// raised after its run or its session ended, a record that could not be kept, a rule the provider
+// could not keep after the answer reached it, an `Allow once` on a block the daemon holds no record
+// of or no person may overrule, and a revoke of a rule never made or no longer in force.
 
 import type {
+  ApprovalLateCreateReason,
   ApprovalRequestId,
+  ApprovalResolutionInvalidReason,
   RememberedRuleId,
   ReviewerDenialId,
 } from "@ai-sidekicks/contracts/approval";
@@ -14,24 +16,6 @@ import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { DaemonDomainError } from "../ipc/domain-error.js";
-
-/** Why an ask could not be raised: its run had ended, or its session had closed. */
-type LateCreateReason = "run_ended" | "session_closed";
-
-/**
- * Why an answer does not fit its ask: a block on an ask that is not a network request, a rule the
- * ask does not offer, a rule over other words than the subject the card named, a scope other than
- * the one asked, a correction on an ask whose command or path cannot be corrected, or a correction
- * and a rule together, since the rule's subject was derived from what was asked and not from the
- * correction.
- */
-type ResolutionInvalidReason =
-  | "block_outside_network_access"
-  | "rule_not_offered"
-  | "subject_mismatch"
-  | "effective_scope_broader"
-  | "edit_not_offered"
-  | "edit_with_rule";
 
 /** `approval.not_found`: the daemon holds no ask under the id. */
 export class ApprovalNotFoundError extends DaemonDomainError {
@@ -71,7 +55,7 @@ export class ApprovalRequestCanceledError extends DaemonDomainError {
  * was raised. `reason` names which, read from their state when the create was refused.
  */
 export class ApprovalLateCreateError extends DaemonDomainError {
-  constructor(sessionId: SessionId, runId: RunId, reason: LateCreateReason) {
+  constructor(sessionId: SessionId, runId: RunId, reason: ApprovalLateCreateReason) {
     super(
       reason === "run_ended"
         ? "The run has ended, so it raises no approval request"
@@ -90,7 +74,7 @@ export class ApprovalLateCreateError extends DaemonDomainError {
  * `reason` names how.
  */
 export class ApprovalResolutionInvalidError extends DaemonDomainError {
-  constructor(approvalRequestId: ApprovalRequestId, reason: ResolutionInvalidReason) {
+  constructor(approvalRequestId: ApprovalRequestId, reason: ApprovalResolutionInvalidReason) {
     super("The answer does not fit the approval request it names", {
       code: "approval.resolution_invalid",
       jsonRpcCode: JsonRpcErrorCode.InvalidParams,
@@ -107,6 +91,22 @@ export class ApprovalPersistenceUnavailableError extends DaemonDomainError {
   constructor(cause: unknown) {
     super("The approval record could not be kept, so the action does not proceed", {
       code: "approval.persistence_unavailable",
+      cause,
+    });
+  }
+}
+
+/**
+ * `approval.rule_not_kept`: the answer was recorded and reached the provider, which runs or refuses
+ * the call on it, but the provider could not keep the rule the answer asked for, so none was
+ * recorded. The provider's failure is the cause.
+ */
+export class ApprovalRuleNotKeptError extends DaemonDomainError {
+  constructor(approvalRequestId: ApprovalRequestId, cause: unknown) {
+    super("The answer went through, but its rule could not be kept, so no rule was made", {
+      code: "approval.rule_not_kept",
+      jsonRpcCode: JsonRpcErrorCode.InternalError,
+      detail: { approvalRequestId },
       cause,
     });
   }

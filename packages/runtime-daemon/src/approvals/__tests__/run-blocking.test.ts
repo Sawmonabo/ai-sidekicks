@@ -1,7 +1,8 @@
 // How an ask holds its run, over a real run engine and approval service: the run waits from its
-// first ask until no ask is left open, a second ask changes nothing, an answer never pulls a run
-// out of a state it moved to meanwhile, an answer that races its ask's block still leaves the run
-// running, and a run's end cancels the asks it still holds.
+// first ask until no ask is left open, a second ask changes nothing, an ask raised while the run
+// could not wait holds it once it runs, an answer never pulls a run out of a state it moved to
+// meanwhile, an answer that races its ask's block still leaves the run running, and a run's end
+// cancels the asks it still holds, leaving its answered ones and another run's alone.
 
 import { afterEach, beforeEach, expect, it } from "vitest";
 
@@ -22,6 +23,7 @@ const LAPTOP = "device-laptop" as DeviceId;
 let fixture: RunEngineFixture;
 let service: ApprovalService;
 let forgottenRuns: RunId[];
+let stopHolding: (() => Promise<void>) | undefined;
 
 beforeEach(async () => {
   fixture = await openRunEngineFixture();
@@ -47,12 +49,20 @@ function holdRuns(
     forgetRun: (runId) => {
       forgottenRuns.push(runId);
     },
+    followAll: (onCommitted, onGap) => fixture.sessionEvents.followAll(onCommitted, onGap),
+    writeServiceLog: (line) => {
+      throw new Error(`unexpected service log line: ${line}`);
+    },
   });
   service.registerApprovalOutcomeListener(blocking);
   fixture.engine.registerSetupGate(blocking);
+  blocking.start();
+  stopHolding = () => blocking.stop();
 }
 
 afterEach(async () => {
+  await stopHolding?.();
+  stopHolding = undefined;
   await fixture.close();
 });
 
@@ -106,6 +116,20 @@ it("holds the run from its first ask until no ask is left open", async () => {
   ).toEqual(["waiting_for_approval", "running"]);
 });
 
+it("holds a run that could not wait when its ask came as soon as it runs", async () => {
+  holdRuns();
+  const runId = await fixture.runThrough(["starting"]);
+  const ask = await raiseAsk(runId, "npm test");
+
+  expect(stateOf(runId)).toBe("starting");
+
+  await fixture.engine.transition({ runId, newState: "running" });
+
+  await expect.poll(() => stateOf(runId)).toBe("waiting_for_approval");
+  await approve(ask);
+  expect(stateOf(runId)).toBe("running");
+});
+
 it("leaves a run that moved on meanwhile where it is when its ask is answered", async () => {
   holdRuns();
   const runId = await fixture.runThrough(["starting", "running"]);
@@ -140,6 +164,8 @@ it("runs the run again when its ask is answered while its block is still being w
     },
     approvals: service,
     forgetRun: () => {},
+    followAll: () => () => {},
+    writeServiceLog: () => {},
   });
   service.registerApprovalOutcomeListener({
     onBlocking: async (blockedRunId, approvalRequestId) => {
@@ -165,13 +191,38 @@ it("runs the run again when its ask is answered while its block is still being w
   expect(stateOf(runId)).toBe("running");
 });
 
-it("cancels the asks a run still holds when it ends", async () => {
+it("cancels the asks a run still holds when it ends, leaving its answered ones and other runs alone", async () => {
   holdRuns();
   const runId = await fixture.runThrough(["starting", "running"]);
+  const otherRunId = await fixture.runThrough(["starting", "running"]);
   const open = await raiseAsk(runId, "npm test");
+  const answered = await raiseAsk(runId, "git fetch");
+  const otherRunAsk = await raiseAsk(otherRunId, "git pull");
+  await approve(answered);
 
   await fixture.engine.transition({ runId, newState: "interrupted" });
 
   expect(service.readRequest(open)?.state).toBe("canceled");
+  expect(service.readRequest(answered)?.state).toBe("approved");
+  expect(service.readRequest(otherRunAsk)?.state).toBe("pending");
   expect(forgottenRuns).toEqual([runId]);
+  // A cancel settles the ask with its event and no answer row, so a late answer is refused.
+  expect(
+    fixture.database.reader
+      .prepare<
+        [string],
+        { n: number }
+      >(`SELECT (SELECT COUNT(*) FROM approval_resolutions WHERE request_id = ?) AS n`)
+      .get(open)?.n,
+  ).toBe(0);
+  expect(
+    fixture.database.reader
+      .prepare<[], { id: string }>(
+        `SELECT json_extract(payload, '$.approvalRequestId') AS id FROM session_events
+          WHERE type = 'approval.canceled'`,
+      )
+      .all()
+      .map((row) => row.id),
+  ).toEqual([open]);
+  await expect(approve(open)).rejects.toMatchObject({ code: "approval.request_canceled" });
 });

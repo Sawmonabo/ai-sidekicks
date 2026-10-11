@@ -36,6 +36,11 @@ export interface ProviderPermissionAsk {
    * (a running command's input) and no `project` where it has no project rule file for its kind.
    */
   ruleScopes: readonly RememberedScopeKind[];
+  /**
+   * Whether the provider's own safety check flagged the call and offers no standing allow on it
+   * (Claude Code's `suppress_always_allow_rule`), so no rule in force answers it.
+   */
+  isProviderFlagged: boolean;
   /** The held tool call's id (Claude Code's `tool_use_id`, Codex's `itemId`), where it sent one. */
   toolCallId?: string | undefined;
   prompt?: string | undefined;
@@ -61,21 +66,45 @@ export interface ProviderAskRule {
 }
 
 /**
+ * The rule an answer made, with the folders a project rule is written into: every live working
+ * folder of the project, each worktree's own; none for a session rule.
+ */
+export interface ProviderAnswerRule {
+  readonly rule: ProviderAskRule;
+  readonly projectFolders: readonly string[];
+}
+
+/**
  * The approval pipeline's answer to one permission ask, which each driver turns into its
  * provider's own: an allow, with the command or path as the person corrected it, or a refusal,
- * with the decline's typed reason. Either may carry the rule its answer made.
+ * with the decline's typed reason. Either may carry the rule its answer made, and an allow the rule
+ * in force that answered it.
  */
 export type ProviderPermissionAnswer =
   | {
       readonly decision: "allow";
       readonly editedAction?: string | undefined;
-      readonly rule?: ProviderAskRule | undefined;
+      readonly madeRule?: ProviderAnswerRule | undefined;
+      readonly answeredByRule?: ProviderAskRule | undefined;
     }
   | {
       readonly decision: "refuse";
       readonly reason?: string | undefined;
-      readonly rule?: ProviderAskRule | undefined;
+      readonly madeRule?: ProviderAnswerRule | undefined;
     };
+
+/**
+ * Thrown by a driver once the decision reached its provider but the rule the answer made could not
+ * be kept there; the call is answered and nothing is held.
+ */
+export class ProviderRuleNotKeptError extends Error {
+  constructor(cause: unknown) {
+    super("The answer reached the provider, but the rule it made could not be kept there", {
+      cause,
+    });
+    this.name = "ProviderRuleNotKeptError";
+  }
+}
 
 /**
  * The approval pipeline's intake of admitted asks, registered through a `PortRegistration`. Each

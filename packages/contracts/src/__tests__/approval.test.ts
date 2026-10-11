@@ -1,18 +1,15 @@
 // The approval answer and the card's rows: an answer's remembered rule, decline text and edited
 // action agree with its decision, a rule is remembered for a session or a project and never a
 // run, a row's resolved members, decision and rule agree with its state, and a revocation is only
-// ever explicit, so an answer never means something the person did not press. An ask names the
-// tool call it holds, so that call's row can draw it.
+// ever explicit, so an answer never means something the person did not press.
 import { describe, expect, it } from "vitest";
 
 import {
   ApprovalProjectionReadResponseSchema,
-  ApprovalRequestedPayloadSchema,
   ApprovalResolveRequestSchema,
   RememberedRuleRevokeResponseSchema,
 } from "../approval.js";
 
-const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
 const RUN_ID = "6ba7b810-9dad-41d1-80b4-00c04fd430c8";
 const REQUEST_ID = "0f2b4d5e-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const RULE_ID = "1f2b4d5e-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -171,30 +168,5 @@ describe("RememberedRuleRevokeResponseSchema", () => {
         invalidationTrigger: "session_end",
       }).success,
     ).toBe(false);
-  });
-});
-
-describe("ApprovalRequestedPayloadSchema", () => {
-  const requested = {
-    sessionId: SESSION_ID,
-    runId: RUN_ID,
-    approvalRequestId: REQUEST_ID,
-    category: "tool_execution",
-    scope: "pnpm test",
-    requestedBy: "agent:claude",
-    resourceDescriptor: { command: "pnpm test" },
-    askId: "01JQ8Z6V5E8XKZ3J4N7Q2W9R0T",
-    toolCallId: "toolu_01A9q",
-  };
-
-  it("keeps the held tool call's id, which the tool row pairs on", () => {
-    const parsed = ApprovalRequestedPayloadSchema.safeParse(requested);
-    expect(parsed.success && parsed.data.toolCallId).toBe("toolu_01A9q");
-  });
-
-  it("refuses a member it does not name", () => {
-    expect(ApprovalRequestedPayloadSchema.safeParse({ ...requested, deadline: AT }).success).toBe(
-      false,
-    );
   });
 });

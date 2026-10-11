@@ -1,7 +1,8 @@
 // A project's Codex rule file: a rule replaces the opposite one over its subject, the file is kept
-// out of git through the repository's own exclude list once, and a revoke removes only its rule.
+// out of git through the repository's own exclude list once, a revoke removes only its rule, and no
+// prefix that would also let a force push or a branch delete through is ever written.
 
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -63,3 +64,18 @@ it("replaces the opposite rule over a subject, excludes the file once, and revok
 
   expect(await readRuleLines()).toHaveLength(2);
 });
+
+it.each(["git", "git push", "git branch"])(
+  "writes no allow on `%s`, whose prefix would let a force push through",
+  async (subject) => {
+    await writeCodexProjectRule(
+      projectFolder,
+      { kind: "project", sense: "allow", action: "command", subject },
+      readGitFolder,
+    );
+
+    await expect(access(path.join(projectFolder, ".codex"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  },
+);

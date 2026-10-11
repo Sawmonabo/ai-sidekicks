@@ -1,5 +1,6 @@
-// A provider ask's card: the subject a standing rule on it names, no standing allow on a git push
-// or branch delete that destroys work, and a target the wire's bound keeps whole.
+// A provider ask's card: the subject a standing rule on it names, past git's own options and never
+// through a command run by another, no standing allow on a git push or branch delete that destroys
+// work or on an ask the provider's own check flagged, and a target the wire's bound keeps whole.
 
 import { describe, expect, it } from "vitest";
 
@@ -10,7 +11,10 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { ProviderAskAction } from "../../provider/port/permission-ask.js";
 import { deriveRuleSubject, describeProviderAsk } from "../ask-description.js";
 
-function describeCommand(command: string): ReturnType<typeof describeProviderAsk> {
+function describeCommand(
+  command: string,
+  isProviderFlagged = false,
+): ReturnType<typeof describeProviderAsk> {
   return describeProviderAsk({
     sessionId: "session-1" as SessionId,
     runId: "run-1" as RunId,
@@ -19,6 +23,7 @@ function describeCommand(command: string): ReturnType<typeof describeProviderAsk
     input: { command },
     action: { kind: "command", command },
     ruleScopes: ["session", "project"],
+    isProviderFlagged,
   });
 }
 
@@ -35,6 +40,15 @@ describe("deriveRuleSubject", () => {
     [{ kind: "command", command: "echo $(rm -rf ~)" }, undefined],
     [{ kind: "command", command: "bash -lc 'npm test'" }, undefined],
     [{ kind: "command", command: "eval npm test" }, undefined],
+    // Git's own options are read past to its subcommand, unless they change what git runs.
+    [{ kind: "command", command: "git -C ../repo status" }, "git status"],
+    [{ kind: "command", command: "git --git-dir=.git log" }, "git log"],
+    [{ kind: "command", command: "git -c core.pager=sh status" }, undefined],
+    [{ kind: "command", command: "git --exec-path=/tmp status" }, undefined],
+    // A command run through another, its options included, names no subject.
+    [{ kind: "command", command: "sudo -u root rm -rf build" }, undefined],
+    [{ kind: "command", command: "env -i FOO=1 npm test" }, undefined],
+    [{ kind: "command", command: "timeout 5 npm test" }, undefined],
     // A line the parser cannot read whole names no subject.
     [{ kind: "command", command: "npm test 'unclosed" }, undefined],
     [{ kind: "file_change", paths: ["src/a.ts"] }, "src/a.ts"],
@@ -61,6 +75,10 @@ describe("describeProviderAsk", () => {
     "bash -lc 'git push -f'",
     "eval 'sh -c \"git branch -D x\"'",
     "cd repo && git push --force",
+    "git -C . push --force",
+    "git --git-dir=.git push -f",
+    "sudo -u me git push --force",
+    "env -i git push --force",
   ])("offers no standing allow on the destructive %s", (command) => {
     const { category, resourceDescriptor } = describeCommand(command);
 
@@ -86,6 +104,14 @@ describe("describeProviderAsk", () => {
     });
   });
 
+  it("offers no standing allow on an ask the provider's own check flagged", () => {
+    expect(describeCommand("rm -rf build", true).resourceDescriptor).toMatchObject({
+      subject: "rm",
+      standingAllowOffered: false,
+      projectScopeOffered: false,
+    });
+  });
+
   it("offers no project rule where the provider keeps none for the ask", () => {
     const description = describeProviderAsk({
       sessionId: "session-1" as SessionId,
@@ -95,6 +121,7 @@ describe("describeProviderAsk", () => {
       input: {},
       action: { kind: "file_read", path: "/etc/hosts" },
       ruleScopes: ["session"],
+      isProviderFlagged: false,
     });
 
     expect(description.resourceDescriptor).toMatchObject({
@@ -114,6 +141,7 @@ describe("describeProviderAsk", () => {
       input: {},
       action: { kind: "file_change", paths: ["a.ts", "b.ts"] },
       ruleScopes: ["session", "project"],
+      isProviderFlagged: false,
     });
 
     expect(description).toMatchObject({

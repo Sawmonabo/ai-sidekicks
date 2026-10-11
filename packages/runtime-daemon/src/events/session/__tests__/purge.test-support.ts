@@ -16,6 +16,7 @@ import {
 } from "../../../database/__fixtures__/scratch.js";
 import { KeyedLock } from "../../../keyed-lock.js";
 import { ProviderConversationPurge } from "../../../provider/conversation-purge.js";
+import { PortRegistration } from "../../../provider/port/registration.js";
 import type { ProviderDriver } from "../../../provider/driver/contract.js";
 import { RuntimeBindingStore } from "../../../provider/runtime-binding-store.js";
 import { EventLogService } from "../../log-service.js";
@@ -26,6 +27,7 @@ import { ManagedWorkspaceService } from "../../../workspace/managed/service.js";
 import { RepoMountService } from "../../../workspace/repo/mount-service.js";
 import {
   SessionPurge,
+  type ProjectRuleWithdrawal,
   type SessionPurgeDeps,
   type SessionPurgeEventLog,
   type SessionPurgeOutcome,
@@ -238,7 +240,12 @@ export class PurgeFixture {
     overrides: Partial<
       Pick<
         SessionPurgeDeps,
-        "eventLog" | "writer" | "checkpointRetryDelaysMs" | "whenFileCheckEnds" | "shellTable"
+        | "eventLog"
+        | "writer"
+        | "checkpointRetryDelaysMs"
+        | "whenFileCheckEnds"
+        | "shellTable"
+        | "projectRules"
       >
     > = {},
   ): SessionPurge {
@@ -259,6 +266,7 @@ export class PurgeFixture {
       sessionList: this.sessionList,
       relatedRanking: this.relatedRanking,
       shellTable: { closeSessionShells: async () => () => undefined },
+      projectRules: projectRulesWithdrawingNothing(),
       now: () => new Date(PURGE_INSTANT),
       whenFileCheckEnds: Promise.resolve(),
       ...overrides,
@@ -500,4 +508,11 @@ export class PurgeFixture {
       ]),
     ]);
   }
+}
+
+/** A registered rules port whose sessions made no project rule, so a purge withdraws none. */
+export function projectRulesWithdrawingNothing(): PortRegistration<ProjectRuleWithdrawal> {
+  const registration = new PortRegistration<ProjectRuleWithdrawal>("project rules");
+  registration.register({ withdrawProjectRules: async () => async () => undefined });
+  return registration;
 }

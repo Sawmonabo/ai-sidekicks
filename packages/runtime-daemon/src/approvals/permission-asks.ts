@@ -2,8 +2,10 @@
 // ask the daemon answers itself goes straight back to its provider with no card and no record: the
 // refusal of a background Claude Code command, the allow of an agent's own memory note, and an ask
 // a rule in force already answers, as a Codex conversation started again asks for a subject its
-// session allowed. Every other ask raises a card, and its answer, once recorded with the rule it
-// made, goes back to the provider that holds the call.
+// session allowed; an allow never answers a destructive git command or an ask the provider's own
+// check flagged, which always reach the card. Every other ask raises a card. Its answer is
+// recorded, then goes back to the provider that holds the call, decision first, with the rule it
+// made, which is recorded once the provider kept it.
 
 import type {
   ApprovalRequestId,
@@ -16,16 +18,18 @@ import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 
 import { answerProviderAsk } from "../policy/provider-ask-answers.js";
 import type { RespondToRequestParams } from "../provider/driver/contract.js";
-import type {
-  PermissionAskPort,
-  ProviderAskAction,
-  ProviderAskRule,
-  ProviderPermissionAnswer,
-  ProviderPermissionAsk,
+import {
+  ProviderRuleNotKeptError,
+  type PermissionAskPort,
+  type ProviderAnswerRule,
+  type ProviderAskAction,
+  type ProviderPermissionAnswer,
+  type ProviderPermissionAsk,
 } from "../provider/port/permission-ask.js";
 import { mintUuidV7 } from "../uuid-v7.js";
-import { deriveRuleSubject, describeProviderAsk } from "./ask-description.js";
-import type { ApprovalRules, RecordedRule } from "./rules.js";
+import { deriveRuleSubject, describeProviderAsk, mayAllowStand } from "./ask-description.js";
+import { ApprovalRuleNotKeptError } from "./refusals.js";
+import type { ApprovalRules } from "./rules.js";
 import type { ApprovalService } from "./service.js";
 
 /** What the intake raises cards through and answers providers with. */
@@ -34,7 +38,7 @@ export interface PermissionAsksDeps {
     ApprovalService,
     "create" | "resolve" | "withdraw" | "readRequest" | "readAskRequest"
   >;
-  readonly rules: Pick<ApprovalRules, "findRule" | "record" | "handOutRules">;
+  readonly rules: Pick<ApprovalRules, "findRule" | "record" | "readProjectFolders">;
   /** The one all-projects agent-memory folder, whose notes an agent reads and writes unasked. */
   readonly agentMemoryFolder: string;
   /** The agent whose run holds the ask, which the card names as its asker. */
@@ -140,42 +144,58 @@ export class PermissionAsks implements PermissionAskPort {
   }
 
   /**
-   * Records one answer, then the rule it made, then hands it to the provider that holds the call,
-   * then hands the sessions a replaced rule reached their rules again. The same answer sent again
-   * is answered with what was saved and hands the provider nothing a second time. Throws the
-   * approval service's refusals, and what recording the rule or reaching a provider throws, with
-   * the answer kept; a rule that could not be recorded leaves the call answered without it.
+   * Records one answer, then hands it to the provider that holds the call, decision first, then
+   * records the rule it made once the provider kept it. The same answer sent again is answered
+   * with what was saved and hands the provider nothing a second time. Throws the approval
+   * service's refusals; `approval.rule_not_kept` when the call was answered but its provider could
+   * not keep the rule, which is then not recorded; and what reaching a provider or recording the
+   * rule throws, with the answer kept.
    */
   async resolve(
     request: ApprovalResolveRequest,
     answeringDeviceId: DeviceId,
   ): Promise<ApprovalResolveResponse> {
-    const response = await this.#deps.approvals.resolve(request, answeringDeviceId);
+    const { response, wasRecorded } = await this.#deps.approvals.resolve(
+      request,
+      answeringDeviceId,
+    );
     const stored = this.#deps.approvals.readRequest(request.approvalRequestId);
     const held =
-      stored?.askId === undefined ? undefined : this.#findHeld(stored.runId, stored.askId);
-    // A replay of an answer already handed on, or a card no provider raised: nothing goes back. Any
-    // other answer to a settled card was refused above.
+      !wasRecorded || stored?.askId === undefined
+        ? undefined
+        : this.#findHeld(stored.runId, stored.askId);
+    // A replay of an answer already handed on, or a card no provider raised: nothing goes back.
     if (stored === undefined || held === undefined) {
       return response;
     }
     this.#heldByKey.delete(heldKeyOf(held.runId, held.requestId));
-    let recorded: RecordedRule | undefined;
+    const scope = request.rememberedScope;
+    const madeRule: ProviderAnswerRule | undefined =
+      scope === undefined
+        ? undefined
+        : {
+            rule: {
+              kind: scope.kind,
+              sense: scope.sense,
+              action: held.action.kind,
+              subject: scope.pattern,
+            },
+            projectFolders:
+              scope.kind === "project" ? this.#deps.rules.readProjectFolders(held.sessionId) : [],
+          };
     try {
-      recorded =
-        request.rememberedScope === undefined
-          ? undefined
-          : await this.#deps.rules.record(stored, held.action.kind, request.rememberedScope);
-    } finally {
-      // The call never waits on a card already answered, its rule recorded or not.
       await this.#deps.respondToRequest({
         runId: held.runId,
         requestId: held.requestId,
-        response: composeAnswer(request, recorded?.rule),
+        response: composeAnswer(request, madeRule),
       });
+    } catch (error) {
+      throw error instanceof ProviderRuleNotKeptError
+        ? new ApprovalRuleNotKeptError(request.approvalRequestId, error.cause)
+        : error;
     }
-    if (recorded !== undefined && recorded.replaced.length > 0) {
-      await this.#deps.rules.handOutRules(held.sessionId, recorded.replaced);
+    if (madeRule !== undefined) {
+      await this.#deps.rules.record(stored, madeRule);
     }
     return response;
   }
@@ -198,7 +218,8 @@ export class PermissionAsks implements PermissionAskPort {
     return undefined;
   }
 
-  // The daemon's designed answers first, then a rule in force over the ask's subject.
+  // The daemon's designed answers first, then a rule in force over the ask's subject: a block
+  // whatever the ask offers, an allow only on an ask a standing allow may stand on.
   async #answerOwnAsk(ask: ProviderPermissionAsk): Promise<ProviderPermissionAnswer | undefined> {
     const designed = await answerProviderAsk(ask.action, this.#deps.agentMemoryFolder);
     if (designed !== undefined) {
@@ -208,15 +229,15 @@ export class PermissionAsks implements PermissionAskPort {
     }
     const subject = deriveRuleSubject(ask.action);
     const rule =
-      subject === undefined || ask.ruleScopes.length === 0
+      subject === undefined
         ? undefined
         : this.#deps.rules.findRule(ask.sessionId, ask.action.kind, subject);
-    if (rule === undefined) {
-      return undefined;
+    if (rule?.sense === "block") {
+      return { decision: "refuse", reason: BLOCKED_BY_RULE_REASON };
     }
-    return rule.sense === "allow"
-      ? { decision: "allow" }
-      : { decision: "refuse", reason: BLOCKED_BY_RULE_REASON };
+    return rule !== undefined && mayAllowStand(ask)
+      ? { decision: "allow", answeredByRule: rule }
+      : undefined;
   }
 }
 
@@ -226,18 +247,18 @@ function heldKeyOf(runId: RunId, requestId: string): string {
 
 function composeAnswer(
   request: ApprovalResolveRequest,
-  rule: ProviderAskRule | undefined,
+  madeRule: ProviderAnswerRule | undefined,
 ): ProviderPermissionAnswer {
   if (request.decision === "approved") {
     return {
       decision: "allow",
       ...(request.editedAction === undefined ? {} : { editedAction: request.editedAction }),
-      ...(rule === undefined ? {} : { rule }),
+      ...(madeRule === undefined ? {} : { madeRule }),
     };
   }
   return {
     decision: "refuse",
     ...(request.declineReason === undefined ? {} : { reason: request.declineReason }),
-    ...(rule === undefined ? {} : { rule }),
+    ...(madeRule === undefined ? {} : { madeRule }),
   };
 }

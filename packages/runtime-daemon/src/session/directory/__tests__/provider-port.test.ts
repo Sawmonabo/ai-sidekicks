@@ -1,7 +1,8 @@
 // The session directory's provider port over a real database: a resume a driver started on its
 // own is recorded, so the daemon's next restart of the session resumes the conversation that
 // resume opened, and the one it left is recorded for the purge; a restart resumes in the mode the
-// session was last moved to; the folder a session's runs work in reads before its first run.
+// session was last moved to, at the posture of the level it stands at, its repository's git folder
+// writable at Sandboxed; the folder a session's runs work in reads before its first run.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -9,6 +10,7 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { readLeftConversations } from "../../../provider/left-conversations.js";
 import { sessionModeChangeStatement } from "../../console-state.js";
+import { permissionLevelChangeStatement } from "../../permission-level.js";
 import { RuntimeBindingStore } from "../../../provider/runtime-binding-store.js";
 import { openSessionLog, type SessionLog } from "../__fixtures__/event-log.js";
 import { SessionDirectoryProviderPort } from "../provider-port.js";
@@ -26,12 +28,14 @@ afterEach(async () => {
   await log.scratch.close();
 });
 
-// A port as one daemon start builds it; the git read is never reached by a restart or a relaunch.
+const RUN_FOLDER = "/work/repo";
+
+// A port as one daemon start builds it, whose git reads every folder's repository as one.
 function openPort(): SessionDirectoryProviderPort {
   return new SessionDirectoryProviderPort({
     reader: log.scratch.reader,
     runtimeBindings: new RuntimeBindingStore(log.scratch),
-    git: () => Promise.reject(new Error("no git call is expected")),
+    git: () => Promise.resolve({ stdout: Buffer.from(`${RUN_FOLDER}/.git\n`), stderr: "" }),
     settingsFile: { read: () => Promise.reject(new Error("no settings read is expected")) },
     projectRecords: {
       readEnvironmentRowsOfSession: () => {
@@ -40,6 +44,17 @@ function openPort(): SessionDirectoryProviderPort {
     },
     writeServiceLog: log.writeServiceLog,
   });
+}
+
+// Gives the session a workspace whose root its runs work in.
+async function seedRunFolder(): Promise<void> {
+  await log.bindToProject(SESSION_ID);
+  await log.scratch.writer.write([
+    {
+      sql: "UPDATE workspaces SET fs_root = ? WHERE session_id = ?",
+      bindings: [RUN_FOLDER, SESSION_ID],
+    },
+  ]);
 }
 
 describe("a resume the driver started on its own", () => {
@@ -67,13 +82,14 @@ describe("a resume the driver started on its own", () => {
       resumeHandle: "conversation-after",
     });
 
+    await seedRunFolder();
     const restarted = openPort();
-    await vi.waitFor(() => {
-      expect(restarted.resolveRestartTarget(SESSION_ID)?.params.resumeHandle).toBe(
+    await vi.waitFor(async () => {
+      expect((await restarted.resolveRestartTarget(SESSION_ID))?.params.resumeHandle).toBe(
         "conversation-after",
       );
     });
-    expect(restarted.resolveRestartTarget(SESSION_ID)).toMatchObject({
+    expect(await restarted.resolveRestartTarget(SESSION_ID)).toMatchObject({
       driverName: "claude",
       params: { sessionId: SESSION_ID, model: "claude-sonnet-5", providerAccountId: "account-1" },
     });
@@ -88,8 +104,8 @@ describe("a resume the driver started on its own", () => {
   });
 });
 
-describe("a restart of a session left in Plan", () => {
-  it("resumes in Plan", async () => {
+describe("a restart of a session left in Plan at Sandboxed", () => {
+  it("resumes in Plan, its git folder writable", async () => {
     await log.createSession(SESSION_ID, "chat");
     await log.append(SESSION_ID, "run.starting", "run_lifecycle", {
       sessionId: SESSION_ID,
@@ -105,12 +121,17 @@ describe("a restart of a session left in Plan", () => {
       resumeHandle: "conversation",
       spawnConfig: {},
     });
-    // What `session.modeUpdate` commits once the provider took the mode.
+    await seedRunFolder();
+    // What `session.modeUpdate` and a level move commit once the provider took them.
     await log.scratch.writer.write([
       sessionModeChangeStatement(SESSION_ID, "plan", "2026-10-09T12:00:00.000Z"),
+      permissionLevelChangeStatement(SESSION_ID, "sandboxed"),
     ]);
 
-    expect(openPort().resolveRestartTarget(SESSION_ID)?.params.mode).toBe("plan");
+    expect((await openPort().resolveRestartTarget(SESSION_ID))?.params).toMatchObject({
+      mode: "plan",
+      executionPosture: { mode: "sandboxed", writableRoots: [`${RUN_FOLDER}/.git`] },
+    });
   });
 });
 

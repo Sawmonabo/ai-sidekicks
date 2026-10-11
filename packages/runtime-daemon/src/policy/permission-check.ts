@@ -39,11 +39,11 @@ export const PermissionCheckRequestSchema: z.ZodType<
 
 /**
  * What the check decided. The action runs on `policy_allow` (a built-in permit: the daemon's own
- * answer to a provider ask, or the rules over the app's own tools), `remembered_rule` (the session's
- * own allow, answered by the daemon where the provider has no verb for it) or `approved` (a person's
- * recorded approval of this exact request). It waits on `pending_approval`, naming the one request
- * it opened, and never runs on `denied`: a built-in refusal, a declined request, a host the session
- * blocked, or a refusal because the approval record could not be kept.
+ * answer to a provider ask, or the rules over the app's own tools), `remembered_rule` (the
+ * session's own allow, answered by the daemon where the provider has no verb for it) or `approved`
+ * (a person's recorded approval of this exact request). It waits on `pending_approval`, naming the
+ * one request it opened, and never runs on `denied`: a built-in refusal, a declined request, a host
+ * the session blocked, or a refusal because the approval record could not be kept.
  */
 export type PermissionCheckResponse =
   | { allowed: true; reason: "policy_allow" | "remembered_rule" | "approved" }

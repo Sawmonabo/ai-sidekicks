@@ -35,7 +35,7 @@ import {
   CODEX_TURN_COMPLETED_METHOD,
 } from "./event-normalizer.js";
 import { CodexSessionGoals } from "./goals.js";
-import { CodexCommandChecks } from "./hooks/command-checks.js";
+import { CodexCallChecks } from "./hooks/call-checks.js";
 import { CodexRunPauses } from "./hooks/pause.js";
 import { CodexHookServer } from "./hooks/server.js";
 import type { CodexSteerAcknowledgement, CodexSteerRunRequest } from "./intervention.js";
@@ -138,7 +138,7 @@ export class CodexLifecycleManager {
   readonly #providerCommands: CodexProviderCommandCache;
   readonly #slots: CodexSessionSlots;
   readonly #pauses: CodexRunPauses;
-  readonly #commandChecks: CodexCommandChecks;
+  readonly #callChecks: CodexCallChecks;
   readonly #services: CodexServiceRegistry;
   readonly #hooks: CodexHookServer | undefined;
   readonly #outputSpeed: CodexOutputSpeed;
@@ -181,7 +181,7 @@ export class CodexLifecycleManager {
       },
       isRunLive: (runId) => this.#runRoutes.bindingFor(runId) !== undefined,
     });
-    this.#commandChecks = new CodexCommandChecks({
+    this.#callChecks = new CodexCallChecks({
       permissionAsks: options.permissionAsks,
       sessionRules: options.sessionRules,
       findCallRun: (threadId, turnId) => {
@@ -223,7 +223,7 @@ export class CodexLifecycleManager {
         : new CodexHookServer({
             endpoint: options.hookEndpoint,
             operatingSystem: options.operatingSystem,
-            answerers: [this.#commandChecks.answer, this.#pauses.answer],
+            answerers: [this.#callChecks.answer, this.#pauses.answer],
             reportDiagnostic,
             scheduleTimeout,
             now,
@@ -514,7 +514,7 @@ export class CodexLifecycleManager {
    * {@link CodexAskHandOff.answer}. Throws `CodexTransportError` when no service holds it.
    */
   async respondToRequest(params: RespondToRequestParams): Promise<void> {
-    if (this.#commandChecks.settle(params)) {
+    if (this.#callChecks.settle(params)) {
       return;
     }
     const sessionId = this.#runRoutes.sessionIdFor(params.runId);
@@ -552,7 +552,11 @@ export class CodexLifecycleManager {
     // A resume after a crash sends the level it runs at now, and a turn the daemon starts runs
     // at it.
     record.threadSettings = { ...record.threadSettings, level: params.level };
-    record.executionPosture = { ...record.executionPosture, mode: params.level };
+    record.executionPosture = {
+      ...record.executionPosture,
+      mode: params.level,
+      writableRoots: params.writableRoots,
+    };
     if (!isDeepStrictEqual(configBefore, composeCodexLevelConfig(params.level, profileFolders))) {
       this.#configForks.owe(record);
     }
@@ -684,7 +688,7 @@ export class CodexLifecycleManager {
     this.#providerCommands.forgetSubscribers(params.sessionId);
     await this.#sideQuestions.forgetSession(params.sessionId);
     this.#askHandOff.forgetSession(params.sessionId);
-    this.#commandChecks.forgetSession(params.sessionId);
+    this.#callChecks.forgetSession(params.sessionId);
     await this.#slots.close(params.sessionId);
     await this.#release.forgetSession(params.sessionId);
     this.#recovery.forgetSession(params.sessionId);

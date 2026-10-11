@@ -1,12 +1,16 @@
 // How an ask holds its run: the run waits for approval from its first ask, and runs again once it
 // holds no ask still open, so a second ask on a run already waiting changes nothing and an answer
-// with another ask still open leaves the run waiting. The moves of one run are made one after the
-// other, so an answer's check for asks still open never crosses a new ask's block. A run that ends
-// cancels the asks it still holds.
+// with another ask still open leaves the run waiting. An ask raised while the run cannot wait yet,
+// starting, paused or waiting on a question, holds it as soon as it runs. The moves of one run are
+// made one after the other, so an answer's check for asks still open never crosses a new ask's
+// block. A run that ends cancels the asks it still holds.
 
 import type { ApprovalRequestId } from "@ai-sidekicks/contracts/approval";
+import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
+import { describeRejection } from "../rejection.js";
 import type { RunEngine } from "../session/run/engine.js";
 import { RunInvalidTransitionError } from "../session/run/refusals.js";
 import type { RunSetupGate, RunTerminalContext } from "../session/run/setup-gates.js";
@@ -15,9 +19,19 @@ import type { ApprovalOutcomeListener, ApprovalService } from "./service.js";
 /** What the run hold moves runs through and cancels asks with. */
 export interface ApprovalRunBlockingDeps {
   readonly runEngine: Pick<RunEngine, "applyProviderStateChange">;
-  readonly approvals: Pick<ApprovalService, "hasPendingForRun" | "cancelPendingForRun">;
+  readonly approvals: Pick<
+    ApprovalService,
+    "hasPendingForRun" | "listRunsHoldingAsks" | "cancelPendingForRun"
+  >;
   /** Lets go of what the intake held for the asks of a run that ended. */
   readonly forgetRun: (runId: RunId) => void;
+  /** Follows every session's events; `onGap` names a session whose missed events went unread. */
+  readonly followAll: (
+    onCommitted: (event: EventEnvelope) => void,
+    onGap: (sessionId: SessionId) => void,
+  ) => () => void;
+  /** Where a hold that failed is written, since no caller waits on it. */
+  readonly writeServiceLog: (line: string) => void;
 }
 
 /**
@@ -28,9 +42,35 @@ export class ApprovalRunBlocking implements ApprovalOutcomeListener, RunSetupGat
   readonly #deps: ApprovalRunBlockingDeps;
   // Each run's moves in flight, chained so they are made in the order they were asked for.
   readonly #movesByRun = new Map<RunId, Promise<void>>();
+  #detachFromLog: (() => void) | undefined;
 
   constructor(deps: ApprovalRunBlockingDeps) {
     this.#deps = deps;
+  }
+
+  /**
+   * Follows the log to hold each run that starts running again with an ask still open, and each
+   * such run of a session whose events went unread.
+   */
+  start(): void {
+    this.#detachFromLog = this.#deps.followAll(
+      (event) => {
+        if (event.type === "run.running") {
+          this.#holdIfAsking((event.payload as { readonly runId: RunId }).runId);
+        }
+      },
+      (sessionId) => {
+        for (const runId of this.#deps.approvals.listRunsHoldingAsks(sessionId)) {
+          this.#holdIfAsking(runId);
+        }
+      },
+    );
+  }
+
+  /** Stops following the log and waits for the moves under way. */
+  async stop(): Promise<void> {
+    this.#detachFromLog?.();
+    await Promise.all(this.#movesByRun.values());
   }
 
   /** Moves the run to wait for approval; a run already waiting, or not running, stays as it is. */
@@ -73,6 +113,19 @@ export class ApprovalRunBlocking implements ApprovalOutcomeListener, RunSetupGat
         throw error;
       }
     }
+  }
+
+  // No caller waits on this hold, so its failure goes to the service log.
+  #holdIfAsking(runId: RunId): void {
+    void this.#inOrder(runId, async () => {
+      if (this.#deps.approvals.hasPendingForRun(runId)) {
+        await this.#move(runId, "waiting_for_approval");
+      }
+    }).catch((error: unknown) => {
+      this.#deps.writeServiceLog(
+        `Holding run ${runId} on its open ask failed: ${describeRejection(error)}`,
+      );
+    });
   }
 
   async #inOrder(runId: RunId, move: () => Promise<void>): Promise<void> {

@@ -31,7 +31,9 @@ export interface SessionRestartDeps {
    * The session's restart target, or `undefined` for a session this daemon does not hold or one
    * with no binding to resume from.
    */
-  readonly resolveRestartTarget: (sessionId: SessionId) => SessionRestartTarget | undefined;
+  readonly resolveRestartTarget: (
+    sessionId: SessionId,
+  ) => Promise<SessionRestartTarget | undefined>;
 }
 
 /**
@@ -46,7 +48,7 @@ export function registerSessionRestart(registry: MethodRegistry, deps: SessionRe
     registry,
     SESSION_METHOD_DESCRIPTORS["session.restart"],
     async (request) => {
-      const target = deps.resolveRestartTarget(request.sessionId);
+      const target = await deps.resolveRestartTarget(request.sessionId);
       if (target === undefined) {
         refuseSessionNotFound();
       }

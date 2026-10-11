@@ -1,7 +1,6 @@
-// The approval tables refuse a row the approval record cannot stand behind: a category, state,
-// decision or rule kind outside its set, an ask with no session or no requester, an answer with no
-// scope, a rule kind with no subject, a second ask for one provider ask, a second answer to one
-// ask, and an answer to an ask that does not exist.
+// The approval tables refuse a row that would let one answer reach two asks or two answers settle
+// one: a second ask for one ask id, a second answer to one ask, and an answer to an ask that does
+// not exist.
 
 import Database from "better-sqlite3";
 import type { Database as DatabaseType } from "better-sqlite3";
@@ -13,7 +12,7 @@ const TIMESTAMP = "2026-10-11T00:00:00.000Z";
 const REQUEST_ID = "00000000-0000-7000-8000-0000000000a1";
 const ANSWERED_REQUEST_ID = "00000000-0000-7000-8000-0000000000a2";
 const RUN_ID = "00000000-0000-7000-8000-0000000000b1";
-const ASK_ID = "01JAPPROVALASK0000000000001";
+const ASK_ID = "00000000-0000-7000-8000-0000000000d1";
 
 let db: DatabaseType;
 
@@ -74,43 +73,7 @@ afterEach(() => {
 });
 
 it.each([
-  ["an ask's category outside its set", () => insertRequest({ category: "question" }), /CHECK/],
-  ["an ask's state outside its set", () => insertRequest({ state: "expired" }), /CHECK/],
-  ["an ask with no session", () => insertRequest({ session_id: null }), /NOT NULL/],
-  ["an ask with no requester", () => insertRequest({ requested_by: null }), /NOT NULL/],
-  ["a second ask for one provider ask", () => insertRequest({ ask_id: ASK_ID }), /UNIQUE/],
-  [
-    "an answer's decision outside its set",
-    () => {
-      insertRequest({});
-      insertResolution({ decision: "canceled" });
-    },
-    /CHECK/,
-  ],
-  [
-    "a rule kind outside its set",
-    () => {
-      insertRequest({});
-      insertResolution({ remembered_scope_kind: "run", remembered_scope_pattern: "git push" });
-    },
-    /CHECK/,
-  ],
-  [
-    "a rule kind with no subject",
-    () => {
-      insertRequest({});
-      insertResolution({ remembered_scope_kind: "session" });
-    },
-    /CHECK/,
-  ],
-  [
-    "an answer with no scope",
-    () => {
-      insertRequest({});
-      insertResolution({ effective_scope: null });
-    },
-    /NOT NULL/,
-  ],
+  ["a second ask for one ask id", () => insertRequest({ ask_id: ASK_ID }), /UNIQUE/],
   [
     "a second answer to one ask",
     () => insertResolution({ request_id: ANSWERED_REQUEST_ID }),

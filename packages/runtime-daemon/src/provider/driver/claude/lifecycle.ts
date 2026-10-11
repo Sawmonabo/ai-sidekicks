@@ -579,7 +579,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
   async updatePermissionLevel(params: UpdatePermissionLevelParams): Promise<void> {
     await moveClaudePermissionLevel(
       this.#requireLive(params.sessionId),
-      params.level,
+      params,
       this.#dependencies.operatingSystem,
       readClaudeSessionRules(this.#dependencies.sessionRules, params.sessionId),
     );

@@ -1,9 +1,9 @@
 // The approval service records an ask's answer once, stamped with the device whose connection
-// carried it, and answers the same answer sent again with what was saved; it refuses a block on an ask that is not a
-// network request, and a correction where the ask offers none or beside a rule; a run's end
-// cancels each ask the run still holds, leaving an answered one and another run's alone; an ask
-// its provider took back is canceled unless it was answered first; and an ask on a run that ended
-// or in a session that closed is refused, naming which.
+// carried it, and answers the same answer sent again with what was saved; it refuses an answer to
+// an ask whose run ended, a block on an ask that is not a network request, and a correction where
+// the ask offers none or beside a rule; an ask its provider took back is canceled unless it was
+// answered first; and an ask on a run that ended or in a session that closed is refused, naming
+// which.
 
 import { afterEach, beforeEach, expect, it } from "vitest";
 
@@ -131,9 +131,12 @@ function readEventPayloads(type: string): Record<string, unknown>[] {
 it("stamps the answering device on the answer's row, its event and its reply", async () => {
   const approvalRequestId = await raiseAsk("tool_execution", "git push");
 
-  const answer = await service.resolve(approval(approvalRequestId, FIRST_RESOLUTION_ID), LAPTOP);
+  const { response } = await service.resolve(
+    approval(approvalRequestId, FIRST_RESOLUTION_ID),
+    LAPTOP,
+  );
 
-  expect(answer.deviceId).toBe(LAPTOP);
+  expect(response.deviceId).toBe(LAPTOP);
   expect(readResolutionDevices(approvalRequestId)).toEqual([LAPTOP]);
   expect(readEventPayloads("approval.approved")).toMatchObject([
     { approvalRequestId, deviceId: LAPTOP, clientResolutionId: FIRST_RESOLUTION_ID },
@@ -150,10 +153,26 @@ it("records an answer once and answers the same answer sent again with what was 
     service.resolve(approval(approvalRequestId, SECOND_RESOLUTION_ID), PHONE),
   ).rejects.toMatchObject({ code: "approval.already_resolved" });
 
-  expect(repeated).toEqual(first);
+  // Only the first call recorded it, so only that one hands the answer to the provider.
+  expect([first.wasRecorded, repeated.wasRecorded]).toEqual([true, false]);
+  expect(repeated.response).toEqual(first.response);
   expect(readResolutionDevices(approvalRequestId)).toEqual([LAPTOP]);
   expect(readEventPayloads("approval.approved")).toHaveLength(1);
   expect(staleSessions).toEqual([SESSION_ID]);
+});
+
+it("refuses an answer to an ask whose run ended, recording nothing", async () => {
+  const approvalRequestId = await raiseAsk("tool_execution", "git push");
+  await database.writer.write([
+    { sql: "UPDATE runs SET state = 'completed' WHERE run_id = ?", bindings: [RUN_ID] },
+  ]);
+
+  await expect(
+    service.resolve(approval(approvalRequestId, FIRST_RESOLUTION_ID), LAPTOP),
+  ).rejects.toMatchObject({ code: "approval.request_canceled" });
+
+  expect(readRequestState(approvalRequestId)).toBe("pending");
+  expect(readResolutionDevices(approvalRequestId)).toEqual([]);
 });
 
 it("refuses a block on an ask that is not a network request, and takes one on a network request", async () => {
@@ -181,27 +200,6 @@ it("refuses a block on an ask that is not a network request, and takes one on a 
   expect(readEventPayloads("approval.rejected")).toMatchObject([
     { approvalRequestId: networkRequest },
   ]);
-});
-
-it("cancels each ask a run still holds when it ends, leaving answered asks and other runs alone", async () => {
-  const pending = await raiseAsk("tool_execution", "git push");
-  const answered = await raiseAsk("tool_execution", "git fetch");
-  const otherRun = await raiseAsk("tool_execution", "git pull", OTHER_RUN_ID);
-  await service.resolve(
-    { approvalRequestId: answered, decision: "rejected", clientResolutionId: FIRST_RESOLUTION_ID },
-    LAPTOP,
-  );
-
-  await service.cancelPendingForRun(RUN_ID);
-
-  expect(readRequestState(pending)).toBe("canceled");
-  expect(readRequestState(answered)).toBe("rejected");
-  expect(readRequestState(otherRun)).toBe("pending");
-  expect(readResolutionDevices(pending)).toEqual([]);
-  expect(readEventPayloads("approval.canceled")).toMatchObject([{ approvalRequestId: pending }]);
-  await expect(
-    service.resolve(approval(pending, SECOND_RESOLUTION_ID), LAPTOP),
-  ).rejects.toMatchObject({ code: "approval.request_canceled" });
 });
 
 it("cancels an ask its provider took back and tells the run, and keeps an answered one", async () => {

@@ -17,7 +17,7 @@ import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 import type { DatabaseConnections } from "../database/connection/lifecycle.js";
 import { EventLogService } from "../events/log-service.js";
 import type { DamagedFromSequenceReader } from "../events/session/read.js";
-import { SessionPurge } from "../events/session/purge.js";
+import { SessionPurge, type ProjectRuleWithdrawal } from "../events/session/purge.js";
 import { findBranchPatternRefusal } from "../git/branch-name-pattern.js";
 import {
   createGitCommand,
@@ -54,6 +54,7 @@ import type { StreamingPrimitive } from "../ipc/streaming-primitive.js";
 import type { AttachmentResolver } from "../provider/driver/attachments.js";
 import type { ProviderRegistry } from "../provider/driver/registry.js";
 import { ProviderConversationPurge } from "../provider/conversation-purge.js";
+import { PortRegistration } from "../provider/port/registration.js";
 import type { SpawnEnvNameMatch, SpawnEnvPair } from "../provider/spawn-env.js";
 import type { TerminalOperatingSystem } from "../pty/operating-system/contract.js";
 import { RuntimeBindingStore } from "../provider/runtime-binding-store.js";
@@ -171,6 +172,8 @@ export interface RegisteredSessionServices {
   readonly sessions: SessionService;
   /** The whole-session purge, which deletes a session a person deletes. */
   readonly purge: SessionPurge;
+  /** Where the approval pipeline registers the rules a purge takes out of the providers. */
+  readonly projectRules: PortRegistration<ProjectRuleWithdrawal>;
   /** The store of every run's provider bindings, which the provider side writes too. */
   readonly runtimeBindings: RuntimeBindingStore;
   /** The session directory's reads and records that the provider side calls. */
@@ -478,6 +481,7 @@ export function registerSessionMethods(
     homeDirectory: deps.homeDirectory,
     writeServiceLog: deps.writeServiceLog,
   });
+  const projectRules = new PortRegistration<ProjectRuleWithdrawal>("project rules");
   const purge = new SessionPurge({
     writer: database.writer,
     nodeId: deps.nodeId,
@@ -493,6 +497,7 @@ export function registerSessionMethods(
     relatedRanking,
     whenFileCheckEnds: deps.whenFileCheckEnds,
     shellTable,
+    projectRules,
   });
   // A stop can come while the recovery pass runs, before any start, or while a start is under way.
   let isStopped = false;
@@ -502,6 +507,7 @@ export function registerSessionMethods(
     eventLog,
     sessions,
     purge,
+    projectRules,
     runtimeBindings,
     providerPort: new SessionDirectoryProviderPort({
       reader: database.reader,

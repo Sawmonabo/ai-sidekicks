@@ -9,7 +9,7 @@
 //   refusal leaves nothing behind.
 // - A level is moved at the provider first where the session's process is open, and stored once
 //   the provider took it, so the record never names a level the provider refused; a session not
-//   open yet starts at the stored level.
+//   open yet starts at the stored level. The move takes the lock the session's opening takes.
 
 import type { Handler, MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import type { SubscribeAckResponse } from "@ai-sidekicks/contracts/jsonrpc/streaming";
@@ -20,7 +20,6 @@ import type {
 import {
   SESSION_CONTROL_METHOD_DESCRIPTORS,
   SideQuestionIdSchema,
-  type PermissionLevel,
   type SessionAddressedRequest,
   type SessionMode,
   type SessionProviderCommandList,
@@ -45,13 +44,8 @@ export interface SessionControlHandlerDeps extends SessionDriverDeps {
   readonly streamingPrimitive: StreamingPrimitive;
   /** Stores the mode the provider took, which a restart resumes in. */
   readonly recordSessionMode: (sessionId: SessionId, mode: SessionMode) => Promise<void>;
-  /** The level each session stands at, which every process it opens starts at. */
-  readonly permissionLevels: {
-    readonly read: (sessionId: SessionId) => PermissionLevel;
-    readonly record: (sessionId: SessionId, level: PermissionLevel) => Promise<void>;
-  };
-  /** The sessions whose process this daemon opened, and the level each one's runs ask for. */
-  readonly providerSessions: Pick<ProviderSessions, "isOpen" | "moveLevel">;
+  /** The sessions whose process this daemon opened, which store and move each one's level. */
+  readonly providerSessions: Pick<ProviderSessions, "changeLevel">;
 }
 
 /**
@@ -71,21 +65,13 @@ export function registerSessionControlMethods(
     SESSION_CONTROL_METHOD_DESCRIPTORS["session.permissionLevelUpdate"],
     async ({ sessionId, level }) => {
       const { driver } = resolveDriverForSessionOrThrow(deps, sessionId);
-      if (deps.permissionLevels.read(sessionId) !== level) {
-        const moveOpenProcess = async (): Promise<void> => {
-          await driver.updatePermissionLevel({ sessionId, level });
-          deps.providerSessions.moveLevel(sessionId, level);
-        };
-        const wasOpen = deps.providerSessions.isOpen(sessionId);
-        if (wasOpen) {
-          await moveOpenProcess();
-        }
-        await deps.permissionLevels.record(sessionId, level);
-        // A process that opened meanwhile started at the level stored before this one.
-        if (!wasOpen && deps.providerSessions.isOpen(sessionId)) {
-          await moveOpenProcess();
-        }
-      }
+      await deps.providerSessions.changeLevel(sessionId, level, async (posture) => {
+        await driver.updatePermissionLevel({
+          sessionId,
+          level: posture.mode,
+          writableRoots: posture.writableRoots,
+        });
+      });
       return { sessionId, level };
     },
   );

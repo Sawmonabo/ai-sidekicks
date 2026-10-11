@@ -1,14 +1,17 @@
 // A session's standing rules as Claude Code keeps them. A session rule lives in the process's flag
 // settings, which carry the session's whole allow and deny lists, so a grant, a block and a revoke
-// each resend the whole permissions document from the next call. A project rule lives in the
-// project's `.claude/settings.local.json`: Claude Code writes an allow itself when the answer
-// carries it, and the daemon writes a host's block, which a decline cannot carry, and removes a
-// revoked rule.
+// each resend the whole permissions document from the next call. A project rule lives in each
+// working folder's `.claude/settings.local.json`: Claude Code writes an allow into its own folder
+// when the answer carries it, and the daemon writes it into the project's other folders, writes a
+// host's block, which a decline cannot carry, and removes a revoked rule. A command allow a prefix
+// rule would stretch over a force push or a branch delete is never handed over: the daemon answers
+// each ask it covers.
 
 import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
 import { writeFileAtomically } from "../../../../file/atomic-write.js";
+import { coversDestructiveGit } from "../../../../policy/destructive-git.js";
 import type { ProviderAskRule } from "../../../port/permission-ask.js";
 import { isPlainObject } from "../../../record-readers.js";
 
@@ -31,14 +34,17 @@ function pathRuleContent(filePath: string): string {
 }
 
 // The rules one standing rule is in Claude Code's own words. A command's covers the command alone
-// and with any arguments after it, so it never reaches a longer program name.
+// and with any arguments after it, so it never reaches a longer program name; one that would also
+// cover a destructive git command is none.
 function composeRuleValues(rule: ProviderAskRule): readonly ClaudePermissionRuleValue[] {
   switch (rule.action) {
     case "command":
-      return [
-        { toolName: "Bash", ruleContent: rule.subject },
-        { toolName: "Bash", ruleContent: `${rule.subject} *` },
-      ];
+      return coversDestructiveGit(rule)
+        ? []
+        : [
+            { toolName: "Bash", ruleContent: rule.subject },
+            { toolName: "Bash", ruleContent: `${rule.subject} *` },
+          ];
     case "file_change":
       return [{ toolName: "Edit", ruleContent: pathRuleContent(rule.subject) }];
     case "file_read":
@@ -76,37 +82,48 @@ export function composeClaudeSessionRuleLists(rules: readonly ProviderAskRule[])
 
 /**
  * The permission update an approval's answer carries so Claude Code writes the project allow into
- * the project's `.claude/settings.local.json` itself.
+ * its own folder's `.claude/settings.local.json`, or `undefined` for an allow never handed over.
  */
-export function composeClaudeProjectAllowUpdate(rule: ProviderAskRule): Record<string, unknown> {
-  return {
-    type: "addRules",
-    rules: composeRuleValues(rule),
-    behavior: "allow",
-    destination: "localSettings",
-  };
-}
-
-/** Adds a host's project block to `projectFolder`'s local settings as a deny, once. */
-export async function writeClaudeProjectBlock(
-  projectFolder: string,
+export function composeClaudeProjectAllowUpdate(
   rule: ProviderAskRule,
-): Promise<void> {
-  await updateClaudeLocalSettings(projectFolder, (lists) => {
-    const deny = lists.get("deny") ?? [];
-    const allow = lists.get("allow") ?? [];
-    const written = composeRuleValues(rule).map(writeRuleValue);
-    // A block replaces an allow over the same subject, so the two never stand together.
-    lists.set(
-      "allow",
-      allow.filter((entry) => !written.includes(entry)),
-    );
-    lists.set("deny", [...deny, ...written.filter((entry) => !deny.includes(entry))]);
-  });
+): Record<string, unknown> | undefined {
+  const rules = composeRuleValues(rule);
+  return rules.length === 0
+    ? undefined
+    : { type: "addRules", rules, behavior: "allow", destination: "localSettings" };
 }
 
 /**
- * Removes a revoked project rule from `projectFolder`'s local settings; a missing file has none.
+ * Adds a project rule to `projectFolder`'s local settings once, in the list of its sense, and takes
+ * the same entries out of the other list, so an allow and a block never stand together.
+ */
+export async function writeClaudeProjectRule(
+  projectFolder: string,
+  rule: ProviderAskRule,
+): Promise<void> {
+  const written = composeRuleValues(rule).map(writeRuleValue);
+  if (written.length === 0) {
+    return;
+  }
+  const [list, other] =
+    rule.sense === "allow" ? (["allow", "deny"] as const) : (["deny", "allow"] as const);
+  await updateClaudeLocalSettings(
+    projectFolder,
+    (lists) => {
+      const entries = lists.get(list) ?? [];
+      lists.set(
+        other,
+        (lists.get(other) ?? []).filter((entry) => !written.includes(entry)),
+      );
+      lists.set(list, [...entries, ...written.filter((entry) => !entries.includes(entry))]);
+    },
+    true,
+  );
+}
+
+/**
+ * Removes a revoked project rule from `projectFolder`'s local settings; a folder with no such file
+ * holds none, and no file is made for it.
  */
 export async function removeClaudeProjectRule(
   projectFolder: string,
@@ -114,24 +131,33 @@ export async function removeClaudeProjectRule(
 ): Promise<void> {
   const list = rule.sense === "allow" ? "allow" : "deny";
   const written = composeRuleValues(rule).map(writeRuleValue);
-  await updateClaudeLocalSettings(projectFolder, (lists) => {
-    lists.set(
-      list,
-      (lists.get(list) ?? []).filter((entry) => !written.includes(entry)),
-    );
-  });
+  await updateClaudeLocalSettings(
+    projectFolder,
+    (lists) => {
+      lists.set(
+        list,
+        (lists.get(list) ?? []).filter((entry) => !written.includes(entry)),
+      );
+    },
+    false,
+  );
 }
 
 // Reads the file's `permissions` lists, changes them and writes the file whole, keeping every
-// other setting the person has in it. A file that is not a JSON object is refused rather than
-// overwritten.
+// other setting the person has in it; with `canCreate` false a missing file is left missing. A
+// file that is not a JSON object is refused rather than overwritten.
 async function updateClaudeLocalSettings(
   projectFolder: string,
   change: (lists: Map<"allow" | "deny", string[]>) => void,
+  canCreate: boolean,
 ): Promise<void> {
   const filePath = path.join(projectFolder, CLAUDE_LOCAL_SETTINGS_PATH);
   const settings = await readLocalSettings(filePath);
-  const permissions = isPlainObject(settings["permissions"]) ? settings["permissions"] : {};
+  if (settings === undefined && !canCreate) {
+    return;
+  }
+  const permissionsSetting = settings?.["permissions"];
+  const permissions = isPlainObject(permissionsSetting) ? permissionsSetting : {};
   const lists = new Map<"allow" | "deny", string[]>();
   for (const list of ["allow", "deny"] as const) {
     const entries = permissions[list];
@@ -147,7 +173,7 @@ async function updateClaudeLocalSettings(
   const written = Object.fromEntries(
     [...lists].filter(([list, entries]) => list in permissions || entries.length > 0),
   );
-  const next = { ...settings, permissions: { ...permissions, ...written } };
+  const next = { ...(settings ?? {}), permissions: { ...permissions, ...written } };
   await mkdir(path.dirname(filePath), { recursive: true });
   await writeFileAtomically(
     filePath,
@@ -156,13 +182,14 @@ async function updateClaudeLocalSettings(
   );
 }
 
-async function readLocalSettings(filePath: string): Promise<Record<string, unknown>> {
+// The file's settings, or `undefined` where there is no file.
+async function readLocalSettings(filePath: string): Promise<Record<string, unknown> | undefined> {
   let text: string;
   try {
     text = await readFile(filePath, "utf8");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return {};
+      return undefined;
     }
     throw error;
   }
