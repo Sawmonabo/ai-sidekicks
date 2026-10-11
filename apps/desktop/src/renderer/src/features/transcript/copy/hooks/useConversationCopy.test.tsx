@@ -47,7 +47,13 @@ const ROWS = [
 /** A reply too long for its formatted flavor to be made on the page's thread. */
 const LONG_REPLY = `Long start ${"word ".repeat(PAGE_HTML_CHARACTER_LIMIT / 5)}long end`;
 
-/** The person's message, then a long reply. */
+/** The person's closing message after the long reply. */
+const CLOSING_MESSAGE = "thanks";
+
+/**
+ * The person's message, a long reply, and their closing message: a copy across all three reads the
+ * reply as a whole row, whose formatted flavor the markdown worker makes after its text is read.
+ */
 const LONG_ROWS = [
   ROWS[0] ?? expect.fail("the person's message is a row"),
   sampleRunRow({
@@ -55,6 +61,7 @@ const LONG_ROWS = [
     type: "assistant.message",
     content: { status: "available", body: LONG_REPLY },
   }),
+  sampleUserMessageRow({ id: "event-04", message: CLOSING_MESSAGE }),
 ];
 
 /** No log behind the rows: the store holds both, so nothing is read back. */
@@ -71,12 +78,28 @@ function Conversation(props: { readonly rows: typeof ROWS }): React.JSX.Element 
       }),
   );
   const [drawnLongTables] = useState(() => new DrawnLongTables());
+  const [rowElements] = useState(() => new Map<string, Element>());
   useConversationCopy({
     selectionTracker: tracker,
-    // Each copy here runs from the first row to the last.
-    selectedRowKeys: () => rowKeys,
+    // The rows the window's selection reaches, as the viewport's record of it holds them.
+    selectedRowKeys: () =>
+      rowKeys.filter((rowKey) => {
+        const element = rowElements.get(rowKey);
+        const selection = element?.ownerDocument.getSelection();
+        return (
+          element !== undefined &&
+          selection !== null &&
+          selection !== undefined &&
+          selection.rangeCount > 0 &&
+          selection.getRangeAt(0).intersectsNode(element)
+        );
+      }),
     rowSourceWindows: { unfurledWindow: NO_WINDOW, transcriptWindow: NO_WINDOW },
-    rowText: () => expect.fail("both rows are end rows"),
+    // Only the long reply is ever a row between a copy's ends.
+    rowText: (rowKey) =>
+      rowKey === LONG_ROWS[1]?.id
+        ? { flavor: "markdown", text: LONG_REPLY }
+        : expect.fail(`${rowKey} is an end row`),
     rowBodyText: () => expect.fail("neither row draws a large body"),
     largeBodyRowIdOf: () => undefined,
     fullBodyReads: undefined,
@@ -103,6 +126,7 @@ function Conversation(props: { readonly rows: typeof ROWS }): React.JSX.Element 
             totalRowCount={props.rows.length}
             rowRef={(element) => {
               if (element !== null) {
+                rowElements.set(row.id, element);
                 tracker.addRow(element, row.id);
               }
             }}
@@ -178,8 +202,8 @@ function renderSession(rows = ROWS): {
   );
   // happy-dom runs no worker; a long part is read on the page, as the worker reads it.
   const inThreadWorker = inThreadMarkdownWorker(sessionWindow);
-  vi.spyOn(markdownWorker, "drawnText").mockImplementation((tree, flavor, blockSources) =>
-    inThreadWorker.drawnText(tree, flavor, blockSources),
+  vi.spyOn(markdownWorker, "drawnText").mockImplementation((tree, flavor, tables) =>
+    inThreadWorker.drawnText(tree, flavor, tables),
   );
   const formatted: TextClipboardContent[] = [];
   // The formatted flavor joins the text only while the clipboard still holds it, as main's does.
@@ -257,17 +281,19 @@ describe("⌘C in a session", () => {
     const selection = sessionDocument.getSelection() ?? expect.fail("the window has a selection");
     const selectLongReply = (): Text => {
       const start = textNodeHolding(sessionDocument, USER_MESSAGE);
-      const end = textNodeHolding(sessionDocument, "long end");
+      const end = textNodeHolding(sessionDocument, CLOSING_MESSAGE);
       selection.setBaseAndExtent(start, 0, end, end.length);
       return start;
     };
 
     fireEvent.copy(selectLongReply());
+    // The text is written while the worker makes the formatting.
     await vi.waitFor(() => {
-      expect(workerAnswers).toHaveLength(1);
+      expect([workerAnswers.length, copied.length]).toStrictEqual([1, 1]);
     });
-    expect(copied).toHaveLength(1);
-    expect(copied[0]).toStrictEqual({ text: `${USER_MESSAGE}\n\n${LONG_REPLY}` });
+    expect(copied[0]).toStrictEqual({
+      text: `${USER_MESSAGE}\n\n${LONG_REPLY}\n\n${CLOSING_MESSAGE}`,
+    });
     // A newer copy, short enough to be written whole at once, lands while the first's formatting
     // is made.
     const message = textNodeHolding(sessionDocument, USER_MESSAGE);
@@ -287,9 +313,9 @@ describe("⌘C in a session", () => {
       expect(formatted).toHaveLength(1);
     });
     expect(copied.map((content) => content.text)).toStrictEqual([
-      `${USER_MESSAGE}\n\n${LONG_REPLY}`,
+      `${USER_MESSAGE}\n\n${LONG_REPLY}\n\n${CLOSING_MESSAGE}`,
       `${USER_MESSAGE}\n\nLo`,
-      `${USER_MESSAGE}\n\n${LONG_REPLY}`,
+      `${USER_MESSAGE}\n\n${LONG_REPLY}\n\n${CLOSING_MESSAGE}`,
     ]);
     expect(formatted[0]?.html).toContain("<p>the third copy's formatting</p>");
   });
@@ -308,7 +334,7 @@ describe("⌘C in a session", () => {
         }),
     );
     const start = textNodeHolding(sessionDocument, USER_MESSAGE);
-    const end = textNodeHolding(sessionDocument, "long end");
+    const end = textNodeHolding(sessionDocument, CLOSING_MESSAGE);
     sessionDocument.getSelection()?.setBaseAndExtent(start, 0, end, end.length);
 
     fireEvent.copy(start);
@@ -324,7 +350,7 @@ describe("⌘C in a session", () => {
       expect(formatted).toHaveLength(1);
     });
     expect(copied.map((content) => content.text)).toStrictEqual([
-      `${USER_MESSAGE}\n\n${LONG_REPLY}`,
+      `${USER_MESSAGE}\n\n${LONG_REPLY}\n\n${CLOSING_MESSAGE}`,
     ]);
   });
 
@@ -338,7 +364,7 @@ describe("⌘C in a session", () => {
       return since;
     });
     const start = textNodeHolding(sessionDocument, USER_MESSAGE);
-    const end = textNodeHolding(sessionDocument, "long end");
+    const end = textNodeHolding(sessionDocument, CLOSING_MESSAGE);
     sessionDocument.getSelection()?.setBaseAndExtent(start, 0, end, end.length);
 
     fireEvent.copy(start);

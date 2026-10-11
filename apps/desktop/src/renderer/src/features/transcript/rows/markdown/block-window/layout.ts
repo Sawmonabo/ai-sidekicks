@@ -8,14 +8,9 @@
 import type { Range, VirtualItem, Virtualizer } from "@tanstack/react-virtual";
 
 import type { Unsubscribe } from "#shared/preload-api.js";
-import { type BlockParseSource } from "#renderer/components/Markdown/parse.js";
 import { Emitter } from "#renderer/lib/emitter.js";
 import { observeElementResize } from "#renderer/lib/element-resize.js";
-import {
-  blockParseSourceOf,
-  blockSourceStartOf,
-  type SettledMarkdownBlock,
-} from "../body-blocks.js";
+import { blockSourceStartOf, type SettledMarkdownBlock } from "../body-blocks.js";
 import { isSameBodyType, readMarkdownBodyType, type MarkdownBodyType } from "../body-type.js";
 import { type DrawnBandScreenHeights } from "#renderer/features/transcript/viewport/drawn-band.js";
 import { ReaderPlaceHold } from "../reader-place-hold.js";
@@ -252,10 +247,6 @@ export class BlockWindowLayout implements TableBodyPlacement {
   /** A settled block's fingerprint; `undefined` for the streaming tail. */
   public blockFingerprint(index: number): string | undefined {
     return this.#blocks.settledBlocks[index]?.fingerprint;
-  }
-
-  public blockParseSource(index: number): () => BlockParseSource {
-    return blockParseSourceOf(this.#blocks, index);
   }
 
   /** A table's anchor here is the wrapper of the block it is drawn in. */

@@ -1,29 +1,28 @@
 // A long table's rows the window has not drawn, read back into a copy from the parse the screen
 // drew the table from. Each spacer row standing for undrawn rows names its table, which the feed
 // holds while it is drawn, and the first and last row it stands for. Copied as markdown, the spacer
-// names its table, whose block's text goes beside the part, and the drawn part's reading parses the
-// block again in its place, so the part's columns are padded in one pass, off the page's thread.
-// Copied as text, the spacer becomes a marker row, and the rows' text is read from the held table
-// on the page a few rows at a time, then put in the marker's place, the text kept in pieces.
+// names its table and rows, and the drawn part's reading, off the page's thread, asks the page for
+// the table's rows a slice at a time, its columns padded as the whole table's are. Copied as text,
+// the spacer becomes a marker row, and the rows' text is read from the held table on the page a few
+// rows at a time, then put in the marker's place, the text kept in pieces.
 
 import type { Table } from "mdast";
 
 import {
   drawnRowsText,
   markUndrawnRows,
+  UNDRAWN_ROWS_MARKER,
   type DrawnElement,
   type DrawnTree,
 } from "#renderer/components/Markdown/drawn-text.js";
-import { type BlockParseSource } from "#renderer/components/Markdown/parse.js";
 import { joinPieces, piecesOf, type PiecedText } from "#renderer/lib/text-pieces.js";
 import { workInSlices } from "#renderer/lib/work-slices.js";
-import { type DrawnLongTable } from "../rows/markdown/table-window/drawn-tables.js";
 
 /** A drawn part's tree with its undrawn rows made ready to read. */
 export interface UndrawnRowsReading {
   readonly tree: DrawnTree;
-  /** What each table's block was parsed from, by its key, for a part copied as markdown. */
-  readonly blockSources: ReadonlyMap<string, BlockParseSource>;
+  /** The tables the undrawn rows are read from, by their key, for a part copied as markdown. */
+  readonly tables: ReadonlyMap<string, Table>;
   /** The rows each marker row stands for, in drawn order, for a part copied as text. */
   readonly textRuns: readonly UndrawnRowsTextRun[];
 }
@@ -37,40 +36,33 @@ export interface UndrawnRowsTextRun {
 
 /**
  * `tree` with each spacer row ready to read in `flavor`: copied as markdown, naming its table and
- * rows, its table's block listed; as text, a marker row, its rows listed. `drawnTableOf` answers
- * the table a spacer's key names. Throws for a spacer whose table is not held, since a copy missing
- * rows would look whole.
+ * rows, its table listed; as text, a marker row, its rows listed. `drawnTableOf` answers the table
+ * a spacer's key names. Throws for a spacer whose table is not held, since a copy missing rows
+ * would look whole.
  */
 export function withUndrawnTableRows(
   tree: DrawnTree,
   flavor: "markdown" | "text",
-  drawnTableOf: (tableKey: string) => DrawnLongTable | undefined,
+  drawnTableOf: (tableKey: string) => Table | undefined,
 ): UndrawnRowsReading {
-  const blockSources = new Map<string, BlockParseSource>();
+  const tables = new Map<string, Table>();
   const textRuns: UndrawnRowsTextRun[] = [];
   if ("children" in tree) {
     readSpacers(tree, (spacer, tableKey, firstIndex, lastIndex): DrawnElement => {
-      const drawnTable = drawnTableOf(tableKey);
-      if (drawnTable === undefined) {
+      const table = drawnTableOf(tableKey);
+      if (table === undefined) {
         throw new Error("A copied table's undrawn rows have no table to be read from.");
       }
       if (flavor === "text") {
-        textRuns.push({ table: drawnTable.table, firstIndex, lastIndex });
+        textRuns.push({ table, firstIndex, lastIndex });
         return markerRow();
       }
-      if (!blockSources.has(tableKey)) {
-        blockSources.set(tableKey, drawnTable.readBlockParseSource());
-      }
-      markUndrawnRows(spacer, {
-        tableKey,
-        tableStart: drawnTable.table.position?.start.offset ?? 0,
-        firstIndex,
-        lastIndex,
-      });
+      tables.set(tableKey, table);
+      markUndrawnRows(spacer, { tableKey, firstIndex, lastIndex });
       return spacer;
     });
   }
-  return { tree, blockSources, textRuns };
+  return { tree, tables, textRuns };
 }
 
 /**
@@ -112,12 +104,6 @@ export async function withUndrawnRowsText(
  * in 1.9 ms at worst, which fits a slice of copy work inside a frame.
  */
 const ROWS_PER_READ = 20;
-
-/**
- * What a marker row reads as: a noncharacter, which Unicode keeps for a program's own use and no
- * text exchanged holds. One code unit, so no piece of the text cuts it in two.
- */
-const UNDRAWN_ROWS_MARKER = "\uFDD0";
 
 /** The text of `run`'s rows in pieces, a line each, read a few rows at a time in `view`. */
 async function undrawnRowsPieces(run: UndrawnRowsTextRun, view: Window): Promise<string[]> {

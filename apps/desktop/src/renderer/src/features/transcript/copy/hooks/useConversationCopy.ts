@@ -1,3 +1,4 @@
+import type { Table } from "mdast";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { TextClipboardContent } from "#shared/preload-api.js";
@@ -14,10 +15,7 @@ import type { ProjectedSessionEvent } from "#renderer/store/session/entities/voc
 import { type SessionStore } from "#renderer/store/session/store.js";
 import { type FullBodyReads } from "../../rows/full-body-reads.js";
 import { MARKDOWN_TABLE_KEY_ATTRIBUTE } from "../../rows/markdown/block-window/markers.js";
-import {
-  type DrawnLongTable,
-  type DrawnLongTables,
-} from "../../rows/markdown/table-window/drawn-tables.js";
+import { type DrawnLongTables } from "../../rows/markdown/table-window/drawn-tables.js";
 import { readRunWindowEdgeKey } from "../../runs/call-window.js";
 import { rowKeyOf, type RowSelection } from "../../viewport/selection/record.js";
 import { type ViewportSelectionTracker } from "../../viewport/selection/tracker.js";
@@ -96,7 +94,7 @@ interface HistoryCopy {
 /** A copy's end rows as they were drawn, and the long tables their spacer rows name, kept. */
 interface KeptEndRows {
   readonly elements: ReadonlyMap<string, Element>;
-  readonly drawnTables: ReadonlyMap<string, DrawnLongTable>;
+  readonly drawnTables: ReadonlyMap<string, Table>;
 }
 
 /** The rows a copy runs across, in log order, and where each is read from. */
@@ -107,7 +105,7 @@ interface RowSpanCopy {
   /** An end row as it was drawn, or `undefined` when no drawing of it is kept. */
   readonly endRowElement: (rowKey: string) => Element | undefined;
   /** The long table a spacer row of an end row names, as it is drawn or was kept. */
-  readonly drawnTableOf: (tableKey: string) => DrawnLongTable | undefined;
+  readonly drawnTableOf: (tableKey: string) => Table | undefined;
 }
 
 /** A copy built at once, or one still building in slices from its end rows as they were drawn. */
@@ -208,7 +206,7 @@ export function useConversationCopy(source: ConversationCopySource): void {
       endRowElement: (rowKey: string) => Element | undefined,
     ): KeptEndRows => {
       const elements = new Map<string, Element>();
-      const drawnTables = new Map<string, DrawnLongTable>();
+      const drawnTables = new Map<string, Table>();
       for (const boundary of [selection.start, selection.end]) {
         const rowKey = rowKeyOf(boundary);
         const endRow = rowKey === undefined ? undefined : endRowElement(rowKey);

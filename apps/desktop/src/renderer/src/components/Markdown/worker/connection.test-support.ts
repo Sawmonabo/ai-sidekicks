@@ -1,42 +1,34 @@
-// A markdown worker connection for a test, where no worker runs: each request is answered on the
-// test's own thread as the worker answers it, the request and the answer each copied, their buffers
-// moved, as a message between threads is.
+// A markdown worker connection for a test, where no worker runs: each message is answered on the
+// test's own thread as the worker answers it, each message copied and its buffers moved, as a
+// message between threads is.
 
-import { describeFailure } from "#shared/failure-message.js";
 import { MarkdownWorkerConnection, type MarkdownWorkerPort } from "./connection.js";
-import { answerMarkdownRequest } from "./answer.js";
-import type { MarkdownWorkerReply, MarkdownWorkerRequest } from "./messages.js";
+import { MarkdownWorkerAnswers } from "./answer.js";
+import type { MarkdownWorkerMessage, MarkdownWorkerReply } from "./messages.js";
 
 /** A connection whose worker answers on the test's thread, its texts sliced in `view`. */
 export function inThreadMarkdownWorker(view: Window): MarkdownWorkerConnection {
   return new MarkdownWorkerConnection(() => new InThreadWorker(), view);
 }
 
-/** A worker that answers each request on the thread that sent it, a task later. */
+/** A worker that answers each message on the thread that sent it, a microtask later. */
 class InThreadWorker implements MarkdownWorkerPort {
   public onmessage: ((event: MessageEvent<MarkdownWorkerReply>) => void) | null = null;
   public onerror: ((event: ErrorEvent) => void) | null = null;
   public onmessageerror: ((event: MessageEvent) => void) | null = null;
-
-  public postMessage(request: MarkdownWorkerRequest, transfer: Transferable[] = []): void {
-    const received = structuredClone(request, { transfer });
+  readonly #answers = new MarkdownWorkerAnswers((reply, transfer) => {
+    const received = structuredClone(reply, { transfer: [...transfer] });
     queueMicrotask(() => {
-      this.onmessage?.(new MessageEvent("message", { data: replyTo(received) }));
+      this.onmessage?.(new MessageEvent("message", { data: received }));
+    });
+  });
+
+  public postMessage(message: MarkdownWorkerMessage, transfer: Transferable[] = []): void {
+    const received = structuredClone(message, { transfer });
+    queueMicrotask(() => {
+      this.#answers.hear(received);
     });
   }
 
   public terminate(): void {}
-}
-
-/** What the worker replies to `request`. */
-function replyTo(request: MarkdownWorkerRequest): MarkdownWorkerReply {
-  try {
-    const text = answerMarkdownRequest(request);
-    return structuredClone(
-      { status: "made", requestId: request.requestId, text },
-      { transfer: text },
-    );
-  } catch (error: unknown) {
-    return { status: "failed", requestId: request.requestId, reason: describeFailure(error) };
-  }
 }

@@ -81,9 +81,8 @@ export function useTableWindow(offer: MarkdownTableOffer): TableWindow {
   // a copy asked after any commit finds the parse that frame drew from.
   const drawnTables = useContext(DrawnLongTablesContext);
   const tableKey = useId();
-  const readBlockParseSource = body.placement.blockParseSource(blockIndex);
   useLayoutEffect(() => {
-    drawnTables?.hold(tableKey, { table: offer.table, readBlockParseSource });
+    drawnTables?.hold(tableKey, offer.table);
   });
   useLayoutEffect(
     () => () => {
