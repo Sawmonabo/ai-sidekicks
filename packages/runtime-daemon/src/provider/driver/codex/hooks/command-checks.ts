@@ -24,7 +24,7 @@ import {
 } from "./server.js";
 
 /** The run a conversation's tool call belongs to. */
-export interface CodexHookCallRun {
+interface CodexHookCallRun {
   readonly sessionId: SessionId;
   readonly runId: RunId;
 }

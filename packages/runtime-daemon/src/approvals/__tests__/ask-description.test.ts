@@ -124,11 +124,11 @@ describe("describeProviderAsk", () => {
   });
 
   it("cuts a long target on a whole character, and offers no rule on a subject it cut", () => {
-    // Each emoji is two UTF-16 units, so an odd bound would split one in half.
-    const program = "🙂".repeat(FILE_PATH_MAX_LEN);
+    // Each emoji is two UTF-16 units, so after one letter the bound falls inside an emoji.
+    const program = `a${"🙂".repeat(FILE_PATH_MAX_LEN)}`;
     const { scope, resourceDescriptor } = describeCommand(`${program}\0 --flag`);
 
-    expect(scope).toBe("🙂".repeat(FILE_PATH_MAX_LEN / 2));
+    expect(scope).toBe(`a${"🙂".repeat(FILE_PATH_MAX_LEN / 2 - 1)}`);
     expect(scope.includes("\0")).toBe(false);
     expect(resourceDescriptor.standingAllowOffered).toBe(false);
   });

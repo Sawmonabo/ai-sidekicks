@@ -4,7 +4,10 @@
 
 import { afterEach, beforeEach, expect, it } from "vitest";
 
-import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
+import {
+  EventEnvelopeVersionSchema,
+  type EventEnvelope,
+} from "@ai-sidekicks/contracts/event/envelope";
 
 import type { ReviewerDenialId } from "@ai-sidekicks/contracts/approval";
 import { CONTENT_PAYLOAD_PLAINTEXT_MAX } from "@ai-sidekicks/contracts/event/declared-variants";
@@ -108,8 +111,8 @@ async function appendEvent(
     type,
     actor: null,
     payload: { sessionId: SESSION_ID, runId: RUN_ID, ...payload },
-    version: "1.0",
-  } as Parameters<EventLogService["append"]>[0]);
+    version: EventEnvelopeVersionSchema.parse("1.0"),
+  });
 }
 
 // The call row each recorded block names, in log order.

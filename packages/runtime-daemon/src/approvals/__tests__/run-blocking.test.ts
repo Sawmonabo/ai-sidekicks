@@ -140,6 +140,13 @@ it("runs the run again when its ask is answered while its block is still being w
     .prepare<[], { id: ApprovalRequestId }>("SELECT id FROM approval_requests")
     .all();
   const answering = approve(pending?.id ?? ("" as ApprovalRequestId));
+  // The answer is recorded, and its move asked for, while the block's move is still held.
+  await expect
+    .poll(() => service.readRequest(pending?.id ?? ("" as ApprovalRequestId))?.state)
+    .toBe("approved");
+  await new Promise((resolve) => {
+    setTimeout(resolve, 20);
+  });
   releaseBlock();
   await Promise.all([raising, answering]);
 

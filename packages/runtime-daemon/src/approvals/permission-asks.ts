@@ -154,13 +154,9 @@ export class PermissionAsks implements PermissionAskPort {
     const stored = this.#deps.approvals.readRequest(request.approvalRequestId);
     const held =
       stored?.askId === undefined ? undefined : this.#findHeld(stored.runId, stored.askId);
-    // Settled by another answer, a replay of this one already handed on, or raised by no provider:
-    // nothing goes back.
-    if (
-      stored === undefined ||
-      held === undefined ||
-      stored.resolution?.clientResolutionId !== request.clientResolutionId
-    ) {
+    // A replay of an answer already handed on, or a card no provider raised: nothing goes back. Any
+    // other answer to a settled card was refused above.
+    if (stored === undefined || held === undefined) {
       return response;
     }
     this.#heldByKey.delete(heldKeyOf(held.runId, held.requestId));

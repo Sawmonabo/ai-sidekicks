@@ -14,7 +14,11 @@ import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 import { openScratchDatabase, type ScratchDatabase } from "../../database/__fixtures__/scratch.js";
 import { EventLogService } from "../../events/log-service.js";
 import type { RespondToRequestParams } from "../../provider/driver/contract.js";
-import type { ProviderAskRule, ProviderPermissionAsk } from "../../provider/port/permission-ask.js";
+import type {
+  ProviderAskRule,
+  ProviderPermissionAnswer,
+  ProviderPermissionAsk,
+} from "../../provider/port/permission-ask.js";
 import { PermissionAsks } from "../permission-asks.js";
 import type { ApprovalRules, RecordedRule } from "../rules.js";
 import { ApprovalService } from "../service.js";
@@ -159,7 +163,11 @@ it("answers itself, with no card, a background command and an ask a rule in forc
   await asks.takeAsk(NPM_TEST);
   await asks.takeAsk({ ...NPM_TEST, action: { kind: "command", command: "npm publish" } });
 
-  expect(responses.map(({ response }) => response.decision)).toEqual(["refuse", "allow", "refuse"]);
+  expect(responses.map(({ response }) => (response as ProviderPermissionAnswer).decision)).toEqual([
+    "refuse",
+    "allow",
+    "refuse",
+  ]);
   expect(readCards()).toEqual([]);
 });
 

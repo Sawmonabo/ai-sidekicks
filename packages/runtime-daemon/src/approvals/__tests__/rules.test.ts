@@ -24,11 +24,20 @@ import type { StoredApprovalRequest } from "../store.js";
 const SESSION_A = "00000000-0000-7000-8000-00000000000a" as SessionId;
 const SESSION_B = "00000000-0000-7000-8000-00000000000b" as SessionId;
 const CHAT = "00000000-0000-7000-8000-00000000000c" as SessionId;
-const RUN_OF: Record<SessionId, RunId> = {
-  [SESSION_A]: "00000000-0000-7000-8000-0000000000a1" as RunId,
-  [SESSION_B]: "00000000-0000-7000-8000-0000000000b1" as RunId,
-  [CHAT]: "00000000-0000-7000-8000-0000000000c1" as RunId,
-};
+const RUN_IDS = new Map<SessionId, RunId>([
+  [SESSION_A, "00000000-0000-7000-8000-0000000000a1" as RunId],
+  [SESSION_B, "00000000-0000-7000-8000-0000000000b1" as RunId],
+  [CHAT, "00000000-0000-7000-8000-0000000000c1" as RunId],
+]);
+
+// The one run each session holds.
+function runOf(sessionId: SessionId): RunId {
+  const runId = RUN_IDS.get(sessionId);
+  if (runId === undefined) {
+    throw new Error(`no run for session ${sessionId}`);
+  }
+  return runId;
+}
 const FOLDER_A = "/work/project-a";
 const CREATED_AT = "2026-10-11T00:00:00.000Z";
 const HOST = { kind: "network", host: "example.com" } as const;
@@ -70,7 +79,7 @@ beforeEach(async () => {
     {
       sql: `INSERT INTO runs (run_id, session_id, state, run_version)
             VALUES (?, ?, 'running', 1), (?, ?, 'running', 1), (?, ?, 'running', 1)`,
-      bindings: [SESSION_A, SESSION_B, CHAT].flatMap((id) => [RUN_OF[id], id]),
+      bindings: [SESSION_A, SESSION_B, CHAT].flatMap((id) => [runOf(id), id]),
     },
   ]);
   const sessionEvents = new EventLogService({
@@ -125,7 +134,7 @@ async function makeRule(
 ): Promise<{ stored: StoredApprovalRequest; recorded: RecordedRule }> {
   const description = describeProviderAsk({
     sessionId,
-    runId: RUN_OF[sessionId],
+    runId: runOf(sessionId),
     requestId: "ask-1",
     toolName: "WebFetch",
     input: {},
@@ -134,7 +143,7 @@ async function makeRule(
   });
   const { approvalRequestId } = await service.create({
     sessionId,
-    runId: RUN_OF[sessionId],
+    runId: runOf(sessionId),
     requestedBy: "agent-1",
     ...description,
   });
@@ -164,6 +173,8 @@ function readRevokeTriggers(): { ruleId: string; invalidationTrigger: string }[]
 
 describe("ApprovalRules", () => {
   it("reaches every session of the project with a project rule, and no session outside it", async () => {
+    // B's own allow over the host is older than the project's block, which still outranks it.
+    await makeRule(SESSION_B, HOST, { kind: "session", sense: "allow" });
     await makeRule(SESSION_A, HOST, { kind: "project", sense: "block" });
     await makeRule(
       SESSION_A,
@@ -172,16 +183,12 @@ describe("ApprovalRules", () => {
     );
 
     expect(rules.readSessionRules(SESSION_B)).toEqual([
+      { kind: "session", sense: "allow", action: "network", subject: "example.com" },
       { kind: "project", sense: "block", action: "network", subject: "example.com" },
     ]);
     expect(rules.findRule(SESSION_B, "network", "example.com")?.sense).toBe("block");
     expect(rules.readSessionRules(SESSION_A)).toHaveLength(2);
     expect(rules.readSessionRules(CHAT)).toEqual([]);
-
-    // The session's own allow over the subject does not outrank the project's block.
-    await makeRule(SESSION_B, HOST, { kind: "session", sense: "allow" });
-
-    expect(rules.findRule(SESSION_B, "network", "example.com")?.sense).toBe("block");
   });
 
   it("replaces a project rule over the same subject, out of its file and every session's rules", async () => {
