@@ -1,15 +1,18 @@
 import type { Table } from "mdast";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import type { TextClipboardContent } from "#shared/preload-api.js";
 import { useAnnounce } from "#renderer/hooks/announce/useAnnounce.js";
 import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { markdownWorker } from "#renderer/components/Markdown/worker/connection.js";
+import type { PiecedText } from "#renderer/lib/text-pieces.js";
 import { startSlice } from "#renderer/lib/work-slices.js";
 import { type TranscriptPageRead } from "#renderer/services/daemon/transcript/page.js";
 import { usePlatformBridge } from "#renderer/services/platform/hooks/usePlatformBridge.js";
-import { copyOnceBuilt } from "#renderer/services/platform/clipboard/late-copy.js";
+import {
+  copyOnceBuilt,
+  type PiecedTextClipboardContent,
+} from "#renderer/services/platform/clipboard/late-copy.js";
 import { primarySelectionFor } from "#renderer/services/platform/primary-selection/host.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
@@ -117,7 +120,9 @@ type CopyBuilding =
  * The rest of a copy's build, in slices: it hands the copy's plain text to `onText` as soon as
  * every row is read, and resolves the whole content.
  */
-type CopyFinish = (onText: (text: string) => void) => Promise<TextClipboardContent | undefined>;
+type CopyFinish = (
+  onText: (text: PiecedText) => void,
+) => Promise<PiecedTextClipboardContent | undefined>;
 
 const COPY_FAILED_ANNOUNCEMENT = "Could not copy";
 
@@ -284,8 +289,8 @@ export function useConversationCopy(source: ConversationCopySource): void {
       copy: HistoryCopy,
       readHistory: ConversationCopyHistory,
       isCurrent: () => boolean,
-      onText: (text: string) => void,
-    ): Promise<TextClipboardContent | undefined> => {
+      onText: (text: PiecedText) => void,
+    ): Promise<PiecedTextClipboardContent | undefined> => {
       const events = await readSelectedEvents(copy.span, copy.held, {
         readPage: readHistory.readPage,
         sessionId: readHistory.sessionStore.sessionId,
@@ -318,14 +323,19 @@ export function useConversationCopy(source: ConversationCopySource): void {
     const sayCopyFailed = (): void => {
       announce(COPY_FAILED_ANNOUNCEMENT, "assertive");
     };
-    const write = (content: TextClipboardContent): void => {
-      bridge.native.copyToClipboard(content).catch(sayCopyFailed);
+    // A copy built within its slice is short, so it goes as one message.
+    const write = ({ text, html }: PiecedTextClipboardContent): void => {
+      bridge.native
+        .copyToClipboard(
+          html === undefined ? { text: text.text } : { text: text.text, html: html.text },
+        )
+        .catch(sayCopyFailed);
     };
     // The plain text first, once every row is read, then its formatted flavor beside it while the
     // clipboard still holds that text; a copy whose text and flavor come together is one write.
     // Each write lands only while no newer copy, from any app, took the clipboard.
     const writeOnceBuilt = (finish: CopyFinish, isCurrent: () => boolean): void => {
-      copyOnceBuilt(bridge, async (lateWrite) => {
+      copyOnceBuilt(bridge, ownerWindow, async (lateWrite, addFormatting) => {
         // How the plain text written first went.
         let textWrite: Promise<"written" | "replaced" | "failed"> | undefined;
         const content = await finish((text) => {
@@ -350,7 +360,7 @@ export function useConversationCopy(source: ConversationCopySource): void {
           return;
         }
         if (written === "written" && content.html !== undefined) {
-          await bridge.native.addClipboardFormatting({ text: content.text, html: content.html });
+          await addFormatting(content.html);
         }
       }).catch(() => {
         // A newer copy stands in for this one, and says how it went.
@@ -393,7 +403,7 @@ export function useConversationCopy(source: ConversationCopySource): void {
       writeOnceBuilt((onText) => readBack(copy, history, isCurrent, onText), isCurrent);
     };
     // A settled selection's text, its large bodies read in full; only the newest settle's is put.
-    const readSettledText = async (isCurrent: () => boolean): Promise<string | undefined> => {
+    const readSettledText = async (isCurrent: () => boolean): Promise<PiecedText | undefined> => {
       const heldCopy = takeHeldCopy();
       if (heldCopy === undefined) {
         return undefined;
@@ -410,7 +420,7 @@ export function useConversationCopy(source: ConversationCopySource): void {
       const settleNumber = settleCount.current;
       const isCurrent = (): boolean => settleCount.current === settleNumber;
       primarySelection
-        .takeSettledSelection(() => readSettledText(isCurrent))
+        .takeSettledSelection(() => readSettledText(isCurrent), ownerWindow)
         .catch(() => {
           if (isCurrent()) {
             announce(COPY_FAILED_ANNOUNCEMENT, "assertive");

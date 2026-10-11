@@ -17,6 +17,8 @@ import {
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { copyOnceBuilt } from "#renderer/services/platform/clipboard/late-copy.js";
+import { piecedTextOf } from "#renderer/lib/text-pieces.js";
+import { TASKS_AT_ONCE } from "#test/helpers/tasks-at-once.js";
 import { useHeldPaste } from "./useHeldPaste.js";
 
 const WINDOW_ID = "window/w-1";
@@ -51,15 +53,18 @@ function bridgeOverClipboard(platform?: PlatformBridge["app"]["platform"]): {
       : { ...fixture.bridge, app: { ...fixture.bridge.app, platform } };
   const clipboard = { text: OLDER_COPY };
   const landings: (() => void)[] = [];
-  vi.spyOn(bridge.native, "copyToClipboardUnlessChanged").mockImplementation(
-    (content) =>
-      new Promise((resolve) => {
-        landings.push(() => {
-          clipboard.text = "text" in content ? content.text : expect.fail("the copy is text");
-          resolve(true);
-        });
-      }),
-  );
+  vi.spyOn(bridge.native, "copyToClipboardUnlessChanged").mockImplementation((content) => {
+    const { text } =
+      "copyId" in content
+        ? fixture.clipboardPieces.contentOf(content.copyId)
+        : expect.fail("the copy is text");
+    return new Promise((resolve) => {
+      landings.push(() => {
+        clipboard.text = text;
+        resolve(true);
+      });
+    });
+  });
   vi.spyOn(bridge.window, "paste").mockImplementation(async () => {
     pasteInto(document.activeElement ?? expect.fail("a field has focus"), clipboard.text);
   });
@@ -142,7 +147,9 @@ describe("a paste while a copy is being written", () => {
     );
     const input = emulatorElementOf(container).querySelector("textarea");
     input?.focus();
-    const copied = copyOnceBuilt(bridge, (write) => write({ text: NEW_COPY }));
+    const copied = copyOnceBuilt(bridge, TASKS_AT_ONCE, (write) =>
+      write({ text: piecedTextOf(NEW_COPY) }),
+    );
 
     // The person presses ⌘V just after ⌘C, while the copy's text is still being written.
     const held = pasteInto(input ?? expect.fail("the terminal has an input"), OLDER_COPY);
@@ -161,14 +168,14 @@ describe("a paste while a copy is being written", () => {
     const { bridge } = bridgeOverClipboard();
     const { field, pasted } = renderField(bridge);
     let refuseBody = (): void => undefined;
-    const copied = copyOnceBuilt(bridge, async (write) => {
+    const copied = copyOnceBuilt(bridge, TASKS_AT_ONCE, async (write) => {
       // A large body the copy reads is refused, so it writes nothing.
       await new Promise<void>((_resolve, reject) => {
         refuseBody = () => {
           reject(new Error("The body was refused."));
         };
       });
-      return write({ text: NEW_COPY });
+      return write({ text: piecedTextOf(NEW_COPY) });
     });
 
     const held = pasteInto(field, OLDER_COPY);
@@ -184,7 +191,9 @@ describe("a paste while a copy is being written", () => {
   it("pastes into the field it was pressed in, though focus moved meanwhile", async () => {
     const { bridge, land } = bridgeOverClipboard();
     const { field, pasted, searchField, searchPasted } = renderField(bridge);
-    const copied = copyOnceBuilt(bridge, (write) => write({ text: NEW_COPY }));
+    const copied = copyOnceBuilt(bridge, TASKS_AT_ONCE, (write) =>
+      write({ text: piecedTextOf(NEW_COPY) }),
+    );
 
     pasteInto(field, OLDER_COPY);
     searchField.focus();
@@ -204,7 +213,9 @@ describe("a paste while a copy is being written", () => {
     const detachForwarder = windowDiagnosticCapture.installForwarder((jsonLines) => {
       batches.push(jsonLines);
     });
-    const copied = copyOnceBuilt(bridge, (write) => write({ text: NEW_COPY }));
+    const copied = copyOnceBuilt(bridge, TASKS_AT_ONCE, (write) =>
+      write({ text: piecedTextOf(NEW_COPY) }),
+    );
 
     pasteInto(field, OLDER_COPY);
     removeField();
@@ -222,7 +233,7 @@ describe("a paste while a copy is being written", () => {
   it("lets a middle-click paste through where it pastes the primary selection, and holds ⌘V after", async () => {
     const { bridge } = bridgeOverClipboard("linux");
     const { field, pasted } = renderField(bridge);
-    void copyOnceBuilt(bridge, (write) => write({ text: NEW_COPY }));
+    void copyOnceBuilt(bridge, TASKS_AT_ONCE, (write) => write({ text: piecedTextOf(NEW_COPY) }));
 
     // The browser pastes the selection in the same task as the middle button's release.
     field.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 1 }));

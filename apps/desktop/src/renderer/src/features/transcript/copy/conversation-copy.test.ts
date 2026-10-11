@@ -7,8 +7,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { PAGE_HTML_CHARACTER_LIMIT } from "#renderer/components/Markdown/worker/connection.js";
 import { RefusalError } from "#renderer/lib/refusal/contract.js";
+import { piecedTextOf, type PiecedText } from "#renderer/lib/text-pieces.js";
 import { ConversationCopyBuild, type ConversationCopyRows } from "./conversation-copy.js";
-import { windowCuttingEveryPart } from "./conversation-copy.test-support.js";
+import { piecesJoinedOf, windowCuttingEveryPart } from "./conversation-copy.test-support.js";
 import { type SelectedPart } from "./conversation-selection.js";
 
 const LARGE_BODY_ROW_ID = "event-large";
@@ -77,7 +78,7 @@ describe("a copy built a slice at a time", () => {
           html: async (markdown) => {
             workerTexts.push(markdown);
             steps.push("worker");
-            return WORKER_HTML;
+            return piecedTextOf(WORKER_HTML);
           },
         },
       ),
@@ -87,13 +88,13 @@ describe("a copy built a slice at a time", () => {
       windowCuttingEveryPart(),
       () => true,
       (text) => {
-        steps.push(`text: ${text}`);
+        steps.push(`text: ${text.text}`);
       },
     );
 
     expect([reads, workerTexts]).toStrictEqual([[LARGE_BODY_ROW_ID], [LONG_REPLY]]);
-    expect(steps).toStrictEqual([`text: ${content?.text ?? ""}`, "worker"]);
-    expect(content).toStrictEqual({
+    expect(steps).toStrictEqual([`text: ${content?.text.text ?? ""}`, "worker"]);
+    expect(piecesJoinedOf(content)).toStrictEqual({
       text:
         "rename the reader\nand its callers\n\nHere is **the plan**\n\n" +
         `${LONG_REPLY}\n\n${LARGE_BODY}\n\n- done`,
@@ -138,7 +139,7 @@ describe("a copy built a slice at a time", () => {
       ),
     );
 
-    const texts: string[] = [];
+    const texts: PiecedText[] = [];
 
     await expect(
       build.finish(

@@ -37,7 +37,8 @@ import { FootnoteRegistry } from "../rows/markdown/footnotes/registry.js";
 import { DrawnLongTables } from "../rows/markdown/table-window/drawn-tables.js";
 import { characterOffsetWithin } from "../viewport/selection/preservation.js";
 import { ConversationCopyBuild, type ConversationCopyRows } from "./conversation-copy.js";
-import { windowCuttingEveryPart } from "./conversation-copy.test-support.js";
+import { TASKS_AT_ONCE } from "#test/helpers/tasks-at-once.js";
+import { piecesJoinedOf, windowCuttingEveryPart } from "./conversation-copy.test-support.js";
 import { COPY_FLAVOR_ATTRIBUTE } from "./conversation-selection.js";
 
 /** A call's output size, too large to travel with its row. */
@@ -82,7 +83,9 @@ function copyOfDrawnRows(
     html: () => expect.fail("no reply part is long enough for the worker"),
     drawnText: () => expect.fail("no part is long enough for the worker"),
   }).buildWhile(() => true);
-  return copy.isBuilt ? copy.content : expect.fail("a copy reading no body in full builds at once");
+  return copy.isBuilt
+    ? piecesJoinedOf(copy.content)
+    : expect.fail("a copy reading no body in full builds at once");
 }
 
 /**
@@ -393,7 +396,7 @@ describe("a long table's undrawn rows in a selection", () => {
     ]),
   )("copy as $flavor exactly as the same rows drawn: $markdown", async ({ flavor, markdown }) => {
     // Each slice of the undrawn rows' text runs at once.
-    vi.stubGlobal("scheduler", { postTask: async (task: () => unknown) => task() });
+    vi.stubGlobal("scheduler", TASKS_AT_ONCE.scheduler);
     const drawnTables = new DrawnLongTables();
     const drawn = conversationDrawing(markdown, flavor);
     const windowed = windowOverFirstTable(drawn, markdown, drawnTables);
@@ -406,13 +409,15 @@ describe("a long table's undrawn rows in a selection", () => {
         worker,
       );
       const firstSlice = build.buildWhile(() => true);
-      return firstSlice.isBuilt
-        ? firstSlice.content
-        : await build.finish(
-            windowCuttingEveryPart(),
-            () => true,
-            () => undefined,
-          );
+      return piecesJoinedOf(
+        firstSlice.isBuilt
+          ? firstSlice.content
+          : await build.finish(
+              windowCuttingEveryPart(),
+              () => true,
+              () => undefined,
+            ),
+      );
     };
 
     const whole = await copyOf(drawn);

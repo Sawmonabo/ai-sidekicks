@@ -11,14 +11,14 @@ import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event/
 import { toHtml } from "hast-util-to-html";
 import type { Table } from "mdast";
 
-import type { TextClipboardContent } from "#shared/preload-api.js";
 import {
   makeMarkdownHtml,
   type MarkdownWorkerConnection,
 } from "#renderer/components/Markdown/worker/connection.js";
 import { RefusalError } from "#renderer/lib/refusal/contract.js";
-import { joinPieces, piecesOf } from "#renderer/lib/text-pieces.js";
+import { joinIntoPieces, piecesOf, type PiecedText } from "#renderer/lib/text-pieces.js";
 import { workInSlices } from "#renderer/lib/work-slices.js";
+import type { PiecedTextClipboardContent } from "#renderer/services/platform/clipboard/late-copy.js";
 import { type FullBodyReads } from "../rows/full-body-reads.js";
 import { type RowSelection } from "../viewport/selection/record.js";
 import {
@@ -60,7 +60,7 @@ export interface ConversationCopyRows {
  * copyable text, so the platform's own copy stands), or not yet.
  */
 export type ConversationCopyStep =
-  | { readonly isBuilt: true; readonly content: TextClipboardContent | undefined }
+  | { readonly isBuilt: true; readonly content: PiecedTextClipboardContent | undefined }
   | { readonly isBuilt: false };
 
 /**
@@ -77,7 +77,7 @@ export class ConversationCopyBuild {
   /** The parts read so far that hold text. */
   readonly #parts: SelectedPart[] = [];
   /** The formatted flavor of each part made so far. */
-  readonly #partHtml: string[] = [];
+  readonly #partHtml: PiecedText[] = [];
   /** A long plain part's formatted flavor while it is made a piece at a time. */
   #plainHtml: PlainHtmlMaking | undefined;
   /** The large body the next row reads, once it is read in full. */
@@ -87,7 +87,7 @@ export class ConversationCopyBuild {
   /** Whether every row's part is read, so the copy's plain text is whole. */
   #isTextRead = false;
   /** The copy's plain text once every row's part is read; `undefined` when no part holds text. */
-  #text: string | undefined;
+  #text: PiecedText | undefined;
   #step: ConversationCopyStep = NOT_BUILT;
 
   public constructor(rows: ConversationCopyRows) {
@@ -126,8 +126,8 @@ export class ConversationCopyBuild {
   public async finish(
     view: Window,
     isCurrent: () => boolean,
-    onText: (text: string) => void,
-  ): Promise<TextClipboardContent | undefined> {
+    onText: (text: PiecedText) => void,
+  ): Promise<PiecedTextClipboardContent | undefined> {
     if (!(await this.#buildUntil(view, isCurrent, () => this.#isTextRead))) {
       return undefined;
     }
@@ -144,7 +144,7 @@ export class ConversationCopyBuild {
    * flavor: `undefined` when no row holds text or once `isCurrent` answers false. Throws as
    * `finish` does.
    */
-  public async finishText(view: Window, isCurrent: () => boolean): Promise<string | undefined> {
+  public async finishText(view: Window, isCurrent: () => boolean): Promise<PiecedText | undefined> {
     return (await this.#buildUntil(view, isCurrent, () => this.#isTextRead))
       ? this.#text
       : undefined;
@@ -179,7 +179,7 @@ export class ConversationCopyBuild {
   }
 
   /** The content of a built copy. */
-  #builtContent(): TextClipboardContent | undefined {
+  #builtContent(): PiecedTextClipboardContent | undefined {
     return this.#step.isBuilt ? this.#step.content : throwLostPlace("the copy is built");
   }
 
@@ -210,7 +210,7 @@ export class ConversationCopyBuild {
       if (part.flavor === "markdown") {
         const html =
           part.html ?? makeMarkdownHtml(part.text, this.#rows.markdownWorker, part.pieces);
-        if (typeof html !== "string") {
+        if (html instanceof Promise) {
           this.#awaited = { kind: "worker-html", html };
           return NOT_BUILT;
         }
@@ -222,7 +222,10 @@ export class ConversationCopyBuild {
         return NOT_BUILT;
       }
     }
-    return { isBuilt: true, content: { text, html: joinPieces(this.#partHtml) } };
+    return {
+      isBuilt: true,
+      content: { text, html: joinIntoPieces(this.#partHtml.flatMap((html) => html.pieces)) },
+    };
   }
 
   /**
@@ -232,20 +235,18 @@ export class ConversationCopyBuild {
   #makePlainHtml(part: SelectedPart, hasTime: () => boolean): boolean {
     const making = this.#plainHtml ?? {
       pieces: part.pieces ?? piecesOf(part.text),
-      madePieceCount: 0,
-      html: "",
+      htmlPieces: [],
     };
     this.#plainHtml = making;
     do {
       const piece =
-        making.pieces[making.madePieceCount] ?? throwLostPlace("a piece follows the last made");
-      making.html += plainHtmlOf(piece);
-      making.madePieceCount += 1;
-    } while (making.madePieceCount < making.pieces.length && hasTime());
-    if (making.madePieceCount < making.pieces.length) {
+        making.pieces[making.htmlPieces.length] ?? throwLostPlace("a piece follows the last made");
+      making.htmlPieces.push(plainHtmlOf(piece));
+    } while (making.htmlPieces.length < making.pieces.length && hasTime());
+    if (making.htmlPieces.length < making.pieces.length) {
       return false;
     }
-    this.#partHtml.push(`<p>${making.html}</p>`);
+    this.#partHtml.push(joinIntoPieces(["<p>", ...making.htmlPieces, "</p>"]));
     this.#plainHtml = undefined;
     return true;
   }
@@ -326,21 +327,20 @@ export class ConversationCopyBuild {
 type AwaitedWork =
   | { readonly kind: "full-body"; readonly rowId: string }
   | { readonly kind: "worker-row-part"; readonly part: Promise<SelectedPart> }
-  | { readonly kind: "worker-html"; readonly html: Promise<string> };
+  | { readonly kind: "worker-html"; readonly html: Promise<PiecedText> };
 
 const NOT_BUILT: ConversationCopyStep = { isBuilt: false };
 
-/** A long plain part's formatted flavor as it is made: its pieces, and the HTML made so far. */
+/** A long plain part's formatted flavor as it is made: its pieces, and the HTML of each made. */
 interface PlainHtmlMaking {
   readonly pieces: readonly string[];
-  madePieceCount: number;
-  html: string;
+  readonly htmlPieces: string[];
 }
 
-/** The text of a copy's parts, a blank line between each, linked rather than copied. */
-function textOf(parts: readonly SelectedPart[]): string {
-  return joinPieces(
-    parts.flatMap((part, index) => (index === 0 ? [part.text] : [PART_SEPARATOR, part.text])),
+/** The text of a copy's parts, a blank line between each, held in pieces. */
+function textOf(parts: readonly SelectedPart[]): PiecedText {
+  return joinIntoPieces(
+    parts.flatMap((part) => [PART_SEPARATOR, ...(part.pieces ?? [part.text])]).slice(1),
   );
 }
 

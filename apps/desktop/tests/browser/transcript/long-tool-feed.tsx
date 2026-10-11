@@ -163,7 +163,9 @@ export async function mountTranscriptFeed(
     copied.push("text" in content ? content : expect.fail("the transcript copies text"));
   });
   // A formatted flavor added after its text is a write, while the clipboard still holds the text.
-  vi.spyOn(fixture.bridge.native, "addClipboardFormatting").mockImplementation(async (content) => {
+  vi.spyOn(fixture.bridge.native, "addClipboardFormatting").mockImplementation(async (copyId) => {
+    const content = fixture.clipboardPieces.contentOf(copyId);
+    fixture.clipboardPieces.drop(copyId);
     if (copied.at(-1)?.text !== content.text) {
       return false;
     }

@@ -5,8 +5,11 @@ import type { ClipboardContent } from "#shared/preload-api.js";
 /** One copy a block offers: what its control reads and what it puts on the clipboard. */
 export interface BlockCopyOffer {
   readonly label: string;
-  /** Built when the copy is pressed, so costly content is made only for a copy asked for. */
-  readonly content: () => ClipboardContent | Promise<ClipboardContent>;
+  /**
+   * Built when the copy is pressed, so costly content is made only for a copy asked for; only a
+   * picture is made later.
+   */
+  readonly content: () => ClipboardContent | Promise<Extract<ClipboardContent, { png: unknown }>>;
 }
 
 /** Draws one copy a block offers as the app's copy control. */

@@ -57,8 +57,8 @@ const LONG_REPLY = `${"a".repeat(TEXT_PIECE_LENGTH - 1)}\u{1F600} and ${REPLY}`;
 it("makes the same HTML bytes off the page's thread as on it", async () => {
   const connection = new MarkdownWorkerConnection(startMarkdownWorker, window);
 
-  expect(await connection.html(REPLY)).toBe(markdownToHtml(REPLY));
-  expect(await connection.html(LONG_REPLY)).toBe(markdownToHtml(LONG_REPLY));
+  expect((await connection.html(REPLY)).text).toBe(markdownToHtml(REPLY));
+  expect((await connection.html(LONG_REPLY)).text).toBe(markdownToHtml(LONG_REPLY));
 });
 
 it("reads a drawn part into the same text and HTML off the page's thread as on it", async () => {
@@ -99,7 +99,7 @@ it("reads a drawn part into the same text and HTML off the page's thread as on i
   });
   const made = await connection.drawnText(tree, "markdown", new Map([["table", table]]));
   expect(made.text.text).toBe(onPage.markdown.join(""));
-  expect(made.html).toBe(onPage.html.join(""));
+  expect(made.html?.text).toBe(onPage.html.join(""));
   expect(made.text.text).toContain("Builder");
 });
 

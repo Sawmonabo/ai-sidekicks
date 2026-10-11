@@ -10,7 +10,13 @@ import { fireEvent, render } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { ClipboardContent, TextClipboardContent } from "#shared/preload-api.js";
+import type {
+  ClipboardContent,
+  LateClipboardContent,
+  TextClipboardContent,
+} from "#shared/preload-api.js";
+import { piecedTextOf, type PiecedText } from "#renderer/lib/text-pieces.js";
+import { TASKS_AT_ONCE } from "#test/helpers/tasks-at-once.js";
 import { inThreadMarkdownWorker } from "#renderer/components/Markdown/worker/connection.test-support.js";
 import {
   markdownWorker,
@@ -161,6 +167,7 @@ interface HeldClipboard {
  */
 function renderSession(rows = ROWS): {
   readonly native: ReturnType<typeof createFixtureBridge>["bridge"]["native"];
+  readonly lateContentOf: (content: LateClipboardContent) => ClipboardContent;
   readonly clipboard: HeldClipboard;
   readonly copied: TextClipboardContent[];
   readonly formatted: TextClipboardContent[];
@@ -171,9 +178,7 @@ function renderSession(rows = ROWS): {
     document.body.appendChild(document.createElement("iframe")).contentWindow ??
     expect.fail("the frame has a window");
   // happy-dom schedules no tasks; a copy that outlasts the slice it starts in builds on in them.
-  Object.defineProperty(sessionWindow, "scheduler", {
-    value: { postTask: async (task: () => unknown) => task() },
-  });
+  Object.defineProperty(sessionWindow, "scheduler", { value: TASKS_AT_ONCE.scheduler });
   const sessionDocument = sessionWindow.document;
   const fixture = createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO });
   const clipboard: HeldClipboard = { text: "the person's older copy", html: undefined };
@@ -187,6 +192,9 @@ function renderSession(rows = ROWS): {
   vi.spyOn(fixture.bridge.native, "copyToClipboard").mockImplementation(async (content) => {
     land(content);
   });
+  // A late copy's content, joined from the pieces sent ahead of it, as main joins it.
+  const lateContentOf = (content: LateClipboardContent): ClipboardContent =>
+    "copyId" in content ? fixture.clipboardPieces.contentOf(content.copyId) : content;
   // Main's snapshot is the text held; a later write lands only while the clipboard still holds it.
   vi.spyOn(fixture.bridge.native, "takeClipboardSnapshot").mockImplementation(async () => ({
     digest: clipboard.text,
@@ -196,7 +204,7 @@ function renderSession(rows = ROWS): {
       if (since.digest !== clipboard.text) {
         return false;
       }
-      land(content);
+      land(lateContentOf(content));
       return true;
     },
   );
@@ -207,7 +215,9 @@ function renderSession(rows = ROWS): {
   );
   const formatted: TextClipboardContent[] = [];
   // The formatted flavor joins the text only while the clipboard still holds it, as main's does.
-  vi.spyOn(fixture.bridge.native, "addClipboardFormatting").mockImplementation(async (content) => {
+  vi.spyOn(fixture.bridge.native, "addClipboardFormatting").mockImplementation(async (copyId) => {
+    const content = fixture.clipboardPieces.contentOf(copyId);
+    fixture.clipboardPieces.drop(copyId);
     formatted.push(content);
     if (clipboard.text !== content.text) {
       return false;
@@ -227,7 +237,15 @@ function renderSession(rows = ROWS): {
     { container: sessionDocument.body.appendChild(sessionDocument.createElement("div")) },
   );
   const box = container.querySelector("textarea") ?? expect.fail("the message box is drawn");
-  return { native: fixture.bridge.native, clipboard, copied, formatted, box, sessionDocument };
+  return {
+    native: fixture.bridge.native,
+    lateContentOf,
+    clipboard,
+    copied,
+    formatted,
+    box,
+    sessionDocument,
+  };
 }
 
 /** The text node in `ownerDocument` holding `text`, so a selection can start or end inside it. */
@@ -274,7 +292,7 @@ describe("⌘C in a session", () => {
 
   it("writes a long part's text at once, and adds its formatting unless a newer copy took over", async () => {
     const { copied, formatted, sessionDocument } = renderSession(LONG_ROWS);
-    const workerAnswers: ((html: string) => void)[] = [];
+    const workerAnswers: ((html: PiecedText) => void)[] = [];
     vi.spyOn(markdownWorker, "html").mockImplementation(
       () => new Promise((resolve) => workerAnswers.push(resolve)),
     );
@@ -302,12 +320,12 @@ describe("⌘C in a session", () => {
     await vi.waitFor(() => {
       expect(copied).toHaveLength(2);
     });
-    workerAnswers[0]?.("<p>the first copy's formatting</p>");
+    workerAnswers[0]?.(piecedTextOf("<p>the first copy's formatting</p>"));
     fireEvent.copy(selectLongReply());
     await vi.waitFor(() => {
       expect(workerAnswers).toHaveLength(2);
     });
-    workerAnswers[1]?.("<p>the third copy's formatting</p>");
+    workerAnswers[1]?.(piecedTextOf("<p>the third copy's formatting</p>"));
 
     await vi.waitFor(() => {
       expect(formatted).toHaveLength(1);
@@ -321,18 +339,18 @@ describe("⌘C in a session", () => {
   });
 
   it("adds a long part's formatting only once its text write has landed", async () => {
-    const { native, copied, formatted, sessionDocument } = renderSession(LONG_ROWS);
-    vi.spyOn(markdownWorker, "html").mockResolvedValue("<p>made by the worker</p>");
+    const { native, lateContentOf, copied, formatted, sessionDocument } = renderSession(LONG_ROWS);
+    vi.spyOn(markdownWorker, "html").mockResolvedValue(piecedTextOf("<p>made by the worker</p>"));
     const textWrites: (() => void)[] = [];
-    vi.spyOn(native, "copyToClipboardUnlessChanged").mockImplementationOnce(
-      (content) =>
-        new Promise((resolve) => {
-          textWrites.push(() => {
-            copied.push("text" in content ? content : expect.fail("the copy is text"));
-            resolve(true);
-          });
-        }),
-    );
+    vi.spyOn(native, "copyToClipboardUnlessChanged").mockImplementationOnce((content) => {
+      const written = lateContentOf(content);
+      return new Promise((resolve) => {
+        textWrites.push(() => {
+          copied.push("text" in written ? written : expect.fail("the copy is text"));
+          resolve(true);
+        });
+      });
+    });
     const start = textNodeHolding(sessionDocument, USER_MESSAGE);
     const end = textNodeHolding(sessionDocument, CLOSING_MESSAGE);
     sessionDocument.getSelection()?.setBaseAndExtent(start, 0, end, end.length);
@@ -356,7 +374,7 @@ describe("⌘C in a session", () => {
 
   it("leaves a copy another app made while a long part was read standing, and says nothing", async () => {
     const { native, clipboard, copied, formatted, sessionDocument } = renderSession(LONG_ROWS);
-    vi.spyOn(markdownWorker, "html").mockResolvedValue("<p>made by the worker</p>");
+    vi.spyOn(markdownWorker, "html").mockResolvedValue(piecedTextOf("<p>made by the worker</p>"));
     // Another app copies just after the key is pressed, before the long part's text is read.
     vi.spyOn(native, "takeClipboardSnapshot").mockImplementationOnce(async () => {
       const since = { digest: clipboard.text };

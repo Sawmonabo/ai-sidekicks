@@ -31,7 +31,7 @@ function bridgeCopyingWith(
         if (!isUnchanged()) {
           return false;
         }
-        await copyToClipboard(content);
+        await copyToClipboard("png" in content ? content : expect.fail("a late copy is a picture"));
         return true;
       },
     },

@@ -16,6 +16,7 @@ import { describeFailure } from "#shared/failure-message.js";
 import {
   decodePiecesInSlices,
   encodePiecesInSlices,
+  piecedTextOf,
   piecesOf,
   type PiecedText,
 } from "#renderer/lib/text-pieces.js";
@@ -31,7 +32,7 @@ import type {
 /** What a drawn part copies as: its text, and its HTML when the worker made it with the text. */
 export interface DrawnPartCopy {
   readonly text: PiecedText;
-  readonly html?: string;
+  readonly html?: PiecedText;
 }
 
 /** The markdown worker as the connection drives it, so a test can stand in for the worker. */
@@ -76,20 +77,21 @@ export class MarkdownWorkerConnection {
 
   /**
    * The HTML `markdown` makes under the screen's policy, made off the page's thread from `pieces`,
-   * the same text in pieces: the same bytes `markdownToHtml` makes on it. Rejects with an `Error`
-   * when the worker cannot start, cannot make the HTML, stops, or does not answer in time.
+   * the same text in pieces, and held in pieces: the same bytes `markdownToHtml` makes on it.
+   * Rejects with an `Error` when the worker cannot start, cannot make the HTML, stops, or does not
+   * answer in time.
    */
   public async html(
     markdown: string,
     pieces: readonly string[] = piecesOf(markdown),
-  ): Promise<string> {
+  ): Promise<PiecedText> {
     const encoded = await encodePiecesInSlices(pieces, this.#view);
     const made = await this.#ask(
       (requestId) => ({ kind: "html", requestId, markdown: encoded }),
       encoded,
       markdown.length,
     );
-    return (await decodePiecesInSlices(made.text, this.#view)).text;
+    return await decodePiecesInSlices(made.text, this.#view);
   }
 
   /**
@@ -115,7 +117,7 @@ export class MarkdownWorkerConnection {
     const text = await decodePiecesInSlices(made.text, this.#view);
     return made.html === undefined
       ? { text }
-      : { text, html: (await decodePiecesInSlices(made.html, this.#view)).text };
+      : { text, html: await decodePiecesInSlices(made.html, this.#view) };
   }
 
   /**
@@ -306,17 +308,17 @@ const ANSWER_DEADLINE_MS_PER_MEBIBYTE = 10_000;
 const MARKDOWN_WORKER_IDLE_STOP_MS = 60_000;
 
 /**
- * The HTML `markdown` makes under the screen's policy: made at once on the page's thread when it is
- * shorter than `PAGE_HTML_CHARACTER_LIMIT`, otherwise by `worker` off it from `pieces`, the same
- * text in pieces when it is held so, rejecting as its `html` does.
+ * The HTML `markdown` makes under the screen's policy, in pieces: made at once on the page's thread
+ * when it is shorter than `PAGE_HTML_CHARACTER_LIMIT`, otherwise by `worker` off it from `pieces`,
+ * the same text in pieces when it is held so, rejecting as its `html` does.
  */
 export function makeMarkdownHtml(
   markdown: string,
   worker: Pick<MarkdownWorkerConnection, "html">,
   pieces?: readonly string[],
-): string | Promise<string> {
+): PiecedText | Promise<PiecedText> {
   return markdown.length < PAGE_HTML_CHARACTER_LIMIT
-    ? markdownToHtml(markdown)
+    ? piecedTextOf(markdownToHtml(markdown))
     : worker.html(markdown, pieces);
 }
 

@@ -17,6 +17,7 @@ import {
 import type { DaemonSubscriptionOpening } from "#shared/daemon/forwarding.js";
 import { NOT_ANSWERING_MESSAGE } from "#shared/daemon/status-topic.js";
 import { describeFailure } from "#shared/failure-message.js";
+import { ClipboardPieces } from "#shared/clipboard-pieces.js";
 import type { OpenDialogPurpose, OpenDialogResults } from "#shared/preload-api.js";
 import { classifyNavigation, inWindowOrigins, openExternalUrl } from "../windows/navigation.js";
 import type { MainOperatingSystem } from "../operating-system/contract.js";
@@ -32,6 +33,8 @@ import {
   clipboardHostsFor,
   copyToClipboard,
   copyToClipboardUnlessChanged,
+  dropClipboardPieces,
+  takeClipboardPiece,
   takeClipboardSnapshot,
 } from "./native/clipboard.js";
 import { listEditors } from "./native/editors/installed.js";
@@ -87,6 +90,7 @@ export function installBridgeHandlers(services: BridgeHandlerServices): void {
     operatingSystem,
   } = services;
   const clipboards = clipboardHostsFor(process.platform, clipboard);
+  const clipboardPieces = new ClipboardPieces();
   const keyboardMapFile = new KeyboardMapFile({
     filePath: path.join(userData, KEYBOARD_MAP_FILE_NAME),
     now: () => new Date(),
@@ -176,10 +180,16 @@ export function installBridgeHandlers(services: BridgeHandlerServices): void {
     [BRIDGE_CHANNELS.copyToClipboard]: (_event, request) => copyToClipboard(clipboards, request),
     [BRIDGE_CHANNELS.takeClipboardSnapshot]: (_event, request) =>
       takeClipboardSnapshot(clipboards, request),
+    [BRIDGE_CHANNELS.sendClipboardPiece]: (_event, request) => {
+      takeClipboardPiece(clipboardPieces, request);
+    },
+    [BRIDGE_CHANNELS.dropClipboardPieces]: (_event, request) => {
+      dropClipboardPieces(clipboardPieces, request);
+    },
     [BRIDGE_CHANNELS.copyToClipboardUnlessChanged]: (_event, request) =>
-      copyToClipboardUnlessChanged(clipboards, request),
+      copyToClipboardUnlessChanged(clipboards, clipboardPieces, request),
     [BRIDGE_CHANNELS.addClipboardFormatting]: (_event, request) =>
-      addClipboardFormatting(clipboards, request),
+      addClipboardFormatting(clipboards, clipboardPieces, request),
     [BRIDGE_CHANNELS.revealInFileExplorer]: (event, ref) => {
       shell.showItemInFolder(filePathRefs.requirePath(event.sender, ref, "open"));
     },

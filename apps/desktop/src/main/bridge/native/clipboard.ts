@@ -1,16 +1,18 @@
 // A clipboard, written by main for the page: a plain line, the text with a formatted flavor beside
 // it, or a PNG picture, in one write, so a paste target picks the flavor it understands. The page
 // names the system clipboard or Linux's selection one, which a middle-click pastes. Which
-// clipboards a system keeps is chosen once, from its platform. A copy whose formatted flavor comes
-// after its text adds it only while the system clipboard still holds that text, and a copy whose
-// content comes after it was asked for writes only while the clipboard holds what it held then, so
-// a newer copy stands.
+// clipboards a system keeps is chosen once, from its platform. A copy whose content comes after
+// it was asked for sends its text and formatted flavor in pieces first, which main holds for one
+// copy at a time and joins for the write; it writes only while the clipboard holds what it held
+// then, and its formatted flavor, coming after its text, joins it only while the system clipboard
+// still holds that text, so a newer copy stands.
 
 import { createHash } from "node:crypto";
 
 import { ClipboardItem } from "electron";
 import * as z from "zod/mini";
 
+import type { ClipboardPieces } from "#shared/clipboard-pieces.js";
 import type { ClipboardSnapshot } from "#shared/preload-api.js";
 
 /** Each flavor one copy writes, by its MIME type: text with its formatting, or a picture. */
@@ -58,21 +60,30 @@ export function clipboardHostsFor(
   };
 }
 
+const pngContentSchema = z.strictObject({
+  png: z.instanceof(Uint8Array).check(
+    z.refine((bytes) => PNG_SIGNATURE.every((byte, index) => bytes[index] === byte), {
+      message: "The picture is not a PNG.",
+    }),
+  ),
+});
+
+const copyNamingSchema = z.strictObject({ copyId: z.string() });
+
 const clipboardContentSchema = z.union([
   z.strictObject({
     text: z.string(),
     html: z.optional(z.string()),
   }),
-  z.strictObject({
-    png: z.instanceof(Uint8Array).check(
-      z.refine((bytes) => PNG_SIGNATURE.every((byte, index) => bytes[index] === byte), {
-        message: "The picture is not a PNG.",
-      }),
-    ),
-  }),
+  pngContentSchema,
 ]);
 
-const formattingRequestSchema = z.strictObject({ text: z.string(), html: z.string() });
+const clipboardPieceSchema = z.strictObject({
+  copyId: z.string(),
+  flavor: z.enum(["text", "html"]),
+  index: z.int().check(z.minimum(0)),
+  piece: z.string(),
+});
 
 const clipboardNameSchema = z.optional(z.literal("selection"));
 
@@ -84,9 +95,25 @@ const copyRequestSchema = z.strictObject({
 const snapshotRequestSchema = z.strictObject({ clipboard: clipboardNameSchema });
 
 const unlessChangedRequestSchema = z.strictObject({
-  content: clipboardContentSchema,
+  content: z.union([copyNamingSchema, pngContentSchema]),
   since: z.strictObject({ clipboard: clipboardNameSchema, digest: z.string() }),
 });
+
+/**
+ * Holds one piece of a late copy in `pieces`. Throws a `ZodError` for a request but a
+ * `ClipboardPiece`, and an `Error` for a piece naming a copy not held or one out of order.
+ */
+export function takeClipboardPiece(pieces: ClipboardPieces, request: unknown): void {
+  pieces.take(clipboardPieceSchema.parse(request));
+}
+
+/**
+ * Lets the copy a `{copyId}` request names go from `pieces`, when it is the one held. Throws a
+ * `ZodError` for a request but `{copyId}`.
+ */
+export function dropClipboardPieces(pieces: ClipboardPieces, request: unknown): void {
+  pieces.drop(copyNamingSchema.parse(request).copyId);
+}
 
 /**
  * Put the page's content on the clipboard it names in one write. Throws a `ZodError` for content
@@ -114,35 +141,46 @@ export async function takeClipboardSnapshot(
 }
 
 /**
- * Put the page's content on the clipboard its snapshot names, in one write, only while that
- * clipboard still holds what it held when the snapshot was taken: `false`, writing nothing, once a
- * newer copy holds it. Throws as `copyToClipboard` does.
+ * Put a late copy on the clipboard its snapshot names, in one write, only while that clipboard
+ * still holds what it held when the snapshot was taken: `false`, writing nothing, once a newer
+ * copy holds it. Its text and formatted flavor are joined from the pieces `pieces` holds for it,
+ * before anything is read, so a newer copy's pieces arriving meanwhile change nothing written.
+ * Throws as `copyToClipboard` does, and for a copy whose pieces are not held.
  */
 export async function copyToClipboardUnlessChanged(
   clipboards: ClipboardHosts,
+  pieces: ClipboardPieces,
   request: unknown,
 ): Promise<boolean> {
   const { content, since } = unlessChangedRequestSchema.parse(request);
+  const flavors = flavorsOf("png" in content ? content : pieces.contentOf(content.copyId));
   const host = hostNamed(clipboards, since.clipboard);
   // Electron reads only asynchronously: an app copying between this read and the write is lost.
   if ((await heldDigestOf(host)) !== since.digest) {
     return false;
   }
-  await host.write(flavorsOf(content));
+  await host.write(flavors);
   return true;
 }
 
 /**
- * Add the formatted flavor beside the plain text the system clipboard holds, writing both in one
- * write, only while that text is still the request's `text`: `false`, writing nothing, once a
- * newer copy holds the clipboard. Throws a `ZodError` for a request but `{text, html}` with string
- * values.
+ * Add the formatted flavor of the copy a `{copyId}` request names beside the plain text the system
+ * clipboard holds, writing both in one write, only while that text is still the copy's: `false`,
+ * writing nothing, once a newer copy holds the clipboard. The copy's pieces are let go first.
+ * Throws a `ZodError` for a request but `{copyId}`, and an `Error` for a copy whose pieces are not
+ * held or hold no formatted flavor.
  */
 export async function addClipboardFormatting(
   clipboards: ClipboardHosts,
+  pieces: ClipboardPieces,
   request: unknown,
 ): Promise<boolean> {
-  const { text, html } = formattingRequestSchema.parse(request);
+  const { copyId } = copyNamingSchema.parse(request);
+  const { text, html } = pieces.contentOf(copyId);
+  pieces.drop(copyId);
+  if (html === undefined) {
+    throw new Error("A clipboard copy's formatting was asked for before its pieces were sent.");
+  }
   // Electron reads a clipboard only asynchronously, so an app writing between this read and the
   // write below loses its copy; no clipboard lets a reader make the two one step.
   if ((await clipboards.system.readText()) !== text) {
@@ -173,7 +211,9 @@ function hostNamed(clipboards: ClipboardHosts, clipboard: "selection" | undefine
   return host;
 }
 
-function flavorsOf(content: z.infer<typeof clipboardContentSchema>): ClipboardFlavors {
+function flavorsOf(
+  content: z.infer<typeof clipboardContentSchema> | z.infer<typeof pngContentSchema>,
+): ClipboardFlavors {
   if ("png" in content) {
     return { "image/png": new Blob([content.png], { type: "image/png" }) };
   }

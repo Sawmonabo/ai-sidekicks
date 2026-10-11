@@ -138,6 +138,26 @@ export interface TextClipboardContent {
 export type ClipboardContent = TextClipboardContent | { readonly png: Uint8Array<ArrayBuffer> };
 
 /**
+ * One piece of a late copy's text or of its formatted flavor, sent to main ahead of the write that
+ * names the copy, so no one message carries a long text. `index` counts the flavor's pieces from
+ * 0, and the text's first piece starts the copy, in place of any copy main holds.
+ */
+export interface ClipboardPiece {
+  readonly copyId: string;
+  readonly flavor: "text" | "html";
+  readonly index: number;
+  readonly piece: string;
+}
+
+/**
+ * What a late copy writes: the text and any formatted flavor whose pieces were sent under
+ * `copyId`, or a picture alone as PNG bytes.
+ */
+export type LateClipboardContent =
+  | { readonly copyId: string }
+  | Extract<ClipboardContent, { readonly png: unknown }>;
+
+/**
  * What a clipboard held when a copy was asked for, as a digest main reads: the copy's content,
  * coming later, is written only while the clipboard still holds it.
  */
@@ -435,20 +455,28 @@ export interface PreloadApi {
      */
     takeClipboardSnapshot(clipboard?: "selection"): Promise<ClipboardSnapshot>;
     /**
+     * Hand main one piece of a late copy's text or formatted flavor. Refused for a piece naming a
+     * copy main does not hold, and for one out of its flavor's order, which also lets the copy go.
+     */
+    sendClipboardPiece(piece: ClipboardPiece): Promise<void>;
+    /** Let the pieces of the copy `copyId` names go, when main holds them. */
+    dropClipboardPieces(copyId: string): Promise<void>;
+    /**
      * Put `content` on the clipboard `since` names in one write, only while that clipboard still
      * holds what it held when `since` was taken; resolves `false`, writing nothing, once a newer
-     * copy, from this app or another, holds it.
+     * copy, from this app or another, holds it. Refused for a copy whose pieces main does not hold.
      */
     copyToClipboardUnlessChanged(
-      content: ClipboardContent,
+      content: LateClipboardContent,
       since: ClipboardSnapshot,
     ): Promise<boolean>;
     /**
-     * Put `html` beside `text` on the system clipboard, in one write, only while the clipboard
-     * still holds `text` as a copy wrote it; resolves `false`, writing nothing, once a newer copy,
-     * from this app or another, holds it.
+     * Put the formatted flavor whose pieces were sent under `copyId` beside the copy's text on the
+     * system clipboard, in one write, only while the clipboard still holds that text, then let the
+     * copy's pieces go; resolves `false`, writing nothing, once a newer copy, from this app or
+     * another, holds it. Refused for a copy main holds no formatted flavor of.
      */
-    addClipboardFormatting(content: Required<TextClipboardContent>): Promise<boolean>;
+    addClipboardFormatting(copyId: string): Promise<boolean>;
     /** Show a file or folder selected in the platform's file manager. */
     revealInFileExplorer(ref: FilePathRef): Promise<void>;
   };
@@ -604,6 +632,8 @@ export function createStubBridge(app: AppFacts, lastUsedWindowId: string): Prelo
       getNotificationPermission: () => stubThrow("native.getNotificationPermission"),
       copyToClipboard: () => stubThrow("native.copyToClipboard"),
       takeClipboardSnapshot: () => stubThrow("native.takeClipboardSnapshot"),
+      sendClipboardPiece: () => stubThrow("native.sendClipboardPiece"),
+      dropClipboardPieces: () => stubThrow("native.dropClipboardPieces"),
       copyToClipboardUnlessChanged: () => stubThrow("native.copyToClipboardUnlessChanged"),
       addClipboardFormatting: () => stubThrow("native.addClipboardFormatting"),
       revealInFileExplorer: () => stubThrow("native.revealInFileExplorer"),

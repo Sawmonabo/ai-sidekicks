@@ -26,6 +26,7 @@ import {
   type DrawnPartCopy,
   type MarkdownWorkerConnection,
 } from "#renderer/components/Markdown/worker/connection.js";
+import type { PiecedText } from "#renderer/lib/text-pieces.js";
 import { resolveRowTextPosition } from "../viewport/selection/preservation.js";
 import { type RowSelection } from "../viewport/selection/record.js";
 import { withUndrawnRowsText, withUndrawnTableRows } from "./undrawn-table-rows.js";
@@ -40,7 +41,7 @@ export interface SelectedPart {
    */
   readonly pieces?: readonly string[];
   /** The part's formatted flavor, when the markdown worker made it with the part's text. */
-  readonly html?: string;
+  readonly html?: PiecedText;
 }
 
 /** A selection across the conversation's rows, as a copy reads it. */

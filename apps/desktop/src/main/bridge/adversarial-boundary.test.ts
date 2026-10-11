@@ -249,6 +249,24 @@ async function refusalOf(answer: Promise<unknown>): Promise<string | undefined> 
   }
 }
 
+/** Sends main a late copy's first and only text piece, under `copyId`. */
+async function sendTextPiece(copyId: string): Promise<void> {
+  await invoke(BRIDGE_CHANNELS.sendClipboardPiece, {
+    copyId,
+    flavor: "text",
+    index: 0,
+    piece: "a",
+  });
+}
+
+/** Writes the late copy `copyId` names onto an empty clipboard. */
+function writeLateCopy(copyId: string): Promise<unknown> {
+  return invoke(BRIDGE_CHANNELS.copyToClipboardUnlessChanged, {
+    content: { copyId },
+    since: { digest: EMPTY_DIGEST },
+  });
+}
+
 /** The pictures main has kept in its paste folder; none while the folder is not made yet. */
 async function pastedPictures(): Promise<string[]> {
   return readdir(path.join(userData, PASTED_IMAGES_FOLDER_NAME)).catch((error: unknown) => {
@@ -266,6 +284,9 @@ async function intakeCases(): Promise<readonly IntakeCase[]> {
   // A token main minted to attach the file, which no verb that opens a path takes.
   const attachToken = await invoke(BRIDGE_CHANNELS.getDroppedFileRef, droppedFile);
   const droppedTokens: unknown[] = [];
+  // The drop's probe copy is sent once, on its first reading, so every later reading sees it held
+  // until the accepted drop lets it go.
+  let isDropProbeSent = false;
   const appearance = {
     choice: { theme: "graphite", scheme: "dark", textSize: 18, transcriptWidth: 44 },
     grounds: THEME_GROUNDS.meridian,
@@ -396,36 +417,78 @@ async function intakeCases(): Promise<readonly IntakeCase[]> {
       acted: () => clipboardReads.length,
     },
     {
-      member: "native.copyToClipboardUnlessChanged",
+      member: "native.sendClipboardPiece",
       refused: [
-        { content: { text: "a" } },
-        { content: { text: "a" }, since: { digest: 7 } },
-        { content: { text: "a" }, since: { clipboard: "system", digest: EMPTY_DIGEST } },
-        { content: { text: 7 }, since: { digest: EMPTY_DIGEST } },
-        { content: { text: "a" }, since: { digest: EMPTY_DIGEST }, extra: true },
+        { copyId: "piece-probe", flavor: "text", index: 0 },
+        { copyId: "piece-probe", flavor: "rtf", index: 0, piece: "a" },
+        { copyId: "piece-probe", flavor: "text", index: -1, piece: "a" },
+        { copyId: "piece-probe", flavor: "text", index: 0.5, piece: "a" },
+        { copyId: 7, flavor: "text", index: 0, piece: "a" },
+        { copyId: "piece-probe", flavor: "text", index: 0, piece: "a", extra: true },
         "a",
         null,
       ],
       refusal: SCHEMA_REFUSAL,
-      accepted: { content: { text: "a" }, since: { digest: EMPTY_DIGEST } },
-      send: (payload) => invoke(BRIDGE_CHANNELS.copyToClipboardUnlessChanged, payload),
+      accepted: { copyId: "piece-probe", flavor: "text", index: 0, piece: "a" },
+      send: (payload) => invoke(BRIDGE_CHANNELS.sendClipboardPiece, payload),
+      // Whether a late copy of the probe's pieces is written or refused for want of them.
+      acted: () => refusalOf(writeLateCopy("piece-probe")),
+    },
+    {
+      member: "native.dropClipboardPieces",
+      refused: [{ copyId: 7 }, { copyId: "drop-probe", extra: true }, "drop-probe", null],
+      refusal: SCHEMA_REFUSAL,
+      accepted: { copyId: "drop-probe" },
+      send: (payload) => invoke(BRIDGE_CHANNELS.dropClipboardPieces, payload),
+      acted: async () => {
+        if (!isDropProbeSent) {
+          isDropProbeSent = true;
+          await sendTextPiece("drop-probe");
+        }
+        return await refusalOf(writeLateCopy("drop-probe"));
+      },
+    },
+    {
+      member: "native.copyToClipboardUnlessChanged",
+      refused: [
+        { content: { copyId: "late" } },
+        { content: { copyId: "late" }, since: { digest: 7 } },
+        { content: { copyId: "late" }, since: { clipboard: "system", digest: EMPTY_DIGEST } },
+        { content: { copyId: 7 }, since: { digest: EMPTY_DIGEST } },
+        { content: { text: "a" }, since: { digest: EMPTY_DIGEST } },
+        { content: { copyId: "late" }, since: { digest: EMPTY_DIGEST }, extra: true },
+        "a",
+        null,
+      ],
+      refusal: SCHEMA_REFUSAL,
+      accepted: { content: { copyId: "late" }, since: { digest: EMPTY_DIGEST } },
+      send: async (payload) => {
+        await sendTextPiece("late");
+        return await invoke(BRIDGE_CHANNELS.copyToClipboardUnlessChanged, payload);
+      },
       acted: () => clipboardWrites.length,
     },
     {
       member: "native.addClipboardFormatting",
       refused: [
-        { text: "a" },
-        { html: "<b>a</b>" },
-        { text: "a", html: 7 },
-        { text: 7, html: "<b>a</b>" },
-        { text: "a", html: "<b>a</b>", extra: true },
-        { content: { text: "a", html: "<b>a</b>" } },
-        "a",
+        { text: "a", html: "<b>a</b>" },
+        { copyId: 7 },
+        { copyId: "formatted", extra: true },
+        "formatted",
         null,
       ],
       refusal: SCHEMA_REFUSAL,
-      accepted: { text: "a", html: "<b>a</b>" },
-      send: (payload) => invoke(BRIDGE_CHANNELS.addClipboardFormatting, payload),
+      accepted: { copyId: "formatted" },
+      send: async (payload) => {
+        await sendTextPiece("formatted");
+        await invoke(BRIDGE_CHANNELS.sendClipboardPiece, {
+          copyId: "formatted",
+          flavor: "html",
+          index: 0,
+          piece: "<b>a</b>",
+        });
+        return await invoke(BRIDGE_CHANNELS.addClipboardFormatting, payload);
+      },
       acted: () => clipboardWrites.length,
     },
     {

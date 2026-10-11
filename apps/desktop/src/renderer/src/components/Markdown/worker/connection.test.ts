@@ -6,13 +6,9 @@ import type { Table, TableCell } from "mdast";
 import { expect, it, vi } from "vitest";
 
 import { decodeTextPieces, encodeTextPieces } from "#renderer/lib/text-pieces.js";
+import { TASKS_AT_ONCE } from "#test/helpers/tasks-at-once.js";
 import type { MarkdownWorkerReply, MarkdownWorkerRequest } from "./messages.js";
 import { MarkdownWorkerConnection, type MarkdownWorkerPort } from "./connection.js";
-
-/** A window whose tasks run at once, where the page schedules none. */
-const TASKS_AT_ONCE = {
-  scheduler: { postTask: async (task: () => unknown) => task() },
-} as unknown as Window;
 
 /** A stand-in worker that keeps what it is sent and answers only when told. */
 class StandInWorker implements MarkdownWorkerPort {
@@ -77,7 +73,7 @@ it("fails every text when its worker stops, and starts a new one for the next", 
   const request = workers[1]?.requests[0];
   expect(request?.kind === "html" ? decodeTextPieces(request.markdown) : request).toBe("# three");
   workers[1]?.answer("<h1>three</h1>");
-  expect(await third).toBe("<h1>three</h1>");
+  expect((await third).text).toBe("<h1>three</h1>");
 });
 
 it.each([

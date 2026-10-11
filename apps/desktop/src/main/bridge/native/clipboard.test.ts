@@ -1,15 +1,18 @@
 // A copy reaches the clipboard as one write carrying every flavor, and the selection clipboard
-// only where the system keeps one. A formatted flavor added after a copy's text joins it only while
-// the clipboard still holds that text, and a copy written after it was asked for lands only while
-// the clipboard holds what it held then.
+// only where the system keeps one. A copy written after it was asked for is sent in pieces first,
+// which main joins for its one write and refuses out of order or for a copy it does not hold; it
+// lands only while the clipboard holds what it held then, and a formatted flavor added after its
+// text joins it only while the clipboard still holds that text.
 
 import { describe, expect, it, vi } from "vitest";
 
+import { ClipboardPieces } from "#shared/clipboard-pieces.js";
 import {
   addClipboardFormatting,
   clipboardHostsFor,
   copyToClipboard,
   copyToClipboardUnlessChanged,
+  takeClipboardPiece,
   takeClipboardSnapshot,
   type ClipboardFlavors,
   type ClipboardHost,
@@ -118,23 +121,85 @@ describe("the clipboard copy", () => {
   });
 });
 
+/** Sends `pieces` each of `flavors` under `copyId`, in two pieces, its first piece first. */
+function sendInPieces(
+  pieces: ClipboardPieces,
+  copyId: string,
+  flavors: Partial<Record<"text" | "html", string>>,
+): void {
+  for (const flavor of ["text", "html"] as const) {
+    const whole = flavors[flavor];
+    if (whole !== undefined) {
+      const cut = Math.floor(whole.length / 2);
+      takeClipboardPiece(pieces, { copyId, flavor, index: 0, piece: whole.slice(0, cut) });
+      takeClipboardPiece(pieces, { copyId, flavor, index: 1, piece: whole.slice(cut) });
+    }
+  }
+}
+
+describe("a late copy's pieces", () => {
+  it("refuses a piece out of order, letting its copy go, and leaves a newer copy standing", async () => {
+    const clipboard = holdingClipboard();
+    const clipboards = systemOnly(clipboard);
+    const pieces = new ClipboardPieces();
+    const since = await takeClipboardSnapshot(clipboards, {});
+    const write = (copyId: string) =>
+      copyToClipboardUnlessChanged(clipboards, pieces, { content: { copyId }, since });
+
+    takeClipboardPiece(pieces, { copyId: "first", flavor: "text", index: 0, piece: "a long " });
+    expect(() =>
+      takeClipboardPiece(pieces, { copyId: "first", flavor: "text", index: 2, piece: "end" }),
+    ).toThrow("A clipboard piece came out of order.");
+    await expect(write("first")).rejects.toThrow(
+      "A clipboard piece names a copy that is not held.",
+    );
+
+    // A newer copy's first piece takes the place of the older one, whose later pieces are refused.
+    takeClipboardPiece(pieces, { copyId: "older", flavor: "text", index: 0, piece: "older " });
+    sendInPieces(pieces, "newer", { text: "the newer copy" });
+    expect(() =>
+      takeClipboardPiece(pieces, { copyId: "older", flavor: "text", index: 1, piece: "text" }),
+    ).toThrow("A clipboard piece names a copy that is not held.");
+    await expect(write("older")).rejects.toThrow(
+      "A clipboard piece names a copy that is not held.",
+    );
+    await expect(write("newer")).resolves.toBe(true);
+    expect(clipboard.held).toStrictEqual({ "text/plain": "the newer copy" });
+  });
+});
+
 describe("a formatted flavor added after a copy's text", () => {
   it("joins the text while the clipboard holds it, and leaves a newer copy standing", async () => {
     const clipboard = holdingClipboard();
     const clipboards = systemOnly(clipboard);
+    const pieces = new ClipboardPieces();
     const formatting = { text: "**first**", html: "<strong>first</strong>" };
+    const writeText = async (copyId: string) => {
+      sendInPieces(pieces, copyId, { text: formatting.text });
+      const since = await takeClipboardSnapshot(clipboards, {});
+      await copyToClipboardUnlessChanged(clipboards, pieces, { content: { copyId }, since });
+      sendInPieces(pieces, copyId, { html: formatting.html });
+    };
 
-    await copyToClipboard(clipboards, { content: { text: formatting.text } });
-    await expect(addClipboardFormatting(clipboards, formatting)).resolves.toBe(true);
+    await writeText("first");
+    await expect(addClipboardFormatting(clipboards, pieces, { copyId: "first" })).resolves.toBe(
+      true,
+    );
     expect(clipboard.held).toStrictEqual({
       "text/plain": "**first**",
       "text/html": "<strong>first</strong>",
     });
+    // The formatting lets the copy's pieces go.
+    await expect(addClipboardFormatting(clipboards, pieces, { copyId: "first" })).rejects.toThrow(
+      "A clipboard piece names a copy that is not held.",
+    );
 
-    await copyToClipboard(clipboards, { content: { text: formatting.text } });
-    // A second copy, from this app or another, lands while the first's formatting is made.
+    await writeText("second");
+    // A newer copy, from this app or another, lands while the first's formatting is made.
     await clipboard.write({ "text/plain": "a newer copy" });
-    await expect(addClipboardFormatting(clipboards, formatting)).resolves.toBe(false);
+    await expect(addClipboardFormatting(clipboards, pieces, { copyId: "second" })).resolves.toBe(
+      false,
+    );
     expect(clipboard.held).toStrictEqual({ "text/plain": "a newer copy" });
   });
 });
@@ -143,19 +208,27 @@ describe("a copy written after it was asked for", () => {
   it("lands while the clipboard holds what it held then, and leaves a newer copy standing", async () => {
     const clipboard = holdingClipboard();
     const clipboards = systemOnly(clipboard);
+    const pieces = new ClipboardPieces();
     await clipboard.write({ "text/plain": "the person's older copy" });
-    const content = { text: "a long selection, read" };
+    const flavors = { text: "a long selection, read", html: "<p>a long selection, read</p>" };
+    sendInPieces(pieces, "copy", flavors);
+    const content = { copyId: "copy" };
 
     const since = await takeClipboardSnapshot(clipboards, {});
-    await expect(copyToClipboardUnlessChanged(clipboards, { content, since })).resolves.toBe(true);
-    expect(clipboard.held).toStrictEqual({ "text/plain": "a long selection, read" });
+    await expect(
+      copyToClipboardUnlessChanged(clipboards, pieces, { content, since }),
+    ).resolves.toBe(true);
+    expect(clipboard.held).toStrictEqual({
+      "text/plain": "a long selection, read",
+      "text/html": "<p>a long selection, read</p>",
+    });
 
     const later = await takeClipboardSnapshot(clipboards, {});
     // Another app copies while the selection's text is read; its copy carries formatting too.
     await clipboard.write({ "text/plain": "a long selection, read", "text/html": "<b>theirs</b>" });
-    await expect(copyToClipboardUnlessChanged(clipboards, { content, since: later })).resolves.toBe(
-      false,
-    );
+    await expect(
+      copyToClipboardUnlessChanged(clipboards, pieces, { content, since: later }),
+    ).resolves.toBe(false);
     expect(clipboard.held).toStrictEqual({
       "text/plain": "a long selection, read",
       "text/html": "<b>theirs</b>",

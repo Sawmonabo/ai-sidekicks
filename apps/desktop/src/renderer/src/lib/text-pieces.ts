@@ -37,6 +37,33 @@ export function piecesOf(text: string): string[] {
   return pieces;
 }
 
+/** `text` and its pieces, cut as `piecesOf` cuts them, for a text held whole. */
+export function piecedTextOf(text: string): PiecedText {
+  return { text, pieces: piecesOf(text) };
+}
+
+/**
+ * `texts` joined, in pieces of at most `TEXT_PIECE_LENGTH` code units: a long text cut as
+ * `piecesOf` cuts it, and short ones run together into one piece, so many short texts go in few.
+ */
+export function joinIntoPieces(texts: readonly string[]): PiecedText {
+  const pieces: string[] = [];
+  let piece = "";
+  for (const text of texts) {
+    for (const cut of piecesOf(text)) {
+      if (piece.length + cut.length > TEXT_PIECE_LENGTH) {
+        pieces.push(piece);
+        piece = "";
+      }
+      piece += cut;
+    }
+  }
+  if (piece !== "") {
+    pieces.push(piece);
+  }
+  return { text: joinPieces(pieces), pieces };
+}
+
 /** `pieces` joined, linked rather than copied. */
 export function joinPieces(pieces: readonly string[]): string {
   let text = "";

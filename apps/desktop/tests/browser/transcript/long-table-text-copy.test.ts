@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 
 import { markdownWorker } from "#renderer/components/Markdown/worker/connection.js";
 import { ConversationCopyBuild } from "#renderer/features/transcript/copy/conversation-copy.js";
+import { piecesJoinedOf } from "#renderer/features/transcript/copy/conversation-copy.test-support.js";
 import { COPY_FLAVOR_ATTRIBUTE } from "#renderer/features/transcript/copy/conversation-selection.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
 
@@ -53,7 +54,7 @@ describe("a long table in a selection", () => {
       () => expect.fail("a text copy is whole once its text is"),
     );
 
-    expect(copy).toStrictEqual({
+    expect(piecesJoinedOf(copy)).toStrictEqual({
       text: ["Lane\tRows", ...lanes.map((lane) => `lane-${lane}\t${lane}`)].join("\n"),
     });
   });

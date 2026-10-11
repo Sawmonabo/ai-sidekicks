@@ -10,9 +10,10 @@ import type { PrimarySelection } from "./contract.js";
 export function linuxPrimarySelection(bridge: PlatformBridge): PrimarySelection {
   return {
     isPastedByMiddleClick: true,
-    takeSettledSelection: (readText) =>
+    takeSettledSelection: (readText, view) =>
       copyOnceBuilt(
         bridge,
+        view,
         async (write) => {
           const text = await readText();
           if (text !== undefined) {

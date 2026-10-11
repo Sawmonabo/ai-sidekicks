@@ -64,13 +64,19 @@ export function createPreloadApi(argv: readonly string[]): PreloadApi {
         (await ipcRenderer.invoke(BRIDGE_CHANNELS.takeClipboardSnapshot, {
           clipboard,
         })) as ClipboardSnapshot,
+      sendClipboardPiece: async (piece): Promise<void> => {
+        await ipcRenderer.invoke(BRIDGE_CHANNELS.sendClipboardPiece, piece);
+      },
+      dropClipboardPieces: async (copyId): Promise<void> => {
+        await ipcRenderer.invoke(BRIDGE_CHANNELS.dropClipboardPieces, { copyId });
+      },
       copyToClipboardUnlessChanged: async (content, since): Promise<boolean> =>
         (await ipcRenderer.invoke(BRIDGE_CHANNELS.copyToClipboardUnlessChanged, {
           content,
           since,
         })) as boolean,
-      addClipboardFormatting: async (content): Promise<boolean> =>
-        (await ipcRenderer.invoke(BRIDGE_CHANNELS.addClipboardFormatting, content)) as boolean,
+      addClipboardFormatting: async (copyId): Promise<boolean> =>
+        (await ipcRenderer.invoke(BRIDGE_CHANNELS.addClipboardFormatting, { copyId })) as boolean,
       revealInFileExplorer: async (ref): Promise<void> => {
         await ipcRenderer.invoke(BRIDGE_CHANNELS.revealInFileExplorer, ref);
       },

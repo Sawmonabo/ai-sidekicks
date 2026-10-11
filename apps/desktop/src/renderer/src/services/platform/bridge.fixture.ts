@@ -9,6 +9,7 @@
 // window.
 
 import type { AppFacts } from "#shared/app-facts.js";
+import { ClipboardPieces } from "#shared/clipboard-pieces.js";
 import { DEFAULT_APPEARANCE_RECORD, type AppearanceRecord } from "#shared/appearance.js";
 import { consoleWindowId } from "#shared/window/frame-name.js";
 import type {
@@ -58,6 +59,11 @@ export interface FixtureBridgeOptions {
 export interface FixtureBridge {
   readonly bridge: PlatformBridge;
   readonly scenarioEngine: ScenarioEngine;
+  /**
+   * The pieces of the late copy the bridge holds, as main holds them, which a suite answering a
+   * late write itself reads the copy's content from.
+   */
+  readonly clipboardPieces: ClipboardPieces;
 }
 
 /** Builds the fixture bridge for one scenario, with the engine that plays it. */
@@ -67,6 +73,7 @@ export function createFixtureBridge(options: FixtureBridgeOptions): FixtureBridg
   let keyboardMap: KeyboardMap = {};
   let appearanceRecord: AppearanceRecord = DEFAULT_APPEARANCE_RECORD;
   const appearanceHandlers = new Set<(record: AppearanceRecord) => void>();
+  const clipboardPieces = new ClipboardPieces();
   // A fixture runs no main, so the machine's region and clock never change under it.
   const app: PlatformBridge["app"] = {
     ...FIXTURE_APP_META,
@@ -96,12 +103,23 @@ export function createFixtureBridge(options: FixtureBridgeOptions): FixtureBridg
       // The fixture keeps no clipboard: a snapshot reads it empty, so a later write always lands,
       // as the same write a copy at once makes, read at the call so a spy on it sees the write.
       takeClipboardSnapshot: async () => ({ digest: "" }),
+      sendClipboardPiece: async (piece) => {
+        clipboardPieces.take(piece);
+      },
+      dropClipboardPieces: async (copyId) => {
+        clipboardPieces.drop(copyId);
+      },
       copyToClipboardUnlessChanged: async (content) => {
-        await bridge.native.copyToClipboard(content);
+        await bridge.native.copyToClipboard(
+          "png" in content ? content : clipboardPieces.contentOf(content.copyId),
+        );
         return true;
       },
-      // The fixture keeps no clipboard, so none still holds a copy's text.
-      addClipboardFormatting: async () => false,
+      // The fixture keeps no clipboard, so none still holds a copy's text; the copy is let go.
+      addClipboardFormatting: async (copyId) => {
+        clipboardPieces.drop(copyId);
+        return false;
+      },
       revealInFileExplorer: () => refuseAbsentCapability("native.revealInFileExplorer"),
     },
     update: {
@@ -175,7 +193,7 @@ export function createFixtureBridge(options: FixtureBridgeOptions): FixtureBridg
     pendingClipboardCopies: new PendingClipboardCopies(),
     source: "fixture",
   };
-  return { bridge, scenarioEngine };
+  return { bridge, scenarioEngine, clipboardPieces };
 }
 
 /**
