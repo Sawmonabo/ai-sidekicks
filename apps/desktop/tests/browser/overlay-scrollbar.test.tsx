@@ -48,7 +48,7 @@ import { PayloadRowWindow } from "#renderer/features/workflows/runs/page/step/co
 import type { ArtifactPayloadReading } from "#renderer/store/artifact-payload.js";
 import { routeForDestination } from "#renderer/layout/NavigationRail/destinations.js";
 import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
-import { windowDiagnosticCapture } from "#renderer/lib/diagnostic-capture/capture.js";
+import { collectSentDiagnostics } from "#test/helpers/sent-diagnostics.js";
 import {
   installOverlayScrollbarLibrary,
   waitForOverlayScrollbarLibrary,
@@ -502,10 +502,7 @@ describe("the overlay scrollbar", () => {
     scriptPolicy.content = "script-src 'none'";
     frameDocument.head.append(scriptPolicy);
     installOverlayScrollbarLibrary(frameDocument);
-    const forwardedLines: string[] = [];
-    const detachForwarder = windowDiagnosticCapture.installForwarder((jsonLines) => {
-      forwardedLines.push(...jsonLines.split("\n").filter((line) => line.length > 0));
-    });
+    const diagnostics = await collectSentDiagnostics();
     try {
       const mountPoint = frameDocument.createElement("div");
       frameDocument.body.append(mountPoint);
@@ -533,14 +530,13 @@ describe("the overlay scrollbar", () => {
       expect(
         scrollers.map((scroller) => frame.contentWindow?.getComputedStyle(scroller).scrollbarWidth),
       ).toStrictEqual(["auto", "auto"]);
-      windowDiagnosticCapture.flush();
       expect(
-        forwardedLines
-          .map((line) => JSON.parse(line) as { source: string; kind: string })
-          .filter((record) => record.source === "lib/overlay-scrollbar-library"),
+        (await diagnostics.records()).filter(
+          (record) => record.source === "lib/overlay-scrollbar-library",
+        ),
       ).toStrictEqual([expect.objectContaining({ kind: "overlay-scrollbar-library-unloaded" })]);
     } finally {
-      detachForwarder();
+      diagnostics.stop();
       cleanup();
       frame.remove();
     }

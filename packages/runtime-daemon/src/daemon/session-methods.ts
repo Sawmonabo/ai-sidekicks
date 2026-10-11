@@ -9,6 +9,7 @@
 // both the read windows and the run stamp on each streamed change. The services' background work
 // starts only once the recovery pass has ended.
 
+import { DEFAULT_KEEP_DIAGNOSTIC_LOGS_MS } from "@ai-sidekicks/contracts/daemon/retention";
 import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import type { NodeId } from "@ai-sidekicks/contracts/runtime-node/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
@@ -27,6 +28,10 @@ import {
 import { worktreesDirectoryOf } from "../git/worktree/naming.js";
 import type { WorkingFolderWatcher } from "../git/worktree/watch.js";
 import { registerPtyInputOutputMethods } from "../ipc/handlers/pty/input-output.js";
+import {
+  DIAGNOSTIC_LOG_EXPIRY_INTERVAL_MS,
+  expireDiagnosticLogs,
+} from "../observability/diagnostic-buckets/expiry.js";
 import { registerPtyShellMethods } from "../ipc/handlers/pty/shells.js";
 import { registerSessionConvert } from "../ipc/handlers/session/convert.js";
 import { registerSessionCreate } from "../ipc/handlers/session/create.js";
@@ -97,6 +102,7 @@ import { registerArtifactMethods } from "./artifact-methods.js";
 import type { MachineSettingsFile } from "./machine/settings/file.js";
 import { registerRepoMethods } from "./repo-methods.js";
 import { Scheduler } from "./scheduler.js";
+import type { ServiceLogFiles } from "./service-log.js";
 
 /** What the session services are built from. */
 export interface SessionMethodsDeps {
@@ -156,6 +162,8 @@ export interface SessionMethodsDeps {
   readonly readVolumeFreeBytes: (folderPath: string) => Promise<number>;
   /** Writes one line to the service log. */
   readonly writeServiceLog: (line: string) => void;
+  /** The service log's files, which the diagnostic-log expiry turns by age and expires. */
+  readonly serviceLogFiles: ServiceLogFiles;
   /** The terminal host every session's shells run in. */
   readonly ptyHost: PtyHost;
   /** Hands each of the host's sessions its own output and exit. */
@@ -196,7 +204,8 @@ export interface RegisteredSessionServices {
    * Starts the background work, once the recovery pass has ended: the self-naming, the related
    * lists' rename follow, the index's merging, the passes finishing the creates and removing the
    * conversions' copies the daemon stopped part way, the managed workspaces' write watch, the
-   * repository services' work and the ingest reaper. Does nothing once `stop` has been called.
+   * repository services' work, the ingest reaper and the diagnostic-log expiry. Does nothing once
+   * `stop` has been called.
    */
   readonly start: () => Promise<void>;
   /**
@@ -534,7 +543,20 @@ export function registerSessionMethods(
       const removingStoppedCopies = conversion.removeStoppedCopies();
       repo.start();
       artifacts.start();
+      const diagnosticLogExpiry = scheduler.scheduleRepeating({
+        name: "diagnostic-log expiry",
+        intervalMs: DIAGNOSTIC_LOG_EXPIRY_INTERVAL_MS,
+        run: () =>
+          expireDiagnosticLogs({
+            serviceLog: deps.serviceLogFiles,
+            // The service holds no `Keep diagnostic logs for` setting yet, so its default is the bound.
+            keepMs: DEFAULT_KEEP_DIAGNOSTIC_LOGS_MS,
+            now: Date.now,
+            writeServiceLog: deps.writeServiceLog,
+          }),
+      });
       stopBackgroundWork = async () => {
+        diagnosticLogExpiry.cancel();
         const mergeStopped = indexMerging.stop();
         const titlesStopped = stopAutoTitle();
         writeWatcher.close();

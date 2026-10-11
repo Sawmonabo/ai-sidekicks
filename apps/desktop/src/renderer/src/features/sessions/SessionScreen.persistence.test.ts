@@ -5,7 +5,7 @@
 import { fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { windowDiagnosticCapture } from "#renderer/lib/diagnostic-capture/capture.js";
+import { collectSentDiagnostics, type SentDiagnostics } from "#test/helpers/sent-diagnostics.js";
 import { UiStateStore } from "#renderer/store/persistence/ui-state-store.js";
 import { PANE_LAYOUT_RECORD_KEY } from "./pane-layout/persistence.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
@@ -28,20 +28,16 @@ function panesInRecord(value: unknown): number {
 }
 
 describe("SessionScreen — the saved arrangement", () => {
-  let detachForwarder: (() => void) | undefined;
+  let diagnostics: SentDiagnostics | undefined;
 
   afterEach(() => {
-    detachForwarder?.();
-    detachForwarder = undefined;
+    diagnostics?.stop();
+    diagnostics = undefined;
   });
 
   it("records what a restore refused in the diagnostics and draws none of it", async () => {
-    windowDiagnosticCapture.flush();
-    const batches: string[] = [];
-    detachForwarder = windowDiagnosticCapture.installForwarder((jsonLines) => {
-      batches.push(jsonLines);
-    });
-    batches.length = 0;
+    const sent = await collectSentDiagnostics();
+    diagnostics = sent;
     const store = memoryStore();
     await store.write(SESSION_ID, PANE_LAYOUT_RECORD_KEY, "layout", {
       $paneLayout: { version: 99, density: "standard" },
@@ -53,10 +49,7 @@ describe("SessionScreen — the saved arrangement", () => {
     await waitFor(() => {
       expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(1);
     });
-    windowDiagnosticCapture.flush();
-    const restoreRecords = batches
-      .flatMap((batch) => batch.split("\n"))
-      .map((line) => JSON.parse(line) as { kind: string; detail: string })
+    const restoreRecords = (await sent.records())
       .filter((record) => record.kind === "pane-layout-not-restored")
       .map((record) => record.detail);
     expect(restoreRecords).toStrictEqual([`session ${SESSION_ID}: snapshot-version-unknown`]);

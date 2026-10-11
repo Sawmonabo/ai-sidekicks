@@ -26,6 +26,7 @@ import { useLazyBodyIdleWarm } from "./hooks/useLazyBodyIdleWarm.js";
 import { useSessionStoreRegistry } from "./hooks/useSessionStoreRegistry.js";
 import { useLastSettingsPage } from "./hooks/useLastSettingsPage.js";
 import { useUiStateStore } from "./hooks/useUiStateStore.js";
+import { useWindowDiagnostics } from "./hooks/useWindowDiagnostics.js";
 import { useWindowStores } from "./hooks/useWindowStores.js";
 import { AppWindow, type AppStores } from "./AppWindow.js";
 import { discloseUnkeptMenuSchemes } from "./unkept-scheme.js";
@@ -49,6 +50,7 @@ export interface AppWindowsProps {
 export function AppWindows(props: AppWindowsProps): React.JSX.Element {
   const { bridge, openWindows } = props;
   const consoleDocument = document;
+  useWindowDiagnostics(bridge, openWindows);
 
   // Opening the database connection returns at once, so first paint waits on no storage.
   const uiStateStore = useUiStateStore();

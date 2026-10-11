@@ -93,6 +93,7 @@ async function startLinkHandler(commandLine: readonly string[] = []) {
       subscribe: () => () => undefined,
     },
     log,
+    appDiagnosticRelay: { reportRendererGone: vi.fn() },
     operatingSystem: MAC_MAIN_OPERATING_SYSTEM,
   });
   openWindows.installLifecycle(app as never);

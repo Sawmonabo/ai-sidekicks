@@ -1,16 +1,17 @@
-// The `app` members as the preload carries them: the facts main started the window with, and the
-// machine's region and clock as main pushes each change. The newest clock is held here, so a page
-// that subscribes late, or a push that came before it subscribed, still reads the current one.
+// The `app` members as the preload carries them: the facts main started the window with, the
+// machine's region and clock as main pushes each change, and what a window records about itself
+// handed to main. The newest clock is held here, so a page that subscribes late, or a push that
+// came before it subscribed, still reads the current one.
 
 import { readAppFactsSwitches, type MachineClock } from "#shared/app-facts.js";
-import { MACHINE_CLOCK_CHANNEL } from "#shared/bridge-channels.js";
+import { BRIDGE_CHANNELS, MACHINE_CLOCK_CHANNEL } from "#shared/bridge-channels.js";
 import type { PreloadApi } from "#shared/preload-api.js";
 import { MainPushes } from "./main-pushes.js";
 import type { PreloadIpc } from "./ipc.js";
 
 /** The `app` member the preload exposes, over `ipc`, from the switches in `argv`. */
 export function createAppBridge(
-  ipc: Pick<PreloadIpc, "on">,
+  ipc: Pick<PreloadIpc, "invoke" | "on">,
   argv: readonly string[],
 ): PreloadApi["app"] {
   const facts = readAppFactsSwitches(argv);
@@ -21,6 +22,9 @@ export function createAppBridge(
   return {
     ...facts,
     subscribeMachineClock: (handler) => machineClock.subscribe(handler),
+    reportWindowDiagnostics: async (reports): Promise<void> => {
+      await ipc.invoke(BRIDGE_CHANNELS.reportWindowDiagnostics, reports);
+    },
   };
 }
 

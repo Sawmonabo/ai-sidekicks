@@ -6,7 +6,7 @@
 
 import { fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { windowDiagnosticCapture } from "#renderer/lib/diagnostic-capture/capture.js";
+import { collectSentDiagnostics, type SentDiagnostics } from "#test/helpers/sent-diagnostics.js";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { PersistenceAdapterError } from "#renderer/store/persistence/adapter.js";
@@ -104,29 +104,21 @@ function renderRoutableSession(store: UiStateStore): {
 
 const BANNER_TEXT = "Pane layout not saved·it will save again on the next change";
 
-let detachForwarder: (() => void) | undefined;
+let diagnostics: SentDiagnostics | undefined;
 
 afterEach(() => {
-  detachForwarder?.();
-  detachForwarder = undefined;
+  diagnostics?.stop();
+  diagnostics = undefined;
 });
 
 /** The details of the capture's records about pane layout saves, from here on. */
-function captureSaveFailures(): () => readonly string[] {
-  windowDiagnosticCapture.flush();
-  const batches: string[] = [];
-  detachForwarder = windowDiagnosticCapture.installForwarder((jsonLines) => {
-    batches.push(jsonLines);
-  });
-  batches.length = 0;
-  return () => {
-    windowDiagnosticCapture.flush();
-    return batches
-      .flatMap((batch) => batch.split("\n"))
-      .map((line) => JSON.parse(line) as { kind: string; detail: string })
+async function captureSaveFailures(): Promise<() => Promise<readonly string[]>> {
+  const sent = await collectSentDiagnostics();
+  diagnostics = sent;
+  return async () =>
+    (await sent.records())
       .filter((record) => record.kind === "pane-layout-not-saved")
       .map((record) => record.detail);
-  };
 }
 
 function bannerRows(container: HTMLElement): readonly HTMLElement[] {
@@ -140,7 +132,7 @@ describe("SessionScreen — the pane layout's save failure", () => {
       workspaceFor({ sessionId: SESSION_ID, store: sessionStore() }, store),
     );
     await awaitRestoredPaneLayout(container);
-    const readSaveFailures = captureSaveFailures();
+    const readSaveFailures = await captureSaveFailures();
 
     adapter.mode = "throw";
     await commitArrangement(container);
@@ -155,7 +147,7 @@ describe("SessionScreen — the pane layout's save failure", () => {
     expect(rows[0]?.previousElementSibling?.className).toContain("meridian-session-header");
     // Each failure's own code, and an error of no kind the store knows as the store's refusal
     // for a database it cannot use, not a rejection the screen never hears.
-    expect(readSaveFailures()).toStrictEqual([
+    expect(await readSaveFailures()).toStrictEqual([
       `session ${SESSION_ID}: adapter-unavailable`,
       `session ${SESSION_ID}: quota-exceeded`,
       `session ${SESSION_ID}: adapter-unavailable`,

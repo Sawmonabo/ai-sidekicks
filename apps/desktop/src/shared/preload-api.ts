@@ -46,6 +46,7 @@ import type {
   DaemonStatusTopic,
   MainProcessState,
 } from "./daemon/status-topic.js";
+import type { WindowDiagnosticReport } from "./app-diagnostic/report.js";
 import type { WindowDefaultSizes, WindowSize } from "./window/size.js";
 
 /** Handle returned by every subscription. Idempotent: a second call does nothing. */
@@ -510,6 +511,12 @@ export interface PreloadApi {
      * this window holds, so a setting changed while the app runs redraws every clock figure.
      */
     subscribeMachineClock(handler: (clock: MachineClock) => void): Unsubscribe;
+    /**
+     * Hands main a batch of what a window recorded about itself, an error nothing handled or a
+     * line its diagnostic capture took, for the background service's diagnostic log; settles once
+     * main has taken it, whether or not the service is reachable.
+     */
+    reportWindowDiagnostics(reports: readonly WindowDiagnosticReport[]): Promise<void>;
   };
 }
 
@@ -579,6 +586,10 @@ export function createStubBridge(app: AppFacts, lastUsedWindowId: string): Prelo
       subscribeToUnkeptScheme: () => stubThrow("window.subscribeToUnkeptScheme"),
       subscribeToNavigationRequest: () => stubThrow("window.subscribeToNavigationRequest"),
     },
-    app: { ...app, subscribeMachineClock: () => () => undefined },
+    app: {
+      ...app,
+      subscribeMachineClock: () => () => undefined,
+      reportWindowDiagnostics: () => stubThrow("app.reportWindowDiagnostics"),
+    },
   };
 }

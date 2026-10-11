@@ -17,8 +17,8 @@ export type WorkflowStripState =
   | { readonly kind: "ready" };
 
 /**
- * The state of a body the daemon refused. Takes the refusal whole, `origin` included, which
- * stays off the screen and feeds the diagnostic band.
+ * The state of a body the daemon refused. Takes the refusal whole, `origin` included, though
+ * only its words are drawn.
  */
 export function refusedWorkflowStrip(refusal: ExtendedRefusal): WorkflowStripState {
   return { kind: "refused", refusal };

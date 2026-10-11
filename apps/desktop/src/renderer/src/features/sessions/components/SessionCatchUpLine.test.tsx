@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { ManualClock } from "#renderer/lib/clock.js";
 import { REFRESH_DEBOUNCE_MS } from "#renderer/lib/reads/refresh/caps.js";
-import { windowDiagnosticCapture } from "#renderer/lib/diagnostic-capture/capture.js";
+import { collectSentDiagnostics, type SentDiagnostics } from "#test/helpers/sent-diagnostics.js";
 import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.js";
 import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
 import { OpenSessionEntry } from "#renderer/store/session/open/entry.js";
@@ -27,11 +27,11 @@ import { openingPageLimit, offScreenRowLimit } from "#test/helpers/session/store
 
 const SESSION_ID = "session-catching-up";
 
-let detachForwarder: (() => void) | undefined;
+let diagnostics: SentDiagnostics | undefined;
 
 afterEach(() => {
-  detachForwarder?.();
-  detachForwarder = undefined;
+  diagnostics?.stop();
+  diagnostics = undefined;
 });
 
 function renderLine(
@@ -313,10 +313,8 @@ describe("SessionCatchUpLine", () => {
       applyCoalesceMs: 0,
       refreshDebounceMs: 20,
     });
-    const batches: string[] = [];
-    detachForwarder = windowDiagnosticCapture.installForwarder((jsonLines) => {
-      batches.push(jsonLines);
-    });
+    const sent = await collectSentDiagnostics();
+    diagnostics = sent;
     const container = renderLine(entry.store, clock);
 
     await act(async () => {
@@ -327,13 +325,9 @@ describe("SessionCatchUpLine", () => {
       }
     });
     advance(clock, CATCH_UP_LINE_DWELL_MS);
-    windowDiagnosticCapture.flush();
     entry.dispose();
 
-    const records = batches
-      .flatMap((batch) => batch.split("\n"))
-      .map((line) => JSON.parse(line) as { severity: string; detail: string })
-      .filter((record) => record.detail.includes(SESSION_ID));
+    const records = (await sent.records()).filter((record) => record.detail.includes(SESSION_ID));
     expect(records).toStrictEqual([
       expect.objectContaining({
         severity: "warning",

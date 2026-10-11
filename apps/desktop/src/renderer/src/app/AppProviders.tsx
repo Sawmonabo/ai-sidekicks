@@ -5,13 +5,15 @@
 // fact: a screen resolves the registry during render, and an effect would run after first paint.
 // The registries are named here so a test or another window composes into registries of its own.
 // The tripwire route is armed first because a registrar can report during composition (a second
-// owner on one name, a colliding projector claim).
+// owner on one name, a colliding projector claim), and the console document's unhandled errors are
+// recorded from then on, before any bridge resolves.
 
 import { useState } from "react";
 
 import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
 import type { BridgeComposition } from "#renderer/services/platform/bridge-context.js";
 import { RealClock } from "#renderer/lib/clock.js";
+import { windowDiagnosticCapture } from "#renderer/lib/diagnostic-capture/capture.js";
 import { routeWindowTripwiresToDiagnosticCapture } from "#renderer/lib/diagnostic-capture/tripwire-route.js";
 import { ForwardingClock } from "#renderer/lib/forwarding-clock.js";
 import { OpenWindowFrames } from "#renderer/lib/open-window-frames.js";
@@ -36,6 +38,8 @@ const tripwireRouteClock = new ForwardingClock(new RealClock());
 
 // The route lives as long as the renderer process, so its detach is dropped.
 routeWindowTripwiresToDiagnosticCapture(tripwireRouteClock);
+
+windowDiagnosticCapture.listenTo(window, "console-document");
 
 registerFeatureContributions({
   commands: commandContributionRegistry,

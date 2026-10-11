@@ -149,6 +149,11 @@ export async function startDaemon(
     readVolumeFreeBytes,
     now: () => new Date(STARTED_AT),
     writeServiceLog: () => {},
+    // Never written, so the expiry finds no folder of logs to read.
+    serviceLogFiles: {
+      liveFile: () => path.join(place.homeDirectory ?? homeDirectory, "logs", "service.log"),
+      rotateByAge: () => {},
+    },
     stopSignal: new AbortController().signal,
   };
   const daemon = await start(options);

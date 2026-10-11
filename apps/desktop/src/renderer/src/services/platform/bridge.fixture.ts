@@ -70,6 +70,8 @@ export function createFixtureBridge(options: FixtureBridgeOptions): FixtureBridg
   const app: PlatformBridge["app"] = {
     ...FIXTURE_APP_META,
     subscribeMachineClock: (): Unsubscribe => () => undefined,
+    // A fixture run has no service log, so its windows' diagnostics end here.
+    reportWindowDiagnostics: () => Promise.resolve(),
   };
   const bridge: PlatformBridge = {
     daemon: createFixtureDaemon(scenarioEngine),

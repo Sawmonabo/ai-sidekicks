@@ -9,6 +9,13 @@ import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 
 const DaysSchema = z.number().int().positive();
 
+// `Keep diagnostic logs for` as the app starts out: seven days.
+const DEFAULT_KEEP_DIAGNOSTIC_LOGS_DAYS = 7;
+
+/** `Keep diagnostic logs for` as the app starts out, seven days, in milliseconds. */
+export const DEFAULT_KEEP_DIAGNOSTIC_LOGS_MS: number =
+  DEFAULT_KEEP_DIAGNOSTIC_LOGS_DAYS * 24 * 60 * 60 * 1000;
+
 /** The two bounds, each in whole days. */
 export interface DaemonRetentionBounds {
   /**
