@@ -88,9 +88,9 @@ describe("ShellControlLease", () => {
       terminalId: TERMINAL_ID,
       outputSubscriptionId: paneOn(LAPTOP, 1).outputSubscriptionId,
     };
-    await expect(
-      registry.dispatch("session.takeControl", request, { deviceId: LAPTOP }),
-    ).rejects.toThrow("session.takeControl needs the calling connection");
+    await expect(registry.dispatch("session.takeControl", request, {})).rejects.toThrow(
+      "session.takeControl needs the calling device and its connection",
+    );
     expect(changes).toHaveLength(1);
   });
 
