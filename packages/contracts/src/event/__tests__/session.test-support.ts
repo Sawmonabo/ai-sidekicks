@@ -6,6 +6,7 @@ import { DAEMON_SCOPE_SENTINEL_SESSION_ID, type EventCategory } from "../envelop
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
 const USER_ID = "660e8400-e29b-41d4-a716-446655440001";
 const RUN_ID = "990e8400-e29b-41d4-a716-446655440004";
+const QUEUE_ITEM_ID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f31";
 
 /** A session event as it crosses the wire, before a parse brands its ids. */
 export interface WireSessionEvent {
@@ -200,7 +201,7 @@ const INTERVENTION = {
   sessionId: SESSION_ID,
   interventionId: "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f27",
   targetRunId: RUN_ID,
-  type: "steer",
+  type: "interrupt",
   actor: "daemon",
 };
 
@@ -275,6 +276,30 @@ export const SESSION_EVENT_PAYLOAD_SAMPLES: ReadonlyMap<
       sessionId: SESSION_ID,
       actor: "660e8400-e29b-41d4-a716-446655440001",
       message: "Run the tests again.",
+    },
+  ],
+  ["queue_item.created", { sessionId: SESSION_ID, queueItemId: QUEUE_ITEM_ID, state: "queued" }],
+  [
+    "queue_item.admitted",
+    { sessionId: SESSION_ID, queueItemId: QUEUE_ITEM_ID, state: "admitted", runId: RUN_ID },
+  ],
+  [
+    "queue_item.superseded",
+    {
+      sessionId: SESSION_ID,
+      queueItemId: QUEUE_ITEM_ID,
+      state: "superseded",
+      replacedByQueueItemId: "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f30",
+    },
+  ],
+  ["queue_item.canceled", { sessionId: SESSION_ID, queueItemId: QUEUE_ITEM_ID, state: "canceled" }],
+  [
+    "queue_item.not_delivered",
+    {
+      sessionId: SESSION_ID,
+      queueItemId: QUEUE_ITEM_ID,
+      state: "not_delivered",
+      notDeliveredReason: "timed_out",
     },
   ],
   [

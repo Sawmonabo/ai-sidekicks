@@ -2,7 +2,7 @@
 // what the wire supplies. The order is rendered, never reordered
 // (`features/transcript/queue/order.ts` keeps it), and all five states render as rows because queue
 // rows are durable and never deleted; cancel is offered only on the state that can still be taken
-// back.
+// back, and retry only on the state whose delivery failed.
 
 import { DerivedFigure } from "#renderer/components/DerivedFigure/DerivedFigure.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
@@ -77,6 +77,8 @@ export function QueueContents(props: QueueContentsProps): React.JSX.Element {
             item={item}
             isCancelPending={feed.pendingCancelIds.has(item.id)}
             onCancel={feed.cancelItem}
+            isRetryPending={feed.pendingRetryIds.has(item.id)}
+            onRetry={feed.retryItem}
             nowMilliseconds={nowMilliseconds}
           />
         ))}

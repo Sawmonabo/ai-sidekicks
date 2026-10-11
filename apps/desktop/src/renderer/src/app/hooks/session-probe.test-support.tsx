@@ -33,7 +33,8 @@ export interface SessionProbeProps {
  * A read at the start of the log, standing in for the daemon's: the stream then opens with no
  * position and delivers every beat the scenario plays.
  */
-const readSessionAtLogStart: SessionBaseStateReader = () => Promise.resolve({ entities: [] });
+const readSessionAtLogStart: SessionBaseStateReader = () =>
+  Promise.resolve({ shape: "project", entities: [] });
 
 /** A component that does exactly what the frame does, and reports what it saw. */
 export function SessionProbe(props: SessionProbeProps): null {

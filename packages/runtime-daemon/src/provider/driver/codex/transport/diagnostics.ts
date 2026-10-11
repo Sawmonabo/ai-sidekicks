@@ -193,6 +193,8 @@ export type CodexTransportDiagnostic =
   | { kind: "oversized-turn-cut-failed"; sessionId: string; detail: string }
   /** The run of a turn Codex started by itself could not open; the turn's frames go unheld. */
   | { kind: "provider-turn-run-failed"; sessionId: string; detail: string }
+  /** The interrupt of a turn Codex started whose run could not open failed; the turn runs on. */
+  | { kind: "provider-turn-interrupt-failed"; sessionId: string; detail: string }
   /**
    * The frames held while a turn Codex started opens its run went on before the run opened: the
    * hold filled or outlived its deadline.

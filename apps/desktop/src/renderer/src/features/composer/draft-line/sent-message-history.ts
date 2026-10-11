@@ -1,7 +1,7 @@
 // The sent-message history: ArrowUp and ArrowDown at the line's edge offsets recall this
 // window's sent messages without destroying an unsent draft.
 
-import { COMPOSER_HISTORY_RECALL_CAP, COMPOSER_RETAINED_ADDRESS_CAP } from "../bounds.js";
+import { COMPOSER_HISTORY_RECALL_CAP, COMPOSER_RETAINED_SESSION_CAP } from "../bounds.js";
 
 /**
  * This user's sent messages, walkable and draft-guarded: the text typed before a walk is
@@ -67,41 +67,41 @@ export class SentMessageHistory {
 }
 
 /**
- * One recall history per composer address, so a walk never crosses a rebinding (the composer
- * is rebound, not remounted, between agents and sessions). A map rather than a reset keeps an
- * address's history when the person returns; retained addresses are capped and the least
- * recently addressed is evicted. Becoming current resets the walk, not the history.
+ * One recall history per session's draft key, so a walk never crosses a switch of session (the
+ * composer is rebound, not remounted, between sessions). A map rather than a reset keeps a
+ * session's history when the person returns; retained sessions are capped and the least recently
+ * used is evicted. Becoming current resets the walk, not the history.
  */
 export class SentMessageHistories {
   /** Insertion order is the recency order the eviction reads. */
-  readonly #byAddress = new Map<string, SentMessageHistory>();
-  #currentAddress: string | undefined = undefined;
+  readonly #byDraftKey = new Map<string, SentMessageHistory>();
+  #currentDraftKey: string | undefined = undefined;
 
-  /** The history for this address, made current. Idempotent for the current address. */
-  public forAddress(address: string): SentMessageHistory {
-    const existing = this.#byAddress.get(address);
+  /** The history for this draft key, made current. Idempotent for the current draft key. */
+  public forDraftKey(draftKey: string): SentMessageHistory {
+    const existing = this.#byDraftKey.get(draftKey);
     const history = existing ?? new SentMessageHistory();
     if (existing !== undefined) {
       // Re-inserted so the map's iteration order is the recency order eviction reads.
-      this.#byAddress.delete(address);
+      this.#byDraftKey.delete(draftKey);
     }
-    this.#byAddress.set(address, history);
-    if (this.#currentAddress !== address) {
-      this.#currentAddress = address;
+    this.#byDraftKey.set(draftKey, history);
+    if (this.#currentDraftKey !== draftKey) {
+      this.#currentDraftKey = draftKey;
       history.reset();
     }
     this.#evictBeyondCap();
     return history;
   }
 
-  /** Drop the least recently addressed histories past the retained-address cap. */
+  /** Drop the least recently used histories past the retained-session cap. */
   #evictBeyondCap(): void {
-    while (this.#byAddress.size > COMPOSER_RETAINED_ADDRESS_CAP) {
-      const leastRecent = this.#byAddress.keys().next();
+    while (this.#byDraftKey.size > COMPOSER_RETAINED_SESSION_CAP) {
+      const leastRecent = this.#byDraftKey.keys().next();
       if (leastRecent.done === true) {
         return;
       }
-      this.#byAddress.delete(leastRecent.value);
+      this.#byDraftKey.delete(leastRecent.value);
     }
   }
 }

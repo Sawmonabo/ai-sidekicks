@@ -36,9 +36,9 @@ import { MethodRegistryImpl } from "../../../registry.js";
 import { StreamingPrimitive } from "../../../streaming-primitive.js";
 
 import type { SessionEventListener } from "../../../../events/session/followers.js";
+import { STREAM_WINDOW_MS } from "../../../stream-frame-batcher.js";
 import {
   registerSessionSubscribe,
-  SESSION_STREAM_WINDOW_MS,
   type OutboundQueue,
   type SessionSubscribeDeps,
 } from "../subscribe.js";
@@ -257,7 +257,7 @@ describe("session.subscribe batches a session's changes into frames", () => {
       stream.onChange(changeAt(1));
       vi.advanceTimersByTime(5);
       stream.onChange(changeAt(2));
-      vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS - 6);
+      vi.advanceTimersByTime(STREAM_WINDOW_MS - 6);
       expect(stream.send).not.toHaveBeenCalled();
 
       vi.advanceTimersByTime(1);
@@ -280,7 +280,7 @@ describe("session.subscribe batches a session's changes into frames", () => {
     expect(sentFrames(stream.send)).toStrictEqual([
       { changes: changes.slice(0, STREAM_FRAME_MAX_CHANGES) },
     ]);
-    vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS);
+    vi.advanceTimersByTime(STREAM_WINDOW_MS);
     expect(sentFrames(stream.send)).toStrictEqual([
       { changes: changes.slice(0, STREAM_FRAME_MAX_CHANGES) },
       { changes: changes.slice(STREAM_FRAME_MAX_CHANGES) },
@@ -317,7 +317,7 @@ describe("session.subscribe batches a session's changes into frames", () => {
     );
     written.push("ack");
     await crossAckBarrier();
-    vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS);
+    vi.advanceTimersByTime(STREAM_WINDOW_MS);
 
     const cursors = (from: number, to: number): string =>
       catchUp
@@ -346,20 +346,20 @@ describe("session.subscribe never waits for a connection that falls behind", () 
 
       outbound.fill();
       stream.onChange(changeAt(1));
-      vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS);
+      vi.advanceTimersByTime(STREAM_WINDOW_MS);
       expect(stream.send).not.toHaveBeenCalled();
       stream.onChange(changeAt(2));
       outbound.drain();
       stream.onChange(changeAt(3));
-      vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS);
+      vi.advanceTimersByTime(STREAM_WINDOW_MS);
 
       // A second slow stretch raises its own mark rather than leaning on the first.
       outbound.fill();
       stream.onChange(changeAt(4));
-      vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS);
+      vi.advanceTimersByTime(STREAM_WINDOW_MS);
       stream.onChange(changeAt(5));
       outbound.drain();
-      vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS);
+      vi.advanceTimersByTime(STREAM_WINDOW_MS);
 
       expect(sentFrames(stream.send)).toStrictEqual([
         { changes: [changeAt(2)], dropped: true },
@@ -385,7 +385,7 @@ describe("session.subscribe never waits for a connection that falls behind", () 
       changes.slice(STREAM_FRAME_MAX_CHANGES + 5),
     ]) {
       for (const change of burst) stream.onChange(change);
-      vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS);
+      vi.advanceTimersByTime(STREAM_WINDOW_MS);
       expect(stream.send).not.toHaveBeenCalled();
       // One wait for room, however many frames were dropped.
       expect(outbound.drainListenerCount()).toBe(1);
@@ -408,17 +408,17 @@ describe("session.subscribe never waits for a connection that falls behind", () 
       const current = await behind.subscribeAgain();
 
       current.onChange(changeAt(0));
-      vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS);
+      vi.advanceTimersByTime(STREAM_WINDOW_MS);
       outbound.fill();
       behind.onChange(changeAt(1));
       behind.onChange(changeAt(2));
-      vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS);
+      vi.advanceTimersByTime(STREAM_WINDOW_MS);
       expect(sentFrames(behind.send, behind.subscriptionId)).toStrictEqual([]);
 
       outbound.drain();
       outbound.fill();
       outbound.drain();
-      vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS);
+      vi.advanceTimersByTime(STREAM_WINDOW_MS);
 
       expect(sentFrames(behind.send, behind.subscriptionId)).toStrictEqual([
         { changes: [], dropped: true, cursor: changeAt(2).cursor },
@@ -436,7 +436,7 @@ describe("session.subscribe never waits for a connection that falls behind", () 
 
     outbound.fill();
     stream.onChange(changeAt(1));
-    vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS);
+    vi.advanceTimersByTime(STREAM_WINDOW_MS);
     expect(outbound.drainListenerCount()).toBe(1);
 
     stream.primitive.cleanupTransport(7);
@@ -458,7 +458,7 @@ describe("session.subscribe catches up at the connection's pace and drops nothin
     outbound.fill();
     stream.onChange(changeAt(1));
     stream.onChange(changeAt(2));
-    vi.advanceTimersByTime(SESSION_STREAM_WINDOW_MS);
+    vi.advanceTimersByTime(STREAM_WINDOW_MS);
     expect(stream.send).not.toHaveBeenCalled();
     expect(outbound.drainListenerCount()).toBe(1);
 
@@ -523,7 +523,7 @@ describe("session.subscribe catches up at the connection's pace and drops nothin
         for (const listener of woken) listener();
         quietTurns = woken.length === 0 ? quietTurns + 1 : 0;
       }
-      await new Promise<void>((resolve) => setTimeout(resolve, 3 * SESSION_STREAM_WINDOW_MS));
+      await new Promise<void>((resolve) => setTimeout(resolve, 3 * STREAM_WINDOW_MS));
 
       const frames = sentFrames(send);
       expect(frames.filter((frame) => frame.dropped === true)).toStrictEqual([]);
@@ -557,7 +557,7 @@ describe("session.subscribe carries an event the wire has no payload variant for
 
   /** Lets the open batch window close and its frame go out. */
   async function closeWindow(): Promise<void> {
-    await new Promise<void>((resolve) => setTimeout(resolve, 3 * SESSION_STREAM_WINDOW_MS));
+    await new Promise<void>((resolve) => setTimeout(resolve, 3 * STREAM_WINDOW_MS));
   }
 
   // An event of a type with no payload variant yet, which the log stores as it stores any.

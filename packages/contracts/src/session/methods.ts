@@ -132,6 +132,8 @@ export interface SessionLiveRun {
   runId: RunId;
   /** The run that started it; absent on a lead run. */
   parentRunId?: RunId | undefined;
+  /** Present on a run whose turn runs in a process of its own, which is never the lead run. */
+  isApart?: true | undefined;
   state: RunState;
   runVersion: number;
   /** The agent the run was created for, as its `run.queued` names it. */
@@ -144,6 +146,7 @@ export const SessionLiveRunSchema: z.ZodType<SessionLiveRun> = z
   .object({
     runId: RunIdSchema,
     parentRunId: RunIdSchema.optional(),
+    isApart: z.literal(true).optional(),
     state: RunStateSchema,
     runVersion: countSchema,
     agentId: AgentIdSchema,

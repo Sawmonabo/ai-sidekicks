@@ -9,7 +9,12 @@ import { z } from "zod";
 
 import { brandedUuidIdSchema } from "../internal/branded.js";
 import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
-import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "../jsonrpc/streaming.js";
+import {
+  StreamFrameSchema,
+  SubscribeAckResponseSchema,
+  type StreamFrame,
+  type SubscribeAckResponse,
+} from "../jsonrpc/streaming.js";
 import {
   defineMethodDescriptors,
   type MethodDescriptor,
@@ -23,7 +28,6 @@ import {
   type InterventionType,
 } from "../provider/driver/intervention.js";
 import { DRIVER_FAILURE_DETAIL_MAX_LEN } from "../provider/driver/length-limits.js";
-import { ArtifactIdSchema, type ArtifactId } from "../artifacts/id.js";
 import { RunIdSchema, type RunId } from "./id.js";
 import { RunFailureCauseSchema, type RunFailureCause } from "./failure-cause.js";
 import {
@@ -57,8 +61,8 @@ import {
   QueueItemIdSchema,
   QueueItemListRequestSchema,
   QueueItemListResponseSchema,
-  QueueItemSummarySchema,
   QueueReorderRequestSchema,
+  RunQueueStreamFrameSchema,
   RunQueueSubscribeRequestSchema,
   type QueueItemCancelRequest,
   type QueueItemCancelResponse,
@@ -67,8 +71,8 @@ import {
   type QueueItemId,
   type QueueItemListRequest,
   type QueueItemListResponse,
-  type QueueItemSummary,
   type QueueReorderRequest,
+  type RunQueueStreamFrame,
   type RunQueueSubscribeRequest,
 } from "./queue.js";
 import {
@@ -83,12 +87,9 @@ import {
   type RunSafetyBufferingUpdatedPayload,
 } from "../session/controls/events.js";
 import { PermissionLevelSchema } from "../session/controls/methods.js";
-import {
-  FILE_PATH_MAX_LEN,
-  wireFreeFormString,
-  wireUncappedFreeFormString,
-} from "../free-form-string.js";
-import { SessionIdSchema, type SessionId } from "../session/id.js";
+import { FILE_PATH_MAX_LEN, wireFreeFormString } from "../free-form-string.js";
+import type { EventCursor } from "../session/event-cursor.js";
+import { EventCursorSchema, SessionIdSchema, type SessionId } from "../session/id.js";
 import { InterruptReasonSchema, type InterruptReason } from "../orchestration.js";
 
 /** Identifies one intervention on a run. */
@@ -148,21 +149,12 @@ const filesystemPathSchema: z.ZodString = z
 // outcome.
 
 /**
- * A caller's request to steer, interrupt or retry a run, one arm per intervention type.
- * An interrupt's `pending` sends the waiting messages as the next turn or returns them to the
- * draft, and `deliverFirst` names the message `Send now` puts ahead of the rest.
+ * A caller's request to interrupt or retry a run; a person's steer is a `run.queueCreate`, never
+ * an intervention. An interrupt's `pending` sends the waiting messages as the next turn or returns
+ * them to the draft, and `deliverFirst` names the message `Send now` puts ahead of the rest.
  * `faster_model_retry` resends a turn Codex holds for a safety check on `model`.
  */
 export type InterventionRequestPayload =
-  | {
-      type: "steer";
-      targetRunId: RunId;
-      expectedRunVersion: number;
-      clientIdempotencyKey: string;
-      content: string;
-      attachments?: ArtifactId[] | undefined;
-      expectedTurnId?: string | undefined;
-    }
   | {
       type: "interrupt";
       targetRunId: RunId;
@@ -187,20 +179,6 @@ export const InterventionRequestPayloadSchema: z.ZodType<
   InterventionRequestPayload
 > = z
   .discriminatedUnion("type", [
-    z
-      .object({
-        type: z.literal("steer"),
-        targetRunId: RunIdSchema,
-        expectedRunVersion: countSchema,
-        clientIdempotencyKey: z.uuid(),
-        content: wireUncappedFreeFormString("InterventionRequestPayload.content"),
-        attachments: z.array(ArtifactIdSchema).optional(),
-        expectedTurnId: wireFreeFormString(
-          DRIVER_WIRE_HANDLE_MAX_LEN,
-          "InterventionRequestPayload.expectedTurnId",
-        ).optional(),
-      })
-      .strict(),
     z
       .object({
         type: z.literal("interrupt"),
@@ -244,8 +222,7 @@ export const InterventionRequestPayloadSchema: z.ZodType<
 export interface InterventionResponseBase {
   interventionId: InterventionId;
   interventionType: InterventionType;
-  // The run version after the intervention, for the caller's next `expectedRunVersion`. An
-  // applied steer advances it with no state change, so this is the only place to read it.
+  // The run version after the intervention, for the caller's next `expectedRunVersion`.
   runVersion: number;
 }
 
@@ -460,6 +437,23 @@ const RunStateStreamEventSchema: z.ZodType<RunStateStreamEvent> = z.union([
   RunSafetyBufferingUpdatedPayloadSchema,
 ]);
 
+/**
+ * One change on `run.subscribeState`: the delivery and the cursor of the event it came from, or,
+ * for Codex's safety hold, which the session's history never records, the session's newest cursor
+ * when it went out.
+ */
+export interface RunStateStreamChange {
+  readonly cursor: EventCursor;
+  readonly event: RunStateStreamEvent;
+}
+
+/** One notify of `run.subscribeState`: a batch of changes, or the caught-up frame after a drop. */
+export type RunStateStreamFrame = StreamFrame<RunStateStreamChange, EventCursor>;
+const RunStateStreamFrameSchema: z.ZodType<RunStateStreamFrame> = StreamFrameSchema(
+  z.object({ cursor: EventCursorSchema, event: RunStateStreamEventSchema }).strict(),
+  EventCursorSchema,
+);
+
 /** Pauses a run. Not an intervention, but guarded by the same mandatory `expectedRunVersion`. */
 export interface RunPauseRequest {
   targetRunId: RunId;
@@ -569,16 +563,18 @@ export const RunRecoveryStepsAddedPayloadSchema: z.ZodType<
 
 /**
  * Opens a session's run state stream: every run in the session, the lead and each child, which
- * the caller fans out by `runId`. Session-scoped, with no catch-up cursor.
+ * the caller fans out by `runId`. With `afterCursor`, the stream first replays each change the
+ * session's record holds after that cursor, then follows live; without it, it follows from now.
  */
 export interface RunStateSubscribeRequest {
   sessionId: SessionId;
+  afterCursor?: EventCursor | undefined;
 }
 /** Parses a {@link RunStateSubscribeRequest}. */
 export const RunStateSubscribeRequestSchema: z.ZodType<
   RunStateSubscribeRequest,
   RunStateSubscribeRequest
-> = z.object({ sessionId: SessionIdSchema }).strict();
+> = z.object({ sessionId: SessionIdSchema, afterCursor: EventCursorSchema.optional() }).strict();
 
 /**
  * The code of a move the run's current state does not allow, such as a second or late answer to a
@@ -624,7 +620,7 @@ export interface RunControlMethodDescriptors {
     "run.subscribeQueue",
     RunQueueSubscribeRequest,
     SubscribeAckResponse,
-    QueueItemSummary
+    RunQueueStreamFrame
   >;
   readonly "run.intervene": MethodDescriptor<
     "run.intervene",
@@ -637,7 +633,7 @@ export interface RunControlMethodDescriptors {
     "run.subscribeState",
     RunStateSubscribeRequest,
     SubscribeAckResponse,
-    RunStateStreamEvent
+    RunStateStreamFrame
   >;
   readonly "run.childSteer": MethodDescriptor<
     "run.childSteer",
@@ -712,7 +708,7 @@ export const RUN_CONTROL_METHOD_DESCRIPTORS: RunControlMethodDescriptors = defin
     mutating: false,
     requestSchema: RunQueueSubscribeRequestSchema,
     responseSchema: SubscribeAckResponseSchema,
-    emissionSchema: QueueItemSummarySchema,
+    emissionSchema: RunQueueStreamFrameSchema,
   },
   "run.intervene": {
     method: "run.intervene",
@@ -741,7 +737,7 @@ export const RUN_CONTROL_METHOD_DESCRIPTORS: RunControlMethodDescriptors = defin
     mutating: false,
     requestSchema: RunStateSubscribeRequestSchema,
     responseSchema: SubscribeAckResponseSchema,
-    emissionSchema: RunStateStreamEventSchema,
+    emissionSchema: RunStateStreamFrameSchema,
   },
   "run.childSteer": {
     method: "run.childSteer",

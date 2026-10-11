@@ -1,8 +1,8 @@
 // The command list: a discovery autocomplete of what the bound provider offers and what this
 // console can do. A provider row inserts nothing and starts no turn; a press on a console row
-// and the Enter and Space keys run the same console-command executor. The empty claim is
-// withheld while the provider read is in flight, refused, or truncated, and only the addressed
-// run's binding group renders. What it says out loud goes through the app's announcer.
+// and the Enter and Space keys run the same console-command executor. The list is drawn only while
+// a row matches what is typed, and only the addressed run's binding group renders. What it says
+// out loud goes through the app's announcer.
 
 import { useCallback, useMemo } from "react";
 import { type ComposerProps } from "#renderer/registries/composer/registry.js";
@@ -32,8 +32,8 @@ export type CommandListProps = ComposerProps & {
 export function CommandList(props: CommandListProps): React.JSX.Element | null {
   const { region, bridge, route, commandEnumeration, draftStore } = props;
   // Resolved here, as the toolbar and Send do, rather than handed down.
-  const target = useComposerAddress(props.sessionStore, props.focusedPane);
-  const draftKey = composerDraftKey(target);
+  const target = useComposerAddress(props.sessionStore);
+  const draftKey = composerDraftKey(props.sessionStore.sessionId);
   // The same store and key the send bar reads its line from, so both see one reading.
   const discovery = useCommandListTrigger(region, { draftStore, draftKey });
   const isOpen = discovery.prefix !== undefined;

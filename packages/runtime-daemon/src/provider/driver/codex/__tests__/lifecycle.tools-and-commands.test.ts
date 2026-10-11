@@ -45,9 +45,11 @@ describe("Codex session goals", () => {
     harness.server.on("thread/goal/clear", () => ({ result: { cleared: true } }));
     await harness.driver.createSession(CREATE_PARAMS);
 
-    await expect(
-      harness.driver.setSessionGoal({ ...BINDING, runId: RUN_ID, goalText: "ship the fix" }),
-    ).resolves.toStrictEqual({ status: "applied" });
+    const goal = harness.driver.setSessionGoal({
+      ...BINDING,
+      runId: RUN_ID,
+      goalText: "ship the fix",
+    });
     await drainMicrotasks();
     expect(harness.daemonTurnRunIds).toStrictEqual([]);
 
@@ -56,6 +58,7 @@ describe("Codex session goals", () => {
       method: "turn/started",
       params: { threadId: THREAD_ID, turn: { id: "turn-goal" } },
     });
+    await expect(goal).resolves.toStrictEqual({ status: "applied" });
     await drainMicrotasks();
     // A turn with no run would have its rows dropped.
     expect(harness.daemonTurnRunIds).toHaveLength(1);

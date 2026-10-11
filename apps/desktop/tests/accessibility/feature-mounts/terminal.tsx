@@ -34,7 +34,7 @@ function terminalSessionStore(): SessionStore {
     projectors: COMPOSED_ENTITY_PROJECTORS,
   });
   // A read at the start of the log, so the store admits every beat from the first.
-  store.initialize({ entities: [] });
+  store.initialize({ shape: "project", entities: [] });
   store.applyBatch(
     TERMINAL_LEASE_SCENARIO.beats.map((beat) => beat.event as ProjectedSessionEvent),
   );

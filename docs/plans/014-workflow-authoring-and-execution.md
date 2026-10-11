@@ -46,7 +46,7 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - `packages/runtime-daemon/src/workflow/definition-service.ts`
 - `packages/runtime-daemon/src/workflow/run-service.ts`
 - `packages/runtime-daemon/src/workflow/step-executor.ts`
-- `packages/runtime-daemon/src/workflow/memory-admitter.ts`
+- `packages/runtime-daemon/src/admission/memory-gate.ts`
 - `packages/runtime-daemon/src/workflow/gate-resolution-writer.ts`
 - `packages/runtime-daemon/src/workflow/projector.ts`
 - `packages/runtime-daemon/src/workflow/human-form-service.ts`
@@ -537,7 +537,7 @@ The park tasks T2.5 and T2.6 live in the Phase 2B supplement below, so T2.1–T2
 
 **Goal:** Parallel branches join through `flow.merge`'s modes, a run that ends failed or canceled cancels its running siblings at a deterministic tick, and every step is admitted by the memory gate and by nothing else, a quick Code step on a thread of its own.
 
-**Scope:** `packages/runtime-daemon/src/workflow/step-executor.ts` (EXTEND — the `flow.merge` executor and the sibling cancellation), `memory-admitter.ts` (NEW), a new quick-step thread module in `packages/runtime-daemon/src/workflow/sandbox/` (NEW), and the node catalog's third batch in `workflow/kinds/` (NEW). Absorbs `## Implementation Steps` 4; Rollout Order item 4.
+**Scope:** `packages/runtime-daemon/src/workflow/step-executor.ts` (EXTEND — the `flow.merge` executor and the sibling cancellation), `packages/runtime-daemon/src/admission/memory-gate.ts` (NEW), a new quick-step thread module in `packages/runtime-daemon/src/workflow/sandbox/` (NEW), and the node catalog's third batch in `workflow/kinds/` (NEW). Absorbs `## Implementation Steps` 4; Rollout Order item 4.
 
 **Precondition:** Phase 3 merged.
 
@@ -551,7 +551,7 @@ The park tasks T2.5 and T2.6 live in the Phase 2B supplement below, so T2.1–T2
   - **Verifies invariant:** I-014-6, I-014-7.
   - **Tests:** each merge mode's output over a five-branch fan-in; `First to arrive` cancels the losers; a run failing in one branch cancels its four running siblings at one deterministic tick and never from an async callback; a canceled branch settles only after the checkout is read from disk; the step rows rebuild byte-equal from the log.
 - **T4.2 — The memory gate.**
-  - **Files:** `packages/runtime-daemon/src/workflow/memory-admitter.ts` (NEW).
+  - **Files:** `packages/runtime-daemon/src/admission/memory-gate.ts` (NEW).
   - **Provides:** the SA-3 memory gate — `process.availableMemory()` re-read on every tick less a headroom of 20 % of physical memory and at least 1 GiB, less the reservation of every step admitted and not yet finished; a step's reservation, in footprint, its kind's starting figure per provider — 288 MiB for a Claude Code turn process, 160 MiB for a `bun` or Python step, and for a Codex conversation 64 MiB on an account service already running and 96 MiB when it starts that service — until that node has run, then the peak that node reached on this machine, read per process through the daemon's existing `koffi` binding (`proc_pid_rusage`'s lifetime peak footprint on macOS, `VmHWM` from `/proc/<pid>/status` on Linux, `PeakWorkingSetSize` from `GetProcessMemoryInfo` on Windows); a quick Code step's its own memory budget plus 32 MiB for its thread plus nine times its input, the budget part replaced by the interpreter's peak once the node has run, since a thread has no process of its own; a step whose size is an estimate started at least 1.5 s after the last such start, a quick step as soon as it fits; ready steps in one line in the order they became ready, across every run, siblings ready together joining in their `order`, the gate weighing only the head of the line and admitting it whatever its size when nothing is running, with no priority or weight anywhere; a reservation released while a step waits on a person or parks on a provider limit, and re-taken at resume; a held step reading `waiting-memory` and starting itself when room appears; `workflow.phase_admitted` on grant and `workflow.phase_waiting_on_pool` on entry-to-blocked plus 30-second intervals while blocked, carrying `waitingSinceSeq`; aggregate `totalPoolWaitMs` on the step row rather than per-wait rows; reservations and observed peaks held in memory, re-learned after restart (SA-3 ephemeral tier). No step-count ceiling and no slot pool are built.
   - **Consumes:** Node's `process.availableMemory()` on Node 24.21 or later; the daemon's `koffi` binding for the per-process peak; T4.1 tick boundary.
   - **Spec coverage:** Spec-015 §Execution semantics; Spec-015 §Fallback Behavior.

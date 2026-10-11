@@ -4,16 +4,21 @@
 // decision read from the run is checked again by a guarded statement inside the write it decides.
 //
 // The accept is the version gate: a request whose run moved before it expires undispatched, and
-// once dispatched the driver's verdict is recorded whatever the run did meanwhile. An applied or
-// degraded interrupt's verdict is written with the run's end, in the same write. A dispatch that
-// throws ends the request `failed`. Steers and retries on one run take turns under a per-run lock,
-// so two at one version never both reach the driver; an interrupt takes a lock of its own, so a
-// stop never waits behind a steer, and a steer still queued when it lands meets the advanced
-// version at its accept and expires.
+// once dispatched the driver's verdict is recorded whatever the run did meanwhile. An interrupt
+// holds the run queue's hands to its run from before its accept until it settles, so an end of
+// the run seen meanwhile waits for its choice, and an end the queue settled first has the choice
+// applied to the messages it moved on as the hold is taken; the queue takes back what Claude Code
+// holds that the choice keeps from the next turn before the interrupt goes. An applied or degraded
+// interrupt's verdict is written with the run's end, and with what its choice makes of the run's
+// waiting messages, in the same write. A dispatch that throws ends the request `failed`.
+// Retries on one run take turns under a per-run lock, so two at one version never both reach the
+// provider; an interrupt takes a lock of its own, so a stop never waits behind a retry, and a retry
+// still queued when it lands meets the advanced version at its accept and expires. A person's
+// message mid-turn is a queue send, never an intervention.
 
 import { EventEnvelopeVersionSchema } from "@ai-sidekicks/contracts/event/envelope";
 import type {
-  ApplyInterventionParams,
+  InterruptPendingChoice,
   InterventionType,
 } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import {
@@ -30,6 +35,7 @@ import {
   type InterventionEventPayload,
 } from "@ai-sidekicks/contracts/run/events";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
+import type { QueueItemId } from "@ai-sidekicks/contracts/run/queue";
 import type { RunState } from "@ai-sidekicks/contracts/run/state";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { canonicalizeUuid } from "@ai-sidekicks/contracts/uuid-canonical";
@@ -40,7 +46,10 @@ import { SessionEventAppender, type SessionEventLog } from "../events/session/ap
 import { DaemonDomainError } from "../ipc/domain-error.js";
 import { KeyedLock } from "../keyed-lock.js";
 import { boundFailureDetail, type ProviderDriver } from "../provider/driver/contract.js";
-import type { FasterModelRetryOutcome } from "../provider/driver/run-control.js";
+import type {
+  FasterModelRetryOutcome,
+  ApplyInterventionParams,
+} from "../provider/driver/run-control.js";
 import type { InterruptRoute } from "../session/run/engine.js";
 import { advanceRunVersionStatement } from "../session/run/projection.js";
 import type { RunStateReader } from "../session/run/read.js";
@@ -75,10 +84,46 @@ export type FasterModelRetryRequest = Extract<
 
 /** The run engine as the intervention service uses it. */
 interface InterventionRunEngine {
-  /** Ends the run with an interrupt's verdict in one write; see `RunEngine.endRunForInterrupt`. */
-  endRunForInterrupt(runId: RunId, verdict: RunStateChangeCompanions): Promise<boolean>;
   /** Where an interrupt of the run goes; see `RunEngine.routeInterrupt`. */
   routeInterrupt(runId: RunId): Promise<InterruptRoute>;
+}
+
+/** An interrupt's choice for the messages waiting for its run. */
+export interface InterruptChoice {
+  readonly runId: RunId;
+  /** What becomes of the messages waiting for the run. */
+  readonly pending: InterruptPendingChoice;
+  /** The waiting message that goes first in the next turn. */
+  readonly deliverFirst: QueueItemId | undefined;
+}
+
+/** An interrupt that applied, as the write that ends its run takes it. */
+export interface InterruptEnd extends InterruptChoice {
+  /** The run version the interrupt was accepted at; a run ended since keeps that end. */
+  readonly acceptedRunVersion: number;
+  /** Whether the provider answered `degraded`, so it may still hold the messages it was handed. */
+  readonly isDegraded: boolean;
+  /** The interrupt's row move and its event, which the run's end commits. */
+  readonly verdict: RunStateChangeCompanions;
+}
+
+/** What an interrupt asks of the run queue for the messages waiting for its run. */
+export interface InterruptQueue {
+  /**
+   * Holds hands to the run, and the settling of an end of it seen meanwhile; a run whose end
+   * already moved its waiting messages on has the choice applied to them.
+   */
+  holdForInterrupt(choice: InterruptChoice): Promise<void>;
+  /** Takes back what Claude Code holds that the choice keeps from the turn it would start. */
+  withdrawForInterrupt(choice: InterruptChoice): Promise<void>;
+  /**
+   * Ends the run `interrupted` with the verdict and the choice for its waiting messages, in one
+   * write, and lets the hold go; resolves `false` with nothing written when the run has ended
+   * since the accept.
+   */
+  endRunForInterrupt(end: InterruptEnd): Promise<boolean>;
+  /** Lets go a hold no end was written for, applying the choice to a run that ended first. */
+  releaseInterrupt(choice: InterruptChoice): Promise<void>;
 }
 
 /** What the intervention service needs from the rest of the daemon. */
@@ -86,19 +131,20 @@ export interface InterventionServiceDeps {
   readonly runs: Pick<RunStateReader, "getRun">;
   readonly interventions: Pick<InterventionReader, "getByIdempotencyKey">;
   readonly sessionEvents: SessionEventLog;
-  /** The driver that runs `runId`, which applies its steers and interrupts. */
+  /** The driver that runs `runId`, which applies its interrupts. */
   readonly resolveDriver: (runId: RunId) => Pick<ProviderDriver, "applyIntervention">;
   /** Carries out a faster-model retry; the driver's `applyIntervention` never sees one. */
   readonly retryOnFasterModel: (
     request: FasterModelRetryRequest,
   ) => Promise<FasterModelRetryOutcome>;
   readonly runEngine: InterventionRunEngine;
+  /** The run queue, which an interrupt's choice for its run's waiting messages goes through. */
+  readonly queue: InterruptQueue;
 }
 
 // The run states each type is accepted in: an interrupt ends any run the table lets move to
-// `interrupted`, while a steer and a retry act on the turn in flight.
+// `interrupted`, while a retry acts on the turn in flight.
 const RUN_STATES_ACCEPTING_INTERVENTION: Readonly<Record<InterventionType, readonly RunState[]>> = {
-  steer: ["running"],
   interrupt: statesThatMayEnter("interrupted"),
   faster_model_retry: ["running"],
 };
@@ -121,14 +167,9 @@ interface InterventionTarget {
   readonly actor: InterventionActor;
 }
 
-// What dispatch produced, as the row's next move from `accepted`; an applied steer whose message
-// started another run names it.
+// What dispatch produced, as the row's next move from `accepted`.
 type DispatchOutcome =
-  | {
-      readonly from: "accepted";
-      readonly to: "applied";
-      readonly deliveredRunId?: RunId | undefined;
-    }
+  | { readonly from: "accepted"; readonly to: "applied" }
   | {
       readonly from: "accepted";
       readonly to: "degraded";
@@ -144,9 +185,9 @@ type DispatchOutcome =
 export class InterventionService {
   readonly #deps: InterventionServiceDeps;
   readonly #appender: SessionEventAppender;
-  // Orders each run's steers and retries; a run id spelled in either hex case takes one lock.
+  // Orders each run's retries; a run id spelled in either hex case takes one lock.
   readonly #runLock: KeyedLock<RunId> = new KeyedLock<RunId>(canonicalizeUuid);
-  // Orders each run's interrupts among themselves, apart from its steers and retries.
+  // Orders each run's interrupts among themselves, apart from its retries.
   readonly #interruptLock: KeyedLock<RunId> = new KeyedLock<RunId>(canonicalizeUuid);
 
   constructor(deps: InterventionServiceDeps) {
@@ -159,9 +200,9 @@ export class InterventionService {
 
   /**
    * Records `request`, accepts it if the run is still at `expectedRunVersion` and in a state its
-   * type acts on, dispatches it once and answers with the state it reached. Steers and retries on
-   * one run apply one at a time in arrival order, and so do interrupts, which never wait behind a
-   * steer. A reused idempotency key answers with the saved result and dispatches nothing. Throws
+   * type acts on, dispatches it once and answers with the state it reached. Retries on one run
+   * apply one at a time in arrival order, and so do interrupts, which never wait behind a retry. A
+   * reused idempotency key answers with the saved result and dispatches nothing. Throws
    * `run.not_found` for a run the daemon has no row for, and `intervention.idempotency_conflict`
    * for a reused key whose request differs; a dispatch that throws answers `failed` with what it
    * threw as the `failureReason`. An interrupt of a run no driver has yet calls no driver: it
@@ -209,7 +250,24 @@ export class InterventionService {
       }
       return this.#answerReusedKey(request, payload);
     }
+    if (request.type !== "interrupt") {
+      return this.#acceptAndApply(target, request);
+    }
+    const choice = interruptChoiceOf(request);
+    // Held before the accept, so a run that ends meanwhile keeps its messages for the choice.
+    await this.#deps.queue.holdForInterrupt(choice);
+    try {
+      return await this.#acceptAndApply(target, request);
+    } finally {
+      await this.#deps.queue.releaseInterrupt(choice);
+    }
+  }
 
+  // Accepts the recorded request against the run, dispatches it once and records its outcome.
+  async #acceptAndApply(
+    target: InterventionTarget,
+    request: InterventionRequestPayload,
+  ): Promise<InterventionRequestResponse> {
     try {
       await this.#appendIntervention(target, "accepted", [
         runAtVersionStatement(target.targetRunId, request.expectedRunVersion),
@@ -235,6 +293,9 @@ export class InterventionService {
 
     let outcome: DispatchOutcome;
     try {
+      if (request.type === "interrupt") {
+        await this.#deps.queue.withdrawForInterrupt(interruptChoiceOf(request));
+      }
       outcome = await this.#dispatch(request);
     } catch (error) {
       return this.#fail(target, error);
@@ -243,13 +304,21 @@ export class InterventionService {
       return this.#resolve(target, outcome);
     }
     const move = moveInterventionStatement(target.interventionId, outcome);
-    const verdict = verdictEventOf(target, outcome);
+    const verdict: InterventionEventPayload<"applied" | "degraded"> = {
+      ...target,
+      state: outcome.to,
+    };
     // An interrupt ends its run in the verdict's own write; a run that ended first keeps its end.
     const hasEndedRun =
-      target.type === "interrupt" &&
-      (await this.#deps.runEngine.endRunForInterrupt(target.targetRunId, {
-        statements: [move],
-        precedingEvents: [{ type: `intervention.${outcome.to}`, payload: verdict }],
+      request.type === "interrupt" &&
+      (await this.#deps.queue.endRunForInterrupt({
+        ...interruptChoiceOf(request),
+        acceptedRunVersion: request.expectedRunVersion,
+        isDegraded: outcome.to === "degraded",
+        verdict: {
+          statements: [move],
+          precedingEvents: [{ type: `intervention.${outcome.to}`, payload: verdict }],
+        },
       }));
     if (!hasEndedRun) {
       // An interrupt's verdict never advances the version; it found its run already ended. Any
@@ -295,12 +364,9 @@ export class InterventionService {
     const result = await this.#deps
       .resolveDriver(request.targetRunId)
       .applyIntervention(driverParamsOf(request));
-    if (result.status === "degraded") {
-      return { from: "accepted", to: "degraded", fallbackAction: result.fallbackAction };
-    }
-    return result.deliveredRunId === undefined
-      ? { from: "accepted", to: "applied" }
-      : { from: "accepted", to: "applied", deliveredRunId: result.deliveredRunId };
+    return result.status === "degraded"
+      ? { from: "accepted", to: "degraded", fallbackAction: result.fallbackAction }
+      : { from: "accepted", to: "applied" };
   }
 
   // Ends the intervention in an outcome that applies nothing, with its event.
@@ -431,17 +497,6 @@ function interventionEventOf(
   return { ...target, state };
 }
 
-// The verdict's event, naming the run an applied steer's message went to as its row does.
-function verdictEventOf(
-  target: InterventionTarget,
-  outcome: Extract<DispatchOutcome, { to: "applied" | "degraded" }>,
-): InterventionEventPayload<"applied"> | InterventionEventPayload<"degraded"> {
-  if (outcome.to === "degraded" || outcome.deliveredRunId === undefined) {
-    return { ...target, state: outcome.to };
-  }
-  return { ...target, state: "applied", deliveredRunId: outcome.deliveredRunId };
-}
-
 // What a dispatch throw records: a domain error's code, else its message.
 function failureTextOf(error: unknown): string {
   if (error instanceof DaemonDomainError) {
@@ -454,12 +509,6 @@ function failureTextOf(error: unknown): string {
 // text exactly when it asks for the same thing.
 function interventionPayloadOf(request: InterventionRequestPayload): string {
   switch (request.type) {
-    case "steer":
-      return JSON.stringify({
-        content: request.content,
-        attachments: request.attachments,
-        expectedTurnId: request.expectedTurnId,
-      });
     case "interrupt":
       return JSON.stringify({
         pending: request.pending,
@@ -471,27 +520,23 @@ function interventionPayloadOf(request: InterventionRequestPayload): string {
   }
 }
 
+function interruptChoiceOf(
+  request: Exclude<InterventionRequestPayload, FasterModelRetryRequest>,
+): InterruptChoice {
+  return {
+    runId: request.targetRunId,
+    pending: request.pending,
+    deliverFirst: request.deliverFirst,
+  };
+}
+
 function driverParamsOf(
   request: Exclude<InterventionRequestPayload, FasterModelRetryRequest>,
 ): ApplyInterventionParams {
-  const guards = {
+  return {
     targetRunId: request.targetRunId,
     expectedRunVersion: request.expectedRunVersion,
     clientIdempotencyKey: request.clientIdempotencyKey,
-  };
-  if (request.type === "steer") {
-    return {
-      ...guards,
-      type: "steer",
-      payload: {
-        content: request.content,
-        attachments: request.attachments,
-        expectedTurnId: request.expectedTurnId,
-      },
-    };
-  }
-  return {
-    ...guards,
     type: "interrupt",
     payload: { pending: request.pending, reason: request.reason },
   };

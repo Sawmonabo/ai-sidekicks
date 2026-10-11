@@ -23,6 +23,7 @@ import { SessionEventAppender } from "../../events/session/appender.js";
 import { InterventionService } from "../../interventions/service.js";
 import { InterventionReader, moveInterventionStatement } from "../../interventions/store.js";
 import {
+  makeEngineInterruptQueue,
   openRunEngineFixture,
   type RunEngineFixture,
 } from "../../session/run/__tests__/engine.test-support.js";
@@ -43,7 +44,7 @@ describe("projection rebuild over the session log", () => {
 
   async function insertAcceptedIntervention(
     runId: RunId,
-    type: "interrupt" | "steer",
+    type: "interrupt" | "faster_model_retry",
   ): Promise<InterventionId> {
     const interventionId = InterventionIdSchema.parse(randomUUID());
     await fixture.database.writer.write([
@@ -58,15 +59,16 @@ describe("projection rebuild over the session log", () => {
     return interventionId;
   }
 
-  // An applied steer, written as the intervention service writes it: the version advance, the
+  // An applied faster-model retry, written as the intervention service writes it: the version
+  // advance, the
   // row's move and the event in one write.
-  async function applySteer(runId: RunId): Promise<void> {
-    const interventionId = await insertAcceptedIntervention(runId, "steer");
+  async function applyFasterModelRetry(runId: RunId): Promise<void> {
+    const interventionId = await insertAcceptedIntervention(runId, "faster_model_retry");
     const applied: InterventionEventPayload<"applied"> = {
       sessionId: fixture.sessionId,
       interventionId,
       targetRunId: runId,
-      type: "steer",
+      type: "faster_model_retry",
       state: "applied",
       actor: DAEMON_INTERVENTION_ACTOR,
     };
@@ -109,10 +111,8 @@ describe("projection rebuild over the session log", () => {
         },
       }),
       retryOnFasterModel: () => Promise.reject(new Error("No faster-model retry is sent here")),
-      runEngine: {
-        endRunForInterrupt: (id, verdict) => fixture.engine.endRunForInterrupt(id, verdict),
-        routeInterrupt: (id) => fixture.engine.routeInterrupt(id),
-      },
+      runEngine: { routeInterrupt: (id) => fixture.engine.routeInterrupt(id) },
+      queue: makeEngineInterruptQueue(fixture.engine),
     });
     const response = await service.applyIntervention(
       {
@@ -134,8 +134,8 @@ describe("projection rebuild over the session log", () => {
   it("writes the rows the live writes wrote, and the same rows again on a second rebuild", async () => {
     const ended = await fixture.runThrough(["starting", "running", "interrupted"]);
     await fixture.runThrough(["starting"], { parentRunId: ended, reachedBy: "provider_subagent" });
-    const steered = await fixture.runThrough(["starting", "running"]);
-    await applySteer(steered);
+    const retried = await fixture.runThrough(["starting", "running"]);
+    await applyFasterModelRetry(retried);
     const interrupted = await fixture.runThrough(["starting", "running"]);
     await applyInterrupt(interrupted);
     const endedFirst = await fixture.runThrough(["starting", "running"]);

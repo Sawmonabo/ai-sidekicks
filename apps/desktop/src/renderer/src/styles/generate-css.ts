@@ -46,6 +46,7 @@ import {
   PANE_SEPARATOR_WIDTH_REM,
   SPACE_SCALE_REM,
   GLASS_BLUR_PX,
+  HOVER_WASH_EDGE_PERCENT,
   TOKEN_ALIASES,
   TOOL_HUE_ALIASES,
   TRANSCRIPT_ROW_GAP_REM,
@@ -242,6 +243,16 @@ function invariantBlock(): string {
   })) {
     lines.push(declaration(tokenName, tokenReference(targetTokenName)));
   }
+  lines.push("");
+  lines.push(
+    "  /* The hover wash: the edge mixed toward transparent, so it swaps with the edge. */",
+  );
+  lines.push(
+    declaration(
+      "hover",
+      `color-mix(in oklab, ${tokenReference("edge")} ${String(HOVER_WASH_EDGE_PERCENT)}%, transparent)`,
+    ),
+  );
 
   lines.push("");
   lines.push("  /* Type. */");

@@ -4,10 +4,13 @@
  */
 
 import { AgentIdSchema, type AgentId } from "@ai-sidekicks/contracts/agent/definition";
+import { AttachmentReferenceListSchema } from "@ai-sidekicks/contracts/artifacts/attachment-reference";
+import type { ArtifactId } from "@ai-sidekicks/contracts/artifacts/id";
 import { SessionIdSchema, type SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { SessionEnvironmentRows } from "../../../spawn-env.js";
 import { isPlainObject } from "../../../record-readers.js";
 import { CodexDriverConfigError } from "./errors.js";
+import { PickedSkillSchema, type PickedSkill } from "../../run-control.js";
 
 /**
  * The item-injection method (`ThreadInjectItemsParams`, non-experimental at the pin): appends items
@@ -54,14 +57,16 @@ const CALLER_DERIVED_TURN_POSTURE_FIELDS: readonly string[] = [
 
 /**
  * Contents of `StartRunParams.agentConfig`: the session, the runtime binding the run's deliveries
- * go on, the agent whose run it is, the turn's text, its model and window, and the skill the person
- * picked, by name.
+ * go on, the agent whose run it is, the turn's text and staged files, its model and window, and the
+ * skills the person picked, each by its name and the file Codex listed it from.
  */
 export interface CodexRunConfig {
   sessionId: SessionId;
   bindingId: string;
   agentId: AgentId;
   input: string;
+  /** The message's staged files, in staging order. */
+  attachments?: ArtifactId[] | undefined;
   model?: string | undefined;
   /**
    * The larger window chosen for the turn's model, in tokens, as recorded when it was picked (the
@@ -70,7 +75,8 @@ export interface CodexRunConfig {
    */
   modelContextWindow?: number | undefined;
   clientUserMessageId?: string | undefined;
-  skill?: string | undefined;
+  /** The skills picked for the message, in the order picked. */
+  skills?: PickedSkill[] | undefined;
 }
 
 /** Fail-closed parse of `StartRunParams.agentConfig`. */
@@ -103,6 +109,17 @@ export function parseCodexRunConfig(agentConfig: unknown): CodexRunConfig {
     );
   }
   const input = readRequiredString(source, "input", "StartRunParams.agentConfig.input");
+  const parsedAttachments = AttachmentReferenceListSchema.optional().safeParse(
+    source["attachments"],
+  );
+  if (!parsedAttachments.success) {
+    throw new CodexDriverConfigError(
+      "StartRunParams.agentConfig.attachments must be a list of artifact ids.",
+      "StartRunParams.agentConfig.attachments",
+      { cause: parsedAttachments.error },
+    );
+  }
+  const attachments = parsedAttachments.data;
   const model = readOptionalString(source, "model", "StartRunParams.agentConfig.model");
   const modelContextWindow = readOptionalTokenCount(
     source,
@@ -114,7 +131,15 @@ export function parseCodexRunConfig(agentConfig: unknown): CodexRunConfig {
     "clientUserMessageId",
     "StartRunParams.agentConfig.clientUserMessageId",
   );
-  const skill = readOptionalString(source, "skill", "StartRunParams.agentConfig.skill");
+  const parsedSkills = PickedSkillSchema.array().optional().safeParse(source["skills"]);
+  if (!parsedSkills.success) {
+    throw new CodexDriverConfigError(
+      "StartRunParams.agentConfig.skills must be a list of skills, each a name and its file.",
+      "StartRunParams.agentConfig.skills",
+      { cause: parsedSkills.error },
+    );
+  }
+  const skills = parsedSkills.data;
   // Refused even when the value matches what the daemon derived; no comparison needed.
   for (const field of CALLER_DERIVED_TURN_POSTURE_FIELDS) {
     if (source[field] !== undefined) {
@@ -130,10 +155,11 @@ export function parseCodexRunConfig(agentConfig: unknown): CodexRunConfig {
     bindingId,
     agentId: parsedAgentId.data,
     input,
+    ...(attachments === undefined ? {} : { attachments }),
     ...(model === undefined ? {} : { model }),
     ...(modelContextWindow === undefined ? {} : { modelContextWindow }),
     ...(clientUserMessageId === undefined ? {} : { clientUserMessageId }),
-    ...(skill === undefined ? {} : { skill }),
+    ...(skills === undefined ? {} : { skills }),
   };
 }
 

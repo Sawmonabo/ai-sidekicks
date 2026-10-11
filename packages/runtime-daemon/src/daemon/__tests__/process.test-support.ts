@@ -139,6 +139,8 @@ export async function startDaemon(
     captureProviderBaseEnvironment: () => Promise.resolve([]),
     commandShell: null,
     providerOperatingSystem: DARWIN_PROVIDER_OPERATING_SYSTEM,
+    // No provider process runs in these tests, so no peak is ever read.
+    processPeakReader: { readPeakBytes: () => Promise.resolve(undefined) },
     terminalOperatingSystem: selectTerminalOperatingSystem(process.platform, process.env),
     readLoginShell: () => "/bin/sh",
     serviceVersion: SERVICE_VERSION,

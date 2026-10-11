@@ -1,7 +1,7 @@
-// What the composer shows about an act while it travels, held under the address the act was
-// issued at, and the writers a settlement reaches it by. Everything is held in
-// `useSubjectScopedState` under `(bridge, draftKey)`, so a re-address drops it and a replaced
-// bridge takes it along, rather than hiding it behind a read-time key comparison.
+// What the composer shows about an act while it travels, held under the draft the act was
+// issued from, and the writers a settlement reaches it by. Everything is held in
+// `useSubjectScopedState` under `(bridge, draftKey)`, so a switch of session drops it and a
+// replaced bridge takes it along, rather than hiding it behind a read-time key comparison.
 //
 // The per-operation refusal record stays in this module; callers get the one refusal
 // `renderableRefusal` yields. Both writers take the act's identity and consult the predicate
@@ -23,13 +23,13 @@ import {
 } from "../send/settlement.js";
 import type { SettlementIdentities } from "./useSettlementIdentities.js";
 
-/** What the composer reads about the acts at one address, and what may write it. */
+/** What the composer reads about the acts on one session's draft, and what may write it. */
 export interface ComposerActState {
-  /** What the bar renders while a send is traveling from THIS address. */
+  /** What the bar renders while a send is traveling from THIS draft. */
   readonly status: SendControllerStatus;
   /** The one refusal the bar renders, or `undefined`. */
   readonly refusal: Refusal | undefined;
-  /** Publish what the send path is doing. Dropped once the address has moved. */
+  /** Publish what the send path is doing. Dropped once the session has changed. */
   readonly publishStatus: SubjectScopedPublish<SendControllerStatus>;
   /** Write one act's settlement, or discard it because its identity has moved on. */
   readonly settle: (
@@ -38,12 +38,12 @@ export interface ComposerActState {
   ) => void;
   /**
    * Clear the line the act was issued on, only while that act is current. The draft store is
-   * keyed by address, not visit, so an unconditional clear would erase text typed since.
+   * keyed by session, not visit, so an unconditional clear would erase text typed since.
    */
   readonly clearSentDraft: (identity: ComposerSettlementIdentity, sentDraftKey: string) => void;
 }
 
-/** Hold one address's act readings, and the two writers a settlement reaches them by. */
+/** Hold one session draft's act readings, and the two writers a settlement reaches them by. */
 export function useComposerActState(
   bridge: PlatformBridge,
   draftKey: string,

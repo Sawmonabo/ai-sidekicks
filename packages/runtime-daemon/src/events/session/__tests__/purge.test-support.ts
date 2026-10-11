@@ -373,13 +373,13 @@ export class PurgeFixture {
   }
 
   // The rows that name the session or one of its runs: a queued message, the idempotency keys of
-  // its create and its conversion, a file the conversion dealt with, and each run's steer, provider
-  // binding and command receipt.
+  // its create and its conversion, a file the conversion dealt with, and each run's interrupt,
+  // provider binding and command receipt.
   async seedRowsNamingSession(sessionId: SessionId, runIds: readonly string[]): Promise<void> {
     await this.scratch.writer.write([
       {
-        sql: `INSERT INTO queue_items (id, session_id, payload, created_at, updated_at)
-              VALUES (?, ?, '{"text":"typed by the person"}', ?, ?)`,
+        sql: `INSERT INTO queue_items (id, session_id, payload, position, created_at, updated_at)
+              VALUES (?, ?, '{"content":"typed by the person"}', 0, ?, ?)`,
         bindings: [`queue-${sessionId}`, sessionId, PURGE_INSTANT, PURGE_INSTANT],
       },
       {
@@ -408,8 +408,14 @@ export class PurgeFixture {
         {
           sql: `INSERT INTO interventions (id, target_run_id, type, payload, expected_run_version,
                                            client_idempotency_key, created_at)
-                VALUES (?, ?, 'steer', '{"text":"steer text"}', 1, ?, ?)`,
-          bindings: [`steer-${runId}`, runId, `steer-key-${runId}`, PURGE_INSTANT],
+                VALUES (?, ?, 'interrupt', ?, 1, ?, ?)`,
+          bindings: [
+            `interrupt-${runId}`,
+            runId,
+            '{"pending":"nextTurn","reason":"stop here"}',
+            `interrupt-key-${runId}`,
+            PURGE_INSTANT,
+          ],
         },
         {
           sql: `INSERT INTO runtime_bindings (id, run_id, driver_name, contract_version, created_at,

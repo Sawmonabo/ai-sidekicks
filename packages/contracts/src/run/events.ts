@@ -196,12 +196,11 @@ const InterventionActorSchema: z.ZodType<InterventionActor, InterventionActor> =
 ]);
 
 // What each state's intervention event carries beyond the members every one has: a failed one
-// says why, in the words its reply and its stored row carry, and an applied steer whose message
-// went to a run other than its target names that run, as its stored row does.
+// says why, in the words its reply and its stored row carry.
 interface InterventionEventMembersByState {
   requested: Record<never, never>;
   accepted: Record<never, never>;
-  applied: { deliveredRunId?: RunId | undefined };
+  applied: Record<never, never>;
   rejected: Record<never, never>;
   degraded: Record<never, never>;
   expired: Record<never, never>;
@@ -252,9 +251,7 @@ export const INTERVENTION_EVENT_PAYLOAD_SCHEMAS: {
 } = {
   requested: buildInterventionEventPayloadSchema("requested", {}),
   accepted: buildInterventionEventPayloadSchema("accepted", {}),
-  applied: buildInterventionEventPayloadSchema("applied", {
-    deliveredRunId: RunIdSchema.optional(),
-  }),
+  applied: buildInterventionEventPayloadSchema("applied", {}),
   rejected: buildInterventionEventPayloadSchema("rejected", {}),
   degraded: buildInterventionEventPayloadSchema("degraded", {}),
   expired: buildInterventionEventPayloadSchema("expired", {}),

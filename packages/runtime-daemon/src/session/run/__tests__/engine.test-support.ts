@@ -18,15 +18,18 @@ import {
   type ScratchDatabase,
 } from "../../../database/__fixtures__/scratch.js";
 import { EventLogService } from "../../../events/log-service.js";
+import type { InterruptQueue } from "../../../interventions/service.js";
 import { SessionEventAppender } from "../../../events/session/appender.js";
 import {
   CURATED_CREDENTIAL_POLICY_REF,
   ExecutionPostureService,
 } from "../../../policy/execution-posture-service.js";
 import type { ProviderDriver, StartRunParams } from "../../../provider/driver/contract.js";
+import { directoryStatementsFor } from "../../directory/row.js";
 import { RunEngine, type RunTransitionRequest } from "../engine.js";
 import { insertQueuedRunStatement } from "../projection.js";
 import { RunStateReader } from "../read.js";
+import type { RunStartRequest } from "../start-request.js";
 
 /** How a child run hangs under its parent. */
 interface ChildLink {
@@ -90,25 +93,60 @@ export function makeRecordingDriver(): RecordingDriver {
   };
 }
 
+/** The start of `runId` on `driver`, handed the posture the gates resolved and no agent config. */
+export function startOnDriver(
+  driver: Pick<ProviderDriver, "startRun">,
+  runId: RunId,
+): RunStartRequest["startDriver"] {
+  return async (executionPosture) => {
+    await driver.startRun({ runId, agentConfig: {}, executionPosture });
+  };
+}
+
+/**
+ * A driver interrupt no start here reaches, since each `running` write lands; one that does throws.
+ */
+export async function refuseDriverInterrupt(): Promise<void> {
+  throw new Error("No start in this test interrupts its driver");
+}
+
+/**
+ * The run queue as an interrupt takes it, with no messages waiting: the run's end is the engine's
+ * alone, and there is nothing to hold, take back or let go.
+ */
+export function makeEngineInterruptQueue(
+  engine: Pick<RunEngine, "endRunForInterrupt">,
+): InterruptQueue {
+  return {
+    holdForInterrupt: () => Promise.resolve(),
+    withdrawForInterrupt: () => Promise.resolve(),
+    endRunForInterrupt: (end) =>
+      engine.endRunForInterrupt(end.runId, end.acceptedRunVersion, end.verdict),
+    releaseInterrupt: () => Promise.resolve(),
+  };
+}
+
 /** A queue item for a run's setup context. */
 export function makeQueueItem(): QueueItemSummary {
   const now = new Date().toISOString();
   return {
     id: QueueItemIdSchema.parse(randomUUID()),
     state: "admitted",
-    priority: 0,
+    position: 0,
     content: "Add the retry to the upload",
     createdAt: now,
     updatedAt: now,
   };
 }
 
-/** Opens a scratch database and a run engine over it. */
-export async function openRunEngineFixture(): Promise<RunEngineFixture> {
+/** Opens a scratch database and a run engine over it, on `now` when one is given. */
+export async function openRunEngineFixture(now?: () => string): Promise<RunEngineFixture> {
   const database = await openScratchDatabase();
+  // The session's row is written as the daemon writes it, so a write guarded on it holds.
   const sessionEvents = new EventLogService({
     writer: database.writer,
     reader: database.reader,
+    projectionStatements: directoryStatementsFor,
     writeServiceLog: (line) => {
       throw new Error(`unexpected service log line: ${line}`);
     },
@@ -135,7 +173,13 @@ export async function openRunEngineFixture(): Promise<RunEngineFixture> {
   // The home only places the curated credential paths, which no engine test reads.
   const buildEngine = (
     executionPostures = new ExecutionPostureService({ homeDirectory: tmpdir() }),
-  ) => new RunEngine({ reader: database.reader, sessionEvents, executionPostures });
+  ) =>
+    new RunEngine({
+      reader: database.reader,
+      sessionEvents,
+      executionPostures,
+      ...(now === undefined ? {} : { now }),
+    });
   const executionPostures = new ExecutionPostureService({ homeDirectory: tmpdir() });
   const engine = buildEngine(executionPostures);
 

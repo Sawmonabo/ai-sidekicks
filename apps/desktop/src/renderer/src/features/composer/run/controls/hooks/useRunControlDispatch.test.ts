@@ -1,4 +1,4 @@
-// One control per run in flight at a time, decided synchronously.
+// One control per run, or per child of a run, in flight at a time, decided synchronously.
 //
 // Two presses inside one frame both read the busy set from the render that produced their
 // handler and both dispatch, minting two idempotency keys against one run version, so the latch
@@ -17,13 +17,14 @@ import {
 import { useRunControlDispatch, type RunControlAdmission } from "./useRunControlDispatch.js";
 import { inFlightKeyFor } from "../keys.js";
 import { inertBridge } from "#renderer/features/composer/Composer.test-support.js";
-import { OTHER_RUN_ID, RUN_ID, STUB_ACK, appliedIntervention } from "../commands.test-support.js";
+import { OTHER_RUN_ID, RUN_ID, STUB_ACK, appliedInterrupt } from "../commands.test-support.js";
 
 /** Calls no latch case reaches: each hands `dispatch` its own `perform`. */
 const UNUSED_CALLS: RunControlCalls = {
   pause: () => Promise.reject(new Error("this case dispatches through its own perform")),
   resume: () => Promise.reject(new Error("this case dispatches through its own perform")),
   intervene: () => Promise.reject(new Error("this case dispatches through its own perform")),
+  childSteer: () => Promise.reject(new Error("this case dispatches through its own perform")),
 };
 
 const ACKNOWLEDGED: RunControlOutcome = {
@@ -32,7 +33,7 @@ const ACKNOWLEDGED: RunControlOutcome = {
   ack: STUB_ACK satisfies RunControlAck,
 };
 
-describe("one control per run is in flight at a time", () => {
+describe("one control per run or child is in flight at a time", () => {
   it("performs once and mints one key when the control is pressed twice in a tick", async () => {
     // Fails on the unlatched body: it performed twice and minted two keys.
     const mintIdempotencyKey = vi.fn(() => "6f1a0d3e-2c4b-4a7e-9f10-5b8c7d2e3a41");
@@ -41,7 +42,7 @@ describe("one control per run is in flight at a time", () => {
       ...UNUSED_CALLS,
       intervene: (request) => {
         requests.push(request);
-        return Promise.resolve(appliedIntervention("interrupt", 5));
+        return Promise.resolve(appliedInterrupt(5));
       },
     };
     const bridge = inertBridge();
@@ -50,8 +51,8 @@ describe("one control per run is in flight at a time", () => {
     await act(async () => {
       const interrupt = (dispatcher: RunControlDispatcher): Promise<RunControlOutcome> =>
         dispatcher.interrupt({ runId: RUN_ID, expectedRunVersion: 4 });
-      result.current.dispatch(RUN_ID, "interrupt", interrupt);
-      result.current.dispatch(RUN_ID, "interrupt", interrupt);
+      result.current.dispatch({ runId: RUN_ID }, "interrupt", interrupt);
+      result.current.dispatch({ runId: RUN_ID }, "interrupt", interrupt);
     });
 
     expect(mintIdempotencyKey).toHaveBeenCalledTimes(1);
@@ -66,12 +67,31 @@ describe("one control per run is in flight at a time", () => {
     const { result } = renderHook(() => useRunControlDispatch(bridge, UNUSED_CALLS));
 
     await act(async () => {
-      result.current.dispatch(RUN_ID, "interrupt", perform);
-      result.current.dispatch(RUN_ID, "pause", perform);
-      result.current.dispatch(OTHER_RUN_ID, "interrupt", perform);
+      result.current.dispatch({ runId: RUN_ID }, "interrupt", perform);
+      result.current.dispatch({ runId: RUN_ID }, "pause", perform);
+      result.current.dispatch({ runId: OTHER_RUN_ID }, "interrupt", perform);
     });
 
     expect(perform).toHaveBeenCalledTimes(3);
+  });
+
+  it("latches a steer per child, so a sibling's steer performs and a second to one child waits", async () => {
+    // A latch keyed by run alone refused the sibling's steer as in flight.
+    const perform = vi.fn(async () => ACKNOWLEDGED);
+    const bridge = inertBridge();
+    const { result } = renderHook(() => useRunControlDispatch(bridge, UNUSED_CALLS));
+
+    const admissions: RunControlAdmission[] = [];
+    await act(async () => {
+      admissions.push(
+        result.current.dispatch({ runId: RUN_ID, childHandle: "child-a" }, "steer", perform),
+        result.current.dispatch({ runId: RUN_ID, childHandle: "child-b" }, "steer", perform),
+        result.current.dispatch({ runId: RUN_ID, childHandle: "child-a" }, "steer", perform),
+      );
+    });
+
+    expect(admissions.map((admission) => admission.admitted)).toStrictEqual([true, true, false]);
+    expect(perform).toHaveBeenCalledTimes(2);
   });
 
   it("releases the latch on a rejected perform and hands the rejection to the caller", async () => {
@@ -83,17 +103,19 @@ describe("one control per run is in flight at a time", () => {
     const { result } = renderHook(() => useRunControlDispatch(bridge, UNUSED_CALLS));
 
     await act(async () => {
-      const admission = result.current.dispatch(RUN_ID, "interrupt", perform);
+      const admission = result.current.dispatch({ runId: RUN_ID }, "interrupt", perform);
       expect(admission.admitted).toBe(true);
       if (admission.admitted) {
         await expect(admission.settled).rejects.toBe(rejection);
       }
     });
     expect(result.current.records).toHaveLength(0);
-    expect(result.current.inFlightKeys.has(inFlightKeyFor(RUN_ID, "interrupt"))).toBe(false);
+    expect(result.current.inFlightKeys.has(inFlightKeyFor({ runId: RUN_ID }, "interrupt"))).toBe(
+      false,
+    );
 
     await act(async () => {
-      const again = result.current.dispatch(RUN_ID, "interrupt", perform);
+      const again = result.current.dispatch({ runId: RUN_ID }, "interrupt", perform);
       if (again.admitted) {
         await expect(again.settled).rejects.toBe(rejection);
       }
@@ -116,13 +138,13 @@ describe("the run controls' state belongs to the bridge it dispatched through", 
     );
 
     act(() => {
-      result.current.dispatch(RUN_ID, "interrupt", pendingOnFirstBridge.perform);
+      result.current.dispatch({ runId: RUN_ID }, "interrupt", pendingOnFirstBridge.perform);
     });
     rerender({ bridge: inertBridge() });
 
     let admission: RunControlAdmission | undefined;
     await act(async () => {
-      admission = result.current.dispatch(RUN_ID, "interrupt", performOnSecondBridge);
+      admission = result.current.dispatch({ runId: RUN_ID }, "interrupt", performOnSecondBridge);
     });
     expect(admission?.admitted).toBe(true);
     expect(performOnSecondBridge).toHaveBeenCalledTimes(1);

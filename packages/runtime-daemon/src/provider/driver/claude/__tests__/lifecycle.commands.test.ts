@@ -172,13 +172,16 @@ describe("ClaudeSessionLifecycle.compactContext", () => {
     async ({ arrange }) => {
       const harness = buildHarness({ mintProviderSessionId: mintSequentialProviderSessionIds() });
       const { channel, sessionId } = await arrange(harness);
+      // A handshake with no turn held is a turn Claude Code started, which the driver may stop.
+      await drainMicrotasks();
+      const callsBefore = channel.outboundCallCount;
 
       await expect(compactTestSession(harness, sessionId)).resolves.toStrictEqual({
         status: "refused",
         reason: "command_absent",
       });
       expect(channel.sentTexts).toStrictEqual([]);
-      expect(channel.outboundCallCount).toBe(0);
+      expect(channel.outboundCallCount).toBe(callsBefore);
     },
   );
 

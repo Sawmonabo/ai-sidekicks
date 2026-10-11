@@ -5,7 +5,6 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts/provider/driver/capabilities";
-import type { ApplyInterventionParams } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { HandlerContext } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
@@ -406,41 +405,35 @@ describe("driver.* — a refusal fires before any driver runs", () => {
     expect(claudeList).not.toHaveBeenCalled();
     expect(codexList).not.toHaveBeenCalled();
   });
+});
 
-  it("refuses a steer carrying attachments rather than dropping them", async () => {
-    // No driver resolves an attachment id to bytes, so forwarding the steer would lose them.
+describe("driver.applyIntervention — a steer never crosses the wire", () => {
+  it("refuses a steer at parse and hands an interrupt to the run's driver", async () => {
+    const applyIntervention = vi.fn(async () => ({ status: "applied" }) as const);
     const registry = new MethodRegistryImpl();
-    const applyIntervention = vi.fn(async () => ({ status: "applied" as const }));
     registerDriverApplyIntervention(registry, {
       providerRegistry: { lookup: () => driverDouble({ applyIntervention }) },
-      resolveDriverForRun: () => "codex",
+      resolveDriverForRun: () => "claude",
     });
-    const steer: ApplyInterventionParams = {
-      type: "steer",
+    const addressed = {
       targetRunId: TEST_RUN_ID,
-      expectedRunVersion: 3,
-      clientIdempotencyKey: "00000000-0000-4000-8000-00000000000a",
-      payload: { content: "use the other branch" },
+      expectedRunVersion: 2,
+      clientIdempotencyKey: "4a1f0c2e-0000-4000-8000-000000000001",
     };
 
-    const thrown = await rejectionOf(registry, "driver.applyIntervention", {
-      ...steer,
-      payload: { ...steer.payload, attachments: ["018f3a4c-7b21-7e55-9c04-2b6d9f1e77a0"] },
-    });
-    expect(mapJsonRpcError(thrown, 1).error.code).toBe(JsonRpcErrorCode.InvalidRequest);
-    expect(wireErrorData(thrown)).toMatchObject({
-      type: "driver.capability_unsupported",
-      fields: { driverId: "codex", operation: "applyIntervention" },
-    });
+    const steer = { ...addressed, type: "steer", payload: { content: "Skip the rename." } };
+    const refusal = mapJsonRpcError(
+      await rejectionOf(registry, "driver.applyIntervention", steer),
+      1,
+    );
+    expect(refusal.error.code).toBe(JsonRpcErrorCode.InvalidParams);
     expect(applyIntervention).not.toHaveBeenCalled();
 
-    // An empty or omitted attachment list carries nothing to lose, so the steer goes through.
-    for (const params of [{ ...steer, payload: { ...steer.payload, attachments: [] } }, steer]) {
-      await expect(
-        registry.dispatch("driver.applyIntervention", params, NO_TRANSPORT),
-      ).resolves.toStrictEqual({ status: "applied" });
-    }
-    expect(applyIntervention).toHaveBeenCalledTimes(2);
+    const interrupt = { ...addressed, type: "interrupt", payload: { pending: "nextTurn" } };
+    await expect(
+      registry.dispatch("driver.applyIntervention", interrupt, NO_TRANSPORT),
+    ).resolves.toStrictEqual({ status: "applied" });
+    expect(applyIntervention).toHaveBeenCalledWith(interrupt);
   });
 });
 

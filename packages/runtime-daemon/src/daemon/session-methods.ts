@@ -50,6 +50,7 @@ import {
   registerTranscriptSearch,
 } from "../ipc/handlers/transcript-methods.js";
 import type { StreamingPrimitive } from "../ipc/streaming-primitive.js";
+import type { AttachmentResolver } from "../provider/driver/attachments.js";
 import type { ProviderRegistry } from "../provider/driver/registry.js";
 import { ProviderConversationPurge } from "../provider/conversation-purge.js";
 import type { SpawnEnvNameMatch, SpawnEnvPair } from "../provider/spawn-env.js";
@@ -183,6 +184,8 @@ export interface RegisteredSessionServices {
    * held once it ends, for the run engine to register.
    */
   readonly setupGate: RunSetupGate;
+  /** Binds the files a message carries to their stored copies, for the drivers to hand over. */
+  readonly attachments: AttachmentResolver;
   /**
    * Starts the background work, once the recovery pass has ended: the self-naming, the related
    * lists' rename follow, the index's merging, the passes finishing the creates and removing the
@@ -507,6 +510,7 @@ export function registerSessionMethods(
     }),
     managedWorkspaceWrites: writeWatcher,
     setupGate: repo.setupGate,
+    attachments: artifacts.attachments,
     start: () => {
       if (isStopped) {
         return Promise.resolve();

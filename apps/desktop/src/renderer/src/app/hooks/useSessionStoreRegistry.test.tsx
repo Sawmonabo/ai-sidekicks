@@ -107,7 +107,7 @@ describe("useSessionStoreRegistry — the projectors the window's stores fold wi
     const store = registry.peek(sessionId);
     expect(store).toBeDefined();
     // The base state the fixture's own read establishes, so a later read changes nothing.
-    store?.initialize({ cursor: 0, entities: [] });
+    store?.initialize({ shape: "project", cursor: 0, entities: [] });
 
     act(() => {
       registry.enqueue(sessionId, [queuedRunEvent(sessionId, 1, "run-projection-1")]);

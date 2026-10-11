@@ -88,7 +88,7 @@ function openStoreOnScenario(scenario: Scenario): SessionStore {
   const sessionStore = new SessionStore({ sessionId: scenario.sessionId });
   // `composeScriptBeats` numbers beats from 0, as the daemon numbers a log, so the store starts
   // before the first: a base of 0 would refuse beat 0 as one it already holds.
-  sessionStore.initialize({ cursor: START_OF_LOG_POSITION, entities: [] });
+  sessionStore.initialize({ shape: "project", cursor: START_OF_LOG_POSITION, entities: [] });
   if (scenario.beats.length > 0) {
     sessionStore.applyBatch(scenario.beats.map((beat) => beat.event));
   }

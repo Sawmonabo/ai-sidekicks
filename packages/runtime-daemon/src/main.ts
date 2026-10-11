@@ -32,6 +32,7 @@ import { openOrphanGuard } from "./pty/orphan/guard.js";
 import { openOrphanOperatingSystem } from "./pty/orphan/operating-system.js";
 import { chooseDatabaseFileOperatingSystem } from "./recovery/database-file/operating-system.js";
 import { selectProviderOperatingSystem } from "./provider/operating-system/selection.js";
+import { selectProcessPeakReader } from "./admission/process-peak/selector.js";
 
 // First, so every service-log line from here on is kept in the file too.
 const homeDirectory = os.homedir();
@@ -116,6 +117,7 @@ const daemon = await DaemonProcess.start({
     }),
   commandShell: account.shell,
   providerOperatingSystem: selectProviderOperatingSystem(process.platform),
+  processPeakReader: selectProcessPeakReader(process.platform),
   terminalOperatingSystem,
   // Read from the account's record at each open, so a shell changed with `chsh` opens next.
   readLoginShell: () => os.userInfo().shell,

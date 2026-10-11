@@ -21,7 +21,7 @@ import {
  */
 export function openSessionStoreWithTerminalRunGroup(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-  sessionStore.initialize({ cursor: -1, entities: [] });
+  sessionStore.initialize({ shape: "project", cursor: -1, entities: [] });
   sessionStore.applyBatch([
     {
       id: transcriptFixtureEventId(0),
@@ -98,7 +98,7 @@ export function openSessionStoreWithTerminalRunGroup(): SessionStore {
 /** A store whose one run is still live and carries a compaction system message. */
 export function openSessionStoreWithSystemMessage(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-  sessionStore.initialize({ cursor: -1, entities: [] });
+  sessionStore.initialize({ shape: "project", cursor: -1, entities: [] });
   sessionStore.applyBatch([
     {
       id: transcriptFixtureEventId(0),
@@ -181,7 +181,7 @@ interface RunPositions {
 /** A store holding messages outside any run, and an ended and a live run at `positions`. */
 function openSessionStoreWithRunsAt(positions: RunPositions): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-  sessionStore.initialize({ cursor: -1, entities: [] });
+  sessionStore.initialize({ shape: "project", cursor: -1, entities: [] });
   sessionStore.applyBatch(
     Array.from({ length: positions.eventCount }, (_unused, index): ProjectedSessionEvent => {
       if (index >= positions.endedRunFirst && index <= positions.endedRunLast) {

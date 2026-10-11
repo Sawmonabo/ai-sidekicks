@@ -1,14 +1,17 @@
 // What the session directory answers the provider side: whether a session exists, the provider
-// its lead runs on, where and as whom each of its provider processes runs, the resume a restart
-// opens, and the binding each resume a driver started on its own minted.
+// its lead runs on, where and as whom each of its provider processes runs, what its provider
+// session opens with, the resume a restart opens, and the binding each resume a driver started on
+// its own minted.
 //
 // The lead is read from the session's log: `session.created` names it, a provider switch moves it,
 // and a session-long model switch the provider made moves the model it runs on. A session's leg is
-// its newest binding with a conversation to resume.
+// its newest binding with a conversation to resume. A session opens at its own permission level,
+// which is YOLO: a new session starts there, and no level a person picks is kept for it.
 
 import type { Database, Statement } from "better-sqlite3";
 
 import type { AgentProviderBinding } from "@ai-sidekicks/contracts/agent/definition";
+import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import type { AgentProviderBindingChangedPayload } from "@ai-sidekicks/contracts/agent/provider-binding";
 import type { UsageModelReroutedPayload } from "@ai-sidekicks/contracts/event/declared-variants";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
@@ -17,6 +20,7 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { describeRejection } from "../../rejection.js";
 import type { MachineSettingsFile } from "../../daemon/machine/settings/file.js";
+import { CURATED_CREDENTIAL_POLICY_REF } from "../../policy/execution-posture-service.js";
 import { readGitCommonFolder, type GitCommand } from "../../git/process.js";
 import type { DriverResumeResult, ResumeSessionParams } from "../../provider/driver/contract.js";
 import type { ClaudeAccountFolders, SessionEnvironmentRows } from "../../provider/spawn-env.js";
@@ -24,8 +28,14 @@ import {
   composeResumeSessionParams,
   type RuntimeBinding,
   type RuntimeBindingStore,
+  selectSessionLeg,
 } from "../../provider/runtime-binding-store.js";
+import type { ProviderSessionOpening } from "../../queue/provider-session.js";
 import type { ProjectRecords } from "../../workspace/project/records.js";
+import {
+  BOUND_ROOT_METADATA_PATH,
+  CHECKOUT_ROOT_METADATA_PATH,
+} from "../../workspace/row-guards.js";
 import { readSessionAdvisorModel, readSessionMode } from "../console-state.js";
 import { SESSION_RUN_IDS_SQL } from "../run/ids.js";
 import { SESSION_EXISTS_SQL } from "./lookups.js";
@@ -70,6 +80,15 @@ interface SessionLead {
   readonly runningModel: string;
 }
 
+// The posture a session's provider session opens at: the session's level, YOLO, since every new
+// session starts there and no other level is kept for one. YOLO writes anywhere, so it names no
+// writable root.
+const OPENING_POSTURE: ExecutionPosture = {
+  mode: "yolo",
+  writableRoots: [],
+  credentialPolicyRef: CURATED_CREDENTIAL_POLICY_REF,
+};
+
 // The events that name or move the lead, oldest first. A damaged row's payload may not be JSON.
 const LEAD_EVENTS_SQL = `SELECT type, payload FROM session_events
   WHERE session_id = ? AND json_valid(payload)
@@ -84,6 +103,15 @@ const OUTPUT_STYLE_SQL = `SELECT json_extract(payload, '$.outputStyle') AS outpu
 // The folder of the session's newest live workspace, once its root is ready.
 const WORKING_DIRECTORY_SQL = `SELECT fs_root AS workingDirectory FROM workspaces
   WHERE session_id = ? AND state <> 'archived' AND fs_root IS NOT NULL
+  ORDER BY created_at DESC, id DESC LIMIT 1`;
+
+// The folder the session's runs work in: its prepared root, else, before its first run prepares
+// one, the folder its workspace was bound to, or the checkout that holds it.
+const RUN_FOLDER_SQL = `SELECT COALESCE(fs_root,
+           json_extract(metadata, '${BOUND_ROOT_METADATA_PATH}'),
+           json_extract(metadata, '${CHECKOUT_ROOT_METADATA_PATH}')) AS folder
+  FROM workspaces
+  WHERE session_id = ? AND state <> 'archived'
   ORDER BY created_at DESC, id DESC LIMIT 1`;
 
 /** What the session directory's provider port reads and records through. */
@@ -110,6 +138,7 @@ export class SessionDirectoryProviderPort {
   readonly #selectLeadEvents: Statement<[string], { type: string; payload: string }>;
   readonly #selectOutputStyle: Statement<[string], { outputStyle: string }>;
   readonly #selectWorkingDirectory: Statement<[string], { workingDirectory: string }>;
+  readonly #selectRunFolder: Statement<[string], { folder: string | null }>;
   readonly #selectRunIds: Statement<{ sessionId: string }, { runId: string }>;
 
   /** Every spawn's context, the same for both drivers. */
@@ -128,6 +157,7 @@ export class SessionDirectoryProviderPort {
     this.#selectLeadEvents = deps.reader.prepare(LEAD_EVENTS_SQL);
     this.#selectOutputStyle = deps.reader.prepare(OUTPUT_STYLE_SQL);
     this.#selectWorkingDirectory = deps.reader.prepare(WORKING_DIRECTORY_SQL);
+    this.#selectRunFolder = deps.reader.prepare(RUN_FOLDER_SQL);
     this.#selectRunIds = deps.reader.prepare(SESSION_RUN_IDS_SQL);
   }
 
@@ -141,13 +171,43 @@ export class SessionDirectoryProviderPort {
     return this.#readLead(sessionId)?.binding.driverName;
   }
 
+  /** The provider binding the session's lead runs on, or `undefined` for a session with no lead. */
+  readLeadBinding(sessionId: SessionId): AgentProviderBinding | undefined {
+    return this.#readLead(sessionId)?.binding;
+  }
+
+  /**
+   * What the session's provider session opens with: its lead's provider, the model it runs on now
+   * and the account and output speed it names, at YOLO. Throws for a session with no lead.
+   */
+  composeOpening(sessionId: SessionId): Promise<ProviderSessionOpening> {
+    const lead = this.#readLead(sessionId);
+    if (lead === undefined) {
+      return Promise.reject(new Error(`Session ${sessionId} names no lead to open`));
+    }
+    const { binding } = lead;
+    return Promise.resolve({
+      driverName: binding.driverName,
+      createParams: {
+        sessionId,
+        config: {},
+        model: lead.runningModel,
+        largerWindow: binding.largerWindow,
+        executionPosture: OPENING_POSTURE,
+        outputSpeed: binding.outputSpeed,
+        providerAccountId: binding.providerAccountId ?? undefined,
+      },
+      functionLegsFor: () => ({}),
+    });
+  }
+
   /**
    * The resume that brings the session's leg back on the model its lead runs on now, in the mode
    * it was last moved to, or `undefined` for a session with no lead or no conversation to resume.
    */
   resolveRestartTarget(sessionId: SessionId): SessionRestartTarget | undefined {
     const lead = this.#readLead(sessionId);
-    const binding = this.#readLeg(sessionId);
+    const binding = this.readSessionLeg(sessionId);
     if (lead === undefined || binding === undefined) {
       return undefined;
     }
@@ -188,7 +248,7 @@ export class SessionDirectoryProviderPort {
     sessionId: SessionId,
     result: Extract<DriverResumeResult, { status: "resumed" }>,
   ): Promise<void> {
-    const predecessor = this.#readLeg(sessionId);
+    const predecessor = this.readSessionLeg(sessionId);
     if (predecessor?.resumeHandle == null) {
       throw new Error("the session has no binding the relaunch replaced");
     }
@@ -231,22 +291,22 @@ export class SessionDirectoryProviderPort {
     };
   }
 
-  // The session's newest binding with a conversation to resume.
-  #readLeg(sessionId: SessionId): RuntimeBinding | undefined {
-    const runIds = this.#selectRunIds.all({ sessionId }).map((row) => row.runId);
-    let newest: RuntimeBinding | undefined;
-    for (const binding of this.#runtimeBindings.findByRuns(runIds)) {
-      if (
-        binding.resumeHandle !== null &&
-        binding.resumeHandle.length > 0 &&
-        (newest === undefined ||
-          binding.createdAt > newest.createdAt ||
-          (binding.createdAt === newest.createdAt && binding.id > newest.id))
-      ) {
-        newest = binding;
-      }
+  /**
+   * The folder the session's runs work in, read before its first run has prepared it too. Throws
+   * for a session with no workspace.
+   */
+  requireRunFolder(sessionId: SessionId): string {
+    const folder = this.#selectRunFolder.get(sessionId)?.folder ?? undefined;
+    if (folder === undefined) {
+      throw new Error(`Session ${sessionId} has no workspace to work in`);
     }
-    return newest;
+    return folder;
+  }
+
+  /** The session's newest binding with a conversation to resume, or `undefined` for none. */
+  readSessionLeg(sessionId: SessionId): RuntimeBinding | undefined {
+    const runIds = this.#selectRunIds.all({ sessionId }).map((row) => row.runId);
+    return selectSessionLeg(this.#runtimeBindings.findByRuns(runIds));
   }
 
   #readLead(sessionId: SessionId): SessionLead | undefined {

@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { COMPOSER_HISTORY_RECALL_CAP, COMPOSER_RETAINED_ADDRESS_CAP } from "../bounds.js";
+import { COMPOSER_HISTORY_RECALL_CAP, COMPOSER_RETAINED_SESSION_CAP } from "../bounds.js";
 import { SentMessageHistories, SentMessageHistory } from "./sent-message-history.js";
 
 describe("recall walks sent messages and gives the draft back", () => {
@@ -33,17 +33,17 @@ describe("recall walks sent messages and gives the draft back", () => {
   });
 });
 
-describe("histories are per address, so a walk never crosses a rebinding", () => {
-  it("evicts the least recently addressed past the retained-address cap", () => {
+describe("histories are per session, so a walk never crosses a switch of session", () => {
+  it("evicts the least recently used past the retained-session cap", () => {
     const histories = new SentMessageHistories();
-    for (let index = 0; index <= COMPOSER_RETAINED_ADDRESS_CAP; index += 1) {
-      histories.forAddress(`address ${String(index)}`).recordSent(`message ${String(index)}`);
+    for (let index = 0; index <= COMPOSER_RETAINED_SESSION_CAP; index += 1) {
+      histories.forDraftKey(`session ${String(index)}`).recordSent(`message ${String(index)}`);
     }
 
-    // The least recent address is the one dropped, not the most recent.
-    expect(histories.forAddress("address 0").recallOlder("")).toBeUndefined();
+    // The least recent session is the one dropped, not the most recent.
+    expect(histories.forDraftKey("session 0").recallOlder("")).toBeUndefined();
     expect(
-      histories.forAddress(`address ${String(COMPOSER_RETAINED_ADDRESS_CAP)}`).recallOlder(""),
-    ).toBe(`message ${String(COMPOSER_RETAINED_ADDRESS_CAP)}`);
+      histories.forDraftKey(`session ${String(COMPOSER_RETAINED_SESSION_CAP)}`).recallOlder(""),
+    ).toBe(`message ${String(COMPOSER_RETAINED_SESSION_CAP)}`);
   });
 });

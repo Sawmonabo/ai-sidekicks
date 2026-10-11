@@ -20,7 +20,7 @@
   padding: var(--meridian-space-3);
   background: var(--meridian-surface);
   border: 1px solid var(--meridian-edge);
-  border-radius: var(--meridian-radius-md);
+  border-radius: var(--meridian-radius-lg);
 }
 
 /*
@@ -39,9 +39,15 @@
   color: var(--meridian-text);
   font: inherit;
   font-family: var(--meridian-font-sans);
-  background: var(--meridian-ground);
-  border: 1px solid var(--meridian-edge);
+  font-size: var(--meridian-text-sm);
+  /* The card is the frame: the line draws no ground or edge of its own. */
+  background: transparent;
+  border: 0;
   border-radius: var(--meridian-radius-sm);
+}
+
+.meridian-composer__line ::placeholder {
+  color: var(--meridian-text-faint);
 }
 
 /* Focus marks the whole card; the message box draws none of its own. */
@@ -65,21 +71,4 @@
   align-items: center;
   justify-content: flex-end;
   margin-top: var(--meridian-space-2);
-}
-
-/* The one primary action, so it alone carries the accent. Accent boundary and ink rather than a
-   fill: `accent-text` on the `accent` fill fails WCAG 1.4.3 in both schemes. This label measures
-   6.38:1 light and 11.49:1 dark; the boundary clears the 3:1 non-text floor against the send box
-   (4.17:1 light, 7.77:1 dark). Shares the action button class from `styles/action-buttons.css`;
-   these rules add its size and face. */
-.meridian-composer__primary {
-  padding: var(--meridian-space-1) var(--meridian-space-3);
-  color: var(--meridian-accent-text);
-  background: var(--meridian-surface);
-  border-color: var(--meridian-accent);
-}
-
-.meridian-composer__primary[disabled] {
-  cursor: progress;
-  opacity: 0.6;
 }

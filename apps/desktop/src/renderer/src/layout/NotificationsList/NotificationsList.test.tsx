@@ -53,7 +53,7 @@ describe("what makes the attention read run again", () => {
 
   /** Open one session whose store has a base state, so a settled event projects. */
   function openInitializedSession(registry: SessionStoreRegistry): string {
-    registry.open(SESSION_A).initialize({ cursor: 0, entities: [] });
+    registry.open(SESSION_A).initialize({ shape: "project", cursor: 0, entities: [] });
     return SESSION_A;
   }
 

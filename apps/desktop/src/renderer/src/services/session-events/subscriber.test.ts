@@ -90,7 +90,7 @@ describe("SessionEventSubscriber — the console's one subscription to the wire"
     const registry = new SessionStoreRegistry({
       read: (_sessionId, reasons) => {
         reasonsSeen.push(...reasons);
-        return Promise.resolve({ entities: [] });
+        return Promise.resolve({ shape: "project", entities: [] });
       },
       clock: engine.clock,
       openingPageLimit,

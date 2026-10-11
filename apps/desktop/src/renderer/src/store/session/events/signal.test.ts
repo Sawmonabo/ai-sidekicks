@@ -22,7 +22,7 @@ describe("subscribeToSessionEventKinds", () => {
     {
       repair: "a replay landing the lost watched row",
       landHole: (store: SessionStore): void => {
-        store.repair({ entities: [] }, { from: "head", headCursor: undefined });
+        store.repair({ shape: "project", entities: [] }, { from: "head", headCursor: undefined });
         store.applyBatch([runRowAt(6), watchedRowAt(7), runRowAt(8)]);
       },
     },
@@ -30,6 +30,7 @@ describe("subscribeToSessionEventKinds", () => {
       repair: "a snapshot whose window holds none of the rows the hole lost",
       landHole: (store: SessionStore): void => {
         store.initialize({
+          shape: "project",
           cursor: 20,
           entities: [],
           transcript: [runRowAt(19), runRowAt(20)],
@@ -38,7 +39,7 @@ describe("subscribeToSessionEventKinds", () => {
     },
   ])("signals once on $repair, and not again for what follows", ({ landHole }) => {
     const store = new SessionStore({ sessionId: SESSION_ID });
-    store.initialize({ cursor: 5, entities: [] });
+    store.initialize({ shape: "project", cursor: 5, entities: [] });
     let signals = 0;
     const unsubscribe = subscribeToSessionEventKinds(store, ["workspace.ready"], () => {
       signals += 1;

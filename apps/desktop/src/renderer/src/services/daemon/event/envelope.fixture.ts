@@ -1,8 +1,8 @@
-// One authored beat composed into the wire envelope the daemon would have sent, and a run of them
-// into the `session.subscribe` frames that carry them. A scenario is authored in
-// `ProjectedSessionEvent`s, but `session.subscribe` carries the canonical `EventEnvelope`
-// (`packages/contracts/src/event/envelope.ts`), whose event type is `type` and whose attribution
-// is `actor`.
+// One authored beat composed into the wire envelope the daemon would have sent, a run of them
+// into the `session.subscribe` frames that carry them, and the frame cut every stream shares. A
+// scenario is authored in `ProjectedSessionEvent`s, but `session.subscribe` carries the canonical
+// `EventEnvelope` (`packages/contracts/src/event/envelope.ts`), whose event type is `type` and
+// whose attribution is `actor`.
 // A fixture that delivered the authoring shape would agree with the app's decode boundary and
 // with nothing the daemon sends, so this is the one place the first becomes the second.
 //
@@ -84,23 +84,33 @@ export function composeScenarioEventEnvelope(
 }
 
 /**
- * Compose the `session.subscribe` frames one batch of beats is delivered in: frames of at most
- * `STREAM_FRAME_MAX_CHANGES`, oldest first. The fixture never falls behind, so no frame carries
- * the drop mark, and an empty batch is no frame at all. Each change carries its beat's cursor and
- * the run stamp the beat was given.
+ * Compose the `session.subscribe` frames one batch of beats is delivered in, cut as
+ * {@link composeScenarioStreamFrames} cuts them. Each change carries its beat's cursor and the
+ * run stamp the beat was given.
  */
 export function composeScenarioSessionFrames(
   events: readonly ProjectedSessionEvent[],
 ): readonly ScenarioSessionStreamFrame[] {
-  const frames: ScenarioSessionStreamFrame[] = [];
-  for (let start = 0; start < events.length; start += STREAM_FRAME_MAX_CHANGES) {
-    frames.push({
-      changes: events.slice(start, start + STREAM_FRAME_MAX_CHANGES).map((event) => ({
-        cursor: event.cursor,
-        event: composeScenarioEventEnvelope(event),
-        ...(event.runStamp === undefined ? {} : { runStamp: event.runStamp }),
-      })),
-    });
+  return composeScenarioStreamFrames(
+    events.map((event) => ({
+      cursor: event.cursor,
+      event: composeScenarioEventEnvelope(event),
+      ...(event.runStamp === undefined ? {} : { runStamp: event.runStamp }),
+    })),
+  );
+}
+
+/**
+ * Cut one batch of a stream's changes into the frames that carry them: at most
+ * `STREAM_FRAME_MAX_CHANGES` each, oldest first. The fixture never falls behind, so no frame
+ * carries the drop mark, and an empty batch is no frame at all.
+ */
+export function composeScenarioStreamFrames<Change>(
+  changes: readonly Change[],
+): readonly StreamFrame<Change, string>[] {
+  const frames: StreamFrame<Change, string>[] = [];
+  for (let start = 0; start < changes.length; start += STREAM_FRAME_MAX_CHANGES) {
+    frames.push({ changes: changes.slice(start, start + STREAM_FRAME_MAX_CHANGES) });
   }
   return frames;
 }

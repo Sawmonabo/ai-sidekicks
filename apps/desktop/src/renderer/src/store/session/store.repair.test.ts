@@ -18,7 +18,7 @@ const SESSION_ID = "session-1";
 const AT_HEAD: RepairReopening = { from: "head", headCursor: undefined };
 
 /** A repair read's base state, which carries no rows and no live runs here. */
-const REPAIR_READ: SessionBaseState = { entities: [] };
+const REPAIR_READ: SessionBaseState = { shape: "project", entities: [] };
 
 function eventAt(sequence: number): ProjectedSessionEvent {
   return eventOfKind(SESSION_ID, "run.starting", sequence);
@@ -43,7 +43,7 @@ function afterRow(sequence: number): RepairReopening {
 
 /** A repair read's base state with the stream reopened after the row at `sequence`. */
 function readAfterRow(sequence: number): SessionBaseState {
-  return { entities: [], streamAfterCursor: cursorAt(sequence) };
+  return { shape: "project", entities: [], streamAfterCursor: cursorAt(sequence) };
 }
 
 /** One run per `run.starting` row, named for its sequence; the row at `failingSequence` throws. */
@@ -70,7 +70,7 @@ function runSequencesOf(state: SessionStoreState): number[] {
 describe("a repair read lands on a store that already holds a window", () => {
   it("keeps a degraded window on screen until its replay passes the rows it held", () => {
     const store = new SessionStore({ sessionId: SESSION_ID });
-    store.initialize({ cursor: 5, entities: [] });
+    store.initialize({ shape: "project", cursor: 5, entities: [] });
     store.applyBatch(eventsAt([6, 8]));
     // A row the old stream hands over before the read lands still joins the window.
     store.applyBatch(eventsAt([9]));
@@ -103,7 +103,7 @@ describe("a repair read lands on a store that already holds a window", () => {
 
   it("keeps a cause raised during the replay past the swap, so the next read still repairs", () => {
     const store = new SessionStore({ sessionId: SESSION_ID });
-    store.initialize({ cursor: 5, entities: [] });
+    store.initialize({ shape: "project", cursor: 5, entities: [] });
     store.applyBatch(eventsAt([6, 8]));
     store.repair(REPAIR_READ, AT_HEAD);
 
@@ -120,12 +120,12 @@ describe("a repair read lands on a store that already holds a window", () => {
     // Guards against admitting every read, which would rebuild the projection on each focus
     // refresh and empty the transcript for a base state carrying none.
     const store = new SessionStore({ sessionId: SESSION_ID });
-    store.initialize({ cursor: 0, entities: [] });
+    store.initialize({ shape: "project", cursor: 0, entities: [] });
     store.apply(eventAt(1));
     const before = store.snapshot();
 
-    expect(store.initialize({ entities: [] })).toBe(false);
-    expect(store.initialize({ cursor: 9, entities: [] })).toBe(false);
+    expect(store.initialize({ shape: "project", entities: [] })).toBe(false);
+    expect(store.initialize({ shape: "project", cursor: 9, entities: [] })).toBe(false);
     expect(store.repair(readAfterRow(1), afterRow(1))).toBe(false);
 
     expect(store.snapshot()).toBe(before);
@@ -134,7 +134,7 @@ describe("a repair read lands on a store that already holds a window", () => {
 
   it("marks a healthy store degraded with the cause it is handed", () => {
     const store = new SessionStore({ sessionId: SESSION_ID });
-    store.initialize({ cursor: 0, entities: [] });
+    store.initialize({ shape: "project", cursor: 0, entities: [] });
 
     store.markDegraded("subscription-closed");
 
@@ -145,7 +145,7 @@ describe("a repair read lands on a store that already holds a window", () => {
 describe("a repair takes the stream up again from the last row the window holds whole", () => {
   it("replays a hole from the row before it, onto the partitions that stood there", () => {
     const store = new SessionStore({ sessionId: SESSION_ID, projectors: runPerRow() });
-    store.initialize({ entities: [] });
+    store.initialize({ shape: "project", entities: [] });
     store.applyBatch(eventsAt([1, 2, 3]));
     store.applyBatch(eventsAt([5, 6]));
     const held = store.snapshot();
@@ -189,7 +189,7 @@ describe("a repair takes the stream up again from the last row the window holds 
     },
   ])("sets the checkpoint at the row before $fault, and a later hole keeps it", (scenario) => {
     const store = new SessionStore({ sessionId: SESSION_ID, projectors: scenario.projectors });
-    store.initialize({ entities: [] });
+    store.initialize({ shape: "project", entities: [] });
     store.applyBatch(eventsAt(scenario.rows));
     // Rows that fold whole, then a hole, which would set a checkpoint of its own.
     store.applyBatch(eventsAt(scenario.then));
@@ -204,7 +204,7 @@ describe("a repair takes the stream up again from the last row the window holds 
 
   it("stands a window that lost only its stream whole, replaying nothing", () => {
     const store = new SessionStore({ sessionId: SESSION_ID });
-    store.initialize({ entities: [] });
+    store.initialize({ shape: "project", entities: [] });
     store.applyBatch(eventsAt([1, 2, 3]));
     store.markDegraded("stream-diverged");
     const held = store.snapshot();
@@ -220,7 +220,7 @@ describe("a repair takes the stream up again from the last row the window holds 
 
   it("replays from the head when the fault came before any row the stream sent", () => {
     const store = new SessionStore({ sessionId: SESSION_ID, projectors: runPerRow(1) });
-    store.initialize({ entities: [] });
+    store.initialize({ shape: "project", entities: [] });
     store.applyBatch(eventsAt([1, 2]));
     const held = store.snapshot();
     expect(held.repairResumePoint).toStrictEqual({ kind: "head" });
@@ -234,7 +234,7 @@ describe("a repair takes the stream up again from the last row the window holds 
 
   it("replays a hole the replay opened from the replay's own last whole row", () => {
     const store = new SessionStore({ sessionId: SESSION_ID, projectors: runPerRow() });
-    store.initialize({ entities: [] });
+    store.initialize({ shape: "project", entities: [] });
     store.applyBatch(eventsAt([1, 2, 4, 5, 6]));
     store.repair(readAfterRow(2), afterRow(2));
     // The replay folds the window's hole, then opens one of its own.
@@ -261,6 +261,7 @@ describe("what a window keeps across its repair", () => {
       eventOfKind(SESSION_ID, "pty.control_changed", sequence, { terminalId });
     const store = new SessionStore({ sessionId: SESSION_ID });
     store.initialize({
+      shape: "project",
       entities: [],
       streamAfterCursor: WINDOW_HEAD,
       transcriptHead: { cursor: WINDOW_HEAD, hasMore: true },
@@ -270,6 +271,7 @@ describe("what a window keeps across its repair", () => {
 
     // The read carries a shell's lease from below the window, and a page during the replay another.
     const repairRead: SessionBaseState = {
+      shape: "project",
       entities: [],
       standingEvents: [leaseChangeAt(3, "shell-1")],
     };
@@ -292,7 +294,7 @@ describe("what a window keeps across its repair", () => {
 
   it("folds a replay past a detached tail into the entities and holds none of its rows", () => {
     const store = new SessionStore({ sessionId: SESSION_ID, projectors: runPerRow() });
-    store.initialize({ entities: [] });
+    store.initialize({ shape: "project", entities: [] });
     store.applyBatch(eventsAt([1, 2, 3, 4, 6]));
     store.releaseOutside(cursorAt(1), cursorAt(3));
     const held = store.snapshot();
@@ -315,7 +317,7 @@ describe("what a window keeps across its repair", () => {
 
   it("detaches a tail a forward page made live while the replay ran, short of the stream", () => {
     const store = new SessionStore({ sessionId: SESSION_ID });
-    store.initialize({ entities: [] });
+    store.initialize({ shape: "project", entities: [] });
     store.applyBatch(eventsAt([1, 2, 3, 4, 6]));
     store.releaseOutside(cursorAt(1), cursorAt(2));
     store.repair(readAfterRow(4), afterRow(4));
@@ -338,7 +340,7 @@ describe("what a window keeps across its repair", () => {
 describe("the counts a failure is said again by", () => {
   it("keeps a read that failed while the replay ran counted past the swap", () => {
     const store = new SessionStore({ sessionId: SESSION_ID });
-    store.initialize({ entities: [] });
+    store.initialize({ shape: "project", entities: [] });
     store.applyBatch(eventsAt([1, 3]));
     store.repair(readAfterRow(1), afterRow(1));
 
@@ -354,7 +356,7 @@ describe("the counts a failure is said again by", () => {
 
   it("counts a cause a replay raises again each time it comes to stand, at a swap too", () => {
     const store = new SessionStore({ sessionId: SESSION_ID, projectors: runPerRow(3) });
-    store.initialize({ entities: [] });
+    store.initialize({ shape: "project", entities: [] });
     store.applyBatch(eventsAt([1, 2, 3, 4]));
     expect(store.snapshot().raisedAgainCauseCount).toBe(1);
     // A cause already standing is not raised again.

@@ -11,9 +11,11 @@ import {
   TEST_EXECUTION_POSTURE,
   makeQueueItem,
   makeRecordingDriver,
+  startOnDriver,
   openRunEngineFixture,
   type RecordingDriver,
   type RunEngineFixture,
+  refuseDriverInterrupt,
 } from "./engine.test-support.js";
 
 describe("run settle after a restart", () => {
@@ -34,8 +36,9 @@ describe("run settle after a restart", () => {
       runId,
       queueItem: makeQueueItem(),
       provider: "claude",
-      driver,
-      driverParams: { agentConfig: {} },
+      outputSpeed: undefined,
+      interruptDriver: refuseDriverInterrupt,
+      startDriver: startOnDriver(driver, runId),
       executionPosture: TEST_EXECUTION_POSTURE,
     });
   }

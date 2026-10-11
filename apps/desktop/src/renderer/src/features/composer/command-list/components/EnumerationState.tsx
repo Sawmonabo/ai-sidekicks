@@ -20,16 +20,14 @@ export function EnumerationState(props: {
   const { enumeration, addressedGroup } = props;
   switch (enumeration.phase) {
     case "not-checked":
-      // Drawn as the list opens, so it is read by browsing rather than said.
+      // The lead has no live run to ask. Drawn as the list opens, so it is read by browsing
+      // rather than said.
       return (
         <div className="meridian-command-discovery__state">
           <Nothing
             kind="not-checked"
-            title="No sidekick is addressed, so no provider was asked"
-            detail={
-              "Focus a sidekick's pane to see the commands and skills its " +
-              "bound provider publishes."
-            }
+            title="The sidekick is not running, so its provider was not asked"
+            detail="Its provider's commands and skills are listed here while it runs."
           />
         </div>
       );

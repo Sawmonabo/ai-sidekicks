@@ -11,6 +11,11 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { mintUuidV7 } from "../../../../uuid-v7.js";
 import type { OutboundText } from "../../../outbound-text.js";
 import { isPlainObject } from "../../../record-readers.js";
+import {
+  composeMessageText,
+  resolveMessageAttachments,
+  type AttachmentResolver,
+} from "../../attachments.js";
 import type { RespondToRequestParams } from "../../contract.js";
 import type {
   AnswerProviderChoiceParams,
@@ -22,6 +27,7 @@ import type {
   WithdrawQueuedMessageParams,
   WithdrawQueuedMessageResult,
 } from "../../run-control.js";
+import { composeClaudeAttachmentBlocks } from "../attachments.js";
 import type { ClaudeProviderDialogs } from "../delivery/dialogs.js";
 import type { ClaudeInboundRequests } from "../delivery/requests.js";
 import { composeClaudeOverrideSentence } from "../delivery/reviewer.js";
@@ -36,6 +42,7 @@ import { attemptClaudeFrameWrite } from "../session/stdin-write.js";
 import {
   CLAUDE_REQUEST_DEADLINE_MS,
   ClaudeControlRequestRefusedError,
+  type ClaudeUserContentBlock,
 } from "../session/transport.js";
 import type { ClaudeSentPrompts } from "./prompts.js";
 import type { ClaudeRunRoutes } from "./routes.js";
@@ -56,13 +63,7 @@ export interface ClaudeRunControlsDependencies {
     opening: ClaudeDaemonTurnOpening,
   ) => Promise<RunId>;
   readonly prompts: ClaudeSentPrompts;
-}
-
-// A helper continued with words reads them as the reason its held call was refused.
-function composeHelperSteer(messages: readonly WaitingMessage[]): string | undefined {
-  return messages.length === 0
-    ? undefined
-    : messages.map((message) => message.content).join("\n\n");
+  readonly attachments: AttachmentResolver;
 }
 
 /** Interrupt, pause, continue, withdraw and answers on live Claude runs. */
@@ -119,8 +120,13 @@ export class ClaudeRunControls implements ClaudeInterventionSettlement {
       : undefined;
   }
 
-  /** Sends a message as the session's next turn once the ended run releases its turn. */
-  async sendAsNextTurn(sessionId: SessionId, content: string, messageId: string): Promise<RunId> {
+  /** Sends a message and its files as the session's next turn once the ended run releases it. */
+  async sendAsNextTurn(
+    sessionId: SessionId,
+    content: string,
+    messageId: string,
+    attachmentBlocks: readonly ClaudeUserContentBlock[],
+  ): Promise<RunId> {
     const { runRoutes, startDaemonTurn } = this.#dependencies;
     if (!(await runRoutes.whenTurnReleased(sessionId, CLAUDE_REQUEST_DEADLINE_MS))) {
       throw new ClaudeSessionUnavailableError("session_turn_in_flight", { sessionId });
@@ -129,6 +135,7 @@ export class ClaudeRunControls implements ClaudeInterventionSettlement {
       kind: "text",
       text: { text: content, origin: "human_text" },
       messageId,
+      attachmentBlocks,
     });
   }
 
@@ -139,7 +146,7 @@ export class ClaudeRunControls implements ClaudeInterventionSettlement {
 
   /** Holds the turn end an intervention's interrupt causes until the interrupt settles. */
   holdTurnEndForInterrupt(runId: RunId): void {
-    this.#dependencies.stream.markDaemonEnded(runId, false);
+    this.#dependencies.stream.holdTurnEndForInterrupt(runId);
   }
 
   /** Delivers the held turn end as `interrupted` once answered, else as Claude Code sent it. */
@@ -167,20 +174,34 @@ export class ClaudeRunControls implements ClaudeInterventionSettlement {
 
   /**
    * Continues a run with the messages that waited for it. A helper's held call is answered, with
-   * the messages as the person's words when there are any; the lead's waiting messages go as user
-   * messages, the first of them starting its next turn when its last one ended on the pause.
-   * Throws with no live session, `session_turn_in_flight` while another turn holds the session,
-   * and a failed write's cause.
+   * the messages as the person's words when there are any, each file a line naming its path, and
+   * with no words when a file's lookup fails, which then throws; the lead's waiting messages go as
+   * user messages with their files, the first of them starting its next turn when its last one
+   * ended on the pause. Throws with no live session, `session_turn_in_flight` while another turn
+   * holds the session, the lead's files' resolution or read failure before anything is sent, and a
+   * failed write's cause.
    */
   async resumeRun(params: ResumeRunParams): Promise<void> {
     const live = this.#requireLive(params.sessionId);
-    const { runRoutes, pauses, hookCallbacks } = this.#dependencies;
+    const { runRoutes, pauses, hookCallbacks, attachments } = this.#dependencies;
     const child = runRoutes.childRouteFor(params.runId);
     if (child !== undefined) {
-      const steer = composeHelperSteer(params.messages);
-      hookCallbacks.release(live, pauses.resumeHelper(params.sessionId, child.agentId, steer));
+      // A failed file lookup still continues the helper, with no words, before it surfaces, so its
+      // held call never waits on a resume that already failed.
+      let steer: string | undefined;
+      try {
+        steer = await this.#composeHelperSteer(params.sessionId, params.messages);
+      } finally {
+        hookCallbacks.release(live, pauses.resumeHelper(params.sessionId, child.agentId, steer));
+      }
       return;
     }
+    const blocksByMessage = await Promise.all(
+      params.messages.map(
+        async (message) =>
+          await composeClaudeAttachmentBlocks(attachments, params.sessionId, message.attachments),
+      ),
+    );
     // The run holds the session's turn again, so the turn its messages start ends on its route;
     // while another run or a command holds it, the messages would land in that turn instead, so
     // nothing is continued.
@@ -199,14 +220,15 @@ export class ClaudeRunControls implements ClaudeInterventionSettlement {
       }
     }
     pauses.resumeLead(params.sessionId);
-    for (const message of params.messages) {
-      await this.#writeMessage(live, message.content, message.id);
+    for (const [index, message] of params.messages.entries()) {
+      await this.#writeMessage(live, message.content, message.id, blocksByMessage[index]);
     }
   }
 
   /**
-   * Takes back a message written into a running turn: `withdrawn` before Claude Code read it,
-   * `already_delivered` once it had. Throws with no live session and when the request is refused.
+   * Takes back a message written into a running turn: `withdrawn` before Claude Code read it, a
+   * run that went on to its next turn for that message alone then ending, `already_delivered` once
+   * it had. Throws with no live session and when the request is refused.
    */
   async withdrawQueuedMessage(
     params: WithdrawQueuedMessageParams,
@@ -220,7 +242,13 @@ export class ClaudeRunControls implements ClaudeInterventionSettlement {
       throw new ClaudeControlRequestRefusedError("cancel_async_message", response.error);
     }
     if (isPlainObject(response.response) && response.response["cancelled"] === true) {
-      this.#dependencies.prompts.forgetSent(params.sessionId, params.clientIdempotencyKey);
+      const steeredRunId = this.#dependencies.prompts.forgetSent(
+        params.sessionId,
+        params.clientIdempotencyKey,
+      );
+      if (steeredRunId !== undefined) {
+        this.#dependencies.stream.releaseCarriedTurn(steeredRunId);
+      }
       return { status: "withdrawn" };
     }
     return { status: "already_delivered" };
@@ -266,10 +294,35 @@ export class ClaudeRunControls implements ClaudeInterventionSettlement {
     await this.#writeMessage(live, text, mintUuidV7());
   }
 
+  // A helper continued with words reads them as the reason its held call was refused, so its files
+  // reach it as lines naming their paths.
+  async #composeHelperSteer(
+    sessionId: SessionId,
+    messages: readonly WaitingMessage[],
+  ): Promise<string | undefined> {
+    if (messages.length === 0) {
+      return undefined;
+    }
+    const words = await Promise.all(
+      messages.map(async (message) =>
+        composeMessageText(
+          message.content,
+          await resolveMessageAttachments(
+            this.#dependencies.attachments,
+            sessionId,
+            message.attachments,
+          ),
+        ),
+      ),
+    );
+    return words.join("\n\n");
+  }
+
   async #writeMessage(
     live: LiveClaudeSession,
     outboundText: OutboundText | string,
     messageUuid: string,
+    attachmentBlocks?: readonly ClaudeUserContentBlock[],
   ): Promise<void> {
     const attempt = await attemptClaudeFrameWrite(
       live.channel,
@@ -277,6 +330,7 @@ export class ClaudeRunControls implements ClaudeInterventionSettlement {
         ? { text: outboundText, origin: "human_text" }
         : outboundText,
       messageUuid,
+      attachmentBlocks,
     );
     if (attempt.settled === "failed") {
       throw attempt.cause;

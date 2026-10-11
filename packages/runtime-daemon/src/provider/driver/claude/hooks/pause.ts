@@ -106,6 +106,12 @@ export class ClaudeRunPauses {
     return leadPause.runId;
   }
 
+  /** The lead run whose pause already took effect and still holds, or `undefined`. */
+  reportedLeadPause(sessionId: SessionId): RunId | undefined {
+    const leadPause = this.#leadPauses.get(sessionId);
+    return leadPause?.effectReported === true ? leadPause.runId : undefined;
+  }
+
   /** Continues the lead; a pause that had not yet stopped a turn is dropped. */
   resumeLead(sessionId: SessionId): void {
     this.#leadPauses.delete(sessionId);

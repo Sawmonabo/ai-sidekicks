@@ -1,24 +1,24 @@
-// Where the composer is addressed, resolved once from the store and the focused pane. Every
-// zone calls this hook rather than receiving the answer from the host; the memo over the two
-// partitions is a pointer comparison because the store merges immutably.
+// Where the composer is addressed, resolved once from the session's store. Every
+// zone calls this hook rather than receiving the answer from the host; the memo over the standing
+// events and the run partition is a pointer comparison because the store merges immutably.
 
 import { useMemo } from "react";
 
-import { useSessionPartition } from "#renderer/store/session/hooks/useOpenSessionStore.js";
+import {
+  useSessionPartition,
+  useSessionStore,
+} from "#renderer/store/session/hooks/useOpenSessionStore.js";
+import { selectStandingEvents } from "#renderer/store/session/selectors.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
-import type { PaneAddress } from "#renderer/routing/panes/address.js";
 import { resolveComposerTarget, type ComposerTarget } from "../target.js";
 
-/** Resolve where the composer is addressed within one session. */
-export function useComposerAddress(
-  sessionStore: SessionStore,
-  focusedPane: PaneAddress | undefined,
-): ComposerTarget {
-  const agents = useSessionPartition(sessionStore, "agent");
+/** Resolve where the composer is addressed within one session: the session or the lead's run. */
+export function useComposerAddress(sessionStore: SessionStore): ComposerTarget {
+  const standingEvents = useSessionStore(sessionStore, selectStandingEvents);
   const runs = useSessionPartition(sessionStore, "run");
   const sessionId = sessionStore.sessionId;
   return useMemo(
-    () => resolveComposerTarget({ sessionId, focusedPane, agents, runs }),
-    [sessionId, focusedPane, agents, runs],
+    () => resolveComposerTarget({ sessionId, standingEvents, runs }),
+    [sessionId, standingEvents, runs],
   );
 }

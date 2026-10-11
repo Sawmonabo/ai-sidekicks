@@ -1,6 +1,6 @@
-// A repaired stream must take a fresh snapshot, or the pane shows the list as it stood before
-// the drop. The negative control (time passing, no repair) is what makes the positive case
-// mean "because it was repaired" and not "because it polls".
+// A repaired stream, and a frame the daemon marks dropped, must each take a fresh snapshot, or the
+// pane shows the list as it stood before the drop. The negative control (time passing, no repair)
+// is what makes the positive case mean "because it was repaired" and not "because it polls".
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -8,8 +8,10 @@ import { describe, expect, it } from "vitest";
 import { bridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
 import { settleScheduledRead } from "#test/helpers/scheduled-read.js";
 
+import { encodeEventCursor } from "@ai-sidekicks/contracts/session/event-cursor";
+
 import { SessionStore } from "#renderer/store/session/store.js";
-import { queueFeedBridge } from "./feed.test-support.js";
+import { QUEUED_ROW, queueFeedBridge } from "./feed.test-support.js";
 import { useQueueFeed, useQueueRepairRead } from "./feed.js";
 import type { QueueCalls } from "./reading.js";
 import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
@@ -17,7 +19,7 @@ import type { PlatformBridge } from "#renderer/services/platform/bridge.js";
 /** A session whose snapshot has landed, which is what makes a repair observable. */
 function initializedStore(): SessionStore {
   const store = new SessionStore({ sessionId: "019b7a33-3300-75e5-8510-ada11a5a55a5" });
-  store.initialize({ cursor: 0, entities: [] });
+  store.initialize({ shape: "project", cursor: 0, entities: [] });
   return store;
 }
 
@@ -52,7 +54,7 @@ describe("the queue reading re-reads on a repair", () => {
     expect(listedSessionIds).toHaveLength(1);
 
     act(() => {
-      sessionStore.initialize({ cursor: 4, entities: [] });
+      sessionStore.initialize({ shape: "project", cursor: 4, entities: [] });
     });
     await settleScheduledRead(clock);
     expect(listedSessionIds).toHaveLength(2);
@@ -89,6 +91,33 @@ describe("the queue reading re-reads on a repair", () => {
 
     await act(async () => {
       window.dispatchEvent(new Event("focus"));
+    });
+    await settleScheduledRead(clock);
+    expect(listedSessionIds).toHaveLength(2);
+  });
+});
+
+describe("the queue reading re-reads on a dropped frame", () => {
+  it("takes a fresh snapshot when a frame says changes were left out", async () => {
+    const { bridge, clock, queueCalls, deliverFrame, listedSessionIds } = queueFeedBridge();
+    const sessionStore = initializedStore();
+    await act(async () => {
+      render(<QueueProbe bridge={bridge} queueCalls={queueCalls} sessionStore={sessionStore} />, {
+        wrapper: bridgeWrapper(bridge, clock),
+      });
+    });
+    await settleScheduledRead(clock);
+    expect(listedSessionIds).toHaveLength(1);
+
+    // Negative control: a frame of changes with nothing left out is folded, not re-read.
+    act(() => {
+      deliverFrame({ changes: [{ cursor: encodeEventCursor(3), item: QUEUED_ROW }] });
+    });
+    await settleScheduledRead(clock);
+    expect(listedSessionIds).toHaveLength(1);
+
+    act(() => {
+      deliverFrame({ changes: [], dropped: true, cursor: encodeEventCursor(9) });
     });
     await settleScheduledRead(clock);
     expect(listedSessionIds).toHaveLength(2);

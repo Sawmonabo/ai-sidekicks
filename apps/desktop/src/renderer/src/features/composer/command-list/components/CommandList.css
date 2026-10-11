@@ -6,16 +6,10 @@
   gap: var(--meridian-space-2);
   /* Shorter than its rows on a window too short for them; its scroller takes the cut. */
   min-height: 0;
-  padding: var(--meridian-space-3);
+  padding: var(--meridian-space-1);
   border: 1px solid var(--meridian-edge);
   border-radius: var(--meridian-radius-md);
-  background: var(--meridian-surface-raised);
-}
-
-.meridian-command-discovery__lede {
-  margin: 0;
-  color: var(--meridian-text-muted);
-  font-size: var(--meridian-text-xs);
+  background: var(--meridian-ground);
 }
 
 .meridian-command-discovery__scroller {
@@ -26,37 +20,47 @@
 .meridian-command-discovery__list {
   display: flex;
   flex-direction: column;
-  gap: var(--meridian-space-1);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
+/* A row reads in the small muted type, its name in the mono face at full ink. */
 .meridian-command-discovery__row {
   display: flex;
   align-items: baseline;
   gap: var(--meridian-space-2);
   padding: var(--meridian-space-1) var(--meridian-space-2);
   border-radius: var(--meridian-radius-sm);
-}
-
-.meridian-command-discovery__row--active {
-  background: var(--meridian-surface-sunken);
-}
-
-.meridian-command-discovery__name {
-  font-family: var(--meridian-font-mono);
-}
-
-.meridian-command-discovery__binding {
   color: var(--meridian-text-muted);
   font-size: var(--meridian-text-xs);
 }
 
+.meridian-command-discovery__row--active {
+  color: var(--meridian-text);
+  background: var(--meridian-hover);
+}
+
+.meridian-command-discovery__name {
+  color: var(--meridian-text);
+  font-family: var(--meridian-font-mono);
+}
+
+/* Where a provider's row comes from, as a small outlined mark in the provider's name, lowercase. */
+.meridian-command-discovery__origin {
+  flex: none;
+  padding: 0 var(--meridian-space-1);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  color: var(--meridian-text-faint);
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-10);
+  text-transform: lowercase;
+  white-space: nowrap;
+}
+
 .meridian-command-discovery__description {
   flex: 1 1 auto;
-  color: var(--meridian-text);
-  font-size: var(--meridian-text-xs);
 }
 
 .meridian-command-discovery__state {
@@ -82,29 +86,4 @@
 .meridian-command-discovery__unavailable {
   color: var(--meridian-text-muted);
   font-size: var(--meridian-text-xs);
-}
-
-/* One labeled group inside the discovery listbox. `display: contents` is not used: the group
-   is a real row of the list's flex column, which keeps the heading above its rows without a
-   second gap rule. The nested list has no marker or indent, which would imply a hierarchy. */
-.meridian-command-discovery__group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
-}
-
-.meridian-command-discovery__group-label {
-  color: var(--meridian-text-muted);
-  font-size: var(--meridian-text-xs);
-  text-transform: uppercase;
-  letter-spacing: var(--meridian-tracking-heading);
-}
-
-.meridian-command-discovery__group-rows {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
-  margin: 0;
-  padding: 0;
-  list-style: none;
 }

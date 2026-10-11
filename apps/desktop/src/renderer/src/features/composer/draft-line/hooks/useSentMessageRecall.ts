@@ -1,7 +1,7 @@
-// Walks back through what was sent from this address and writes it into the line. The cursor
+// Walks back through what was sent from this session and writes it into the line. The cursor
 // is a ref, not state, since it is never rendered and state would re-render the bar per key.
-// Histories are per address and resolved in the render body, so a keystroke before an effect
-// runs still walks this address's history; `forAddress` is idempotent, which makes that safe.
+// Histories are per draft key and resolved in the render body, so a keystroke before an effect
+// runs still walks this session's history; `forDraftKey` is idempotent, which makes that safe.
 
 import { useCallback, useState } from "react";
 
@@ -11,7 +11,7 @@ import { caretAtEnd, caretAtStart, type DraftCaret } from "../caret.js";
 
 /** The walk, and the record the dispatcher writes a sent body into. */
 export interface SentMessageRecall {
-  /** This address's own record. The dispatcher calls `recordSent` on a settled send. */
+  /** This session's own record. The dispatcher calls `recordSent` on a settled send. */
   readonly history: SentMessageHistory;
   /** Walk one message older. `false` when the caret is not at the start edge. */
   recallOlder(caret: DraftCaret): boolean;
@@ -20,7 +20,7 @@ export interface SentMessageRecall {
 }
 
 /**
- * The recall pair for one addressed composer. `readDraftText` is passed in so the walk and the
+ * The recall pair for one session's composer. `readDraftText` is passed in so the walk and the
  * line agree on the current text.
  */
 export function useSentMessageRecall(
@@ -31,7 +31,7 @@ export function useSentMessageRecall(
   // `useState` with an initializer constructs once; `useRef(new ...)` would build and discard
   // one per render.
   const [histories] = useState(() => new SentMessageHistories());
-  const history = histories.forAddress(draftKey);
+  const history = histories.forDraftKey(draftKey);
 
   const recallOlder = useCallback(
     (caret: DraftCaret) => {

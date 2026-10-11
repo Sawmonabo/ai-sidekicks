@@ -1,30 +1,24 @@
 // The client-facing driver surface over a scripted daemon: the degraded intervention envelope
-// reaches the caller intact, a daemon refusal reaches it as its registered code, a bad `runId` is
-// refused before the wire, and a driver stream ends when the daemon pushes a non-driver event.
+// reaches the caller intact, and a daemon refusal reaches it as its registered code.
 //
 // Fixture UUIDs are low-entropy on purpose: the secret scanner flags high-entropy values under an
 // identifier containing `Key`, and `clientIdempotencyKey` is that shape.
 
 import { describe, expect, it } from "vitest";
 
-import type { ApplyInterventionParams } from "@ai-sidekicks/contracts/provider/driver/intervention";
+import type { ApplyInterventionRequest } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import {
   type JsonRpcNotification,
   type JsonRpcRequest,
 } from "@ai-sidekicks/contracts/jsonrpc/message";
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
-import type { UserId, SessionId } from "@ai-sidekicks/contracts/session/id";
-import type { SessionEvent } from "@ai-sidekicks/contracts/event/variant-types";
-import { SessionEventSchema } from "@ai-sidekicks/contracts/event/session";
-import { SUBSCRIPTION_CANCEL_METHOD } from "@ai-sidekicks/contracts/jsonrpc/streaming";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { createDaemonProviderClient, type DriverClient } from "../provider.js";
-import { JsonRpcClient, JsonRpcRemoteError, JsonRpcSchemaError } from "../transport/json-rpc.js";
+import { JsonRpcClient, JsonRpcRemoteError } from "../transport/json-rpc.js";
 import {
   answerByMethod,
-  buildSessionCreatedEvent,
-  buildSubscriptionNotify,
   createScriptedDaemon,
   type ScriptedDaemon,
   type ScriptedMethodTable,
@@ -39,23 +33,19 @@ type OutboundEnvelope = JsonRpcRequest | JsonRpcNotification;
 const TEST_RUN_ID = "00000000-0000-4000-8000-000000000001" as RunId;
 const TEST_IDEMPOTENCY_KEY = "00000000-0000-4000-8000-000000000002";
 
-/**
- * The fallback a driver with no native steer names. A literal because this package receives it off
- * the wire, never from a driver module.
- */
-const QUEUE_AND_INTERRUPT = "queue_and_interrupt";
+/** A fallback a driver names on a degraded answer; this package only carries it. */
+const DRIVER_FALLBACK_ACTION = "driver-named-fallback";
 
 const METHOD_APPLY_INTERVENTION = "driver.applyIntervention";
-const METHOD_SUBSCRIBE_EVENTS = "driver.subscribeEvents";
 const METHOD_COMPACT_CONTEXT = "driver.compactContext";
 
-/** A well-formed steer against the run whose bound driver declares no steer. */
-const STEER_AGAINST_NO_NATIVE_STEER_DRIVER: ApplyInterventionParams = {
-  type: "steer",
+/** A well-formed interrupt, which the scripted daemon answers degraded. */
+const DEGRADED_INTERRUPT: ApplyInterventionRequest = {
+  type: "interrupt",
   targetRunId: TEST_RUN_ID,
   expectedRunVersion: 3,
   clientIdempotencyKey: TEST_IDEMPOTENCY_KEY,
-  payload: { content: "Prefer the smaller refactor; skip the rename." },
+  payload: { pending: "nextTurn" },
 };
 
 /** Script one method to answer with a result value. */
@@ -92,140 +82,29 @@ function paramsOf(envelope: OutboundEnvelope | undefined): unknown {
 // The degraded envelope on the client-facing path
 
 describe("driver.applyIntervention — degraded fallback across the SDK seam", () => {
-  it(
-    "resolves a steer against a no-native-steer " +
-      "driver as degraded with its fallbackAction intact",
-    async () => {
-      const degradedAnswer = { status: "degraded", fallbackAction: QUEUE_AND_INTERRUPT };
-      const { client, daemon } = buildDriverClient(
-        scriptResult(METHOD_APPLY_INTERVENTION, degradedAnswer),
-      );
+  it("resolves a degraded interrupt with its fallbackAction intact", async () => {
+    const degradedAnswer = { status: "degraded", fallbackAction: DRIVER_FALLBACK_ACTION };
+    const { client, daemon } = buildDriverClient(
+      scriptResult(METHOD_APPLY_INTERVENTION, degradedAnswer),
+    );
 
-      const result = await client.applyIntervention(STEER_AGAINST_NO_NATIVE_STEER_DRIVER);
+    const result = await client.applyIntervention(DEGRADED_INTERRUPT);
 
-      // Compared whole: asserting only `status` would pass against an SDK that dropped
-      // `fallbackAction`, the only part of a degraded answer a caller can act on.
-      expect(result).toStrictEqual(degradedAnswer);
-      expect(result.status).toBe("degraded");
-      expect(result.fallbackAction).toBe(QUEUE_AND_INTERRUPT);
+    // Compared whole: asserting only `status` would pass against an SDK that dropped
+    // `fallbackAction`, the only part of a degraded answer a caller can act on.
+    expect(result).toStrictEqual(degradedAnswer);
+    expect(result.status).toBe("degraded");
+    expect(result.fallbackAction).toBe(DRIVER_FALLBACK_ACTION);
 
-      // The steer arm goes out unaltered.
-      expect(daemon.sentEnvelopes.length).toBe(1);
-      expect(methodOf(daemon.sentEnvelopes[0])).toBe(METHOD_APPLY_INTERVENTION);
-      expect(paramsOf(daemon.sentEnvelopes[0])).toStrictEqual(STEER_AGAINST_NO_NATIVE_STEER_DRIVER);
-    },
-  );
+    // The interrupt goes out unaltered.
+    expect(daemon.sentEnvelopes.length).toBe(1);
+    expect(methodOf(daemon.sentEnvelopes[0])).toBe(METHOD_APPLY_INTERVENTION);
+    expect(paramsOf(daemon.sentEnvelopes[0])).toStrictEqual(DEGRADED_INTERRUPT);
+  });
 });
 
-// The stream is narrowed to driver events. The daemon filters the same set before buffering, so
-// this schema refuses nothing in a correct pairing; the scripted daemon below stands in for one
-// whose filter regressed and that pushes a valid session event onto a driver stream.
-
-/** Low-entropy sentinel ids; see the header note on the secret scanner. */
-const TEST_SUBSCRIPTION_ID = "00000000-0000-4000-8000-000000000003";
+/** Low-entropy sentinel id; see the header note on the secret scanner. */
 const TEST_SESSION_ID = "00000000-0000-4000-8000-000000000004" as SessionId;
-const TEST_USER_ID = "00000000-0000-4000-8000-000000000005" as UserId;
-
-/** The envelope version, branded here because a hand-built wire frame stands in for the daemon. */
-const EVENT_VERSION = "1.0" as SessionEvent["version"];
-
-/** An `assistant_output` row, which belongs on a driver stream. */
-function buildDriverEvent(): SessionEvent {
-  return {
-    id: "evt-driver-0001",
-    sessionId: TEST_SESSION_ID,
-    sequence: 1,
-    occurredAt: "2026-01-22T19:14:35.000Z",
-    category: "assistant_output",
-    type: "assistant.message",
-    actor: null,
-    version: EVENT_VERSION,
-    payload: { sessionId: TEST_SESSION_ID, runId: TEST_RUN_ID, providerMessageId: "msg_reply_1" },
-  };
-}
-
-/** A valid session-lifecycle `SessionEvent` that names no run and belongs on no driver stream. */
-function buildNonDriverEvent(): SessionEvent {
-  return buildSessionCreatedEvent({
-    id: "evt-non-driver-0001",
-    sessionId: TEST_SESSION_ID,
-    sequence: 2,
-    occurredAt: "2026-01-22T19:14:36.000Z",
-    actor: TEST_USER_ID,
-  });
-}
-
-/** The `$/subscription/notify` frame the daemon emits on the test subscription. */
-function subscriptionNotify(value: SessionEvent): JsonRpcNotification {
-  return buildSubscriptionNotify(TEST_SUBSCRIPTION_ID, value);
-}
-
-/** A daemon that acks the subscribe-init with the sentinel subscription id. */
-function buildSubscribingDriverClient(): {
-  readonly client: DriverClient;
-  readonly daemon: ScriptedDaemon;
-} {
-  return buildDriverClient(
-    scriptResult(METHOD_SUBSCRIBE_EVENTS, { subscriptionId: TEST_SUBSCRIPTION_ID }),
-  );
-}
-
-describe("driver.subscribeEvents — the stream is narrowed to driver events", () => {
-  it("delivers a driver event to the consumer unaltered", async () => {
-    const { client, daemon } = buildSubscribingDriverClient();
-
-    const subscription = client.subscribeEvents({ runId: TEST_RUN_ID });
-    daemon.deliverInbound(subscriptionNotify(buildDriverEvent()));
-
-    // Positive control for the refusal below.
-    await expect(subscription.next()).resolves.toEqual(buildDriverEvent());
-  });
-
-  it(
-    "rejects a subscribeEvents call whose runId is not " +
-      "a canonical id, synchronously and before the wire",
-    () => {
-      const { client, daemon } = buildDriverClient({});
-
-      // The handle is returned synchronously, so the failure must throw here, on the call that
-      // caused it, rather than surface at a later `next()`.
-      expect(() => client.subscribeEvents({ runId: "not-a-uuid" as RunId })).toThrow(
-        JsonRpcSchemaError,
-      );
-      expect(daemon.sentEnvelopes.length).toBe(0);
-    },
-  );
-
-  it("ENDS the subscription when the daemon pushes a schema-valid NON-driver event", async () => {
-    const nonDriverEvent = buildNonDriverEvent();
-    // The refusal below must come from the driver narrowing, so this fixture has to parse as a
-    // session event.
-    expect(SessionEventSchema.safeParse(nonDriverEvent).success).toBe(true);
-
-    const { client, daemon } = buildSubscribingDriverClient();
-    const subscription = client.subscribeEvents({ runId: TEST_RUN_ID });
-    daemon.deliverInbound(subscriptionNotify(nonDriverEvent));
-
-    let caught: unknown = null;
-    try {
-      await subscription.next();
-    } catch (error) {
-      caught = error;
-    }
-
-    expect(caught).toBeInstanceOf(JsonRpcSchemaError);
-    if (caught instanceof JsonRpcSchemaError) {
-      // `value`: the request and the subscribe ack were fine; one streamed value failed.
-      expect(caught.phase).toBe("value");
-    }
-
-    // A wire cancel goes out so the daemon releases its subscription entry.
-    expect(daemon.sentEnvelopes.map(methodOf)).toStrictEqual([
-      METHOD_SUBSCRIBE_EVENTS,
-      SUBSCRIPTION_CANCEL_METHOD,
-    ]);
-  });
-});
 
 // A daemon refusal reaches the caller typed
 

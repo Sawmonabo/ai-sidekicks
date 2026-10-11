@@ -52,7 +52,7 @@ export interface AddressedProviderBinding {
 
 /** What this composer's target says about the binding a reply must be routed to. */
 export function addressedProviderBinding(target: ComposerTarget): AddressedProviderBinding {
-  if (target.path !== "provider-bound") {
+  if (target.kind !== "run") {
     return { runId: undefined, driverName: undefined };
   }
   return { runId: target.targetRunId, driverName: target.driverName };

@@ -1,17 +1,14 @@
-// Which draft belongs to which composer address. A wrong key is silent: a remount loses the
-// text, or re-addressing carries it under a target the person did not write it for.
+// Which draft belongs to which composer. A wrong key is silent: a remount loses the text, or a
+// change of address carries it somewhere the person did not write it.
 //
-// A provider-bound composer keys on the agent the chip names, not the run the router picks:
-// the run changes every turn and would empty the line mid-sentence. Keys are opaque, never
-// parsed back or persisted; the leading discriminator keeps the two paths' key spaces disjoint.
+// The draft is the session's, so the key names the session and nothing the address resolves to:
+// the lead's run starts and settles while a person types, and a key that followed it would empty
+// the line mid-sentence. Keys are opaque, never parsed back or persisted; the leading word keeps
+// the composer's keys apart from any other draft the window's store holds.
 
 import { structuralKey } from "#renderer/lib/structural-key.js";
-import type { ComposerTarget } from "../target.js";
 
-/** The draft key for one composer address; total over the send-path union. */
-export function composerDraftKey(target: ComposerTarget): string {
-  if (target.path === "provider-bound") {
-    return structuralKey([target.path, target.sessionId, target.agentId]);
-  }
-  return structuralKey([target.path, target.sessionId]);
+/** The draft key for one session's composer. */
+export function composerDraftKey(sessionId: string): string {
+  return structuralKey(["composer", sessionId]);
 }

@@ -1,7 +1,9 @@
 // How the Codex driver dispatches turns: a turn the provider may have taken is never sent twice,
 // a turn's route lives exactly as long as the turn, posture is never caller-overridable, a profile
 // Codex reports that was never asked for is put back, steers go out in order without waiting for a
-// step's end and never into a retired turn, and a rewind forks exactly where it was asked to.
+// step's end and never into a retired turn, the run queue hears of each tool call that ends inside
+// a live turn, a message's staged files go to Codex as its own input items at a turn's start and
+// on a steer alike, and a rewind forks exactly where it was asked to.
 
 import { describe, expect, it } from "vitest";
 
@@ -14,6 +16,12 @@ import {
   CodexTransportError,
 } from "../session/errors.js";
 import { drainMicrotasks } from "../../../__fixtures__/drain-microtasks.js";
+import {
+  FakeAttachmentResolver,
+  STAGED_ATTACHMENT_IDS,
+  stagedFiles,
+} from "../../__fixtures__/attachment-doubles.js";
+import { SteerTurnEndedError } from "../../run-control.js";
 import {
   type Harness,
   DEFAULT_CODEX_HOME,
@@ -228,30 +236,72 @@ describe("Codex turn posture", () => {
     expect(await steer(harness, "9a1d8f30-0000-4000-8000-0000000000bc")).toEqual({
       status: "applied",
     });
-  });
 
-  it("fails a steer that waited behind another once an interrupt retired its turn", async () => {
-    const harness = await liveSession();
-    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
-    harness.server.on("turn/steer", () => ({ result: { turnId: TURN_ID } }));
-    harness.server.on("turn/interrupt", () => ({ result: {} }));
-    await startRun(harness, "one");
-    const releaseAnswers = harness.server.holdAnswers("turn/steer");
-    const first = steer(harness, "9a1d8f30-0000-4000-8000-0000000000da");
-    const waiting = captureRejection(steer(harness, "9a1d8f30-0000-4000-8000-0000000000db"));
-    await drainMicrotasks();
-
-    await harness.driver.interruptRun({ runId: RUN_ID });
-    releaseAnswers();
-
-    expect(await first).toEqual({ status: "applied" });
-    expect(await waiting).toBeInstanceOf(CodexTransportError);
-    // Only the steer sent while its turn was live reached Codex.
+    // Mutation: failing a steer Codex refused because its turn had just ended reads the message
+    // not delivered, though the run's next turn takes it.
+    harness.server.on("turn/steer", () => {
+      harness.server.emitFrame(turnCompletedFrame(TURN_ID, "completed"));
+      return { error: { code: -32600, message: "no active turn" } };
+    });
     expect(
-      harness.server.paramsFor("turn/steer").map((params) => params?.["clientUserMessageId"]),
-    ).toStrictEqual(["9a1d8f30-0000-4000-8000-0000000000da"]);
+      await captureRejection(steer(harness, "9a1d8f30-0000-4000-8000-0000000000bd")),
+    ).toBeInstanceOf(SteerTurnEndedError);
   });
+
+  // Mutations: failing the steer that waited, or the one handed after, as a transport fault reads
+  // its message not delivered, though the run's next turn takes it; sending the one that waited
+  // while the interrupt is on the wire lands it in the turn being stopped, admitted unanswered.
+  it.each([
+    { interrupt: "retired the turn", isInterruptAnswered: true, isPause: false },
+    { interrupt: "is on the wire", isInterruptAnswered: false, isPause: false },
+    { interrupt: "a pause sent is on the wire", isInterruptAnswered: false, isPause: true },
+  ])(
+    "fails a steer as its turn ended once an interrupt $interrupt, waiting or handed after",
+    async ({ isInterruptAnswered, isPause }) => {
+      const harness = await liveSession();
+      harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+      harness.server.on("turn/steer", () => ({ result: { turnId: TURN_ID } }));
+      harness.server.on("turn/interrupt", () => ({ result: {} }));
+      await startRun(harness, "one");
+      const releaseAnswers = harness.server.holdAnswers("turn/steer");
+      const first = steer(harness, "9a1d8f30-0000-4000-8000-0000000000da");
+      const waiting = captureRejection(steer(harness, "9a1d8f30-0000-4000-8000-0000000000db"));
+      await drainMicrotasks();
+
+      const releaseInterrupt = isInterruptAnswered
+        ? undefined
+        : harness.server.holdAnswers("turn/interrupt");
+      const interrupted = isPause
+        ? pauseAtStepEnd(harness)
+        : harness.driver.interruptRun({ runId: RUN_ID });
+      await drainMicrotasks();
+      releaseAnswers();
+      expect(await first).toEqual({ status: "applied" });
+      expect(await waiting).toBeInstanceOf(SteerTurnEndedError);
+      releaseInterrupt?.();
+      await interrupted;
+      await drainMicrotasks();
+
+      expect(
+        await captureRejection(steer(harness, "9a1d8f30-0000-4000-8000-0000000000dc")),
+      ).toBeInstanceOf(SteerTurnEndedError);
+      // Only the steer sent while its turn was live reached Codex.
+      expect(
+        harness.server.paramsFor("turn/steer").map((params) => params?.["clientUserMessageId"]),
+      ).toStrictEqual(["9a1d8f30-0000-4000-8000-0000000000da"]);
+    },
+  );
 });
+
+// With no daemon hook, a pause interrupts the run's turn at its next step's end.
+async function pauseAtStepEnd(harness: Harness): Promise<void> {
+  await harness.driver.pauseRun({ sessionId: SESSION_ID, runId: RUN_ID });
+  harness.server.emitFrame({
+    jsonrpc: "2.0",
+    method: "item/completed",
+    params: { threadId: THREAD_ID, turnId: TURN_ID, item: { type: "agentMessage", id: "item-1" } },
+  });
+}
 
 describe("Codex ambiguous turn/start", () => {
   it.each([
@@ -466,5 +516,113 @@ describe("Codex helper limit", () => {
       "features.multi_agent_v2": false,
       "agents.enabled": false,
     });
+  });
+});
+
+describe("Codex tool boundary", () => {
+  it("is signaled once per tool call that ends inside its live turn, and never otherwise", async () => {
+    const harness = await liveSession();
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    await startRun(harness);
+    const emitItem = (method: string, item: Record<string, unknown>): void => {
+      harness.server.emitFrame({
+        jsonrpc: "2.0",
+        method,
+        params: { threadId: THREAD_ID, turnId: TURN_ID, item, startedAtMs: 0, completedAtMs: 0 },
+      });
+    };
+    const command = (id: string, status: string): Record<string, unknown> => ({
+      type: "commandExecution",
+      id,
+      command: "pnpm test",
+      status,
+    });
+
+    emitItem("item/started", command("command-1", "inProgress"));
+    emitItem("item/started", command("command-late", "inProgress"));
+    emitItem("item/completed", command("command-1", "completed"));
+    // A reply ending is no step boundary.
+    emitItem("item/completed", { type: "agentMessage", id: "reply-1", text: "running it" });
+    emitItem("item/completed", { type: "fileChange", id: "patch-1", status: "completed" });
+    await drainMicrotasks();
+    const boundary = { sessionId: SESSION_ID, runId: RUN_ID };
+    expect(harness.toolBoundaries).toStrictEqual([boundary, boundary]);
+
+    // A command that outlives its turn ends with no turn left for a message to join.
+    harness.server.emitFrame(turnCompletedFrame(TURN_ID, "completed"));
+    emitItem("item/completed", command("command-late", "completed"));
+    await drainMicrotasks();
+    expect(harness.toolBoundaries).toStrictEqual([boundary, boundary]);
+  });
+
+  it("is not signaled at the step a pause interrupts the turn at", async () => {
+    const harness = await liveSession();
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    harness.server.on("turn/interrupt", () => ({ result: {} }));
+    await startRun(harness);
+    // With no daemon hook, a pause interrupts the turn at its next step's end.
+    await harness.driver.pauseRun({ sessionId: SESSION_ID, runId: RUN_ID });
+
+    harness.server.emitFrame({
+      jsonrpc: "2.0",
+      method: "item/completed",
+      params: {
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+        item: { type: "fileChange", id: "patch-1", status: "completed" },
+        completedAtMs: 0,
+      },
+    });
+    await drainMicrotasks();
+
+    expect(harness.server.paramsFor("turn/interrupt")).toHaveLength(1);
+    expect(harness.toolBoundaries).toStrictEqual([]);
+  });
+});
+
+describe("Codex staged files", () => {
+  it("go as the message's own input items, in order, at a turn's start and on a steer", async () => {
+    const harness = createHarness({
+      attachments: new FakeAttachmentResolver(stagedFiles("/store")),
+    });
+    await createdSession(harness);
+    harness.server.on("turn/start", () => ({ result: { turn: { id: TURN_ID } } }));
+    harness.server.on("turn/steer", () => ({ result: { turnId: TURN_ID } }));
+    const staged = [
+      STAGED_ATTACHMENT_IDS.picture,
+      STAGED_ATTACHMENT_IDS.deleted,
+      STAGED_ATTACHMENT_IDS.textFile,
+    ];
+
+    await harness.driver.startRun({
+      runId: RUN_ID,
+      agentConfig: { ...runConfig("what is wrong here"), attachments: staged },
+    });
+    await harness.driver.applyIntervention({
+      type: "steer",
+      targetRunId: RUN_ID,
+      expectedRunVersion: 1,
+      clientIdempotencyKey: "9a1d8f30-0000-4000-8000-0000000000f1",
+      payload: { content: "and here", attachments: staged, expectedTurnId: TURN_ID },
+    });
+
+    // The picture is a `localImage`, the text file a line naming its stored copy, and the deleted
+    // file a line in its own place saying why it is missing.
+    const filesAfter = (words: string): unknown => [
+      { type: "text", text: words, text_elements: [] },
+      { type: "localImage", path: "/store/picture" },
+      {
+        type: "text",
+        text: `Attached file ${STAGED_ATTACHMENT_IDS.deleted} was not delivered: it was deleted.`,
+        text_elements: [],
+      },
+      { type: "text", text: "Attached file notes.txt: /store/notes", text_elements: [] },
+    ];
+    expect(harness.server.paramsFor("turn/start")[0]?.["input"]).toStrictEqual(
+      filesAfter("what is wrong here"),
+    );
+    expect(harness.server.paramsFor("turn/steer")[0]?.["input"]).toStrictEqual(
+      filesAfter("and here"),
+    );
   });
 });

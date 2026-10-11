@@ -8,8 +8,8 @@ import "./CallbackTools.css";
 
 import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 
-import type { DriverCapabilityReading } from "#renderer/store/driver-capabilities/readings.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
+import type { DriverCapabilityReading } from "#renderer/store/driver-capabilities/readout.js";
 import { CallbackToolRows } from "./CallbackToolRows.js";
 import { type CallbackToolRegistryReading } from "../registry.js";
 
@@ -22,8 +22,8 @@ export const CALLBACK_TOOLS_CAPABILITY: DriverCapabilityFlag = "callback_tools";
 /** What the daemon-hosted tools section renders from: the capability and the registry. */
 export interface CallbackToolsProps {
   /**
-   * What this build knows about the capability. `unknown` rather than `undefined`: the reading
-   * is the bridge's closed set, so every gate on a driver flag answers in the same spelling.
+   * What this build knows about the capability. `unknown` rather than `undefined`, so an unread
+   * capability is a state of its own and never reads as one the driver declared absent.
    */
   readonly capability: DriverCapabilityReading;
   /**

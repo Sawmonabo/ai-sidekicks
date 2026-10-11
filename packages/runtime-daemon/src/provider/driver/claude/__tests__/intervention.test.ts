@@ -1,39 +1,44 @@
-// `intervention.ts`: a steer is one user message written into the running turn; an interrupt drops
-// the waiting messages only when they return to the draft and the process can drop them, and its
-// receipt says whether it did.
+// `intervention.ts`: a steer is one user message written into the running turn, steers keeping the
+// order they came in; an interrupt is Claude Code's plain `interrupt`, whatever becomes of the
+// waiting messages, which the run queue takes back itself.
 
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { describe, expect, it } from "vitest";
 
 import {
   ClaudeInterventionDispatcher,
   type ClaudeInterventionSettlement,
 } from "../intervention.js";
+import { SteerTurnEndedError } from "../../run-control.js";
 import { ClaudeSessionUnavailableError } from "../session/errors.js";
 import type { ClaudeProviderProcess, ClaudeRunProcessLookup } from "../session/transport.js";
 import {
   buildInterruptParams,
   buildSteerParams,
   FakeClaudeProviderProcess,
+  TEST_SESSION_ID,
 } from "../__fixtures__/transport-doubles.js";
-
-const CANCEL_QUEUED_CAPABILITY = "interrupt_cancel_queued_v1";
+import { drainMicrotasks } from "../../../__fixtures__/drain-microtasks.js";
+import {
+  FakeAttachmentResolver,
+  STAGED_ATTACHMENT_IDS,
+} from "../../__fixtures__/attachment-doubles.js";
 
 class StubRunProcessLookup implements ClaudeRunProcessLookup {
-  readonly channel: FakeClaudeProviderProcess | undefined;
-  readonly capabilities: ReadonlySet<string>;
+  // Set to `undefined` once the run's turn ends.
+  channel: FakeClaudeProviderProcess | undefined;
 
-  constructor(channel: FakeClaudeProviderProcess | undefined, capabilities: readonly string[]) {
+  constructor(channel: FakeClaudeProviderProcess | undefined) {
     this.channel = channel;
-    this.capabilities = new Set(capabilities);
+  }
+
+  sessionIdForRun(): SessionId | undefined {
+    return this.channel === undefined ? undefined : TEST_SESSION_ID;
   }
 
   findProcessForRun(): ClaudeProviderProcess | undefined {
     return this.channel;
-  }
-
-  advertisedCapabilitiesForRun(): ReadonlySet<string> {
-    return this.capabilities;
   }
 }
 
@@ -54,17 +59,17 @@ interface InterventionHarness {
   readonly steersSent: { readonly runId: RunId; readonly messageUuid: string }[];
 }
 
-function buildHarness(
-  capabilities: readonly string[] = [CANCEL_QUEUED_CAPABILITY],
-): InterventionHarness {
+function buildHarness(): InterventionHarness {
   const channel = new FakeClaudeProviderProcess("provider-session-live");
   const steersSent: InterventionHarness["steersSent"] = [];
   const dispatcher = new ClaudeInterventionDispatcher({
-    channelLookup: new StubRunProcessLookup(channel, capabilities),
+    channelLookup: new StubRunProcessLookup(channel),
     settlement: SETTLEMENT_WITH_NO_CHOICE,
+    attachments: new FakeAttachmentResolver(),
     onSteerSent: (runId, messageUuid) => {
       steersSent.push({ runId, messageUuid });
     },
+    onSteerUnsent: () => undefined,
   });
   return { dispatcher, channel, steersSent };
 }
@@ -93,38 +98,91 @@ describe("ClaudeInterventionDispatcher steer", () => {
   });
 });
 
+describe("ClaudeInterventionDispatcher steer order", () => {
+  it("writes steers in the order they came, however long their files take to read", async () => {
+    const filesRead = Promise.withResolvers<void>();
+    const channel = new FakeClaudeProviderProcess("provider-session-live");
+    const dispatcher = new ClaudeInterventionDispatcher({
+      channelLookup: new StubRunProcessLookup(channel),
+      settlement: SETTLEMENT_WITH_NO_CHOICE,
+      attachments: {
+        resolveAttachments: async (_sessionId, artifactIds) => {
+          await filesRead.promise;
+          return artifactIds.map((artifactId) => ({
+            kind: "unresolved" as const,
+            artifactId,
+            cause: "deleted" as const,
+          }));
+        },
+      },
+      onSteerSent: () => undefined,
+      onSteerUnsent: () => undefined,
+    });
+
+    const first = dispatcher.applyIntervention(
+      buildSteerParams("first", [STAGED_ATTACHMENT_IDS.deleted]),
+    );
+    const second = dispatcher.applyIntervention({
+      ...buildSteerParams("second"),
+      clientIdempotencyKey: "3f1d2b4c-0000-4000-8000-000000000002",
+    });
+    await drainMicrotasks();
+    // The second carries no file, yet waits for the first, whose file is still being read.
+    expect(channel.sentUserFrames).toStrictEqual([]);
+    filesRead.resolve();
+    await Promise.all([first, second]);
+
+    expect(channel.sentTexts).toStrictEqual(["first", "second"]);
+  });
+
+  // Mutation: writing without looking up the run's turn again sends the steer to an idle process.
+  it("writes nothing for a steer whose run's turn ended while its files were read", async () => {
+    const filesRead = Promise.withResolvers<void>();
+    const channel = new FakeClaudeProviderProcess("provider-session-live");
+    const lookup = new StubRunProcessLookup(channel);
+    const steersSent: string[] = [];
+    const dispatcher = new ClaudeInterventionDispatcher({
+      channelLookup: lookup,
+      settlement: SETTLEMENT_WITH_NO_CHOICE,
+      attachments: {
+        resolveAttachments: async (_sessionId, artifactIds) => {
+          await filesRead.promise;
+          return artifactIds.map((artifactId) => ({
+            kind: "unresolved" as const,
+            artifactId,
+            cause: "deleted" as const,
+          }));
+        },
+      },
+      onSteerSent: (_runId, messageUuid) => {
+        steersSent.push(messageUuid);
+      },
+      onSteerUnsent: () => undefined,
+    });
+
+    const steer = dispatcher.applyIntervention(
+      buildSteerParams("late", [STAGED_ATTACHMENT_IDS.deleted]),
+    );
+    await drainMicrotasks();
+    lookup.channel = undefined;
+    filesRead.resolve();
+
+    await expect(steer).rejects.toBeInstanceOf(SteerTurnEndedError);
+    expect(channel.sentUserFrames).toStrictEqual([]);
+    expect(steersSent).toStrictEqual([]);
+  });
+});
+
 describe("ClaudeInterventionDispatcher interrupt", () => {
-  it("drops waiting messages only when they return to the draft and the process can", async () => {
-    const cases = [
-      { pending: "returnToDraft", capabilities: [CANCEL_QUEUED_CAPABILITY], cancels: true },
-      { pending: "nextTurn", capabilities: [CANCEL_QUEUED_CAPABILITY], cancels: false },
-      { pending: "returnToDraft", capabilities: [], cancels: false },
-    ] as const;
-    for (const { pending, capabilities, cancels } of cases) {
-      const harness = buildHarness(capabilities);
-      // Survivors after an interrupt that keeps its waiting messages are what it promises.
-      harness.channel.controlResponse = {
-        subtype: "success",
-        response: { still_queued: ["3f1b0c22-0000-4000-8000-000000000001"] },
-      };
+  // Mutation: answering `degraded` for a return to the draft fails the `returnToDraft` arm.
+  it("sends a plain interrupt and applies it whatever the waiting messages' choice", async () => {
+    for (const pending of ["returnToDraft", "nextTurn"] as const) {
+      const harness = buildHarness();
 
       const result = await harness.dispatcher.applyIntervention(buildInterruptParams(pending));
 
-      expect(harness.channel.controlRequests).toStrictEqual([
-        cancels ? { subtype: "interrupt", cancel_queued: true } : { subtype: "interrupt" },
-      ]);
-      expect(result).toStrictEqual(cancels ? { status: "degraded" } : { status: "applied" });
-    }
-  });
-
-  it("applies a cancel whose receipt lists no survivors or an unreadable list", async () => {
-    for (const receipt of [{ still_queued: [] }, { still_queued: "not-a-list" }, {}]) {
-      const harness = buildHarness();
-      harness.channel.controlResponse = { subtype: "success", response: receipt };
-
-      await expect(
-        harness.dispatcher.applyIntervention(buildInterruptParams("returnToDraft")),
-      ).resolves.toStrictEqual({ status: "applied" });
+      expect(harness.channel.controlRequests).toStrictEqual([{ subtype: "interrupt" }]);
+      expect(result).toStrictEqual({ status: "applied" });
     }
   });
 
@@ -139,9 +197,11 @@ describe("ClaudeInterventionDispatcher interrupt", () => {
     ).resolves.toStrictEqual({ status: "degraded" });
 
     const unrouted = new ClaudeInterventionDispatcher({
-      channelLookup: new StubRunProcessLookup(undefined, []),
+      channelLookup: new StubRunProcessLookup(undefined),
       settlement: SETTLEMENT_WITH_NO_CHOICE,
+      attachments: new FakeAttachmentResolver(),
       onSteerSent: () => undefined,
+      onSteerUnsent: () => undefined,
     });
     await expect(unrouted.applyIntervention(buildInterruptParams())).rejects.toBeInstanceOf(
       ClaudeSessionUnavailableError,

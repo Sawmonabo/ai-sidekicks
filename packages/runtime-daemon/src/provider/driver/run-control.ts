@@ -1,7 +1,12 @@
-// The params and results of the driver operations that act on one live run: pause and continue,
-// withdrawing a waiting message, overruling a reviewer's block, answering a provider's choice and
-// resending a held turn on a faster model.
+// The params and results of the driver operations that act on one live run: a steer or an
+// interrupt, pause and continue, withdrawing a waiting message, overruling a reviewer's block,
+// answering a provider's choice and resending a held turn on a faster model; and what the run queue
+// serves a driver starting a run.
+import { z } from "zod";
+
 import type { AgentId } from "@ai-sidekicks/contracts/agent/definition";
+import type { ArtifactId } from "@ai-sidekicks/contracts/artifacts/id";
+import type { ApplyInterventionRequest } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type {
   RunRefusalChoice,
   RunUsageCreditsChoice,
@@ -9,6 +14,65 @@ import type {
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+
+/**
+ * A skill picked for a message as its provider listed it: its name and the file the provider loads
+ * it from, absolute. The daemon resolves a person's pick to it, so no path a client sent reaches a
+ * provider.
+ */
+export interface PickedSkill {
+  name: string;
+  path: string;
+}
+/** Parses a {@link PickedSkill}. */
+export const PickedSkillSchema: z.ZodType<PickedSkill, PickedSkill> = z
+  .object({
+    name: z.string().min(1),
+    path: z.string().min(1),
+  })
+  .strict();
+
+/**
+ * Payload of a driver's `steer`: the queued message's content, its attachments, the skills the
+ * person picked for it and a target turn.
+ */
+interface SteerPayload {
+  content: string;
+  // Order-preserving: an attachment the turn cannot resolve becomes an unresolved marker with its
+  // cause in its own position, never dropped. No count of the app's own bounds the list.
+  attachments?: ArtifactId[] | undefined;
+  skills?: PickedSkill[] | undefined;
+  expectedTurnId?: string | undefined;
+}
+
+/**
+ * What the daemon asks a driver to do on a live run, one arm per verb: a `steer` delivers a message
+ * the run queue holds, and an `interrupt` carries out an intervention. `clientIdempotencyKey` is
+ * passed through unchanged; a steer's is the message's own id.
+ */
+export type ApplyInterventionParams =
+  | {
+      type: "steer";
+      targetRunId: RunId;
+      expectedRunVersion: number;
+      clientIdempotencyKey: string;
+      payload: SteerPayload;
+    }
+  | ApplyInterventionRequest;
+
+/**
+ * Thrown by a driver's steer that was not sent because the turn it was handed for had ended
+ * first: nothing reached the provider, and the message is left for the run's next turn.
+ */
+export class SteerTurnEndedError extends Error {
+  readonly runId: RunId;
+
+  constructor(runId: RunId) {
+    super(`The turn of run ${runId} ended before the steer was sent.`);
+    this.name = "SteerTurnEndedError";
+    this.runId = runId;
+  }
+}
 
 /**
  * Params of `pauseRun`: the lead run or a provider subagent's child run to stop after the step in
@@ -19,8 +83,13 @@ export interface PauseRunParams {
   runId: RunId;
 }
 
-/** A message waiting for a run, as the queue holds it, for delivery when the run continues. */
-export type WaitingMessage = Pick<QueueItemSummary, "id" | "content" | "attachments">;
+/**
+ * A message waiting for a run, as the queue holds it, for delivery when the run continues: its
+ * words, files and the skills picked for it.
+ */
+export type WaitingMessage = Pick<QueueItemSummary, "id" | "content" | "attachments"> & {
+  readonly skills?: readonly PickedSkill[] | undefined;
+};
 
 /**
  * Params of `resumeRun`: the paused or pausing run to continue from where it stopped, with the
@@ -97,10 +166,34 @@ export type FasterModelRetryOutcome =
   | { readonly state: "applied" }
   | { readonly state: "rejected"; readonly rejectionReason: string };
 
+/**
+ * A tool call of a run's turn finished while the turn still runs: the step boundary at which the
+ * run queue hands the driver every message it holds for that run, in send order.
+ */
+export interface RunToolBoundary {
+  readonly sessionId: SessionId;
+  readonly runId: RunId;
+}
+
 /** The binding a turn the daemon starts on a session itself runs on, and the session's agent. */
 export interface DaemonTurnBinding {
   readonly bindingId: string;
   readonly agentId: AgentId;
+}
+
+/**
+ * The daemon-owned facts the Claude driver's `startRun` needs that `StartRunParams` lacks, which
+ * the run queue serves. `messageId` is the person's message the opening text is, a UUID, stamped on
+ * the user frame so a later cut can name it.
+ */
+export interface ClaudeRunDispatch {
+  readonly sessionId: SessionId;
+  /** The runtime binding the run's deliveries are attributed on, opened by the daemon. */
+  readonly bindingId: string;
+  readonly openingText: string;
+  /** The message's staged files, in staging order. */
+  readonly attachments: readonly ArtifactId[];
+  readonly messageId: string;
 }
 
 /** Opens the binding of a turn the daemon starts on a session itself; the run queue serves it. */

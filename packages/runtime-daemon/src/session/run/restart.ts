@@ -7,12 +7,15 @@ import type { InterventionId } from "@ai-sidekicks/contracts/run/control";
 import {
   DAEMON_INTERVENTION_ACTOR,
   type InterventionActor,
+  type InterventionEventPayload,
 } from "@ai-sidekicks/contracts/run/events";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 
 import type { WriteStatement } from "../../database/statement.js";
+import { moveInterventionStatement } from "../../interventions/store.js";
 import type { LiveRun } from "./read.js";
+import type { RunStateChangeCompanions } from "./state-change.js";
 
 // An interrupt the person asked for that has no outcome yet. An applied one ends its run in the
 // outcome's own write, so a live run never holds one.
@@ -89,5 +92,32 @@ export function noPendingInterruptStatement(runId: RunId): WriteStatement {
     sql: SELECT_PENDING_INTERRUPT_SQL,
     bindings: { run_id: runId },
     expectedRowCount: 0,
+  };
+}
+
+/**
+ * The person's pending interrupt of `run` moved to `applied`, with its event, for the write that
+ * ends the run `interrupted`.
+ */
+export function appliedPendingInterruptOf(
+  run: LiveRun,
+  pendingInterrupt: PendingInterrupt,
+): RunStateChangeCompanions {
+  const payload: InterventionEventPayload<"applied"> = {
+    sessionId: run.sessionId,
+    interventionId: pendingInterrupt.interventionId,
+    targetRunId: run.runId,
+    type: "interrupt",
+    state: "applied",
+    actor: pendingInterrupt.actor,
+  };
+  return {
+    statements: [
+      moveInterventionStatement(pendingInterrupt.interventionId, {
+        from: pendingInterrupt.state,
+        to: "applied",
+      }),
+    ],
+    precedingEvents: [{ type: "intervention.applied", payload }],
   };
 }

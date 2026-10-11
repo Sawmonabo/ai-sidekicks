@@ -1,7 +1,7 @@
 // What the popover draws and what a press on it does: a closed console command is not drawn, a
-// provider row runs nothing, a console row runs, and a row the provider declared disabled takes
-// neither the cursor nor a press. Driven through the whole composer, because that is where an
-// open popover exists.
+// provider row runs nothing, a console row runs, a row the provider declared disabled takes
+// neither the cursor nor a press, and the list is open only while a row matches what is typed.
+// Driven through the whole composer, because that is where an open popover exists.
 
 import { act, fireEvent } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -11,7 +11,6 @@ import {
   NOT_RUNNABLE_FRAGMENT,
   TEST_COMMAND_ID,
   activeRow,
-  composerLeadAgentId,
   mountComposer,
   optionNames,
   pressOnList,
@@ -19,7 +18,6 @@ import {
   stepIntoList,
   typeIntoLine,
 } from "./CommandListPopover.test-support.js";
-import { agentPane } from "../../Composer.test-support.js";
 import { bridgeAnswering, type RecordedDaemonCall } from "#test/helpers/fixture/bridge.js";
 import { crossMacrotaskBoundary } from "#test/helpers/macrotask-boundary.js";
 import { WAITING_FOR_INPUT_SCENARIO } from "#fixtures/scenarios/waiting-for-input.js";
@@ -43,10 +41,7 @@ describe("CommandList — the list activates its active row", () => {
   it("answers a press on a provider row instead of running anything", async () => {
     const counted = registerCountedConsoleCommand();
     const recorded: RecordedDaemonCall[] = [];
-    const mounted = await mountComposer({
-      bridge: recordingBridge(recorded),
-      focusedPane: agentPane(composerLeadAgentId()),
-    });
+    const mounted = await mountComposer({ bridge: recordingBridge(recorded) });
     await typeIntoLine(mounted.line, "/");
     const list = await stepIntoList(mounted);
     // Console entries lead the catalog and their number grows with the palette, so step until the
@@ -64,10 +59,7 @@ describe("CommandList — the list activates its active row", () => {
 
   it("negative control: the same key on the same list runs the console row beside it", async () => {
     const counted = registerCountedConsoleCommand();
-    const mounted = await mountComposer({
-      bridge: recordingBridge([]),
-      focusedPane: agentPane(composerLeadAgentId()),
-    });
+    const mounted = await mountComposer({ bridge: recordingBridge([]) });
     await typeIntoLine(mounted.line, "/");
     const list = await stepIntoList(mounted);
     await pressOnList(list, "ArrowDown");
@@ -87,10 +79,7 @@ describe("CommandList — a row that cannot act", () => {
       const reply = await passThrough();
       return call.method === "driver.listProviderCommands" ? withReviewDisabled(reply) : reply;
     }, WAITING_FOR_INPUT_SCENARIO);
-    const mounted = await mountComposer({
-      bridge,
-      focusedPane: agentPane(composerLeadAgentId()),
-    });
+    const mounted = await mountComposer({ bridge });
     await typeIntoLine(mounted.line, "/");
     const list = await stepIntoList(mounted);
     await stepToFirstProviderRow(mounted, list);
@@ -145,15 +134,38 @@ describe("CommandList — only what runs here is drawn", () => {
       });
       registeredIds.push(commandId);
     }
-    const mounted = await mountComposer({
-      bridge: recordingBridge([]),
-      focusedPane: agentPane(composerLeadAgentId()),
-    });
+    const mounted = await mountComposer({ bridge: recordingBridge([]) });
 
     await typeIntoLine(mounted.line, "/");
 
     expect(optionNames(mounted.container)).toContain(TEST_COMMAND_ID);
     expect(optionNames(mounted.container)).not.toContain(closedCommandId);
+  });
+
+  it("closes while no row matches what is typed and opens again once one does", async () => {
+    commandRegistry.register({
+      id: TEST_COMMAND_ID,
+      title: "A console act",
+      group: "Test",
+      run: () => undefined,
+    });
+    registeredIds.push(TEST_COMMAND_ID);
+    const mounted = await mountComposer({ bridge: recordingBridge([]) });
+    const isListDrawn = (): boolean =>
+      mounted.container.querySelector(".meridian-command-discovery") !== null;
+
+    await typeIntoLine(mounted.line, "/");
+    expect(isListDrawn()).toBe(true);
+    // Negative control: while the list is open the line's ArrowDown steps into it.
+    expect(fireEvent.keyDown(mounted.line, { key: "ArrowDown" })).toBe(false);
+
+    await typeIntoLine(mounted.line, "/no-row-has-this-name");
+    expect(isListDrawn()).toBe(false);
+    // Closed, not merely blank: the line's own keys are its again.
+    expect(fireEvent.keyDown(mounted.line, { key: "ArrowDown" })).toBe(true);
+
+    await typeIntoLine(mounted.line, `/${TEST_COMMAND_ID.slice(0, 8)}`);
+    expect(optionNames(mounted.container)).toContain(TEST_COMMAND_ID);
   });
 });
 
@@ -174,14 +186,14 @@ function withReviewDisabled(reply: unknown): unknown {
 }
 
 /**
- * Steps the active row to the first provider entry, the one kind of row that names its provider
- * binding. Bounded by the option count so a list of only console rows fails instead of looping.
+ * Steps the active row to the first provider entry, the one kind of row that carries an origin
+ * mark. Bounded by the option count so a list of only console rows fails instead of looping.
  */
 async function stepToFirstProviderRow(mounted: MountedComposer, list: HTMLElement): Promise<void> {
   const optionCount = optionNames(mounted.container).length;
   for (let step = 0; step < optionCount; step += 1) {
     const row = activeRow(mounted.container, list);
-    if (row !== null && row.querySelector(".meridian-command-discovery__binding") !== null) {
+    if (row !== null && row.querySelector(".meridian-command-discovery__origin") !== null) {
       return;
     }
     await pressOnList(list, "ArrowDown");

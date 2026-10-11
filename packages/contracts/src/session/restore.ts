@@ -9,7 +9,8 @@
 import { z } from "zod";
 
 import { defineMethodDescriptors, type MethodDescriptor } from "../method-descriptor.js";
-import { ArtifactIdSchema, type ArtifactId } from "../artifacts/id.js";
+import { AttachmentReferenceListSchema } from "../artifacts/attachment-reference.js";
+import type { ArtifactId } from "../artifacts/id.js";
 import { FILE_PATH_MAX_LEN, wireUncappedFreeFormString } from "../free-form-string.js";
 import { EventCursorSchema, SessionIdSchema, type SessionId } from "./id.js";
 import { type EventCursor } from "./event-cursor.js";
@@ -222,7 +223,7 @@ export const SessionRestoreRequestSchema: z.ZodType<SessionRestoreRequest, Sessi
       resend: z
         .object({
           content: wireUncappedFreeFormString("resend.content"),
-          attachments: z.array(ArtifactIdSchema).optional(),
+          attachments: AttachmentReferenceListSchema.optional(),
         })
         .strict()
         .optional(),

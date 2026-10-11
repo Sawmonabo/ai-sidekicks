@@ -32,6 +32,8 @@ export const GRAPHITE_PALETTE: ThemePalette = {
     "accent-ink": { light: oklch(0.99, 0, 0), dark: oklch(0.16, 0.02, 200) },
     // The inks run opposite ways, so the light face deepens when pressed and the dark brightens.
     "accent-pressed": { light: oklch(0.46, 0.12, 205), dark: oklch(0.86, 0.11, 200) },
+    // Graphite's focus mark is its accent.
+    focus: { light: oklch(0.52, 0.12, 205), dark: oklch(0.8, 0.12, 200) },
     "code-keyword": { light: oklch(0.515, 0.14, 290), dark: oklch(0.74, 0.13, 290) },
     "code-name": { light: oklch(0.485, 0.13, 230), dark: oklch(0.76, 0.12, 230) },
     "code-string": { light: oklch(0.48, 0.15, 150), dark: oklch(0.76, 0.14, 150) },

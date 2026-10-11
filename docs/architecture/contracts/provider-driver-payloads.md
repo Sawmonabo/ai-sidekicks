@@ -478,16 +478,29 @@ type ApplyInterventionParams =
 interface SteerPayload {
   content: string;
   attachments?: ArtifactId[];
+  // The skills the person picked for this message, each as its provider listed it: its name and the
+  // absolute path of the `SKILL.md` file Codex's own `skills/list` gave for that name in the folder
+  // picked. The daemon resolves a pick to it, so no path a client sent reaches a provider; a Codex
+  // agent receives each as its own skill input item, and a Claude Code session carries none, its
+  // agent reading the `/name` the composer put in `content`.
+  skills?: PickedSkill[];
   expectedTurnId?: string;
 }
 
+interface PickedSkill {
+  name: string;
+  path: string;
+}
+
 interface InterruptPayload {
+  pending: "nextTurn" | "returnToDraft"; // the waiting messages go as the next turn, or back to the draft
   reason?: string;
 }
 
 interface DriverInterventionResult {
   status: "applied" | "degraded"; // the complete driver-level vocabulary — `rejected` / `expired` are orchestration-layer verdicts rendered around driver dispatch, never driver-returned (Spec-004 §Required Behavior; normative mapping in queue-and-intervention-model.md §Driver Result To Lifecycle Mapping)
   fallbackAction?: string; // names the fallback the orchestration layer took, present only on `degraded`
+  deliveredRunId?: RunId; // a delivered message's run when that is not its target: settling a choice the target was held on ended it, so the message started the session's next turn as a run of its own
 }
 
 // The MOVE ONTO A FORK: the driver starts a new provider conversation from the bound one's history

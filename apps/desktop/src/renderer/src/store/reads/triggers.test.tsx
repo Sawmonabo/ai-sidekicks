@@ -53,7 +53,7 @@ describe("useSessionReadTriggers — the React wiring consults the same predicat
   /** A store the wiring reads transitions off — initialized, as the trigger set requires. */
   function initializedStore(): SessionStore {
     const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-    sessionStore.initialize({ cursor: 0, entities: [] });
+    sessionStore.initialize({ shape: "project", cursor: 0, entities: [] });
     return sessionStore;
   }
 

@@ -9,6 +9,7 @@ import type {
 } from "@ai-sidekicks/contracts/run/control";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { RunState } from "@ai-sidekicks/contracts/run/state";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { canonicalizeUuid } from "@ai-sidekicks/contracts/uuid-canonical";
 
 import { WriteRefusedError } from "../../database/writer.js";
@@ -31,6 +32,16 @@ const RESUMABLE_STATES: readonly RunState[] = ["pausing", "paused"];
 export interface RunPauseControlDeps {
   readonly runs: Pick<RunStateReader, "getRun">;
   readonly engine: Pick<RunEngine, "transition">;
+}
+
+/**
+ * The messages waiting for a paused run that its resume delivers: read once the resume is sure to
+ * go, taken once the driver continued the run with them, and given back when it did not.
+ */
+export interface ContinuedMessages {
+  read(runId: RunId): readonly WaitingMessage[];
+  admit(sessionId: SessionId, runId: RunId): Promise<void>;
+  release(sessionId: SessionId, runId: RunId): Promise<void>;
 }
 
 /** A guarded pause or resume of one run, at the version the caller read. */
@@ -78,16 +89,16 @@ export class RunPauseControl {
   }
 
   /**
-   * Moves a pausing or paused run back to `running` on the same run id, then asks the driver to
-   * continue it from where it stopped, delivering `messages` in send order. Throws
-   * {@link RunVersionStaleError} when `expectedRunVersion` is not the run's version and
-   * {@link RunInvalidTransitionError} for a run in any other state; the driver's own failure is
-   * thrown with the run left `running`.
+   * Moves a pausing or paused run back to `running` and asks the driver to continue it from where
+   * it stopped, delivering the messages waiting for it in send order, read only once the move is
+   * refused no more. Throws {@link RunVersionStaleError} when `expectedRunVersion` is not the run's
+   * version and {@link RunInvalidTransitionError} for a run in any other state, nothing read; the
+   * driver's own failure is thrown with the run left `running` and its messages given back.
    */
   async resume(
     request: RunResumeRequest,
     driver: Pick<ProviderDriver, "resumeRun">,
-    messages: readonly WaitingMessage[],
+    continued: ContinuedMessages,
   ): Promise<RunControlAck> {
     return this.#runLock.run(request.targetRunId, async () => {
       const { targetRunId: runId } = request;
@@ -95,8 +106,16 @@ export class RunPauseControl {
       if (!RESUMABLE_STATES.includes(run.state)) {
         throw new RunInvalidTransitionError(runId, run.state, "running");
       }
-      const running = await this.#moveAtExpectedVersion(request, "running");
-      await driver.resumeRun({ sessionId: run.sessionId, runId, messages });
+      const messages = continued.read(runId);
+      let running: RunRead;
+      try {
+        running = await this.#moveAtExpectedVersion(request, "running");
+        await driver.resumeRun({ sessionId: run.sessionId, runId, messages });
+      } catch (error) {
+        await continued.release(run.sessionId, runId);
+        throw error;
+      }
+      await continued.admit(run.sessionId, runId);
       return { runId, newState: running.state, runVersion: running.version };
     });
   }

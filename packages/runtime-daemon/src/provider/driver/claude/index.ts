@@ -13,7 +13,6 @@ import type {
 import type { DriverCompactionResult } from "@ai-sidekicks/contracts/provider/driver/compaction";
 import type { ProviderCommandListResult } from "@ai-sidekicks/contracts/provider/driver/commands";
 import type {
-  ApplyInterventionParams,
   DriverInterventionResult,
   InterruptRunParams,
 } from "@ai-sidekicks/contracts/provider/driver/intervention";
@@ -49,6 +48,7 @@ import type {
   ResumeRunParams,
   WithdrawQueuedMessageParams,
   WithdrawQueuedMessageResult,
+  ApplyInterventionParams,
 } from "../run-control.js";
 import type {
   AnswerSessionCommandParams,
@@ -87,7 +87,7 @@ type ClaudeDriverDependencies = ClaudeSessionLifecycleDependencies &
 export function createDriver(
   dependencies: Omit<ClaudeDriverDependencies, "transport" | "readBuild"> &
     Pick<ClaudeProcessTransportDependencies, "providerCommand" | "toolServerRoute">,
-): ProviderDriver {
+): ClaudeDriver {
   const { providerCommand, toolServerRoute, ...driverDependencies } = dependencies;
   const { providerBaseEnvironment, operatingSystem } = driverDependencies;
   const transport = new ClaudeProcessTransport({
@@ -130,8 +130,12 @@ export class ClaudeDriver implements ProviderDriver {
     this.#interventionDispatcher = new ClaudeInterventionDispatcher({
       channelLookup: this.#lifecycle,
       settlement: this.#lifecycle.interventionSettlement,
+      attachments: dependencies.attachments,
       onSteerSent: (runId, messageUuid) => {
         this.#lifecycle.recordSteerSent(runId, messageUuid);
+      },
+      onSteerUnsent: (runId, messageUuid) => {
+        this.#lifecycle.forgetSteer(runId, messageUuid);
       },
     });
     this.#capabilityReporter = new ClaudeCapabilityReporter(dependencies);
@@ -331,6 +335,11 @@ export class ClaudeDriver implements ProviderDriver {
    */
   observedOutputSpeedFor(sessionId: SessionId): ProviderOutputSpeedState | undefined {
     return this.#lifecycle.observedOutputSpeedFor(sessionId);
+  }
+
+  /** The id of the session's Claude Code process, while one is live. */
+  readProcessId(sessionId: SessionId): number | undefined {
+    return this.#lifecycle.readProcessId(sessionId);
   }
 
   /** Ends every Claude Code process as the daemon stops; see {@link ClaudeSessionLifecycle}. */

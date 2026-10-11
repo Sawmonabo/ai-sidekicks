@@ -2,9 +2,10 @@
 // end, its tool calls' rows (a command's end even after its turn ended or the session moved off
 // its conversation), the reply, reasoning and plan streamed as pieces, a plan's record, a
 // command's live output, a helper's own rows on its child run, the reviewer's flags and blocks,
-// the provider's notices, a model switch with its sentence, and the live safety hold. Every
-// delivery is dispatched as its frame is read, in frame order; a tool call's end waits only for
-// its start, and a helper's rows for its child run's start.
+// the provider's notices, a model switch with its sentence, the live safety hold, and the tool
+// boundary the run queue releases its held messages at. Every delivery is dispatched as its frame
+// is read, in frame order; a tool call's end waits only for its start, and a helper's rows for its
+// child run's start.
 
 import { CommandIdSchema } from "@ai-sidekicks/contracts/command";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
@@ -20,6 +21,7 @@ import { isPlainObject, readNonEmptyString } from "../../../record-readers.js";
 import type { TerminalEmissionGate } from "../../../terminal-emission-gate.js";
 import type { ThreadFrameRoute } from "../../../thread-frame-router.js";
 import type { DriverDiagnosticsEmitter } from "../../diagnostics.js";
+import type { RunToolBoundary } from "../../run-control.js";
 import { composePlanProposedPayload } from "../../plan-record.js";
 import { CODEX_DRIVER_NAME } from "../capabilities.js";
 import type { CodexRunBinding, CodexRunRoutes } from "../run/routes.js";
@@ -123,6 +125,8 @@ export interface CodexFrameDeliveryDependencies {
   readonly cutOversizedTurn: (record: CodexSessionRecord, turnId: string) => void;
   /** The compaction waits, which a compaction's own turn ends. */
   readonly pendingCompactions: PendingCompactionRegistry;
+  /** Receives each tool call of the session's own thread that ended while its turn runs. */
+  readonly onToolBoundary: (boundary: RunToolBoundary) => void;
   readonly now: () => number;
 }
 
@@ -346,7 +350,7 @@ export class CodexFrameDelivery {
       turnRun !== undefined && isStoppedByCodex ? this.#rowRun(record, turnRun) : undefined,
     );
     if (turnRun === undefined) {
-      // A turn no run holds is a compaction's own, whose frame came before this end if it compacted.
+      // A turn no run holds is a compaction's own, whose frame came before this end if it ran.
       this.#dependencies.pendingCompactions.observeTurnEnd(
         codexCompactionWaitKey(record.sessionId, threadId),
       );
@@ -456,14 +460,28 @@ export class CodexFrameDelivery {
         row: command.row,
         startedAtMs: command.startedAtMs,
       });
-      return;
+    } else {
+      this.#withItemRun(record, params, "item/completed", (run) => {
+        const startedAtMsById = record.delivery.itemStartedAtMsByTurnId.get(run.turnId);
+        const startedAtMs = startedAtMsById?.get(itemId);
+        startedAtMsById?.delete(itemId);
+        this.#completeItem(record, item, itemId, threadId, params, { row: run.row, startedAtMs });
+      });
     }
-    this.#withItemRun(record, params, "item/completed", (run) => {
-      const startedAtMsById = record.delivery.itemStartedAtMsByTurnId.get(run.turnId);
-      const startedAtMs = startedAtMsById?.get(itemId);
-      startedAtMsById?.delete(itemId);
-      this.#completeItem(record, item, itemId, threadId, params, { row: run.row, startedAtMs });
-    });
+    // A tool call of the session's own thread that ended inside its live turn is a step boundary.
+    // A helper takes no direct input, a command ending after its turn has no turn to join, and a
+    // turn a pause interrupts at this step takes no more messages.
+    const turnId = readNonEmptyString(params, "turnId");
+    const runId = turnId === undefined ? undefined : record.runIdByActiveTurnId.get(turnId);
+    if (
+      threadId === record.threadId &&
+      runId !== undefined &&
+      turnId !== undefined &&
+      !record.pauseRunIdByTurnId.has(turnId) &&
+      isCodexToolItem(item)
+    ) {
+      this.#dependencies.onToolBoundary({ sessionId: record.sessionId, runId });
+    }
   }
 
   // A finished item: its prose's last piece and, for a plan, the plan's record; a tool call's

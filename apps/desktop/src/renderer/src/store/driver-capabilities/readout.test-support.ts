@@ -13,5 +13,5 @@ export function settledRefusalOf(readout: DriverCapabilityReadout | undefined): 
 
 /** A reading no read produces, so a probe whose callback never ran fails loudly. */
 export function neverRead(): DriverCapabilityReadout {
-  return { flagsByDriverName: new Map(), driverNameByRunId: new Map(), readRefusal: undefined };
+  return { flagsByDriverName: new Map(), readRefusal: undefined };
 }

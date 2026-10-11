@@ -1,48 +1,35 @@
 /**
  * Codex intervention dispatcher. `applyIntervention` routes a normalized intervention onto the
- * provider's native operation, or returns a `degraded` result the layer above can act on (an
- * unsupported type is data, not an exception).
+ * provider's native operation: a steer, the delivery of a message the run queue held, onto
+ * `turn/steer` with its picked skills and staged files, and an interrupt onto `turn/interrupt`.
  *
- * - `steer` is gated by the `steer` capability flag, read live at dispatch with `!== true` (as in
- *   `driver/registry.ts`); `interrupt` has no flag. Codex declares `steer: true`, so its degraded
- *   arm is reached only through an injected snapshot.
  * - `CodexInterventionRuntime` is a port `CodexLifecycleManager` satisfies, so this module stays
  *   testable against a fake.
  * - `clientIdempotencyKey` rides the wire unchanged where a field exists (`turn/steer` carries
  *   it as `clientUserMessageId`); `turn/interrupt` has none, and a minted key would defeat the
  *   `UNIQUE (target_run_id, client_idempotency_key)` dedupe on retry.
- * - A steer carrying attachments throws `DriverCapabilityUnsupportedError`.
- * - `turn/steer` answers `{ turnId }`, so `applied` requires the targeted turn; `turn/interrupt`
- *   answers an empty object, so no JSON-RPC error is the only evidence. No shape check: the wire is
- *   additive, and a new member must not degrade every interrupt.
+ * - `turn/steer` answers `{ turnId }`, so `applied` requires the targeted turn, and an answer
+ *   naming another turn or none is `degraded`; `turn/interrupt` answers an empty object, so no
+ *   JSON-RPC error is the only evidence. No shape check: the wire is additive, and a new member
+ *   must not degrade every interrupt.
  */
 
+import type { ArtifactId } from "@ai-sidekicks/contracts/artifacts/id";
 import type {
-  DriverCapabilities,
-  DriverCapabilityFlag,
-} from "@ai-sidekicks/contracts/provider/driver/capabilities";
-import type {
-  ApplyInterventionParams,
   DriverInterventionResult,
   InterruptRunParams,
 } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
-import { CODEX_DRIVER_NAME } from "./capabilities.js";
-import { STEER_FALLBACK_ACTION } from "../contract.js";
-import { DriverCapabilityUnsupportedError } from "../registry.js";
-
-/** Capability flag governing each intervention type; `null` means no flag gates it. */
-const CODEX_INTERVENTION_CAPABILITY_FLAGS: Readonly<
-  Record<ApplyInterventionParams["type"], DriverCapabilityFlag | null>
-> = {
-  steer: "steer",
-  interrupt: null,
-};
+import type { ApplyInterventionParams, PickedSkill } from "../run-control.js";
 
 /** One steer, as handed to the runtime. */
 export interface CodexSteerRunRequest {
   readonly runId: RunId;
   readonly content: string;
+  /** The skills picked for the message, in the order picked. */
+  readonly skills: readonly PickedSkill[] | undefined;
+  /** The message's staged files, in staging order. */
+  readonly attachments: readonly ArtifactId[] | undefined;
   /** Pins the steer to a turn; absent means the live turn, reported back as `targetedTurnId`. */
   readonly expectedTurnId?: string | undefined;
   /** The requester's key, placed on the wire unchanged. */
@@ -63,17 +50,7 @@ export interface CodexInterventionRuntime {
   interruptRun(params: InterruptRunParams): Promise<void>;
 }
 
-/** Reads the live capability snapshot; injected so a refreshed record is honored. */
-export type CodexCapabilitySnapshotReader = () => DriverCapabilities;
-
-/** Construction inputs for the dispatcher. */
-export interface CodexInterventionOptions {
-  readonly runtime: CodexInterventionRuntime;
-  readonly readCapabilities: CodexCapabilitySnapshotReader;
-}
-
-// `params: never` stops compiling when `ApplyInterventionParams` gains an arm. No
-// `fallbackAction`: `queue_and_interrupt` remedies a missing steer, not an unknown type.
+// `params: never` stops compiling when `ApplyInterventionParams` gains an arm.
 function degradeUnroutedInterventionType(params: never): DriverInterventionResult {
   void params;
   return { status: "degraded" };
@@ -83,42 +60,32 @@ function degradeUnroutedInterventionType(params: never): DriverInterventionResul
 function normalizeSteerAcknowledgement(
   acknowledgement: CodexSteerAcknowledgement,
 ): DriverInterventionResult {
-  if (acknowledgement.acknowledgedTurnId === acknowledgement.targetedTurnId) {
-    return { status: "applied" };
-  }
-  return { status: "degraded", fallbackAction: STEER_FALLBACK_ACTION };
+  return acknowledgement.acknowledgedTurnId === acknowledgement.targetedTurnId
+    ? { status: "applied" }
+    : { status: "degraded" };
 }
 
-/** Routes normalized interventions onto Codex's native operations, or degrades them. */
+/** Routes normalized interventions onto Codex's native operations. */
 export class CodexInterventionDispatcher {
   readonly #runtime: CodexInterventionRuntime;
-  readonly #readCapabilities: CodexCapabilitySnapshotReader;
 
-  constructor(options: CodexInterventionOptions) {
-    this.#runtime = options.runtime;
-    this.#readCapabilities = options.readCapabilities;
+  constructor(runtime: CodexInterventionRuntime) {
+    this.#runtime = runtime;
   }
 
   /**
-   * Routes one intervention: `degraded` when the governing capability is not `true`, else the
-   * native operation and `applied`. Transport and run-state failures throw.
+   * Routes one intervention onto its native operation and answers `applied`, or `degraded` for a
+   * steer Codex acknowledged on another turn or none. Transport, run-state and file-binding
+   * failures throw.
    */
   async applyIntervention(params: ApplyInterventionParams): Promise<DriverInterventionResult> {
-    const requiredFlag = CODEX_INTERVENTION_CAPABILITY_FLAGS[params.type];
-    if (requiredFlag !== null && !this.#isDeclaredSupported(requiredFlag)) {
-      return { status: "degraded", fallbackAction: STEER_FALLBACK_ACTION };
-    }
-
     switch (params.type) {
       case "steer": {
-        // Staged files are not handed to Codex yet, so a steer carrying them is refused whole
-        // rather than sent without them.
-        if ((params.payload.attachments ?? []).length > 0) {
-          throw new DriverCapabilityUnsupportedError(CODEX_DRIVER_NAME, "steer");
-        }
         const acknowledgement = await this.#runtime.steerRun({
           runId: params.targetRunId,
           content: params.payload.content,
+          skills: params.payload.skills,
+          attachments: params.payload.attachments,
           expectedTurnId: params.payload.expectedTurnId,
           clientIdempotencyKey: params.clientIdempotencyKey,
         });
@@ -129,17 +96,11 @@ export class CodexInterventionDispatcher {
           runId: params.targetRunId,
           ...(params.payload.reason === undefined ? {} : { reason: params.payload.reason }),
         });
-        break;
+        return { status: "applied" };
       }
       default: {
         return degradeUnroutedInterventionType(params);
       }
     }
-
-    return { status: "applied" };
-  }
-
-  #isDeclaredSupported(flag: DriverCapabilityFlag): boolean {
-    return this.#readCapabilities().flags[flag] === true;
   }
 }

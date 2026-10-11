@@ -86,6 +86,7 @@ export function projectLiveRun(run: SessionLiveRun): StoredEntity {
     body: {
       runVersion: run.runVersion,
       ...(run.parentRunId === undefined ? {} : { parentRunId: run.parentRunId }),
+      ...(run.isApart === true ? { isApart: true } : {}),
       agentId: run.agentId,
     },
   };

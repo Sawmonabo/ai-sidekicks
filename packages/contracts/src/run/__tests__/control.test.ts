@@ -2,7 +2,6 @@
 // the wire, before the daemon acts on it.
 import { describe, expect, it } from "vitest";
 
-import type { InterventionType } from "../../provider/driver/intervention.js";
 import { RECOVERY_CONDITIONS } from "../../provider/driver/recovery.js";
 import {
   InterventionRequestPayloadSchema,
@@ -13,6 +12,7 @@ import {
   RunResumeRequestSchema,
   RunRolledBackEventSchema,
   RunStateChangeEventSchema,
+  type InterventionRequestPayload,
 } from "../control.js";
 import { RunStateSchema } from "../state.js";
 import { RunSafetyBufferingUpdatedPayloadSchema } from "../../session/controls/events.js";
@@ -21,9 +21,6 @@ const SESSION_ID = "0f2b4d5e-1111-4111-8111-111111111111";
 const QUEUE_ITEM_ID = "0f2b4d5e-4444-4444-8444-444444444444";
 const RUN_ID = "0f2b4d5e-6666-4666-8666-666666666666";
 const IDEMPOTENCY_KEY = "0f2b4d5e-9999-4999-8999-999999999999";
-// Two distinct artifact ids, so an order assertion over the steer carrier can tell them apart.
-const FIRST_ARTIFACT_ID = "0f2b4d5e-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-const SECOND_ARTIFACT_ID = "0f2b4d5e-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const TIMESTAMP = "2026-08-31T12:00:00.000Z";
 
 const guards = {
@@ -33,8 +30,7 @@ const guards = {
 } as const;
 
 describe("InterventionRequestPayload", () => {
-  const armPayloads: Record<InterventionType, Record<string, unknown>> = {
-    steer: { ...guards, type: "steer", content: "please use the async client" },
+  const armPayloads: Record<InterventionRequestPayload["type"], Record<string, unknown>> = {
     interrupt: { ...guards, type: "interrupt", pending: "nextTurn", reason: "wrong branch" },
     faster_model_retry: {
       ...guards,
@@ -43,9 +39,7 @@ describe("InterventionRequestPayload", () => {
       model: "faster-model",
     },
   };
-  const arms: ReadonlyArray<[InterventionType, Record<string, unknown>]> = (
-    Object.entries(armPayloads) as Array<[InterventionType, Record<string, unknown>]>
-  ).map(([armType, payload]) => [armType, payload]);
+  const arms = Object.entries(armPayloads);
 
   it.each(arms)("round-trips the %s arm", (_type, payload) => {
     expect(InterventionRequestPayloadSchema.parse(payload)).toEqual(payload);
@@ -76,50 +70,6 @@ describe("InterventionRequestPayload", () => {
           deliverFirst: QUEUE_ITEM_ID,
         }).success,
       ).toBe(false);
-    });
-  });
-
-  describe("the steer attachments element type", () => {
-    const steerCarrying = (attachments: readonly unknown[]): Record<string, unknown> => ({
-      ...guards,
-      type: "steer",
-      content: "see the attached trace",
-      attachments,
-    });
-
-    it("REFUSES a non-id element", () => {
-      expect(() =>
-        InterventionRequestPayloadSchema.parse(steerCarrying([{ kind: "blob" }])),
-      ).toThrow();
-      expect(() => InterventionRequestPayloadSchema.parse(steerCarrying([{}]))).toThrow();
-      expect(() => InterventionRequestPayloadSchema.parse(steerCarrying([17]))).toThrow();
-    });
-
-    it("REFUSES a string that is not an artifact id", () => {
-      // `ArtifactId` is an RFC 9562 UUID the daemon mints at manifest creation; a caller-supplied
-      // id reaching a manifest lookup must not be a path or a store-key fragment, which a bare
-      // `z.string()` element would admit.
-      expect(() =>
-        InterventionRequestPayloadSchema.parse(steerCarrying(["../../etc/passwd"])),
-      ).toThrow();
-      // A plausible-looking opaque handle is still refused: `artifact-1` is not an RFC 9562 UUID.
-      expect(() => InterventionRequestPayloadSchema.parse(steerCarrying(["artifact-1"]))).toThrow(
-        /uuid/i,
-      );
-    });
-
-    it("accepts the empty carrier and preserves declared order", () => {
-      // Ordering is the daemon's delivery duty; the parse must only not reorder or drop, so the
-      // round-trip pins the sequence.
-      expect(InterventionRequestPayloadSchema.parse(steerCarrying([]))).toEqual(steerCarrying([]));
-      const ordered = [SECOND_ARTIFACT_ID, FIRST_ARTIFACT_ID];
-      expect(
-        (
-          InterventionRequestPayloadSchema.parse(steerCarrying(ordered)) as {
-            attachments: string[];
-          }
-        ).attachments,
-      ).toEqual(ordered);
     });
   });
 });
@@ -353,7 +303,9 @@ describe("the run.subscribeState arms", () => {
     // the crossing and not a bad fixture.
     expect(RunRolledBackEventSchema.parse(minimalRolledBack)).toEqual(minimalRolledBack);
     expect(RunStateChangeEventSchema.parse(minimalRunStateChange)).toEqual(minimalRunStateChange);
-    expect(stateStream.parse(safetyHold)).toEqual(safetyHold);
+    // The hold rides the stream as a change of its own, carrying the session's newest cursor.
+    const safetyHoldFrame = { changes: [{ cursor: "41", event: safetyHold }] };
+    expect(stateStream.parse(safetyHoldFrame)).toEqual(safetyHoldFrame);
     expect(() => RunStateChangeEventSchema.parse(minimalRolledBack)).toThrow();
     expect(() => RunRolledBackEventSchema.parse(minimalRunStateChange)).toThrow();
     expect(() =>

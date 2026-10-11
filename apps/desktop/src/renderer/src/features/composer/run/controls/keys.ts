@@ -2,10 +2,14 @@
 // The token is the record's own id (one admitted dispatch, one record), so a form finds its own
 // settlement by it rather than by whichever record is newest.
 
+import { structuralKey } from "#renderer/lib/structural-key.js";
 import { type RunControl } from "./services/dispatch.js";
 
-/** The separator between the segments of a token or key. */
-const KEY_SEPARATOR = ":";
+/** What one dispatch acts on: a run, or one child of it named by the daemon's handle. */
+export interface RunControlSubject {
+  readonly runId: string;
+  readonly childHandle?: string | undefined;
+}
 
 /**
  * Mints the token an admitted dispatch's record is recorded under. The run and control make
@@ -16,10 +20,15 @@ export function mintRunControlDispatchToken(
   control: RunControl,
   dispatchOrdinal: number,
 ): string {
-  return `${runId}${KEY_SEPARATOR}${control}${KEY_SEPARATOR}${String(dispatchOrdinal)}`;
+  return structuralKey([runId, control, String(dispatchOrdinal)]);
 }
 
-/** The key one in-flight dispatch is held under. One control per run at a time. */
-export function inFlightKeyFor(runId: string, control: RunControl): string {
-  return `${runId}${KEY_SEPARATOR}${control}`;
+/**
+ * The key one in-flight dispatch is held under: one control per run, or per child of a run, at a
+ * time, so a steer to one child never holds back a steer to its sibling.
+ */
+export function inFlightKeyFor(subject: RunControlSubject, control: RunControl): string {
+  return subject.childHandle === undefined
+    ? structuralKey([subject.runId, control])
+    : structuralKey([subject.runId, subject.childHandle, control]);
 }

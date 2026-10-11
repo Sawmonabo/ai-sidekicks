@@ -68,7 +68,7 @@ function createOutageHarness(refusalCount: number): OutageHarness {
   const registry = new SessionStoreRegistry({
     read: (_sessionId, reasons) => {
       reasonsSeen.push(...reasons);
-      return Promise.resolve({ entities: [] });
+      return Promise.resolve({ shape: "project", entities: [] });
     },
     clock: engine.clock,
     openingPageLimit,
@@ -158,7 +158,7 @@ describe("SessionEventSubscriber: failed opens, and what one returning edge is w
           failingReads -= 1;
           return Promise.reject(new Error("the daemon refused the read"));
         }
-        return Promise.resolve({ entities: [] });
+        return Promise.resolve({ shape: "project", entities: [] });
       },
       clock: engine.clock,
       openingPageLimit,

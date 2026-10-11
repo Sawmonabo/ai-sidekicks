@@ -214,8 +214,12 @@ export class SessionStore {
     if (!unseeded.initialized || !admitsBaseState(unseeded)) {
       return false;
     }
-    // The read's standing events are as true of the window as of what replays: both take them.
-    const window = withStandingEvents(unseeded, baseState.standingEvents ?? []);
+    // The read's standing events and shape are as true of the window as of what replays: both
+    // take them.
+    const window = {
+      ...withStandingEvents(unseeded, baseState.standingEvents ?? []),
+      shape: baseState.shape,
+    };
     if (reopening.from === "head") {
       this.#replayFromHead(window, baseState);
       return true;
@@ -529,6 +533,7 @@ export class SessionStore {
     this.#startReplay(window, reconciler, {
       ...source,
       ...REPLAY_START,
+      shape: window.shape,
       partitions: point.partitions,
       // A replay under way lacks what the window took since it started and what the read carried.
       standingEvents: mergeStandingEvents(source.standingEvents, window.standingEvents),

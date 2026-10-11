@@ -17,7 +17,8 @@
  *
  * `meridian-clickable-word` is a faint word in the line's own type with no box, border or icon,
  * underlined under the pointer while it can be pressed: every try-again, and the transcript's
- * `Load earlier`.
+ * `Load earlier`. A line whose words carry a state's ink, such as a failed delivery's red, sets
+ * `--meridian-clickable-word-color` so its word reads in that ink too.
  *
  * The action button's base and modifiers and the clickable word sit inside `:where()` so they
  * carry no specificity: a control's own class, state and variant win whichever sheet loads first.
@@ -117,7 +118,7 @@
   padding: 0;
   border: 0;
   background: none;
-  color: var(--meridian-text-faint);
+  color: var(--meridian-clickable-word-color, var(--meridian-text-faint));
   font: inherit;
   cursor: pointer;
 }

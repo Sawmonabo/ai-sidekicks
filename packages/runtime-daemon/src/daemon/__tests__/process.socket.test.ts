@@ -91,6 +91,9 @@ vi.mock("../../provider/driver/factories.js", async () => {
   return { PROVIDER_DRIVER_FACTORIES: { claude: build, codex: build } };
 });
 
+// How long a test waits for the drivers' registration, which follows the search index's open.
+const REGISTRATION_WAIT_MS = 10_000;
+
 useDaemonFolders();
 
 // Every database writer this test's daemons open, in the order they opened.
@@ -193,15 +196,19 @@ describe("the lifecycle verbs over the socket", () => {
     );
     const { client, call } = await openSession();
 
-    // The drivers register once the search index has opened, after the start answers ready.
-    await vi.waitFor(() => {
-      expect(serviceLog).toEqual(
-        expect.arrayContaining([
-          "The claude driver was not registered: no provider is part of this test",
-          "The codex driver was not registered: no provider is part of this test",
-        ]),
-      );
-    });
+    // The drivers register once the search index has opened, after the start answers ready; on a
+    // loaded runner that takes past the one second a wait allows by default.
+    await vi.waitFor(
+      () => {
+        expect(serviceLog).toEqual(
+          expect.arrayContaining([
+            "The claude driver was not registered: no provider is part of this test",
+            "The codex driver was not registered: no provider is part of this test",
+          ]),
+        );
+      },
+      { timeout: REGISTRATION_WAIT_MS },
+    );
     expect(await call("driver.listModes")).toMatchObject({ result: { drivers: [] } });
     await client.close();
   });

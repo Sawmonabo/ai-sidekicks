@@ -173,7 +173,7 @@ type RunFailureCategory =
   | "setup failure"; // a setup gate threw before the provider started the run (Spec-005 §Run Lifecycle)
 
 type QueueItemState = "queued" | "admitted" | "superseded" | "canceled" | "not_delivered";
-type InterventionType = "steer" | "interrupt" | "faster_model_retry"; // Spec-003 §Required Behavior and Spec-004 §Required Behavior; ApplyInterventionParams (Plan-003 T1.8) carries the first two, and the daemon carries out `faster_model_retry` itself. Undo is `session.restore`, never an intervention
+type InterventionType = "interrupt" | "faster_model_retry"; // Spec-003 §Interfaces And Contracts and Spec-004 §Required Behavior; ApplyInterventionParams (Plan-003 T1.8) carries the interrupt beside the driver's own `steer`, the queue's delivery of a waiting message, which no intervention records, and the daemon carries out `faster_model_retry` itself. Undo is `session.restore`, never an intervention
 type InterventionState =
   | "requested"
   | "accepted"
@@ -408,7 +408,6 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | Method and members | What it serves | Spec | Plan |
 | --- | --- | --- | --- |
 | `driver.listModes` | The levels and modes a session can run | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) T4.1, T4.2, T4.3 |
-| `driver.subscribeEvents {runId}` | Follow one run's driver activity as a stream of driver events | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) T4.1, T4.4 |
 
 ### `git.*`
 
@@ -655,7 +654,7 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | event `session.output_style_changed` | A Claude Code session's own output style changed by `/output-style` in that session; every Claude Code process started for it reads the new value | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md), [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md) | [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) T3.27 |
 | `session.overviewRead {afterRevision}` → `{revision, sessions: [{id, title?, provider, state, agents: [{name, provider, state}]}], remoteControl: {state: on \| off}}` | The terminal pane's held read: every session with its agents and Remote Control's state, answered once the sessions list or any session's agent list moves past `afterRevision`, or after 10 s with nothing changed; `title` is absent while a session is untitled, and the next read sends `revision` back as `afterRevision` | [Spec-001](../../specs/001-session-core.md), [ADR-035](../../decisions/035-claude-code-mods-are-an-optional-terminal-bridge.md) | [Plan-001](../../plans/001-session-core.md) T6.14 |
 | `session.permissionLevelUpdate {sessionId, level: readonly \| ask \| reviewed \| sandboxed \| yolo}` → `{sessionId, level}` | The permission level chip | [Spec-010](../../specs/010-approvals-permissions-and-trust-boundaries.md) | [Plan-009](../../plans/009-approvals-permissions-and-trust-boundaries.md) T3.11 |
-| `session.providerCommandsSubscribe` | The live `/` list: the process's slash commands plus each working server's prompts | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) T4.9 |
+| `session.providerCommandsSubscribe` | The live `/` list: the process's slash commands plus each working server's prompts | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) T4.8 |
 | Field `shape: "chat" \| "project"` on the session record, read through `session.read` and `session.list` | The durable shape column: chat or project | [Spec-001](../../specs/001-session-core.md) | [Plan-001](../../plans/001-session-core.md) T2.1, T3.3 |
 | The `shape: "chat"` field on `session.read`; no read of its own | The strip's `Session workspace` label | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-006](../../plans/006-repo-attachment-and-workspace-binding.md) T3.6 |
 | `session.restart` | Restart a provider process that ended | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) T3.29 |

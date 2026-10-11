@@ -1,9 +1,10 @@
 // The message line, Send, and the draft beneath them: an unsent body lives in the supplied
 // draft store, so a send that did not land must leave what the person wrote (a line with its
-// own copy would lose it). Two presses inside one frame send once, and a line-reading command
-// sent with Send runs instead of going out as a message.
+// own copy would lose it). Two presses inside one frame send once, Send keeps its name while the
+// send is in flight, and a line-reading command sent with Send runs instead of going out as a
+// message.
 
-import { act, fireEvent } from "@testing-library/react";
+import { act, fireEvent, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { commandRegistry } from "#renderer/registries/commands/registry.js";
 import { MAXIMUM_LIVE_DRAFT_COUNT } from "#renderer/store/persistence/caps.js";
@@ -19,11 +20,9 @@ import {
 } from "../../command-list/workflow/start-from-line.test-support.js";
 import { WORKFLOW_START_COMMAND_GROUP } from "../../command-list/workflow/hooks/useWorkflowStartPrefill.js";
 import {
-  FIRST_AGENT_ID,
-  SECOND_AGENT_ID,
-  answerSteer,
-  mountAddressable,
+  answerQueued,
   mountDraftLine,
+  mountOverLead,
   openSessionStore,
   pressSend,
 } from "./DraftLine.test-support.js";
@@ -44,17 +43,30 @@ describe("DraftLine — the unsent body lives in the supplied draft store", () =
     expect(second.line.value).toBe("half a thought");
   });
 
-  it("swaps drafts on an address change rather than carrying text to the new target", () => {
-    const bar = mountAddressable(sendCallsAnswering(async () => undefined));
-    fireEvent.change(bar.line(), { target: { value: "for the first agent" } });
+  it("keeps the text while the lead's run starts and settles, and Send sends that text", async () => {
+    // The composer is re-addressed at the lead's run when it starts and at the session when it
+    // settles; the draft is the session's, so neither moment may empty the line or leave Send
+    // reading a different draft than the one on screen.
+    const sentBodies: string[] = [];
+    const bar = mountOverLead(
+      sendCallsAnswering(async (call) => {
+        sentBodies.push((call.params as { readonly content: string }).content);
+        return QUEUE_CREATED;
+      }),
+    );
+    fireEvent.change(bar.line(), { target: { value: "half a thought" } });
 
-    // A different composer address in the same window: its own key, its own draft.
-    bar.address(SECOND_AGENT_ID);
+    bar.startLeadRun();
+    expect(bar.line().value).toBe("half a thought");
+
+    bar.settleLeadRun();
+    expect(bar.line().value).toBe("half a thought");
+
+    await act(async () => {
+      pressSend(bar.result.container);
+    });
+    expect(sentBodies).toStrictEqual(["half a thought"]);
     expect(bar.line().value).toBe("");
-
-    // …and the first address still holds what was written for it.
-    bar.address(FIRST_AGENT_ID);
-    expect(bar.line().value).toBe("for the first agent");
   });
 
   it("clears the draft once the send has settled, and not before", async () => {
@@ -84,23 +96,14 @@ describe("DraftLine — the unsent body lives in the supplied draft store", () =
   });
 });
 
-describe("DraftLine — a rejected steer keeps the message in the line", () => {
+describe("DraftLine — a refused message stays in the line", () => {
   it("leaves the text and renders the daemon's cause", async () => {
-    // Nothing in the reply says the message traveled, so the line must not clear for an
-    // intervention the run declined.
-    const bar = mountAddressable(
-      sendCallsAnswering(async ({ method }) =>
-        method === "run.intervene"
-          ? {
-              interventionId: "6f708192-0314-4526-8738-bc9d0e1f2a34",
-              interventionType: "steer",
-              state: "rejected",
-              runVersion: 4,
-              rejectionReason: "run.invalid_transition",
-            }
-          : undefined,
-      ),
-    );
+    // Nothing reached the queue, so clearing the line would lose what the person wrote.
+    const rejection = {
+      code: "queue.persistence_unavailable",
+      message: "The queue cannot be stored right now.",
+    };
+    const bar = mountOverLead(sendCallsAnswering(vi.fn().mockRejectedValue(rejection)));
 
     fireEvent.change(bar.line(), { target: { value: "keep going on the parser" } });
     await act(async () => {
@@ -109,50 +112,12 @@ describe("DraftLine — a rejected steer keeps the message in the line", () => {
 
     expect(bar.line().value).toBe("keep going on the parser");
     const refusal = bar.result.container.querySelector(".meridian-refusal--inline");
-    expect(refusal?.textContent).toContain("The run did not take this steer, so nothing was sent.");
-    expect(refusal?.textContent).toContain("still in the line");
+    expect(refusal?.textContent).toContain("The queue cannot be stored right now.");
   });
 
-  it("reads Not delivered · Retry, and Retry sends the message again and clears the line", async () => {
-    let answers = 0;
-    const bar = mountAddressable(
-      sendCallsAnswering(async (call) => {
-        if (call.method !== "run.intervene") {
-          return undefined;
-        }
-        answers += 1;
-        return answers === 1
-          ? {
-              interventionId: "6f708192-0314-4526-8738-bc9d0e1f2a34",
-              interventionType: "steer",
-              state: "failed",
-              runVersion: 4,
-              failureReason: "driver.transport_closed",
-            }
-          : answerSteer(call);
-      }),
-    );
-
-    fireEvent.change(bar.line(), { target: { value: "keep going on the parser" } });
-    await act(async () => {
-      pressSend(bar.result.container);
-    });
-
-    expect(bar.line().value).toBe("keep going on the parser");
-    const line = bar.result.container.querySelector(".meridian-composer__not-delivered");
-    expect(line?.textContent).toBe("Not delivered · Retry");
-    const retry = line?.querySelector(".meridian-clickable-word");
-    await act(async () => {
-      (retry as HTMLButtonElement).click();
-    });
-    expect(answers).toBe(2);
-    expect(bar.line().value).toBe("");
-    expect(bar.result.container.querySelector(".meridian-composer__not-delivered")).toBeNull();
-  });
-
-  it("negative control: the same send against an applied answer clears the line", async () => {
+  it("negative control: the same send against a queued answer clears the line", async () => {
     // Without this, the case above would pass a bar that never clears the draft at all.
-    const bar = mountAddressable(sendCallsAnswering(answerSteer));
+    const bar = mountOverLead(sendCallsAnswering(answerQueued));
 
     fireEvent.change(bar.line(), { target: { value: "keep going on the parser" } });
     await act(async () => {
@@ -192,6 +157,9 @@ describe("DraftLine — one send in flight", () => {
       pressSend(result.container);
     });
     expect(settleCalls).toStrictEqual(["run.queueCreate"]);
+    // In flight, Send keeps its one name and is never renamed for what it is doing.
+    const inFlight = within(result.container).getByRole("button", { name: "Send" });
+    expect(inFlight.getAttribute("aria-busy")).toBe("true");
 
     await act(async () => {
       releaseFirstCall();

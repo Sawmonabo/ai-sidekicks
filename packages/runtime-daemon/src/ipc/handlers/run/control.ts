@@ -6,14 +6,14 @@
 //   the intervention and the answer record it.
 // - Pause, resume and the answers reach the driver that runs the run, found as the `driver.*`
 //   handlers find it; an intervention reaches it through the intervention service.
+// - A resume hands the driver the messages waiting for the run, taken once it continued the run
+//   and given back when it did not.
 
 import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
-import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import { RUN_CONTROL_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/run/control";
 
 import type { InterventionService } from "../../../interventions/service.js";
-import type { WaitingMessage } from "../../../provider/driver/run-control.js";
-import type { RunPauseControl } from "../../../session/run/pause.js";
+import type { ContinuedMessages, RunPauseControl } from "../../../session/run/pause.js";
 import type {
   ProviderChoiceAnswerOrigin,
   ProviderChoiceResolver,
@@ -31,7 +31,7 @@ export interface RunControlHandlerDeps extends DriverDispatchDeps {
     "resolveRefusalChoice" | "resolveUsageCreditsChoice"
   >;
   /** The messages waiting for a run, in send order, which a resume delivers as it continues. */
-  readonly readWaitingMessages: (runId: RunId) => readonly WaitingMessage[];
+  readonly continuedMessages: ContinuedMessages;
 }
 
 /**
@@ -67,11 +67,7 @@ export function registerRunControlMethods(
     RUN_CONTROL_METHOD_DESCRIPTORS["run.resume"],
     async (request) => {
       const { driver } = resolveDriverForRunOrThrow(deps, request.targetRunId);
-      return deps.pauseControl.resume(
-        request,
-        driver,
-        deps.readWaitingMessages(request.targetRunId),
-      );
+      return await deps.pauseControl.resume(request, driver, deps.continuedMessages);
     },
   );
 

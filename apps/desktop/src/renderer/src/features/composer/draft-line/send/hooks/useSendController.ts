@@ -1,18 +1,16 @@
-// Builds the send controller for one addressed composer, so `SendButton.tsx` only renders.
+// Builds the send controller for one session's composer, so `SendButton.tsx` only renders.
 //
-// Status and refusal are held per address by `useComposerActState.ts`; the in-flight latch is
-// claimed under `(bridge, addressedOperationKey(draftKey, visit, operation))` before the await
-// and released in `finally`. The latch is not the status: a handler reads `status` from its
+// Status and refusal are held per session's draft by `useComposerActState.ts`; the in-flight
+// latch is claimed under `(bridge, visitOperationKey(draftKey, visit, operation))` before the
+// await and released in `finally`. The latch is not the status: a handler reads `status` from its
 // own render, so two Enter presses in one frame would both read `idle`. The visit
 // (`useSettlementIdentities.ts`) is carried by the latch claim, the attempt register and the
-// settlement identity, so a return to an earlier address does not find a latch held by a parked
+// settlement identity, so a return to an earlier session does not find a latch held by a parked
 // call. A late settlement releases exactly the key it claimed, but its reading is dropped.
 //
-// The history walk and the comparand record are held here: the record must outlive the router,
-// which is rebuilt whenever the addressed target changes, and the unsent body lives only in
-// the supplied `DraftStore`.
+// The history walk is held here, and the unsent body lives only in the supplied `DraftStore`.
 
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useMemo } from "react";
 
 import { useGenerationLatch } from "#renderer/hooks/useGenerationLatch.js";
 import { normalizeWireRejection } from "#renderer/lib/wire/rejection.js";
@@ -22,9 +20,8 @@ import { useComposerActState } from "../../hooks/useComposerActState.js";
 import { useSettlementIdentities } from "../../hooks/useSettlementIdentities.js";
 import { composerRefusal, DAEMON_REFUSAL_ORIGIN } from "../refusals.js";
 import { useSentMessageRecall } from "../../hooks/useSentMessageRecall.js";
-import { addressedOperationKey } from "../settlement.js";
+import { visitOperationKey } from "../settlement.js";
 import { ComposerSendRouter } from "../router.js";
-import { AnsweredRunVersions } from "#renderer/features/composer/answered-run-versions.js";
 import type { SendController, SendControllerDependencies } from "../controller-contract.js";
 
 /** What a recognized command with nowhere to run says; the text is still in the line. */
@@ -32,34 +29,30 @@ const NO_EXECUTOR_DETAIL =
   "That command was recognized but nothing here can run it, so " +
   "nothing happened. The message is still in the line.";
 
-/** Build the controller for one addressed composer. */
+/** Build the controller for one session's composer. */
 export function useSendController(dependencies: SendControllerDependencies): SendController {
   const { bridge, calls, target, draftStore, commandExecutor, recognizeConsoleCommand } =
     dependencies;
-  // Allocated on first use, not on every render.
-  const runVersionsRef = useRef<AnsweredRunVersions | null>(null);
-  const runVersions = (runVersionsRef.current ??= new AnsweredRunVersions());
   const router = useMemo(
     () =>
       new ComposerSendRouter({
         calls,
-        runVersions,
         ...(recognizeConsoleCommand === undefined ? {} : { recognizeConsoleCommand }),
       }),
-    [calls, runVersions, recognizeConsoleCommand],
+    [calls, recognizeConsoleCommand],
   );
   // Claimed before the await and released in `finally`, so every settlement releases the round
   // on one path.
   const operationLatch = useGenerationLatch();
 
-  const draftKey = composerDraftKey(target);
-  // Which stay at this address the composer is on, and the newest attempt of each act.
+  const draftKey = composerDraftKey(target.sessionId);
+  // Which stay at this session the composer is on, and the newest attempt of each act.
   const {
     visit,
     issue: issueSettlementIdentity,
     isCurrent,
   } = useSettlementIdentities(bridge, draftKey);
-  // What the button renders while an act travels, held under the address it was issued at.
+  // What the button renders while an act travels, held under the draft it was issued from.
   const { status, refusal, publishStatus, settle, clearSentDraft } = useComposerActState(
     bridge,
     draftKey,
@@ -72,7 +65,7 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
     () => draftStore.read(draftKey)?.text ?? "",
     [draftStore, draftKey],
   );
-  // The walk back through what was sent from this address, and the record a send writes into.
+  // The walk back through what was sent from this session, and the record a send writes into.
   const { history, recallOlder, recallNewer } = useSentMessageRecall(
     draftStore,
     draftKey,
@@ -81,15 +74,15 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
 
   const send = useCallback(async () => {
     const body = readDraftText();
-    // Claimed for this address, so a send going to another target does not block this one. A
-    // second press here is silent: the message is already going.
-    const latchKey = addressedOperationKey(draftKey, visit, "send");
+    // Claimed for this session's draft, so a send from another session does not block this one.
+    // A second press here is silent: the message is already going.
+    const latchKey = visitOperationKey(draftKey, visit, "send");
     const claim = operationLatch.claim(bridge, latchKey);
     if (claim === undefined) {
       return;
     }
     publishStatus("sending");
-    // Captured before the await, so what settles is measured against the address sent from.
+    // Captured before the await, so what settles is measured against the draft sent from.
     const identity = issueSettlementIdentity("send");
     try {
       const routed = await router.send(body, target);
@@ -128,7 +121,7 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
         case "sent":
           history.recordSent(body);
           // Clear only where the settlement is still current: the draft store is keyed by
-          // address, not visit, so a return trip would erase text typed on the second visit.
+          // session, not visit, so a return trip would erase text typed on the second visit.
           clearSentDraft(identity, draftKey);
           settle(identity, undefined);
           return;
@@ -143,8 +136,8 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
         normalizeWireRejection(DAEMON_REFUSAL_ORIGIN, rejection, CALL_REJECTED_FALLBACK),
       );
     } finally {
-      // Releases the round this act claimed even after a re-address; the reading is published
-      // through this address's publisher, so it lands only while the address is current.
+      // Releases the round this act claimed even after a switch of session; the reading is
+      // published through this draft's publisher, so it lands only while the draft is current.
       claim.settle(() => {
         publishStatus("idle");
       });

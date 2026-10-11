@@ -76,7 +76,12 @@ function marksOf(store: SessionStore): string[] {
 /** A store whose window a read placed with `rows`, the stream then following it. */
 function storeHolding(rows: readonly ProjectedSessionEvent[]): SessionStore {
   const store = new SessionStore({ sessionId: SESSION_ID });
-  store.initialize({ cursor: rows.at(-1)?.sequence ?? 0, entities: [], transcript: rows });
+  store.initialize({
+    shape: "project",
+    cursor: rows.at(-1)?.sequence ?? 0,
+    entities: [],
+    transcript: rows,
+  });
   return store;
 }
 

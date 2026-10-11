@@ -6,12 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import type { AgentId } from "@ai-sidekicks/contracts/agent/definition";
-import {
-  DRIVER_CAPABILITY_FLAGS,
-  type DriverCapabilities,
-  type DriverCapabilityFlag,
-  type ExecutionPosture,
-} from "@ai-sidekicks/contracts/provider/driver/capabilities";
+import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import type { ProviderOutputSpeedState } from "@ai-sidekicks/contracts/provider/driver/output-speed";
 import type { ProcessExit } from "@ai-sidekicks/contracts/run/control";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
@@ -29,8 +24,11 @@ import type { CommandOutputPublisher } from "../../../port/command-output-publis
 import type { ReviewerDenialPort } from "../../../port/reviewer-denial.js";
 import type { ToolServerRoute } from "../../../port/tool-server-route.js";
 import type { CumulativeAxisReadings, MeteredUsageDelta } from "../../../usage-delta-accountant.js";
+import type { AttachmentResolver } from "../../attachments.js";
 import type { DriverResumeResult } from "../../contract.js";
-import type { DaemonTurnBindingResolver } from "../../run-control.js";
+import type { DaemonTurnBindingResolver, RunToolBoundary } from "../../run-control.js";
+import { FakeAttachmentResolver } from "../../__fixtures__/attachment-doubles.js";
+import type { CodexInboundDispatchPort } from "../delivery/dispatch.js";
 import { DriverDiagnosticsEmitter, type DriverDiagnosticRecord } from "../../diagnostics.js";
 import type { CodexServerPromptPort } from "../commands.js";
 import { CodexDriver } from "../index.js";
@@ -43,7 +41,11 @@ import type {
 } from "../service/process.js";
 import type { CodexHomeResolver } from "../service/registry.js";
 import type { CodexServiceHome } from "../service/dependencies.js";
-import type { CodexLifecycleOptions, CodexLostRunFailure } from "../session/state.js";
+import type {
+  CodexLifecycleOptions,
+  CodexLostRunFailure,
+  CodexRunEnginePort,
+} from "../session/state.js";
 import type { CodexTransportDiagnostic } from "../transport/diagnostics.js";
 import type {
   CodexServiceSocket,
@@ -138,6 +140,8 @@ export class FakeCodexAppServer {
     const entry: FakeProcessEntry = { codexHome, resolveExit, isRunning: true };
     this.#processes.push(entry);
     const serviceProcess: CodexServiceProcess = {
+      // One id per launch, as the system gives each process its own.
+      processId: this.#processes.length,
       exited,
       stop: () => {
         this.#end(entry, { signal: "SIGTERM", outputTail: "(no output)" });
@@ -477,15 +481,6 @@ function answerDefaults(server: FakeCodexAppServer): void {
     .on("getAuthStatus", () => ({ result: { authMethod: "chatgpt", authToken: null } }));
 }
 
-function makeCapabilities(steer: boolean): DriverCapabilities {
-  const flags = Object.fromEntries(DRIVER_CAPABILITY_FLAGS.map((flag) => [flag, true])) as Record<
-    DriverCapabilityFlag,
-    boolean
-  >;
-  flags.steer = steer;
-  return { flags, contractVersion: "1.0.0" };
-}
-
 /** The test session's model. */
 export const TEST_MODEL = "gpt-5.5";
 export const SESSION_ID = "11111111-1111-4111-8111-111111111111" as SessionId;
@@ -547,6 +542,8 @@ interface PortRecords {
   readonly daemonTurnRunIds: RunId[];
   readonly lostRuns: Array<{ sessionId: SessionId; runId: RunId; failure: CodexLostRunFailure }>;
   readonly meteredUsage: Array<{ sessionId: SessionId; delta: MeteredUsageDelta }>;
+  /** Every tool boundary the driver signaled, in order. */
+  readonly toolBoundaries: RunToolBoundary[];
 }
 
 /** The registrations the driver hands admitted asks, blocks and prompt reads to. */
@@ -560,7 +557,20 @@ interface HarnessPorts {
 
 /** What a harness can change about the driver it builds. */
 export interface HarnessOptions {
-  readonly steer?: boolean;
+  /**
+   * The run engine the driver starts its own turns through and ends lost turns on; absent, a fake
+   * that records them.
+   */
+  readonly runEngine?: CodexRunEnginePort;
+  /**
+   * The run engine's inbound dispatch, handed each delivery after it is recorded; absent, a fake
+   * that admits every delivery.
+   */
+  readonly inbound?: CodexInboundDispatchPort;
+  /** Binds staged files; absent, a resolver that knows no file. */
+  readonly attachments?: AttachmentResolver;
+  /** Receives each tool boundary after it is recorded; absent, it is only recorded. */
+  readonly onToolBoundary?: (boundary: RunToolBoundary) => void;
   readonly answerCallbackToolCall?: CodexSessionServerRequestResponder;
   readonly readPriorEmittedUsage?: (
     sessionId: SessionId,
@@ -581,6 +591,8 @@ export interface HarnessOptions {
   readonly openDaemonTurnBinding?: DaemonTurnBindingResolver["openDaemonTurnBinding"];
   /** Points a binding at the conversation a fork moved its session to; absent, nothing does. */
   readonly rebindRuntimeBinding?: CodexLifecycleOptions["rebindRuntimeBinding"];
+  /** How long a turn's start may take; absent, the driver's own default. */
+  readonly turnStartTimeoutMs?: number;
 }
 
 /** A driver over the fake host, and everything it reported. */
@@ -631,6 +643,7 @@ export function createHarness(options: HarnessOptions = {}): Harness {
     daemonTurnRunIds: [],
     lostRuns: [],
     meteredUsage: [],
+    toolBoundaries: [],
   };
   const ports: HarnessPorts = {
     permissionAsks: new PortRegistration<PermissionAskPort>("permission asks"),
@@ -685,9 +698,10 @@ export function createHarness(options: HarnessOptions = {}): Harness {
     },
     diagnostics: driverDiagnostics,
     scheduleTimeout: scheduler.schedule,
+    turnStartTimeoutMs: options.turnStartTimeoutMs,
     now: options.now ?? ((): number => 0),
     newBindingId: options.newBindingId ?? ((): string => "binding-abc"),
-    runEngine: {
+    runEngine: options.runEngine ?? {
       startDaemonTurn: async (request) => {
         const ordinal = String(records.daemonTurnRunIds.length).padStart(12, "0");
         const runId = `77777777-7777-4777-8777-${ordinal}` as RunId;
@@ -713,11 +727,19 @@ export function createHarness(options: HarnessOptions = {}): Harness {
     inbound: {
       dispatch: async (delivery) => {
         records.deliveries.push(delivery);
+        if (options.inbound !== undefined) {
+          return await options.inbound.dispatch(delivery);
+        }
         if (delivery.kind === "child_run") {
           childRunCount += 1;
         }
         return options.answerDelivery?.(delivery) ?? admitDelivery(delivery, childRunCount);
       },
+    },
+    attachments: options.attachments ?? new FakeAttachmentResolver(),
+    onToolBoundary: (boundary) => {
+      records.toolBoundaries.push(boundary);
+      options.onToolBoundary?.(boundary);
     },
     ...ports,
     onSessionRelaunched: (sessionId, result) => {
@@ -737,10 +759,7 @@ export function createHarness(options: HarnessOptions = {}): Harness {
       ? {}
       : { answerCallbackToolCall: options.answerCallbackToolCall }),
   };
-  const driver = new CodexDriver({
-    ...lifecycleOptions,
-    readCapabilities: () => makeCapabilities(options.steer ?? true),
-  });
+  const driver = new CodexDriver(lifecycleOptions);
   return {
     ...records,
     server,

@@ -67,7 +67,7 @@ describe("SessionCatchUpLine", () => {
       read: () =>
         readRejects
           ? Promise.reject(new Error("the daemon refused the read"))
-          : Promise.resolve({ cursor: 0, entities: [] }),
+          : Promise.resolve({ shape: "project", cursor: 0, entities: [] }),
       clock,
       applyCoalesceMs: 0,
       refreshDebounceMs: 20,
@@ -114,7 +114,7 @@ describe("SessionCatchUpLine", () => {
     const entry = new OpenSessionEntry("session-failing-row", {
       openingPageLimit,
       offScreenRowLimit,
-      read: () => Promise.resolve({ entities: [] }),
+      read: () => Promise.resolve({ shape: "project", entities: [] }),
       clock,
       applyCoalesceMs: 0,
       refreshDebounceMs: 20,
@@ -196,7 +196,7 @@ describe("SessionCatchUpLine", () => {
     const entry = new OpenSessionEntry("session-mounts-failed", {
       openingPageLimit,
       offScreenRowLimit,
-      read: () => Promise.resolve({ cursor: 0, entities: [] }),
+      read: () => Promise.resolve({ shape: "project", cursor: 0, entities: [] }),
       clock,
       applyCoalesceMs: 0,
       refreshDebounceMs: 20,
@@ -248,7 +248,7 @@ describe("SessionCatchUpLine", () => {
       read: () =>
         readRejects
           ? Promise.reject(new Error("the daemon refused the read"))
-          : Promise.resolve({ cursor: 0, entities: [] }),
+          : Promise.resolve({ shape: "project", cursor: 0, entities: [] }),
       clock,
       applyCoalesceMs: 0,
       refreshDebounceMs: 20,

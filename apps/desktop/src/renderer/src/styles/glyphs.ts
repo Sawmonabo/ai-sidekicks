@@ -116,6 +116,7 @@ export const GLYPH_NAMES = [
   "external",
   "more",
   "plus",
+  "arrow-up",
 ] as const;
 
 /** Every glyph the app can draw: exactly {@link GLYPH_NAMES}' members. */

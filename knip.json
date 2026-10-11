@@ -161,9 +161,6 @@
         "src/renderer/src/features/composer/command-list/workflow/components/WorkflowStartCandidates.tsx",
         // An agent's question card.
         "src/renderer/src/features/composer/question-card/SessionQuestionCard.tsx",
-        // Interrupt and Interrupt everything on the run controls.
-        "src/renderer/src/features/composer/run/controls/hooks/useRunDriverBindings.ts",
-        "src/renderer/src/features/composer/run/controls/driver-bindings.ts",
         // The inspector's Artifacts section and its rows.
         "src/renderer/src/features/inspector/artifacts/components/ArtifactRow.tsx",
         "src/renderer/src/features/inspector/artifacts/components/ArtifactsSection.tsx",
@@ -194,9 +191,6 @@
         // The run queue's and run state's live feeds (`run.subscribeState`, `run.subscribeQueue`),
         // for the run controls and the queue rows.
         "src/renderer/src/services/daemon/streams.ts",
-        // Which provider each agent runs on, for the run controls' Interrupt and Interrupt
-        // everything.
-        "src/renderer/src/services/driver-capabilities/agent-driver-reads.ts",
         // Reading what the providers support again once a session's stream is repaired.
         "src/renderer/src/services/driver-capabilities/hooks/useDriverCapabilityRepairRead.ts",
         // The window's one attention read, for the rail's bell, its Notifications list and the

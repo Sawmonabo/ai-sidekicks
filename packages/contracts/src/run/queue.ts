@@ -1,15 +1,16 @@
 // The message queue: every message the person sends waits here until the agent takes it at its
 // next step. The lead has one queue and each child its own; every queue verb but the send takes
-// `childHandle` to reach a child's queue, whose messages arrive through `run.childSteer`.
+// `childHandle` to reach a child's queue, whose messages arrive through `run.childSteer`. Also the
+// `queue_item.*` event payloads and the frame `run.subscribeQueue` sends.
 import { z } from "zod";
 
 import { providerTokenSchema } from "../agent/definition.js";
 import { ChildHandleSchema, type ChildHandle } from "../agent/tree.js";
 import { EVENT_FIELD_MAX_LEN } from "../event/version.js";
 import { brandedUuidIdSchema } from "../internal/branded.js";
-import { ArtifactIdSchema, type ArtifactId } from "../artifacts/id.js";
+import { AttachmentReferenceListSchema } from "../artifacts/attachment-reference.js";
+import type { ArtifactId } from "../artifacts/id.js";
 import { RunIdSchema, type RunId } from "./id.js";
-import { DRIVER_WIRE_REASON_MAX_LEN } from "../provider/driver/methods.js";
 import { QuestionIdSchema, type QuestionId } from "../question.js";
 import { WorkspaceIdSchema, type WorkspaceId } from "../repo/mount.js";
 import {
@@ -17,9 +18,11 @@ import {
   wireFreeFormString,
   wireUncappedFreeFormString,
 } from "../free-form-string.js";
-import { SessionIdSchema, type SessionId } from "../session/id.js";
+import { StreamFrameSchema, type StreamFrame } from "../jsonrpc/streaming.js";
+import type { EventCursor } from "../session/event-cursor.js";
+import { EventCursorSchema, SessionIdSchema, type SessionId } from "../session/id.js";
 import { DeviceIdSchema, type DeviceId } from "../trust-statement.js";
-import { isoDateTimeSchema } from "../internal/wire-scalars.js";
+import { countSchema, isoDateTimeSchema } from "../internal/wire-scalars.js";
 import { MessageOriginSchema, type MessageOrigin } from "../voice.js";
 
 /** Identifies one queued message. */
@@ -39,11 +42,19 @@ export const QueueItemStateSchema: z.ZodType<QueueItemState, QueueItemState> = z
   "not_delivered",
 ]);
 
-// The words and files of a message the person sends. The files are artifact ids in staging order;
-// how many a message carries is what the daemon and the provider accept, never a count of ours.
+/**
+ * Why a taken message was never delivered: it waited past the daemon's own delivery timeout, or its
+ * delivery failed outright. Either way it can be sent again.
+ */
+export type QueueItemNotDeliveredReason = "timed_out" | "failed";
+const QueueItemNotDeliveredReasonSchema: z.ZodType<
+  QueueItemNotDeliveredReason,
+  QueueItemNotDeliveredReason
+> = z.enum(["timed_out", "failed"]);
+
+// The words of a message the person sends.
 const messageContentSchema = (fieldLabel: string): z.ZodString =>
   wireUncappedFreeFormString(fieldLabel);
-const messageAttachmentsSchema: z.ZodType<ArtifactId[], ArtifactId[]> = z.array(ArtifactIdSchema);
 
 // run.queueCreate
 
@@ -54,21 +65,25 @@ export interface QueueItemCreateRequest {
   to?: SessionId | undefined;
   /** Binds the run a send starts to its repository. */
   workspaceId?: WorkspaceId | undefined;
-  /** Orders the stored items; never what the person sees, which `run.queueReorder` sets. */
-  priority?: number | undefined;
-  /** A retried send with the same key returns the saved result. */
+  /**
+   * A send again under the same key answers what the first saved. A retry's key is the failed
+   * message's id, so a second press answers as the first did.
+   */
   clientIdempotencyKey: string;
   content: string;
+  /** The message's files in staging order; one the daemon cannot deliver stays, marked. */
   attachments?: ArtifactId[] | undefined;
   /**
    * Each skill picked from the composer's `/` and `$` list, in the order picked, its name and
-   * folder as `skill.list` gives them. The daemon refuses a pick that matches no row of
-   * `skill.list` (`skill.path_refused`, `not_listed`).
+   * folder as `skill.list` gives them. The daemon refuses a pick a Codex session's own list does
+   * not name in that folder (`skill.path_refused`, `not_listed`).
    */
   skills?: QueuedSkillPick[] | undefined;
   /**
    * Edits this waiting message in place: it keeps its place and the old item reads `superseded`.
-   * Refused once the agent has taken it.
+   * Refused once the agent has taken it. Naming a message not delivered, with its own words, is a
+   * retry: the daemon queues its words and files again as a new message at the queue's end, which
+   * waits as any send does, and the failed one reads `superseded`.
    */
   replacesQueueItemId?: QueueItemId | undefined;
   /**
@@ -85,8 +100,8 @@ export interface QueueItemCreateRequest {
 }
 
 /**
- * One skill a send picked: its front-matter name and its folder, as `skill.list` gives them. The
- * daemon builds the `SKILL.md` path a Codex agent's skill input names from the folder.
+ * One skill a send picked: its front-matter name and its folder, as `skill.list` gives them. A
+ * Codex agent's skill input names the `SKILL.md` path Codex lists for that name in that folder.
  */
 export interface QueuedSkillPick {
   name: string;
@@ -107,11 +122,9 @@ export const QueueItemCreateRequestSchema: z.ZodType<
     sessionId: SessionIdSchema,
     to: SessionIdSchema.optional(),
     workspaceId: WorkspaceIdSchema.optional(),
-    // Whole, because the stored column is an integer; a negative de-prioritizes, so no floor.
-    priority: z.number().int().optional(),
     clientIdempotencyKey: z.uuid(),
     content: messageContentSchema("QueueItemCreateRequest.content"),
-    attachments: messageAttachmentsSchema.optional(),
+    attachments: AttachmentReferenceListSchema.optional(),
     skills: z.array(QueuedSkillPickSchema).optional(),
     replacesQueueItemId: QueueItemIdSchema.optional(),
     answersQuestionId: QuestionIdSchema.optional(),
@@ -150,24 +163,105 @@ export const UserMessagePayloadSchema: z.ZodType<UserMessagePayload, UserMessage
   })
   .strict();
 
-/** The queued message, as a send or a child's steer answers. */
+// The members each `queue_item.*` event adds, keyed by the state it records: an admitted item
+// names the run that took it, which can differ from the run its `user.message` was sent toward, a
+// superseded one names the item that replaced it, and a not-delivered one says why. The words stay
+// on `user.message`.
+interface QueueItemEventMembersByState {
+  queued: Record<never, never>;
+  admitted: { runId: RunId };
+  superseded: { replacedByQueueItemId: QueueItemId };
+  canceled: Record<never, never>;
+  not_delivered: { notDeliveredReason: QueueItemNotDeliveredReason };
+}
+
+/**
+ * The payload of a `queue_item.*` event: the item and the state it entered, `queued` on
+ * `queue_item.created` and the event's own state on the other four.
+ */
+export type QueueItemEventPayload<TState extends QueueItemState> = {
+  sessionId: SessionId;
+  queueItemId: QueueItemId;
+  state: TState;
+} & QueueItemEventMembersByState[TState];
+
+const buildQueueItemEventPayloadSchema = <
+  TState extends QueueItemState,
+  TStateShape extends z.ZodRawShape,
+>(
+  state: TState,
+  stateShape: TStateShape,
+) =>
+  z
+    .object({
+      sessionId: SessionIdSchema,
+      queueItemId: QueueItemIdSchema,
+      state: z.literal(state),
+      ...stateShape,
+    })
+    .strict();
+
+/**
+ * Parses each `queue_item.*` payload, keyed by the state it records; each refuses another `state`
+ * and the members of another event.
+ */
+export const QUEUE_ITEM_EVENT_PAYLOAD_SCHEMAS: {
+  readonly [TState in QueueItemState]: z.ZodType<
+    QueueItemEventPayload<TState>,
+    QueueItemEventPayload<TState>
+  >;
+} = {
+  queued: buildQueueItemEventPayloadSchema("queued", {}),
+  admitted: buildQueueItemEventPayloadSchema("admitted", { runId: RunIdSchema }),
+  superseded: buildQueueItemEventPayloadSchema("superseded", {
+    replacedByQueueItemId: QueueItemIdSchema,
+  }),
+  canceled: buildQueueItemEventPayloadSchema("canceled", {}),
+  not_delivered: buildQueueItemEventPayloadSchema("not_delivered", {
+    notDeliveredReason: QueueItemNotDeliveredReasonSchema,
+  }),
+};
+
+// Only a not-delivered message carries a reason, and it always does.
+function hasReasonOnlyWhenNotDelivered(item: {
+  readonly state: QueueItemState;
+  readonly notDeliveredReason?: QueueItemNotDeliveredReason | undefined;
+}): boolean {
+  return (item.state === "not_delivered") === (item.notDeliveredReason !== undefined);
+}
+
+const NOT_DELIVERED_REASON_ISSUE = {
+  path: ["notDeliveredReason"],
+  message: "A not-delivered message carries its reason, and only a not-delivered one does.",
+};
+
+/**
+ * The queued message, as a send or a child's steer answers, and, when a send again under the same
+ * key answers one whose delivery failed, the daemon's reason.
+ */
 export interface QueueItemCreateResponse {
   queueItemId: QueueItemId;
   state: QueueItemState;
+  notDeliveredReason?: QueueItemNotDeliveredReason | undefined;
   createdAt: string;
 }
-/** Parses a {@link QueueItemCreateResponse}. */
+/** Parses a {@link QueueItemCreateResponse}; only a not-delivered item carries a reason. */
 export const QueueItemCreateResponseSchema: z.ZodType<QueueItemCreateResponse> = z
   .object({
     queueItemId: QueueItemIdSchema,
     state: QueueItemStateSchema,
+    notDeliveredReason: QueueItemNotDeliveredReasonSchema.optional(),
     createdAt: isoDateTimeSchema,
   })
-  .strict();
+  .strict()
+  .refine(hasReasonOnlyWhenNotDelivered, NOT_DELIVERED_REASON_ISSUE);
 
 // run.queueList and run.subscribeQueue
 
-/** Reads a queue, the lead's or, with `childHandle`, a child's, in the daemon's order. */
+/**
+ * Reads a queue, the lead's or, with `childHandle`, a child's, in the daemon's order: the items in
+ * `state` when it is given, else every item waiting or not delivered.
+ */
 export interface QueueItemListRequest {
   sessionId: SessionId;
   childHandle?: ChildHandle | undefined;
@@ -183,18 +277,18 @@ export const QueueItemListRequestSchema: z.ZodType<QueueItemListRequest, QueueIt
   .strict();
 
 /**
- * One queued message, as a pending row draws it: its words and files, the child
- * whose queue holds it (absent on the lead's), and, once its delivery has failed,
- * the daemon's reason.
+ * One queued message, as a pending row draws it: its words and files, its place in its queue's
+ * order (lowest first, an edit taking the place of the message it replaced), the child whose queue
+ * holds it (absent on the lead's), and, once its delivery has failed, the daemon's reason.
  */
 export interface QueueItemSummary {
   id: QueueItemId;
   state: QueueItemState;
-  priority: number;
+  position: number;
   content: string;
   attachments?: ArtifactId[] | undefined;
   childHandle?: ChildHandle | undefined;
-  notDeliveredReason?: string | undefined;
+  notDeliveredReason?: QueueItemNotDeliveredReason | undefined;
   createdAt: string;
   updatedAt: string;
 }
@@ -203,22 +297,16 @@ export const QueueItemSummarySchema: z.ZodType<QueueItemSummary> = z
   .object({
     id: QueueItemIdSchema,
     state: QueueItemStateSchema,
-    priority: z.number().int(),
+    position: countSchema,
     content: messageContentSchema("QueueItemSummary.content"),
-    attachments: messageAttachmentsSchema.optional(),
+    attachments: AttachmentReferenceListSchema.optional(),
     childHandle: ChildHandleSchema.optional(),
-    notDeliveredReason: wireFreeFormString(
-      DRIVER_WIRE_REASON_MAX_LEN,
-      "QueueItemSummary.notDeliveredReason",
-    ).optional(),
+    notDeliveredReason: QueueItemNotDeliveredReasonSchema.optional(),
     createdAt: isoDateTimeSchema,
     updatedAt: isoDateTimeSchema,
   })
   .strict()
-  .refine((item) => (item.state === "not_delivered") === (item.notDeliveredReason !== undefined), {
-    path: ["notDeliveredReason"],
-    message: "A not-delivered message carries its reason, and only a not-delivered one does.",
-  });
+  .refine(hasReasonOnlyWhenNotDelivered, NOT_DELIVERED_REASON_ISSUE);
 
 /** A queue's items in the daemon's order. */
 export interface QueueItemListResponse {
@@ -230,18 +318,44 @@ export const QueueItemListResponseSchema: z.ZodType<QueueItemListResponse> = z
   .strict();
 
 /**
- * Opens a queue's stream, the lead's or, with `childHandle`, a child's.
- * Session-scoped, with no catch-up cursor.
+ * One change on a queue's stream: the item as it now stands, and the cursor of the `queue_item.*`
+ * event that changed it, or, for a reorder, which no event records, the session's newest cursor
+ * when the change went out.
+ */
+export interface RunQueueStreamChange {
+  readonly cursor: EventCursor;
+  readonly item: QueueItemSummary;
+}
+
+/** One notify of `run.subscribeQueue`: a batch of changes, or the caught-up frame after a drop. */
+export type RunQueueStreamFrame = StreamFrame<RunQueueStreamChange, EventCursor>;
+/** Parses a {@link RunQueueStreamFrame}. */
+export const RunQueueStreamFrameSchema: z.ZodType<RunQueueStreamFrame> = StreamFrameSchema(
+  z.object({ cursor: EventCursorSchema, item: QueueItemSummarySchema }).strict(),
+  EventCursorSchema,
+);
+
+/**
+ * Opens a queue's stream, the lead's or, with `childHandle`, a child's. With `afterCursor`, the
+ * stream first sends each item that changed after that cursor and every item still waiting, as it
+ * now stands, then follows live; without it, the stream follows from now.
  */
 export interface RunQueueSubscribeRequest {
   sessionId: SessionId;
   childHandle?: ChildHandle | undefined;
+  afterCursor?: EventCursor | undefined;
 }
 /** Parses a {@link RunQueueSubscribeRequest}. */
 export const RunQueueSubscribeRequestSchema: z.ZodType<
   RunQueueSubscribeRequest,
   RunQueueSubscribeRequest
-> = z.object({ sessionId: SessionIdSchema, childHandle: ChildHandleSchema.optional() }).strict();
+> = z
+  .object({
+    sessionId: SessionIdSchema,
+    childHandle: ChildHandleSchema.optional(),
+    afterCursor: EventCursorSchema.optional(),
+  })
+  .strict();
 
 // run.queueCancel and run.queueReorder
 
@@ -295,27 +409,36 @@ export const QueueReorderRequestSchema: z.ZodType<QueueReorderRequest, QueueReor
   });
 
 /**
- * The refusal of a change to a waiting message: an edit of a message the agent
- * has already taken, or a reorder whose list is not exactly the waiting items.
- *
- * @consumedBy the handler that returns the `queue.change_refused` error
+ * The refusal of a send while the daemon cannot store the queue: nothing is queued, and the send
+ * can be made again once the store is back.
+ */
+export const QUEUE_PERSISTENCE_UNAVAILABLE_CODE = "queue.persistence_unavailable" as const;
+
+/**
+ * The refusal of a send whose session's lead run started, ended or was continued between each
+ * read and the write that sends into it, every time the daemon tried: nothing is queued, and the
+ * send can be made again.
+ */
+export const QUEUE_RUN_CHANGED_CODE = "queue.run_changed" as const;
+
+/**
+ * The refusal of a change naming a queue item the queue does not hold: an id it never stored, an
+ * item of another session, or one of another queue than the change names.
+ */
+export const QUEUE_ITEM_NOT_FOUND_CODE = "queue.item_not_found" as const;
+
+/**
+ * The refusal of a change to a waiting message: an edit or removal of a message the agent has
+ * already taken, an edit or removal of one the provider did not give back, which then reads not
+ * delivered, a retry of a not-delivered message in other words than its own, or a reorder whose
+ * list is not exactly the waiting items.
  */
 export const QUEUE_CHANGE_REFUSED_CODE = "queue.change_refused" as const;
 
 /** Why a change to a waiting message was refused. */
-export const QUEUE_CHANGE_REFUSED_REASONS = ["already_taken", "order_mismatch"] as const;
-/** One of {@link QUEUE_CHANGE_REFUSED_REASONS}. */
-export type QueueChangeRefusedReason = (typeof QUEUE_CHANGE_REFUSED_REASONS)[number];
+export type QueueChangeRefusedReason = "already_taken" | "not_delivered" | "order_mismatch";
 
 /** The details a `queue.change_refused` refusal carries. */
 export interface QueueChangeRefusedDetails {
   reason: QueueChangeRefusedReason;
 }
-/**
- * Parses {@link QueueChangeRefusedDetails}.
- *
- * @consumedBy the handler that returns the `queue.change_refused` error
- */
-export const QueueChangeRefusedDetailsSchema: z.ZodType<QueueChangeRefusedDetails> = z
-  .object({ reason: z.enum(QUEUE_CHANGE_REFUSED_REASONS) })
-  .strict();

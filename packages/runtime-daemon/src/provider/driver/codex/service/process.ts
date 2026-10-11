@@ -23,6 +23,8 @@ export interface CodexProcessLaunch {
 
 /** One running service process. */
 export interface CodexServiceProcess {
+  /** The process's id, or `undefined` when the system gave it none, as for one that never ran. */
+  readonly processId: number | undefined;
   /**
    * Settles when the process ends, with its code or signal and the tail of its output. Rejects
    * when it could not start at all.
@@ -79,6 +81,7 @@ function launchCodexServiceProcess(
   // daemon before it does.
   exited.catch(() => undefined);
   return {
+    processId: child.pid,
     exited,
     stop: () => {
       endChildProcess(child, "stop");

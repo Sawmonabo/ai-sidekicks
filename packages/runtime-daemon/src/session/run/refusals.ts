@@ -8,8 +8,10 @@ import {
 import type { RunStateChangeState } from "@ai-sidekicks/contracts/run/events";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { RunState } from "@ai-sidekicks/contracts/run/state";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { DaemonDomainError } from "../../ipc/domain-error.js";
+import { isTerminalState } from "./transitions.js";
 
 /** A run id the daemon holds no run for (`run.not_found`). */
 export class RunNotFoundError extends DaemonDomainError {
@@ -36,7 +38,9 @@ export class RunVersionStaleError extends DaemonDomainError {
   }
 }
 
-/** A move the run's current state does not allow (`run.invalid_transition`); nothing was written. */
+/**
+ * A move the run's current state does not allow (`run.invalid_transition`); nothing was written.
+ */
 export class RunInvalidTransitionError extends DaemonDomainError {
   readonly runId: RunId;
   readonly fromState: RunState;
@@ -67,3 +71,33 @@ export class RunInvalidTransitionError extends DaemonDomainError {
  * write itself; nothing was written. A late terminal from the provider is expected to meet this.
  */
 export class RunAlreadyEndedError extends RunInvalidTransitionError {}
+
+/**
+ * The refusal of a provider's move of `runId` to `toState` once the run has ended in `endedState`:
+ * {@link RunAlreadyEndedError} for a terminal, else {@link RunInvalidTransitionError}.
+ */
+export function endedRunRefusal(
+  runId: RunId,
+  toState: RunStateChangeState,
+  endedState: RunState,
+): RunInvalidTransitionError {
+  return isTerminalState(toState)
+    ? new RunAlreadyEndedError(runId, endedState, toState)
+    : new RunInvalidTransitionError(runId, endedState, toState);
+}
+
+/**
+ * A turn the daemon or the provider would start on a session whose next turn is held for another
+ * run: the continue of its interrupted lead run with the messages waiting for it, or a lead run
+ * that has not ended (`driver.unavailable`, `session_turn_in_flight`, as a driver refuses a turn
+ * the daemon starts while another holds the session); nothing was written.
+ */
+export class SessionTurnHeldError extends DaemonDomainError {
+  constructor(sessionId: SessionId) {
+    super("The session's next turn is held for another of its runs, so this turn waits", {
+      code: "driver.unavailable",
+      jsonRpcCode: JsonRpcErrorCode.InternalError,
+      detail: { sessionId, reason: "session_turn_in_flight" },
+    });
+  }
+}

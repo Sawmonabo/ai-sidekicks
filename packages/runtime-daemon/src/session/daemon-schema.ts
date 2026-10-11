@@ -447,26 +447,34 @@ ${WORKTREE_SCHEMA_SQL}
 -- ---------------------------------------------------------------------------
 -- The admission queue, interventions and command receipts.
 -- ---------------------------------------------------------------------------
--- A queued item's body, a person's send or an orchestration-authored prompt, and a
--- steer's text ride payload as plain text. device_id is the device a person's
--- write came from, found from the connection; NULL on the system's own.
+-- A queued item's body, a person's send or an orchestration-authored prompt, rides
+-- payload as plain text. device_id is the device a person's write came from, found
+-- from the connection; NULL on the system's own.
 CREATE TABLE queue_items (
-  id                        TEXT PRIMARY KEY,
-  session_id                TEXT NOT NULL,
-  state                     TEXT NOT NULL DEFAULT 'queued'
+  id                     TEXT PRIMARY KEY,
+  session_id             TEXT NOT NULL,
+  state                  TEXT NOT NULL DEFAULT 'queued'
     CHECK(state IN ('queued', 'admitted', 'superseded', 'canceled', 'not_delivered')),
-  priority                  INTEGER NOT NULL DEFAULT 0, -- higher is more urgent
-  payload                   TEXT NOT NULL DEFAULT '{}', -- JSON
-  device_id                 TEXT,
-  -- Run-bound admission: NULL on an ordinary item, which admission turns into a
-  -- new run. Set only by the edit-and-resend composite, whose item is delivered
-  -- into its bound run on resume.
-  target_run_id             TEXT,
-  -- The intervention whose admission created this item, written in the same
-  -- transaction as target_run_id.
-  admitting_intervention_id TEXT,
-  created_at                TEXT NOT NULL,
-  updated_at                TEXT NOT NULL
+  -- Why a not_delivered item was not delivered: it waited past the daemon's delivery
+  -- timeout, or its delivery failed outright.
+  not_delivered_reason   TEXT CHECK(not_delivered_reason IN ('timed_out', 'failed')),
+  payload                TEXT NOT NULL DEFAULT '{}', -- JSON
+  -- The run the item is delivered into; NULL on an orchestration-authored item, which
+  -- is admitted as a new run.
+  target_run_id          TEXT,
+  device_id              TEXT,
+  -- The child whose queue holds the item; NULL on the lead's.
+  child_handle           TEXT,
+  -- The item's place in its queue's order, lowest first: send order until a reorder
+  -- replaces it, and an edit takes the place of the item it supersedes.
+  position               INTEGER NOT NULL CHECK(position >= 0),
+  -- The send's own key, so a retried send returns the saved item; NULL on the system's own.
+  client_idempotency_key TEXT,
+  created_at             TEXT NOT NULL,
+  updated_at             TEXT NOT NULL,
+  CHECK((state = 'not_delivered') = (not_delivered_reason IS NOT NULL)),
+  -- SQLite treats each NULL as distinct, so only sends dedupe.
+  UNIQUE (session_id, client_idempotency_key)
 ) STRICT;
 
 CREATE INDEX idx_queue_items_session_state ON queue_items(session_id, state);
@@ -477,7 +485,7 @@ CREATE TABLE interventions (
   id                      TEXT PRIMARY KEY,
   target_run_id           TEXT NOT NULL,
   type                    TEXT NOT NULL
-                          CHECK(type IN ('steer', 'interrupt', 'faster_model_retry')),
+                          CHECK(type IN ('interrupt', 'faster_model_retry')),
   state                   TEXT NOT NULL DEFAULT 'requested'
     CHECK(state IN ('requested', 'accepted', 'applied', 'rejected', 'degraded', 'expired',
                     'failed')),
@@ -492,8 +500,6 @@ CREATE TABLE interventions (
   fallback_action         TEXT,
   -- What a failed dispatch threw, so a retry's saved reply carries the same reason.
   failure_reason          TEXT,
-  -- The run an applied steer's message went to when that is not its target; NULL otherwise.
-  delivered_run_id        TEXT,
   created_at              TEXT NOT NULL,
   resolved_at             TEXT,
   -- An identical retry returns the saved result; a reused key with a
@@ -544,6 +550,8 @@ CREATE TABLE runs (
   reached_by     TEXT
                  CHECK(reached_by IS NULL
                    OR reached_by IN ('provider_subagent', 'bridge_run', 'workflow_step')),
+  -- 1 on a run whose turn runs in a process of its own; such a run is never the lead run.
+  is_apart       INTEGER NOT NULL DEFAULT 0 CHECK(is_apart IN (0, 1)),
   state          TEXT NOT NULL
     CHECK(state IN ('queued', 'starting', 'running', 'waiting_for_approval', 'waiting_for_input',
                     'pausing', 'paused', 'completed', 'interrupted', 'stopped', 'failed')),

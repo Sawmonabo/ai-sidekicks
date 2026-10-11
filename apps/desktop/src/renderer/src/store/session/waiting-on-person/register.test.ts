@@ -116,7 +116,7 @@ describe("SessionStore — the register outlives the window", () => {
   it("still counts an approval whose opening row the window has let go", () => {
     // The release drops the row that opened this approval from the window, yet it is still open.
     const store = new SessionStore({ sessionId: SESSION_ID });
-    store.initialize({ cursor: 0, entities: [] });
+    store.initialize({ shape: "project", cursor: 0, entities: [] });
     const rows = [
       rowOf(1, "approval.requested", { approvalRequestId: "req-1" }, "agent-scout"),
       rowOf(2, "tool.invoked", { runId: "run-a" }, "agent-scout"),

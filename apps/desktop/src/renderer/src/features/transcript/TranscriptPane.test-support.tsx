@@ -61,7 +61,7 @@ export function renderTranscriptPane(props: TranscriptPaneProps): HTMLElement {
  */
 export function openSessionStoreWithPaneLog(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: TRANSCRIPT_PANE_SESSION_ID });
-  sessionStore.initialize({ cursor: -1, entities: [] });
+  sessionStore.initialize({ shape: "project", cursor: -1, entities: [] });
   sessionStore.applyBatch([
     {
       id: "event-0",

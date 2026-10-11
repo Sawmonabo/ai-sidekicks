@@ -15,6 +15,17 @@ import type { Refusal } from "#renderer/lib/refusal/contract.js";
 /** One driver's declared flags, exactly as its own report carried them. */
 export type DeclaredDriverFlags = Readonly<Record<DriverCapabilityFlag, boolean>>;
 
+/**
+ * What this build knows about one driver flag, read off a readout. `declared`: that driver
+ * declared it. `undeclared`: that driver declared it absent. `unknown`: nobody has answered,
+ * because the read has not landed, the driver is not nameable, or the named driver filed no
+ * report; collapsing it onto `undeclared` would show an unread session like one bound to a driver
+ * that cannot do the thing.
+ *
+ * @consumedBy the callback tools group on an agent definition's tool allowlist
+ */
+export type DriverCapabilityReading = "declared" | "undeclared" | "unknown";
+
 /** What the capability read answered. Absent until the read answers. */
 export interface DriverCapabilityReadout {
   /**
@@ -22,14 +33,6 @@ export interface DriverCapabilityReadout {
    * folded: any collapse of separate declarations answers a question no reader asks.
    */
   readonly flagsByDriverName: ReadonlyMap<ProviderName, DeclaredDriverFlags>;
-  /**
-   * Which driver each run is bound to, for every run whose binding is nameable.
-   *
-   * Not what `driver.listCapabilities` answers, since that read names no run. The consumer
-   * joins it on through `withRunDriverBindings` from the session's own projection, so it is
-   * empty on the readout the read settles.
-   */
-  readonly driverNameByRunId: ReadonlyMap<string, ProviderName>;
   /**
    * Why the declarations could not be read, where they could not be: the daemon rejected the
    * read, or answered something the registered schema will not accept. A view whose controls

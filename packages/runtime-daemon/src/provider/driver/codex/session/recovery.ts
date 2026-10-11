@@ -39,6 +39,7 @@ import {
   codexCompactionWaitKey,
   type CodexLifecycleOptions,
   type CodexSessionRecord,
+  endingTurnIds,
 } from "./state.js";
 
 /** `model/list`'s refusal when the service must restart before it can answer. */
@@ -472,10 +473,7 @@ export class CodexServiceRecovery {
   #endTurnsEndedUnseen(record: CodexSessionRecord, listedTurns: readonly CodexListedTurn[]): void {
     for (const listed of listedTurns) {
       const isOwed =
-        record.runIdByActiveTurnId.has(listed.id) ||
-        record.interruptedRunIdByTurnId.has(listed.id) ||
-        record.pausedRunIdByInterruptedTurnId.has(listed.id) ||
-        record.delivery.retriedRunIdByTurnId.has(listed.id);
+        record.runIdByActiveTurnId.has(listed.id) || endingTurnIds(record).includes(listed.id);
       if (isOwed && listed.turn["status"] !== CODEX_IN_PROGRESS_STATUS) {
         this.#dependencies.deliverTurnEnd(record.sessionId, {
           threadId: record.threadId,
@@ -522,7 +520,7 @@ export class CodexServiceRecovery {
     );
     // No turn of the record will end now, so an undo, a retry or a turn owing a fork waiting on
     // one stops waiting.
-    this.#dependencies.turnEnds.abandon(record);
+    this.#dependencies.turnEnds.abandon(record, "session_continues");
     this.#dependencies.configForks.stopWaiting(record);
     return runIds;
   }

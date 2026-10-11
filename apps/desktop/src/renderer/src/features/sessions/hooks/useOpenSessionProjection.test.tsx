@@ -31,6 +31,7 @@ function establish(
     store.markReadFailed();
   }
   store.initialize({
+    shape: "project",
     cursor: options.cursor,
     entities: [
       {

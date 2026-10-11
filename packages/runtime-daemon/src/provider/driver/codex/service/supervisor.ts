@@ -147,6 +147,22 @@ export class CodexService {
     return this.#state === "up";
   }
 
+  /**
+   * The id of the service process the daemon started, while it runs; `undefined` for the person's
+   * own service, which the daemon never starts.
+   */
+  get processId(): number | undefined {
+    return this.#process?.processId;
+  }
+
+  /**
+   * Whether a conversation here would start the service process: one the daemon runs, stopped or
+   * stopping. A start under way or a restart already waiting is not this conversation's.
+   */
+  get wouldStart(): boolean {
+    return this.home.isManaged && (this.#state === "stopped" || this.#state === "stopping");
+  }
+
   /** Whether the service runs the daemon's hooks, which hold a paused run's next tool call. */
   get runsDaemonHooks(): boolean {
     return this.home.isManaged && this.#dependencies.hooks !== undefined;

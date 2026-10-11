@@ -35,7 +35,7 @@ describe("useSessionInitialized / useSessionStore — the store's own facts", ()
     expect(view.getByTestId("header").textContent).toBe("loading:-1");
 
     act(() => {
-      store.initialize({ cursor: 4, entities: [] });
+      store.initialize({ shape: "project", cursor: 4, entities: [] });
     });
 
     expect(view.getByTestId("header").textContent).toBe("ready:4");

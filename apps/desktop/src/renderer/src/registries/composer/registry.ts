@@ -9,7 +9,6 @@ import { type WindowStore } from "#renderer/store/window/store.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
 import { type DraftStore } from "#renderer/store/drafts.js";
 import { type AppRoute } from "#renderer/routing/routes.js";
-import { type PaneAddress } from "#renderer/routing/panes/address.js";
 import { SingleEntryRegistry } from "#renderer/lib/single-entry-registry.js";
 
 /** What the session screen hands the composer on every render. */
@@ -26,12 +25,6 @@ export interface ComposerProps {
   /** Where the unsent message body lives; drafts stay out of durable storage. */
   readonly draftStore: DraftStore;
   readonly route: AppRoute;
-  /**
-   * The focused pane, or `undefined` when focus is outside the pane layout. A focused pane over
-   * an agent entity is the addressed target of a send. It is the address, not the pane's
-   * context, because the composer has its own bridge and stores.
-   */
-  readonly focusedPane: PaneAddress | undefined;
 }
 
 /** The composer body; returns a node so the mount can render it directly. */

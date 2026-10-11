@@ -38,8 +38,9 @@ export const GROUND_ROLES = [
 export const TEXT_ROLES = ["text", "text-muted", "text-faint"] as const;
 
 /**
- * The two attention hues plus the one accent. Nothing else in the app is colored for attention;
- * a third attention hue breaks the rule.
+ * The two attention hues plus the one accent, and the accent's focus mark: the edge a field takes
+ * while it has the caret, which clears 3:1 on every neutral ground. Nothing else in the app is
+ * colored for attention; a third attention hue breaks the rule.
  */
 export const ATTENTION_ROLES = [
   "amber-text",
@@ -52,6 +53,7 @@ export const ATTENTION_ROLES = [
   "accent-text",
   "accent-ink",
   "accent-pressed",
+  "focus",
 ] as const;
 
 /**

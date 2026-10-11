@@ -21,7 +21,7 @@ export interface CodexConfigForksDependencies {
 
 /**
  * Forks each session's conversation onto the config its record holds once it changed, never while
- * a turn runs or starts on it.
+ * a turn runs, starts or is still ending on it.
  */
 export class CodexConfigForks {
   readonly #dependencies: CodexConfigForksDependencies;

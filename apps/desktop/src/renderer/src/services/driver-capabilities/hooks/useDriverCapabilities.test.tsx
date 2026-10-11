@@ -19,7 +19,6 @@ import {
   settledRefusalOf,
 } from "#renderer/store/driver-capabilities/readout.test-support.js";
 import { type DriverCapabilityReadout } from "#renderer/store/driver-capabilities/readout.js";
-import { declaredFlagsForDriver } from "#renderer/store/driver-capabilities/readings.js";
 
 describe("useDriverCapabilities — a settlement is never terminal", () => {
   it("settles a reply that does not parse fail-closed, then re-reads on window focus", async () => {
@@ -43,7 +42,7 @@ describe("useDriverCapabilities — a settlement is never terminal", () => {
     await settleScheduledRead(counted.clock);
 
     // Gating stays fail-closed and the reason is on the reading so a view can say why.
-    expect(declaredFlagsForDriver(readout, "claude")).toBeUndefined();
+    expect(readout?.flagsByDriverName.get("claude")).toBeUndefined();
     expect(settledRefusalOf(readout).code).toBe("reply-unreadable");
     expect(capabilityCallCount(counted)).toBe(1);
 
@@ -53,7 +52,7 @@ describe("useDriverCapabilities — a settlement is never terminal", () => {
     await settleScheduledRead(counted.clock);
 
     expect(capabilityCallCount(counted)).toBe(2);
-    expect(declaredFlagsForDriver(readout, "claude")?.steer).toBe(true);
+    expect(readout?.flagsByDriverName.get("claude")?.steer).toBe(true);
     expect(readout?.readRefusal).toBeUndefined();
   });
 });

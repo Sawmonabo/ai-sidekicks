@@ -2,17 +2,18 @@
 // `services/daemon/session/event/streams.ts` says which beats reach a subscription; this module
 // says what reaches it.
 //
-// The two `run.*` streams deliver registered projections (`RunStateChangeEvent`,
-// `RunRolledBackEvent`, `QueueItemSummary`), not the session envelope: they have a top-level
-// `newState`, not `payload.newState`, and no `kind` or `sequence`. A fixture that handed over the
-// envelope would make every end-to-end result about a frame no daemon produces.
-// Codex's safety hold is a live frame with no session row, so no beat projects to it.
+// The two `run.*` streams deliver frames of changes, each a registered projection
+// (`RunStateChangeEvent`, `RunRolledBackEvent`, `QueueItemSummary`) at its beat's cursor, not the
+// session envelope: a projection has a top-level `newState`, not `payload.newState`, and no `kind`
+// or `sequence`. A fixture that handed over the envelope would make every end-to-end result about
+// a frame no daemon produces. Codex's safety hold is a live frame with no session row, so no beat
+// projects to it.
 //
 // Every member is sourced from the beat, not invented. `occurredAt` becomes the state-change
 // `timestamp` and the queue row's `updatedAt`, and the beat's kind supplies the queue state
 // through the same table that routed it. A beat that cannot supply a required member is refused by
 // name, not delivered half-built. `QueueItemSummary` projects the `queue_items` row, which the
-// queue payload (`{sessionId, queueItemId, state}`) does not carry, so `priority`, `content` and
+// queue payload (`{sessionId, queueItemId, state}`) does not carry, so `position`, `content` and
 // `createdAt` come from the caller's row lookup.
 //
 // Every composed candidate is parsed through the registered schema before delivery and a failure
@@ -21,7 +22,7 @@
 // variant for the scenario contract check to read, so nothing else catches it. Parsing also removes
 // the branded-identifier casts. The value import of the schemas costs the release bundle nothing:
 // this module is reached only from the fixture bridge, and the fixture composition sits behind
-// the build-time `__FIXTURE_BUILD__` branch in `App.tsx`. `shapes.ts` holds what all
+// the build-time `__FIXTURE_BUILD__` branch in `App.tsx`. `projection.ts` holds what all
 // arms share, and `lib/wire/strings.ts` the string reader every wire reader uses.
 
 import { QueueItemSummarySchema } from "@ai-sidekicks/contracts/run/queue";
@@ -30,7 +31,7 @@ import {
   RunStateChangeEventSchema,
 } from "@ai-sidekicks/contracts/run/control";
 import type { QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
-import type { RunStateChangeEvent } from "@ai-sidekicks/contracts/run/control";
+import type { RunRolledBackEvent, RunStateChangeEvent } from "@ai-sidekicks/contracts/run/control";
 
 import { readWireString } from "#renderer/lib/wire/strings.js";
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
@@ -41,13 +42,29 @@ import {
   unprojectable,
   unprojectableFor,
 } from "./projection.js";
-import type { RunStreamProjection } from "./projection.js";
+import type { RunStreamProjection, RunStreamUnprojectable } from "./projection.js";
 import { RUN_QUEUE_EVENT_STREAM, RUN_STATE_EVENT_STREAM } from "#shared/daemon/streams.js";
 import { runStateForTransitionKind } from "#renderer/store/session/events/run/state-kinds.js";
 import {
   runQueueStreamStateFor,
   runStateStreamArmFor,
 } from "../daemon/session/event/stream-kinds.js";
+
+/** What the `run.subscribeState` stream delivers: a state change, or the forward rollback row. */
+export type RunStateStreamDelivery = RunStateChangeEvent | RunRolledBackEvent;
+
+/**
+ * One change of a narrowed run stream's frame as the fixture composes it, carrying the beat's
+ * cursor wire-verbatim: a state-stream `event`, or a queue-stream `item`.
+ */
+export type ScenarioRunStreamChange =
+  | { readonly cursor: string; readonly event: RunStateStreamDelivery }
+  | { readonly cursor: string; readonly item: QueueItemSummary };
+
+/** What one beat projects to as a change of its narrowed stream's frame. */
+export type ScenarioRunStreamChangeProjection =
+  | { readonly status: "projected"; readonly change: ScenarioRunStreamChange }
+  | RunStreamUnprojectable;
 
 /**
  * The optional `RunStateChangeEvent` members this projection carries through, wire-verbatim, so a
@@ -84,7 +101,7 @@ const QUEUE_ROW_CARRIED_OPTIONAL_MEMBERS: Readonly<
   Record<
     Exclude<
       keyof QueueItemSummary,
-      "id" | "state" | "priority" | "content" | "createdAt" | "updatedAt"
+      "id" | "state" | "position" | "content" | "createdAt" | "updatedAt"
     >,
     true
   >
@@ -94,33 +111,35 @@ const QUEUE_ROW_CARRIED_OPTIONAL_MEMBERS: Readonly<
   notDeliveredReason: true,
 };
 
-/**
- * The registered payload this beat travels as on this stream, or `undefined` when the subscription
- * is not one of the two narrowed run streams; `session.subscribe` and bare event-type names get the
- * envelope. `queueRowFor` finds the queue row by the beat's own queue item id, and a lookup that
- * finds none is a refusal rather than a made-up row.
- */
-export function projectRunStreamDelivery(
-  subscriptionName: typeof RUN_STATE_EVENT_STREAM,
+/** The registered payload one beat travels as on the `run.subscribeState` stream. */
+export function projectRunStateStreamDelivery(
   event: ProjectedSessionEvent,
-): RunStreamProjection;
-/** The same delivery for a name known only at run time, with the queue row lookup. */
-export function projectRunStreamDelivery(
+): RunStreamProjection<RunStateStreamDelivery> {
+  return projectRunStateStreamBeat(event);
+}
+
+/**
+ * The change one beat carries on a narrowed run stream's frame, at the beat's cursor, or
+ * `undefined` when the subscription is not one of the two narrowed run streams; `session.subscribe`
+ * and bare event-type names get the envelope. `queueRowFor` finds the queue row by the beat's own
+ * queue item id, and a lookup that finds none is a refusal rather than a made-up row.
+ */
+export function projectRunStreamChange(
   subscriptionName: string,
   event: ProjectedSessionEvent,
   queueRowFor: QueueRowLookup,
-): RunStreamProjection | undefined;
-/** Routes a beat to the arm its narrowed stream registers. */
-export function projectRunStreamDelivery(
-  subscriptionName: string,
-  event: ProjectedSessionEvent,
-  queueRowFor?: QueueRowLookup,
-): RunStreamProjection | undefined {
+): ScenarioRunStreamChangeProjection | undefined {
   if (subscriptionName === RUN_STATE_EVENT_STREAM) {
-    return projectRunStateStreamBeat(event);
+    const projection = projectRunStateStreamBeat(event);
+    return projection.status === "projected"
+      ? { status: "projected", change: { cursor: event.cursor, event: projection.delivery } }
+      : projection;
   }
-  if (subscriptionName === RUN_QUEUE_EVENT_STREAM && queueRowFor !== undefined) {
-    return projectRunQueueStreamBeat(event, queueRowFor);
+  if (subscriptionName === RUN_QUEUE_EVENT_STREAM) {
+    const projection = projectRunQueueStreamBeat(event, queueRowFor);
+    return projection.status === "projected"
+      ? { status: "projected", change: { cursor: event.cursor, item: projection.delivery } }
+      : projection;
   }
   return undefined;
 }
@@ -129,7 +148,9 @@ export function projectRunStreamDelivery(
 type QueueRowLookup = (queueItemId: string) => Readonly<Record<string, unknown>> | undefined;
 
 /** The `run.subscribeState` arms: a state transition, or the forward rollback row. */
-function projectRunStateStreamBeat(event: ProjectedSessionEvent): RunStreamProjection {
+function projectRunStateStreamBeat(
+  event: ProjectedSessionEvent,
+): RunStreamProjection<RunStateStreamDelivery> {
   // The arm comes from the routing table, which is what decided this beat reaches this stream, so
   // it cannot disagree with the routing.
   const arm = runStateStreamArmFor(event.kind);
@@ -143,7 +164,9 @@ function projectRunStateStreamBeat(event: ProjectedSessionEvent): RunStreamProje
 }
 
 /** `RunStateChangeEvent` — the canonical transitions. */
-function projectStateChange(event: ProjectedSessionEvent): RunStreamProjection {
+function projectStateChange(
+  event: ProjectedSessionEvent,
+): RunStreamProjection<RunStateChangeEvent> {
   const payload = event.payload;
   if (payload === undefined) {
     return unprojectableFor(event, "carries no payload at all");
@@ -180,7 +203,7 @@ function projectStateChange(event: ProjectedSessionEvent): RunStreamProjection {
 }
 
 /** `RunRolledBackEvent` — the forward, non-state arm of the same stream. */
-function projectRollback(event: ProjectedSessionEvent): RunStreamProjection {
+function projectRollback(event: ProjectedSessionEvent): RunStreamProjection<RunRolledBackEvent> {
   const payload = event.payload;
   if (payload === undefined) {
     return unprojectableFor(event, "carries no payload at all");
@@ -203,7 +226,7 @@ function projectRollback(event: ProjectedSessionEvent): RunStreamProjection {
 function projectRunQueueStreamBeat(
   event: ProjectedSessionEvent,
   queueRowFor: QueueRowLookup,
-): RunStreamProjection {
+): RunStreamProjection<QueueItemSummary> {
   const announcedState = runQueueStreamStateFor(event.kind);
   if (announcedState === undefined) {
     return unprojectable(
@@ -247,16 +270,15 @@ function projectRunQueueStreamBeat(
     return unprojectableFor(
       event,
       `is about queue item "${queueItemId}", for which no queue row was found ` +
-        `— and the row is where \`priority\`, \`content\` and \`createdAt\` live`,
+        `— and the row is where \`position\`, \`content\` and \`createdAt\` live`,
     );
   }
   return projectThroughRegisteredShape(QueueItemSummarySchema, event, {
     ...carriedOptionalMembers(queueRow, QUEUE_ROW_CARRIED_OPTIONAL_MEMBERS),
     id: queueItemId,
     state: announcedState,
-    // Row members carried through untouched; their types are the schema's business. `priority` may
-    // be negative, since a negative value is a deliberate de-prioritization.
-    priority: queueRow["priority"],
+    // Row members carried through untouched; their types are the schema's business.
+    position: queueRow["position"],
     content: queueRow["content"],
     createdAt: queueRow["createdAt"],
     // This beat is the row's newest change, so its moment is the row's last update.

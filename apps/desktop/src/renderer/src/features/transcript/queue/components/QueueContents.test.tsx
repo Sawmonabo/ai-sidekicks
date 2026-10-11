@@ -15,14 +15,16 @@ function readFeed(items: QueueFeed["items"]): QueueFeed {
     readRefusal: undefined,
     pendingCancelIds: new Set(),
     cancelItem: () => Promise.resolve(),
+    pendingRetryIds: new Set(),
+    retryItem: () => Promise.resolve(),
   };
 }
 
 /** The daemon's order: the admitted head first, then the two rows still waiting. */
 const THREE_ROWS: QueueFeed["items"] = [
-  queueRow("3f1c9a52-7e64-4b0d-9a13-5c8e2d7b6f01", "admitted", "2026-09-02T09:00:00.000Z"),
-  queueRow("8a4d2e61-15b3-4c79-8e20-1f9b7c3a5d02", "queued", "2026-09-02T09:00:00.000Z"),
-  queueRow("c2b7f930-6d48-4e15-b7a4-9e0d1c8f3a03", "queued", "2026-09-02T09:00:00.000Z"),
+  queueRow("3f1c9a52-7e64-4b0d-9a13-5c8e2d7b6f01", "admitted", "2026-09-02T09:00:00.000Z", 0),
+  queueRow("8a4d2e61-15b3-4c79-8e20-1f9b7c3a5d02", "queued", "2026-09-02T09:00:00.000Z", 1),
+  queueRow("c2b7f930-6d48-4e15-b7a4-9e0d1c8f3a03", "queued", "2026-09-02T09:00:00.000Z", 2),
 ];
 
 function renderQueue(): HTMLElement {
@@ -38,6 +40,23 @@ describe("the queue renders the rows it is given", () => {
     );
     // The feed's canonical FIFO order, unreordered: the admitted head first.
     expect(states).toStrictEqual(["Admitted", "Queued", "Queued"]);
+  });
+});
+
+describe("retry after a failed delivery", () => {
+  // Mutation: offering Retry on every row sends a waiting or taken message a second time.
+  it("offers Retry on exactly the rows not delivered", () => {
+    const rows = [
+      queueRow("3f1c9a52-7e64-4b0d-9a13-5c8e2d7b6f01", "not_delivered", "2026-09-02T09:00:00.000Z"),
+      ...THREE_ROWS.slice(1),
+    ];
+    const container = render(<QueueContents feed={readFeed(rows)} />, {
+      wrapper: liveBridgeWrapper(),
+    }).container;
+    const retryable = [...container.querySelectorAll(".meridian-queue__row")].map(
+      (row) => row.querySelector(".meridian-queue__retry")?.textContent ?? null,
+    );
+    expect(retryable).toStrictEqual(["Retry", null, null]);
   });
 });
 

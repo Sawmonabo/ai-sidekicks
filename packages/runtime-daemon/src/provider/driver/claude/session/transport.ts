@@ -28,7 +28,7 @@ import type {
   StartRunParams,
   SubagentPolicy,
 } from "../../contract.js";
-import type { DaemonTurnBindingResolver } from "../../run-control.js";
+import type { ClaudeRunDispatch, DaemonTurnBindingResolver } from "../../run-control.js";
 import type { ClaudeAttachedAdvisor } from "./answered-commands.js";
 
 /** Bare name: `system/init` lists `slash_commands` without the leading slash. */
@@ -43,31 +43,68 @@ export const CLAUDE_REQUEST_DEADLINE_MS = 60_000;
 /** The slash command that asks the provider to compact its context. */
 export const CLAUDE_COMPACTION_COMMAND_TEXT: string = `/${CLAUDE_COMPACTION_COMMAND_NAME}`;
 
+/** The picture formats Claude Code's image block takes. */
+export const CLAUDE_PICTURE_MEDIA_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+] as const;
+/** One of {@link CLAUDE_PICTURE_MEDIA_TYPES}. */
+export type ClaudePictureMediaType = (typeof CLAUDE_PICTURE_MEDIA_TYPES)[number];
+
+/**
+ * One block of a user frame's content in streaming-input mode: words, or a picture as its own bytes
+ * in base64.
+ */
+export type ClaudeUserContentBlock =
+  | { readonly type: "text"; readonly text: string }
+  | {
+      readonly type: "image";
+      readonly source: {
+        readonly type: "base64";
+        readonly media_type: ClaudePictureMediaType;
+        readonly data: string;
+      };
+    };
+
 /**
  * One stdin user frame as Claude Code's stream-json input reads it. `uuid` names the message, so a
  * withdraw (`cancel_async_message`) and a conversation cut (`rewind_conversation`) can address it.
+ * The content is the words alone, or blocks when the message carries files.
  */
 export interface ClaudeUserFrame {
   readonly type: "user";
   readonly uuid: string;
-  readonly message: { readonly role: "user"; readonly content: string };
+  readonly message: {
+    readonly role: "user";
+    readonly content: string | readonly ClaudeUserContentBlock[];
+  };
   readonly client_composed?: true;
 }
 
 /**
- * Composes the user frame for one piece of provider-bound text, its words unchanged. Only text the
- * daemon composes itself is marked `client_composed: true`, so a leading `/` or an `@path` in it
- * reaches the model as written; the person's typed text and a command the daemon sends for Claude
- * Code to run go unmarked, since the mark expands no `@path` and stops a command from running.
+ * Composes the user frame for one piece of provider-bound text, its words unchanged, followed by
+ * its files' blocks in staging order. Only text the daemon composes itself is marked
+ * `client_composed: true`, so a leading `/` or an `@path` in it reaches the model as written; the
+ * person's typed text and a command the daemon sends for Claude Code to run go unmarked, since the
+ * mark expands no `@path` and stops a command from running.
  */
 export function composeClaudeUserFrame(
   outboundText: OutboundText,
   messageUuid: string,
+  attachmentBlocks: readonly ClaudeUserContentBlock[] = [],
 ): ClaudeUserFrame {
   const frame: ClaudeUserFrame = {
     type: "user",
     uuid: messageUuid,
-    message: { role: "user", content: outboundText.text },
+    message: {
+      role: "user",
+      content:
+        attachmentBlocks.length === 0
+          ? outboundText.text
+          : [{ type: "text", text: outboundText.text }, ...attachmentBlocks],
+    },
   };
   return outboundText.origin === "system_narration" ? { ...frame, client_composed: true } : frame;
 }
@@ -162,7 +199,7 @@ export interface ClaudeHttpServerEntry {
 
 /**
  * The control requests the daemon sends, in their wire shape; closed so an unrouted subtype cannot
- * typecheck. `cancel_queued` rides only where the process advertised `interrupt_cancel_queued_v1`.
+ * typecheck.
  */
 export type ClaudeControlRequest =
   | {
@@ -172,7 +209,7 @@ export type ClaudeControlRequest =
       readonly supportedDialogKinds: readonly string[];
       readonly perTaskStopAffordance: true;
     }
-  | { readonly subtype: "interrupt"; readonly cancel_queued?: true }
+  | { readonly subtype: "interrupt" }
   | { readonly subtype: "apply_flag_settings"; readonly settings: ClaudeFlagSettings }
   | { readonly subtype: "set_permission_mode"; readonly mode: ClaudePermissionMode }
   | { readonly subtype: "set_max_thinking_tokens"; readonly thinking_display: "summarized" }
@@ -276,19 +313,26 @@ export interface ClaudeProviderProcess {
   readonly providerSessionId: string;
 
   /**
+   * The operating system's id of the process, kept after it exits; `undefined` only for a process
+   * that never started.
+   */
+  readonly processId: number | undefined;
+
+  /**
    * Whether no further `onTurnTerminal` can arrive (not merely that the process exited); a channel
    * that can deliver none must say `true`. `false` is the safe default: it costs one slot.
    */
   readonly isClosed: boolean;
 
   /**
-   * Writes the text as one `composeClaudeUserFrame` line stamped `messageUuid`. Report a failure as
-   * a `failed` attempt, not a rejection: only the transport knows whether it came before the first
-   * byte, and a rejection is treated as `indeterminate`.
+   * Writes the text and its files' blocks as one `composeClaudeUserFrame` line stamped
+   * `messageUuid`. Report a failure as a `failed` attempt, not a rejection: only the transport
+   * knows whether it came before the first byte, and a rejection is treated as `indeterminate`.
    */
   sendUserText(
     outboundText: OutboundText,
     messageUuid: string,
+    attachmentBlocks?: readonly ClaudeUserContentBlock[],
   ): Promise<ClaudeUserTextWriteAttempt>;
 
   /**
@@ -334,8 +378,9 @@ export interface ClaudeProviderProcess {
   onExit(observer: (exit: ProcessExit) => void): void;
 
   /**
-   * Asks the process to stop as the system stops a child process, which ends a running turn
-   * without answering what is queued, and resolves once it exited. Used by a conversation cut and a process that stopped answering.
+   * Asks the process to stop as the system stops a child process, which ends a running turn without
+   * answering what is queued, and resolves once it exited. Used by a conversation cut and a process
+   * that stopped answering.
    */
   terminate(): Promise<void>;
 
@@ -649,18 +694,6 @@ export interface ClaudeSessionTransport {
 }
 
 /**
- * The daemon-owned facts `startRun` needs that `StartRunParams` lacks. `messageId` is the person's
- * message the opening text is, a UUID, stamped on the user frame so a later cut can name it.
- */
-export interface ClaudeRunDispatch {
-  readonly sessionId: SessionId;
-  /** The runtime binding the run's deliveries are attributed on, opened by the daemon. */
-  readonly bindingId: string;
-  readonly openingText: string;
-  readonly messageId: string;
-}
-
-/**
  * Resolves a run's dispatch facts and opens the binding of a turn the daemon starts on the session
  * itself, which carries no queued message (wired by the daemon).
  */
@@ -670,12 +703,12 @@ export interface ClaudeRunDispatchResolver extends DaemonTurnBindingResolver {
 }
 
 /**
- * The reads `ClaudeInterventionDispatcher` needs: the live channel a run is bound to and the
- * capabilities its process advertised on `system/init`.
+ * The reads `ClaudeInterventionDispatcher` needs: the session a run is bound to and its live
+ * channel.
  */
 export interface ClaudeRunProcessLookup {
+  sessionIdForRun(runId: RunId): SessionId | undefined;
   findProcessForRun(runId: RunId): ClaudeProviderProcess | undefined;
-  advertisedCapabilitiesForRun(runId: RunId): ReadonlySet<string>;
 }
 
 /** The structured fields of a `ClaudeControlRequestRefusedError`. */

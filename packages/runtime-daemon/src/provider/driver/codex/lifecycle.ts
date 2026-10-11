@@ -19,13 +19,11 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { PendingCompactionRegistry } from "../../compaction-wait.js";
 import { mintUuidV7 } from "../../../uuid-v7.js";
-import type { CapabilityProbeRequest } from "../../capability/probe.js";
 import {
   classifyCodexAuthStatus,
   CODEX_AUTH_PROBE_TIMEOUT_MS,
   requestCodexAuthStatus,
 } from "./auth-status.js";
-import { getCodexCapabilities, readCodexCapabilityDetection } from "./capabilities.js";
 import { CodexProviderCommandCache } from "./commands.js";
 import { CodexCompactionDispatch } from "./compaction.js";
 import { CodexAskHandOff } from "./delivery/asks.js";
@@ -36,7 +34,7 @@ import {
   CODEX_SKILLS_CHANGED_METHOD,
   CODEX_TURN_COMPLETED_METHOD,
 } from "./event-normalizer.js";
-import { clearCodexSessionGoal, setCodexSessionGoal } from "./goals.js";
+import { CodexSessionGoals } from "./goals.js";
 import { CodexRunPauses } from "./hooks/pause.js";
 import { CodexHookServer } from "./hooks/server.js";
 import type { CodexSteerAcknowledgement, CodexSteerRunRequest } from "./intervention.js";
@@ -50,7 +48,7 @@ import {
 } from "./thread/permission-profiles.js";
 import { CodexRoutedAskAttributor } from "./routed-ask-attribution.js";
 import { CodexRunControl } from "./run/control.js";
-import { retryCodexTurnOnFasterModel } from "./run/faster-model-retry.js";
+import { CodexFasterModelRetries } from "./run/faster-model-retry.js";
 import { CodexRunRoutes } from "./run/routes.js";
 import { CodexSelfStartedTurns } from "./run/self-started-turns.js";
 import { CodexRunStart } from "./run/start.js";
@@ -58,13 +56,10 @@ import { CodexTurnEndWaiters } from "./run/turn-end-waiters.js";
 import { readCodexServerRequestAnswer } from "./server-requests.js";
 import { createCodexServiceLauncher, runCodexCommand } from "./service/process.js";
 import type { CodexServiceEvents } from "./service/dependencies.js";
+import { probeCodexServiceCapabilities } from "./service/capabilities.js";
 import { CodexServiceRegistry } from "./service/registry.js";
 import { CODEX_CONFIG_WARNING_METHOD, type CodexService } from "./service/supervisor.js";
-import {
-  CodexProviderRequestError,
-  CodexTransportError,
-  normalizeProviderFailureDetail,
-} from "./session/errors.js";
+import { CodexTransportError, normalizeProviderFailureDetail } from "./session/errors.js";
 import {
   observeCodexReasoningEffort,
   overrideCodexReviewerDenial,
@@ -118,6 +113,7 @@ import type {
   OverrideDenialParams,
   PauseRunParams,
   ResumeRunParams,
+  PickedSkill,
 } from "../run-control.js";
 import type {
   AskSideQuestionParams,
@@ -161,6 +157,8 @@ export class CodexLifecycleManager {
   readonly #selfStartedTurns: CodexSelfStartedTurns;
   readonly #askHandOff: CodexAskHandOff;
   readonly #rewind: CodexConversationRewind;
+  readonly #goals: CodexSessionGoals;
+  readonly #retries: CodexFasterModelRetries;
 
   constructor(options: CodexLifecycleOptions) {
     this.#options = options;
@@ -174,6 +172,7 @@ export class CodexLifecycleManager {
       reportDiagnostic,
       serverPrompts: options.serverPrompts,
       recordFor: (sessionId) => this.#slots.recordFor(sessionId),
+      serviceFor: async (providerAccountId) => await this.#services.serviceFor(providerAccountId),
     });
     this.#pauses = new CodexRunPauses({
       onTookEffect: (pause) => {
@@ -200,8 +199,10 @@ export class CodexLifecycleManager {
       pauses: this.#pauses,
       release: this.#release,
       // A turn waiting on the record's running turn would otherwise wait for good.
-      onRecordLeft: (record) => {
+      onRecordLeft: (record, exit) => {
         this.#configForks.stopWaiting(record);
+        // No turn of a record that left will end, so nothing waits on one.
+        this.#turnEnds.abandon(record, exit);
       },
     });
     this.#hooks =
@@ -274,6 +275,7 @@ export class CodexLifecycleManager {
         void this.#rewind.cutOversizedTurn(record, turnId);
       },
       pendingCompactions: this.#pendingCompactions,
+      onToolBoundary: options.onToolBoundary,
       now,
     });
     this.#notificationRouting = new CodexNotificationRouting({
@@ -354,12 +356,25 @@ export class CodexLifecycleManager {
       forks: this.#forks,
       runRoutes: this.#runRoutes,
       outputSpeed: this.#outputSpeed,
-      providerCommands: this.#providerCommands,
       runEngine: options.runEngine,
       daemonTurnBindings: options.daemonTurnBindings,
+      attachments: options.attachments,
+      turnEnds: this.#turnEnds,
+      interruptRun: async (params) => {
+        await this.#runControl.interruptRun(params);
+      },
       reportDiagnostic,
       scheduleTimeout,
       turnStartTimeoutMs: options.turnStartTimeoutMs,
+    });
+    this.#goals = new CodexSessionGoals(this.#configForks, this.#turnEnds, this.#runStart);
+    this.#retries = new CodexFasterModelRetries({
+      slots: this.#slots,
+      runRoutes: this.#runRoutes,
+      runStart: this.#runStart,
+      forks: this.#forks,
+      turnEnds: this.#turnEnds,
+      dispatch: this.#dispatch,
     });
     this.#runControl = new CodexRunControl({
       options,
@@ -369,6 +384,8 @@ export class CodexLifecycleManager {
       runStart: this.#runStart,
       pauses: this.#pauses,
       dispatch: this.#dispatch,
+      retries: this.#retries,
+      turnEnds: this.#turnEnds,
     });
     this.#rewind = new CodexConversationRewind({
       slots: this.#slots,
@@ -384,6 +401,7 @@ export class CodexLifecycleManager {
     this.#selfStartedTurns = new CodexSelfStartedTurns({
       recordFor: (sessionId) => this.#slots.recordFor(sessionId),
       runStart: this.#runStart,
+      turnEnds: this.#turnEnds,
       ingest: (sessionId, method, params) => {
         this.#ingestFrame(sessionId, method, params);
       },
@@ -458,22 +476,13 @@ export class CodexLifecycleManager {
       await this.#configForks.requireAfterForks(params.sessionId),
       params.providerDenial,
       this.#runStart,
+      this.#turnEnds,
     );
   }
 
   /** Sends a held turn's message again on a faster model; see the retry's own docs. */
   async retryTurnOnFasterModel(params: FasterModelRetryParams): Promise<FasterModelRetryOutcome> {
-    return await retryCodexTurnOnFasterModel(
-      {
-        slots: this.#slots,
-        runRoutes: this.#runRoutes,
-        runStart: this.#runStart,
-        forks: this.#forks,
-        turnEnds: this.#turnEnds,
-        dispatch: this.#dispatch,
-      },
-      params,
-    );
+    return await this.#retries.retry(params);
   }
 
   /** Pauses the run from its next tool call; see {@link CodexRunControl.pauseRun}. */
@@ -580,15 +589,12 @@ export class CodexLifecycleManager {
 
   /** Binds the session's goal on Codex's own thread goal; a turn Codex starts on it is a run. */
   async setSessionGoal(params: SetSessionGoalParams): Promise<DriverGoalResult> {
-    return await setCodexSessionGoal(
-      await this.#configForks.requireAfterForks(params.sessionId),
-      params.goalText,
-    );
+    return await this.#goals.set(params);
   }
 
   /** Clears the session's goal on Codex's own thread goal. */
   async clearSessionGoal(params: ClearSessionGoalParams): Promise<DriverGoalResult> {
-    return await clearCodexSessionGoal(await this.#configForks.requireAfterForks(params.sessionId));
+    return await this.#goals.clear(params);
   }
 
   /**
@@ -641,6 +647,19 @@ export class CodexLifecycleManager {
     return await this.#providerCommands.composeProviderCommandList(params.sessionId, record);
   }
 
+  /** Each skill Codex lists for the session, by its name and the file it loads it from. */
+  async readSkillFiles(
+    sessionId: SessionId,
+    providerAccountId: string | undefined,
+    workingDirectory: string,
+  ): Promise<readonly PickedSkill[]> {
+    return await this.#providerCommands.readSkillFiles(
+      sessionId,
+      providerAccountId,
+      workingDirectory,
+    );
+  }
+
   /**
    * Closes the session's conversation: its running commands end, then it unsubscribes; the
    * service stays. Idempotent: an unknown session resolves.
@@ -673,6 +692,20 @@ export class CodexLifecycleManager {
     if (failures.length > 0) {
       throw new AggregateError(failures, "The Codex driver did not shut down cleanly.");
     }
+  }
+
+  /**
+   * Whether a conversation on `providerAccountId`'s home would start its service process, the
+   * daemon running none there yet; never for the person's own service, which the daemon never
+   * starts.
+   */
+  async startsAccountService(providerAccountId: string | undefined): Promise<boolean> {
+    return (await this.#services.serviceFor(providerAccountId)).wouldStart;
+  }
+
+  /** The id of the service process the session's conversation is on, while the daemon runs it. */
+  readServiceProcessId(sessionId: SessionId): number | undefined {
+    return this.#slots.recordFor(sessionId)?.service.processId;
   }
 
   /**
@@ -717,35 +750,10 @@ export class CodexLifecycleManager {
    * its own that starts no conversation. Throws when the service cannot start.
    */
   async getCapabilities(): Promise<GetCapabilitiesResult> {
-    const service = await this.#services.serviceFor(undefined);
-    await service.ensureStarted();
-    const reading = service.versionReading;
-    if (reading === undefined) {
-      throw new CodexTransportError("The Codex service reported no build at its start.", {
-        codexHome: service.home.codexHome,
-      });
-    }
-    const connection = await service.openDetachedConnection();
-    try {
-      const detection = await readCodexCapabilityDetection(
-        reading,
-        async (request: CapabilityProbeRequest): Promise<unknown> => {
-          // The reply's own shape, as the probe classifier reads it.
-          try {
-            return { result: await connection.request(request.probeName, {}) };
-          } catch (cause) {
-            if (cause instanceof CodexProviderRequestError) {
-              return { error: { code: cause.providerErrorCode, message: cause.providerMessage } };
-            }
-            throw cause;
-          }
-        },
-        this.#options.diagnostics,
-      );
-      return getCodexCapabilities(reading, detection);
-    } finally {
-      connection.close();
-    }
+    return await probeCodexServiceCapabilities(
+      await this.#services.serviceFor(undefined),
+      this.#options.diagnostics,
+    );
   }
 
   /** What every service tells the lifecycle about its conversations. */
@@ -846,9 +854,9 @@ export class CodexLifecycleManager {
       void this.#runControl.observeItemCompleted(record, params);
     }
     if (endedTurnId !== null) {
-      // Before run control acts on the end, so a fork owed meanwhile runs ahead of the next turn.
-      this.#configForks.noteTurnSettled(record);
+      // A pause's stopped turn is let go first, so an owed fork starts here, ahead of its continue.
       void this.#runControl.observeTurnEnded(record, endedTurnId, endedRunId);
+      this.#configForks.noteTurnSettled(record);
       this.#recovery.noteTurnSettled(record);
       this.#turnEnds.settle();
     }

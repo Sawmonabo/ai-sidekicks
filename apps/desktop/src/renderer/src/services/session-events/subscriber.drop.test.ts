@@ -62,7 +62,7 @@ function openSessionReader(
       reasonsSeen.push(...reasons);
       return readThroughDaemon
         ? readSession(sessionId, reasons, opening)
-        : Promise.resolve({ entities: [] });
+        : Promise.resolve({ shape: "project", entities: [] });
     },
     clock,
     openingPageLimit,

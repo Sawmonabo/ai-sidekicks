@@ -14,7 +14,10 @@ import type { ProjectState } from "@ai-sidekicks/contracts/project";
 import { type IdempotencyClass } from "@ai-sidekicks/contracts/provider/driver/tools";
 import type { ExecutionMode } from "@ai-sidekicks/contracts/repo/mount";
 import type { InterventionState } from "@ai-sidekicks/contracts/run/control";
-import type { QueueItemState } from "@ai-sidekicks/contracts/run/queue";
+import type {
+  QueueItemNotDeliveredReason,
+  QueueItemState,
+} from "@ai-sidekicks/contracts/run/queue";
 import type { ChildRunProvenance } from "@ai-sidekicks/contracts/run/queued";
 import type { ReviewNoteScope, ReviewNoteSide } from "@ai-sidekicks/contracts/review-note";
 import type { RunState } from "@ai-sidekicks/contracts/run/state";
@@ -50,9 +53,12 @@ const QUEUE_ITEM_STATES: Record<QueueItemState, true> = {
   canceled: true,
   not_delivered: true,
 };
+const QUEUE_ITEM_NOT_DELIVERED_REASONS: Record<QueueItemNotDeliveredReason, true> = {
+  timed_out: true,
+  failed: true,
+};
 
 const INTERVENTION_TYPES: Record<InterventionType, true> = {
-  steer: true,
   interrupt: true,
   faster_model_retry: true,
 };
@@ -227,11 +233,19 @@ describe("contract enums against the daemon schema", () => {
     ).run(newId("run"), WORKSPACE_ID, mode, worktreeId, branchContextId, TIMESTAMP);
   }
 
-  function insertQueueItem(state: string): void {
+  // A not-delivered item carries its reason, and only it does.
+  function insertQueueItem(state: string, notDeliveredReason?: string): void {
     db.prepare(
-      `INSERT INTO queue_items (id, session_id, state, created_at, updated_at)
-       VALUES (?, 'session-1', ?, ?, ?)`,
-    ).run(newId("queue-item"), state, TIMESTAMP, TIMESTAMP);
+      `INSERT INTO queue_items
+         (id, session_id, state, not_delivered_reason, position, created_at, updated_at)
+       VALUES (?, 'session-1', ?, ?, 0, ?, ?)`,
+    ).run(
+      newId("queue-item"),
+      state,
+      notDeliveredReason ?? (state === "not_delivered" ? "failed" : null),
+      TIMESTAMP,
+      TIMESTAMP,
+    );
   }
 
   // A valid row; each case overrides the one column it checks.
@@ -326,11 +340,15 @@ describe("contract enums against the daemon schema", () => {
     expect(() => insertRunExecutionContext("bound-root", null, null)).toThrow(CHECK_FAILURE);
   });
 
-  it("admits every queue item state and refuses any other", () => {
+  it("admits every queue item state and not-delivered reason and refuses any other", () => {
     for (const state of membersOf(QUEUE_ITEM_STATES)) {
       expect(() => insertQueueItem(state)).not.toThrow();
     }
     expect(() => insertQueueItem(NON_MEMBER)).toThrow(CHECK_FAILURE);
+    for (const reason of membersOf(QUEUE_ITEM_NOT_DELIVERED_REASONS)) {
+      expect(() => insertQueueItem("not_delivered", reason)).not.toThrow();
+    }
+    expect(() => insertQueueItem("not_delivered", NON_MEMBER)).toThrow(CHECK_FAILURE);
   });
 
   it("admits every intervention type and state and refuses any other", () => {
@@ -338,10 +356,10 @@ describe("contract enums against the daemon schema", () => {
       expect(() => insertIntervention(type, "requested")).not.toThrow();
     }
     for (const state of membersOf(INTERVENTION_STATES)) {
-      expect(() => insertIntervention("steer", state)).not.toThrow();
+      expect(() => insertIntervention("interrupt", state)).not.toThrow();
     }
     expect(() => insertIntervention(NON_MEMBER, "requested")).toThrow(CHECK_FAILURE);
-    expect(() => insertIntervention("steer", NON_MEMBER)).toThrow(CHECK_FAILURE);
+    expect(() => insertIntervention("interrupt", NON_MEMBER)).toThrow(CHECK_FAILURE);
   });
 
   it("admits every run state and child run provenance and refuses any other", () => {

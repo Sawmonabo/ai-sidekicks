@@ -1,7 +1,8 @@
-/* The cancel button wears the shared action button (`styles/action-buttons.css`) at its small
-   size in the raised face; this sheet adds only the pending state the queue alone has. */
+/* The cancel and retry buttons wear the shared action button (`styles/action-buttons.css`) at its
+   small size in the raised face; this sheet adds only the pending state the queue alone has. */
 
-.meridian-queue__cancel:disabled {
+.meridian-queue__cancel:disabled,
+.meridian-queue__retry:disabled {
   color: var(--meridian-text-muted);
   cursor: progress;
 }

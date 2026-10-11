@@ -1,36 +1,51 @@
 // A run's start on Claude Code: its opening text written to the session's live process as typed,
-// one turn at a time, after the output-speed level the run asks for is applied. A turn the daemon
-// starts itself, such as a goal or a review, is started as the session's own run through the run
-// engine before its text is written, at the session's current posture, so every row of the turn
-// has a run to belong to.
+// with its staged files, one turn at a time, after the output-speed level the run asks for is
+// applied. A turn the daemon starts itself, such as a goal or a review, is started as the
+// session's own run through the run engine before its text is written, at the session's current
+// posture, so every row of the turn has a run to belong to.
 
+import type { InterruptRunParams } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import type { RunEngine } from "../../../../session/run/engine.js";
 import type { OutboundText } from "../../../outbound-text.js";
+import type { AttachmentResolver } from "../../attachments.js";
 import type { DriverDiagnosticsEmitter } from "../../diagnostics.js";
 import type { StartRunParams } from "../../contract.js";
+import { composeClaudeAttachmentBlocks } from "../attachments.js";
 import { CLAUDE_DRIVER_NAME } from "../capabilities.js";
+import type { ClaudeDeliveryStream } from "../delivery/stream.js";
 import type { ClaudeHandshakeRegister } from "../handshake-register.js";
 import { applyClaudeOutputSpeed, resolveClaudeOutputSpeed } from "../output-speed.js";
 import { ClaudeSessionUnavailableError } from "../session/errors.js";
 import type { ClaudeSessionSlots } from "../session/slots.js";
 import type { LiveClaudeSession } from "../session/state.js";
 import { attemptClaudeFrameWrite } from "../session/stdin-write.js";
-import type { ClaudeRunDispatchResolver } from "../session/transport.js";
+import {
+  CLAUDE_REQUEST_DEADLINE_MS,
+  type ClaudeRunDispatchResolver,
+  type ClaudeUserContentBlock,
+} from "../session/transport.js";
 import { assertClaudeSpawnBoundRealization } from "../spawn/legs.js";
 import type { ClaudeSentPrompts } from "./prompts.js";
 import type { ClaudeBoundRun, ClaudeRunRoutes } from "./routes.js";
 
 /**
- * What a turn the daemon starts on a session itself opens with: text written to the session's own
- * process under the message id a later cut names, or a turn run apart from that process, started
- * once its run is bound and delivered on that run.
+ * What a turn the daemon starts on a session itself opens with: text, and the blocks of the files
+ * a person's message carries, written to the session's own process under the message id a later
+ * cut names, or a turn run apart from that process, started once its run is bound and delivered on
+ * that run; or the turn Claude Code started by itself, which its run takes with nothing written.
  */
 export type ClaudeDaemonTurnOpening =
-  | { readonly kind: "text"; readonly text: OutboundText; readonly messageId: string }
-  | { readonly kind: "apart"; readonly start: (run: ClaudeBoundRun) => void };
+  | {
+      readonly kind: "text";
+      readonly text: OutboundText;
+      readonly messageId: string;
+      readonly attachmentBlocks?: readonly ClaudeUserContentBlock[] | undefined;
+    }
+  | { readonly kind: "apart"; readonly start: (run: ClaudeBoundRun) => void }
+  | { readonly kind: "provider" };
 
 /** What a run's start reads and writes through. */
 export interface ClaudeRunStartDependencies {
@@ -38,9 +53,13 @@ export interface ClaudeRunStartDependencies {
   readonly runEngine: Pick<RunEngine, "startDaemonTurn">;
   readonly slots: ClaudeSessionSlots;
   readonly runRoutes: ClaudeRunRoutes;
+  readonly stream: Pick<ClaudeDeliveryStream, "isTurnEndingForInterrupt">;
   readonly handshakes: ClaudeHandshakeRegister;
   readonly diagnostics: DriverDiagnosticsEmitter;
   readonly prompts: ClaudeSentPrompts;
+  readonly attachments: AttachmentResolver;
+  /** The driver's interrupt of a run's turn. */
+  readonly interruptRun: (params: InterruptRunParams) => Promise<void>;
 }
 
 // The run a turn's text opens, on the session and binding it is attributed on.
@@ -59,15 +78,26 @@ export class ClaudeRunStart {
   }
 
   /**
-   * Writes the run's opening text to its session's live channel, as typed. Claude Code takes one
-   * turn at a time, so a run is refused while it or another run holds the session's turn. Throws
-   * when the run cannot be dispatched, and rethrows the failed write's cause; nothing is re-sent.
+   * Writes the run's opening text to its session's live channel, as typed, with its staged files.
+   * Claude Code takes one turn at a time, so a run is refused while it or another run holds the
+   * session's turn; an interrupted run's next turn first waits, within the request deadline, for
+   * Claude Code to end the turn the interrupt stopped. Throws when the run cannot be dispatched or
+   * its files cannot be read, and rethrows the failed write's cause; nothing is re-sent.
    */
   async startRun(params: StartRunParams): Promise<void> {
-    const { runDispatchResolver, slots } = this.#dependencies;
+    const { runDispatchResolver, runRoutes, slots, stream } = this.#dependencies;
     const runDispatch = await runDispatchResolver.resolveRunDispatch(params);
     if (runDispatch === undefined) {
       throw new ClaudeSessionUnavailableError("run_dispatch_unresolved", { runId: params.runId });
+    }
+    if (
+      stream.isTurnEndingForInterrupt(runDispatch.sessionId, params.runId) &&
+      !(await runRoutes.whenTurnReleased(runDispatch.sessionId, CLAUDE_REQUEST_DEADLINE_MS))
+    ) {
+      throw new ClaudeSessionUnavailableError("session_turn_in_flight", {
+        sessionId: runDispatch.sessionId,
+        runId: params.runId,
+      });
     }
 
     const live = slots.findLiveSession(runDispatch.sessionId);
@@ -79,25 +109,33 @@ export class ClaudeRunStart {
     }
 
     assertClaudeSpawnBoundRealization(params, live);
+    // Read before the turn is held, so a file that cannot be read holds nothing.
+    const attachmentBlocks = await composeClaudeAttachmentBlocks(
+      this.#dependencies.attachments,
+      runDispatch.sessionId,
+      runDispatch.attachments,
+    );
     await this.#openTurn(
       live,
       { runId: params.runId, sessionId: runDispatch.sessionId, bindingId: runDispatch.bindingId },
       { text: runDispatch.openingText, origin: "human_text" },
       runDispatch.messageId,
+      attachmentBlocks,
       // The next run carries the agent's own level, which differs and so is sent again.
       params.outputSpeedForTurn ?? params.outputSpeed,
     );
   }
 
   /**
-   * Starts a turn the daemon starts on a session itself as the session's own run, at the session's
-   * current posture, and resolves with the run's id once its opening is written and the run is
-   * running. A text opening is refused, before any run exists, while a run holds the session's
-   * turn, and every opening on a session holding no posture. Throws as {@link startRun} does, the
-   * run then ended `failed` by the run engine.
+   * Starts a turn the daemon starts on a session itself, or one Claude Code started by itself, as
+   * the session's own run, at the session's current posture, and resolves with the run's id once
+   * its opening is written and the run is running. A text opening is refused, before any run
+   * exists, while a run holds the session's turn or the session holds its next turn for an
+   * interrupted run's continue; every opening is refused on a session holding no posture. Throws as
+   * {@link startRun} does, the run then ended `failed` by the run engine.
    */
   async startDaemonTurn(live: LiveClaudeSession, opening: ClaudeDaemonTurnOpening): Promise<RunId> {
-    const { runEngine, runDispatchResolver, slots } = this.#dependencies;
+    const { runEngine, runDispatchResolver, slots, runRoutes, interruptRun } = this.#dependencies;
     const sessionId = live.sessionId;
     const executionPosture = live.executionPosture;
     if (executionPosture === undefined) {
@@ -111,10 +149,16 @@ export class ClaudeRunStart {
       provider: CLAUDE_DRIVER_NAME,
       admittedProviderAccountId: live.admittedProviderAccountId,
       executionPosture,
+      isProviderStarted: opening.kind === "provider",
+      isApart: opening.kind === "apart",
       startTurn: async (runId) => {
         const { bindingId } = await runDispatchResolver.openDaemonTurnBinding(runId, sessionId);
         if (opening.kind === "apart") {
           opening.start({ runId, bindingId });
+          return;
+        }
+        if (opening.kind === "provider") {
+          runRoutes.bindRun(runId, sessionId, bindingId);
           return;
         }
         // Re-read: the session may have closed or moved to another process while the run started.
@@ -127,8 +171,12 @@ export class ClaudeRunStart {
           { runId, sessionId, bindingId },
           opening.text,
           opening.messageId,
+          opening.attachmentBlocks ?? [],
           undefined,
         );
+      },
+      interruptTurn: async (runId) => {
+        await interruptRun({ runId });
       },
     });
   }
@@ -145,13 +193,14 @@ export class ClaudeRunStart {
     }
   }
 
-  // Binds the run as the session's one turn and writes its opening text, after the output-speed
-  // level it asks for.
+  // Binds the run as the session's one turn and writes its opening text and files, after the
+  // output-speed level it asks for.
   async #openTurn(
     live: LiveClaudeSession,
     run: ClaudeTurnRun,
     text: OutboundText,
     messageId: string,
+    attachmentBlocks: readonly ClaudeUserContentBlock[],
     outputSpeed: string | undefined,
   ): Promise<void> {
     const { slots, runRoutes, handshakes, diagnostics } = this.#dependencies;
@@ -189,7 +238,7 @@ export class ClaudeRunStart {
     }
     // Armed before the write, so the turn's handshake cannot outrun it.
     handshakes.armRunOutputSpeed(sessionId, live.providerSessionId, runId);
-    const attempt = await attemptClaudeFrameWrite(live.channel, text, messageId);
+    const attempt = await attemptClaudeFrameWrite(live.channel, text, messageId, attachmentBlocks);
     if (attempt.settled === "written") {
       this.#dependencies.prompts.recordSent(sessionId, messageId);
       return;

@@ -10,20 +10,23 @@ import { ClaudeRequestTimeoutError } from "./errors.js";
 import {
   CLAUDE_REQUEST_DEADLINE_MS,
   type ClaudeProviderProcess,
+  type ClaudeUserContentBlock,
   type ClaudeUserTextWriteAttempt,
 } from "./transport.js";
 
 /**
- * Writes one piece of text on a channel, turning a transport rejection into a failed attempt. A
- * rejection carries no claim about the bytes, so it is `indeterminate`, never `unsent`.
+ * Writes one piece of text and its files' blocks on a channel, turning a transport rejection into a
+ * failed attempt. A rejection carries no claim about the bytes, so it is `indeterminate`, never
+ * `unsent`.
  */
 export async function attemptClaudeFrameWrite(
   channel: ClaudeProviderProcess,
   outboundText: OutboundText,
   messageUuid: string,
+  attachmentBlocks?: readonly ClaudeUserContentBlock[],
 ): Promise<ClaudeUserTextWriteAttempt> {
   try {
-    return await channel.sendUserText(outboundText, messageUuid);
+    return await channel.sendUserText(outboundText, messageUuid, attachmentBlocks);
   } catch (cause) {
     return { settled: "failed", delivery: "indeterminate", cause };
   }

@@ -19,9 +19,9 @@ import { RUN_TARGET } from "../router.test-support.js";
 const SESSION_A = "1b2c3d4e-5f60-4172-8384-ab5c6d7e8f90";
 const SESSION_B = "2c3d4e5f-6071-4283-8495-bc6d7e8f9012";
 
-const REJECTION_REASON = "run_not_paused";
+const REJECTION_REASON = "queue.persistence_unavailable";
 
-function sessionTarget(sessionId: string): ComposerRunTarget {
+function runTargetIn(sessionId: string): ComposerRunTarget {
   return { ...RUN_TARGET, sessionId };
 }
 
@@ -61,7 +61,7 @@ function driveAddressableComposer(initialSessionId: string = SESSION_A): DrivenC
       bridge={calls.bridge}
       calls={calls.calls}
       draftStore={draftStore}
-      target={sessionTarget(sessionId)}
+      target={runTargetIn(sessionId)}
       onController={(controller) => {
         latest = controller;
       }}
@@ -90,10 +90,9 @@ function driveAddressableComposer(initialSessionId: string = SESSION_A): DrivenC
   return {
     calls,
     latest: latestController,
-    draftAt: (sessionId: string) =>
-      draftStore.read(composerDraftKey(sessionTarget(sessionId)))?.text,
+    draftAt: (sessionId: string) => draftStore.read(composerDraftKey(sessionId))?.text,
     beginSend: (body: string) => {
-      draftStore.write(composerDraftKey(sessionTarget(currentSessionId)), body);
+      draftStore.write(composerDraftKey(currentSessionId), body);
       return begin(() => latestController().send());
     },
     reAddressTo: (sessionId: string) => {

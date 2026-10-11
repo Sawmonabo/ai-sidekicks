@@ -1,9 +1,10 @@
 // The run engine's inbound dispatch: where each provider delivery is attributed to its execution
 // before anything is written. A lifecycle event, child run, marker, live state, unstamped row or
 // permission ask from the execution before an undo's cut is absorbed there; one for a run already
-// ended is absorbed by the refusal of its own write; any other row is appended, stamped with its
-// source pair when it is late, a thinking update through its own append, which a full write queue
-// drops. A session notice or session row belongs to no execution and is appended as it is.
+// ended is absorbed by the refusal of its own write, with a diagnostic unless it is the provider's
+// end of a turn the daemon interrupted; any other row is appended, stamped with its source pair
+// when it is late, a thinking update through its own append, which a full write queue drops. A
+// session notice or session row belongs to no execution and is appended as it is.
 
 import {
   EventEnvelopeVersionSchema,
@@ -38,7 +39,6 @@ import {
   type SessionEventLinkage,
 } from "../../events/session/appender.js";
 import type { DriverDiagnosticsEmitter } from "../../provider/driver/diagnostics.js";
-import type { PortRegistration } from "../../provider/port/registration.js";
 import type { RunStatePublisher } from "../../provider/port/run-state-publisher.js";
 import { advisorModelChangeStatement } from "../console-state.js";
 import type { RunEngine, RunMarker, RunTransitionRequest } from "./engine.js";
@@ -129,7 +129,9 @@ export type SessionScopedRow =
 /**
  * One delivery a provider driver hands the run engine, on the runtime binding it arrived on and in
  * that binding's delivery order. `operation` names the provider operation it belongs to, where it
- * has one. A `child_run` is a subagent the provider started beneath `parentRunId`; a `run_marker`
+ * has one. A `run_continued` is the turn a provider started itself with messages it kept from an
+ * interrupted run's turn, which continues that run; a `child_run` is a subagent the provider
+ * started beneath `parentRunId`; a `run_marker`
  * a marker the provider reported on a live run; a `live_run_state` a state the run's stream shows
  * live and nothing stores; a `thinking_update` an assistant's reasoning, which a full write queue
  * drops; a `session_notice` a notice about the session and a `session_event` a row about it, both
@@ -142,6 +144,17 @@ export type InboundDelivery =
       readonly bindingId: string;
       readonly operation?: DeliveryOperation | undefined;
       readonly change: RunTransitionRequest;
+      /**
+       * Whether this is the provider's end of a turn the daemon's own interrupt stopped, which the
+       * daemon may have written first; refused then, it is absorbed with no diagnostic.
+       */
+      readonly isDaemonInterruptEnd?: boolean | undefined;
+    }
+  | {
+      readonly kind: "run_continued";
+      readonly bindingId: string;
+      readonly operation?: DeliveryOperation | undefined;
+      readonly runId: RunId;
     }
   | {
       readonly kind: "child_run";
@@ -198,8 +211,8 @@ export type LateEventAbsorbReason = "before_cut" | "run_ended";
  * What the dispatch did with a delivery. `ask_admitted` is a permission ask of the current
  * execution, which the caller hands to the approval pipeline. `child_run_started` carries the
  * child's new run id, which the caller keeps for the subagent's later deliveries. A live state is
- * `published`, or `dropped` with no publisher registered; a thinking update is `dropped` when the
- * full write queue dropped it. An appended row carries the id of the event written for it.
+ * `published`; a thinking update is `dropped` when the full write queue dropped it. An appended row
+ * carries the id of the event written for it.
  */
 export type InboundOutcome =
   | { readonly disposition: "turn_opened" }
@@ -225,7 +238,10 @@ export function eventIdOf(outcome: InboundOutcome | undefined): string | undefin
 
 type InboundEngine = Pick<
   RunEngine,
-  "applyProviderStateChange" | "startProviderSubagentRun" | "appendRunMarker"
+  | "applyProviderStateChange"
+  | "continueRunWithKeptMessages"
+  | "startProviderSubagentRun"
+  | "appendRunMarker"
 >;
 
 /** What the dispatch reads and writes through, and the publisher it sends live states to. */
@@ -233,7 +249,7 @@ export interface RunInboundDispatchDeps extends SessionEventAppenderDeps {
   readonly engine: InboundEngine;
   readonly epochs: ExecutionEpochs;
   readonly diagnostics: DriverDiagnosticsEmitter;
-  readonly runStatePublisher: PortRegistration<RunStatePublisher>;
+  readonly runStatePublisher: RunStatePublisher;
 }
 
 // A delivery the dispatch may absorb: every one on a binding but a row stamped instead.
@@ -255,7 +271,7 @@ export class RunInboundDispatch {
   readonly #engine: InboundEngine;
   readonly #epochs: ExecutionEpochs;
   readonly #diagnostics: DriverDiagnosticsEmitter;
-  readonly #runStatePublisher: PortRegistration<RunStatePublisher>;
+  readonly #runStatePublisher: RunStatePublisher;
   readonly #appender: SessionEventAppender;
 
   constructor(deps: RunInboundDispatchDeps) {
@@ -318,6 +334,12 @@ export class RunInboundDispatch {
         const receipt = await this.#appender.append(delivery.row.type, delivery.row.payload, {});
         return { disposition: "appended", eventId: receipt.id };
       }
+      case "run_continued": {
+        const run = await this.#engine.continueRunWithKeptMessages(delivery.runId);
+        return run === undefined
+          ? this.#absorb(delivery, "run_ended", attribution)
+          : { disposition: "transitioned", run };
+      }
       case "child_run": {
         const runId = await this.#engine.startProviderSubagentRun(delivery.parentRunId);
         return runId === undefined
@@ -335,20 +357,19 @@ export class RunInboundDispatch {
           const run = await this.#engine.applyProviderStateChange(delivery.change);
           return { disposition: "transitioned", run };
         } catch (error) {
-          if (isEndedRunRefusal(error)) {
-            return this.#absorb(delivery, "run_ended", attribution);
+          if (!isEndedRunRefusal(error)) {
+            throw error;
           }
-          throw error;
+          // The end of a turn the daemon interrupted is expected to find the run ended.
+          return delivery.isDaemonInterruptEnd === true
+            ? { disposition: "absorbed", reason: "run_ended" }
+            : this.#absorb(delivery, "run_ended", attribution);
         }
     }
   }
 
   #publish(state: RunSafetyBufferingUpdatedPayload): InboundOutcome {
-    const publisher = this.#runStatePublisher.port;
-    if (publisher === undefined) {
-      return { disposition: "dropped" };
-    }
-    publisher.publish(state);
+    this.#runStatePublisher.publish(state);
     return { disposition: "published" };
   }
 
@@ -424,6 +445,8 @@ function deliveredRunIdOf(delivery: AbsorbableDelivery): RunId | undefined {
   switch (delivery.kind) {
     case "run_lifecycle":
       return delivery.change.runId;
+    case "run_continued":
+      return delivery.runId;
     case "child_run":
       return delivery.parentRunId;
     case "run_marker":

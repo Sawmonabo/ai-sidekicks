@@ -25,7 +25,6 @@ import {
 } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import { type McpServerStatus } from "@ai-sidekicks/contracts/mcp/server";
 import {
-  type ApplyInterventionParams,
   type DriverInterventionResult,
   type InterruptRunParams,
 } from "@ai-sidekicks/contracts/provider/driver/intervention";
@@ -64,6 +63,7 @@ import type {
   ResumeRunParams,
   WithdrawQueuedMessageParams,
   WithdrawQueuedMessageResult,
+  ApplyInterventionParams,
 } from "./run-control.js";
 import type {
   AnswerSessionCommandParams,
@@ -188,12 +188,6 @@ export interface ProviderDriver {
   // daemon calls it once while it stops. Never stops a service the person runs themselves.
   shutdown(): Promise<void>;
 }
-
-/**
- * The `fallbackAction` of a steer a driver does not deliver natively: the daemon queues the steer
- * text and interrupts the running turn.
- */
-export const STEER_FALLBACK_ACTION = "queue_and_interrupt";
 
 /**
  * The refusal code of a session created on a larger window its model's catalog does not offer at
@@ -324,8 +318,8 @@ export interface StartRunParams {
   // applied; a provider that takes it per turn sends it as this turn's setting. Absent, the process
   // stays on the level it holds.
   outputSpeed?: string | undefined;
-  // A level for this run's turn alone, resolved like `outputSpeed`, which the agent's level does not
-  // follow: the next run carries the agent's own level again.
+  // A level for this run's turn alone, resolved like `outputSpeed`, which the agent's level does
+  // not follow: the next run carries the agent's own level again.
   outputSpeedForTurn?: string | undefined;
   // The per-run effective posture, the same object the daemon stamps on `run.running`. A provider
   // that takes posture per turn realizes it there; a provider that binds posture at spawn
@@ -759,9 +753,9 @@ export type McpServerStatusProducer = (emission: McpServerStatusEmission) => voi
  * only cross-session supervisor, so provider subagents run in-session only: their usage aggregates
  * into the run's own budgets and their tool calls flow through the same approval pipeline.
  * `helpersAtOnce` is the person's `Helpers at once`: how many helpers run at once, at least one, or
- * `null` for no limit; a setting of `0` is `{enabled: false}`, which withholds the provider's helper
- * tool. Nothing bounds how deep helpers nest. Discriminated on `enabled` so a disabled policy
- * carries no limit or definitions.
+ * `null` for no limit; a setting of `0` is `{enabled: false}`, which withholds the provider's
+ * helper tool. Nothing bounds how deep helpers nest. Discriminated on `enabled` so a disabled
+ * policy carries no limit or definitions.
  */
 export type SubagentPolicy =
   | { enabled: false }

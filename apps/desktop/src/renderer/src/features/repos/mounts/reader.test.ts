@@ -165,7 +165,7 @@ describe("RepoMountsReader — the reasons it reads again", () => {
     await settle(clock, reader);
     expect(reader.performCount).toBe(1);
 
-    sessionStore.initialize({ cursor: 0, entities: [] });
+    sessionStore.initialize({ shape: "project", cursor: 0, entities: [] });
     await settle(clock, reader);
 
     expect(reader.performCount).toBe(2);
@@ -199,6 +199,7 @@ describe("RepoMountsReader — the reasons it reads again", () => {
     await settle(clock, reader);
 
     sessionStore.initialize({
+      shape: "project",
       cursor: 1,
       entities: [],
       // A stale frame inside the backfill is history the live read already reflects.

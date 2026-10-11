@@ -166,6 +166,7 @@ describe("SessionStoreRegistry: applies go through the queue, reads through the 
       read: (sessionId, reasons) => {
         readCalls.push([...reasons]);
         return Promise.resolve({
+          shape: "project",
           cursor: 7,
           entities: [{ kind: "run", id: `${sessionId}-run`, state: "queued" }],
         });
@@ -243,7 +244,7 @@ describe("SessionStoreRegistry: applies go through the queue, reads through the 
     const replaying = registry.open("session-1");
     replaying.initialize(emptyBaseState(0));
     replaying.applyBatch([runEventAt(1, "run-1"), runEventAt(3, "run-3")]);
-    replaying.repair({ entities: [] }, { from: "head", headCursor: undefined });
+    replaying.repair({ shape: "project", entities: [] }, { from: "head", headCursor: undefined });
     async function settle(): Promise<void> {
       clock.advance(21);
       await crossMacrotaskBoundary();

@@ -1,16 +1,26 @@
 // Acting on a running Codex turn: interrupting it, steering it, and pausing and continuing its
-// run. A steer is never held for a step's end: it goes out once Codex answered the steer before it.
+// run. A steer is never held here for a step's end, the run queue holding it until a tool
+// boundary: it goes out with its files once Codex answered the steer before it.
 // A pause holds the run's next tool call at the daemon's pre-tool hook, the lead's or a helper's;
 // on the person's own Codex, which runs no daemon hook, a lead's pause is an interrupt at the
 // step's end.
 
+import type { ArtifactId } from "@ai-sidekicks/contracts/artifacts/id";
 import type { InterruptRunParams } from "@ai-sidekicks/contracts/provider/driver/intervention";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { isPlainObject } from "../../../record-readers.js";
-import type { PauseRunParams, ResumeRunParams, WaitingMessage } from "../../run-control.js";
-import { DriverCapabilityUnsupportedError } from "../../registry.js";
-import { CODEX_DRIVER_NAME } from "../capabilities.js";
+import {
+  composeMessageText,
+  resolveMessageAttachments,
+  type ProviderAttachment,
+} from "../../attachments.js";
+import {
+  SteerTurnEndedError,
+  type PauseRunParams,
+  type ResumeRunParams,
+} from "../../run-control.js";
 import type { CodexDeliveryDispatch } from "../delivery/dispatch.js";
 import type { CodexHookPause, CodexRunPauses } from "../hooks/pause.js";
 import type { CodexSteerAcknowledgement, CodexSteerRunRequest } from "../intervention.js";
@@ -21,30 +31,31 @@ import type { CodexSessionSlots } from "../session/slots.js";
 import {
   type CodexLifecycleOptions,
   type CodexSessionRecord,
+  type CodexTurnMessage,
   newestActiveTurnForRun,
   rememberInterruptedRun,
 } from "../session/state.js";
 import { steerActiveTurn } from "../steer.js";
 import { reportDiagnosticFromDetachedFrame } from "../transport/diagnostics.js";
+import type { CodexFasterModelRetries } from "./faster-model-retry.js";
 import type { CodexRunRoutes } from "./routes.js";
 import type { CodexRunStart } from "./start.js";
+import type { CodexTurnEndWaiters } from "./turn-end-waiters.js";
 
 /** What run control needs from the lifecycle. */
 export interface CodexRunControlDependencies {
-  readonly options: Pick<CodexLifecycleOptions, "reportDiagnostic" | "onLostRunFailure">;
+  readonly options: Pick<
+    CodexLifecycleOptions,
+    "reportDiagnostic" | "onLostRunFailure" | "attachments"
+  >;
   readonly slots: CodexSessionSlots;
   readonly configForks: Pick<CodexConfigForks, "requireAfterForks">;
   readonly runRoutes: CodexRunRoutes;
   readonly runStart: CodexRunStart;
   readonly pauses: CodexRunPauses;
   readonly dispatch: CodexDeliveryDispatch;
-}
-
-// A helper's waiting messages, as one block of the person's words it reads after its next call.
-function composeHelperWords(messages: readonly WaitingMessage[]): string | undefined {
-  return messages.length === 0
-    ? undefined
-    : messages.map((message) => message.content).join("\n\n");
+  readonly retries: Pick<CodexFasterModelRetries, "cancel">;
+  readonly turnEnds: Pick<CodexTurnEndWaiters, "settle">;
 }
 
 /** Interrupts, steers, pauses and continues runs on their live turns. */
@@ -56,6 +67,8 @@ export class CodexRunControl {
   readonly #runStart: CodexRunStart;
   readonly #pauses: CodexRunPauses;
   readonly #dispatch: CodexDeliveryDispatch;
+  readonly #retries: CodexRunControlDependencies["retries"];
+  readonly #turnEnds: CodexRunControlDependencies["turnEnds"];
 
   constructor(dependencies: CodexRunControlDependencies) {
     this.#options = dependencies.options;
@@ -65,16 +78,38 @@ export class CodexRunControl {
     this.#runStart = dependencies.runStart;
     this.#pauses = dependencies.pauses;
     this.#dispatch = dependencies.dispatch;
+    this.#retries = dependencies.retries;
+    this.#turnEnds = dependencies.turnEnds;
   }
 
   /**
    * Interrupts the run's live turn and retires its route, so a later steer or second interrupt
    * is refused, then ends the commands it left running, which an interrupt does not stop. The
-   * turn's correlation is kept for the `turn/completed` that follows.
+   * turn's correlation is kept for the `turn/completed` that follows. A run retrying on a faster
+   * model, which holds no live turn while its held turn stops, has its retry stopped instead, and
+   * the commands its held turn left running end the same way.
    */
   async interruptRun(params: InterruptRunParams): Promise<void> {
+    const retried =
+      this.#slots.findActiveTurn(params.runId) === undefined
+        ? await this.#retries.cancel(params.runId)
+        : undefined;
+    if (retried !== undefined) {
+      await endCodexRunningCommands(
+        retried.record.service,
+        retried.heldThreadId,
+        this.#options.reportDiagnostic,
+        { clean: false },
+      );
+      return;
+    }
     const { record, turnId } = this.#slots.requireActiveTurn(params.runId);
-    await record.service.request("turn/interrupt", { threadId: record.threadId, turnId });
+    record.interruptingTurnIds.add(turnId);
+    try {
+      await record.service.request("turn/interrupt", { threadId: record.threadId, turnId });
+    } finally {
+      record.interruptingTurnIds.delete(turnId);
+    }
     record.pauseRunIdByTurnId.delete(turnId);
     this.#dropHookPause(params.runId);
     if (!(await this.#rememberInterrupted(record, turnId, params.runId))) {
@@ -87,13 +122,27 @@ export class CodexRunControl {
   }
 
   /**
-   * Sends a steer into the run's live turn as soon as it is handed over, once Codex answered the
-   * conversation's steer before it, and answers once Codex took it; each carries its own key,
-   * which Codex echoes on that message. Rejects when the send failed.
+   * Sends a steer and its files into the run's live turn as soon as it is handed over, once Codex
+   * answered the conversation's steer before it, and answers once Codex took it; each carries its
+   * own key, which Codex echoes on that message. Steers keep the order they were handed over in,
+   * however long their files take to bind. Rejects when the binding or the send failed, and with
+   * `SteerTurnEndedError` when the run's turn has ended, before or while the steer waited.
    */
   async steerRun(request: CodexSteerRunRequest): Promise<CodexSteerAcknowledgement> {
-    const { record, turnId } = this.#slots.requireActiveTurn(request.runId);
-    return await steerActiveTurn(record, turnId, request);
+    const active = this.#slots.findActiveTurn(request.runId);
+    if (active === undefined) {
+      throw new SteerTurnEndedError(request.runId);
+    }
+    const { record, turnId } = active;
+    // Nothing is awaited before the steer takes its place behind the one before it.
+    return await steerActiveTurn(record, turnId, {
+      runId: request.runId,
+      content: request.content,
+      skills: request.skills,
+      attachments: this.#resolveAttachments(record.sessionId, request.attachments),
+      expectedTurnId: request.expectedTurnId,
+      clientIdempotencyKey: request.clientIdempotencyKey,
+    });
   }
 
   /**
@@ -137,21 +186,24 @@ export class CodexRunControl {
   }
 
   /**
-   * Continues a run with the messages that waited for it. A hook pause lets its held calls run:
-   * the lead's messages are steered into its turn, a helper's reach it after its next call. Without
-   * hooks, a pause not yet taken effect is dropped and the messages steered into the turn still
-   * running; one whose interrupt is on its way continues when that turn ends; a paused run starts
-   * its next turn with them. Throws `DriverCapabilityUnsupportedError` for a message carrying
-   * attachments, before anything is sent.
+   * Continues a run with the messages that waited for it, files and all. A hook pause lets its held
+   * calls run: the lead's messages are steered into its turn, a helper's reach it after its next
+   * call as words, each file a line naming its path. Without hooks, a pause not yet taken effect is
+   * dropped and the messages steered into the turn still running; one whose interrupt is on its way
+   * continues when that turn ends; a paused run starts its next turn with them. A helper whose
+   * files cannot be bound has its call let go without the words, and then the failure is thrown.
    */
   async resumeRun(params: ResumeRunParams): Promise<void> {
-    if (params.messages.some((message) => (message.attachments ?? []).length > 0)) {
-      throw new DriverCapabilityUnsupportedError(CODEX_DRIVER_NAME, "steer");
-    }
     const record = await this.#configForks.requireAfterForks(params.sessionId);
     const pausedThreadId = this.#pauses.threadPausedFor(params.runId);
     if (pausedThreadId !== undefined && pausedThreadId !== record.threadId) {
-      this.#pauses.resume(pausedThreadId, composeHelperWords(params.messages));
+      let words: string | undefined;
+      try {
+        words = await this.#composeHelperWords(params);
+      } finally {
+        // Let go either way, so a file that cannot be bound never leaves the helper held.
+        this.#pauses.resume(pausedThreadId, words);
+      }
       return;
     }
     if (pausedThreadId !== undefined) {
@@ -210,10 +262,13 @@ export class CodexRunControl {
     record.pauseRunIdByTurnId.delete(turnId);
     // Marked before the interrupt goes out, so a continue meanwhile waits for the turn's end.
     record.pausedRunIdByInterruptedTurnId.set(turnId, pausedRunId);
+    record.interruptingTurnIds.add(turnId);
     try {
       await record.service.request("turn/interrupt", { threadId: record.threadId, turnId });
     } catch (cause) {
       record.pausedRunIdByInterruptedTurnId.delete(turnId);
+      // The turn is no longer one the daemon is stopping, so what waits for that wakes.
+      this.#turnEnds.settle();
       reportDiagnosticFromDetachedFrame(this.#options.reportDiagnostic, {
         kind: "pause-interrupt-failed",
         threadId: record.threadId,
@@ -230,6 +285,8 @@ export class CodexRunControl {
         }
       }
       return;
+    } finally {
+      record.interruptingTurnIds.delete(turnId);
     }
     this.#runRoutes.retireTurnRoute(record, turnId);
   }
@@ -275,7 +332,7 @@ export class CodexRunControl {
     }
   }
 
-  /** Steers a run's waiting messages, in send order, into its turn still running. */
+  /** Steers a run's waiting messages and their files, in send order, into its running turn. */
   async #steerWaiting(
     record: CodexSessionRecord,
     turnId: string,
@@ -285,16 +342,27 @@ export class CodexRunControl {
       await steerActiveTurn(record, turnId, {
         runId: params.runId,
         content: message.content,
+        skills: message.skills,
+        attachments: this.#resolveAttachments(params.sessionId, message.attachments),
         clientIdempotencyKey: message.id,
       });
     }
   }
 
-  /** Starts a paused run's next turn with the messages that waited for it. */
+  /** Starts a paused run's next turn with the messages that waited for it and their files. */
   async #continue(record: CodexSessionRecord, params: ResumeRunParams): Promise<void> {
+    const messages = await Promise.all(
+      params.messages.map(
+        async (message): Promise<CodexTurnMessage> => ({
+          text: message.content,
+          skills: message.skills ?? [],
+          attachments: await this.#resolveAttachments(params.sessionId, message.attachments),
+        }),
+      ),
+    );
     await this.#runStart.startTurn(record, {
       runId: params.runId,
-      texts: params.messages.map((message) => message.content),
+      messages,
       clientMessageIds: params.messages.map((message) => message.id),
       model: undefined,
       modelContextWindow: record.threadSettings.modelContextWindow,
@@ -303,8 +371,30 @@ export class CodexRunControl {
       outputSpeedForTurn: this.#runRoutes.outputSpeedForTurnOf(params.runId),
       outputSchema: undefined,
       level: undefined,
-      skill: undefined,
     });
+  }
+
+  // A helper's waiting messages, as one block of the person's words it reads after its next call.
+  async #composeHelperWords(params: ResumeRunParams): Promise<string | undefined> {
+    if (params.messages.length === 0) {
+      return undefined;
+    }
+    const words = await Promise.all(
+      params.messages.map(async (message) =>
+        composeMessageText(
+          message.content,
+          await this.#resolveAttachments(params.sessionId, message.attachments),
+        ),
+      ),
+    );
+    return words.join("\n\n");
+  }
+
+  async #resolveAttachments(
+    sessionId: SessionId,
+    artifactIds: readonly ArtifactId[] | undefined,
+  ): Promise<readonly ProviderAttachment[]> {
+    return await resolveMessageAttachments(this.#options.attachments, sessionId, artifactIds);
   }
 
   // A pause a run no longer needs, because it was stopped or its turn ended, lets its calls go.

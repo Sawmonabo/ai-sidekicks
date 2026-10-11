@@ -25,10 +25,7 @@ import {
 /** A base state current as of the beat before the scenario's first, so no gap is degraded. */
 function baseStateFor(scenario: Scenario): SessionBaseState {
   const sequences = scenario.beats.map((beat) => beat.event.sequence);
-  return {
-    cursor: Math.min(...sequences) - 1,
-    entities: [],
-  };
+  return { shape: "project", cursor: Math.min(...sequences) - 1, entities: [] };
 }
 
 /** One store per scenario, projecting exactly what the composition root registers. */
@@ -143,7 +140,7 @@ function storeApplying(events: readonly ProjectedSessionEvent[]): SessionStore {
     sessionId: SYNTHETIC_SESSION_ID,
     projectors: RUN_LIFECYCLE_PROJECTORS,
   });
-  store.initialize({ cursor: 0, entities: [] });
+  store.initialize({ shape: "project", cursor: 0, entities: [] });
   store.applyBatch([...events]);
   return store;
 }

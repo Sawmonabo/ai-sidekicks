@@ -2,18 +2,24 @@
 // what they hold once the run ends.
 
 import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
+import type { WorkspaceId } from "@ai-sidekicks/contracts/repo/mount";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { QueueItemSummary } from "@ai-sidekicks/contracts/run/queue";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import type { RunTerminalState } from "./transitions.js";
 
-/** The run a setup gate checks; its workspace is read from its session, never from the item. */
+/**
+ * The run a setup gate checks. Its workspace is the session's own live one: the one the send that
+ * started it named, else the session's newest.
+ */
 export interface RunSetupContext {
   readonly runId: RunId;
   readonly sessionId: SessionId;
   /** The queue item the run was admitted from; absent for a turn the daemon started itself. */
   readonly queueItem: QueueItemSummary | undefined;
+  /** The workspace the send that started the run bound it to; absent where none was named. */
+  readonly workspaceId: WorkspaceId | undefined;
   /** The posture the run runs at: the one it was requested at, or a daemon turn's session's. */
   readonly executionPosture: ExecutionPosture;
 }
@@ -29,7 +35,8 @@ export interface RunTerminalContext {
 /**
  * A check a run must pass in `starting` before its provider starts it. A throw from
  * `assertRunReady` ends the run `failed` with the thrown error as its cause; `onRunTerminal` runs
- * once for each run version that ends, whatever ended it.
+ * once for each run version that ends, whatever ended it, and again for an interrupted run whose
+ * continue failed after the gates ran, which leaves it at that end.
  */
 export interface RunSetupGate {
   assertRunReady(context: RunSetupContext): Promise<void>;
@@ -44,7 +51,7 @@ export class RunSetupGates {
     this.#gates.push(gate);
   }
 
-  /** Runs every gate in registration order; the first gate's throw stops the rest and is rethrown. */
+  /** Runs every gate in registration order; the first gate's throw stops the rest, rethrown. */
   async assertRunReady(context: RunSetupContext): Promise<void> {
     for (const gate of this.#gates) {
       await gate.assertRunReady(context);

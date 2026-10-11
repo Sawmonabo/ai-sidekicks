@@ -68,7 +68,7 @@ export function testRegistry(): PaneRegistry {
  */
 export function sessionStore(sessionId: string = SESSION_ID): SessionStore {
   const store = new SessionStore({ sessionId });
-  store.initialize({ cursor: 0, entities: [] });
+  store.initialize({ shape: "project", cursor: 0, entities: [] });
   return store;
 }
 
@@ -173,7 +173,7 @@ export function memoryStore(): UiStateStore {
 /** A second session, with a store of its own — never the first one's. */
 export function otherSession(): SessionWithStore {
   const store = new SessionStore({ sessionId: SESSION_B_ID });
-  store.initialize({ cursor: 0, entities: [] });
+  store.initialize({ shape: "project", cursor: 0, entities: [] });
   return { sessionId: SESSION_B_ID, store };
 }
 

@@ -39,8 +39,8 @@ export interface RunVersionAdvance {
 }
 
 const INSERT_QUEUED_RUN_SQL = `INSERT INTO runs
-    (run_id, session_id, parent_run_id, reached_by, state, run_version)
-  VALUES (@run_id, @session_id, @parent_run_id, @reached_by, @state, @run_version)`;
+    (run_id, session_id, parent_run_id, reached_by, is_apart, state, run_version)
+  VALUES (@run_id, @session_id, @parent_run_id, @reached_by, @is_apart, @state, @run_version)`;
 
 // Matches only a row still in the state the change leaves, one version behind it.
 const SWAP_RUN_STATE_SQL = `UPDATE runs
@@ -82,6 +82,7 @@ export function insertQueuedRunStatement(payload: RunQueuedPayload): WriteStatem
       session_id: payload.sessionId,
       parent_run_id: payload.parentRunId ?? null,
       reached_by: payload.reachedBy ?? null,
+      is_apart: payload.isApart === true ? 1 : 0,
       state: payload.newState,
       run_version: payload.runVersion,
     },

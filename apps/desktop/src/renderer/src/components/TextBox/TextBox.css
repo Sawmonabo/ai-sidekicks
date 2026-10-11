@@ -23,6 +23,8 @@
   overflow-y: auto;
   block-size: calc(var(--meridian-text-box-rows) * 1lh);
   padding: var(--meridian-text-box-padding, 0);
+  /* The caret's reveal stops short of the padding, so the caret's whole line shows inside it. */
+  scroll-padding-block: var(--meridian-text-box-padding, 0);
   resize: inherit;
 }
 

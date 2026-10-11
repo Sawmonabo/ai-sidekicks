@@ -7,7 +7,7 @@ import type {
 } from "@ai-sidekicks/contracts/run/control";
 import type { RunState } from "@ai-sidekicks/contracts/run/state";
 
-import { type RunControlCommandRun } from "./contributions/commands.js";
+import { type RunChild, type RunControlCommandRun } from "./contributions/commands.js";
 import {
   type RunControl,
   type RunControlDispatcher,
@@ -38,22 +38,26 @@ export interface RecordedRunControlCall {
   readonly expectedRunVersion: number;
 }
 
-/** An applied non-rollback intervention at the given run version, as a stub call answers it. */
-export function appliedIntervention(
-  interventionType: "steer" | "interrupt",
-  runVersion: number,
-): InterventionRequestResponse {
+/** An applied interrupt at the given run version, as a stub call answers it. */
+export function appliedInterrupt(runVersion: number): InterventionRequestResponse {
   return {
     interventionId: "c4e1b2d3-5f60-4071-9b82-0d3e4f506172",
-    interventionType,
+    interventionType: "interrupt",
     state: "applied",
     runVersion,
   } as InterventionRequestResponse;
 }
 
-/** A run at version 7, which is the comparand a contributed row is expected to carry. */
-export function commandRun(runId: string, state: RunState = "running"): RunControlCommandRun {
-  return { runId, runVersion: 7, state };
+/**
+ * A run at version 7, which is the comparand a contributed row is expected to carry, with the
+ * children a case gives it.
+ */
+export function commandRun(
+  runId: string,
+  state: RunState = "running",
+  children: readonly RunChild[] = [],
+): RunControlCommandRun {
+  return { runId, runVersion: 7, state, children };
 }
 
 /** A dispatch state whose dispatcher records the verb and target it was asked for. */
@@ -80,7 +84,7 @@ export function recordingRunControlDispatch(): {
     dispatcher,
     records: [],
     inFlightKeys: new Set<string>(),
-    dispatch: (_runId, _control, perform) => {
+    dispatch: (_subject, _control, perform) => {
       void perform(dispatcher);
       return { admitted: true, dispatchToken: "token", settled: Promise.resolve() };
     },

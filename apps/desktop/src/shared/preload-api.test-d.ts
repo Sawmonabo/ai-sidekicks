@@ -93,7 +93,6 @@ type ContainsForbidden<K extends string> = K extends string
 type CredentialFreeKeys =
   | "tokens"
   | "tokensPerRun"
-  | "tokenLimit"
   | "tokensReceived"
   | "inputTokens"
   | "cachedInputTokens"
@@ -130,8 +129,8 @@ type BridgeOutsideTheDaemonWire =
   | Omit<PreloadApi, "daemon">
   | Omit<DaemonWire, "call" | "subscribe">;
 
-/** The subscriptions that deliver a question, whose `secret` flag says it takes a masked answer. */
-type QuestionEvent = "session.subscribe" | "driver.subscribeEvents";
+/** The subscription that delivers a question, whose `secret` flag says it takes a masked answer. */
+type QuestionEvent = "session.subscribe";
 
 /** Fails to compile (TS2344) when `T` is anything other than `never`. */
 type AssertNever<T extends never> = T;
@@ -157,7 +156,7 @@ type _OnlyTheShownCredential = AssertNever<
   Exclude<Offenders<ResultsOf<ShownOnceMethod>>, "signingSecret" | "token">
 >;
 
-/** The question streams carry the masked-answer flag and nothing else that matches. */
+/** The question stream carries the masked-answer flag and nothing else that matches. */
 type _OnlyTheQuestionFlag = AssertNever<Exclude<Offenders<PayloadsOf<QuestionEvent>>, "secret">>;
 
 // Negative controls: each line fails the typecheck if the walk stops finding what it must.
@@ -176,5 +175,5 @@ type _ReachesTheDaemonResults = AssertTrue<
   AssertCaught<Extract<ContainsForbidden<AllKeys<DaemonResults>>, "signingSecret">>
 >;
 type _ReachesTheDaemonPayloads = AssertTrue<
-  AssertCaught<Extract<ContainsForbidden<AllKeys<DaemonPayloads>>, "tokenLimit">>
+  AssertCaught<Extract<ContainsForbidden<AllKeys<DaemonPayloads>>, "ackToken">>
 >;

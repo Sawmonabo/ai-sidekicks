@@ -156,8 +156,9 @@ function useForwardedCalls(calls: QueueCalls): QueueCalls {
   return useMemo<QueueCalls>(
     () => ({
       list: (sessionId) => latest.current.list(sessionId),
-      tail: (sessionId, onItem) => latest.current.tail(sessionId, onItem),
+      tail: (sessionId, onFrame) => latest.current.tail(sessionId, onFrame),
       cancel: (queueItemId) => latest.current.cancel(queueItemId),
+      retry: (request) => latest.current.retry(request),
     }),
     [latest],
   );

@@ -35,5 +35,5 @@ export function useProviderCommandEnumeration(options: {
 
 /** The agent this composer would enumerate, or `undefined` when it addresses none. */
 function addressedAgentId(target: ComposerTarget): string | undefined {
-  return target.path === "provider-bound" ? target.agentId : undefined;
+  return target.kind === "run" ? target.agentId : undefined;
 }
