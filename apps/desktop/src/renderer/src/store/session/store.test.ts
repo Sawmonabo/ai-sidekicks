@@ -2,9 +2,9 @@
 // loss rather than the absence of a crash, since not throwing is not behaving correctly: an event
 // that came early, one addressed elsewhere, one that skipped or repeated a sequence, a subscriber
 // writing back during notification, a sequence cursor arithmetic cannot carry, a buffer whose read
-// never came, a projector that throws, and a read whose rows imply entities; and the standing
-// events, which outlive what the window lets go. A read landing on a store that already holds a
-// window is `store.repair.test.ts`.
+// never came, a projector that throws, and a read whose rows imply entities; the standing events,
+// which outlive what the window lets go; and the shape a conversion changes. A read landing on a
+// store that already holds a window is `store.repair.test.ts`.
 
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -13,6 +13,7 @@ import { eventOfKind } from "#test/helpers/session/events.js";
 import type { EntityMutation, ProjectedSessionEvent } from "./entities/vocabulary.js";
 import { PRE_INITIALIZATION_BUFFER_CAP } from "./caps.js";
 import { SessionStore } from "./store.js";
+import { selectSessionShape } from "./selectors.js";
 
 /**
  * One event at `sequence` on the session every case drives, with overrides that make one member
@@ -108,6 +109,19 @@ describe("the apply chokepoint admits what arrives, in order and once", () => {
     expect(second.duplicates).toBe(1);
     expect(second.admitted).toBe(0);
     expect(store.snapshot().transcript).toHaveLength(1);
+  });
+});
+
+describe("the session's shape", () => {
+  // Mutation: leaving the shape as the read said keeps a converted chat's draft line in chat words.
+  it("reads a chat as a project once its conversion is admitted", () => {
+    const store = new SessionStore({ sessionId: "session-1" });
+    store.initialize({ shape: "chat", cursor: 0, entities: [] });
+    expect(selectSessionShape(store.snapshot())).toBe("chat");
+
+    store.applyBatch([eventOfKind("session-1", "session.converted", 1)]);
+
+    expect(selectSessionShape(store.snapshot())).toBe("project");
   });
 });
 

@@ -165,7 +165,6 @@ export class QueueSends {
     const replaces = this.#deps.items.get(replacesQueueItemId);
     if (
       replaces === undefined ||
-      replaces.targetRunId === undefined ||
       replaces.sessionId !== sessionId ||
       replaces.childHandle !== undefined
     ) {
@@ -177,6 +176,10 @@ export class QueueSends {
     // Admitted reads taken; replaced or removed, it has left the queue.
     if (replaces.state !== "queued") {
       throw leftQueueRefusal(replaces);
+    }
+    // An edit goes into its message's run; a waiting message the daemon wrote for no run has none.
+    if (replaces.targetRunId === undefined) {
+      throw queueItemNotFound(replacesQueueItemId);
     }
     return await this.#edit(replaces, replaces.targetRunId, message, deviceId);
   }
