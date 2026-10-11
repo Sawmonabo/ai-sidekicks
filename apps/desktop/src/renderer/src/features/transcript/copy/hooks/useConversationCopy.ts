@@ -52,13 +52,13 @@ export interface ConversationCopySource {
   readonly rowSourceWindows: RowSourceWindows;
   /**
    * A whole row's text from the source it is drawn from, as `transcriptWindow` holds it, a large
-   * body as `fullBodyOf` read it in full.
+   * body as `fullBodyOf` read it in full: at once, or once it is read in slices.
    */
   readonly rowText: (
     rowKey: string,
     transcriptWindow: TranscriptWindowModel,
     fullBodyOf: FullBodyOf,
-  ) => SelectedPart | undefined;
+  ) => SelectedPart | Promise<SelectedPart> | undefined;
   /** The text of a row's body alone, read as `rowText` reads it. */
   readonly rowBodyText: (
     rowKey: string,

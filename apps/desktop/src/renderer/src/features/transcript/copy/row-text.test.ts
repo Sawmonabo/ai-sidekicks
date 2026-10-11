@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import { CONTENT_LENGTH_PAYLOAD_KEY } from "@ai-sidekicks/contracts/event/declared-variants";
 
+import { TEXT_PIECE_LENGTH } from "#renderer/lib/text-pieces.js";
+import { TASKS_AT_ONCE } from "#test/helpers/tasks-at-once.js";
 import { sampleRunRow } from "#test/helpers/transcript/event-row-samples.js";
+import { publishedTextOf } from "../reveal/published-text.js";
 import { UNAVAILABLE_BODY_TITLE } from "../rows/bodies/UnavailableBody.js";
 import { type RowRevealContextValue } from "../reveal/components/RowRevealProvider.js";
 import { type TranscriptWindowModel } from "../window/transcript-window.js";
@@ -15,6 +18,7 @@ import { readRowText } from "./row-text.js";
 function sourcesHolding(
   row: ReturnType<typeof sampleRunRow>,
   density: "collapsed" | "expanded" = "collapsed",
+  liveOutput?: string,
 ): Parameters<typeof readRowText>[1] {
   const transcriptWindow: Pick<
     TranscriptWindowModel,
@@ -26,7 +30,7 @@ function sourcesHolding(
     systemMessageByRowId: new Map(),
   };
   const reveal: Pick<RowRevealContextValue, "publishedTextFor" | "drawnReplyText"> = {
-    publishedTextFor: () => undefined,
+    publishedTextFor: () => (liveOutput === undefined ? undefined : publishedTextOf(liveOutput)),
     drawnReplyText: {
       drawnTextOf: () => undefined,
     } as unknown as RowRevealContextValue["drawnReplyText"],
@@ -37,6 +41,7 @@ function sourcesHolding(
     densityOf: () => density,
     fullBodyOf: () => undefined,
     clockLocale: "en-US",
+    view: TASKS_AT_ONCE,
   };
 }
 
@@ -46,7 +51,7 @@ describe("a whole row's copied text", () => {
     expect(readRowText(row.id, sourcesHolding(row))).toBeUndefined();
   });
 
-  it("copies the body the log stores for a row, or the sentence the row draws for none", () => {
+  it("copies the body the log stores for a row, or the sentence it draws for none", async () => {
     const reply = {
       ...sampleRunRow({ id: "event-02", type: "assistant.message" }),
       content: { status: "available", body: "The **stored** reply." },
@@ -64,15 +69,43 @@ describe("a whole row's copied text", () => {
       content: { status: "available", body: "stored lines", contentTruncated: true },
     } as const;
     // The heading reads its result from the stored body, as the card's does.
-    expect(readRowText(toolRow.id, sourcesHolding(toolRow, "expanded"))?.text).toMatch(
+    expect((await readRowText(toolRow.id, sourcesHolding(toolRow, "expanded")))?.text).toMatch(
       /\nread_file Truncated\nstored lines$/,
     );
     const emptyReply = {
       ...sampleRunRow({ id: "event-04", type: "assistant.message" }),
       content: { status: "unavailable", reason: "absent" },
     } as const;
-    expect(readRowText(emptyReply.id, sourcesHolding(emptyReply))?.text).toBe(
+    expect((await readRowText(emptyReply.id, sourcesHolding(emptyReply)))?.text).toBe(
       UNAVAILABLE_BODY_TITLE,
     );
+  });
+
+  it("copies a long colored output stripped of its escapes, in pieces", async () => {
+    const toolRow = sampleRunRow({
+      id: "event-05",
+      type: "tool.invoked",
+      payload: { toolName: "run_tests" },
+    });
+    // Sequences of several kinds, so some straddle the cuts between the output's pieces.
+    const lines = Array.from({ length: 12_000 }, (_, index) => `test ${String(index)} passed`);
+    const coloredOutput = lines
+      .map((line, index) =>
+        index % 3 === 0
+          ? `\u001b[1;32m${line}\u001b[0m`
+          : index % 3 === 1
+            ? `\u001b]8;;file:///suite\u0007${line}\u001b]8;;\u001b\\`
+            : `\u001b(B${line}\u001b[K`,
+      )
+      .join("\n");
+    const part = await readRowText(toolRow.id, sourcesHolding(toolRow, "expanded", coloredOutput));
+    const pieces = part?.pieces ?? [];
+    expect(pieces.length).toBeGreaterThan(2);
+    expect(pieces.every((piece) => piece.length <= TEXT_PIECE_LENGTH)).toBe(true);
+    expect(pieces.join("")).toBe(part?.text);
+    const text = part?.text ?? "";
+    const output = lines.join("\n");
+    expect(text.slice(-output.length - 1)).toBe(`\n${output}`);
+    expect(text.slice(0, -output.length - 1)).toMatch(/\nrun_tests[^\n]*$/u);
   });
 });

@@ -51,8 +51,11 @@ export interface RowSpanSelection {
   readonly rowKeys: readonly string[];
   /** An end row as it was drawn, or `undefined` when no drawing of it is kept. */
   readonly endRowElement: (rowKey: string) => Element | undefined;
-  /** A whole row's text from the source it is drawn from, or `undefined` for a row with none. */
-  readonly rowText: (rowKey: string) => SelectedPart | undefined;
+  /**
+   * A whole row's text from the source it is drawn from, at once or once it is read in slices, or
+   * `undefined` for a row with none.
+   */
+  readonly rowText: (rowKey: string) => SelectedPart | Promise<SelectedPart> | undefined;
   /**
    * The text of a row's body alone, from the same source, which an end row's part reads a large
    * body from; `undefined` for a row that draws no body.

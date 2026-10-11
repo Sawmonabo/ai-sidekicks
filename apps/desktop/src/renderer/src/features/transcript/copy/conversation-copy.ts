@@ -39,7 +39,10 @@ export interface ConversationCopyRows {
   /** An end row as it is drawn, or `undefined` when no drawing of it is kept. */
   readonly endRowElement: (rowKey: string) => Element | undefined;
   /** A whole row's text, its large body as `fullBodyOf` holds it. */
-  readonly rowText: (rowKey: string, fullBodyOf: FullBodyOf) => SelectedPart | undefined;
+  readonly rowText: (
+    rowKey: string,
+    fullBodyOf: FullBodyOf,
+  ) => SelectedPart | Promise<SelectedPart> | undefined;
   /** The text of a row's body alone, read as `rowText` reads it. */
   readonly rowBodyText: (rowKey: string, fullBodyOf: FullBodyOf) => string | undefined;
   /** The long table a spacer row's key names, as it is drawn or as the copy kept it. */
@@ -107,8 +110,8 @@ export class ConversationCopyBuild {
 
   /**
    * Builds one part after another while `hasTime` answers true, one at the least, and stops
-   * before a row whose large body is still to be read in full, or after a row whose part or
-   * reply part's formatted flavor the markdown worker makes.
+   * before a row whose large body is still to be read in full, after a row whose part is read in
+   * slices or by the markdown worker, or after a reply part whose formatted flavor it makes.
    */
   public buildWhile(hasTime: () => boolean): ConversationCopyStep {
     this.#step = this.#buildWhile(hasTime);
@@ -253,7 +256,8 @@ export class ConversationCopyBuild {
 
   /**
    * Reads the next row's part, its large body let go after it; `false` when the row's large body
-   * is still to be read in full, reading nothing, or when the markdown worker is making the part.
+   * is still to be read in full, reading nothing, or when the part is read in slices or by the
+   * markdown worker.
    */
   #readNextRow(): boolean {
     const rowKey =
@@ -268,7 +272,7 @@ export class ConversationCopyBuild {
     this.#fullBody = undefined;
     this.#rowIndex += 1;
     if (part instanceof Promise) {
-      this.#awaited = { kind: "worker-row-part", part };
+      this.#awaited = { kind: "row-part", part };
       return false;
     }
     this.#keep(part);
@@ -283,9 +287,9 @@ export class ConversationCopyBuild {
   }
 
   /**
-   * Settles what the build waits on: reads the next row's large body in full, has the worker read
-   * the last row's part into its text, or make the next part's formatted flavor. `false` once a
-   * newer copy took over.
+   * Settles what the build waits on: reads the next row's large body in full, waits on the last
+   * row's part, read in slices or by the worker, or has the worker make the next part's formatted
+   * flavor. `false` once a newer copy took over.
    */
   async #settleAwaited(isCurrent: () => boolean): Promise<boolean> {
     const awaited = this.#awaited;
@@ -298,7 +302,7 @@ export class ConversationCopyBuild {
         return false;
       }
       this.#partHtml.push(html);
-    } else if (awaited.kind === "worker-row-part") {
+    } else if (awaited.kind === "row-part") {
       const part = await awaited.part;
       if (!isCurrent()) {
         return false;
@@ -321,12 +325,13 @@ export class ConversationCopyBuild {
 }
 
 /**
- * What a build waits on: the large body the next row reads, to be read in full, or the last row's
- * part or the formatted flavor of the next reply part, which the markdown worker is making.
+ * What a build waits on: the large body the next row reads, to be read in full, the last row's
+ * part, read in slices or by the markdown worker, or the formatted flavor of the next reply part,
+ * which the worker is making.
  */
 type AwaitedWork =
   | { readonly kind: "full-body"; readonly rowId: string }
-  | { readonly kind: "worker-row-part"; readonly part: Promise<SelectedPart> }
+  | { readonly kind: "row-part"; readonly part: Promise<SelectedPart> }
   | { readonly kind: "worker-html"; readonly html: Promise<PiecedText> };
 
 const NOT_BUILT: ConversationCopyStep = { isBuilt: false };

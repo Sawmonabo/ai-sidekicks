@@ -3,7 +3,7 @@
 // keeps as links to the pieces rather than copying them, and move to and from a worker as UTF-8
 // bytes, each piece encoded or decoded in a step of its own, the buffers moved rather than copied.
 
-import { workInSlices } from "./work-slices.js";
+import { startSlice, workInSlices } from "./work-slices.js";
 
 /** A text, and the same text in pieces of at most `TEXT_PIECE_LENGTH` code units. */
 export interface PiecedText {
@@ -19,15 +19,15 @@ export interface PiecedText {
 export const TEXT_PIECE_LENGTH = 65_536;
 
 /**
- * `text` in pieces of at most `TEXT_PIECE_LENGTH` code units, cut never between the two halves of
- * a surrogate pair, so each piece encodes alone. `text` is read in cuts, which copy nothing of a
+ * `text` in pieces of at most `pieceLength` code units, cut never between the two halves of a
+ * surrogate pair, so each piece encodes alone. `text` is read in cuts, which copy nothing of a
  * text held whole.
  */
-export function piecesOf(text: string): string[] {
+export function piecesOf(text: string, pieceLength: number = TEXT_PIECE_LENGTH): string[] {
   const pieces: string[] = [];
   let start = 0;
   while (start < text.length) {
-    let end = Math.min(start + TEXT_PIECE_LENGTH, text.length);
+    let end = Math.min(start + pieceLength, text.length);
     if (end < text.length && isHighSurrogate(text.charCodeAt(end - 1))) {
       end -= 1;
     }
@@ -47,21 +47,40 @@ export function piecedTextOf(text: string): PiecedText {
  * `piecesOf` cuts it, and short ones run together into one piece, so many short texts go in few.
  */
 export function joinIntoPieces(texts: readonly string[]): PiecedText {
-  const pieces: string[] = [];
-  let piece = "";
+  const joining = new PieceJoining();
   for (const text of texts) {
-    for (const cut of piecesOf(text)) {
-      if (piece.length + cut.length > TEXT_PIECE_LENGTH) {
-        pieces.push(piece);
-        piece = "";
+    joining.add(text);
+  }
+  return joining.joined();
+}
+
+/**
+ * `texts` joined into pieces as `joinIntoPieces` joins them, read a few texts a slice: at once
+ * when they are all read inside the calling task's slice, else in slices in `view`. For texts
+ * made as they are read, each short, so neither making nor joining them grows a task; one that
+ * throws throws, or rejects once a slice has been waited on.
+ */
+export function joinIntoPiecesInSlices(
+  texts: Iterable<string>,
+  view: Window,
+): PiecedText | Promise<PiecedText> {
+  const joining = new PieceJoining();
+  const iterator = texts[Symbol.iterator]();
+  const joinWhile = (hasTime: () => boolean): boolean => {
+    for (;;) {
+      const next = iterator.next();
+      if (next.done === true) {
+        return true;
       }
-      piece += cut;
+      joining.add(next.value);
+      if (!hasTime()) {
+        return false;
+      }
     }
-  }
-  if (piece !== "") {
-    pieces.push(piece);
-  }
-  return { text: joinPieces(pieces), pieces };
+  };
+  return joinWhile(startSlice())
+    ? joining.joined()
+    : workInSlices(view, joinWhile, () => false).then(() => joining.joined());
 }
 
 /** `pieces` joined, linked rather than copied. */
@@ -142,4 +161,39 @@ function utf8BytesOf(piece: string): ArrayBuffer {
 
 function isHighSurrogate(codeUnit: number): boolean {
   return codeUnit >= 0xd800 && codeUnit <= 0xdbff;
+}
+
+/** Texts run together into pieces of at most `TEXT_PIECE_LENGTH` code units as they are added. */
+class PieceJoining {
+  readonly #pieces: string[] = [];
+  /** The texts the piece being filled runs together. */
+  #pieceTexts: string[] = [];
+  #pieceLength = 0;
+
+  public add(text: string): void {
+    for (const cut of piecesOf(text)) {
+      if (this.#pieceLength + cut.length > TEXT_PIECE_LENGTH) {
+        this.#endPiece();
+      }
+      this.#pieceTexts.push(cut);
+      this.#pieceLength += cut.length;
+    }
+  }
+
+  public joined(): PiecedText {
+    if (this.#pieceLength > 0) {
+      this.#endPiece();
+    }
+    return { text: joinPieces(this.#pieces), pieces: this.#pieces };
+  }
+
+  /**
+   * Ends the piece being filled as one flat string: the many short texts it ran together are let
+   * go young, where links to each would keep every one of them alive as long as the piece.
+   */
+  #endPiece(): void {
+    this.#pieces.push(this.#pieceTexts.join(""));
+    this.#pieceTexts = [];
+    this.#pieceLength = 0;
+  }
 }

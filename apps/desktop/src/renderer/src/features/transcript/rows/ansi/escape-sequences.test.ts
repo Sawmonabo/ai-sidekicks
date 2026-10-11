@@ -4,7 +4,11 @@
 import { describe, expect, it } from "vitest";
 
 import { publishedTextOf } from "../../reveal/published-text.js";
-import { carriesAnsiEscapes, withoutResidualEscapes } from "./escape-sequences.js";
+import {
+  carriesAnsiEscapes,
+  EscapeSequenceStripper,
+  withoutResidualEscapes,
+} from "./escape-sequences.js";
 
 const ESCAPE = "\u001b";
 const BACKSLASH = "\\";
@@ -104,5 +108,42 @@ describe("a string control, consumed through its terminator", () => {
   it("the introducer bytes are ordinary text outside a sequence", () => {
     // `P`, `X`, `^` and `_` are ordinary characters outside a sequence.
     expect(withoutResidualEscapes("P X ^ _ and a path_name")).toBe("P X ^ _ and a path_name");
+  });
+});
+
+describe("a text stripped a chunk at a time", () => {
+  // One sequence of each kind and terminator, each followed by the one letter kept after it.
+  const corpus = [
+    `a${ESCAPE}[1;31mb`,
+    `${ESCAPE}]0;a title${BELL}c`,
+    `${ESCAPE}]8;;file:///x${STRING_TERMINATOR}d`,
+    `${ESCAPE}P1$r0m${C1_STRING_TERMINATOR}e`,
+    `${ESCAPE}Xa payload${STRING_TERMINATOR}f`,
+    `${ESCAPE}^a payload${ESCAPE}[0mg`,
+    `${ESCAPE}_a command${STRING_TERMINATOR}h`,
+    `${ESCAPE}(Bi`,
+    `${ESCAPE}#8j`,
+    `${ESCAPE}7k`,
+    `${ESCAPE}${ESCAPE}l`,
+    `${ESCAPE}[2 qm`,
+    `n${ESCAPE}`,
+  ].join("");
+  const kept = "abcdefghijklmn";
+
+  /** `chunks` stripped one after another by one stripper, the runs it keeps joined. */
+  function strippedInChunks(chunks: readonly string[]): string {
+    const stripper = new EscapeSequenceStripper();
+    return chunks.flatMap((chunk) => stripper.strip(chunk)).join("");
+  }
+
+  it("keeps what a whole-text strip keeps, wherever the text is cut", () => {
+    expect(withoutResidualEscapes(corpus)).toBe(kept);
+    for (let cutAt = 0; cutAt <= corpus.length; cutAt += 1) {
+      expect(
+        strippedInChunks([corpus.slice(0, cutAt), corpus.slice(cutAt)]),
+        `cut at ${String(cutAt)}`,
+      ).toBe(kept);
+    }
+    expect(strippedInChunks([...corpus])).toBe(kept);
   });
 });

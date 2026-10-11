@@ -15,6 +15,7 @@ import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event/
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
 import { LoadingNotice } from "#renderer/components/LoadingNotice/LoadingNotice.js";
+import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { useClock } from "#renderer/services/platform/hooks/useClock.js";
 import { useClockLocale } from "#renderer/services/platform/hooks/useClockLocale.js";
 import { RowRevealProvider } from "../../reveal/components/RowRevealProvider.js";
@@ -220,6 +221,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
     runGroupByHeaderKey.size > 0,
   );
   const clockLocale = useClockLocale();
+  const ownerWindow = useOwnerWindow();
   const revealChannel = windows.reveal.channel;
   const rowTextSources = useCallback(
     (
@@ -231,8 +233,9 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
       densityOf: (rowId) => densityFor(rowId, foldedCallRowIds),
       fullBodyOf,
       clockLocale,
+      view: ownerWindow,
     }),
-    [revealChannel, foldedCallRowIds, clockLocale],
+    [revealChannel, foldedCallRowIds, clockLocale, ownerWindow],
   );
   const rowText = useCallback(
     (

@@ -16,6 +16,7 @@ import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts/event/
 import type { TranscriptRowContent } from "@ai-sidekicks/contracts/transcript/content";
 import type { TranscriptEventRow } from "@ai-sidekicks/contracts/transcript/row";
 
+import { joinIntoPieces, type PiecedText } from "#renderer/lib/text-pieces.js";
 import { formatClockTime, formatWireString } from "#renderer/lib/wire/figures.js";
 import { readWireString } from "#renderer/lib/wire/strings.js";
 import { projectedPayload } from "#renderer/store/session/events/wire-payload.js";
@@ -26,7 +27,10 @@ import {
   publishedTextOf,
   type PublishedText,
 } from "../reveal/published-text.js";
-import { carriesAnsiEscapes, withoutResidualEscapes } from "../rows/ansi/escape-sequences.js";
+import {
+  withoutResidualEscapesInPieces,
+  withoutResidualEscapesOf,
+} from "../rows/ansi/escape-sequences.js";
 import { UNREAD_BODY_TITLE } from "../rows/bodies/MachineBody.js";
 import { UNAVAILABLE_BODY_TITLE } from "../rows/bodies/UnavailableBody.js";
 import { describeRowKind, classifyTranscriptRow, isFoldableCall } from "../rows/kind.js";
@@ -57,69 +61,23 @@ export interface RowTextSources extends RowBodySources {
   readonly fullBodyOf: (rowId: string) => HydratedSessionEventContent | undefined;
   /** The locale a row's time is written in. */
   readonly clockLocale: string;
+  /** The window a long output is stripped of its escape sequences in, a slice at a time. */
+  readonly view: Window;
 }
 
 /**
  * A whole row's text and the flavor it copies as, or `undefined` for a key the log no longer
- * holds or a row that draws no text.
+ * holds or a row that draws no text: at once, or once a tool row's long output is stripped of its
+ * escape sequences in slices.
  */
-export function readRowText(rowKey: string, sources: RowTextSources): SelectedPart | undefined {
-  const { transcriptWindow } = sources;
-  const runGroup = transcriptWindow.runGroupByHeaderKey.get(rowKey);
-  if (runGroup !== undefined) {
-    return { flavor: "text", text: runGroupHeadingText(runGroupHeadingOf(runGroup)) };
-  }
-  const row = transcriptWindow.rowsByKey.get(rowKey);
-  if (row === undefined) {
-    return undefined;
-  }
-  const isSuperseded = transcriptWindow.supersededRowIds.has(row.id);
-  const systemMessage = transcriptWindow.systemMessageByRowId.get(row.id);
-  if (systemMessage !== undefined) {
-    return plainPart([
-      clockTimeOf(systemMessage.timestamp, sources),
-      ...supersededMark(isSuperseded),
-      systemMessage.label,
-    ]);
-  }
-  const rowKind = classifyTranscriptRow(row);
-  switch (rowKind?.kind) {
-    case undefined:
-      return undefined;
-    case "user-message": {
-      const message = userMessageTextOf(row);
-      return message === undefined ? undefined : { flavor: "text", text: message };
-    }
-    case "agent-message": {
-      const body = rowBodyOf(row, sources);
-      if (body?.from === "drawing") {
-        return { flavor: body.flavor, ...piecedTextOfPublished(body.text) };
-      }
-      const content = loggedContentOf(row, sources);
-      const stored = storedBodyOf(content);
-      return stored === undefined
-        ? { flavor: "text", text: unreadBodyTextOf(content) }
-        : {
-            flavor: replyCopyFlavorOf(stored, readWireString(projectedPayload(row)["contentType"])),
-            text: stored.slice(0),
-          };
-    }
-    case "thinking": {
-      const liveText = sources.reveal.publishedTextFor(row.id);
-      const tail = liveText === undefined ? [] : reasoningTailOf(liveText);
-      return tail.length === 0 ? undefined : plainPart(tail);
-    }
-    case "tool-call": {
-      const body = rowBodyOf(row, sources);
-      return plainPart([
-        row.actor ?? describeRowKind("tool-call").label,
-        clockTimeOf(row.timestamp, sources),
-        ...supersededMark(isSuperseded),
-        toolRowHeadingText(toolRowHeadingOf(row, row.content)),
-        ...(body === undefined ? [] : [toolOutputTextOf(body, row, sources)]),
-      ]);
-    }
-  }
+export function readRowText(
+  rowKey: string,
+  sources: RowTextSources,
+): SelectedPart | Promise<SelectedPart> | undefined {
+  const toolRow = toolRowAt(rowKey, sources);
+  return toolRow === undefined
+    ? readRowTextAtOnce(rowKey, sources)
+    : readToolRowText(toolRow, sources);
 }
 
 /**
@@ -127,16 +85,14 @@ export function readRowText(rowKey: string, sources: RowTextSources): SelectedPa
  * lines above it, nothing for a folded call, and any other row's whole text, which is its body.
  */
 export function readRowBodyText(rowKey: string, sources: RowTextSources): string | undefined {
-  const row = sources.transcriptWindow.rowsByKey.get(rowKey);
-  if (
-    row === undefined ||
-    sources.transcriptWindow.systemMessageByRowId.has(row.id) ||
-    classifyTranscriptRow(row)?.kind !== "tool-call"
-  ) {
-    return readRowText(rowKey, sources)?.text;
+  const toolRow = toolRowAt(rowKey, sources);
+  if (toolRow === undefined) {
+    return readRowTextAtOnce(rowKey, sources)?.text;
   }
-  const body = rowBodyOf(row, sources);
-  return body === undefined ? undefined : toolOutputTextOf(body, row, sources);
+  const body = rowBodyOf(toolRow, sources);
+  return body === undefined
+    ? undefined
+    : withoutResidualEscapesOf(toolOutputOf(body, toolRow, sources)).slice(0);
 }
 
 /**
@@ -168,6 +124,91 @@ export function replyRowTextOf(
     return { text: live, flavor: recorded?.flavor ?? replyCopyFlavorOf(live) };
   }
   return recorded;
+}
+
+/** The row at `rowKey` when it is a tool row rather than a system message, else `undefined`. */
+function toolRowAt(rowKey: string, sources: RowTextSources): TranscriptEventRow | undefined {
+  const row = sources.transcriptWindow.rowsByKey.get(rowKey);
+  return row !== undefined &&
+    !sources.transcriptWindow.systemMessageByRowId.has(row.id) &&
+    classifyTranscriptRow(row)?.kind === "tool-call"
+    ? row
+    : undefined;
+}
+
+/** The whole text of a row that is not a tool row, as `readRowText` reads it. */
+function readRowTextAtOnce(rowKey: string, sources: RowTextSources): SelectedPart | undefined {
+  const { transcriptWindow } = sources;
+  const runGroup = transcriptWindow.runGroupByHeaderKey.get(rowKey);
+  if (runGroup !== undefined) {
+    return { flavor: "text", text: runGroupHeadingText(runGroupHeadingOf(runGroup)) };
+  }
+  const row = transcriptWindow.rowsByKey.get(rowKey);
+  if (row === undefined) {
+    return undefined;
+  }
+  const systemMessage = transcriptWindow.systemMessageByRowId.get(row.id);
+  if (systemMessage !== undefined) {
+    return plainPart([
+      clockTimeOf(systemMessage.timestamp, sources),
+      ...supersededMark(transcriptWindow.supersededRowIds.has(row.id)),
+      systemMessage.label,
+    ]);
+  }
+  switch (classifyTranscriptRow(row)?.kind) {
+    case "user-message": {
+      const message = userMessageTextOf(row);
+      return message === undefined ? undefined : { flavor: "text", text: message };
+    }
+    case "agent-message": {
+      const body = rowBodyOf(row, sources);
+      if (body?.from === "drawing") {
+        return { flavor: body.flavor, ...piecedTextOfPublished(body.text) };
+      }
+      const content = loggedContentOf(row, sources);
+      const stored = storedBodyOf(content);
+      return stored === undefined
+        ? { flavor: "text", text: unreadBodyTextOf(content) }
+        : {
+            flavor: replyCopyFlavorOf(stored, readWireString(projectedPayload(row)["contentType"])),
+            text: stored.slice(0),
+          };
+    }
+    case "thinking": {
+      const liveText = sources.reveal.publishedTextFor(row.id);
+      const tail = liveText === undefined ? [] : reasoningTailOf(liveText);
+      return tail.length === 0 ? undefined : plainPart(tail);
+    }
+    default:
+      // A row of no kind draws no text; a tool row is read by `readToolRowText`.
+      return undefined;
+  }
+}
+
+/**
+ * A tool row's author, time and line, and its open output in pieces below them: at once, or once
+ * a long output is stripped of its escape sequences in slices.
+ */
+function readToolRowText(
+  row: TranscriptEventRow,
+  sources: RowTextSources,
+): SelectedPart | Promise<SelectedPart> {
+  const heading = [
+    row.actor ?? describeRowKind("tool-call").label,
+    clockTimeOf(row.timestamp, sources),
+    ...supersededMark(sources.transcriptWindow.supersededRowIds.has(row.id)),
+    toolRowHeadingText(toolRowHeadingOf(row, row.content)),
+  ].join("\n");
+  const body = rowBodyOf(row, sources);
+  if (body === undefined) {
+    return { flavor: "text", text: heading };
+  }
+  const partOf = (output: PiecedText): SelectedPart => ({
+    flavor: "text",
+    ...joinIntoPieces([heading, "\n", ...output.pieces]),
+  });
+  const output = withoutResidualEscapesInPieces(toolOutputOf(body, row, sources), sources.view);
+  return output instanceof Promise ? output.then(partOf) : partOf(output);
 }
 
 /** Lines of plain text, each on a line of its own, as a row's blocks are read. */
@@ -227,14 +268,15 @@ function loggedContentOf(
     : row.content;
 }
 
-/** An open tool row's output without escape sequences, else the words drawn in its place. */
-function toolOutputTextOf(body: RowBody, row: TranscriptEventRow, sources: RowTextSources): string {
+/** An open tool row's output, else the words drawn in its place. */
+function toolOutputOf(
+  body: RowBody,
+  row: TranscriptEventRow,
+  sources: RowTextSources,
+): PublishedText {
   const content = body.from === "log" ? loggedContentOf(row, sources) : undefined;
   const output = body.from === "drawing" ? body.text : storedBodyOf(content);
-  if (output === undefined) {
-    return unreadBodyTextOf(content);
-  }
-  return carriesAnsiEscapes(output) ? withoutResidualEscapes(output.slice(0)) : output.slice(0);
+  return output ?? publishedTextOf(unreadBodyTextOf(content));
 }
 
 /** The body the log stores, where it holds one. */
