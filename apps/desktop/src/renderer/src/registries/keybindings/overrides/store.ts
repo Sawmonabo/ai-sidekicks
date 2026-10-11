@@ -33,11 +33,9 @@ import {
 import { commandRegistry } from "../../commands/registry.js";
 import { type Keybinding } from "../../commands/keybinding.js";
 import { GenerationLatch } from "#renderer/lib/reads/generation-latch.js";
-import {
-  HOST_CHORD_PLATFORM,
-  normalizeChord,
-  type ChordPlatform,
-} from "#renderer/lib/chord-format.js";
+import type { SupportedPlatform } from "#shared/app-facts.js";
+import { HOST_CHORD_PLATFORM } from "#renderer/lib/chord/convention/selection.js";
+import { normalizeChord } from "#renderer/lib/chord/format.js";
 import {
   KEYBINDING_OVERRIDE_REFUSAL_ORIGIN,
   composeEffectiveBindings,
@@ -99,7 +97,7 @@ export interface KeybindingOverrideStoreOptions {
    */
   readonly commandTitle: (commandId: string) => string | undefined;
   /** Whose reserved chords to refuse; defaults to the host being run on. */
-  readonly platform?: ChordPlatform;
+  readonly platform?: SupportedPlatform;
 }
 
 /** The one latch key hydration is taken under; a rebinding supersedes every key. */
@@ -113,7 +111,7 @@ const HYDRATION_KEY = "hydrate";
 export class KeybindingOverrideStore {
   readonly #readDefaults: () => readonly Keybinding[];
   readonly #commandTitle: (commandId: string) => string | undefined;
-  readonly #platform: ChordPlatform;
+  readonly #platform: SupportedPlatform;
   readonly #changes = new Emitter<void>("keybinding override change");
   #overrides: KeyboardMap = {};
   #keyboardMap: PlatformBridge["keyboardMap"] | undefined;

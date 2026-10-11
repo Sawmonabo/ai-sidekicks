@@ -120,13 +120,19 @@ async function createRegistry(
   const { screen } = (await import("electron")) as unknown as {
     screen: ConstructorParameters<typeof OpenWindows>[0]["screen"];
   };
+  const { selectMainOperatingSystem } = await import("../operating-system/selection.js");
+  const operatingSystem = selectMainOperatingSystem(platform);
   const { log } = testWindowFrame();
   const openWindows = new OpenWindows({
-    placeFile: new WindowPlaceFile(path.join(userData, WINDOW_PLACES_FILE_NAME), log),
+    placeFile: new WindowPlaceFile(
+      path.join(userData, WINDOW_PLACES_FILE_NAME),
+      log,
+      operatingSystem,
+    ),
     screen,
     appearance,
     log,
-    platform,
+    operatingSystem,
   });
   return { openWindows, log };
 }

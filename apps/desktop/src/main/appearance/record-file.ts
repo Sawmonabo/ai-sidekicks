@@ -26,7 +26,11 @@ import { APPEARANCE_THEMES } from "#shared/theme/registry.js";
 import type { MainDiagnosticLog } from "../services/diagnostic-log.js";
 import { describeFailure } from "#shared/failure-message.js";
 import { isMissingPath } from "../services/missing-path.js";
-import { writeOwnerOnlyJsonFileSync, writeOwnerOnlyJsonFile } from "../services/owner-only-file.js";
+import {
+  writeOwnerOnlyJsonFileSync,
+  writeOwnerOnlyJsonFile,
+  type OwnerOnlyFileSystem,
+} from "../services/owner-only-file.js";
 
 /** The file's name inside the app's user-data folder. */
 export const APPEARANCE_FILE_NAME = "appearance.json";
@@ -58,20 +62,26 @@ const appearanceRecordSchema: z.ZodMiniType<AppearanceRecord> = z.strictObject({
 
 const LOG_SOURCE = "main/appearance";
 
-/** Where the record lives, and where a file that could not be read or repaired is reported. */
+/**
+ * Where the record lives, where a file that could not be read or repaired is reported, and the
+ * system it is written on.
+ */
 export interface AppearanceRecordFileOptions {
   readonly filePath: string;
   readonly log: Pick<MainDiagnosticLog, "write">;
+  readonly operatingSystem: OwnerOnlyFileSystem;
 }
 
 /** Main's reader and writer for the appearance record. */
 export class AppearanceRecordFile {
   readonly #filePath: string;
   readonly #log: AppearanceRecordFileOptions["log"];
+  readonly #operatingSystem: OwnerOnlyFileSystem;
 
   public constructor(options: AppearanceRecordFileOptions) {
     this.#filePath = options.filePath;
     this.#log = options.log;
+    this.#operatingSystem = options.operatingSystem;
   }
 
   /**
@@ -106,12 +116,12 @@ export class AppearanceRecordFile {
 
   /** Replaces the whole record. Rejects with the file system's error. */
   public write(record: AppearanceRecord): Promise<void> {
-    return writeOwnerOnlyJsonFile(this.#filePath, record);
+    return writeOwnerOnlyJsonFile(this.#filePath, record, this.#operatingSystem);
   }
 
   #repairSync(): AppearanceRecord {
     try {
-      writeOwnerOnlyJsonFileSync(this.#filePath, DEFAULT_APPEARANCE_RECORD);
+      writeOwnerOnlyJsonFileSync(this.#filePath, DEFAULT_APPEARANCE_RECORD, this.#operatingSystem);
     } catch (error) {
       this.#log.write({
         level: "error",

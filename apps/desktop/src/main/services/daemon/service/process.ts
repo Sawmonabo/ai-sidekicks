@@ -16,6 +16,8 @@ import {
   type ProcessIdentity,
 } from "@ai-sidekicks/contracts/process-identity";
 
+import type { SupportedPlatform } from "#shared/app-facts.js";
+
 /** How long a service still running after its drain bound has before SIGKILL. */
 const SERVICE_END_GRACE_MS = 2_000;
 
@@ -48,15 +50,15 @@ export interface ServiceExit {
 }
 
 /**
- * A reader of this system's processes through Node's own file read and program run; it answers
- * `undefined` when no process has the id.
+ * A reader of the processes of the system `platform` names, through Node's own file read and
+ * program run; it answers `undefined` when no process has the id.
  */
-export function createSystemProcessIdentityReader(): (
-  processId: number,
-) => Promise<ProcessIdentity | undefined> {
+export function createSystemProcessIdentityReader(
+  platform: SupportedPlatform,
+): (processId: number) => Promise<ProcessIdentity | undefined> {
   const runProgram = promisify(execFile);
   return createProcessIdentityReader({
-    platform: process.platform,
+    platform,
     readTextFile: (filePath) => readFile(filePath, "utf8"),
     runProgram: (file, args, environment) => runProgram(file, [...args], { env: environment }),
   });
@@ -147,9 +149,7 @@ function waitUntil(at: number): Promise<void> {
  */
 export function attachToServiceProcess(
   identity: ProcessIdentity,
-  readIdentity: (
-    processId: number,
-  ) => Promise<ProcessIdentity | undefined> = createSystemProcessIdentityReader(),
+  readIdentity: (processId: number) => Promise<ProcessIdentity | undefined>,
 ): ServiceProcess {
   const { processId } = identity;
   let isKnownGone = false;

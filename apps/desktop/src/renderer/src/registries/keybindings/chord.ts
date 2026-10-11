@@ -1,16 +1,16 @@
 // One keystroke, parsed, matched and compared. The only tinykeys use is here: `parseKeybinding`
 // turns `"$mod+KeyK"` into modifier sets and a key, and `matchKeybindingPress` matches a
 // `KeyboardEvent` against a parsed press. `tinykeys()` itself is not used (see
-// `table.ts`). Printing and speaking chords lives in `lib/chord-format.ts`; the shared
+// `table.ts`). Printing and speaking chords lives in `lib/chord/format.ts`; the shared
 // key fold keeps the printer and the conflict comparator agreeing that `k` and `KeyK` are one
 // key.
 
 import { matchKeybindingPress, parseKeybinding, type KeybindingPress } from "tinykeys";
+import { foldChordKeyToken } from "#renderer/lib/chord/format.js";
 import {
   PLATFORM_MODIFIER_CHORD_TOKEN,
   SPELLED_MODIFIER_TOKENS,
-  foldChordKeyToken,
-} from "#renderer/lib/chord-format.js";
+} from "#renderer/lib/chord/modifiers.js";
 
 /** Why a chord string was refused. */
 export type ChordParseErrorKind =

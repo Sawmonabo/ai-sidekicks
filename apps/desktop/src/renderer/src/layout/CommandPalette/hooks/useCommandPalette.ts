@@ -7,7 +7,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import type { RowWindow } from "#renderer/hooks/useRowWindow.js";
-import { COMMAND_PALETTE_OPEN_CHORD, type ChordPlatform } from "#renderer/lib/chord-format.js";
+import type { SupportedPlatform } from "#shared/app-facts.js";
+import { COMMAND_PALETTE_OPEN_CHORD } from "#renderer/lib/chord/format.js";
 import { formatCount } from "#renderer/lib/wire/figures.js";
 import type { CommandRegistry } from "#renderer/registries/commands/registry.js";
 import type { CommandSearchResult } from "#renderer/registries/commands/ranking.js";
@@ -42,7 +43,7 @@ export interface CommandPaletteProps {
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
   /** Which chord convention to print. Passed in so a fixture can pin it. */
-  readonly platform: ChordPlatform;
+  readonly platform: SupportedPlatform;
   /** Supplies each row's chord. Omit and rows print no chord rather than a wrong one. */
   readonly bindings?: KeybindingTable;
   /** What these commands act on. Read once at open, together with `context`, as one reading. */

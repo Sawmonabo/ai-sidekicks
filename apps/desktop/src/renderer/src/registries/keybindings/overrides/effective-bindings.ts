@@ -10,11 +10,9 @@
 import type { KeyboardMap } from "#shared/preload-api.js";
 import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 import type { Keybinding } from "../../commands/keybinding.js";
-import {
-  formatChordForPlatform,
-  HOST_CHORD_PLATFORM,
-  type ChordPlatform,
-} from "#renderer/lib/chord-format.js";
+import type { SupportedPlatform } from "#shared/app-facts.js";
+import { HOST_CHORD_PLATFORM } from "#renderer/lib/chord/convention/selection.js";
+import { formatChordForPlatform } from "#renderer/lib/chord/format.js";
 import { auditKeybindings, reservedChordReason } from "../audit.js";
 
 /**
@@ -52,7 +50,7 @@ export interface CandidateChordInput {
   /** The act's on-screen title for a command id, or `undefined` for an act this window lacks. */
   readonly commandTitle: (commandId: string) => string | undefined;
   /** Whose reserved chords to refuse; defaults to the host being run on. */
-  readonly platform?: ChordPlatform;
+  readonly platform?: SupportedPlatform;
 }
 
 /**

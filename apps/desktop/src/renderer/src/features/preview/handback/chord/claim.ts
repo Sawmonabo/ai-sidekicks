@@ -1,16 +1,12 @@
 // Keystroke vocabulary for the handback: a DOM-free descriptor, the predicates that read one,
 // the chord projection a main-process mirror is built from, and the close-tab chord.
 // Shift never makes a chord claimable, because a shift-only combination is a capital letter.
-// Modifier tokens, `$mod` and the press splitter come from `lib/chord-format.ts`, not a copy.
+// Modifier tokens, `$mod` and the press splitter come from `lib/chord/`, not a copy.
 
-import {
-  CHORD_MODIFIER_TOKENS,
-  PLATFORM_MODIFIER_TOKEN,
-  foldChordKeyToken,
-  splitChordTokens,
-  type ChordModifierToken,
-  type ChordPlatform,
-} from "#renderer/lib/chord-format.js";
+import type { SupportedPlatform } from "#shared/app-facts.js";
+import { keyboardConventionOf } from "#renderer/lib/chord/convention/selection.js";
+import { foldChordKeyToken, splitChordTokens } from "#renderer/lib/chord/format.js";
+import { CHORD_MODIFIER_TOKENS, type ChordModifierToken } from "#renderer/lib/chord/modifiers.js";
 
 /** The key token the platform close-tab chord carries, in its layout-independent form. */
 const CLOSE_TAB_KEY_TOKEN = "W";
@@ -87,11 +83,11 @@ export function projectClaimableChords(chords: readonly string[]): readonly stri
  * with the other absent (on macOS control-W is a page chord, meta-W the application's);
  * composition, alt and shift are rejected.
  */
-export function isCloseTabChord(descriptor: ChordDescriptor, platform: ChordPlatform): boolean {
+export function isCloseTabChord(descriptor: ChordDescriptor, platform: SupportedPlatform): boolean {
   if (descriptor.isComposing || descriptor.altKey || descriptor.shiftKey) {
     return false;
   }
-  const platformModifierIsMeta = PLATFORM_MODIFIER_TOKEN[platform] === "Meta";
+  const platformModifierIsMeta = keyboardConventionOf(platform).applicationModifier === "Meta";
   const platformModifierHeld = platformModifierIsMeta ? descriptor.metaKey : descriptor.ctrlKey;
   const otherModifierHeld = platformModifierIsMeta ? descriptor.ctrlKey : descriptor.metaKey;
   if (!platformModifierHeld || otherModifierHeld) {

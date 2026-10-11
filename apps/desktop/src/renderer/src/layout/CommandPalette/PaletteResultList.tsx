@@ -10,7 +10,7 @@ import { ChordHint } from "#renderer/components/ChordHint/ChordHint.js";
 import { useDrawOverlayScrollbar } from "#renderer/hooks/useDrawOverlayScrollbar.js";
 import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { useRowWindow, type RowWindow } from "#renderer/hooks/useRowWindow.js";
-import { type ChordPlatform } from "#renderer/lib/chord-format.js";
+import type { SupportedPlatform } from "#shared/app-facts.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
 import {
   ENUMERATION_ROW_HEIGHT_REM,
@@ -34,7 +34,7 @@ export interface PaletteResultListProps {
   /** The live context keys. Decides which chord is printed beside a row. */
   readonly context: WhenClauseContext;
   /** Which chord convention to print. Passed in so a fixture can pin it. */
-  readonly platform: ChordPlatform;
+  readonly platform: SupportedPlatform;
   /**
    * Supplies each row's chord; rows print none when absent. Required-but-`undefined` because
    * `exactOptionalPropertyTypes` makes it a different type from optional, and the overlay

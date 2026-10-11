@@ -6,7 +6,7 @@ import { matchKeybindingPress, parseKeybinding } from "tinykeys";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { userEvent } from "vitest/browser";
 
-import { normalizeChord } from "#renderer/lib/chord-format.js";
+import { normalizeChord } from "#renderer/lib/chord/format.js";
 import { chordMatchesEvent, parseChord } from "#renderer/registries/keybindings/chord.js";
 
 /** Records every keydown of K until the test ends. */

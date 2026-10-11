@@ -2,18 +2,16 @@
 
 import "./ChordHint.css";
 
-import {
-  HOST_CHORD_PLATFORM,
-  renderChordForPlatform,
-  type ChordPlatform,
-} from "#renderer/lib/chord-format.js";
+import type { SupportedPlatform } from "#shared/app-facts.js";
+import { HOST_CHORD_PLATFORM } from "#renderer/lib/chord/convention/selection.js";
+import { renderChordForPlatform } from "#renderer/lib/chord/format.js";
 
 /** Props for `ChordHint`. */
 export interface ChordHintProps {
   /** A `tinykeys` chord, e.g. `"$mod+KeyK"`, or a sequence, e.g. `"g s"`. */
   readonly chord: string;
   /** Which platform's spelling to print in. Defaults to the host. */
-  readonly platform?: ChordPlatform;
+  readonly platform?: SupportedPlatform;
 }
 
 /**

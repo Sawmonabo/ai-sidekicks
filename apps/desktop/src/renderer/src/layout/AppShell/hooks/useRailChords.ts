@@ -1,4 +1,5 @@
-import { HOST_CHORD_PLATFORM, formatChordForPlatform } from "#renderer/lib/chord-format.js";
+import { HOST_CHORD_PLATFORM } from "#renderer/lib/chord/convention/selection.js";
+import { formatChordForPlatform } from "#renderer/lib/chord/format.js";
 import type { RailDestination } from "#renderer/routing/readers.js";
 import { SESSIONS_LIST_COMMAND } from "../../NavigationRail/commands.js";
 

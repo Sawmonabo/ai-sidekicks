@@ -19,7 +19,7 @@
 //   - No OpenType feature is declared. Every digit in both families measures 600/1000 em, so
 //     figures are tabular by construction; `font-variant-numeric: tabular-nums` covers the
 //     fallback faces.
-//   - The Pi split is not shipped, so the arrows `lib/chord-format.ts` draws fall to the host face:
+//   - The Pi split is not shipped, so the arrows `lib/chord/` draws fall to the host face:
 //     declaring it would pass the font budget.
 //   - No `unicode-range`: the browser falls back one character at a time by each file's own glyph
 //     table, so a codepoint outside the Latin-1 split takes the next face in the stack.

@@ -140,6 +140,7 @@ export async function bridgeOverLink(
   const { createPreloadApi } = await import("#preload/api.js");
   const { FilePathRefs } = await import("./file-path/refs.js");
   const { PASTED_IMAGES_FOLDER_NAME, PastedImages } = await import("./native/file-intake.js");
+  const { DARWIN_MAIN_OPERATING_SYSTEM } = await import("../operating-system/darwin.js");
 
   const log = { write: vi.fn() };
   const filePathRefs = new FilePathRefs();
@@ -163,6 +164,7 @@ export async function bridgeOverLink(
     daemonLink: link,
     log,
     windowContext,
+    operatingSystem: DARWIN_MAIN_OPERATING_SYSTEM,
   });
   return createPreloadApi([
     ...appFactsSwitches({

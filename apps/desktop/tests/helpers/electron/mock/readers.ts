@@ -28,7 +28,10 @@ interface RecordingWindowLog {
   readonly lastWriteFailure: string | null;
 }
 
-/** A window frame at a fixed rectangle, answering no `window.open`, over a log of its own. */
+/**
+ * A window frame at a fixed rectangle, answering no `window.open`, over a log of its own, with the
+ * system's own title strip; a unit build reveals every window as it is.
+ */
 export function testWindowFrame(): WindowFrame & { readonly log: RecordingWindowLog } {
   return {
     bounds: { x: 0, y: 25, width: 1200, height: 800 },
@@ -40,6 +43,7 @@ export function testWindowFrame(): WindowFrame & { readonly log: RecordingWindow
       drain: vi.fn<MainDiagnosticLog["drain"]>(() => Promise.resolve()),
       lastWriteFailure: null,
     },
+    operatingSystem: { titleBar: { titleBarStyle: "default" }, unobtrusiveReveal: "inactive" },
   };
 }
 

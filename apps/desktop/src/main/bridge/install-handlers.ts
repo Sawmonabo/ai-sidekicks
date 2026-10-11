@@ -26,6 +26,7 @@ import { NOT_ANSWERING_MESSAGE } from "#shared/daemon/status-topic.js";
 import { describeFailure } from "#shared/failure-message.js";
 import type { OpenDialogPurpose, OpenDialogResults } from "#shared/preload-api.js";
 import { classifyNavigation, inWindowOrigins, openExternalUrl } from "../windows/navigation.js";
+import type { MainOperatingSystem } from "../operating-system/contract.js";
 import type { DaemonLink } from "../services/daemon/link/status.js";
 import type { DaemonSupervisor } from "../services/daemon/supervisor.js";
 import type { MainDiagnosticLog } from "../services/diagnostic-log.js";
@@ -36,7 +37,6 @@ import { copyToClipboard } from "./native/clipboard.js";
 import { listEditors } from "./native/editors/installed.js";
 import { openInEditor, parseEditorOpenRequest, readChosenEditorId } from "./native/editors/open.js";
 import { runProgram } from "./native/editors/program-runner.js";
-import { installedEditorsFor } from "./native/editors/platform.js";
 import { machineSettingsAnswers } from "./machine-settings.js";
 import { refForDroppedFile, type PastedImages } from "./native/file-intake.js";
 import { readNotificationPermission } from "./native/notification-permission.js";
@@ -60,6 +60,10 @@ export interface BridgeHandlerServices {
   readonly daemonLink: Pick<DaemonLink, "client">;
   readonly log: Pick<MainDiagnosticLog, "write">;
   readonly windowContext: WindowHandlerContext;
+  readonly operatingSystem: Pick<
+    MainOperatingSystem,
+    "installedEditors" | "flushesFolderAfterRename" | "unobtrusiveReveal"
+  >;
 }
 
 /**
@@ -76,10 +80,12 @@ export function installBridgeHandlers(services: BridgeHandlerServices): void {
     daemonLink,
     log,
     windowContext,
+    operatingSystem,
   } = services;
   const keyboardMapFile = new KeyboardMapFile({
     filePath: path.join(userData, KEYBOARD_MAP_FILE_NAME),
     now: () => new Date(),
+    operatingSystem,
   });
 
   // A synchronous channel answers through `returnValue` and must always set it, or the page
@@ -145,7 +151,7 @@ export function installBridgeHandlers(services: BridgeHandlerServices): void {
       const targetPath = filePathRefs.requirePath(event.sender, ref, "open");
       await openInEditor(
         {
-          installedEditors: () => installedEditorsFor(process.platform, runProgram),
+          installedEditors: () => operatingSystem.installedEditors(runProgram),
           runProgram,
           openWithSystemDefault: async (systemTarget) => {
             // `openPath` answers a failure as a fixed message naming no path; it never rejects.
@@ -158,9 +164,8 @@ export function installBridgeHandlers(services: BridgeHandlerServices): void {
         { targetPath, line, editorId: await readChosenEditorId(daemonLink) },
       );
     },
-    // Built at each call, so a platform whose form is not built refuses the call alone.
-    [BRIDGE_CHANNELS.listEditors]: () =>
-      listEditors(installedEditorsFor(process.platform, runProgram)),
+    // Built at each call, so a system whose form is not built refuses the call alone.
+    [BRIDGE_CHANNELS.listEditors]: () => listEditors(operatingSystem.installedEditors(runProgram)),
     [BRIDGE_CHANNELS.getNotificationPermission]: () =>
       readNotificationPermission(getNotificationStatus),
     [BRIDGE_CHANNELS.copyToClipboard]: (_event, content) =>
@@ -175,7 +180,7 @@ export function installBridgeHandlers(services: BridgeHandlerServices): void {
     [BRIDGE_CHANNELS.writeKeyboardMap]: (_event, map) =>
       keyboardMapFile.write(parseKeyboardMap(map)),
     ...machineSettingsAnswers(daemonForwarding),
-    ...windowAnswers(windowContext),
+    ...windowAnswers(windowContext, operatingSystem),
   };
   for (const channel of Object.keys(answers) as AnsweredChannel[]) {
     handleFromAppRenderer(channel, answers[channel], log);

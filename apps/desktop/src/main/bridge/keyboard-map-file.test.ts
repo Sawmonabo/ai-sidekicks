@@ -14,7 +14,11 @@ let userData: string;
 let filePath: string;
 
 function keyboardMapFile(): KeyboardMapFile {
-  return new KeyboardMapFile({ filePath, now: () => REPAIRED_AT });
+  return new KeyboardMapFile({
+    filePath,
+    now: () => REPAIRED_AT,
+    operatingSystem: { flushesFolderAfterRename: true },
+  });
 }
 
 beforeEach(async () => {

@@ -17,7 +17,7 @@ import * as z from "zod/mini";
 
 import type { KeyboardMap, KeyboardMapReading } from "#shared/preload-api.js";
 import { isMissingPath } from "../services/missing-path.js";
-import { writeOwnerOnlyJsonFile } from "../services/owner-only-file.js";
+import { writeOwnerOnlyJsonFile, type OwnerOnlyFileSystem } from "../services/owner-only-file.js";
 
 /** The file's name inside the app's user-data folder. */
 export const KEYBOARD_MAP_FILE_NAME = "keyboard-map.json";
@@ -39,11 +39,12 @@ export function parseKeyboardMap(candidate: unknown): KeyboardMap {
   return keyboardMapSchema.parse(candidate);
 }
 
-/** Where the keyboard map file lives and the clock that stamps a repair. */
+/** Where the keyboard map file lives, the clock that stamps a repair, and the system it is on. */
 export interface KeyboardMapFileOptions {
   /** The file's full path. */
   readonly filePath: string;
   readonly now: () => Date;
+  readonly operatingSystem: OwnerOnlyFileSystem;
 }
 
 const EMPTY_MAP: KeyboardMap = Object.freeze({});
@@ -52,12 +53,14 @@ const EMPTY_MAP: KeyboardMap = Object.freeze({});
 export class KeyboardMapFile {
   readonly #filePath: string;
   readonly #now: () => Date;
+  readonly #operatingSystem: OwnerOnlyFileSystem;
   #repair: SettingsFileRepair | undefined;
   #pending: Promise<unknown> = Promise.resolve();
 
   public constructor(options: KeyboardMapFileOptions) {
     this.#filePath = options.filePath;
     this.#now = options.now;
+    this.#operatingSystem = options.operatingSystem;
   }
 
   /** The map as it stands, with the repair made since the last write, if any. */
@@ -68,7 +71,7 @@ export class KeyboardMapFile {
   /** Replaces the whole map and answers it as stored. */
   public write(map: KeyboardMap): Promise<KeyboardMap> {
     return this.#oneAtATime(async () => {
-      await writeOwnerOnlyJsonFile(this.#filePath, map);
+      await writeOwnerOnlyJsonFile(this.#filePath, map, this.#operatingSystem);
       this.#repair = undefined;
       return map;
     });
@@ -109,7 +112,7 @@ export class KeyboardMapFile {
   }
 
   async #repairWithEmptyMap(cause: SettingsFileRepairCause): Promise<KeyboardMapReading> {
-    await writeOwnerOnlyJsonFile(this.#filePath, EMPTY_MAP);
+    await writeOwnerOnlyJsonFile(this.#filePath, EMPTY_MAP, this.#operatingSystem);
     this.#repair = { repairedAt: this.#now().toISOString(), cause };
     return this.#readingOf(EMPTY_MAP);
   }

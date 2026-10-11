@@ -18,7 +18,10 @@ import { isConsoleWindowId } from "#shared/window/frame-name.js";
 import type { MainDiagnosticLog } from "../../services/diagnostic-log.js";
 import { describeFailure } from "#shared/failure-message.js";
 import { isMissingPath } from "../../services/missing-path.js";
-import { writeOwnerOnlyJsonFileSync } from "../../services/owner-only-file.js";
+import {
+  writeOwnerOnlyJsonFileSync,
+  type OwnerOnlyFileSystem,
+} from "../../services/owner-only-file.js";
 import { isPlainObject } from "../../services/plain-object.js";
 
 /** The file's name inside the app's user-data folder. */
@@ -56,10 +59,17 @@ const windowPlaceSchema: z.ZodMiniType<WindowPlace> = z.strictObject({
 export class WindowPlaceFile {
   readonly #filePath: string;
   readonly #log: Pick<MainDiagnosticLog, "write">;
+  readonly #operatingSystem: OwnerOnlyFileSystem;
 
-  public constructor(filePath: string, log: Pick<MainDiagnosticLog, "write">) {
+  /** The file at `filePath` on `operatingSystem`, whose failures are recorded in `log`. */
+  public constructor(
+    filePath: string,
+    log: Pick<MainDiagnosticLog, "write">,
+    operatingSystem: OwnerOnlyFileSystem,
+  ) {
     this.#filePath = filePath;
     this.#log = log;
+    this.#operatingSystem = operatingSystem;
   }
 
   /**
@@ -118,10 +128,11 @@ export class WindowPlaceFile {
    * before the process ends. Throws the file system's error.
    */
   public writeSync(kept: KeptWindowPlaces): void {
-    writeOwnerOnlyJsonFileSync(this.#filePath, {
-      windowUsedLast: kept.windowUsedLast,
-      places: Object.fromEntries(kept.places),
-    });
+    writeOwnerOnlyJsonFileSync(
+      this.#filePath,
+      { windowUsedLast: kept.windowUsedLast, places: Object.fromEntries(kept.places) },
+      this.#operatingSystem,
+    );
   }
 
   /** Rewrites the file as `kept`, recording why; a failed rewrite is recorded and `kept` stands. */

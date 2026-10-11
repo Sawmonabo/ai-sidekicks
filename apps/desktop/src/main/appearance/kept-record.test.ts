@@ -64,6 +64,7 @@ function startApp(nativeTheme = createNativeTheme()): KeptAppearance {
     file: new AppearanceRecordFile({
       filePath,
       log: { write: (entry) => logged.push(entry) },
+      operatingSystem: { flushesFolderAfterRename: true },
     }),
     nativeTheme: nativeTheme as never,
   });

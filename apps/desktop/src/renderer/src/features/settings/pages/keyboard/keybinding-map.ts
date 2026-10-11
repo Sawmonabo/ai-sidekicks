@@ -7,7 +7,7 @@
 //
 // {@link readChordFromEvent} is the page's half of the recorder seam: the override store decides
 // whether its chord can be bound. Chords use `KeyboardEvent.code` (`KeyK`, not `k`) where the
-// host supplies one, as `chord-format.ts` does, so a binding stays on the same physical key on
+// host supplies one, as `lib/chord/format.ts` does, so a binding stays on the same physical key on
 // AZERTY and Dvorak.
 
 import { reservedChordReason } from "#renderer/registries/keybindings/audit.js";
@@ -15,14 +15,16 @@ import { type Keybinding } from "#renderer/registries/commands/keybinding.js";
 import { type CommandDefinition } from "#renderer/registries/commands/definition.js";
 import type { KeyboardMap } from "#shared/preload-api.js";
 import { scoreSubsequence } from "@ai-sidekicks/search-ranking";
+import type { SupportedPlatform } from "#shared/app-facts.js";
 import {
   HOST_CHORD_PLATFORM,
-  PLATFORM_MODIFIER_TOKEN,
+  keyboardConventionOf,
+} from "#renderer/lib/chord/convention/selection.js";
+import { formatChordForPlatform } from "#renderer/lib/chord/format.js";
+import {
   SPELLED_MODIFIER_TOKENS,
-  formatChordForPlatform,
-  type ChordPlatform,
   type SpelledModifierToken,
-} from "#renderer/lib/chord-format.js";
+} from "#renderer/lib/chord/modifiers.js";
 
 /** One row of the keyboard map. */
 export interface KeybindingRow {
@@ -96,7 +98,7 @@ export function composeKeybindingRows(options: {
    */
   readonly shippedBindings: readonly Keybinding[];
   readonly overrides?: KeyboardMap;
-  readonly platform?: ChordPlatform;
+  readonly platform?: SupportedPlatform;
 }): readonly KeybindingRow[] {
   const platform = options.platform ?? HOST_CHORD_PLATFORM;
   const overrides = options.overrides ?? {};
@@ -133,7 +135,7 @@ export function composeKeybindingRows(options: {
 export function matchKeybindingRows(
   rows: readonly KeybindingRow[],
   query: string,
-  platform: ChordPlatform = HOST_CHORD_PLATFORM,
+  platform: SupportedPlatform = HOST_CHORD_PLATFORM,
 ): readonly KeybindingRow[] {
   const trimmedQuery = query.trim();
   if (trimmedQuery === "") {
@@ -157,7 +159,7 @@ export function matchKeybindingRows(
 }
 
 /** The strings one row offers the scorer; the chord is dropped where the row has none. */
-function matchCandidatesOf(row: KeybindingRow, platform: ChordPlatform): readonly string[] {
+function matchCandidatesOf(row: KeybindingRow, platform: SupportedPlatform): readonly string[] {
   return row.chord === undefined
     ? [row.title]
     : [row.title, formatChordForPlatform(row.chord, platform)];
@@ -183,7 +185,7 @@ const MODIFIER_KEYS: ReadonlySet<string> = new Set([
  */
 export function readChordFromEvent(
   event: Pick<KeyboardEvent, "key" | "code" | "altKey" | "ctrlKey" | "metaKey" | "shiftKey">,
-  platform: ChordPlatform = HOST_CHORD_PLATFORM,
+  platform: SupportedPlatform = HOST_CHORD_PLATFORM,
 ): ChordRecording {
   const bare = !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
   if (bare && event.key === "Escape") {
@@ -216,9 +218,9 @@ export function readChordFromEvent(
  */
 export function readHeldModifiersFromEvent(
   event: Pick<KeyboardEvent, "altKey" | "ctrlKey" | "metaKey" | "shiftKey">,
-  platform: ChordPlatform = HOST_CHORD_PLATFORM,
+  platform: SupportedPlatform = HOST_CHORD_PLATFORM,
 ): readonly string[] {
-  const commandModifier = PLATFORM_MODIFIER_TOKEN[platform];
+  const commandModifier = keyboardConventionOf(platform).applicationModifier;
   const keyFlags = { Meta: event.metaKey, Control: event.ctrlKey };
   const held: Readonly<Record<SpelledModifierToken, boolean>> = {
     $mod: keyFlags[commandModifier],

@@ -19,11 +19,8 @@ import { auditKeybindings } from "#renderer/registries/keybindings/audit.js";
 import { commandRegistry } from "#renderer/registries/commands/registry.js";
 import { keybindingOverrides } from "#renderer/registries/keybindings/overrides/store.js";
 import { useKeybindingSnapshot } from "#renderer/registries/keybindings/hooks/useKeybindingSnapshot.js";
-import {
-  COMMAND_PALETTE_OPEN_CHORD,
-  HOST_CHORD_PLATFORM,
-  formatChordForPlatform,
-} from "#renderer/lib/chord-format.js";
+import { HOST_CHORD_PLATFORM } from "#renderer/lib/chord/convention/selection.js";
+import { COMMAND_PALETTE_OPEN_CHORD, formatChordForPlatform } from "#renderer/lib/chord/format.js";
 import { ChordHint } from "#renderer/components/ChordHint/ChordHint.js";
 import { InlineRefusal } from "#renderer/components/Refusal/InlineRefusal.js";
 import { StandingContent } from "#renderer/components/LiveAnnouncer/StandingContent.js";

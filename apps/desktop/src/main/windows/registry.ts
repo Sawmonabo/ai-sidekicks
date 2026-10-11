@@ -8,7 +8,7 @@
 // pane kind), and the app's answers to the platform's window events. The hidden window never
 // closes, so Electron's `window-all-closed` never fires: the registry counts the windows a person
 // sees, and the last of them closing drives the platform's last-window behavior. A Dock click, a
-// click on the macOS menu-bar icon (held here for the app's life) or a second launch with none open
+// click on the menu-bar icon (held here for the app's life) or a second launch with none open
 // asks the console document to reopen the console window used last; the renderer's process going
 // away builds the hidden window again, the third loss in a row as a safe start that leaves every
 // kept place as it is until the console document ends it. The registry carries the `window`
@@ -45,6 +45,7 @@ import { lastUsedWindowIdSwitch } from "#shared/window/last-used.js";
 import type { WindowDefaultSizes } from "#shared/window/size.js";
 
 import type { KeptAppearance } from "../appearance/kept-record.js";
+import type { MainOperatingSystem } from "../operating-system/contract.js";
 import type { MainDiagnosticLog } from "../services/diagnostic-log.js";
 import { describeFailure } from "#shared/failure-message.js";
 import { paneKindOfPlaceKey, placeKeyForFrameName } from "./places/key.js";
@@ -68,7 +69,11 @@ export interface OpenWindowsOptions {
   readonly appearance: Pick<KeptAppearance, "ground" | "record" | "subscribe">;
   /** Main's diagnostic log, where a window's failures are recorded. */
   readonly log: Pick<MainDiagnosticLog, "write" | "drain" | "lastWriteFailure">;
-  readonly platform?: NodeJS.Platform;
+  /** What the system says of a window's title bar and reveal and of the app with no window. */
+  readonly operatingSystem: Pick<
+    MainOperatingSystem,
+    "titleBar" | "unobtrusiveReveal" | "keepsRunningWithNoWindow"
+  >;
 }
 
 /**
@@ -93,7 +98,7 @@ export class OpenWindows {
   readonly #screen: OpenWindowsOptions["screen"];
   readonly #appearance: OpenWindowsOptions["appearance"];
   readonly #log: OpenWindowsOptions["log"];
-  readonly #platform: NodeJS.Platform;
+  readonly #operatingSystem: OpenWindowsOptions["operatingSystem"];
   readonly #places: Map<string, WindowPlace>;
   /** The windows a person sees, most recently used first. */
   readonly #windows: OpenWindow[] = [];
@@ -104,7 +109,7 @@ export class OpenWindows {
   #hiddenWindow: RendererWindow | undefined;
   /** Start's renderer switches, which every rebuilt hidden window is started with again. */
   #hiddenWindowArguments: readonly string[] | undefined;
-  /** The app the lifecycle is installed on, which the last window closing quits off macOS. */
+  /** The app the lifecycle is installed on, which the last window closing may quit. */
   #app: Pick<App, "on" | "quit"> | undefined;
   /** Set from the renderer's loss until the later task that answers it runs. */
   #isRecoveryPending = false;
@@ -119,7 +124,7 @@ export class OpenWindows {
   #isQuitting = false;
   /** The widths the renderer handed for a window with no kept place; none before it hands them. */
   #defaultSizes: WindowDefaultSizes | undefined;
-  /** The macOS menu-bar icon, held for the app's life: a collected `Tray` leaves the menu bar. */
+  /** The menu-bar icon, held for the app's life: a collected `Tray` leaves the menu bar. */
   #menuBarIcon: Pick<Tray, "on"> | undefined;
   /** The latest navigation request the console document has not read; one at most. */
   #heldNavigationRequest: NavigationRequest | undefined;
@@ -136,7 +141,7 @@ export class OpenWindows {
     this.#screen = options.screen;
     this.#appearance = options.appearance;
     this.#log = options.log;
-    this.#platform = options.platform ?? process.platform;
+    this.#operatingSystem = options.operatingSystem;
     const kept = this.#placeFile.readSync();
     this.#places = new Map(kept.places);
     this.#consoleWindowUsedLast = kept.windowUsedLast ?? consoleWindowId(randomUUID());
@@ -170,9 +175,9 @@ export class OpenWindows {
 
   /**
    * Installs the app's window lifecycle; call it before `ready`, so a second launch that arrives
-   * while the app starts is heard. Closing the last window a person sees quits on Windows and
-   * Linux and leaves the app running on macOS, where a Dock click or a menu-bar icon click opens a
-   * window again; a menu-bar icon click brings the window used last forward. A
+   * while the app starts is heard. Closing the last window a person sees quits, or, on a system
+   * where an app keeps running with no window, leaves it running, where a Dock click or a menu-bar
+   * icon click opens a window again; a menu-bar icon click brings the window used last forward. A
    * quit closes the hidden window first and the windows a person sees once its document is gone,
    * so the console document never hears them close one by one as a person would close them.
    * During a quit, and before start has built the hidden window, no Dock click or menu-bar icon
@@ -210,7 +215,7 @@ export class OpenWindows {
   }
 
   /**
-   * Keeps the macOS menu-bar icon for the app's life. A click on it shows the window used last, as
+   * Keeps the menu-bar icon for the app's life. A click on it shows the window used last, as
    * a second launch does, and reopens it where it was when none is open.
    */
   public installMenuBarIcon(menuBarIcon: Pick<Tray, "on">): void {
@@ -278,7 +283,7 @@ export class OpenWindows {
     } else {
       this.#heldNavigationRequest = request;
       if (hiddenWindow.baseWindow.isVisible()) {
-        bringWindowForward(hiddenWindow.baseWindow, this.#platform);
+        bringWindowForward(hiddenWindow.baseWindow, this.#operatingSystem.unobtrusiveReveal);
       }
     }
   }
@@ -329,7 +334,10 @@ export class OpenWindows {
     if (lastUsed === undefined) {
       this.#reopenWindowUsedLast();
     } else {
-      bringWindowForward(lastUsed.rendererWindow.baseWindow, this.#platform);
+      bringWindowForward(
+        lastUsed.rendererWindow.baseWindow,
+        this.#operatingSystem.unobtrusiveReveal,
+      );
     }
   }
 
@@ -344,7 +352,7 @@ export class OpenWindows {
     if (hiddenWindow === undefined) {
       this.#rebuildHiddenWindow();
     } else if (hiddenWindow.baseWindow.isVisible()) {
-      bringWindowForward(hiddenWindow.baseWindow, this.#platform);
+      bringWindowForward(hiddenWindow.baseWindow, this.#operatingSystem.unobtrusiveReveal);
     } else {
       this.#sendToConsoleDocument(REOPEN_WINDOW_CHANNEL, this.#consoleWindowUsedLast);
     }
@@ -375,6 +383,7 @@ export class OpenWindows {
       background: this.#appearance.ground,
       openChildWindow: this.#openChildWindow,
       log: this.#log,
+      operatingSystem: this.#operatingSystem,
       additionalArguments: [
         ...(this.#hiddenWindowArguments ?? []),
         lastUsedWindowIdSwitch(this.#consoleWindowUsedLast),
@@ -529,6 +538,7 @@ export class OpenWindows {
       background: this.#appearance.ground,
       openChildWindow: this.#openChildWindow,
       log: this.#log,
+      operatingSystem: this.#operatingSystem,
     };
   }
 
@@ -584,11 +594,12 @@ export class OpenWindows {
   }
 
   /**
-   * The last window a person sees closed: off macOS the app quits; on macOS it keeps running, with
-   * its menu bar, until a Dock click or a second launch opens a window again.
+   * The last window a person sees closed: the app quits, or, on a system where an app keeps
+   * running with no window, stays with its menu bar until a Dock click or a second launch opens a
+   * window again.
    */
   #closeLastWindow(): void {
-    if (this.#platform !== "darwin") {
+    if (!this.#operatingSystem.keepsRunningWithNoWindow) {
       this.#app?.quit();
     }
   }

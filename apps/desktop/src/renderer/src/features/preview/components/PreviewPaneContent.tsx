@@ -21,7 +21,7 @@ import { describeChordEvent, isCloseTabChord } from "../handback/chord/claim.js"
 import { type NavigationReading } from "../types.js";
 import { activePageOf, type PageListReading } from "../page-list-reading.js";
 import { PageTabStrip } from "./PageTab/PageTabStrip.js";
-import { HOST_CHORD_PLATFORM } from "#renderer/lib/chord-format.js";
+import { HOST_CHORD_PLATFORM } from "#renderer/lib/chord/convention/selection.js";
 import { Nothing } from "#renderer/components/Nothing/Nothing.js";
 import { RefusalBanner } from "#renderer/components/Refusal/RefusalBanner.js";
 import { useAnnounceBannerRefusal } from "#renderer/hooks/announce/useAnnounceBannerRefusal.js";

@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { type ChordPlatform } from "#renderer/lib/chord-format.js";
+import type { SupportedPlatform } from "#shared/app-facts.js";
 import { type Keybinding } from "#renderer/registries/commands/keybinding.js";
 import { type CommandDefinition } from "#renderer/registries/commands/definition.js";
 import { WHEN_SESSION_ACTIVE } from "#renderer/registries/commands/when-clause/vocabulary.js";
@@ -43,7 +43,7 @@ function press(
  * person meets when they record the press on the keyboard page.
  */
 function hostReasonFor(
-  platform: ChordPlatform,
+  platform: SupportedPlatform,
   fields: Parameters<typeof press>[0],
 ): string | undefined {
   const recording = readChordFromEvent(press(fields), platform);

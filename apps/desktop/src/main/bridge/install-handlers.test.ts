@@ -36,6 +36,7 @@ beforeEach(async () => {
   const { DaemonLink } = await import("../services/daemon/link/status.js");
   const { FilePathRefs } = await import("./file-path/refs.js");
   const { PASTED_IMAGES_FOLDER_NAME, PastedImages } = await import("./native/file-intake.js");
+  const { DARWIN_MAIN_OPERATING_SYSTEM } = await import("../operating-system/darwin.js");
   const link = new DaemonLink();
   log = { write: vi.fn<MainDiagnosticLog["write"]>() };
   const filePathRefs = new FilePathRefs();
@@ -70,6 +71,7 @@ beforeEach(async () => {
         readNavigationRequest: vi.fn(),
       },
     },
+    operatingSystem: DARWIN_MAIN_OPERATING_SYSTEM,
   });
 });
 

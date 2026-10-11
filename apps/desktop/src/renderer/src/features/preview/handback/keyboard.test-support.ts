@@ -1,7 +1,7 @@
 // The keystroke factory and handback builder every case in this seam drives, in one place so the
 // suites cannot drift on the field a case forgot to set.
 
-import type { ChordPlatform } from "#renderer/lib/chord-format.js";
+import type { SupportedPlatform } from "#shared/app-facts.js";
 import { type ChordDescriptor } from "./chord/claim.js";
 import { KeyboardHandback } from "./keyboard.js";
 
@@ -25,7 +25,7 @@ export function chord(overrides: Partial<ChordDescriptor> = {}): ChordDescriptor
  */
 export function handbackOver(
   installed: readonly string[] | undefined,
-  platform: ChordPlatform = "darwin",
+  platform: SupportedPlatform = "darwin",
 ): KeyboardHandback {
   return new KeyboardHandback({ readInstalledChords: () => installed, platform });
 }

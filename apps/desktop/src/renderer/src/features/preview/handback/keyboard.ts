@@ -5,11 +5,9 @@
 
 import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 import { chordMatchesEvent, parseChord } from "#renderer/registries/keybindings/chord.js";
-import {
-  PLATFORM_MODIFIER_CHORD_TOKEN,
-  PLATFORM_MODIFIER_TOKEN,
-  type ChordPlatform,
-} from "#renderer/lib/chord-format.js";
+import type { SupportedPlatform } from "#shared/app-facts.js";
+import { keyboardConventionOf } from "#renderer/lib/chord/convention/selection.js";
+import { PLATFORM_MODIFIER_CHORD_TOKEN } from "#renderer/lib/chord/modifiers.js";
 import {
   carriesApplicationModifier,
   projectClaimableChords,
@@ -58,7 +56,7 @@ export interface KeyboardHandbackOptions {
    * The platform the keystrokes were raised on. A parameter, not a reading, so a fixture can
    * pin it and the decision comes out the same in a test, the renderer and the main process.
    */
-  readonly platform: ChordPlatform;
+  readonly platform: SupportedPlatform;
 }
 
 /**
@@ -67,7 +65,7 @@ export interface KeyboardHandbackOptions {
  */
 export class KeyboardHandback {
   readonly #readInstalledChords: () => readonly string[] | undefined;
-  readonly #platform: ChordPlatform;
+  readonly #platform: SupportedPlatform;
   #forwardCount = 0;
 
   public constructor(options: KeyboardHandbackOptions) {
@@ -162,8 +160,11 @@ export class KeyboardHandback {
  * parser resolves it against the host at import time; the platform is an input here so a test
  * can drive all three.
  */
-function resolvePlatformModifier(chord: string, platform: ChordPlatform): string {
-  return chord.replaceAll(PLATFORM_MODIFIER_CHORD_TOKEN, PLATFORM_MODIFIER_TOKEN[platform]);
+function resolvePlatformModifier(chord: string, platform: SupportedPlatform): string {
+  return chord.replaceAll(
+    PLATFORM_MODIFIER_CHORD_TOKEN,
+    keyboardConventionOf(platform).applicationModifier,
+  );
 }
 
 /**

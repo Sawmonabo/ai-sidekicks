@@ -75,10 +75,12 @@ async function connectWindowBridge() {
   const { KeptAppearance } = await import("../appearance/kept-record.js");
   const { AppearanceRecordFile } = await import("../appearance/record-file.js");
   const { createWindowBridge } = await import("#preload/window.js");
+  const { DARWIN_MAIN_OPERATING_SYSTEM } = await import("../operating-system/darwin.js");
   const appearance = new KeptAppearance({
     file: new AppearanceRecordFile({
       filePath: appearanceFilePath,
       log: { write: vi.fn() },
+      operatingSystem: DARWIN_MAIN_OPERATING_SYSTEM,
     }),
     nativeTheme,
   });
@@ -101,25 +103,28 @@ async function connectWindowBridge() {
   });
   openWindowEvents = openWindow;
   for (const [channel, answer] of Object.entries(
-    windowAnswers({
-      appearance,
-      openWindows: {
-        isConsoleDocument: () => isAskedFromTheConsole,
-        windowWithId: (windowId) =>
-          windowId === OPEN_WINDOW_ID ? (openWindow as never) : undefined,
-        windowUsedLast: () => undefined,
-        setDefaultSizes: () => undefined,
-        endSafeStart: () => {
-          safeStartEnds += 1;
-        },
-        readNavigationRequest: () => {
-          navigationRequestReads += 1;
-          const held = heldNavigationRequest;
-          heldNavigationRequest = null;
-          return held;
+    windowAnswers(
+      {
+        appearance,
+        openWindows: {
+          isConsoleDocument: () => isAskedFromTheConsole,
+          windowWithId: (windowId) =>
+            windowId === OPEN_WINDOW_ID ? (openWindow as never) : undefined,
+          windowUsedLast: () => undefined,
+          setDefaultSizes: () => undefined,
+          endSafeStart: () => {
+            safeStartEnds += 1;
+          },
+          readNavigationRequest: () => {
+            navigationRequestReads += 1;
+            const held = heldNavigationRequest;
+            heldNavigationRequest = null;
+            return held;
+          },
         },
       },
-    }),
+      DARWIN_MAIN_OPERATING_SYSTEM,
+    ),
   )) {
     ipcMain.handle(channel, answer as never);
   }

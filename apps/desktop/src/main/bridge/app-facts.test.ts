@@ -4,8 +4,8 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { SupportedPlatform } from "#shared/app-facts.js";
+import { selectMainOperatingSystem } from "../operating-system/selection.js";
 import { readAppFacts } from "./app-facts.js";
-import { machineClockReaderFor } from "./machine-clock/platform.js";
 
 /** What the machine under test reports, set by each case. */
 const machine = vi.hoisted(() => ({
@@ -40,7 +40,7 @@ function readFactsOn(
   machine.systemLocale = reported.systemLocale;
   machine.countryCode = reported.countryCode;
   machine.userDefaults = new Map(Object.entries(reported.userDefaults ?? {}));
-  return readAppFacts(platform, machineClockReaderFor(platform));
+  return readAppFacts(selectMainOperatingSystem(platform));
 }
 
 describe("the machine's clock and region main reads", () => {
