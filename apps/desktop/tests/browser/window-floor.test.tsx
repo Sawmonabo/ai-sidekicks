@@ -60,8 +60,11 @@ const UNBREAKABLE_WIRE_VALUE = "f".repeat(96);
 /** The conversation's scroller, the box the transcript's rows scroll in. */
 const CONVERSATION_SCROLLER = ".meridian-transcript-viewport__scroll-container";
 
-/** A usable height under the window's floor at every text size, as a short display gives. */
-const SHORT_SCREEN_HEIGHT_PX = 560;
+/**
+ * A usable height under the window's floor at every text size, as a short display gives, short
+ * enough that the open command list must give way for the conversation to keep its floor.
+ */
+const SHORT_SCREEN_HEIGHT_PX = 520;
 
 /** Mounts the frame with tokens installed and `screen` in it, recording every floor it reports. */
 async function renderFrame(
