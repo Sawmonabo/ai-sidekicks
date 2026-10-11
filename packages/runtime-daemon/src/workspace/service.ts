@@ -30,6 +30,7 @@ import type {
   WorkspaceListRequest,
   WorkspaceListResponse,
 } from "@ai-sidekicks/contracts/repo/workspace";
+import type { PathRules } from "../path-rules/contract.js";
 import type { DatabaseConnections } from "../database/connection/lifecycle.js";
 import type { WriteStatement } from "../database/statement.js";
 import { WriteRefusedError } from "../database/writer.js";
@@ -183,6 +184,8 @@ export interface WorkspaceServiceDeps {
    * so a test source must mint real UUIDs.
    */
   readonly newWorkspaceId?: () => string;
+  /** How the system spells and compares paths. */
+  readonly pathRules: PathRules;
 }
 
 /** Inputs for {@link WorkspaceService.bind}. */
@@ -217,11 +220,12 @@ export class WorkspaceService {
 
   constructor(deps: WorkspaceServiceDeps) {
     this.#events = deps.events;
-    const resolver = deps.resolver ?? new RepoRootResolver();
+    const resolver = deps.resolver ?? new RepoRootResolver({ pathRules: deps.pathRules });
     this.#trustEnvelope =
-      deps.trustEnvelope ?? new TrustEnvelopeValidator({ workingTrees: resolver });
+      deps.trustEnvelope ??
+      new TrustEnvelopeValidator({ workingTrees: resolver, pathRules: deps.pathRules });
     this.#probePath = deps.probePath ?? createDefaultPathProbe();
-    this.#mountHealthSeams = { probePath: this.#probePath, resolver };
+    this.#mountHealthSeams = { probePath: this.#probePath, resolver, pathRules: deps.pathRules };
     this.#now = deps.now ?? ((): string => new Date().toISOString());
     this.#newWorkspaceId = deps.newWorkspaceId ?? mintUuidV7;
 

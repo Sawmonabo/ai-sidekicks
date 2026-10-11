@@ -11,7 +11,7 @@ import { promisify } from "node:util";
 
 import semver from "semver";
 
-import { findExecutables, type ExecutableSearchDependencies } from "../executable-search.js";
+import { findExecutables, type ExecutableSearchDependencies } from "./executable-search.js";
 import { describeRejection } from "../rejection.js";
 import { parseCliVersionReport } from "./capability/refresh.js";
 import type {
@@ -60,6 +60,7 @@ export interface ProviderCommandSearchOptions {
   /** The person's home folder, which most of the folders sit under. */
   readonly homeDirectory: string;
   readonly writeServiceLog: (line: string) => void;
+  /** Doubles for the search's own probes; the system's come from `operatingSystem`. */
   readonly dependencies?: Partial<Omit<ProviderCommandSearchDependencies, "operatingSystem">>;
 }
 

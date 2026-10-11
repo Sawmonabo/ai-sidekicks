@@ -4,14 +4,13 @@
 // started for it is left.
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { execFile } from "node:child_process";
 import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
-import { promisify } from "node:util";
 
 import { describe, expect, it, vi } from "vitest";
 
+import { NODE_SYSTEM_ACCESS } from "../../../node-system-access.js";
 import { MAC_DAEMON_OPERATING_SYSTEM } from "../../../operating-system/mac.js";
 import { findMacProcessesCarryingNonces } from "../mac/nonce-search.js";
 import { loadMacSystemLibrary } from "../mac/system-library.js";
@@ -34,34 +33,25 @@ const HANGUP_IGNORING_SHELL_COMMAND = `trap '' HUP; : > ${HANGUP_IGNORED_FILE_NA
 // at the parent check, or the shell died on the hangup.
 const WINDOW_RUNS = 5;
 
-const runProgram = promisify(execFile);
-const readProcessIdentity = MAC_DAEMON_OPERATING_SYSTEM.createProcessIdentityReader({
-  readTextFile: (filePath) => readFile(filePath, "utf8"),
-  runProgram: (file, args, environment) => runProgram(file, [...args], { env: environment }),
-});
+const readProcessIdentity =
+  MAC_DAEMON_OPERATING_SYSTEM.createProcessIdentityReader(NODE_SYSTEM_ACCESS);
 
 // The daemon's part: a guard over the data folder and a real host that starts one shell. With
 // `CRASH_IN_SPAWN` set, the daemon kills itself the moment `node-pty` has started the child,
 // before its process is recorded; otherwise it starts the shell that ignores the hangup.
 const DAEMON_SCRIPT = `
 import { writeFileSync } from "node:fs";
-import { readFile } from "node:fs/promises";
-import { execFile } from "node:child_process";
 import * as path from "node:path";
-import { promisify } from "node:util";
 import nodePty from "node-pty";
 import { NodePtyHost } from ${JSON.stringify(moduleUrl("../../host/node-pty.ts"))};
 import { openOrphanGuard } from ${JSON.stringify(moduleUrl("../guard.ts"))};
 import { SPAWN_NONCE_ENVIRONMENT_NAME } from ${JSON.stringify(moduleUrl("../registry.ts"))};
 import { MAC_DAEMON_OPERATING_SYSTEM } from ${JSON.stringify(moduleUrl("../../../operating-system/mac.ts"))};
+import { NODE_SYSTEM_ACCESS } from ${JSON.stringify(moduleUrl("../../../node-system-access.ts"))};
 
 const dataFolder = process.env.DATA_FOLDER;
 const isCrashingInSpawn = process.env.CRASH_IN_SPAWN === "1";
-const runProgram = promisify(execFile);
-const readProcessIdentity = MAC_DAEMON_OPERATING_SYSTEM.createProcessIdentityReader({
-  readTextFile: (filePath) => readFile(filePath, "utf8"),
-  runProgram: (file, args, environment) => runProgram(file, [...args], { env: environment }),
-});
+const readProcessIdentity = MAC_DAEMON_OPERATING_SYSTEM.createProcessIdentityReader(NODE_SYSTEM_ACCESS);
 const daemon = await readProcessIdentity(process.pid);
 const { guard } = await openOrphanGuard({
   dataFolder,

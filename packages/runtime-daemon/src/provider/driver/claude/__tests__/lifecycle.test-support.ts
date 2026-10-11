@@ -193,6 +193,7 @@ export function buildHarness(
       claudeManagedSettingsFolder: "/nonexistent/claude-managed-settings",
     },
     diskFlush: HOST_OPERATING_SYSTEM.diskFlush,
+    pathRules: HOST_OPERATING_SYSTEM.pathRules,
     restartScheduler: (callback) => {
       scheduledRestarts.push(callback);
       return (): void => {

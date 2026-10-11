@@ -17,12 +17,12 @@ export interface OrphanSweepSystem {
   /** Reads a process by id, or `undefined` when no process has it. */
   readonly readProcessIdentity: (processId: number) => Promise<ProcessIdentity | undefined>;
   /**
-   * Finds this user's processes carrying one of `nonces`, by process id, where the system shows
-   * their environments.
+   * Finds this user's processes carrying one of `nonces`, by process id; `null` where the system
+   * does not show their environments.
    */
-  readonly findProcessesCarryingNonces?:
+  readonly findProcessesCarryingNonces:
     | ((nonces: ReadonlySet<string>) => Promise<Map<number, string>>)
-    | undefined;
+    | null;
   /** Lists every process under one, not the process itself; none when the process is gone. */
   readonly listDescendants: (processId: number) => Promise<number[]>;
   /** Kills one process outright; throws as `process.kill` does, `ESRCH` when it is gone. */

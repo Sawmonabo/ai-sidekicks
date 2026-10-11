@@ -5,23 +5,32 @@
 
 import { chmod, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, win32 as win32Path } from "node:path";
+import { isAbsolute, join } from "node:path";
 
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
+import { HOST_OPERATING_SYSTEM } from "../../../../tests/helpers/host-operating-system.js";
 import {
   createGitRunner,
   type GitInvocationFailure,
   type GitRunner,
 } from "../../../git/process.js";
 import { RepoRootResolutionError, type RepoRootResolutionReason } from "../errors.js";
-import { GIT_FATAL_EXIT_CODE, RepoRootResolver } from "../root-resolver.js";
+import {
+  GIT_FATAL_EXIT_CODE,
+  RepoRootResolver,
+  stripSingleLineTerminator,
+} from "../root-resolver.js";
+import { POSIX_PATH_RULES } from "../../../path-rules/posix.js";
+import { WINDOWS_PATH_RULES } from "../../../path-rules/windows.js";
 
 import { buildFixtureEnvironment, runFixtureGit } from "../../../git/__fixtures__/command.js";
 
-const onPosix = process.platform !== "win32";
+const HOST_PATH_RULES = HOST_OPERATING_SYSTEM.pathRules;
+// `geteuid` exists only on POSIX, where a `#!` script runs as a program and file modes gate access.
+const hasPosixProcesses = process.geteuid !== undefined;
 // Root opens a mode-`000` directory, so that fixture would test nothing there.
-const canMakeUnopenable = onPosix && process.geteuid?.() !== 0;
+const canMakeUnopenable = hasPosixProcesses && process.geteuid?.() !== 0;
 
 /** Every path the suite resolves against, all rooted in one realpath'd temp dir. */
 interface Fixtures {
@@ -152,7 +161,7 @@ beforeAll(async () => {
     `gitdir: ${join(fixtureRoot, "no-such-gitdir-target")}\n`,
     "utf8",
   );
-  if (process.platform !== "win32") {
+  if (canMakeUnopenable) {
     await chmod(join(damagedMetadataUnreadable, ".git"), 0o000);
   }
 
@@ -299,7 +308,8 @@ interface RefusalCase {
   readonly input: () => string;
 }
 
-const defaultResolver = (): RepoRootResolver => new RepoRootResolver();
+const defaultResolver = (): RepoRootResolver =>
+  new RepoRootResolver({ pathRules: HOST_PATH_RULES });
 
 it.each([
   { shape: "a nested subdirectory", input: "nestedDirectory", root: "repositoryRoot" },
@@ -319,7 +329,9 @@ it.each([
     root: "separateGitDirRoot",
   },
 ] as const)("resolves $shape to its own canonical toplevel", async ({ input, root }) => {
-  const resolution = await new RepoRootResolver().resolveCanonicalRoot(fixtures[input]);
+  const resolution = await new RepoRootResolver({
+    pathRules: HOST_PATH_RULES,
+  }).resolveCanonicalRoot(fixtures[input]);
   expect(resolution).toMatchObject({
     canonicalRoot: fixtures[root],
     workingTreeRoot: fixtures[root],
@@ -332,10 +344,16 @@ describe("a `.git` pointer is believed only for a working tree git lists", () =>
     // Git answers the holder as its own top level, in the pointed-at repository; only the list
     // tells it from the linked worktree beside it.
     await expectResolutionFailure(
-      new RepoRootResolver().resolveCanonicalRoot(fixtures.plantedPointerHolder),
+      new RepoRootResolver({ pathRules: HOST_PATH_RULES }).resolveCanonicalRoot(
+        fixtures.plantedPointerHolder,
+      ),
       "root_mismatch",
     );
-    expect(await new RepoRootResolver().resolveCanonicalRoot(fixtures.linkedWorktreeRoot)).toEqual({
+    expect(
+      await new RepoRootResolver({ pathRules: HOST_PATH_RULES }).resolveCanonicalRoot(
+        fixtures.linkedWorktreeRoot,
+      ),
+    ).toEqual({
       canonicalRoot: fixtures.repositoryRoot,
       workingTreeRoot: fixtures.linkedWorktreeRoot,
       commonDir: await realpath(join(fixtures.repositoryRoot, ".git")),
@@ -348,6 +366,7 @@ it("refuses a nonexistent path as path_not_found before git runs", async () => {
   // Git would answer for whatever repository holds the path's parent.
   const spawned: (readonly string[])[] = [];
   const resolver = new RepoRootResolver({
+    pathRules: HOST_PATH_RULES,
     git: (args) => {
       spawned.push(args);
       return Promise.reject(new Error("git must not run for a nonexistent path"));
@@ -364,17 +383,17 @@ describe("an incomplete path is refused before anything resolves it", () => {
   // Completing it would take the directory or drive from the daemon's own state, not the
   // author's context.
   it.each([
-    { input: "src/workspace", platformPath: undefined },
-    { input: "nested/deep", platformPath: undefined },
-    { input: "~/some-repo", platformPath: undefined },
-    { input: "", platformPath: undefined },
-    { input: String.raw`\repos\foo`, platformPath: win32Path },
-    { input: "/repos/foo", platformPath: win32Path },
-    { input: "C:foo", platformPath: win32Path },
-  ])("refuses $input as not_absolute without spawning git", async ({ input, platformPath }) => {
+    { input: "src/workspace", pathRules: HOST_PATH_RULES },
+    { input: "nested/deep", pathRules: HOST_PATH_RULES },
+    { input: "~/some-repo", pathRules: HOST_PATH_RULES },
+    { input: "", pathRules: HOST_PATH_RULES },
+    { input: String.raw`\repos\foo`, pathRules: WINDOWS_PATH_RULES },
+    { input: "/repos/foo", pathRules: WINDOWS_PATH_RULES },
+    { input: "C:foo", pathRules: WINDOWS_PATH_RULES },
+  ])("refuses $input as not_absolute without spawning git", async ({ input, pathRules }) => {
     const spawned: (readonly string[])[] = [];
     const resolver = new RepoRootResolver({
-      ...(platformPath === undefined ? {} : { platformPath }),
+      pathRules,
       git: (args) => {
         spawned.push(args);
         return Promise.reject(new Error("git must not run for an incomplete path"));
@@ -386,18 +405,29 @@ describe("an incomplete path is refused before anything resolves it", () => {
 
   it("admits complete win32 roots", async () => {
     // `path_not_found` from `realpath` shows the gate let the input through. A UNC root is
-    // checked only off Windows, where a real host would try the network name instead.
+    // checked only where the host's own paths do not read it as a network name, which a real
+    // host would try instead.
+    const uncRoot = String.raw`\\server\share\repo`;
     const completeRoots = [
       String.raw`C:\repos`,
       "C:/repos",
-      ...(onPosix ? [String.raw`\\server\share\repo`] : []),
+      ...(isAbsolute(uncRoot) ? [] : [uncRoot]),
     ];
     for (const input of completeRoots) {
       await expectResolutionFailure(
-        new RepoRootResolver({ platformPath: win32Path }).resolveCanonicalRoot(input),
+        new RepoRootResolver({ pathRules: WINDOWS_PATH_RULES }).resolveCanonicalRoot(input),
         "path_not_found",
       );
     }
+  });
+});
+
+describe("git's line ending is stripped by the system's rules", () => {
+  it("drops the carriage return a Windows git prints, and keeps one a POSIX name ends with", () => {
+    expect(stripSingleLineTerminator("C:\\repos\\app\r\n", WINDOWS_PATH_RULES)).toBe(
+      "C:\\repos\\app",
+    );
+    expect(stripSingleLineTerminator("/repos/app\r\n", POSIX_PATH_RULES)).toBe("/repos/app\r");
   });
 });
 
@@ -411,21 +441,31 @@ const unusablePathCases: readonly (RefusalCase & { readonly reason: RepoRootReso
     },
     {
       refusal: "a path that cannot be traversed",
-      resolver: () => new RepoRootResolver({ realpath: rejectingWithErrno("EACCES") }),
+      resolver: () =>
+        new RepoRootResolver({
+          pathRules: HOST_PATH_RULES,
+          realpath: rejectingWithErrno("EACCES"),
+        }),
       input: () => fixtures.repositoryRoot,
       reason: "not_readable",
     },
     {
       refusal: "a reported root that cannot be listed",
       resolver: () =>
-        new RepoRootResolver({ probeDirectoryReadable: rejectingWithErrno("EACCES") }),
+        new RepoRootResolver({
+          pathRules: HOST_PATH_RULES,
+          probeDirectoryReadable: rejectingWithErrno("EACCES"),
+        }),
       input: () => fixtures.repositoryRoot,
       reason: "not_readable",
     },
     {
       refusal: "a reported root that vanished before the gate",
       resolver: () =>
-        new RepoRootResolver({ probeDirectoryReadable: rejectingWithErrno("ENOENT") }),
+        new RepoRootResolver({
+          pathRules: HOST_PATH_RULES,
+          probeDirectoryReadable: rejectingWithErrno("ENOENT"),
+        }),
       input: () => fixtures.repositoryRoot,
       reason: "path_not_found",
     },
@@ -454,7 +494,7 @@ describe("not_a_repository is git's own verdict on absent metadata, and nothing 
       vi.stubEnv("GIT_DIR", join(fixtures.repositoryRoot, ".git"));
     }
     await expectResolutionFailure(
-      new RepoRootResolver().resolveCanonicalRoot(fixtures[input]),
+      new RepoRootResolver({ pathRules: HOST_PATH_RULES }).resolveCanonicalRoot(fixtures[input]),
       "not_a_repository",
     );
   });
@@ -463,7 +503,7 @@ describe("not_a_repository is git's own verdict on absent metadata, and nothing 
   // says nothing about the path; reading either as "not a repository" misreports a real one.
   const plainDirectory = (): string => fixtures.plainDirectory;
   const synthetic = (shape: Partial<GitInvocationFailure>) => (): RepoRootResolver =>
-    new RepoRootResolver({ git: rejectingGit(shape) });
+    new RepoRootResolver({ pathRules: HOST_PATH_RULES, git: rejectingGit(shape) });
   const vcsErrorCases: readonly RefusalCase[] = [
     {
       refusal: "an empty `.git` directory",
@@ -491,26 +531,36 @@ describe("not_a_repository is git's own verdict on absent metadata, and nothing 
     },
     {
       refusal: "a missing git executable",
-      resolver: () => new RepoRootResolver({ git: createGitRunner(fixtures.missingGitExecutable) }),
+      resolver: () =>
+        new RepoRootResolver({
+          pathRules: HOST_PATH_RULES,
+          git: createGitRunner(fixtures.missingGitExecutable),
+        }),
       input: () => fixtures.nestedDirectory,
     },
     {
       // No git along the login shell's PATH: the daemon starts, and the first resolution refuses.
       refusal: "no git found at start",
-      resolver: () => new RepoRootResolver({ git: createGitRunner(undefined) }),
+      resolver: () =>
+        new RepoRootResolver({ pathRules: HOST_PATH_RULES, git: createGitRunner(undefined) }),
       input: () => fixtures.nestedDirectory,
     },
     {
       refusal: "a git file that is not executable",
-      resolver: () => new RepoRootResolver({ git: createGitRunner(fixtures.nonExecutableGitFile) }),
+      resolver: () =>
+        new RepoRootResolver({
+          pathRules: HOST_PATH_RULES,
+          git: createGitRunner(fixtures.nonExecutableGitFile),
+        }),
       input: () => fixtures.repositoryRoot,
     },
-    ...(onPosix
+    ...(hasPosixProcesses
       ? [
           {
             refusal: "a git that outlives its timeout",
             resolver: () =>
               new RepoRootResolver({
+                pathRules: HOST_PATH_RULES,
                 git: createGitRunner(fixtures.hangingGitScript),
                 gitCommandTimeoutMs: 150,
               }),
@@ -579,14 +629,16 @@ describe("a root git did not report for the supplied path is never returned", ()
   const redirectCases: readonly (RefusalCase & { readonly reason: RepoRootResolutionReason })[] = [
     {
       refusal: "an empty toplevel",
-      resolver: () => new RepoRootResolver({ git: succeedingGit("\n") }),
+      resolver: () =>
+        new RepoRootResolver({ pathRules: HOST_PATH_RULES, git: succeedingGit("\n") }),
       input: () => fixtures.plainDirectory,
       reason: "vcs_error",
     },
     {
       // `.` would resolve against the daemon's own working directory.
       refusal: "a relative toplevel",
-      resolver: () => new RepoRootResolver({ git: succeedingGit(".\n") }),
+      resolver: () =>
+        new RepoRootResolver({ pathRules: HOST_PATH_RULES, git: succeedingGit(".\n") }),
       input: () => fixtures.plainDirectory,
       reason: "vcs_error",
     },
@@ -594,6 +646,7 @@ describe("a root git did not report for the supplied path is never returned", ()
       refusal: "a toplevel that does not resolve",
       resolver: () =>
         new RepoRootResolver({
+          pathRules: HOST_PATH_RULES,
           git: succeedingGit(`${join(fixtures.fixtureRoot, "vanished-root")}\n`),
         }),
       input: () => fixtures.plainDirectory,

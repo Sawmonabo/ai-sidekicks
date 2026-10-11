@@ -43,6 +43,7 @@ import {
 import { EventLogService } from "../../events/log-service.js";
 import { SessionEventAppender } from "../../events/session/appender.js";
 import { connect } from "../../ipc/__fixtures__/local-socket-client.js";
+import { NODE_SYSTEM_ACCESS } from "../../node-system-access.js";
 import { readSocketPathLimit } from "../../ipc/socket-path-limit.js";
 import type { FakeProviderDriver } from "../../provider/driver/__fixtures__/contract-doubles.js";
 import { ExecutionPostureService } from "../../policy/execution-posture-service.js";
@@ -407,6 +408,7 @@ async function useSleepingLoginShell(): Promise<{
       deadlineMs: 60_000,
       serviceEnvironment: process.env,
       writeServiceLog: (line) => logged.push(line),
+      readTextFile: NODE_SYSTEM_ACCESS.readTextFile,
       signal,
     });
   return { capture, running, logged, shellPath };

@@ -423,7 +423,8 @@ export async function choosePutBackBranch(
   const isHeldByRemovedRecord =
     holder !== null &&
     isStaleRecordRemoved &&
-    (await canonicalFolderPath(holder)) === (await canonicalFolderPath(kept.originalPath));
+    (await canonicalFolderPath(holder, tools.pathRules)) ===
+      (await canonicalFolderPath(kept.originalPath, tools.pathRules));
   // A live tree's row on the branch holds it too, though git no longer reads that tree.
   if (
     ownHead?.commit === recordedCommit &&

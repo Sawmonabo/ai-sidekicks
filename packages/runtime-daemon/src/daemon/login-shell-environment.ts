@@ -54,6 +54,8 @@ export interface ProviderBaseEnvironmentCapture {
   readonly serviceEnvironment: NodeJS.ProcessEnv;
   /** Writes one line to the service log. */
   readonly writeServiceLog: (line: string) => void;
+  /** Reads a system file, which a system's part of the capture consults; rejects as `readFile`. */
+  readonly readTextFile: (filePath: string) => Promise<string>;
   /**
    * Abandons the capture: the shell and its group end. The abort's reason finishes the service
    * log's sentence on why, as in "was ended, since a stop came during the start".

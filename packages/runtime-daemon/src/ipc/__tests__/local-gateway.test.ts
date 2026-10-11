@@ -20,7 +20,6 @@ import { JsonRpcErrorCode } from "@ai-sidekicks/contracts/jsonrpc/error-code";
 import { encodeFrame } from "@ai-sidekicks/contracts/content-length-framing";
 import { DeviceIdSchema } from "@ai-sidekicks/contracts/trust-statement";
 
-import { HOST_OPERATING_SYSTEM } from "../../../tests/helpers/host-operating-system.js";
 import { bootstrap } from "../../bootstrap/index.js";
 import { LocalIpcGateway } from "../local-gateway.js";
 import { MethodRegistryImpl } from "../registry.js";
@@ -73,11 +72,7 @@ describe("LocalIpcGateway", () => {
       passthroughSchema<unknown>(),
       failingHandler,
     );
-    gateway = new LocalIpcGateway({
-      registry,
-      deviceId: SERVICE_DEVICE_ID,
-      readSocketPathLimit: HOST_OPERATING_SYSTEM.readSocketPathLimit,
-    });
+    gateway = new LocalIpcGateway({ registry, deviceId: SERVICE_DEVICE_ID });
     await gateway.start();
   });
 
@@ -267,11 +262,7 @@ describe("LocalIpcGateway stop", () => {
     bootstrap({ localIpcPath: socketPath });
     const registry = new MethodRegistryImpl();
     const largeText = "r".repeat(256 * 1024);
-    const gateway = new LocalIpcGateway({
-      registry,
-      deviceId: SERVICE_DEVICE_ID,
-      readSocketPathLimit: HOST_OPERATING_SYSTEM.readSocketPathLimit,
-    });
+    const gateway = new LocalIpcGateway({ registry, deviceId: SERVICE_DEVICE_ID });
     const stopping: Array<Promise<void>> = [];
     const replyThenStop: Handler<unknown, { text: string }> = async () => {
       setImmediate(() => {
@@ -325,11 +316,7 @@ describe("LocalIpcGateway stop", () => {
         writeHandler,
         { mutating: true },
       );
-      gateway = new LocalIpcGateway({
-        registry,
-        deviceId: SERVICE_DEVICE_ID,
-        readSocketPathLimit: HOST_OPERATING_SYSTEM.readSocketPathLimit,
-      });
+      gateway = new LocalIpcGateway({ registry, deviceId: SERVICE_DEVICE_ID });
       await gateway.start();
       // A client that keeps its own side open after the gateway ends the connection, so the stop
       // waits on it.
@@ -412,7 +399,6 @@ describe("LocalIpcGateway outbound queue", () => {
     const gateway = new LocalIpcGateway({
       registry: new MethodRegistryImpl(),
       deviceId: SERVICE_DEVICE_ID,
-      readSocketPathLimit: HOST_OPERATING_SYSTEM.readSocketPathLimit,
       hooks: {
         onConnect: (transport) => {
           transportIds.push(transport.id);
@@ -504,7 +490,6 @@ describe("LocalIpcGateway before SecureDefaults load", () => {
     const gateway = new UnloadedGateway({
       registry: new UnloadedRegistry(),
       deviceId: SERVICE_DEVICE_ID,
-      readSocketPathLimit: HOST_OPERATING_SYSTEM.readSocketPathLimit,
     });
     await expect(gateway.start()).rejects.toThrow(/must complete before any listener bind/);
   });

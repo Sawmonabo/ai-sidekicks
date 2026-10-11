@@ -11,6 +11,7 @@
 import { readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
+import type { PathRules } from "../../path-rules/contract.js";
 import { canonicalFolderPath } from "../../workspace/folder/canonical-path.js";
 import { readGitExitStatus, type GitCommand } from "../process.js";
 
@@ -407,6 +408,7 @@ export function commonFolderOfRecord(recordFolder: string): string {
 export async function readLinkedTreeRecord(
   git: GitCommand,
   treeFolder: string,
+  pathRules: PathRules,
 ): Promise<string | null> {
   let output: string;
   try {
@@ -436,7 +438,10 @@ export async function readLinkedTreeRecord(
   if (!isThreeFolders) {
     throw new Error("git rev-parse printed something other than three folders");
   }
-  if ((await canonicalFolderPath(topLevel)) !== (await canonicalFolderPath(treeFolder))) {
+  if (
+    (await canonicalFolderPath(topLevel, pathRules)) !==
+    (await canonicalFolderPath(treeFolder, pathRules))
+  ) {
     return null;
   }
   return dirname(recordFolder) === join(commonFolder, LINKED_RECORDS_FOLDER_NAME)

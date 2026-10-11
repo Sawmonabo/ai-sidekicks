@@ -12,6 +12,7 @@ import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 
+import { HOST_OPERATING_SYSTEM } from "../../../tests/helpers/host-operating-system.js";
 import { openScratchDatabase, type ScratchDatabase } from "../../database/__fixtures__/scratch.js";
 import { EventLogService } from "../../events/log-service.js";
 import type { RespondToRequestParams } from "../../provider/driver/contract.js";
@@ -114,6 +115,7 @@ function buildAsks(): PermissionAsks {
     readProjectFolders: () => PROJECT_FOLDERS,
   };
   return new PermissionAsks({
+    pathRules: HOST_OPERATING_SYSTEM.pathRules,
     approvals: {
       create: async (request, origin) => {
         onCreate();

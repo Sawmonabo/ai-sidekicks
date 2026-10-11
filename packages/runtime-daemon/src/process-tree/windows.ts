@@ -36,8 +36,7 @@ export async function defaultSpawnTaskkill(pid: number): Promise<TaskkillResult>
     proc.once("error", (err: Error) => {
       // `taskkill` itself failed to spawn (binary missing, PATH stripped, blocked by antivirus).
       // Resolve anyway so the kill path continues, and warn so a persistent misconfiguration is
-      // distinguishable in logs from a healthy exit. Replace `console.warn` once the daemon has a
-      // structured logger.
+      // distinguishable in logs from a healthy exit.
       console.warn(
         `defaultSpawnTaskkill: taskkill spawn failed for pid=${pid}; ` +
           `treating as exit=null so caller can fire synthetic exit.`,

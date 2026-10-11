@@ -25,6 +25,7 @@ import {
   type WorktreeSetupStep,
 } from "@ai-sidekicks/contracts/worktree/setup";
 
+import type { PathRules } from "../../path-rules/contract.js";
 import type { ServiceLogWriter } from "../../daemon/service-log.js";
 import { describeRejection } from "../../rejection.js";
 import type { ProcessTreeEnding } from "../../process-tree/contract.js";
@@ -79,6 +80,8 @@ export interface WorktreeSetupRunnerDeps {
   readonly writeServiceLog: ServiceLogWriter;
   /** Monotonic clock in milliseconds for each step's elapsed time; injectable for tests. */
   readonly monotonicNow?: () => number;
+  /** How the system spells and compares paths. */
+  readonly pathRules: PathRules;
 }
 
 // A project step is a file to copy or a command to run; the fixed steps carry no action.
@@ -263,14 +266,14 @@ export class WorktreeSetupRunner {
    * Run before the folder is moved or deleted.
    */
   async endProcessesInFolder(folder: string): Promise<void> {
-    const folderKey = await canonicalFolderPath(folder);
+    const folderKey = await canonicalFolderPath(folder, this.#deps.pathRules);
     const ending: Promise<void>[] = [];
     for (const card of this.#cardByWorktree.values()) {
       const running = card.runningCommand;
       if (running === null || card.made === null) {
         continue;
       }
-      const treeKey = await canonicalFolderPath(card.made.treePath);
+      const treeKey = await canonicalFolderPath(card.made.treePath, this.#deps.pathRules);
       if (treeKey === folderKey || treeKey.startsWith(`${folderKey}${sep}`)) {
         ending.push(
           endRunningCommand(this.#deps.processTree, running, REMOVED_END_REASON, {

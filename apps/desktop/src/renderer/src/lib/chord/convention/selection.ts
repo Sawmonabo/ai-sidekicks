@@ -2,7 +2,7 @@
 // alone, and every chord reader takes the picked keyboard as a parameter, so a test can hand any
 // system's keyboard to the printer and the audit instead.
 
-import type { SupportedPlatform } from "#shared/app-facts.js";
+import type { SupportedPlatform } from "@ai-sidekicks/contracts/platform";
 import type { KeyboardConvention } from "./contract.js";
 import { LINUX_KEYBOARD_CONVENTION } from "./linux.js";
 import { MAC_KEYBOARD_CONVENTION } from "./mac.js";

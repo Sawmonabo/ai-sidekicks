@@ -33,7 +33,9 @@ const CONSOLE_EVENT_GRACE_MS = 2_000;
 
 /** The Windows calls the terminal makes; the real ones unless a test hands in doubles. */
 export interface WindowsTerminalProcesses {
+  /** Sends a console-control event to the console group a process leads. */
   readonly generateConsoleCtrlEvent: ConsoleCtrlEventSender;
+  /** Ends a process and every process it started, through `taskkill /T /F`. */
   readonly runTaskkill: TaskkillRunner;
 }
 
@@ -52,15 +54,15 @@ export function windowsTerminalOperatingSystem(
     loadedSender ??= await loadGenerateConsoleCtrlEvent();
     return loadedSender;
   };
-  // A stuck `taskkill` cannot hold the report back past its bound, and a failed one is logged, not
-  // thrown, so the report still comes; the log tells a persistent failure (bad PATH, blocked
-  // taskkill.exe) from a healthy exit.
-  const endTreeWithin = (pid: number): Promise<void> =>
-    runTaskkillWithin(pid, runTaskkill, (error) => {
+  // A failed `taskkill` is logged, not thrown, so the exit is still reported; the log tells a
+  // persistent failure (bad PATH, blocked taskkill.exe) from a healthy exit.
+  const logRejectedTaskkill =
+    (pid: number) =>
+    (error: unknown): void => {
       console.warn(`taskkill rejected for pid=${String(pid)}; its exit is reported anyway.`, {
         cause: error,
       });
-    });
+    };
   return {
     defaultShell: commandInterpreter ?? "cmd.exe",
     loginShellArgs: [],
@@ -76,8 +78,11 @@ export function windowsTerminalOperatingSystem(
         (await consoleEventSender())(CTRL_C_EVENT, child.pid);
         return;
       }
+      // The terminal host bounds how long the report waits on a stuck `taskkill`.
       const endOutright = (): void => {
-        reportForcedEnd(endTreeWithin(child.pid));
+        reportForcedEnd(
+          runTaskkill(child.pid).then(() => undefined, logRejectedTaskkill(child.pid)),
+        );
       };
       if (signal === "SIGKILL") {
         endOutright();
@@ -86,9 +91,11 @@ export function windowsTerminalOperatingSystem(
       (await consoleEventSender())(CTRL_BREAK_EVENT, child.pid);
       escalateAfter(CONSOLE_EVENT_GRACE_MS, endOutright);
     },
-    killChildGroup: undefined,
+    killChildGroup: null,
     killTerminalHost: (host) =>
-      host.pid === undefined ? killTerminalHostAlone(host) : endTreeWithin(host.pid),
+      host.pid === undefined
+        ? killTerminalHostAlone(host)
+        : runTaskkillWithin(host.pid, runTaskkill, logRejectedTaskkill(host.pid)),
   };
 }
 

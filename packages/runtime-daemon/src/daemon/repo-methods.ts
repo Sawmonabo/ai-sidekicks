@@ -110,12 +110,17 @@ export interface RepoMethodsDeps {
   /** The service's one scheduler, which its creator stops through the services' stop. */
   readonly scheduler: Scheduler;
   /**
-   * How the system ends a command's tree, renames and flushes folders, watches a tree and runs
-   * git's question program.
+   * How the system ends a command's tree, compares paths, renames and flushes folders, watches a
+   * tree and runs git's question program.
    */
   readonly operatingSystem: Pick<
     DaemonOperatingSystem,
-    "processTree" | "folderRenames" | "diskFlush" | "treeWatchCeiling" | "hasAskpassLauncher"
+    | "processTree"
+    | "pathRules"
+    | "folderRenames"
+    | "diskFlush"
+    | "treeWatchCeiling"
+    | "hasAskpassLauncher"
   >;
   readonly writeServiceLog: (line: string) => void;
 }
@@ -161,9 +166,11 @@ export function registerRepoMethods(registry: MethodRegistry, deps: RepoMethodsD
     writeServiceLog,
   });
   // The sessions standing in each folder, read by every service that asks.
-  const occupancy = new MountOccupancyReader(database.reader);
+  const { pathRules } = deps.operatingSystem;
+  const occupancy = new MountOccupancyReader(database.reader, pathRules);
   const watcher = new WorkingFolderWatcher({
     occupancy,
+    pathRules,
     git,
     scheduler,
     // Called only after the live folders below exist.
@@ -177,6 +184,7 @@ export function registerRepoMethods(registry: MethodRegistry, deps: RepoMethodsD
     watcher,
     fetch: backgroundFetch,
     followAll: (onCommitted, onGap) => deps.eventLog.followAll(onCommitted, onGap),
+    pathRules,
     writeServiceLog,
   });
 
@@ -199,6 +207,7 @@ export function registerRepoMethods(registry: MethodRegistry, deps: RepoMethodsD
     startWatches: (target) => watcher.hold(target),
     commandShell: deps.commandShell,
     processTree: deps.operatingSystem.processTree,
+    pathRules,
     commandEnvironment: async (worktreeId) =>
       Object.fromEntries(
         buildCommandSpawnEnv({
@@ -217,6 +226,7 @@ export function registerRepoMethods(registry: MethodRegistry, deps: RepoMethodsD
     database,
     events: worktreeEvents,
     occupancy,
+    pathRules,
     naming: new WorktreeNaming({
       worktreesDirectory,
       sources: {
@@ -239,6 +249,7 @@ export function registerRepoMethods(registry: MethodRegistry, deps: RepoMethodsD
 
   const executionRoots = new ExecutionRootService({
     database,
+    pathRules,
     workspaces: deps.workspaces,
     worktrees: {
       create: (input) => creator.create(input),
@@ -256,6 +267,7 @@ export function registerRepoMethods(registry: MethodRegistry, deps: RepoMethodsD
     database,
     executionRoots,
     events: worktreeEvents,
+    pathRules,
   });
   // One per kept copy, by its id: its discard, any repair of it, its put-back and its deletion.
   const keptCopyLock = new KeyedLock<string>();
@@ -267,6 +279,7 @@ export function registerRepoMethods(registry: MethodRegistry, deps: RepoMethodsD
     filesystem: DEFAULT_GIT_FILESYSTEM,
     folderRenames: deps.operatingSystem.folderRenames,
     diskFlush: deps.operatingSystem.diskFlush,
+    pathRules,
     copies: worktreeCopies,
     worktrees,
     worktreesDirectory,
@@ -282,6 +295,7 @@ export function registerRepoMethods(registry: MethodRegistry, deps: RepoMethodsD
     runGit: git,
     filesystem: DEFAULT_GIT_FILESYSTEM,
     folderRenames: deps.operatingSystem.folderRenames,
+    pathRules,
     copies: worktreeCopies,
     writeServiceLog,
     worktreesDirectory,
@@ -293,6 +307,7 @@ export function registerRepoMethods(registry: MethodRegistry, deps: RepoMethodsD
     events: deps.workspaceEvents,
     worktreeEvents,
     resolver: deps.resolver,
+    pathRules,
     writeServiceLog,
   });
   const gate = new ExecutionRootSetupGate({
@@ -302,11 +317,13 @@ export function registerRepoMethods(registry: MethodRegistry, deps: RepoMethodsD
     workingFolders,
     reattachedWorkspaces: reattach,
     checkoutLock,
+    pathRules,
   });
   const health = new RepoMountHealthReprobe({
     database,
     events: deps.workspaceEvents,
     resolver: deps.resolver,
+    pathRules,
     writeServiceLog,
   });
   // A probe's failure goes to the service log, never to a caller; the next trigger probes again.
@@ -332,6 +349,7 @@ export function registerRepoMethods(registry: MethodRegistry, deps: RepoMethodsD
       readCloneFolderSetting: async () => (await readSettings()).cloneFolder,
       homeDirectory: deps.homeDirectory,
       folderPlace: deps.folderPlace,
+      pathRules,
       git,
       streamedGit: deps.streamedGit,
       onCloneAttached: (projectId) => deps.creation.finishProvisioningSessions(projectId),
@@ -425,7 +443,7 @@ export function registerRepoMethods(registry: MethodRegistry, deps: RepoMethodsD
         return deps.repoMounts.read(repoMountId);
       },
     },
-    folderUsage: new RepoFolderUsage(database.reader, occupancy, deps.folderPlace),
+    folderUsage: new RepoFolderUsage(database.reader, occupancy, deps.folderPlace, pathRules),
     reattach: {
       reattach: async (request) => {
         try {
@@ -453,11 +471,17 @@ export function registerRepoMethods(registry: MethodRegistry, deps: RepoMethodsD
     folders: new FolderListService({
       homeDirectory: deps.homeDirectory,
       folderPlace: deps.folderPlace,
+      pathRules,
       git,
     }),
   });
   registerRepoBranchMethods(registry, {
-    branches: new BranchListReader({ reader: database.reader, git, fetch: backgroundFetch }),
+    branches: new BranchListReader({
+      reader: database.reader,
+      git,
+      fetch: backgroundFetch,
+      pathRules,
+    }),
   });
   registerRepoWorkingTreeMethods(registry, {
     streamingPrimitive: deps.streamingPrimitive,
@@ -474,6 +498,7 @@ export function registerRepoMethods(registry: MethodRegistry, deps: RepoMethodsD
       git,
       fetch: backgroundFetch,
       newWorktree: creator,
+      pathRules,
     }),
     removal: {
       retire: async (request) => {

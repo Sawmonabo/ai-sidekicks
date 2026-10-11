@@ -263,6 +263,7 @@ async function crashAfterMove(
   const mount = fixture.worktrees.requireAttachedMount(row.repo_mount_id);
   await moveWorktreeAside(
     {
+      pathRules: HOST_OPERATING_SYSTEM.pathRules,
       runGit: fixture.runGit,
       filesystem: DEFAULT_GIT_FILESYSTEM,
       folderRenames: HOST_OPERATING_SYSTEM.folderRenames,

@@ -13,7 +13,7 @@ import { isAbsolute } from "node:path";
 
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
-import { findExecutables, type ExecutableSearchDependencies } from "../executable-search.js";
+import { findExecutables, type ExecutableSearchDependencies } from "./executable-search.js";
 import { describeRejection } from "../rejection.js";
 import { parseCliVersionReport } from "./capability/refresh.js";
 import type { ProviderCommandSearch } from "./command-search.js";

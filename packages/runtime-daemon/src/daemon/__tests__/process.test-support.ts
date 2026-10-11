@@ -21,6 +21,7 @@ import type { ProcessIdentity } from "@ai-sidekicks/contracts/process-identity";
 import { connect, type Client } from "../../ipc/__fixtures__/local-socket-client.js";
 import type { DrainResult, PtyHost } from "../../pty/host/contract.js";
 import { openOrphanGuard } from "../../pty/orphan/guard.js";
+import { NO_ORPHAN_SYSTEM_PARTS } from "../../pty/orphan/operating-system.js";
 import { MAC_PROVIDER_OPERATING_SYSTEM } from "../../provider/operating-system/mac.js";
 import { SearchThread, type SearchThreadOptions } from "../../session/search/thread/handle.js";
 import { DaemonProcess, type DaemonProcessOptions } from "../process.js";
@@ -128,7 +129,7 @@ export async function startDaemon(
         dataFolder,
         bootId: PROCESS_IDENTITY.bootId,
         readProcessIdentity: () => Promise.resolve(undefined),
-        operatingSystem: {},
+        operatingSystem: NO_ORPHAN_SYSTEM_PARTS,
         diskFlush: HOST_OPERATING_SYSTEM.diskFlush,
         writeServiceLog: () => {},
       }),

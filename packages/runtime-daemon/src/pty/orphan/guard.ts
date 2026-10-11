@@ -20,7 +20,8 @@ export interface OrphanGuardOptions {
   /** This boot's id, which every entry records. */
   bootId: string;
   readProcessIdentity: (processId: number) => Promise<ProcessIdentity | undefined>;
-  exitWatch?: ProcessExitWatch | undefined;
+  /** The kernel's watch on exits, `null` where the system has none. */
+  exitWatch: ProcessExitWatch | null;
   writeServiceLog: (line: string) => void;
 }
 
@@ -33,7 +34,7 @@ export class OrphanGuard {
   readonly #registry: OrphanRegistry;
   readonly #bootId: string;
   readonly #readProcessIdentity: (processId: number) => Promise<ProcessIdentity | undefined>;
-  readonly #exitWatch: ProcessExitWatch | undefined;
+  readonly #exitWatch: ProcessExitWatch | null;
   readonly #writeServiceLog: (line: string) => void;
 
   constructor(options: OrphanGuardOptions) {

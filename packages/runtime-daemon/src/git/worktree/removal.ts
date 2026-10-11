@@ -37,6 +37,7 @@ import {
   type WorktreeRetireResponse,
 } from "@ai-sidekicks/contracts/worktree/lifecycle";
 
+import type { PathRules } from "../../path-rules/contract.js";
 import { withCleanupFailures } from "../../cleanup-failures.js";
 import type { ServiceLogWriter } from "../../daemon/service-log.js";
 import type { KeyedLock } from "../../keyed-lock.js";
@@ -173,6 +174,8 @@ export interface WorktreeRemovalDeps {
   readonly filesystem: Pick<GitFilesystem, "rename" | "removePath">;
   /** How the system renames a folder, which a discard's move and a record's removal follow. */
   readonly folderRenames: FolderRenames;
+  /** How the system spells and compares paths. */
+  readonly pathRules: PathRules;
   /** Where a discard's copy across volumes, and its undo's, reports its progress. */
   readonly copies: KeptCopyTools["copies"];
   /** Where the repair writes a tree record it found set aside and left there, its name taken. */
@@ -456,6 +459,7 @@ export class WorktreeRemoval implements RetiredWorktreeKeeper {
           {
             filesystem: this.#deps.filesystem,
             folderRenames: this.#deps.folderRenames,
+            pathRules: this.#deps.pathRules,
             writeServiceLog: this.#deps.writeServiceLog,
             claims: removedWorktrees.claims,
           },
@@ -553,6 +557,7 @@ export class WorktreeRemoval implements RetiredWorktreeKeeper {
           filesystem: this.#deps.filesystem,
           folderRenames: this.#deps.folderRenames,
           copies: this.#deps.copies,
+          pathRules: this.#deps.pathRules,
         },
         {
           worktreeId: WorktreeIdSchema.parse(row.id),
@@ -612,7 +617,9 @@ export class WorktreeRemoval implements RetiredWorktreeKeeper {
 
   async #occupying(row: WorktreeRow): Promise<SessionId[]> {
     const occupancy = await this.#deps.occupancy.read(row.repo_mount_id);
-    const standing = occupancy.standingByFolder.get(await canonicalFolderPath(row.fs_root));
+    const standing = occupancy.standingByFolder.get(
+      await canonicalFolderPath(row.fs_root, this.#deps.pathRules),
+    );
     return (standing ?? []).map((session) => session.sessionId);
   }
 

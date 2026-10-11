@@ -22,6 +22,7 @@ import {
   type RepoCloneStatus,
 } from "@ai-sidekicks/contracts/repo/clone";
 
+import type { PathRules } from "../../path-rules/contract.js";
 import { mapWithProcessorBound } from "../../processor-bound.js";
 import { mintUuidV7 } from "../../uuid-v7.js";
 import type { ServiceLogWriter } from "../../daemon/service-log.js";
@@ -118,6 +119,8 @@ export interface CloneServiceDeps {
   readonly git: GitCommand;
   /** The `git` the daemon found, run streamed for each clone and pull. */
   readonly streamedGit: StreamedGitRunner;
+  /** How the system spells and compares paths. */
+  readonly pathRules: PathRules;
 }
 
 // The steps a failed card can name; `sessions` runs no git, so no activity follows it.
@@ -167,8 +170,10 @@ export class CloneService {
   readonly #startLock = new KeyedLock<string>();
   readonly #cards = new Map<ProjectId, CloneCard>();
   #isClosing = false;
+  readonly #pathRules: PathRules;
 
   constructor(deps: CloneServiceDeps) {
+    this.#pathRules = deps.pathRules;
     this.#projects = deps.projects;
     this.#records = deps.records;
     this.#askpass = deps.askpass;
@@ -659,12 +664,12 @@ export class CloneService {
 
   // Whether a running clone fills `destination`, the folders compared resolved.
   async #isFilledByAnotherClone(destination: string): Promise<boolean> {
-    const destinationKey = await canonicalFolderPath(destination);
+    const destinationKey = await canonicalFolderPath(destination, this.#pathRules);
     for (const card of this.#cards.values()) {
       const cardDestination = card.destination;
       if (
         cardDestination !== null &&
-        (await canonicalFolderPath(cardDestination)) === destinationKey
+        (await canonicalFolderPath(cardDestination, this.#pathRules)) === destinationKey
       ) {
         return true;
       }

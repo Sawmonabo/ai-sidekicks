@@ -11,7 +11,7 @@ import type { DaemonRepairProgress } from "@ai-sidekicks/contracts/daemon/recove
 import type { DaemonRunFolder } from "@ai-sidekicks/contracts/daemon/run-folder";
 
 import { withCleanupFailures } from "../cleanup-failures.js";
-import { LocalIpcGateway, type LocalIpcGatewayOptions } from "../ipc/local-gateway.js";
+import { LocalIpcGateway } from "../ipc/local-gateway.js";
 import { ProtocolNegotiator } from "../ipc/protocol-negotiation.js";
 import { MethodRegistryImpl } from "../ipc/registry.js";
 import { registerLifecycleMethods } from "./lifecycle-methods.js";
@@ -21,8 +21,8 @@ import { bindSocket, mintSessionToken, prepareRunFolder } from "./run-folder.js"
  * Runs `repair` while the run folder's socket answers that the service is repairing, with the
  * progress `repair` last reported, and returns what it returns; the signal `repair` is handed
  * aborts once a stop or a restart is asked for over the socket. A connection's or the listener's
- * failure goes to `writeServiceLog`; `readSocketPathLimit` is the gateway's. Throws
- * `DaemonAlreadyRunningError` when a daemon answers there already.
+ * failure goes to `writeServiceLog`. Throws `DaemonAlreadyRunningError` when a daemon answers
+ * there already.
  */
 export async function answerRepairingWhile<T>(
   runFolder: DaemonRunFolder,
@@ -31,7 +31,6 @@ export async function answerRepairingWhile<T>(
     stopAsked: AbortSignal,
   ) => Promise<T>,
   writeServiceLog: (line: string) => void,
-  readSocketPathLimit: LocalIpcGatewayOptions["readSocketPathLimit"],
 ): Promise<T> {
   const sessionToken = mintSessionToken();
   const negotiator = new ProtocolNegotiator(sessionToken);
@@ -52,7 +51,6 @@ export async function answerRepairingWhile<T>(
   });
   const gateway = new LocalIpcGateway({
     registry,
-    readSocketPathLimit,
     hooks: {
       onDisconnect: (transport) => {
         negotiator.cleanupTransport(transport.id);

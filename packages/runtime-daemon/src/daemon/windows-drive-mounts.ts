@@ -3,8 +3,6 @@
 // found there fails inside the distribution, so the folders under these mounts are left out of the
 // providers' search path.
 
-import { readFile } from "node:fs/promises";
-
 // WSL's own kernels name Microsoft in their release: `5.15.167.4-microsoft-standard-WSL2` on WSL 2,
 // `4.4.0-19041-Microsoft` on WSL 1.
 const WSL_KERNEL_RELEASE = /microsoft/i;
@@ -45,11 +43,16 @@ export function findWindowsDriveMounts(kernelRelease: string, mountTable: string
   return mounts;
 }
 
-/** Reads the folders the Windows drives are mounted at on this Linux machine; rejects on a read. */
-export async function readWindowsDriveMounts(): Promise<string[]> {
+/**
+ * Reads the folders the Windows drives are mounted at on this Linux machine through
+ * `readTextFile`; rejects when a read does.
+ */
+export async function readWindowsDriveMounts(
+  readTextFile: (filePath: string) => Promise<string>,
+): Promise<string[]> {
   const [kernelRelease, mountTable] = await Promise.all([
-    readFile("/proc/sys/kernel/osrelease", "utf8"),
-    readFile("/proc/self/mounts", "utf8"),
+    readTextFile("/proc/sys/kernel/osrelease"),
+    readTextFile("/proc/self/mounts"),
   ]);
   return findWindowsDriveMounts(kernelRelease, mountTable);
 }

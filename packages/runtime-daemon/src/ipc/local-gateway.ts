@@ -40,6 +40,7 @@ import {
 import { assertLoadedForBind } from "../bootstrap/index.js";
 import { assertSocketPathFits, SecureDefaults } from "../bootstrap/secure-defaults.js";
 import { mapJsonRpcError } from "./jsonrpc-error-mapping.js";
+import { readSocketPathLimit } from "./socket-path-limit.js";
 import { describeRejection } from "../rejection.js";
 
 // --------------------------------------------------------------------------
@@ -136,11 +137,6 @@ export interface LocalIpcGatewayOptions {
    */
   readonly deviceId?: DeviceId;
   readonly hooks?: SupervisionHooks;
-  /**
-   * Reads the longest socket path the system binds, which the listen path must fit; `null` where
-   * the path names a pipe, which has no such limit.
-   */
-  readonly readSocketPathLimit: (() => Promise<number>) | null;
 }
 
 /**
@@ -153,7 +149,6 @@ export class LocalIpcGateway {
   readonly #registry: MethodRegistry;
   readonly #deviceId: DeviceId | undefined;
   readonly #hooks: SupervisionHooks | null;
-  readonly #readSocketPathLimit: (() => Promise<number>) | null;
   #server: net.Server | null;
   #connections: Map<number, ConnectionState>;
   #started: boolean;
@@ -162,7 +157,6 @@ export class LocalIpcGateway {
     this.#registry = options.registry;
     this.#deviceId = options.deviceId;
     this.#hooks = options.hooks ?? null;
-    this.#readSocketPathLimit = options.readSocketPathLimit;
     this.#server = null;
     this.#connections = new Map();
     this.#started = false;
@@ -185,9 +179,8 @@ export class LocalIpcGateway {
 
     const settings = SecureDefaults.effectiveSettings();
     const listenPath = settings.localIpcPath;
-    if (this.#readSocketPathLimit !== null) {
-      assertSocketPathFits(listenPath, await this.#readSocketPathLimit());
-    }
+    // The daemon listens on a Unix domain socket, whose path must fit the address field.
+    assertSocketPathFits(listenPath, await readSocketPathLimit());
 
     const server = net.createServer((socket) => {
       this.#onSocketConnect(socket);

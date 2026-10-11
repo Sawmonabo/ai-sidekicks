@@ -1,6 +1,7 @@
 // Picks the operating system module main runs on, once, at main's start.
 
-import { supportedPlatform, type SupportedPlatform } from "#shared/app-facts.js";
+import { supportedPlatform, type SupportedPlatform } from "@ai-sidekicks/contracts/platform";
+
 import type { MainOperatingSystem } from "./contract.js";
 import { MAC_MAIN_OPERATING_SYSTEM } from "./mac.js";
 import { LINUX_MAIN_OPERATING_SYSTEM } from "./linux.js";

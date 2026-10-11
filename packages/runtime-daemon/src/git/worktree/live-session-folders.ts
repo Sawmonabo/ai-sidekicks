@@ -8,6 +8,7 @@ import type { Database, Statement } from "better-sqlite3";
 import type { EventEnvelope } from "@ai-sidekicks/contracts/event/envelope";
 import { SessionIdSchema, type SessionId } from "@ai-sidekicks/contracts/session/id";
 
+import type { PathRules } from "../../path-rules/contract.js";
 import type { ServiceLogWriter } from "../../daemon/service-log.js";
 import { describeRejection } from "../../rejection.js";
 import { canonicalFolderPath } from "../../workspace/folder/canonical-path.js";
@@ -76,6 +77,8 @@ export interface LiveSessionFoldersDeps {
     onGap: (sessionId: SessionId) => void,
   ) => () => void;
   readonly writeServiceLog: ServiceLogWriter;
+  /** How the system spells and compares paths. */
+  readonly pathRules: PathRules;
 }
 
 /** Holds each live session's working folder watched and its project's repository fetched. */
@@ -168,7 +171,7 @@ export class LiveSessionFolders {
     if (target === null) {
       this.#heldBySession.delete(sessionId);
     } else {
-      const folder = await canonicalFolderPath(target.folder);
+      const folder = await canonicalFolderPath(target.folder, this.#deps.pathRules);
       if (held?.folder === folder) {
         return;
       }

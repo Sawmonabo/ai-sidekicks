@@ -8,6 +8,7 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { HOST_OPERATING_SYSTEM } from "../../../tests/helpers/host-operating-system.js";
 import { answerProviderAsk } from "../provider-ask-answers.js";
 
 let scratch: string;
@@ -66,7 +67,13 @@ describe("answerProviderAsk", () => {
     // One inside another.
     "bash -c \"eval 'claude daemon'\"",
   ])("refuses `%s`", async (command) => {
-    expect(await answerProviderAsk({ kind: "command", command }, memoryFolder)).toEqual({
+    expect(
+      await answerProviderAsk(
+        { kind: "command", command },
+        memoryFolder,
+        HOST_OPERATING_SYSTEM.pathRules,
+      ),
+    ).toEqual({
       decision: "deny",
       reason: expect.stringContaining("claude --bg"),
     });
@@ -88,7 +95,13 @@ describe("answerProviderAsk", () => {
     // A substitution's body reports its own parse errors, apart from the line's.
     `sh -c 'claude daemon; echo "$(if then)"'`,
   ])("leaves `%s` to the person", async (command) => {
-    expect(await answerProviderAsk({ kind: "command", command }, memoryFolder)).toBeUndefined();
+    expect(
+      await answerProviderAsk(
+        { kind: "command", command },
+        memoryFolder,
+        HOST_OPERATING_SYSTEM.pathRules,
+      ),
+    ).toBeUndefined();
   });
 
   it("allows a note in the memory folder by its own path, through the link and as a new file", async () => {
@@ -98,7 +111,11 @@ describe("answerProviderAsk", () => {
       path.join(memoryLink, "new-agent", "MEMORY.md"),
     ]) {
       expect(
-        await answerProviderAsk({ kind: "file_change", paths: [filePath] }, memoryFolder),
+        await answerProviderAsk(
+          { kind: "file_change", paths: [filePath] },
+          memoryFolder,
+          HOST_OPERATING_SYSTEM.pathRules,
+        ),
       ).toEqual({
         decision: "allow",
       });
@@ -118,7 +135,11 @@ describe("answerProviderAsk", () => {
       "reviewer/MEMORY.md",
     ]) {
       expect(
-        await answerProviderAsk({ kind: "file_change", paths: [filePath] }, memoryFolder),
+        await answerProviderAsk(
+          { kind: "file_change", paths: [filePath] },
+          memoryFolder,
+          HOST_OPERATING_SYSTEM.pathRules,
+        ),
       ).toBeUndefined();
     }
     // A change that touches a note and a project file at once.
@@ -129,6 +150,8 @@ describe("answerProviderAsk", () => {
         path.join(outsideFolder, "README.md"),
       ],
     } as const;
-    expect(await answerProviderAsk(mixedChange, memoryFolder)).toBeUndefined();
+    expect(
+      await answerProviderAsk(mixedChange, memoryFolder, HOST_OPERATING_SYSTEM.pathRules),
+    ).toBeUndefined();
   });
 });

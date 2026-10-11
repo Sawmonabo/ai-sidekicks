@@ -43,9 +43,8 @@ export interface DatabaseFileOpenOptions {
   readonly dataFolder: string;
   readonly indexFolderPath: string;
   readonly runFolder: DaemonRunFolder;
-  /** The repairing socket's read of the socket path limit; see `LocalIpcGatewayOptions`. */
-  readonly readSocketPathLimit: (() => Promise<number>) | null;
   readonly operatingSystem: DatabaseFileOperatingSystem;
+  /** How a written file and its folder are flushed to disk. */
   readonly diskFlush: DiskFlush;
   /** The folder the person's backups go to; read only when the file is damaged. */
   readonly readBackupFolder: () => Promise<string>;
@@ -99,8 +98,7 @@ export async function openDatabaseFile(
     operatingSystem: options.operatingSystem,
     diskFlush,
     readBackupFolder: options.readBackupFolder,
-    whileRepairing: (repair) =>
-      answerRepairingWhile(options.runFolder, repair, writeServiceLog, options.readSocketPathLimit),
+    whileRepairing: (repair) => answerRepairingWhile(options.runFolder, repair, writeServiceLog),
     stopSignal: options.stopSignal,
     now: options.now,
     writeServiceLog,

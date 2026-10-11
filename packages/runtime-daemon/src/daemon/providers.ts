@@ -14,6 +14,7 @@ import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 import type { NodeId } from "@ai-sidekicks/contracts/runtime-node/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
+import type { PathRules } from "../path-rules/contract.js";
 import { createMemoryGate } from "../admission/memory-gate.js";
 import type { ProcessPeakReader } from "../admission/process-peak/contract.js";
 import type { DatabaseConnections } from "../database/connection/lifecycle.js";
@@ -251,6 +252,8 @@ interface DaemonProvidersContext {
   readonly operatingSystem: ProviderOperatingSystem;
   /** How the files the drivers write for a provider are flushed to disk. */
   readonly diskFlush: DiskFlush;
+  /** How the system spells and compares paths. */
+  readonly pathRules: PathRules;
   /** The memory gate's read of a provider process's peak. */
   readonly processPeakReader: ProcessPeakReader;
   readonly writeServiceLog: (line: string) => void;
@@ -425,6 +428,7 @@ export class DaemonProviders {
         providerBaseEnvironment,
         operatingSystem: context.operatingSystem,
         diskFlush: context.diskFlush,
+        pathRules: context.pathRules,
         credentialPolicy: executionPosture,
         runEngine,
         inbound,
@@ -540,6 +544,7 @@ export class DaemonProviders {
       eventLog: sessionEvents,
       nodeId: context.nodeId,
       dataFolder: context.dataFolder,
+      pathRules: context.pathRules,
       authorizer: context.authorizer,
       runEngine,
       runDispatch,

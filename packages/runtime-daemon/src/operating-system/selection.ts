@@ -1,5 +1,7 @@
 // Picks the operating system module the daemon runs on, once, at the daemon's start.
 
+import { supportedPlatform } from "@ai-sidekicks/contracts/platform";
+
 import type { DaemonOperatingSystem } from "./contract.js";
 import { LINUX_DAEMON_OPERATING_SYSTEM } from "./linux.js";
 import { MAC_DAEMON_OPERATING_SYSTEM } from "./mac.js";
@@ -13,14 +15,12 @@ export function selectDaemonOperatingSystem(
   platform: string,
   environment: NodeJS.ProcessEnv,
 ): DaemonOperatingSystem {
-  switch (platform) {
+  switch (supportedPlatform(platform)) {
     case "darwin":
       return MAC_DAEMON_OPERATING_SYSTEM;
     case "linux":
       return LINUX_DAEMON_OPERATING_SYSTEM;
     case "win32":
       return windowsDaemonOperatingSystem(environment);
-    default:
-      throw new RangeError(`The daemon does not run on the ${platform} platform`);
   }
 }

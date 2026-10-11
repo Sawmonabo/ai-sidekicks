@@ -87,6 +87,7 @@ beforeEach(async () => {
   process.env["no_proxy"] = "127.0.0.1";
   serviceLogLines = [];
   const mounts = new RepoMountService({
+    pathRules: HOST_OPERATING_SYSTEM.pathRules,
     database: log.scratch,
     events: new WorkspaceEventEmitter({ sessionEvents: log.eventLog }),
     nodeId: mintUuidV7() as NodeId,
@@ -123,6 +124,7 @@ afterEach(async () => {
 
 function cloneService(gitExecutablePath = "git"): CloneService {
   return new CloneService({
+    pathRules: HOST_OPERATING_SYSTEM.pathRules,
     projects,
     records,
     askpass: broker,

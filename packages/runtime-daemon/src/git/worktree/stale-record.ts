@@ -10,6 +10,7 @@
 import { mkdir, rmdir } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 
+import type { PathRules } from "../../path-rules/contract.js";
 import { withCleanupFailures } from "../../cleanup-failures.js";
 import type { ServiceLogWriter } from "../../daemon/service-log.js";
 import { mintUuidV7 } from "../../uuid-v7.js";
@@ -31,6 +32,8 @@ interface StaleRecordTools {
   readonly folderRenames: FolderRenames;
   readonly writeServiceLog: ServiceLogWriter;
   readonly claims: KeptCopyClaims;
+  /** How the system spells and compares paths. */
+  readonly pathRules: PathRules;
 }
 
 // A stale record is renamed beside itself, its name with `.removing-<its own id>` added, before it
@@ -52,7 +55,7 @@ export async function removeStaleTreeRecord(
   originalPath: string,
 ): Promise<boolean> {
   await finishRecordRemovalsCutShort(tools, recordFolder);
-  const judgedGitdir = await readOwnStaleRecordGitdir(tools.claims, recordFolder, originalPath);
+  const judgedGitdir = await readOwnStaleRecordGitdir(tools, recordFolder, originalPath);
   if (judgedGitdir === null) {
     return false;
   }
@@ -72,7 +75,7 @@ export async function removeStaleTreeRecord(
     const isClaimedSince =
       (await readRecordGitdir(removingFolder)) !== judgedGitdir ||
       tools.claims.isLiveTreeAt(originalPath) ||
-      (await isRecordBeingRestored(tools.claims, recordFolder));
+      (await isRecordBeingRestored(tools, recordFolder));
     if (isClaimedSince) {
       await putRecordBack(tools, removingFolder, recordFolder);
       return false;
@@ -87,7 +90,7 @@ export async function removeStaleTreeRecord(
 // The record's `gitdir` when the record is the kept copy's own and stale, as
 // `removeStaleTreeRecord` describes; `null` otherwise.
 async function readOwnStaleRecordGitdir(
-  claims: KeptCopyClaims,
+  tools: StaleRecordTools,
   recordFolder: string,
   originalPath: string,
 ): Promise<string | null> {
@@ -97,28 +100,30 @@ async function readOwnStaleRecordGitdir(
   }
   // A relative link names the tree's `.git` from the record folder.
   const gitFile = resolve(recordFolder, gitdir);
-  if (basename(gitFile) !== ".git" || claims.isLiveTreeAt(originalPath)) {
+  if (basename(gitFile) !== ".git" || tools.claims.isLiveTreeAt(originalPath)) {
     return null;
   }
   const [namedTreeKey, ownTreeKey, isRestoring] = await Promise.all([
-    canonicalFolderPath(dirname(gitFile)),
-    canonicalFolderPath(originalPath),
-    isRecordBeingRestored(claims, recordFolder),
+    canonicalFolderPath(dirname(gitFile), tools.pathRules),
+    canonicalFolderPath(originalPath, tools.pathRules),
+    isRecordBeingRestored(tools, recordFolder),
   ]);
   if (namedTreeKey !== ownTreeKey || isRestoring) {
     return null;
   }
-  return (await isRecordNamedBy(gitFile, recordFolder)) ? null : gitdir;
+  return (await isRecordNamedBy(tools.pathRules, gitFile, recordFolder)) ? null : gitdir;
 }
 
 // Whether a put-back's mark names the record, which that put-back is making.
 async function isRecordBeingRestored(
-  claims: KeptCopyClaims,
+  tools: StaleRecordTools,
   recordFolder: string,
 ): Promise<boolean> {
   const [recordKey, ...restoringKeys] = await Promise.all([
-    canonicalFolderPath(recordFolder),
-    ...claims.listRestoringRecords().map(canonicalFolderPath),
+    canonicalFolderPath(recordFolder, tools.pathRules),
+    ...tools.claims
+      .listRestoringRecords()
+      .map((restoring) => canonicalFolderPath(restoring, tools.pathRules)),
   ]);
   return restoringKeys.includes(recordKey);
 }
@@ -142,7 +147,8 @@ async function finishRecordRemovalsCutShort(
     .filter((leftover) => !recordRemovalsInProgress.has(leftover));
   for (const leftover of leftovers) {
     const gitFile = await readRecordGitFile(leftover);
-    const isTreeLive = gitFile !== undefined && (await isRecordNamedBy(gitFile, recordFolder));
+    const isTreeLive =
+      gitFile !== undefined && (await isRecordNamedBy(tools.pathRules, gitFile, recordFolder));
     if (isTreeLive) {
       await putRecordBack(tools, leftover, recordFolder);
     } else {
@@ -166,7 +172,7 @@ async function putRecordBack(
     readRecordGitFile(asideFolder),
     readRecordGitFile(recordFolder),
   ]);
-  if (await isSameGitFile(asideGitFile, takenGitFile)) {
+  if (await isSameGitFile(tools.pathRules, asideGitFile, takenGitFile)) {
     await tools.filesystem.removePath(asideFolder);
     return;
   }
@@ -225,6 +231,7 @@ async function readRecordGitFile(recordFolder: string): Promise<string | undefin
 }
 
 async function isSameGitFile(
+  pathRules: PathRules,
   first: string | undefined,
   second: string | undefined,
 ): Promise<boolean> {
@@ -232,21 +239,25 @@ async function isSameGitFile(
     return false;
   }
   const [firstKey, secondKey] = await Promise.all([
-    canonicalFolderPath(dirname(first)),
-    canonicalFolderPath(dirname(second)),
+    canonicalFolderPath(dirname(first), pathRules),
+    canonicalFolderPath(dirname(second), pathRules),
   ]);
   return firstKey === secondKey;
 }
 
 // Whether the `.git` at `gitFile` names `recordFolder`.
-async function isRecordNamedBy(gitFile: string, recordFolder: string): Promise<boolean> {
+async function isRecordNamedBy(
+  pathRules: PathRules,
+  gitFile: string,
+  recordFolder: string,
+): Promise<boolean> {
   const namedRecord = await readRecordNamedBy(gitFile);
   if (namedRecord === undefined) {
     return false;
   }
   const [namedKey, ownKey] = await Promise.all([
-    canonicalFolderPath(namedRecord),
-    canonicalFolderPath(recordFolder),
+    canonicalFolderPath(namedRecord, pathRules),
+    canonicalFolderPath(recordFolder, pathRules),
   ]);
   return namedKey === ownKey;
 }

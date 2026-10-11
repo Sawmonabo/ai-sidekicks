@@ -26,6 +26,7 @@ import type {
   SessionSearchRequest,
 } from "@ai-sidekicks/contracts/session/methods";
 
+import { HOST_OPERATING_SYSTEM } from "../helpers/host-operating-system.js";
 import {
   closeDatabaseConnections,
   openDatabaseConnections,
@@ -578,6 +579,7 @@ describe("the session directory's budgets on the seeded set", () => {
     // and no re-score is measured here; and the log gets one try, so a search's open read holds
     // the purge no longer.
     const purge = new SessionPurge({
+      pathRules: HOST_OPERATING_SYSTEM.pathRules,
       writer: database.writer,
       nodeId: NodeIdSchema.parse("node-endurance"),
       eventLog: { append: (envelope) => Promise.resolve({ id: envelope.id, sequence: 0 }) },

@@ -3,7 +3,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import type { SupportedPlatform } from "#shared/app-facts.js";
+import type { SupportedPlatform } from "@ai-sidekicks/contracts/platform";
 import { selectMainOperatingSystem } from "../operating-system/selection.js";
 import { readAppFacts } from "./app-facts.js";
 

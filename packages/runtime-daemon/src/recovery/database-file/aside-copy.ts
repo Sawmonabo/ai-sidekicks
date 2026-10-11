@@ -49,6 +49,7 @@ export interface DatabaseFilesAsideOptions {
   readonly databasePath: string;
   readonly dataFolder: string;
   readonly operatingSystem: Pick<DatabaseFileOperatingSystem, "copyFile">;
+  /** How a written file and its folder are flushed to disk. */
   readonly diskFlush: DiskFlush;
   readonly now: () => Date;
   readonly writeServiceLog: (line: string) => void;

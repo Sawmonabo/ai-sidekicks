@@ -17,6 +17,7 @@ import {
 import type { RepoMountId, WorkspaceState } from "@ai-sidekicks/contracts/repo/mount";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
+import { HOST_OPERATING_SYSTEM } from "../../../tests/helpers/host-operating-system.js";
 import { openScratchDatabase, type ScratchDatabase } from "../../database/__fixtures__/scratch.js";
 import { EventLogService } from "../../events/log-service.js";
 import { SessionNotFoundError } from "../../ipc/session-errors.js";
@@ -89,8 +90,11 @@ interface TestHarness {
 let harness: TestHarness;
 
 /** Builds a service over the harness database, optionally overriding one seam. */
-function createService(overrides: Partial<WorkspaceServiceDeps> = {}): WorkspaceService {
+function createService(
+  overrides: Partial<Omit<WorkspaceServiceDeps, "pathRules">> = {},
+): WorkspaceService {
   return new WorkspaceService({
+    pathRules: HOST_OPERATING_SYSTEM.pathRules,
     database: harness.database,
     events: harness.emitter,
     newWorkspaceId: makeWorkspaceIdSource(),
@@ -121,7 +125,10 @@ async function insertMount(fixture: MountFixture): Promise<void> {
 
 /** A validator over the real git, as the service builds by default. */
 function realValidator(): TrustEnvelopeValidator {
-  return new TrustEnvelopeValidator({ workingTrees: new RepoRootResolver() });
+  return new TrustEnvelopeValidator({
+    pathRules: HOST_OPERATING_SYSTEM.pathRules,
+    workingTrees: new RepoRootResolver({ pathRules: HOST_OPERATING_SYSTEM.pathRules }),
+  });
 }
 
 /** Runs one raw statement through the writer, as another writer would. */
@@ -184,6 +191,7 @@ beforeEach(async () => {
     database,
     emitter,
     service: new WorkspaceService({
+      pathRules: HOST_OPERATING_SYSTEM.pathRules,
       database,
       events: emitter,
       newWorkspaceId: makeWorkspaceIdSource(),

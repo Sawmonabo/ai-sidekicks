@@ -310,7 +310,7 @@ function startApplication(): void {
       );
       const supervisor = new DaemonSupervisor({
         link: daemonLink,
-        connect: connectMainToDaemon,
+        connect: (observer, signal) => connectMainToDaemon(operatingSystem, observer, signal),
         startService: () =>
           startServiceDetached(resolveServiceProgram(installLocation), process.env),
         attachServiceProcess: (identity) =>

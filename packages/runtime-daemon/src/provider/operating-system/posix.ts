@@ -51,7 +51,7 @@ export function listPosixProviderCommandFolders(
  * a build runs as itself, its `#!` line naming its interpreter; a stop is `SIGTERM` and a kill
  * `SIGKILL`; a command with a `/` is a path, and a program's file is its own name.
  */
-export const POSIX_PROCESS_AND_SOCKET_FACTS: Pick<
+export const POSIX_PROVIDER_OPERATING_SYSTEM_PARTS: Pick<
   ProviderOperatingSystem,
   | "startProviderBuild"
   | "endChildProcess"

@@ -8,6 +8,7 @@
 import type { QuestionAnswer, QuestionPrompt } from "@ai-sidekicks/contracts/question";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
+import type { PathRules } from "../../../../path-rules/contract.js";
 import {
   ProviderRuleNotKeptError,
   type PermissionAskPort,
@@ -92,6 +93,8 @@ export interface ClaudeInboundRequestsDependencies {
   readonly sessionRules: PortRegistration<SessionRulePort>;
   /** How a project rule an answer made is flushed to disk. */
   readonly diskFlush: DiskFlush;
+  /** How the system spells and compares paths, which tells the session's own folder. */
+  readonly pathRules: PathRules;
 }
 
 // The question tool's questions as the questions card asks them; a malformed one is left out.
@@ -237,6 +240,7 @@ export class ClaudeInboundRequests {
         answer.madeRule,
         readClaudeSessionRules(this.#dependencies.sessionRules, live.sessionId),
         this.#dependencies.diskFlush,
+        this.#dependencies.pathRules,
       );
     } catch (error) {
       throw new ProviderRuleNotKeptError(error);

@@ -7,6 +7,7 @@ import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/c
 import type { SessionMode } from "@ai-sidekicks/contracts/session/controls/methods";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { PathRules } from "../../../../path-rules/contract.js";
 import type { StagedChangesWorktree } from "../../../../git/worktree/staged-changes.js";
 import type { ExecutionPostureService } from "../../../../policy/execution-posture-service.js";
 import type { RunEngine } from "../../../../session/run/engine.js";
@@ -282,6 +283,8 @@ export interface ClaudeSessionLifecycleDependencies {
   readonly operatingSystem: ProviderOperatingSystem;
   /** How a written rule or settings file is flushed to disk. */
   readonly diskFlush: DiskFlush;
+  /** How the system spells and compares paths. */
+  readonly pathRules: PathRules;
   /**
    * Schedules a restart wait and answers its cancel; an unref'd timer by default, injectable to
    * skip the wait.

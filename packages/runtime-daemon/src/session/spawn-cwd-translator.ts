@@ -31,7 +31,7 @@ export type DriverStrategy = "cd-prefix" | "cwd-env";
  *   `exec`, so the wrapper stays in the process tree; that is harmless because the lock is on
  *   `stableParent`, not the worktree.
  */
-type WrappingShell = "posix" | "windows-cmd";
+export type WrappingShell = "posix" | "windows-cmd";
 
 /** Input to `translateSpawnCwd`. */
 export interface TranslateSpawnCwdInput {
@@ -41,9 +41,7 @@ export interface TranslateSpawnCwdInput {
   strategy: DriverStrategy;
   /** A directory that survives worktree teardown, such as the daemon's working directory. */
   stableParent: string;
-  /**
-   * The shell for `cd-prefix`, the system's own: `windows-cmd` on Windows; `cwd-env` ignores it.
-   */
+  /** The shell for `cd-prefix`, the system's `wrappingShell`; `cwd-env` ignores it. */
   wrappingShell: WrappingShell;
 }
 

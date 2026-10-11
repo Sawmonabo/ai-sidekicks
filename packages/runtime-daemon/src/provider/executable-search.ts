@@ -5,8 +5,8 @@ import { constants as filesystemConstants } from "node:fs";
 import { access, stat } from "node:fs/promises";
 import { delimiter as pathDelimiter, join, resolve } from "node:path";
 
-import type { ProviderOperatingSystem } from "./provider/operating-system/contract.js";
-import { readSpawnEnvValue, type SpawnEnvPair } from "./provider/spawn-env.js";
+import type { ProviderOperatingSystem } from "./operating-system/contract.js";
+import { readSpawnEnvValue, type SpawnEnvPair } from "./spawn-env.js";
 
 /** "Is this path a file this process may execute?" — never rejects. */
 type ExecutableFileProbe = (candidate: string) => Promise<boolean>;
@@ -19,7 +19,9 @@ type ExecutableSearchOperatingSystem = Pick<
 
 /** The filesystem and operating-system seams a search depends on. */
 export interface ExecutableSearchDependencies {
+  /** Whether a candidate path is a file this process may execute. */
   readonly isExecutableFile: ExecutableFileProbe;
+  /** How this system names programs and compares variable names. */
   readonly operatingSystem: ExecutableSearchOperatingSystem;
   /** Anchor for a relative command. */
   readonly workingDirectory: string;

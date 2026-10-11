@@ -40,6 +40,7 @@ export interface DatabaseFileRepairOptions {
   /** The search index's folder, built from the database's rows; a replaced file drops it. */
   readonly indexFolderPath: string;
   readonly operatingSystem: DatabaseFileOperatingSystem;
+  /** How a written file and its folder are flushed to disk. */
   readonly diskFlush: DiskFlush;
   /** The folder the person's backups go to; read only when the file is damaged. */
   readonly readBackupFolder: () => Promise<string>;

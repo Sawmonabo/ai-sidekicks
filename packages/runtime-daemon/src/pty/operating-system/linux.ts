@@ -5,7 +5,7 @@
 import { startBashThroughEnv } from "./bash-env-start.js";
 import type { TerminalOperatingSystem } from "./contract.js";
 import { requireDaemonParent } from "./parent-check.js";
-import { POSIX_TERMINAL_SIGNALS } from "./signals.js";
+import { POSIX_TERMINAL_SIGNALS } from "./posix.js";
 import { XDG_DEFAULT_DATA_FOLDERS } from "./xdg-data-folders.js";
 
 /** What the terminal takes from Linux. */

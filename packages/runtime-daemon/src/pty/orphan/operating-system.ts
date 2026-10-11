@@ -1,5 +1,5 @@
 // What the orphan defense takes from the operating system it runs on. Each system supplies what it
-// has built; a part it lacks is absent, and the defense then relies on the registry alone: a child
+// has built; a part it lacks is `null`, and the defense then relies on the registry alone: a child
 // is retired when the terminal host sees it end, and an intent with no recorded process is
 // discarded at the next start, with nothing signaled.
 
@@ -14,11 +14,18 @@ export interface ProcessExitWatch {
   close(): Promise<void>;
 }
 
-/** The parts of the orphan defense this system supplies. */
+/** The parts of the orphan defense this system supplies, each `null` where it has none. */
 export interface OrphanOperatingSystem {
-  readonly exitWatch?: ProcessExitWatch | undefined;
+  /** The kernel's watch on terminal children's exits. */
+  readonly exitWatch: ProcessExitWatch | null;
   /** Finds this user's processes whose environment carries one of `nonces`, by process id. */
-  readonly findProcessesCarryingNonces?:
+  readonly findProcessesCarryingNonces:
     | ((nonces: ReadonlySet<string>) => Promise<Map<number, string>>)
-    | undefined;
+    | null;
 }
+
+/** A system with no part of the orphan defense built: the registry alone defends. */
+export const NO_ORPHAN_SYSTEM_PARTS: OrphanOperatingSystem = {
+  exitWatch: null,
+  findProcessesCarryingNonces: null,
+};

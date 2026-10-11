@@ -7,6 +7,7 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { HOST_OPERATING_SYSTEM } from "../../../../tests/helpers/host-operating-system.js";
 import { captureRejection } from "../../../__fixtures__/capture-failure.js";
 import { EventLogService } from "../../../events/log-service.js";
 import { KeyedLock } from "../../../keyed-lock.js";
@@ -124,6 +125,7 @@ describe("a new worktree", () => {
       writeServiceLog: () => {},
     });
     const creator = new WorktreeCreator({
+      pathRules: HOST_OPERATING_SYSTEM.pathRules,
       checkoutLock: new KeyedLock<string>(),
       database: fixture.scratch,
       events: new FailingReadyEmitter({ sessionEvents: eventLog }),

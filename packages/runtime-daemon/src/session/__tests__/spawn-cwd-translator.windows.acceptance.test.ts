@@ -154,7 +154,7 @@ describe.runIf(process.platform === "win32")(
           spec: logical,
           strategy: "cd-prefix",
           stableParent: ctx.stableParent,
-          wrappingShell: "windows-cmd",
+          wrappingShell: HOST_OPERATING_SYSTEM.wrappingShell,
         });
 
         // `spawn` resolves on the sidecar's ack, possibly before the inner shell has run its `cd`;

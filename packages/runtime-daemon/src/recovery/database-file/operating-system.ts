@@ -24,9 +24,14 @@ export interface DatabaseFileOperatingSystem {
 
 const COPY_CHILD_PATH = fileURLToPath(moduleUrlBeside(import.meta.url, "child"));
 
-/** The `sqlite3` shell the daemon's install builds, its file named `fileName`. */
-export function builtSqliteShellProgram(fileName: string): string {
-  return fileURLToPath(new URL(`../../../sqlite-shell/build/Release/${fileName}`, import.meta.url));
+/** The `sqlite3` shell the daemon's install builds, its file named as `executableFileName` says. */
+export function builtSqliteShellProgram(executableFileName: (base: string) => string): string {
+  return fileURLToPath(
+    new URL(
+      `../../../sqlite-shell/build/Release/${executableFileName("sqlite3")}`,
+      import.meta.url,
+    ),
+  );
 }
 
 /**

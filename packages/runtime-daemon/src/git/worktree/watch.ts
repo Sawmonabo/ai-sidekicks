@@ -28,6 +28,7 @@ import type { WorkingTreeChange } from "@ai-sidekicks/contracts/repo/git-reads";
 import type { SessionBranchChangedPayload } from "@ai-sidekicks/contracts/worktree/events";
 import { RepoMountIdSchema } from "@ai-sidekicks/contracts/repo/mount";
 
+import type { PathRules } from "../../path-rules/contract.js";
 import { describeRejection } from "../../rejection.js";
 import type { RepeatingJob, ScheduledJobHandle } from "../../daemon/scheduler.js";
 import type { ServiceLogWriter } from "../../daemon/service-log.js";
@@ -86,6 +87,8 @@ export interface WorkingFolderWatcherDeps {
    * costs one handle whatever the tree's size, so no folder is too large.
    */
   readonly treeWatchCeiling: TreeWatchCeiling | null;
+  /** How the system spells and compares paths. */
+  readonly pathRules: PathRules;
 }
 
 interface Subscriber {
@@ -189,7 +192,7 @@ export class WorkingFolderWatcher {
    */
   async follow(sessionId: SessionId): Promise<void> {
     const target = await this.#requireWorkingFolder(sessionId);
-    const folder = await canonicalFolderPath(target.folder);
+    const folder = await canonicalFolderPath(target.folder, this.#deps.pathRules);
     for (const [subscriber, watched] of [...this.#folderBySubscriber]) {
       if (subscriber.sessionId !== sessionId || watched.folder === folder) {
         continue;
@@ -214,7 +217,9 @@ export class WorkingFolderWatcher {
    */
   async raiseStaleness(sessionId: SessionId): Promise<void> {
     const target = await this.#requireWorkingFolder(sessionId);
-    const watched = this.#watchedByFolder.get(await canonicalFolderPath(target.folder));
+    const watched = this.#watchedByFolder.get(
+      await canonicalFolderPath(target.folder, this.#deps.pathRules),
+    );
     if (watched !== undefined) {
       this.#raise(watched);
     }
@@ -257,7 +262,7 @@ export class WorkingFolderWatcher {
   // The key is read first; the lookup and the insert then run in one step, so two acquires of one
   // folder share one watch.
   async #acquire(target: SessionWorkingFolder): Promise<WatchedFolder> {
-    const folder = await canonicalFolderPath(target.folder);
+    const folder = await canonicalFolderPath(target.folder, this.#deps.pathRules);
     const existing = this.#watchedByFolder.get(folder);
     if (existing !== undefined) {
       existing.holdCount += 1;
@@ -336,7 +341,7 @@ export class WorkingFolderWatcher {
     const ceiling = this.#deps.treeWatchCeiling;
     const systemWatchCount =
       ceiling === null ? 0 : await this.#countSystemWatches(watched, ceiling);
-    const limit = systemWatchCount === 0 || ceiling === null ? 0 : await ceiling.readCeiling();
+    const limit = ceiling === null ? 0 : await ceiling.readCeiling();
     if (watched.isClosed) {
       return;
     }

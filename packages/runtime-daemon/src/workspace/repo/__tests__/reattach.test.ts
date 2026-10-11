@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { RepoMountIdSchema } from "@ai-sidekicks/contracts/repo/mount";
 
+import { HOST_OPERATING_SYSTEM } from "../../../../tests/helpers/host-operating-system.js";
 import { captureRejection } from "../../../__fixtures__/capture-failure.js";
 import type { DatabaseConnections } from "../../../database/connection/lifecycle.js";
 import type { DatabaseWriter } from "../../../database/writer.js";
@@ -86,11 +87,12 @@ function createReattachService(
   database: DatabaseConnections = harness.database,
 ): RepoMountReattachService {
   return new RepoMountReattachService({
+    pathRules: HOST_OPERATING_SYSTEM.pathRules,
     database,
     workspaces: harness.workspaces,
     events: harness.emitter,
     worktreeEvents: harness.worktreeEvents,
-    resolver: new RepoRootResolver(),
+    resolver: new RepoRootResolver({ pathRules: HOST_OPERATING_SYSTEM.pathRules }),
     writeServiceLog: (line) => serviceLogLines.push(line),
   });
 }
@@ -364,11 +366,15 @@ describe("a re-attach", () => {
       },
     });
     const reattach = new RepoMountReattachService({
+      pathRules: HOST_OPERATING_SYSTEM.pathRules,
       database: fixture.scratch,
       workspaces: fixture.workspaces,
       events: new WorkspaceEventEmitter({ sessionEvents }),
       worktreeEvents: new WorktreeEventEmitter({ sessionEvents }),
-      resolver: new RepoRootResolver({ git: fixture.repository.runner }),
+      resolver: new RepoRootResolver({
+        pathRules: HOST_OPERATING_SYSTEM.pathRules,
+        git: fixture.repository.runner,
+      }),
       writeServiceLog: () => {},
     });
     await reattach.reattach({ repoMountId: RepoMountIdSchema.parse(fixture.repoMountId) });

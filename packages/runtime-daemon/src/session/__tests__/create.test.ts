@@ -82,6 +82,7 @@ beforeEach(async () => {
   ]);
   emitter = new WorkspaceEventEmitter({ sessionEvents: log.eventLog });
   mounts = new RepoMountService({
+    pathRules: HOST_OPERATING_SYSTEM.pathRules,
     database: log.scratch,
     events: emitter,
     nodeId: mintUuidV7() as NodeId,
@@ -110,7 +111,11 @@ function creationWith(swap: {
     diskFlush: HOST_OPERATING_SYSTEM.diskFlush,
     now: () => new Date(),
   });
-  const workspaces = new WorkspaceService({ database: log.scratch, events: emitter });
+  const workspaces = new WorkspaceService({
+    pathRules: HOST_OPERATING_SYSTEM.pathRules,
+    database: log.scratch,
+    events: emitter,
+  });
   return new SessionCreation({
     reader: log.scratch.reader,
     events: swap.events ?? log.eventLog,

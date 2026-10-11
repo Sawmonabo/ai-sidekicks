@@ -35,7 +35,9 @@ export const MAC_DAEMON_OPERATING_SYSTEM: DaemonOperatingSystem = {
   terminal: MAC_TERMINAL_OPERATING_SYSTEM,
   provider: MAC_PROVIDER_OPERATING_SYSTEM,
   databaseFile: {
-    sqliteShellProgram: builtSqliteShellProgram("sqlite3"),
+    sqliteShellProgram: builtSqliteShellProgram(
+      POSIX_DAEMON_OPERATING_SYSTEM_PARTS.executableFileName,
+    ),
     copyFile: (sourcePath, destinationPath, stopSignal) =>
       runCopyProgram("/bin/cp", ["-c", sourcePath, destinationPath], stopSignal),
   },

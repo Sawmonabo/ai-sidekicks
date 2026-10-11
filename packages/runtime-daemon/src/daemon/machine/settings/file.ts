@@ -35,6 +35,7 @@ export type MachineSettingsListener = (reading: MachineSettingsReading) => void;
 export interface MachineSettingsFileOptions {
   /** The file's full path, `<home>/.ai-sidekicks/machine-settings.json` in the service. */
   readonly filePath: string;
+  /** How a written file and its folder are flushed to disk. */
   readonly diskFlush: DiskFlush;
   /** The clock that stamps a repair. */
   readonly now: () => Date;

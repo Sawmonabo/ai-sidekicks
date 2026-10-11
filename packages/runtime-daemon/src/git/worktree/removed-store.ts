@@ -44,6 +44,7 @@ import type {
   WorktreeRestoreResponse,
 } from "@ai-sidekicks/contracts/worktree/removed";
 
+import type { PathRules } from "../../path-rules/contract.js";
 import { withCleanupFailures } from "../../cleanup-failures.js";
 import type { ServiceLogWriter } from "../../daemon/service-log.js";
 import type { DatabaseConnections } from "../../database/connection/lifecycle.js";
@@ -197,6 +198,8 @@ export interface RemovedWorktreeStoreDeps {
   readonly folderRenames: FolderRenames;
   /** How the system flushes what a put-back wrote to disk. */
   readonly diskFlush: DiskFlush;
+  /** How the system spells and compares paths. */
+  readonly pathRules: PathRules;
   /** Where a put-back's copy across volumes, and its undo's, reports its progress. */
   readonly copies: KeptCopyTools["copies"];
   /** Records the tree a put-back makes. */
@@ -249,7 +252,7 @@ export class RemovedWorktreeStore {
 
   constructor(deps: RemovedWorktreeStoreDeps) {
     const reader = deps.database.reader;
-    this.claims = prepareKeptCopyClaims(reader);
+    this.claims = prepareKeptCopyClaims(reader, deps.pathRules);
     this.listUnfinished = prepareUnfinishedDiscardListing(reader);
     this.#runGit = deps.runGit;
     this.#putBackTools = {
@@ -257,6 +260,7 @@ export class RemovedWorktreeStore {
       filesystem: deps.filesystem,
       folderRenames: deps.folderRenames,
       diskFlush: deps.diskFlush,
+      pathRules: deps.pathRules,
       copies: deps.copies,
       writeServiceLog: deps.writeServiceLog,
       claims: this.claims,
@@ -757,8 +761,8 @@ export class RemovedWorktreeStore {
       return false;
     }
     return componentsEqual(
-      toComparableComponents(keptCommonDir, nodePath),
-      toComparableComponents(mount.common_dir, nodePath),
+      toComparableComponents(keptCommonDir, this.#putBackTools.pathRules),
+      toComparableComponents(mount.common_dir, this.#putBackTools.pathRules),
     );
   }
 

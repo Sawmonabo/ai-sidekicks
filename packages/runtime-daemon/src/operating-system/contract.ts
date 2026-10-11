@@ -6,6 +6,7 @@ import type {
   DaemonRunFolder,
   DaemonRunFolderFacts,
 } from "@ai-sidekicks/contracts/daemon/run-folder";
+import type { SupportedPlatform } from "@ai-sidekicks/contracts/platform";
 import type {
   ProcessIdentityReader,
   ProcessIdentitySystem,
@@ -17,21 +18,20 @@ import type { MachineNameSources } from "../daemon/machine/name.js";
 import type { DiskFlush } from "../disk-flush/contract.js";
 import type { FolderRenames } from "../git/filesystem.js";
 import type { TreeWatchCeiling } from "../git/worktree/watch.js";
+import type { PathRules } from "../path-rules/contract.js";
 import type { ProcessTreeEnding } from "../process-tree/contract.js";
 import type { ProviderOperatingSystem } from "../provider/operating-system/contract.js";
 import type { SpawnEnvPair } from "../provider/spawn-env.js";
 import type { TerminalOperatingSystem } from "../pty/operating-system/contract.js";
 import type { OrphanOperatingSystem } from "../pty/orphan/operating-system.js";
 import type { DatabaseFileOperatingSystem } from "../recovery/database-file/operating-system.js";
+import type { WrappingShell } from "../session/spawn-cwd-translator.js";
 import type { FolderPlace } from "../workspace/folder/place.js";
-
-/** A system the daemon runs on, in Node's spelling. */
-export type DaemonPlatform = "darwin" | "linux" | "win32";
 
 /** The facts and readers of one operating system that the daemon's parts take. */
 export interface DaemonOperatingSystem {
   /** The system in Node's spelling, which names the terminal sidecar's published package. */
-  readonly platform: DaemonPlatform;
+  readonly platform: SupportedPlatform;
   /** What the terminal host and its shells take. */
   readonly terminal: TerminalOperatingSystem;
   /** What the provider drivers take. */
@@ -44,6 +44,8 @@ export interface DaemonOperatingSystem {
   readonly processTree: ProcessTreeEnding;
   /** How a written file, and a changed folder, are flushed to disk. */
   readonly diskFlush: DiskFlush;
+  /** How a path is spelled and compared, which every folder comparison follows. */
+  readonly pathRules: PathRules;
   /** How a folder rename behaves, which a worktree's move and put-back follow. */
   readonly folderRenames: FolderRenames;
   /**
@@ -53,11 +55,8 @@ export interface DaemonOperatingSystem {
   readonly treeWatchCeiling: TreeWatchCeiling | null;
   /** Whether git's question program has a launcher here, without which no clone service starts. */
   readonly hasAskpassLauncher: boolean;
-  /**
-   * Reads the longest socket path the system binds, which the daemon's socket must fit; `null`
-   * where the daemon listens on a named pipe, which has no such limit.
-   */
-  readonly readSocketPathLimit: (() => Promise<number>) | null;
+  /** The shell a terminal spawn moved off its worktree is wrapped in to `cd` back into it. */
+  readonly wrappingShell: WrappingShell;
   /** The file name of the program `base` the daemon's install builds: `.exe` on Windows. */
   executableFileName(base: string): string;
   /** A reader of this system's processes, through Node's calls in `system`. */

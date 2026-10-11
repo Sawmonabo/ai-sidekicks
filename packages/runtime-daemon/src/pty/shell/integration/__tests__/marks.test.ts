@@ -11,6 +11,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -23,8 +24,12 @@ import {
   prepareShellStartupFolders,
 } from "../injection.js";
 import { type ShellMark, ShellMarkReader } from "../marks.js";
-import type { TerminalOperatingSystem } from "../../../operating-system/contract.js";
-import { macTerminalOperatingSystem } from "../../../operating-system/mac.js";
+import { startBashThroughEnv } from "../../../operating-system/bash-env-start.js";
+import type {
+  BashStartInput,
+  TerminalOperatingSystem,
+} from "../../../operating-system/contract.js";
+import { MAC_OWN_BASH_PATH, macTerminalOperatingSystem } from "../../../operating-system/mac.js";
 import { HOST_OPERATING_SYSTEM } from "../../../../../tests/helpers/host-operating-system.js";
 
 const encoder = new TextEncoder();
@@ -132,10 +137,27 @@ interface ShellCase {
   readonly checkAfterExit?: (home: string) => void;
 }
 
-// macOS's own bash 3.2, which loads the script from its first prompt command.
-const APPLE_BASH_PATH = process.platform === "darwin" ? "/bin/bash" : undefined;
-// A bash that reads the script through `ENV`: any other on the path.
-const ENV_BASH_PATH = ((installed) => (installed === APPLE_BASH_PATH ? undefined : installed))(
+// Whether the host's terminal starts the bash at `shellPath` through `ENV`, as every bash but
+// macOS's own does.
+function startsBashThroughEnv(shellPath: string): boolean {
+  const input: BashStartInput = {
+    shellPath,
+    scriptPath: "/marks.sh",
+    environment: [],
+    environmentNameMatch: "case-sensitive",
+  };
+  return isDeepStrictEqual(
+    HOST_OPERATING_SYSTEM.terminal.startBash(input),
+    startBashThroughEnv(input),
+  );
+}
+
+// macOS's own bash 3.2, which loads the script from its first prompt command: only where the
+// host's terminal starts it so.
+const APPLE_BASH_PATH = startsBashThroughEnv(MAC_OWN_BASH_PATH) ? undefined : MAC_OWN_BASH_PATH;
+// A bash that reads the script through `ENV`: the one on the path, where the host starts it so.
+const ENV_BASH_PATH = ((installed) =>
+  installed !== undefined && startsBashThroughEnv(installed) ? installed : undefined)(
   findInstalledShell("bash"),
 );
 

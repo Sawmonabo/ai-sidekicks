@@ -56,7 +56,10 @@ function openGuard(
     dataFolder,
     bootId: BOOT,
     readProcessIdentity,
-    operatingSystem: { findProcessesCarryingNonces: () => Promise.resolve(new Map()) },
+    operatingSystem: {
+      exitWatch: null,
+      findProcessesCarryingNonces: () => Promise.resolve(new Map()),
+    },
     diskFlush: HOST_OPERATING_SYSTEM.diskFlush,
     writeServiceLog: (line) => {
       serviceLog.push(line);

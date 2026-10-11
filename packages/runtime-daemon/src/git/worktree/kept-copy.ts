@@ -35,6 +35,7 @@ import type { ProjectId } from "@ai-sidekicks/contracts/project";
 import type { WorktreeCopySubject } from "@ai-sidekicks/contracts/worktree/copy-progress";
 import type { WorktreeId } from "@ai-sidekicks/contracts/worktree/lifecycle";
 
+import type { PathRules } from "../../path-rules/contract.js";
 import { withCleanupFailures } from "../../cleanup-failures.js";
 import { mapWithProcessorBound } from "../../processor-bound.js";
 import { settleAll } from "../../settle-all.js";
@@ -160,6 +161,8 @@ export interface KeptCopyTools {
   readonly folderRenames: FolderRenames;
   /** Where a copy across volumes reports its progress. */
   readonly copies: Pick<WorktreeCopiesUnderWay, "begin" | "logUnmeasuredCopy">;
+  /** How the system spells and compares paths. */
+  readonly pathRules: PathRules;
 }
 
 type FolderMoveTools = Pick<KeptCopyTools, "filesystem" | "folderRenames" | "copies">;
@@ -191,7 +194,7 @@ export async function moveWorktreeAside(
   input: MoveWorktreeAsideInput,
   rowWrites: KeptCopyRowWrites,
 ): Promise<MovedAsideWorktree> {
-  const { runGit } = tools;
+  const { runGit, pathRules } = tools;
   const { treeFolder, keptFolder } = input;
   const keptRecord = join(keptFolder, KEPT_RECORD_ENTRY);
   const keptTree = join(keptFolder, KEPT_TREE_ENTRY);
@@ -214,7 +217,7 @@ export async function moveWorktreeAside(
       await mkdir(keptFolder, { recursive: true });
     })();
     const recordRead = (async () => {
-      const linkedRecord = await readLinkedTreeRecord(runGit, treeFolder);
+      const linkedRecord = await readLinkedTreeRecord(runGit, treeFolder, pathRules);
       if (linkedRecord === null) {
         throw new Error(
           `worktree "${input.worktreeId}" has no record of its own in the repository`,

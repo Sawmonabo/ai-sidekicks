@@ -8,6 +8,7 @@ import { LINUX_PROCESS_PEAK_READER } from "../admission/process-peak/linux.js";
 import { captureLoginShellEnvironment } from "../daemon/login-shell-environment.js";
 import { readPrettyHostname, requireMachineName } from "../daemon/machine/name.js";
 import { readWindowsDriveMounts } from "../daemon/windows-drive-mounts.js";
+import { NODE_SYSTEM_ACCESS } from "../node-system-access.js";
 import { LINUX_PROVIDER_OPERATING_SYSTEM } from "../provider/operating-system/linux.js";
 import { LINUX_TERMINAL_OPERATING_SYSTEM } from "../pty/operating-system/linux.js";
 import {
@@ -15,6 +16,7 @@ import {
   copyFileInChildProcess,
 } from "../recovery/database-file/operating-system.js";
 import { createWslFolderPlace, OWN_DISK_FOLDER_PLACE } from "../workspace/folder/place.js";
+import { NO_ORPHAN_SYSTEM_PARTS } from "../pty/orphan/operating-system.js";
 import type { DaemonOperatingSystem } from "./contract.js";
 import { POSIX_DAEMON_OPERATING_SYSTEM_PARTS } from "./posix.js";
 
@@ -34,7 +36,9 @@ export const LINUX_DAEMON_OPERATING_SYSTEM: DaemonOperatingSystem = {
   terminal: LINUX_TERMINAL_OPERATING_SYSTEM,
   provider: LINUX_PROVIDER_OPERATING_SYSTEM,
   databaseFile: {
-    sqliteShellProgram: builtSqliteShellProgram("sqlite3"),
+    sqliteShellProgram: builtSqliteShellProgram(
+      POSIX_DAEMON_OPERATING_SYSTEM_PARTS.executableFileName,
+    ),
     copyFile: copyFileInChildProcess,
   },
   processPeak: LINUX_PROCESS_PEAK_READER,
@@ -44,12 +48,12 @@ export const LINUX_DAEMON_OPERATING_SYSTEM: DaemonOperatingSystem = {
     readCeiling: async () => Number((await readFile(WATCH_CEILING_PATH, "utf8")).trim()),
   },
   createProcessIdentityReader: createLinuxProcessIdentityReader,
-  openOrphanOperatingSystem: () => Promise.resolve({}),
+  openOrphanOperatingSystem: () => Promise.resolve(NO_ORPHAN_SYSTEM_PARTS),
   captureProviderBaseEnvironment: (capture) =>
     captureLoginShellEnvironment({
       ...capture,
       readUserTempDirectory: null,
-      readWindowsDriveMounts,
+      readWindowsDriveMounts: () => readWindowsDriveMounts(capture.readTextFile),
     }),
   readMachineName: async (sources) => {
     const machineInfo = await sources.readTextFile("/etc/machine-info");
@@ -64,6 +68,9 @@ export const LINUX_DAEMON_OPERATING_SYSTEM: DaemonOperatingSystem = {
     const distributionName = environment["WSL_DISTRO_NAME"];
     return distributionName === undefined
       ? OWN_DISK_FOLDER_PLACE
-      : createWslFolderPlace(distributionName, await readWindowsDriveMounts());
+      : createWslFolderPlace(
+          distributionName,
+          await readWindowsDriveMounts(NODE_SYSTEM_ACCESS.readTextFile),
+        );
   },
 };

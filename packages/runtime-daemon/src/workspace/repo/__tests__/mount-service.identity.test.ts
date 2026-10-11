@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { NodeId } from "@ai-sidekicks/contracts/runtime-node/id";
 
+import { HOST_OPERATING_SYSTEM } from "../../../../tests/helpers/host-operating-system.js";
 import { captureRejection } from "../../../__fixtures__/capture-failure.js";
 import {
   openScratchDatabase,
@@ -66,6 +67,7 @@ describe("RepoMountService attach — one project per repository identity", () =
       fixtureRoot,
     );
     const service = new RepoMountService({
+      pathRules: HOST_OPERATING_SYSTEM.pathRules,
       database,
       events: new WorkspaceEventEmitter({
         sessionEvents: new EventLogService({

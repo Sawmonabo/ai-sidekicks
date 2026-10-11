@@ -34,10 +34,11 @@ const SOURCE_LOADER = import.meta.resolve("@ai-sidekicks/runtime-daemon/typescri
 // The daemon's start runs the login shell under its own 5 s deadline before it binds its socket.
 const LINK_WITHIN_MS = 20_000;
 
+/** The system the test runs on. */
+const HOST_SYSTEM = selectMainOperatingSystem(process.platform);
+
 /** A reader of the processes of the system the test runs on. */
-const readProcessIdentity = selectMainOperatingSystem(process.platform).createProcessIdentityReader(
-  NODE_PROCESS_IDENTITY_SYSTEM,
-);
+const readProcessIdentity = HOST_SYSTEM.createProcessIdentityReader(NODE_PROCESS_IDENTITY_SYSTEM);
 
 const trail = new TemporaryDirectoryTrail();
 let started: ServiceProcess[];
@@ -80,7 +81,7 @@ it(
     const logged: unknown[] = [];
     const activeSupervisor = new DaemonSupervisor({
       link,
-      connect: connectMainToDaemon,
+      connect: (observer, signal) => connectMainToDaemon(HOST_SYSTEM, observer, signal),
       startService: () => {
         const start = startServiceDetached(
           {

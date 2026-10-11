@@ -247,13 +247,20 @@ export function registerSessionMethods(
   });
   const workspaceEvents = new WorkspaceEventEmitter({ sessionEvents: eventLog });
   // One resolver for every service that reads a repository's root and identity.
-  const resolver = new RepoRootResolver({ git: deps.git });
-  const workspaces = new WorkspaceService({ database, events: workspaceEvents, resolver });
+  const { pathRules } = deps.operatingSystem;
+  const resolver = new RepoRootResolver({ git: deps.git, pathRules });
+  const workspaces = new WorkspaceService({
+    database,
+    events: workspaceEvents,
+    resolver,
+    pathRules,
+  });
   const repoMounts = new RepoMountService({
     database,
     events: workspaceEvents,
     nodeId: deps.nodeId,
     resolver,
+    pathRules,
   });
   const managedWorkspaces = new ManagedWorkspaceService({
     homeDirectory: deps.homeDirectory,
@@ -493,6 +500,7 @@ export function registerSessionMethods(
   });
   const projectRules = new PortRegistration<ProjectRuleWithdrawal>("project rules");
   const purge = new SessionPurge({
+    pathRules,
     writer: database.writer,
     nodeId: deps.nodeId,
     eventLog,

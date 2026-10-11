@@ -19,11 +19,11 @@ import { quoteForPosixShell } from "../../shell-quoting.js";
 import { startBashThroughEnv } from "./bash-env-start.js";
 import type { BashStart, BashStartInput, TerminalOperatingSystem } from "./contract.js";
 import { requireDaemonParent } from "./parent-check.js";
-import { POSIX_TERMINAL_SIGNALS } from "./signals.js";
+import { POSIX_TERMINAL_SIGNALS } from "./posix.js";
 import { XDG_DEFAULT_DATA_FOLDERS } from "./xdg-data-folders.js";
 
-// macOS's own bash, which skips a posix-mode start's `ENV`.
-const APPLE_BASH_PATH = "/bin/bash";
+/** macOS's own bash, which skips a posix-mode start's `ENV`. */
+export const MAC_OWN_BASH_PATH = "/bin/bash";
 
 // The program name a login names a shell by, which makes bash a login shell.
 const APPLE_BASH_LOGIN_NAME = "-bash";
@@ -32,6 +32,7 @@ const APPLE_BASH_LOGIN_NAME = "-bash";
 export interface AppleBashSystemProfiles {
   /** Read in place of `profilePath` wherever it exists, as an administrator's profile. */
   readonly managedProfilePath: string;
+  /** The system profile a login reads where no managed one exists. */
   readonly profilePath: string;
 }
 
@@ -45,7 +46,7 @@ export function macTerminalOperatingSystem(
     loginShellArgs: ["-l"],
     defaultXdgDataFolders: XDG_DEFAULT_DATA_FOLDERS,
     startBash: (bash) =>
-      bash.shellPath === APPLE_BASH_PATH
+      bash.shellPath === MAC_OWN_BASH_PATH
         ? startAppleBash(bash, firstPromptCommand)
         : startBashThroughEnv(bash),
     launchTerminalChild: requireDaemonParent,
@@ -68,8 +69,8 @@ function startAppleBash(bash: BashStartInput, firstPromptCommand: string): BashS
     return value === undefined ? [] : [[carrier, value]];
   };
   return {
-    command: APPLE_BASH_PATH,
-    args: ["--posix", "-c", `exec -a ${APPLE_BASH_LOGIN_NAME} ${APPLE_BASH_PATH} --noprofile`],
+    command: MAC_OWN_BASH_PATH,
+    args: ["--posix", "-c", `exec -a ${APPLE_BASH_LOGIN_NAME} ${MAC_OWN_BASH_PATH} --noprofile`],
     pairs: [
       ...carried("PROMPT_COMMAND", SHELL_ORIGINAL_PROMPT_COMMAND_ENVIRONMENT_NAME),
       ...carried("HISTFILE", SHELL_ORIGINAL_HISTFILE_ENVIRONMENT_NAME),

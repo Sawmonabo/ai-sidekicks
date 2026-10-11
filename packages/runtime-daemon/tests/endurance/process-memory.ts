@@ -6,7 +6,9 @@ import { readdir, readFile } from "node:fs/promises";
 
 import { isMissingFileError } from "../../src/file/missing-error.js";
 import { importKoffi } from "../../src/koffi.js";
-import type { DaemonPlatform } from "../../src/operating-system/contract.js";
+import type { DaemonOperatingSystem } from "../../src/operating-system/contract.js";
+import { LINUX_DAEMON_OPERATING_SYSTEM } from "../../src/operating-system/linux.js";
+import { MAC_DAEMON_OPERATING_SYSTEM } from "../../src/operating-system/mac.js";
 import { HOST_OPERATING_SYSTEM } from "../helpers/host-operating-system.js";
 
 // A process's memory now and at its peak since it started, in bytes.
@@ -61,11 +63,12 @@ export async function loadProcessMemoryReader(): Promise<ProcessMemoryReader> {
 }
 
 async function loadSystemReads(): Promise<SystemReads> {
-  const loaders: Partial<Record<DaemonPlatform, () => Promise<SystemReads>>> = {
-    darwin: loadMacReads,
-    linux: () => Promise.resolve(linuxReads),
-  };
-  const load = loaders[HOST_OPERATING_SYSTEM.platform];
+  // Keyed by the system's own module, the one the test runs on picked once by the host helper.
+  const loaders = new Map<DaemonOperatingSystem, () => Promise<SystemReads>>([
+    [MAC_DAEMON_OPERATING_SYSTEM, loadMacReads],
+    [LINUX_DAEMON_OPERATING_SYSTEM, () => Promise.resolve(linuxReads)],
+  ]);
+  const load = loaders.get(HOST_OPERATING_SYSTEM);
   if (load === undefined) {
     throw new Error(`No process memory read is written for ${HOST_OPERATING_SYSTEM.platform}.`);
   }

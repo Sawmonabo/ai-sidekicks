@@ -11,6 +11,7 @@
 
 import path from "node:path";
 
+import type { PathRules } from "../path-rules/contract.js";
 import type { ProviderAskAction } from "../provider/port/permission-ask.js";
 import { canonicalFolderPath } from "../workspace/folder/canonical-path.js";
 import { isContainedWithin } from "../workspace/trust-envelope.js";
@@ -47,12 +48,13 @@ const AGENT_NOTE_EXTENSION = ".md";
  * goes to the person. `agentMemoryFolder` is the one all-projects agent-memory folder; a file is in
  * it when its path, with every link resolved, lies beneath that folder's, so a configuration home's
  * link to the folder counts and a link out of it does not, and a change is allowed only when every
- * file it touches is such a note. Rejects when a path cannot be resolved for a reason other than
- * its absence.
+ * file it touches is such a note, the paths compared by the system's `pathRules`. Rejects when a
+ * path cannot be resolved for a reason other than its absence.
  */
 export async function answerProviderAsk(
   action: ProviderAskAction,
   agentMemoryFolder: string,
+  pathRules: PathRules,
 ): Promise<ProviderAskAnswer | undefined> {
   if (action.kind === "command") {
     const reason = refuseBackgroundClaude(action.command);
@@ -64,7 +66,7 @@ export async function answerProviderAsk(
     return undefined;
   }
   const areNotes = await Promise.all(
-    paths.map((filePath) => isAgentNote(filePath, agentMemoryFolder)),
+    paths.map((filePath) => isAgentNote(filePath, agentMemoryFolder, pathRules)),
   );
   return areNotes.every(Boolean) ? { decision: "allow" } : undefined;
 }
@@ -129,7 +131,11 @@ function namesBackgroundSubcommand(argumentWords: readonly string[]): boolean {
 
 // Only an absolute path with no `.` or `..` part is judged: a `..` after a link resolves against
 // the link's target, which a path joined on the folder's side would not see.
-async function isAgentNote(filePath: string, agentMemoryFolder: string): Promise<boolean> {
+async function isAgentNote(
+  filePath: string,
+  agentMemoryFolder: string,
+  pathRules: PathRules,
+): Promise<boolean> {
   if (
     !path.isAbsolute(filePath) ||
     path.normalize(filePath) !== filePath ||
@@ -138,8 +144,8 @@ async function isAgentNote(filePath: string, agentMemoryFolder: string): Promise
     return false;
   }
   const [fileKey, folderKey] = await Promise.all([
-    canonicalFolderPath(filePath),
-    canonicalFolderPath(agentMemoryFolder),
+    canonicalFolderPath(filePath, pathRules),
+    canonicalFolderPath(agentMemoryFolder, pathRules),
   ]);
-  return isContainedWithin(fileKey.split(path.sep), folderKey.split(path.sep));
+  return isContainedWithin(fileKey.split(pathRules.sep), folderKey.split(pathRules.sep));
 }

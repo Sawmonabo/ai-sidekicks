@@ -30,6 +30,10 @@ import type { DrainResult, PtyHost } from "./contract.js";
 // given before the system ends the child outright.
 const TERMINAL_CHILD_ENDING_STEP_MS = 2_000;
 
+// How long an outright end is waited for before its exit is reported anyway, so a stuck system
+// call cannot hold the report back; a healthy end takes under a second.
+const FORCED_END_REPORT_BOUND_MS = 5_000;
+
 // Local types instead of `node-pty`'s own: the file never imports `node-pty` at the type layer
 // (it is loaded lazily), and the types list exactly what is consumed: `pid`, `onData`,
 // `onExit`, `kill`, `resize`, `write`, `pause` and `resume`.
@@ -401,11 +405,13 @@ export class NodePtyHost implements PtyHost {
       child: record.child,
       signal,
       escalateAfter: (delayMs, step) => {
+        // Two signals in flight each arm one; only the later one's stays, so a child is ended once.
+        this.clearPendingEscalation(record);
         // The exit handler in `spawn` clears this timer if the child exits first.
         record.pendingEscalation = this.deps.setTimer(() => {
-          // The child may have exited between arming and firing.
-          if (record.hasExited) {
-            record.pendingEscalation = null;
+          record.pendingEscalation = null;
+          // An exited child's process id may already belong to another process.
+          if (record.hasExited || record.hasChildExited) {
             return;
           }
           step();
@@ -454,7 +460,7 @@ export class NodePtyHost implements PtyHost {
     failure: unknown,
   ): Promise<never> {
     const { killChildGroup } = this.operatingSystem;
-    if (killChildGroup === undefined) {
+    if (killChildGroup === null) {
       // With no group to kill, `close()` ends the tree through the system's endings.
       try {
         await this.close(sessionId);
@@ -645,7 +651,7 @@ export class NodePtyHost implements PtyHost {
 
   /**
    * Resolves the session's shutdown waiter, if a drain is waiting, with the drain outcome.
-   * Callers pass `"forced"` from `invokeTaskkill` and from the duplicate-exit branch that follows
+   * Callers pass `"forced"` from `reportForcedEnd` and from the duplicate-exit branch that follows
    * it, and `record.escalated ? "forced" : "drained"` from the natural-exit branch.
    */
   private notifyShutdownWaiter(sessionId: string, result: "drained" | "forced"): void {
@@ -701,10 +707,10 @@ export class NodePtyHost implements PtyHost {
     }
   }
 
-  // The system has committed to ending the child outright. Once `ending` settles, an exit is
-  // reported even if the reap is incomplete: code 1 with no signal means "ended by the daemon, the
-  // system's reap status unknown". A later real `child.onExit` is ignored because `hasExited` is
-  // write-once.
+  // The system has committed to ending the child outright. Once `ending` settles, or its bound has
+  // passed, an exit is reported even if the reap is incomplete: code 1 with no signal means "ended
+  // by the daemon, the system's reap status unknown". A later real `child.onExit` is ignored
+  // because `hasExited` is write-once.
   private reportForcedEnd(
     sessionId: string,
     record: PtySessionRecord,
@@ -714,7 +720,12 @@ export class NodePtyHost implements PtyHost {
     // Set before the wait, so the exit handler in `spawn` reads it however soon the child is
     // reaped.
     record.escalated = true;
-    void ending.then(() => {
+    const bound = Promise.withResolvers<void>();
+    const boundTimer = this.deps.setTimer(() => {
+      bound.resolve();
+    }, FORCED_END_REPORT_BOUND_MS);
+    void Promise.race([ending, bound.promise]).then(() => {
+      this.deps.clearTimer(boundTimer);
       // `sessions.has` gates the report, so a `close()` that landed during the wait (it is the only
       // place sessions are deleted) cannot produce an exit after teardown.
       if (!record.hasExited && this.sessions.has(sessionId)) {

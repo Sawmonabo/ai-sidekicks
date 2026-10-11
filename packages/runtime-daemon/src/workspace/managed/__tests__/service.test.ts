@@ -22,6 +22,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { NodeId } from "@ai-sidekicks/contracts/runtime-node/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
+import { HOST_OPERATING_SYSTEM } from "../../../../tests/helpers/host-operating-system.js";
 import {
   openScratchDatabase,
   type ScratchDatabase,
@@ -58,6 +59,7 @@ beforeEach(async () => {
   database = await openScratchDatabase();
   homeDirectory = mkdtempSync(join(tmpdir(), "ai-sidekicks-managed-workspace-"));
   repoMounts = new RepoMountService({
+    pathRules: HOST_OPERATING_SYSTEM.pathRules,
     database,
     events: new WorkspaceEventEmitter({
       sessionEvents: new EventLogService({
@@ -209,6 +211,7 @@ describe("ManagedWorkspaceService.delete", () => {
     // the workspace, so with foreign keys on, each must go before what it names.
     await seedSessionRow(database.writer, SESSION_ID, "chat");
     const { workspaceId } = await new WorkspaceService({
+      pathRules: HOST_OPERATING_SYSTEM.pathRules,
       database,
       events: new WorkspaceEventEmitter({
         sessionEvents: new EventLogService({

@@ -4,10 +4,7 @@
 // SIGINT did, which is how the desktop app's main process, the command line and the operating
 // system's service manager end it.
 
-import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
 import * as os from "node:os";
-import { promisify } from "node:util";
 
 import { DaemonProcess, resolveDataFolder } from "./daemon/process.js";
 import { LOGIN_SHELL_DEADLINE_MS } from "./daemon/login-shell-environment.js";
@@ -17,6 +14,7 @@ import { DaemonStartStoppedError } from "./daemon/start-stopped-error.js";
 import { openServiceLog } from "./daemon/service-log.js";
 import { readServiceVersion } from "./daemon/service-version.js";
 import { readVolumeFreeBytes } from "./daemon/volume-free-space.js";
+import { NODE_SYSTEM_ACCESS } from "./node-system-access.js";
 import { selectDaemonOperatingSystem } from "./operating-system/selection.js";
 import { describeRejection } from "./rejection.js";
 import { selectPtyHost } from "./pty/host/selector.js";
@@ -59,11 +57,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
 const operatingSystem = selectDaemonOperatingSystem(process.platform, process.env);
 
 // One reader for the daemon's own process and its terminal children, so the boot is read once.
-const runProgram = promisify(execFile);
-const readProcessIdentity = operatingSystem.createProcessIdentityReader({
-  readTextFile: (filePath) => readFile(filePath, "utf8"),
-  runProgram: (file, args, environment) => runProgram(file, [...args], { env: environment }),
-});
+const readProcessIdentity = operatingSystem.createProcessIdentityReader(NODE_SYSTEM_ACCESS);
 // Read once: the reading of a running process never changes.
 const processIdentity = await readProcessIdentity(process.pid);
 if (processIdentity === undefined) {
@@ -100,6 +94,7 @@ const daemon = await DaemonProcess.start({
       deadlineMs: LOGIN_SHELL_DEADLINE_MS,
       serviceEnvironment: process.env,
       writeServiceLog,
+      readTextFile: NODE_SYSTEM_ACCESS.readTextFile,
       signal: AbortSignal.any([stopRequest.signal, startAbort]),
     }),
   commandShell: account.shell,

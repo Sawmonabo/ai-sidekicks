@@ -256,7 +256,6 @@ describe("damage met while the daemon runs", () => {
         return repair.promise;
       },
       () => {},
-      HOST_OPERATING_SYSTEM.readSocketPathLimit,
     );
     // The token is written once the socket is bound, so a hello waits for both.
     await vi.waitFor(

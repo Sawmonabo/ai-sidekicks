@@ -63,10 +63,10 @@ export interface TerminalOperatingSystem {
   deliverSignal(delivery: TerminalSignalDelivery): Promise<void>;
   /**
    * Kills at once the process group a terminal child leads, for a child the orphan registry could
-   * not record; `undefined` where the system has no process groups, and the child's terminal is
+   * not record; `null` where the system has no process groups, and the child's terminal is
    * closed through its endings instead. Throws, `ESRCH` for a group already gone.
    */
-  readonly killChildGroup: ((leaderId: number) => void) | undefined;
+  readonly killChildGroup: ((leaderId: number) => void) | null;
   /**
    * Kills a terminal host process that stopped answering, with every terminal child it started
    * where the system reaches them only through the host's tree. Resolves once the kill is done or
@@ -79,6 +79,7 @@ export interface TerminalOperatingSystem {
 export interface TerminalHostProcess {
   /** `undefined` when its start failed first. */
   readonly pid?: number | undefined;
+  /** Sends `signal` to the process; `false` when it could not be sent. */
   kill(signal: NodeJS.Signals): boolean;
 }
 
@@ -92,8 +93,8 @@ interface TerminalSignalDelivery {
    */
   readonly escalateAfter: (delayMs: number, step: () => void) => void;
   /**
-   * Reports the child ended outright once `ending` settles, whether or not the system has reaped
-   * it, unless its exit came first. `ending` never rejects.
+   * Reports the child ended outright once `ending` settles, or the host's bound passes first,
+   * whether or not the system has reaped it, unless its exit came first. `ending` never rejects.
    */
   readonly reportForcedEnd: (ending: Promise<void>) => void;
 }

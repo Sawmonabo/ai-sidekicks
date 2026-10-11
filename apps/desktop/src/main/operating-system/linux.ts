@@ -1,5 +1,6 @@
 // What main takes from Linux.
 
+import { resolveDaemonRunFolder } from "@ai-sidekicks/contracts/daemon/run-folder";
 import { createLinuxProcessIdentityReader } from "@ai-sidekicks/contracts/process-identity";
 
 import type { MainOperatingSystem } from "./contract.js";
@@ -11,6 +12,7 @@ export const LINUX_MAIN_OPERATING_SYSTEM: MainOperatingSystem = {
   platform: "linux",
   flushesFolderAfterRename: true,
   createProcessIdentityReader: createLinuxProcessIdentityReader,
+  resolveDaemonRunFolder,
   // Runs under Xvfb in the test tiers, where an inactive reveal draws.
   ...(__TEST_TIER_BUILD__ ? { unobtrusiveWindows: { reveal: "inactive" } } : {}),
 };

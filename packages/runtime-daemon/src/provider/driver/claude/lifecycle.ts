@@ -212,6 +212,7 @@ export class ClaudeSessionLifecycle implements ClaudeRunProcessLookup {
       childRunStarting: (sessionId, agentId) => this.#stream.childRunStarting(sessionId, agentId),
       sessionRules: dependencies.sessionRules,
       diskFlush: dependencies.diskFlush,
+      pathRules: dependencies.pathRules,
     });
     this.#controls = new ClaudeSessionControls({
       transport: dependencies.transport,

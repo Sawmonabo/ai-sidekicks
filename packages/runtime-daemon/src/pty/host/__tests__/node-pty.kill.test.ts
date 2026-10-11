@@ -177,6 +177,19 @@ describe("NodePtyHost — hard-stop escalation to taskkill /T /F", () => {
     expect(ctx.exitRecorder).toHaveBeenCalledWith(session_id, 1);
   });
 
+  it("two SIGTERMs in flight at once end the child with one taskkill", async () => {
+    // A stuck taskkill, so the first ending reports no exit that would stop the second.
+    ctx.mockTaskkill.mockReturnValue(new Promise<TaskkillResult>(() => undefined));
+    const { session_id } = await ctx.host.spawn(SAMPLE_SPAWN);
+
+    // Neither is awaited before the other starts, so both arm an escalation.
+    await Promise.all([ctx.host.kill(session_id, "SIGTERM"), ctx.host.kill(session_id, "SIGTERM")]);
+    expect(ctx.mockGCCE).toHaveBeenCalledTimes(2);
+
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(ctx.mockTaskkill).toHaveBeenCalledTimes(1);
+  });
+
   it("SIGKILL bypasses the 2 s budget and invokes taskkill immediately", async () => {
     const { session_id } = await ctx.host.spawn(SAMPLE_SPAWN);
     await ctx.host.kill(session_id, "SIGKILL");

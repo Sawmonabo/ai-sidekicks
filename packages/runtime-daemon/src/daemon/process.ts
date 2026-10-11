@@ -420,6 +420,7 @@ export class DaemonProcess {
       providerBaseEnvironment: parts.providerBaseEnvironment,
       operatingSystem: options.operatingSystem.provider,
       diskFlush: options.operatingSystem.diskFlush,
+      pathRules: options.operatingSystem.pathRules,
       processPeakReader: options.operatingSystem.processPeak,
       writeServiceLog: options.writeServiceLog,
     });
@@ -429,7 +430,6 @@ export class DaemonProcess {
     this.#gateway = new LocalIpcGateway({
       registry,
       deviceId: machineDeviceId,
-      readSocketPathLimit: options.operatingSystem.readSocketPathLimit,
       hooks: {
         onDisconnect: (transport) => {
           negotiator.cleanupTransport(transport.id);
@@ -525,7 +525,6 @@ export class DaemonProcess {
         dataFolder,
         indexFolderPath,
         runFolder: options.runFolder,
-        readSocketPathLimit: options.operatingSystem.readSocketPathLimit,
         operatingSystem: options.operatingSystem.databaseFile,
         diskFlush: options.operatingSystem.diskFlush,
         readBackupFolder: async () =>
