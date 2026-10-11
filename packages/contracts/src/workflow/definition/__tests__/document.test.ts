@@ -4,7 +4,7 @@
 // send to a model, a content hash blind to layout, pinned data and tags, trigger inputs with
 // distinct names that start on a value their type allows, a tool binding that carries no policy,
 // and a step's failure whose details never travel without its code, nor an agent refusal without
-// its reason.
+// its reason and the definition it names, `null` for the General agent.
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
@@ -285,7 +285,7 @@ describe("WorkflowStepErrorSchema", () => {
     expect(WorkflowStepErrorSchema.safeParse({ message: "failed" }).success).toBe(true);
   });
 
-  it("fails a step whose agent could not resolve with that refusal and its reason", () => {
+  it("fails a step whose agent could not resolve with that refusal, its reason and its definition, none for the General agent", () => {
     const parkRefused = {
       message: "The account this step waited on was removed",
       code: "agent.resolution_refused",
@@ -296,6 +296,16 @@ describe("WorkflowStepErrorSchema", () => {
       },
     };
     expect(WorkflowStepErrorSchema.safeParse(parkRefused).success).toBe(true);
+    // A step running the General agent runs no definition, and its refusal says so.
+    const generalStepRefused = {
+      ...parkRefused,
+      details: { ...parkRefused.details, definitionId: null },
+    };
+    expect(WorkflowStepErrorSchema.safeParse(generalStepRefused).success).toBe(true);
+    const { definitionId: _definitionId, ...definitionless } = parkRefused.details;
+    expect(
+      WorkflowStepErrorSchema.safeParse({ ...parkRefused, details: definitionless }).success,
+    ).toBe(false);
     const { details: _details, ...reasonless } = parkRefused;
     expect(WorkflowStepErrorSchema.safeParse(reasonless).success).toBe(false);
     expect(

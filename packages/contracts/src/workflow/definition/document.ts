@@ -17,10 +17,11 @@
 // nodes and items from here.
 import { z } from "zod";
 
-import { McpServerBindingRefSchema, type McpServerBindingRef } from "../../mcp/server.js";
 import {
   AGENT_RESOLUTION_REFUSED_CODE,
-  AgentResolutionRefusedDetailsSchema,
+  AgentDefinitionIdSchema,
+  agentResolutionRefusedDetailsSchema,
+  type AgentDefinitionId,
   type AgentResolutionRefusedCode,
   type AgentResolutionRefusedDetails,
 } from "../../agent/definition.js";
@@ -28,6 +29,7 @@ import { ArtifactIdSchema, type ArtifactId } from "../../artifacts/id.js";
 import { FILE_PATH_MAX_LEN } from "../../free-form-string.js";
 import { findRepeats } from "../../internal/repeats.js";
 import { countSchema } from "../../internal/wire-scalars.js";
+import { McpServerBindingRefSchema, type McpServerBindingRef } from "../../mcp/server.js";
 import { TagListSchema } from "../../tag.js";
 import type { WorkflowParamType } from "../kind.js";
 import type { WorkflowDefinitionFinding } from "./refusals.js";
@@ -368,9 +370,10 @@ const WorkflowPairedItemSchema: z.ZodType<WorkflowPairedItem, WorkflowPairedItem
  * step failure's own `workflow.<condition>` code (a timed-out step, a sandbox that did not start, a
  * Code step over its budget …) and may carry that code's `details`; a step whose agent could not
  * resolve (a park on an account removed first) carries `agent.resolution_refused` with its
- * reason in `details`; a failure with no code of its own carries the message alone, never
- * `details`. `itemIndex` names the input item the step failed on: the same zero-based index an
- * expression reads as `$itemIndex`, drawn as it stands (`Item 1` for 1).
+ * reason in `details`, whose `definitionId` is `null` for a step running the General agent; a
+ * failure with no code of its own carries the message alone, never `details`. `itemIndex` names
+ * the input item the step failed on: the same zero-based index an expression reads as
+ * `$itemIndex`, drawn as it stands (`Item 1` for 1).
  */
 export type WorkflowStepError =
   | {
@@ -392,7 +395,7 @@ export type WorkflowStepError =
       nodeId?: WorkflowNodeId | undefined;
       itemIndex?: number | undefined;
       code: AgentResolutionRefusedCode;
-      details: AgentResolutionRefusedDetails;
+      details: AgentResolutionRefusedDetails<AgentDefinitionId | null>;
     };
 
 const stepErrorShape = {
@@ -414,7 +417,7 @@ export const WorkflowStepErrorSchema: z.ZodType<WorkflowStepError, WorkflowStepE
     .object({
       ...stepErrorShape,
       code: z.literal(AGENT_RESOLUTION_REFUSED_CODE),
-      details: AgentResolutionRefusedDetailsSchema,
+      details: agentResolutionRefusedDetailsSchema(AgentDefinitionIdSchema.nullable()),
     })
     .strict(),
 ]);

@@ -140,8 +140,9 @@ interface WorkflowStepError {
   // The step failure's own code where one names it (a timed-out step, a sandbox that did not start, a
   // Code step over its budget …), in the `workflow.<condition>` form, with that code's details. A step
   // whose agent could not resolve (its park on an account a removal took first) carries
-  // `agent.resolution_refused`, its details that refusal's own, `reason` among them. A failure with no
-  // code of its own carries the message alone, and `details` never appears without `code`.
+  // `agent.resolution_refused`, its details that refusal's own, `reason` among them, except that
+  // `definitionId` is `null` for a step running the General agent, which runs no definition. A failure
+  // with no code of its own carries the message alone, and `details` never appears without `code`.
   code?: string;
   details?: Record<string, unknown>;
 }

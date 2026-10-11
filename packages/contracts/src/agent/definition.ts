@@ -764,7 +764,9 @@ export type AgentResolutionRefusedReason = (typeof AGENT_RESOLUTION_REFUSED_REAS
 
 /**
  * The resolution refusal's details, each reason naming what was asked for beside
- * what is available, because neither alone tells a person what to edit.
+ * what is available, because neither alone tells a person what to edit. `DefinitionId`
+ * is the type of the definition the refusal names: a definition's id where one always
+ * runs, and `null` too where the agent may run none.
  *
  * - `model_unavailable`: the pinned model its provider no longer offers, or, with a
  *   null `modelId`, a driver the definition binds no model for.
@@ -775,79 +777,93 @@ export type AgentResolutionRefusedReason = (typeof AGENT_RESOLUTION_REFUSED_REAS
  * - `provider_unsupported`: the provider name the definition's file carries, which
  *   this app does not run, until the person picks an installed provider.
  */
-export type AgentResolutionRefusedDetails =
+export type AgentResolutionRefusedDetails<DefinitionId = AgentDefinitionId> =
   | {
-      definitionId: AgentDefinitionId;
+      definitionId: DefinitionId;
       reason: "model_unavailable";
       driverName: ProviderName;
       modelId: string | null;
     }
   | {
-      definitionId: AgentDefinitionId;
+      definitionId: DefinitionId;
       reason: "effort_unsupported";
       effort: string;
       effortLevels: string[];
     }
   | {
-      definitionId: AgentDefinitionId;
+      definitionId: DefinitionId;
       reason: "account_unavailable";
       providerAccountId: ProviderAccountId;
     }
   | {
-      definitionId: AgentDefinitionId;
+      definitionId: DefinitionId;
       reason: "allowlist_unrealizable";
       toolNames: string[];
       supportedToolNames: string[];
     }
   | {
-      definitionId: AgentDefinitionId;
+      definitionId: DefinitionId;
       reason: "provider_unsupported";
       unsupportedProviderName: string;
     };
-/** Parses {@link AgentResolutionRefusedDetails}. */
+
+/**
+ * Builds the parser of {@link AgentResolutionRefusedDetails} whose `definitionId` is what
+ * `definitionIdSchema` accepts.
+ */
+export function agentResolutionRefusedDetailsSchema<DefinitionId>(
+  definitionIdSchema: z.ZodType<DefinitionId, DefinitionId>,
+): z.ZodType<
+  AgentResolutionRefusedDetails<DefinitionId>,
+  AgentResolutionRefusedDetails<DefinitionId>
+> {
+  return z.discriminatedUnion("reason", [
+    z
+      .object({
+        definitionId: definitionIdSchema,
+        reason: z.literal("model_unavailable"),
+        driverName: ProviderNameSchema,
+        modelId: providerTokenSchema("modelId").nullable(),
+      })
+      .strict(),
+    z
+      .object({
+        definitionId: definitionIdSchema,
+        reason: z.literal("effort_unsupported"),
+        effort: providerTokenSchema("effort"),
+        effortLevels: z.array(providerTokenSchema("effortLevels")),
+      })
+      .strict(),
+    z
+      .object({
+        definitionId: definitionIdSchema,
+        reason: z.literal("account_unavailable"),
+        providerAccountId: ProviderAccountIdSchema,
+      })
+      .strict(),
+    z
+      .object({
+        definitionId: definitionIdSchema,
+        reason: z.literal("allowlist_unrealizable"),
+        toolNames: z.array(toolNameSchema).min(1),
+        supportedToolNames: z.array(toolNameSchema),
+      })
+      .strict(),
+    z
+      .object({
+        definitionId: definitionIdSchema,
+        reason: z.literal("provider_unsupported"),
+        unsupportedProviderName: providerTokenSchema("unsupportedProviderName"),
+      })
+      .strict(),
+  ]);
+}
+
+/** Parses {@link AgentResolutionRefusedDetails} for a refusal that names a definition. */
 export const AgentResolutionRefusedDetailsSchema: z.ZodType<
   AgentResolutionRefusedDetails,
   AgentResolutionRefusedDetails
-> = z.discriminatedUnion("reason", [
-  z
-    .object({
-      definitionId: AgentDefinitionIdSchema,
-      reason: z.literal("model_unavailable"),
-      driverName: ProviderNameSchema,
-      modelId: providerTokenSchema("modelId").nullable(),
-    })
-    .strict(),
-  z
-    .object({
-      definitionId: AgentDefinitionIdSchema,
-      reason: z.literal("effort_unsupported"),
-      effort: providerTokenSchema("effort"),
-      effortLevels: z.array(providerTokenSchema("effortLevels")),
-    })
-    .strict(),
-  z
-    .object({
-      definitionId: AgentDefinitionIdSchema,
-      reason: z.literal("account_unavailable"),
-      providerAccountId: ProviderAccountIdSchema,
-    })
-    .strict(),
-  z
-    .object({
-      definitionId: AgentDefinitionIdSchema,
-      reason: z.literal("allowlist_unrealizable"),
-      toolNames: z.array(toolNameSchema).min(1),
-      supportedToolNames: z.array(toolNameSchema),
-    })
-    .strict(),
-  z
-    .object({
-      definitionId: AgentDefinitionIdSchema,
-      reason: z.literal("provider_unsupported"),
-      unsupportedProviderName: providerTokenSchema("unsupportedProviderName"),
-    })
-    .strict(),
-]);
+> = agentResolutionRefusedDetailsSchema(AgentDefinitionIdSchema);
 
 /** A definition update the daemon refused. */
 export type AgentUpdateRefusedCode = "agent.update_refused";
