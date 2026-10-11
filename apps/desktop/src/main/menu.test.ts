@@ -39,10 +39,49 @@ const CHECKOUT: InstallLocation = {
 
 const realPlatform = process.platform;
 
-afterEach(() => {
+afterEach(async () => {
   Object.defineProperty(process, "platform", { value: realPlatform });
   vi.restoreAllMocks();
+  const { app } = await import("electron");
+  vi.mocked(app.getName).mockReset();
+  vi.mocked(app.getVersion).mockReset();
 });
+
+/** An installed app's resources folder, on no machine, so only a path built from it matches. */
+const INSTALLED_RESOURCES_FOLDER = "/sidekicks-installed-resources";
+
+/**
+ * Installs the menu on `platform`, from a development checkout unless `isPackaged`, the app
+ * reporting a name and version no literal matches, and answers the About panel it filled, the
+ * template it installed and the developer-tools toggle it was given.
+ */
+async function installOn(platform: NodeJS.Platform, isPackaged = false) {
+  Object.defineProperty(process, "platform", { value: platform });
+  const location: InstallLocation = isPackaged
+    ? { ...CHECKOUT, isPackaged, resourcesPath: INSTALLED_RESOURCES_FOLDER }
+    : CHECKOUT;
+  const { app, Menu } = await import("electron");
+  vi.mocked(app.getName).mockReturnValue("Sidekicks under test");
+  vi.mocked(app.getVersion).mockReturnValue("9.9.9-test");
+  const setAboutPanelOptions = vi.mocked(app.setAboutPanelOptions);
+  const setApplicationMenu = vi.mocked(Menu.setApplicationMenu);
+  setAboutPanelOptions.mockClear();
+  setApplicationMenu.mockClear();
+  const toggleDeveloperTools = vi.fn();
+  const { installApplicationMenu } = await import("./menu.js");
+  installApplicationMenu(
+    { scheme: "system", chooseScheme: () => Promise.resolve(), subscribe: () => () => {} },
+    { write: () => {} },
+    { announceUnkeptScheme: () => {}, toggleDeveloperTools },
+    location,
+  );
+  expect(setAboutPanelOptions).toHaveBeenCalledOnce();
+  expect(setAboutPanelOptions.mock.invocationCallOrder[0]).toBeLessThan(
+    setApplicationMenu.mock.invocationCallOrder[0] ?? 0,
+  );
+  const template = electronMock.installedMenuTemplates.at(-1) ?? [];
+  return { panel: setAboutPanelOptions.mock.calls[0]?.[0], template, toggleDeveloperTools };
+}
 
 /** The View menu's scheme rows in the menu installed last, by label. */
 function installedSchemeRows(): readonly MenuTemplateItem[] {
@@ -120,46 +159,6 @@ describe("the View menu's color scheme", () => {
 });
 
 describe("About", () => {
-  /** An installed app's resources folder, on no machine, so only a path built from it matches. */
-  const installedResourcesFolder = "/sidekicks-installed-resources";
-
-  afterEach(async () => {
-    const { app } = await import("electron");
-    vi.mocked(app.getName).mockReset();
-    vi.mocked(app.getVersion).mockReset();
-  });
-
-  /**
-   * Installs the menu on `platform`, from a development checkout unless `isPackaged`, the app
-   * reporting a name and version no literal matches.
-   */
-  async function installOn(platform: NodeJS.Platform, isPackaged = false) {
-    Object.defineProperty(process, "platform", { value: platform });
-    const location: InstallLocation = isPackaged
-      ? { ...CHECKOUT, isPackaged, resourcesPath: installedResourcesFolder }
-      : CHECKOUT;
-    const { app, Menu } = await import("electron");
-    vi.mocked(app.getName).mockReturnValue("Sidekicks under test");
-    vi.mocked(app.getVersion).mockReturnValue("9.9.9-test");
-    const setAboutPanelOptions = vi.mocked(app.setAboutPanelOptions);
-    const setApplicationMenu = vi.mocked(Menu.setApplicationMenu);
-    setAboutPanelOptions.mockClear();
-    setApplicationMenu.mockClear();
-    const { installApplicationMenu } = await import("./menu.js");
-    installApplicationMenu(
-      { scheme: "system", chooseScheme: () => Promise.resolve(), subscribe: () => () => {} },
-      { write: () => {} },
-      { announceUnkeptScheme: () => {}, toggleDeveloperTools: () => {} },
-      location,
-    );
-    expect(setAboutPanelOptions).toHaveBeenCalledOnce();
-    expect(setAboutPanelOptions.mock.invocationCallOrder[0]).toBeLessThan(
-      setApplicationMenu.mock.invocationCallOrder[0] ?? 0,
-    );
-    const template = electronMock.installedMenuTemplates.at(-1) ?? [];
-    return { panel: setAboutPanelOptions.mock.calls[0]?.[0], template };
-  }
-
   it("on macOS opens with the app menu's own roles, the bundle supplying the icon", async () => {
     const { panel, template } = await installOn("darwin");
 
@@ -201,7 +200,7 @@ describe("About", () => {
   it("in an installed app takes the icon from beside its archive", async () => {
     const { panel } = await installOn("linux", true);
 
-    expect(panel?.iconPath).toBe(path.join(installedResourcesFolder, "icon.png"));
+    expect(panel?.iconPath).toBe(path.join(INSTALLED_RESOURCES_FOLDER, "icon.png"));
   });
 });
 
@@ -210,24 +209,15 @@ describe("the developer tools row", () => {
     vi.unstubAllEnvs();
   });
 
-  /** Installs the menu on `platform`, returning its rows, all levels flattened, and the toggle. */
-  async function installOn(platform: NodeJS.Platform) {
-    Object.defineProperty(process, "platform", { value: platform });
-    const toggleDeveloperTools = vi.fn();
-    const { installApplicationMenu } = await import("./menu.js");
-    installApplicationMenu(
-      { scheme: "system", chooseScheme: () => Promise.resolve(), subscribe: () => () => {} },
-      { write: () => {} },
-      { announceUnkeptScheme: () => {}, toggleDeveloperTools },
-      CHECKOUT,
-    );
+  /** Every row of `template`, all levels flattened. */
+  function flattenRows(template: readonly MenuTemplateItem[]): MenuTemplateItem[] {
     const rows: MenuTemplateItem[] = [];
-    const pending = [...(electronMock.installedMenuTemplates.at(-1) ?? [])];
+    const pending = [...template];
     for (let row = pending.pop(); row !== undefined; row = pending.pop()) {
       rows.push(row);
       pending.push(...(row.submenu ?? []));
     }
-    return { rows, toggleDeveloperTools };
+    return rows;
   }
 
   it.each([
@@ -237,7 +227,8 @@ describe("the developer tools row", () => {
   ] as const)(
     "on %s holds %s and toggles the tools of the window it was chosen in",
     async (platform, accelerator) => {
-      const { rows, toggleDeveloperTools } = await installOn(platform);
+      const { template, toggleDeveloperTools } = await installOn(platform);
+      const rows = flattenRows(template);
 
       const row = rows.find((candidate) => candidate.label === "Toggle Developer Tools");
       expect(row?.accelerator).toBe(accelerator);
@@ -251,7 +242,7 @@ describe("the developer tools row", () => {
 
   it("is absent outside a development build", async () => {
     vi.stubEnv("DEV", false);
-    const { rows } = await installOn("darwin");
+    const rows = flattenRows((await installOn("darwin")).template);
 
     expect(rows.some((candidate) => candidate.label === "Toggle Developer Tools")).toBe(false);
     expect(rows.some((candidate) => candidate.role === "toggleDevTools")).toBe(false);

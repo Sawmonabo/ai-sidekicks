@@ -15,6 +15,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import type { BaseWindow } from "electron";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { appFactsSwitches } from "#shared/app-facts.js";
@@ -676,7 +677,7 @@ describe("a window the console document opens", () => {
     const toggleIn = (built: MockBaseWindow) =>
       built.contentView.children[0]?.webContents.toggleDevTools;
 
-    openWindows.toggleDeveloperTools(chosen as never);
+    openWindows.toggleDeveloperTools(chosen as unknown as BaseWindow);
     openWindows.toggleDeveloperTools(undefined);
 
     expect(toggleIn(chosen)).toHaveBeenCalledOnce();

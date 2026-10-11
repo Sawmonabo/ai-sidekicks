@@ -23,7 +23,8 @@ const ABOUT_ICON_FILE = "icon.png";
 
 /**
  * The developer-tools row's keys on each platform, the keys Chrome opens its console on. Electron's
- * own row sits on the keys Preview's `Inspect` takes.
+ * own row sits on keys already taken: on macOS Preview's `Inspect`, and on Windows and Linux
+ * Ctrl+Shift+I, `Inspector`'s key while the terminal has focus.
  */
 const DEVELOPER_TOOLS_ACCELERATORS: Readonly<Record<SupportedPlatform, string>> = {
   darwin: "Alt+Command+J",
