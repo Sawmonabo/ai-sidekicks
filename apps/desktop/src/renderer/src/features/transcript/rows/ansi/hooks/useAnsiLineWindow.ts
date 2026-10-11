@@ -1,4 +1,4 @@
-import { useVirtualizer, type Range } from "@tanstack/react-virtual";
+import { type Range } from "@tanstack/virtual-core";
 import {
   useCallback,
   useContext,
@@ -10,6 +10,7 @@ import {
   useSyncExternalStore,
 } from "react";
 
+import { useDirectlyPlacedVirtualizer } from "#renderer/hooks/useDirectlyPlacedVirtualizer.js";
 import { useStopObservingRemovedItems } from "#renderer/hooks/useStopObservingRemovedItems.js";
 import { useSelectionPins } from "../../bodies/hooks/useSelectionPins.js";
 import { DrawnWindowSourcesContext } from "../../drawn-window-sources.js";
@@ -101,6 +102,8 @@ export function useAnsiLineWindow(
       ),
     [layout, bandScreenHeights, pins],
   );
+  // The virtualizer renders again only when the chunks it draws change; a chunk that moves a
+  // spacer redraws here.
   const onChange = useCallback(
     (instance: AnsiLineVirtualizer) => {
       if (layout.isTakingHeights) {
@@ -114,7 +117,7 @@ export function useAnsiLineWindow(
   );
   const [initialRect] = useState(() => layout.initialRect());
 
-  const virtualizer = useVirtualizer<HTMLElement, HTMLElement>({
+  const virtualizer = useDirectlyPlacedVirtualizer<HTMLElement, HTMLElement>({
     count: chunks.count,
     // Laid out only once the lines' type is read: every estimate wraps lines at their width.
     enabled: layout.isLaidOut,
@@ -129,11 +132,6 @@ export function useAnsiLineWindow(
     rangeExtractor,
     onChange,
     indexAttribute: ANSI_LINE_CHUNK_INDEX_ATTRIBUTE,
-    // A geometry sample can arrive while React commits, where a synchronous flush only warns.
-    useFlushSync: false,
-    // With no container attached the adapter writes nothing to the page and re-renders only when
-    // the drawn range changes; a chunk that moves a spacer redraws through `onChange`.
-    directDomUpdates: true,
   });
   virtualizer.shouldAdjustScrollPositionOnItemSizeChange = layout.holdPlaceThroughResizedChunk;
   useStopObservingRemovedItems(virtualizer);

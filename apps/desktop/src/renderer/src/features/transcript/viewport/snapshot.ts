@@ -2,7 +2,7 @@
 // them. Nothing here holds state, so views and the React binding import the row type from here
 // without holding the controller, and the rules are tested directly.
 
-import type { Range } from "@tanstack/react-virtual";
+import type { Range } from "@tanstack/virtual-core";
 
 import { type DrawnBandScreenHeights } from "./drawn-band.js";
 import { type ReadingAnchorState } from "./reading-anchor.js";
@@ -90,6 +90,27 @@ export function countInsertedBefore(
   }
   const previousHeadIndex = rows.findIndex((row) => row.key === previousHeadKey);
   return previousHeadIndex < 0 ? 0 : previousHeadIndex;
+}
+
+/** Whether two key lists differ in length or at either end, which lays the library out anew. */
+export function haveDifferentEnds(
+  previousKeys: readonly string[],
+  nextKeys: readonly string[],
+): boolean {
+  return (
+    previousKeys.length !== nextKeys.length ||
+    previousKeys[0] !== nextKeys[0] ||
+    previousKeys[previousKeys.length - 1] !== nextKeys[nextKeys.length - 1]
+  );
+}
+
+/** Whether `nextKeys` holds a row `previousKeys` did not. */
+export function haveRowsJoined(
+  previousKeys: readonly string[],
+  nextKeys: readonly string[],
+): boolean {
+  const previousKeySet = new Set(previousKeys);
+  return nextKeys.some((key) => !previousKeySet.has(key));
 }
 
 /**

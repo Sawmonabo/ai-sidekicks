@@ -9,7 +9,7 @@ import { ManualClock } from "#renderer/lib/clock.js";
 import { createCountingScrollContainer } from "#renderer/lib/scroll/container.test-support.js";
 import { TRANSCRIPT_GESTURE_GAP_MS } from "./caps.js";
 import { ViewportController } from "./controller.js";
-import { CALM, attachReaderAt, syntheticRows } from "./controller.test-support.js";
+import { CALM, NO_LINK, attachReaderAt, syntheticRows } from "./controller.test-support.js";
 
 /** A log long enough that the window lets go of most of it around a reader in the middle. */
 const LOG_ROW_COUNT = 400;
@@ -39,18 +39,19 @@ describe("the viewport controller — the row under the reader stays put", () =>
     });
     // The first row is still changing, so the cut above stops at it: the rows above the reader
     // stay laid out until it settles.
-    controller.reconcile({ rows, isChangingRow: (rowKey) => rowKey === "row-0" });
+    controller.reconcile({ rows, isChangingRow: (rowKey) => rowKey === "row-0" }, NO_LINK);
     controller.anchor.capture({ rowKey: READER_ROW_KEY, offsetWithinViewportPx: -12 });
     expect(controller.anchor.state.mode).not.toBe("following");
     const readerOffsetBeforeCut = offsetOnScreen(controller, READER_ROW_KEY);
 
-    controller.reconcile({ rows, ...CALM });
+    controller.reconcile({ rows, ...CALM }, NO_LINK);
+    // Paid at the commit of the render that drops the rows, by arithmetic on the offset.
+    expect(controller.scroll.writeCount("prune-compensation")).toBe(0);
+    controller.commitPendingPositionHold(controller.snapshot().rows);
 
     expect(controller.snapshot().rowKeys[0]).not.toBe("row-0");
     expect(controller.snapshot().lastPrune?.prunedAboveKeys.length).toBeGreaterThan(0);
     expect(offsetOnScreen(controller, READER_ROW_KEY)).toBe(readerOffsetBeforeCut);
-    // Paid by arithmetic: in the mounted frame the virtualizer answers in pre-cut offsets until
-    // React re-renders, so an anchor glide in its place would land on the wrong row.
     expect(controller.scroll.writeCount("prune-compensation")).toBe(1);
 
     // The reader scrolls up one row, into the approach band: one stretch arrives above them, and
@@ -61,7 +62,7 @@ describe("the viewport controller — the row under the reader stays put", () =>
     scrollContainer.moveTo(rowHeightPx);
     expect(controller.snapshot().rowKeys.indexOf(keysBeforeAdmission[0] ?? "")).toBeGreaterThan(0);
 
-    controller.commitPendingPositionHold(rows);
+    controller.commitPendingPositionHold(controller.snapshot().rows);
 
     expect(offsetOnScreen(controller, firstOnScreenKey)).toBe(firstOnScreenOffset);
   });
@@ -79,15 +80,14 @@ describe("the viewport controller — one stretch per gesture", () => {
       scrollHeight: 400_000,
     });
     controller.attach(scrollContainer);
-    controller.reconcile({ rows, ...CALM });
+    controller.reconcile({ rows, ...CALM }, NO_LINK);
     controller.anchor.capture({ rowKey: READER_ROW_KEY, offsetWithinViewportPx: 0 });
-    controller.reconcile({ rows, ...CALM });
     const firstHeldKey = (): string | undefined => controller.snapshot().rowKeys[0];
     // Each sample lands at a new offset near the top, since a sample that repeats the last is
     // never published.
     const approachTop = (offsetPx: number, inputAtMs: number): void => {
       scrollContainer.moveTo(offsetPx, inputAtMs);
-      controller.commitPendingPositionHold(rows);
+      controller.commitPendingPositionHold(controller.snapshot().rows);
     };
 
     const headBeforeGesture = firstHeldKey();

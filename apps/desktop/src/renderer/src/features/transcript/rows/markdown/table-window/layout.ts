@@ -8,7 +8,7 @@
 // remembered geometry.
 
 import type { Table } from "mdast";
-import type { Range, VirtualItem, Virtualizer } from "@tanstack/react-virtual";
+import type { Range, VirtualItem, Virtualizer } from "@tanstack/virtual-core";
 
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { type HeldTableColumns } from "#renderer/components/Markdown/table-offer.js";

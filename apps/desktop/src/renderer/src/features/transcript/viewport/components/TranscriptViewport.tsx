@@ -3,8 +3,8 @@
 // `features/transcript/viewport/controller.ts`'s snapshot into elements; the caller owns the one
 // binding, so the find walk and the rows read the same virtualizer. Markup invariants: one scroll
 // container (a nested scroller would rival the chokepoint's `scrollTop`); the sizer and each
-// row's transform are written by the virtualizer under `directDomUpdates`, so no style here sets
-// them; `role="feed"` is declared on the sizer and its article children by `VirtualRow`, so the
+// row's transform are written by the virtualizer directly, so no style here sets them;
+// `role="feed"` is declared on the sizer and its article children by `VirtualRow`, so the
 // relationship does not rest on whatever a registered row renderer draws, and the history line
 // above the sizer is no entry of it. Attention is steered by luminance, never motion: the only
 // transition is the pill's hover color. The binding's one selection tracker reaches the rows

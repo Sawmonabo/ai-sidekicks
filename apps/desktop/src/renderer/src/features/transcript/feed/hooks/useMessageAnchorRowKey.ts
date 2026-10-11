@@ -15,7 +15,7 @@ import { type SessionStoreState } from "#renderer/store/session/state.js";
 import { type RunGroup } from "../../runs/groups.js";
 import { type TranscriptHistory } from "../../history/hooks/useTranscriptHistory.js";
 import { type TranscriptWindowModel } from "../../window/transcript-window.js";
-import { type MessageReadBack } from "../../viewport/controller.js";
+import { type MessageReadBack } from "../../viewport/landing.js";
 
 /** What the landing row is looked up in. */
 export interface MessageAnchorRowKeyInputs {

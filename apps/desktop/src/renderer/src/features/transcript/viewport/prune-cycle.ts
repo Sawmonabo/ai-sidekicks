@@ -5,10 +5,9 @@
 //
 // The state a re-ask needs (last conditions, outcome, held and on-screen sets) lives beside the
 // pass that produces it, not among the controller's fields. The cycle reads the anchor and the
-// virtualizer and notifies nobody, which keeps the controller's publication point single. It owns
-// the compensation for the height let go above the reader because only the pass knows which rows
-// went; the controller pays it after the row set is rebuilt, so a glide's geometry sample never
-// wakes a subscriber against stale keys. Every height is read as the virtualizer laid the row
+// virtualizer and notifies nobody, which keeps the controller's publication point single. It sums
+// the height let go above the reader, because only the pass knows which rows went; the offset pays
+// it once the render that drops them commits. Every height is read as the virtualizer laid the row
 // out, so the pass and the scroll offset agree about where each edge of the window sits.
 
 import { type Clock } from "#renderer/lib/clock.js";
@@ -162,23 +161,6 @@ export class ViewportPruneCycle {
           0,
         );
     return { prunedHeightPx, isFollowing };
-  }
-
-  /**
-   * Moves the offset up by exactly what the pass let go above the reader.
-   *
-   * Arithmetic, not an anchor glide: React has not re-rendered, so the virtualizer still answers
-   * in pre-cut offsets, and the cut stops short of the reader's row, so the pixels it took sat
-   * above them. Returns whether the offset moved, so the caller can fall back to the anchor glide.
-   */
-  public compensateForPrunedHeight(prunedHeightPx: number): boolean {
-    const currentScrollTopPx = this.#scroll.geometry?.scrollTop;
-    if (prunedHeightPx <= 0 || currentScrollTopPx === undefined) {
-      return false;
-    }
-    return (
-      this.#scroll.glideTo("prune-compensation", currentScrollTopPx - prunedHeightPx) !== undefined
-    );
   }
 
   /**

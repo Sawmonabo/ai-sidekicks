@@ -3,6 +3,9 @@
 //     `useSyncExternalStore` needs a stable reference between changes.
 //   - An unchanged publication must not notify: a render re-runs the virtualizer's layout
 //     effects, which can move the offset and notify again, a loop that never settles.
+//   - A publication made during a render notifies nobody: that render reads the new snapshot, and
+//     React records what a store subscriber read only after the commit, so a notification before
+//     then would render the tree again for a value it already drew.
 // The comparison lives here rather than in `snapshot.ts` because it encodes which
 // members the controller rebuilds on change (rows, row keys, key projection, prune outcome and
 // held rows, the range extractor and the nested windows' band, compared by identity) and which it
@@ -24,6 +27,8 @@ export class ViewportPublication {
   readonly #changeEmitter = new Emitter<void>("transcript viewport snapshot");
 
   #snapshot: ViewportSnapshot;
+  /** Whether a render is reading what the publications in `publishDuringRender` make. */
+  #isRendering = false;
 
   public constructor(options: ViewportPublicationOptions) {
     this.#build = options.build;
@@ -35,7 +40,10 @@ export class ViewportPublication {
     return this.#snapshot;
   }
 
-  /** Hear every change to the snapshot; an unchanged publication notifies nobody. */
+  /**
+   * Hear every change to the snapshot made outside a render; an unchanged publication notifies
+   * nobody, and a render's own reads its changes.
+   */
   public subscribe(sink: () => void): Unsubscribe {
     return this.#changeEmitter.subscribe(sink);
   }
@@ -47,7 +55,22 @@ export class ViewportPublication {
       return;
     }
     this.#snapshot = next;
-    this.#changeEmitter.emit(undefined);
+    if (!this.#isRendering) {
+      this.#changeEmitter.emit(undefined);
+    }
+  }
+
+  /**
+   * Runs `work`, which the render now drawing reads the result of, with every publication it makes
+   * replacing the snapshot without notifying.
+   */
+  public publishDuringRender(work: () => void): void {
+    this.#isRendering = true;
+    try {
+      work();
+    } finally {
+      this.#isRendering = false;
+    }
   }
 
   /** Terminal. Every sink is dropped. */

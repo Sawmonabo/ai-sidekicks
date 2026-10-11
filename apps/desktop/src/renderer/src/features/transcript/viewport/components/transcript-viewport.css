@@ -44,8 +44,8 @@
 /*
  * Each mounted row is anchored at the top of the sizer and translated to its own offset. A
  * transform rather than `top` because it composites, keeping several simultaneous streams
- * inside the frame budget. The virtualizer writes it under `directDomUpdates`; a value here
- * would be overwritten on the first scroll tick.
+ * inside the frame budget. The virtualizer writes it directly; a value here would be overwritten
+ * on the first scroll tick.
  */
 .meridian-transcript-viewport__row {
   display: block;

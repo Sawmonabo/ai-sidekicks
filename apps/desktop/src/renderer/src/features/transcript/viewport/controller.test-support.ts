@@ -1,5 +1,5 @@
-// Rows, calm reconcile conditions, an attached controller and the layout stub shared by the
-// viewport's suites, so their claims stay about the same reconcile and the same box.
+// Rows, calm reconcile conditions with no link, an attached controller and the layout stub shared
+// by the viewport's suites, so their claims stay about the same reconcile and the same box.
 
 import { vi } from "vitest";
 
@@ -10,6 +10,7 @@ import {
 } from "#renderer/lib/scroll/container.test-support.js";
 import type { ViewportRow } from "./snapshot.js";
 import { ViewportController } from "./controller.js";
+import { type MessageLink } from "./landing.js";
 
 /** `count` rows, optionally all under one run group. */
 export function syntheticRows(count: number, runGroupKey?: string): readonly ViewportRow[] {
@@ -24,6 +25,9 @@ export function syntheticRows(count: number, runGroupKey?: string): readonly Vie
 export const CALM: { isChangingRow: (rowKey: string) => boolean } = {
   isChangingRow: () => false,
 };
+
+/** A render that names no link to a message. */
+export const NO_LINK: MessageLink = { landingRowKey: undefined, readBack: undefined };
 
 /**
  * A box at its tail attached to `controller`, which the reader then scrolls up to `offsetPx`: a

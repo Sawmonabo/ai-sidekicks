@@ -3,7 +3,7 @@
 // observer next reports on it; when a render inside that very report took the item down, the
 // report cannot deliver it and the browser raises its resize loop error.
 
-import { type Virtualizer } from "@tanstack/react-virtual";
+import { type Virtualizer } from "@tanstack/virtual-core";
 import { useLayoutEffect } from "react";
 
 /**

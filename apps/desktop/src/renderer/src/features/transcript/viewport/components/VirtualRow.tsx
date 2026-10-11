@@ -34,8 +34,8 @@ export interface VirtualRowProps {
 
 /**
  * One row's box. Memoized because a streaming row re-renders the viewport every frame; that
- * only holds if the caller's `renderRow` is stable. The row's offset is not written here:
- * under `directDomUpdates` the virtualizer owns the transform.
+ * only holds if the caller's `renderRow` is stable. The row's offset is not written here: the
+ * virtualizer writes the transform directly.
  */
 export const VirtualRow: React.MemoExoticComponent<(props: VirtualRowProps) => React.JSX.Element> =
   memo((props: VirtualRowProps): React.JSX.Element => {

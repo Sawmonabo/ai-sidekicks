@@ -190,6 +190,9 @@ importers:
       '@tanstack/react-virtual':
         specifier: 3.14.14
         version: 3.14.14(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@tanstack/virtual-core':
+        specifier: 3.18.0
+        version: 3.18.0
       '@testing-library/dom':
         specifier: ^10.4.2
         version: 10.4.2

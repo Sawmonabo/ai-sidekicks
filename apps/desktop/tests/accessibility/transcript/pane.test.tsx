@@ -9,7 +9,7 @@
 // an accident of the test.
 //
 // Everything else is the real composition: `SessionStore`, the projection, the
-// `@tanstack/react-virtual` instance, the registered row renderer, and the
+// `@tanstack/virtual-core` instance, the registered row renderer, and the
 // `SessionScreenContainer` that gives the scroll container a definite height (a virtualizer
 // over a zero-height box reports no rows, and an empty feed would pass).
 //

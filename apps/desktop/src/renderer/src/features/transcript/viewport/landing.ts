@@ -57,6 +57,20 @@ export interface ViewportLandingOptions {
   readonly onLanding: () => void;
 }
 
+/**
+ * How reading back toward a linked message the log lacks stands: still reading back, or ended at
+ * the start of history or a failed read without it.
+ */
+export type MessageReadBack = "reading-back" | "not-in-history";
+
+/** A link to a message as one render names it: the row it lands on and its reading back. */
+export interface MessageLink {
+  /** The drawn row the link lands on, or `undefined` while the window holds none. */
+  readonly landingRowKey: string | undefined;
+  /** How reading back toward a message the log lacks stands, or `undefined` when none is owed. */
+  readonly readBack: MessageReadBack | undefined;
+}
+
 /** Where a landing puts its row: at the top of the box, in its middle, or at its foot. */
 export type LandingAlignment = "start" | "center" | "end";
 
@@ -102,6 +116,10 @@ export class ViewportLanding {
    * there; no scroll sample moves the reading state meanwhile.
    */
   #pendingLanding: { readonly rowKey: string; readonly caller: RowLandingCaller } | undefined;
+  /** The row a link's message last landed on, so naming it again does not pull the reader back. */
+  #messageRowKey: string | undefined;
+  /** Whether following ended for a linked message still being read back. */
+  #isReadingBackToMessage = false;
   #disposed = false;
 
   public constructor(options: ViewportLandingOptions) {
@@ -162,6 +180,27 @@ export class ViewportLanding {
     this.landOncePrepared(rowKey, alignmentOf(caller), (hasWaited) => {
       this.#landOnRowNow(rowKey, caller, hasWaited);
     });
+  }
+
+  /**
+   * Follows a link to a message: lands on its row once per row, since the key goes `undefined`
+   * while the row is folded away or let go and its return must not pull the reader back or take
+   * the focus. The link is the reader's own ask, so following ends while its message is read back,
+   * and the tail neither pulls the view nor lets go of the stretches arriving above; read back to
+   * the start of history or a failed read without it, the view stays where the reader is.
+   */
+  public followMessageLink(link: MessageLink): void {
+    const { landingRowKey, readBack } = link;
+    if (landingRowKey !== undefined && landingRowKey !== this.#messageRowKey) {
+      this.#messageRowKey = landingRowKey;
+      this.landOnRow(landingRowKey, "message-anchor");
+    }
+    if (readBack !== "reading-back") {
+      this.#isReadingBackToMessage = false;
+    } else if (!this.#isReadingBackToMessage) {
+      this.#isReadingBackToMessage = true;
+      this.#anchor.stopFollowing();
+    }
   }
 
   /**
@@ -253,8 +292,8 @@ export class ViewportLanding {
     }
     // A row the window already held lands now: the virtualizer still counts the same rows. A row
     // the pass brought in lands once the render that holds it commits.
-    // A link's landing asked from the binding's layout effect waits for the next one, which
-    // commits it; a landing that waited was asked from no render, so none follows.
+    // A link's landing is asked from a render, whose commit lands it; a landing that waited was
+    // asked from no render, so none follows.
     if (!hasRowSetChanged && (caller !== "message-anchor" || hasWaited)) {
       this.commitPendingLanding();
     }

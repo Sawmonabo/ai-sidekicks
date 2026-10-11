@@ -1,17 +1,17 @@
-// The position work a reconcile or a press arms and a layout effect performs.
+// The position work a pass or a press arms and the binding's layout effect performs.
 //
-// `reconcile` runs in a passive effect, before the rows it took have rendered, so the sizer and
-// the virtualizer's offsets are still in the previous space. The head hold needs post-insert
-// offsets, so it is armed here and performed once the new height is committed. The anchored hold
-// runs immediately when the rows did not change, in the space its offset was measured in; when
-// they did, and when a press on a control in the log changes them, it waits for the commit, since
-// the anchored row's index means something only once the virtualizer counts the new rows (a row
-// joining above the reader moves it). A follower is owed nothing here: the
+// A pass runs before the virtualizer lays out the rows it took: a render's pass runs in that
+// render, and any other pass ahead of the render its publication brings. Its scroll writes wait
+// for that render to commit, so each lands on the offsets of the rows it drew, before the frame
+// paints. The height a cut let go above the reader is paid by arithmetic on the offset; a page
+// landing at the head is held on the rows the reader saw, where they stood when it landed; the
+// anchored row is put back at its distance from the top of the viewport once the virtualizer
+// counts the rows the window holds (a row joining above the reader moves its index). A press on a
+// control in the log arms the anchored hold too. A follower is owed nothing here: the
 // virtualizer's end anchor and its landing on appended rows move the offset once the rows render.
 // The head hold does not read the reading anchor, which captures nothing while a reader is at the
-// tail; it uses the rows the reader saw, where they stood when the page landed. A page can land
-// below a listed row as well as above the first: a run's header keeps its place when the run's
-// earlier rows arrive, and they join under it.
+// tail. A page can land below a listed row as well as above the first: a run's header keeps its
+// place when the run's earlier rows arrive, and they join under it.
 
 import { type ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { type ReadingAnchorPoint } from "./reading-anchor.js";
@@ -27,17 +27,19 @@ export interface ViewportDeferredHoldOptions {
   readonly holdReadingPosition: () => void;
 }
 
-/** The pending holds, and the rule that picks between them and the immediate anchored hold. */
+/** The pending cut compensation and holds, and the rule that picks between the holds. */
 export class ViewportDeferredHold {
   readonly #scroll: ScrollController;
   readonly #rowKeys: () => readonly string[];
   readonly #offsetOfIndex: (index: number) => number;
   readonly #holdReadingPosition: () => void;
 
+  /** The offset that pays the height a cut let go above the reader. */
+  #compensationTargetPx: number | undefined;
   /** The rows the reader saw when a page landed at the head, from the top of the viewport down. */
   #headHoldPending: readonly ReadingAnchorPoint[] | undefined;
-  /** Why the anchored hold waits for the commit: a press, or rows a reconcile changed. */
-  #anchoredHoldPending: "press" | "rows-changed" | undefined;
+  /** Why the anchored hold waits for the commit: a press, or a pass. */
+  #anchoredHoldPending: "press" | "pass" | undefined;
 
   public constructor(options: ViewportDeferredHoldOptions) {
     this.#scroll = options.scroll;
@@ -47,54 +49,72 @@ export class ViewportDeferredHold {
   }
 
   /**
-   * Decides what this reconcile owes the reading position. A page landing at the head is held
-   * at the commit, even for a reader who was following, since landing it is the reader's ask for
-   * history; a hold whose rows changed waits for the commit too, a press's among them; with the
-   * rows unchanged it holds the anchored row now. Rows a press brought in above the head, as
+   * Arms the offset that pays `prunedHeightPx`, the height a cut let go above the reader, on top of
+   * any compensation still waiting: the rows above the reader's row went, so its offset moves up by
+   * exactly that much. Answers whether it armed one: with nothing let go, or no offset sampled yet,
+   * there is nothing to pay.
+   */
+  public armCompensation(prunedHeightPx: number): boolean {
+    const scrollTopPx = this.#compensationTargetPx ?? this.#scroll.geometry?.scrollTop;
+    if (prunedHeightPx <= 0 || scrollTopPx === undefined) {
+      return false;
+    }
+    this.#compensationTargetPx = scrollTopPx - prunedHeightPx;
+    return true;
+  }
+
+  /**
+   * Decides what a pass owes the reading position. A page landing at the head is held at the
+   * commit, even for a reader who was following, since landing it is the reader's ask for history;
+   * otherwise the anchored row is held at the commit. Rows a press brought in above the head, as
    * opening a group whose first row sits above its header does, are the press's, held by its hold.
    */
-  public armAfterReconcile(input: {
+  public armAfterPass(input: {
     readonly headInsertedCount: number;
     /** The rows the reader saw before the page landed, read only when one did. */
     readonly readRowsInView: () => readonly ReadingAnchorPoint[];
-    /** Whether the reconcile changed the rows the viewport holds, so a render is coming. */
-    readonly hasRowSetChanged: boolean;
   }): void {
     if (input.headInsertedCount > 0 && this.#anchoredHoldPending !== "press") {
       this.#headHoldPending = input.readRowsInView();
       return;
     }
-    if (input.hasRowSetChanged) {
-      // The hold waits for the commit that lays the new rows out; a press's stays armed as one.
-      this.#anchoredHoldPending ??= "rows-changed";
-      return;
-    }
-    this.#performAnchoredHold();
+    this.#anchoredHoldPending ??= "pass";
   }
 
   /**
-   * Arms the anchored hold for the next commit whose rows the window has reconciled, for a press
-   * that is about to change the rows.
+   * Arms the anchored hold for the next commit whose rows are the ones the window holds, for a
+   * press that is about to change the rows.
    */
   public armAnchoredHoldAtCommit(): void {
     this.#anchoredHoldPending = "press";
   }
 
   /**
-   * Performs what was armed, now that the new height is committed: the head hold, and a press's
-   * anchored hold once `isRenderReconciled` says the window has taken the rows this render drew.
-   * Cheap when nothing is armed, since the binding calls it after every render; each arm clears
-   * before acting.
+   * Performs what was armed, now that the rows are laid out: the cut compensation, the head hold,
+   * and the anchored hold once `isRenderReconciled` says the virtualizer counts the rows the
+   * window holds. Cheap when nothing is armed, since the binding calls it after every render; each
+   * arm clears before acting.
    */
   public commit(isRenderReconciled: boolean): void {
+    const compensationTargetPx = this.#compensationTargetPx;
+    this.#compensationTargetPx = undefined;
+    if (compensationTargetPx !== undefined) {
+      this.#scroll.glideTo("prune-compensation", compensationTargetPx);
+    }
     const headHold = this.#headHoldPending;
     this.#headHoldPending = undefined;
     if (headHold !== undefined) {
       this.#performHeadHold(headHold);
     }
     if (isRenderReconciled && this.#anchoredHoldPending !== undefined) {
-      this.#performAnchoredHold();
+      this.#anchoredHoldPending = undefined;
+      this.#holdReadingPosition();
     }
+  }
+
+  /** The offset the armed cut compensation will glide to, or `undefined` while none is armed. */
+  public get compensationTargetPx(): number | undefined {
+    return this.#compensationTargetPx;
   }
 
   /** Whether an anchored hold is armed and waits for the commit that lays its rows out. */
@@ -119,13 +139,9 @@ export class ViewportDeferredHold {
 
   /** Terminal, and called on disposal: a disposed frame owes no position. */
   public disarm(): void {
+    this.#compensationTargetPx = undefined;
     this.#headHoldPending = undefined;
     this.#anchoredHoldPending = undefined;
-  }
-
-  #performAnchoredHold(): void {
-    this.#anchoredHoldPending = undefined;
-    this.#holdReadingPosition();
   }
 
   #performHeadHold(rowsInView: readonly ReadingAnchorPoint[]): void {

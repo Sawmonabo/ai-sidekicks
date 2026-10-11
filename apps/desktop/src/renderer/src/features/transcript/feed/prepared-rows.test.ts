@@ -31,7 +31,7 @@ import { SteppedTasks } from "#test/helpers/stepped-tasks.js";
 import { TASKS_AT_ONCE } from "#test/helpers/tasks-at-once.js";
 import { createCountingScrollContainer } from "#renderer/lib/scroll/container.test-support.js";
 import { ViewportController } from "../viewport/controller.js";
-import { CALM } from "../viewport/controller.test-support.js";
+import { CALM, NO_LINK } from "../viewport/controller.test-support.js";
 import { type ViewportSnapshot } from "../viewport/snapshot.js";
 import { type PruneOutcome } from "../viewport/window-cap.js";
 import { deriveTranscriptWindow, type TranscriptWindowModel } from "../window/transcript-window.js";
@@ -498,7 +498,7 @@ async function openFortyRowFeed(): Promise<{
     rowOutputs: gate,
   });
   controller.attach(createCountingScrollContainer({ clientHeight: 400, scrollHeight: 10_000 }));
-  controller.reconcile({ rows: model.viewportRows, ...CALM });
+  controller.reconcile({ rows: model.viewportRows, ...CALM }, NO_LINK);
   const options = controller.virtualizerOptions;
   return {
     gate,

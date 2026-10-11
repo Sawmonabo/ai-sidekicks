@@ -5,7 +5,7 @@
 // undrawn run. A long table in a block windows its own rows against the same scroller, from the
 // block's place this layout answers as its table placement, and hears each change that may move it.
 
-import type { Range, VirtualItem, Virtualizer } from "@tanstack/react-virtual";
+import type { Range, VirtualItem, Virtualizer } from "@tanstack/virtual-core";
 
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { blockSourceStartOf, type SettledMarkdownBlock } from "../body-blocks.js";

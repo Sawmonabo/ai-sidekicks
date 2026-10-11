@@ -1,4 +1,4 @@
-import { useVirtualizer, type Range } from "@tanstack/react-virtual";
+import { type Range } from "@tanstack/virtual-core";
 import {
   useCallback,
   useContext,
@@ -16,6 +16,7 @@ import {
   type HeldTableColumns,
   type MarkdownTableOffer,
 } from "#renderer/components/Markdown/table-offer.js";
+import { useDirectlyPlacedVirtualizer } from "#renderer/hooks/useDirectlyPlacedVirtualizer.js";
 import { MARKDOWN_TABLE_ROW_INDEX_ATTRIBUTE } from "../../markdown/block-window/markers.js";
 import { rangeEnds, withPinnedIndexes } from "../../markdown/block-window/selection-pins.js";
 import { refuseScrollAdjustment } from "../../markdown/scroller-window.js";
@@ -149,6 +150,8 @@ export function useTableWindow(offer: MarkdownTableOffer): TableWindow {
       ),
     [layout, bandScreenHeights, pins, revealedRowIndex],
   );
+  // The virtualizer renders again only when the rows it draws change; a row that moves a
+  // spacer redraws here.
   const onChange = useCallback(
     (instance: TableRowVirtualizer) => {
       if (layout.differsFromCommittedRows(instance.getVirtualItems(), instance.getTotalSize())) {
@@ -159,7 +162,7 @@ export function useTableWindow(offer: MarkdownTableOffer): TableWindow {
   );
   const [initialRect] = useState(() => layout.initialRect());
 
-  const virtualizer = useVirtualizer<HTMLElement, HTMLElement>({
+  const virtualizer = useDirectlyPlacedVirtualizer<HTMLElement, HTMLElement>({
     count: layout.rowCount,
     // Laid out only once its columns are held: a row's estimate wraps its cells at their widths.
     enabled: heldColumns !== undefined,
@@ -174,11 +177,6 @@ export function useTableWindow(offer: MarkdownTableOffer): TableWindow {
     rangeExtractor,
     onChange,
     indexAttribute: MARKDOWN_TABLE_ROW_INDEX_ATTRIBUTE,
-    // A geometry sample can arrive while React commits, where a synchronous flush only warns.
-    useFlushSync: false,
-    // With no container attached the adapter writes nothing to the page and re-renders only when
-    // the drawn range changes; a row that moves a spacer redraws through `onChange`.
-    directDomUpdates: true,
   });
   // The table follows the conversation's place and never moves it, however a row measures.
   virtualizer.shouldAdjustScrollPositionOnItemSizeChange = refuseScrollAdjustment;

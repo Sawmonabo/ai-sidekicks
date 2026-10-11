@@ -6,7 +6,7 @@
 // each run of undrawn chunks, estimated from their lines' lengths at the output's width and line
 // height until each chunk is measured, drawn or off screen in a slice of its own.
 
-import type { Range, VirtualItem, Virtualizer } from "@tanstack/react-virtual";
+import type { Range, VirtualItem, Virtualizer } from "@tanstack/virtual-core";
 
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { observeElementResize } from "#renderer/lib/element-resize.js";

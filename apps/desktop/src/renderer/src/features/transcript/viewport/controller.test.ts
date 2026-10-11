@@ -13,6 +13,7 @@ import { installFakeResizeObserver } from "#test/helpers/element/resize.js";
 import { ViewportController } from "./controller.js";
 import {
   CALM,
+  NO_LINK,
   attachReaderAt,
   attachedController,
   syntheticRows,
@@ -30,23 +31,24 @@ afterEach(() => {
 });
 
 describe("the viewport controller — reconcile", () => {
-  it("takes rows, and publishes one snapshot per reconcile", () => {
+  it("takes rows into the snapshot without notifying, since the render reconciling reads it", () => {
+    // A notification would render the tree a second time for rows that render already drew.
     const { controller } = attachedController();
     let notifications = 0;
     controller.subscribe(() => {
       notifications += 1;
     });
     const rows = syntheticRows(12);
-    controller.reconcile({ rows, ...CALM });
+    controller.reconcile({ rows, ...CALM }, NO_LINK);
     expect(controller.snapshot().rows).toHaveLength(12);
     expect(controller.snapshot().rowKeys[0]).toBe("row-0");
-    expect(notifications).toBeGreaterThanOrEqual(1);
+    expect(notifications).toBe(0);
   });
 
   it("hands back the same snapshot reference until something changes", () => {
     // `useSyncExternalStore` tears the tree if the getter returns a fresh object per call.
     const { controller } = attachedController();
-    controller.reconcile({ rows: syntheticRows(4), ...CALM });
+    controller.reconcile({ rows: syntheticRows(4), ...CALM }, NO_LINK);
     expect(controller.snapshot()).toBe(controller.snapshot());
   });
 });
@@ -54,7 +56,7 @@ describe("the viewport controller — reconcile", () => {
 describe("the viewport controller — holding the reading position", () => {
   it("holds the anchored row while reading", () => {
     const controller = readingController();
-    controller.reconcile({ rows: syntheticRows(20), ...CALM });
+    controller.reconcile({ rows: syntheticRows(20), ...CALM }, NO_LINK);
     expect(controller.anchor.state.mode).toBe("reading");
 
     controller.anchor.capture({ rowKey: "row-5", offsetWithinViewportPx: -12 });
@@ -65,7 +67,7 @@ describe("the viewport controller — holding the reading position", () => {
   it("leaves the offset alone when the anchored row has left the window", () => {
     // Guessing at a replacement is how a transcript teleports.
     const controller = readingController();
-    controller.reconcile({ rows: syntheticRows(20), ...CALM });
+    controller.reconcile({ rows: syntheticRows(20), ...CALM }, NO_LINK);
     expect(controller.anchor.state.mode).toBe("reading");
 
     controller.anchor.capture({ rowKey: "row-not-here", offsetWithinViewportPx: 0 });
@@ -77,11 +79,14 @@ describe("the viewport controller — holding the reading position", () => {
 describe("the viewport controller — a link to a message the history lacks", () => {
   it("leaves the page where it is once history runs out without the message", () => {
     const { controller } = attachedController();
-    controller.reconcile({ rows: syntheticRows(20), ...CALM });
-    controller.noteMessageReadBack("reading-back");
+    const rows = syntheticRows(20);
+    controller.reconcile({ rows, ...CALM }, { landingRowKey: undefined, readBack: "reading-back" });
     expect(controller.anchor.state.mode).not.toBe("following");
 
-    controller.noteMessageReadBack("not-in-history");
+    controller.reconcile(
+      { rows, ...CALM },
+      { landingRowKey: undefined, readBack: "not-in-history" },
+    );
 
     expect(controller.scroll.writeCount("jump-to-tail")).toBe(0);
     expect(controller.anchor.state.mode).not.toBe("following");
@@ -94,7 +99,7 @@ describe("the viewport controller — what a scroll does NOT cost", () => {
     const scrollContainer = createCountingScrollContainer();
     const controller = new ViewportController({ clock: new ManualClock() });
     controller.attach(scrollContainer);
-    controller.reconcile({ rows: syntheticRows(40), ...CALM });
+    controller.reconcile({ rows: syntheticRows(40), ...CALM }, NO_LINK);
     scrollContainer.moveTo(220);
     const capturedByTheReader = controller.anchor.state.anchorPoint;
     expect(capturedByTheReader).toBeDefined();
@@ -113,7 +118,7 @@ describe("the viewport controller — a pane that changed size", () => {
       clientHeight: 300,
       scrollHeight: 4000,
     });
-    controller.reconcile({ rows: syntheticRows(20), ...CALM });
+    controller.reconcile({ rows: syntheticRows(20), ...CALM }, NO_LINK);
     controller.anchor.capture({ rowKey: "row-5", offsetWithinViewportPx: -8 });
 
     scrollContainer.resizeTo(150, 4000);
@@ -130,9 +135,9 @@ describe("the viewport controller — where a reconcile holds a reader", () => {
   const VIEWPORT_HEIGHT_PX = 300;
   const CONTENT_HEIGHT_PX = 4000;
 
-  it("holds a reader's anchor at the commit of new rows, and during a reconcile of the same", () => {
+  it("holds a reader's anchor at the commit of new rows, and arms nothing for rows it took", () => {
     // A row joining above the anchor moves its index, which means something only once the
-    // virtualizer counts the new rows; with the rows unchanged the index is the one laid out.
+    // virtualizer counts the new rows. A second render of the same rows runs no pass.
     const controller = new ViewportController({ clock: new ManualClock() });
     attachReaderAt(controller, {
       offsetPx: 500,
@@ -141,15 +146,38 @@ describe("the viewport controller — where a reconcile holds a reader", () => {
     });
     controller.anchor.capture({ rowKey: "row-5", offsetWithinViewportPx: -8 });
     const rows = syntheticRows(20);
+    const prune = vi.spyOn(controller.rowWindow, "prune");
 
-    controller.reconcile({ rows, ...CALM });
+    controller.reconcile({ rows, ...CALM }, NO_LINK);
     expect(controller.scroll.writeCount("hold-reading-position")).toBe(0);
-    controller.commitPendingPositionHold(rows);
+    controller.commitPendingPositionHold(controller.snapshot().rows);
     expect(controller.scroll.writeCount("hold-reading-position")).toBe(1);
 
-    controller.reconcile({ rows, ...CALM });
-    expect(controller.scroll.writeCount("hold-reading-position")).toBe(2);
+    // A render run twice, as StrictMode runs it, hands the same rows again.
+    controller.reconcile({ rows, ...CALM }, NO_LINK);
+    controller.commitPendingPositionHold(controller.snapshot().rows);
+    expect(prune).toHaveBeenCalledTimes(1);
+    expect(controller.scroll.writeCount("hold-reading-position")).toBe(1);
     expect(controller.scroll.writeCount("follow-tail")).toBe(0);
+  });
+
+  it("follows a link once, however many renders name it", () => {
+    // A render run again must not end following again or pull the reader back to the row.
+    const { controller } = attachedController();
+    const rows = syntheticRows(12);
+    const stopFollowing = vi.spyOn(controller.anchor, "stopFollowing");
+    const landOnRow = vi.spyOn(controller.landing, "landOnRow");
+    const readingBack = { landingRowKey: undefined, readBack: "reading-back" } as const;
+    const landed = { landingRowKey: "row-3", readBack: undefined } as const;
+
+    controller.reconcile({ rows, ...CALM }, readingBack);
+    controller.reconcile({ rows, ...CALM }, { ...readingBack });
+    expect(stopFollowing).toHaveBeenCalledTimes(1);
+
+    controller.reconcile({ rows, ...CALM }, landed);
+    controller.reconcile({ rows, ...CALM }, { ...landed });
+    expect(landOnRow).toHaveBeenCalledTimes(1);
+    expect(landOnRow).toHaveBeenCalledWith("row-3", "message-anchor");
   });
 });
 

@@ -7,7 +7,7 @@
 // window that holds the reader's place through an item it resized does so through
 // `ReaderPlaceHold`, and the conversation's own window holds it for every other change.
 
-import type { Range, Rect } from "@tanstack/react-virtual";
+import type { Range, Rect } from "@tanstack/virtual-core";
 
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { type ScrollController } from "#renderer/lib/scroll/chokepoint.js";

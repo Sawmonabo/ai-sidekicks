@@ -1,4 +1,4 @@
-// What the head hold a reconcile arms writes when it is committed, and that a press's hold
+// What the head hold a pass arms writes when it is committed, and that a press's hold
 // outranks it. Runs against a real `ScrollController` over a detached container; the retained key
 // list, the row offsets and the rows the reader saw are the steered seam, so the head hold's
 // arithmetic is assertable without a virtualizer.
@@ -76,10 +76,9 @@ describe("TranscriptDeferredHold — the head hold", () => {
     const subject = holdUnderTest();
     subject.setRowKeys(["a", "b", "c", "d"]);
 
-    subject.hold.armAfterReconcile({
+    subject.hold.armAfterPass({
       headInsertedCount: 2,
       readRowsInView: () => rowsInViewAt(["c", "d"], 20),
-      hasRowSetChanged: true,
     });
     subject.hold.commit(true);
 
@@ -90,10 +89,9 @@ describe("TranscriptDeferredHold — the head hold", () => {
     const subject = holdUnderTest();
     subject.setRowKeys(["a", "b", "c"]);
 
-    subject.hold.armAfterReconcile({
+    subject.hold.armAfterPass({
       headInsertedCount: 2,
       readRowsInView: () => rowsInViewAt(["gone", "too"], 0),
-      hasRowSetChanged: true,
     });
     subject.hold.commit(true);
 
@@ -108,10 +106,9 @@ describe("TranscriptDeferredHold — the head hold", () => {
     const after = ["earlier", "header", "c7", "c8", "c9", ...before.slice(1)];
     subject.setRowKeys(after);
 
-    subject.hold.armAfterReconcile({
+    subject.hold.armAfterPass({
       headInsertedCount: 1,
       readRowsInView: () => rowsInViewAt(before, 10),
-      hasRowSetChanged: true,
     });
     subject.hold.commit(true);
 
@@ -122,10 +119,9 @@ describe("TranscriptDeferredHold — the head hold", () => {
   it("disarms, so a disposed frame owes no position", () => {
     const subject = holdUnderTest();
     subject.setRowKeys(["a", "b"]);
-    subject.hold.armAfterReconcile({
+    subject.hold.armAfterPass({
       headInsertedCount: 1,
       readRowsInView: () => rowsInViewAt(["b"], 0),
-      hasRowSetChanged: true,
     });
 
     subject.hold.disarm();
@@ -150,19 +146,17 @@ describe("TranscriptDeferredHold — three windows, two pages, one row under the
     subject.scrollContainer.scrollTop = READING_AT_PX;
     expect(offsetInViewOf(subject, FIRST_WINDOW, "r42")).toBe(0);
 
-    subject.hold.armAfterReconcile({
+    subject.hold.armAfterPass({
       headInsertedCount: 3,
       readRowsInView: () => rowsInViewAt(FIRST_WINDOW, subject.scrollContainer.scrollTop),
-      hasRowSetChanged: true,
     });
     subject.setRowKeys(AFTER_FIRST_PAGE);
     subject.hold.commit(true);
     expect(offsetInViewOf(subject, AFTER_FIRST_PAGE, "r42")).toBe(0);
 
-    subject.hold.armAfterReconcile({
+    subject.hold.armAfterPass({
       headInsertedCount: 2,
       readRowsInView: () => rowsInViewAt(AFTER_FIRST_PAGE, subject.scrollContainer.scrollTop),
-      hasRowSetChanged: true,
     });
     subject.setRowKeys(AFTER_SECOND_PAGE);
     subject.hold.commit(true);
@@ -181,10 +175,9 @@ describe("TranscriptDeferredHold — a press that brings rows in above the head"
     subject.setRowKeys(["earlier", "header", "a", "b"]);
 
     subject.hold.armAnchoredHoldAtCommit();
-    subject.hold.armAfterReconcile({
+    subject.hold.armAfterPass({
       headInsertedCount: 1,
       readRowsInView: () => rowsInViewAt(["header", "a", "b"], 0),
-      hasRowSetChanged: true,
     });
     subject.hold.commit(true);
 

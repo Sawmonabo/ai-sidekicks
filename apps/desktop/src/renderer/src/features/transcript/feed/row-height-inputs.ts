@@ -38,6 +38,47 @@ export interface RunWindowEstimates extends RowHeightEstimates {
 }
 
 /**
+ * How the feed's latest render draws its list: the window and folds the viewport reads a row's
+ * height kind and body length through. The latest render's rather than the last commit's, since
+ * the viewport's pass runs in the render that brings its rows and lays them out there.
+ */
+export class RenderedRowDrawing implements RowDrawing {
+  /** The height kind a key of the list draws as; stable for the instance. */
+  public readonly heightKindOf = (rowKey: string): RowHeightKind =>
+    rowHeightKindOf(this.#transcriptWindow, this, rowKey);
+
+  /** The body length a key of the list draws; stable for the instance. */
+  public readonly bodyLengthOf = (rowKey: string): number | undefined =>
+    rowBodyLengthOf(this.#transcriptWindow, this.#drawing.isRevealing, rowKey);
+
+  #transcriptWindow: TranscriptWindowModel;
+  #drawing: RowDrawing;
+
+  public constructor(transcriptWindow: TranscriptWindowModel, drawing: RowDrawing) {
+    this.#transcriptWindow = transcriptWindow;
+    this.#drawing = drawing;
+  }
+
+  public get foldedCallRowIds(): ReadonlySet<string> {
+    return this.#drawing.foldedCallRowIds;
+  }
+
+  public get openedOutputRowIds(): ReadonlySet<string> {
+    return this.#drawing.openedOutputRowIds;
+  }
+
+  /** Takes the window and folds a render draws, before the viewport's pass in it reads them. */
+  public adopt(transcriptWindow: TranscriptWindowModel, drawing: RowDrawing): void {
+    this.#transcriptWindow = transcriptWindow;
+    this.#drawing = drawing;
+  }
+
+  public isRevealing(rowId: string): boolean {
+    return this.#drawing.isRevealing(rowId);
+  }
+}
+
+/**
  * The height kind the feed draws a key of its list as, decided as the row dispatch and the tool
  * card decide what to draw: a call draws its body only where it has one and nobody folded it, and
  * the body's output whole once the reader opened it. A row `isRevealing` names has a body before

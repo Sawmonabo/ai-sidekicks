@@ -65,6 +65,7 @@
     "@svgr/core": "8.1.0",
     "@svgr/plugin-jsx": "8.1.0",
     "@tanstack/react-virtual": "3.14.14",
+    "@tanstack/virtual-core": "3.18.0",
     "@testing-library/dom": "^10.4.2",
     "@testing-library/react": "^16.3.3",
     "@types/mdast": "4.0.4",

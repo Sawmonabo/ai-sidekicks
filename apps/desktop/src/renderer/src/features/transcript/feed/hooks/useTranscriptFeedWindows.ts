@@ -22,7 +22,7 @@ import {
   useTranscriptViewport,
   type TranscriptViewportBinding,
 } from "../../viewport/hooks/useTranscriptViewport.js";
-import { type MessageReadBack } from "../../viewport/controller.js";
+import { type MessageReadBack } from "../../viewport/landing.js";
 import { useDuplicateRowKeyCapture } from "../../viewport/hooks/useDuplicateRowKeyCapture.js";
 import { useTranscriptFirstReadSettled } from "../../window/hooks/useTranscriptFirstReadSettled.js";
 import { useTranscriptProjection } from "../../window/hooks/useTranscriptProjection.js";
@@ -44,8 +44,7 @@ import {
 import { type TranscriptPageRead } from "#renderer/services/daemon/transcript/page.js";
 import { DrawnRowFilter, isDrawnRow } from "../drawn-rows.js";
 import {
-  rowBodyLengthOf,
-  rowHeightKindOf,
+  RenderedRowDrawing,
   runWindowMeasureOf,
   type RowDrawing,
   type RunWindowEstimates,
@@ -228,34 +227,17 @@ export function useTranscriptFeedWindows(
     drawsRow,
     openRunGroup: folds.openRunGroup,
   });
-  // One reader of each for the mount, over the window, folds and reveal engine of the last
-  // render: a new reader would mint a new viewport, and the viewport asks for a row's kind and
-  // body length only for rows that window holds.
-  const committedTranscriptWindow = useLatestRef(transcriptWindow);
-  const isRevealingRow = useLatestRef(reveal.isRevealing);
-  // Read through, so the viewport's many asks for a row's kind allocate nothing.
-  const committedRowDrawing = useMemo<RowDrawing>(
-    () => ({
-      get foldedCallRowIds() {
-        return committedFoldedCallRowIds.current;
-      },
-      get openedOutputRowIds() {
-        return committedOpenedOutputRowIds.current;
-      },
-      isRevealing: (rowId) => isRevealingRow.current(rowId),
-    }),
-    [committedFoldedCallRowIds, committedOpenedOutputRowIds, isRevealingRow],
-  );
-  const heightKindOf = useCallback(
-    (rowKey: string) =>
-      rowHeightKindOf(committedTranscriptWindow.current, committedRowDrawing, rowKey),
-    [committedTranscriptWindow, committedRowDrawing],
-  );
-  const bodyLengthOf = useCallback(
-    (rowKey: string) =>
-      rowBodyLengthOf(committedTranscriptWindow.current, isRevealingRow.current, rowKey),
-    [committedTranscriptWindow, isRevealingRow],
-  );
+  // One reader of each for the mount, over the window, folds and reveal engine of the latest
+  // render: a new reader would mint a new viewport, and the viewport's pass in this render reads
+  // the kind and body length of the rows it brings.
+  const rowDrawing: RowDrawing = {
+    foldedCallRowIds: folds.foldedCallRowIds,
+    openedOutputRowIds: folds.openedOutputRowIds,
+    isRevealing: reveal.isRevealing,
+  };
+  const [renderedRowDrawing] = useState(() => new RenderedRowDrawing(transcriptWindow, rowDrawing));
+  renderedRowDrawing.adopt(transcriptWindow, rowDrawing);
+  const { heightKindOf, bodyLengthOf } = renderedRowDrawing;
   // The register moves only on an act that also replaces the log, so it is read with the window
   // the log derived rather than subscribed to on its own.
   const waitingOnPerson = inputs.sessionStore.waitingOnPersonRecords;

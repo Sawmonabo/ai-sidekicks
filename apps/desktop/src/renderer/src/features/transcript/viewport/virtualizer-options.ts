@@ -14,7 +14,7 @@
 // into the band is drawn once it draws whole. A follower's tail growing with arriving text is
 // eased after rather than jumped to; every other write is placed at once.
 
-import type { Range, Rect, Virtualizer } from "@tanstack/react-virtual";
+import type { Range, Rect, Virtualizer } from "@tanstack/virtual-core";
 
 import type { Unsubscribe } from "#shared/preload-api.js";
 import {

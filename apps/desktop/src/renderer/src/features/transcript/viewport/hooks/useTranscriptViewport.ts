@@ -1,12 +1,11 @@
 // React binding for the transcript viewport: creates the virtualizer and exposes what a view reads.
 //
-// `useFlushSync: false` and `directDomUpdates` exist only on `@tanstack/react-virtual`'s hook, so
-// the instance is created here; nearly all of its options are the controller's virtualizer options.
-// The two that change with the reading state, the end anchor and the landing on appended rows,
-// are set here from the snapshot, so a follower's position is the library's own.
+// The virtualizer places the rows without a render and renders the tree only when the rows it draws
+// change, so the instance is created here; nearly all of its options are the controller's
+// virtualizer options. The two that change with the reading state, the end anchor and the landing
+// on appended rows, are set here from the snapshot, so a follower's position is the library's own.
 
-import { useVirtualizer } from "@tanstack/react-virtual";
-import type { VirtualItem } from "@tanstack/react-virtual";
+import type { VirtualItem } from "@tanstack/virtual-core";
 import {
   useCallback,
   useEffect,
@@ -16,7 +15,9 @@ import {
   useSyncExternalStore,
 } from "react";
 
+import { useDirectlyPlacedVirtualizer } from "#renderer/hooks/useDirectlyPlacedVirtualizer.js";
 import { useLatestRef } from "#renderer/hooks/useLatestRef.js";
+import { useOwnerWindow } from "#renderer/hooks/useOwnerWindow.js";
 import { useStopObservingRemovedItems } from "#renderer/hooks/useStopObservingRemovedItems.js";
 import { type Clock } from "#renderer/lib/clock.js";
 import { type RememberedRowHeights } from "#renderer/store/session/remembered-row-heights.js";
@@ -25,11 +26,9 @@ import { type TranscriptWindowReading } from "#renderer/lib/transcript-window-di
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
 import { type AnimationFrameScheduler } from "../../animation-frame-scheduler.js";
 import { type RowHeightKind } from "../../rows/height-kind.js";
-import {
-  ViewportController,
-  type MessageReadBack,
-  type ViewportControllerOptions,
-} from "../controller.js";
+import { ViewportController, type ViewportControllerOptions } from "../controller.js";
+import { declareDisplaySettings } from "../display-settings.js";
+import { type MessageReadBack } from "../landing.js";
 import { type RowOutputParses } from "../row-reach.js";
 import { type ViewportSelectionTracker } from "../selection/tracker.js";
 import { type DrawnBandScreenHeights } from "../drawn-band.js";
@@ -116,7 +115,7 @@ export interface TranscriptViewportBinding {
   readonly holdsPlaceInsideRow: (rowKey: string) => boolean;
   /**
    * How far beyond each edge of the box a window nested in a row draws its items, in screen
-   * heights, read when called; the same object until a side changes. Stable likewise.
+   * heights, as this render draws them; a new reader, and a new object, only when a side changes.
    */
   readonly nestedBandScreenHeights: () => DrawnBandScreenHeights;
   /** Hears each publication that may move `nestedBandScreenHeights`; stable likewise. */
@@ -208,7 +207,7 @@ export interface UseTranscriptViewportOptions extends ViewportConditions {
 /**
  * Binds a viewport controller and a virtualizer to a React tree.
  *
- * `rows` must be memoized by the caller: the reconcile effect and the measurement key projection
+ * `rows` must be memoized by the caller: the window's pass and the measurement key projection
  * key on its identity. A remount of the same instance (StrictMode) has already run the cleanup
  * and a disposed controller attaches nothing, so the effect creates a fresh controller.
  */
@@ -229,10 +228,12 @@ export function useTranscriptViewport(
   // from it.
   const scrollContainerRef = useRef<HTMLElement | null>(null);
   const latestOptions = useLatestRef(options);
+  const ownerWindow = useOwnerWindow();
   const [controller, setController] = useState<ViewportController>(() =>
     mintViewportController(
       { clock, rememberedRowHeights, heightKindOf, bodyLengthOf },
       latestOptions,
+      ownerWindow,
     ),
   );
 
@@ -242,6 +243,7 @@ export function useTranscriptViewport(
         mintViewportController(
           { clock, rememberedRowHeights, heightKindOf, bodyLengthOf },
           latestOptions,
+          ownerWindow,
         ),
       );
       return;
@@ -249,8 +251,24 @@ export function useTranscriptViewport(
     return () => {
       controller.dispose();
     };
-  }, [controller, clock, rememberedRowHeights, heightKindOf, bodyLengthOf, latestOptions]);
+  }, [
+    controller,
+    clock,
+    rememberedRowHeights,
+    heightKindOf,
+    bodyLengthOf,
+    latestOptions,
+    ownerWindow,
+  ]);
   useObserveDisplaySettings(controller);
+
+  // The window's pass runs in the render that brings its rows, before the snapshot is read, so a
+  // new log draws in one commit; a link's landing goes first, so the pass reads from its row.
+  // Their notifications and scroll writes wait for the commit. A waiting landing starts hearing
+  // row work here, so this relies on the render never being thrown away, which holds while no
+  // transition or deferred value reaches the feed: a second render of the same rows and link
+  // runs nothing.
+  controller.reconcile({ rows, isChangingRow }, { landingRowKey, readBack: messageReadBack });
 
   const snapshot = useSyncExternalStore(
     useCallback((onChange: () => void) => controller.subscribe(onChange), [controller]),
@@ -258,7 +276,7 @@ export function useTranscriptViewport(
   );
 
   const isFollowing = snapshot.reading.mode === "following";
-  const virtualizer = useVirtualizer<HTMLElement, HTMLElement>({
+  const virtualizer = useDirectlyPlacedVirtualizer<HTMLElement, HTMLElement>({
     count: snapshot.keyProjection.virtualKeys.length,
     // The band drawn beyond the box is measured in pixels by the range extractor, not in rows.
     overscan: 0,
@@ -280,22 +298,14 @@ export function useTranscriptViewport(
     anchorTo: isFollowing ? "end" : "start",
     followOnAppend: isFollowing,
     scrollEndThreshold: controller.virtualizerOptions.scrollEndThreshold,
-    // React 19 warns when the adapter flushes inside a lifecycle method, and offsets are written
-    // to the DOM directly, so the render is not needed.
-    useFlushSync: false,
-    // Scroll ticks skip React: the adapter writes row transforms and the container height, and
-    // re-renders only when the index range moves.
-    directDomUpdates: true,
   });
 
-  useStopObservingRemovedItems(virtualizer);
-
-  useEffect(() => {
-    if (controller.isDisposed) {
-      return;
-    }
+  // Before the first row is laid out, so the rows are drawn where a land on its way ends and a
+  // row's remembered height is held as its size from the first render that lays it out.
+  if (!controller.isDisposed) {
     controller.bindVirtualizer(virtualizer);
-  }, [controller, virtualizer]);
+  }
+  useStopObservingRemovedItems(virtualizer);
 
   // Before paint, so the first write that eases already has a frame to run in. A remount mints
   // both again, and only the live pair is joined.
@@ -307,44 +317,12 @@ export function useTranscriptViewport(
     controller.scroll.adoptFrameScheduler(frameScheduler);
   }, [controller, frameScheduler]);
 
-  // A layout effect, so the landing's reading position is set before the passive reconcile below
-  // runs: the window would otherwise center on wherever the reader was, not on the row.
-  // Landed once per key and controller: the key goes `undefined` while its row is folded away or
-  // let go, and its return must not pull the reader back or take focus from where they are.
-  const landed = useRef<{ readonly controller: ViewportController; readonly rowKey: string }>(
-    undefined,
-  );
-  useLayoutEffect(() => {
-    if (controller.isDisposed || landingRowKey === undefined) {
-      return;
-    }
-    if (landed.current?.controller === controller && landed.current.rowKey === landingRowKey) {
-      return;
-    }
-    landed.current = { controller, rowKey: landingRowKey };
-    controller.landing.landOnRow(landingRowKey, "message-anchor");
-  }, [controller, landingRowKey]);
-
-  useEffect(() => {
-    if (controller.isDisposed) {
-      return;
-    }
-    controller.noteMessageReadBack(messageReadBack);
-  }, [controller, messageReadBack]);
-
-  useEffect(() => {
-    if (controller.isDisposed) {
-      return;
-    }
-    controller.reconcile({ rows, isChangingRow });
-  }, [controller, rows, isChangingRow]);
-
-  // Re-asks a cut the reconcile above could not finish. That effect depends only on the rows and
-  // which of them still change, but the window also stops a cut while a programmatic scroll is
-  // mid-write or the rows it wants are held, on screen or under the reader; none of those moves a
-  // dependency. The reading mode carries a return to the tail, and `lastPrune`'s identity the rest
-  // because the veto is raised and dropped inside one synchronous write. It cannot spin: a
-  // residual whose blocker still stands answers `undefined`.
+  // Re-asks a cut the render's pass could not finish. That pass runs only for new rows or a new
+  // say of which of them still change, but the window also stops a cut while a programmatic
+  // scroll is mid-write or the rows it wants are held, on screen or under the reader; none of
+  // those moves a dependency. The reading mode carries a return to the tail, and `lastPrune`'s
+  // identity the rest because the veto is raised and dropped inside one synchronous write. It
+  // cannot spin: a residual whose blocker still stands answers `undefined`.
   const readingMode = snapshot.reading.mode;
   const lastPrune = snapshot.lastPrune;
   useEffect(() => {
@@ -354,18 +332,16 @@ export function useTranscriptViewport(
     controller.retryDeferredPrune();
   }, [controller, readingMode, lastPrune]);
 
-  // Performs the deferred holds, and a pending landing, once the height they depend on is
-  // committed.
-  // `reconcile` runs in a passive effect, so the sizer still has the previous total size and a
-  // head hold would read a stale offset. A layout effect declared after `useVirtualizer` runs
-  // after the adapter's own height write and before paint, so the offsets are the fresh ones. No
-  // dependency array: the height can move on any render, and the call is a boolean read when
-  // nothing is armed.
+  // Performs the writes a pass armed, and a pending landing, once the rows they depend on are laid
+  // out. A layout effect declared after the virtualizer's runs after its own height write and
+  // before paint, so the offsets are the fresh ones. No dependency array: the height can move on
+  // any render, and the call is a boolean read when nothing is armed.
+  const drawnRows = snapshot.rows;
   useLayoutEffect(() => {
     if (controller.isDisposed) {
       return;
     }
-    controller.commitPendingPositionHold(rows);
+    controller.commitPendingPositionHold(drawnRows);
   });
 
   // A press's hold is window state, not React state; the count only re-renders the tree, so the
@@ -373,6 +349,9 @@ export function useTranscriptViewport(
   const [, setHeldPressCount] = useState(0);
 
   const virtualItems = virtualizer.getVirtualItems();
+  // A new reader each time the band moves, so the windows nested in rows this render draws no
+  // differently are drawn again with the band a render's own pass narrowed.
+  const nestedBandScreenHeights = snapshot.nestedBandScreenHeights;
 
   return {
     snapshot,
@@ -432,10 +411,7 @@ export function useTranscriptViewport(
       },
       [controller],
     ),
-    nestedBandScreenHeights: useCallback(
-      () => controller.snapshot().nestedBandScreenHeights,
-      [controller],
-    ),
+    nestedBandScreenHeights: useCallback(() => nestedBandScreenHeights, [nestedBandScreenHeights]),
     subscribeToNestedBand: useCallback(
       (listener: () => void) => controller.subscribe(listener),
       [controller],
@@ -528,7 +504,8 @@ export function useTranscriptViewport(
 
 /**
  * A controller over the hook's inputs, asking for history and for a row's preparation through
- * the latest committed inputs, so new functions reach the controller without minting another.
+ * the latest committed inputs, so new functions reach the controller without minting another. It
+ * is told the display `ownerWindow` draws on before the render's pass lays out any row.
  */
 function mintViewportController(
   options: Omit<
@@ -543,8 +520,9 @@ function mintViewportController(
     | "isRowRevealing"
   >,
   latestOptions: React.RefObject<UseTranscriptViewportOptions>,
+  ownerWindow: Window,
 ): ViewportController {
-  return new ViewportController({
+  const controller = new ViewportController({
     ...options,
     readBeyondLogEdge: (side) => latestOptions.current.readBeyondLogEdge?.(side) ?? false,
     jumpToLogEnd: (side, beforePageLands) =>
@@ -562,6 +540,8 @@ function mintViewportController(
     },
     isRowRevealing: (rowKey) => latestOptions.current.isRowRevealing?.(rowKey) ?? false,
   });
+  declareDisplaySettings(controller, ownerWindow);
+  return controller;
 }
 
 /** What a waiting landing stops hearing when the feed told it of no work. */

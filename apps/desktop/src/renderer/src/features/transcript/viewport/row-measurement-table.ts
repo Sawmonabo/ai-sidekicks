@@ -1,4 +1,4 @@
-// Measurement table for the virtualizer, covering what `@tanstack/react-virtual` does not:
+// Measurement table for the virtualizer, covering what `@tanstack/virtual-core` does not:
 //   - Epsilon: the library compares sizes exactly, so a streaming row's sub-pixel wobble would
 //     invalidate its cache every frame; `acceptedHeight` is what `measureElement` returns.
 //   - Remembered heights: an accepted height is written to the session's one record of its row

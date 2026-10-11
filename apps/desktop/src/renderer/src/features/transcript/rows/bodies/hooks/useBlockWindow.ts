@@ -1,4 +1,4 @@
-import { useVirtualizer, type Range } from "@tanstack/react-virtual";
+import { type Range } from "@tanstack/virtual-core";
 import {
   useCallback,
   useEffect,
@@ -8,6 +8,7 @@ import {
   useSyncExternalStore,
 } from "react";
 
+import { useDirectlyPlacedVirtualizer } from "#renderer/hooks/useDirectlyPlacedVirtualizer.js";
 import { useStopObservingRemovedItems } from "#renderer/hooks/useStopObservingRemovedItems.js";
 import { type MarkdownBodyBlocksSnapshot } from "../../markdown/body-blocks.js";
 import { type MarkdownWindowViewport } from "../../markdown/block-window/context.js";
@@ -83,6 +84,8 @@ export function useBlockWindow(
     (index: number) => windowedBlockKeyOf(settledBlocks, index),
     [settledBlocks],
   );
+  // The virtualizer renders again only when the blocks it draws change; a block that moves a
+  // spacer redraws here.
   const onChange = useCallback(
     (instance: BlockVirtualizer) => {
       if (layout.differsFromCommittedRows(instance.getVirtualItems(), instance.getTotalSize())) {
@@ -94,7 +97,7 @@ export function useBlockWindow(
   );
   const [initialRect] = useState(() => layout.initialRect());
 
-  const virtualizer = useVirtualizer<HTMLElement, HTMLElement>({
+  const virtualizer = useDirectlyPlacedVirtualizer<HTMLElement, HTMLElement>({
     count: layout.blockCount,
     getItemKey,
     estimateSize: layout.estimateSize,
@@ -108,11 +111,6 @@ export function useBlockWindow(
     rangeExtractor,
     onChange,
     indexAttribute: MARKDOWN_BLOCK_INDEX_ATTRIBUTE,
-    // A geometry sample can arrive while React commits, where a synchronous flush only warns.
-    useFlushSync: false,
-    // With no container attached the adapter writes nothing to the page and re-renders only when
-    // the drawn range changes; a block that moves a spacer redraws through `onChange`.
-    directDomUpdates: true,
   });
   virtualizer.shouldAdjustScrollPositionOnItemSizeChange = layout.holdPlaceThroughResizedBlock;
   useStopObservingRemovedItems(virtualizer);

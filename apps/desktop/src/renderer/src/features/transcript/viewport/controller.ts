@@ -23,7 +23,7 @@ import { ViewportAnchorCapture } from "./anchor-capture.js";
 import { ViewportDeferredHold } from "./deferred-hold.js";
 import { ViewportDrawnBand } from "./drawn-band.js";
 import { ViewportHistoryLine } from "./history-line.js";
-import { ViewportLanding } from "./landing.js";
+import { type MessageLink, ViewportLanding } from "./landing.js";
 import { ViewportPruneCycle } from "./prune-cycle.js";
 import { ViewportPublication } from "./publication.js";
 import { ViewportReaderInput } from "./reader-input.js";
@@ -34,6 +34,8 @@ import {
   shouldCompensateForInsertion,
   countAppendedAfter,
   countInsertedBefore,
+  haveDifferentEnds,
+  haveRowsJoined,
   type ViewportConditions,
   type ViewportRow,
   type ViewportSnapshot,
@@ -43,12 +45,6 @@ import { ViewportTailFollow } from "./tail-follow.js";
 import { VirtualizerOptions, type TranscriptRowVirtualizer } from "./virtualizer-options.js";
 import { TranscriptWindow } from "./window-cap.js";
 import { type WindowSide } from "./window-side.js";
-
-/**
- * How reading back toward a linked message the log lacks stands: still reading back, or ended at
- * the start of history or a failed read without it.
- */
-export type MessageReadBack = "reading-back" | "not-in-history";
 
 /**
  * The clock every timer and frame of the controller is minted through, where heights live, and
@@ -119,7 +115,7 @@ export class ViewportController {
   /** Which row the reader is on, read without touching an element. */
   readonly #anchorCapture: ViewportAnchorCapture;
 
-  /** The position work a reconcile arms and the binding's layout effect performs. */
+  /** The position work a pass arms and the binding's layout effect performs. */
   readonly #deferredHold: ViewportDeferredHold;
   /** The reader's keys, wheel, touch and presses on the box. */
   readonly #readerInput: ViewportReaderInput;
@@ -139,8 +135,6 @@ export class ViewportController {
   #isShown = true;
   /** Where focus stood when the log was asked to take it while hidden, until it is shown. */
   #focusOwedFrom: { readonly element: Element | null } | undefined;
-  /** Whether following ended for a linked message still being read back. */
-  #isReadingBackToMessage = false;
   #virtualKeys: readonly string[] = [];
   #rows: readonly ViewportRow[] = [];
   #rowKeys: readonly string[] = [];
@@ -152,6 +146,10 @@ export class ViewportController {
   #isPassRunning = false;
   /** The held set the drawn rows were last extended by, so a change redraws them once. */
   #drawnHeldRowKeys: readonly string[] | undefined;
+  /** Whether a render's pass took a new log, which a waiting landing or jump asks of at commit. */
+  #isNewLogOwedToLandings = false;
+  /** Whether the scroll container is being attached, whose first sample the controller skips. */
+  #isAttaching = false;
   #disposed = false;
 
   public constructor(options: ViewportControllerOptions) {
@@ -322,9 +320,13 @@ export class ViewportController {
         if (this.anchor.state.mode === "following" && !geometry.isAtTail) {
           this.#tailFollow.queueTailLanding();
         }
-        this.#anchorCapture.captureFrom(geometry);
         // Before the pass, so a land the pass makes narrows the band this sample widened.
         this.#drawnBand.observeGeometry(geometry);
+        // The sample an attach takes reads the box before its rows are laid out, so it captures
+        // no row the reader looks at.
+        if (!this.#isAttaching) {
+          this.#anchorCapture.captureFrom(geometry);
+        }
         this.#reviewWindowAfter(geometry);
         this.#drawnBand.review();
       }),
@@ -381,11 +383,16 @@ export class ViewportController {
     // What `scrollHeight` would read, from no element: the box holds the history line and the
     // sizer in flow, unpadded, and the library sizes the sizer to its total. Before the library is
     // bound, at the first attach, the box answers once itself.
-    this.scroll.attach(scrollContainer, () =>
-      this.#virtualizer === undefined
-        ? scrollContainer.scrollHeight
-        : this.historyLine.heightPx + this.#virtualizer.getTotalSize(),
-    );
+    this.#isAttaching = true;
+    try {
+      this.scroll.attach(scrollContainer, () =>
+        this.#virtualizer === undefined
+          ? scrollContainer.scrollHeight
+          : this.historyLine.heightPx + this.#virtualizer.getTotalSize(),
+      );
+    } finally {
+      this.#isAttaching = false;
+    }
     this.virtualizerOptions.bindScrollContainer(scrollContainer);
     this.selection.attach(scrollContainer);
     this.#readerInput.attach(scrollContainer);
@@ -436,9 +443,8 @@ export class ViewportController {
   }
 
   /**
-   * Hands the controller the virtualizer the hook created. The instance must be created in a
-   * React hook (`useFlushSync` and `directDomUpdates` exist only on the adapter); the option
-   * bodies are methods here so the policy stays in this class.
+   * Hands the controller the virtualizer its hook created, from each render, before any row is
+   * laid out; the option bodies are methods here so the policy stays in this class.
    */
   public bindVirtualizer(virtualizer: TranscriptRowVirtualizer): void {
     this.#virtualizer = virtualizer;
@@ -447,32 +453,48 @@ export class ViewportController {
   }
 
   /**
-   * Folds one render's conditions in: takes the log, runs the window's pass, and holds the
-   * reader's position.
+   * Folds one render's conditions in, from that render: follows its link to a message, then takes
+   * the log, runs the window's pass and arms the hold of the reader's position. Nothing is
+   * notified, since the render reads the new snapshot, and nothing is written until it commits
+   * (`commitPendingPositionHold`). The conditions the last pass ran with run no pass again.
    */
-  public reconcile(conditions: ViewportConditions): void {
-    this.#runPass(conditions, { admitSide: undefined, isRender: true });
-    // A new log may hold the rows a waiting landing's screen was missing, or a jump's page.
-    this.landing.retryWaiting();
-    const owedJump = this.#edgeJump.takeOwedLanding();
-    if (owedJump !== undefined) {
-      this.#landOnLogEdge(owedJump);
-    }
-  }
-
-  /**
-   * Performs the holds a reconcile or a press armed, and a pending landing, now that the new
-   * height is committed. The binding calls it from a layout effect declared after `useVirtualizer`,
-   * so the library has already written the container height, with the rows that render drew: a
-   * press's hold waits for the render whose rows the window has reconciled, since the reconcile
-   * runs after it. A land performed here lets the drawn band start widening.
-   */
-  public commitPendingPositionHold(renderedRows: readonly ViewportRow[]): void {
+  public reconcile(conditions: ViewportConditions, messageLink: MessageLink): void {
+    const last = this.#pruneCycle.lastConditions;
     if (this.#disposed) {
       return;
     }
-    this.#deferredHold.commit(renderedRows === this.#pruneCycle.lastConditions?.rows);
+    this.#publication.publishDuringRender(() => {
+      // Before the pass, so the pass reads from the message and keeps the rows around it.
+      this.landing.followMessageLink(messageLink);
+      if (conditions.rows !== last?.rows || conditions.isChangingRow !== last.isChangingRow) {
+        this.#runPass(conditions, { admitSide: undefined, isRender: true });
+        this.#isNewLogOwedToLandings = true;
+      }
+    });
+  }
+
+  /**
+   * Performs the writes a pass or a press armed, and a pending landing, now that the rows are laid
+   * out, then asks a waiting landing and a jump about the log a render took. The binding calls it
+   * from a layout effect declared after the virtualizer's, so the library has already written the
+   * container height, with the rows that render drew: an anchored hold waits for a render whose
+   * rows, `drawnRows`, are the window's. A land performed here lets the drawn band start widening.
+   */
+  public commitPendingPositionHold(drawnRows: readonly ViewportRow[]): void {
+    if (this.#disposed) {
+      return;
+    }
+    this.#deferredHold.commit(drawnRows === this.#rows);
     this.landing.commitPendingLanding();
+    if (this.#isNewLogOwedToLandings) {
+      this.#isNewLogOwedToLandings = false;
+      // A new log may hold the rows a waiting landing's screen was missing, or a jump's page.
+      this.landing.retryWaiting();
+      const owedJump = this.#edgeJump.takeOwedLanding();
+      if (owedJump !== undefined) {
+        this.#landOnLogEdge(owedJump);
+      }
+    }
     this.#drawnBand.review();
   }
 
@@ -519,23 +541,6 @@ export class ViewportController {
   }
 
   /**
-   * Hears how reading back toward a linked message stands. The link is the reader's own ask, so
-   * following ends while its message is read back, and the tail neither pulls the view nor lets go
-   * of the stretches arriving above. Read back to the start of history or a failed read without
-   * it, the view stays where the reader is rather than moving to the tail.
-   */
-  public noteMessageReadBack(readBack: MessageReadBack | undefined): void {
-    if (readBack === "reading-back") {
-      if (!this.#isReadingBackToMessage) {
-        this.#isReadingBackToMessage = true;
-        this.anchor.stopFollowing();
-      }
-      return;
-    }
-    this.#isReadingBackToMessage = false;
-  }
-
-  /**
    * Re-asks for a cut the window refused, once the refusal's condition is gone: one ordinary
    * pass over the conditions the refused pass was given. `ViewportPruneCycle.owedConditions`
    * says which refusals need it.
@@ -565,11 +570,8 @@ export class ViewportController {
 
   /**
    * Puts a reader who left the tail back where they were: the anchored row at the same distance
-   * from the top of the viewport. A follower's position is the library's, so it does nothing.
-   *
-   * A pass calls it only where no cut compensation ran: after a cut the virtualizer is still in
-   * the pre-cut offset space until React re-renders, so its index lookup would name the wrong
-   * row. The head-insert case waits for `commitPendingPositionHold`.
+   * from the top of the viewport. A follower's position is the library's, so it does nothing. A
+   * pass's hold waits for `commitPendingPositionHold`, once the virtualizer counts its rows.
    */
   public holdReadingPosition(): void {
     const targetPx = this.#readingPositionTargetPx();
@@ -667,15 +669,14 @@ export class ViewportController {
   }
 
   /**
-   * Runs one pass of the window over `conditions` and holds the reader's position, answering
-   * whether the rows the viewport holds changed.
+   * Runs one pass of the window over `conditions` and arms the hold of the reader's position,
+   * answering whether the rows the viewport holds changed.
    *
    * The pass runs first because it can change the row set, the row set is rebuilt from what the
-   * window holds, and the position is held last. The cut compensation is paid here, after the
-   * rebuild, because a glide publishes a geometry sample that would otherwise reach the anchor
-   * capture against keys the window no longer has. A pass the pass's own write would start is not
-   * run. A render's pass always holds the position; a pass the controller runs itself holds it only
-   * when the row set changed, because an unchanged set moved no row under the reader.
+   * window holds, and the position is armed last, paid once the render that lays the rows out
+   * commits. A pass started while one runs is not run. A render's pass always holds the position; a
+   * pass the controller runs itself holds it only when the row set changed, because an unchanged
+   * set moved no row under the reader.
    */
   #runPass(conditions: ViewportConditions, pass: WindowPass): boolean {
     if (this.#isPassRunning) {
@@ -716,19 +717,17 @@ export class ViewportController {
         this.measurements.publishEstimates();
       }
       // Rows let go above a reader are paid by arithmetic; rows admitted above them, or a page
-      // landing at the head, are held once the render that lays them out commits. A pass that
-      // both lets rows go and admits others is held too, so the render that lays the admitted
-      // rows out draws where the reader stays rather than a commit late.
-      const compensated =
-        !isFollowing && this.#pruneCycle.compensateForPrunedHeight(prunedHeightPx);
+      // landing at the head, are held on the rows themselves. A pass that both lets rows go and
+      // admits others is held too, so the render that lays the admitted rows out draws where the
+      // reader stays.
+      const compensated = !isFollowing && this.#deferredHold.armCompensation(prunedHeightPx);
       if (
         (!compensated || haveRowsJoined(previousRowKeys, this.#rowKeys)) &&
         (pass.isRender || hasRowSetChanged)
       ) {
-        this.#deferredHold.armAfterReconcile({
+        this.#deferredHold.armAfterPass({
           headInsertedCount: countInsertedBefore(retained, previousRowKeys[0]),
           readRowsInView: () => this.#anchorCapture.rowsInView(scrollTopPx, previousRowKeys),
-          hasRowSetChanged,
         });
         if (this.#deferredHold.isHeadHoldArmed) {
           this.#drawnBand.narrow();
@@ -743,10 +742,11 @@ export class ViewportController {
 
   /**
    * Asks the window for the pass a reader's scroll sample owes it, else for a refused cut whose
-   * refusal the sample lifted: the first sample with a height, a held row released.
+   * refusal the sample lifted: the first sample with a height, a held row released. An attach's
+   * sample, read before the rows are laid out, owes no pass.
    */
   #reviewWindowAfter(geometry: ScrollGeometry): void {
-    const request = this.#pruneCycle.passOwedBy(geometry);
+    const request = this.#isAttaching ? undefined : this.#pruneCycle.passOwedBy(geometry);
     const conditions = this.#pruneCycle.lastConditions;
     if (request !== undefined && conditions !== undefined) {
       this.#runPass(conditions, { admitSide: request.admitSide, isRender: false });
@@ -810,15 +810,16 @@ export class ViewportController {
 
   /**
    * The offset the land on its way ends at: the head hold's, then a row landing's, then an armed
-   * anchored hold's, then the tail for a follower the box does not yet stand at; `undefined` with
-   * none on its way. The render that lays the new rows out then draws the rows the hold ends on,
-   * so the hold's write moves no row in or out of the drawn range and lays nothing out again.
+   * anchored hold's, then an armed cut compensation's, then the tail for a follower the box does
+   * not yet stand at; `undefined` with none on its way. The render that lays the new rows out then
+   * draws the rows the land ends on, so its write draws no other row and lays nothing out again.
    */
   #landingTargetPx(): number | undefined {
     return (
       this.#deferredHold.headHoldTargetPx() ??
       this.landing.pendingTargetPx() ??
       (this.#deferredHold.isAnchoredHoldArmed ? this.#readingPositionTargetPx() : undefined) ??
+      this.#deferredHold.compensationTargetPx ??
       this.#tailFollow.unreachedTailPx()
     );
   }
@@ -864,21 +865,6 @@ export class ViewportController {
       nestedBandScreenHeights: this.#drawnBand.nestedScreenHeights,
     };
   }
-}
-
-/** Whether two key lists differ in length or at either end, which lays the library out anew. */
-function haveDifferentEnds(previousKeys: readonly string[], nextKeys: readonly string[]): boolean {
-  return (
-    previousKeys.length !== nextKeys.length ||
-    previousKeys[0] !== nextKeys[0] ||
-    previousKeys[previousKeys.length - 1] !== nextKeys[nextKeys.length - 1]
-  );
-}
-
-/** Whether `nextKeys` holds a row `previousKeys` did not. */
-function haveRowsJoined(previousKeys: readonly string[], nextKeys: readonly string[]): boolean {
-  const previousKeySet = new Set(previousKeys);
-  return nextKeys.some((key) => !previousKeySet.has(key));
 }
 
 /** What starts one pass of the window: the side a reader's approach admits on, and who asked. */
