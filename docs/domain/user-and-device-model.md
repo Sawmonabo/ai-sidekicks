@@ -21,7 +21,7 @@ Account identity, device identity and lifecycle, the executing machine, and sess
 
 One user, many devices, one executing machine per session.
 
-A **user** is the identity everything else hangs off. There is one, and every device and every runtime node in the picture belongs to that one account.
+A **user** is the identity everything else hangs off. There is one, and every device and every runtime node in the picture belongs to that one account. The user exists on the machine from its background service's first start, which mints the user's id, and a hosted account signed in to later belongs to that user.
 
 A **device** is a client. It reads the transcript, sends, steers, stops, approves, drives agents, views the diff, and uses the terminal — and it does none of that itself. It asks the runtime node to. A device has its own identity key, minted on the device and kept there, which is what lets the log record not just that the account acted but which device acted.
 

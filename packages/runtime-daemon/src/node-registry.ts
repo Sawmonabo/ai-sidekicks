@@ -6,6 +6,7 @@ import type { Statement } from "better-sqlite3";
 
 import type { UserId } from "@ai-sidekicks/contracts/session/id";
 
+import type { LocalMachine } from "./daemon/machine/local.js";
 import type { DatabaseConnections } from "./database/connection/lifecycle.js";
 import type { DatabaseWriter } from "./database/writer.js";
 
@@ -32,7 +33,7 @@ const UPSERT_REGISTRATION_SQL = `INSERT INTO node_trust_state (node_id, owner_us
 export class NodeRegistry {
   readonly #writer: Pick<DatabaseWriter, "write">;
   readonly #selectRegistrationStatement: Statement;
-  readonly #selectOwnersStatement: Statement<[string], { readonly owner_user_id: UserId }>;
+  readonly #selectOtherOwnerStatement: Statement<[string, string], { readonly found: 1 }>;
   readonly #now: () => string;
 
   constructor(database: DatabaseConnections, now: () => string = () => new Date().toISOString()) {
@@ -43,9 +44,8 @@ export class NodeRegistry {
          FROM node_trust_state
         WHERE node_id = ? AND owner_user_id = ?`,
     );
-    // Two rows at most, enough to tell one owner from several.
-    this.#selectOwnersStatement = database.reader.prepare(
-      "SELECT owner_user_id FROM node_trust_state WHERE node_id = ? LIMIT 2",
+    this.#selectOtherOwnerStatement = database.reader.prepare(
+      "SELECT 1 AS found FROM node_trust_state WHERE node_id = ? AND owner_user_id <> ? LIMIT 1",
     );
   }
 
@@ -67,11 +67,12 @@ export class NodeRegistry {
   }
 
   /**
-   * The user who owns the machine, the principal of every policy check, or `undefined` when the
-   * machine is registered for no user or for more than one, so no one owner can be named.
+   * The machine's local owner, the principal of every policy check, unregistered or registered
+   * under that owner alike; `undefined` when the machine is registered under any other user, so
+   * which user owns it is in doubt.
    */
-  readOwner(nodeId: string): UserId | undefined {
-    const owners = this.#selectOwnersStatement.all(nodeId);
-    return owners.length === 1 ? owners[0]?.owner_user_id : undefined;
+  readOwner(machine: LocalMachine): UserId | undefined {
+    const otherOwner = this.#selectOtherOwnerStatement.get(machine.nodeId, machine.ownerUserId);
+    return otherOwner === undefined ? machine.ownerUserId : undefined;
   }
 }

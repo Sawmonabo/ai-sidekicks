@@ -421,7 +421,7 @@ export class DaemonProcess {
       providerRegistry,
       runEngine,
       executionPostures,
-      nodeId: parts.localMachine.nodeId,
+      localMachine: parts.localMachine,
       authorizer: parts.authorizer,
       homeDirectory: options.homeDirectory,
       runFolder: options.runFolder,

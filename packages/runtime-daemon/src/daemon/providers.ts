@@ -11,7 +11,6 @@ import { DAEMON_STOP_DRAIN_BOUND_MS } from "@ai-sidekicks/contracts/daemon/lifec
 import type { DaemonRunFolder } from "@ai-sidekicks/contracts/daemon/run-folder";
 import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
-import type { NodeId } from "@ai-sidekicks/contracts/runtime-node/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { createMemoryGate } from "../admission/memory-gate.js";
@@ -114,6 +113,7 @@ import type {
 import { RunStateReader } from "../session/run/read.js";
 import { RunAlreadyEndedError, RunNotFoundError } from "../session/run/refusals.js";
 import { DaemonApprovals } from "./approvals.js";
+import type { LocalMachine } from "./machine/local.js";
 import type { RegisteredSessionServices } from "./session-methods.js";
 
 // The socket Codex's hook programs reach the daemon on, beside the daemon's own socket.
@@ -222,8 +222,8 @@ interface DaemonProvidersContext {
     RegisteredSessionServices,
     "eventLog" | "runtimeBindings" | "attachments" | "workingFolders" | "projectRules"
   >;
-  /** The machine whose providers keep the rules its approvals make. */
-  readonly nodeId: NodeId;
+  /** The machine whose providers keep the rules its approvals make, and its owner. */
+  readonly localMachine: LocalMachine;
   /** The workflow actions' rules, loaded and checked at the daemon's start. */
   readonly authorizer: Authorizer;
   /** The runner for the `git` found along the login shell's `PATH`. */
@@ -533,7 +533,7 @@ export class DaemonProviders {
     this.approvals = new DaemonApprovals({
       database,
       eventLog: sessionEvents,
-      nodeId: context.nodeId,
+      localMachine: context.localMachine,
       dataFolder: context.dataFolder,
       authorizer: context.authorizer,
       executionPostures: context.executionPostures,

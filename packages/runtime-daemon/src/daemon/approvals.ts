@@ -8,7 +8,6 @@
 import path from "node:path";
 
 import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
-import type { NodeId } from "@ai-sidekicks/contracts/runtime-node/id";
 
 import { PermissionAsks } from "../approvals/permission-asks.js";
 import { ApprovalProjectionService } from "../approvals/projection-service.js";
@@ -37,6 +36,7 @@ import type { ReviewerDenialPort } from "../provider/port/reviewer-denial.js";
 import type { SessionRulePort } from "../provider/port/session-rules.js";
 import { RunAgentReader } from "../session/run/agent.js";
 import type { RunEngine } from "../session/run/engine.js";
+import type { LocalMachine } from "./machine/local.js";
 import type { ServiceLogWriter } from "./service-log.js";
 
 // The one all-projects agent-memory folder, inside the daemon's data folder.
@@ -46,8 +46,8 @@ const AGENT_MEMORY_FOLDER_NAME = "agent-memory";
 export interface DaemonApprovalsContext {
   readonly database: DatabaseConnections;
   readonly eventLog: EventLogService;
-  /** The machine whose providers keep the rules made here. */
-  readonly nodeId: NodeId;
+  /** The machine whose providers keep the rules made here, and the owner every check decides as. */
+  readonly localMachine: LocalMachine;
   /** The daemon's data folder, which holds the agent-memory folder. */
   readonly dataFolder: string;
   /** The workflow actions' rules, loaded and checked at the daemon's start. */
@@ -94,7 +94,7 @@ export class DaemonApprovals {
     this.#rules = new ApprovalRules({
       reader: database.reader,
       sessionEvents: eventLog,
-      nodeId: context.nodeId,
+      nodeId: context.localMachine.nodeId,
       followAll,
       revokeAtProvider: async (revocation) => {
         const { driver } = resolveDriverForSessionOrThrow(
@@ -120,7 +120,7 @@ export class DaemonApprovals {
       rules: this.#rules,
       agentMemoryFolder: path.join(context.dataFolder, AGENT_MEMORY_FOLDER_NAME),
       readRunAgent: (sessionId, runId) => agents.readAgent(sessionId, runId),
-      readOwner: () => nodes.readOwner(context.nodeId),
+      readOwner: () => nodes.readOwner(context.localMachine),
       readPosture: (runId) => context.executionPostures.resolvedPostureFor(runId),
     });
     const asks = new PermissionAsks({

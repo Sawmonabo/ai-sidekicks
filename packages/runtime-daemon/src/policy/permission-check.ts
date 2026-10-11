@@ -89,7 +89,7 @@ export interface PermissionCheckDeps {
   readonly agentMemoryFolder: string;
   /** The agent whose run holds an ask, which its card names as its asker. */
   readonly readRunAgent: (sessionId: SessionId, runId: RunId) => string;
-  /** The machine's owning user, or `undefined` when it does not resolve. */
+  /** The machine's local owner, or `undefined` when it is registered under another user. */
   readonly readOwner: () => UserId | undefined;
   /** The posture a live run runs at, or `undefined` for a run past its end or never started. */
   readonly readPosture: (runId: RunId) => ExecutionPosture | undefined;

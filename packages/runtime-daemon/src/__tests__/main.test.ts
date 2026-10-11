@@ -1,12 +1,12 @@
 // The daemon started from its command, `src/main.ts`, as a real child process: it answers
 // `daemon.hello` on its socket naming the machine's own id as the calling device, keeps serving a
 // client that drops and reconnects, comes back after a SIGKILL over the socket file the crash left
-// with the same machine id and a new session token the old one no longer opens, and stops cleanly
-// on SIGTERM, a second one during its drain included, and one during its start ends the login
-// shell. Its service log goes to standard error and to its own file: a log folder it cannot open
-// never stops it, a start that fails says why in the file, and it runs on, logging to the file,
-// once its standard error's reader is gone. Each run gets its own home and run folder, so the
-// person's own files are never read.
+// with the same machine and owner ids and a new session token the old one no longer opens, and
+// stops cleanly on SIGTERM, a second one during its drain included, and one during its start ends
+// the login shell. Its service log goes to standard error and to its own file: a log folder it
+// cannot open never stops it, a start that fails says why in the file, and it runs on, logging to
+// the file, once its standard error's reader is gone. Each run gets its own home and run folder, so
+// the person's own files are never read.
 
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { constants as fsConstants } from "node:fs";
@@ -160,15 +160,20 @@ async function sayHello(sessionToken?: string): Promise<unknown> {
   }
 }
 
-function readLocalMachine(): { readonly node_id: string; readonly name: string } {
+interface LocalMachineRow {
+  readonly node_id: string;
+  readonly owner_user_id: string;
+  readonly name: string;
+}
+
+function readLocalMachine(): LocalMachineRow {
   const database = new Database(path.join(homeDirectory, DAEMON_DATA_FOLDER_NAME, "daemon.db"), {
     readonly: true,
   });
   try {
-    return database.prepare("SELECT node_id, name FROM local_machine").get() as {
-      node_id: string;
-      name: string;
-    };
+    return database
+      .prepare("SELECT node_id, owner_user_id, name FROM local_machine")
+      .get() as LocalMachineRow;
   } finally {
     database.close();
   }
@@ -203,7 +208,7 @@ describe("the daemon started from its command", () => {
   );
 
   it(
-    "comes back after a crash with the same machine id and a new token, and stops on SIGTERM",
+    "comes back after a crash with the same machine and owner ids and a new token, and stops on SIGTERM",
     async () => {
       const crashed = await startDaemon();
       const machineAtFirstStart = readLocalMachine();

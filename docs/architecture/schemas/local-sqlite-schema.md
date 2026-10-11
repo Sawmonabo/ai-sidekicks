@@ -553,11 +553,12 @@ The build-metadata rejection above is grounded in the SemVer specification itsel
 
 ```sql
 -- Owner: Plan-025
--- This machine: its id, minted at the daemon's first start, and the friendly name read then
--- (Spec-002). One row, kept the same at every later start.
+-- This machine: its id and its owner's user id, both minted at the daemon's first start, and the
+-- friendly name read then (Spec-002). One row, kept the same at every later start.
 CREATE TABLE local_machine (
   singleton         INTEGER PRIMARY KEY CHECK (singleton = 1),
   node_id           TEXT NOT NULL,
+  owner_user_id     TEXT NOT NULL,  -- a hosted account signed in to later attaches to it
   name              TEXT NOT NULL,
   minted_at         TEXT NOT NULL
 ) STRICT;
