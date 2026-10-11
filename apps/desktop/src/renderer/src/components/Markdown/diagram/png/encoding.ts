@@ -1,25 +1,26 @@
-// A drawn diagram as PNG bytes, for `Copy as picture`. The page draws the picture at its copy size
-// on its own ground, since a transparent picture pastes onto whatever ground the target has, a tile
-// at a time: strips of rows from the top, each cut into columns from the left, so no canvas passes
-// the browser's size limits and no task of the page's grows with the picture. A worker started for
-// the one copy lays each strip's tiles side by side and writes its rows into the PNG as they come,
-// holding one strip at a time. It is ended once it answers.
+// A drawn diagram as PNG bytes, for `Copy as picture`, at its copy size on its own ground, since a
+// transparent picture pastes onto whatever ground the target has. A picture one canvas holds is
+// rastered whole off the page's thread, so no canvas edge cuts its shapes; the page draws a larger
+// one a tile at a time on its ground: strips of rows from the top, each cut into columns from the
+// left where it is wider than a canvas. A worker started for the one copy lays each strip's tiles
+// side by side on the ground a band of rows at a time and writes them into the PNG as they come.
+// It is ended once it answers.
 
 import type { WorkerPort } from "#renderer/lib/worker-port.js";
 import { pictureBlobOf } from "../pictures.js";
 import type { DrawnDiagram } from "../worker/messages.js";
-import type { PngEncodeReply, PngEncodeRequest } from "./messages.js";
+import { STRIP_PIXELS, type PngEncodeReply, type PngEncodeRequest } from "./messages.js";
 
 /**
  * Encode `picture` as a PNG, at the window's pixel density and never under twice its natural
- * size, so it stays sharp where it is pasted and scaled, drawn in tiles of at most `tileColumns`
- * columns. Rejects when the picture cannot be decoded, drawn or encoded, which the copy reports as
- * failed.
+ * size, so it stays sharp where it is pasted and scaled; rastered whole when a canvas within
+ * `canvasLimits` holds it, and drawn in tiles otherwise. Rejects when the picture cannot be
+ * decoded, drawn or encoded, which the copy reports as failed.
  */
 export async function encodeDiagramPng(
   picture: DrawnDiagram,
   ownerWindow: Window,
-  tileColumns: number = TILE_COLUMNS,
+  canvasLimits: { readonly side: number; readonly area: number } = CANVAS_LIMITS,
 ): Promise<Uint8Array<ArrayBuffer>> {
   const image = ownerWindow.document.createElement("img");
   const pictureUrl = URL.createObjectURL(pictureBlobOf(picture));
@@ -32,9 +33,16 @@ export async function encodeDiagramPng(
   const scale = Math.max(ownerWindow.devicePixelRatio, MINIMUM_COPY_SCALE);
   const width = Math.ceil(picture.width * scale);
   const height = Math.ceil(picture.height * scale);
-  // Never fewer rows than a margin, so a very wide picture's strips are not mostly margins drawn
-  // and left out.
-  const stripRows = Math.max(TILE_MARGIN, Math.floor(STRIP_PIXELS / width) - 2 * TILE_MARGIN);
+  const isWhole =
+    width <= canvasLimits.side &&
+    height <= canvasLimits.side &&
+    width * height <= canvasLimits.area;
+  // One tile the picture's size has no margins; a cut picture's strips never have fewer rows than a
+  // margin, so a very wide picture's strips are not mostly margins drawn and left out.
+  const tileColumns = isWhole ? width : Math.min(TILE_COLUMNS, canvasLimits.side - 2 * TILE_MARGIN);
+  const stripRows = isWhole
+    ? height
+    : Math.max(TILE_MARGIN, Math.floor(STRIP_PIXELS / width) - 2 * TILE_MARGIN);
   const tile = new OffscreenCanvas(1, 1);
   const context = tile.getContext("2d");
   if (context === null) {
@@ -46,7 +54,12 @@ export async function encodeDiagramPng(
     { type: "module", name: "png" },
   );
   try {
-    await answerOf(encoder, { kind: "start", width, height });
+    await answerOf(encoder, {
+      kind: "start",
+      width,
+      height,
+      groundColor: picture.groundColor,
+    });
     for (let top = 0; top < height; top += stripRows) {
       const rows = Math.min(stripRows, height - top);
       const above = Math.min(TILE_MARGIN, top);
@@ -55,16 +68,22 @@ export async function encodeDiagramPng(
         const columns = Math.min(tileColumns, width - left);
         const before = Math.min(TILE_MARGIN, left);
         const after = Math.min(TILE_MARGIN, width - left - columns);
-        if (tile.width !== before + columns + after || tile.height !== above + rows + below) {
-          tile.width = before + columns + after;
-          tile.height = above + rows + below;
+        let bitmap: ImageBitmap;
+        if (isWhole) {
+          // Rastered off the page's thread, on no ground; the worker lays it on the ground.
+          bitmap = await createImageBitmap(image, { resizeWidth: width, resizeHeight: height });
+        } else {
+          if (tile.width !== before + columns + after || tile.height !== above + rows + below) {
+            tile.width = before + columns + after;
+            tile.height = above + rows + below;
+          }
+          context.fillStyle = picture.groundColor;
+          context.fillRect(0, 0, tile.width, tile.height);
+          // The whole picture drawn shifted up and left past the tile's margins, so each tile's
+          // pixels are the whole drawing's; the canvas keeps only the tile and its margins.
+          context.drawImage(image, before - left, above - top, width, height);
+          bitmap = tile.transferToImageBitmap();
         }
-        context.fillStyle = picture.groundColor;
-        context.fillRect(0, 0, tile.width, tile.height);
-        // The whole picture drawn shifted up and left past the tile's margins, so each tile's
-        // pixels are the whole drawing's; the canvas keeps only the tile and its margins.
-        context.drawImage(image, before - left, above - top, width, height);
-        const bitmap = tile.transferToImageBitmap();
         await answerOf(
           encoder,
           { kind: "tile", bitmap, firstColumn: before, firstRow: above, columns, rows },
@@ -93,18 +112,10 @@ const MINIMUM_COPY_SCALE = 2;
  */
 const TILE_MARGIN = 64;
 
-/**
- * The most pixels one strip holds with its margins above and below, and so about the most a tile
- * draws and the worker holds, unless a picture is so wide that a margin's rows hold more. Measured
- * on a loaded machine, a strip of a 120-node flowchart this size took at most 2.3 ms to draw and
- * 5.3 ms to hand to the worker.
- */
-const STRIP_PIXELS = 4_194_304;
+/** The largest canvas Chromium draws: 32,767 pixels a side and 268,435,456 pixels in all. */
+const CANVAS_LIMITS = { side: 32_767, area: 268_435_456 } as const;
 
-/**
- * The most columns one tile keeps: with its margins, inside the 32,767 pixels the browser lets a
- * canvas's side reach.
- */
+/** The most columns one tile of a picture wider than a canvas keeps. */
 const TILE_COLUMNS = 16_384;
 
 /**

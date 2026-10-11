@@ -1,7 +1,7 @@
 // A diagram drawn by merman in its worker in Chromium, since happy-dom has no worker, no layout, no
 // image decoding and no canvas: the place held for the picture, a picture an image can show, the
-// kept picture a remount lands at, the PNG `Copy as picture` writes, a picture taller than one of
-// the strips it is drawn and encoded in and one cut into columns, each copied whole and in place,
+// kept picture a remount lands at, the PNG `Copy as picture` writes, a picture one canvas holds
+// copied as its raster, one cut into strips and one into columns each copied whole and in place,
 // the reason a refused diagram shows, a drawing that ran out of time, labels sized from the page's
 // widths, a page that never measures them and one that grants no idle time, a link that goes
 // nowhere, a diagram that cannot loosen its security, the layout a diagram asks for, and one worker
@@ -56,13 +56,15 @@ const SCRIPT_LINK_SOURCE =
 /** The same links, under front matter that asks for the loose security level. */
 const LOOSE_SECURITY_SOURCE = `---\nconfig:\n  securityLevel: loose\n---\n${SCRIPT_LINK_SOURCE}`;
 
-/** A flowchart of thirty steps, drawn at twice its size taller than several strips. */
-const LONG_SOURCE = `flowchart TD\n${Array.from(
-  { length: 29 },
-  (_unused, step) =>
-    `  n${String(step)}[step ${String(step)}] --> n${String(step + 1)}[step ${String(step + 1)}]\n` +
-    `  n${String(step % 5)} --> n${String(step + 1)}`,
-).join("\n")}\n`;
+/** Thirty steps in a line, each also linked from one of the first five, laid out `direction`. */
+function thirtyStepsSource(direction: "TD" | "LR"): string {
+  return `flowchart ${direction}\n${Array.from(
+    { length: 29 },
+    (_unused, step) =>
+      `  n${String(step)}[step ${String(step)}] --> n${String(step + 1)}[step ${String(step + 1)}]\n` +
+      `  n${String(step % 5)} --> n${String(step + 1)}`,
+  ).join("\n")}\n`;
+}
 
 /** A first step that forks to two and joins at a last, drawn left to right, its edges curving. */
 const FORKED_SOURCE =
@@ -149,12 +151,14 @@ async function drawnPicture(pictures: DiagramPictures, source: string): Promise<
 }
 
 /**
- * How many color values of `png`, the copy of `picture`, differ from the picture painted whole on
- * one canvas, as a picture small enough for one is, out of how many.
+ * How many color values of `png`, the copy of `picture`, differ from the whole picture painted
+ * once on its ground, out of how many: drawn on the canvas, or, when `isRastered`, its image
+ * bitmap laid on it.
  */
 async function differenceFromWhole(
   picture: DrawnDiagram,
   png: Uint8Array<ArrayBuffer>,
+  isRastered = false,
 ): Promise<{ differing: number; values: number }> {
   const copied = await createImageBitmap(new Blob([png], { type: "image/png" }));
   const scale = Math.max(window.devicePixelRatio, 2);
@@ -172,10 +176,13 @@ async function differenceFromWhole(
     paint(context);
     return context.getImageData(0, 0, width, height).data;
   };
+  const raster = isRastered
+    ? await createImageBitmap(image, { resizeWidth: width, resizeHeight: height })
+    : image;
   const whole = pixelsOf((context) => {
     context.fillStyle = picture.groundColor;
     context.fillRect(0, 0, width, height);
-    context.drawImage(image, 0, 0, width, height);
+    context.drawImage(raster, 0, 0, width, height);
   });
   const fromTiles = pixelsOf((context) => {
     context.drawImage(copied, 0, 0);
@@ -276,14 +283,27 @@ it("copies a mindmap as a picture with no HTML labels, which would taint the can
   expect([...png.slice(0, PNG_SIGNATURE.length)]).toStrictEqual(PNG_SIGNATURE);
 });
 
-it("copies a picture taller than one strip as the whole drawing, each strip's rows in place", async () => {
+it("copies a picture one canvas holds as its whole raster, every pixel the same", async () => {
   const pictures = new DiagramPictures(TEST_CACHE_BYTE_CAP, startDiagramWorker, keepUnusedMemory);
-  const outcome = await pictures.drawCopy(LONG_SOURCE, watchDiagramPalette(window).read());
+  const source = thirtyStepsSource("LR");
+  const outcome = await pictures.drawCopy(source, watchDiagramPalette(window).read());
   const picture = outcome.kind === "drawn" ? outcome : expect.fail("the diagram is drawn");
 
+  // Its edges cross every cut a strip or a column would make, and none is made.
+  const png = await encodeDiagramPng(picture, window);
+  expect((await differenceFromWhole(picture, png, true)).differing).toBe(0);
+});
+
+it("copies a picture taller than one strip as the whole drawing, each strip's rows in place", async () => {
+  const pictures = new DiagramPictures(TEST_CACHE_BYTE_CAP, startDiagramWorker, keepUnusedMemory);
+  const source = thirtyStepsSource("TD");
+  const outcome = await pictures.drawCopy(source, watchDiagramPalette(window).read());
+  const picture = outcome.kind === "drawn" ? outcome : expect.fail("the diagram is drawn");
+
+  // A canvas no picture fits, so this one is cut into strips as one past the limits is.
   const { differing, values } = await differenceFromWhole(
     picture,
-    await encodeDiagramPng(picture, window),
+    await encodeDiagramPng(picture, window, { side: 32_767, area: 1 }),
   );
   // A curve a cut crosses is drawn whole when it ends within the margin, and these steps' longer
   // edges run along the cuts; a strip out of place moves thousands.
@@ -295,11 +315,12 @@ it("copies a picture wider than one tile as the whole drawing, each tile's colum
   const outcome = await pictures.drawCopy(FORKED_SOURCE, watchDiagramPalette(window).read());
   const picture = outcome.kind === "drawn" ? outcome : expect.fail("the diagram is drawn");
 
-  // Tiles a third of the picture wide, far narrower than the app's, so its curves cross the cuts.
-  const tileColumns = Math.ceil((picture.width * Math.max(window.devicePixelRatio, 2)) / 3);
+  // A canvas side a third of the picture's width, far narrower than the browser's, so its curves
+  // cross the column cuts.
+  const side = Math.ceil((picture.width * Math.max(window.devicePixelRatio, 2)) / 3);
   const { differing, values } = await differenceFromWhole(
     picture,
-    await encodeDiagramPng(picture, window, tileColumns),
+    await encodeDiagramPng(picture, window, { side, area: side * side }),
   );
   // A curve a cut crosses is drawn whole when it ends within the margin; a tile out of place or
   // drawn without its margin moves hundreds.
