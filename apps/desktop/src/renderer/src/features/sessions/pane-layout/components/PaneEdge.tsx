@@ -21,8 +21,8 @@ export type PaneEdgeGrowKey = "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDow
 
 /** What a pane edge sets and how. */
 export interface PaneEdgeProps {
-  /** The accessible name of the separator. */
-  readonly label: string;
+  /** The id of the pane's own name, which names the separator, as a window splitter is named. */
+  readonly labelledBy: string;
   readonly growKey: PaneEdgeGrowKey;
   /**
    * The size now and its limits, measured at the moment of asking. A new function whenever what
@@ -127,7 +127,7 @@ export function PaneEdge(props: PaneEdgeProps): React.JSX.Element {
       data-orientation={isWidth ? "vertical" : "horizontal"}
       role="separator"
       tabIndex={0}
-      aria-label={props.label}
+      aria-labelledby={props.labelledBy}
       aria-orientation={isWidth ? "vertical" : "horizontal"}
       aria-valuenow={reading === undefined ? undefined : Math.round(reading.sizePx)}
       aria-valuemin={reading === undefined ? undefined : Math.round(reading.minimumPx)}

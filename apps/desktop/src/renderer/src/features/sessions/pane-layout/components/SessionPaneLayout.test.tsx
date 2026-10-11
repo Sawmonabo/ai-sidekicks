@@ -1,5 +1,5 @@
 // The mounted pane layout's own keys: focus and close from the block, Escape giving the full
-// width back, and none of it taken from a field inside a pane body.
+// width back, and none of it taken from a field inside a pane body; and what its edges are called.
 
 import { act, render, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -154,6 +154,21 @@ describe("the block's own keys", () => {
     expect(toggle.getAttribute("data-hover-label")).toBe("Full width");
     expect(layout.snapshot().focusedPaneId).toBe(preview);
     expect([escapeEvent, focusEvent].map((event) => event.defaultPrevented)).toEqual([true, true]);
+  });
+});
+
+describe("the block's edges", () => {
+  it("names each edge by its own pane's label, as a window splitter is named", () => {
+    // The role and orientation already say it resizes; a name pointing at an id no pane drew
+    // would leave the edge unnamed.
+    const { layout } = threePaneLayout();
+    const block = renderPaneLayout(layout);
+
+    const previewEdge = within(block).getByRole("separator", { name: "Preview" });
+    const terminalEdge = within(block).getByRole("separator", { name: "Terminal" });
+
+    expect(previewEdge.getAttribute("aria-orientation")).toBe("vertical");
+    expect(terminalEdge.getAttribute("aria-orientation")).toBe("horizontal");
   });
 });
 
