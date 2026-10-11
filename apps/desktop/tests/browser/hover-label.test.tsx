@@ -3,16 +3,16 @@
 // it leaves focus there, Escape closes it, and it stays while the pointer crosses from the control
 // onto the label, its box touching the control's so the crossing passes over nothing else. Moving
 // the pointer off both is the negative control: the label closes, so its staying is not a label
-// that never closes. A control that gains its words while focused or hovered shows them at once,
-// and a label Escape put away stays away while the pointer moves inside its control, until it
-// leaves and returns. Focus inside a trigger, such as a text area inside a text box's frame, shows
-// the frame's label. The drawn label is hidden from assistive technology, which reads the words
-// once, from the control. Escape on a focused control puts its label away and nothing else: the
-// page never sees that press, and its default is canceled; once the control scrolls its label out
-// of view, Escape is the page's again and leaves the label to return with its control. Escape over
-// a hovered control puts its label away and goes on to the page, so the open Find field closes on
-// the same press, and the focused control's label returns once the pointer leaves.
-
+// that never closes; it closes too when the pointer leaves the window. A control that gains its
+// words while focused or hovered shows them at once, and a label Escape put away stays away while
+// the pointer moves inside its control, until it leaves and returns. Focus inside a trigger, such
+// as a text area inside a text box's frame, shows the frame's label. The drawn label is hidden from
+// assistive technology, which reads the words once, from the control. Escape on a focused control
+// puts its label away and nothing else: the page never sees that press, and its default is
+// canceled; once the control scrolls its label out of view, Escape is the page's again and leaves
+// the label to return with its control. Escape over a hovered control puts its label away and goes
+// on to the page, so the open Find field closes on the same press, and the focused control's label
+// returns once the pointer leaves.
 import { useState, type CSSProperties } from "react";
 import { act, cleanup, isInaccessible, render, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, onTestFinished } from "vitest";
@@ -112,6 +112,33 @@ it("shows on keyboard focus, closes on Escape, and stays while the pointer moves
 
   await act(async () => {
     await userEvent.hover(getByRole("button", { name: "After" }));
+  });
+  await waitFor(() => {
+    expect(shownLabel()).toBeNull();
+  });
+});
+
+it("closes the pointer's label when the pointer leaves the window", async () => {
+  const { getByRole } = render(
+    <div style={{ padding: "64px" }}>
+      <HoverLabel text="Color scheme" textRole="name">
+        <button type="button">◐</button>
+      </HoverLabel>
+      <WindowHoverLabel />
+    </div>,
+  );
+  const control = getByRole("button", { name: "Color scheme" });
+  await act(async () => {
+    await userEvent.hover(control);
+  });
+  await waitFor(() => {
+    expect(shownLabel()?.textContent).toBe("Color scheme");
+  });
+
+  // A point left of the page, so the pointer leaves it without crossing anything inside it.
+  const { left } = control.getBoundingClientRect();
+  await act(async () => {
+    await userEvent.hover(control, { position: { x: -left - 32, y: 4 } });
   });
   await waitFor(() => {
     expect(shownLabel()).toBeNull();
