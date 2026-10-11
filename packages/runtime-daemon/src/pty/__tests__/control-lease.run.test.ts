@@ -55,7 +55,9 @@ describe("ShellControlLease", () => {
         await expect(lease.take(paneOn(deviceId, 1), force)).rejects.toMatchObject(heldByRunA);
       }
     }
-    await expect(lease.admitResize(paneOn(MACHINE, 9), HAND_OFF)).rejects.toMatchObject(heldByRunA);
+    await expect(
+      lease.admitFromHoldingConnection(paneOn(MACHINE, 9), HAND_OFF),
+    ).rejects.toMatchObject(heldByRunA);
     await expect(lease.admitClose(MACHINE, true, HAND_OFF)).rejects.toMatchObject(heldByRunA);
     await expect(
       lease.admitWrite({ kind: "device", ...paneOn(MACHINE, 9) }, HAND_OFF),
@@ -243,14 +245,14 @@ describe("ShellControlLease", () => {
     const { lease, changes } = openLease();
     const laptopPane = paneOn(LAPTOP, 1);
     await lease.takeForRun({ runId: RUN_A, commandId: COMMAND_A }, IDLE);
-    await lease.releaseSubscription(laptopPane.outputSubscriptionId);
+    await lease.releaseSubscriptions([laptopPane.outputSubscriptionId]);
     expect(await holderOf(lease)).toMatchObject({ holderRunId: RUN_A });
     await lease.releaseCommand({ runId: RUN_A, commandId: COMMAND_A });
 
     // The pane the lent hold was taken through closes under the run, its connection still open.
     await lease.take(laptopPane, false);
     await lease.takeForRun({ runId: RUN_A, commandId: COMMAND_B }, IDLE);
-    await lease.releaseSubscription(laptopPane.outputSubscriptionId);
+    await lease.releaseSubscriptions([laptopPane.outputSubscriptionId]);
     await lease.releaseCommand({ runId: RUN_A, commandId: COMMAND_B });
     expect(await holderOf(lease)).toBeNull();
     expect(changes.map((change) => [change.reason, change.holderDeviceId])).toEqual([
@@ -269,6 +271,7 @@ describe("ShellControlLease", () => {
       sessionId: SESSION_ID,
       terminalId: TERMINAL_ID,
       machineDeviceId: MACHINE,
+      refuseEndedCaller: () => undefined,
       broadcast: async (change) => {
         changes.push(PtyControlChangedPayloadSchema.parse(change));
         await pendingBroadcast;
@@ -308,6 +311,7 @@ describe("ShellControlLease", () => {
       sessionId: SESSION_ID,
       terminalId: TERMINAL_ID,
       machineDeviceId: MACHINE,
+      refuseEndedCaller: () => undefined,
       broadcast: async () => queued.shift(),
     });
     let landTake = (): void => undefined;

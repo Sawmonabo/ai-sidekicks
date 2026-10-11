@@ -12,9 +12,9 @@ import { WorktreeIdSchema } from "@ai-sidekicks/contracts/worktree/lifecycle";
 import {
   openWorktreeFixture,
   type WorktreeFixture,
-} from "../../git/worktree/__fixtures__/services.js";
-import { mintUuidV7 } from "../../uuid-v7.js";
-import { requireWorkspaceRow } from "../../workspace/__fixtures__/rows.js";
+} from "../../../git/worktree/__fixtures__/services.js";
+import { mintUuidV7 } from "../../../uuid-v7.js";
+import { requireWorkspaceRow } from "../../../workspace/__fixtures__/rows.js";
 
 vi.setConfig({ testTimeout: 60_000 });
 

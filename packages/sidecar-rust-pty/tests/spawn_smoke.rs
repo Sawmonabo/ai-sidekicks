@@ -30,6 +30,7 @@ async fn spawn_smoke_cmd_exe_echo_hello_exits_zero() {
             cwd: r#"C:\"#.to_string(),
             rows: 24,
             cols: 80,
+            terminal_name: None,
         })
         .await
         .expect(r#"spawn of `cmd.exe /c "echo hello"` should succeed"#);

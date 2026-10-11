@@ -2,28 +2,27 @@
 //
 // The caller is the device and connection the gateway stamped on the call, never a request field,
 // so the binding the take adds ends with that connection or with the pane output subscription the
-// request names, and the hold with its last binding.
+// request names, and the hold with its last binding. The subscription is checked to be the calling
+// connection's own open one to that shell before the lease reads it.
 // The registry parses the request before the handler runs.
 
 import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
-import { TERMINAL_CONTROL_METHOD_DESCRIPTORS, type TerminalId } from "@ai-sidekicks/contracts/pty";
-import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import { TERMINAL_CONTROL_METHOD_DESCRIPTORS } from "@ai-sidekicks/contracts/pty";
 
-import type { ShellControlLease } from "../../../pty/control-lease.js";
+import type { ShellTable } from "../../../pty/shell/table.js";
+import { shellConnectionOf } from "../pty/caller.js";
 import { registerDescribedMethod } from "../register-described-method.js";
 
 /** What `session.takeControl`'s handler calls. */
 export interface SessionTakeControlDeps {
-  /**
-   * Finds a shell's lease in the session; throws `pty.not_found` for a shell the session does not
-   * have.
-   */
-  readonly findShellLease: (sessionId: SessionId, terminalId: TerminalId) => ShellControlLease;
+  readonly shellTable: Pick<ShellTable, "leaseForOutputSubscription">;
 }
 
 /**
- * Binds `session.takeControl` onto the registry. A call with no stamped device or connection is
- * refused, because a lease must end with the connection that took it.
+ * Binds `session.takeControl` onto the registry. A shell the session does not have is refused
+ * `pty.not_found`, and a subscription that is not the caller's own open one to that shell
+ * `pty.output_subscription_not_found`. A call with no stamped device or connection is refused,
+ * because a lease must end with the connection that took it.
  */
 export function registerSessionTakeControl(
   registry: MethodRegistry,
@@ -33,17 +32,13 @@ export function registerSessionTakeControl(
     registry,
     TERMINAL_CONTROL_METHOD_DESCRIPTORS["session.takeControl"],
     async (request, ctx) => {
-      if (ctx.deviceId === undefined || ctx.transportId === undefined) {
-        throw new Error("session.takeControl needs the calling device and its connection");
-      }
-      return deps.findShellLease(request.sessionId, request.terminalId).take(
-        {
-          deviceId: ctx.deviceId,
-          transportId: ctx.transportId,
-          outputSubscriptionId: request.outputSubscriptionId,
-        },
-        request.force === true,
-      );
+      const caller = {
+        ...shellConnectionOf(ctx, "session.takeControl"),
+        outputSubscriptionId: request.outputSubscriptionId,
+      };
+      return deps.shellTable
+        .leaseForOutputSubscription(request.sessionId, request.terminalId, caller)
+        .take(caller, request.force === true);
     },
   );
 }

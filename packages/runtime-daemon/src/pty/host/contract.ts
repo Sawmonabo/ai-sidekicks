@@ -8,8 +8,9 @@ import type { PtySignal, SpawnRequest, SpawnResponse } from "./protocol.js";
 /** A PTY backend the daemon uses to spawn, drive and drain terminal sessions. */
 export interface PtyHost {
   /**
-   * Spawn a new PTY session. The daemon's cwd translator rewrites `spec.cwd` to a stable parent
-   * directory first, so the spawn sees a stable cwd even if the worktree is torn down meanwhile.
+   * Spawn a new PTY session in `spec.cwd`. A caller whose folder may be torn down meanwhile
+   * rewrites it through the daemon's cwd translator first; a terminal pane's shell starts in its
+   * folder.
    */
   spawn(spec: SpawnRequest): Promise<SpawnResponse>;
 
@@ -35,7 +36,12 @@ export interface PtyHost {
    */
   kill(sessionId: string, signal: PtySignal): Promise<void>;
 
-  /** Tear down the session and release all per-session resources. */
+  /**
+   * Tear down the session, release all per-session resources and resolve once its child has
+   * exited, escalating to a kill for a child that ignores the gentler endings. Nothing about the
+   * session is reported once close begins. Rejects when the child outlives its kill, so a caller
+   * that must not go on while it runs, such as a session's deletion, does not.
+   */
   close(sessionId: string): Promise<void>;
 
   /**
@@ -64,24 +70,25 @@ export interface PtyHost {
   }): Promise<DrainResult>;
 
   /**
-   * Invoked for each stdout or stderr chunk of a session; `chunk` is the decoded
-   * `DataFrame.bytes`. It fires only after `spawn()` resolves for `sessionId`: an out-of-process
-   * backend buffers chunks that arrive before the matching `SpawnResponse` and releases them on a
-   * later turn, or the consumer would see data for a session id it has not recorded yet.
+   * Registers the one listener for each stdout or stderr chunk of every session; `chunk` is the
+   * decoded `DataFrame.bytes`. A chunk reaches it only after `spawn()` resolves for its session: an
+   * out-of-process backend buffers chunks that arrive before the matching `SpawnResponse` and
+   * releases them on a later turn, or the consumer would see data for a session id it has not
+   * recorded yet. A later registration replaces the earlier one.
    */
-  onData(sessionId: string, chunk: Uint8Array): void;
+  setOnData(listener: (sessionId: string, chunk: Uint8Array) => void): void;
 
   /**
-   * Invoked when the session's child exits. `signalCode` is the signal that terminated the child
-   * (for example `15` for `SIGTERM`) and is omitted when the wire value is `null`.
-   *
-   * It fires exactly once for every session whose `spawn()` succeeded, even for a child that exits
-   * before the spawn response arrives: an out-of-process backend buffers such early exits by
-   * `sessionId` and releases them on a later turn, after the consumer's `await spawn()` continues.
-   * A `kill()` on a session whose child has already exited sends nothing and does not fire it
-   * again. It never fires after `close()` resolves for the same `sessionId`.
+   * Registers the one listener for every session's child exit. `signalCode` is the signal that
+   * terminated the child (for example `15` for `SIGTERM`) and is omitted when the wire value is
+   * `null`. The exit reaches it exactly once for every session whose `spawn()` succeeded, even for
+   * a child that exits before the spawn response arrives: an out-of-process backend buffers such
+   * early exits by `sessionId` and releases them on a later turn, after the consumer's
+   * `await spawn()` continues. A `kill()` on a session whose child has already exited sends
+   * nothing and reports no second exit, and nothing is reported after `close()` resolves for the
+   * same `sessionId`. A later registration replaces the earlier one.
    */
-  onExit(sessionId: string, exitCode: number, signalCode?: number): void;
+  setOnExit(listener: (sessionId: string, exitCode: number, signalCode?: number) => void): void;
 }
 
 /**

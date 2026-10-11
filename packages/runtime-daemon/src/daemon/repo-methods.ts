@@ -51,7 +51,7 @@ import {
 } from "../provider/spawn-env.js";
 import type { SessionCreation } from "../session/create.js";
 import type { RunSetupGate } from "../session/run/setup-gates.js";
-import { SessionWorkingFolders } from "../session/working-folder.js";
+import { SessionWorkingFolders } from "../session/working-folder/move.js";
 import { AskpassBroker } from "../workspace/clone/askpass/broker.js";
 import { CloneService } from "../workspace/clone/service.js";
 import type { StreamedGitRunner } from "../workspace/clone/streamed-git.js";

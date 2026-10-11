@@ -58,6 +58,9 @@ pub struct SpawnRequest {
     pub cwd: String,
     pub rows: u16,
     pub cols: u16,
+    /// The terminal type the child's `TERM` names, over any in `env`; absent, `env` alone decides.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal_name: Option<String>,
 }
 
 /// Reply to a [`SpawnRequest`]: the minted session id, or `error` when the spawn failed (a missing

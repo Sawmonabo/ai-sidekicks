@@ -8,6 +8,7 @@
 // with the list.
 import { z } from "zod";
 
+import { HexColorSchema } from "../color.js";
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "../jsonrpc/streaming.js";
 import { MAX_MESSAGE_BYTES } from "../jsonrpc/message.js";
 import {
@@ -523,7 +524,7 @@ export const PreviewMarkSchema: z.ZodType<PreviewMark, PreviewMark> = z.discrimi
     .object({
       kind: z.literal("stroke"),
       points: z.array(PreviewPointSchema).min(1),
-      color: z.string().regex(/^#[0-9a-f]{6}$/iu),
+      color: HexColorSchema,
       element: PreviewMarkElementSchema.nullable(),
     })
     .strict(),

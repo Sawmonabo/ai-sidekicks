@@ -4,7 +4,7 @@
 
 import { Buffer } from "node:buffer";
 
-import { describe, expect, it, type Mock, vi } from "vitest";
+import { describe, expect, it, type Mock, onTestFinished, vi } from "vitest";
 
 import { RustSidecarPtyHost } from "../host.js";
 import { PtyBackendUnavailableError } from "../binary-path.js";
@@ -252,6 +252,34 @@ describe("RustSidecarPtyHost — request wire", () => {
       expect(output).not.toHaveBeenCalled();
     },
   );
+
+  it("close() kills a session that outlives its SIGTERM, and throws when it outlives that", async () => {
+    vi.useFakeTimers();
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    const subject = makeHost();
+    await spawnAnsweredSession(subject.host, subject.latestChild, "s-0");
+    const child = subject.latestChild();
+    const sentBeforeClose = child.readStdin().length;
+    const answerKill = async (): Promise<void> => {
+      await flushMicrotasks();
+      child.writeStdout(frameEnvelope({ kind: "kill_response", session_id: "s-0" }));
+    };
+
+    const closing = subject.host.close("s-0");
+    const refusal = expect(closing).rejects.toThrow("s-0's child did not end when killed");
+    await answerKill();
+    await vi.advanceTimersByTimeAsync(2_000);
+    await answerKill();
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    await refusal;
+    expect(parseFramesFromStdin(child.readStdin().subarray(sentBeforeClose))).toEqual([
+      { kind: "kill_request", session_id: "s-0", signal: "SIGTERM" },
+      { kind: "kill_request", session_id: "s-0", signal: "SIGKILL" },
+    ]);
+  });
 });
 
 describe("RustSidecarPtyHost — sidecar crash", () => {

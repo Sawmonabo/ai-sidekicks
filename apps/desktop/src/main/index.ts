@@ -25,6 +25,7 @@ import {
 } from "electron";
 import { appFactsSwitches, supportedPlatform } from "#shared/app-facts.js";
 import { fixtureLaunchSwitches, type FixtureLaunch } from "#shared/fixture-launch.js";
+import { ConsoleThemeReport } from "./appearance/console-theme-report.js";
 import { KeptAppearance } from "./appearance/kept-record.js";
 import { APPEARANCE_FILE_NAME, AppearanceRecordFile } from "./appearance/record-file.js";
 import { readAppFacts } from "./bridge/app-facts.js";
@@ -251,6 +252,8 @@ function startApplication(): void {
         );
       }
       const daemonLink = new DaemonLink();
+      // Before the supervisor starts, so the first link that comes up is told the console theme.
+      new ConsoleThemeReport({ link: daemonLink, appearance, log }).start();
       const supervisor = new DaemonSupervisor({
         link: daemonLink,
         connect: connectMainToDaemon,

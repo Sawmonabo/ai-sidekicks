@@ -11,22 +11,24 @@ import { createInterface } from "node:readline";
 
 import type { ProviderOperatingSystem } from "../../../operating-system/contract.js";
 import { isPlainObject, readNonEmptyString } from "../../../record-readers.js";
-import type { SpawnEnvPair } from "../../../spawn-env.js";
+import { readSpawnEnvValue, type SpawnEnvPair } from "../../../spawn-env.js";
 import { findClaudePlanFiles } from "./plan-files.js";
 
 /**
  * The folder a Claude Code process started in `spawnEnvironment` keeps its conversations in: the
- * account home it names, else `.claude` in the home folder `homeVariable` names there.
+ * account home it names, else `.claude` in the home folder the system's home variable names there.
  */
 export function claudeConfigFolderFor(
   spawnEnvironment: readonly SpawnEnvPair[],
-  homeVariable: ProviderOperatingSystem["homeVariable"],
+  operatingSystem: Pick<ProviderOperatingSystem, "homeVariable" | "environmentNameMatch">,
 ): string {
-  const configured = spawnEnvironment.find(([name]) => name === "CLAUDE_CONFIG_DIR")?.[1];
+  const nameMatch = operatingSystem.environmentNameMatch;
+  const configured = readSpawnEnvValue(spawnEnvironment, "CLAUDE_CONFIG_DIR", nameMatch);
   if (configured !== undefined) {
     return configured;
   }
-  const home = spawnEnvironment.find(([name]) => name === homeVariable)?.[1] ?? os.homedir();
+  const home =
+    readSpawnEnvValue(spawnEnvironment, operatingSystem.homeVariable, nameMatch) ?? os.homedir();
   return path.join(home, ".claude");
 }
 

@@ -115,7 +115,7 @@ function fitChromaIntoSrgbGamut(color: OklchColor): OklchColor {
 }
 
 /** Convert to gamma-encoded sRGB, clamping each channel into 0-1. */
-export function oklchToSrgb(color: OklchColor): SrgbColor {
+function oklchToSrgb(color: OklchColor): SrgbColor {
   const linear = oklchToLinearSrgb(color);
   const clamp = (channel: number): number => Math.min(1, Math.max(0, encodeSrgbChannel(channel)));
   return {
@@ -126,7 +126,7 @@ export function oklchToSrgb(color: OklchColor): SrgbColor {
 }
 
 /** `#rrggbb`, each channel rounded to the nearest of the 256 steps a display shows. */
-export function formatSrgbHex(color: SrgbColor): string {
+function formatSrgbHex(color: SrgbColor): string {
   const channels = [color.red, color.green, color.blue];
   return `#${channels
     .map((channel) =>
@@ -135,6 +135,11 @@ export function formatSrgbHex(color: SrgbColor): string {
         .padStart(2, "0"),
     )
     .join("")}`;
+}
+
+/** A color as the stylesheet paints it, in `#rrggbb`: resolved as a token carries it, then in sRGB. */
+export function formatPaintedHex(color: OklchColor): string {
+  return formatSrgbHex(oklchToSrgb(resolveEmittedColor(color)));
 }
 
 /**

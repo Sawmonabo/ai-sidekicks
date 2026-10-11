@@ -6,7 +6,7 @@ import { access, stat } from "node:fs/promises";
 import { delimiter as pathDelimiter, extname, isAbsolute, join, resolve } from "node:path";
 
 import { selectProviderOperatingSystem } from "../provider/operating-system/selection.js";
-import type { SpawnEnvNameMatch, SpawnEnvPair } from "../provider/spawn-env.js";
+import { readSpawnEnvValue, type SpawnEnvPair } from "../provider/spawn-env.js";
 
 /** "Is this path a file this process may execute?" — never rejects. */
 type ExecutableFileProbe = (candidate: string) => Promise<boolean>;
@@ -42,19 +42,6 @@ function windowsCandidateNames(command: string, pathExtensions: readonly string[
   const withExtensions = pathExtensions.map((extension) => `${command}${extension}`);
   // Like the shell: with an extension, as written first; without, through `PATHEXT`, then bare.
   return extname(command) === "" ? [...withExtensions, command] : [command, ...withExtensions];
-}
-
-/** The value of `name` in a spawn environment, its name matched by the system's rule. */
-export function readSpawnEnvValue(
-  environment: readonly SpawnEnvPair[],
-  name: string,
-  nameMatch: SpawnEnvNameMatch,
-): string | undefined {
-  const caseInsensitive = nameMatch === "case-insensitive";
-  const entry = environment.find(([entryName]) =>
-    caseInsensitive ? entryName.toUpperCase() === name : entryName === name,
-  );
-  return entry?.[1];
 }
 
 /**

@@ -585,6 +585,7 @@ describe("the session directory's budgets on the seeded set", () => {
       sessionLock: new KeyedLock<SessionId>(),
       sessionList: { refresh: () => undefined },
       relatedRanking: { rescoreAround: () => undefined },
+      shellTable: { closeSessionShells: async () => () => undefined },
       checkpointRetryDelaysMs: [],
       whenFileCheckEnds: Promise.resolve(),
     });

@@ -74,7 +74,36 @@ export const CLAUDE_UPDATE_SWITCH_NAMES: readonly string[] = Object.freeze([
 export const CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME: string = "CODEX_APP_SERVER_BIN";
 
 /** Set to `1` on a Terminal pane's shell alone while `Simplify for a screen reader` is on. */
-const CLAUDE_SCREEN_READER_ENVIRONMENT_NAME = "CLAUDE_AX_SCREEN_READER";
+export const CLAUDE_SCREEN_READER_ENVIRONMENT_NAME: string = "CLAUDE_AX_SCREEN_READER";
+
+/**
+ * Names the file a Terminal pane's shell reads its mark nonce from; the shell's script deletes the
+ * file and unsets the name, so the nonce never sits in an environment another program can read.
+ */
+export const SHELL_MARK_NONCE_FILE_ENVIRONMENT_NAME: string = "SIDEKICKS_SHELL_MARK_NONCE_FILE";
+
+/** Carries bash's own `ENV` past the posix-mode start that loads a Terminal pane's shell script. */
+export const SHELL_ORIGINAL_ENV_ENVIRONMENT_NAME: string = "SIDEKICKS_ORIGINAL_ENV";
+
+/** Names a Terminal pane's shell script for a bash that loads it from its first prompt command. */
+export const SHELL_BASH_SCRIPT_ENVIRONMENT_NAME: string = "SIDEKICKS_BASH_SCRIPT";
+
+/** Carries bash's own `PROMPT_COMMAND` past the first prompt command that loads its script. */
+export const SHELL_ORIGINAL_PROMPT_COMMAND_ENVIRONMENT_NAME: string =
+  "SIDEKICKS_ORIGINAL_PROMPT_COMMAND";
+
+/**
+ * Carries macOS's own bash's `HISTFILE` past the empty one it starts with, so it reads no history
+ * before a Terminal pane's shell script has run the login files that size it.
+ */
+export const SHELL_ORIGINAL_HISTFILE_ENVIRONMENT_NAME: string = "SIDEKICKS_ORIGINAL_HISTFILE";
+
+/** Carries zsh's own `ZDOTDIR` past the folder that loads a Terminal pane's shell script. */
+export const SHELL_ORIGINAL_ZDOTDIR_ENVIRONMENT_NAME: string = "SIDEKICKS_ORIGINAL_ZDOTDIR";
+
+/** Carries fish's own `XDG_DATA_DIRS` past the folder that loads a Terminal pane's shell script. */
+export const SHELL_ORIGINAL_XDG_DATA_DIRS_ENVIRONMENT_NAME: string =
+  "SIDEKICKS_ORIGINAL_XDG_DATA_DIRS";
 
 /**
  * The names the app sets itself on the processes it starts. A row with one of
@@ -84,6 +113,13 @@ export const APP_SET_ENVIRONMENT_NAMES: readonly string[] = Object.freeze([
   ...CLAUDE_UPDATE_SWITCH_NAMES,
   CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME,
   CLAUDE_SCREEN_READER_ENVIRONMENT_NAME,
+  SHELL_MARK_NONCE_FILE_ENVIRONMENT_NAME,
+  SHELL_ORIGINAL_ENV_ENVIRONMENT_NAME,
+  SHELL_BASH_SCRIPT_ENVIRONMENT_NAME,
+  SHELL_ORIGINAL_PROMPT_COMMAND_ENVIRONMENT_NAME,
+  SHELL_ORIGINAL_HISTFILE_ENVIRONMENT_NAME,
+  SHELL_ORIGINAL_ZDOTDIR_ENVIRONMENT_NAME,
+  SHELL_ORIGINAL_XDG_DATA_DIRS_ENVIRONMENT_NAME,
 ]);
 
 /** Why a row's name is refused at save. */

@@ -1,4 +1,5 @@
 import type { SpawnRequest } from "../pty/host/protocol.js";
+import { quoteForPosixShell } from "../shell-quoting.js";
 // Rewrites a spawn request so the PTY's cwd is a stable directory instead of a worktree.
 //
 // On Windows the OS locks the cwd of a spawned process for the process's lifetime, so deleting or
@@ -67,15 +68,7 @@ export function translateSpawnCwd(input: TranslateSpawnCwdInput): SpawnRequest {
   if (strategy === "cwd-env") {
     // Appended: a later env entry shadows an earlier one, so the translator's `CWD` wins.
     const newEnv: Array<[string, string]> = [...spec.env, ["CWD", worktreePath]];
-    return {
-      kind: "spawn_request",
-      command: spec.command,
-      args: spec.args,
-      env: newEnv,
-      cwd: stableParent,
-      rows: spec.rows,
-      cols: spec.cols,
-    };
+    return { ...spec, env: newEnv, cwd: stableParent };
   }
 
   // strategy === "cd-prefix"
@@ -84,20 +77,18 @@ export function translateSpawnCwd(input: TranslateSpawnCwdInput): SpawnRequest {
 
   if (shell === "posix") {
     // `exec` replaces the wrapper shell, so the PTY child is the target and kill signals reach it.
-    const quotedWorktree: string = quotePosix(worktreePath);
-    const quotedCommand: string = quotePosix(spec.command);
-    const quotedArgs: string = spec.args.map(quotePosix).join(" ");
+    const quotedWorktree: string = quoteForPosixShell(worktreePath);
+    const quotedCommand: string = quoteForPosixShell(spec.command);
+    const quotedArgs: string = spec.args.map(quoteForPosixShell).join(" ");
     const shellScript: string =
       `cd ${quotedWorktree} && exec ${quotedCommand}` +
       (quotedArgs.length > 0 ? ` ${quotedArgs}` : "");
     return {
-      kind: "spawn_request",
+      ...spec,
       command: "/bin/sh",
       args: ["-c", shellScript],
       env: spec.env,
       cwd: stableParent,
-      rows: spec.rows,
-      cols: spec.cols,
     };
   }
 
@@ -116,25 +107,12 @@ export function translateSpawnCwd(input: TranslateSpawnCwdInput): SpawnRequest {
     `cd /d ${quotedWorktreeWin} && ${quotedCommandWin}` +
     (quotedArgsWin.length > 0 ? ` ${quotedArgsWin}` : "");
   return {
-    kind: "spawn_request",
+    ...spec,
     command: "cmd.exe",
     args: ["/d", "/s", "/v:off", "/c", winScript],
     env: spec.env,
     cwd: stableParent,
-    rows: spec.rows,
-    cols: spec.cols,
   };
-}
-
-/**
- * Single-quotes a value for an `sh -c` command line. Nothing inside `'...'` is interpreted, so an
- * embedded `'` is written as `'\''` (close, escaped quote, reopen).
- */
-function quotePosix(value: string): string {
-  if (value.length === 0) {
-    return "''";
-  }
-  return "'" + value.replace(/'/g, "'\\''") + "'";
 }
 
 /**

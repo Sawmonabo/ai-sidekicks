@@ -11,7 +11,7 @@ import {
   type ScratchDatabase,
 } from "../../../database/__fixtures__/scratch.js";
 import { EventLogService } from "../../../events/log-service.js";
-import { SessionWorkingFolders } from "../../../session/working-folder.js";
+import { SessionWorkingFolders } from "../../../session/working-folder/move.js";
 import { KeyedLock } from "../../../keyed-lock.js";
 import { mintUuidV7 } from "../../../uuid-v7.js";
 import { attachedMountRowStatements } from "../../../workspace/__fixtures__/rows.js";

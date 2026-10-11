@@ -147,3 +147,14 @@ Each item names what it is waiting for and what would close it. Delete an item w
 - V1 Release Impact: none for macOS. The Linux leg ships the native drag ADR-040 describes; the live follow on Wayland arrives with the Electron release that carries the call.
 - Named gate: an Electron release with the call.
 - Exit Criteria: when the Linux work starts, where #54650 stands is checked, and the held socket-intercepting add-on ADR-040 records is looked at again if no release carries the call; the release is taken, T27.2.15's Wayland drag moves onto the call, and this entry is deleted.
+
+## BL-167: A login shell the kernel refuses starts through /bin/sh on Linux
+
+- Status: `blocked` (external-world wait — a Node.js release that bundles libuv 1.53.0 or later)
+- Priority: `P3`
+- Owner: `unassigned`
+- References: [Plan-021](./plans/021-rust-pty-sidecar.md) T-021-3B-8 (the login shell, or the platform's default where it cannot be started), [libuv 1.53.0 ChangeLog](https://github.com/libuv/libuv/blob/v1.x/ChangeLog) ("unix: use posix_spawn instead of fork"), [libuv pull request #3520](https://github.com/libuv/libuv/pull/3520)
+- Summary: On Linux, a login shell the kernel refuses to run (`ENOEXEC`, such as a file that is no program for this computer) starts through `/bin/sh` instead of the platform's default shell with its line. Node's bundled libuv 1.52.1 starts a child on Linux with `fork` and glibc's `execvp`, which runs a refused file as a shell script, so the start check sees it start; on macOS libuv uses `posix_spawn`, which reports `ENOEXEC`. libuv 1.53.0 starts children on Linux through `posix_spawn` too, whose glibc path has no shell fallback. No Node.js release bundles it yet (24.21.0 and 26.11.1 carry 1.52.1).
+- V1 Release Impact: none for macOS. On Linux such a tab shows `/bin/sh`'s error and ends instead of falling back; a missing file, a folder and a missing interpreter already fall back.
+- Named gate: a Node.js release whose `process.versions.uv` is 1.53.0 or later.
+- Exit Criteria: that release is taken; the Linux skip on the unrunnable-file case in `packages/runtime-daemon/src/pty/shell/__tests__/table.lifecycle.test.ts` is removed and the case passes on the ubuntu leg; this entry is deleted.

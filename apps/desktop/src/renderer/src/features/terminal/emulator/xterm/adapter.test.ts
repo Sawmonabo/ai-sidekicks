@@ -10,6 +10,7 @@ import { Terminal, type ILink, type ILinkProvider } from "@xterm/xterm";
 
 import { TerminalRendererPool } from "../renderer-pool.js";
 import { XtermTerminalAdapter } from "./adapter.js";
+import { ignoreTerminalQueries } from "./queries.js";
 import {
   attachedMountElement,
   disposeLiveEmulators,
@@ -107,6 +108,47 @@ describe("the write gate — watch mode is the default", () => {
 
     expect(adapter.isWriteEnabled).toBe(false);
     expect(adapter.isStdinDisabled).toBe(true);
+  });
+});
+
+describe("questions a program asks its terminal", () => {
+  it("never answers one, so the daemon's answer is the shell's only one", async () => {
+    // An answer here would be typed into the shell beside the daemon's, as input.
+    const onKeystroke = vi.fn<(data: string) => void>();
+    const { adapter } = mountedAdapter({ isWriteEnabled: true, onKeystroke });
+
+    await writeText(
+      adapter,
+      "\x1b[c\x1b[>c\x1b[5n\x1b[6n\x1b[?6n\x1b[4$p\x1b[?2004$p\x1bP$qr\x1b\\" +
+        "\x1b]4;1;?\x07\x1b]10;?\x07\x1b]11;?\x07\x1b]12;?\x07",
+    );
+
+    expect(adapter.isStdinDisabled).toBe(false);
+    expect(onKeystroke).not.toHaveBeenCalled();
+  });
+
+  it("keeps the colors a command sets when it also asks", async () => {
+    // The library's own color handlers stand behind a recorder registered before the filter.
+    const terminal = new Terminal({ allowProposedApi: true });
+    const reached: string[] = [];
+    for (const command of [4, 11]) {
+      terminal.parser.registerOscHandler(command, (data) => {
+        reached.push(`${String(command)};${data}`);
+        return true;
+      });
+    }
+    ignoreTerminalQueries(terminal);
+
+    await new Promise<void>((resolve) => {
+      terminal.write("\x1b]4;1;#ff0000;2;?\x07\x1b]10;?;#000000\x07", resolve);
+    });
+    // The sets are written back behind the questions, so one more write parses them.
+    await new Promise<void>((resolve) => {
+      terminal.write("", resolve);
+    });
+    terminal.dispose();
+
+    expect(reached).toEqual(["4;1;#ff0000", "11;#000000"]);
   });
 });
 

@@ -1,28 +1,29 @@
 // One shell's control lease: who may write to it, size it and close it.
 //
 // The lease is held by one of the person's devices, or by an agent's run on this machine, and lives
-// only in this daemon's memory. Beside that holder it keeps bindings: for a device, each pane output
-// subscription it was taken or written through, with the connection that subscription belongs to;
-// for a run, the command it last took it for and the device hold it took it from. Only a bound
-// connection writes to or sizes a device's shell, and each further pane it takes or writes through
-// is bound too; another connection of that device binds by taking it. A device takes a shell nobody
-// holds by taking it or by writing to it. No verb gives a shell back: a connection or pane
-// subscription closing ends its bindings, and a device's hold ends with the last of them or when
-// another device takes it; a run's hold ends when the command it holds the shell for ends or the run
-// leaves its running state, whichever comes first. A run's hold is never taken by a device, forced
-// or not. A run may take a shell a device holds; the lease keeps that hold aside, with those of its
-// bindings still open, and hands it back when the run's hold ends.
+// only in this daemon's memory. Beside that holder it keeps bindings: for a device, each pane
+// output subscription it was taken or written through, with the connection that subscription
+// belongs to; for a run, the command it last took it for and the device hold it took it from. Only
+// a bound connection writes to or sizes a device's shell, and each further pane it takes or writes
+// through is bound too; another connection of that device binds by taking it. A device takes a
+// shell nobody holds by taking it or by writing to it. No verb gives a shell back: a connection or
+// pane subscription closing ends its bindings, and a device's hold ends with the last of them or
+// when another device takes it; a run's hold ends when the command it holds the shell for ends or
+// the run leaves its running state, whichever comes first. A run's hold is never taken by a device,
+// forced or not. A run may take a shell a device holds; the lease keeps that hold aside, with those
+// of its bindings still open, and hands it back when the run's hold ends.
 //
 // Every change of holder raises the lease version by one, so a reader of the holder keeps whichever
 // reading is newest.
 //
-// Every decision reads and replaces the holder with no `await` in between, so two takes in one
-// tick cannot both win. Changes of holder run one at a time: while one is being broadcast, the
-// next waits for it to settle and then decides on the holder it left, and every check and reading
-// waits the same way, so none sees a holder no broadcast has confirmed. A take whose broadcast fails
-// is undone, and a hand-back whose broadcast fails leaves nobody holding, so no holder stands
+// Every decision reads and replaces the holder with no `await` in between, so two takes in one tick
+// cannot both win. Changes of holder run one at a time: while one is being broadcast, the next
+// waits for it to settle and then decides on the holder it left, and every check and reading waits
+// the same way, so none sees a holder no broadcast has confirmed. A take whose broadcast fails is
+// undone, and a hand-back whose broadcast fails leaves nobody holding, so no holder stands
 // unannounced; a release to nobody whose broadcast fails still stands, because the holder it ended
 // is gone. Either failure reaches the caller.
+
 import type { CommandId } from "@ai-sidekicks/contracts/command";
 import {
   PTY_CONTROL_HELD_BY_OTHER_CODE,
@@ -70,6 +71,11 @@ export interface ShellControlLeaseOptions {
   machineDeviceId: DeviceId;
   /** Records one change of holder; a rejection fails the act that made the change. */
   broadcast: (change: PtyControlChangedPayload) => Promise<void>;
+  /**
+   * Throws the refusal for a device caller whose pane output subscription, or whose shell, has
+   * ended. Called in the same tick as each binding a take or a write adds for that caller.
+   */
+  refuseEndedCaller: (caller: ShellLeaseCaller) => void;
 }
 
 // A device's hold, bound to each pane output subscription it was taken through, by the connection
@@ -160,6 +166,7 @@ export class ShellControlLease {
   readonly #terminalId: TerminalId;
   readonly #machineDeviceId: DeviceId;
   readonly #broadcast: (change: PtyControlChangedPayload) => Promise<void>;
+  readonly #refuseEndedCaller: (caller: ShellLeaseCaller) => void;
   #holder: LeaseHolder | null = null;
   #leaseVersion = 0;
   // The broadcast of the one change of holder in flight; a join awaits it, any other act waits for
@@ -171,17 +178,21 @@ export class ShellControlLease {
     this.#terminalId = options.terminalId;
     this.#machineDeviceId = options.machineDeviceId;
     this.#broadcast = options.broadcast;
+    this.#refuseEndedCaller = options.refuseEndedCaller;
   }
 
   /**
    * Takes the shell for a device connection, bound to the output subscription it names. A device's
    * retake of a shell it holds sends no broadcast and adds that binding; while the take that gave
    * the device the hold is still being broadcast, the retake waits for it and fails with it.
-   * `force` moves the shell off another device; nothing moves it off a run.
+   * `force` moves the shell off another device; nothing moves it off a run. A caller whose pane
+   * or shell ended meanwhile is refused before anything binds to it.
    */
   async take(caller: ShellLeaseCaller, force: boolean): Promise<SessionTakeControlResponse> {
     const response = { terminalId: this.#terminalId, holderDeviceId: caller.deviceId };
     for (;;) {
+      // Checked again after every wait, in the tick the binding is added.
+      this.#refuseEndedCaller(caller);
       const current = this.#holder;
       if (current?.kind === "device" && current.deviceId === caller.deviceId) {
         // A binding beside the holder, announced by nobody; undoing the hold drops it.
@@ -240,11 +251,16 @@ export class ShellControlLease {
   /**
    * Hands one write frame to `write`, in the same tick as the check that its writer holds the
    * shell, and refuses it otherwise; a device's write to a shell nobody holds takes it first, and
-   * a holding connection's write binds the pane it came through. The shell's ordered write path
-   * makes these calls one at a time, so frames keep their order.
+   * a holding connection's write binds the pane it came through. A device whose pane or shell
+   * ended meanwhile is refused. The shell's ordered write path makes these calls one at a time, so
+   * frames keep their order.
    */
   async admitWrite(writer: ShellWriter, write: () => void): Promise<void> {
     for (;;) {
+      // Checked again after every wait, in the tick the write lands or the binding is added.
+      if (writer.kind === "device") {
+        this.#refuseEndedCaller(writer);
+      }
       const current = this.#holder;
       const isHeldByWriter =
         writer.kind === "device"
@@ -272,11 +288,12 @@ export class ShellControlLease {
   }
 
   /**
-   * Hands a resize to `resize`, in the same tick as the check, only from a connection holding the
-   * shell. Another device's or a run's hold refuses it `pty.control_held_by_other`; nobody's, or
-   * another connection of the caller's own device, `pty.control_not_held`.
+   * Hands a resize or a pane's appearance to `admitted`, in the same tick as the check, only from a
+   * connection holding the shell. Another device's or a run's hold refuses it
+   * `pty.control_held_by_other`; nobody's, or another connection of the caller's own device,
+   * `pty.control_not_held`.
    */
-  async admitResize(caller: ShellConnection, resize: () => void): Promise<void> {
+  async admitFromHoldingConnection(caller: ShellConnection, admitted: () => void): Promise<void> {
     while (this.#pendingBroadcast !== undefined) {
       await this.#settled();
     }
@@ -287,7 +304,7 @@ export class ShellControlLease {
     if (current === null || !isBoundTo(current, caller)) {
       throw new PtyControlNotHeldError(this.#terminalId);
     }
-    resize();
+    admitted();
   }
 
   /**
@@ -320,12 +337,13 @@ export class ShellControlLease {
   }
 
   /**
-   * Drops the binding a closed pane output subscription carried, giving the shell back once none
-   * remains; the shell keeps running. A hold kept aside under a run loses it too.
+   * Drops the bindings closed pane output subscriptions carried, giving the shell back once none
+   * remains, in one change of holder. A hold kept aside under a run loses them too. With no change
+   * in flight, the holder changes in the tick of the call.
    */
-  async releaseSubscription(outputSubscriptionId: SubscriptionId): Promise<void> {
+  async releaseSubscriptions(outputSubscriptionIds: readonly SubscriptionId[]): Promise<void> {
     await this.#dropBindings(
-      (boundSubscriptionId) => boundSubscriptionId === outputSubscriptionId,
+      (boundSubscriptionId) => outputSubscriptionIds.includes(boundSubscriptionId),
       "auto_released_pane_closed",
     );
   }

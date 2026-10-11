@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 
 import type { ServiceLogWriter } from "../../../daemon/service-log.js";
 import { describeRejection } from "../../../rejection.js";
+import { quoteForPosixShell } from "../../../shell-quoting.js";
 
 // Beside this module with its extension, so the source and the build each find their own.
 const PROGRAM_PATH = fileURLToPath(
@@ -232,15 +233,10 @@ function parseRequest(line: string): { readonly owner: string; readonly prompt: 
 function launcherText(socketPath: string): string {
   return [
     "#!/bin/sh",
-    `exec ${shellQuoted(process.execPath)} ${shellQuoted(PROGRAM_PATH)} ${shellQuoted(
-      socketPath,
-    )} "$${OWNER_VARIABLE}" "$@"`,
+    `exec ${[process.execPath, PROGRAM_PATH, socketPath].map(quoteForPosixShell).join(" ")} ` +
+      `"$${OWNER_VARIABLE}" "$@"`,
     "",
   ].join("\n");
-}
-
-function shellQuoted(text: string): string {
-  return `'${text.replaceAll("'", `'\\''`)}'`;
 }
 
 // Removes each broker folder of this account that a stopped service left: made before this process

@@ -7,10 +7,11 @@
 import { realpath } from "node:fs/promises";
 import { basename, join, sep } from "node:path";
 
-import type { Database, Statement } from "better-sqlite3";
+import type { Database } from "better-sqlite3";
 
 import { scoreSubsequence } from "@ai-sidekicks/search-ranking";
 import { FILE_PATH_MAX_LEN } from "@ai-sidekicks/contracts/free-form-string";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import {
   SESSION_WORKING_FOLDER_UNAVAILABLE_CODE,
   type SessionFileSearchRequest,
@@ -20,23 +21,11 @@ import {
 import type { ServiceLogWriter } from "../../../daemon/service-log.js";
 import type { GitCommand } from "../../../git/process.js";
 import { DaemonDomainError } from "../../../ipc/domain-error.js";
-import { PROBE_BEARING_WORKSPACE_STATES } from "../../../workspace/projector.js";
-import { sessionNotFound } from "../../not-found.js";
-import { sqlListOf } from "../../../database/sql-list.js";
+import { prepareWorkingFolderRead, type SessionWorkingFolder } from "../../working-folder/read.js";
 import { listWorkingFolder } from "./listing.js";
 
 // The most paths one `@` file search answers.
 const FILE_SEARCH_RESULT_MAX = 50;
-
-// The session's working folder: its newest workspace in a state that carries a live root.
-const WORKING_FOLDER_SQL = `
-  SELECT fs_root FROM workspaces
-   WHERE session_id = ? AND fs_root IS NOT NULL
-     AND state IN (${sqlListOf(PROBE_BEARING_WORKSPACE_STATES)})
-   ORDER BY created_at DESC, id DESC
-   LIMIT 1`;
-
-const SESSION_EXISTS_SQL = `SELECT 1 FROM sessions WHERE id = ?`;
 
 // A path that vanished, or whose links never end, has no real location to keep.
 const UNRESOLVABLE_PATH_CODES: ReadonlySet<string> = new Set(["ENOENT", "ENOTDIR", "ELOOP"]);
@@ -62,16 +51,14 @@ interface RankedPath {
 export class FileSearchService {
   readonly #git: GitCommand;
   readonly #writeServiceLog: ServiceLogWriter;
-  readonly #workingFolder: Statement<[string], { readonly fs_root: string }>;
-  readonly #sessionExists: Statement<[string], unknown>;
+  readonly #readWorkingFolder: (sessionId: SessionId) => SessionWorkingFolder;
   // Each working folder's read under way, which the searches arriving meanwhile share.
   readonly #listings = new Map<string, Promise<string[]>>();
 
   constructor(deps: FileSearchServiceDeps) {
     this.#git = deps.git;
     this.#writeServiceLog = deps.writeServiceLog;
-    this.#workingFolder = deps.reader.prepare(WORKING_FOLDER_SQL);
-    this.#sessionExists = deps.reader.prepare(SESSION_EXISTS_SQL);
+    this.#readWorkingFolder = prepareWorkingFolderRead(deps.reader);
   }
 
   /**
@@ -81,11 +68,8 @@ export class FileSearchService {
    * listed.
    */
   async search(request: SessionFileSearchRequest): Promise<SessionFileSearchResponse> {
-    const workingFolder = this.#workingFolder.get(request.sessionId)?.fs_root;
-    if (workingFolder === undefined) {
-      if (this.#sessionExists.get(request.sessionId) === undefined) {
-        throw sessionNotFound(request.sessionId);
-      }
+    const { workingFolder } = this.#readWorkingFolder(request.sessionId);
+    if (workingFolder === null) {
       throw new DaemonDomainError(
         "The session's working folder is not in place, so it cannot be searched.",
         { code: SESSION_WORKING_FOLDER_UNAVAILABLE_CODE, detail: { sessionId: request.sessionId } },

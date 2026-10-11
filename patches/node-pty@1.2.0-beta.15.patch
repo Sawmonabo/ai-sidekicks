@@ -1,0 +1,266 @@
+diff --git a/lib/terminal.js b/lib/terminal.js
+index 5b6aa1b08cbaefa9705faab36b9b16ad0e9aee05..39d90750d0405d030c6d46ea82e4006bb88b8ffa 100644
+--- a/lib/terminal.js
++++ b/lib/terminal.js
+@@ -72,20 +72,26 @@ var Terminal = /** @class */ (function () {
+         enumerable: false,
+         configurable: true
+     });
+-    Terminal.prototype.write = function (data) {
++    Terminal.prototype.write = function (data, callback) {
+         if (this.handleFlowControl) {
+             // PAUSE/RESUME messages are not forwarded to the pty
+             if (data === this._flowControlPause) {
+                 this.pause();
++                if (callback) {
++                    callback();
++                }
+                 return;
+             }
+             if (data === this._flowControlResume) {
+                 this.resume();
++                if (callback) {
++                    callback();
++                }
+                 return;
+             }
+         }
+         // everything else goes to the real pty
+-        this._write(data);
++        this._write(data, callback);
+     };
+     Terminal.prototype._forwardEvents = function () {
+         var _this = this;
+@@ -168,7 +174,11 @@ var Terminal = /** @class */ (function () {
+     };
+     Terminal.prototype._close = function () {
+         this._socket.readable = false;
+-        this.write = function () { };
++        this.write = function (data, callback) {
++            if (callback) {
++                callback(new Error('The terminal closed before this write'));
++            }
++        };
+         this.end = function () { };
+         this._writable = false;
+         this._readable = false;
+diff --git a/lib/unixTerminal.js b/lib/unixTerminal.js
+index af2d24c39deb60e77ad16e6b864f37a7ef58881c..f15dad3df05e6736ee0e408cb613c990127bdd4b 100644
+--- a/lib/unixTerminal.js
++++ b/lib/unixTerminal.js
+@@ -97,6 +97,13 @@ var UnixTerminal = /** @class */ (function (_super) {
+             _this._socket.setEncoding(encoding);
+         }
+         _this._writeStream = new CustomWriteStream(term.fd, (encoding || undefined));
++        // The read socket owns the fd and closes it on destroy. Stop writing then, and close only
++        // once a write already handed to fs.write has returned, so none runs on a closed number.
++        var destroySocket = _this._socket._destroy;
++        _this._socket._destroy = function (err, callback) {
++            var socket = this;
++            _this._writeStream.close(function () { return destroySocket.call(socket, err, callback); });
++        };
+         // setup
+         _this._socket.on('error', function (err) {
+             // NOTE: fs.ReadStream gets EAGAIN twice at first:
+@@ -154,8 +161,8 @@ var UnixTerminal = /** @class */ (function (_super) {
+         enumerable: false,
+         configurable: true
+     });
+-    UnixTerminal.prototype._write = function (data) {
+-        this._writeStream.write(data);
++    UnixTerminal.prototype._write = function (data, callback) {
++        this._writeStream.write(data, callback);
+     };
+     Object.defineProperty(UnixTerminal.prototype, "fd", {
+         /* Accessors */
+@@ -290,25 +297,63 @@ var CustomWriteStream = /** @class */ (function () {
+         this._writeQueue = [];
+     }
+     CustomWriteStream.prototype.dispose = function () {
+-        clearImmediate(this._writeImmediate);
+-        this._writeImmediate = undefined;
++        clearTimeout(this._writeTimeout);
++        this._writeTimeout = undefined;
++    };
++    /**
++     * Fails every queued write's callback with `err` and empties the queue.
++     */
++    CustomWriteStream.prototype._failQueue = function (err) {
++        var tasks = this._writeQueue.splice(0);
++        for (var i = 0; i < tasks.length; i++) {
++            if (tasks[i].callback) {
++                tasks[i].callback(err);
++            }
++        }
++    };
++    /**
++     * Stops writing for good: fails the queued writes and calls `onIdle` once no write is in flight.
++     */
++    CustomWriteStream.prototype.close = function (onIdle) {
++        this.dispose();
++        this._failQueue(new Error('The terminal closed before this write'));
++        this._isStopped = true;
++        if (this._isWriting) {
++            this._onIdle = onIdle;
++        }
++        else {
++            onIdle();
++        }
+     };
+-    CustomWriteStream.prototype.write = function (data) {
++    /**
++     * Queues `data`; `callback`, when given, is called once every byte of it is written, or with
++     * the error that stopped it.
++     */
++    CustomWriteStream.prototype.write = function (data, callback) {
++        if (this._isStopped) {
++            if (callback) {
++                callback(new Error('The terminal closed before this write'));
++            }
++            return;
++        }
+         // Writes are put in a queue and processed asynchronously in order to handle
+         // backpressure from the kernel buffer.
+         var buffer = typeof data === 'string'
+             ? Buffer.from(data, this._encoding)
+             : Buffer.from(data);
+         if (buffer.byteLength !== 0) {
+-            this._writeQueue.push({ buffer: buffer, offset: 0 });
++            this._writeQueue.push({ buffer: buffer, offset: 0, callback: callback });
+             if (this._writeQueue.length === 1) {
+                 this._processWriteQueue();
+             }
+         }
++        else if (callback) {
++            callback();
++        }
+     };
+     CustomWriteStream.prototype._processWriteQueue = function () {
+         var _this = this;
+-        this._writeImmediate = undefined;
++        this._writeTimeout = undefined;
+         if (this._writeQueue.length === 0) {
+             return;
+         }
+@@ -316,23 +361,45 @@ var CustomWriteStream = /** @class */ (function () {
+         // Write to the underlying file descriptor and handle it directly, rather
+         // than using the `net.Socket`/`tty.WriteStream` wrappers which swallow and
+         // mask errors like EAGAIN and can cause the thread to block indefinitely.
++        this._isWriting = true;
+         fs.write(this._fd, task.buffer, task.offset, function (err, written) {
++            _this._isWriting = false;
++            if (_this._onIdle) {
++                // The fd's close waited for this write and may go ahead now.
++                _this._onIdle();
++                return;
++            }
+             if (err) {
+                 if ('code' in err && err.code === 'EAGAIN') {
+-                    // `setImmediate` is used to yield to the event loop and re-attempt
+-                    // the write later.
+-                    _this._writeImmediate = setImmediate(function () { return _this._processWriteQueue(); });
++                    // The kernel buffer is full until the terminal's program reads. Retry after a
++                    // pause that doubles from 1 ms to 50 ms while it stays full, so a program that
++                    // stopped reading costs a few wakeups a second rather than a busy loop.
++                    _this._retryDelay = _this._retryDelay === undefined
++                        ? 1
++                        : Math.min(_this._retryDelay * 2, 50);
++                    _this._writeTimeout = setTimeout(function () { return _this._processWriteQueue(); }, _this._retryDelay);
+                 }
+                 else {
+                     // Stop processing immediately on unexpected error and log
+-                    _this._writeQueue.length = 0;
+-                    console.error('Unhandled pty write error', err);
++                    _this._failQueue(err);
++                    // EIO is the other side of the terminal hanging up: the terminal has ended.
++                    if (err.code === 'EIO') {
++                        _this._isStopped = true;
++                    }
++                    else {
++                        console.error('Unhandled pty write error', err);
++                    }
+                 }
+                 return;
+             }
++            // The buffer took bytes, so the next full buffer starts its pauses over.
++            _this._retryDelay = undefined;
+             task.offset += written;
+             if (task.offset >= task.buffer.byteLength) {
+                 _this._writeQueue.shift();
++                if (task.callback) {
++                    task.callback();
++                }
+             }
+             // Since there is more room in the kernel buffer, we can continue to write
+             // until we hit EAGAIN or exhaust the queue.
+diff --git a/lib/windowsTerminal.js b/lib/windowsTerminal.js
+index cd658d0737b2b96e2f41fcd0715a5807caa91307..2973b36aab3f406aab8f7cfedab61106c91cb1e4 100644
+--- a/lib/windowsTerminal.js
++++ b/lib/windowsTerminal.js
+@@ -116,11 +116,22 @@ var WindowsTerminal = /** @class */ (function (_super) {
+         _this._forwardEvents();
+         return _this;
+     }
+-    WindowsTerminal.prototype._write = function (data) {
+-        this._defer(this._doWrite, data);
++    WindowsTerminal.prototype._write = function (data, callback) {
++        this._defer(this._doWrite, { data: data, callback: callback });
+     };
+-    WindowsTerminal.prototype._doWrite = function (data) {
+-        this._agent.inSocket.write(data);
++    WindowsTerminal.prototype._doWrite = function (write) {
++        this._agent.inSocket.write(write.data, write.callback);
++    };
++    WindowsTerminal.prototype._close = function () {
++        _super.prototype._close.call(this);
++        // Calls still waiting for the first data never run now; a write's callback gets the error.
++        var deferreds = this._deferreds;
++        this._deferreds = [];
++        for (var i = 0; i < deferreds.length; i++) {
++            if (deferreds[i].fail) {
++                deferreds[i].fail(new Error('The terminal closed before this write'));
++            }
++        }
+     };
+     /**
+      * openpty
+@@ -183,9 +194,21 @@ var WindowsTerminal = /** @class */ (function (_super) {
+             deferredFn.call(this, arg);
+             return;
+         }
+-        // Queue until terminal is ready.
++        // Queue until terminal is ready. A write failed by `_close` never runs, even when the
++        // ready handler is still walking the queue it was in.
++        var isFailed = false;
+         this._deferreds.push({
+-            run: function () { return deferredFn.call(_this, arg); }
++            run: function () {
++                if (!isFailed) {
++                    deferredFn.call(_this, arg);
++                }
++            },
++            fail: function (err) {
++                isFailed = true;
++                if (arg.callback) {
++                    arg.callback(err);
++                }
++            }
+         });
+     };
+     Object.defineProperty(WindowsTerminal.prototype, "process", {
+diff --git a/typings/node-pty.d.ts b/typings/node-pty.d.ts
+index a6fc5dd0b03af67da9c4bb1de30a8c01c72485d0..51adcedcd499688b7fc85834d49530b012dbf62f 100644
+--- a/typings/node-pty.d.ts
++++ b/typings/node-pty.d.ts
+@@ -176,8 +176,10 @@ declare module 'node-pty' {
+     /**
+      * Writes data to the pty.
+      * @param data The data to write.
++     * @param callback Called once every byte of `data` is written, or with the error that
++     * stopped it.
+      */
+-    write(data: string | Buffer): void;
++    write(data: string | Buffer, callback?: (error?: Error) => void): void;
+ 
+     /**
+      * Kills the pty.

@@ -1,7 +1,7 @@
 // One shell's control lease held by devices: racing takes and first writes, forced takes, holds
 // bound to the connections and pane output subscriptions that took or typed into them, failed
-// broadcasts, and the write, resize and close checks. Every broadcast is parsed against the wire schema, so a
-// contradictory change fails the act that sent it.
+// broadcasts, and the write, resize and close checks. Every broadcast is parsed against the wire
+// schema, so a contradictory change fails the act that sent it.
 
 import { describe, expect, it } from "vitest";
 
@@ -38,7 +38,9 @@ describe("ShellControlLease", () => {
   it("lets exactly one of two racing takes win, and refuses the loser's writes", async () => {
     const { lease, changes } = openLease();
     const registry = new MethodRegistryImpl();
-    registerSessionTakeControl(registry, { findShellLease: () => lease });
+    registerSessionTakeControl(registry, {
+      shellTable: { leaseForOutputSubscription: () => lease },
+    });
     const takeThrough = (pane: ShellLeaseCaller): Promise<unknown> =>
       registry.dispatch(
         "session.takeControl",
@@ -98,6 +100,7 @@ describe("ShellControlLease", () => {
       sessionId: SESSION_ID,
       terminalId: TERMINAL_ID,
       machineDeviceId: MACHINE,
+      refuseEndedCaller: () => undefined,
       broadcast: (): Promise<void> => {
         if (isThrowing) {
           throw new Error("the event log is unavailable");
@@ -156,10 +159,10 @@ describe("ShellControlLease", () => {
     await expect(
       first.lease.admitWrite({ kind: "device", ...laptopSecondConnection }, HAND_OFF),
     ).rejects.toMatchObject(NOT_HELD);
-    await expect(first.lease.admitResize(laptopSecondConnection, HAND_OFF)).rejects.toMatchObject(
-      NOT_HELD,
-    );
-    await first.lease.admitResize(paneOn(LAPTOP, 1), HAND_OFF);
+    await expect(
+      first.lease.admitFromHoldingConnection(laptopSecondConnection, HAND_OFF),
+    ).rejects.toMatchObject(NOT_HELD);
+    await first.lease.admitFromHoldingConnection(paneOn(LAPTOP, 1), HAND_OFF);
 
     // Its take binds it with no broadcast, and it keeps the hold through the first connection's
     // end, which ends that connection's writes.
@@ -168,7 +171,7 @@ describe("ShellControlLease", () => {
       holderDeviceId: LAPTOP,
     });
     expect(first.changes).toHaveLength(1);
-    await first.lease.admitResize(laptopSecondConnection, HAND_OFF);
+    await first.lease.admitFromHoldingConnection(laptopSecondConnection, HAND_OFF);
     for (const { lease } of [first, second]) {
       await lease.releaseConnection(1);
     }
@@ -258,9 +261,9 @@ describe("ShellControlLease", () => {
     setFailing(false);
     await lease.take(paneOn(LAPTOP, 1), false);
     setFailing(true);
-    await expect(lease.releaseSubscription(paneOn(LAPTOP, 1).outputSubscriptionId)).rejects.toThrow(
-      LOG_UNAVAILABLE,
-    );
+    await expect(
+      lease.releaseSubscriptions([paneOn(LAPTOP, 1).outputSubscriptionId]),
+    ).rejects.toThrow(LOG_UNAVAILABLE);
     await expect(lease.readHolder()).resolves.toEqual({ holder: null, leaseVersion: 4 });
   });
 
@@ -390,13 +393,13 @@ describe("ShellControlLease", () => {
     const held = holdNextBroadcast();
     const phoneTake = lease.take(paneOn(PHONE, 2), true);
     const handedOn: string[] = [];
-    const phoneResize = lease.admitResize(paneOn(PHONE, 2), () => {
+    const phoneResize = lease.admitFromHoldingConnection(paneOn(PHONE, 2), () => {
       handedOn.push("phone's resize");
     });
     const phoneClose = lease.admitClose(PHONE, false, () => {
       handedOn.push("phone's close");
     });
-    const laptopResize = lease.admitResize(paneOn(LAPTOP, 1), () => {
+    const laptopResize = lease.admitFromHoldingConnection(paneOn(LAPTOP, 1), () => {
       handedOn.push("laptop's resize");
     });
     const reading = lease.readHolder();
@@ -423,7 +426,7 @@ describe("ShellControlLease", () => {
 
     // One subscription closing ends the hold taken through it alone, its connection still open.
     for (const { lease } of [first, second]) {
-      await lease.releaseSubscription(secondShellPane.outputSubscriptionId);
+      await lease.releaseSubscriptions([secondShellPane.outputSubscriptionId]);
     }
     expect(await holderOf(first.lease)).toEqual({ holderDeviceId: LAPTOP });
     expect(await holderOf(second.lease)).toBeNull();
@@ -441,13 +444,13 @@ describe("ShellControlLease", () => {
     // pane's close, which ends the first connection's writes, and ends with the last pane.
     const otherConnectionPane = paneOn(LAPTOP, 3);
     await first.lease.take(otherConnectionPane, false);
-    await first.lease.releaseSubscription(firstShellPane.outputSubscriptionId);
+    await first.lease.releaseSubscriptions([firstShellPane.outputSubscriptionId]);
     expect(await holderOf(first.lease)).toEqual({ holderDeviceId: LAPTOP });
     await expect(
       first.lease.admitWrite({ kind: "device", ...firstShellPane }, HAND_OFF),
     ).rejects.toMatchObject(NOT_HELD);
     await first.lease.admitWrite({ kind: "device", ...otherConnectionPane }, HAND_OFF);
-    await first.lease.releaseSubscription(otherConnectionPane.outputSubscriptionId);
+    await first.lease.releaseSubscriptions([otherConnectionPane.outputSubscriptionId]);
     expect(await holderOf(first.lease)).toBeNull();
     expect(first.changes.map((change) => change.reason)).toEqual([
       "taken",
@@ -462,10 +465,10 @@ describe("ShellControlLease", () => {
     await lease.take(takenThrough, false);
     await lease.admitWrite({ kind: "device", ...typedThrough }, HAND_OFF);
 
-    await lease.releaseSubscription(takenThrough.outputSubscriptionId);
+    await lease.releaseSubscriptions([takenThrough.outputSubscriptionId]);
     expect(await holderOf(lease)).toEqual({ holderDeviceId: LAPTOP });
     await lease.admitWrite({ kind: "device", ...typedThrough }, HAND_OFF);
-    await lease.releaseSubscription(typedThrough.outputSubscriptionId);
+    await lease.releaseSubscriptions([typedThrough.outputSubscriptionId]);
     expect(await holderOf(lease)).toBeNull();
     expect(changes.map((change) => change.reason)).toEqual(["taken", "auto_released_pane_closed"]);
   });
@@ -475,7 +478,9 @@ describe("ShellControlLease", () => {
     await expect(lease.admitWrite({ kind: "run", runId: RUN_A }, HAND_OFF)).rejects.toMatchObject(
       NOT_HELD,
     );
-    await expect(lease.admitResize(paneOn(LAPTOP, 1), HAND_OFF)).rejects.toMatchObject(NOT_HELD);
+    await expect(
+      lease.admitFromHoldingConnection(paneOn(LAPTOP, 1), HAND_OFF),
+    ).rejects.toMatchObject(NOT_HELD);
     await lease.admitClose(LAPTOP, false, HAND_OFF);
 
     // Two devices' first keystrokes in one tick: one takes the shell and its write goes through,
@@ -517,13 +522,13 @@ describe("ShellControlLease", () => {
     await lease.releaseConnection(2);
 
     await lease.take(paneOn(LAPTOP, 1), false);
-    await expect(lease.admitResize(paneOn(PHONE, 2), HAND_OFF)).rejects.toMatchObject(
-      heldByDevice(LAPTOP),
-    );
+    await expect(
+      lease.admitFromHoldingConnection(paneOn(PHONE, 2), HAND_OFF),
+    ).rejects.toMatchObject(heldByDevice(LAPTOP));
     await expect(lease.admitClose(PHONE, false, HAND_OFF)).rejects.toMatchObject(
       heldByDevice(LAPTOP),
     );
-    await lease.admitResize(paneOn(LAPTOP, 1), HAND_OFF);
+    await lease.admitFromHoldingConnection(paneOn(LAPTOP, 1), HAND_OFF);
     await lease.admitClose(LAPTOP, false, HAND_OFF);
     await lease.admitClose(PHONE, true, HAND_OFF);
   });

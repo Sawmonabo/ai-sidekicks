@@ -26,6 +26,7 @@ import { readServiceVersion } from "./daemon/service-version.js";
 import { readWindowsDriveMounts } from "./daemon/windows-drive-mounts.js";
 import { describeRejection } from "./rejection.js";
 import { selectPtyHost } from "./pty/host/selector.js";
+import { selectTerminalOperatingSystem } from "./pty/operating-system/selector.js";
 import { openOrphanGuard } from "./pty/orphan/guard.js";
 import { openOrphanOperatingSystem } from "./pty/orphan/operating-system.js";
 import { chooseDatabaseFileOperatingSystem } from "./recovery/database-file/operating-system.js";
@@ -76,6 +77,7 @@ if (processIdentity === undefined) {
   throw new Error("The system finds no process with the daemon's own id");
 }
 const account = os.userInfo();
+const terminalOperatingSystem = selectTerminalOperatingSystem(process.platform, process.env);
 const daemon = await DaemonProcess.start({
   stopSignal: stopRequest.signal,
   homeDirectory,
@@ -95,8 +97,8 @@ const daemon = await DaemonProcess.start({
       }),
       writeServiceLog,
     }),
-  createPtyHost: selectPtyHost,
   databaseFileOperatingSystem: chooseDatabaseFileOperatingSystem(process.platform),
+  createPtyHost: (orphanGuard) => selectPtyHost(orphanGuard, terminalOperatingSystem),
   readMachineName: () => readMachineName(createNodeMachineNameSources()),
   captureProviderBaseEnvironment: (startAbort) =>
     captureLoginShellEnvironment({
@@ -113,6 +115,9 @@ const daemon = await DaemonProcess.start({
     }),
   commandShell: account.shell,
   providerOperatingSystem: selectProviderOperatingSystem(process.platform),
+  terminalOperatingSystem,
+  // Read from the account's record at each open, so a shell changed with `chsh` opens next.
+  readLoginShell: () => os.userInfo().shell,
   serviceVersion: readServiceVersion(),
   processIdentity,
   readProcessTreeUsage: () => readProcessTreeUsage(process.pid),

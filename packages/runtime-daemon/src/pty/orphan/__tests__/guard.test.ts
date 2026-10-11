@@ -17,6 +17,8 @@ import { NodePtyHost, type NodePtySpawnFn } from "../../host/node-pty.js";
 import type { SpawnRequest } from "../../host/protocol.js";
 import { openOrphanGuard } from "../guard.js";
 import { ORPHAN_REGISTRY_FILE_NAME, SPAWN_NONCE_ENVIRONMENT_NAME } from "../registry.js";
+import { DARWIN_TERMINAL_OPERATING_SYSTEM } from "../../operating-system/darwin.js";
+import { selectTerminalOperatingSystem } from "../../operating-system/selector.js";
 
 const BOOT = "boot-now";
 const SHELL_SPAWN: SpawnRequest = {
@@ -76,7 +78,9 @@ describe("OrphanGuard", () => {
       return child;
     };
 
-    await new NodePtyHost(guard, { ptySpawn }).spawn(SHELL_SPAWN);
+    await new NodePtyHost(guard, selectTerminalOperatingSystem(process.platform, process.env), {
+      ptySpawn,
+    }).spawn(SHELL_SPAWN);
 
     expect(nonceAtSpawn).toMatch(/^[0-9a-f]{32}$/);
     expect(registryAtSpawn).toEqual({ entries: [{ nonce: nonceAtSpawn, bootId: BOOT }] });
@@ -99,7 +103,7 @@ describe("OrphanGuard", () => {
     };
 
     await expect(
-      new NodePtyHost(guard, {
+      new NodePtyHost(guard, DARWIN_TERMINAL_OPERATING_SYSTEM, {
         ptySpawn: () => child,
         platform: "darwin",
         signalProcessGroup,

@@ -33,7 +33,7 @@ export async function purgeClaudeConversations(
         accountFolders: context.accountFolders,
       });
       await deleteClaudeConversation(
-        claudeConfigFolderFor(spawnEnvironment, operatingSystem.homeVariable),
+        claudeConfigFolderFor(spawnEnvironment, operatingSystem),
         context.workingDirectory,
         conversation.resumeHandle,
       );

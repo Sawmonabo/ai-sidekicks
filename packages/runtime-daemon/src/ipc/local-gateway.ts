@@ -105,6 +105,11 @@ interface ConnectionState {
   readonly frames: FrameAccumulator;
   /** Set once `onDisconnect` has fired, so a late socket event cannot fire it twice. */
   disposed: boolean;
+  /**
+   * The listeners waiting for the outbound queue to drain, all called from the socket's one
+   * `drain` listener, so any number of waiting streams adds no listener to the socket.
+   */
+  readonly drainListeners: Set<() => void>;
 }
 
 // Decoding keeps no state between calls, so every connection shares one decoder.
@@ -271,15 +276,20 @@ export class LocalIpcGateway {
   /**
    * Calls `listener` once the connection's outbound queue has drained, and returns a detach. A
    * closed connection never calls it, and a connection's listeners are released as it closes.
+   * `listener` reports its own failure rather than throw, which would stop the listeners after it.
    */
   onceDrained(transportId: number, listener: () => void): () => void {
-    const socket = this.#connections.get(transportId)?.socket;
-    if (socket === undefined) {
+    const drainListeners = this.#connections.get(transportId)?.drainListeners;
+    if (drainListeners === undefined) {
       return () => undefined;
     }
-    socket.once("drain", listener);
+    // A wrapper of its own, so one listener waiting twice is called twice, as `once` would.
+    const waiting = (): void => {
+      listener();
+    };
+    drainListeners.add(waiting);
     return () => {
-      socket.removeListener("drain", listener);
+      drainListeners.delete(waiting);
     };
   }
 
@@ -295,6 +305,7 @@ export class LocalIpcGateway {
       // The one inbound size check: a declared body over the cap ends the connection.
       frames: new FrameAccumulator(MAX_MESSAGE_BYTES),
       disposed: false,
+      drainListeners: new Set(),
     };
     this.#connections.set(transport.id, state);
 
@@ -304,6 +315,15 @@ export class LocalIpcGateway {
 
     socket.on("data", (chunk: Buffer) => {
       this.#onSocketData(state, chunk);
+    });
+    socket.on("drain", () => {
+      // Each waiting listener is called once; one that waits again from inside waits for the next.
+      // Each listener's owner reports its own failure.
+      const waiting = [...state.drainListeners];
+      state.drainListeners.clear();
+      for (const listener of waiting) {
+        listener();
+      }
     });
     socket.on("end", () => {
       this.#emitDisconnect(state, "client_close");
@@ -571,7 +591,8 @@ export class LocalIpcGateway {
     }
     state.disposed = true;
     this.#connections.delete(state.transport.id);
-    // The gateway is the only listener for `drain`, and a closed connection never drains.
+    // A closed connection never drains, so its waiting listeners go with it.
+    state.drainListeners.clear();
     state.socket.removeAllListeners("drain");
     if (this.#hooks !== null) {
       this.#hooks.onDisconnect(state.transport, reason);

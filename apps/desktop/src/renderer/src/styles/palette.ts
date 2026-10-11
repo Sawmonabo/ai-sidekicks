@@ -12,6 +12,7 @@ import { AGENT_ACCENT_HUES } from "@ai-sidekicks/contracts/agent/definition";
 
 import { type SchemePair } from "#shared/color-scheme.js";
 import { type AppearanceTheme } from "#shared/theme/registry.js";
+import { TERMINAL_ROLE_ALIASES } from "#shared/theme/terminal-colors.js";
 // The enumeration row height and the transcript's row gap are products of the type scale and line
 // heights from `typography.ts`, a leaf that imports nothing local, and the spacing scale here.
 import { BODY_LINE_HEIGHT, READING_LINE_HEIGHT, TYPE_SCALE_REM } from "./typography.js";
@@ -20,21 +21,15 @@ import { BODY_LINE_HEIGHT, READING_LINE_HEIGHT, TYPE_SCALE_REM } from "./typogra
 export type ThemedColor = Readonly<Record<AppearanceTheme, SchemePair>>;
 
 /**
- * Tokens that are a code or terminal name for an app token, not a color. A code block's plain
- * text is the app's text, and a terminal's black and white are the two ends of the reading
- * scale; a literal black on a dark scheme would render output invisible. Each is a `var()`
+ * Tokens that are a code or terminal name for an app token, not a color: a code block's plain
+ * text is the app's text, and the terminal's are `TERMINAL_ROLE_ALIASES`. Each is a `var()`
  * reference to its target, so it paints what the target paints in every rendering and stays in
  * the contrast check through it. Emitted once in the root block for that reason.
  */
 export const TOKEN_ALIASES: Readonly<Record<string, string>> = {
   "code-plain": "text",
   "code-comment": "text-faint",
-  "ansi-default-foreground": "text",
-  "ansi-default-background": "surface-sunken",
-  "ansi-black": "text-faint",
-  "ansi-white": "text-muted",
-  "ansi-bright-black": "text-muted",
-  "ansi-bright-white": "text",
+  ...TERMINAL_ROLE_ALIASES,
 };
 
 /**

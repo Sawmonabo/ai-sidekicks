@@ -218,6 +218,9 @@ impl PtySessionRegistry {
         for (k, v) in &req.env {
             cmd.env(k, v);
         }
+        if let Some(terminal_name) = &req.terminal_name {
+            cmd.env("TERM", terminal_name);
+        }
         cmd.cwd(&req.cwd);
 
         // The writer and reader come before the child, so a failure here leaves no process
@@ -667,6 +670,7 @@ mod registry_lifecycle_tests {
                 cwd: "/tmp".to_string(),
                 rows: 24,
                 cols: 80,
+                terminal_name: None,
             })
             .await
             .expect("spawn should succeed");
@@ -711,6 +715,7 @@ mod registry_lifecycle_tests {
                     cwd: "/tmp".to_string(),
                     rows: 24,
                     cols: 80,
+                    terminal_name: None,
                 })
                 .await
                 .expect("spawn of `sh -c 'exit 0'` should succeed");

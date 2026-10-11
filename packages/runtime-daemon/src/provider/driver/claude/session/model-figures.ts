@@ -32,6 +32,9 @@ const CLAUDE_ENDPOINT_VARIABLES: readonly string[] = [
   "ANTHROPIC_AWS_BASE_URL",
 ];
 
+// The system facts a folder's config folder is read with: the home variable and name matching.
+type ClaudeFigureSystem = Pick<ProviderOperatingSystem, "homeVariable" | "environmentNameMatch">;
+
 // Every key the store holds is composed here, so no two parts can run together.
 function composeFigureKey(...parts: readonly string[]): string {
   return JSON.stringify(parts);
@@ -53,11 +56,11 @@ function composeModelKey(place: ClaudeSessionFolderReadRequest): string {
 
 function composeChoicesKey(
   place: ClaudeSessionFolderReadRequest,
-  homeVariable: ProviderOperatingSystem["homeVariable"],
+  operatingSystem: ClaudeFigureSystem,
 ): string {
   return composeFigureKey(
     place.workingDirectory,
-    claudeConfigFolderFor(place.spawnEnvironment, homeVariable),
+    claudeConfigFolderFor(place.spawnEnvironment, operatingSystem),
   );
 }
 
@@ -91,21 +94,18 @@ export class ClaudeModelFigures {
   readonly #commandChoices = new Map<string, Promise<ClaudeCommandChoices>>();
   readonly #replyReserves = new Map<string, Promise<ClaudeReplyReserve>>();
   readonly #contextReads = new Map<string, ClaudeEndpointContextReads>();
-  readonly #homeVariable: ProviderOperatingSystem["homeVariable"];
+  readonly #operatingSystem: ClaudeFigureSystem;
 
-  constructor(
-    buildVersion: string | undefined,
-    homeVariable: ProviderOperatingSystem["homeVariable"],
-  ) {
+  constructor(buildVersion: string | undefined, operatingSystem: ClaudeFigureSystem) {
     this.buildVersion = buildVersion;
-    this.#homeVariable = homeVariable;
+    this.#operatingSystem = operatingSystem;
   }
 
   /** The style and advisor choices read for `place`'s folder and account, when a read is held. */
   commandChoicesOf(
     place: ClaudeSessionFolderReadRequest,
   ): Promise<ClaudeCommandChoices> | undefined {
-    return this.#commandChoices.get(composeChoicesKey(place, this.#homeVariable));
+    return this.#commandChoices.get(composeChoicesKey(place, this.#operatingSystem));
   }
 
   /** Holds the style and advisor choices a read is reading for `place`'s folder and account. */
@@ -113,7 +113,7 @@ export class ClaudeModelFigures {
     place: ClaudeSessionFolderReadRequest,
     commandChoices: Promise<ClaudeCommandChoices>,
   ): void {
-    this.#commandChoices.set(composeChoicesKey(place, this.#homeVariable), commandChoices);
+    this.#commandChoices.set(composeChoicesKey(place, this.#operatingSystem), commandChoices);
   }
 
   /** Drops a failed choices read, so the next session reads it again; a later read stays. */
@@ -121,7 +121,7 @@ export class ClaudeModelFigures {
     place: ClaudeSessionFolderReadRequest,
     commandChoices: Promise<ClaudeCommandChoices>,
   ): void {
-    const key = composeChoicesKey(place, this.#homeVariable);
+    const key = composeChoicesKey(place, this.#operatingSystem);
     if (this.#commandChoices.get(key) === commandChoices) {
       this.#commandChoices.delete(key);
     }

@@ -55,6 +55,7 @@ export function openLease(terminalId: TerminalId = TERMINAL_ID): LeaseUnderTest 
     sessionId: SESSION_ID,
     terminalId,
     machineDeviceId: MACHINE,
+    refuseEndedCaller: () => undefined,
     broadcast: async (change) => {
       changes.push(PtyControlChangedPayloadSchema.parse(change));
     },
@@ -90,6 +91,7 @@ export function openUnreliableLease(): UnreliableLease {
     sessionId: SESSION_ID,
     terminalId: TERMINAL_ID,
     machineDeviceId: MACHINE,
+    refuseEndedCaller: () => undefined,
     broadcast: async () => {
       if (held !== undefined && !held.started) {
         held.started = true;

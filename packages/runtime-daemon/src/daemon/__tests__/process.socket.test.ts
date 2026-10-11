@@ -7,9 +7,12 @@
 // change reaches the file and another client's subscription, and a closed connection's
 // subscription lets go of the file. A stop waits for a write under way and leaves it on disk, and
 // ends within its drain bound while a write hangs. A daemon whose providers cannot be read still
-// starts, with neither driver registered and the log saying why.
+// starts, with neither driver registered and the log saying why. A session's shell starts with the
+// `Every project` rows and its project's rows, a project row winning, and a connection's end
+// releases the hold it took on a shell as a disconnect, before its panes' subscriptions end.
 
 import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
 import { access, lstat, mkdir, open, readFile } from "node:fs/promises";
 import * as path from "node:path";
@@ -26,10 +29,21 @@ import {
   MACHINE_SETTINGS_DEFAULTS,
   MACHINE_SETTINGS_FILE_PATH_SEGMENTS,
 } from "@ai-sidekicks/contracts/machine-settings";
+import type { RepoMountId } from "@ai-sidekicks/contracts/repo/mount";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { DatabaseWriter } from "../../database/writer.js";
 import type { Client } from "../../ipc/__fixtures__/local-socket-client.js";
 import type { FakeProviderDriver } from "../../provider/driver/__fixtures__/contract-doubles.js";
+import { makeFakeChild, makeOrphanGuardDouble } from "../../pty/__fixtures__/child-doubles.js";
+import { NodePtyHost, type NodePtySpawnFn } from "../../pty/host/node-pty.js";
+import {
+  mintSessionId,
+  seedProjectMount,
+  seedSessionRow,
+} from "../../session/directory/__fixtures__/directory-rows.js";
+import { mintUuidV7 } from "../../uuid-v7.js";
+import { readLifecycleEnvelopes } from "../../workspace/__fixtures__/rows.js";
 import { MachineSettingsFile } from "../machine/settings/file.js";
 import { DaemonProcess } from "../process.js";
 import {
@@ -50,6 +64,7 @@ import {
   whenClosed,
   writeAheadLogPath,
 } from "./process.test-support.js";
+import { selectTerminalOperatingSystem } from "../../pty/operating-system/selector.js";
 
 // Every server this file's daemons create, so a test can fail the daemon's own listener the way
 // the operating system would, with an `error` event on the listening server.
@@ -77,6 +92,21 @@ vi.mock("../../provider/driver/factories.js", async () => {
 });
 
 useDaemonFolders();
+
+// Every database writer this test's daemons open, in the order they opened.
+function captureDatabaseWriters(): DatabaseWriter[] {
+  const writers: DatabaseWriter[] = [];
+  const openWriter = DatabaseWriter.open.bind(DatabaseWriter);
+  const spy = vi.spyOn(DatabaseWriter, "open").mockImplementation(async (options) => {
+    const writer = await openWriter(options);
+    writers.push(writer);
+    return writer;
+  });
+  onTestFinished(() => {
+    spy.mockRestore();
+  });
+  return writers;
+}
 
 describe("the lifecycle verbs over the socket", () => {
   it("the status read reports the running service, its socket, data folder and processes", async () => {
@@ -205,16 +235,7 @@ describe("the lifecycle verbs over the socket", () => {
   });
 
   it("answers a flush only once the write queued before it has committed", async () => {
-    const writers: DatabaseWriter[] = [];
-    const openWriter = DatabaseWriter.open.bind(DatabaseWriter);
-    const spy = vi.spyOn(DatabaseWriter, "open").mockImplementation(async (options) => {
-      const writer = await openWriter(options);
-      writers.push(writer);
-      return writer;
-    });
-    onTestFinished(() => {
-      spy.mockRestore();
-    });
+    const writers = captureDatabaseWriters();
     await startDaemon(DRAIN_NOTHING);
     const writer = writers[0]!;
     const { client, call } = await openSession();
@@ -445,5 +466,138 @@ describe("the machine's settings over the socket", () => {
     await vi.waitFor(() => {
       expect(detached).toHaveBeenCalledOnce();
     });
+  });
+});
+
+// A daemon whose shells' program is a stand-in, each ending as soon as it is signaled, with one
+// project session whose working folder is ready; every shell's start options are kept in order.
+async function startShellDaemon(): Promise<{
+  daemon: DaemonProcess;
+  writer: DatabaseWriter;
+  sessionId: SessionId;
+  repoMountId: RepoMountId;
+  spawned: Parameters<NodePtySpawnFn>[2][];
+}> {
+  const writers = captureDatabaseWriters();
+  const spawned: Parameters<NodePtySpawnFn>[2][] = [];
+  const ptyHost = new NodePtyHost(
+    makeOrphanGuardDouble(),
+    selectTerminalOperatingSystem(process.platform, process.env),
+    {
+      ptySpawn: (_command, _args, options) => {
+        spawned.push(options);
+        const fake = makeFakeChild();
+        vi.mocked(fake.child.kill).mockImplementation(() => {
+          fake.triggerExit(0);
+        });
+        return fake.child;
+      },
+    },
+  );
+  const daemon = await startDaemon(DRAIN_NOTHING, {}, (options) =>
+    DaemonProcess.start({ ...options, createPtyHost: () => ptyHost }),
+  );
+  const writer = writers[0]!;
+  const sessionId = mintSessionId();
+  const repoMountId = await seedProjectMount(writer);
+  await seedSessionRow(writer, sessionId, "project");
+  await writer.write([
+    {
+      sql: `INSERT INTO workspaces (id, session_id, repo_mount_id, execution_mode, fs_root, state,
+                                    created_at, updated_at)
+            VALUES (?, ?, ?, 'bound-root', ?, 'ready', ?, ?)`,
+      bindings: [mintUuidV7(), sessionId, repoMountId, scratch, STARTED_AT, STARTED_AT],
+    },
+  ]);
+  return { daemon, writer, sessionId, repoMountId, spawned };
+}
+
+describe("a session's shells over the socket", () => {
+  it("starts a shell with the Every project rows and its project's rows, a project row winning", async () => {
+    const { writer, sessionId, repoMountId, spawned } = await startShellDaemon();
+    await writer.write([
+      {
+        sql: `UPDATE projects SET environment_rows = ?
+               WHERE id = (SELECT project_id FROM repo_mounts WHERE id = ?)`,
+        bindings: [
+          JSON.stringify([
+            { name: "SHELL_ROW_SHARED", value: "from the project" },
+            { name: "SHELL_ROW_PROJECT", value: "project only" },
+          ]),
+          repoMountId,
+        ],
+      },
+    ]);
+    const { call } = await openSession();
+    await call("daemon.machineSettingsUpdate", {
+      change: {
+        environmentRows: [
+          { name: "SHELL_ROW_SHARED", value: "from every project" },
+          { name: "SHELL_ROW_EVERY", value: "every project only" },
+        ],
+      },
+    });
+
+    expect(await call("pty.open", { sessionId, clientIdempotencyKey: randomUUID() })).toMatchObject(
+      { result: { terminalId: expect.any(String) } },
+    );
+
+    expect(spawned).toHaveLength(1);
+    expect(spawned[0]?.env).toMatchObject({
+      SHELL_ROW_SHARED: "from the project",
+      SHELL_ROW_PROJECT: "project only",
+      SHELL_ROW_EVERY: "every project only",
+    });
+  });
+
+  it("releases a hold as a disconnect when its connection ends, before its panes close", async () => {
+    const { daemon, sessionId } = await startShellDaemon();
+    const { client, call } = await openSession();
+    const opened = (await call("pty.open", {
+      sessionId,
+      clientIdempotencyKey: randomUUID(),
+    })) as { result: { terminalId: string } };
+    const shell = { sessionId, terminalId: opened.result.terminalId };
+
+    // Two panes of the one connection, each bound to its hold by a write through it.
+    for (const data of ["a", "b"]) {
+      const pane = (await call("pty.outputSubscribe", shell)) as {
+        result: { subscriptionId: string };
+      };
+      expect(
+        await call("pty.write", {
+          ...shell,
+          outputSubscriptionId: pane.result.subscriptionId,
+          data,
+          kind: "keys",
+        }),
+      ).toMatchObject({ result: null });
+    }
+    await client.close();
+
+    const database = new Database(path.join(homeDirectory, DAEMON_DATA_FOLDER_NAME, "daemon.db"), {
+      readonly: true,
+    });
+    onTestFinished(() => {
+      database.close();
+    });
+    const readChanges = (): unknown[] =>
+      readLifecycleEnvelopes(database, sessionId)
+        .filter((row) => row.type === "pty.control_changed")
+        .map((row): unknown => JSON.parse(row.payload));
+    await vi.waitFor(() => {
+      expect(readChanges()).toHaveLength(2);
+    });
+    const machine = daemon.localMachine.nodeId;
+    const changes = readChanges();
+    expect(changes).toEqual([
+      expect.objectContaining({ reason: "taken", holderDeviceId: machine, leaseVersion: 1 }),
+      expect.objectContaining({
+        reason: "auto_released_disconnect",
+        holderDeviceId: null,
+        previousHolderDeviceId: machine,
+        leaseVersion: 2,
+      }),
+    ]);
   });
 });
