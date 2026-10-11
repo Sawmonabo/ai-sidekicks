@@ -1,14 +1,15 @@
 // Replaces a file so that a crash at any moment leaves the old contents or the new, never half of
 // either and never neither: a temporary file beside it is written and flushed to disk, renamed
-// over it, and then the folder itself is flushed, since until then the rename lives only in
-// memory and a power loss can undo it.
+// over it, and then the folder itself is flushed where the system can flush one, since until then
+// the rename lives only in memory and a power loss can undo it.
 
 import { randomBytes } from "node:crypto";
 import { open, rename, rm } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import { withCleanupFailures } from "../cleanup-failures.js";
-import { CAN_FLUSH_FOLDER, flushPath, useThenClose, type FlushOpenFlags } from "../disk-flush.js";
+import type { DiskFlush } from "../disk-flush/contract.js";
+import { useThenClose, type FlushOpenFlags } from "../disk-flush/handle.js";
 
 /** An open file, as much of Node's `FileHandle` as the write uses. */
 interface AtomicWriteFileHandle {
@@ -31,14 +32,16 @@ export interface AtomicWriteFileSystem {
 const NODE_FILE_SYSTEM: AtomicWriteFileSystem = { open, rename, rm };
 
 /**
- * Replaces `filePath` with `text`, created with `mode`, durably and all at once. The folder must
- * exist; a failure before the rename removes the temporary file and leaves the old one in place.
- * Rejects with the file system's error, a failed cleanup after it attached to its `cause`.
+ * Replaces `filePath` with `text`, created with `mode`, durably and all at once, flushed as
+ * `diskFlush` says. The folder must exist; a failure before the rename removes the temporary file
+ * and leaves the old one in place. Rejects with the file system's error, a failed cleanup after it
+ * attached to its `cause`.
  */
 export async function writeFileAtomically(
   filePath: string,
   text: string,
   mode: number,
+  diskFlush: DiskFlush,
   fileSystem: AtomicWriteFileSystem = NODE_FILE_SYSTEM,
 ): Promise<void> {
   const temporaryPath = `${filePath}.${randomBytes(8).toString("hex")}.tmp`;
@@ -60,18 +63,5 @@ export async function writeFileAtomically(
       .catch((cleanupFailure: unknown) => cleanupFailures.push(cleanupFailure));
     throw withCleanupFailures(error, cleanupFailures, "writing the file");
   }
-  await syncFolder(dirname(filePath), fileSystem);
-}
-
-/**
- * Flushes `folderPath`'s entries to disk, so a rename or removal in it survives a power loss. On
- * Windows it does nothing: there is no flush for a folder, and a rename is on disk when it returns.
- */
-export async function syncFolder(
-  folderPath: string,
-  fileSystem: AtomicWriteFileSystem = NODE_FILE_SYSTEM,
-): Promise<void> {
-  if (CAN_FLUSH_FOLDER) {
-    await flushPath(folderPath, (folder, flags) => fileSystem.open(folder, flags));
-  }
+  await diskFlush.flushFolder(dirname(filePath), (folder, flags) => fileSystem.open(folder, flags));
 }

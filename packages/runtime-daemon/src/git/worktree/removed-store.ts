@@ -53,7 +53,8 @@ import type { KeyedLock } from "../../keyed-lock.js";
 import { mapWithProcessorBound } from "../../processor-bound.js";
 import { COMMON_DIR_METADATA_PATH } from "../../workspace/row-guards.js";
 import { componentsEqual, toComparableComponents } from "../../workspace/trust-envelope.js";
-import type { GitFilesystem } from "../filesystem.js";
+import type { DiskFlush } from "../../disk-flush/contract.js";
+import type { FolderRenames, GitFilesystem } from "../filesystem.js";
 import { pathExists } from "../../file/path-exists.js";
 import type { GitCommand } from "../process.js";
 import { prepareKeptCopyClaims, type KeptCopyClaims } from "./claims.js";
@@ -192,6 +193,10 @@ export interface RemovedWorktreeStoreDeps {
   /** The daemon's git entry point. */
   readonly runGit: GitCommand;
   readonly filesystem: Pick<GitFilesystem, "rename" | "removePath">;
+  /** How the system renames a folder, which a put-back and a record's removal follow. */
+  readonly folderRenames: FolderRenames;
+  /** How the system flushes what a put-back wrote to disk. */
+  readonly diskFlush: DiskFlush;
   /** Where a put-back's copy across volumes, and its undo's, reports its progress. */
   readonly copies: KeptCopyTools["copies"];
   /** Records the tree a put-back makes. */
@@ -250,6 +255,8 @@ export class RemovedWorktreeStore {
     this.#putBackTools = {
       runGit: deps.runGit,
       filesystem: deps.filesystem,
+      folderRenames: deps.folderRenames,
+      diskFlush: deps.diskFlush,
       copies: deps.copies,
       writeServiceLog: deps.writeServiceLog,
       claims: this.claims,

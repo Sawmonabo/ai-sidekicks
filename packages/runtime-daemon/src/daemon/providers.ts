@@ -17,6 +17,7 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { createMemoryGate } from "../admission/memory-gate.js";
 import type { ProcessPeakReader } from "../admission/process-peak/contract.js";
 import type { DatabaseConnections } from "../database/connection/lifecycle.js";
+import type { DiskFlush } from "../disk-flush/contract.js";
 import type { Authorizer } from "../policy/authorizer.js";
 import { describeRejection } from "../rejection.js";
 import {
@@ -248,6 +249,8 @@ interface DaemonProvidersContext {
   readonly providerBaseEnvironment: readonly SpawnEnvPair[];
   /** The operating system the daemon runs on, which each driver reads its system facts from. */
   readonly operatingSystem: ProviderOperatingSystem;
+  /** How the files the drivers write for a provider are flushed to disk. */
+  readonly diskFlush: DiskFlush;
   /** The memory gate's read of a provider process's peak. */
   readonly processPeakReader: ProcessPeakReader;
   readonly writeServiceLog: (line: string) => void;
@@ -421,6 +424,7 @@ export class DaemonProviders {
         rebindRuntimeBinding,
         providerBaseEnvironment,
         operatingSystem: context.operatingSystem,
+        diskFlush: context.diskFlush,
         credentialPolicy: executionPosture,
         runEngine,
         inbound,
@@ -451,6 +455,7 @@ export class DaemonProviders {
         onSessionRelaunched,
         providerBaseEnvironment,
         operatingSystem: context.operatingSystem,
+        diskFlush: context.diskFlush,
         credentialPolicy: executionPosture,
         runEngine,
         inbound,

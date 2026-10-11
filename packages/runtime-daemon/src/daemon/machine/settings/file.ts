@@ -24,16 +24,18 @@ import {
   type SettingsFileRepairCause,
 } from "@ai-sidekicks/contracts/machine-settings";
 
+import type { DiskFlush } from "../../../disk-flush/contract.js";
 import { writeFileAtomically } from "../../../file/atomic-write.js";
 import { isMissingFileError } from "../../../file/missing-error.js";
 
 /** Hears each reading the file takes on: after a change, and after a repair. */
 export type MachineSettingsListener = (reading: MachineSettingsReading) => void;
 
-/** Where the settings file lives and the clock that stamps a repair. */
+/** Where the settings file lives, how it is flushed to disk and the clock that stamps a repair. */
 export interface MachineSettingsFileOptions {
   /** The file's full path, `<home>/.ai-sidekicks/machine-settings.json` in the service. */
   readonly filePath: string;
+  readonly diskFlush: DiskFlush;
   /** The clock that stamps a repair. */
   readonly now: () => Date;
 }
@@ -49,6 +51,7 @@ const SETTINGS_FOLDER_MODE = 0o700;
  */
 export class MachineSettingsFile {
   readonly #filePath: string;
+  readonly #diskFlush: DiskFlush;
   readonly #now: () => Date;
   readonly #listeners = new Set<MachineSettingsListener>();
   #repair: SettingsFileRepair | undefined;
@@ -57,6 +60,7 @@ export class MachineSettingsFile {
 
   public constructor(options: MachineSettingsFileOptions) {
     this.#filePath = options.filePath;
+    this.#diskFlush = options.diskFlush;
     this.#now = options.now;
   }
 
@@ -140,6 +144,7 @@ export class MachineSettingsFile {
       this.#filePath,
       `${JSON.stringify(settings, null, 2)}\n`,
       SETTINGS_FILE_MODE,
+      this.#diskFlush,
     );
   }
 }

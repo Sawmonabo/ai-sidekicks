@@ -212,7 +212,6 @@ describe("DaemonProcess.start", () => {
     const otherRuntimeDirectory = path.join(scratch, "other-run");
     await mkdir(otherRuntimeDirectory, { mode: 0o700 });
     const otherRunFolder = resolveDaemonRunFolder({
-      platform: process.platform,
       runtimeDirectory: otherRuntimeDirectory,
       temporaryDirectory: os.tmpdir(),
       userId: os.userInfo().uid,
@@ -400,7 +399,6 @@ async function useSleepingLoginShell(): Promise<{
   const logged: string[] = [];
   const capture = (signal: AbortSignal): ReturnType<typeof captureLoginShellEnvironment> =>
     captureLoginShellEnvironment({
-      platform: process.platform,
       shell: shellPath,
       homeDirectory,
       userName: os.userInfo().username,
@@ -470,7 +468,6 @@ describe("the socket path's length", () => {
   // A run folder whose socket path is exactly `socketPathBytes` long.
   async function makeRunFolderWithSocketPathOf(socketPathBytes: number): Promise<DaemonRunFolder> {
     const shortest = resolveDaemonRunFolder({
-      platform: process.platform,
       runtimeDirectory: path.join(scratch, "r"),
       temporaryDirectory: os.tmpdir(),
       userId: os.userInfo().uid,
@@ -479,7 +476,6 @@ describe("the socket path's length", () => {
     const runtimeDirectory = path.join(scratch, "r".repeat(1 + padding));
     await mkdir(runtimeDirectory, { mode: 0o700 });
     const sized = resolveDaemonRunFolder({
-      platform: process.platform,
       runtimeDirectory,
       temporaryDirectory: os.tmpdir(),
       userId: os.userInfo().uid,

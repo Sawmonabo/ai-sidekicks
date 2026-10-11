@@ -26,6 +26,7 @@ import {
   type WorktreeId,
 } from "@ai-sidekicks/contracts/worktree/lifecycle";
 
+import { HOST_OPERATING_SYSTEM } from "../../../../tests/helpers/host-operating-system.js";
 import { captureRejection } from "../../../__fixtures__/capture-failure.js";
 import { KeyedLock } from "../../../keyed-lock.js";
 import { mintUuidV7 } from "../../../uuid-v7.js";
@@ -188,6 +189,8 @@ describe("a discard and its put-back", () => {
     // Each store looks at a kept copy's record once, so every look takes a new one.
     const lookAtStaleRecord = (): Promise<void> =>
       new RemovedWorktreeStore({
+        folderRenames: HOST_OPERATING_SYSTEM.folderRenames,
+        diskFlush: HOST_OPERATING_SYSTEM.diskFlush,
         database: fixture.scratch,
         copies: fixture.copies,
         runGit: fixture.runGit,
@@ -305,6 +308,8 @@ describe("a discard and its put-back", () => {
     // A `Delete now` whose pins stay and whose folder goes only in part leaves no tree that reads
     // as whole, and a second one finishes it.
     const partlyDeletingStore = new RemovedWorktreeStore({
+      folderRenames: HOST_OPERATING_SYSTEM.folderRenames,
+      diskFlush: HOST_OPERATING_SYSTEM.diskFlush,
       database: fixture.scratch,
       copies: fixture.copies,
       runGit: (argv, options) =>
@@ -443,6 +448,8 @@ describe("a put-back a crash cut short", () => {
     // The daemon dies while it records the put-back tree: every step before ran, none after does.
     const isRecording = Promise.withResolvers<void>();
     const crashingStore = new RemovedWorktreeStore({
+      folderRenames: HOST_OPERATING_SYSTEM.folderRenames,
+      diskFlush: HOST_OPERATING_SYSTEM.diskFlush,
       database: fixture.scratch,
       copies: fixture.copies,
       runGit: fixture.runGit,
@@ -481,6 +488,8 @@ describe("a put-back a crash cut short", () => {
     // made the branch.
     const recordFolder = join(fixture.repository.root, ".git", "worktrees", basename(tree.fsRoot));
     const hangingStore = new RemovedWorktreeStore({
+      folderRenames: HOST_OPERATING_SYSTEM.folderRenames,
+      diskFlush: HOST_OPERATING_SYSTEM.diskFlush,
       database: fixture.scratch,
       copies: fixture.copies,
       runGit: fixture.runGit,
@@ -528,6 +537,8 @@ describe("a put-back a crash cut short", () => {
       markPinDeleteReached = resolve;
     });
     const answeringStore = new RemovedWorktreeStore({
+      folderRenames: HOST_OPERATING_SYSTEM.folderRenames,
+      diskFlush: HOST_OPERATING_SYSTEM.diskFlush,
       database: fixture.scratch,
       copies: fixture.copies,
       runGit: (argv, options) => {
@@ -606,6 +617,8 @@ function openHeldCopyStore(
   const heldFile = (): Error =>
     Object.assign(new Error("resource busy or locked"), { code: "EBUSY" });
   return new RemovedWorktreeStore({
+    folderRenames: HOST_OPERATING_SYSTEM.folderRenames,
+    diskFlush: HOST_OPERATING_SYSTEM.diskFlush,
     database: fixture.scratch,
     copies: fixture.copies,
     runGit: fixture.runGit,

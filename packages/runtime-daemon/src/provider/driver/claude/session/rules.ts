@@ -10,6 +10,7 @@
 import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
+import type { DiskFlush } from "../../../../disk-flush/contract.js";
 import { writeFileAtomically } from "../../../../file/atomic-write.js";
 import { coversDestructiveGit } from "../../../../policy/destructive-git.js";
 import type { ProviderAskRule } from "../../../port/permission-ask.js";
@@ -100,6 +101,7 @@ export function composeClaudeProjectAllowUpdate(
 export async function writeClaudeProjectRule(
   projectFolder: string,
   rule: ProviderAskRule,
+  diskFlush: DiskFlush,
 ): Promise<void> {
   const written = composeRuleValues(rule).map(writeRuleValue);
   if (written.length === 0) {
@@ -118,6 +120,7 @@ export async function writeClaudeProjectRule(
       lists.set(list, [...entries, ...written.filter((entry) => !entries.includes(entry))]);
     },
     true,
+    diskFlush,
   );
 }
 
@@ -128,6 +131,7 @@ export async function writeClaudeProjectRule(
 export async function removeClaudeProjectRule(
   projectFolder: string,
   rule: ProviderAskRule,
+  diskFlush: DiskFlush,
 ): Promise<void> {
   const list = rule.sense === "allow" ? "allow" : "deny";
   const written = composeRuleValues(rule).map(writeRuleValue);
@@ -140,6 +144,7 @@ export async function removeClaudeProjectRule(
       );
     },
     false,
+    diskFlush,
   );
 }
 
@@ -150,6 +155,7 @@ async function updateClaudeLocalSettings(
   projectFolder: string,
   change: (lists: Map<"allow" | "deny", string[]>) => void,
   canCreate: boolean,
+  diskFlush: DiskFlush,
 ): Promise<void> {
   const filePath = path.join(projectFolder, CLAUDE_LOCAL_SETTINGS_PATH);
   const settings = await readLocalSettings(filePath);
@@ -179,6 +185,7 @@ async function updateClaudeLocalSettings(
     filePath,
     `${JSON.stringify(next, null, 2)}\n`,
     CLAUDE_LOCAL_SETTINGS_MODE,
+    diskFlush,
   );
 }
 

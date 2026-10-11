@@ -16,6 +16,7 @@ import {
 } from "../../../port/permission-ask.js";
 import type { QuestionPort } from "../../../port/question.js";
 import type { SessionRulePort } from "../../../port/session-rules.js";
+import type { DiskFlush } from "../../../../disk-flush/contract.js";
 import type { PortRegistration } from "../../../port/registration.js";
 import { isPlainObject, readNonEmptyString } from "../../../record-readers.js";
 import type { RespondToRequestParams } from "../../contract.js";
@@ -89,6 +90,8 @@ export interface ClaudeInboundRequestsDependencies {
   readonly childRunStarting: (sessionId: SessionId, agentId: string) => Promise<void> | undefined;
   /** The session's own standing rules, which an answer's session rule is resent with. */
   readonly sessionRules: PortRegistration<SessionRulePort>;
+  /** How a project rule an answer made is flushed to disk. */
+  readonly diskFlush: DiskFlush;
 }
 
 // The question tool's questions as the questions card asks them; a malformed one is left out.
@@ -233,6 +236,7 @@ export class ClaudeInboundRequests {
         live,
         answer.madeRule,
         readClaudeSessionRules(this.#dependencies.sessionRules, live.sessionId),
+        this.#dependencies.diskFlush,
       );
     } catch (error) {
       throw new ProviderRuleNotKeptError(error);

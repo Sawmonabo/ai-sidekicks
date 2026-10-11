@@ -13,7 +13,7 @@ import { isAbsolute } from "node:path";
 
 import type { ProviderName } from "@ai-sidekicks/contracts/provider/name";
 
-import { findExecutables, type ExecutableSearchDependencies } from "../executable/search.js";
+import { findExecutables, type ExecutableSearchDependencies } from "../executable-search.js";
 import { describeRejection } from "../rejection.js";
 import { parseCliVersionReport } from "./capability/refresh.js";
 import type { ProviderCommandSearch } from "./command-search.js";
@@ -21,7 +21,6 @@ import type { SpawnedVersionBindingCarriers } from "./runtime-binding-store.js";
 import type { DriverCliVersionReport } from "./driver/contract.js";
 import { PROVIDER_DRIVER_DESCRIPTORS } from "./driver/descriptor.js";
 import type { ProviderOperatingSystem, ProviderProgramStart } from "./operating-system/contract.js";
-import { selectProviderOperatingSystem } from "./operating-system/selection.js";
 import { assertValidCliVersionReport } from "./output-validation.js";
 import {
   buildProviderSpawnEnv,
@@ -53,16 +52,23 @@ export class ProviderExecutableUnresolvableError extends Error {
 type ExecutableRealpathResolver = (candidate: string) => Promise<string>;
 
 /** The search's seams, and the `realpath` that turns a launcher into the exact build path. */
-export interface ProviderExecutableResolverDependencies extends ExecutableSearchDependencies {
+interface ProviderExecutableResolverDependencies extends ExecutableSearchDependencies {
   readonly realpath: ExecutableRealpathResolver;
   /** Where a bare command is looked for once the `PATH` holds none. */
   readonly commandSearch: Pick<ProviderCommandSearch, "find">;
-  /** How the system compares variable names and starts a build; the platform's own by default. */
+  /** How the system names programs, compares variable names and starts a build. */
   readonly operatingSystem: Pick<
     ProviderOperatingSystem,
-    "environmentNameMatch" | "startProviderBuild"
+    "environmentNameMatch" | "isPathCommand" | "listExecutableCandidates" | "startProviderBuild"
   >;
 }
+
+/** A resolution's seams: the operating system's, and the rest the real ones unless injected. */
+export type ProviderExecutableResolverOptions = Pick<
+  ProviderExecutableResolverDependencies,
+  "operatingSystem"
+> &
+  Partial<ProviderExecutableResolverDependencies>;
 
 /** The one executable a spawn and its binding row both name; only the build describes it. */
 export interface ResolvedProviderExecutable {
@@ -97,7 +103,7 @@ export async function resolveProviderExecutable(
   driverName: ProviderName,
   requestedCommand: string,
   spawnEnvironment: readonly SpawnEnvPair[],
-  dependencies: Partial<ProviderExecutableResolverDependencies> = {},
+  dependencies: ProviderExecutableResolverOptions,
 ): Promise<ResolvedProviderExecutable> {
   if (requestedCommand.trim() === "") {
     throw new ProviderExecutableUnresolvableError(
@@ -126,7 +132,6 @@ export async function resolveProviderExecutable(
   }
   const found = await dependencies.commandSearch?.find(requestedCommand, spawnEnvironment);
   if (found !== undefined) {
-    const operatingSystem = operatingSystemOf(dependencies);
     return await checkedResolution(
       driverName,
       requestedCommand,
@@ -134,7 +139,7 @@ export async function resolveProviderExecutable(
       placeFolderFirstOnSearchPath(
         spawnEnvironment,
         found.folder,
-        operatingSystem.environmentNameMatch,
+        dependencies.operatingSystem.environmentNameMatch,
       ),
       dependencies,
     );
@@ -153,23 +158,14 @@ export async function resolveProviderExecutable(
 export async function startResolvedBuild(
   build: string,
   environment: readonly SpawnEnvPair[],
-  dependencies: Partial<ProviderExecutableResolverDependencies>,
+  dependencies: ProviderExecutableResolverOptions,
 ): Promise<ProviderProgramStart> {
-  return await operatingSystemOf(dependencies).startProviderBuild(build, async (program) => {
+  return await dependencies.operatingSystem.startProviderBuild(build, async (program) => {
     for await (const candidate of findExecutables(program, environment, dependencies)) {
       return candidate;
     }
     return undefined;
   });
-}
-
-function operatingSystemOf(
-  dependencies: Partial<ProviderExecutableResolverDependencies>,
-): ProviderExecutableResolverDependencies["operatingSystem"] {
-  return (
-    dependencies.operatingSystem ??
-    selectProviderOperatingSystem(dependencies.platform ?? process.platform)
-  );
 }
 
 // A resolution that names an absolute build path; a relative one cannot be spawned or recorded.
@@ -178,7 +174,7 @@ async function checkedResolution(
   requestedCommand: string,
   resolvedExecutablePath: string,
   environment: readonly SpawnEnvPair[],
-  dependencies: Partial<ProviderExecutableResolverDependencies>,
+  dependencies: ProviderExecutableResolverOptions,
 ): Promise<ResolvedProviderExecutable> {
   if (!isAbsolute(resolvedExecutablePath)) {
     throw new ProviderExecutableUnresolvableError(

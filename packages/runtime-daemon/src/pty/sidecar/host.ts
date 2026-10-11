@@ -10,7 +10,8 @@
 // - Effectful primitives are injectable through `RustSidecarPtyHostDeps`.
 
 import { Buffer } from "node:buffer";
-import { defaultSpawnTaskkill, type TaskkillResult } from "../taskkill-windows.js";
+import type { DaemonOperatingSystem } from "../../operating-system/contract.js";
+import type { TerminalOperatingSystem } from "../operating-system/contract.js";
 import { PtyBackendUnavailableError, resolveSidecarBinaryPath } from "./binary-path.js";
 import { isStrictBase64, serializeFrame, SidecarFrameDecodeError } from "./frame-codec.js";
 import {
@@ -39,17 +40,11 @@ const CLOSE_STEP_MS = 2_000;
 
 /** Effectful primitives `RustSidecarPtyHost` reaches through; tests inject a double for each. */
 export interface RustSidecarPtyHostDeps {
+  /** Finds the sidecar binary, as `resolveSidecarBinaryPath` does for the system it runs on. */
   readonly resolveBinaryPath: () => string;
   readonly spawn: SidecarSpawnFn;
   /** Monotonic clock in milliseconds for crash-budget timestamps. */
   readonly nowMs: () => number;
-  /** Selects the host-timeout hard-kill branch (`escalateHardKillTree`). */
-  readonly platform?: NodeJS.Platform;
-  /**
-   * Runs `taskkill /T /F /PID`; only the Windows host-timeout hard kill calls it (POSIX uses
-   * `child.kill("SIGKILL")`).
-   */
-  readonly spawnTaskkill?: (pid: number) => Promise<TaskkillResult>;
 }
 
 /** Monotonic clock: `Date.now()` can jump backward, which would trip or release the budget. */
@@ -59,14 +54,14 @@ function defaultNowMs(): number {
 
 /** Fills in the production primitives the caller did not inject. */
 function resolveDefaultDeps(
-  partial: Partial<RustSidecarPtyHostDeps>,
+  operatingSystem: Pick<TerminalOperatingSystem, "killTerminalHost">,
+  partial: Pick<RustSidecarPtyHostDeps, "resolveBinaryPath"> & Partial<RustSidecarPtyHostDeps>,
 ): SidecarChildSupervisorDependencies {
   return {
-    resolveBinaryPath: partial.resolveBinaryPath ?? resolveSidecarBinaryPath,
+    resolveBinaryPath: partial.resolveBinaryPath,
     spawn: partial.spawn ?? null,
     nowMs: partial.nowMs ?? defaultNowMs,
-    platform: partial.platform ?? process.platform,
-    spawnTaskkill: partial.spawnTaskkill ?? defaultSpawnTaskkill,
+    operatingSystem,
   };
 }
 
@@ -121,8 +116,15 @@ export class RustSidecarPtyHost implements PtyHost {
 
   private readonly preSpawnBuffer: SidecarPreSpawnBuffer = new SidecarPreSpawnBuffer();
 
-  public constructor(deps?: Partial<RustSidecarPtyHostDeps>) {
-    this.childProcess = new SidecarChildSupervisor(resolveDefaultDeps(deps ?? {}), {
+  /**
+   * A host over the sidecar `deps.resolveBinaryPath` finds, which `operatingSystem` kills when it
+   * stops answering at a drain.
+   */
+  public constructor(
+    operatingSystem: Pick<TerminalOperatingSystem, "killTerminalHost">,
+    deps: Pick<RustSidecarPtyHostDeps, "resolveBinaryPath"> & Partial<RustSidecarPtyHostDeps>,
+  ) {
+    this.childProcess = new SidecarChildSupervisor(resolveDefaultDeps(operatingSystem, deps), {
       onFrame: (body: Buffer): void => {
         this.handleInbound(body);
       },
@@ -819,19 +821,20 @@ export class RustSidecarPtyHost implements PtyHost {
 }
 
 /**
- * Creates the production `RustSidecarPtyHost`. An explicit `binaryPath` skips the default
- * resolution (CI paths, hand-built binaries, integration tests).
+ * Creates the production `RustSidecarPtyHost` on `operatingSystem`. An explicit `binaryPath` skips
+ * the default resolution (CI paths, hand-built binaries, integration tests).
  *
  * @consumedBy the terminal selector's Windows default, once the sidecar package is a dependency
  */
-export function createRustSidecarPtyHost(opts?: {
-  readonly binaryPath?: string;
-}): RustSidecarPtyHost {
+export function createRustSidecarPtyHost(
+  operatingSystem: Pick<DaemonOperatingSystem, "platform" | "executableFileName" | "terminal">,
+  opts?: { readonly binaryPath?: string },
+): RustSidecarPtyHost {
   const binaryPath: string | undefined = opts?.binaryPath;
-  if (binaryPath !== undefined) {
-    return new RustSidecarPtyHost({
-      resolveBinaryPath: (): string => binaryPath,
-    });
-  }
-  return new RustSidecarPtyHost();
+  return new RustSidecarPtyHost(operatingSystem.terminal, {
+    resolveBinaryPath:
+      binaryPath === undefined
+        ? (): string => resolveSidecarBinaryPath(operatingSystem)
+        : (): string => binaryPath,
+  });
 }

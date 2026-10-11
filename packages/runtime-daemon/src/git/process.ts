@@ -8,7 +8,7 @@
 import { execFile } from "node:child_process";
 import { isAbsolute } from "node:path";
 
-import { findExecutables, type ExecutableSearchDependencies } from "../executable/search.js";
+import { findExecutables, type ExecutableSearchOptions } from "../executable-search.js";
 import type { SpawnEnvPair } from "../provider/spawn-env.js";
 
 // The bare name, found by the platform's search, for a runner given no path. On Windows libuv
@@ -191,7 +191,7 @@ export const runGitWithExecFile: GitRunner = (argv, options) => {
  */
 export async function findGitExecutable(
   environment: readonly SpawnEnvPair[],
-  dependencies: Partial<ExecutableSearchDependencies> = {},
+  dependencies: ExecutableSearchOptions,
 ): Promise<string | undefined> {
   for await (const candidate of findExecutables("git", environment, dependencies)) {
     if (isAbsolute(candidate)) {

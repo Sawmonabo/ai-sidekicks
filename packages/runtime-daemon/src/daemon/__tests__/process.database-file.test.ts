@@ -25,6 +25,7 @@ import {
 import { JSONRPC_VERSION } from "@ai-sidekicks/contracts/jsonrpc/message";
 import { CURRENT_PROTOCOL_VERSION } from "@ai-sidekicks/contracts/jsonrpc/negotiation";
 
+import { HOST_OPERATING_SYSTEM } from "../../../tests/helpers/host-operating-system.js";
 import { bootstrap } from "../../bootstrap/index.js";
 import { connect } from "../../ipc/__fixtures__/local-socket-client.js";
 import {
@@ -124,7 +125,7 @@ describe("the database file's check at a start", () => {
     expect(countRecoveryPasses()).toBe(2);
     // A run that ended without a clean stop, its process or the machine gone under it: the next
     // start writes while its check never answers.
-    await recordRunStart(databasePath());
+    await recordRunStart(databasePath(), HOST_OPERATING_SYSTEM.diskFlush);
     await (await startDaemon(DRAIN_NOTHING)).stop();
     expect(countRecoveryPasses()).toBe(3);
 
@@ -204,7 +205,7 @@ describe("damage met while the daemon runs", () => {
     // A clean stop's record, so the start writes at once; a check that never answers and a search
     // thread that reads nothing and never opens, so only the recovery pass meets the damage and no
     // provider starts.
-    await recordCleanStop(databasePath());
+    await recordCleanStop(databasePath(), HOST_OPERATING_SYSTEM.diskFlush);
     standInChecks(() => new Promise(() => {}));
     useSearchThreads(
       () =>
@@ -224,7 +225,7 @@ describe("damage met while the daemon runs", () => {
     // As a file something else changed since a clean stop leaves its record, which would hold the
     // next start's writes; the repaired file was checked whole, so its start writes while its own
     // check never answers.
-    await recordCleanStop(databasePath());
+    await recordCleanStop(databasePath(), HOST_OPERATING_SYSTEM.diskFlush);
     await touchDatabaseFile();
     vi.restoreAllMocks();
     standInChecks(() => new Promise(() => {}));
@@ -255,6 +256,7 @@ describe("damage met while the daemon runs", () => {
         return repair.promise;
       },
       () => {},
+      HOST_OPERATING_SYSTEM.readSocketPathLimit,
     );
     // The token is written once the socket is bound, so a hello waits for both.
     await vi.waitFor(
@@ -361,7 +363,11 @@ describe("a stop during the start", () => {
     expect(await isSocketAnswering(runFolder.socketPath)).toBe(false);
 
     // A run found the file damaged; the stop comes once its copy is aside, as the recovery starts.
-    await recordDatabaseDamage(databasePath(), "a page the test names damaged");
+    await recordDatabaseDamage(
+      databasePath(),
+      "a page the test names damaged",
+      HOST_OPERATING_SYSTEM.diskFlush,
+    );
     const fileBefore = await readFile(databasePath());
     const repairStop = new AbortController();
     const repairLog: string[] = [];

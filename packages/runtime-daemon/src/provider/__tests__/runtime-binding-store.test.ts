@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { captureRejection, captureThrow } from "../../__fixtures__/capture-failure.js";
 import { openScratchDatabase, type ScratchDatabase } from "../../database/__fixtures__/scratch.js";
+import { HOST_OPERATING_SYSTEM } from "../../../tests/helpers/host-operating-system.js";
 import { makeAdvancingClock } from "../../__fixtures__/advancing-clock.js";
 import { ProviderOutputValidationError, RESUME_HANDLE_MAX_LEN } from "../output-validation.js";
 import {
@@ -721,6 +722,7 @@ describe("RuntimeBindingStore — spawned-version carriers", () => {
   // the candidate", which runs on every platform (the real-symlink fixture in
   // `spawned-version.test.ts` is posix-only).
   const DRIFTING_RESOLVER = {
+    operatingSystem: HOST_OPERATING_SYSTEM.provider,
     isExecutableFile: async (): Promise<boolean> => true,
     realpath: async (candidate: string): Promise<string> =>
       candidate === LAUNCHER_PATH ? DEREFERENCED_BUILD_PATH : candidate,

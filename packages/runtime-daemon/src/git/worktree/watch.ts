@@ -5,7 +5,7 @@
 //     with the first hold and stops with the last release.
 //   * The tree is watched through the operating system's own change feed (one recursive watch),
 //     leaving out what git ignores (`node_modules`, build output): a change there is no change to
-//     the tree. On Linux, where the watch takes one of the account's watches per file and folder,
+//     the tree. Where the system's watch takes one of the account's watches per file and folder,
 //     a tree that would take more than are left beside the other folders' is checked on a slow
 //     tick instead, comparing what `git status` reports; each change says which of the two found
 //     it. What git ignores is read again when a `.gitignore` changes or a new folder appears.
@@ -18,7 +18,7 @@
 
 import { createHash } from "node:crypto";
 import { watch, type FSWatcher } from "node:fs";
-import { lstat, readFile } from "node:fs/promises";
+import { lstat } from "node:fs/promises";
 import { basename, join, sep } from "node:path";
 
 import { fdir } from "fdir";
@@ -43,18 +43,22 @@ import type { MountOccupancyReader } from "./occupancy.js";
  */
 export const SLOW_TICK_INTERVAL_MS: number = 180_000;
 
-// Linux's per-account ceiling on watches; on macOS and Windows one recursive watch costs one
-// handle whatever the tree's size, so no folder is too large there.
-const LINUX_WATCH_LIMIT_PATH = "/proc/sys/fs/inotify/max_user_watches";
-
 const GIT_FOLDER_NAME = ".git";
 // The files in a tree's own git folder whose change the tree's readers must see.
 const HEAD_FILE_NAME = "HEAD";
 const INDEX_FILE_NAME = "index";
 // The file whose change may change what git ignores in the tree.
 const IGNORE_FILE_NAME = ".gitignore";
-// Besides one per file and folder, the tree's root and its git folder each take a watch on Linux.
-const LINUX_WATCHES_BESIDE_TREE = 2;
+/**
+ * What a recursive watch of a tree costs where the system charges one of the account's watches per
+ * file and folder in it, against a ceiling the account has.
+ */
+export interface TreeWatchCeiling {
+  /** The watches a tree's watch takes beside one per file and folder it holds. */
+  readonly watchesBesideEntries: number;
+  /** Reads the account's ceiling on watches; throws when it cannot be read. */
+  readCeiling(): Promise<number>;
+}
 
 /** A session's working folder and the repository mount it belongs to. */
 export interface SessionWorkingFolder {
@@ -77,8 +81,11 @@ export interface WorkingFolderWatcherDeps {
   readonly writeServiceLog: ServiceLogWriter;
   /** Wall clock for each change's instant; injectable for tests. */
   readonly now?: () => Date;
-  /** The platform whose watch limit applies; defaults to the running one. */
-  readonly platform?: NodeJS.Platform;
+  /**
+   * The system's ceiling on the watches a tree's watch takes; `null` where one recursive watch
+   * costs one handle whatever the tree's size, so no folder is too large.
+   */
+  readonly treeWatchCeiling: TreeWatchCeiling | null;
 }
 
 interface Subscriber {
@@ -94,8 +101,9 @@ interface WatchedFolder {
   // Reads of the ignored paths run one at a time; one more is due when a change asked meanwhile.
   ignoredRead: Promise<void> | null;
   isIgnoredReadDue: boolean;
-  // The Linux watches the tree's watch holds, counted toward the account's ceiling; 0 elsewhere.
-  linuxWatchCount: number;
+  // The system watches the tree's watch holds, counted toward the account's ceiling; 0 where the
+  // system has none.
+  systemWatchCount: number;
   holdCount: number;
   readonly subscribers: Set<Subscriber>;
   mode: WorkingTreeChange["mode"];
@@ -117,19 +125,17 @@ export class WorkingFolderWatcher {
   readonly #deps: WorkingFolderWatcherDeps;
   readonly #occupancy: MountOccupancyReader;
   readonly #now: () => Date;
-  readonly #platform: NodeJS.Platform;
   readonly #watchedByFolder = new Map<string, WatchedFolder>();
   // Each subscriber's folder, so a session that moves is moved with it.
   readonly #folderBySubscriber = new Map<Subscriber, WatchedFolder>();
   readonly #repositoryChangeListeners = new Set<(folder: string) => void>();
-  // The Linux watches every folder's watch holds together.
-  #linuxWatchesHeld = 0;
+  // The system watches every folder's watch holds together.
+  #systemWatchesHeld = 0;
 
   constructor(deps: WorkingFolderWatcherDeps) {
     this.#deps = deps;
     this.#occupancy = deps.occupancy;
     this.#now = deps.now ?? (() => new Date());
-    this.#platform = deps.platform ?? process.platform;
   }
 
   /**
@@ -263,7 +269,7 @@ export class WorkingFolderWatcher {
       ignoredPaths: new Set(),
       ignoredRead: null,
       isIgnoredReadDue: false,
-      linuxWatchCount: 0,
+      systemWatchCount: 0,
       holdCount: 1,
       subscribers: new Set(),
       mode: "watch",
@@ -325,30 +331,28 @@ export class WorkingFolderWatcher {
     await watched.branchCheck;
   }
 
-  // Watches the tree when its watch fits what is left of the Linux ceiling, else ticks slowly.
+  // Watches the tree when its watch fits what is left of the system's ceiling, else ticks slowly.
   async #startTreeWatch(watched: WatchedFolder): Promise<void> {
-    const linuxWatchCount = await this.#countLinuxWatches(watched);
-    const limit =
-      linuxWatchCount === 0 ? 0 : Number((await readFile(LINUX_WATCH_LIMIT_PATH, "utf8")).trim());
+    const ceiling = this.#deps.treeWatchCeiling;
+    const systemWatchCount =
+      ceiling === null ? 0 : await this.#countSystemWatches(watched, ceiling);
+    const limit = systemWatchCount === 0 || ceiling === null ? 0 : await ceiling.readCeiling();
     if (watched.isClosed) {
       return;
     }
     // Checked and taken in one step, so two folders starting together never both take the rest.
-    if (linuxWatchCount > 0 && this.#linuxWatchesHeld + linuxWatchCount > limit) {
+    if (systemWatchCount > 0 && this.#systemWatchesHeld + systemWatchCount > limit) {
       if (watched.slowTick === null) this.#startSlowTick(watched);
       return;
     }
-    this.#linuxWatchesHeld += linuxWatchCount;
-    watched.linuxWatchCount = linuxWatchCount;
+    this.#systemWatchesHeld += systemWatchCount;
+    watched.systemWatchCount = systemWatchCount;
     this.#watchTree(watched);
   }
 
-  // The watches the tree's watch takes on Linux, one per file and folder git does not ignore;
-  // 0 on any other platform.
-  async #countLinuxWatches(watched: WatchedFolder): Promise<number> {
-    if (this.#platform !== "linux") {
-      return 0;
-    }
+  // The watches the tree's watch takes, one per file and folder git does not ignore and those
+  // beside them.
+  async #countSystemWatches(watched: WatchedFolder, ceiling: TreeWatchCeiling): Promise<number> {
     const rootPrefix = watched.folder.endsWith(sep) ? watched.folder : `${watched.folder}${sep}`;
     const { files, directories } = await new fdir()
       .onlyCounts()
@@ -357,7 +361,7 @@ export class WorkingFolderWatcher {
       )
       .crawl(watched.folder)
       .withPromise();
-    return files + directories + LINUX_WATCHES_BESIDE_TREE;
+    return files + directories + ceiling.watchesBesideEntries;
   }
 
   #watchTree(watched: WatchedFolder): void {
@@ -408,8 +412,8 @@ export class WorkingFolderWatcher {
   #closeTreeWatch(watched: WatchedFolder): void {
     watched.treeWatcher?.close();
     watched.treeWatcher = null;
-    this.#linuxWatchesHeld -= watched.linuxWatchCount;
-    watched.linuxWatchCount = 0;
+    this.#systemWatchesHeld -= watched.systemWatchCount;
+    watched.systemWatchCount = 0;
   }
 
   #fallBackToSlowTick(watched: WatchedFolder, error: unknown): void {
@@ -448,7 +452,7 @@ export class WorkingFolderWatcher {
     );
   }
 
-  // Reads what git ignores again, one read at a time. On Linux a watch that now holds watches in a
+  // Reads what git ignores again, one read at a time. A watch that now holds system watches in a
   // newly ignored folder starts over, so it gives them back.
   #readIgnoredAgain(watched: WatchedFolder): void {
     if (watched.ignoredRead !== null) {
@@ -461,7 +465,7 @@ export class WorkingFolderWatcher {
         const read = await readIgnoredPaths(this.#deps.git, watched.folder);
         const hasGrown = [...read].some((ignored) => !watched.ignoredPaths.has(ignored));
         watched.ignoredPaths = read;
-        if (hasGrown && watched.linuxWatchCount > 0 && !watched.isClosed) {
+        if (hasGrown && watched.systemWatchCount > 0 && !watched.isClosed) {
           this.#closeTreeWatch(watched);
           await this.#startTreeWatch(watched);
         }

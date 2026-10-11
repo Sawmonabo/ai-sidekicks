@@ -3,6 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 
+import { HOST_OPERATING_SYSTEM } from "../../../tests/helpers/host-operating-system.js";
 import { RustSidecarPtyHost } from "../../pty/sidecar/host.js";
 import { translateSpawnCwd } from "../spawn-cwd-translator.js";
 import {
@@ -56,7 +57,7 @@ describe("translateSpawnCwd × RustSidecarPtyHost — POSIX cd-prefix", () => {
       });
 
       const fake = makeFakeSidecarChild();
-      const host = new RustSidecarPtyHost({
+      const host = new RustSidecarPtyHost(HOST_OPERATING_SYSTEM.terminal, {
         resolveBinaryPath: () => "/fake/sidecar",
         spawn: spawnReturning(fake),
       });

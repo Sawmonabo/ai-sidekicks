@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ProjectIdSchema } from "@ai-sidekicks/contracts/project";
 import { WorktreeIdSchema, type WorktreeId } from "@ai-sidekicks/contracts/worktree/lifecycle";
 
+import { HOST_OPERATING_SYSTEM } from "../../../../tests/helpers/host-operating-system.js";
 import { captureRejection } from "../../../__fixtures__/capture-failure.js";
 import { mintUuidV7 } from "../../../uuid-v7.js";
 import {
@@ -264,6 +265,7 @@ async function crashAfterMove(
     {
       runGit: fixture.runGit,
       filesystem: DEFAULT_GIT_FILESYSTEM,
+      folderRenames: HOST_OPERATING_SYSTEM.folderRenames,
       copies: fixture.copies,
     },
     {

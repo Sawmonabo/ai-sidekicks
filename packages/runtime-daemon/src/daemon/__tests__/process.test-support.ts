@@ -21,12 +21,11 @@ import type { ProcessIdentity } from "@ai-sidekicks/contracts/process-identity";
 import { connect, type Client } from "../../ipc/__fixtures__/local-socket-client.js";
 import type { DrainResult, PtyHost } from "../../pty/host/contract.js";
 import { openOrphanGuard } from "../../pty/orphan/guard.js";
-import { DARWIN_PROVIDER_OPERATING_SYSTEM } from "../../provider/operating-system/darwin.js";
-import { chooseDatabaseFileOperatingSystem } from "../../recovery/database-file/operating-system.js";
+import { MAC_PROVIDER_OPERATING_SYSTEM } from "../../provider/operating-system/mac.js";
 import { SearchThread, type SearchThreadOptions } from "../../session/search/thread/handle.js";
 import { DaemonProcess, type DaemonProcessOptions } from "../process.js";
 import { readProcessTreeUsage } from "../process-tree-usage.js";
-import { selectTerminalOperatingSystem } from "../../pty/operating-system/selector.js";
+import { HOST_OPERATING_SYSTEM } from "../../../tests/helpers/host-operating-system.js";
 import { readVolumeFreeBytes } from "../volume-free-space.js";
 
 /** A terminal drain that had nothing to end. */
@@ -96,7 +95,6 @@ export function useDaemonFolders(): void {
     await mkdir(homeDirectory);
     await mkdir(runtimeDirectory, { mode: 0o700 });
     runFolder = resolveDaemonRunFolder({
-      platform: process.platform,
       runtimeDirectory,
       temporaryDirectory: os.tmpdir(),
       userId: os.userInfo().uid,
@@ -131,17 +129,19 @@ export async function startDaemon(
         bootId: PROCESS_IDENTITY.bootId,
         readProcessIdentity: () => Promise.resolve(undefined),
         operatingSystem: {},
+        diskFlush: HOST_OPERATING_SYSTEM.diskFlush,
         writeServiceLog: () => {},
       }),
     createPtyHost: () => makeHostDrainingWith(ptyHost),
-    databaseFileOperatingSystem: chooseDatabaseFileOperatingSystem(process.platform),
     readMachineName: () => Promise.resolve("Test machine"),
     captureProviderBaseEnvironment: () => Promise.resolve([]),
     commandShell: null,
-    providerOperatingSystem: DARWIN_PROVIDER_OPERATING_SYSTEM,
-    // No provider process runs in these tests, so no peak is ever read.
-    processPeakReader: { readPeakBytes: () => Promise.resolve(undefined) },
-    terminalOperatingSystem: selectTerminalOperatingSystem(process.platform, process.env),
+    operatingSystem: {
+      ...HOST_OPERATING_SYSTEM,
+      provider: MAC_PROVIDER_OPERATING_SYSTEM,
+      // No provider process runs in these tests, so no peak is ever read.
+      processPeak: { readPeakBytes: () => Promise.resolve(undefined) },
+    },
     readLoginShell: () => "/bin/sh",
     serviceVersion: SERVICE_VERSION,
     processIdentity: PROCESS_IDENTITY,

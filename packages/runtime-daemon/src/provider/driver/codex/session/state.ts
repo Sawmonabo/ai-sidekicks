@@ -12,6 +12,7 @@ import type { ExecutionPostureService } from "../../../../policy/execution-postu
 import type { RunEngine } from "../../../../session/run/engine.js";
 import type { PermissionAskPort } from "../../../port/permission-ask.js";
 import type { QuestionPort } from "../../../port/question.js";
+import type { DiskFlush } from "../../../../disk-flush/contract.js";
 import type { PortRegistration } from "../../../port/registration.js";
 import type { CommandOutputPublisher } from "../../../port/command-output-publisher.js";
 import type { SessionRulePort } from "../../../port/session-rules.js";
@@ -423,6 +424,8 @@ export interface CodexLifecycleOptions {
   readonly sessionRules: PortRegistration<SessionRulePort>;
   /** Reads a project folder's repository git folder, whose exclude list hides the rule file. */
   readonly readGitFolder: CodexGitFolderReader;
+  /** How a written rule file is flushed to disk. */
+  readonly diskFlush: DiskFlush;
   /** The daemon's tool-server client's prompts for the `/` list; absent, the list has none. */
   readonly serverPrompts: PortRegistration<CodexServerPromptPort>;
   /** The running-commands stream's live output; absent, a command's output is dropped. */

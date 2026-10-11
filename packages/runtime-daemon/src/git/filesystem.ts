@@ -7,7 +7,7 @@ import type { Dirent, Stats } from "node:fs";
 import { lstat, mkdir, readFile, readdir, rename, rm } from "node:fs/promises";
 
 import { withCleanupFailures } from "../cleanup-failures.js";
-import { CAN_FLUSH_FOLDER, flushPath } from "../disk-flush.js";
+import type { DiskFlush } from "../disk-flush/contract.js";
 import { mapWithProcessorBound } from "../processor-bound.js";
 
 /**
@@ -20,6 +20,14 @@ export interface GitFilesystem {
   createDirectory(path: string): Promise<void>;
   removePath(path: string): Promise<void>;
   rename(fromPath: string, toPath: string): Promise<void>;
+}
+
+/** How the system renames a folder, which a move of a tree and a put-back of a kept one follow. */
+export interface FolderRenames {
+  /** The codes the system refuses a rename with while a program holds a file in the folder open. */
+  readonly heldFileErrorCodes: ReadonlySet<string>;
+  /** Whether a rename replaces an empty folder already at its destination. */
+  readonly canReplaceEmptyFolder: boolean;
 }
 
 /** The real filesystem the git services use unless a test injects another. */
@@ -82,20 +90,23 @@ export async function readFolderNamesOptional(folder: string): Promise<string[]>
 }
 
 /**
- * Flushes each of `files` and `folders` to disk, one per processor at a time, so what was written
- * there survives a power loss. Every flush settles first; then the first failure is thrown with
- * the rest attached to its `cause`.
+ * Flushes each of `files` and `folders` to disk as `diskFlush` does, one per processor at a time,
+ * so what was written there survives a power loss. Every flush settles first; then the first
+ * failure is thrown with the rest attached to its `cause`.
  */
 export async function flushToDisk(
+  diskFlush: DiskFlush,
   files: Iterable<string>,
   folders: Iterable<string>,
 ): Promise<void> {
-  // Folders are left out where they cannot be flushed, so on Windows only files are.
-  const paths = [...new Set(files), ...(CAN_FLUSH_FOLDER ? new Set(folders) : [])];
+  const flushes = [
+    ...[...new Set(files)].map((path) => () => diskFlush.flushFile(path)),
+    ...[...new Set(folders)].map((path) => () => diskFlush.flushFolder(path)),
+  ];
   const failures: unknown[] = [];
-  await mapWithProcessorBound(paths, async (path) => {
+  await mapWithProcessorBound(flushes, async (flush) => {
     try {
-      await flushPath(path);
+      await flush();
     } catch (flushFailure) {
       failures.push(flushFailure);
     }

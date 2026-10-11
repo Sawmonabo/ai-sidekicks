@@ -272,6 +272,7 @@ export class CodexLifecycleManager {
       reportDiagnostic,
       recordFor: (sessionId) => this.#slots.recordFor(sessionId),
       readGitFolder: options.readGitFolder,
+      diskFlush: options.diskFlush,
     });
     this.#frames = new CodexFrameDelivery({
       recordFor: (sessionId) => this.#slots.recordFor(sessionId),

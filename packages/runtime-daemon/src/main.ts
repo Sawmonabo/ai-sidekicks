@@ -9,30 +9,18 @@ import { readFile } from "node:fs/promises";
 import * as os from "node:os";
 import { promisify } from "node:util";
 
-import { resolveDaemonRunFolder } from "@ai-sidekicks/contracts/daemon/run-folder";
-import { createProcessIdentityReader } from "@ai-sidekicks/contracts/process-identity";
-
 import { DaemonProcess, resolveDataFolder } from "./daemon/process.js";
-import {
-  captureLoginShellEnvironment,
-  LOGIN_SHELL_DEADLINE_MS,
-  readDarwinUserTempDirectory,
-} from "./daemon/login-shell-environment.js";
-import { createNodeMachineNameSources, readMachineName } from "./daemon/machine/name.js";
+import { LOGIN_SHELL_DEADLINE_MS } from "./daemon/login-shell-environment.js";
+import { createNodeMachineNameSources } from "./daemon/machine/name.js";
 import { readProcessTreeUsage } from "./daemon/process-tree-usage.js";
 import { DaemonStartStoppedError } from "./daemon/start-stopped-error.js";
 import { openServiceLog } from "./daemon/service-log.js";
 import { readServiceVersion } from "./daemon/service-version.js";
 import { readVolumeFreeBytes } from "./daemon/volume-free-space.js";
-import { readWindowsDriveMounts } from "./daemon/windows-drive-mounts.js";
+import { selectDaemonOperatingSystem } from "./operating-system/selection.js";
 import { describeRejection } from "./rejection.js";
 import { selectPtyHost } from "./pty/host/selector.js";
-import { selectTerminalOperatingSystem } from "./pty/operating-system/selector.js";
 import { openOrphanGuard } from "./pty/orphan/guard.js";
-import { openOrphanOperatingSystem } from "./pty/orphan/operating-system.js";
-import { chooseDatabaseFileOperatingSystem } from "./recovery/database-file/operating-system.js";
-import { selectProviderOperatingSystem } from "./provider/operating-system/selection.js";
-import { selectProcessPeakReader } from "./admission/process-peak/selector.js";
 
 // First, so every service-log line from here on is kept in the file too.
 const homeDirectory = os.homedir();
@@ -67,10 +55,12 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
   });
 }
 
+// Picked once; every part of the daemon takes what it needs of the system from here.
+const operatingSystem = selectDaemonOperatingSystem(process.platform, process.env);
+
 // One reader for the daemon's own process and its terminal children, so the boot is read once.
 const runProgram = promisify(execFile);
-const readProcessIdentity = createProcessIdentityReader({
-  platform: process.platform,
+const readProcessIdentity = operatingSystem.createProcessIdentityReader({
   readTextFile: (filePath) => readFile(filePath, "utf8"),
   runProgram: (file, args, environment) => runProgram(file, [...args], { env: environment }),
 });
@@ -80,12 +70,11 @@ if (processIdentity === undefined) {
   throw new Error("The system finds no process with the daemon's own id");
 }
 const account = os.userInfo();
-const terminalOperatingSystem = selectTerminalOperatingSystem(process.platform, process.env);
 const daemon = await DaemonProcess.start({
   stopSignal: stopRequest.signal,
   homeDirectory,
-  runFolder: resolveDaemonRunFolder({
-    platform: process.platform,
+  operatingSystem,
+  runFolder: operatingSystem.resolveRunFolder({
     runtimeDirectory: process.env["XDG_RUNTIME_DIR"],
     temporaryDirectory: os.tmpdir(),
     userId: account.uid,
@@ -95,31 +84,25 @@ const daemon = await DaemonProcess.start({
       dataFolder,
       bootId: processIdentity.bootId,
       readProcessIdentity,
-      operatingSystem: await openOrphanOperatingSystem(process.platform, (error) => {
+      operatingSystem: await operatingSystem.openOrphanOperatingSystem((error) => {
         writeServiceLog(`The watch on terminal children's exits stopped: ${error.message}`);
       }),
+      diskFlush: operatingSystem.diskFlush,
       writeServiceLog,
     }),
-  databaseFileOperatingSystem: chooseDatabaseFileOperatingSystem(process.platform),
-  createPtyHost: (orphanGuard) => selectPtyHost(orphanGuard, terminalOperatingSystem),
-  readMachineName: () => readMachineName(createNodeMachineNameSources()),
+  createPtyHost: (orphanGuard) => selectPtyHost(orphanGuard, operatingSystem.terminal),
+  readMachineName: () => operatingSystem.readMachineName(createNodeMachineNameSources()),
   captureProviderBaseEnvironment: (startAbort) =>
-    captureLoginShellEnvironment({
-      platform: process.platform,
+    operatingSystem.captureProviderBaseEnvironment({
       shell: account.shell,
       homeDirectory: account.homedir,
       userName: account.username,
-      readUserTempDirectory: readDarwinUserTempDirectory,
-      readWindowsDriveMounts,
       deadlineMs: LOGIN_SHELL_DEADLINE_MS,
       serviceEnvironment: process.env,
       writeServiceLog,
       signal: AbortSignal.any([stopRequest.signal, startAbort]),
     }),
   commandShell: account.shell,
-  providerOperatingSystem: selectProviderOperatingSystem(process.platform),
-  processPeakReader: selectProcessPeakReader(process.platform),
-  terminalOperatingSystem,
   // Read from the account's record at each open, so a shell changed with `chsh` opens next.
   readLoginShell: () => os.userInfo().shell,
   serviceVersion: readServiceVersion(),

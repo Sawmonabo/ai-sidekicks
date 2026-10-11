@@ -16,7 +16,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   captureLoginShellEnvironment,
-  readDarwinUserTempDirectory,
+  readMacUserTempDirectory,
   type LoginShellCaptureOptions,
 } from "../login-shell-environment.js";
 
@@ -53,11 +53,11 @@ function capture(
   shell: string | null,
   deadlineMs: number,
   overrides: Partial<
-    Pick<LoginShellCaptureOptions, "platform" | "readUserTempDirectory" | "readWindowsDriveMounts">
+    Pick<LoginShellCaptureOptions, "readUserTempDirectory" | "readWindowsDriveMounts">
   > = {},
 ) {
+  // macOS's parts unless a test hands in another system's.
   return captureLoginShellEnvironment({
-    platform: "darwin",
     shell,
     homeDirectory: HOME_DIRECTORY,
     userName: USER_NAME,
@@ -65,7 +65,7 @@ function capture(
       temporaryDirectoryReads += 1;
       return Promise.resolve(USER_TEMP_DIRECTORY);
     },
-    readWindowsDriveMounts: () => Promise.resolve([]),
+    readWindowsDriveMounts: null,
     deadlineMs,
     serviceEnvironment: SERVICE_ENVIRONMENT,
     writeServiceLog: (line) => {
@@ -155,7 +155,7 @@ describe("captureLoginShellEnvironment", () => {
     );
 
     const pairs = await capture(shell, 10_000, {
-      platform: "linux",
+      readUserTempDirectory: null,
       readWindowsDriveMounts: () => Promise.resolve(["/mnt/c", "/mnt/d"]),
     });
 
@@ -199,7 +199,10 @@ describe("captureLoginShellEnvironment", () => {
   });
 
   it("gives an account that names no shell its default environment, with no TMPDIR on Linux", async () => {
-    const pairs = await capture(null, 10_000, { platform: "linux" });
+    const pairs = await capture(null, 10_000, {
+      readUserTempDirectory: null,
+      readWindowsDriveMounts: () => Promise.resolve([]),
+    });
 
     expect(pairs).toStrictEqual([
       ["HOME", HOME_DIRECTORY],
@@ -239,9 +242,9 @@ describe("captureLoginShellEnvironment", () => {
   });
 });
 
-describe.runIf(process.platform === "darwin")("readDarwinUserTempDirectory", () => {
+describe.runIf(process.platform === "darwin")("readMacUserTempDirectory", () => {
   it("reads the account's own temporary folder from getconf", async () => {
-    const temporaryDirectory = await readDarwinUserTempDirectory();
+    const temporaryDirectory = await readMacUserTempDirectory();
 
     expect(temporaryDirectory).toMatch(/^\/var\/folders\/.+\/T\/$/);
     expect((await stat(temporaryDirectory)).isDirectory()).toBe(true);

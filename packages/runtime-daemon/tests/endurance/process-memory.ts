@@ -4,9 +4,10 @@
 
 import { readdir, readFile } from "node:fs/promises";
 
-import { selectProcessPeakReader } from "../../src/admission/process-peak/selector.js";
 import { isMissingFileError } from "../../src/file/missing-error.js";
 import { importKoffi } from "../../src/koffi.js";
+import type { DaemonPlatform } from "../../src/operating-system/contract.js";
+import { HOST_OPERATING_SYSTEM } from "../helpers/host-operating-system.js";
 
 // A process's memory now and at its peak since it started, in bytes.
 interface ProcessMemory {
@@ -45,7 +46,7 @@ const CHILD_IDS_AT_MOST = 256;
 /** The reads of the system the test runs on; throws on a system with neither. */
 export async function loadProcessMemoryReader(): Promise<ProcessMemoryReader> {
   const system = await loadSystemReads();
-  const peakReader = selectProcessPeakReader(process.platform);
+  const peakReader = HOST_OPERATING_SYSTEM.processPeak;
   return {
     readMemory: async (processId) => {
       const currentBytes = await system.readCurrentBytes(processId);
@@ -60,16 +61,18 @@ export async function loadProcessMemoryReader(): Promise<ProcessMemoryReader> {
 }
 
 async function loadSystemReads(): Promise<SystemReads> {
-  if (process.platform === "darwin") {
-    return loadDarwinReads();
+  const loaders: Partial<Record<DaemonPlatform, () => Promise<SystemReads>>> = {
+    darwin: loadMacReads,
+    linux: () => Promise.resolve(linuxReads),
+  };
+  const load = loaders[HOST_OPERATING_SYSTEM.platform];
+  if (load === undefined) {
+    throw new Error(`No process memory read is written for ${HOST_OPERATING_SYSTEM.platform}.`);
   }
-  if (process.platform === "linux") {
-    return linuxReads;
-  }
-  throw new Error(`No process memory read is written for ${process.platform}.`);
+  return await load();
 }
 
-async function loadDarwinReads(): Promise<SystemReads> {
+async function loadMacReads(): Promise<SystemReads> {
   const koffi = await importKoffi("reading a process's memory footprint on macOS");
   const system = koffi.load("/usr/lib/libSystem.B.dylib");
   const procPidRusage = system.func(

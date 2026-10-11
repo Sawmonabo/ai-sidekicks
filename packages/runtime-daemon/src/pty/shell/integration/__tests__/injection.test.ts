@@ -15,7 +15,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { selectTerminalOperatingSystem } from "../../../operating-system/selector.js";
+import { HOST_OPERATING_SYSTEM } from "../../../../../tests/helpers/host-operating-system.js";
 import { prepareShellLaunch, prepareShellStartupFolders } from "../injection.js";
 
 let scratch: string | undefined;
@@ -34,7 +34,10 @@ describe.skipIf(process.platform === "win32")("prepareShellStartupFolders", () =
     mkdirSync(leftFolder, { mode: 0o755 });
     writeFileSync(path.join(leftFolder, "left"), "an earlier run's nonce");
 
-    const startupFolders = await prepareShellStartupFolders(scratch);
+    const startupFolders = await prepareShellStartupFolders(
+      scratch,
+      HOST_OPERATING_SYSTEM.diskFlush,
+    );
     expect(readdirSync(startupFolders.nonceFolder)).toEqual([]);
     expect(statSync(startupFolders.nonceFolder).mode & 0o777).toBe(0o700);
 
@@ -43,7 +46,7 @@ describe.skipIf(process.platform === "win32")("prepareShellStartupFolders", () =
       environment: [],
       environmentNameMatch: "case-sensitive",
       startupFolders,
-      operatingSystem: selectTerminalOperatingSystem(process.platform, process.env),
+      operatingSystem: HOST_OPERATING_SYSTEM.terminal,
     });
     if (markNonce === null) {
       throw new Error("zsh was given no nonce");

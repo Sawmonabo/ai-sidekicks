@@ -3,12 +3,6 @@
 // is retired when the terminal host sees it end, and an intent with no recorded process is
 // discarded at the next start, with nothing signaled.
 
-import { userInfo } from "node:os";
-
-import { DarwinProcessExitWatch } from "./darwin/exit-watch.js";
-import { findDarwinProcessesCarryingNonces } from "./darwin/nonce-search.js";
-import { loadDarwinSystemLibrary } from "./darwin/system-library.js";
-
 /** The kernel's own watch on processes' exits, immune to a reused process id. */
 export interface ProcessExitWatch {
   /**
@@ -27,24 +21,4 @@ export interface OrphanOperatingSystem {
   readonly findProcessesCarryingNonces?:
     | ((nonces: ReadonlySet<string>) => Promise<Map<number, string>>)
     | undefined;
-}
-
-/**
- * Opens what `platform` supplies: on macOS the kernel exit watch and the nonce search, whose
- * failures to load throw; elsewhere nothing yet. `onWatchFailure` hears a watch that stopped.
- */
-export async function openOrphanOperatingSystem(
-  platform: NodeJS.Platform,
-  onWatchFailure: (error: Error) => void,
-): Promise<OrphanOperatingSystem> {
-  if (platform !== "darwin") {
-    return {};
-  }
-  const library = await loadDarwinSystemLibrary();
-  const userId = userInfo().uid;
-  return {
-    exitWatch: new DarwinProcessExitWatch(library, onWatchFailure),
-    findProcessesCarryingNonces: (nonces) =>
-      Promise.resolve(findDarwinProcessesCarryingNonces(library, userId, nonces)),
-  };
 }

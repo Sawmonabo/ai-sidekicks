@@ -7,7 +7,7 @@ import { spawn } from "node:child_process";
 import { DAEMON_STOP_TERMINAL_DRAIN_MS } from "@ai-sidekicks/contracts/daemon/lifecycle";
 
 import { buildGitEnvironment, gitNotFoundError } from "../../git/process.js";
-import { endProcessTree } from "../../process-tree.js";
+import type { ProcessTreeEnding } from "../../process-tree/contract.js";
 
 /**
  * How long git has to end after a person's cancel before it and its helpers are killed: five
@@ -44,6 +44,7 @@ export interface StreamedGitExit {
  */
 function runStreamedGit(
   executable: string,
+  processTree: ProcessTreeEnding,
   argv: readonly string[],
   options: StreamedGitOptions,
 ): Promise<StreamedGitExit> {
@@ -51,8 +52,9 @@ function runStreamedGit(
     const child = spawn(executable, [...argv], {
       env: buildGitEnvironment(options.environmentOverrides),
       stdio: ["ignore", "ignore", "pipe"],
-      // Its own process group, so a stop reaches the transport helpers git starts.
-      detached: process.platform !== "win32",
+      // Its own process group where the system has them, so a stop reaches the transport helpers
+      // git starts.
+      detached: processTree.startsOwnGroup,
       windowsHide: true,
     });
     let killTimer: ReturnType<typeof setTimeout> | undefined;
@@ -66,14 +68,14 @@ function runStreamedGit(
       const pid = child.pid;
       // Armed before the polite end is sent, so the kill keeps to the grace however long it takes.
       killTimer = setTimeout(() => {
-        endProcessTree(pid, "SIGKILL").catch(failStop);
+        processTree.endProcessTree(pid, "SIGKILL").catch(failStop);
       }, options.stopGraceMs());
-      endProcessTree(pid, "SIGTERM").catch((endFailure: unknown) => {
+      processTree.endProcessTree(pid, "SIGTERM").catch((endFailure: unknown) => {
         clearTimeout(killTimer);
         // Git that already closed has ended, so the failed signal changed nothing.
         if (hasClosed) return;
         // Git may still be running, so it is killed at once rather than after the grace.
-        endProcessTree(pid, "SIGKILL").then(
+        processTree.endProcessTree(pid, "SIGKILL").then(
           () => {
             failStop(endFailure);
           },
@@ -109,12 +111,16 @@ export type StreamedGitRunner = (
 ) => Promise<StreamedGitExit>;
 
 /**
- * The streamed runner for the `git` at `executablePath`. With none found, each run rejects with an
- * `ENOENT` failure, as the daemon's other git runs do.
+ * The streamed runner for the `git` at `executablePath`, whose stop ends git's tree as
+ * `processTree` does. With none found, each run rejects with an `ENOENT` failure, as the daemon's
+ * other git runs do.
  */
-export function createStreamedGitRunner(executablePath: string | undefined): StreamedGitRunner {
+export function createStreamedGitRunner(
+  executablePath: string | undefined,
+  processTree: ProcessTreeEnding,
+): StreamedGitRunner {
   if (executablePath === undefined) {
     return () => Promise.reject(gitNotFoundError());
   }
-  return (argv, options) => runStreamedGit(executablePath, argv, options);
+  return (argv, options) => runStreamedGit(executablePath, processTree, argv, options);
 }

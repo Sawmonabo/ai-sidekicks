@@ -47,6 +47,7 @@ import type { OutboundQueue } from "../ipc/handlers/session/subscribe.js";
 import { registerSessionReviewNoteMethods } from "../ipc/handlers/session/review-notes.js";
 import { registerSessionWorkingFolder } from "../ipc/handlers/session/working-folder.js";
 import type { StreamingPrimitive } from "../ipc/streaming-primitive.js";
+import type { DaemonOperatingSystem } from "../operating-system/contract.js";
 import {
   buildCommandSpawnEnv,
   type SpawnEnvNameMatch,
@@ -108,6 +109,14 @@ export interface RepoMethodsDeps {
   readonly outboundQueue: OutboundQueue;
   /** The service's one scheduler, which its creator stops through the services' stop. */
   readonly scheduler: Scheduler;
+  /**
+   * How the system ends a command's tree, renames and flushes folders, watches a tree and runs
+   * git's question program.
+   */
+  readonly operatingSystem: Pick<
+    DaemonOperatingSystem,
+    "processTree" | "folderRenames" | "diskFlush" | "treeWatchCeiling" | "hasAskpassLauncher"
+  >;
   readonly writeServiceLog: (line: string) => void;
 }
 
@@ -160,6 +169,7 @@ export function registerRepoMethods(registry: MethodRegistry, deps: RepoMethodsD
     // Called only after the live folders below exist.
     readSessionWorkingFolder: (sessionId) => liveFolders.readWorkingFolder(sessionId),
     emitBranchChanged: (payload) => worktreeEvents.emitBranchChanged({ payload }),
+    treeWatchCeiling: deps.operatingSystem.treeWatchCeiling,
     writeServiceLog,
   });
   const liveFolders = new LiveSessionFolders({
@@ -188,6 +198,7 @@ export function registerRepoMethods(registry: MethodRegistry, deps: RepoMethodsD
     readProjectSetup: async (worktreeId) => projectRecords.readSetupOfWorktree(worktreeId),
     startWatches: (target) => watcher.hold(target),
     commandShell: deps.commandShell,
+    processTree: deps.operatingSystem.processTree,
     commandEnvironment: async (worktreeId) =>
       Object.fromEntries(
         buildCommandSpawnEnv({
@@ -254,6 +265,8 @@ export function registerRepoMethods(registry: MethodRegistry, deps: RepoMethodsD
     database,
     runGit: git,
     filesystem: DEFAULT_GIT_FILESYSTEM,
+    folderRenames: deps.operatingSystem.folderRenames,
+    diskFlush: deps.operatingSystem.diskFlush,
     copies: worktreeCopies,
     worktrees,
     worktreesDirectory,
@@ -268,6 +281,7 @@ export function registerRepoMethods(registry: MethodRegistry, deps: RepoMethodsD
     processes: [setup],
     runGit: git,
     filesystem: DEFAULT_GIT_FILESYSTEM,
+    folderRenames: deps.operatingSystem.folderRenames,
     copies: worktreeCopies,
     writeServiceLog,
     worktreesDirectory,
@@ -328,7 +342,7 @@ export function registerRepoMethods(registry: MethodRegistry, deps: RepoMethodsD
   };
   // Each clone verb answers `repo.clone_unavailable` while the service is not running; the log
   // records why.
-  const canStartClones = AskpassBroker.hasLauncherOn(process.platform);
+  const canStartClones = deps.operatingSystem.hasAskpassLauncher;
   if (!canStartClones) {
     clonesStarting.resolve(null);
     writeServiceLog(

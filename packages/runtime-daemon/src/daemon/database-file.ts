@@ -31,6 +31,7 @@ import {
   recordCleanStop,
   recordRunStart,
 } from "../recovery/database-file/last-run.js";
+import type { DiskFlush } from "../disk-flush/contract.js";
 import type { DatabaseFileOperatingSystem } from "../recovery/database-file/operating-system.js";
 import { repairDatabaseFile } from "../recovery/database-file/repair.js";
 import { answerRepairingWhile } from "./repairing-socket.js";
@@ -42,7 +43,10 @@ export interface DatabaseFileOpenOptions {
   readonly dataFolder: string;
   readonly indexFolderPath: string;
   readonly runFolder: DaemonRunFolder;
+  /** The repairing socket's read of the socket path limit; see `LocalIpcGatewayOptions`. */
+  readonly readSocketPathLimit: (() => Promise<number>) | null;
   readonly operatingSystem: DatabaseFileOperatingSystem;
+  readonly diskFlush: DiskFlush;
   /** The folder the person's backups go to; read only when the file is damaged. */
   readonly readBackupFolder: () => Promise<string>;
   /** Ends a repair under way when it aborts. */
@@ -86,15 +90,17 @@ export interface OpenedDatabaseFile {
 export async function openDatabaseFile(
   options: DatabaseFileOpenOptions,
 ): Promise<OpenedDatabaseFile> {
-  const { databasePath, writeServiceLog } = options;
+  const { databasePath, diskFlush, writeServiceLog } = options;
   // Before anything opens the file, so a repaired file replaces it whole.
   const fileRepair = await repairDatabaseFile({
     databasePath,
     dataFolder: options.dataFolder,
     indexFolderPath: options.indexFolderPath,
     operatingSystem: options.operatingSystem,
+    diskFlush,
     readBackupFolder: options.readBackupFolder,
-    whileRepairing: (repair) => answerRepairingWhile(options.runFolder, repair, writeServiceLog),
+    whileRepairing: (repair) =>
+      answerRepairingWhile(options.runFolder, repair, writeServiceLog, options.readSocketPathLimit),
     stopSignal: options.stopSignal,
     now: options.now,
     writeServiceLog,
@@ -115,7 +121,7 @@ export async function openDatabaseFile(
   // A run that ends uncleanly leaves this record, which vouches for the file at the next start;
   // an unvouched file keeps the last run's record until its check finds it sound.
   if (lastRunEnd !== "unknown") {
-    await recordRunStart(databasePath);
+    await recordRunStart(databasePath, diskFlush);
     isVouched = true;
   } else {
     writeServiceLog(
@@ -125,7 +131,7 @@ export async function openDatabaseFile(
   }
   const writesHold = isVouched ? undefined : Promise.withResolvers<void>();
   const damageWatch = new DatabaseDamageWatch();
-  const database = await openDatabaseRecordingDamage({
+  const database = await openDatabaseRecordingDamage(diskFlush, {
     databasePath,
     writeServiceLog,
     writesHeldUntil: writesHold?.promise,
@@ -153,7 +159,7 @@ export async function openDatabaseFile(
                 );
                 if (!isVouched) {
                   try {
-                    await recordRunStart(databasePath);
+                    await recordRunStart(databasePath, diskFlush);
                     isVouched = true;
                   } catch (error) {
                     writeServiceLog(
@@ -181,7 +187,7 @@ export async function openDatabaseFile(
             // A file the last run vouched for is vouched for no longer.
             if (isVouched) {
               isVouched = false;
-              await forgetLastRun(databasePath).catch((forgetError: unknown) => {
+              await forgetLastRun(databasePath, diskFlush).catch((forgetError: unknown) => {
                 writeServiceLog(
                   "Removing the record of the last run failed, so the next start may write " +
                     `before its check answers: ${describeError(forgetError)}`,
@@ -202,7 +208,7 @@ export async function openDatabaseFile(
     },
     recordCleanStop: async () => {
       if (isVouched) {
-        await recordCleanStop(databasePath);
+        await recordCleanStop(databasePath, diskFlush);
       }
     },
     recordFoundDamage: () => {
@@ -211,7 +217,7 @@ export async function openDatabaseFile(
       }
       damageRecord ??= damageWatch.whenFound.then(async (damage) => {
         try {
-          await recordDatabaseDamage(databasePath, damage);
+          await recordDatabaseDamage(databasePath, damage, diskFlush);
         } catch (error) {
           throw new Error(
             "Recording the damage to the database file failed, so the next start's check must " +
@@ -228,6 +234,7 @@ export async function openDatabaseFile(
 // Opens the database's connections; a file too damaged to open is recorded for the next start to
 // repair, and the start fails naming it.
 async function openDatabaseRecordingDamage(
+  diskFlush: DiskFlush,
   options: Parameters<typeof openDatabaseConnections>[0],
 ): Promise<DatabaseConnections> {
   try {
@@ -236,7 +243,7 @@ async function openDatabaseRecordingDamage(
     if (!isDatabaseDamageError(error)) {
       throw error;
     }
-    await recordDatabaseDamage(options.databasePath, describeError(error));
+    await recordDatabaseDamage(options.databasePath, describeError(error), diskFlush);
     throw new Error(
       `The database file is damaged; the next start repairs it: ${describeError(error)}`,
       { cause: error },

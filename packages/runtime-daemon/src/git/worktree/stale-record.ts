@@ -14,7 +14,12 @@ import { withCleanupFailures } from "../../cleanup-failures.js";
 import type { ServiceLogWriter } from "../../daemon/service-log.js";
 import { mintUuidV7 } from "../../uuid-v7.js";
 import { canonicalFolderPath } from "../../workspace/folder/canonical-path.js";
-import { readFolderNamesOptional, readOptional, type GitFilesystem } from "../filesystem.js";
+import {
+  readFolderNamesOptional,
+  readOptional,
+  type FolderRenames,
+  type GitFilesystem,
+} from "../filesystem.js";
 import { pathExists } from "../../file/path-exists.js";
 import type { KeptCopyClaims } from "./claims.js";
 import { LEFTOVER_ID_PATTERN } from "./kept-copy.js";
@@ -23,6 +28,7 @@ import { readRecordNamedBy } from "./reads.js";
 /** The seams a stale record's removal runs through, and what live trees and put-backs hold. */
 interface StaleRecordTools {
   readonly filesystem: Pick<GitFilesystem, "rename" | "removePath">;
+  readonly folderRenames: FolderRenames;
   readonly writeServiceLog: ServiceLogWriter;
   readonly claims: KeptCopyClaims;
 }
@@ -171,15 +177,15 @@ async function putRecordBack(
 }
 
 // Moves the record set aside to `recordFolder` while that name is free, answering whether it did.
-// Off Windows the name is taken by `mkdir` first, so a put-back's `mkdir` of it fails and takes the
-// next number, and the rename then replaces that empty folder; Windows refuses to rename a folder
-// onto one that exists, so there the rename alone takes the name.
+// Where a rename replaces an empty folder, the name is taken by `mkdir` first, so a put-back's
+// `mkdir` of it fails and takes the next number, and the rename then replaces that empty folder;
+// where the system refuses to rename a folder onto one that exists, the rename alone takes it.
 async function takeRecordName(
   tools: StaleRecordTools,
   asideFolder: string,
   recordFolder: string,
 ): Promise<boolean> {
-  if (process.platform === "win32") {
+  if (!tools.folderRenames.canReplaceEmptyFolder) {
     try {
       await tools.filesystem.rename(asideFolder, recordFolder);
       return true;

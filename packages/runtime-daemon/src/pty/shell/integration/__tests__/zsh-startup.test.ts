@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { resolveDaemonRunFolder } from "@ai-sidekicks/contracts/daemon/run-folder";
 
+import { POSIX_DISK_FLUSH } from "../../../../disk-flush/posix.js";
 import { prepareZshStartupFolder } from "../zsh-startup.js";
 
 const STARTUP_FILE_NAMES = [".zshenv", ".zprofile", ".zshrc", ".zlogin"];
@@ -28,7 +29,6 @@ function appFile(fileName: string): string {
 // An account's run folder as the daemon resolves it where no session runtime folder is set.
 function makeRunFolder(temporaryDirectory: string, userId: number): string {
   const { folderPath } = resolveDaemonRunFolder({
-    platform: "linux",
     runtimeDirectory: undefined,
     temporaryDirectory,
     userId,
@@ -46,8 +46,8 @@ describe.skipIf(process.platform === "win32")("prepareZshStartupFolder", () => {
     mkdirSync(path.join(firstRunFolder, "zsh"), { mode: 0o755 });
     writeFileSync(path.join(firstRunFolder, "zsh", ".zshrc"), "# an older app's file\n");
 
-    const first = await prepareZshStartupFolder(firstRunFolder);
-    const second = await prepareZshStartupFolder(secondRunFolder);
+    const first = await prepareZshStartupFolder(firstRunFolder, POSIX_DISK_FLUSH);
+    const second = await prepareZshStartupFolder(secondRunFolder, POSIX_DISK_FLUSH);
 
     expect(first).not.toBe(second);
     for (const folder of [first, second]) {

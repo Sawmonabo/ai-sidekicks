@@ -19,7 +19,7 @@ import { quoteForPosixShell } from "../../shell-quoting.js";
 import { startBashThroughEnv } from "./bash-env-start.js";
 import type { BashStart, BashStartInput, TerminalOperatingSystem } from "./contract.js";
 import { requireDaemonParent } from "./parent-check.js";
-import { endTerminalChildBySignal } from "./signal-ending.js";
+import { POSIX_TERMINAL_SIGNALS } from "./signals.js";
 import { XDG_DEFAULT_DATA_FOLDERS } from "./xdg-data-folders.js";
 
 // macOS's own bash, which skips a posix-mode start's `ENV`.
@@ -36,7 +36,7 @@ export interface AppleBashSystemProfiles {
 }
 
 /** What the terminal takes from macOS, its own bash reading `systemProfiles`. */
-export function darwinTerminalOperatingSystem(
+export function macTerminalOperatingSystem(
   systemProfiles: AppleBashSystemProfiles,
 ): TerminalOperatingSystem {
   const firstPromptCommand = appleBashFirstPromptCommand(systemProfiles);
@@ -49,16 +49,15 @@ export function darwinTerminalOperatingSystem(
         ? startAppleBash(bash, firstPromptCommand)
         : startBashThroughEnv(bash),
     launchTerminalChild: requireDaemonParent,
-    endTerminalChild: endTerminalChildBySignal,
+    ...POSIX_TERMINAL_SIGNALS,
   };
 }
 
 /** What the terminal takes from macOS, as Apple's bash names its system profiles. */
-export const DARWIN_TERMINAL_OPERATING_SYSTEM: TerminalOperatingSystem =
-  darwinTerminalOperatingSystem({
-    managedProfilePath: "/private/var/db/ManagedConfigurationFiles/com.apple.bash/etc/profile",
-    profilePath: "/etc/profile",
-  });
+export const MAC_TERMINAL_OPERATING_SYSTEM: TerminalOperatingSystem = macTerminalOperatingSystem({
+  managedProfilePath: "/private/var/db/ManagedConfigurationFiles/com.apple.bash/etc/profile",
+  profilePath: "/etc/profile",
+});
 
 // Starts macOS's own bash as a login shell that reads no login file and no history, through a
 // bash that only names it `-bash`, which no node-pty start can, and whose posix mode keeps it from

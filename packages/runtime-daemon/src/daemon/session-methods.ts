@@ -56,12 +56,12 @@ import {
   registerTranscriptSearch,
 } from "../ipc/handlers/transcript-methods.js";
 import type { StreamingPrimitive } from "../ipc/streaming-primitive.js";
+import type { DaemonOperatingSystem } from "../operating-system/contract.js";
 import type { AttachmentResolver } from "../provider/driver/attachments.js";
 import type { ProviderRegistry } from "../provider/driver/registry.js";
 import { ProviderConversationPurge } from "../provider/conversation-purge.js";
 import { PortRegistration } from "../provider/port/registration.js";
-import type { SpawnEnvNameMatch, SpawnEnvPair } from "../provider/spawn-env.js";
-import type { TerminalOperatingSystem } from "../pty/operating-system/contract.js";
+import type { SpawnEnvPair } from "../provider/spawn-env.js";
 import { RuntimeBindingStore } from "../provider/runtime-binding-store.js";
 import type { RunSetupGate } from "../session/run/setup-gates.js";
 import type { PtyHost } from "../pty/host/contract.js";
@@ -141,8 +141,6 @@ export interface SessionMethodsDeps {
    * in; `null` runs the system's default one.
    */
   readonly commandShell: string | null;
-  /** How this system compares environment variable names, which setup commands are built under. */
-  readonly environmentNameMatch: SpawnEnvNameMatch;
   /**
    * The login shell's environment captured at the start, which setup commands and every shell are
    * built from.
@@ -152,8 +150,8 @@ export interface SessionMethodsDeps {
    * The daemon's run folder, which only this account may open; a shell's startup files go there.
    */
   readonly runFolderPath: string;
-  /** What the terminal takes from the operating system it runs on. */
-  readonly terminalOperatingSystem: TerminalOperatingSystem;
+  /** The operating system the daemon runs on, chosen once at its start. */
+  readonly operatingSystem: DaemonOperatingSystem;
   /** Reads the person's login shell, which each shell opens; `null` where the account has none. */
   readonly readLoginShell: () => string | null;
   /** The service's own release version, which each shell's terminal names when a program asks. */
@@ -415,11 +413,12 @@ export function registerSessionMethods(
     homeDirectory: deps.homeDirectory,
     folderPlace: deps.folderPlace,
     commandShell: deps.commandShell,
-    environmentNameMatch: deps.environmentNameMatch,
+    environmentNameMatch: deps.operatingSystem.provider.environmentNameMatch,
     baseEnvironment: deps.providerBaseEnvironment,
     streamingPrimitive: deps.streamingPrimitive,
     outboundQueue: deps.outboundQueue,
     scheduler,
+    operatingSystem: deps.operatingSystem,
     writeServiceLog: deps.writeServiceLog,
   });
   const shellTable = new ShellTable({
@@ -451,9 +450,10 @@ export function registerSessionMethods(
     readLoginShell: deps.readLoginShell,
     terminalVersion: `sidekicks ${deps.serviceVersion}`,
     baseEnvironment: deps.providerBaseEnvironment,
-    environmentNameMatch: deps.environmentNameMatch,
+    environmentNameMatch: deps.operatingSystem.provider.environmentNameMatch,
     runFolderPath: deps.runFolderPath,
-    operatingSystem: deps.terminalOperatingSystem,
+    operatingSystem: deps.operatingSystem.terminal,
+    diskFlush: deps.operatingSystem.diskFlush,
     outboundQueue: deps.outboundQueue,
     writeServiceLog: deps.writeServiceLog,
   });
@@ -473,6 +473,7 @@ export function registerSessionMethods(
     homeDirectory: deps.homeDirectory,
     scheduler,
     readVolumeFreeBytes: deps.readVolumeFreeBytes,
+    diskFlush: deps.operatingSystem.diskFlush,
   });
 
   const autoTitle = new SessionAutoTitle({

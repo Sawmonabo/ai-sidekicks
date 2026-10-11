@@ -6,14 +6,14 @@
 // it; the spawn's daemon-parent check is what keeps such a shell from starting.
 
 import { SPAWN_NONCE_ENVIRONMENT_NAME } from "../registry.js";
-import type { DarwinSystemLibrary } from "./system-library.js";
+import type { MacSystemLibrary } from "./system-library.js";
 
 /**
  * Reads the environment of each process the user with `userId` runs, once, and answers which of
  * `nonces` each carries, by process id.
  */
-export function findDarwinProcessesCarryingNonces(
-  library: DarwinSystemLibrary,
+export function findMacProcessesCarryingNonces(
+  library: MacSystemLibrary,
   userId: number,
   nonces: ReadonlySet<string>,
 ): Map<number, string> {

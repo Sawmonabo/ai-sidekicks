@@ -40,7 +40,6 @@ import {
 import { assertLoadedForBind } from "../bootstrap/index.js";
 import { assertSocketPathFits, SecureDefaults } from "../bootstrap/secure-defaults.js";
 import { mapJsonRpcError } from "./jsonrpc-error-mapping.js";
-import { readSocketPathLimit } from "./socket-path-limit.js";
 import { describeRejection } from "../rejection.js";
 
 // --------------------------------------------------------------------------
@@ -137,6 +136,11 @@ export interface LocalIpcGatewayOptions {
    */
   readonly deviceId?: DeviceId;
   readonly hooks?: SupervisionHooks;
+  /**
+   * Reads the longest socket path the system binds, which the listen path must fit; `null` where
+   * the path names a pipe, which has no such limit.
+   */
+  readonly readSocketPathLimit: (() => Promise<number>) | null;
 }
 
 /**
@@ -149,6 +153,7 @@ export class LocalIpcGateway {
   readonly #registry: MethodRegistry;
   readonly #deviceId: DeviceId | undefined;
   readonly #hooks: SupervisionHooks | null;
+  readonly #readSocketPathLimit: (() => Promise<number>) | null;
   #server: net.Server | null;
   #connections: Map<number, ConnectionState>;
   #started: boolean;
@@ -157,6 +162,7 @@ export class LocalIpcGateway {
     this.#registry = options.registry;
     this.#deviceId = options.deviceId;
     this.#hooks = options.hooks ?? null;
+    this.#readSocketPathLimit = options.readSocketPathLimit;
     this.#server = null;
     this.#connections = new Map();
     this.#started = false;
@@ -165,7 +171,7 @@ export class LocalIpcGateway {
   /**
    * Bind the listener to the path in `SecureDefaults.effectiveSettings()`. Rejects if
    * `SecureDefaults.load` has not completed, if the gateway is already started, with
-   * `invalid_local_ipc_path` before the bind when the path is longer than the platform's socket
+   * `invalid_local_ipc_path` before the bind when the path is longer than the system's socket
    * address field, or on a bind failure such as EADDRINUSE; a failed start leaves the instance
    * unstarted so `start()` can be retried.
    */
@@ -179,10 +185,8 @@ export class LocalIpcGateway {
 
     const settings = SecureDefaults.effectiveSettings();
     const listenPath = settings.localIpcPath;
-    // A Unix domain socket path must fit the platform's address field; a Windows pipe name has no
-    // such field.
-    if (process.platform !== "win32") {
-      assertSocketPathFits(listenPath, await readSocketPathLimit());
+    if (this.#readSocketPathLimit !== null) {
+      assertSocketPathFits(listenPath, await this.#readSocketPathLimit());
     }
 
     const server = net.createServer((socket) => {

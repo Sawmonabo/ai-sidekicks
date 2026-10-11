@@ -30,8 +30,6 @@ export type DriverStrategy = "cd-prefix" | "cwd-env";
  * - `windows-cmd`: `cmd.exe /d /s /v:off /c "cd /d <quoted> && <command>"`. Windows has no
  *   `exec`, so the wrapper stays in the process tree; that is harmless because the lock is on
  *   `stableParent`, not the worktree.
- *
- * Defaults to `windows-cmd` on Windows and `posix` elsewhere.
  */
 type WrappingShell = "posix" | "windows-cmd";
 
@@ -43,8 +41,10 @@ export interface TranslateSpawnCwdInput {
   strategy: DriverStrategy;
   /** A directory that survives worktree teardown, such as the daemon's working directory. */
   stableParent: string;
-  /** The shell for `cd-prefix`; ignored by `cwd-env`. */
-  wrappingShell?: WrappingShell;
+  /**
+   * The shell for `cd-prefix`, the system's own: `windows-cmd` on Windows; `cwd-env` ignores it.
+   */
+  wrappingShell: WrappingShell;
 }
 
 /**
@@ -72,10 +72,7 @@ export function translateSpawnCwd(input: TranslateSpawnCwdInput): SpawnRequest {
   }
 
   // strategy === "cd-prefix"
-  const shell: WrappingShell =
-    input.wrappingShell ?? (process.platform === "win32" ? "windows-cmd" : "posix");
-
-  if (shell === "posix") {
+  if (input.wrappingShell === "posix") {
     // `exec` replaces the wrapper shell, so the PTY child is the target and kill signals reach it.
     const quotedWorktree: string = quoteForPosixShell(worktreePath);
     const quotedCommand: string = quoteForPosixShell(spec.command);
@@ -92,7 +89,7 @@ export function translateSpawnCwd(input: TranslateSpawnCwdInput): SpawnRequest {
     };
   }
 
-  // shell === "windows-cmd": cmd.exe /d /s /v:off /c "cd /d "<worktree>" && "<cmd>" <args>"
+  // wrappingShell === "windows-cmd": cmd.exe /d /s /v:off /c "cd /d "<worktree>" && "<cmd>" <args>"
   //   /d     skips AutoRun, so shell-init scripts cannot interfere.
   //   /s     strips the outer quotes when the line starts and ends with `"`; without it a path
   //          with spaces misparses.

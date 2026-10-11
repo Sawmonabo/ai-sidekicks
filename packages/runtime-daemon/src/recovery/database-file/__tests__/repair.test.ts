@@ -20,9 +20,9 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { BACKUP_MANIFEST_FILE_NAME } from "@ai-sidekicks/contracts/daemon/backup";
 import type { DaemonRepairProgress } from "@ai-sidekicks/contracts/daemon/recovery";
 
+import { HOST_OPERATING_SYSTEM } from "../../../../tests/helpers/host-operating-system.js";
 import { openDatabase } from "../../../session/migration-runner.js";
 import { recordDatabaseDamage } from "../damage.js";
-import { chooseDatabaseFileOperatingSystem } from "../operating-system.js";
 import { repairDatabaseFile } from "../repair.js";
 
 const PAGE_SIZE = 4096;
@@ -132,7 +132,11 @@ async function damageIndexPage(): Promise<void> {
   const file = await readFile(databasePath);
   file.fill(0xa5, (rootPage - 1) * PAGE_SIZE, rootPage * PAGE_SIZE);
   await writeFile(databasePath, file);
-  await recordDatabaseDamage(databasePath, "an index page is damaged");
+  await recordDatabaseDamage(
+    databasePath,
+    "an index page is damaged",
+    HOST_OPERATING_SYSTEM.diskFlush,
+  );
 }
 
 // Gives each event a snapshot row pointing at it, then overwrites one of the event table's leaf
@@ -163,7 +167,11 @@ async function damageEventPageUnderSnapshots(sessionId: string, count: number): 
   const file = await readFile(databasePath);
   file.fill(0xa5, (leafPage - 1) * PAGE_SIZE, leafPage * PAGE_SIZE);
   await writeFile(databasePath, file);
-  await recordDatabaseDamage(databasePath, "an event page is damaged");
+  await recordDatabaseDamage(
+    databasePath,
+    "an event page is damaged",
+    HOST_OPERATING_SYSTEM.diskFlush,
+  );
 }
 
 function countRows(table: "session_snapshots"): number {
@@ -207,7 +215,8 @@ function repair(progressReports: (DaemonRepairProgress | undefined)[] = []) {
     dataFolder,
     indexFolderPath,
     readBackupFolder: () => Promise.resolve(backupFolder),
-    operatingSystem: chooseDatabaseFileOperatingSystem(process.platform),
+    operatingSystem: HOST_OPERATING_SYSTEM.databaseFile,
+    diskFlush: HOST_OPERATING_SYSTEM.diskFlush,
     whileRepairing: (repairDamagedFile) =>
       repairDamagedFile((progress) => {
         progressReports.push(progress);
@@ -311,7 +320,11 @@ describe("the database file's repair", () => {
     // A header no SQLite reads.
     file.fill(0xa5, 0, 100);
     await writeFile(databasePath, file);
-    await recordDatabaseDamage(databasePath, "file is not a database");
+    await recordDatabaseDamage(
+      databasePath,
+      "file is not a database",
+      HOST_OPERATING_SYSTEM.diskFlush,
+    );
 
     const first = await repair();
     const second = await repair();

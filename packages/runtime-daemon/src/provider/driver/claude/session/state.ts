@@ -13,6 +13,7 @@ import type { RunEngine } from "../../../../session/run/engine.js";
 import type { RunInboundDispatch } from "../../../../session/run/inbound.js";
 import type { PermissionAskPort } from "../../../port/permission-ask.js";
 import type { QuestionPort } from "../../../port/question.js";
+import type { DiskFlush } from "../../../../disk-flush/contract.js";
 import type { PortRegistration } from "../../../port/registration.js";
 import type { SessionRulePort } from "../../../port/session-rules.js";
 import type { ReviewerDenialPort } from "../../../port/reviewer-denial.js";
@@ -279,6 +280,8 @@ export interface ClaudeSessionLifecycleDependencies {
   readonly rebindRuntimeBinding: (rebind: RuntimeBindingRebind) => Promise<void>;
   /** The operating system the daemon runs on, chosen where the daemon is composed. */
   readonly operatingSystem: ProviderOperatingSystem;
+  /** How a written rule or settings file is flushed to disk. */
+  readonly diskFlush: DiskFlush;
   /**
    * Schedules a restart wait and answers its cancel; an unref'd timer by default, injectable to
    * skip the wait.

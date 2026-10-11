@@ -6,7 +6,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import { PtyBackendUnavailableError } from "../binary-path.js";
 import { RustSidecarPtyHost } from "../host.js";
-import type { TaskkillResult } from "../../taskkill-windows.js";
+import { HOST_OPERATING_SYSTEM } from "../../../../tests/helpers/host-operating-system.js";
+import { LINUX_TERMINAL_OPERATING_SYSTEM } from "../../operating-system/linux.js";
+import { windowsTerminalOperatingSystem } from "../../operating-system/windows.js";
+import type { TaskkillResult } from "../../../process-tree/windows.js";
 import {
   flushMicrotasks,
   frameEnvelope,
@@ -25,7 +28,7 @@ describe("RustSidecarPtyHost.shutdown — drain", () => {
       "sessionsDrained",
     async () => {
       const fake = makeFakeSidecarChild(SIDECAR_PID);
-      const host = new RustSidecarPtyHost({
+      const host = new RustSidecarPtyHost(HOST_OPERATING_SYSTEM.terminal, {
         resolveBinaryPath: () => "/fake/sidecar",
         spawn: spawnReturning(fake),
       });
@@ -91,7 +94,7 @@ describe("RustSidecarPtyHost.shutdown — drain", () => {
       vi.useFakeTimers();
       try {
         const fake = makeFakeSidecarChild(SIDECAR_PID);
-        const host = new RustSidecarPtyHost({
+        const host = new RustSidecarPtyHost(HOST_OPERATING_SYSTEM.terminal, {
           resolveBinaryPath: () => "/fake/sidecar",
           spawn: spawnReturning(fake),
         });
@@ -158,11 +161,10 @@ describe("RustSidecarPtyHost.shutdown — drain", () => {
       vi.useFakeTimers();
       try {
         const fake = makeFakeSidecarChild(SIDECAR_PID);
-        // Pin the platform so the POSIX `child.kill("SIGKILL")` escalation runs on any CI runner.
-        const host = new RustSidecarPtyHost({
+        // Linux, so the POSIX `child.kill("SIGKILL")` escalation runs on any CI runner.
+        const host = new RustSidecarPtyHost(LINUX_TERMINAL_OPERATING_SYSTEM, {
           resolveBinaryPath: () => "/fake/sidecar",
           spawn: spawnReturning(fake),
-          platform: "linux",
         });
 
         await spawnAnsweredSession(host, () => fake, "s-0");
@@ -206,7 +208,7 @@ describe("RustSidecarPtyHost.shutdown — drain", () => {
   );
 
   it(
-    "escalates via spawnTaskkill (Windows tree-kill) and reports taskkillEscalated:true when " +
+    "escalates via taskkill (Windows tree-kill) and reports taskkillEscalated:true when " +
       "the sidecar does not exit within hostTimeoutMs",
     async () => {
       // On Windows a wedged sidecar is tree-killed with `taskkill /T /F /PID`: Node's SIGKILL ends
@@ -217,12 +219,13 @@ describe("RustSidecarPtyHost.shutdown — drain", () => {
         const mockTaskkill: ReturnType<typeof vi.fn<(pid: number) => Promise<TaskkillResult>>> = vi
           .fn<(pid: number) => Promise<TaskkillResult>>()
           .mockResolvedValue({ exitCode: 0 });
-        const host = new RustSidecarPtyHost({
-          resolveBinaryPath: () => "/fake/sidecar",
-          spawn: spawnReturning(fake),
-          platform: "win32",
-          spawnTaskkill: mockTaskkill,
-        });
+        const host = new RustSidecarPtyHost(
+          windowsTerminalOperatingSystem(undefined, { runTaskkill: mockTaskkill }),
+          {
+            resolveBinaryPath: () => "/fake/sidecar",
+            spawn: spawnReturning(fake),
+          },
+        );
 
         await spawnAnsweredSession(host, () => fake, "s-0");
 
@@ -250,7 +253,7 @@ describe("RustSidecarPtyHost.shutdown — drain", () => {
         await Promise.resolve();
         await Promise.resolve();
 
-        // The escalation returns once `spawnTaskkill` resolves; the child's own exit may come
+        // The escalation returns once `taskkill` resolves; the child's own exit may come
         // later.
         fake.triggerExit(0, null);
         await Promise.resolve();
@@ -273,26 +276,26 @@ describe("RustSidecarPtyHost.shutdown — drain", () => {
   );
 
   it(
-    "bounds the Windows tree-kill escalation by 5 s " +
-      "wall-clock when spawnTaskkill never settles",
+    "bounds the Windows tree-kill escalation by 5 s " + "wall-clock when taskkill never settles",
     async () => {
-      // Even if `taskkill.exe` never returns, `escalateHardKillTree` gives up after 5 s and the
+      // Even if `taskkill.exe` never returns, the Windows host kill gives up after 5 s and the
       // drain resolves. Without that bound this test would hang past vitest's 5 s test timeout.
       vi.useFakeTimers();
       try {
         const fake = makeFakeSidecarChild(SIDECAR_PID);
-        // A `spawnTaskkill` that never settles stands in for a stuck `taskkill.exe`.
+        // A `taskkill` that never settles stands in for a stuck `taskkill.exe`.
         const neverSettlingTaskkill: ReturnType<
           typeof vi.fn<(pid: number) => Promise<TaskkillResult>>
         > = vi
           .fn<(pid: number) => Promise<TaskkillResult>>()
           .mockImplementation(() => new Promise<TaskkillResult>(() => {}));
-        const host = new RustSidecarPtyHost({
-          resolveBinaryPath: () => "/fake/sidecar",
-          spawn: spawnReturning(fake),
-          platform: "win32",
-          spawnTaskkill: neverSettlingTaskkill,
-        });
+        const host = new RustSidecarPtyHost(
+          windowsTerminalOperatingSystem(undefined, { runTaskkill: neverSettlingTaskkill }),
+          {
+            resolveBinaryPath: () => "/fake/sidecar",
+            spawn: spawnReturning(fake),
+          },
+        );
 
         await spawnAnsweredSession(host, () => fake, "s-0");
 
@@ -319,7 +322,7 @@ describe("RustSidecarPtyHost.shutdown — drain", () => {
         await Promise.resolve();
         await Promise.resolve();
 
-        // `spawnTaskkill` was called and never settles; only the 5 s bound can end the drain.
+        // `taskkill` was called and never settles; only the 5 s bound can end the drain.
         expect(neverSettlingTaskkill).toHaveBeenCalledTimes(1);
         expect(neverSettlingTaskkill).toHaveBeenCalledWith(SIDECAR_PID);
 
@@ -344,7 +347,7 @@ describe("RustSidecarPtyHost.shutdown — drain", () => {
       vi.useFakeTimers();
       try {
         const fake = makeFakeSidecarChild(SIDECAR_PID);
-        const host = new RustSidecarPtyHost({
+        const host = new RustSidecarPtyHost(HOST_OPERATING_SYSTEM.terminal, {
           resolveBinaryPath: () => "/fake/sidecar",
           spawn: spawnReturning(fake),
         });
@@ -402,11 +405,10 @@ describe("RustSidecarPtyHost.shutdown — drain", () => {
       vi.useFakeTimers();
       try {
         const fake = makeFakeSidecarChild(SIDECAR_PID);
-        // Pin the platform so the POSIX `child.kill("SIGKILL")` escalation runs on any CI runner.
-        const host = new RustSidecarPtyHost({
+        // Linux, so the POSIX `child.kill("SIGKILL")` escalation runs on any CI runner.
+        const host = new RustSidecarPtyHost(LINUX_TERMINAL_OPERATING_SYSTEM, {
           resolveBinaryPath: () => "/fake/sidecar",
           spawn: spawnReturning(fake),
-          platform: "linux",
         });
         const onExit = vi.fn();
         host.setOnExit(onExit);
@@ -491,7 +493,7 @@ describe("RustSidecarPtyHost.shutdown — drain", () => {
       vi.useFakeTimers();
       try {
         const fake = makeFakeSidecarChild(SIDECAR_PID);
-        const host = new RustSidecarPtyHost({
+        const host = new RustSidecarPtyHost(HOST_OPERATING_SYSTEM.terminal, {
           resolveBinaryPath: () => "/fake/sidecar",
           spawn: spawnReturning(fake),
         });
@@ -544,7 +546,7 @@ describe("RustSidecarPtyHost.shutdown — drain", () => {
 
   it("rejects concurrent spawn() during shutdown with PtyBackendUnavailableError", async () => {
     const fake = makeFakeSidecarChild(SIDECAR_PID);
-    const host = new RustSidecarPtyHost({
+    const host = new RustSidecarPtyHost(HOST_OPERATING_SYSTEM.terminal, {
       resolveBinaryPath: () => "/fake/sidecar",
       spawn: spawnReturning(fake),
     });
@@ -595,7 +597,7 @@ describe("RustSidecarPtyHost.shutdown — drain", () => {
       // left behind.
 
       const fake = makeFakeSidecarChild(SIDECAR_PID);
-      const host = new RustSidecarPtyHost({
+      const host = new RustSidecarPtyHost(HOST_OPERATING_SYSTEM.terminal, {
         resolveBinaryPath: () => "/fake/sidecar",
         spawn: spawnReturning(fake),
       });
@@ -651,7 +653,7 @@ describe("RustSidecarPtyHost.shutdown — drain", () => {
       "shutdown() call returns the same in-flight Promise",
     async () => {
       const fake = makeFakeSidecarChild(SIDECAR_PID);
-      const host = new RustSidecarPtyHost({
+      const host = new RustSidecarPtyHost(HOST_OPERATING_SYSTEM.terminal, {
         resolveBinaryPath: () => "/fake/sidecar",
         spawn: spawnReturning(fake),
       });

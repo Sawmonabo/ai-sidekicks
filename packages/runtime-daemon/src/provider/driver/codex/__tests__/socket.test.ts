@@ -9,7 +9,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocketServer } from "ws";
 
-import { DARWIN_PROVIDER_OPERATING_SYSTEM } from "../../../operating-system/darwin.js";
+import { MAC_PROVIDER_OPERATING_SYSTEM } from "../../../operating-system/mac.js";
 import { createCodexServiceSocketConnector } from "../transport/socket.js";
 
 const servers: Server[] = [];
@@ -47,7 +47,7 @@ describe("the Codex service socket", () => {
   ])("reads the size the upgrade names ($header)", async ({ header, limit }) => {
     const socketPath = await listeningService([header]);
 
-    const connect = createCodexServiceSocketConnector(DARWIN_PROVIDER_OPERATING_SYSTEM);
+    const connect = createCodexServiceSocketConnector(MAC_PROVIDER_OPERATING_SYSTEM);
     const socket = await connect(
       socketPath,
       { onMessage: () => undefined, onClose: () => undefined },

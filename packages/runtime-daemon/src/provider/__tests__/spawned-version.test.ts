@@ -33,6 +33,13 @@ import { CODEX_DRIVER_NAME, refreshCodexCapabilities } from "../driver/codex/cap
 import type { DriverCliVersionReport } from "../driver/contract.js";
 import { PROVIDER_DRIVER_DESCRIPTORS } from "../driver/descriptor.js";
 import type { SpawnEnvPair } from "../spawn-env.js";
+import type { ProviderOperatingSystem } from "../operating-system/contract.js";
+import { MAC_PROVIDER_OPERATING_SYSTEM } from "../operating-system/mac.js";
+import { WINDOWS_PROVIDER_OPERATING_SYSTEM } from "../operating-system/windows.js";
+import { HOST_OPERATING_SYSTEM } from "../../../tests/helpers/host-operating-system.js";
+
+// A resolution on the system the tests run on, through its real files.
+const HOST_RESOLUTION = { operatingSystem: HOST_OPERATING_SYSTEM.provider };
 
 /**
  * A handshake transport keyed by resolved path, so the fixture can answer differently for a
@@ -90,7 +97,7 @@ describe("auto-update suppression in the spawned child", () => {
         await resolveProviderExecutable("claude", executable, spawnEnvironment, {
           isExecutableFile: () => Promise.resolve(true),
           realpath: (candidate) => Promise.resolve(candidate),
-          platform: "darwin",
+          operatingSystem: MAC_PROVIDER_OPERATING_SYSTEM,
         }),
       handshake: handshake.run,
       environmentNameMatch: "case-sensitive",
@@ -120,7 +127,7 @@ describe("auto-update suppression in the spawned child", () => {
           await resolveProviderExecutable("claude", executable, spawnEnvironment, {
             isExecutableFile: () => Promise.resolve(true),
             realpath: (candidate) => Promise.resolve(candidate),
-            platform: "darwin",
+            operatingSystem: MAC_PROVIDER_OPERATING_SYSTEM,
           }),
         handshake: handshake.run,
         environmentNameMatch: "case-sensitive",
@@ -175,7 +182,7 @@ describe("provider executable resolution", () => {
   describe.skipIf(process.platform === "win32")("against a real launcher symlink", () => {
     it("dereferences a launcher to the exact build path", async () => {
       const { launcherPath, buildPath } = await makeLauncherFixture();
-      const resolved = await resolveProviderExecutable("claude", launcherPath, []);
+      const resolved = await resolveProviderExecutable("claude", launcherPath, [], HOST_RESOLUTION);
       expect(resolved.requestedCommand).toBe(launcherPath);
       // `realpath` also resolves the temp root's own symlinks (macOS `/var` to `/private/var`),
       // so assert on the final components.
@@ -190,7 +197,12 @@ describe("provider executable resolution", () => {
       // The launcher's folder is on the spawn's base alone, so a search of the daemon's own PATH
       // finds nothing, and a read that found another build would describe one never spawned.
       const { binDirectory, launcherPath } = await makeLauncherFixture();
-      const dereferenced = await resolveProviderExecutable("claude", launcherPath, []);
+      const dereferenced = await resolveProviderExecutable(
+        "claude",
+        launcherPath,
+        [],
+        HOST_RESOLUTION,
+      );
       const handshake = new RecordingHandshake({
         [dereferenced.resolvedExecutablePath]: { version: "2.1.245" },
       });
@@ -198,7 +210,7 @@ describe("provider executable resolution", () => {
       const reading = await readSpawnedProviderVersion({
         driverName: "claude",
         resolveCommand: async (spawnEnvironment) =>
-          await resolveProviderExecutable("claude", "claude", spawnEnvironment, {}),
+          await resolveProviderExecutable("claude", "claude", spawnEnvironment, HOST_RESOLUTION),
         handshake: handshake.run,
         environmentNameMatch: "case-sensitive",
         baseEnv: [["PATH", binDirectory]],
@@ -214,7 +226,7 @@ describe("provider executable resolution", () => {
       // Launcher drift: the transport answers `2.1.245` for the dereferenced build and `2.1.198`
       // for the launcher path; the reading and both binding carriers must carry the build's.
       const { launcherPath } = await makeLauncherFixture();
-      const resolved = await resolveProviderExecutable("claude", launcherPath, []);
+      const resolved = await resolveProviderExecutable("claude", launcherPath, [], HOST_RESOLUTION);
       const handshake = new RecordingHandshake({
         [resolved.resolvedExecutablePath]: { version: "2.1.245" },
         [launcherPath]: { version: "2.1.198" },
@@ -223,7 +235,12 @@ describe("provider executable resolution", () => {
       const reading = await readSpawnedProviderVersion({
         driverName: "claude",
         resolveCommand: async (spawnEnvironment) =>
-          await resolveProviderExecutable("claude", launcherPath, spawnEnvironment, {}),
+          await resolveProviderExecutable(
+            "claude",
+            launcherPath,
+            spawnEnvironment,
+            HOST_RESOLUTION,
+          ),
         handshake: handshake.run,
         environmentNameMatch: "case-sensitive",
         baseEnv: [],
@@ -250,6 +267,7 @@ describe("provider executable resolution", () => {
     const thrown = await captureRejection(async () => {
       await resolveProviderExecutable("codex", "codex", [["PATH", "/nowhere/at/all"]], {
         isExecutableFile: () => Promise.resolve(false),
+        operatingSystem: HOST_OPERATING_SYSTEM.provider,
       });
     });
     expect(thrown).toBeInstanceOf(ProviderExecutableUnresolvableError);
@@ -262,6 +280,7 @@ describe("provider executable resolution", () => {
   it("looks for a bare command through the command search only after the PATH", async () => {
     const executables = new Set<string>();
     const dependencies = {
+      operatingSystem: HOST_OPERATING_SYSTEM.provider,
       isExecutableFile: (candidate: string) => Promise.resolve(executables.has(candidate)),
       realpath: (candidate: string) => Promise.resolve(candidate),
       commandSearch: {
@@ -300,7 +319,7 @@ describe("provider executable resolution", () => {
     // `node:path`'s and follows the host, so the fixture uses host-shaped PATH entries.
     const probed: string[] = [];
     const resolved = await resolveProviderExecutable("claude", "claude", WINDOWS_SPAWN_ENV, {
-      platform: "win32",
+      operatingSystem: WINDOWS_PROVIDER_OPERATING_SYSTEM,
       isExecutableFile: (candidate) => {
         probed.push(candidate);
         return Promise.resolve(candidate.endsWith(".EXE"));
@@ -317,7 +336,7 @@ describe("provider executable resolution", () => {
     const probed: string[] = [];
     await expect(
       resolveProviderExecutable("claude", "claude", WINDOWS_SPAWN_ENV, {
-        platform: "win32",
+        operatingSystem: WINDOWS_PROVIDER_OPERATING_SYSTEM,
         isExecutableFile: (candidate) => {
           probed.push(candidate);
           return Promise.resolve(false);
@@ -340,6 +359,7 @@ describe("provider executable resolution", () => {
       resolveProviderExecutable("claude", "/opt/bin/claude", [], {
         isExecutableFile: () => Promise.resolve(true),
         realpath: () => Promise.reject(new Error("ENOENT")),
+        operatingSystem: HOST_OPERATING_SYSTEM.provider,
       }),
     ).rejects.toBeInstanceOf(ProviderExecutableUnresolvableError);
   });
@@ -410,12 +430,12 @@ describe("the version read at the spawn", () => {
   function passthroughResolver(): {
     readonly isExecutableFile: () => Promise<boolean>;
     readonly realpath: (candidate: string) => Promise<string>;
-    readonly platform: NodeJS.Platform;
+    readonly operatingSystem: ProviderOperatingSystem;
   } {
     return {
       isExecutableFile: () => Promise.resolve(true),
       realpath: (candidate) => Promise.resolve(candidate),
-      platform: "darwin",
+      operatingSystem: MAC_PROVIDER_OPERATING_SYSTEM,
     };
   }
 

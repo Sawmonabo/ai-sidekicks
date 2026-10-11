@@ -7,8 +7,8 @@ import { randomBytes } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 
 import { SPAWN_NONCE_ENVIRONMENT_NAME } from "../../registry.js";
-import { findDarwinProcessesCarryingNonces } from "../nonce-search.js";
-import { loadDarwinSystemLibrary } from "../system-library.js";
+import { findMacProcessesCarryingNonces } from "../nonce-search.js";
+import { loadMacSystemLibrary } from "../system-library.js";
 
 function spawnCarrying(nonce: string): ChildProcess {
   return spawn(process.execPath, ["--eval", "setInterval(() => {}, 1000)"], {
@@ -17,9 +17,9 @@ function spawnCarrying(nonce: string): ChildProcess {
   });
 }
 
-describe.skipIf(process.platform !== "darwin")("findDarwinProcessesCarryingNonces", () => {
+describe.skipIf(process.platform !== "darwin")("findMacProcessesCarryingNonces", () => {
   it("finds the process carrying a sought nonce and no other", async () => {
-    const library = await loadDarwinSystemLibrary();
+    const library = await loadMacSystemLibrary();
     const userId = process.getuid?.() ?? -1;
     const sought = randomBytes(16).toString("hex");
     const other = randomBytes(16).toString("hex");
@@ -29,9 +29,7 @@ describe.skipIf(process.platform !== "darwin")("findDarwinProcessesCarryingNonce
       // Each environment is the child's own only once it has started its program.
       await vi.waitFor(
         () => {
-          expect(
-            findDarwinProcessesCarryingNonces(library, userId, new Set([sought, other])),
-          ).toEqual(
+          expect(findMacProcessesCarryingNonces(library, userId, new Set([sought, other]))).toEqual(
             new Map([
               [carrier.pid, sought],
               [bystander.pid, other],
@@ -42,7 +40,7 @@ describe.skipIf(process.platform !== "darwin")("findDarwinProcessesCarryingNonce
       );
 
       expect(
-        findDarwinProcessesCarryingNonces(
+        findMacProcessesCarryingNonces(
           library,
           userId,
           new Set([sought, randomBytes(16).toString("hex")]),

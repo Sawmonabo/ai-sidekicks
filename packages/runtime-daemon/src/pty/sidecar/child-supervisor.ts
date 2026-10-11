@@ -10,13 +10,13 @@ import type { ChildProcessWithoutNullStreams, SpawnOptions } from "node:child_pr
 import { FrameAccumulator, FramingError } from "@ai-sidekicks/contracts/content-length-framing";
 
 import { CrashWindow } from "../../crash-window.js";
-import type { TaskkillResult } from "../taskkill-windows.js";
+import type { TerminalOperatingSystem } from "../operating-system/contract.js";
 import { PtyBackendUnavailableError } from "./binary-path.js";
 import { MAX_FRAME_BODY_BYTES, SidecarFrameDecodeError } from "./frame-codec.js";
 
 /** The subset of `ChildProcess` the supervisor uses, so tests can build a fake. */
 export interface SidecarChildProcess {
-  /** OS pid; `undefined` if spawn failed first. Only the Windows hard-kill escalation reads it. */
+  /** OS pid; `undefined` if spawn failed first. Only the hard kill at a stuck drain reads it. */
   readonly pid?: number | undefined;
   readonly stdin: NodeJS.WritableStream;
   readonly stdout: NodeJS.ReadableStream;
@@ -57,8 +57,8 @@ export interface SidecarChildSupervisorDependencies {
   readonly resolveBinaryPath: () => string;
   readonly spawn: SidecarSpawnFn | null;
   readonly nowMs: () => number;
-  readonly platform: NodeJS.Platform;
-  readonly spawnTaskkill: (pid: number) => Promise<TaskkillResult>;
+  /** How the system kills a sidecar that does not exit within its drain. */
+  readonly operatingSystem: Pick<TerminalOperatingSystem, "killTerminalHost">;
 }
 
 /** Where the supervisor hands each complete frame the child produces, and its exit or error. */
@@ -480,64 +480,8 @@ export class SidecarChildSupervisor {
       return { sidecarExitedCleanly: true, taskkillEscalated: false };
     }
 
-    // Timeout: the wedged sidecar cannot translate kills itself, so the daemon kills the tree.
-    await this.escalateHardKillTree(child);
+    // Timeout: the wedged sidecar cannot translate kills itself, so the daemon kills it outright.
+    await this.deps.operatingSystem.killTerminalHost(child);
     return { sidecarExitedCleanly: false, taskkillEscalated: true };
-  }
-
-  /**
-   * Hard-kills the sidecar and its PTY children; a failure is logged, never thrown. Windows needs
-   * `taskkill /T /F` (`child.kill` ends one process); on POSIX the closed PTY masters SIGHUP the
-   * `setsid` children, which a group kill would miss.
-   */
-  private async escalateHardKillTree(child: SidecarChildProcess): Promise<void> {
-    if (this.deps.platform === "win32" && child.pid !== undefined) {
-      const pid: number = child.pid;
-      const spawnTaskkill = this.deps.spawnTaskkill;
-      // Bounded so a stuck taskkill cannot hang the drain; a healthy one takes under a second.
-      await new Promise<void>((resolve) => {
-        let settled = false;
-        const fallbackHandle = setTimeout(() => {
-          if (settled) {
-            return;
-          }
-          settled = true;
-          resolve();
-        }, 5000);
-        const finish = (): void => {
-          if (settled) {
-            return;
-          }
-          settled = true;
-          clearTimeout(fallbackHandle);
-          resolve();
-        };
-        void (async (): Promise<void> => {
-          try {
-            await spawnTaskkill(pid);
-          } catch (err: unknown) {
-            // A failed taskkill must not hang the drain; the warn surfaces a recurring failure (bad
-            // PATH, blocked taskkill.exe).
-            console.warn(
-              `RustSidecarPtyHost: escalateHardKillTree: spawnTaskkill rejected for ` +
-                `sidecar pid=${pid}; drain will continue.`,
-              { cause: err },
-            );
-          }
-          finish();
-        })();
-      });
-      return;
-    }
-
-    // POSIX, or a Windows child without a pid: a single-process kill is all that is available.
-    try {
-      child.kill("SIGKILL");
-    } catch (killError: unknown) {
-      // The `exit` event may already have fired and cleared `this.child`.
-      console.warn("RustSidecarPtyHost: SIGKILL to the wedged sidecar failed.", {
-        cause: killError,
-      });
-    }
   }
 }

@@ -11,6 +11,7 @@ import * as path from "node:path";
 
 import { z } from "zod";
 
+import type { DiskFlush } from "../../disk-flush/contract.js";
 import { writeFileAtomically, type AtomicWriteFileSystem } from "../../file/atomic-write.js";
 
 /** The registry's file name in the data folder. */
@@ -74,12 +75,14 @@ export interface OrphanRegistryLeftover {
  */
 export class OrphanRegistry {
   readonly #filePath: string;
+  readonly #diskFlush: DiskFlush;
   readonly #fileSystem: AtomicWriteFileSystem | undefined;
   readonly #entries = new Map<string, OrphanRegistryEntry>();
   #lastWrite: Promise<void> = Promise.resolve();
 
-  constructor(dataFolder: string, fileSystem?: AtomicWriteFileSystem) {
+  constructor(dataFolder: string, diskFlush: DiskFlush, fileSystem?: AtomicWriteFileSystem) {
     this.#filePath = path.join(dataFolder, ORPHAN_REGISTRY_FILE_NAME);
+    this.#diskFlush = diskFlush;
     this.#fileSystem = fileSystem;
   }
 
@@ -156,6 +159,7 @@ export class OrphanRegistry {
         this.#filePath,
         `${JSON.stringify({ entries: [...this.#entries.values()] })}\n`,
         REGISTRY_FILE_MODE,
+        this.#diskFlush,
         this.#fileSystem,
       ),
     );

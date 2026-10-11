@@ -10,6 +10,7 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { HOST_OPERATING_SYSTEM } from "../../../tests/helpers/host-operating-system.js";
 import { RustSidecarPtyHost } from "../../pty/sidecar/host.js";
 import {
   PtyBackendUnavailableError,
@@ -23,7 +24,7 @@ import type { SpawnRequest, SpawnResponse } from "../../pty/host/protocol.js";
 // other error fails the test.
 function resolveBinaryOrNull(): string | null {
   try {
-    return resolveSidecarBinaryPath();
+    return resolveSidecarBinaryPath(HOST_OPERATING_SYSTEM);
   } catch (error: unknown) {
     if (error instanceof PtyBackendUnavailableError) {
       return null;
@@ -132,7 +133,9 @@ describe.runIf(process.platform === "win32")(
         });
 
         // No `binaryPath` override: the production resolver finds the sidecar.
-        const host: RustSidecarPtyHost = new RustSidecarPtyHost();
+        const host: RustSidecarPtyHost = new RustSidecarPtyHost(HOST_OPERATING_SYSTEM.terminal, {
+          resolveBinaryPath: () => resolveSidecarBinaryPath(HOST_OPERATING_SYSTEM),
+        });
         ctx.host = host;
 
         // `cmd.exe /k` keeps the shell resident, so the lock behavior is observable during the

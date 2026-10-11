@@ -24,8 +24,8 @@ import {
 } from "../injection.js";
 import { type ShellMark, ShellMarkReader } from "../marks.js";
 import type { TerminalOperatingSystem } from "../../../operating-system/contract.js";
-import { darwinTerminalOperatingSystem } from "../../../operating-system/darwin.js";
-import { selectTerminalOperatingSystem } from "../../../operating-system/selector.js";
+import { macTerminalOperatingSystem } from "../../../operating-system/mac.js";
+import { HOST_OPERATING_SYSTEM } from "../../../../../tests/helpers/host-operating-system.js";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -179,7 +179,7 @@ const MACHINE_SYSTEM_PROFILE: BashSystemProfile = { files: {}, expected: "" };
 function appleSystemProfile(isManaged: boolean): BashSystemProfile {
   return {
     operatingSystem: (home) =>
-      darwinTerminalOperatingSystem({
+      macTerminalOperatingSystem({
         managedProfilePath: path.join(home, "managed", "profile"),
         profilePath: path.join(home, "etc", "profile"),
       }),
@@ -363,9 +363,7 @@ describe.skipIf(process.platform === "win32")("each shell's marks in a real logi
         }
         const home = writeFixtureHome(shellCase.files);
         const runFolder = mkdtempSync(path.join(tmpdir(), "shell-marks-run-"));
-        const operatingSystem =
-          shellCase.operatingSystem?.(home) ??
-          selectTerminalOperatingSystem(process.platform, process.env);
+        const operatingSystem = shellCase.operatingSystem?.(home) ?? HOST_OPERATING_SYSTEM.terminal;
         const host = new NodePtyHost(makeOrphanGuardDouble(), operatingSystem);
         const launch = await prepareShellLaunch({
           shellPath,
@@ -375,7 +373,10 @@ describe.skipIf(process.platform === "win32")("each shell's marks in a real logi
             ["TERM", "xterm-256color"],
           ],
           environmentNameMatch: "case-sensitive",
-          startupFolders: await prepareShellStartupFolders(runFolder),
+          startupFolders: await prepareShellStartupFolders(
+            runFolder,
+            HOST_OPERATING_SYSTEM.diskFlush,
+          ),
           operatingSystem,
         });
         try {

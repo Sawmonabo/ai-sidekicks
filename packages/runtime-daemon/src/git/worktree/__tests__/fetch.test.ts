@@ -13,6 +13,7 @@ import {
   openScratchDatabase,
   type ScratchDatabase,
 } from "../../../database/__fixtures__/scratch.js";
+import { HOST_OPERATING_SYSTEM } from "../../../../tests/helpers/host-operating-system.js";
 import { createStreamedGitRunner } from "../../../workspace/clone/streamed-git.js";
 import {
   createGitCommand,
@@ -78,7 +79,7 @@ describe("the background fetch", () => {
         git: createGitRunner(recordingGit),
         timeoutMs: DEFAULT_GIT_COMMAND_TIMEOUT_MS,
       }),
-      streamedGit: createStreamedGitRunner(recordingGit),
+      streamedGit: createStreamedGitRunner(recordingGit, HOST_OPERATING_SYSTEM.processTree),
     });
 
     const release = backgroundFetch.keepFresh({ repoMountId: "mount", repositoryRoot: repository });

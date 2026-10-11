@@ -5,6 +5,7 @@
 import type { PermissionLevel } from "@ai-sidekicks/contracts/session/controls/methods";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
+import type { DiskFlush } from "../../../../disk-flush/contract.js";
 import { canonicalFolderPath } from "../../../../workspace/folder/canonical-path.js";
 import { writeIntoProjectFolders } from "../../../project-rule-folders.js";
 import type { ProviderAnswerRule, ProviderAskRule } from "../../../port/permission-ask.js";
@@ -54,6 +55,7 @@ export async function keepClaudeAnswerRule(
   live: LiveClaudeSession,
   made: ProviderAnswerRule,
   sessionRules: readonly ProviderAskRule[],
+  diskFlush: DiskFlush,
 ): Promise<void> {
   const { rule } = made;
   if (rule.kind === "session") {
@@ -75,8 +77,8 @@ export async function keepClaudeAnswerRule(
   await writeIntoProjectFolders(
     folders,
     rule,
-    writeClaudeProjectRule,
-    removeClaudeProjectRule,
+    (projectFolder, written) => writeClaudeProjectRule(projectFolder, written, diskFlush),
+    (projectFolder, removed) => removeClaudeProjectRule(projectFolder, removed, diskFlush),
     writtenByAnswer,
   );
 }
@@ -91,9 +93,10 @@ export async function revokeClaudeRule(
   rule: ProviderAskRule,
   projectFolder: string | undefined,
   sessionRules: readonly ProviderAskRule[],
+  diskFlush: DiskFlush,
 ): Promise<void> {
   if (projectFolder !== undefined) {
-    await removeClaudeProjectRule(projectFolder, rule);
+    await removeClaudeProjectRule(projectFolder, rule, diskFlush);
   } else if (live !== undefined) {
     await sendClaudePermissions(live, live.executionPosture?.mode, sessionRules);
   }

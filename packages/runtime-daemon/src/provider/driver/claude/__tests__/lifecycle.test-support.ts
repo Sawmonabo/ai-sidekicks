@@ -38,7 +38,8 @@ import {
   TEST_RUN_ID,
   TEST_SESSION_ID,
 } from "../__fixtures__/transport-doubles.js";
-import { DARWIN_PROVIDER_OPERATING_SYSTEM } from "../../../operating-system/darwin.js";
+import { HOST_OPERATING_SYSTEM } from "../../../../../tests/helpers/host-operating-system.js";
+import { MAC_PROVIDER_OPERATING_SYSTEM } from "../../../operating-system/mac.js";
 
 /** The id of the `ordinal`th run the daemon started in a test, a valid UUID. */
 export function daemonTurnRunId(ordinal: number): RunId {
@@ -188,9 +189,10 @@ export function buildHarness(
     },
     // A folder that does not exist, so no test reads this machine's own managed settings.
     operatingSystem: {
-      ...DARWIN_PROVIDER_OPERATING_SYSTEM,
+      ...MAC_PROVIDER_OPERATING_SYSTEM,
       claudeManagedSettingsFolder: "/nonexistent/claude-managed-settings",
     },
+    diskFlush: HOST_OPERATING_SYSTEM.diskFlush,
     restartScheduler: (callback) => {
       scheduledRestarts.push(callback);
       return (): void => {

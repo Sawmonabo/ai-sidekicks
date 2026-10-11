@@ -26,6 +26,7 @@ import {
   type ProviderPermissionAnswer,
 } from "../../../port/permission-ask.js";
 import type { QuestionPort } from "../../../port/question.js";
+import type { DiskFlush } from "../../../../disk-flush/contract.js";
 import type { PortRegistration } from "../../../port/registration.js";
 import { isPlainObject, readNonEmptyString } from "../../../record-readers.js";
 import type {
@@ -128,6 +129,8 @@ export interface CodexAskHandOffDependencies {
   /** The session's record, whose memory names a change item's files. */
   readonly recordFor: (sessionId: SessionId) => CodexSessionRecord | undefined;
   readonly readGitFolder: CodexGitFolderReader;
+  /** How a written rule file is flushed to disk. */
+  readonly diskFlush: DiskFlush;
 }
 
 // The words steered into the turn after the decline that carries a corrected command or path.
@@ -154,6 +157,7 @@ export class CodexAskHandOff {
   readonly #reportDiagnostic: CodexDiagnosticSink;
   readonly #recordFor: CodexAskHandOffDependencies["recordFor"];
   readonly #readGitFolder: CodexGitFolderReader;
+  readonly #diskFlush: DiskFlush;
   // The approvals held for their card, by session then Codex's request id.
   readonly #heldBySession = new Map<SessionId, Map<string, CodexHeldApproval>>();
   // The corrected commands and paths approved, by session, each taken by Codex's next ask for it in
@@ -166,6 +170,7 @@ export class CodexAskHandOff {
     this.#reportDiagnostic = dependencies.reportDiagnostic;
     this.#recordFor = dependencies.recordFor;
     this.#readGitFolder = dependencies.readGitFolder;
+    this.#diskFlush = dependencies.diskFlush;
   }
 
   /**
@@ -249,8 +254,9 @@ export class CodexAskHandOff {
       await writeIntoProjectFolders(
         answer.madeRule.projectFolders,
         answer.madeRule.rule,
-        (projectFolder, rule) => writeCodexProjectRule(projectFolder, rule, this.#readGitFolder),
-        removeCodexProjectRule,
+        (projectFolder, rule) =>
+          writeCodexProjectRule(projectFolder, rule, this.#readGitFolder, this.#diskFlush),
+        (projectFolder, rule) => removeCodexProjectRule(projectFolder, rule, this.#diskFlush),
       ).catch((error: unknown) => {
         throw new ProviderRuleNotKeptError(error);
       });

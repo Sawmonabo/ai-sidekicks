@@ -1,10 +1,11 @@
 // What the terminal takes from the operating system it runs on: the shell the system starts for an
 // account that names none, how a shell with no marks script starts as a login shell, the data
 // folders fish reads by default, how bash starts with the marks script loaded beside the person's
-// login files, and how a terminal child starts and is ended. Each system's module answers, and the
-// daemon picks one at its start, so no caller tests the platform.
+// login files, and how a terminal child starts, takes a client's signal and is ended. Each
+// system's module answers, and the daemon picks one at its start, so no caller tests the platform.
 
 import type { SpawnEnvNameMatch, SpawnEnvPair } from "../../provider/spawn-env.js";
+import type { PtySignal } from "../host/protocol.js";
 
 /** How a terminal child is started: the program run, and its arguments. */
 export interface TerminalChildLaunch {
@@ -55,6 +56,46 @@ export interface TerminalOperatingSystem {
   ): TerminalChildLaunch;
   /** Ends a terminal child by `ending`; its exit follows unless the child withstands it. */
   endTerminalChild(child: TerminalChildProcess, ending: TerminalChildEnding): void;
+  /**
+   * Delivers a signal a client sent to a terminal child. Resolves once the delivery has begun, not
+   * when the child has exited; rejects when the system's signal cannot be sent.
+   */
+  deliverSignal(delivery: TerminalSignalDelivery): Promise<void>;
+  /**
+   * Kills at once the process group a terminal child leads, for a child the orphan registry could
+   * not record; `undefined` where the system has no process groups, and the child's terminal is
+   * closed through its endings instead. Throws, `ESRCH` for a group already gone.
+   */
+  readonly killChildGroup: ((leaderId: number) => void) | undefined;
+  /**
+   * Kills a terminal host process that stopped answering, with every terminal child it started
+   * where the system reaches them only through the host's tree. Resolves once the kill is done or
+   * its bound has passed; a failure is logged, never thrown.
+   */
+  killTerminalHost(host: TerminalHostProcess): Promise<void>;
+}
+
+/** A terminal host process the daemon kills outright: the PTY sidecar. */
+export interface TerminalHostProcess {
+  /** `undefined` when its start failed first. */
+  readonly pid?: number | undefined;
+  kill(signal: NodeJS.Signals): boolean;
+}
+
+/** A client's signal to a terminal child, and how the terminal host follows it up. */
+interface TerminalSignalDelivery {
+  readonly child: TerminalChildProcess;
+  readonly signal: PtySignal;
+  /**
+   * Runs `step` after `delayMs` unless the child exits, its terminal closes or another signal comes
+   * first.
+   */
+  readonly escalateAfter: (delayMs: number, step: () => void) => void;
+  /**
+   * Reports the child ended outright once `ending` settles, whether or not the system has reaped
+   * it, unless its exit came first. `ending` never rejects.
+   */
+  readonly reportForcedEnd: (ending: Promise<void>) => void;
 }
 
 /** What a bash start is decided from. */

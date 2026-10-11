@@ -39,7 +39,12 @@ import { withCleanupFailures } from "../../cleanup-failures.js";
 import { mapWithProcessorBound } from "../../processor-bound.js";
 import { settleAll } from "../../settle-all.js";
 import { mintUuidV7 } from "../../uuid-v7.js";
-import { readFolderNamesOptional, readOptional, type GitFilesystem } from "../filesystem.js";
+import {
+  readFolderNamesOptional,
+  readOptional,
+  type FolderRenames,
+  type GitFilesystem,
+} from "../filesystem.js";
 import { pathExists } from "../../file/path-exists.js";
 import type { GitCommand } from "../process.js";
 import type { WorktreeCopiesUnderWay, WorktreeCopyReport } from "./copy-progress.js";
@@ -73,11 +78,6 @@ const RECORD_LOCATION_FILES: ReadonlySet<string> = new Set(["gitdir", "commondir
 
 const PIN_REF_PREFIX = "refs/sidekicks/removed";
 
-// How the system refuses a rename while a program holds a file in the tree open: Windows answers
-// EPERM, EACCES or EBUSY, other systems EBUSY alone, where a permission refusal surfaces as itself.
-const HELD_FILE_ERROR_CODES: ReadonlySet<string> = new Set(
-  process.platform === "win32" ? ["EPERM", "EACCES", "EBUSY"] : ["EBUSY"],
-);
 const CROSS_VOLUME_ERROR_CODE = "EXDEV";
 
 /** The id a leftover folder's name ends in, as a pattern, so no other folder is taken for one. */
@@ -156,11 +156,13 @@ export interface MovedAsideWorktree extends KeptWorktreeState {
 export interface KeptCopyTools {
   readonly runGit: GitCommand;
   readonly filesystem: Pick<GitFilesystem, "rename" | "removePath">;
+  /** How the system renames a folder, and refuses a rename while a file in it is held open. */
+  readonly folderRenames: FolderRenames;
   /** Where a copy across volumes reports its progress. */
   readonly copies: Pick<WorktreeCopiesUnderWay, "begin" | "logUnmeasuredCopy">;
 }
 
-type FolderMoveTools = Pick<KeptCopyTools, "filesystem" | "copies">;
+type FolderMoveTools = Pick<KeptCopyTools, "filesystem" | "folderRenames" | "copies">;
 
 /**
  * A move across volumes copied the folder whole but could not remove the original completely:
@@ -703,7 +705,7 @@ export async function renameOrCopyFolder(
     return "renamed";
   } catch (renameFailure) {
     const code = (renameFailure as NodeJS.ErrnoException).code;
-    if (code !== undefined && HELD_FILE_ERROR_CODES.has(code)) {
+    if (code !== undefined && tools.folderRenames.heldFileErrorCodes.has(code)) {
       throw refuseHeld(renameFailure);
     }
     if (code !== CROSS_VOLUME_ERROR_CODE) {

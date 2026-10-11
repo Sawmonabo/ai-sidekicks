@@ -10,6 +10,7 @@ import {
   openScratchDatabase,
   type ScratchDatabase,
 } from "../../../database/__fixtures__/scratch.js";
+import { HOST_OPERATING_SYSTEM } from "../../../../tests/helpers/host-operating-system.js";
 import { EventLogService } from "../../../events/log-service.js";
 import { SessionWorkingFolders } from "../../../session/working-folder/move.js";
 import { KeyedLock } from "../../../keyed-lock.js";
@@ -160,6 +161,8 @@ export async function openWorktreeFixture(
     },
   });
   const removedWorktrees = new RemovedWorktreeStore({
+    folderRenames: HOST_OPERATING_SYSTEM.folderRenames,
+    diskFlush: HOST_OPERATING_SYSTEM.diskFlush,
     database: scratch,
     runGit,
     filesystem: keptCopyFilesystem,
@@ -207,6 +210,7 @@ export async function openWorktreeFixture(
     sessions: workingFolders,
     runGit,
     filesystem: keptCopyFilesystem,
+    folderRenames: HOST_OPERATING_SYSTEM.folderRenames,
     copies: worktreeCopies,
     writeServiceLog: (line) => {
       throw new Error(`unexpected service log line: ${line}`);

@@ -43,7 +43,7 @@ import type { KeyedLock } from "../../keyed-lock.js";
 import { settleAll } from "../../settle-all.js";
 import { mintUuidV7 } from "../../uuid-v7.js";
 import { canonicalFolderPath } from "../../workspace/folder/canonical-path.js";
-import type { GitFilesystem } from "../filesystem.js";
+import type { FolderRenames, GitFilesystem } from "../filesystem.js";
 import { pathExists } from "../../file/path-exists.js";
 import type { GitCommand } from "../process.js";
 import { WorktreeRetireConflictError, WorktreeRetireIncompleteError } from "./errors.js";
@@ -171,6 +171,8 @@ export interface WorktreeRemovalDeps {
   /** The daemon's git entry point. */
   readonly runGit: GitCommand;
   readonly filesystem: Pick<GitFilesystem, "rename" | "removePath">;
+  /** How the system renames a folder, which a discard's move and a record's removal follow. */
+  readonly folderRenames: FolderRenames;
   /** Where a discard's copy across volumes, and its undo's, reports its progress. */
   readonly copies: KeptCopyTools["copies"];
   /** Where the repair writes a tree record it found set aside and left there, its name taken. */
@@ -453,6 +455,7 @@ export class WorktreeRemoval implements RetiredWorktreeKeeper {
         removeStaleTreeRecord(
           {
             filesystem: this.#deps.filesystem,
+            folderRenames: this.#deps.folderRenames,
             writeServiceLog: this.#deps.writeServiceLog,
             claims: removedWorktrees.claims,
           },
@@ -545,7 +548,12 @@ export class WorktreeRemoval implements RetiredWorktreeKeeper {
     const mount = this.#deps.worktrees.requireAttachedMount(row.repo_mount_id);
     try {
       return await moveWorktreeAside(
-        { runGit: this.#deps.runGit, filesystem: this.#deps.filesystem, copies: this.#deps.copies },
+        {
+          runGit: this.#deps.runGit,
+          filesystem: this.#deps.filesystem,
+          folderRenames: this.#deps.folderRenames,
+          copies: this.#deps.copies,
+        },
         {
           worktreeId: WorktreeIdSchema.parse(row.id),
           projectId: ProjectIdSchema.parse(mount.project_id),

@@ -18,8 +18,8 @@ import * as path from "node:path";
 
 import type { DaemonRepairProgress } from "@ai-sidekicks/contracts/daemon/recovery";
 
-import { flushPath } from "../../disk-flush.js";
-import { syncFolder, writeFileAtomically } from "../../file/atomic-write.js";
+import type { DiskFlush } from "../../disk-flush/contract.js";
+import { writeFileAtomically } from "../../file/atomic-write.js";
 import { pathExists } from "../../file/path-exists.js";
 import { copyDatabaseFilesAside, DATABASE_COMPANION_FILE_SUFFIXES } from "./aside-copy.js";
 import { readDatabaseDamage, removeDatabaseDamage } from "./damage.js";
@@ -40,6 +40,7 @@ export interface DatabaseFileRepairOptions {
   /** The search index's folder, built from the database's rows; a replaced file drops it. */
   readonly indexFolderPath: string;
   readonly operatingSystem: DatabaseFileOperatingSystem;
+  readonly diskFlush: DiskFlush;
   /** The folder the person's backups go to; read only when the file is damaged. */
   readonly readBackupFolder: () => Promise<string>;
   /**
@@ -138,7 +139,7 @@ async function repairDamagedFile(
     reportProgress(undefined);
     sessionsFromBackup = await prepareWithNewestBackup(options, freshPath);
     // The recovery wrote with no syncs; the whole file reaches the disk before its marker.
-    await flushPath(freshPath);
+    await options.diskFlush.flushFile(freshPath);
     stopSignal.throwIfAborted();
   } catch (error) {
     // Every shell has exited; the fresh file is left for the next repair to remove, and nothing
@@ -153,7 +154,7 @@ async function repairDamagedFile(
   }
   // From the marker on, a failure is thrown rather than read as a failed repair: the fresh file
   // stays, and the next start finishes the replacement.
-  await writeFileAtomically(readyMarkerPath, "", 0o600);
+  await writeFileAtomically(readyMarkerPath, "", 0o600, options.diskFlush);
   await replaceDatabaseFile(options, freshPath, readyMarkerPath);
   options.writeServiceLog(
     `The database file was recovered; ${String(sessionsFromBackup)} sessions took their ` +
@@ -288,11 +289,11 @@ async function prepareWithNewestBackup(
 // power loss, and the file, checked whole, is recorded as a clean stop leaves one, so the start
 // takes writes at once; the damage record then goes, and the marker last.
 async function replaceDatabaseFile(
-  options: Pick<DatabaseFileRepairOptions, "databasePath" | "indexFolderPath">,
+  options: Pick<DatabaseFileRepairOptions, "databasePath" | "indexFolderPath" | "diskFlush">,
   freshPath: string,
   readyMarkerPath: string,
 ): Promise<void> {
-  const { databasePath } = options;
+  const { databasePath, diskFlush } = options;
   for (const suffix of DATABASE_COMPANION_FILE_SUFFIXES) {
     await rm(`${databasePath}${suffix}`, { force: true });
   }
@@ -300,9 +301,9 @@ async function replaceDatabaseFile(
   if (await pathExists(freshPath)) {
     await rename(freshPath, databasePath);
   }
-  await syncFolder(path.dirname(databasePath));
-  await recordCleanStop(databasePath);
+  await diskFlush.flushFolder(path.dirname(databasePath));
+  await recordCleanStop(databasePath, diskFlush);
   await removeDatabaseDamage(databasePath);
   await rm(readyMarkerPath);
-  await syncFolder(path.dirname(databasePath));
+  await diskFlush.flushFolder(path.dirname(databasePath));
 }

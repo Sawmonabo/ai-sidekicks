@@ -7,6 +7,7 @@ import { readFile, rm } from "node:fs/promises";
 
 import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 
+import type { DiskFlush } from "../../disk-flush/contract.js";
 import { writeFileAtomically } from "../../file/atomic-write.js";
 import { isMissingFileError } from "../../file/missing-error.js";
 import { DelegatingRegistry } from "../../ipc/registry.js";
@@ -57,8 +58,12 @@ export class DatabaseDamageWatch {
  * Records the damage beside the database file, durably, so the next start repairs the file.
  * Rejects with the file system's error.
  */
-export async function recordDatabaseDamage(databasePath: string, damage: string): Promise<void> {
-  await writeFileAtomically(damageRecordPath(databasePath), damage, 0o600);
+export async function recordDatabaseDamage(
+  databasePath: string,
+  damage: string,
+  diskFlush: DiskFlush,
+): Promise<void> {
+  await writeFileAtomically(damageRecordPath(databasePath), damage, 0o600, diskFlush);
 }
 
 /** The damage a run recorded for the next start to repair, `undefined` when none was. */
