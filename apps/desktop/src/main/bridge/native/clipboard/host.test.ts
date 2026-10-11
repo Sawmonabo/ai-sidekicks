@@ -46,8 +46,8 @@ async function readsOf(
   flavors: readonly string[],
 ): Promise<string[]> {
   const [entry] = await selectMainOperatingSystem(platform)
-    .clipboards(electronClipboard)
-    .system.readHeld();
+    .clipboardHost(electronClipboard)
+    .readHeld();
   const held = entry ?? expect.fail("the clipboard holds an entry");
   return await Promise.all(flavors.map(async (flavor) => (await held.read(flavor)).text()));
 }
@@ -85,13 +85,13 @@ describe("the plain text's read", () => {
     const text = `${"a".repeat(MAIN_TASK_CHUNK - 1)}—z`;
     const held = holding(["text/plain", NS_STRING], { [NS_STRING]: new Blob([text]) });
 
-    await expect(
-      selectMainOperatingSystem("darwin").clipboards(held).system.readText(),
-    ).resolves.toBe(text);
+    await expect(selectMainOperatingSystem("darwin").clipboardHost(held).readText()).resolves.toBe(
+      text,
+    );
     await expect(
       selectMainOperatingSystem("darwin")
-        .clipboards(holding(["image/png"]))
-        .system.readText(),
+        .clipboardHost(holding(["image/png"]))
+        .readText(),
     ).resolves.toBe("");
   });
 
@@ -100,7 +100,7 @@ describe("the plain text's read", () => {
 
     for (const platform of ["win32", "linux"] as const) {
       await expect(
-        selectMainOperatingSystem(platform).clipboards(held).system.readText(),
+        selectMainOperatingSystem(platform).clipboardHost(held).readText(),
       ).resolves.toBe("read as text");
     }
   });
@@ -120,7 +120,7 @@ describe("a copy's write", () => {
           written.push(...items);
         },
       } as unknown as Electron.Clipboard;
-      const { system } = selectMainOperatingSystem(platform).clipboards(electronClipboard);
+      const system = selectMainOperatingSystem(platform).clipboardHost(electronClipboard);
 
       await system.write({ "image/png": png });
       await system.write({ "text/plain": "a", "text/html": "<b>a</b>" });

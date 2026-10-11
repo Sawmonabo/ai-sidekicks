@@ -14,11 +14,9 @@ export const LINUX_MAIN_OPERATING_SYSTEM: MainOperatingSystem = {
   flushesFolderAfterRename: true,
   createProcessIdentityReader: createLinuxProcessIdentityReader,
   resolveDaemonRunFolder,
+  clipboardHost: linuxClipboardHost,
   // Linux alone keeps a selection clipboard beside the system one.
-  clipboards: (electronClipboard) => ({
-    system: linuxClipboardHost(electronClipboard),
-    selection: linuxClipboardHost(electronClipboard.selection),
-  }),
+  hasPrimarySelection: true,
   // Runs under Xvfb in the test tiers, where an inactive reveal draws.
   ...(__TEST_TIER_BUILD__ ? { unobtrusiveWindows: { reveal: "inactive" } } : {}),
 };

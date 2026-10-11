@@ -1,13 +1,11 @@
-// The host's primary selection, picked once from the platform the bridge reports.
+// The host's primary selection, picked from whether the system keeps one, as the bridge reports.
 
 import type { PlatformBridge } from "../bridge.js";
 import type { PrimarySelection } from "./contract.js";
-import { linuxPrimarySelection } from "./linux.js";
-import { MAC_AND_WINDOWS_PRIMARY_SELECTION } from "./mac-and-windows.js";
+import { keptPrimarySelection } from "./kept.js";
+import { NO_PRIMARY_SELECTION } from "./none.js";
 
-/** This operating system's primary selection: Linux's, or none on macOS and Windows. */
+/** This system's primary selection: the one it keeps, or none where it keeps none. */
 export function primarySelectionFor(bridge: PlatformBridge): PrimarySelection {
-  return bridge.app.platform === "linux"
-    ? linuxPrimarySelection(bridge)
-    : MAC_AND_WINDOWS_PRIMARY_SELECTION;
+  return bridge.app.hasPrimarySelection ? keptPrimarySelection(bridge) : NO_PRIMARY_SELECTION;
 }

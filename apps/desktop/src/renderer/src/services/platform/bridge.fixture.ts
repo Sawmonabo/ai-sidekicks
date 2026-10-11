@@ -34,6 +34,7 @@ import type { Scenario } from "#fixtures/scenario.js";
 export const FIXTURE_APP_META: AppFacts = {
   version: "0.0.0-fixture",
   platform: "darwin",
+  hasPrimarySelection: false,
   arch: "arm64",
   locale: "en-US",
   // 16 GiB, the machine the screen's memory budgets were measured on.

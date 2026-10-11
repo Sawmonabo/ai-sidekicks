@@ -17,10 +17,8 @@ export const WINDOWS_MAIN_OPERATING_SYSTEM: MainOperatingSystem = {
   flushesFolderAfterRename: false,
   createProcessIdentityReader: createWindowsProcessIdentityReader,
   resolveDaemonRunFolder: refuseWindowsDaemonRunFolder,
-  clipboards: (electronClipboard) => ({
-    system: windowsClipboardHost(electronClipboard),
-    selection: undefined,
-  }),
+  clipboardHost: windowsClipboardHost,
+  hasPrimarySelection: false,
   // With throttling off, Electron still stops drawing frames for a hidden window here
   // (electron/electron#31016), so the window is shown without activating the app.
   ...(__TEST_TIER_BUILD__ ? { unobtrusiveWindows: { reveal: "inactive" } } : {}),

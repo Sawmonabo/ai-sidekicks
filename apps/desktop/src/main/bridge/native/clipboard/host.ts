@@ -41,6 +41,30 @@ export interface ClipboardHosts {
   readonly selection: ClipboardHost | undefined;
 }
 
+/** What an operating system's clipboards are built from. */
+export interface ClipboardOperatingSystem {
+  /** The system's clipboard over one of Electron's, read and written in the system's own way. */
+  readonly clipboardHost: (electronClipboard: Electron.Clipboard) => ClipboardHost;
+  /** Whether the system keeps a primary selection, a clipboard of its own a middle-click pastes. */
+  readonly hasPrimarySelection: boolean;
+}
+
+/**
+ * `operatingSystem`'s clipboards over Electron's: the system one, and the selection one where the
+ * system keeps a primary selection.
+ */
+export function clipboardHostsOn(
+  operatingSystem: ClipboardOperatingSystem,
+  electronClipboard: Electron.Clipboard,
+): ClipboardHosts {
+  return {
+    system: operatingSystem.clipboardHost(electronClipboard),
+    selection: operatingSystem.hasPrimarySelection
+      ? operatingSystem.clipboardHost(electronClipboard.selection)
+      : undefined,
+  };
+}
+
 /** A held text flavor's bytes, read from Electron's entry by the system's own reading. */
 export type HeldTextReading = (item: Electron.ClipboardItem, type: string) => Promise<Blob>;
 

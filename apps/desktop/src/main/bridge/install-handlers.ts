@@ -36,6 +36,7 @@ import {
   takeClipboardPiece,
   takeClipboardSnapshot,
 } from "./native/clipboard/copies.js";
+import { clipboardHostsOn } from "./native/clipboard/host.js";
 import { listEditors } from "./native/editors/installed.js";
 import { openInEditor, parseEditorOpenRequest, readChosenEditorId } from "./native/editors/open.js";
 import { runProgram } from "./native/editors/program-runner.js";
@@ -67,7 +68,11 @@ export interface BridgeHandlerServices {
   readonly windowContext: WindowHandlerContext;
   readonly operatingSystem: Pick<
     MainOperatingSystem,
-    "installedEditors" | "flushesFolderAfterRename" | "clipboards" | "unobtrusiveWindows"
+    | "installedEditors"
+    | "flushesFolderAfterRename"
+    | "clipboardHost"
+    | "hasPrimarySelection"
+    | "unobtrusiveWindows"
   >;
 }
 
@@ -88,7 +93,7 @@ export function installBridgeHandlers(services: BridgeHandlerServices): void {
     windowContext,
     operatingSystem,
   } = services;
-  const clipboards = operatingSystem.clipboards(clipboard);
+  const clipboards = clipboardHostsOn(operatingSystem, clipboard);
   const clipboardPieces = new ClipboardPieces();
   const keyboardMapFile = new KeyboardMapFile({
     filePath: path.join(userData, KEYBOARD_MAP_FILE_NAME),

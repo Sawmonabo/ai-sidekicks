@@ -174,6 +174,7 @@ export async function bridgeOverLink(
     ...appFactsSwitches({
       version: "0.0.0",
       platform: "darwin",
+      hasPrimarySelection: false,
       arch: "arm64",
       locale: "en-US",
       physicalMemoryBytes: 17_179_869_184,

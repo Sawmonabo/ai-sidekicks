@@ -18,7 +18,7 @@ import type {
 } from "@ai-sidekicks/contracts/process-identity";
 
 import type { MachineClockReader } from "../bridge/machine-clock/reader.js";
-import type { ClipboardHosts } from "../bridge/native/clipboard/host.js";
+import type { ClipboardOperatingSystem } from "../bridge/native/clipboard/host.js";
 import type { InstalledEditors } from "../bridge/native/editors/installed.js";
 import type { ProgramRunner } from "../bridge/native/editors/program-runner.js";
 import type { OwnerOnlyFileOperatingSystem } from "../services/owner-only-file.js";
@@ -51,7 +51,8 @@ export interface ApplicationMenuParts {
 }
 
 /** The facts and readers of one operating system that main's windows, menus and files take. */
-export interface MainOperatingSystem extends OwnerOnlyFileOperatingSystem {
+export interface MainOperatingSystem
+  extends OwnerOnlyFileOperatingSystem, ClipboardOperatingSystem {
   /** The system in Node's spelling, which the app's facts hand every page. */
   readonly platform: SupportedPlatform;
   /** Where the machine's region and 12- or 24-hour clock are read. */
@@ -61,11 +62,6 @@ export interface MainOperatingSystem extends OwnerOnlyFileOperatingSystem {
    * built refuses only the call. Throws on such a system.
    */
   readonly installedEditors: (runProgram: ProgramRunner) => InstalledEditors;
-  /**
-   * The system's clipboards over Electron's, each read and written in the system's own way: the
-   * system one, and the selection one where the system keeps it.
-   */
-  readonly clipboards: (electronClipboard: Electron.Clipboard) => ClipboardHosts;
   /** The title bar every window is built with. */
   readonly titleBar: Pick<BaseWindowConstructorOptions, "titleBarStyle" | "titleBarOverlay">;
   /** Whether the app keeps running once the last window a person sees closes. */

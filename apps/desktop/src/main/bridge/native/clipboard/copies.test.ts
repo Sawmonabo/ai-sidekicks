@@ -17,7 +17,12 @@ import {
   takeClipboardPiece,
   takeClipboardSnapshot,
 } from "./copies.js";
-import type { ClipboardFlavors, ClipboardHost, ClipboardHosts } from "./host.js";
+import {
+  clipboardHostsOn,
+  type ClipboardFlavors,
+  type ClipboardHost,
+  type ClipboardHosts,
+} from "./host.js";
 import { selectMainOperatingSystem } from "../../../operating-system/selection.js";
 
 // Electron's entry holds no `ClipboardItem` outside its own process; this one keeps its flavors.
@@ -97,12 +102,15 @@ describe("the clipboard copy", () => {
     const request = { content: { text: "a settled line" }, clipboard: "selection" };
 
     await copyToClipboard(
-      selectMainOperatingSystem("linux").clipboards(electronClipboard),
+      clipboardHostsOn(selectMainOperatingSystem("linux"), electronClipboard),
       request,
     );
     for (const platform of ["darwin", "win32"] as const) {
       await expect(
-        copyToClipboard(selectMainOperatingSystem(platform).clipboards(electronClipboard), request),
+        copyToClipboard(
+          clipboardHostsOn(selectMainOperatingSystem(platform), electronClipboard),
+          request,
+        ),
       ).rejects.toThrow("This system keeps no selection clipboard.");
     }
 
