@@ -28,6 +28,7 @@ import {
   waitForOverlayScrollbarLibrary,
 } from "#renderer/lib/overlay-scrollbar-library.js";
 import { PlatformBridgeProvider } from "#renderer/services/platform/PlatformBridgeProvider.js";
+import { MAC_KEYBOARD_CONVENTION } from "#renderer/lib/chord/convention/mac.js";
 import { scenarioBridgeAndStore } from "./feature-mounts/repos/fixtures.js";
 import { mountDiffPane } from "./feature-mounts/repos/views.js";
 import { liveBridgeWrapper } from "#test/helpers/app/frame-fixtures.js";
@@ -255,7 +256,7 @@ describe("accessibility — the overlay scrollbar", () => {
           }}
           open
           onOpenChange={() => undefined}
-          platform="darwin"
+          convention={MAC_KEYBOARD_CONVENTION}
         />
       </BridgeHost>,
     );

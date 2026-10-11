@@ -76,7 +76,7 @@ const minimumSizeRequestSchema = z.strictObject({
  */
 export function windowAnswers(
   context: WindowHandlerContext,
-  operatingSystem: Pick<MainOperatingSystem, "unobtrusiveReveal">,
+  operatingSystem: Pick<MainOperatingSystem, "unobtrusiveWindows">,
 ): Readonly<Record<WindowChannel, ChannelAnswer>> {
   const floors = new WindowFloors(screen);
   const requireConsoleDocument = (event: IpcMainInvokeEvent): void => {
@@ -114,7 +114,7 @@ export function windowAnswers(
       // A window that closed while the ask crossed has nothing to bring forward; its close reaches
       // the console document on its own.
       if (baseWindow !== undefined) {
-        bringWindowForward(baseWindow, operatingSystem.unobtrusiveReveal);
+        bringWindowForward(baseWindow, operatingSystem);
       }
     },
     [BRIDGE_CHANNELS.setDefaultSizes]: (event, request) => {

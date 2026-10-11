@@ -51,7 +51,7 @@ describe("a rejected document load", () => {
   it("serves the generated failure document carrying the reason, and shows it", async () => {
     electronMock.failLoadsContaining(INDEX_URL, new Error("ERR_FILE_NOT_FOUND (-6)"));
     const { openHiddenWindow } = await loadWindowModule();
-    const frame = testWindowFrame();
+    const frame = await testWindowFrame();
 
     const rendererWindow = openHiddenWindow({ ...frame, additionalArguments: [] });
 
@@ -75,7 +75,7 @@ describe("a rejected document load", () => {
   it("destroys the hidden window and exits non-zero when no document can be served", async () => {
     electronMock.failLoadsContaining("sidekicks-renderer://app", new Error("handler missing"));
     const { windowModule, loadFailureModule } = await loadWindowAndFailureModules();
-    const frame = testWindowFrame();
+    const frame = await testWindowFrame();
     let exitsWhenTheLogDrained: number | undefined;
     frame.log.drain.mockImplementation(() => {
       exitsWhenTheLogDrained = electronMock.exitCodes.length;
@@ -97,7 +97,7 @@ describe("a rejected document load", () => {
   it("gives up the same way when the failure document loads but cannot be shown", async () => {
     electronMock.failLoadsContaining(INDEX_URL, new Error("ERR_FILE_NOT_FOUND (-6)"));
     const { windowModule, loadFailureModule } = await loadWindowAndFailureModules();
-    const frame = testWindowFrame();
+    const frame = await testWindowFrame();
 
     const rendererWindow = windowModule.openHiddenWindow({ ...frame, additionalArguments: [] });
     vi.spyOn(rendererWindow.baseWindow, "show").mockImplementation(() => {
@@ -118,7 +118,7 @@ describe("a rejected document load", () => {
     it("serves no document, and does not exit the process", async () => {
       electronMock.failLoadsContaining(INDEX_URL, new Error("ERR_ABORTED (-3)"));
       const { openHiddenWindow } = await loadWindowModule();
-      const frame = testWindowFrame();
+      const frame = await testWindowFrame();
 
       const rendererWindow = openHiddenWindow({ ...frame, additionalArguments: [] });
       // Synchronous: `loadURL`'s rejection arrives on a later microtask.

@@ -5,8 +5,7 @@
 
 import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 import { chordMatchesEvent, parseChord } from "#renderer/registries/keybindings/chord.js";
-import type { SupportedPlatform } from "#shared/app-facts.js";
-import { keyboardConventionOf } from "#renderer/lib/chord/convention/selection.js";
+import type { KeyboardConvention } from "#renderer/lib/chord/convention/contract.js";
 import { PLATFORM_MODIFIER_CHORD_TOKEN } from "#renderer/lib/chord/modifiers.js";
 import {
   carriesApplicationModifier,
@@ -56,7 +55,7 @@ export interface KeyboardHandbackOptions {
    * The platform the keystrokes were raised on. A parameter, not a reading, so a fixture can
    * pin it and the decision comes out the same in a test, the renderer and the main process.
    */
-  readonly platform: SupportedPlatform;
+  readonly convention: KeyboardConvention;
 }
 
 /**
@@ -65,12 +64,12 @@ export interface KeyboardHandbackOptions {
  */
 export class KeyboardHandback {
   readonly #readInstalledChords: () => readonly string[] | undefined;
-  readonly #platform: SupportedPlatform;
+  readonly #convention: KeyboardConvention;
   #forwardCount = 0;
 
   public constructor(options: KeyboardHandbackOptions) {
     this.#readInstalledChords = options.readInstalledChords;
-    this.#platform = options.platform;
+    this.#convention = options.convention;
   }
 
   /**
@@ -145,7 +144,7 @@ export class KeyboardHandback {
   #isMirrored(descriptor: ChordDescriptor, mirror: readonly string[]): boolean {
     const pressed = authorKeyboardEvent(descriptor);
     return mirror.some((chord) => {
-      const parsed = parseChord(resolvePlatformModifier(chord, this.#platform));
+      const parsed = parseChord(resolvePlatformModifier(chord, this.#convention));
       return parsed.ok && chordMatchesEvent(parsed.press, pressed);
     });
   }
@@ -160,11 +159,8 @@ export class KeyboardHandback {
  * parser resolves it against the host at import time; the platform is an input here so a test
  * can drive all three.
  */
-function resolvePlatformModifier(chord: string, platform: SupportedPlatform): string {
-  return chord.replaceAll(
-    PLATFORM_MODIFIER_CHORD_TOKEN,
-    keyboardConventionOf(platform).applicationModifier,
-  );
+function resolvePlatformModifier(chord: string, convention: KeyboardConvention): string {
+  return chord.replaceAll(PLATFORM_MODIFIER_CHORD_TOKEN, convention.applicationModifier);
 }
 
 /**

@@ -53,7 +53,7 @@ async function openTestWindow(
 ): Promise<ReturnType<WindowModule["openHiddenWindow"]>> {
   const { openHiddenWindow } = await loadWindowModule();
   return openHiddenWindow({
-    ...testWindowFrame(),
+    ...(await testWindowFrame()),
     additionalArguments: [],
     ...(beforeLoad === undefined ? {} : { beforeLoad }),
   });
@@ -170,7 +170,7 @@ describe("the window factory", () => {
     expect(hiddenWindow.document.setBackgroundThrottling).toHaveBeenCalledWith(false);
 
     const { adoptRendererChild } = await import("./factory.js");
-    const child = adoptRendererChild(testWindowFrame(), handedDocument() as never);
+    const child = adoptRendererChild(await testWindowFrame(), handedDocument() as never);
     expect(asMockWindow(child).baseWindow.showCount).toBe(1);
   });
 

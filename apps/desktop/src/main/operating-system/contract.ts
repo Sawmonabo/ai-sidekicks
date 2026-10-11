@@ -11,14 +11,19 @@ import type { SupportedPlatform } from "#shared/app-facts.js";
 import type { MachineClockReader } from "../bridge/machine-clock/reader.js";
 import type { InstalledEditors } from "../bridge/native/editors/installed.js";
 import type { ProgramRunner } from "../bridge/native/editors/program-runner.js";
-import type { OwnerOnlyFileSystem } from "../services/owner-only-file.js";
+import type { OwnerOnlyFileOperatingSystem } from "../services/owner-only-file.js";
 import type { InstallLocation } from "../services/resource-file.js";
 
 /**
- * How a test build asked to keep out of the way puts a window on screen: `hidden` leaves it as
- * constructed, never ordered onto a screen; `inactive` shows it without activating the app.
+ * How a test build asked to keep out of the way puts its windows up: `hidden` leaves a window as
+ * constructed, never ordered onto a screen, and `inactive` shows it without activating the app;
+ * the activation policy is set before the first window, where the system has one, so the app never
+ * activates and shows no Dock icon.
  */
-export type UnobtrusiveReveal = "hidden" | "inactive";
+export interface UnobtrusiveWindows {
+  readonly reveal: "hidden" | "inactive";
+  readonly activationPolicy?: "accessory";
+}
 
 /** The parts of the application menu and the About panel that differ by system. */
 export interface ApplicationMenuParts {
@@ -36,7 +41,7 @@ export interface ApplicationMenuParts {
 }
 
 /** The facts and readers of one operating system that main's windows, menus and files take. */
-export interface MainOperatingSystem extends OwnerOnlyFileSystem {
+export interface MainOperatingSystem extends OwnerOnlyFileOperatingSystem {
   /** The system in Node's spelling, which the app's facts hand every page. */
   readonly platform: SupportedPlatform;
   /** Where the machine's region and 12- or 24-hour clock are read. */
@@ -50,14 +55,13 @@ export interface MainOperatingSystem extends OwnerOnlyFileSystem {
   readonly titleBar: Pick<BaseWindowConstructorOptions, "titleBarStyle" | "titleBarOverlay">;
   /** Whether the app keeps running once the last window a person sees closes. */
   readonly keepsRunningWithNoWindow: boolean;
+  /** The application menu's and the About panel's parts that differ by system. */
   readonly applicationMenu: ApplicationMenuParts;
-  /** How a test build asked to keep out of the way reveals a window. */
-  readonly unobtrusiveReveal: UnobtrusiveReveal;
-  /**
-   * The activation policy a test build asked to keep out of the way sets before its first window,
-   * so it never activates and shows no Dock icon; absent where the system has no such policy.
-   */
-  readonly unobtrusiveActivationPolicy?: "accessory";
   /** Whether the app keeps an icon in the menu bar for its whole life. */
   readonly hasMenuBarIcon: boolean;
+  /**
+   * How a test build asked to keep out of the way puts its windows up. Set only behind the
+   * compile-time test build flag, so a release bundle carries none of it.
+   */
+  readonly unobtrusiveWindows?: UnobtrusiveWindows;
 }

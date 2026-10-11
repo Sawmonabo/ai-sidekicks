@@ -7,7 +7,7 @@ import type { ChordKeyRendering, KeyboardConvention } from "./contract.js";
  * macOS: `$mod` is Command, keys print as the glyphs its menus show, a press prints as one run
  * with no separator, and Spotlight, the app switcher and Emoji & Symbols take their chords.
  */
-export const DARWIN_KEYBOARD_CONVENTION: KeyboardConvention = {
+export const MAC_KEYBOARD_CONVENTION: KeyboardConvention = {
   applicationModifier: "Meta",
   modifierKeys: {
     Meta: { glyph: "⌘", spoken: "Command" },

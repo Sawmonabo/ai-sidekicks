@@ -9,7 +9,7 @@ import type { MainOperatingSystem } from "./contract.js";
  * window, About sits in the application menu, and the region and clock are read from the person's
  * own settings.
  */
-export const DARWIN_MAIN_OPERATING_SYSTEM: MainOperatingSystem = {
+export const MAC_MAIN_OPERATING_SYSTEM: MainOperatingSystem = {
   platform: "darwin",
   machineClock: new MacMachineClockReader(),
   installedEditors: (runProgram) => new MacInstalledEditors(runProgram),
@@ -40,9 +40,10 @@ export const DARWIN_MAIN_OPERATING_SYSTEM: MainOperatingSystem = {
     ],
     trailingMenus: () => [],
   },
-  // `show()` activates even an accessory app, so the window is never revealed; with throttling
-  // off, Electron keeps drawing frames for a hidden window here.
-  unobtrusiveReveal: "hidden",
-  unobtrusiveActivationPolicy: "accessory",
   hasMenuBarIcon: true,
+  // `show()` activates even an accessory app, so the window is never revealed; with throttling
+  // off, Electron keeps drawing frames for a hidden window here (electron/electron#31016).
+  ...(__TEST_TIER_BUILD__
+    ? { unobtrusiveWindows: { reveal: "hidden", activationPolicy: "accessory" } }
+    : {}),
 };

@@ -4,7 +4,7 @@
 import { fireEvent } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { HOST_CHORD_PLATFORM } from "#renderer/lib/chord/convention/selection.js";
+import { HOST_KEYBOARD_CONVENTION } from "#renderer/lib/chord/convention/selection.js";
 import {
   addressField,
   findRefusalBanner,
@@ -14,7 +14,8 @@ import {
 } from "./PreviewPane.test-support.js";
 
 /** The platform modifier that closes a tab, as an event initializer. */
-const CLOSE_TAB_MODIFIER = HOST_CHORD_PLATFORM === "darwin" ? { metaKey: true } : { ctrlKey: true };
+const CLOSE_TAB_MODIFIER =
+  HOST_KEYBOARD_CONVENTION.applicationModifier === "Meta" ? { metaKey: true } : { ctrlKey: true };
 
 describe("preview pane address field", () => {
   it("refuses a filesystem destination without dispatching a navigation", async () => {

@@ -10,8 +10,8 @@
 import type { KeyboardMap } from "#shared/preload-api.js";
 import { refuse, type Refusal } from "#renderer/lib/refusal/contract.js";
 import type { Keybinding } from "../../commands/keybinding.js";
-import type { SupportedPlatform } from "#shared/app-facts.js";
-import { HOST_CHORD_PLATFORM } from "#renderer/lib/chord/convention/selection.js";
+import type { KeyboardConvention } from "#renderer/lib/chord/convention/contract.js";
+import { HOST_KEYBOARD_CONVENTION } from "#renderer/lib/chord/convention/selection.js";
 import { formatChordForPlatform } from "#renderer/lib/chord/format.js";
 import { auditKeybindings, reservedChordReason } from "../audit.js";
 
@@ -50,7 +50,7 @@ export interface CandidateChordInput {
   /** The act's on-screen title for a command id, or `undefined` for an act this window lacks. */
   readonly commandTitle: (commandId: string) => string | undefined;
   /** Whose reserved chords to refuse; defaults to the host being run on. */
-  readonly platform?: SupportedPlatform;
+  readonly convention?: KeyboardConvention;
 }
 
 /**
@@ -91,8 +91,8 @@ export function refuseCandidateChord(
   input: CandidateChordInput,
 ): KeybindingOverrideRefusal | undefined {
   const { defaults, overrides, commandId, chord } = input;
-  const platform = input.platform ?? HOST_CHORD_PLATFORM;
-  const reserved = reservedChordReason(chord, platform);
+  const convention = input.convention ?? HOST_KEYBOARD_CONVENTION;
+  const reserved = reservedChordReason(chord, convention);
   if (reserved !== undefined) {
     return refuseOverride("chord-reserved", reserved);
   }
@@ -109,7 +109,7 @@ export function refuseCandidateChord(
     const holderTitle = input.commandTitle(holder) ?? "another command";
     return refuseOverride(
       "chord-taken",
-      `${formatChordForPlatform(chord, platform)} already opens ${holderTitle}.`,
+      `${formatChordForPlatform(chord, convention)} already opens ${holderTitle}.`,
     );
   }
   return undefined;

@@ -62,7 +62,10 @@ describe("the navigation policy", () => {
   describe.each(NAVIGATION_SEAMS)("on %s", (seam) => {
     it("stops a remote origin and opens it externally instead", async () => {
       const { openHiddenWindow } = await loadWindowModule();
-      const rendererWindow = openHiddenWindow({ ...testWindowFrame(), additionalArguments: [] });
+      const rendererWindow = openHiddenWindow({
+        ...(await testWindowFrame()),
+        additionalArguments: [],
+      });
       const preventDefault = vi.fn();
 
       navigationListenerOf(rendererWindow, seam)({ preventDefault }, "https://example.test/docs");
@@ -75,7 +78,7 @@ describe("the navigation policy", () => {
 
     it("stops a scheme outside the allowlist and opens nothing", async () => {
       const { openHiddenWindow } = await loadWindowModule();
-      const frame = testWindowFrame();
+      const frame = await testWindowFrame();
       const rendererWindow = openHiddenWindow({ ...frame, additionalArguments: [] });
       const preventDefault = vi.fn();
 
@@ -92,7 +95,10 @@ describe("the navigation policy", () => {
       electronMock.setPackaged(true);
       process.env["ELECTRON_RENDERER_URL"] = DEV_SERVER_URL;
       const { openHiddenWindow } = await loadWindowModule();
-      const rendererWindow = openHiddenWindow({ ...testWindowFrame(), additionalArguments: [] });
+      const rendererWindow = openHiddenWindow({
+        ...(await testWindowFrame()),
+        additionalArguments: [],
+      });
       const preventDefault = vi.fn();
 
       navigationListenerOf(rendererWindow, seam)(
@@ -112,7 +118,10 @@ describe("the navigation policy", () => {
 
   it("denies a popup under a name main builds no window for, same origin included", async () => {
     const { openHiddenWindow } = await loadWindowModule();
-    const rendererWindow = openHiddenWindow({ ...testWindowFrame(), additionalArguments: [] });
+    const rendererWindow = openHiddenWindow({
+      ...(await testWindowFrame()),
+      additionalArguments: [],
+    });
 
     expect(windowOpenHandlerOf(rendererWindow)({ url: INDEX_URL, frameName: "" })).toEqual({
       action: "deny",

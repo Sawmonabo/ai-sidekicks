@@ -2,6 +2,7 @@
 // and a highlighted row outside the window is scrolled into it.
 
 import { fireEvent, render, screen } from "@testing-library/react";
+import { MAC_KEYBOARD_CONVENTION } from "#renderer/lib/chord/convention/mac.js";
 import { describe, expect, it } from "vitest";
 
 import { settle } from "#test/helpers/settle.js";
@@ -53,7 +54,7 @@ function renderOpenPalette(): void {
       }}
       open
       onOpenChange={() => undefined}
-      platform="darwin"
+      convention={MAC_KEYBOARD_CONVENTION}
     />,
     { wrapper: liveBridgeWrapper() },
   );

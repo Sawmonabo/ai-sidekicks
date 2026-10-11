@@ -4,8 +4,10 @@
 // default appearance and never stops a start; a broken one is rewritten as it. A choice is in
 // force only once written, the choices made during one write are written as their last, a View-menu
 // pick never carries in a choice whose write failed, and a listener that throws stops nothing.
+// The folder is flushed after each write's rename only where the operating system answers so.
 
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { openSync } from "node:fs";
+import { chmod, mkdir, mkdtemp, open, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -18,12 +20,16 @@ import {
   type AppearanceRecord,
 } from "#shared/appearance.js";
 import type { MainDiagnosticEntry } from "../services/diagnostic-log.js";
-import type { OwnerOnlyFileSystem } from "../services/owner-only-file.js";
+import type { OwnerOnlyFileOperatingSystem } from "../services/owner-only-file.js";
 import { folderFlushAnswers } from "../services/owner-only-file.test-support.js";
 
 import { KeptAppearance } from "./kept-record.js";
 import { APPEARANCE_FILE_NAME, AppearanceRecordFile } from "./record-file.js";
 import { stampRootElement } from "../services/renderer/root-stamp.js";
+
+// Spied, still writing to disk, so a case can count the folder opened for its flush.
+vi.mock("node:fs", { spy: true });
+vi.mock("node:fs/promises", { spy: true });
 
 const CHOICE: AppearanceChoice = {
   theme: "graphite",
@@ -41,6 +47,8 @@ beforeEach(async () => {
   userData = await mkdtemp(path.join(tmpdir(), "sidekicks-appearance-test-"));
   filePath = path.join(userData, APPEARANCE_FILE_NAME);
   logged = [];
+  vi.mocked(open).mockClear();
+  vi.mocked(openSync).mockClear();
 });
 
 afterEach(async () => {
@@ -62,7 +70,7 @@ function createNativeTheme(): { themeSource: string; shouldUseDarkColors: boolea
 
 /** One start: the kept appearance read from this case's file, its reports in `logged`. */
 function startApp(
-  operatingSystem: OwnerOnlyFileSystem,
+  operatingSystem: OwnerOnlyFileOperatingSystem,
   nativeTheme = createNativeTheme(),
 ): KeptAppearance {
   return new KeptAppearance({
@@ -102,80 +110,100 @@ function startOverHeldWrites(nativeTheme = createNativeTheme()) {
   return { appearance, writes, changeCount: () => changes };
 }
 
-describe.each(folderFlushAnswers())("the appearance record %s", (_answer, operatingSystem) => {
-  it("is kept across a restart and drives the next start's first frame and stamp", async () => {
-    await startApp(operatingSystem).choose(CHOICE, GROUNDS);
+/** How many times a write opened the record's folder, which it does only to flush it. */
+function folderOpenCount(): number {
+  return [...vi.mocked(open).mock.calls, ...vi.mocked(openSync).mock.calls].filter(
+    ([opened]) => opened === userData,
+  ).length;
+}
 
-    // Readable and writable only by the person.
-    expect((await stat(filePath)).mode & 0o777).toBe(0o600);
+for (const { title, operatingSystem, canRunHere } of folderFlushAnswers()) {
+  describe.skipIf(!canRunHere)(`the appearance record ${title}`, () => {
+    it("flushes the folder after a choice's write and a repair only where the system answers so", async () => {
+      const flushes = operatingSystem.flushesFolderAfterRename ? 1 : 0;
+      await startApp(operatingSystem).choose(CHOICE, GROUNDS);
+      expect(folderOpenCount()).toBe(flushes);
 
-    const nativeTheme = createNativeTheme();
-    const nextStart = startApp(operatingSystem, nativeTheme);
-
-    expect(nextStart.record).toStrictEqual({ ...CHOICE, grounds: GROUNDS });
-    // Set before any window exists, so the first frame resolves the kept scheme.
-    expect(nativeTheme.themeSource).toBe("dark");
-    expect(nextStart.ground).toBe(GROUNDS.dark);
-
-    const stamped = stampRootElement('<!doctype html><html lang="en"><head></head></html>', {
-      record: nextStart.record,
-      platformScheme: "dark",
-      isSafeStart: false,
+      // A broken file is rewritten in the same start, through the synchronous write.
+      await writeFile(filePath, "{ theme", "utf8");
+      startApp(operatingSystem);
+      expect(folderOpenCount()).toBe(2 * flushes);
     });
-    expect(stamped).toBe(
-      '<!doctype html><html lang="en" data-theme="graphite" data-color-scheme="dark" ' +
-        'data-resolved-color-scheme="dark" ' +
-        'style="font-size:15px;--meridian-transcript-width:44rem"><head></head></html>',
-    );
+
+    it("is kept across a restart and drives the next start's first frame and stamp", async () => {
+      await startApp(operatingSystem).choose(CHOICE, GROUNDS);
+
+      // Readable and writable only by the person.
+      expect((await stat(filePath)).mode & 0o777).toBe(0o600);
+
+      const nativeTheme = createNativeTheme();
+      const nextStart = startApp(operatingSystem, nativeTheme);
+
+      expect(nextStart.record).toStrictEqual({ ...CHOICE, grounds: GROUNDS });
+      // Set before any window exists, so the first frame resolves the kept scheme.
+      expect(nativeTheme.themeSource).toBe("dark");
+      expect(nextStart.ground).toBe(GROUNDS.dark);
+
+      const stamped = stampRootElement('<!doctype html><html lang="en"><head></head></html>', {
+        record: nextStart.record,
+        platformScheme: "dark",
+        isSafeStart: false,
+      });
+      expect(stamped).toBe(
+        '<!doctype html><html lang="en" data-theme="graphite" data-color-scheme="dark" ' +
+          'data-resolved-color-scheme="dark" ' +
+          'style="font-size:15px;--meridian-transcript-width:44rem"><head></head></html>',
+      );
+    });
+
+    it("reads a missing file as the default, and writes nothing until a choice", async () => {
+      const nativeTheme = createNativeTheme();
+      const appearance = startApp(operatingSystem, nativeTheme);
+
+      expect(appearance.record).toStrictEqual(DEFAULT_APPEARANCE_RECORD);
+      expect(nativeTheme.themeSource).toBe("system");
+      // The first frame is painted before any page has loaded, in the default theme's ground.
+      expect(appearance.ground).toBe(DEFAULT_APPEARANCE_RECORD.grounds.light);
+      await expect(readFile(filePath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+      expect(logged).toStrictEqual([]);
+    });
+
+    it.each([
+      ["not JSON", "{ theme"],
+      ["refused by the schema", JSON.stringify({ ...CHOICE, grounds: { light: "red", dark: "" } })],
+      ["off the text sizes", JSON.stringify({ ...CHOICE, textSize: 17, grounds: GROUNDS })],
+      [
+        "past the widest transcript",
+        JSON.stringify({ ...CHOICE, transcriptWidth: 75, grounds: GROUNDS }),
+      ],
+    ])("reads a file that is %s as the default, and rewrites it so", async (_case, fileText) => {
+      await writeFile(filePath, fileText, "utf8");
+
+      expect(startApp(operatingSystem).record).toStrictEqual(DEFAULT_APPEARANCE_RECORD);
+      expect(JSON.parse(await readFile(filePath, "utf8"))).toStrictEqual(DEFAULT_APPEARANCE_RECORD);
+      expect((await stat(filePath)).mode & 0o777).toBe(0o600);
+      expect(logged).toMatchObject([{ level: "warning", source: "main/appearance" }]);
+    });
+
+    it("reads a file it cannot read or repair as the default, logging it, never stopping a start", async () => {
+      // A folder where the file belongs cannot be read as one, and is left as it is.
+      await mkdir(filePath);
+      expect(startApp(operatingSystem).record).toStrictEqual(DEFAULT_APPEARANCE_RECORD);
+      expect((await stat(filePath)).isDirectory()).toBe(true);
+
+      // A broken file in a folder the person cannot write cannot be rewritten.
+      await rm(filePath, { recursive: true });
+      await writeFile(filePath, "{ theme", "utf8");
+      await chmod(userData, 0o500);
+      expect(startApp(operatingSystem).record).toStrictEqual(DEFAULT_APPEARANCE_RECORD);
+
+      expect(logged.map(({ level, source }) => ({ level, source }))).toStrictEqual([
+        { level: "warning", source: "main/appearance" },
+        { level: "error", source: "main/appearance" },
+      ]);
+    });
   });
-
-  it("reads a missing file as the default, and writes nothing until a choice", async () => {
-    const nativeTheme = createNativeTheme();
-    const appearance = startApp(operatingSystem, nativeTheme);
-
-    expect(appearance.record).toStrictEqual(DEFAULT_APPEARANCE_RECORD);
-    expect(nativeTheme.themeSource).toBe("system");
-    // The first frame is painted before any page has loaded, in the default theme's ground.
-    expect(appearance.ground).toBe(DEFAULT_APPEARANCE_RECORD.grounds.light);
-    await expect(readFile(filePath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
-    expect(logged).toStrictEqual([]);
-  });
-
-  it.each([
-    ["not JSON", "{ theme"],
-    ["refused by the schema", JSON.stringify({ ...CHOICE, grounds: { light: "red", dark: "" } })],
-    ["off the text sizes", JSON.stringify({ ...CHOICE, textSize: 17, grounds: GROUNDS })],
-    [
-      "past the widest transcript",
-      JSON.stringify({ ...CHOICE, transcriptWidth: 75, grounds: GROUNDS }),
-    ],
-  ])("reads a file that is %s as the default, and rewrites it so", async (_case, fileText) => {
-    await writeFile(filePath, fileText, "utf8");
-
-    expect(startApp(operatingSystem).record).toStrictEqual(DEFAULT_APPEARANCE_RECORD);
-    expect(JSON.parse(await readFile(filePath, "utf8"))).toStrictEqual(DEFAULT_APPEARANCE_RECORD);
-    expect((await stat(filePath)).mode & 0o777).toBe(0o600);
-    expect(logged).toMatchObject([{ level: "warning", source: "main/appearance" }]);
-  });
-
-  it("reads a file it cannot read or repair as the default, logging it, never stopping a start", async () => {
-    // A folder where the file belongs cannot be read as one, and is left as it is.
-    await mkdir(filePath);
-    expect(startApp(operatingSystem).record).toStrictEqual(DEFAULT_APPEARANCE_RECORD);
-    expect((await stat(filePath)).isDirectory()).toBe(true);
-
-    // A broken file in a folder the person cannot write cannot be rewritten.
-    await rm(filePath, { recursive: true });
-    await writeFile(filePath, "{ theme", "utf8");
-    await chmod(userData, 0o500);
-    expect(startApp(operatingSystem).record).toStrictEqual(DEFAULT_APPEARANCE_RECORD);
-
-    expect(logged.map(({ level, source }) => ({ level, source }))).toStrictEqual([
-      { level: "warning", source: "main/appearance" },
-      { level: "error", source: "main/appearance" },
-    ]);
-  });
-});
+}
 
 describe("a choice", () => {
   it("is in force only once written, and a run of quick ones is written as its first and last", async () => {

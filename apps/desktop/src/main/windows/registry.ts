@@ -72,7 +72,7 @@ export interface OpenWindowsOptions {
   /** What the system says of a window's title bar and reveal and of the app with no window. */
   readonly operatingSystem: Pick<
     MainOperatingSystem,
-    "titleBar" | "unobtrusiveReveal" | "keepsRunningWithNoWindow"
+    "titleBar" | "unobtrusiveWindows" | "keepsRunningWithNoWindow"
   >;
 }
 
@@ -283,7 +283,7 @@ export class OpenWindows {
     } else {
       this.#heldNavigationRequest = request;
       if (hiddenWindow.baseWindow.isVisible()) {
-        bringWindowForward(hiddenWindow.baseWindow, this.#operatingSystem.unobtrusiveReveal);
+        bringWindowForward(hiddenWindow.baseWindow, this.#operatingSystem);
       }
     }
   }
@@ -334,10 +334,7 @@ export class OpenWindows {
     if (lastUsed === undefined) {
       this.#reopenWindowUsedLast();
     } else {
-      bringWindowForward(
-        lastUsed.rendererWindow.baseWindow,
-        this.#operatingSystem.unobtrusiveReveal,
-      );
+      bringWindowForward(lastUsed.rendererWindow.baseWindow, this.#operatingSystem);
     }
   }
 
@@ -352,7 +349,7 @@ export class OpenWindows {
     if (hiddenWindow === undefined) {
       this.#rebuildHiddenWindow();
     } else if (hiddenWindow.baseWindow.isVisible()) {
-      bringWindowForward(hiddenWindow.baseWindow, this.#operatingSystem.unobtrusiveReveal);
+      bringWindowForward(hiddenWindow.baseWindow, this.#operatingSystem);
     } else {
       this.#sendToConsoleDocument(REOPEN_WINDOW_CHANNEL, this.#consoleWindowUsedLast);
     }

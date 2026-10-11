@@ -1,18 +1,37 @@
 // The answers an operating system gives a suite that writes owner-only files, so each case runs
-// once for each.
+// once with the folder flushed after the rename and once without, and the host's own answer for a
+// suite that writes as the host does.
 
-import type { OwnerOnlyFileSystem } from "./owner-only-file.js";
+import { selectMainOperatingSystem } from "../operating-system/selection.js";
+import type { OwnerOnlyFileOperatingSystem } from "./owner-only-file.js";
 
-/**
- * Each answer this machine can run, named for a case title: the folder flushed after the rename,
- * and left unflushed. Windows cannot flush a folder, so the flushing answer is left out there.
- */
-export function folderFlushAnswers(): readonly (readonly [string, OwnerOnlyFileSystem])[] {
-  const leftUnflushed = [
-    "with the folder left unflushed",
-    { flushesFolderAfterRename: false },
-  ] as const;
-  return process.platform === "win32"
-    ? [leftUnflushed]
-    : [["with the folder flushed", { flushesFolderAfterRename: true }], leftUnflushed];
+/** One answer a write can be given, and whether this machine can carry it out. */
+export interface FolderFlushAnswer {
+  /** A case title naming the answer. */
+  readonly title: string;
+  readonly operatingSystem: OwnerOnlyFileOperatingSystem;
+  /** False for a flush on a host whose own module answers that it cannot flush a folder. */
+  readonly canRunHere: boolean;
+}
+
+/** Both answers: the folder flushed after the rename, and left unflushed. */
+export function folderFlushAnswers(): readonly FolderFlushAnswer[] {
+  const hostFlushes = hostOwnerOnlyFileOperatingSystem().flushesFolderAfterRename;
+  return [
+    {
+      title: "with the folder flushed",
+      operatingSystem: { flushesFolderAfterRename: true },
+      canRunHere: hostFlushes,
+    },
+    {
+      title: "with the folder left unflushed",
+      operatingSystem: { flushesFolderAfterRename: false },
+      canRunHere: true,
+    },
+  ];
+}
+
+/** What the module of the machine running the suite answers a write. */
+export function hostOwnerOnlyFileOperatingSystem(): OwnerOnlyFileOperatingSystem {
+  return selectMainOperatingSystem(process.platform);
 }

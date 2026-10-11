@@ -18,7 +18,7 @@ import { mkdir, open, rename, rm } from "node:fs/promises";
 import { dirname } from "node:path";
 
 /** What a write takes from the operating system it runs on. */
-export interface OwnerOnlyFileSystem {
+export interface OwnerOnlyFileOperatingSystem {
   /**
    * Whether a folder is flushed after a file is renamed into it, so a crash cannot lose the rename;
    * a system whose rename is on disk when it returns has no folder to flush.
@@ -40,7 +40,7 @@ export const OWNER_ONLY_FOLDER_MODE = 0o700;
 export async function writeOwnerOnlyJsonFile(
   filePath: string,
   value: unknown,
-  operatingSystem: OwnerOnlyFileSystem,
+  operatingSystem: OwnerOnlyFileOperatingSystem,
 ): Promise<void> {
   await mkdir(dirname(filePath), { recursive: true, mode: OWNER_ONLY_FOLDER_MODE });
   const temporaryPath = temporaryPathFor(filePath);
@@ -79,7 +79,7 @@ export async function writeOwnerOnlyJsonFile(
 export function writeOwnerOnlyJsonFileSync(
   filePath: string,
   value: unknown,
-  operatingSystem: OwnerOnlyFileSystem,
+  operatingSystem: OwnerOnlyFileOperatingSystem,
 ): void {
   mkdirSync(dirname(filePath), { recursive: true, mode: OWNER_ONLY_FOLDER_MODE });
   const temporaryPath = temporaryPathFor(filePath);

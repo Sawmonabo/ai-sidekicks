@@ -102,7 +102,7 @@ describe("the View menu's color scheme", () => {
   it("moves its tick once a pick is written, and puts it back, logged and announced, when one is not", async () => {
     const { KeptAppearance } = await import("./appearance/kept-record.js");
     const { installApplicationMenu } = await import("./menu.js");
-    const { DARWIN_MAIN_OPERATING_SYSTEM } = await import("./operating-system/darwin.js");
+    const { MAC_MAIN_OPERATING_SYSTEM } = await import("./operating-system/mac.js");
     const writes: { land: () => void; fail: (failure: Error) => void }[] = [];
     const appearance = new KeptAppearance({
       file: {
@@ -121,7 +121,7 @@ describe("the View menu's color scheme", () => {
       { write: (entry) => logged.push(entry) },
       { announceUnkeptScheme, toggleDeveloperTools: () => {} },
       CHECKOUT,
-      DARWIN_MAIN_OPERATING_SYSTEM,
+      MAC_MAIN_OPERATING_SYSTEM,
     );
     expect(tickedScheme()).toBe("System");
 

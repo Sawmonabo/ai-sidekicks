@@ -4,13 +4,11 @@
 // `k`, `K` and `KeyK` are one keystroke.
 //
 // Each key carries a glyph to show and words to speak, since a screen reader mispronounces glyphs
-// such as ⌘; each operating system's keyboard supplies them (`./convention/`). Every renderer takes
-// `platform` as a parameter, and `HOST_CHORD_PLATFORM` is the only reading of the host, so a
+// such as ⌘; each operating system's keyboard supplies them (`./convention/`). Every reader takes
+// the keyboard as a parameter, and `HOST_KEYBOARD_CONVENTION` is the only reading of the host, so a
 // fixture can pin one.
 
-import type { SupportedPlatform } from "#shared/app-facts.js";
-import type { ChordKeyRendering } from "./convention/contract.js";
-import { keyboardConventionOf } from "./convention/selection.js";
+import type { ChordKeyRendering, KeyboardConvention } from "./convention/contract.js";
 import {
   CHORD_MODIFIER_TOKENS,
   PLATFORM_MODIFIER_CHORD_TOKEN,
@@ -18,15 +16,6 @@ import {
   type ChordModifierToken,
   type SpelledModifierToken,
 } from "./modifiers.js";
-
-/**
- * The chord that opens the command palette.
- *
- * `KeyP` rather than `p` so the binding follows the physical key on any keyboard layout. It
- * lives here because the palette, the keyboard settings page and a shared notice component all
- * print it, and one literal keeps their hints identical.
- */
-export const COMMAND_PALETTE_OPEN_CHORD = "$mod+Shift+KeyP";
 
 /** One press of a chord: its held modifiers, in print order, and its key. */
 export interface ChordPressRendering {
@@ -53,12 +42,12 @@ export function splitChordTokens(chord: string): { modifiers: readonly string[];
  * a modifier named twice kept once, the modifiers in spelling order and the key as written. An
  * unknown modifier name is kept as written, for the chord parser to refuse.
  */
-export function normalizeChord(chord: string, platform: SupportedPlatform): string {
+export function normalizeChord(chord: string, convention: KeyboardConvention): string {
   return chord
     .trim()
     .split(" ")
     .filter((press) => press.length > 0)
-    .map((press) => normalizePress(press, platform))
+    .map((press) => normalizePress(press, convention))
     .join(" ");
 }
 
@@ -98,21 +87,20 @@ export function foldChordKeyToken(key: string): string {
  */
 export function renderChordForPlatform(
   chord: string,
-  platform: SupportedPlatform,
+  convention: KeyboardConvention,
 ): readonly ChordPressRendering[] {
   return chord
     .trim()
     .split(" ")
     .filter((press) => press.length > 0)
-    .map((press) => renderSinglePress(press, platform));
+    .map((press) => renderSinglePress(press, convention));
 }
 
-/** The display form of a chord, each press as `platform` prints one (`⌘K`, `Ctrl+K`). */
-export function formatChordForPlatform(chord: string, platform: SupportedPlatform): string {
-  const { printPress } = keyboardConventionOf(platform);
-  return renderChordForPlatform(chord, platform)
+/** The display form of a chord, each press as `convention` prints one (`⌘K`, `Ctrl+K`). */
+export function formatChordForPlatform(chord: string, convention: KeyboardConvention): string {
+  return renderChordForPlatform(chord, convention)
     .map((press) =>
-      printPress(
+      convention.printPress(
         press.modifiers.map((modifier) => modifier.glyph),
         press.key.glyph,
       ),
@@ -131,20 +119,21 @@ function decodeChordKeyToken(key: string): string {
 
 function modifierRendering(
   token: string,
-  platform: SupportedPlatform,
+  convention: KeyboardConvention,
 ): ChordKeyRendering | undefined {
-  const { applicationModifier, modifierKeys } = keyboardConventionOf(platform);
   // `$mod` is resolved first, so no keycap table needs a row for it.
-  return modifierKeys[token === PLATFORM_MODIFIER_CHORD_TOKEN ? applicationModifier : token];
+  return convention.modifierKeys[
+    token === PLATFORM_MODIFIER_CHORD_TOKEN ? convention.applicationModifier : token
+  ];
 }
 
-function keyRendering(key: string, platform: SupportedPlatform): ChordKeyRendering {
+function keyRendering(key: string, convention: KeyboardConvention): ChordKeyRendering {
   const decoded = decodeChordKeyToken(key);
   const punctuation = PUNCTUATION_CODES[decoded];
   if (punctuation !== undefined) {
     return punctuation;
   }
-  const named = keyboardConventionOf(platform).namedKeys[decoded];
+  const named = convention.namedKeys[decoded];
   if (named !== undefined) {
     return named;
   }
@@ -153,7 +142,7 @@ function keyRendering(key: string, platform: SupportedPlatform): ChordKeyRenderi
   return { glyph: printed, spoken: printed };
 }
 
-function renderSinglePress(press: string, platform: SupportedPlatform): ChordPressRendering {
+function renderSinglePress(press: string, convention: KeyboardConvention): ChordPressRendering {
   const { modifiers, key } = splitChordTokens(press);
   const renderedModifiers: ChordKeyRendering[] = [];
   for (const token of modifiers) {
@@ -161,21 +150,21 @@ function renderSinglePress(press: string, platform: SupportedPlatform): ChordPre
     if (token.startsWith("[") && token.endsWith("]")) {
       continue;
     }
-    renderedModifiers.push(modifierRendering(token, platform) ?? { glyph: token, spoken: token });
+    renderedModifiers.push(modifierRendering(token, convention) ?? { glyph: token, spoken: token });
   }
-  return { modifiers: renderedModifiers, key: keyRendering(key, platform) };
+  return { modifiers: renderedModifiers, key: keyRendering(key, convention) };
 }
 
-function normalizePress(press: string, platform: SupportedPlatform): string {
+function normalizePress(press: string, convention: KeyboardConvention): string {
   const { modifiers, key } = splitChordTokens(press);
-  const spelled = [...new Set(modifiers.map((token) => spellModifierToken(token, platform)))];
+  const spelled = [...new Set(modifiers.map((token) => spellModifierToken(token, convention)))];
   return [...spelled.sort((left, right) => rankModifier(left) - rankModifier(right)), key].join(
     "+",
   );
 }
 
 // An optional modifier (`[Shift]`) keeps its brackets; an unknown name is kept as written.
-function spellModifierToken(token: string, platform: SupportedPlatform): string {
+function spellModifierToken(token: string, convention: KeyboardConvention): string {
   const isOptional = token.startsWith("[") && token.endsWith("]");
   const name = isOptional ? token.slice(1, -1) : token;
   const known = CHORD_MODIFIER_TOKENS.find(
@@ -183,9 +172,7 @@ function spellModifierToken(token: string, platform: SupportedPlatform): string 
   );
   const resolved = known === undefined ? name : (MODIFIER_TOKEN_ALIASES[known] ?? known);
   const spelled =
-    resolved === keyboardConventionOf(platform).applicationModifier
-      ? PLATFORM_MODIFIER_CHORD_TOKEN
-      : resolved;
+    resolved === convention.applicationModifier ? PLATFORM_MODIFIER_CHORD_TOKEN : resolved;
   return isOptional ? `[${spelled}]` : spelled;
 }
 

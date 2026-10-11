@@ -3,8 +3,7 @@
 // Shift never makes a chord claimable, because a shift-only combination is a capital letter.
 // Modifier tokens, `$mod` and the press splitter come from `lib/chord/`, not a copy.
 
-import type { SupportedPlatform } from "#shared/app-facts.js";
-import { keyboardConventionOf } from "#renderer/lib/chord/convention/selection.js";
+import type { KeyboardConvention } from "#renderer/lib/chord/convention/contract.js";
 import { foldChordKeyToken, splitChordTokens } from "#renderer/lib/chord/format.js";
 import { CHORD_MODIFIER_TOKENS, type ChordModifierToken } from "#renderer/lib/chord/modifiers.js";
 
@@ -83,11 +82,14 @@ export function projectClaimableChords(chords: readonly string[]): readonly stri
  * with the other absent (on macOS control-W is a page chord, meta-W the application's);
  * composition, alt and shift are rejected.
  */
-export function isCloseTabChord(descriptor: ChordDescriptor, platform: SupportedPlatform): boolean {
+export function isCloseTabChord(
+  descriptor: ChordDescriptor,
+  convention: KeyboardConvention,
+): boolean {
   if (descriptor.isComposing || descriptor.altKey || descriptor.shiftKey) {
     return false;
   }
-  const platformModifierIsMeta = keyboardConventionOf(platform).applicationModifier === "Meta";
+  const platformModifierIsMeta = convention.applicationModifier === "Meta";
   const platformModifierHeld = platformModifierIsMeta ? descriptor.metaKey : descriptor.ctrlKey;
   const otherModifierHeld = platformModifierIsMeta ? descriptor.ctrlKey : descriptor.metaKey;
   if (!platformModifierHeld || otherModifierHeld) {

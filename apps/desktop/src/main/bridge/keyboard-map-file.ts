@@ -17,7 +17,10 @@ import * as z from "zod/mini";
 
 import type { KeyboardMap, KeyboardMapReading } from "#shared/preload-api.js";
 import { isMissingPath } from "../services/missing-path.js";
-import { writeOwnerOnlyJsonFile, type OwnerOnlyFileSystem } from "../services/owner-only-file.js";
+import {
+  writeOwnerOnlyJsonFile,
+  type OwnerOnlyFileOperatingSystem,
+} from "../services/owner-only-file.js";
 
 /** The file's name inside the app's user-data folder. */
 export const KEYBOARD_MAP_FILE_NAME = "keyboard-map.json";
@@ -44,7 +47,7 @@ export interface KeyboardMapFileOptions {
   /** The file's full path. */
   readonly filePath: string;
   readonly now: () => Date;
-  readonly operatingSystem: OwnerOnlyFileSystem;
+  readonly operatingSystem: OwnerOnlyFileOperatingSystem;
 }
 
 const EMPTY_MAP: KeyboardMap = Object.freeze({});
@@ -53,7 +56,7 @@ const EMPTY_MAP: KeyboardMap = Object.freeze({});
 export class KeyboardMapFile {
   readonly #filePath: string;
   readonly #now: () => Date;
-  readonly #operatingSystem: OwnerOnlyFileSystem;
+  readonly #operatingSystem: OwnerOnlyFileOperatingSystem;
   #repair: SettingsFileRepair | undefined;
   #pending: Promise<unknown> = Promise.resolve();
 

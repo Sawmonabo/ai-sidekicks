@@ -15,11 +15,8 @@ import { type Keybinding } from "#renderer/registries/commands/keybinding.js";
 import { type CommandDefinition } from "#renderer/registries/commands/definition.js";
 import type { KeyboardMap } from "#shared/preload-api.js";
 import { scoreSubsequence } from "@ai-sidekicks/search-ranking";
-import type { SupportedPlatform } from "#shared/app-facts.js";
-import {
-  HOST_CHORD_PLATFORM,
-  keyboardConventionOf,
-} from "#renderer/lib/chord/convention/selection.js";
+import type { KeyboardConvention } from "#renderer/lib/chord/convention/contract.js";
+import { HOST_KEYBOARD_CONVENTION } from "#renderer/lib/chord/convention/selection.js";
 import { formatChordForPlatform } from "#renderer/lib/chord/format.js";
 import {
   SPELLED_MODIFIER_TOKENS,
@@ -98,9 +95,9 @@ export function composeKeybindingRows(options: {
    */
   readonly shippedBindings: readonly Keybinding[];
   readonly overrides?: KeyboardMap;
-  readonly platform?: SupportedPlatform;
+  readonly convention?: KeyboardConvention;
 }): readonly KeybindingRow[] {
-  const platform = options.platform ?? HOST_CHORD_PLATFORM;
+  const convention = options.convention ?? HOST_KEYBOARD_CONVENTION;
   const overrides = options.overrides ?? {};
   return options.commands
     .filter((command) => command.takesChord !== false)
@@ -116,7 +113,7 @@ export function composeKeybindingRows(options: {
         group: command.group,
         chord: bound?.chord,
         unavailableReason:
-          bound === undefined ? undefined : reservedChordReason(bound.chord, platform),
+          bound === undefined ? undefined : reservedChordReason(bound.chord, convention),
         shippedChord: options.shippedBindings.find((binding) => binding.commandId === command.id)
           ?.chord,
         overridden: overrides[command.id] !== undefined,
@@ -135,7 +132,7 @@ export function composeKeybindingRows(options: {
 export function matchKeybindingRows(
   rows: readonly KeybindingRow[],
   query: string,
-  platform: SupportedPlatform = HOST_CHORD_PLATFORM,
+  convention: KeyboardConvention = HOST_KEYBOARD_CONVENTION,
 ): readonly KeybindingRow[] {
   const trimmedQuery = query.trim();
   if (trimmedQuery === "") {
@@ -144,7 +141,7 @@ export function matchKeybindingRows(
   const scored: { readonly row: KeybindingRow; readonly score: number }[] = [];
   for (const row of rows) {
     let best: number | undefined;
-    for (const candidate of matchCandidatesOf(row, platform)) {
+    for (const candidate of matchCandidatesOf(row, convention)) {
       const match = scoreSubsequence(candidate, trimmedQuery);
       if (match !== undefined && (best === undefined || match.score > best)) {
         best = match.score;
@@ -159,10 +156,10 @@ export function matchKeybindingRows(
 }
 
 /** The strings one row offers the scorer; the chord is dropped where the row has none. */
-function matchCandidatesOf(row: KeybindingRow, platform: SupportedPlatform): readonly string[] {
+function matchCandidatesOf(row: KeybindingRow, convention: KeyboardConvention): readonly string[] {
   return row.chord === undefined
     ? [row.title]
-    : [row.title, formatChordForPlatform(row.chord, platform)];
+    : [row.title, formatChordForPlatform(row.chord, convention)];
 }
 
 /** Keys that are only ever held, never the key OF a chord. */
@@ -185,7 +182,7 @@ const MODIFIER_KEYS: ReadonlySet<string> = new Set([
  */
 export function readChordFromEvent(
   event: Pick<KeyboardEvent, "key" | "code" | "altKey" | "ctrlKey" | "metaKey" | "shiftKey">,
-  platform: SupportedPlatform = HOST_CHORD_PLATFORM,
+  convention: KeyboardConvention = HOST_KEYBOARD_CONVENTION,
 ): ChordRecording {
   const bare = !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
   if (bare && event.key === "Escape") {
@@ -195,15 +192,15 @@ export function readChordFromEvent(
     return { outcome: "cleared" };
   }
   if (MODIFIER_KEYS.has(event.key)) {
-    return { outcome: "incomplete", heldModifiers: readHeldModifiersFromEvent(event, platform) };
+    return { outcome: "incomplete", heldModifiers: readHeldModifiersFromEvent(event, convention) };
   }
   const keyToken = event.code === "" ? event.key : event.code;
   if (keyToken === "") {
-    return { outcome: "incomplete", heldModifiers: readHeldModifiersFromEvent(event, platform) };
+    return { outcome: "incomplete", heldModifiers: readHeldModifiersFromEvent(event, convention) };
   }
   return {
     outcome: "captured",
-    chord: [...readHeldModifiersFromEvent(event, platform), keyToken].join("+"),
+    chord: [...readHeldModifiersFromEvent(event, convention), keyToken].join("+"),
   };
 }
 
@@ -218,9 +215,9 @@ export function readChordFromEvent(
  */
 export function readHeldModifiersFromEvent(
   event: Pick<KeyboardEvent, "altKey" | "ctrlKey" | "metaKey" | "shiftKey">,
-  platform: SupportedPlatform = HOST_CHORD_PLATFORM,
+  convention: KeyboardConvention = HOST_KEYBOARD_CONVENTION,
 ): readonly string[] {
-  const commandModifier = keyboardConventionOf(platform).applicationModifier;
+  const commandModifier = convention.applicationModifier;
   const keyFlags = { Meta: event.metaKey, Control: event.ctrlKey };
   const held: Readonly<Record<SpelledModifierToken, boolean>> = {
     $mod: keyFlags[commandModifier],

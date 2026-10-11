@@ -32,7 +32,7 @@ import { useCommandPalette, type CommandPaletteProps } from "./hooks/useCommandP
  * it works before any feature registers a command and while a person types in the composer.
  */
 export function CommandPalette(props: CommandPaletteProps): React.JSX.Element {
-  const { open, onOpenChange, platform, bindings, overlayContainer } = props;
+  const { open, onOpenChange, convention, bindings, overlayContainer } = props;
   const {
     query,
     setQuery,
@@ -90,7 +90,7 @@ export function CommandPalette(props: CommandPaletteProps): React.JSX.Element {
             rows={rows}
             rowWindowRef={rowWindowRef}
             context={capturedContext}
-            platform={platform}
+            convention={convention}
             bindings={bindings}
             onRunResult={runResult}
           />

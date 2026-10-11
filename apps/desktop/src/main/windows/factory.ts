@@ -44,7 +44,8 @@ export interface SharedWindowOptions {
   readonly openChildWindow: ChildWindowOpener;
   /** Main's diagnostic log, where the window's refusals and failures are recorded. */
   readonly log: Pick<MainDiagnosticLog, "write" | "drain" | "lastWriteFailure">;
-  readonly operatingSystem: Pick<MainOperatingSystem, "titleBar" | "unobtrusiveReveal">;
+  /** The title bar each window is built with, and how a test build keeps it out of the way. */
+  readonly operatingSystem: Pick<MainOperatingSystem, "titleBar" | "unobtrusiveWindows">;
 }
 
 /** Where a window a person sees opens, the state it is revealed into, and its shared options. */
@@ -246,7 +247,7 @@ export function openHiddenWindow(options: HiddenWindowOptions): RendererWindow {
   }
 
   loadDocument(baseWindow, view.webContents, resolveRendererDocumentUrl(), options.log, () => {
-    revealWindow(baseWindow, FAILURE_REVEAL, options.operatingSystem.unobtrusiveReveal);
+    revealWindow(baseWindow, FAILURE_REVEAL, options.operatingSystem);
   });
   return hiddenWindow;
 }
@@ -265,6 +266,6 @@ export function adoptRendererChild(
     additionalArguments: [],
     adoptedWebContents: handedWebContents,
   });
-  revealWindow(rendererWindow.baseWindow, frame.reveal, frame.operatingSystem.unobtrusiveReveal);
+  revealWindow(rendererWindow.baseWindow, frame.reveal, frame.operatingSystem);
   return rendererWindow;
 }

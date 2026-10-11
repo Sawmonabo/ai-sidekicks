@@ -13,11 +13,8 @@ import { CommandRegistry } from "../commands/registry.js";
 import { type Keybinding } from "../commands/keybinding.js";
 import { type KeybindingConflict } from "./conflicts.js";
 import { KeybindingTable } from "./table.js";
-import type { SupportedPlatform } from "#shared/app-facts.js";
-import {
-  HOST_CHORD_PLATFORM,
-  keyboardConventionOf,
-} from "#renderer/lib/chord/convention/selection.js";
+import type { KeyboardConvention } from "#renderer/lib/chord/convention/contract.js";
+import { HOST_KEYBOARD_CONVENTION } from "#renderer/lib/chord/convention/selection.js";
 import { foldChordKeyToken, splitChordTokens } from "#renderer/lib/chord/format.js";
 
 /** A binding the keybinding table refused to install, with its own reason. */
@@ -34,15 +31,15 @@ export interface KeybindingAudit {
 }
 
 /**
- * The reason `platform` takes this chord, or `undefined` when it does not. A chord holding a
+ * The reason the system of `convention` takes this chord, or `undefined` when it does not. A chord holding a
  * modifier the system keeps for itself is reserved, whether or not the system uses that chord
  * today.
  */
 export function reservedChordReason(
   chord: string,
-  platform: SupportedPlatform = HOST_CHORD_PLATFORM,
+  convention: KeyboardConvention = HOST_KEYBOARD_CONVENTION,
 ): string | undefined {
-  const { reservedChords, reservedModifier } = keyboardConventionOf(platform);
+  const { reservedChords, reservedModifier } = convention;
   const candidate = foldKeystroke(chord);
   if (reservedModifier !== undefined && candidate.modifiers.includes(reservedModifier.modifier)) {
     return reservedModifier.reason;

@@ -75,12 +75,14 @@ async function connectWindowBridge() {
   const { KeptAppearance } = await import("../appearance/kept-record.js");
   const { AppearanceRecordFile } = await import("../appearance/record-file.js");
   const { createWindowBridge } = await import("#preload/window.js");
-  const { DARWIN_MAIN_OPERATING_SYSTEM } = await import("../operating-system/darwin.js");
+  // The host's own module, as the record is written to this machine's disk.
+  const { selectMainOperatingSystem } = await import("../operating-system/selection.js");
+  const operatingSystem = selectMainOperatingSystem(process.platform);
   const appearance = new KeptAppearance({
     file: new AppearanceRecordFile({
       filePath: appearanceFilePath,
       log: { write: vi.fn() },
-      operatingSystem: DARWIN_MAIN_OPERATING_SYSTEM,
+      operatingSystem,
     }),
     nativeTheme,
   });
@@ -123,7 +125,7 @@ async function connectWindowBridge() {
           },
         },
       },
-      DARWIN_MAIN_OPERATING_SYSTEM,
+      operatingSystem,
     ),
   )) {
     ipcMain.handle(channel, answer as never);

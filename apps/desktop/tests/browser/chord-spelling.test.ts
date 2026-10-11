@@ -7,6 +7,7 @@ import { describe, expect, it, onTestFinished } from "vitest";
 import { userEvent } from "vitest/browser";
 
 import { normalizeChord } from "#renderer/lib/chord/format.js";
+import { MAC_KEYBOARD_CONVENTION } from "#renderer/lib/chord/convention/mac.js";
 import { chordMatchesEvent, parseChord } from "#renderer/registries/keybindings/chord.js";
 
 /** Records every keydown of K until the test ends. */
@@ -56,7 +57,7 @@ describe("a chord's modifier names on a real press", () => {
     ];
     for (const [stored, press] of pairs) {
       expect(matchesInTinykeys(stored, press)).toBe(false);
-      expect(chordMatches(normalizeChord(stored, "darwin"), press)).toBe(true);
+      expect(chordMatches(normalizeChord(stored, MAC_KEYBOARD_CONVENTION), press)).toBe(true);
     }
   });
 });

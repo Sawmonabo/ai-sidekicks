@@ -78,7 +78,7 @@ const RENDERER_ROOT = path.join(import.meta.dirname, "../renderer");
 // The app icon at the Dock's size, inset by the system's icon margin, for a development run.
 const DOCK_ICON_FILE = "dock-icon.png";
 
-// The menu-bar icon's resting face. The `Template` suffix makes the system draw it in the menu
+// The macOS menu-bar icon's resting face. The `Template` suffix makes macOS draw it in the menu
 // bar's own color, and the image loads with its `@2x` beside it.
 const MENU_BAR_IDLE_FACE_FILE = "menu-bar-idleTemplate.png";
 
@@ -213,8 +213,8 @@ function startApplication(): void {
       operatingSystem,
     });
     openWindows.installLifecycle(app);
-    // A link that launched the app can reach `open-url` before ready; a second launch can arrive
-    // while the app starts.
+    // macOS hands the link that launched the app to `open-url` before ready; a second launch can
+    // arrive while the app starts.
     installAppLinkHandler({ app, windows: openWindows, log });
     resolve({ log, operatingSystem, appearance, openWindows });
   });
@@ -251,13 +251,13 @@ function startApplication(): void {
       );
       installApplicationMenu(appearance, log, openWindows, installLocation, operatingSystem);
       // A development run is the stock Electron app, whose bundle shows Electron's icon in the
-      // Dock; an installed app's bundle carries its own. Electron has a `dock` only where the
-      // system has one, and the image is read only there.
+      // Dock; an installed app's bundle carries its own. Electron has a `dock` only on macOS,
+      // and the image is read only there.
       if (!app.isPackaged) {
         app.dock?.setIcon(readResourceImage(DOCK_ICON_FILE, installLocation));
       }
-      // The menu-bar icon stays when the last window closes, and a click on it brings the window
-      // used last back.
+      // On macOS the menu-bar icon stays when the last window closes, and a click on it brings
+      // the window used last back.
       if (isMenuBarIconShown(operatingSystem)) {
         openWindows.installMenuBarIcon(
           new Tray(readResourceImage(MENU_BAR_IDLE_FACE_FILE, installLocation)),
@@ -266,16 +266,17 @@ function startApplication(): void {
       const daemonLink = new DaemonLink();
       // Before the supervisor starts, so the first link that comes up is told the console theme.
       new ConsoleThemeReport({ link: daemonLink, appearance, log }).start();
+      // Built once: it keeps the boot it read for every later attach.
+      const readServiceProcessIdentity = createSystemProcessIdentityReader(
+        operatingSystem.platform,
+      );
       const supervisor = new DaemonSupervisor({
         link: daemonLink,
         connect: connectMainToDaemon,
         startService: () =>
           startServiceDetached(resolveServiceProgram(installLocation), process.env),
         attachServiceProcess: (identity) =>
-          attachToServiceProcess(
-            identity,
-            createSystemProcessIdentityReader(operatingSystem.platform),
-          ),
+          attachToServiceProcess(identity, readServiceProcessIdentity),
         log,
       });
       // One table of the file tokens handed to the pages: the native members mint them and the

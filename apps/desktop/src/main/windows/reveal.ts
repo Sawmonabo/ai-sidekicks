@@ -11,11 +11,12 @@
 //   4. puts no menu-bar icon up, where each launch would add one to the person's menu bar.
 //
 // `tests/helpers/launch/readiness.ts` checks on every launch that the document stays visible and
-// draws. A release bundle carries none of this: all four sit behind the compile-time build flag.
+// draws. A release bundle carries none of this: all four, and each system's unobtrusive windows,
+// sit behind the compile-time build flag.
 
 import type { App, BaseWindow, WebContents } from "electron";
 
-import type { MainOperatingSystem, UnobtrusiveReveal } from "../operating-system/contract.js";
+import type { MainOperatingSystem, UnobtrusiveWindows } from "../operating-system/contract.js";
 
 /**
  * The environment variable the automated tiers set to `"1"`. The harnesses that spawn Electron
@@ -23,23 +24,20 @@ import type { MainOperatingSystem, UnobtrusiveReveal } from "../operating-system
  */
 export const UNOBTRUSIVE_WINDOWS_ENV = "SIDEKICKS_UNOBTRUSIVE_WINDOWS";
 
-/**
- * How a ready window is put on screen. `hidden` leaves it as constructed (`show: false`), so
- * nothing is ever ordered onto a screen.
- */
-type WindowRevealMode = "active" | UnobtrusiveReveal;
+/** The part of the operating system a reveal reads. */
+type RevealingOperatingSystem = Pick<MainOperatingSystem, "unobtrusiveWindows">;
 
 /** Whether the automated tiers asked this launch to keep out of the way; only `"1"` opts in. */
 function isUnobtrusiveRequested(environment: NodeJS.ProcessEnv): boolean {
   return environment[UNOBTRUSIVE_WINDOWS_ENV] === "1";
 }
 
-/** How a test build reveals a window: the system's unobtrusive reveal when one was asked for. */
-function resolveWindowRevealMode(
+/** The system's unobtrusive windows when this launch asked for them; absent otherwise. */
+function requestedUnobtrusiveWindows(
   environment: NodeJS.ProcessEnv,
-  unobtrusiveReveal: UnobtrusiveReveal,
-): WindowRevealMode {
-  return isUnobtrusiveRequested(environment) ? unobtrusiveReveal : "active";
+  operatingSystem: RevealingOperatingSystem,
+): UnobtrusiveWindows | undefined {
+  return isUnobtrusiveRequested(environment) ? operatingSystem.unobtrusiveWindows : undefined;
 }
 
 /** The kept state a window is revealed into, beyond its rectangle. */
@@ -56,18 +54,18 @@ export interface RevealState {
 export function revealWindow(
   baseWindow: Pick<BaseWindow, "show" | "showInactive" | "maximize" | "setFullScreen">,
   state: RevealState,
-  unobtrusiveReveal: UnobtrusiveReveal,
+  operatingSystem: RevealingOperatingSystem,
 ): void {
   // The flag is tested inline as a literal in each wrapper: Vite substitutes it textually, so
   // a release bundle reads `if (false)` and Rollup drops the branch and the variable name.
   // Behind a helper the environment read would survive into the release binary.
   if (__TEST_TIER_BUILD__) {
-    const mode = resolveWindowRevealMode(process.env, unobtrusiveReveal);
-    if (mode === "hidden") {
+    const reveal = requestedUnobtrusiveWindows(process.env, operatingSystem)?.reveal;
+    if (reveal === "hidden") {
       // Left as constructed; with throttling off it paints at full rate once loaded.
       return;
     }
-    if (mode === "inactive") {
+    if (reveal === "inactive") {
       baseWindow.showInactive();
       return;
     }
@@ -86,14 +84,14 @@ export function revealWindow(
  */
 export function bringWindowForward(
   baseWindow: Pick<BaseWindow, "isMinimized" | "restore" | "show" | "showInactive" | "focus">,
-  unobtrusiveReveal: UnobtrusiveReveal,
+  operatingSystem: RevealingOperatingSystem,
 ): void {
   if (__TEST_TIER_BUILD__) {
-    const mode = resolveWindowRevealMode(process.env, unobtrusiveReveal);
-    if (mode === "hidden") {
+    const reveal = requestedUnobtrusiveWindows(process.env, operatingSystem)?.reveal;
+    if (reveal === "hidden") {
       return;
     }
-    if (mode === "inactive") {
+    if (reveal === "inactive") {
       baseWindow.showInactive();
       return;
     }
@@ -125,14 +123,13 @@ export function applyRevealPreferences(
  */
 export function installActivationPolicy(
   app: Pick<App, "setActivationPolicy">,
-  operatingSystem: Pick<MainOperatingSystem, "unobtrusiveActivationPolicy">,
+  operatingSystem: RevealingOperatingSystem,
 ): void {
-  if (!__TEST_TIER_BUILD__) {
-    return;
-  }
-  const policy = operatingSystem.unobtrusiveActivationPolicy;
-  if (policy !== undefined && isUnobtrusiveRequested(process.env)) {
-    app.setActivationPolicy(policy);
+  if (__TEST_TIER_BUILD__) {
+    const policy = requestedUnobtrusiveWindows(process.env, operatingSystem)?.activationPolicy;
+    if (policy !== undefined) {
+      app.setActivationPolicy(policy);
+    }
   }
 }
 

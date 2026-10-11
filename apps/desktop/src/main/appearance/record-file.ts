@@ -29,7 +29,7 @@ import { isMissingPath } from "../services/missing-path.js";
 import {
   writeOwnerOnlyJsonFileSync,
   writeOwnerOnlyJsonFile,
-  type OwnerOnlyFileSystem,
+  type OwnerOnlyFileOperatingSystem,
 } from "../services/owner-only-file.js";
 
 /** The file's name inside the app's user-data folder. */
@@ -69,14 +69,14 @@ const LOG_SOURCE = "main/appearance";
 export interface AppearanceRecordFileOptions {
   readonly filePath: string;
   readonly log: Pick<MainDiagnosticLog, "write">;
-  readonly operatingSystem: OwnerOnlyFileSystem;
+  readonly operatingSystem: OwnerOnlyFileOperatingSystem;
 }
 
 /** Main's reader and writer for the appearance record. */
 export class AppearanceRecordFile {
   readonly #filePath: string;
   readonly #log: AppearanceRecordFileOptions["log"];
-  readonly #operatingSystem: OwnerOnlyFileSystem;
+  readonly #operatingSystem: OwnerOnlyFileOperatingSystem;
 
   public constructor(options: AppearanceRecordFileOptions) {
     this.#filePath = options.filePath;

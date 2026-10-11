@@ -2,16 +2,16 @@
 
 import "./ChordHint.css";
 
-import type { SupportedPlatform } from "#shared/app-facts.js";
-import { HOST_CHORD_PLATFORM } from "#renderer/lib/chord/convention/selection.js";
+import type { KeyboardConvention } from "#renderer/lib/chord/convention/contract.js";
+import { HOST_KEYBOARD_CONVENTION } from "#renderer/lib/chord/convention/selection.js";
 import { renderChordForPlatform } from "#renderer/lib/chord/format.js";
 
 /** Props for `ChordHint`. */
 export interface ChordHintProps {
   /** A `tinykeys` chord, e.g. `"$mod+KeyK"`, or a sequence, e.g. `"g s"`. */
   readonly chord: string;
-  /** Which platform's spelling to print in. Defaults to the host. */
-  readonly platform?: SupportedPlatform;
+  /** Which system's keyboard to print in. Defaults to the host's. */
+  readonly convention?: KeyboardConvention;
 }
 
 /**
@@ -19,7 +19,7 @@ export interface ChordHintProps {
  * label built from the same tokens.
  */
 export function ChordHint(props: ChordHintProps): React.JSX.Element {
-  const presses = renderChordForPlatform(props.chord, props.platform ?? HOST_CHORD_PLATFORM);
+  const presses = renderChordForPlatform(props.chord, props.convention ?? HOST_KEYBOARD_CONVENTION);
   const keysPerPress = presses.map((press) => [...press.modifiers, press.key]);
 
   const spokenLabel = keysPerPress

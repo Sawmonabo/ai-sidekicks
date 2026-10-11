@@ -121,13 +121,16 @@ async function createRegistry(
     screen: ConstructorParameters<typeof OpenWindows>[0]["screen"];
   };
   const { selectMainOperatingSystem } = await import("../operating-system/selection.js");
+  const { hostOwnerOnlyFileOperatingSystem } =
+    await import("../services/owner-only-file.test-support.js");
   const operatingSystem = selectMainOperatingSystem(platform);
-  const { log } = testWindowFrame();
+  const { log } = await testWindowFrame();
   const openWindows = new OpenWindows({
     placeFile: new WindowPlaceFile(
       path.join(userData, WINDOW_PLACES_FILE_NAME),
       log,
-      operatingSystem,
+      // Written to this machine's disk, so flushed as the host's own module answers.
+      hostOwnerOnlyFileOperatingSystem(),
     ),
     screen,
     appearance,

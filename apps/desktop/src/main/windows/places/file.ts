@@ -20,7 +20,7 @@ import { describeFailure } from "#shared/failure-message.js";
 import { isMissingPath } from "../../services/missing-path.js";
 import {
   writeOwnerOnlyJsonFileSync,
-  type OwnerOnlyFileSystem,
+  type OwnerOnlyFileOperatingSystem,
 } from "../../services/owner-only-file.js";
 import { isPlainObject } from "../../services/plain-object.js";
 
@@ -59,13 +59,13 @@ const windowPlaceSchema: z.ZodMiniType<WindowPlace> = z.strictObject({
 export class WindowPlaceFile {
   readonly #filePath: string;
   readonly #log: Pick<MainDiagnosticLog, "write">;
-  readonly #operatingSystem: OwnerOnlyFileSystem;
+  readonly #operatingSystem: OwnerOnlyFileOperatingSystem;
 
   /** The file at `filePath` on `operatingSystem`, whose failures are recorded in `log`. */
   public constructor(
     filePath: string,
     log: Pick<MainDiagnosticLog, "write">,
-    operatingSystem: OwnerOnlyFileSystem,
+    operatingSystem: OwnerOnlyFileOperatingSystem,
   ) {
     this.#filePath = filePath;
     this.#log = log;

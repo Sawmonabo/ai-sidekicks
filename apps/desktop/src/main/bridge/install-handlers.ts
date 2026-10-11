@@ -62,7 +62,7 @@ export interface BridgeHandlerServices {
   readonly windowContext: WindowHandlerContext;
   readonly operatingSystem: Pick<
     MainOperatingSystem,
-    "installedEditors" | "flushesFolderAfterRename" | "unobtrusiveReveal"
+    "installedEditors" | "flushesFolderAfterRename" | "unobtrusiveWindows"
   >;
 }
 

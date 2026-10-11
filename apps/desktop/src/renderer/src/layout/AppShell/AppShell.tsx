@@ -8,7 +8,7 @@
 import { useId } from "react";
 
 import { useWindowStore } from "#renderer/store/window/hooks/useWindowStore.js";
-import { HOST_CHORD_PLATFORM } from "#renderer/lib/chord/convention/selection.js";
+import { HOST_KEYBOARD_CONVENTION } from "#renderer/lib/chord/convention/selection.js";
 import { railDestinationFor } from "#renderer/routing/readers.js";
 import type { LastSettingsPage } from "#renderer/store/last-settings-page.js";
 import type { WindowStore } from "#renderer/store/window/store.js";
@@ -125,7 +125,7 @@ export function AppShell(props: AppShellProps): React.JSX.Element {
         <CommandPalette
           {...palette}
           registry={commandRegistry}
-          platform={HOST_CHORD_PLATFORM}
+          convention={HOST_KEYBOARD_CONVENTION}
           scopeLabel={describePaletteScope(route)}
         />
       }
