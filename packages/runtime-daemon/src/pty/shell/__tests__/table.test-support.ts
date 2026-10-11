@@ -35,8 +35,8 @@ import { NodePtyHost } from "../../host/node-pty.js";
 import { PtySessionEvents } from "../../host/session-events.js";
 import type { ShellOutputOutlet } from "../output/stream.js";
 import { ShellTable } from "../table.js";
-import { DARWIN_TERMINAL_OPERATING_SYSTEM } from "../../operating-system/darwin.js";
-import { selectTerminalOperatingSystem } from "../../operating-system/selector.js";
+import { MAC_TERMINAL_OPERATING_SYSTEM } from "../../operating-system/mac.js";
+import { HOST_OPERATING_SYSTEM } from "../../../../tests/helpers/host-operating-system.js";
 
 /** A second project session, whose shells another session's requests must never reach. */
 /** What every table under test names its terminals' version. */
@@ -113,8 +113,7 @@ export function openTable(options: TableOptions = {}): TableUnderTest {
   const startedPrograms: string[] = [];
   const host =
     options.host ??
-    new NodePtyHost(makeOrphanGuardDouble(), DARWIN_TERMINAL_OPERATING_SYSTEM, {
-      platform: "darwin",
+    new NodePtyHost(makeOrphanGuardDouble(), MAC_TERMINAL_OPERATING_SYSTEM, {
       ptySpawn: (_command, args) => {
         // Every program starts behind the parent check, `/bin/sh -c <check> <program> …`.
         const program = args[2];
@@ -168,7 +167,8 @@ export function openTable(options: TableOptions = {}): TableUnderTest {
     baseEnvironment: options.baseEnvironment ?? [],
     environmentNameMatch: "case-sensitive",
     runFolderPath: scratchRunFolder(),
-    operatingSystem: selectTerminalOperatingSystem(process.platform, process.env),
+    operatingSystem: HOST_OPERATING_SYSTEM.terminal,
+    diskFlush: HOST_OPERATING_SYSTEM.diskFlush,
     outboundQueue: {
       isFull: (transportId) => fullTransports.has(transportId),
       onceDrained: (transportId, listener) => {

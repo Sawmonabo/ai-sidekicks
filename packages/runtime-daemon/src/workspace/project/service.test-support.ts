@@ -4,7 +4,7 @@
 
 import type { DatabaseConnections } from "../../database/connection/lifecycle.js";
 import { findBranchPatternRefusal } from "../../git/branch-name-pattern.js";
-import { createFolderPlace } from "../folder/place.js";
+import { OWN_DISK_FOLDER_PLACE } from "../folder/place.js";
 import type { RepoMountService } from "../repo/mount-service.js";
 import { ProjectRecords } from "./records.js";
 import { ProjectService } from "./service.js";
@@ -27,11 +27,7 @@ export interface TestProjectService {
 
 /** Builds a project writer over the scratch database. */
 export function buildTestProjectService(input: TestProjectServiceInput): TestProjectService {
-  const folderPlace = createFolderPlace({
-    platform: "darwin",
-    wslDistributionName: null,
-    windowsDriveMounts: [],
-  });
+  const folderPlace = OWN_DISK_FOLDER_PLACE;
   const records = new ProjectRecords(input.database.reader, folderPlace);
   const projects = new ProjectService({
     writer: input.database.writer,

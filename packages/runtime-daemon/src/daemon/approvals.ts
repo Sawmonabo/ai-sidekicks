@@ -8,6 +8,7 @@ import path from "node:path";
 
 import type { MethodRegistry } from "@ai-sidekicks/contracts/jsonrpc/registry";
 
+import type { PathRules } from "../path-rules/contract.js";
 import { PermissionAsks } from "../approvals/permission-asks.js";
 import { ApprovalProjectionService } from "../approvals/projection/read.js";
 import { ReviewerDenials } from "../approvals/reviewer-denials.js";
@@ -49,6 +50,8 @@ export interface DaemonApprovalsContext {
   readonly localMachine: LocalMachine;
   /** The daemon's data folder, which holds the agent-memory folder. */
   readonly dataFolder: string;
+  /** How the system spells and compares paths. */
+  readonly pathRules: PathRules;
   /** The workflow actions' rules, loaded and checked at the daemon's start. */
   readonly authorizer: Authorizer;
   /** The posture each live run runs at, which the workflow rules read. */
@@ -119,6 +122,7 @@ export class DaemonApprovals {
       approvals: this.#service,
       rules: this.#rules,
       agentMemoryFolder: path.join(context.dataFolder, AGENT_MEMORY_FOLDER_NAME),
+      pathRules: context.pathRules,
       readRunAgent: (sessionId, runId) => agents.readAgent(sessionId, runId),
       readOwner: () => nodes.readOwner(context.localMachine),
       readPosture: (runId) => context.executionPostures.resolvedPostureFor(runId),

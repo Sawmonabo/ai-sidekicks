@@ -16,6 +16,7 @@ import type {
   WorktreeStatusReadResponse,
 } from "@ai-sidekicks/contracts/worktree/lifecycle";
 
+import type { PathRules } from "../../path-rules/contract.js";
 import { canonicalFolderPath } from "../../workspace/folder/canonical-path.js";
 import type { GitCommand } from "../process.js";
 import { readBranchFigures, readListedWorktrees, type ListedWorktree } from "./reads.js";
@@ -73,6 +74,8 @@ export interface WorktreeStatusReaderDeps {
   /** When each mount's ahead and behind figures were last true, after a failed fetch. */
   readonly fetch: { countsAsOf(repoMountId: string): string | null };
   readonly newWorktree: NewWorktreeSuggestionSource;
+  /** How the system spells and compares paths. */
+  readonly pathRules: PathRules;
 }
 
 /** Answers `repo.worktreeStatusRead` for a project. */
@@ -116,7 +119,7 @@ export class WorktreeStatusReader {
     );
     const recordByFolder = new Map<string, WorktreeRecordWithFolderRow>();
     for (const record of this.#selectRecords.all({ repoMountId: mount.id })) {
-      recordByFolder.set(await canonicalFolderPath(record.fs_root), record);
+      recordByFolder.set(await canonicalFolderPath(record.fs_root, this.#deps.pathRules), record);
     }
     const occupancy = await this.#occupancy.read(mount.id);
 
@@ -127,7 +130,7 @@ export class WorktreeStatusReader {
       if (worktree.isMainCheckout || worktree.isBare || worktree.isPrunable) {
         continue;
       }
-      const folder = await canonicalFolderPath(worktree.path);
+      const folder = await canonicalFolderPath(worktree.path, this.#deps.pathRules);
       const record = recordByFolder.get(folder) ?? null;
       recordByFolder.delete(folder);
       const branchName = branchNameOf(worktree);

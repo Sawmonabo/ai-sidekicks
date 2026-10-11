@@ -15,7 +15,7 @@ export interface KernelEvent {
 }
 
 /** The macOS calls the orphan defense makes. */
-export interface DarwinSystemLibrary {
+export interface MacSystemLibrary {
   /** Opens a kernel event queue; throws when the system refuses one. */
   openKernelQueue(): number;
   /** Applies one change to a queue without waiting; answers the system's `errno` on a refusal. */
@@ -44,21 +44,21 @@ const KERN_PROCARGS2 = 49;
 const PROC_UID_ONLY = 4;
 const PROCESS_ID_BYTES = 4;
 
-let libraryLoading: Promise<DarwinSystemLibrary> | undefined;
+let libraryLoading: Promise<MacSystemLibrary> | undefined;
 
 /**
  * Loads the calls from the system library once per process; throws when `koffi` cannot be
  * loaded. A failed load is dropped, so the next one tries again.
  */
-export function loadDarwinSystemLibrary(): Promise<DarwinSystemLibrary> {
-  libraryLoading ??= bindDarwinSystemLibrary().catch((failure: unknown) => {
+export function loadMacSystemLibrary(): Promise<MacSystemLibrary> {
+  libraryLoading ??= bindMacSystemLibrary().catch((failure: unknown) => {
     libraryLoading = undefined;
     throw failure;
   });
   return libraryLoading;
 }
 
-async function bindDarwinSystemLibrary(): Promise<DarwinSystemLibrary> {
+async function bindMacSystemLibrary(): Promise<MacSystemLibrary> {
   const koffi = await importKoffi("watching terminal children for their exit on macOS");
   const system = koffi.load("/usr/lib/libSystem.B.dylib");
   koffi.struct("kevent", {

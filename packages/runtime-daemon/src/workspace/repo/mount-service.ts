@@ -43,6 +43,7 @@ import {
 } from "@ai-sidekicks/contracts/repo/mount";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
+import type { PathRules } from "../../path-rules/contract.js";
 import type { DatabaseConnections } from "../../database/connection/lifecycle.js";
 import type { StatementResult, WriteStatement } from "../../database/statement.js";
 import { WriteRefusedError, type DatabaseWriter } from "../../database/writer.js";
@@ -155,6 +156,8 @@ export interface RepoMountServiceDeps {
   readonly now?: () => string;
   /** Mount-id source, default `mintUuidV7`. Ids are still parsed by `RepoMountIdSchema`. */
   readonly newRepoMountId?: () => string;
+  /** How the system spells and compares paths. */
+  readonly pathRules: PathRules;
 }
 
 /**
@@ -334,10 +337,11 @@ export class RepoMountService {
   constructor(deps: RepoMountServiceDeps) {
     this.#events = deps.events;
     this.#nodeId = deps.nodeId;
-    this.#resolver = deps.resolver ?? new RepoRootResolver();
+    this.#resolver = deps.resolver ?? new RepoRootResolver({ pathRules: deps.pathRules });
     this.#mountHealthSeams = {
       probePath: deps.probePath ?? createDefaultPathProbe(),
       resolver: this.#resolver,
+      pathRules: deps.pathRules,
     };
     this.#now = deps.now ?? ((): string => new Date().toISOString());
     this.#newRepoMountId = deps.newRepoMountId ?? mintUuidV7;

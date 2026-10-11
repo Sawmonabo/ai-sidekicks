@@ -16,8 +16,6 @@
 // - The stop ends every pass at once and sends nothing after it; a probe still running cannot be
 //   stopped, so it is left to finish unwatched.
 
-import * as nodePath from "node:path";
-
 import type { Statement } from "better-sqlite3";
 
 import {
@@ -28,6 +26,7 @@ import {
 } from "@ai-sidekicks/contracts/repo/mount";
 import { SessionIdSchema } from "@ai-sidekicks/contracts/session/id";
 
+import type { PathRules } from "../../path-rules/contract.js";
 import { waitWithin } from "../../bounded-wait.js";
 import type { ServiceLogWriter } from "../../daemon/service-log.js";
 import type { DatabaseConnections } from "../../database/connection/lifecycle.js";
@@ -49,6 +48,8 @@ import type { RepoRootResolver } from "./root-resolver.js";
 export interface RepoMountHealthSeams {
   readonly probePath: FilesystemPathProbeFn;
   readonly resolver: Pick<RepoRootResolver, "readRepositoryIdentity">;
+  /** How the system spells and compares paths. */
+  readonly pathRules: PathRules;
 }
 
 /**
@@ -69,8 +70,8 @@ export async function probeRepoMountHealth(
     return computeRepoMountHealth(mount, probe, { repository: "none" });
   }
   const isAnchored = componentsEqual(
-    toComparableComponents(commonDir, nodePath),
-    toComparableComponents(mount.commonDirAnchor, nodePath),
+    toComparableComponents(commonDir, seams.pathRules),
+    toComparableComponents(mount.commonDirAnchor, seams.pathRules),
   );
   return computeRepoMountHealth(mount, probe, { repository: isAnchored ? "anchored" : "other" });
 }
@@ -132,6 +133,8 @@ export interface RepoMountHealthReprobeDeps {
   /** Where each changed verdict is appended, once per session on the mount. */
   readonly events: Pick<WorkspaceEventEmitter, "emitMountHealthChanged">;
   readonly resolver: Pick<RepoRootResolver, "readRepositoryIdentity">;
+  /** How the system spells and compares paths. */
+  readonly pathRules: PathRules;
   /** Where a probe git could not answer is recorded. */
   readonly writeServiceLog: ServiceLogWriter;
   /** Reachability probe; defaults to the readability probe. */
@@ -173,6 +176,7 @@ export class RepoMountHealthReprobe {
     this.#seams = {
       probePath: deps.probePath ?? createDefaultPathProbe(),
       resolver: deps.resolver,
+      pathRules: deps.pathRules,
     };
     this.#writeServiceLog = deps.writeServiceLog;
     const reader = deps.database.reader;
@@ -241,9 +245,9 @@ export class RepoMountHealthReprobe {
    * {@link reprobe} does.
    */
   async reprobeMountsContaining(folder: string): Promise<void> {
-    const folderComponents = toComparableComponents(folder, nodePath);
+    const folderComponents = toComparableComponents(folder, this.#seams.pathRules);
     const holds = (root: string): boolean =>
-      isContainedWithin(folderComponents, toComparableComponents(root, nodePath));
+      isContainedWithin(folderComponents, toComparableComponents(root, this.#seams.pathRules));
     const mountIds = new Set<string>();
     for (const mount of this.#selectAttachedMountsStmt.all()) {
       if (holds(mount.canonical_root)) {

@@ -32,6 +32,7 @@ import {
 } from "../approvals/ask-description.js";
 import type { ApprovalRules } from "../approvals/rules.js";
 import type { ApprovalService } from "../approvals/service.js";
+import type { PathRules } from "../path-rules/contract.js";
 import type {
   ProviderAskAction,
   ProviderAskRule,
@@ -122,6 +123,8 @@ export interface PermissionCheckDeps {
   readonly rules: Pick<ApprovalRules, "findRule">;
   /** The one all-projects agent-memory folder, whose notes an agent reads and writes unasked. */
   readonly agentMemoryFolder: string;
+  /** How the system spells and compares paths. */
+  readonly pathRules: PathRules;
   /** The agent whose run holds an ask, which its card names as its asker. */
   readonly readRunAgent: (sessionId: SessionId, runId: RunId) => string;
   /** The machine's local owner, or `undefined` when it is registered under another user. */
@@ -201,7 +204,11 @@ export class PermissionCheckService {
 
   async #checkProviderAsk(request: ProviderAskCheck): Promise<PermissionCheckResponse> {
     const { ask } = request;
-    const designed = await answerProviderAsk(ask.action, this.#deps.agentMemoryFolder);
+    const designed = await answerProviderAsk(
+      ask.action,
+      this.#deps.agentMemoryFolder,
+      this.#deps.pathRules,
+    );
     if (designed !== undefined) {
       return designed.decision === "allow"
         ? { allowed: true, reason: "policy_allow" }

@@ -23,6 +23,7 @@ import * as nodePath from "node:path";
 import type { VcsType } from "@ai-sidekicks/contracts/repo/mount";
 
 import { runGitWithExecFile, type GitRunner } from "../../git/process.js";
+import type { PathRules } from "../../path-rules/contract.js";
 import { isMissingFileError } from "../../file/missing-error.js";
 import { readListedWorktrees, type ListedWorktree } from "../../git/worktree/reads.js";
 import { RepoRootResolutionError } from "./errors.js";
@@ -33,10 +34,8 @@ import {
   isContainedWithin,
   namesCompleteLocation,
   toComparableComponents,
-  WINDOWS_PATH_SEPARATOR,
   type DirectoryReadabilityProbe,
   type PathRealpathResolver,
-  type PlatformPathModule,
 } from "../trust-envelope.js";
 
 /**
@@ -90,13 +89,13 @@ export interface RepoRootResolverDeps {
    */
   readonly probeDirectoryReadable: DirectoryReadabilityProbe;
   readonly gitCommandTimeoutMs: number;
-  /**
-   * Defaults to `node:path`; win32-ness comes from its `sep`, not `process.platform`. Read only by
-   * the step-1 gate and `stripSingleLineTerminator`: every check on an outgoing value uses the real
-   * `node:path`, so a misconfigured seam cannot loosen it.
-   */
-  readonly platformPath: PlatformPathModule;
+  /** The system's path rules, for the input and every outgoing value alike. */
+  readonly pathRules: PathRules;
 }
+
+/** The resolver's seams: the path rules are required, every other one defaults to the real one. */
+export type RepoRootResolverOptions = Partial<Omit<RepoRootResolverDeps, "pathRules">> &
+  Pick<RepoRootResolverDeps, "pathRules">;
 
 /** Milliseconds allowed for one git query (a network mount can hang); a kill is `vcs_error`. */
 const DEFAULT_REV_PARSE_TIMEOUT_MS: number = 10_000;
@@ -114,13 +113,13 @@ const NOT_A_REPOSITORY_STDERR_MARKER = /^fatal: not a git repository/im;
 /** The entry git's discovery looks for (a directory or a `gitdir:` file); never read. */
 const GIT_METADATA_ENTRY_NAME = ".git";
 
-function resolveDeps(partial: Partial<RepoRootResolverDeps>): RepoRootResolverDeps {
+function resolveDeps(partial: RepoRootResolverOptions): RepoRootResolverDeps {
   return {
     git: partial.git ?? runGitWithExecFile,
     realpath: partial.realpath ?? DEFAULT_REALPATH,
     probeDirectoryReadable: partial.probeDirectoryReadable ?? DEFAULT_DIRECTORY_READABILITY_PROBE,
     gitCommandTimeoutMs: partial.gitCommandTimeoutMs ?? DEFAULT_REV_PARSE_TIMEOUT_MS,
-    platformPath: partial.platformPath ?? nodePath,
+    pathRules: partial.pathRules,
   };
 }
 
@@ -178,15 +177,12 @@ function classifyGitFailure(thrown: unknown): "not-a-repository" | "abnormal" {
 
 /**
  * Strips only the single line terminator `rev-parse` appends; `.trim()` would corrupt a directory
- * name ending in a space. A `\r` before the final `\n` is part of the name on POSIX and terminator
- * noise on win32, where NTFS forbids control characters.
+ * name ending in a space. A `\r` before the final `\n` is part of the name on a system that allows
+ * one there, and terminator noise on one whose programs end a line with `\r\n`.
  */
-export function stripSingleLineTerminator(
-  output: string,
-  platformPath: PlatformPathModule,
-): string {
+export function stripSingleLineTerminator(output: string, pathRules: PathRules): string {
   const withoutLineFeed = output.endsWith("\n") ? output.slice(0, -1) : output;
-  if (platformPath.sep !== WINDOWS_PATH_SEPARATOR || !withoutLineFeed.endsWith("\r")) {
+  if (!pathRules.hasCarriageReturnLineEnds || !withoutLineFeed.endsWith("\r")) {
     return withoutLineFeed;
   }
   return withoutLineFeed.slice(0, -1);
@@ -201,7 +197,7 @@ type ToplevelQueryOutcome =
 export class RepoRootResolver implements WorkingTreeReader {
   private readonly deps: RepoRootResolverDeps;
 
-  public constructor(deps: Partial<RepoRootResolverDeps> = {}) {
+  public constructor(deps: RepoRootResolverOptions) {
     this.deps = resolveDeps(deps);
   }
 
@@ -215,7 +211,7 @@ export class RepoRootResolver implements WorkingTreeReader {
     // Step 1: refuse input that needs the daemon's own state to complete (relative, `~`, driveless
     // Windows root); `realpath` would turn it into a plausible wrong root. The wire schema leaves
     // absoluteness to this check, and `~` expansion belongs to the client.
-    if (!namesCompleteLocation(localPath, this.deps.platformPath)) {
+    if (!namesCompleteLocation(localPath, this.deps.pathRules)) {
       throw new RepoRootResolutionError("not_absolute");
     }
 
@@ -247,20 +243,21 @@ export class RepoRootResolver implements WorkingTreeReader {
     const derivedMainCheckout = await this.verifyMainCheckout(listedWorktrees[0], commonDir);
     const canonicalRoot = derivedMainCheckout ?? workingTreeRoot;
 
-    // Real `node:path` below, never the injected seam. Every operand is `realpath` output, so no
-    // case folding: it would let a redirected toplevel pass against a case-colliding sibling.
-    const workingTreeComponents = toComparableComponents(workingTreeRoot, nodePath);
+    // Every operand below is `realpath` output, compared by the system's own rules: folding case
+    // where they compare exactly would let a redirected toplevel pass against a case-colliding
+    // sibling.
+    const workingTreeComponents = toComparableComponents(workingTreeRoot, this.deps.pathRules);
 
     // Step 5, membership: the path sits inside its working tree, and that tree is the main
     // checkout or one git lists for the repository. Equality, never containment, so a planted
     // holder inside or beside the main checkout does not pass.
-    const inputComponents = toComparableComponents(canonicalInputPath, nodePath);
+    const inputComponents = toComparableComponents(canonicalInputPath, this.deps.pathRules);
     if (!isContainedWithin(inputComponents, workingTreeComponents)) {
       throw new RepoRootResolutionError("root_mismatch");
     }
     const isMainCheckout = componentsEqual(
       workingTreeComponents,
-      toComparableComponents(canonicalRoot, nodePath),
+      toComparableComponents(canonicalRoot, this.deps.pathRules),
     );
     if (!isMainCheckout && !(await this.isListed(listedWorktrees, workingTreeComponents))) {
       throw new RepoRootResolutionError("root_mismatch");
@@ -360,7 +357,10 @@ export class RepoRootResolver implements WorkingTreeReader {
       const resolved = entry.isBare ? null : await this.realpathOrNull(entry.path);
       if (
         resolved !== null &&
-        componentsEqual(toComparableComponents(resolved, nodePath), workingTreeComponents)
+        componentsEqual(
+          toComparableComponents(resolved, this.deps.pathRules),
+          workingTreeComponents,
+        )
       ) {
         return true;
       }
@@ -370,8 +370,8 @@ export class RepoRootResolver implements WorkingTreeReader {
 
   private samePath(left: string, right: string): boolean {
     return componentsEqual(
-      toComparableComponents(left, nodePath),
-      toComparableComponents(right, nodePath),
+      toComparableComponents(left, this.deps.pathRules),
+      toComparableComponents(right, this.deps.pathRules),
     );
   }
 
@@ -455,8 +455,8 @@ export class RepoRootResolver implements WorkingTreeReader {
    * unresolvable answer is a VCS-query anomaly, not a bad user path.
    */
   private async canonicalizeReportedPath(output: string): Promise<string> {
-    const reportedPath = stripSingleLineTerminator(output, this.deps.platformPath);
-    if (reportedPath.length === 0 || !namesCompleteLocation(reportedPath, nodePath)) {
+    const reportedPath = stripSingleLineTerminator(output, this.deps.pathRules);
+    if (reportedPath.length === 0 || !namesCompleteLocation(reportedPath, this.deps.pathRules)) {
       throw new RepoRootResolutionError("vcs_error");
     }
     return this.realpathOrThrow(reportedPath, () => "vcs_error");
@@ -501,12 +501,13 @@ export class RepoRootResolver implements WorkingTreeReader {
   }
 
   /**
-   * The last gate before a root escapes: absolute (real `node:path`) and openable for enumeration.
+   * The last gate before a root escapes: absolute by the system's rules, and openable for
+   * enumeration.
    * `realpath` proves only traversal (a mode-0111 root passes and git answers normally), and the
    * probed value is the outgoing root, so a readable subdirectory of an unreadable root is refused.
    */
   private async requireReadableRoot(root: string): Promise<void> {
-    if (!nodePath.isAbsolute(root)) {
+    if (!this.deps.pathRules.isAbsolute(root)) {
       throw new RepoRootResolutionError("vcs_error");
     }
     try {

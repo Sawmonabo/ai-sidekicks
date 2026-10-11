@@ -12,6 +12,7 @@ import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId, UserId } from "@ai-sidekicks/contracts/session/id";
 import type { WorkflowDefinitionId } from "@ai-sidekicks/contracts/workflow/definition/document";
 
+import { HOST_OPERATING_SYSTEM } from "../../../tests/helpers/host-operating-system.js";
 import type { ApprovalRequestCreateRequest } from "../../approvals/request-create.js";
 import type { SettledApprovalState } from "../../approvals/service.js";
 import type { CallbackToolApprovalRequest } from "../../provider/callback-tool-host.js";
@@ -86,6 +87,7 @@ function buildSeam(options: {
     },
     rules: { findRule: () => undefined },
     agentMemoryFolder: "/data/agent-memory",
+    pathRules: HOST_OPERATING_SYSTEM.pathRules,
     readRunAgent: () => "agent-1",
     readOwner: () => "user-1" as UserId,
     readPosture: (runId) => (runId === RUN_ID ? postureAt(options.level) : undefined),

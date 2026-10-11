@@ -25,9 +25,10 @@ import {
   type WorktreeSetupStep,
 } from "@ai-sidekicks/contracts/worktree/setup";
 
+import type { PathRules } from "../../path-rules/contract.js";
 import type { ServiceLogWriter } from "../../daemon/service-log.js";
 import { describeRejection } from "../../rejection.js";
-import { endProcessTree } from "../../process-tree.js";
+import type { ProcessTreeEnding } from "../../process-tree/contract.js";
 import { canonicalFolderPath } from "../../workspace/folder/canonical-path.js";
 import { lstatOptional } from "../filesystem.js";
 import type { GitCommand } from "../process.js";
@@ -71,12 +72,16 @@ export interface WorktreeSetupRunnerDeps {
   }) => Promise<() => void>;
   /** The person's login shell the commands run under; `null` takes the platform's own. */
   readonly commandShell: string | null;
+  /** How the system starts a command whose tree is ended later, and ends that tree. */
+  readonly processTree: ProcessTreeEnding;
   /** The environment a command in the tree starts with, its project's own rows included. */
   readonly commandEnvironment: (worktreeId: WorktreeId) => Promise<NodeJS.ProcessEnv>;
   /** Where a retired tree's card that could not be dropped, or its command ended, is written. */
   readonly writeServiceLog: ServiceLogWriter;
   /** Monotonic clock in milliseconds for each step's elapsed time; injectable for tests. */
   readonly monotonicNow?: () => number;
+  /** How the system spells and compares paths. */
+  readonly pathRules: PathRules;
 }
 
 // A project step is a file to copy or a command to run; the fixed steps carry no action.
@@ -261,17 +266,17 @@ export class WorktreeSetupRunner {
    * Run before the folder is moved or deleted.
    */
   async endProcessesInFolder(folder: string): Promise<void> {
-    const folderKey = await canonicalFolderPath(folder);
+    const folderKey = await canonicalFolderPath(folder, this.#deps.pathRules);
     const ending: Promise<void>[] = [];
     for (const card of this.#cardByWorktree.values()) {
       const running = card.runningCommand;
       if (running === null || card.made === null) {
         continue;
       }
-      const treeKey = await canonicalFolderPath(card.made.treePath);
+      const treeKey = await canonicalFolderPath(card.made.treePath, this.#deps.pathRules);
       if (treeKey === folderKey || treeKey.startsWith(`${folderKey}${sep}`)) {
         ending.push(
-          endRunningCommand(running, REMOVED_END_REASON, {
+          endRunningCommand(this.#deps.processTree, running, REMOVED_END_REASON, {
             graceMs: REMOVAL_END_GRACE_MS,
             awaitsExit: true,
           }),
@@ -297,7 +302,7 @@ export class WorktreeSetupRunner {
         command === null
           ? []
           : [
-              endRunningCommand(command, STOPPED_END_REASON, {
+              endRunningCommand(this.#deps.processTree, command, STOPPED_END_REASON, {
                 graceMs: DAEMON_STOP_TERMINAL_DRAIN_MS,
                 awaitsExit: false,
               }),
@@ -325,7 +330,7 @@ export class WorktreeSetupRunner {
       return;
     }
     this.#endingCommands.add(running);
-    void endRunningCommand(running, REMOVED_END_REASON, {
+    void endRunningCommand(this.#deps.processTree, running, REMOVED_END_REASON, {
       graceMs: REMOVAL_END_GRACE_MS,
       awaitsExit: true,
     })
@@ -490,8 +495,9 @@ export class WorktreeSetupRunner {
         cwd: made.treePath,
         env: environment,
         shell: this.#deps.commandShell ?? true,
-        // Its own process group, so ending it ends every process the command started.
-        detached: process.platform !== "win32",
+        // Its own process group where the system has them, so ending it ends every process the
+        // command started.
+        detached: this.#deps.processTree.startsOwnGroup,
         stdio: ["ignore", "pipe", "pipe"],
         windowsHide: true,
       });
@@ -527,13 +533,15 @@ export class WorktreeSetupRunner {
               // No pid means the spawn failed, and its `error` settles the step.
               if (child.pid !== undefined) {
                 // The step settles on the failure; the child stays on the card until it closes.
-                endProcessTree(child.pid, "SIGKILL").catch((error: unknown) => {
-                  settle({
-                    error:
-                      "Could not end the command at its time limit: " + describeRejection(error),
-                    output: output.text(),
+                this.#deps.processTree
+                  .endProcessTree(child.pid, "SIGKILL")
+                  .catch((error: unknown) => {
+                    settle({
+                      error:
+                        "Could not end the command at its time limit: " + describeRejection(error),
+                      output: output.text(),
+                    });
                   });
-                });
               }
             }, timeLimitSeconds * 1000);
       child.once("error", (error: Error) => {
@@ -622,6 +630,7 @@ function resetStep(entry: CardStep): CardStep {
 // Ends a running command's process tree: SIGTERM, then SIGKILL once `graceMs` passes without it
 // exiting. With `awaitsExit`, resolves only once it has exited.
 async function endRunningCommand(
+  processTree: ProcessTreeEnding,
   running: RunningCommand,
   endReason: string,
   options: { readonly graceMs: number; readonly awaitsExit: boolean },
@@ -631,7 +640,7 @@ async function endRunningCommand(
     return;
   }
   running.endReason = endReason;
-  await endProcessTree(pid, "SIGTERM");
+  await processTree.endProcessTree(pid, "SIGTERM");
   let graceTimer: ReturnType<typeof setTimeout> | undefined;
   const graceEnded = new Promise<"grace_ended">((resolveGrace) => {
     graceTimer = setTimeout(() => {
@@ -643,7 +652,7 @@ async function endRunningCommand(
   if (outcome === "exited") {
     return;
   }
-  await endProcessTree(pid, "SIGKILL");
+  await processTree.endProcessTree(pid, "SIGKILL");
   if (options.awaitsExit) {
     await running.closed;
   }

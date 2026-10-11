@@ -37,6 +37,7 @@ import {
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 
+import type { DiskFlush } from "../../disk-flush/contract.js";
 import type { OutboundQueue } from "../../ipc/handlers/session/subscribe.js";
 import type {
   SessionEnvironmentRows,
@@ -110,6 +111,8 @@ interface ShellTableDeps {
   readonly runFolderPath: string;
   /** What the terminal takes from the operating system it runs on. */
   readonly operatingSystem: TerminalOperatingSystem;
+  /** How the system flushes the shells' startup files to disk. */
+  readonly diskFlush: DiskFlush;
   /** What each shell's terminal answers a program asking its name and version. */
   readonly terminalVersion: string;
   /** The connections' outbound queues, which an output stream reads before it sends. */
@@ -178,7 +181,7 @@ export class ShellTable {
         this.#refuseEndedCaller(shell, caller);
       },
     };
-    this.#startupFolders = prepareShellStartupFolders(deps.runFolderPath);
+    this.#startupFolders = prepareShellStartupFolders(deps.runFolderPath, deps.diskFlush);
     // Each open fails with it too; the service log says so even before the first open.
     this.#reportFailure(
       this.#startupFolders.then(() => undefined),

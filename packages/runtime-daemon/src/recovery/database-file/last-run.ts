@@ -12,7 +12,8 @@
 import { readFile, rm, stat } from "node:fs/promises";
 import * as path from "node:path";
 
-import { syncFolder, writeFileAtomically } from "../../file/atomic-write.js";
+import type { DiskFlush } from "../../disk-flush/contract.js";
+import { writeFileAtomically } from "../../file/atomic-write.js";
 import { isMissingFileError } from "../../file/missing-error.js";
 
 /**
@@ -49,19 +50,20 @@ export async function readLastRunEnd(databasePath: string): Promise<LastRunEnd> 
  * Records that a run on the file has started, replacing the last run's record. Rejects with the
  * file system's error.
  */
-export async function recordRunStart(databasePath: string): Promise<void> {
-  await writeFileAtomically(lastRunRecordPath(databasePath), RUNNING_RECORD, 0o600);
+export async function recordRunStart(databasePath: string, diskFlush: DiskFlush): Promise<void> {
+  await writeFileAtomically(lastRunRecordPath(databasePath), RUNNING_RECORD, 0o600, diskFlush);
 }
 
 /**
  * Records that the run stopped cleanly, with the database file's facts as it left them. Call only
  * once every connection to the file has closed. Rejects with the file system's error.
  */
-export async function recordCleanStop(databasePath: string): Promise<void> {
+export async function recordCleanStop(databasePath: string, diskFlush: DiskFlush): Promise<void> {
   await writeFileAtomically(
     lastRunRecordPath(databasePath),
     `${CLEAN_PREFIX}${await describeDatabaseFile(databasePath)}`,
     0o600,
+    diskFlush,
   );
 }
 
@@ -69,9 +71,9 @@ export async function recordCleanStop(databasePath: string): Promise<void> {
  * Removes the record, so the next start cannot vouch for the file and holds its writes until its
  * check finds the file sound. Rejects with the file system's error.
  */
-export async function forgetLastRun(databasePath: string): Promise<void> {
+export async function forgetLastRun(databasePath: string, diskFlush: DiskFlush): Promise<void> {
   await rm(lastRunRecordPath(databasePath), { force: true });
-  await syncFolder(path.dirname(databasePath));
+  await diskFlush.flushFolder(path.dirname(databasePath));
 }
 
 // The file's device, inode, size, modification and change times, and its log's size. A missing

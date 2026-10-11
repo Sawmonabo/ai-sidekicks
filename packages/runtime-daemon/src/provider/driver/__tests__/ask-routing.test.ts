@@ -11,6 +11,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ExecutionPosture } from "@ai-sidekicks/contracts/provider/driver/capabilities";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
+import { HOST_OPERATING_SYSTEM } from "../../../../tests/helpers/host-operating-system.js";
 import { PermissionAsks } from "../../../approvals/permission-asks.js";
 import type { ApprovalRequestCreateRequest } from "../../../approvals/request-create.js";
 import { PermissionCheckService } from "../../../policy/permission-check.js";
@@ -71,6 +72,7 @@ function buildPipeline(respondToRequest: (params: RespondToRequestParams) => Pro
     },
     rules: { findRule: () => undefined },
     agentMemoryFolder: "/data/agent-memory",
+    pathRules: HOST_OPERATING_SYSTEM.pathRules,
     readRunAgent: () => "agent-1",
     readOwner: () => undefined,
     readPosture: () => undefined,

@@ -10,10 +10,10 @@ import * as path from "node:path";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, expect, it } from "vitest";
 
+import { HOST_OPERATING_SYSTEM } from "../../../../tests/helpers/host-operating-system.js";
 import { copyDatabaseFilesAside } from "../aside-copy.js";
-import { chooseDatabaseFileOperatingSystem } from "../operating-system.js";
 
-const operatingSystem = chooseDatabaseFileOperatingSystem(process.platform);
+const operatingSystem = HOST_OPERATING_SYSTEM.databaseFile;
 
 let dataFolder: string;
 
@@ -49,6 +49,7 @@ it("keeps every commit when the log goes while the files are copied", async () =
           }
         },
       },
+      diskFlush: HOST_OPERATING_SYSTEM.diskFlush,
       now: () => new Date("2026-10-10T12:00:00.000Z"),
       writeServiceLog: () => {},
     },
@@ -82,6 +83,7 @@ it("ends the copy at a stop and leaves no copy behind", async () => {
         databasePath,
         dataFolder,
         operatingSystem,
+        diskFlush: HOST_OPERATING_SYSTEM.diskFlush,
         now: () => new Date("2026-10-10T12:00:00.000Z"),
         writeServiceLog: () => {},
       },

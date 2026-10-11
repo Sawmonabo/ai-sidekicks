@@ -16,6 +16,7 @@ import path from "node:path";
 import pLimit, { type LimitFunction } from "p-limit";
 import { z } from "zod";
 
+import type { DiskFlush } from "../../../disk-flush/contract.js";
 import { writeFileAtomically } from "../../../file/atomic-write.js";
 import { isMissingFileError } from "../../../file/missing-error.js";
 import { WorkflowSecretStoreUnavailableError, type SecretKeychain } from "../store.js";
@@ -37,17 +38,20 @@ interface FileCallQueue {
 const callQueueByFile = new Map<string, FileCallQueue>();
 
 /**
- * One keychain service's entries in the daemon's `secrets.json` items file. The data folder must
- * exist, readable by this account alone, as the daemon makes it at start.
+ * One keychain service's entries in the daemon's `secrets.json` items file, written through to disk
+ * as `diskFlush` says. The data folder must exist, readable by this account alone, as the daemon
+ * makes it at start.
  */
 export class FileSecretKeychain implements SecretKeychain {
   /** The items file's full path, which the daemon names to the person while it keeps secrets. */
   readonly filePath: string;
   readonly #service: string;
+  readonly #diskFlush: DiskFlush;
 
-  constructor(dataFolder: string, service: string) {
+  constructor(dataFolder: string, service: string, diskFlush: DiskFlush) {
     this.filePath = path.join(path.resolve(dataFolder), ITEMS_FILE_NAME);
     this.#service = service;
+    this.#diskFlush = diskFlush;
   }
 
   write(account: string, value: string): Promise<void> {
@@ -141,7 +145,12 @@ export class FileSecretKeychain implements SecretKeychain {
   }
 
   async #writeItems(items: ItemsFile): Promise<void> {
-    await writeFileAtomically(this.filePath, JSON.stringify(items), ITEMS_FILE_MODE);
+    await writeFileAtomically(
+      this.filePath,
+      JSON.stringify(items),
+      ITEMS_FILE_MODE,
+      this.#diskFlush,
+    );
   }
 
   #unreadableItemsFile(): WorkflowSecretStoreUnavailableError {

@@ -19,7 +19,6 @@
  */
 
 import { realpath } from "node:fs/promises";
-import * as nodePath from "node:path";
 
 import type { Statement } from "better-sqlite3";
 
@@ -34,6 +33,7 @@ import {
   type WorktreeId,
 } from "@ai-sidekicks/contracts/worktree/lifecycle";
 
+import type { PathRules } from "../path-rules/contract.js";
 import { withCleanupFailures } from "../cleanup-failures.js";
 import type { DatabaseConnections } from "../database/connection/lifecycle.js";
 import type { DatabaseWriter } from "../database/writer.js";
@@ -146,6 +146,8 @@ export interface ExecutionRootServiceDeps {
   readonly now?: () => string;
   /** `branch_contexts.id` source. Injectable for deterministic tests. */
   readonly newBranchContextId?: () => string;
+  /** How the system spells and compares paths. */
+  readonly pathRules: PathRules;
 }
 
 /**
@@ -330,8 +332,10 @@ export class ExecutionRootService {
   readonly #selectLiveWorktreesStmt: Statement<MountLookupParams, LiveWorktreeRow>;
   readonly #selectUnsweptRetiredRootsStmt: Statement<MountLookupParams, WorktreeRootRow>;
   readonly #writer: Pick<DatabaseWriter, "write">;
+  readonly #pathRules: PathRules;
 
   constructor(deps: ExecutionRootServiceDeps) {
+    this.#pathRules = deps.pathRules;
     this.#workspaces = deps.workspaces;
     this.#worktrees = deps.worktrees;
     this.#runGit = createGitCommand({
@@ -453,9 +457,9 @@ export class ExecutionRootService {
     repoMountId: string,
     folder: string,
   ): Promise<LiveWorktreeRow | undefined> {
-    const target = await canonicalFolderPath(folder);
+    const target = await canonicalFolderPath(folder, this.#pathRules);
     for (const tree of this.#selectLiveWorktreesStmt.all({ repo_mount_id: repoMountId })) {
-      if ((await canonicalFolderPath(tree.fs_root)) === target) {
+      if ((await canonicalFolderPath(tree.fs_root, this.#pathRules)) === target) {
         return tree;
       }
     }
@@ -479,18 +483,18 @@ export class ExecutionRootService {
     // A move names a whole tree; a folder inside one is a bind's pick, not a move.
     if (
       !componentsEqual(
-        toComparableComponents(admitted.executionRoot, nodePath),
-        toComparableComponents(admitted.checkoutRoot, nodePath),
+        toComparableComponents(admitted.executionRoot, this.#pathRules),
+        toComparableComponents(admitted.checkoutRoot, this.#pathRules),
       )
     ) {
       throw new TrustEnvelopeViolationError();
     }
     // A retired tree git still lists is the sweep's to delete, so edits made there would be lost.
-    const target = await canonicalFolderPath(admitted.executionRoot);
+    const target = await canonicalFolderPath(admitted.executionRoot, this.#pathRules);
     for (const retired of this.#selectUnsweptRetiredRootsStmt.all({
       repo_mount_id: workspace.repo_mount_id,
     })) {
-      if ((await canonicalFolderPath(retired.fs_root)) === target) {
+      if ((await canonicalFolderPath(retired.fs_root, this.#pathRules)) === target) {
         throw new TrustEnvelopeViolationError("worktree_removed");
       }
     }
@@ -586,7 +590,7 @@ export class ExecutionRootService {
       branchName = await readCurrentBranch(this.#runGit, folder);
       const topLevel = await this.#runGit(["-C", folder, "rev-parse", "--show-toplevel"]);
       checkoutRoot = await realpath(
-        stripSingleLineTerminator(topLevel.stdout.toString("utf8"), nodePath),
+        stripSingleLineTerminator(topLevel.stdout.toString("utf8"), this.#pathRules),
       );
     } catch (gitFailure) {
       throw new ExecutionRootServiceInvariantError(

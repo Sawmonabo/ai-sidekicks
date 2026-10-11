@@ -11,7 +11,7 @@ import { promisify } from "node:util";
 
 import semver from "semver";
 
-import { findExecutables, type ExecutableSearchDependencies } from "../executable/search.js";
+import { findExecutables, type ExecutableSearchDependencies } from "./executable-search.js";
 import { describeRejection } from "../rejection.js";
 import { parseCliVersionReport } from "./capability/refresh.js";
 import type {
@@ -51,12 +51,17 @@ export interface ProviderCommandSearchHit {
 export interface ProviderCommandSearchOptions {
   readonly operatingSystem: Pick<
     ProviderOperatingSystem,
-    "environmentNameMatch" | "providerCommandFolders" | "startProviderBuild"
+    | "environmentNameMatch"
+    | "isPathCommand"
+    | "listExecutableCandidates"
+    | "providerCommandFolders"
+    | "startProviderBuild"
   >;
   /** The person's home folder, which most of the folders sit under. */
   readonly homeDirectory: string;
   readonly writeServiceLog: (line: string) => void;
-  readonly dependencies?: Partial<ProviderCommandSearchDependencies>;
+  /** Doubles for the search's own probes; the system's come from `operatingSystem`. */
+  readonly dependencies?: Partial<Omit<ProviderCommandSearchDependencies, "operatingSystem">>;
 }
 
 const DEFAULT_DEPENDENCIES: Omit<
@@ -84,13 +89,18 @@ export class ProviderCommandSearch {
     ProviderCommandSearchDependencies,
     keyof ExecutableSearchDependencies
   > &
+    Pick<ExecutableSearchDependencies, "operatingSystem"> &
     Partial<ExecutableSearchDependencies>;
   // `null` for a build that printed no version it could be ranked by.
   readonly #versions = new Map<string, Promise<semver.SemVer | null>>();
 
   constructor(options: ProviderCommandSearchOptions) {
     this.#options = options;
-    this.#dependencies = { ...DEFAULT_DEPENDENCIES, ...options.dependencies };
+    this.#dependencies = {
+      ...DEFAULT_DEPENDENCIES,
+      ...options.dependencies,
+      operatingSystem: options.operatingSystem,
+    };
   }
 
   /**

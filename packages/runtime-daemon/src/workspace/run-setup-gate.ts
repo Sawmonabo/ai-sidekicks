@@ -20,10 +20,10 @@
 //   in another repository's checkout.
 
 import { realpath } from "node:fs/promises";
-import * as nodePath from "node:path";
 
 import type { Statement } from "better-sqlite3";
 
+import type { PathRules } from "../path-rules/contract.js";
 import type { DatabaseConnections } from "../database/connection/lifecycle.js";
 import type { DatabaseWriter } from "../database/writer.js";
 import {
@@ -149,6 +149,8 @@ export interface ExecutionRootSetupGateDeps {
   readonly git?: GitRunner;
   readonly gitCommandTimeoutMs?: number;
   readonly now?: () => string;
+  /** How the system spells and compares paths. */
+  readonly pathRules: PathRules;
 }
 
 /** Binds each repo-bound run to its working folder; registered on the run engine's setup gates. */
@@ -170,8 +172,10 @@ export class ExecutionRootSetupGate implements RunSetupGate {
     { workspace_id: string; execution_mode: string; execution_root: string },
     RunRootIdsRow
   >;
+  readonly #pathRules: PathRules;
 
   constructor(deps: ExecutionRootSetupGateDeps) {
+    this.#pathRules = deps.pathRules;
     this.#executionRoots = deps.executionRoots;
     this.#workspaces = deps.workspaces;
     this.#workingFolders = deps.workingFolders;
@@ -276,13 +280,13 @@ export class ExecutionRootSetupGate implements RunSetupGate {
       "--git-common-dir",
     ]);
     const commonDir = await realpath(
-      stripSingleLineTerminator(commonDirOutput.stdout.toString("utf8"), nodePath),
+      stripSingleLineTerminator(commonDirOutput.stdout.toString("utf8"), this.#pathRules),
     );
     if (
       workspace.mount_common_dir !== null &&
       !componentsEqual(
-        toComparableComponents(commonDir, nodePath),
-        toComparableComponents(workspace.mount_common_dir, nodePath),
+        toComparableComponents(commonDir, this.#pathRules),
+        toComparableComponents(workspace.mount_common_dir, this.#pathRules),
       )
     ) {
       throw new RepoRootResolutionError("root_mismatch");
@@ -305,7 +309,7 @@ export class ExecutionRootSetupGate implements RunSetupGate {
         { kind: "branch_context_missing", workspaceId: workspace.id },
       );
     }
-    const checkoutKey = await canonicalFolderPath(workspace.checkout_root);
+    const checkoutKey = await canonicalFolderPath(workspace.checkout_root, this.#pathRules);
     await this.#checkoutLock.run(checkoutKey, async () => {
       await this.#writer.write([
         {

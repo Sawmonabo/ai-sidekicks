@@ -7,7 +7,16 @@ import type {
   MenuItemConstructorOptions,
 } from "electron";
 
-import type { SupportedPlatform } from "#shared/app-facts.js";
+import type {
+  DaemonRunFolder,
+  DaemonRunFolderFacts,
+} from "@ai-sidekicks/contracts/daemon/run-folder";
+import type { SupportedPlatform } from "@ai-sidekicks/contracts/platform";
+import type {
+  ProcessIdentityReader,
+  ProcessIdentitySystem,
+} from "@ai-sidekicks/contracts/process-identity";
+
 import type { MachineClockReader } from "../bridge/machine-clock/reader.js";
 import type { InstalledEditors } from "../bridge/native/editors/installed.js";
 import type { ProgramRunner } from "../bridge/native/editors/program-runner.js";
@@ -59,6 +68,16 @@ export interface MainOperatingSystem extends OwnerOnlyFileOperatingSystem {
   readonly applicationMenu: ApplicationMenuParts;
   /** Whether the app keeps an icon in the menu bar for its whole life. */
   readonly hasMenuBarIcon: boolean;
+  /**
+   * A reader of the system's processes through `system`, which keeps the boot it first reads; on a
+   * system whose processes are not read, each reading rejects.
+   */
+  readonly createProcessIdentityReader: (system: ProcessIdentitySystem) => ProcessIdentityReader;
+  /**
+   * The service's run folder, from the facts main reads off its own process. Throws on a system
+   * where the service has none.
+   */
+  readonly resolveDaemonRunFolder: (facts: DaemonRunFolderFacts) => DaemonRunFolder;
   /**
    * How a test build asked to keep out of the way puts its windows up. Set only behind the
    * compile-time test build flag, so a release bundle carries none of it.

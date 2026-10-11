@@ -27,6 +27,7 @@ import { START_OF_LOG_POSITION } from "@ai-sidekicks/contracts/session/event-cur
 import { NodeIdSchema } from "@ai-sidekicks/contracts/runtime-node/id";
 import { SessionIdSchema, type SessionId } from "@ai-sidekicks/contracts/session/id";
 
+import { HOST_OPERATING_SYSTEM } from "../../../tests/helpers/host-operating-system.js";
 import { EventLogService } from "../../events/log-service.js";
 import { SessionEventAppender } from "../../events/session/appender.js";
 import { SessionPurge } from "../../events/session/purge.js";
@@ -237,6 +238,7 @@ describe("the recovery pass at a restart", () => {
       // The purge's provider and folder removals, list refresh and re-scoring have nothing to act
       // on here.
       purge: new SessionPurge({
+        pathRules: HOST_OPERATING_SYSTEM.pathRules,
         writer,
         nodeId,
         eventLog: sessionEvents,

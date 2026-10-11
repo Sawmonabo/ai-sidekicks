@@ -11,6 +11,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -23,9 +24,13 @@ import {
   prepareShellStartupFolders,
 } from "../injection.js";
 import { type ShellMark, ShellMarkReader } from "../marks.js";
-import type { TerminalOperatingSystem } from "../../../operating-system/contract.js";
-import { darwinTerminalOperatingSystem } from "../../../operating-system/darwin.js";
-import { selectTerminalOperatingSystem } from "../../../operating-system/selector.js";
+import { startBashThroughEnv } from "../../../operating-system/bash-env-start.js";
+import type {
+  BashStartInput,
+  TerminalOperatingSystem,
+} from "../../../operating-system/contract.js";
+import { MAC_OWN_BASH_PATH, macTerminalOperatingSystem } from "../../../operating-system/mac.js";
+import { HOST_OPERATING_SYSTEM } from "../../../../../tests/helpers/host-operating-system.js";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -132,10 +137,27 @@ interface ShellCase {
   readonly checkAfterExit?: (home: string) => void;
 }
 
-// macOS's own bash 3.2, which loads the script from its first prompt command.
-const APPLE_BASH_PATH = process.platform === "darwin" ? "/bin/bash" : undefined;
-// A bash that reads the script through `ENV`: any other on the path.
-const ENV_BASH_PATH = ((installed) => (installed === APPLE_BASH_PATH ? undefined : installed))(
+// Whether the host's terminal starts the bash at `shellPath` through `ENV`, as every bash but
+// macOS's own does.
+function startsBashThroughEnv(shellPath: string): boolean {
+  const input: BashStartInput = {
+    shellPath,
+    scriptPath: "/marks.sh",
+    environment: [],
+    environmentNameMatch: "case-sensitive",
+  };
+  return isDeepStrictEqual(
+    HOST_OPERATING_SYSTEM.terminal.startBash(input),
+    startBashThroughEnv(input),
+  );
+}
+
+// macOS's own bash 3.2, which loads the script from its first prompt command: only where the
+// host's terminal starts it so.
+const APPLE_BASH_PATH = startsBashThroughEnv(MAC_OWN_BASH_PATH) ? undefined : MAC_OWN_BASH_PATH;
+// A bash that reads the script through `ENV`: the one on the path, where the host starts it so.
+const ENV_BASH_PATH = ((installed) =>
+  installed !== undefined && startsBashThroughEnv(installed) ? installed : undefined)(
   findInstalledShell("bash"),
 );
 
@@ -179,7 +201,7 @@ const MACHINE_SYSTEM_PROFILE: BashSystemProfile = { files: {}, expected: "" };
 function appleSystemProfile(isManaged: boolean): BashSystemProfile {
   return {
     operatingSystem: (home) =>
-      darwinTerminalOperatingSystem({
+      macTerminalOperatingSystem({
         managedProfilePath: path.join(home, "managed", "profile"),
         profilePath: path.join(home, "etc", "profile"),
       }),
@@ -363,9 +385,7 @@ describe.skipIf(process.platform === "win32")("each shell's marks in a real logi
         }
         const home = writeFixtureHome(shellCase.files);
         const runFolder = mkdtempSync(path.join(tmpdir(), "shell-marks-run-"));
-        const operatingSystem =
-          shellCase.operatingSystem?.(home) ??
-          selectTerminalOperatingSystem(process.platform, process.env);
+        const operatingSystem = shellCase.operatingSystem?.(home) ?? HOST_OPERATING_SYSTEM.terminal;
         const host = new NodePtyHost(makeOrphanGuardDouble(), operatingSystem);
         const launch = await prepareShellLaunch({
           shellPath,
@@ -375,7 +395,10 @@ describe.skipIf(process.platform === "win32")("each shell's marks in a real logi
             ["TERM", "xterm-256color"],
           ],
           environmentNameMatch: "case-sensitive",
-          startupFolders: await prepareShellStartupFolders(runFolder),
+          startupFolders: await prepareShellStartupFolders(
+            runFolder,
+            HOST_OPERATING_SYSTEM.diskFlush,
+          ),
           operatingSystem,
         });
         try {

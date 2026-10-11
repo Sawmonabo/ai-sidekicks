@@ -5,6 +5,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
+import type { DiskFlush } from "../../../../disk-flush/contract.js";
 import { writeFileAtomically } from "../../../../file/atomic-write.js";
 import { isPlainObject } from "../../../record-readers.js";
 import { CLAUDE_CLEANUP_PERIOD_DAYS } from "./settings.js";
@@ -37,7 +38,10 @@ async function readHomeSettings(settingsPath: string): Promise<Record<string, un
  * Sets the home's `cleanupPeriodDays` to the daemon's retention, keeping every other setting, and
  * writes nothing when it already holds it. Throws when the file cannot be read, parsed or written.
  */
-export async function writeClaudeHomeRetention(configFolder: string): Promise<void> {
+export async function writeClaudeHomeRetention(
+  configFolder: string,
+  diskFlush: DiskFlush,
+): Promise<void> {
   const settingsPath = path.join(configFolder, "settings.json");
   const settings = await readHomeSettings(settingsPath);
   if (settings["cleanupPeriodDays"] === CLAUDE_CLEANUP_PERIOD_DAYS) {
@@ -48,5 +52,6 @@ export async function writeClaudeHomeRetention(configFolder: string): Promise<vo
     settingsPath,
     `${JSON.stringify({ ...settings, cleanupPeriodDays: CLAUDE_CLEANUP_PERIOD_DAYS }, null, 2)}\n`,
     0o600,
+    diskFlush,
   );
 }

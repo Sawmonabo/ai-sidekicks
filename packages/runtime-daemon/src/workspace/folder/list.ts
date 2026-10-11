@@ -20,6 +20,7 @@ import type {
   RepoFolderPathSegment,
 } from "@ai-sidekicks/contracts/repo/folders";
 
+import type { PathRules } from "../../path-rules/contract.js";
 import { readGitExitStatus, type GitCommand } from "../../git/process.js";
 import { canonicalFolderPath } from "./canonical-path.js";
 import { mapWithProcessorBound } from "../../processor-bound.js";
@@ -36,6 +37,8 @@ export interface FolderListDeps {
   readonly folderPlace: FolderPlace;
   /** The daemon's git entry point. */
   readonly git: GitCommand;
+  /** How the system spells and compares paths. */
+  readonly pathRules: PathRules;
 }
 
 /** Lists the machine's folders for another device's folder chooser. */
@@ -43,8 +46,10 @@ export class FolderListService {
   readonly #homeDirectory: string;
   readonly #folderPlace: FolderPlace;
   readonly #git: GitCommand;
+  readonly #pathRules: PathRules;
 
   constructor(deps: FolderListDeps) {
+    this.#pathRules = deps.pathRules;
     this.#homeDirectory = deps.homeDirectory;
     this.#folderPlace = deps.folderPlace;
     this.#git = deps.git;
@@ -114,7 +119,7 @@ export class FolderListService {
     let topLevel: string;
     try {
       const result = await this.#git(["-C", folder, "rev-parse", "--show-toplevel"]);
-      topLevel = stripSingleLineTerminator(result.stdout.toString("utf8"), path);
+      topLevel = stripSingleLineTerminator(result.stdout.toString("utf8"), this.#pathRules);
     } catch (refusal) {
       // Git answered with a refusal (no repository, a bare one, an unreadable folder); a git that
       // could not run at all, or ran out of time, is a failure the listing cannot hide.
@@ -124,7 +129,10 @@ export class FolderListService {
       throw refusal;
     }
     // Both resolved and compared by one path rule, since git prints forward slashes on Windows.
-    return (await canonicalFolderPath(topLevel)) === (await canonicalFolderPath(folder));
+    return (
+      (await canonicalFolderPath(topLevel, this.#pathRules)) ===
+      (await canonicalFolderPath(folder, this.#pathRules))
+    );
   }
 }
 

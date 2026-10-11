@@ -4,10 +4,9 @@
 // A branch is claimed only in its own repository, known by its git common folder: another
 // repository's branch of the same name is another branch.
 
-import * as nodePath from "node:path";
-
 import type { Database } from "better-sqlite3";
 
+import type { PathRules } from "../../path-rules/contract.js";
 import { COMMON_DIR_METADATA_PATH } from "../../workspace/row-guards.js";
 import { componentsEqual, toComparableComponents } from "../../workspace/trust-envelope.js";
 import { commonFolderOfRecord } from "./reads.js";
@@ -44,8 +43,11 @@ export interface KeptCopyClaims {
   isBranchClaimed(branch: string, commonFolder: string, recordFolder: string): boolean;
 }
 
-/** The claims, each read afresh from the daemon's database through `reader` when asked. */
-export function prepareKeptCopyClaims(reader: Database): KeptCopyClaims {
+/**
+ * The claims, each read afresh from the daemon's database through `reader` when asked, folders
+ * compared by the system's `pathRules`.
+ */
+export function prepareKeptCopyClaims(reader: Database, pathRules: PathRules): KeptCopyClaims {
   const selectLiveTreeAtFolder = reader.prepare<{ fs_root: string }, unknown>(
     SELECT_LIVE_TREE_AT_FOLDER_SQL,
   );
@@ -63,11 +65,11 @@ export function prepareKeptCopyClaims(reader: Database): KeptCopyClaims {
     isLiveTreeAt: (folder) => selectLiveTreeAtFolder.get({ fs_root: folder }) !== undefined,
     listRestoringRecords: () => selectRestoringRecords.all(),
     isBranchClaimed: (branch, commonFolder, recordFolder) => {
-      const repository = toComparableComponents(commonFolder, nodePath);
+      const repository = toComparableComponents(commonFolder, pathRules);
       // A live tree whose mount records no common folder may be in this repository, so it claims.
       const isThisRepository = (claimCommonFolder: string | null): boolean =>
         claimCommonFolder === null ||
-        componentsEqual(toComparableComponents(claimCommonFolder, nodePath), repository);
+        componentsEqual(toComparableComponents(claimCommonFolder, pathRules), repository);
       return (
         selectLiveTreeCommonFolders.all({ branch }).some(isThisRepository) ||
         selectOtherRestoringRecords

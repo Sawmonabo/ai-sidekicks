@@ -5,15 +5,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Mock } from "vitest";
 
 import { NodePtyHost } from "../node-pty.js";
-import type { ConsoleCtrlEvent } from "../../console-control-windows.js";
 import type { NodePtyChild, NodePtySpawnFn } from "../node-pty.js";
-import type { TaskkillResult } from "../../taskkill-windows.js";
+import type { TaskkillResult } from "../../../process-tree/windows.js";
 import { PtyBackendUnavailableError } from "../../sidecar/binary-path.js";
 import { makeFakeChild, makeOrphanGuardDouble } from "../../__fixtures__/child-doubles.js";
 import type { SpawnRequest } from "../protocol.js";
 import type { DrainResult } from "../contract.js";
 import { LINUX_TERMINAL_OPERATING_SYSTEM } from "../../operating-system/linux.js";
-import { windowsTerminalOperatingSystem } from "../../operating-system/windows.js";
+import {
+  windowsTerminalOperatingSystem,
+  type ConsoleCtrlEvent,
+} from "../../operating-system/windows.js";
 
 const SAMPLE_SPAWN: SpawnRequest = {
   kind: "spawn_request",
@@ -33,8 +35,6 @@ interface ShutdownCtx {
   }>;
   ptySpawnStub: Mock<NodePtySpawnFn>;
   exitRecorder: Mock<(sessionId: string, exitCode: number, signalCode?: number) => void>;
-  mockGCCE: Mock<(event: ConsoleCtrlEvent, pid: number) => void>;
-  mockTaskkill: Mock<(pid: number) => Promise<TaskkillResult>>;
 }
 
 let ctx: ShutdownCtx;
@@ -52,17 +52,9 @@ beforeEach(() => {
   });
   const exitRecorder: Mock<(sessionId: string, exitCode: number, signalCode?: number) => void> =
     vi.fn();
-  const mockGCCE: Mock<(event: ConsoleCtrlEvent, pid: number) => void> = vi.fn();
-  const mockTaskkill: Mock<(pid: number) => Promise<TaskkillResult>> = vi
-    .fn<(pid: number) => Promise<TaskkillResult>>()
-    .mockResolvedValue({ exitCode: 0 });
-
+  // POSIX, so `kill` takes the plain `child.kill(signal)` branch.
   const host = new NodePtyHost(makeOrphanGuardDouble(), LINUX_TERMINAL_OPERATING_SYSTEM, {
-    // POSIX, so `kill` takes the plain `child.kill(signal)` branch.
-    platform: "linux",
     ptySpawn: ptySpawnStub,
-    generateConsoleCtrlEvent: mockGCCE,
-    spawnTaskkill: mockTaskkill,
   });
   host.setOnExit(exitRecorder);
 
@@ -71,8 +63,6 @@ beforeEach(() => {
     spawnedChildren,
     ptySpawnStub,
     exitRecorder,
-    mockGCCE,
-    mockTaskkill,
   };
 });
 
@@ -261,7 +251,7 @@ describe("NodePtyHost.shutdown — Windows taskkill-escalation race", () => {
     "counts a session under sessionsForcedKilled when the 2 s SIGTERM-escalation timer fires " +
       "before perSessionTimeoutMs",
     async () => {
-      // The drain waiter carries "forced" from the synthetic exit that `invokeTaskkill` emits.
+      // The drain waiter carries "forced" from the synthetic exit the outright end emits.
       const winSpawn = makeFakeChild(70000);
       const winPtySpawn: Mock<NodePtySpawnFn> = vi
         .fn<NodePtySpawnFn>()
@@ -278,26 +268,24 @@ describe("NodePtyHost.shutdown — Windows taskkill-escalation race", () => {
 
       const winHost = new NodePtyHost(
         makeOrphanGuardDouble(),
-        windowsTerminalOperatingSystem(undefined),
-        {
-          platform: "win32",
-          ptySpawn: winPtySpawn,
+        windowsTerminalOperatingSystem(undefined, {
           generateConsoleCtrlEvent: winGCCE,
-          spawnTaskkill: winTaskkill,
-        },
+          runTaskkill: winTaskkill,
+        }),
+        { ptySpawn: winPtySpawn },
       );
       winHost.setOnExit(winExitRecorder);
 
       await winHost.spawn(SAMPLE_SPAWN);
 
-      // 5 s exceeds the 2 s escalation timer in `killOnWindows`, so taskkill runs before the
+      // 5 s exceeds the 2 s escalation timer of a Windows stop, so taskkill runs before the
       // per-session timeout; a shorter timeout would take the SIGKILL path instead.
       const drainPromise = winHost.shutdown({
         perSessionTimeoutMs: 5_000,
         hostTimeoutMs: 10_000,
       });
 
-      // Let `kill()` return so `killOnWindows` arms the 2 s timer.
+      // Let `kill()` return so the Windows stop arms the 2 s timer.
       await Promise.resolve();
       await Promise.resolve();
 

@@ -31,6 +31,7 @@ export class ClaudeSpawnLegComposer {
   readonly #diagnostics: DriverDiagnosticsEmitter;
   readonly #providerBaseEnvironment: readonly SpawnEnvPair[];
   readonly #operatingSystem: ClaudeSessionLifecycleDependencies["operatingSystem"];
+  readonly #diskFlush: ClaudeSessionLifecycleDependencies["diskFlush"];
   readonly #spawnContext: ClaudeSessionLifecycleDependencies["spawnContext"];
   readonly #credentialPolicy: ClaudeSessionLifecycleDependencies["credentialPolicy"];
 
@@ -41,6 +42,7 @@ export class ClaudeSpawnLegComposer {
       | "diagnostics"
       | "providerBaseEnvironment"
       | "operatingSystem"
+      | "diskFlush"
       | "spawnContext"
       | "credentialPolicy"
     >,
@@ -49,6 +51,7 @@ export class ClaudeSpawnLegComposer {
     this.#diagnostics = dependencies.diagnostics;
     this.#providerBaseEnvironment = dependencies.providerBaseEnvironment;
     this.#operatingSystem = dependencies.operatingSystem;
+    this.#diskFlush = dependencies.diskFlush;
     this.#spawnContext = dependencies.spawnContext;
     this.#credentialPolicy = dependencies.credentialPolicy;
   }
@@ -68,7 +71,7 @@ export class ClaudeSpawnLegComposer {
     // Every spawn on a home the app manages keeps the home's own retention set; the person's own
     // home is theirs.
     if (context.accountFolders !== undefined) {
-      await writeClaudeHomeRetention(context.accountFolders.configFolder);
+      await writeClaudeHomeRetention(context.accountFolders.configFolder, this.#diskFlush);
     }
     // The curated list is handed over on every level, a posture-less spawn included.
     const credentialPolicy = await this.#credentialPolicy.resolveCredentialPolicy(

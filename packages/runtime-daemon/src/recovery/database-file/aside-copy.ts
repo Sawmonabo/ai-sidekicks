@@ -12,8 +12,8 @@ import * as path from "node:path";
 import { z } from "zod";
 
 import { withCleanupFailures } from "../../cleanup-failures.js";
-import { flushPath } from "../../disk-flush.js";
-import { syncFolder, writeFileAtomically } from "../../file/atomic-write.js";
+import type { DiskFlush } from "../../disk-flush/contract.js";
+import { writeFileAtomically } from "../../file/atomic-write.js";
 import { isMissingFileError } from "../../file/missing-error.js";
 import { pathExists } from "../../file/path-exists.js";
 import type { DatabaseFileOperatingSystem } from "./operating-system.js";
@@ -43,12 +43,14 @@ type AsideCopyRecord = z.infer<typeof AsideCopyRecordSchema>;
 
 /**
  * Where the store's files are, where copies go, the clock that names a copy's folder, and the
- * system's copy.
+ * system's copy and flush to disk.
  */
 export interface DatabaseFilesAsideOptions {
   readonly databasePath: string;
   readonly dataFolder: string;
   readonly operatingSystem: Pick<DatabaseFileOperatingSystem, "copyFile">;
+  /** How a written file and its folder are flushed to disk. */
+  readonly diskFlush: DiskFlush;
   readonly now: () => Date;
   readonly writeServiceLog: (line: string) => void;
 }
@@ -85,7 +87,7 @@ export async function copyDatabaseFilesAside(
     throw withCleanupFailures(error, cleanupFailures, "Copying the store's files aside");
   }
   // The new folder's own entry, so the copy is found after a power loss.
-  await syncFolder(asideRoot);
+  await options.diskFlush.flushFolder(asideRoot);
   return folder;
 }
 
@@ -121,10 +123,10 @@ async function copyFilesInto(
       }
       continue;
     }
-    await flushPath(copyPath);
+    await options.diskFlush.flushFile(copyPath);
     copied.push(file);
   }
-  await writeRecord(folder, { files: copied, sessions: [] });
+  await writeRecord(folder, { files: copied, sessions: [] }, options.diskFlush);
 }
 
 /**
@@ -153,14 +155,16 @@ export async function recordSessionInAsideCopy(
   folder: string,
   sessionId: string,
   headSequence: number,
+  diskFlush: DiskFlush,
 ): Promise<void> {
   const record = AsideCopyRecordSchema.parse(
     JSON.parse(await readFile(path.join(folder, RECORD_FILE_NAME), "utf8")),
   );
-  await writeRecord(folder, {
-    ...record,
-    sessions: [...record.sessions, { sessionId, headSequence }],
-  });
+  await writeRecord(
+    folder,
+    { ...record, sessions: [...record.sessions, { sessionId, headSequence }] },
+    diskFlush,
+  );
 }
 
 // The database and the companion files that exist, with their sizes and times.
@@ -234,6 +238,15 @@ async function readAsideCopies(
   return copies;
 }
 
-async function writeRecord(folder: string, record: AsideCopyRecord): Promise<void> {
-  await writeFileAtomically(path.join(folder, RECORD_FILE_NAME), JSON.stringify(record), 0o600);
+async function writeRecord(
+  folder: string,
+  record: AsideCopyRecord,
+  diskFlush: DiskFlush,
+): Promise<void> {
+  await writeFileAtomically(
+    path.join(folder, RECORD_FILE_NAME),
+    JSON.stringify(record),
+    0o600,
+    diskFlush,
+  );
 }

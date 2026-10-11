@@ -21,6 +21,7 @@ import type { SessionId, UserId } from "@ai-sidekicks/contracts/session/id";
 import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 import type { WorkflowDefinitionId } from "@ai-sidekicks/contracts/workflow/definition/document";
 
+import { HOST_OPERATING_SYSTEM } from "../helpers/host-operating-system.js";
 import { describeProviderAsk } from "../../src/approvals/ask-description.js";
 import { ApprovalRules } from "../../src/approvals/rules.js";
 import { ApprovalService } from "../../src/approvals/service.js";
@@ -175,6 +176,7 @@ beforeAll(async () => {
     approvals,
     rules,
     agentMemoryFolder: memoryFolder,
+    pathRules: HOST_OPERATING_SYSTEM.pathRules,
     readRunAgent: () => "agent-1",
     readOwner: () => OWNER,
     readPosture: () => posture,

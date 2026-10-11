@@ -8,6 +8,7 @@
 import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
+import type { DiskFlush } from "../../../disk-flush/contract.js";
 import { writeFileAtomically } from "../../../file/atomic-write.js";
 import { coversDestructiveGit } from "../../../policy/destructive-git.js";
 import type { ProviderAskRule } from "../../port/permission-ask.js";
@@ -57,6 +58,7 @@ export async function writeCodexProjectRule(
   projectFolder: string,
   rule: ProviderAskRule,
   readGitFolder: CodexGitFolderReader,
+  diskFlush: DiskFlush,
 ): Promise<void> {
   const opposite = composeRuleLines({ ...rule, sense: rule.sense === "allow" ? "block" : "allow" });
   const written = composeRuleLines(rule);
@@ -65,11 +67,12 @@ export async function writeCodexProjectRule(
   }
   const filePath = path.join(projectFolder, CODEX_PROJECT_RULE_FILE);
   const lines = linesOf((await readIfPresent(filePath)) ?? "");
-  await writeRuleFile(filePath, [
-    ...lines.filter((line) => !opposite.includes(line) && !written.includes(line)),
-    ...written,
-  ]);
-  await excludeRuleFile(await readGitFolder(projectFolder));
+  await writeRuleFile(
+    filePath,
+    [...lines.filter((line) => !opposite.includes(line) && !written.includes(line)), ...written],
+    diskFlush,
+  );
+  await excludeRuleFile(await readGitFolder(projectFolder), diskFlush);
 }
 
 /**
@@ -79,6 +82,7 @@ export async function writeCodexProjectRule(
 export async function removeCodexProjectRule(
   projectFolder: string,
   rule: ProviderAskRule,
+  diskFlush: DiskFlush,
 ): Promise<void> {
   const filePath = path.join(projectFolder, CODEX_PROJECT_RULE_FILE);
   const text = await readIfPresent(filePath);
@@ -89,6 +93,7 @@ export async function removeCodexProjectRule(
   await writeRuleFile(
     filePath,
     linesOf(text).filter((line) => !removed.includes(line)),
+    diskFlush,
   );
 }
 
@@ -96,13 +101,17 @@ function linesOf(text: string): string[] {
   return text.split("\n").filter((line) => line.trim() !== "");
 }
 
-async function writeRuleFile(filePath: string, lines: readonly string[]): Promise<void> {
+async function writeRuleFile(
+  filePath: string,
+  lines: readonly string[],
+  diskFlush: DiskFlush,
+): Promise<void> {
   await mkdir(path.dirname(filePath), { recursive: true });
-  await writeFileAtomically(filePath, `${lines.join("\n")}\n`, PROJECT_FILE_MODE);
+  await writeFileAtomically(filePath, `${lines.join("\n")}\n`, PROJECT_FILE_MODE, diskFlush);
 }
 
 // Adds the rule file's line to `<git folder>/info/exclude` once.
-async function excludeRuleFile(gitFolder: string): Promise<void> {
+async function excludeRuleFile(gitFolder: string, diskFlush: DiskFlush): Promise<void> {
   const excludePath = path.join(gitFolder, "info", "exclude");
   const text = (await readIfPresent(excludePath)) ?? "";
   if (text.split("\n").includes(CODEX_PROJECT_RULE_EXCLUDE_LINE)) {
@@ -114,6 +123,7 @@ async function excludeRuleFile(gitFolder: string): Promise<void> {
     excludePath,
     `${text}${separator}${CODEX_PROJECT_RULE_EXCLUDE_LINE}\n`,
     PROJECT_FILE_MODE,
+    diskFlush,
   );
 }
 

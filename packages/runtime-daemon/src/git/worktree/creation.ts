@@ -20,6 +20,7 @@ import {
   type WorktreeId,
   type WorktreeState,
 } from "@ai-sidekicks/contracts/worktree/lifecycle";
+import type { PathRules } from "../../path-rules/contract.js";
 import type { ServiceLogWriter } from "../../daemon/service-log.js";
 import type { DatabaseWriter } from "../../database/writer.js";
 import { withCleanupFailures } from "../../cleanup-failures.js";
@@ -214,8 +215,10 @@ export class WorktreeCreator {
   readonly #selectOtherLiveRunFoldersStmt: Statement<SessionLookupParams, LiveRunFolderRow>;
   readonly #selectSessionTitleStmt: Statement<SessionLookupParams, SessionTitleRow>;
   readonly #runAgents: RunAgentReader;
+  readonly #pathRules: PathRules;
 
   constructor(deps: WorktreeCreatorDeps) {
+    this.#pathRules = deps.pathRules;
     this.#events = deps.events;
     this.#naming = deps.naming;
     this.#worktrees = deps.worktrees;
@@ -293,10 +296,13 @@ export class WorktreeCreator {
           // The checkout's lock keeps a run from being bound there between this check and the
           // stash; the caller holds the workspace's preparation lock, taken first.
           const treeFolder = tree.name.folderPath;
-          carried = await this.#checkoutLock.run(await canonicalFolderPath(carryFrom), async () => {
-            await this.#refuseCarryWhileAnotherRuns(carryFrom, input.sessionId);
-            return carryUncommittedWork(this.#runGit, carryFrom, treeFolder, worktreeId);
-          });
+          carried = await this.#checkoutLock.run(
+            await canonicalFolderPath(carryFrom, this.#pathRules),
+            async () => {
+              await this.#refuseCarryWhileAnotherRuns(carryFrom, input.sessionId);
+              return carryUncommittedWork(this.#runGit, carryFrom, treeFolder, worktreeId);
+            },
+          );
         } catch (carryFailure) {
           throw withCleanupFailures(
             carryFailure,
@@ -362,9 +368,9 @@ export class WorktreeCreator {
   // refused while another session's run is live in that checkout or in a folder inside it, naming
   // that run's session and agent.
   async #refuseCarryWhileAnotherRuns(folder: string, sessionId: string): Promise<void> {
-    const folderKey = await canonicalFolderPath(folder);
+    const folderKey = await canonicalFolderPath(folder, this.#pathRules);
     for (const row of this.#selectOtherLiveRunFoldersStmt.all({ session_id: sessionId })) {
-      const runKey = await canonicalFolderPath(row.folder);
+      const runKey = await canonicalFolderPath(row.folder, this.#pathRules);
       if (
         runKey === folderKey ||
         runKey.startsWith(`${folderKey}${sep}`) ||
@@ -613,7 +619,11 @@ export class WorktreeCreator {
     }
     try {
       // Read while the folder exists: git names the record only from inside the tree.
-      const recordFolder = await readLinkedTreeRecord(this.#runGit, tree.name.folderPath);
+      const recordFolder = await readLinkedTreeRecord(
+        this.#runGit,
+        tree.name.folderPath,
+        this.#pathRules,
+      );
       await this.#filesystem.removePath(tree.name.folderPath);
       await this.#worktrees.removeWorktreeRecord(recordFolder);
     } catch (cleanupFailure: unknown) {

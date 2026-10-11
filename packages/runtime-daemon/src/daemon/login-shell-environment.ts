@@ -1,15 +1,16 @@
-// The environment every provider's environment is built from, captured once per start. On macOS
-// and Linux the login shell runs once (`<shell> -lic`, printing `env -0` between two markers), so
+// The environment every provider's environment is built from on macOS and Linux, captured once per
+// start: the login shell runs once (`<shell> -lic`, printing `env -0` between two markers), so
 // proxy, certificate and locale settings and a later-installed provider are present with no
 // terminal open. A shell that stalls or prints no markers is ended and the start goes on with the
-// account's default environment: the start never waits on a shell. Inside a WSL distribution the
-// search path keeps no folder on the Windows drives. Windows uses the account's own.
+// account's default environment: the start never waits on a shell. Each system supplies its own
+// parts: macOS the account's temporary folder, Linux where the Windows drives are mounted inside a
+// WSL distribution, whose folders the search path then leaves out.
 
 import { execFile, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { promisify } from "node:util";
 
-import { endProcessTree } from "../process-tree.js";
+import { POSIX_PROCESS_TREE_ENDING } from "../process-tree/posix.js";
 import type { SpawnEnvPair } from "../provider/spawn-env.js";
 import { describeRejection } from "../rejection.js";
 
@@ -33,31 +34,28 @@ const runProgram = promisify(execFile);
  * Reads the account's private temporary folder on macOS, the `TMPDIR` a login session gets, with
  * `getconf DARWIN_USER_TEMP_DIR` run directly, never through a shell. Rejects when it fails.
  */
-export async function readDarwinUserTempDirectory(): Promise<string> {
+export async function readMacUserTempDirectory(): Promise<string> {
   const { stdout } = await runProgram("/usr/bin/getconf", ["DARWIN_USER_TEMP_DIR"], {
     timeout: USER_TEMP_DIRECTORY_DEADLINE_MS,
   });
   return stdout.trimEnd();
 }
 
-/** What one capture runs with. */
-export interface LoginShellCaptureOptions {
-  readonly platform: NodeJS.Platform;
+/** What one capture runs with, on any system. */
+export interface ProviderBaseEnvironmentCapture {
   /** The person's login shell, `os.userInfo().shell`; `null` where the account names none. */
   readonly shell: string | null;
   /** The person's home folder, `os.userInfo().homedir`. */
   readonly homeDirectory: string;
   /** The person's account name, `os.userInfo().username`. */
   readonly userName: string;
-  /** Reads the account's temporary folder on macOS; consulted only when the capture falls back. */
-  readonly readUserTempDirectory: () => Promise<string>;
-  /** Reads where the Windows drives are mounted inside a WSL distribution; consulted on Linux. */
-  readonly readWindowsDriveMounts: () => Promise<readonly string[]>;
   readonly deadlineMs: number;
-  /** The daemon's own environment: the one the shell starts with, and the base on Windows. */
+  /** The daemon's own environment, the one the shell starts with. */
   readonly serviceEnvironment: NodeJS.ProcessEnv;
   /** Writes one line to the service log. */
   readonly writeServiceLog: (line: string) => void;
+  /** Reads a system file, which a system's part of the capture consults; rejects as `readFile`. */
+  readonly readTextFile: (filePath: string) => Promise<string>;
   /**
    * Abandons the capture: the shell and its group end. The abort's reason finishes the service
    * log's sentence on why, as in "was ended, since a stop came during the start".
@@ -65,18 +63,29 @@ export interface LoginShellCaptureOptions {
   readonly signal: AbortSignal;
 }
 
+/** A capture with the system's own parts of it. */
+export interface LoginShellCaptureOptions extends ProviderBaseEnvironmentCapture {
+  /**
+   * Reads the account's temporary folder, consulted only when the capture falls back; `null` where
+   * a login gets no `TMPDIR` of its own.
+   */
+  readonly readUserTempDirectory: (() => Promise<string>) | null;
+  /**
+   * Reads where the Windows drives are mounted inside a WSL distribution; `null` where the system
+   * runs in none.
+   */
+  readonly readWindowsDriveMounts: (() => Promise<readonly string[]>) | null;
+}
+
 /**
  * Captures the base environment for provider processes as name-value pairs. Never rejects for a
  * shell that hangs, fails, prints no markers or is abandoned: it says why in the service log and
  * returns the account's default environment: `HOME`, `SHELL` where the account names one, `USER`
- * and `LOGNAME`, `PATH` as `/usr/bin:/bin`, and on macOS `TMPDIR` when `getconf` reads it.
+ * and `LOGNAME`, `PATH` as `/usr/bin:/bin`, and `TMPDIR` when the system reads one.
  */
 export async function captureLoginShellEnvironment(
   options: LoginShellCaptureOptions,
 ): Promise<readonly SpawnEnvPair[]> {
-  if (options.platform === "win32") {
-    return toPairs(options.serviceEnvironment);
-  }
   if (options.shell === null || options.shell.length === 0) {
     options.writeServiceLog(
       "The account names no login shell, so providers start with the account's default " +
@@ -86,7 +95,7 @@ export async function captureLoginShellEnvironment(
   }
   const outcome = await runLoginShell(options.shell, options);
   if (outcome.kind === "captured") {
-    if (options.platform !== "linux") {
+    if (options.readWindowsDriveMounts === null) {
       return outcome.pairs;
     }
     return leaveOutWindowsDrives(outcome.pairs, await options.readWindowsDriveMounts());
@@ -113,8 +122,11 @@ async function readDefaultEnvironment(
   }
   pairs.push(["USER", options.userName], ["LOGNAME", options.userName]);
   pairs.push(["PATH", DEFAULT_LOGIN_PATH]);
-  if (options.platform === "darwin") {
-    const temporaryDirectory = await readUserTempDirectoryOrLog(options);
+  if (options.readUserTempDirectory !== null) {
+    const temporaryDirectory = await readUserTempDirectoryOrLog(
+      options.readUserTempDirectory,
+      options.writeServiceLog,
+    );
     if (temporaryDirectory !== undefined) {
       pairs.push(["TMPDIR", temporaryDirectory]);
     }
@@ -123,11 +135,12 @@ async function readDefaultEnvironment(
 }
 
 async function readUserTempDirectoryOrLog(
-  options: LoginShellCaptureOptions,
+  readUserTempDirectory: () => Promise<string>,
+  writeServiceLog: (line: string) => void,
 ): Promise<string | undefined> {
   let reason: string;
   try {
-    const temporaryDirectory = await options.readUserTempDirectory();
+    const temporaryDirectory = await readUserTempDirectory();
     if (temporaryDirectory.length > 0) {
       return temporaryDirectory;
     }
@@ -135,7 +148,7 @@ async function readUserTempDirectoryOrLog(
   } catch (error) {
     reason = describeRejection(error);
   }
-  options.writeServiceLog(
+  writeServiceLog(
     `The account's temporary folder could not be read (${reason}), so providers start with no ` +
       "TMPDIR.",
   );
@@ -190,12 +203,14 @@ function runLoginShell(
         const processGroupId = child.pid;
         // Logged, not thrown: it runs from a timer or an abort, where a throw would end the daemon
         // over a cleanup.
-        endProcessTree(processGroupId, "SIGKILL").catch((error: unknown) => {
-          options.writeServiceLog(
-            `The login shell's process group ${String(processGroupId)} could not be ended: ` +
-              describeRejection(error),
-          );
-        });
+        POSIX_PROCESS_TREE_ENDING.endProcessTree(processGroupId, "SIGKILL").catch(
+          (error: unknown) => {
+            options.writeServiceLog(
+              `The login shell's process group ${String(processGroupId)} could not be ended: ` +
+                describeRejection(error),
+            );
+          },
+        );
       }
       resolve(outcome);
     };
@@ -298,14 +313,4 @@ function leaveOutWindowsDrives(
           ]
         : [name, value],
   );
-}
-
-function toPairs(environment: NodeJS.ProcessEnv): readonly SpawnEnvPair[] {
-  const pairs: SpawnEnvPair[] = [];
-  for (const [name, value] of Object.entries(environment)) {
-    if (value !== undefined) {
-      pairs.push([name, value]);
-    }
-  }
-  return pairs;
 }

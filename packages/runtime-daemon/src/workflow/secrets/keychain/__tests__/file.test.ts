@@ -8,6 +8,7 @@ import { join, relative } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { HOST_OPERATING_SYSTEM } from "../../../../../tests/helpers/host-operating-system.js";
 import { FileSecretKeychain } from "../file.js";
 
 const REFUSAL = { code: "workflow.secret_store_unavailable", unavailableCause: "unavailable" };
@@ -24,8 +25,16 @@ afterEach(async () => {
 
 describe("FileSecretKeychain", () => {
   it("keeps each service's values in one file readable by this account alone", async () => {
-    const workflowSecrets = new FileSecretKeychain(dataFolder, "workflow");
-    const otherSecrets = new FileSecretKeychain(dataFolder, "other");
+    const workflowSecrets = new FileSecretKeychain(
+      dataFolder,
+      "workflow",
+      HOST_OPERATING_SYSTEM.diskFlush,
+    );
+    const otherSecrets = new FileSecretKeychain(
+      dataFolder,
+      "other",
+      HOST_OPERATING_SYSTEM.diskFlush,
+    );
     await expect(workflowSecrets.read("account")).resolves.toBeUndefined();
     await expect(workflowSecrets.remove("account")).resolves.toBe(false);
 
@@ -45,20 +54,29 @@ describe("FileSecretKeychain", () => {
     const relativeFolder = relative(process.cwd(), dataFolder);
     await Promise.all(
       accounts.map((account, index) =>
-        new FileSecretKeychain(index % 2 === 0 ? dataFolder : relativeFolder, "workflow").write(
-          account,
-          `${account}-value`,
-        ),
+        new FileSecretKeychain(
+          index % 2 === 0 ? dataFolder : relativeFolder,
+          "workflow",
+          HOST_OPERATING_SYSTEM.diskFlush,
+        ).write(account, `${account}-value`),
       ),
     );
-    const keychain = new FileSecretKeychain(dataFolder, "workflow");
+    const keychain = new FileSecretKeychain(
+      dataFolder,
+      "workflow",
+      HOST_OPERATING_SYSTEM.diskFlush,
+    );
     for (const account of accounts) {
       await expect(keychain.read(account)).resolves.toBe(`${account}-value`);
     }
   });
 
   it("refuses an items file it cannot read, never quoting it, and leaves it as it is", async () => {
-    const keychain = new FileSecretKeychain(dataFolder, "workflow");
+    const keychain = new FileSecretKeychain(
+      dataFolder,
+      "workflow",
+      HOST_OPERATING_SYSTEM.diskFlush,
+    );
     for (const text of [
       '{"workflow": {"account": secret-value}}',
       '{"workflow": "secret-value"}',
@@ -76,7 +94,11 @@ describe("FileSecretKeychain", () => {
   });
 
   it("refuses when the file system fails, keeping its failure as the cause", async () => {
-    const keychain = new FileSecretKeychain(dataFolder, "workflow");
+    const keychain = new FileSecretKeychain(
+      dataFolder,
+      "workflow",
+      HOST_OPERATING_SYSTEM.diskFlush,
+    );
     await mkdir(keychain.filePath);
     await expect(keychain.read("account")).rejects.toMatchObject({
       ...REFUSAL,
@@ -88,9 +110,11 @@ describe("FileSecretKeychain", () => {
     const leftover = join(dataFolder, "secrets.json.0123456789abcdef.tmp");
     await writeFile(leftover, '{"workflow": {"account": "removed-value"}}', { mode: 0o600 });
     await writeFile(join(dataFolder, "other.tmp"), "", { mode: 0o600 });
-    await expect(new FileSecretKeychain(dataFolder, "workflow").read("account")).resolves.toBe(
-      undefined,
-    );
+    await expect(
+      new FileSecretKeychain(dataFolder, "workflow", HOST_OPERATING_SYSTEM.diskFlush).read(
+        "account",
+      ),
+    ).resolves.toBe(undefined);
     expect(await readdir(dataFolder)).toEqual(["other.tmp"]);
   });
 });

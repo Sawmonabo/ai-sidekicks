@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 
 import type { ProcessIdentity } from "@ai-sidekicks/contracts/process-identity";
 
+import { HOST_OPERATING_SYSTEM } from "../../../../tests/helpers/host-operating-system.js";
 import { ORPHAN_REGISTRY_FILE_NAME, OrphanRegistry } from "../registry.js";
 import type { OrphanRegistryEntry } from "../registry.js";
 import { sweepOrphans, type OrphanSweepSystem } from "../sweep.js";
@@ -176,7 +177,7 @@ describe("sweepOrphans", () => {
       const { system, killed } = systemWith(() => [SHELL]);
 
       const result = await sweepOrphans(
-        await new OrphanRegistry(dataFolder).readLeftover(),
+        await new OrphanRegistry(dataFolder, HOST_OPERATING_SYSTEM.diskFlush).readLeftover(),
         system,
       );
 

@@ -8,8 +8,6 @@ const SESSION_TOKEN_FILE_NAME = "daemon.token";
 
 /** What the run folder is resolved from; each side reads these off its own process. */
 export interface DaemonRunFolderFacts {
-  /** `process.platform`. */
-  readonly platform: string;
   /** `XDG_RUNTIME_DIR`, or `undefined` where it is unset (macOS, and Linux without a session). */
   readonly runtimeDirectory: string | undefined;
   /** `os.tmpdir()`. */
@@ -27,17 +25,11 @@ export interface DaemonRunFolder {
 }
 
 /**
- * Resolves the run folder: `$XDG_RUNTIME_DIR/ai-sidekicks` where the session provides one, and
- * otherwise `<temporary folder>/ai-sidekicks-<uid>`, kept per person because a temporary folder can
- * be shared. Throws on Windows, which has no such folder.
+ * Resolves the run folder on macOS or Linux: `$XDG_RUNTIME_DIR/ai-sidekicks` where the session
+ * provides one, and otherwise `<temporary folder>/ai-sidekicks-<uid>`, kept per person because a
+ * temporary folder can be shared.
  */
 export function resolveDaemonRunFolder(facts: DaemonRunFolderFacts): DaemonRunFolder {
-  if (facts.platform === "win32") {
-    throw new Error(
-      "On Windows the background service is reached through its per-user named pipe, not a " +
-        "Unix domain socket",
-    );
-  }
   const folderPath =
     facts.runtimeDirectory !== undefined && facts.runtimeDirectory.length > 0
       ? `${trimTrailingSlash(facts.runtimeDirectory)}/ai-sidekicks`
@@ -47,6 +39,17 @@ export function resolveDaemonRunFolder(facts: DaemonRunFolderFacts): DaemonRunFo
     socketPath: `${folderPath}/${SOCKET_FILE_NAME}`,
     tokenPath: `${folderPath}/${SESSION_TOKEN_FILE_NAME}`,
   };
+}
+
+/**
+ * The run folder on Windows, which has none: the service is reached through its per-user named
+ * pipe. Always throws.
+ */
+export function refuseWindowsDaemonRunFolder(): never {
+  throw new Error(
+    "On Windows the background service is reached through its per-user named pipe, not a " +
+      "Unix domain socket",
+  );
 }
 
 function trimTrailingSlash(folder: string): string {

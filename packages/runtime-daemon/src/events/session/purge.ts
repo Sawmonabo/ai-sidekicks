@@ -51,6 +51,7 @@ import type {
 } from "@ai-sidekicks/contracts/event/declared-variants";
 import type { NodeId } from "@ai-sidekicks/contracts/runtime-node/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
+import type { PathRules } from "../../path-rules/contract.js";
 import type { CheckpointResult } from "../../database/checkpoint.js";
 import { sqlListOf } from "../../database/sql-list.js";
 import type { WriteStatement } from "../../database/statement.js";
@@ -183,6 +184,8 @@ export interface SessionPurgeDeps {
   readonly checkpointRetryDelaysMs?: readonly number[];
   /** Settles once the start's check of the database file, a reader holding one snapshot, ends. */
   readonly whenFileCheckEnds: Promise<unknown>;
+  /** How the system spells and compares paths. */
+  readonly pathRules: PathRules;
 }
 
 // The range read's row once rows were deleted: its guard returns it only when both ends are safe
@@ -236,8 +239,10 @@ export class SessionPurge {
   readonly #newEventId: () => string;
   readonly #checkpointRetryDelaysMs: readonly number[];
   readonly #whenFileCheckEnds: Promise<unknown>;
+  readonly #pathRules: PathRules;
 
   constructor(deps: SessionPurgeDeps) {
+    this.#pathRules = deps.pathRules;
     this.#writer = deps.writer;
     this.#nodeId = deps.nodeId;
     this.#eventLog = deps.eventLog;
@@ -439,11 +444,13 @@ export class SessionPurge {
     const candidates = (candidateResult?.rows ?? []) as readonly GoneWorktreeCandidateRow[];
     const pendingRows = (pendingResult?.rows ?? []) as readonly PendingWorkingFolderRow[];
     const pendingKeys = new Set(
-      await Promise.all(pendingRows.map((row) => canonicalFolderPath(row.pending_working_folder))),
+      await Promise.all(
+        pendingRows.map((row) => canonicalFolderPath(row.pending_working_folder, this.#pathRules)),
+      ),
     );
     const goneIds: string[] = [];
     for (const candidate of candidates) {
-      if (pendingKeys.has(await canonicalFolderPath(candidate.fs_root))) continue;
+      if (pendingKeys.has(await canonicalFolderPath(candidate.fs_root, this.#pathRules))) continue;
       if (candidate.state === "failed" && (await pathExists(candidate.fs_root))) continue;
       goneIds.push(candidate.id);
     }

@@ -28,6 +28,7 @@ import {
 } from "@ai-sidekicks/contracts/repo/mount";
 import { SessionIdSchema, type SessionId } from "@ai-sidekicks/contracts/session/id";
 
+import type { PathRules } from "../../path-rules/contract.js";
 import { withCleanupFailures } from "../../cleanup-failures.js";
 import type { DatabaseConnections } from "../../database/connection/lifecycle.js";
 import { WriteRefusedError, type DatabaseWriter } from "../../database/writer.js";
@@ -244,6 +245,8 @@ export interface RepoMountReattachServiceDeps {
   readonly now?: () => string;
   /** Mount-id source, default `mintUuidV7`. Ids are still parsed by `RepoMountIdSchema`. */
   readonly newRepoMountId?: () => string;
+  /** How the system spells and compares paths. */
+  readonly pathRules: PathRules;
 }
 
 /**
@@ -273,18 +276,22 @@ export class RepoMountReattachService {
     { workspace_id: string },
     WorkspaceToPrepareRow
   >;
+  readonly #pathRules: PathRules;
 
   constructor(deps: RepoMountReattachServiceDeps) {
+    this.#pathRules = deps.pathRules;
     this.#workspaces = deps.workspaces;
     this.#events = deps.events;
     this.#worktreeEvents = deps.worktreeEvents;
     this.#resolver = deps.resolver;
     this.#writeServiceLog = deps.writeServiceLog;
     this.#trustEnvelope =
-      deps.trustEnvelope ?? new TrustEnvelopeValidator({ workingTrees: deps.resolver });
+      deps.trustEnvelope ??
+      new TrustEnvelopeValidator({ workingTrees: deps.resolver, pathRules: deps.pathRules });
     this.#mountHealthSeams = {
       probePath: deps.probePath ?? createDefaultPathProbe(),
       resolver: deps.resolver,
+      pathRules: deps.pathRules,
     };
     this.#now = deps.now ?? ((): string => new Date().toISOString());
     this.#newRepoMountId = deps.newRepoMountId ?? mintUuidV7;
@@ -455,11 +462,11 @@ export class RepoMountReattachService {
   async #readListedWorktreeIds(mount: ReattachMountRow): Promise<readonly string[]> {
     const listed = new Set<string>();
     for (const root of await this.#resolver.listWorkingTrees(mount.canonical_root)) {
-      listed.add(await canonicalFolderPath(root));
+      listed.add(await canonicalFolderPath(root, this.#pathRules));
     }
     const listedIds: string[] = [];
     for (const tree of this.#selectLiveWorktreesStmt.all({ repo_mount_id: mount.id })) {
-      if (listed.has(await canonicalFolderPath(tree.fs_root))) {
+      if (listed.has(await canonicalFolderPath(tree.fs_root, this.#pathRules))) {
         listedIds.push(tree.id);
       }
     }

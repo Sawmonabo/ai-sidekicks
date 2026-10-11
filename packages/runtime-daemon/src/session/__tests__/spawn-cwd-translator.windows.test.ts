@@ -126,6 +126,7 @@ describe.skipIf(process.platform !== "win32")(
           spec,
           strategy: "cd-prefix",
           stableParent: ctx.stableParent,
+          wrappingShell: "windows-cmd",
         };
         const translated: SpawnRequest = translateSpawnCwd(translateInput);
 

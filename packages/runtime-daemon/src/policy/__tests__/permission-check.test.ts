@@ -17,6 +17,7 @@ import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { UserId } from "@ai-sidekicks/contracts/session/id";
 import type { WorkflowDefinitionId } from "@ai-sidekicks/contracts/workflow/definition/document";
 
+import { HOST_OPERATING_SYSTEM } from "../../../tests/helpers/host-operating-system.js";
 import { loadAuthorizer, type PolicyRequest } from "../authorizer.js";
 import { PermissionCheckService } from "../permission-check.js";
 
@@ -68,6 +69,7 @@ async function buildCheck(state: {
     },
     rules: { findRule: () => undefined },
     agentMemoryFolder: "/data/agent-memory",
+    pathRules: HOST_OPERATING_SYSTEM.pathRules,
     readRunAgent: () => "agent-1",
     readOwner: () => state.owner,
     readPosture: (runId) => (runId === ASKING_RUN ? state.posture : undefined),

@@ -34,6 +34,7 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { FILE_PATH_MAX_LEN } from "@ai-sidekicks/contracts/free-form-string";
 
+import { HOST_OPERATING_SYSTEM } from "../../../tests/helpers/host-operating-system.js";
 import type { DatabaseWriter } from "../../database/writer.js";
 import type { EventLogService } from "../../events/log-service.js";
 import { buildFixtureEnvironment, runFixtureGit } from "../../git/__fixtures__/command.js";
@@ -66,6 +67,7 @@ beforeEach(async () => {
   scratch = await realpath(await mkdtemp(path.join(tmpdir(), "aisk-session-convert-")));
   const emitter = new WorkspaceEventEmitter({ sessionEvents: log.eventLog });
   mounts = new RepoMountService({
+    pathRules: HOST_OPERATING_SYSTEM.pathRules,
     database: log.scratch,
     events: emitter,
     nodeId: mintUuidV7() as NodeId,
@@ -75,7 +77,11 @@ beforeEach(async () => {
     mounts,
     worktreesDirectory: path.join(scratch, "worktrees"),
   }));
-  workspaces = new WorkspaceService({ database: log.scratch, events: emitter });
+  workspaces = new WorkspaceService({
+    pathRules: HOST_OPERATING_SYSTEM.pathRules,
+    database: log.scratch,
+    events: emitter,
+  });
   managedWorkspaces = new ManagedWorkspaceService({
     homeDirectory: path.join(scratch, "home"),
     repoMounts: mounts,
@@ -98,7 +104,7 @@ function conversionWith(swap: {
     projects,
     workspaces: { bind: swap.bind ?? ((input) => workspaces.bind(input)) },
     writeServiceLog: () => undefined,
-    workingTrees: new RepoRootResolver(),
+    workingTrees: new RepoRootResolver({ pathRules: HOST_OPERATING_SYSTEM.pathRules }),
   });
 }
 

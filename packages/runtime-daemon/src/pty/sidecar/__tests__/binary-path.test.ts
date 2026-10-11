@@ -13,6 +13,8 @@ import {
   type ResolveSidecarBinaryPathOptions,
 } from "../binary-path.js";
 import { captureRejection } from "../../../__fixtures__/capture-failure.js";
+import { LINUX_DAEMON_OPERATING_SYSTEM } from "../../../operating-system/linux.js";
+import { windowsDaemonOperatingSystem } from "../../../operating-system/windows.js";
 
 describe("resolveSidecarBinaryPath — four-step binary resolution", () => {
   // Builds injectable deps whose defaults (empty env, throwing require, false existsSync) make
@@ -32,7 +34,6 @@ describe("resolveSidecarBinaryPath — four-step binary resolution", () => {
       existsSync: existsMock,
       releasePath: "/fake/release/sidecar",
       debugPath: "/fake/debug/sidecar",
-      platform: "linux",
       ...over,
     };
     return { opts, requireMock, existsMock };
@@ -50,7 +51,7 @@ describe("resolveSidecarBinaryPath — four-step binary resolution", () => {
         existsSync: existsMock,
       });
 
-      const result: string = resolveSidecarBinaryPath(opts);
+      const result: string = resolveSidecarBinaryPath(LINUX_DAEMON_OPERATING_SYSTEM, opts);
 
       expect(result).toBe("/abs/path/to/sidecar");
       // One existsSync probe, against the env value; no release or debug probes.
@@ -72,7 +73,7 @@ describe("resolveSidecarBinaryPath — four-step binary resolution", () => {
       existsSync: existsMock,
     });
 
-    const result: string = resolveSidecarBinaryPath(opts);
+    const result: string = resolveSidecarBinaryPath(LINUX_DAEMON_OPERATING_SYSTEM, opts);
 
     expect(result).toBe("/installed/pkg/bin/sidecar");
     // The env path was probed, returned false, and step 2 took over.
@@ -92,7 +93,7 @@ describe("resolveSidecarBinaryPath — four-step binary resolution", () => {
       existsSync: existsMock,
     });
 
-    const result: string = resolveSidecarBinaryPath(opts);
+    const result: string = resolveSidecarBinaryPath(LINUX_DAEMON_OPERATING_SYSTEM, opts);
 
     expect(result).toBe("/from/step-2/sidecar");
     // Step 2 ran, so step 1 did not return the relative path.
@@ -105,7 +106,7 @@ describe("resolveSidecarBinaryPath — four-step binary resolution", () => {
       nodeRequire: { resolve: requireMock },
     });
 
-    const result: string = resolveSidecarBinaryPath(opts);
+    const result: string = resolveSidecarBinaryPath(LINUX_DAEMON_OPERATING_SYSTEM, opts);
 
     expect(result).toBe("/installed/pkg/bin/sidecar");
     // The package id embeds platform and arch.
@@ -131,7 +132,7 @@ describe("resolveSidecarBinaryPath — four-step binary resolution", () => {
         existsSync: existsMock,
       });
 
-      const result: string = resolveSidecarBinaryPath(opts);
+      const result: string = resolveSidecarBinaryPath(LINUX_DAEMON_OPERATING_SYSTEM, opts);
 
       expect(result).toBe("/fake/release/sidecar");
       // Only the release path was probed; step 4 was skipped.
@@ -150,7 +151,7 @@ describe("resolveSidecarBinaryPath — four-step binary resolution", () => {
       existsSync: existsMock,
     });
 
-    const result: string = resolveSidecarBinaryPath(opts);
+    const result: string = resolveSidecarBinaryPath(LINUX_DAEMON_OPERATING_SYSTEM, opts);
 
     expect(result).toBe("/fake/debug/sidecar");
     // Release was probed first, then debug.
@@ -174,7 +175,9 @@ describe("resolveSidecarBinaryPath — four-step binary resolution", () => {
         existsSync: existsMock,
       });
 
-      const thrown = await captureRejection(async () => resolveSidecarBinaryPath(opts));
+      const thrown = await captureRejection(async () =>
+        resolveSidecarBinaryPath(LINUX_DAEMON_OPERATING_SYSTEM, opts),
+      );
 
       expect(thrown).toBeInstanceOf(PtyBackendUnavailableError);
       if (!(thrown instanceof PtyBackendUnavailableError)) {
@@ -217,10 +220,11 @@ describe("resolveSidecarBinaryPath — four-step binary resolution", () => {
       const { opts } = makeOpts({
         nodeRequire: { resolve: requireMock },
         existsSync: existsMock,
-        platform: "win32",
       });
 
-      const thrown = await captureRejection(async () => resolveSidecarBinaryPath(opts));
+      const thrown = await captureRejection(async () =>
+        resolveSidecarBinaryPath(windowsDaemonOperatingSystem({}), opts),
+      );
 
       expect(requireMock).toHaveBeenCalledWith(
         "@ai-sidekicks/pty-sidecar-win32-" + process.arch + "/bin/sidecar.exe",
@@ -251,13 +255,12 @@ describe("resolveSidecarBinaryPath — four-step binary resolution", () => {
       });
       const existsMock = vi.fn<(p: string) => boolean>(() => false);
 
-      // No path overrides; `platform: "linux"` keeps the binary name free of `.exe`.
+      // No path overrides; Linux keeps the binary name free of `.exe`.
       const thrown = await captureRejection(async () =>
-        resolveSidecarBinaryPath({
+        resolveSidecarBinaryPath(LINUX_DAEMON_OPERATING_SYSTEM, {
           env: {},
           nodeRequire: { resolve: requireMock },
           existsSync: existsMock,
-          platform: "linux",
         }),
       );
 

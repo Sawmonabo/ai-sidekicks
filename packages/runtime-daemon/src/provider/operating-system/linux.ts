@@ -1,11 +1,11 @@
 // What the provider drivers take from Linux.
 
 import type { ProviderOperatingSystem } from "./contract.js";
-import { listPosixProviderCommandFolders, POSIX_PROCESS_AND_SOCKET_FACTS } from "./posix.js";
+import { listPosixProviderCommandFolders, POSIX_PROVIDER_OPERATING_SYSTEM_PARTS } from "./posix.js";
 
 /** Linux: Claude Code's managed settings under `/etc`, and its Bash sandbox runs. */
 export const LINUX_PROVIDER_OPERATING_SYSTEM: ProviderOperatingSystem = {
-  ...POSIX_PROCESS_AND_SOCKET_FACTS,
+  ...POSIX_PROVIDER_OPERATING_SYSTEM_PARTS,
   claudeManagedSettingsFolder: "/etc/claude-code",
   canRunClaudeBashSandbox: true,
   environmentNameMatch: "case-sensitive",

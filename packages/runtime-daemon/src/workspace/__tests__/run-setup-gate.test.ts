@@ -15,6 +15,7 @@ import { QueueItemIdSchema, type QueueItemSummary } from "@ai-sidekicks/contract
 import { RunIdSchema, type RunId } from "@ai-sidekicks/contracts/run/id";
 import { SessionIdSchema } from "@ai-sidekicks/contracts/session/id";
 
+import { HOST_OPERATING_SYSTEM } from "../../../tests/helpers/host-operating-system.js";
 import { captureRejection } from "../../__fixtures__/capture-failure.js";
 import { WorkspaceExecutionRootUnresolvedError } from "../../git/worktree/errors.js";
 import { shortIdOf } from "../../git/worktree/naming.js";
@@ -47,6 +48,7 @@ function openGate(
   options: { readonly git?: GitRunner; readonly checkoutLock?: KeyedLock<string> } = {},
 ): ExecutionRootSetupGate {
   return new ExecutionRootSetupGate({
+    pathRules: HOST_OPERATING_SYSTEM.pathRules,
     database: fixture.scratch,
     executionRoots: fixture.executionRoots,
     workspaces: fixture.workspaces,

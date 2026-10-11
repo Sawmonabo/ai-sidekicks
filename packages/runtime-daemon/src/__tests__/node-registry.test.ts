@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { WorkflowDefinitionId } from "@ai-sidekicks/contracts/workflow/definition/document";
 
+import { HOST_OPERATING_SYSTEM } from "../../tests/helpers/host-operating-system.js";
 import { readOrMintLocalMachine } from "../daemon/machine/local.js";
 import { openScratchDatabase, type ScratchDatabase } from "../database/__fixtures__/scratch.js";
 import type { NodeTrustStateRow } from "../node-registry.js";
@@ -76,6 +77,7 @@ describe("NodeRegistry", () => {
       },
       rules: { findRule: () => undefined },
       agentMemoryFolder: "/data/agent-memory",
+      pathRules: HOST_OPERATING_SYSTEM.pathRules,
       readRunAgent: () => "agent-1",
       readOwner: () => registry.readOwner(machine),
       readPosture: () => ({

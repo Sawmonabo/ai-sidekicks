@@ -18,6 +18,7 @@ import type {
 import { SessionIdSchema } from "@ai-sidekicks/contracts/session/id";
 import { SESSION_WORKING_FOLDER_UNAVAILABLE_CODE } from "@ai-sidekicks/contracts/session/methods";
 
+import type { PathRules } from "../../path-rules/contract.js";
 import type { DatabaseConnections } from "../../database/connection/lifecycle.js";
 import type { WriteStatement } from "../../database/statement.js";
 import type { DatabaseWriter } from "../../database/writer.js";
@@ -115,6 +116,8 @@ export interface SessionWorkingFoldersDeps {
   readonly database: DatabaseConnections;
   readonly executionRoots: Pick<ExecutionRootService, "moveToFolder" | "requireListedTree">;
   readonly events: Pick<WorktreeEventEmitter, "emitSessionSweptToRepoRoot">;
+  /** How the system spells and compares paths. */
+  readonly pathRules: PathRules;
 }
 
 /** Moves project sessions between the trees of their repository. */
@@ -130,8 +133,10 @@ export class SessionWorkingFolders implements WorktreeSessionSweep {
   readonly #selectLiveRunStmt: Statement<{ session_id: string }, unknown>;
   readonly #selectBoundRunStmt: Statement<{ session_id: string }, unknown>;
   readonly #selectRemovedTreeOfSessionStmt: Statement<{ session_id: string }, RemovedTreeRow>;
+  readonly #pathRules: PathRules;
 
   constructor(deps: SessionWorkingFoldersDeps) {
+    this.#pathRules = deps.pathRules;
     this.#executionRoots = deps.executionRoots;
     this.#events = deps.events;
     this.#writer = deps.database.writer;
@@ -177,7 +182,7 @@ export class SessionWorkingFolders implements WorktreeSessionSweep {
       disposition: "applied",
       path: request.path,
     };
-    if (await isWorkingIn(workspace, request.path)) {
+    if (await isWorkingIn(workspace, request.path, this.#pathRules)) {
       await this.#writer.write([setPendingStatement(request.sessionId, null)]);
       return applied;
     }
@@ -208,7 +213,7 @@ export class SessionWorkingFolders implements WorktreeSessionSweep {
     }
     await this.#writer.write([clearPendingStatement(sessionId, pending)]);
     const workspace = this.#requireProjectWorkspace(sessionId);
-    if (!(await isWorkingIn(workspace, pending))) {
+    if (!(await isWorkingIn(workspace, pending, this.#pathRules))) {
       await this.#executionRoots.moveToFolder({ workspaceId: workspace.id, folder: pending });
     }
   }
@@ -241,10 +246,10 @@ export class SessionWorkingFolders implements WorktreeSessionSweep {
     if (mount === undefined) {
       throw new Error(`cannot sweep worktree "${input.worktreeId}": its mount has no row`);
     }
-    const folder = await canonicalFolderPath(input.folder);
+    const folder = await canonicalFolderPath(input.folder, this.#pathRules);
     const pendingSessionIds = new Set<string>();
     for (const row of this.#selectAllPendingStmt.all()) {
-      if ((await canonicalFolderPath(row.pending_working_folder)) === folder) {
+      if ((await canonicalFolderPath(row.pending_working_folder, this.#pathRules)) === folder) {
         pendingSessionIds.add(row.id);
       }
     }
@@ -252,7 +257,10 @@ export class SessionWorkingFolders implements WorktreeSessionSweep {
     for (const workspace of this.#selectMountWorkspacesStmt.all({
       repo_mount_id: input.repoMountId,
     })) {
-      if (workspace.folder !== null && (await canonicalFolderPath(workspace.folder)) === folder) {
+      if (
+        workspace.folder !== null &&
+        (await canonicalFolderPath(workspace.folder, this.#pathRules)) === folder
+      ) {
         standing.push(workspace);
       }
     }
@@ -320,7 +328,7 @@ export class SessionWorkingFolders implements WorktreeSessionSweep {
     const pending = this.#selectPendingStmt.get({ session_id: sessionId })?.pending_working_folder;
     return pending !== undefined &&
       pending !== null &&
-      (await canonicalFolderPath(pending)) === folder
+      (await canonicalFolderPath(pending, this.#pathRules)) === folder
       ? [clearPendingStatement(sessionId, pending)]
       : [];
   }
@@ -328,11 +336,16 @@ export class SessionWorkingFolders implements WorktreeSessionSweep {
 
 // A stale or preparing workspace is not yet working in its folder, so asking for it again moves
 // it there, which repairs it.
-async function isWorkingIn(workspace: SessionWorkspaceRow, requested: string): Promise<boolean> {
+async function isWorkingIn(
+  workspace: SessionWorkspaceRow,
+  requested: string,
+  pathRules: PathRules,
+): Promise<boolean> {
   return (
     workspace.state === "ready" &&
     workspace.folder !== null &&
-    (await canonicalFolderPath(workspace.folder)) === (await canonicalFolderPath(requested))
+    (await canonicalFolderPath(workspace.folder, pathRules)) ===
+      (await canonicalFolderPath(requested, pathRules))
   );
 }
 

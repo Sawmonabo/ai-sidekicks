@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
+import { HOST_OPERATING_SYSTEM } from "../../../../../tests/helpers/host-operating-system.js";
 import type { ProviderPermissionAsk } from "../../../port/permission-ask.js";
 import { PortRegistration } from "../../../port/registration.js";
 import { CodexAskHandOff } from "../delivery/asks.js";
@@ -39,6 +40,7 @@ function buildHandOff(): { handOff: CodexAskHandOff; taken: ProviderPermissionAs
     reportDiagnostic: () => undefined,
     recordFor: () => undefined,
     readGitFolder: () => Promise.reject(new Error("no project rule is written here")),
+    diskFlush: HOST_OPERATING_SYSTEM.diskFlush,
   });
   return { handOff, taken };
 }

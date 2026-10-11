@@ -5,6 +5,8 @@
 import type { PermissionLevel } from "@ai-sidekicks/contracts/session/controls/methods";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
+import type { PathRules } from "../../../../path-rules/contract.js";
+import type { DiskFlush } from "../../../../disk-flush/contract.js";
 import { canonicalFolderPath } from "../../../../workspace/folder/canonical-path.js";
 import { writeIntoProjectFolders } from "../../../project-rule-folders.js";
 import type { ProviderAnswerRule, ProviderAskRule } from "../../../port/permission-ask.js";
@@ -54,6 +56,8 @@ export async function keepClaudeAnswerRule(
   live: LiveClaudeSession,
   made: ProviderAnswerRule,
   sessionRules: readonly ProviderAskRule[],
+  diskFlush: DiskFlush,
+  pathRules: PathRules,
 ): Promise<void> {
   const { rule } = made;
   if (rule.kind === "session") {
@@ -64,19 +68,19 @@ export async function keepClaudeAnswerRule(
     await sendClaudePermissions(live, live.executionPosture?.mode, [...standing, rule]);
     return;
   }
-  const ownFolder = await canonicalFolderPath(live.spawnBoundLegs.workingDirectory);
+  const ownFolder = await canonicalFolderPath(live.spawnBoundLegs.workingDirectory, pathRules);
   const folders: string[] = [];
   const writtenByAnswer: string[] = [];
   for (const projectFolder of made.projectFolders) {
     const isOwnAllow =
-      rule.sense === "allow" && (await canonicalFolderPath(projectFolder)) === ownFolder;
+      rule.sense === "allow" && (await canonicalFolderPath(projectFolder, pathRules)) === ownFolder;
     (isOwnAllow ? writtenByAnswer : folders).push(projectFolder);
   }
   await writeIntoProjectFolders(
     folders,
     rule,
-    writeClaudeProjectRule,
-    removeClaudeProjectRule,
+    (projectFolder, written) => writeClaudeProjectRule(projectFolder, written, diskFlush),
+    (projectFolder, removed) => removeClaudeProjectRule(projectFolder, removed, diskFlush),
     writtenByAnswer,
   );
 }
@@ -91,9 +95,10 @@ export async function revokeClaudeRule(
   rule: ProviderAskRule,
   projectFolder: string | undefined,
   sessionRules: readonly ProviderAskRule[],
+  diskFlush: DiskFlush,
 ): Promise<void> {
   if (projectFolder !== undefined) {
-    await removeClaudeProjectRule(projectFolder, rule);
+    await removeClaudeProjectRule(projectFolder, rule, diskFlush);
   } else if (live !== undefined) {
     await sendClaudePermissions(live, live.executionPosture?.mode, sessionRules);
   }

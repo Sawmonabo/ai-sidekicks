@@ -34,6 +34,7 @@ function makeInput(
     spec: makeSpec(),
     strategy,
     stableParent: STABLE_PARENT,
+    wrappingShell: "posix",
     ...overrides,
   };
   return input;
@@ -187,6 +188,7 @@ describe("translateSpawnCwd — cwd-env (agent-CLI env propagation)", () => {
       spec,
       strategy: "cwd-env",
       stableParent: STABLE_PARENT,
+      wrappingShell: "posix",
     });
 
     expect(result.cwd).toBe(STABLE_PARENT);
@@ -209,15 +211,5 @@ describe("translateSpawnCwd — contract", () => {
         wrappingShell: "posix",
       }),
     ).toThrow(/stableParent.*non-empty/);
-  });
-
-  it("defaults wrappingShell from process.platform when omitted", () => {
-    // The default is `windows-cmd` on Windows and `posix` elsewhere.
-    const result: SpawnRequest = translateSpawnCwd(makeInput("cd-prefix"));
-    if (process.platform === "win32") {
-      expect(result.command).toBe("cmd.exe");
-    } else {
-      expect(result.command).toBe("/bin/sh");
-    }
   });
 });

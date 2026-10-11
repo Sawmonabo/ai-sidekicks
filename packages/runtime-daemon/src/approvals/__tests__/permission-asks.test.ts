@@ -23,6 +23,7 @@ import type { RunId } from "@ai-sidekicks/contracts/run/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 
+import { HOST_OPERATING_SYSTEM } from "../../../tests/helpers/host-operating-system.js";
 import { openScratchDatabase, type ScratchDatabase } from "../../database/__fixtures__/scratch.js";
 import { EventLogService } from "../../events/log-service.js";
 import { PermissionCheckService } from "../../policy/permission-check.js";
@@ -162,6 +163,7 @@ function buildAsks(): PermissionAsks {
     },
     rules,
     agentMemoryFolder: memoryFolder,
+    pathRules: HOST_OPERATING_SYSTEM.pathRules,
     readRunAgent: () => "agent-1",
     readOwner: () => undefined,
     readPosture: () => undefined,

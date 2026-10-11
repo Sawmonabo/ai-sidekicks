@@ -12,7 +12,7 @@ import { mkdir, rename, rm } from "node:fs/promises";
 import * as path from "node:path";
 
 import { withCleanupFailures } from "../cleanup-failures.js";
-import { CAN_FLUSH_FOLDER, flushPath } from "../disk-flush.js";
+import type { DiskFlush } from "../disk-flush/contract.js";
 import { pathExists } from "../file/path-exists.js";
 import { KeyedLock } from "../keyed-lock.js";
 
@@ -29,11 +29,13 @@ export function formatContentHash(sha256Hex: string): string {
 /** The content-addressed payload store under one folder. */
 export class PayloadStore {
   readonly #objectsDirectory: string;
+  readonly #diskFlush: DiskFlush;
   readonly #storageKeyLock = new KeyedLock<string>();
 
-  /** `objectsDirectory` is created when the first payload is stored. */
-  constructor(objectsDirectory: string) {
+  /** `objectsDirectory` is created when the first payload is stored; `diskFlush` flushes writes. */
+  constructor(objectsDirectory: string, diskFlush: DiskFlush) {
     this.#objectsDirectory = objectsDirectory;
+    this.#diskFlush = diskFlush;
   }
 
   /**
@@ -55,12 +57,10 @@ export class PayloadStore {
         await rm(sourcePath);
       } else {
         const objectFolder = path.dirname(objectPath);
-        await flushPath(sourcePath);
+        await this.#diskFlush.flushFile(sourcePath);
         await mkdir(objectFolder, { recursive: true, mode: 0o700 });
         await rename(sourcePath, objectPath);
-        if (CAN_FLUSH_FOLDER) {
-          await flushPath(objectFolder);
-        }
+        await this.#diskFlush.flushFolder(objectFolder);
       }
       try {
         return await recordReference();

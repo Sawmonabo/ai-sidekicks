@@ -165,7 +165,7 @@ export class LocalIpcGateway {
   /**
    * Bind the listener to the path in `SecureDefaults.effectiveSettings()`. Rejects if
    * `SecureDefaults.load` has not completed, if the gateway is already started, with
-   * `invalid_local_ipc_path` before the bind when the path is longer than the platform's socket
+   * `invalid_local_ipc_path` before the bind when the path is longer than the system's socket
    * address field, or on a bind failure such as EADDRINUSE; a failed start leaves the instance
    * unstarted so `start()` can be retried.
    */
@@ -179,11 +179,8 @@ export class LocalIpcGateway {
 
     const settings = SecureDefaults.effectiveSettings();
     const listenPath = settings.localIpcPath;
-    // A Unix domain socket path must fit the platform's address field; a Windows pipe name has no
-    // such field.
-    if (process.platform !== "win32") {
-      assertSocketPathFits(listenPath, await readSocketPathLimit());
-    }
+    // The daemon listens on a Unix domain socket, whose path must fit the address field.
+    assertSocketPathFits(listenPath, await readSocketPathLimit());
 
     const server = net.createServer((socket) => {
       this.#onSocketConnect(socket);

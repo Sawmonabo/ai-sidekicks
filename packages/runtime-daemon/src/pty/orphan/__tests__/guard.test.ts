@@ -17,8 +17,8 @@ import { NodePtyHost, type NodePtySpawnFn } from "../../host/node-pty.js";
 import type { SpawnRequest } from "../../host/protocol.js";
 import { openOrphanGuard } from "../guard.js";
 import { ORPHAN_REGISTRY_FILE_NAME, SPAWN_NONCE_ENVIRONMENT_NAME } from "../registry.js";
-import { DARWIN_TERMINAL_OPERATING_SYSTEM } from "../../operating-system/darwin.js";
-import { selectTerminalOperatingSystem } from "../../operating-system/selector.js";
+import { MAC_TERMINAL_OPERATING_SYSTEM } from "../../operating-system/mac.js";
+import { HOST_OPERATING_SYSTEM } from "../../../../tests/helpers/host-operating-system.js";
 
 const BOOT = "boot-now";
 const SHELL_SPAWN: SpawnRequest = {
@@ -56,7 +56,11 @@ function openGuard(
     dataFolder,
     bootId: BOOT,
     readProcessIdentity,
-    operatingSystem: { findProcessesCarryingNonces: () => Promise.resolve(new Map()) },
+    operatingSystem: {
+      exitWatch: null,
+      findProcessesCarryingNonces: () => Promise.resolve(new Map()),
+    },
+    diskFlush: HOST_OPERATING_SYSTEM.diskFlush,
     writeServiceLog: (line) => {
       serviceLog.push(line);
     },
@@ -78,7 +82,7 @@ describe("OrphanGuard", () => {
       return child;
     };
 
-    await new NodePtyHost(guard, selectTerminalOperatingSystem(process.platform, process.env), {
+    await new NodePtyHost(guard, HOST_OPERATING_SYSTEM.terminal, {
       ptySpawn,
     }).spawn(SHELL_SPAWN);
 
@@ -97,20 +101,20 @@ describe("OrphanGuard", () => {
   it("kills a child whose process cannot be recorded and refuses its spawn", async () => {
     const { guard } = await openGuard(() => Promise.reject(new Error("ps is unavailable")));
     const { child, triggerExit } = makeFakeChild(4300);
-    const groupSignals: Array<[number, NodeJS.Signals]> = [];
-    const signalProcessGroup = (leaderId: number, signal: NodeJS.Signals): void => {
-      groupSignals.push([leaderId, signal]);
+    const killedGroups: number[] = [];
+    const killChildGroup = (leaderId: number): void => {
+      killedGroups.push(leaderId);
     };
 
     await expect(
-      new NodePtyHost(guard, DARWIN_TERMINAL_OPERATING_SYSTEM, {
-        ptySpawn: () => child,
-        platform: "darwin",
-        signalProcessGroup,
-      }).spawn(SHELL_SPAWN),
+      new NodePtyHost(
+        guard,
+        { ...MAC_TERMINAL_OPERATING_SYSTEM, killChildGroup },
+        { ptySpawn: () => child },
+      ).spawn(SHELL_SPAWN),
     ).rejects.toThrow("ps is unavailable");
 
-    expect(groupSignals).toEqual([[4300, "SIGKILL"]]);
+    expect(killedGroups).toEqual([4300]);
     // Its exit retires the intent the spawn wrote.
     triggerExit(0, 9);
     await guard.close();

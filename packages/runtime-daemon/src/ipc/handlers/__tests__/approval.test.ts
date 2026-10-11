@@ -14,6 +14,7 @@ import type { NodeId } from "@ai-sidekicks/contracts/runtime-node/id";
 import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 
+import { HOST_OPERATING_SYSTEM } from "../../../../tests/helpers/host-operating-system.js";
 import { captureRejection } from "../../../__fixtures__/capture-failure.js";
 import { PermissionAsks } from "../../../approvals/permission-asks.js";
 import { ApprovalProjectionService } from "../../../approvals/projection/read.js";
@@ -119,6 +120,7 @@ beforeEach(async () => {
       approvals: service,
       rules,
       agentMemoryFolder: "/data/agent-memory",
+      pathRules: HOST_OPERATING_SYSTEM.pathRules,
       readRunAgent: () => "agent-1",
       readOwner: () => undefined,
       readPosture: () => undefined,

@@ -6,16 +6,12 @@
 // `process.argv` and exposes them as the bridge's `app` namespace. Both spellings of each
 // switch live here once.
 
-import { readRequiredSwitchValue } from "./renderer-switch.js";
+import { supportedPlatform, type SupportedPlatform } from "@ai-sidekicks/contracts/platform";
 
-/** The operating systems a build runs on. */
-const SUPPORTED_PLATFORMS = ["darwin", "linux", "win32"] as const;
+import { readRequiredSwitchValue } from "./renderer-switch.js";
 
 /** The processor architectures a build runs on. */
 const SUPPORTED_ARCHES = ["arm64", "x64"] as const;
-
-/** One supported operating system, in Node's spelling. */
-export type SupportedPlatform = (typeof SUPPORTED_PLATFORMS)[number];
 
 /** One supported processor architecture, in Node's spelling. */
 export type SupportedArch = (typeof SUPPORTED_ARCHES)[number];
@@ -51,15 +47,6 @@ const LOCALE_SWITCH = "--sidekicks-app-locale=";
 const PHYSICAL_MEMORY_SWITCH = "--sidekicks-app-physical-memory=";
 const REGION_LOCALE_SWITCH = "--sidekicks-app-region-locale=";
 const HOUR_CYCLE_SWITCH = "--sidekicks-app-hour-cycle=";
-
-/** `platform` as a supported one; throws for any other. */
-export function supportedPlatform(platform: string): SupportedPlatform {
-  const supported = SUPPORTED_PLATFORMS.find((candidate) => candidate === platform);
-  if (supported === undefined) {
-    throw new RangeError(`This build does not run on the ${platform} platform.`);
-  }
-  return supported;
-}
 
 /** `arch` as a supported one; throws for any other. */
 export function supportedArch(arch: string): SupportedArch {

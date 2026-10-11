@@ -7,11 +7,14 @@
 import { mkdirSync, mkdtempSync, rmSync, statSync } from "node:fs";
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, posix as posixPath, win32 as win32Path } from "node:path";
+import { join } from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { HOST_OPERATING_SYSTEM } from "../../../tests/helpers/host-operating-system.js";
 import { buildFixtureEnvironment, runFixtureGit } from "../../git/__fixtures__/command.js";
+import { POSIX_PATH_RULES } from "../../path-rules/posix.js";
+import { WINDOWS_PATH_RULES } from "../../path-rules/windows.js";
 import { TrustEnvelopeViolationError } from "../repo/errors.js";
 import { RepoRootResolver, type WorkingTreeReader } from "../repo/root-resolver.js";
 import {
@@ -149,7 +152,10 @@ afterAll(async () => {
 
 /** A validator over real git and the real filesystem, as the daemon builds it. */
 function realValidator(): TrustEnvelopeValidator {
-  return new TrustEnvelopeValidator({ workingTrees: new RepoRootResolver() });
+  return new TrustEnvelopeValidator({
+    pathRules: HOST_OPERATING_SYSTEM.pathRules,
+    workingTrees: new RepoRootResolver({ pathRules: HOST_OPERATING_SYSTEM.pathRules }),
+  });
 }
 
 /**
@@ -347,7 +353,7 @@ describe("escapes from the mount root are refused", () => {
 });
 
 describe("win32 path shapes", () => {
-  // Injecting `path.win32` and a synthetic filesystem makes the Windows branch run on any host.
+  // Windows' path rules and a synthetic filesystem make the Windows branch run on any host.
 
   const WINDOWS_MOUNT_ROOT = "C:\\repos\\app";
 
@@ -357,7 +363,7 @@ describe("win32 path shapes", () => {
     workingTreeByPath: Record<string, string> = {},
   ): TrustEnvelopeValidator {
     return new TrustEnvelopeValidator({
-      platformPath: win32Path,
+      pathRules: WINDOWS_PATH_RULES,
       realpath: syntheticRealpath(physicalPathBySpelling, recorded),
       probeDirectoryReadable: alwaysReadableProbe,
       workingTrees: syntheticWorkingTrees(workingTreeByPath),
@@ -432,7 +438,7 @@ describe("case folding stays win32-scoped", () => {
 
   function posixValidator(physicalPathBySpelling: Record<string, string>): TrustEnvelopeValidator {
     return new TrustEnvelopeValidator({
-      platformPath: posixPath,
+      pathRules: POSIX_PATH_RULES,
       realpath: syntheticRealpath(physicalPathBySpelling),
       probeDirectoryReadable: alwaysReadableProbe,
       // The folder sits in a working tree spelled like the mount in another case, which git lists

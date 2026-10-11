@@ -37,7 +37,7 @@ import type { WorktreeCopySubject } from "@ai-sidekicks/contracts/worktree/copy-
 
 import { withCleanupFailures } from "../../cleanup-failures.js";
 import type { ServiceLogWriter } from "../../daemon/service-log.js";
-import { CAN_FLUSH_FOLDER, flushPath } from "../../disk-flush.js";
+import type { DiskFlush } from "../../disk-flush/contract.js";
 import { settleAll } from "../../settle-all.js";
 import { canonicalFolderPath } from "../../workspace/folder/canonical-path.js";
 import { flushToDisk, readdirOptional, readOptional } from "../filesystem.js";
@@ -133,6 +133,8 @@ export interface PutBackMarkWriter {
  * other trees and put-backs hold, which its undo never takes.
  */
 export interface PutBackTools extends KeptCopyTools {
+  /** How the system flushes what a put-back wrote to disk. */
+  readonly diskFlush: DiskFlush;
   readonly writeServiceLog: ServiceLogWriter;
   readonly claims: KeptCopyClaims;
 }
@@ -323,9 +325,9 @@ async function putWorktreeBack(
     const [placement, , isLfsFolderMade] = await settleAll(
       [
         (async () => {
-          // Windows refuses to rename a folder onto one that exists, so there the empty folder that
+          // Where the system refuses to rename a folder onto one that exists, the empty folder that
           // took the name goes just before the move.
-          if (process.platform === "win32") {
+          if (!tools.folderRenames.canReplaceEmptyFolder) {
             await rmdir(targetFolder);
           }
           const placed = await renameOrCopyFolder(
@@ -364,7 +366,14 @@ async function putWorktreeBack(
     if (placement === "copied") {
       await runGit(["-C", targetFolder, "update-index", "-q", "--refresh"]);
     }
-    await flushPutBackWrites(input, takenRecord, placement, restoredObjects, isLfsFolderMade);
+    await flushPutBackWrites(
+      tools.diskFlush,
+      input,
+      takenRecord,
+      placement,
+      restoredObjects,
+      isLfsFolderMade,
+    );
   } catch (putBackFailure) {
     const cleanupFailures: unknown[] = [];
     try {
@@ -414,7 +423,8 @@ export async function choosePutBackBranch(
   const isHeldByRemovedRecord =
     holder !== null &&
     isStaleRecordRemoved &&
-    (await canonicalFolderPath(holder)) === (await canonicalFolderPath(kept.originalPath));
+    (await canonicalFolderPath(holder, tools.pathRules)) ===
+      (await canonicalFolderPath(kept.originalPath, tools.pathRules));
   // A live tree's row on the branch holds it too, though git no longer reads that tree.
   if (
     ownHead?.commit === recordedCommit &&
@@ -624,6 +634,7 @@ async function restoreObjects(
 // Flushes everything a put-back wrote: a new branch first, then the target's `.git`, the record,
 // the objects and, after a copy, the tree, each with the folders that name it.
 async function flushPutBackWrites(
+  diskFlush: DiskFlush,
   input: PutWorktreeBackInput,
   { recordFolder, isRecordsFolderMade }: FreeRecordFolder,
   placement: "renamed" | "copied",
@@ -638,7 +649,7 @@ async function flushPutBackWrites(
     [
       listFolderEntries(recordFolder),
       placement === "copied" ? listFolderEntries(targetFolder) : NO_ENTRIES,
-      newBranch === null ? undefined : flushNewBranch(commonFolder, newBranch.name),
+      newBranch === null ? undefined : flushNewBranch(diskFlush, commonFolder, newBranch.name),
     ],
     "flushing the put-back",
   );
@@ -647,6 +658,7 @@ async function flushPutBackWrites(
     listFoldersBelow(restoredObject, commonFolder),
   );
   await flushToDisk(
+    diskFlush,
     [join(targetFolder, ".git"), ...record.files, ...copiedTree.files, ...restoredObjects],
     [
       dirname(targetFolder),
@@ -662,13 +674,17 @@ async function flushPutBackWrites(
 
 // Flushes where git wrote a new branch. A reftable repository keeps every ref in the tables under
 // `reftable/`, a folder no other ref store makes; otherwise the branch has its own ref file.
-async function flushNewBranch(commonFolder: string, branch: string): Promise<void> {
+async function flushNewBranch(
+  diskFlush: DiskFlush,
+  commonFolder: string,
+  branch: string,
+): Promise<void> {
   const reftableFolder = join(commonFolder, "reftable");
   if (await pathExists(reftableFolder)) {
-    await flushRefTables(reftableFolder);
+    await flushRefTables(diskFlush, reftableFolder);
     return;
   }
-  await flushLooseBranchRef(commonFolder, branch);
+  await flushLooseBranchRef(diskFlush, commonFolder, branch);
 }
 
 // Three passes: the list changes between a pass's read and its check only when a ref write lands
@@ -678,7 +694,7 @@ const REF_TABLE_PASS_LIMIT = 3;
 // Flushes each table `tables.list` names, then the list, then reads the list again. A ref write
 // elsewhere can compact the tables meanwhile into a new table that holds the branch, so a pass
 // repeats while the list names a table not yet flushed, and the folder is flushed last.
-async function flushRefTables(reftableFolder: string): Promise<void> {
+async function flushRefTables(diskFlush: DiskFlush, reftableFolder: string): Promise<void> {
   const tableList = join(reftableFolder, "tables.list");
   const readTableList = async (): Promise<string[]> =>
     (await readFile(tableList, "utf8")).split("\n").filter((name) => name !== "");
@@ -689,7 +705,7 @@ async function flushRefTables(reftableFolder: string): Promise<void> {
     // A table compacted away mid-flush is gone, and the list read after this pass no longer
     // names it.
     const flushOutcomes = await settleAll(
-      unflushedTables.map((table) => flushUnlessGone(join(reftableFolder, table))),
+      unflushedTables.map((table) => flushUnlessGone(diskFlush, join(reftableFolder, table))),
       "flushing the ref tables",
     );
     for (const [index, table] of unflushedTables.entries()) {
@@ -697,7 +713,7 @@ async function flushRefTables(reftableFolder: string): Promise<void> {
         flushedTables.add(table);
       }
     }
-    await flushPath(tableList);
+    await diskFlush.flushFile(tableList);
     tables = await readTableList();
     if (tables.every((table) => flushedTables.has(table))) {
       break;
@@ -706,37 +722,39 @@ async function flushRefTables(reftableFolder: string): Promise<void> {
       throw new Error(`the ref tables in ${reftableFolder} kept changing while they were flushed`);
     }
   }
-  if (CAN_FLUSH_FOLDER) {
-    await flushPath(reftableFolder);
-  }
+  await diskFlush.flushFolder(reftableFolder);
 }
 
 // Flushes the branch's ref file and, when git keeps one, its reflog, each with its folders. A ref
 // file gone, before its flush or after it, was packed into `packed-refs` since git wrote it
 // (`git gc --auto` packs refs), so that file and the folder that names it are flushed as well.
-async function flushLooseBranchRef(commonFolder: string, branch: string): Promise<void> {
+async function flushLooseBranchRef(
+  diskFlush: DiskFlush,
+  commonFolder: string,
+  branch: string,
+): Promise<void> {
   const refFile = join(commonFolder, `${BRANCH_REF_PREFIX}${branch}`);
   const reflogFile = join(commonFolder, "logs", `${BRANCH_REF_PREFIX}${branch}`);
   const [isRefFlushed, hasReflog] = await settleAll(
-    [flushUnlessGone(refFile), pathExists(reflogFile)],
+    [flushUnlessGone(diskFlush, refFile), pathExists(reflogFile)],
     "flushing the new branch",
   );
   const reflog: FolderEntries = hasReflog
     ? { files: [reflogFile], folders: listFoldersBelow(reflogFile, commonFolder) }
     : NO_ENTRIES;
-  await flushToDisk(reflog.files, [
+  await flushToDisk(diskFlush, reflog.files, [
     ...(isRefFlushed ? listFoldersBelow(refFile, join(commonFolder, "refs")) : []),
     ...reflog.folders,
   ]);
   if (!isRefFlushed || !(await pathExists(refFile))) {
-    await flushToDisk([join(commonFolder, "packed-refs")], [commonFolder]);
+    await flushToDisk(diskFlush, [join(commonFolder, "packed-refs")], [commonFolder]);
   }
 }
 
 // Flushes the file at `path`, answering `false` when it is gone.
-async function flushUnlessGone(path: string): Promise<boolean> {
+async function flushUnlessGone(diskFlush: DiskFlush, path: string): Promise<boolean> {
   try {
-    await flushPath(path);
+    await diskFlush.flushFile(path);
     return true;
   } catch (flushFailure) {
     if ((flushFailure as NodeJS.ErrnoException).code === "ENOENT") {
