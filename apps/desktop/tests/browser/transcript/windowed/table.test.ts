@@ -13,7 +13,12 @@ import {
   COPY_FLAVOR_ATTRIBUTE,
   readSelectedPart,
 } from "#renderer/features/transcript/copy/conversation-selection.js";
+import { suiteWindowViewport } from "#renderer/features/transcript/rows/bodies/WindowedMarkdown.test-support.js";
 import { MARKDOWN_TABLE_ROW_INDEX_ATTRIBUTE } from "#renderer/features/transcript/rows/markdown/block-window/markers.js";
+import { FlowBodyPlacement } from "#renderer/features/transcript/rows/markdown/table-window/flow-body-placement.js";
+import { ManualClock } from "#renderer/lib/clock.js";
+import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
+import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
 import { READING_LINE_HEIGHT } from "#renderer/styles/typography.js";
 import {
   benchRow,
@@ -39,6 +44,9 @@ import {
   textEnds,
   type MountedBodies,
 } from "./reply.js";
+
+/** The height of what a row draws above its body, in CSS pixels. */
+const LEAD_HEIGHT_PX = 48;
 
 /** A table long enough that the fastest fling ends inside it. */
 const FLUNG_TABLE_ROW_COUNT = 3_000;
@@ -376,5 +384,41 @@ describe("browser — a long table drawn as a window over its rows", () => {
 
     expect(drawnRows(table).size).toBeGreaterThan(0);
     expect(table.getAttribute("aria-rowcount")).toBe("81");
+  });
+
+  it("places a table at its body's top when the body was laid out before the table listened", async () => {
+    // A row and its table mount in one commit whose effects wait out a frame: the table asks the
+    // body's type while the body is unattached, the body is laid out with no table listening, and
+    // the table listens only after; its next scroll sample asks the body's top.
+    const row = document.createElement("div");
+    row.setAttribute(WINDOWED_ROW_INDEX_ATTRIBUTE, "0");
+    const lead = document.createElement("div");
+    lead.style.height = `${String(LEAD_HEIGHT_PX)}px`;
+    const text = "A reply whose long table mounts with it.";
+    const body = document.createElement("div");
+    body.textContent = text;
+    row.append(lead, body);
+    document.body.append(row);
+    onTestFinished(() => {
+      row.remove();
+    });
+    const scrollController = new ScrollController({ clock: new ManualClock() });
+    const viewport = suiteWindowViewport(scrollController, {
+      subscribe: () => () => {},
+      read: () => undefined,
+    });
+    const placement = new FlowBodyPlacement(
+      viewport,
+      "reply",
+      { settledBlocks: [], volatileTail: text, definitionPreamble: "" },
+      text.length,
+    );
+
+    expect(placement.bodyType).toBeUndefined();
+    placement.attachBody(body);
+    await settleFrames();
+    placement.subscribeToPlacement(() => {});
+
+    expect(placement.anchorTopPx()).toBe(LEAD_HEIGHT_PX);
   });
 });
