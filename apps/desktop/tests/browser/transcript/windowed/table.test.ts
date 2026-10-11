@@ -3,12 +3,16 @@
 // keeps and copies, what the rows not drawn look like, and what assistive technology is told, none
 // of which a DOM shim can answer.
 
-import { act } from "@testing-library/react";
+import { act, waitFor } from "@testing-library/react";
 import { describe, expect, it, onTestFinished } from "vitest";
 
 import { TEXT_SIZES } from "#shared/appearance.js";
 
 import { markdownWorker } from "#renderer/components/Markdown/worker/connection.js";
+import {
+  openPagedSessionStore,
+  pagedSessionEventAt,
+} from "#renderer/features/transcript/logs.test-support.js";
 import {
   COPY_FLAVOR_ATTRIBUTE,
   readSelectedPart,
@@ -18,6 +22,7 @@ import { BlockWindowLayout } from "#renderer/features/transcript/rows/markdown/b
 import { MARKDOWN_TABLE_ROW_INDEX_ATTRIBUTE } from "#renderer/features/transcript/rows/markdown/block-window/markers.js";
 import { type TablePlacementChange } from "#renderer/features/transcript/rows/markdown/table-window/context.js";
 import { FlowBodyPlacement } from "#renderer/features/transcript/rows/markdown/table-window/flow-body-placement.js";
+import { prepareTranscriptRow } from "#renderer/features/transcript/rows/preparation.js";
 import { ManualClock } from "#renderer/lib/clock.js";
 import { ScrollController } from "#renderer/lib/scroll/chokepoint.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "#renderer/lib/windowed-row-markers.js";
@@ -46,6 +51,7 @@ import {
   textEnds,
   type MountedBodies,
 } from "./reply.js";
+import { mountTranscriptFeed } from "../long-tool-feed.js";
 
 /** The height of what a row draws above its body, in CSS pixels. */
 const LEAD_HEIGHT_PX = 48;
@@ -53,6 +59,9 @@ const LEAD_HEIGHT_PX = 48;
 const LEAD_BODY_WIDTH_PX = 600;
 /** The body's width once its row narrows, in CSS pixels. */
 const NARROWED_BODY_WIDTH_PX = 480;
+
+/** The rows of the table a reply in the conversation holds. */
+const LISTED_TABLE_ROW_COUNT = 200;
 
 /** A table long enough that the fastest fling ends inside it. */
 const FLUNG_TABLE_ROW_COUNT = 3_000;
@@ -133,6 +142,34 @@ async function selectAcrossRows(
   await settleFrames();
   return { start, end };
 }
+
+/**
+ * Waits until the conversation holds still: no long table measuring and its scroll height and
+ * offset the same for `STILL_FRAMES` frames in a row. Throws past `STILL_ROUNDS` frames.
+ */
+async function settleConversation(scroller: HTMLElement): Promise<void> {
+  let held = "";
+  let stillFrames = 0;
+  for (let round = 0; round < STILL_ROUNDS; round += 1) {
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    });
+    const now = `${String(scroller.scrollHeight)} ${String(scroller.scrollTop)}`;
+    const isMeasuring = scroller.querySelector(".meridian-table-sample-frame") !== null;
+    stillFrames = now === held && !isMeasuring ? stillFrames + 1 : 0;
+    held = now;
+    if (stillFrames === STILL_FRAMES) {
+      return;
+    }
+  }
+  throw new Error("the conversation never held still");
+}
+
+/** How many frames in a row with nothing moving count as the conversation holding still. */
+const STILL_FRAMES = 10;
+
+/** How many frames the conversation may take to hold still before a case gives up. */
+const STILL_ROUNDS = 600;
 
 /** The row a body is drawn in: the element holding the body's copy flavor. */
 function rowOf(body: HTMLElement): Element {
@@ -475,6 +512,49 @@ describe("browser — a long table drawn as a window over its rows", () => {
     await settleFrames();
 
     expect(heardBySecond).toStrictEqual([NARROWED_BODY_WIDTH_PX]);
+  });
+  it("reads a reply's long table in the conversation at its middle and its head with no resize loop", async () => {
+    const reply = replyWith(benchTable(LISTED_TABLE_ROW_COUNT));
+    // A row the window lets go of, or a table that changes height, inside the conversation's
+    // resize report leaves a report undelivered, which the browser raises as an error the run
+    // would only log.
+    const resizeLoopErrors: string[] = [];
+    const hearResizeLoopError = (event: ErrorEvent): void => {
+      if (event.message.includes("ResizeObserver loop")) {
+        resizeLoopErrors.push(event.message);
+      }
+    };
+    window.addEventListener("error", hearResizeLoopError);
+    onTestFinished(() => {
+      window.removeEventListener("error", hearResizeLoopError);
+    });
+    const { scroller } = await mountTranscriptFeed(
+      openPagedSessionStore(0, 0, undefined, (index) => ({
+        ...pagedSessionEventAt(index),
+        kind: "assistant.message",
+        payload: { contentType: "text/markdown" },
+        content: { status: "available", body: reply },
+      })),
+      undefined,
+      undefined,
+      undefined,
+      prepareTranscriptRow,
+    );
+    await waitFor(() => {
+      expect(scroller.querySelector("table[aria-rowcount]")).not.toBe(null);
+    });
+    await settleConversation(scroller);
+    for (const scrollTopPx of [Math.round(scroller.scrollHeight / 2), 0]) {
+      await act(async () => {
+        scroller.dispatchEvent(
+          new WheelEvent("wheel", { bubbles: true, deltaY: scrollTopPx - scroller.scrollTop }),
+        );
+        scroller.scrollTop = scrollTopPx;
+        scroller.dispatchEvent(new Event("scroll"));
+      });
+      await settleConversation(scroller);
+    }
+    expect(resizeLoopErrors).toStrictEqual([]);
   });
 });
 

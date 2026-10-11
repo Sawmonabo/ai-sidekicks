@@ -129,13 +129,11 @@ export function expectSameLayout(bodies: MountedBodies, where: string): number {
       `${where}, column ${String(column)}: windowed ${String(widthPx)}, whole ${String(wholeWidths[column])}`,
     ).toBeLessThanOrEqual(SAME_LENGTH_TOLERANCE_PX);
   }
-  // The rows not drawn hold the room the whole table's rows take, so the reply is as tall.
+  // The rows not drawn hold the room the whole table's rows take, so the table is exactly as tall
+  // wherever the window stands, and nothing after it moves.
   const windowedBox = windowed.getBoundingClientRect();
   const wholeBox = whole.getBoundingClientRect();
-  expect(
-    Math.abs(windowedBox.height - wholeBox.height),
-    `${where}, table height: windowed ${String(windowedBox.height)}, whole ${String(wholeBox.height)}`,
-  ).toBeLessThanOrEqual(SAME_LENGTH_TOLERANCE_PX);
+  expect(windowedBox.height, `${where}, table height`).toBe(wholeBox.height);
   const windowedTopPx = windowedBox.top;
   const wholeTopPx = wholeBox.top;
   const drawn = drawnRows(windowed);

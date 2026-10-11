@@ -17,6 +17,7 @@ import {
   type MarkdownTableOffer,
 } from "#renderer/components/Markdown/table-offer.js";
 import { useDirectlyPlacedVirtualizer } from "#renderer/hooks/useDirectlyPlacedVirtualizer.js";
+import { useStopObservingRemovedItems } from "#renderer/hooks/useStopObservingRemovedItems.js";
 import { MARKDOWN_TABLE_ROW_INDEX_ATTRIBUTE } from "../../markdown/block-window/markers.js";
 import { rangeEnds, withPinnedIndexes } from "../../markdown/block-window/selection-pins.js";
 import { refuseScrollAdjustment } from "../../markdown/scroller-window.js";
@@ -180,6 +181,7 @@ export function useTableWindow(offer: MarkdownTableOffer): TableWindow {
   });
   // The table follows the conversation's place and never moves it, however a row measures.
   virtualizer.shouldAdjustScrollPositionOnItemSizeChange = refuseScrollAdjustment;
+  useStopObservingRemovedItems(virtualizer);
 
   useEffect(() => {
     layout.bindWindow(virtualizer, setRevealedRowIndex);

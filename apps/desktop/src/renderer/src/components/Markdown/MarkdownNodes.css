@@ -116,11 +116,15 @@
 /*
  * A table fits the column rather than scrolling inside it: `anywhere` lets a cell break even a
  * long unbroken value, which also lets the automatic layout narrow every column until the table
- * fits, so it never scrolls sideways and never pushes the row wider.
+ * fits, so it never scrolls sideways and never pushes the row wider. The table's own bottom rule
+ * matches its cells', which win where a row of cells ends the table; where a long table's spacer
+ * row ends it instead, the rule keeps the half of the bottom border the collapsed table counts in
+ * its height, so the table is as tall as when drawn whole.
  */
 .meridian-markdown__table {
   margin-bottom: var(--meridian-space-2);
   border-collapse: collapse;
+  border-bottom: 1px solid var(--meridian-edge);
   font-size: var(--meridian-text-sm);
 }
 
