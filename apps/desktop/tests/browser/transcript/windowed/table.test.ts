@@ -47,6 +47,8 @@ import {
 
 /** The height of what a row draws above its body, in CSS pixels. */
 const LEAD_HEIGHT_PX = 48;
+/** The width of the body below it, in CSS pixels. */
+const LEAD_BODY_WIDTH_PX = 600;
 
 /** A table long enough that the fastest fling ends inside it. */
 const FLUNG_TABLE_ROW_COUNT = 3_000;
@@ -386,16 +388,18 @@ describe("browser — a long table drawn as a window over its rows", () => {
     expect(table.getAttribute("aria-rowcount")).toBe("81");
   });
 
-  it("places a table at its body's top when the body was laid out before the table listened", async () => {
+  it("places and tells a table at once when its body was laid out before the table listened", async () => {
     // A row and its table mount in one commit whose effects wait out a frame: the table asks the
     // body's type while the body is unattached, the body is laid out with no table listening, and
-    // the table listens only after; its next scroll sample asks the body's top.
+    // the table listens only after. Its next scroll sample asks the body's top, and the body tells
+    // it of that layout before the next paint, though the body is not laid out again.
     const row = document.createElement("div");
     row.setAttribute(WINDOWED_ROW_INDEX_ATTRIBUTE, "0");
     const lead = document.createElement("div");
     lead.style.height = `${String(LEAD_HEIGHT_PX)}px`;
     const text = "A reply whose long table mounts with it.";
     const body = document.createElement("div");
+    body.style.width = `${String(LEAD_BODY_WIDTH_PX)}px`;
     body.textContent = text;
     row.append(lead, body);
     document.body.append(row);
@@ -413,12 +417,18 @@ describe("browser — a long table drawn as a window over its rows", () => {
       { settledBlocks: [], volatileTail: text, definitionPreamble: "" },
       text.length,
     );
+    const heard: { readonly widthPx: number | undefined; readonly topPx: number | undefined }[] =
+      [];
 
     expect(placement.bodyType).toBeUndefined();
     placement.attachBody(body);
     await settleFrames();
-    placement.subscribeToPlacement(() => {});
+    placement.subscribeToPlacement(() => {
+      heard.push({ widthPx: placement.bodyType?.widthPx, topPx: placement.anchorTopPx() });
+    });
 
     expect(placement.anchorTopPx()).toBe(LEAD_HEIGHT_PX);
+    await settleFrames();
+    expect(heard).toStrictEqual([{ widthPx: LEAD_BODY_WIDTH_PX, topPx: LEAD_HEIGHT_PX }]);
   });
 });

@@ -2,7 +2,8 @@
 // window over its blocks, so a table measures its place from the body itself: the body's top is its
 // row's start and its place in the row, read whenever the body is laid out anew, which also tells
 // its tables to read their own place in it again. A body no table listens to reads nothing when it
-// is laid out, only when asked, so a reply without a long table costs no layout read.
+// is laid out, only when asked, so a reply without a long table costs no layout read. A table that
+// starts to listen after such a layout hears of it in the body's next report, before it paints.
 
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { Emitter } from "#renderer/lib/emitter.js";
@@ -46,9 +47,7 @@ export class FlowBodyPlacement implements TableBodyPlacement {
     this.#bodyElement = element ?? undefined;
     if (element !== null) {
       warmIdeographFallback(element);
-      this.#stopObservingBody = observeElementResize(element, (entries) => {
-        this.#noteBodyLaidOut(entries.at(-1));
-      });
+      this.#observeBody(element);
     }
   };
 
@@ -109,8 +108,26 @@ export class FlowBodyPlacement implements TableBodyPlacement {
     return this.#rowStartPx + this.#bodyOffsetInRowPx;
   }
 
+  /**
+   * Hears each change that may move the body's tables. Where the body was laid out while no table
+   * listened, it is observed anew, so its next report, before the next paint, tells this table too.
+   */
   public subscribeToPlacement(listener: (change: TablePlacementChange) => void): Unsubscribe {
-    return this.#placementChanges.subscribe(listener);
+    const unsubscribe = this.#placementChanges.subscribe(listener);
+    // A fresh observation reports the body's size in the next frame, before it paints; telling the
+    // table here would redraw it from inside the effect that subscribes, where React defers it.
+    if (this.#isUnread && this.#bodyElement !== undefined) {
+      this.#observeBody(this.#bodyElement);
+    }
+    return unsubscribe;
+  }
+
+  /** Observes `element` for every change of its size, from its size now. */
+  #observeBody(element: HTMLElement): void {
+    this.#stopObservingBody?.();
+    this.#stopObservingBody = observeElementResize(element, (entries) => {
+      this.#noteBodyLaidOut(entries.at(-1));
+    });
   }
 
   /**
