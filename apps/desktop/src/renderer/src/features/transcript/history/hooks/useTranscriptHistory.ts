@@ -52,7 +52,7 @@ export function useTranscriptHistory(
   const held = useSubjectScopedResource(
     bridge,
     sessionStore.sessionId,
-    () => new TranscriptHistoryReader(sessionStore, clock),
+    () => new TranscriptHistoryReader(sessionStore, clock, queueTask),
     TRANSCRIPT_HISTORY_READER_DISPOSAL,
   );
   const reader = held.value;
@@ -89,6 +89,14 @@ export function useTranscriptHistory(
           },
     [readPage, reader, state, measureWith],
   );
+}
+
+/**
+ * Queues `task` behind the work the renderer's thread already has, in a task of its own, so a
+ * read a scroll event asks for is sent after the frame it lands in rather than inside it.
+ */
+function queueTask(task: () => void): void {
+  void globalThis.scheduler.postTask(task, { priority: "user-visible" });
 }
 
 /**

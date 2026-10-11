@@ -78,6 +78,8 @@ export class TranscriptHistoryReader {
   readonly #sessionStore: SessionStore;
   /** The clock a walk waits a frame on between pages, and stamps a failure it could not settle. */
   readonly #clock: Clock;
+  /** Runs a task of its own behind the work the thread already has, as a stretch's first read. */
+  readonly #queueTask: (task: () => void) => void;
   /**
    * The line every read goes out on, ended by {@link abandonReads} when the transcript holding
    * this reader leaves.
@@ -95,9 +97,14 @@ export class TranscriptHistoryReader {
   /** The state last read; it stands while the reader and each edge's `hasMore` stay put. */
   #state: TranscriptHistoryState | undefined;
 
-  public constructor(sessionStore: SessionStore, clock: Clock) {
+  public constructor(
+    sessionStore: SessionStore,
+    clock: Clock,
+    queueTask: (task: () => void) => void,
+  ) {
     this.#sessionStore = sessionStore;
     this.#clock = clock;
+    this.#queueTask = queueTask;
   }
 
   /** Whether this reader's read line is over. True once and never false again. */
@@ -148,7 +155,9 @@ export class TranscriptHistoryReader {
    * given, or the daemon has no more. Answers whether that edge has more to read, so a caller can
    * tell a stretch asked for (or already under way) from an edge with nothing past it. A failed
    * read past an edge that has not moved is sent again unchanged; a read past the other edge in
-   * flight, or no viewport to measure the stretch in, leaves this one unasked.
+   * flight, or no viewport to measure the stretch in, leaves this one unasked. The read is marked
+   * under way at once and sent in a task of its own, so a scroll event that asks for it does not
+   * carry the page request.
    */
   public readStretch(side: WindowSide, read: TranscriptPageRead, owedHeightPx?: number): boolean {
     const edge = this.#edgeOf(side);
@@ -171,8 +180,11 @@ export class TranscriptHistoryReader {
             owedHeightPx ?? TRANSCRIPT_STRETCH_SCREEN_HEIGHTS * measure.screenHeightPx(),
             measure,
           );
-    this.#walk(pending, read, measure).catch((error: unknown) => {
-      this.#failWalk(pending, error);
+    const readNumber = this.#startRead(side);
+    this.#queueTask(() => {
+      this.#walk(pending, read, measure, readNumber).catch((error: unknown) => {
+        this.#failWalk(pending, error);
+      });
     });
     return true;
   }
@@ -243,16 +255,20 @@ export class TranscriptHistoryReader {
    * paid, the edge has no more, the edge moved or a read failed. The stretch is paid once the held
    * transcript, derived whole, is estimated `pending.owedHeightPx` taller than at the start. Each
    * page after the first is asked a frame after the last landed, so however fast pages answer, no
-   * one task merges and derives a whole stretch.
+   * one task merges and derives a whole stretch. `readNumber` is the read `#startRead` marked.
    */
   async #walk(
     pending: PendingRead,
     read: TranscriptPageRead,
     measure: TranscriptStretchMeasure,
+    readNumber: number,
   ): Promise<void> {
     const { side } = pending;
-    const readNumber = this.#startRead(side);
     try {
+      // A jump to an end of the log, asked while this read waited for its task, has taken over.
+      if (this.#readCount !== readNumber) {
+        return;
+      }
       const targetHeightPx = this.#heldHeightPx(measure) + pending.owedHeightPx;
       let next = pending;
       for (;;) {

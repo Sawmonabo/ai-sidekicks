@@ -36,6 +36,22 @@ describe("the scroll chokepoint — writes", () => {
     expect(controller.glideTo("find-match", -40)?.appliedScrollTop).toBe(0);
     expect(controller.glideTo("find-match", Number.NaN)?.appliedScrollTop).toBe(0);
   });
+
+  it("skips a write to the offset the last sample holds, reading and writing nothing", () => {
+    controller.attach(scrollContainer);
+    scrollContainer.moveTo(1000);
+    // The box moves again with its scroll event still to come; that event publishes where it
+    // went, and until then the held sample is the offset a write is measured against.
+    scrollContainer.scrollTop = 1200;
+    const offsetRead = vi.spyOn(scrollContainer, "scrollTop", "get");
+    const offsetWrite = vi.spyOn(scrollContainer, "scrollTop", "set");
+
+    const write = controller.glideTo("hold-reading-position", 1000);
+
+    expect(write?.wasSkipped).toBe(true);
+    expect(offsetRead).not.toHaveBeenCalled();
+    expect(offsetWrite).not.toHaveBeenCalled();
+  });
 });
 
 describe("the scroll chokepoint — a supplied content height", () => {

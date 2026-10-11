@@ -3,8 +3,8 @@
 // Geometry is published, never polled, and with no hit test. A container attached with its
 // content height (a virtualizer's total size) costs a scroll event one read, `scrollTop`: the
 // viewport height comes from the resize observation. One attached without it reads
-// `clientHeight` and `scrollHeight` beside the offset. A no-op write is skipped only once the
-// display is known to round offsets.
+// `clientHeight` and `scrollHeight` beside the offset. A write to the offset the last sample holds
+// is skipped, and one that rounding would undo only once the display is known to round offsets.
 
 import { type Clock } from "#renderer/lib/clock.js";
 import type { Unsubscribe } from "#shared/preload-api.js";
@@ -173,9 +173,15 @@ export class ScrollController {
     }
     const maximumScrollTop = this.#maximumScrollTop(scrollContainer);
     const requestedScrollTop = clampToContent(targetScrollTop, maximumScrollTop);
-    const currentScrollTop = scrollContainer.scrollTop;
+    // The held sample's offset, not the element's: reading or writing `scrollTop` lays out what
+    // the caller just changed, and a write that moves nothing needs no layout.
+    const currentScrollTop =
+      this.#geometryPublisher.lastGeometry?.scrollTop ?? scrollContainer.scrollTop;
     this.#writeCountByCaller.set(caller, (this.#writeCountByCaller.get(caller) ?? 0) + 1);
-    if (this.#quantization.isNoOpWrite(requestedScrollTop, currentScrollTop)) {
+    if (
+      requestedScrollTop === currentScrollTop ||
+      this.#quantization.isNoOpWrite(requestedScrollTop, currentScrollTop)
+    ) {
       return { caller, requestedScrollTop, appliedScrollTop: currentScrollTop, wasSkipped: true };
     }
     // The veto covers the whole glide, publication included: a prune landing while

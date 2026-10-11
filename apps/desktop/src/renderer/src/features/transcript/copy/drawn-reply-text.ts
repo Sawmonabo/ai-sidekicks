@@ -27,12 +27,6 @@ export interface DrawnRowText {
 export class DrawnReplyText {
   readonly #drawnByRowId = new Map<string, DrawnRowText>();
   readonly #changes = new Emitter<void>("drawn reply text change");
-  #revision = 0;
-
-  /** Bumped on every change a subscriber hears, so a React read can compare it. */
-  public get revision(): number {
-    return this.#revision;
-  }
 
   /**
    * Records what one reply row drew, in place of what it drew before, which the record then lets
@@ -45,7 +39,7 @@ export class DrawnReplyText {
     const before = this.#drawnByRowId.get(rowId);
     this.#drawnByRowId.set(rowId, drawn);
     if (before?.flavor !== drawn.flavor) {
-      this.#announceChange();
+      this.#changes.emit();
     }
   }
 
@@ -64,17 +58,12 @@ export class DrawnReplyText {
       }
     }
     if (forgotAny) {
-      this.#announceChange();
+      this.#changes.emit();
     }
   }
 
   public subscribe(sink: () => void): Unsubscribe {
     return this.#changes.subscribe(sink);
-  }
-
-  #announceChange(): void {
-    this.#revision += 1;
-    this.#changes.emit();
   }
 }
 

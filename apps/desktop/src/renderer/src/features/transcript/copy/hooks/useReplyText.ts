@@ -53,9 +53,6 @@ export function useReplyText(
         : drawnReplyText.subscribe(onChange),
     [drawnReplyText],
   );
-  // A row elsewhere in the reply gaining its first text re-renders this foot through the record.
-  useSyncExternalStore(subscribe, () => drawnReplyText?.revision ?? 0);
-
   const partOf = useCallback(
     (rowId: string): DrawnRowText | undefined => {
       if (rowId === ownRowId && ownText !== undefined && ownText.length > 0) {
@@ -65,7 +62,12 @@ export function useReplyText(
     },
     [own, ownRowId, ownText, revealChannel],
   );
-  const parts = drawnPartsOf(replyRowIds, partOf);
+  // A row elsewhere in the reply gaining its first text re-renders this foot through the record;
+  // a change to another reply's rows, which the record also announces, leaves it alone.
+  const drawnFlavor = useSyncExternalStore(
+    subscribe,
+    useCallback(() => drawnFlavorOf(drawnPartsOf(replyRowIds, partOf)), [replyRowIds, partOf]),
+  );
   const read = useCallback(
     () =>
       joinIntoPieces(
@@ -77,9 +79,17 @@ export function useReplyText(
   );
   return {
     read,
-    hasText: parts.length > 0,
-    flavor: parts.some((part) => part.flavor === "markdown") ? "markdown" : "text",
+    hasText: drawnFlavor !== undefined,
+    flavor: drawnFlavor ?? "text",
   };
+}
+
+/** How a reply with these drawn parts copies, or `undefined` when it has none. */
+function drawnFlavorOf(parts: readonly DrawnRowText[]): CopyFlavor | undefined {
+  if (parts.length === 0) {
+    return undefined;
+  }
+  return parts.some((part) => part.flavor === "markdown") ? "markdown" : "text";
 }
 
 function drawnPartsOf(
