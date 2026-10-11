@@ -119,18 +119,36 @@ it("leaves a run that moved on meanwhile where it is when its ask is answered", 
 
 it("runs the run again when its ask is answered while its block is still being written", async () => {
   const runId = await fixture.runThrough(["starting", "running"]);
-  // The block's move is held until the answer has been taken.
+  // The block's move is held until the answer has asked for its own move.
   let releaseBlock = (): void => {};
   const blockHeld = new Promise<void>((resolve) => {
     releaseBlock = resolve;
   });
+  let settleAsked = (): void => {};
+  const settleAskedFor = new Promise<void>((resolve) => {
+    settleAsked = resolve;
+  });
   const engine = fixture.engine;
-  holdRuns({
-    applyProviderStateChange: async (change: RunTransitionRequest) => {
-      if (change.newState === "waiting_for_approval") {
-        await blockHeld;
-      }
-      return await engine.applyProviderStateChange(change);
+  const blocking = new ApprovalRunBlocking({
+    runEngine: {
+      applyProviderStateChange: async (change: RunTransitionRequest) => {
+        if (change.newState === "waiting_for_approval") {
+          await blockHeld;
+        }
+        return await engine.applyProviderStateChange(change);
+      },
+    },
+    approvals: service,
+    forgetRun: () => {},
+  });
+  service.registerApprovalOutcomeListener({
+    onBlocking: async (blockedRunId, approvalRequestId) => {
+      await blocking.onBlocking(blockedRunId, approvalRequestId);
+    },
+    onSettled: async (settledRunId, approvalRequestId) => {
+      const settling = blocking.onSettled(settledRunId, approvalRequestId);
+      settleAsked();
+      await settling;
     },
   });
 
@@ -140,13 +158,7 @@ it("runs the run again when its ask is answered while its block is still being w
     .prepare<[], { id: ApprovalRequestId }>("SELECT id FROM approval_requests")
     .all();
   const answering = approve(pending?.id ?? ("" as ApprovalRequestId));
-  // The answer is recorded, and its move asked for, while the block's move is still held.
-  await expect
-    .poll(() => service.readRequest(pending?.id ?? ("" as ApprovalRequestId))?.state)
-    .toBe("approved");
-  await new Promise((resolve) => {
-    setTimeout(resolve, 20);
-  });
+  await settleAskedFor;
   releaseBlock();
   await Promise.all([raising, answering]);
 

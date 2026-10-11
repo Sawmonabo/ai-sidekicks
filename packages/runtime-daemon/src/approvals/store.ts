@@ -105,9 +105,6 @@ const RUN_LIVE_SQL = `SELECT 1 FROM runs
     AND session_id = @session_id
     AND state NOT IN (${sqlListOf(RUN_TERMINAL_STATES)})`;
 
-const ASK_UNCLAIMED_SQL = `SELECT 1 WHERE @ask_id IS NULL
-  OR NOT EXISTS (SELECT 1 FROM approval_requests WHERE run_id = @run_id AND ask_id = @ask_id)`;
-
 const INSERT_REQUEST_SQL = `INSERT INTO approval_requests
     (id, session_id, run_id, requested_by, category, scope, resource_descriptor, ask_id, state,
      created_at, updated_at)
@@ -196,15 +193,6 @@ export function runLiveStatement(sessionId: SessionId, runId: RunId): WriteState
   return {
     sql: RUN_LIVE_SQL,
     bindings: { session_id: sessionId, run_id: runId },
-    expectedRowCount: 1,
-  };
-}
-
-/** A guard that refuses its write once the run's provider ask already has its request. */
-export function askUnclaimedStatement(runId: RunId, askId: string | undefined): WriteStatement {
-  return {
-    sql: ASK_UNCLAIMED_SQL,
-    bindings: { run_id: runId, ask_id: askId ?? null },
     expectedRowCount: 1,
   };
 }

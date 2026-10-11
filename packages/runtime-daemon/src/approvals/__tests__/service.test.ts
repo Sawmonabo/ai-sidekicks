@@ -1,9 +1,9 @@
-// The approval service answers a provider ask sent again with the request it already has; it
-// records an ask's answer once, stamped with the device whose connection carried it, and answers
-// the same answer sent again with what was saved; it refuses a block on an ask that is not a
+// The approval service records an ask's answer once, stamped with the device whose connection
+// carried it, and answers the same answer sent again with what was saved; it refuses a block on an ask that is not a
 // network request, and a correction where the ask offers none or beside a rule; a run's end
-// cancels each ask the run still holds, leaving an answered one and another run's alone; and an ask
-// its provider took back is canceled unless it was answered first.
+// cancels each ask the run still holds, leaving an answered one and another run's alone; an ask
+// its provider took back is canceled unless it was answered first; and an ask on a run that ended
+// or in a session that closed is refused, naming which.
 
 import { afterEach, beforeEach, expect, it } from "vitest";
 
@@ -73,30 +73,26 @@ afterEach(async () => {
   await database.close();
 });
 
-// Raises one ask on `runId` whose card names `subject`, minted for the provider ask `askId`.
+// Raises one ask on `runId` whose card names `subject`.
 async function raiseAsk(
   category: ApprovalCategory,
   subject: string,
   runId: RunId = RUN_ID,
-  askId?: string,
 ): Promise<ApprovalRequestId> {
-  const { approvalRequestId } = await service.create(
-    {
-      sessionId: SESSION_ID,
-      runId,
-      requestedBy: "agent-1",
-      category,
-      scope: subject,
-      resourceDescriptor: {
-        subject,
-        standingAllowOffered: true,
-        projectScopeOffered: true,
-        editable: true,
-        toolName: "Bash",
-      },
+  const { approvalRequestId } = await service.create({
+    sessionId: SESSION_ID,
+    runId,
+    requestedBy: "agent-1",
+    category,
+    scope: subject,
+    resourceDescriptor: {
+      subject,
+      standingAllowOffered: true,
+      projectScopeOffered: true,
+      editable: true,
+      toolName: "Bash",
     },
-    { askId },
-  );
+  });
   return approvalRequestId;
 }
 
@@ -131,24 +127,6 @@ function readEventPayloads(type: string): Record<string, unknown>[] {
     .all(type)
     .map((row) => JSON.parse(row.payload) as Record<string, unknown>);
 }
-
-it("answers a provider ask sent again with the request it already has, recording it once", async () => {
-  const first = await raiseAsk("tool_execution", "git push", RUN_ID, "ask-1");
-
-  // The provider replays the same ask after a reconnect.
-  const repeated = await raiseAsk("tool_execution", "git push", RUN_ID, "ask-1");
-
-  expect(repeated).toBe(first);
-  expect(
-    database.reader
-      .prepare<[], { id: string }>("SELECT id FROM approval_requests")
-      .all()
-      .map((row) => row.id),
-  ).toEqual([first]);
-  expect(readEventPayloads("approval.requested")).toMatchObject([
-    { approvalRequestId: first, askId: "ask-1" },
-  ]);
-});
 
 it("stamps the answering device on the answer's row, its event and its reply", async () => {
   const approvalRequestId = await raiseAsk("tool_execution", "git push");
@@ -284,4 +262,23 @@ it("refuses a correction on an ask that offers none, and one beside a rule", asy
 
   expect(readRequestState(uneditable)).toBe("pending");
   expect(readRequestState(editable)).toBe("approved");
+});
+
+it("raises no ask on a run that ended or in a session that closed, and names which", async () => {
+  await database.writer.write([
+    { sql: "UPDATE runs SET state = 'completed' WHERE run_id = ?", bindings: [OTHER_RUN_ID] },
+  ]);
+  await expect(raiseAsk("tool_execution", "git push", OTHER_RUN_ID)).rejects.toMatchObject({
+    code: "approval.request_canceled",
+    detail: { reason: "run_ended" },
+  });
+
+  await database.writer.write([
+    { sql: "UPDATE sessions SET state = 'closed' WHERE id = ?", bindings: [SESSION_ID] },
+  ]);
+  await expect(raiseAsk("tool_execution", "git push")).rejects.toMatchObject({
+    code: "approval.request_canceled",
+    detail: { reason: "session_closed" },
+  });
+  expect(readEventPayloads("approval.requested")).toEqual([]);
 });

@@ -50,7 +50,6 @@ import {
 } from "./request-create.js";
 import {
   ApprovalRequestReader,
-  askUnclaimedStatement,
   insertRequestStatement,
   insertResolutionStatement,
   runLiveStatement,
@@ -85,10 +84,9 @@ export interface ApprovalServiceDeps {
   readonly now?: () => string;
 }
 
-// The positions of the create's three guards among its statements.
-const ASK_UNCLAIMED_GUARD_INDEX = 0;
-const SESSION_OPEN_GUARD_INDEX = 1;
-const RUN_LIVE_GUARD_INDEX = 2;
+// The positions of the create's two guards among its statements.
+const SESSION_OPEN_GUARD_INDEX = 0;
+const RUN_LIVE_GUARD_INDEX = 1;
 // The position of the answer's pending guard among its statements.
 const PENDING_GUARD_INDEX = 0;
 
@@ -152,9 +150,7 @@ export class ApprovalService {
   /**
    * Raises one ask, pending until it is answered or canceled, and tells the run it blocks once it
    * is recorded. `origin` carries what only the daemon knows: the provider ask it was minted for
-   * and the tool call it holds. A provider ask sent again, as a replay after a reconnect, is
-   * answered with the request it already has, whatever its state, and records and tells nothing.
-   * Throws the schema's error for a request that does not parse, before anything is written;
+   * and the tool call it holds. Throws the schema's error for a request that does not parse, before anything is written;
    * `approval.request_canceled` with a `reason` when the session has closed or the run has ended;
    * and `approval.persistence_unavailable` when the record could not be kept.
    */
@@ -180,20 +176,12 @@ export class ApprovalService {
       await this.#events.requested(payload, {
         occurredAt: createdAt,
         statements: [
-          askUnclaimedStatement(parsed.runId, origin.askId),
           sessionOpenStatement(parsed.sessionId),
           runLiveStatement(parsed.sessionId, parsed.runId),
           insertRequestStatement({ ...parsed, approvalRequestId, askId: origin.askId, createdAt }),
         ],
       });
     } catch (error) {
-      if (
-        error instanceof WriteRefusedError &&
-        error.statementIndex === ASK_UNCLAIMED_GUARD_INDEX &&
-        origin.askId !== undefined
-      ) {
-        return this.#answerRepeatedAsk(parsed, origin.askId);
-      }
       if (error instanceof WriteRefusedError && error.statementIndex === SESSION_OPEN_GUARD_INDEX) {
         throw new ApprovalLateCreateError(parsed.sessionId, parsed.runId, "session_closed");
       }
@@ -204,19 +192,6 @@ export class ApprovalService {
     }
     await this.#listener?.onBlocking(parsed.runId, approvalRequestId);
     return { approvalRequestId };
-  }
-
-  // The request a provider ask already has. Only its session's purge deletes the row the guard
-  // found, so one gone since is an ask of a session being deleted.
-  #answerRepeatedAsk(
-    request: ApprovalRequestCreateRequest,
-    askId: string,
-  ): ApprovalRequestCreateResponse {
-    const existing = this.#requests.readAskRequest(request.runId, askId);
-    if (existing === undefined) {
-      throw new ApprovalLateCreateError(request.sessionId, request.runId, "session_closed");
-    }
-    return { approvalRequestId: existing.approvalRequestId };
   }
 
   /**
