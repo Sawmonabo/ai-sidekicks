@@ -29,6 +29,9 @@ import {
   ModelCatalogUnreadableError,
 } from "../../contract.js";
 
+// A macOS or Linux system: the home is `HOME` and names match by case.
+const FIGURE_SYSTEM = { homeVariable: "HOME", environmentNameMatch: "case-sensitive" } as const;
+
 const CLI_VERSION: DriverCliVersionReport = {
   rawVersion: "2.1.245 (Claude Code)",
   parsedVersion: "2.1.245",
@@ -428,7 +431,7 @@ describe("Claude model catalog", () => {
   });
 
   it("never fills a row on a home switched to another provider from an Anthropic API read", () => {
-    const figures = new ClaudeModelFigures("2.1.294", "HOME");
+    const figures = new ClaudeModelFigures("2.1.294", FIGURE_SYSTEM);
     figures.recordContextReads(
       [["HOME", "/home/person"]],
       [{ requestedModel: "model-y", usage: { model: "model-y", rawMaxTokens: 200_000 } }],
@@ -445,7 +448,7 @@ describe("Claude model catalog", () => {
   });
 
   it("fills a row only from the window read for its own model id", async () => {
-    const figures = new ClaudeModelFigures("2.1.294", "HOME");
+    const figures = new ClaudeModelFigures("2.1.294", FIGURE_SYSTEM);
     // What a session's creation-time process read: the larger window's row, and a refused move.
     figures.recordContextReads(
       [],
@@ -505,14 +508,14 @@ describe("Claude model catalog", () => {
         async () => {
           throw transportFailure;
         },
-        new ClaudeModelFigures(undefined, "HOME"),
+        new ClaudeModelFigures(undefined, FIGURE_SYSTEM),
         [],
       ),
     ).rejects.toBe(transportFailure);
     await expect(
       resolveClaudeModelCatalog(
         async () => ({ initialize: { notModels: [] }, contextUsage: undefined }),
-        new ClaudeModelFigures(undefined, "HOME"),
+        new ClaudeModelFigures(undefined, FIGURE_SYSTEM),
         [],
       ),
     ).rejects.toThrow(ModelCatalogUnreadableError);
