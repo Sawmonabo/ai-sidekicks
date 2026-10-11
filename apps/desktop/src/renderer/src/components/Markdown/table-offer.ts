@@ -69,3 +69,6 @@ export type MarkdownTableRowAttributes = React.ComponentProps<"tr"> & {
 
 /** Each kind of line a table's type sample rows measure, in the order they are drawn. */
 export const TABLE_LINE_KINDS = ["plain", "code", "footnote", "ideograph"] as const;
+
+/** The ideograph the type sample rows draw in its fallback font, for an `ideograph` line. */
+export const TABLE_SAMPLE_IDEOGRAPH = "字";

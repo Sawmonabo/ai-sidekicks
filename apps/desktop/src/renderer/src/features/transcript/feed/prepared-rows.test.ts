@@ -4,7 +4,8 @@
 // row; the store keeps a held page's events through a prune that lets the window's head go; and a
 // listed command output parsing in slices draws only what is parsed, its last version while a
 // changed one parses; and an output is parsed only while the viewport's band or a waiting landing
-// reaches its row, which the band draws again, and the landing lands on, only once it is whole.
+// reaches its row, which the band draws again only once it is whole, parsed at once in view, and
+// the landing lands on only once it is whole.
 
 import { renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -381,24 +382,59 @@ describe("PreparedRowGate over a command output", () => {
 
   it("parses an output only within the band's reach, and draws a row coming back once parsed whole", async () => {
     const feed = await openFortyRowFeed();
-    const { controller, gate, preparedOutputs, tasks } = feed;
+    const { controller, gate, preparedOutputs } = feed;
 
     // The band at the head: the last row leaves its reach and lets its parse go.
     expect(feed.drawnRowKeysAt(0, 1)).not.toContain(FAR_ROW_ID);
     expect(preparedOutputs.chunksOf(FAR_ROW_ID)).toBeUndefined();
     expect(gate.isPrepared(FAR_ROW_ID)).toBe(false);
 
-    // Back at the tail: the row is parsed again, and drawn only once its parse is whole.
-    let sliceCount = 1;
-    while (!feed.drawnRowKeysAt(38, 39).includes(FAR_ROW_ID)) {
-      expect(gate.isOutputParsed(FAR_ROW_ID)).toBe(false);
-      expect(await tasks.runNext()).toBe(true);
-      sliceCount += 1;
-    }
-    expect(sliceCount).toBeGreaterThan(2);
+    // Back at the tail, in view: the row is parsed again, whole in the walk that draws it.
+    expect(feed.drawnRowKeysAt(38, 39)).toContain(FAR_ROW_ID);
     const drawn = preparedOutputs.chunksOf(FAR_ROW_ID) ?? expect.fail("an output is drawn");
     expect(chunksTextOf(drawn)).toBe(feed.longOutputText);
     controller.dispose();
+    gate.dispose();
+  });
+
+  it("draws a row rewritten while out of view whole in the walk that brings it into view", async () => {
+    const tasks = new SteppedTasks();
+    const preparedOutputs = new PreparedAnsiOutputs();
+    const liveText = new RevealTextRope("call");
+    const sources: FeedRowSources = {
+      ...SOURCES,
+      publishedTextFor: () => liveText,
+      ownerWindow: tasks.window,
+      preparedOutputs,
+    };
+    const gate = new PreparedRowGate();
+    const firstLines = coloredLines(0, 60_000);
+    liveText.append(firstLines);
+    liveText.advance(firstLines.length);
+    const row = toolRow();
+    const window = windowOf(row);
+    // Within the band, out of view: parsed whole in turn, then listed.
+    gate.filter(window, prepareTranscriptRow, sources);
+    gate.observeReach(new Set([row.id]), new Set());
+    while (!gate.isOutputParsed(row.id)) {
+      expect(await tasks.runNext()).toBe(true);
+    }
+    expect(gate.filter(window, prepareTranscriptRow, sources).window.rows).toEqual([row]);
+
+    // Rewritten from its start while still out of view: its parse starts again, in turn.
+    const rewrittenLines = coloredLines(1, 60_000);
+    liveText.rebase(rewrittenLines, 0);
+    liveText.advance(rewrittenLines.length);
+    gate.refresh();
+    expect(gate.isOutputParsed(row.id)).toBe(false);
+
+    // The walk that brings it into view parses it whole, so the row is drawn in that walk.
+    gate.observeReach(new Set([row.id]), new Set([row.id]));
+    expect(gate.isOutputParsed(row.id)).toBe(true);
+    const drawn = preparedOutputs.chunksOf(row.id) ?? expect.fail("an output is drawn");
+    expect(chunksTextOf(drawn)).toBe(
+      chunksTextOf(new AnsiLineChunks().read(publishedTextOf(rewrittenLines), () => true).chunks),
+    );
     gate.dispose();
   });
 

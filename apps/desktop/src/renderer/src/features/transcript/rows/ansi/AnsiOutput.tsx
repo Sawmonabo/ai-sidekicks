@@ -62,6 +62,7 @@ export function AnsiOutput(props: AnsiOutputProps): React.JSX.Element {
   return (
     <OutputHeightCut
       className="meridian-ansi__body"
+      rowKey={rowKey}
       label={props.label}
       opening={props.opening}
       liveByteLength={props.liveByteLength}

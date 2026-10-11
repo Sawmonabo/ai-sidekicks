@@ -20,6 +20,7 @@ import { readDeferredFenceKind } from "./rules.js";
 import type { BlockCopyRenderer } from "./block-copy-offer.js";
 import {
   TABLE_LINE_KINDS,
+  TABLE_SAMPLE_IDEOGRAPH,
   type MarkdownTableFrame,
   type MarkdownTableOffer,
   type MarkdownTableRowAttributes,
@@ -325,7 +326,7 @@ const LINE_SAMPLE_ROWS: Readonly<Record<TableLineKind, TableRow>> = {
     { type: "text", value: "x" },
     { type: "footnoteReference", identifier: "x", label: "x" },
   ]),
-  ideograph: lineSampleRow([{ type: "text", value: "x字" }]),
+  ideograph: lineSampleRow([{ type: "text", value: `x${TABLE_SAMPLE_IDEOGRAPH}` }]),
 };
 
 function lineSampleRow(children: TableCell["children"]): TableRow {

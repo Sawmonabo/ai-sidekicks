@@ -105,6 +105,11 @@ export interface TranscriptViewportBinding {
    */
   readonly rowStartPx: (rowKey: string) => number | undefined;
   /**
+   * A row's bottom edge in the scroller's content, in pixels, at the height it is laid out at,
+   * measured or estimated; `undefined` when the window does not hold the row. Read when called.
+   */
+  readonly rowEndPx: (rowKey: string) => number | undefined;
+  /**
    * Whether a window nested in a row holds the reader's place for an item it resized above the
    * fold; see `shouldHoldPlaceInsideRow`. Read when called; stable for the binding's controller.
    */
@@ -404,6 +409,15 @@ export function useTranscriptViewport(
     }, [controller]),
     scrollController: controller.scroll,
     rowStartPx: useCallback((rowKey: string) => controller.rowStartPx(rowKey), [controller]),
+    rowEndPx: useCallback(
+      (rowKey: string) => {
+        const rowStartPx = controller.rowStartPx(rowKey);
+        return rowStartPx === undefined
+          ? undefined
+          : rowStartPx + controller.measurements.heightOf(rowKey);
+      },
+      [controller],
+    ),
     holdsPlaceInsideRow: useCallback(
       (rowKey: string) => {
         const rowStartPx = controller.rowStartPx(rowKey);

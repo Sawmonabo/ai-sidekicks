@@ -17,6 +17,12 @@ export interface MarkdownWindowViewport {
    */
   readonly rowStartPx: (rowKey: string) => number | undefined;
   /**
+   * A row's bottom edge in the scroller's content, in pixels, at the height the conversation lays
+   * it out at, measured or estimated, read when called and reading no element; `undefined` when
+   * the viewport does not hold the row.
+   */
+  readonly rowEndPx: (rowKey: string) => number | undefined;
+  /**
    * Whether the body holds the reader's place for a block that resized above the scroller's top,
    * which the conversation holds for a row wholly above it and for a following reader instead.
    */

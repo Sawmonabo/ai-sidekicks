@@ -42,9 +42,12 @@ export class WidestCells {
     }
     while (this.#nextIndex < rowCount && hasTime()) {
       const index = this.#nextIndex;
-      for (const [columnIndex, cell] of (table.children[index + 1]?.children ?? []).entries()) {
-        this.#columns[columnIndex] ??= new ColumnRanking();
-        this.#columns[columnIndex].offer(index, cell, this.#measure);
+      // Counted by hand: `entries()` would make a pair for every cell of every row.
+      let columnIndex = 0;
+      for (const cell of table.children[index + 1]?.children ?? []) {
+        const column = (this.#columns[columnIndex] ??= new ColumnRanking());
+        column.offer(index, cell, this.#measure);
+        columnIndex += 1;
       }
       this.#nextIndex = index + 1;
     }
@@ -95,10 +98,10 @@ const SAME_WIDTH_PX = 1;
 /** The most cells kept per column for each figure; ties need only one of them laid out. */
 const KEPT_CELLS = 3;
 
-/** One column's widest cells by each figure. */
+/** One column's widest cells by each figure, each list widest first and kept in place. */
 class ColumnRanking {
-  public widestCharacters: RankedCell[] = [];
-  #lineCandidates: LineCandidate[] = [];
+  public readonly widestCharacters: RankedCell[] = [];
+  readonly #lineCandidates: LineCandidate[] = [];
 
   /** Whether body row `index` holds one of the column's widest cells. */
   public holds(index: number): boolean {
@@ -107,19 +110,38 @@ class ColumnRanking {
 
   public offer(index: number, cell: TableCell, measure: TableCellMeasure): void {
     const summed = measure.sumCell(cell);
-    this.widestCharacters = keptCells(
+    const characterPlace = placeOf(
       this.widestCharacters,
-      { index, widthPx: summed.widestCharacterPx },
+      summed.widestCharacterPx,
       SAME_WIDTH_PX,
       KEPT_CELLS,
     );
+    if (characterPlace !== undefined) {
+      keepCellAt(
+        this.widestCharacters,
+        characterPlace,
+        { index, widthPx: summed.widestCharacterPx },
+        SAME_WIDTH_PX,
+        KEPT_CELLS,
+      );
+    }
     const widestSummedPx = Math.max(summed.widestLinePx, this.#lineCandidates[0]?.widthPx ?? 0);
-    this.#lineCandidates = keptCells(
+    const lineMarginPx = SAME_WIDTH_PX + SUMMED_ERROR_SHARE * widestSummedPx;
+    const linePlace = placeOf(
       this.#lineCandidates,
-      { index, widthPx: summed.widestLinePx, cell, measuredPx: undefined },
-      SAME_WIDTH_PX + SUMMED_ERROR_SHARE * widestSummedPx,
+      summed.widestLinePx,
+      lineMarginPx,
       LINE_CANDIDATES,
     );
+    if (linePlace !== undefined) {
+      keepCellAt(
+        this.#lineCandidates,
+        linePlace,
+        { index, widthPx: summed.widestLinePx, cell, measuredPx: undefined },
+        lineMarginPx,
+        LINE_CANDIDATES,
+      );
+    }
   }
 
   /** The cells holding the column's widest line, each candidate measured whole once. */
@@ -137,21 +159,47 @@ class ColumnRanking {
 }
 
 /**
- * `cells` with `offered` among them, widest first, holding at most `limit` of those within
- * `marginPx` of the widest.
+ * Where among `cells`, widest first, a cell `widthPx` wide goes, after any as wide, when it changes
+ * which are kept: it is within `marginPx` of the widest and lands among the first `limit`. Every
+ * kept cell is already within the margin of the widest, so a cell landing past `limit` changes
+ * nothing.
  */
-function keptCells<Cell extends RankedCell>(
-  cells: readonly Cell[],
+function placeOf(
+  cells: readonly RankedCell[],
+  widthPx: number,
+  marginPx: number,
+  limit: number,
+): number | undefined {
+  if (widthPx < (cells[0]?.widthPx ?? 0) - marginPx) {
+    return undefined;
+  }
+  let place = 0;
+  while (place < cells.length && (cells[place]?.widthPx ?? 0) >= widthPx) {
+    place += 1;
+  }
+  return place < limit ? place : undefined;
+}
+
+/**
+ * Puts `offered` among `cells` at `place`, from `placeOf`, then keeps at most `limit` of those
+ * within `marginPx` of the widest.
+ */
+function keepCellAt<Cell extends RankedCell>(
+  cells: Cell[],
+  place: number,
   offered: Cell,
   marginPx: number,
   limit: number,
-): Cell[] {
-  const widestPx = Math.max(offered.widthPx, cells[0]?.widthPx ?? 0);
-  if (offered.widthPx < widestPx - marginPx) {
-    return cells as Cell[];
+): void {
+  cells.splice(place, 0, offered);
+  const narrowestPx = (cells[0]?.widthPx ?? 0) - marginPx;
+  let keptCount = 0;
+  while (
+    keptCount < cells.length &&
+    keptCount < limit &&
+    (cells[keptCount]?.widthPx ?? 0) >= narrowestPx
+  ) {
+    keptCount += 1;
   }
-  return [...cells, offered]
-    .filter((cell) => cell.widthPx >= widestPx - marginPx)
-    .sort((left, right) => right.widthPx - left.widthPx)
-    .slice(0, limit);
+  cells.length = keptCount;
 }

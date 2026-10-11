@@ -3,12 +3,14 @@
 // here, where the row's output box draws them; nothing else parses the output, so one copy of its
 // chunks exists. A row leaving the reach lets its parse go and waits on it again, and one coming
 // back is parsed whole before it draws. The feed's outputs are parsed in turn, one slice per task,
-// the output that came into reach last first; only a row about to draw in view takes its first
-// slice in the task that reads it, while no other slice ran in that task. A listed row's output
-// that grows publishes what each slice parsed, so a revision draws what is parsed and never the raw
-// text; one parsed again from the start, after a rewrite or under another handle, keeps drawing its
-// last parse until the new one is whole, which then replaces it. A listed body that turns into
-// command output, with no parse drawn yet, draws each slice's parse as it lands.
+// the output that came into reach last first. A row coming into view is parsed whole in the task
+// that reads it, so no frame holds it out of the box, as when a measurement above the reader moves
+// the offset and brings in a row the band was still parsing, or one rewritten while out of view; a
+// row already in view takes its next slice in that task, while no other slice ran in it. A listed
+// row's output that grows publishes what each slice parsed, so a revision draws what is parsed and
+// never the raw text; one parsed again from the start, after a rewrite or under another handle,
+// keeps drawing its last parse until the new one is whole, which then replaces it. A listed body
+// that turns into command output, with no parse drawn yet, draws each slice's parse as it lands.
 
 import { createContext, type Context } from "react";
 
@@ -158,8 +160,9 @@ export const PreparedAnsiOutputsContext: Context<PreparedAnsiOutputs | undefined
 
 /**
  * One row's command output, parsed into chunks as its text grows, in turn with the feed's other
- * outputs, the first slice in the task that reads the text while the row is in view. Released with
- * the row's preparation, which takes it out of its turn and drops the row's published output.
+ * outputs, and in the task that reads the text while the row is in view: whole as it comes into
+ * view, a slice after. Released with the row's preparation, which takes it out of its turn and
+ * drops the row's published output.
  */
 export class AnsiOutputPreparation {
   readonly #rowId: string;
@@ -174,6 +177,8 @@ export class AnsiOutputPreparation {
   /** The generation of chunks last published, which every slice of it publishes again. */
   #publishedGeneration: number | undefined;
   #isReady = true;
+  /** How near the viewport the row stood at its last read. */
+  #reach: OutputReach = "outside";
 
   /** `onReady` is called each time a parse that waited its turn is whole. */
   public constructor(
@@ -199,6 +204,8 @@ export class AnsiOutputPreparation {
    * chunks, and outside the reach the row waits on its parse until it comes back.
    */
   public read(text: PublishedText | undefined, reach: OutputReach): void {
+    const isComingIntoView = reach === "view" && this.#reach !== "view";
+    this.#reach = reach;
     if (text === undefined || reach === "outside") {
       this.#drop();
       this.#isReady = text === undefined;
@@ -211,6 +218,15 @@ export class AnsiOutputPreparation {
     this.#parsedRevision = undefined;
     this.#lineChunks ??= new AnsiLineChunks();
     this.#isReady = false;
+    // A row coming into view is drawn only once its parse is whole, whether it never had one or its
+    // text was rewritten while it stood out of view, so its parse cannot wait its turn. One already
+    // in view is drawn, and keeps drawing its last parse while a change of it parses.
+    if (isComingIntoView) {
+      this.#outputs.leaveTurn(this);
+      this.#readSlice(WHOLE_PARSE);
+      this.#isReady = true;
+      return;
+    }
     // A parse waiting its turn reads the text last read when its turn comes, so a reveal frame adds
     // no slice; and a task runs one slice at most.
     if (
@@ -278,6 +294,9 @@ export class AnsiOutputPreparation {
     this.#isReady = true;
   }
 }
+
+/** A slice with no end: a parse that reads the text whole. */
+const WHOLE_PARSE = (): boolean => true;
 
 /** One row's published output and the preparation that published it. */
 interface PublishedOutput {

@@ -1,7 +1,8 @@
 // Where the tables of a markdown body drawn whole sit in the conversation scroller. The body has no
 // window over its blocks, so a table measures its place from the body itself: the body's top is its
 // row's start and its place in the row, read whenever the body is laid out anew, which also tells
-// its tables to read their own place in it again.
+// its tables to read their own place in it again. A body no table listens to reads nothing when it
+// is laid out, only when asked, so a reply without a long table costs no layout read.
 
 import type { Unsubscribe } from "#shared/preload-api.js";
 import { Emitter } from "#renderer/lib/emitter.js";
@@ -11,6 +12,7 @@ import { isSameBodyType, readMarkdownBodyType, type MarkdownBodyType } from "../
 import { blockSourceStartOf, type MarkdownBodyBlocksSnapshot } from "../body-blocks.js";
 import { offsetInRowPx } from "../scroller-window.js";
 import { type TableBodyPlacement, type TablePlacementChange } from "./context.js";
+import { warmIdeographFallback } from "./ideograph-fallback-warm.js";
 
 /** The blocks a body drawn whole counts its tables' text in. */
 export type FlowBodyBlocks = Pick<
@@ -30,6 +32,10 @@ export class FlowBodyPlacement implements TableBodyPlacement {
   #bodyType: MarkdownBodyType | undefined;
   /** How far the body's top sits below its row's, read each time the body is laid out. */
   #bodyOffsetInRowPx = 0;
+  /** The body's content width as its last observation reported it, in CSS pixels. */
+  #observedInlineSizePx = 0;
+  /** Whether the body was laid out anew since its type and place were last read. */
+  #isUnread = false;
   /** The row's last known top, kept while the viewport lets the row go. */
   #rowStartPx = 0;
 
@@ -39,8 +45,9 @@ export class FlowBodyPlacement implements TableBodyPlacement {
     this.#stopObservingBody = undefined;
     this.#bodyElement = element ?? undefined;
     if (element !== null) {
+      warmIdeographFallback(element);
       this.#stopObservingBody = observeElementResize(element, (entries) => {
-        this.#readBody(element, entries.at(-1));
+        this.#noteBodyLaidOut(entries.at(-1));
       });
     }
   };
@@ -59,6 +66,7 @@ export class FlowBodyPlacement implements TableBodyPlacement {
   }
 
   public get bodyType(): MarkdownBodyType | undefined {
+    this.#readUnreadBody();
     return this.#bodyType;
   }
 
@@ -96,6 +104,7 @@ export class FlowBodyPlacement implements TableBodyPlacement {
 
   /** The body's top in the scroller's content, whichever block the table is in. */
   public anchorTopPx(): number | undefined {
+    this.#readUnreadBody();
     this.#rowStartPx = this.#viewport.rowStartPx(this.#rowKey) ?? this.#rowStartPx;
     return this.#rowStartPx + this.#bodyOffsetInRowPx;
   }
@@ -104,13 +113,30 @@ export class FlowBodyPlacement implements TableBodyPlacement {
     return this.#placementChanges.subscribe(listener);
   }
 
-  /** Reads the body's type and place in its row, and tells its tables it was laid out anew. */
-  #readBody(element: HTMLElement, entry: ResizeObserverEntry | undefined): void {
-    const bodyType = readMarkdownBodyType(element, entry?.contentBoxSize[0]?.inlineSize ?? 0);
+  /**
+   * Notes the body laid out anew; where a table listens, reads its type and place in its row at
+   * once and tells its tables, and otherwise leaves both to be read when first asked.
+   */
+  #noteBodyLaidOut(entry: ResizeObserverEntry | undefined): void {
+    this.#observedInlineSizePx = entry?.contentBoxSize[0]?.inlineSize ?? 0;
+    this.#isUnread = true;
+    if (this.#placementChanges.hasSinks) {
+      this.#readUnreadBody();
+      this.#placementChanges.emit("laid-out");
+    }
+  }
+
+  /** Reads the body's type and place in its row, when it was laid out anew since they were read. */
+  #readUnreadBody(): void {
+    const element = this.#bodyElement;
+    if (!this.#isUnread || element === undefined) {
+      return;
+    }
+    this.#isUnread = false;
+    const bodyType = readMarkdownBodyType(element, this.#observedInlineSizePx);
     if (!isSameBodyType(bodyType, this.#bodyType)) {
       this.#bodyType = bodyType;
     }
     this.#bodyOffsetInRowPx = offsetInRowPx(element);
-    this.#placementChanges.emit("laid-out");
   }
 }

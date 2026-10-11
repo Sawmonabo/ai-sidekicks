@@ -37,81 +37,54 @@ export interface TableCellType {
   readonly cellChromePx: number;
 }
 
+/** A cell's widest line and widest character, from its characters' advances. */
+export interface CellSums {
+  readonly widestLinePx: number;
+  readonly widestCharacterPx: number;
+}
+
 /**
  * Measures a table cell's text in the fonts its cells draw each inline kind in, through one canvas
  * of the table's own document, whose fonts the cells draw in, and a cache of each character's
- * advance and each pair's kerning. Throws on construction where no canvas can measure.
+ * advance and each pair's kerning. A cell is read in place, its runs never gathered, so measuring
+ * a long table's cells leaves no garbage. Throws on construction where no canvas can measure.
  */
 export class TableCellMeasure {
-  readonly #type: TableCellType;
-  readonly #context: CanvasRenderingContext2D;
-  /** Each font's measured advances, by the font's canvas name. */
-  readonly #advances = new Map<string, FontAdvances>();
-  /** The font last set on the canvas, as given: the canvas reads it back in another spelling. */
-  #font = "";
+  readonly #sum: CellSum;
+  readonly #wholeLines: CellWholeLines;
+  readonly #height: CellHeight;
 
   /** `ownerDocument` is the table's own: a window's fonts load in its document alone. */
   public constructor(type: TableCellType, ownerDocument: Document) {
-    this.#type = type;
     const context = ownerDocument.createElement("canvas").getContext("2d");
     if (context === null) {
       throw new Error("A canvas could not measure a table's text.");
     }
-    this.#context = context;
+    const fonts = new StyleFonts(type, new TextCanvas(context));
+    this.#sum = new CellSum(fonts);
+    this.#wholeLines = new CellWholeLines(fonts);
+    this.#height = new CellHeight(fonts, new CellLines(type.lineHeightsPx));
   }
 
   /**
    * A cell's widest line as the sum of its characters' advances and kerning, and its widest
-   * character with the edges of a code span or marker it starts or ends.
+   * character with the edges of a code span or marker it starts or ends. The sums are the
+   * measure's own, read before its next call: a table's every cell is summed without garbage.
    */
-  public sumCell(cell: TableCell): {
-    readonly widestLinePx: number;
-    readonly widestCharacterPx: number;
-  } {
-    let widestLinePx = 0;
-    let linePx = 0;
-    let widestCharacterPx = 0;
-    for (const run of runsOf(cell)) {
-      if (run.text === undefined) {
-        widestLinePx = Math.max(widestLinePx, linePx);
-        linePx = 0;
-        continue;
-      }
-      const advances = this.#advancesOf(this.#fontOf(run.style));
-      const edgePx = this.#edgeOf(run.style);
-      let previous: number | undefined;
-      for (let offset = 0; offset < run.text.length; ) {
-        const codePoint = run.text.codePointAt(offset) ?? 0;
-        const next = offset + (codePoint > 0xffff ? 2 : 1);
-        const width = this.#advanceOf(advances, previous, codePoint);
-        previous = codePoint;
-        // A span's edge sticks to its first and last character, so neither line can drop it.
-        widestCharacterPx = Math.max(
-          widestCharacterPx,
-          width + (offset === 0 ? edgePx : 0) + (next >= run.text.length ? edgePx : 0),
-        );
-        linePx += width;
-        offset = next;
-      }
-      linePx += 2 * edgePx;
-    }
-    return { widestLinePx: Math.max(widestLinePx, linePx), widestCharacterPx };
+  public sumCell(cell: TableCell): CellSums {
+    const sum = this.#sum;
+    sum.start();
+    readRuns(cell.children, PLAIN, sum);
+    sum.breakLine();
+    return sum;
   }
 
   /** A cell's widest line, each run measured whole, as the browser shapes it. */
   public measureCell(cell: TableCell): number {
-    let widestLinePx = 0;
-    let linePx = 0;
-    for (const run of runsOf(cell)) {
-      if (run.text === undefined) {
-        widestLinePx = Math.max(widestLinePx, linePx);
-        linePx = 0;
-        continue;
-      }
-      this.#setFont(this.#fontOf(run.style));
-      linePx += this.#context.measureText(run.text).width + 2 * this.#edgeOf(run.style);
-    }
-    return Math.max(widestLinePx, linePx);
+    const wholeLines = this.#wholeLines;
+    wholeLines.start();
+    readRuns(cell.children, PLAIN, wholeLines);
+    return Math.max(wholeLines.widestLinePx, wholeLines.linePx);
   }
 
   /**
@@ -119,113 +92,10 @@ export class TableCellMeasure {
    * it, each line as tall as the kinds of text it holds.
    */
   public textHeightOf(cell: TableCell, widthPx: number): number {
-    const lines = new CellLines(
-      Math.max(1, widthPx) + LINE_FIT_TOLERANCE_PX,
-      this.#type.lineHeightsPx,
-    );
-    let edgeBeforePx = 0;
-    for (const run of runsOf(cell)) {
-      if (run.text === undefined) {
-        lines.breakLine();
-        continue;
-      }
-      const advances = this.#advancesOf(this.#fontOf(run.style));
-      const edgePx = this.#edgeOf(run.style);
-      edgeBeforePx += edgePx;
-      let previous: number | undefined;
-      for (let offset = 0; offset < run.text.length; ) {
-        const codePoint = run.text.codePointAt(offset) ?? 0;
-        offset += codePoint > 0xffff ? 2 : 1;
-        const advancePx = this.#advanceOf(advances, previous, codePoint);
-        previous = codePoint;
-        if (isSpace(codePoint)) {
-          lines.placeSpace(advancePx);
-          continue;
-        }
-        lines.addCharacter(advancePx + edgeBeforePx, lineKindOf(run.style, codePoint));
-        edgeBeforePx = 0;
-        if (isIdeograph(codePoint) || (codePoint === HYPHEN && !lines.isWordStart)) {
-          lines.endSegment();
-        }
-      }
-      lines.addEdge(edgePx);
-    }
-    return lines.finish();
-  }
-
-  #advancesOf(font: string): FontAdvances {
-    let advances = this.#advances.get(font);
-    if (advances === undefined) {
-      advances = {
-        font,
-        ascii: new Float64Array(128).fill(Number.NaN),
-        other: new Map(),
-        kerning: new Map(),
-      };
-      this.#advances.set(font, advances);
-    }
-    return advances;
-  }
-
-  /** How far `codePoint` moves the pen after `previous` in one run, the pair's kerning counted. */
-  #advanceOf(advances: FontAdvances, previous: number | undefined, codePoint: number): number {
-    const advancePx = this.#characterAdvanceOf(advances, codePoint);
-    if (previous === undefined) {
-      return advancePx;
-    }
-    const pair = previous * PAIR_KEY_BASE + codePoint;
-    let kerningPx = advances.kerning.get(pair);
-    if (kerningPx === undefined) {
-      this.#setFont(advances.font);
-      kerningPx =
-        this.#context.measureText(String.fromCodePoint(previous, codePoint)).width -
-        this.#characterAdvanceOf(advances, previous) -
-        advancePx;
-      advances.kerning.set(pair, kerningPx);
-    }
-    return advancePx + kerningPx;
-  }
-
-  #characterAdvanceOf(advances: FontAdvances, codePoint: number): number {
-    const held = codePoint < 128 ? advances.ascii[codePoint] : advances.other.get(codePoint);
-    if (held !== undefined && !Number.isNaN(held)) {
-      return held;
-    }
-    this.#setFont(advances.font);
-    const width = this.#context.measureText(String.fromCodePoint(codePoint)).width;
-    if (codePoint < 128) {
-      advances.ascii[codePoint] = width;
-    } else {
-      advances.other.set(codePoint, width);
-    }
-    return width;
-  }
-
-  #setFont(font: string): void {
-    if (this.#font !== font) {
-      this.#font = font;
-      this.#context.font = font;
-    }
-  }
-
-  #fontOf(style: RunStyle): string {
-    const type = this.#type;
-    const fontStyle = style.isItalic ? type.italicStyle : type.fontStyle;
-    const fontWeight = style.isBold ? type.boldWeight : type.fontWeight;
-    const sizePx = style.isCode
-      ? type.codeFontSizePx
-      : style.isFootnote
-        ? type.footnoteFontSizePx
-        : type.fontSizePx;
-    const family = style.isCode ? type.codeFontFamily : type.fontFamily;
-    return `${fontStyle} ${fontWeight} ${String(sizePx)}px ${family}`;
-  }
-
-  #edgeOf(style: RunStyle): number {
-    if (style.isCode) {
-      return this.#type.codeEdgePx;
-    }
-    return style.isFootnote ? this.#type.footnoteEdgePx : 0;
+    const height = this.#height;
+    height.start(Math.max(1, widthPx) + LINE_FIT_TOLERANCE_PX);
+    readRuns(cell.children, PLAIN, height);
+    return height.finish();
   }
 }
 
@@ -281,6 +151,266 @@ export function readTableCellType(table: HTMLTableElement): TableCellType {
   };
 }
 
+/** What reads a cell's text run by run, in the order the renderer draws it. */
+interface CellRunReader {
+  readText(text: string, style: RunStyle): void;
+  breakLine(): void;
+}
+
+/** Sums a cell's lines from its characters' advances, and finds its widest character. */
+class CellSum implements CellRunReader, CellSums {
+  public widestLinePx = 0;
+  public linePx = 0;
+  public widestCharacterPx = 0;
+  readonly #fonts: StyleFonts;
+
+  public constructor(fonts: StyleFonts) {
+    this.#fonts = fonts;
+  }
+
+  public start(): void {
+    this.widestLinePx = 0;
+    this.linePx = 0;
+    this.widestCharacterPx = 0;
+  }
+
+  public readText(text: string, style: RunStyle): void {
+    const { advances, edgePx } = this.#fonts.of(style);
+    // Summed in locals, which hold a number unboxed, and stored once a run.
+    let linePx = this.linePx;
+    let widestCharacterPx = this.widestCharacterPx;
+    let previous = NO_CHARACTER;
+    for (let offset = 0; offset < text.length; ) {
+      const codePoint = text.codePointAt(offset) ?? 0;
+      const next = offset + (codePoint > 0xffff ? 2 : 1);
+      const width = advances.advanceOf(previous, codePoint);
+      previous = codePoint;
+      // A span's edge sticks to its first and last character, so neither line can drop it.
+      widestCharacterPx = Math.max(
+        widestCharacterPx,
+        width + (offset === 0 ? edgePx : 0) + (next >= text.length ? edgePx : 0),
+      );
+      linePx += width;
+      offset = next;
+    }
+    this.linePx = linePx + 2 * edgePx;
+    this.widestCharacterPx = widestCharacterPx;
+  }
+
+  public breakLine(): void {
+    this.widestLinePx = Math.max(this.widestLinePx, this.linePx);
+    this.linePx = 0;
+  }
+}
+
+/** Measures a cell's lines, each run shaped whole. */
+class CellWholeLines implements CellRunReader {
+  public widestLinePx = 0;
+  public linePx = 0;
+  readonly #fonts: StyleFonts;
+
+  public constructor(fonts: StyleFonts) {
+    this.#fonts = fonts;
+  }
+
+  public start(): void {
+    this.widestLinePx = 0;
+    this.linePx = 0;
+  }
+
+  public readText(text: string, style: RunStyle): void {
+    const { advances, edgePx } = this.#fonts.of(style);
+    this.linePx += advances.widthOf(text) + 2 * edgePx;
+  }
+
+  public breakLine(): void {
+    this.widestLinePx = Math.max(this.widestLinePx, this.linePx);
+    this.linePx = 0;
+  }
+}
+
+/** Fills a cell's lines from its characters' advances, broken where the browser breaks them. */
+class CellHeight implements CellRunReader {
+  readonly #fonts: StyleFonts;
+  readonly #lines: CellLines;
+  /** The opening edges of the spans the next character starts. */
+  #edgeBeforePx = 0;
+
+  public constructor(fonts: StyleFonts, lines: CellLines) {
+    this.#fonts = fonts;
+    this.#lines = lines;
+  }
+
+  public start(widthPx: number): void {
+    this.#lines.start(widthPx);
+    this.#edgeBeforePx = 0;
+  }
+
+  public readText(text: string, style: RunStyle): void {
+    const lines = this.#lines;
+    const { advances, edgePx } = this.#fonts.of(style);
+    let edgeBeforePx = this.#edgeBeforePx + edgePx;
+    let previous = NO_CHARACTER;
+    for (let offset = 0; offset < text.length; ) {
+      const codePoint = text.codePointAt(offset) ?? 0;
+      offset += codePoint > 0xffff ? 2 : 1;
+      const advancePx = advances.advanceOf(previous, codePoint);
+      previous = codePoint;
+      if (isSpace(codePoint)) {
+        lines.placeSpace(advancePx);
+        continue;
+      }
+      lines.addCharacter(advancePx + edgeBeforePx, lineKindOf(style, codePoint));
+      edgeBeforePx = 0;
+      if (isIdeograph(codePoint) || (codePoint === HYPHEN && !lines.isWordStart)) {
+        lines.endSegment();
+      }
+    }
+    this.#edgeBeforePx = edgeBeforePx;
+    lines.addEdge(edgePx);
+  }
+
+  public breakLine(): void {
+    this.#lines.breakLine();
+  }
+
+  public finish(): number {
+    return this.#lines.finish();
+  }
+}
+
+/** One run style's font, with its measured advances, and the edge a span in it adds each side. */
+interface StyleFont {
+  readonly advances: FontAdvances;
+  readonly edgePx: number;
+}
+
+/** Each run style's font, made when the style is first read and kept, by the style's bits. */
+class StyleFonts {
+  readonly #type: TableCellType;
+  readonly #canvas: TextCanvas;
+  readonly #byStyle: (StyleFont | undefined)[] = [];
+  /** Each font's measured advances, by the font's canvas name: two styles can share a font. */
+  readonly #byFont = new Map<string, FontAdvances>();
+
+  public constructor(type: TableCellType, canvas: TextCanvas) {
+    this.#type = type;
+    this.#canvas = canvas;
+  }
+
+  public of(style: RunStyle): StyleFont {
+    let styleFont = this.#byStyle[style];
+    if (styleFont === undefined) {
+      const font = this.#fontOf(style);
+      let advances = this.#byFont.get(font);
+      if (advances === undefined) {
+        advances = new FontAdvances(font, this.#canvas);
+        this.#byFont.set(font, advances);
+      }
+      styleFont = { advances, edgePx: this.#edgeOf(style) };
+      this.#byStyle[style] = styleFont;
+    }
+    return styleFont;
+  }
+
+  #fontOf(style: RunStyle): string {
+    const type = this.#type;
+    const isCode = (style & CODE) !== 0;
+    const fontStyle = (style & ITALIC) !== 0 ? type.italicStyle : type.fontStyle;
+    const fontWeight = (style & BOLD) !== 0 ? type.boldWeight : type.fontWeight;
+    const sizePx = isCode
+      ? type.codeFontSizePx
+      : (style & FOOTNOTE) !== 0
+        ? type.footnoteFontSizePx
+        : type.fontSizePx;
+    const family = isCode ? type.codeFontFamily : type.fontFamily;
+    return `${fontStyle} ${fontWeight} ${String(sizePx)}px ${family}`;
+  }
+
+  #edgeOf(style: RunStyle): number {
+    if ((style & CODE) !== 0) {
+      return this.#type.codeEdgePx;
+    }
+    return (style & FOOTNOTE) !== 0 ? this.#type.footnoteEdgePx : 0;
+  }
+}
+
+/**
+ * One font's measured advances: each character's, and each pair's kerning counted, measured once.
+ * Each is held as the number it is answered as, so answering it makes none.
+ */
+class FontAdvances {
+  readonly #font: string;
+  readonly #canvas: TextCanvas;
+  readonly #characterAdvances = new Map<number, number>();
+  /** How far a pair's second character moves the pen, by its first character, then its second. */
+  readonly #pairAdvances = new Map<number, Map<number, number>>();
+
+  public constructor(font: string, canvas: TextCanvas) {
+    this.#font = font;
+    this.#canvas = canvas;
+  }
+
+  /** A run of text's width in this font, shaped whole. */
+  public widthOf(text: string): number {
+    return this.#canvas.widthOf(this.#font, text);
+  }
+
+  /**
+   * How far `codePoint` moves the pen after `previous` in one run, the pair's kerning counted;
+   * `previous` is `NO_CHARACTER` for a run's first.
+   */
+  public advanceOf(previous: number, codePoint: number): number {
+    if (previous === NO_CHARACTER) {
+      return this.#characterAdvanceOf(codePoint);
+    }
+    let following = this.#pairAdvances.get(previous);
+    if (following === undefined) {
+      following = new Map();
+      this.#pairAdvances.set(previous, following);
+    }
+    let pairAdvancePx = following.get(codePoint);
+    if (pairAdvancePx === undefined) {
+      const advancePx = this.#characterAdvanceOf(codePoint);
+      const kerningPx =
+        this.widthOf(String.fromCodePoint(previous, codePoint)) -
+        this.#characterAdvanceOf(previous) -
+        advancePx;
+      pairAdvancePx = advancePx + kerningPx;
+      following.set(codePoint, pairAdvancePx);
+    }
+    return pairAdvancePx;
+  }
+
+  #characterAdvanceOf(codePoint: number): number {
+    let advancePx = this.#characterAdvances.get(codePoint);
+    if (advancePx === undefined) {
+      advancePx = this.widthOf(String.fromCodePoint(codePoint));
+      this.#characterAdvances.set(codePoint, advancePx);
+    }
+    return advancePx;
+  }
+}
+
+/** A canvas measuring text, its font set only when a measurement names another. */
+class TextCanvas {
+  readonly #context: CanvasRenderingContext2D;
+  /** The font last set on the canvas, as given: the canvas reads it back in another spelling. */
+  #font = "";
+
+  public constructor(context: CanvasRenderingContext2D) {
+    this.#context = context;
+  }
+
+  public widthOf(font: string, text: string): number {
+    if (this.#font !== font) {
+      this.#font = font;
+      this.#context.font = font;
+    }
+    return this.#context.measureText(text).width;
+  }
+}
+
 /** Each kind of line's height: its sample row's height, less the row's box. */
 function lineHeightsOf(
   rows: HTMLCollectionOf<HTMLTableRowElement>,
@@ -303,82 +433,63 @@ function lineHeightsOf(
 
 /** The kind of line a character makes: its span's, or an ideograph's in its fallback font. */
 function lineKindOf(style: RunStyle, codePoint: number): TableLineKind {
-  if (style.isCode) {
+  if ((style & CODE) !== 0) {
     return "code";
   }
-  if (style.isFootnote) {
+  if ((style & FOOTNOTE) !== 0) {
     return "footnote";
   }
   return isIdeograph(codePoint) ? "ideograph" : "plain";
 }
 
-/** One font's measured advances: each character's, and each pair's kerning, measured once. */
-interface FontAdvances {
-  readonly font: string;
-  /** ASCII characters' advances, `NaN` until measured. */
-  readonly ascii: Float64Array;
-  readonly other: Map<number, number>;
-  /** What a pair's shaped width differs from its two advances by, keyed by `PAIR_KEY_BASE`. */
-  readonly kerning: Map<number, number>;
-}
+/** A run's style: the inline kinds it sits inside, one bit each. */
+type RunStyle = number;
 
-/** One past the largest code point: a pair's key is its first times this, plus its second. */
-const PAIR_KEY_BASE = 0x110000;
+const PLAIN: RunStyle = 0;
+const BOLD: RunStyle = 1;
+const ITALIC: RunStyle = 2;
+const CODE: RunStyle = 4;
+const FOOTNOTE: RunStyle = 8;
 
-/** How a run of a cell's text is set: the inline kinds it sits inside. */
-interface RunStyle {
-  readonly isBold: boolean;
-  readonly isItalic: boolean;
-  readonly isCode: boolean;
-  readonly isFootnote: boolean;
-}
+/** The character before a run's first: none, so no pair is kerned. */
+const NO_CHARACTER = -1;
 
-/** One run of a cell's text in one style. `undefined` text ends a line. */
-type CellRun = { readonly text: string; readonly style: RunStyle } | { readonly text: undefined };
-
-const PLAIN: RunStyle = { isBold: false, isItalic: false, isCode: false, isFootnote: false };
-
-/** A cell's text as the renderer draws it, run by run, with a line's end at each break. */
-function runsOf(cell: TableCell): CellRun[] {
-  const runs: CellRun[] = [];
-  const visit = (node: Nodes, style: RunStyle): void => {
+/**
+ * Gives `reader` a cell's text as the renderer draws it, run by run, with a line's end at each
+ * break.
+ */
+function readRuns(nodes: readonly Nodes[], style: RunStyle, reader: CellRunReader): void {
+  for (const node of nodes) {
     switch (node.type) {
       case "text":
       case "html":
-        runs.push({ text: node.value, style });
-        return;
+        reader.readText(node.value, style);
+        break;
       case "inlineCode":
-        runs.push({ text: node.value, style: { ...style, isCode: true } });
-        return;
+        reader.readText(node.value, style | CODE);
+        break;
       case "break":
-        runs.push({ text: undefined });
-        return;
+        reader.breakLine();
+        break;
       case "strong":
-        visitChildren(node.children, { ...style, isBold: true });
-        return;
+        readRuns(node.children, style | BOLD, reader);
+        break;
       case "emphasis":
-        visitChildren(node.children, { ...style, isItalic: true });
-        return;
+        readRuns(node.children, style | ITALIC, reader);
+        break;
       case "image":
       case "imageReference":
-        runs.push({ text: node.alt ?? "", style: { ...style, isItalic: true } });
-        return;
+        reader.readText(node.alt ?? "", style | ITALIC);
+        break;
       case "footnoteReference":
-        runs.push({ text: node.label ?? node.identifier, style: { ...style, isFootnote: true } });
-        return;
+        reader.readText(node.label ?? node.identifier, style | FOOTNOTE);
+        break;
       default:
         if ("children" in node) {
-          visitChildren(node.children, style);
+          readRuns(node.children, style, reader);
         }
     }
-  };
-  const visitChildren = (children: readonly Nodes[], style: RunStyle): void => {
-    for (const child of children) {
-      visit(child, style);
-    }
-  };
-  visitChildren(cell.children, PLAIN);
-  return runs;
+  }
 }
 
 /**

@@ -217,9 +217,12 @@ export function estimatedRowHeightPx(
   { type, measure }: TableCellMeasurer,
 ): number {
   let textHeightPx = type.lineHeightsPx.plain;
-  for (const [columnIndex, cell] of row.children.entries()) {
+  // Counted by hand: `entries()` would make a pair for every cell of every row.
+  let columnIndex = 0;
+  for (const cell of row.children) {
     const textWidthPx = (columns.widthsPx[columnIndex] ?? 0) - type.cellChromePx;
     textHeightPx = Math.max(textHeightPx, measure.textHeightOf(cell, textWidthPx));
+    columnIndex += 1;
   }
   return textHeightPx + type.rowChromePx;
 }

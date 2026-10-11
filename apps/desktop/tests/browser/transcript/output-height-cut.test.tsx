@@ -1,8 +1,11 @@
 // A call's output, colored or plain, is cut at a quarter of the visible flow in whole lines of its
 // own type, painting nothing of the line past the cut, a text size step moves the cut with the
 // lines, and `Show all` draws the whole output in place. A running command's output shows its last
-// whole lines and follows each new one, its rest offered under the bytes arrived so far. Measured
-// in Chromium, since the cut is CSS line units over the scroller's measured height.
+// whole lines and follows each new one, its rest offered under the bytes arrived so far. Whether
+// an output runs past the cut is known in the commit that cuts it, so the conversation measures its
+// row with `Show all` in that frame, except in a row a screen above the box, which takes it from
+// the frame's own layout. Measured in Chromium, since the cut is CSS line units over the
+// scroller's measured height.
 
 import { act, cleanup, render, within } from "@testing-library/react";
 import { useState } from "react";
@@ -15,7 +18,10 @@ import { OUTPUT_CUT_FLOW_SHARE } from "#renderer/features/transcript/rows/bodies
 import { type OutputOpening } from "#renderer/features/transcript/rows/bodies/OutputHeightCut.js";
 import { ToolOutput } from "#renderer/features/transcript/rows/bodies/ToolOutput.js";
 import { suiteWindowViewport } from "#renderer/features/transcript/rows/bodies/WindowedMarkdown.test-support.js";
-import { MarkdownWindowViewportContext } from "#renderer/features/transcript/rows/markdown/block-window/context.js";
+import {
+  MarkdownWindowViewportContext,
+  type MarkdownWindowViewport,
+} from "#renderer/features/transcript/rows/markdown/block-window/context.js";
 import { FootnoteRegistry } from "#renderer/features/transcript/rows/markdown/footnotes/registry.js";
 import {
   publishedTextOf,
@@ -126,18 +132,26 @@ function HeldToolOutput(props: {
   );
 }
 
-/** The outputs drawn in a measured scroller, as a transcript's list draws them. */
-function renderInScroller(children: React.ReactNode): {
+/**
+ * The outputs drawn in a measured scroller, as a transcript's list draws them; `rowEndPx`, when
+ * given, is where the conversation lays the rows' ends.
+ */
+function renderInScroller(
+  children: React.ReactNode,
+  rowEndPx?: MarkdownWindowViewport["rowEndPx"],
+): {
   readonly container: HTMLElement;
   readonly rerender: (children: React.ReactNode) => void;
 } {
   installMeridianTokens(document);
   applyAppearance(document, DEFAULT_APPEARANCE_RECORD);
   const scrollController = new ScrollController({ clock: new ManualClock() });
-  const viewport = suiteWindowViewport(scrollController, {
+  const suiteViewport = suiteWindowViewport(scrollController, {
     subscribe: () => () => undefined,
     read: () => undefined,
   });
+  const viewport =
+    rowEndPx === undefined ? suiteViewport : { ...suiteViewport, rowEndPx: rowEndPx };
   const scroller = (drawn: React.ReactNode): React.JSX.Element => (
     <div
       ref={(element) => {
@@ -159,6 +173,34 @@ function renderInScroller(children: React.ReactNode): {
       rendered.rerender(scroller(drawn));
     },
   };
+}
+
+/** What a frame shows of the output before its own layout: whether it is cut, and `Show all`. */
+interface CutFrame {
+  readonly isCut: boolean;
+  readonly hasShowAll: boolean;
+}
+
+/**
+ * What each of the next `count` frames shows of the one output in `container` as it starts, before
+ * the frame's layout and its resize reports: what the commits before it drew.
+ */
+function recordCutFrames(container: HTMLElement, count: number): Promise<CutFrame[]> {
+  const frames: CutFrame[] = [];
+  return new Promise((resolve) => {
+    const record = (): void => {
+      frames.push({
+        isCut: container.querySelector(".meridian-output-cut__body--cut") !== null,
+        hasShowAll: container.querySelector(".meridian-full-output") !== null,
+      });
+      if (frames.length === count) {
+        resolve(frames);
+      } else {
+        requestAnimationFrame(record);
+      }
+    };
+    requestAnimationFrame(record);
+  });
 }
 
 describe("a call's output cut at the visible flow", () => {
@@ -247,5 +289,27 @@ describe("a call's output cut at the visible flow", () => {
     expect(drawnElement(container, ".meridian-full-output").textContent).toBe(
       `Show full output (${formatByteQuantity(measureUtf8ByteLength(grownOutput)).text})`,
     );
+  });
+
+  it("knows an output runs past the cut in the commit that cuts it, but from its first report in a row a screen above the box", async () => {
+    // In view, the commit that cuts the output draws `Show all` too, so no frame starts with the
+    // cut drawn and `Show all` missing, which the conversation would measure the row without.
+    const inView = renderInScroller(
+      <HeldToolOutput body={printedLines(PRINTED_LINE_COUNT)} />,
+      () => SCROLLER_HEIGHT_PX / 2,
+    );
+    const inViewFrames = await act(async () => await recordCutFrames(inView.container, 6));
+    expect(inViewFrames.some((frame) => frame.isCut)).toBe(true);
+    expect(inViewFrames.filter((frame) => frame.isCut && !frame.hasShowAll)).toStrictEqual([]);
+    cleanup();
+
+    // A screen above the box, the first resize report answers it, inside the frame that cut it.
+    const above = renderInScroller(
+      <HeldToolOutput body={printedLines(PRINTED_LINE_COUNT)} />,
+      () => -SCROLLER_HEIGHT_PX,
+    );
+    const aboveFrames = await act(async () => await recordCutFrames(above.container, 6));
+    expect(aboveFrames.some((frame) => frame.isCut && !frame.hasShowAll)).toBe(true);
+    expect(aboveFrames.at(-1)).toStrictEqual({ isCut: true, hasShowAll: true });
   });
 });

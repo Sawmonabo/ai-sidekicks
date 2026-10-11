@@ -14,10 +14,7 @@
 import { act, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import {
-  CONTENT_LENGTH_PAYLOAD_KEY,
-  CONTENT_PAYLOAD_PLAINTEXT_MAX,
-} from "@ai-sidekicks/contracts/event/declared-variants";
+import { CONTENT_PAYLOAD_PLAINTEXT_MAX } from "@ai-sidekicks/contracts/event/declared-variants";
 import type { TranscriptRowContent } from "@ai-sidekicks/contracts/transcript/content";
 import type { TranscriptReadRequest } from "@ai-sidekicks/contracts/transcript/operations";
 
@@ -38,7 +35,6 @@ import type {
 import { LiveAnnouncerProvider } from "#renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { TranscriptFeed } from "#renderer/features/transcript/feed/components/TranscriptFeed.js";
 import {
-  PAGED_SESSION_ID,
   openPagedSessionStore,
   pagedSessionEventAt,
   scriptedTranscriptLog,
@@ -58,6 +54,7 @@ import { createFixtureBridge } from "#renderer/services/platform/bridge.fixture.
 import type { ProjectedSessionEvent } from "#renderer/store/session/entities/vocabulary.js";
 import { type SessionStore } from "#renderer/store/session/store.js";
 import { letFramesPass, nextFrame } from "../../helpers/animation-frame.js";
+import { ESCAPE, coloredOutputEventAt } from "./colored-output-event.js";
 import { ROW_SELECTOR } from "./long-tool-feed.js";
 import { PaintedFrameReader } from "./painted-frames.js";
 import { readerScrollsTo } from "./reader-scroll.js";
@@ -749,7 +746,6 @@ describe("a listed reply whose large body is opened", () => {
   );
 });
 
-const ESCAPE = String.fromCodePoint(0x1b);
 /** The calls whose colored output stands in the box at the log's tail, by index, with lengths. */
 const OPENING_OUTPUT_LENGTHS: ReadonlyMap<number, number> = new Map([
   [LOG_ROW_COUNT - 4, CONTENT_PAYLOAD_PLAINTEXT_MAX],
@@ -758,29 +754,8 @@ const OPENING_OUTPUT_LENGTHS: ReadonlyMap<number, number> = new Map([
 
 /** A message at each log position, and a call's colored output at each `OPENING_OUTPUT_LENGTHS`. */
 function openingEventAt(index: number): ProjectedSessionEvent {
-  const event = pagedSessionEventAt(index);
   const length = OPENING_OUTPUT_LENGTHS.get(index);
-  if (length === undefined) {
-    return event;
-  }
-  const lines: string[] = [];
-  for (let line = 0, total = 0; total < length; line += 1) {
-    const text = `${ESCAPE}[3${String(line % 8)}mok${ESCAPE}[39m line ${String(line)}`;
-    lines.push(text);
-    total += text.length + 1;
-  }
-  const body = lines.join("\n").slice(0, length);
-  return {
-    ...event,
-    kind: "tool.result",
-    payload: {
-      sessionId: PAGED_SESSION_ID,
-      toolName: "build",
-      toolCallId: `call-${String(index)}`,
-      [CONTENT_LENGTH_PAYLOAD_KEY]: new TextEncoder().encode(body).byteLength,
-    },
-    content: { status: "available", body },
-  };
+  return length === undefined ? pagedSessionEventAt(index) : coloredOutputEventAt(index, length);
 }
 
 /** What one shown frame of the opening paints: where each row stands, and the outputs formatted. */

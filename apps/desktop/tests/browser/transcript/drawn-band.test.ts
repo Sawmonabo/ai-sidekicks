@@ -18,6 +18,7 @@ import {
   positionOfRow,
 } from "./long-tool-feed.js";
 import { FASTEST_FLICK_SPEED, touchFling } from "./touch-fling.js";
+import { GRAIN_PX, unfilledHeightPx } from "./unfilled-box.js";
 
 /** Screens the reader wheels toward the head: far enough that pages join there. */
 const SCREEN_COUNT = 15;
@@ -27,8 +28,6 @@ const CASE_TIMEOUT_MS = 60_000;
 const FLING_TURN_COUNT = 2;
 /** Each fling turn's travel: the fling stays inside the band the reader's input draws. */
 const FLING_TURN_PX = FEED_HEIGHT_PX * 0.4;
-/** How far a row may stand past the box's edge and still be drawn for it: a device pixel. */
-const GRAIN_PX = 1;
 /** One wheel turn that moves the box further than the band reaches on a side it does not lead. */
 const LONG_TURN_PX = FEED_HEIGHT_PX * 1.25;
 /** A touch fling's travel before the hand lets go: three screens. */
@@ -83,20 +82,6 @@ function rowsOffScreen(scroller: HTMLElement): (number | undefined)[] {
   return drawnRows(scroller)
     .filter(({ rect }) => rect.bottom <= box.top + GRAIN_PX || rect.top >= box.bottom - GRAIN_PX)
     .map(({ position }) => position);
-}
-
-/** How much of the box's height no drawn row covers, in pixels. */
-function unfilledHeightPx(scroller: HTMLElement): number {
-  const box = scroller.getBoundingClientRect();
-  let coveredToPx = box.top;
-  let unfilledPx = 0;
-  for (const { rect } of drawnRows(scroller)) {
-    if (rect.top > coveredToPx + GRAIN_PX) {
-      unfilledPx += Math.min(rect.top, box.bottom) - coveredToPx;
-    }
-    coveredToPx = Math.max(coveredToPx, Math.min(rect.bottom, box.bottom));
-  }
-  return unfilledPx + Math.max(0, box.bottom - coveredToPx - GRAIN_PX);
 }
 
 /**

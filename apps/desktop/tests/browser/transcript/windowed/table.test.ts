@@ -360,4 +360,21 @@ describe("browser — a long table drawn as a window over its rows", () => {
     expect(drawnRows(table).size).toBeLessThan(80);
     expect(table.getAttribute("aria-rowcount")).toBe("81");
   });
+
+  it("draws a table that joins a short reply after its body was laid out with no table to tell", async () => {
+    const lead = "A reply that holds no table yet.\n\n";
+    const bodies = await mountBodies(lead, { isComplete: false, drawsFlowBody: false });
+    // The body keeps this size from here on: laid out once more with no table listening, it is
+    // not laid out again when the table joins, so the table reads the body's type when it asks.
+    bodies.windowedBody.style.height = `${String(SCROLLER_HEIGHT_PX * 30)}px`;
+    await settleFrames();
+    act(() => {
+      bodies.handle.setText?.(`${lead}${replyWith(benchTable(80))}`);
+    });
+    await settleTableWindow(bodies);
+    const table = bodies.windowedBody.querySelector("table") ?? expect.fail("the table is drawn");
+
+    expect(drawnRows(table).size).toBeGreaterThan(0);
+    expect(table.getAttribute("aria-rowcount")).toBe("81");
+  });
 });

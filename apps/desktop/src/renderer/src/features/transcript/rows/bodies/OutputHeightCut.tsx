@@ -32,6 +32,8 @@ export interface OutputHeightCutProps {
    * control name the size; absent once the output settled.
    */
   readonly liveByteLength?: number | undefined;
+  /** The key of the transcript row the output is drawn in. */
+  readonly rowKey: string;
   /** What a screen reader calls the box, where it names one. */
   readonly label?: string | undefined;
   /** The output's text, as elements or text nodes. */
@@ -41,7 +43,7 @@ export interface OutputHeightCutProps {
 /** An output box cut at a share of the visible flow, with the rest one press away past the cut. */
 export function OutputHeightCut(props: OutputHeightCutProps): React.JSX.Element {
   const { opening, liveByteLength } = props;
-  const cut = useOutputHeightCut(opening !== undefined && !opening.isOpened);
+  const cut = useOutputHeightCut(opening !== undefined && !opening.isOpened, props.rowKey);
   const cutClassName =
     liveByteLength !== undefined
       ? "meridian-output-cut__body--cut meridian-output-cut__body--tail"

@@ -193,6 +193,7 @@ function renderBodyText(
     return (
       <OutputHeightCut
         className="meridian-machine-body__plain"
+        rowKey={props.sourceId}
         opening={props.opening}
         liveByteLength={liveByteLength}
       >

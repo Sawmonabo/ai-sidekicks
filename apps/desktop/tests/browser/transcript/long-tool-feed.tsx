@@ -31,6 +31,7 @@ import {
   transcriptFixtureStreamCursor,
 } from "#renderer/features/transcript/logs.test-support.js";
 import { projectTranscriptRows } from "#renderer/features/transcript/projection/rows.js";
+import { type TranscriptRowPreparer } from "#renderer/features/transcript/rows/renderer.js";
 import {
   TranscriptRow,
   drawsTranscriptRowBody,
@@ -148,13 +149,15 @@ export async function mountPagedHistory(
 /**
  * The real feed over `sessionStore` between the page's text above and below it, its history read
  * through `readTranscriptPage` (none, when `undefined`), on `clock` (the wall clock, when
- * `undefined`), a large body read in full through `readTranscriptBody` (none, when `undefined`).
+ * `undefined`), a large body read in full through `readTranscriptBody` (none, when `undefined`),
+ * each row prepared by `prepareRow` before it is listed (none, when `undefined`).
  */
 export async function mountTranscriptFeed(
   sessionStore: SessionStore,
   readTranscriptPage: TranscriptPageRead | undefined,
   clock?: Clock,
   readTranscriptBody?: TranscriptBodyRead,
+  prepareRow: TranscriptRowPreparer = () => undefined,
 ): Promise<MountedFeed> {
   installMeridianTokens(document);
   const fixture = createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO });
@@ -186,7 +189,7 @@ export async function mountTranscriptFeed(
             rowRenderer={{
               render: TranscriptRow,
               drawsBody: drawsTranscriptRowBody,
-              prepareRow: () => undefined,
+              prepareRow,
             }}
             feedLabel="Transcript"
             readTranscriptPage={readTranscriptPage}

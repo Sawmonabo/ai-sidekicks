@@ -2,6 +2,7 @@
 // controller's geometry, and whether the output runs past the cut. The cut itself is CSS, whole
 // lines of the output's own type, so a text size step moves it.
 
+import { getWindow } from "@floating-ui/utils/dom";
 import {
   useCallback,
   useContext,
@@ -11,8 +12,14 @@ import {
   useSyncExternalStore,
 } from "react";
 
+import { flushSync } from "react-dom";
+
 import type { Unsubscribe } from "#shared/preload-api.js";
-import { MarkdownWindowViewportContext } from "../../markdown/block-window/context.js";
+import { watchElementsResize } from "#renderer/lib/element-resize.js";
+import {
+  MarkdownWindowViewportContext,
+  type MarkdownWindowViewport,
+} from "../../markdown/block-window/context.js";
 
 /**
  * The share of the visible flow a call's output is drawn to before the rest is one press away: a
@@ -34,14 +41,15 @@ export interface OutputHeightCut {
 }
 
 /**
- * The cut for one output, armed when `isCutAtFlowHeight` and drawn inside a transcript viewport
- * that has measured its flow; anywhere else the output is drawn whole.
+ * The cut for one output of row `rowKey`, armed when `isCutAtFlowHeight` and drawn inside a
+ * transcript viewport that has measured its flow; anywhere else the output is drawn whole.
  */
-export function useOutputHeightCut(isCutAtFlowHeight: boolean): OutputHeightCut {
+export function useOutputHeightCut(isCutAtFlowHeight: boolean, rowKey: string): OutputHeightCut {
   const bodyRef = useRef<HTMLPreElement>(null);
   const contentRef = useRef<HTMLSpanElement>(null);
   const [runsPastCut, setRunsPastCut] = useState(false);
-  const flowHeightPx = useVisibleFlowHeight();
+  const viewport = useContext(MarkdownWindowViewportContext);
+  const flowHeightPx = useVisibleFlowHeight(viewport);
   const cutHeightPx =
     isCutAtFlowHeight && flowHeightPx !== undefined
       ? flowHeightPx * OUTPUT_CUT_FLOW_SHARE
@@ -57,18 +65,27 @@ export function useOutputHeightCut(isCutAtFlowHeight: boolean): OutputHeightCut 
     // The box stops growing at the cut while its content grows on, so both are watched: the
     // content for output arriving, the box for the cut moving with the flow or the text size.
     // The content is read against the box's own content height, since a tail's lines run past
-    // its top, where the box's scroll height does not count them. Read once here, so the first
-    // frame already draws `Show all` or not, and then from the observer's entries, which force no
+    // its top, where the box's scroll height does not count them. The watch's reports force no
     // layout.
-    const style = getComputedStyle(body);
-    let boxHeightPx =
-      body.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
-    let contentHeightPx = content.getBoundingClientRect().height;
+    let boxHeightPx = 0;
+    let contentHeightPx = 0;
     const readRunsPastCut = (): void => {
       setRunsPastCut(contentHeightPx - boxHeightPx > CUT_TOLERANCE_PX);
     };
-    readRunsPastCut();
-    const observer = new ResizeObserver((entries) => {
+    // A row a screen above the box takes its first answer from the first report, in the frame's
+    // own layout: drawn there, its `Show all` reaches the conversation's measurement of the row a
+    // frame later, which nothing on screen shows. Any other row reads both heights now, laying the
+    // inserted rows out, so the conversation measures the row with `Show all` in the first frame
+    // and no row is drawn over it.
+    let isFirstReportDeferred = viewport !== undefined && isRowAScreenAboveBox(viewport, rowKey);
+    if (!isFirstReportDeferred) {
+      const style = getComputedStyle(body);
+      boxHeightPx =
+        body.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+      contentHeightPx = content.getBoundingClientRect().height;
+      readRunsPastCut();
+    }
+    const watch = watchElementsResize(getWindow(body), (entries) => {
       for (const entry of entries) {
         if (entry.target === body) {
           boxHeightPx = entry.contentRect.height;
@@ -76,14 +93,20 @@ export function useOutputHeightCut(isCutAtFlowHeight: boolean): OutputHeightCut 
           contentHeightPx = entry.contentRect.height;
         }
       }
-      readRunsPastCut();
+      if (isFirstReportDeferred) {
+        isFirstReportDeferred = false;
+        // Drawn now, so the conversation measures it on the next frame, still a screen above.
+        flushSync(readRunsPastCut);
+      } else {
+        readRunsPastCut();
+      }
     });
-    observer.observe(body);
-    observer.observe(content);
+    watch.observe(body);
+    watch.observe(content);
     return () => {
-      observer.disconnect();
+      watch.disconnect();
     };
-  }, [isArmed]);
+  }, [isArmed, viewport, rowKey]);
 
   return { bodyRef, contentRef, cutHeightPx, isCut: isArmed && runsPastCut };
 }
@@ -92,12 +115,33 @@ export function useOutputHeightCut(isCutAtFlowHeight: boolean): OutputHeightCut 
 const CUT_TOLERANCE_PX = 0.5;
 
 /**
+ * Whether row `rowKey` ends a whole screen or more above the conversation's box, at the height the
+ * conversation lays it out at. Measured or estimated, that end is where the row's `Show all`
+ * would land a frame late: the conversation holds the reader's place through any resize of a row
+ * wholly above its box, and a follower's on the tail, so neither a wrong estimate nor the late
+ * `Show all` moves the row toward the box, and no frame's scroll covers the screen between. A row
+ * below the box is read at once: rows between it and the box move it as they are measured. Reads
+ * no element.
+ */
+function isRowAScreenAboveBox(viewport: MarkdownWindowViewport, rowKey: string): boolean {
+  const scrollTop = viewport.scrollController.geometry?.scrollTop;
+  const viewportHeight = viewport.scrollController.geometry?.viewportHeight;
+  const rowEndPx = viewport.rowEndPx(rowKey);
+  return (
+    scrollTop !== undefined &&
+    viewportHeight !== undefined &&
+    rowEndPx !== undefined &&
+    rowEndPx <= scrollTop - viewportHeight
+  );
+}
+
+/**
  * The visible flow's height in CSS pixels, from the scroll controller's published geometry;
  * `undefined` outside a transcript viewport or before its first sample. A scroll publishes
  * geometry too, but only a changed height draws again.
  */
-function useVisibleFlowHeight(): number | undefined {
-  const scrollController = useContext(MarkdownWindowViewportContext)?.scrollController;
+function useVisibleFlowHeight(viewport: MarkdownWindowViewport | undefined): number | undefined {
+  const scrollController = viewport?.scrollController;
   const subscribe = useCallback(
     (onChange: () => void): Unsubscribe =>
       scrollController === undefined

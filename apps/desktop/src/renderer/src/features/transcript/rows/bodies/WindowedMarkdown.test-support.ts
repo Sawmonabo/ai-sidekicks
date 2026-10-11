@@ -51,6 +51,7 @@ export function suiteWindowViewport(
   return {
     scrollController,
     rowStartPx: () => 0,
+    rowEndPx: () => undefined,
     // The one row spans the scroller, and no reader follows it.
     holdsPlaceInsideRow: () => true,
     drawnBandScreenHeights: () => band.nestedScreenHeights,

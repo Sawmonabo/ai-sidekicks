@@ -34,6 +34,7 @@ import {
   rememberBlockGeometry,
   type BlockGeometryAddress,
 } from "./geometry-memory.js";
+import { warmIdeographFallback } from "../table-window/ideograph-fallback-warm.js";
 
 /** The virtualizer a windowed body runs, over the body's element and its block wrappers. */
 export type BlockVirtualizer = Virtualizer<HTMLElement, HTMLElement>;
@@ -183,6 +184,7 @@ export class BlockWindowLayout implements TableBodyPlacement {
     this.#stopObservingBody = undefined;
     this.#bodyElement = element ?? undefined;
     if (element !== null) {
+      warmIdeographFallback(element);
       this.#stopObservingBody = observeElementResize(element, (entries) => {
         this.#readBody(element, entries.at(-1));
       });
