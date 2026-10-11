@@ -5,6 +5,7 @@
 import { lstat, unlink } from "node:fs/promises";
 import path from "node:path";
 
+import { quoteForPosixShell } from "../../shell-quoting.js";
 import type {
   ProviderCommandFolder,
   ProviderCommandPlace,
@@ -65,8 +66,7 @@ export const POSIX_PROCESS_AND_SOCKET_FACTS: Pick<
   canOpenUnixSocket: true,
   localSocketEndpoint: (folder, name) => path.join(folder, `${name}.sock`),
   prepareLocalSocketEndpoint: removeLeftoverSocket,
-  // A single-quoted word, each single quote closed, escaped and reopened.
-  quoteShellWord: (word) => `'${word.replaceAll("'", `'\\''`)}'`,
+  quoteShellWord: quoteForPosixShell,
 };
 
 // A socket at the path is a stopped daemon's, since the path is this daemon's own; anything else

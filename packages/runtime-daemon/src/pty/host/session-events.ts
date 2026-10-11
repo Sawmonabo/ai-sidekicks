@@ -13,8 +13,8 @@ export interface PtySessionListeners {
 export type FollowPtySession = (sessionId: string, listeners: PtySessionListeners) => () => void;
 
 /**
- * Hands each PTY session's output and exit to that session's own listeners, so a session's shells
- * and every provider process share the host's one output listener and one exit listener.
+ * Hands each PTY session's output and exit to that session's own listeners, so every session's
+ * shells share the host's one output listener and one exit listener.
  */
 export class PtySessionEvents {
   readonly #listeners = new Map<string, PtySessionListeners>();

@@ -412,10 +412,20 @@ export function registerSessionMethods(
         }),
       );
     },
-    readScreenReaderMode: async () => (await deps.settingsFile.read()).settings.screenReaderMode,
+    readShellSettings: async (sessionId) => {
+      const { settings } = await deps.settingsFile.read();
+      return {
+        isScreenReaderModeOn: settings.screenReaderMode,
+        environmentRows: {
+          everyProject: settings.environmentRows,
+          project: projectRecords.readEnvironmentRowsOfSession(sessionId),
+        },
+      };
+    },
     readLoginShell: deps.readLoginShell,
     terminalVersion: `sidekicks ${deps.serviceVersion}`,
     baseEnvironment: deps.providerBaseEnvironment,
+    environmentNameMatch: deps.environmentNameMatch,
     runFolderPath: deps.runFolderPath,
     operatingSystem: deps.terminalOperatingSystem,
     outboundQueue: deps.outboundQueue,

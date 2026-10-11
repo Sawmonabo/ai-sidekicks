@@ -17,7 +17,12 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import { SESSION_WORKING_FOLDER_UNAVAILABLE_CODE } from "@ai-sidekicks/contracts/session/methods";
 
 import { DaemonDomainError } from "../../ipc/domain-error.js";
-import type { SpawnEnvPair } from "../../provider/spawn-env.js";
+import {
+  buildCommandSpawnEnv,
+  type SessionEnvironmentRows,
+  type SpawnEnvNameMatch,
+  type SpawnEnvPair,
+} from "../../provider/spawn-env.js";
 import type { TerminalOperatingSystem } from "../operating-system/contract.js";
 import {
   prepareShellLaunch,
@@ -55,6 +60,10 @@ interface ShellStartInput {
   readonly loginShell: string | null;
   /** The login shell's environment captured at the daemon's start. */
   readonly baseEnvironment: readonly SpawnEnvPair[];
+  /** The session's `Every project` rows and its project's rows, read at this start. */
+  readonly environmentRows: SessionEnvironmentRows;
+  /** How this system compares environment variable names. */
+  readonly environmentNameMatch: SpawnEnvNameMatch;
   /** Whether `Simplify for a screen reader` is on, read at this start. */
   readonly isScreenReaderModeOn: boolean;
   /** The folders every shell's start reads from, prepared at the daemon's start. */
@@ -139,13 +148,18 @@ async function resolveShellProgram(
   };
 }
 
-// The one place a shell's launch and environment are put together, in order: the captured base,
-// the pairs that load the marks script laid over it, and the screen-reader switch, set while it is
-// on and never carried in from the captured base while it is off.
+// The one place a shell's launch and environment are put together, in order: the captured base
+// with the session's environment rows set over it, as a project's setup command gets it, the pairs
+// that load the marks script laid over that, and the screen-reader switch, set while it is on and
+// never carried in from the captured base while it is off.
 async function launchShell(input: ShellStartInput, shellPath: string): Promise<ShellLaunch> {
   const launch = await prepareShellLaunch({
     shellPath,
-    environment: input.baseEnvironment,
+    environment: buildCommandSpawnEnv({
+      baseEnv: input.baseEnvironment,
+      environmentRows: input.environmentRows,
+      hostEnvNameMatch: input.environmentNameMatch,
+    }),
     startupFolders: input.startupFolders,
     operatingSystem: input.operatingSystem,
   });

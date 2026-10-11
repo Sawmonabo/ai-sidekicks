@@ -38,7 +38,11 @@ import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 import type { DeviceId } from "@ai-sidekicks/contracts/trust-statement";
 
 import type { OutboundQueue } from "../../ipc/handlers/session/subscribe.js";
-import type { SpawnEnvPair } from "../../provider/spawn-env.js";
+import type {
+  SessionEnvironmentRows,
+  SpawnEnvNameMatch,
+  SpawnEnvPair,
+} from "../../provider/spawn-env.js";
 import { sessionNotFound } from "../../session/not-found.js";
 import type { SessionWorkingFolder } from "../../session/working-folder/read.js";
 import {
@@ -72,6 +76,14 @@ import { checkWorkingFolder, prepareShellStart } from "./start.js";
 // The terminal type a shell's `TERM` names: the one xterm.js, which draws every pane, implements.
 const SHELL_TERMINAL_NAME = "xterm-256color";
 
+/** What a session's shell takes from the machine's settings file, read once at its start. */
+interface ShellSettings {
+  /** Whether `Simplify for a screen reader` is on. */
+  readonly isScreenReaderModeOn: boolean;
+  /** The `Every project` rows and the session's project's rows. */
+  readonly environmentRows: SessionEnvironmentRows;
+}
+
 /** What the shell table is built from. */
 interface ShellTableDeps {
   /** The terminal host every shell runs in. */
@@ -84,12 +96,14 @@ interface ShellTableDeps {
   readonly readWorkingFolder: (sessionId: SessionId) => SessionWorkingFolder;
   /** Appends one change of a shell's holder to its session's event log. */
   readonly appendControlChange: (change: PtyControlChangedPayload) => Promise<void>;
-  /** Reads whether `Simplify for a screen reader` is on, from the machine's settings file. */
-  readonly readScreenReaderMode: () => Promise<boolean>;
+  /** Reads, at each shell's start, what the shell takes from the machine's settings file. */
+  readonly readShellSettings: (sessionId: SessionId) => Promise<ShellSettings>;
   /** Reads the account's login shell from its record, at each shell's start; `null` for none. */
   readonly readLoginShell: () => string | null;
   /** The login shell's environment captured at the daemon's start. */
   readonly baseEnvironment: readonly SpawnEnvPair[];
+  /** How this system compares environment variable names. */
+  readonly environmentNameMatch: SpawnEnvNameMatch;
   /**
    * The daemon's run folder, which only this account may open; a shell's startup files go there.
    */
@@ -502,10 +516,13 @@ export class ShellTable {
       throw new PtyChatUnsupportedError(request.sessionId);
     }
     const folder = await checkWorkingFolder(request.sessionId, workingFolder);
+    const settings = await this.#deps.readShellSettings(request.sessionId);
     const start = await prepareShellStart({
       loginShell: this.#deps.readLoginShell(),
       baseEnvironment: this.#deps.baseEnvironment,
-      isScreenReaderModeOn: await this.#deps.readScreenReaderMode(),
+      environmentRows: settings.environmentRows,
+      environmentNameMatch: this.#deps.environmentNameMatch,
+      isScreenReaderModeOn: settings.isScreenReaderModeOn,
       startupFolders: await this.#startupFolders,
       operatingSystem: this.#deps.operatingSystem,
     });

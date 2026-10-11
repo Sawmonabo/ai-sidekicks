@@ -153,10 +153,14 @@ export function openTable(options: TableOptions = {}): TableUnderTest {
       await held;
       changes.push(PtyControlChangedPayloadSchema.parse(change));
     },
-    readScreenReaderMode: async () => false,
+    readShellSettings: async () => ({
+      isScreenReaderModeOn: false,
+      environmentRows: { everyProject: [], project: [] },
+    }),
     readLoginShell: () => options.loginShell ?? "/bin/sh",
     terminalVersion: TERMINAL_VERSION,
     baseEnvironment: options.baseEnvironment ?? [],
+    environmentNameMatch: "case-sensitive",
     runFolderPath: scratchRunFolder(),
     operatingSystem: selectTerminalOperatingSystem(process.platform, process.env),
     outboundQueue: {

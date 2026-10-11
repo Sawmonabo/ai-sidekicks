@@ -4,7 +4,8 @@
 // loses the curated credential variables and the names a provider must never receive, and gets the
 // variables the app sets on that provider's process; a Codex conversation's commands receive the
 // same base, rows and removals, without the process's own variables. A command the person's
-// project runs, such as a setup command, keeps the curated credential variables.
+// project runs, such as a setup command, and a Terminal pane's shell keep the curated credential
+// variables.
 
 import path from "node:path";
 
@@ -253,8 +254,9 @@ export function buildProviderSpawnEnv(request: ProviderSpawnEnvRequest): readonl
 
 /**
  * The environment a command the daemon runs for the person's project starts with, such as a
- * worktree's setup command: the layered session environment, the person's credential variables
- * kept, since such a command may need them (`NPM_TOKEN` for a private registry).
+ * worktree's setup command or a Terminal pane's shell: the layered session environment, the
+ * person's credential variables kept, since such a command may need them (`NPM_TOKEN` for a
+ * private registry).
  */
 export function buildCommandSpawnEnv(request: SessionSpawnEnvRequest): readonly SpawnEnvPair[] {
   return [...layerSessionEnvironment(request, []).values()];

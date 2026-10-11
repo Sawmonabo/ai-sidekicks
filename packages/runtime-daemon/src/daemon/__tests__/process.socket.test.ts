@@ -7,8 +7,9 @@
 // change reaches the file and another client's subscription, and a closed connection's
 // subscription lets go of the file. A stop waits for a write under way and leaves it on disk, and
 // ends within its drain bound while a write hangs. A daemon whose providers cannot be read still
-// starts, with neither driver registered and the log saying why. A connection's end releases the
-// hold it took on a session's shell as a disconnect, before its panes' subscriptions end.
+// starts, with neither driver registered and the log saying why. A session's shell starts with the
+// `Every project` rows and its project's rows, a project row winning, and a connection's end
+// releases the hold it took on a shell as a disconnect, before its panes' subscriptions end.
 
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -28,12 +29,14 @@ import {
   MACHINE_SETTINGS_DEFAULTS,
   MACHINE_SETTINGS_FILE_PATH_SEGMENTS,
 } from "@ai-sidekicks/contracts/machine-settings";
+import type { RepoMountId } from "@ai-sidekicks/contracts/repo/mount";
+import type { SessionId } from "@ai-sidekicks/contracts/session/id";
 
 import { DatabaseWriter } from "../../database/writer.js";
 import type { Client } from "../../ipc/__fixtures__/local-socket-client.js";
 import type { FakeProviderDriver } from "../../provider/driver/__fixtures__/contract-doubles.js";
 import { makeFakeChild, makeOrphanGuardDouble } from "../../pty/__fixtures__/child-doubles.js";
-import { NodePtyHost } from "../../pty/host/node-pty.js";
+import { NodePtyHost, type NodePtySpawnFn } from "../../pty/host/node-pty.js";
 import {
   mintSessionId,
   seedProjectMount,
@@ -466,38 +469,89 @@ describe("the machine's settings over the socket", () => {
   });
 });
 
-describe("a session's shells over the socket", () => {
-  it("releases a hold as a disconnect when its connection ends, before its panes close", async () => {
-    const writers = captureDatabaseWriters();
-    // Shells whose program is a stand-in, each ending as soon as it is signaled.
-    const ptyHost = new NodePtyHost(
-      makeOrphanGuardDouble(),
-      selectTerminalOperatingSystem(process.platform, process.env),
-      {
-        ptySpawn: () => {
-          const fake = makeFakeChild();
-          vi.mocked(fake.child.kill).mockImplementation(() => {
-            fake.triggerExit(0);
-          });
-          return fake.child;
-        },
+// A daemon whose shells' program is a stand-in, each ending as soon as it is signaled, with one
+// project session whose working folder is ready; every shell's start options are kept in order.
+async function startShellDaemon(): Promise<{
+  daemon: DaemonProcess;
+  writer: DatabaseWriter;
+  sessionId: SessionId;
+  repoMountId: RepoMountId;
+  spawned: Parameters<NodePtySpawnFn>[2][];
+}> {
+  const writers = captureDatabaseWriters();
+  const spawned: Parameters<NodePtySpawnFn>[2][] = [];
+  const ptyHost = new NodePtyHost(
+    makeOrphanGuardDouble(),
+    selectTerminalOperatingSystem(process.platform, process.env),
+    {
+      ptySpawn: (_command, _args, options) => {
+        spawned.push(options);
+        const fake = makeFakeChild();
+        vi.mocked(fake.child.kill).mockImplementation(() => {
+          fake.triggerExit(0);
+        });
+        return fake.child;
       },
-    );
-    const daemon = await startDaemon(DRAIN_NOTHING, {}, (options) =>
-      DaemonProcess.start({ ...options, createPtyHost: () => ptyHost }),
-    );
-    const writer = writers[0]!;
-    const sessionId = mintSessionId();
-    const repoMountId = await seedProjectMount(writer);
-    await seedSessionRow(writer, sessionId, "project");
+    },
+  );
+  const daemon = await startDaemon(DRAIN_NOTHING, {}, (options) =>
+    DaemonProcess.start({ ...options, createPtyHost: () => ptyHost }),
+  );
+  const writer = writers[0]!;
+  const sessionId = mintSessionId();
+  const repoMountId = await seedProjectMount(writer);
+  await seedSessionRow(writer, sessionId, "project");
+  await writer.write([
+    {
+      sql: `INSERT INTO workspaces (id, session_id, repo_mount_id, execution_mode, fs_root, state,
+                                    created_at, updated_at)
+            VALUES (?, ?, ?, 'bound-root', ?, 'ready', ?, ?)`,
+      bindings: [mintUuidV7(), sessionId, repoMountId, scratch, STARTED_AT, STARTED_AT],
+    },
+  ]);
+  return { daemon, writer, sessionId, repoMountId, spawned };
+}
+
+describe("a session's shells over the socket", () => {
+  it("starts a shell with the Every project rows and its project's rows, a project row winning", async () => {
+    const { writer, sessionId, repoMountId, spawned } = await startShellDaemon();
     await writer.write([
       {
-        sql: `INSERT INTO workspaces (id, session_id, repo_mount_id, execution_mode, fs_root, state,
-                                      created_at, updated_at)
-              VALUES (?, ?, ?, 'bound-root', ?, 'ready', ?, ?)`,
-        bindings: [mintUuidV7(), sessionId, repoMountId, scratch, STARTED_AT, STARTED_AT],
+        sql: `UPDATE projects SET environment_rows = ?
+               WHERE id = (SELECT project_id FROM repo_mounts WHERE id = ?)`,
+        bindings: [
+          JSON.stringify([
+            { name: "SHELL_ROW_SHARED", value: "from the project" },
+            { name: "SHELL_ROW_PROJECT", value: "project only" },
+          ]),
+          repoMountId,
+        ],
       },
     ]);
+    const { call } = await openSession();
+    await call("daemon.machineSettingsUpdate", {
+      change: {
+        environmentRows: [
+          { name: "SHELL_ROW_SHARED", value: "from every project" },
+          { name: "SHELL_ROW_EVERY", value: "every project only" },
+        ],
+      },
+    });
+
+    expect(await call("pty.open", { sessionId, clientIdempotencyKey: randomUUID() })).toMatchObject(
+      { result: { terminalId: expect.any(String) } },
+    );
+
+    expect(spawned).toHaveLength(1);
+    expect(spawned[0]?.env).toMatchObject({
+      SHELL_ROW_SHARED: "from the project",
+      SHELL_ROW_PROJECT: "project only",
+      SHELL_ROW_EVERY: "every project only",
+    });
+  });
+
+  it("releases a hold as a disconnect when its connection ends, before its panes close", async () => {
+    const { daemon, sessionId } = await startShellDaemon();
     const { client, call } = await openSession();
     const opened = (await call("pty.open", {
       sessionId,

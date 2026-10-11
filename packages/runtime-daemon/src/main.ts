@@ -97,7 +97,6 @@ const daemon = await DaemonProcess.start({
       }),
       writeServiceLog,
     }),
-  createPtyHost: selectPtyHost,
   databaseFileOperatingSystem: chooseDatabaseFileOperatingSystem(process.platform),
   createPtyHost: (orphanGuard) => selectPtyHost(orphanGuard, terminalOperatingSystem),
   readMachineName: () => readMachineName(createNodeMachineNameSources()),
