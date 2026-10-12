@@ -1,7 +1,9 @@
 // A long diff opened whole in a flow outside a transcript viewport, in Chromium. Show all mounts
 // the rows a step at a time and holds no room for rows not mounted yet, so End pressed right after
 // Show all, a jump the compositor scrolls, never paints a part of the block with no rows: every
-// frame the browser captures meanwhile is read back from a trace and checked.
+// frame the browser captures meanwhile is read back from a trace and checked, except a frame the
+// compositor reports drawing with tiles missing, which shows the layer's ground in their place
+// whatever rows the page laid out there.
 
 import { cleanup, fireEvent } from "@testing-library/react";
 import { cdp } from "vitest/browser";
@@ -40,6 +42,12 @@ const FILLED_MARK = "show-all-block-filled";
 /** The trace's events for the capture of a frame the page drew, and its picture. */
 const FRAME_CAPTURED = "Capture";
 const FRAME_PICTURED = "Screenshot";
+
+/** The trace's event for each frame the page's compositor drew, and how complete it was. */
+const FRAME_REPORTED = "PipelineReporter";
+
+/** The prefix of the states of a frame the compositor drew, rather than dropped or skipped. */
+const FRAME_PRESENTED_STATE = "STATE_PRESENTED";
 
 /** The result a frame's capture ends with when its picture was taken. */
 const CAPTURE_SUCCEEDED = 1;
@@ -113,6 +121,7 @@ async function framesDrawnUntilFilled(
           "disabled-by-default-devtools.screenshot",
           "gpu.capture",
           "blink.user_timing",
+          "disabled-by-default-devtools.timeline.frame",
         ],
       },
       transferMode: "ReportEvents",
@@ -152,31 +161,81 @@ async function framesDrawnUntilFilled(
 }
 
 /**
- * One trace event, as far as the cases read it: a picture's event carries its JPEG, and the start
- * of a frame's capture carries how the capture ended.
+ * One trace event, as far as the cases read it: a picture's event carries its JPEG and the frame
+ * it shows, the start of a frame's capture carries how the capture ended, and the start of a frame
+ * the compositor reports carries whether it drew every tile.
  */
 interface TraceEvent {
   readonly name: string;
   readonly phase: unknown;
   readonly ts: number;
+  readonly pid: unknown;
   readonly snapshot?: string;
   readonly captureResult?: number;
+  readonly frame?: CompositorFrame;
+}
+
+/**
+ * A frame by the display's own count: its begin-frame source and sequence number, which the
+ * picture of a frame and the compositor's report of it both carry.
+ */
+interface CompositorFrame {
+  readonly source: number;
+  readonly sequence: number;
+  /** For a reported frame: whether the compositor drew it, and drew it with tiles missing. */
+  readonly isPresented?: boolean;
+  readonly isMissingTiles?: boolean;
 }
 
 function traceEventOf(event: Readonly<Record<string, unknown>>): TraceEvent {
-  const { name, ph, ts, args } = event;
+  const { name, ph, ts, pid, args } = event;
   if (typeof name !== "string" || typeof ts !== "number") {
     throw new Error("the trace sent an event with no name or time");
   }
-  const fields = typeof args === "object" && args !== null ? args : {};
-  const snapshot = "snapshot" in fields ? fields.snapshot : undefined;
-  const result = "result" in fields ? fields.result : undefined;
+  const fields = (typeof args === "object" && args !== null ? args : {}) as Readonly<
+    Record<string, unknown>
+  >;
+  const { snapshot, result } = fields;
+  const frame = name === FRAME_PICTURED ? picturedFrameOf(fields) : reportedFrameOf(fields);
   return {
     name,
     phase: ph,
     ts,
+    pid,
     ...(typeof snapshot === "string" ? { snapshot } : {}),
     ...(typeof result === "number" ? { captureResult: result } : {}),
+    ...(frame === undefined ? {} : { frame }),
+  };
+}
+
+function picturedFrameOf(fields: Readonly<Record<string, unknown>>): CompositorFrame | undefined {
+  const { source_id: source, frame_sequence: sequence } = fields;
+  return typeof source === "number" && typeof sequence === "number"
+    ? { source, sequence }
+    : undefined;
+}
+
+function reportedFrameOf(fields: Readonly<Record<string, unknown>>): CompositorFrame | undefined {
+  const report = fields["frame_reporter"];
+  if (typeof report !== "object" || report === null) {
+    return undefined;
+  }
+  const {
+    frame_source: source,
+    frame_sequence: sequence,
+    state,
+    checkerboarded_needs_raster: needsRaster,
+    checkerboarded_needs_record: needsRecord,
+    has_missing_content: hasMissingContent,
+  } = report as Readonly<Record<string, unknown>>;
+  if (typeof source !== "number" || typeof sequence !== "number") {
+    return undefined;
+  }
+  return {
+    source,
+    sequence,
+    isPresented: typeof state === "string" && state.startsWith(FRAME_PRESENTED_STATE),
+    isMissingTiles: needsRaster === true || needsRecord === true || hasMissingContent === true,
   };
 }
 
@@ -185,13 +244,25 @@ function traceEventOf(event: Readonly<Record<string, unknown>>): TraceEvent {
  * frames in flight, so a picture can come after the next frame's capture starts; but it ends its
  * captures in the order it starts them and pictures each one that succeeds, so the nth succeeded
  * capture of the trace is its nth picture. Throws for a capture in the span that took no picture.
+ *
+ * A picture of a frame the page's compositor drew with tiles missing is left out: on a busy machine
+ * the main thread's painting or the rasterizer can fall behind a jump, and the compositor then
+ * fills the tiles not yet drawn with the layer's ground, whatever rows the page laid out there.
+ * Throws when that leaves no frame.
  */
 function picturedFrames(events: readonly TraceEvent[]): readonly string[] {
-  const driveTs = events.find((event) => event.name === DRIVE_MARK)?.ts;
+  const driveMark = events.find((event) => event.name === DRIVE_MARK);
   const filledTs = events.find((event) => event.name === FILLED_MARK)?.ts;
-  if (driveTs === undefined || filledTs === undefined) {
+  if (driveMark === undefined || filledTs === undefined) {
     throw new Error("the trace holds no marks around the driven scroll");
   }
+  const driveTs = driveMark.ts;
+  // The marks are the page's own, so its renderer is the process whose frames the pictures show.
+  const reportedFrames = events.flatMap((event) =>
+    event.name === FRAME_REPORTED && event.phase === "b" && event.pid === driveMark.pid
+      ? (event.frame ?? [])
+      : [],
+  );
   const inOrder = (left: TraceEvent, right: TraceEvent): number => left.ts - right.ts;
   const captures = events
     .filter((event) => event.name === FRAME_CAPTURED && event.phase === "b")
@@ -216,13 +287,42 @@ function picturedFrames(events: readonly TraceEvent[]): readonly string[] {
       if (picture?.snapshot === undefined) {
         throw new Error(`the picture of a frame captured at ${String(capture.ts)} µs is missing`);
       }
-      snapshots.push(picture.snapshot);
+      if (!isDrawnWithTilesMissing(picture, reportedFrames)) {
+        snapshots.push(picture.snapshot);
+      }
     }
   }
   if (snapshots.length === 0) {
-    throw new Error("no frame was pictured while the block filled");
+    throw new Error("no frame drawn with every tile was pictured while the block filled");
   }
   return snapshots;
+}
+
+/**
+ * Whether the compositor drew the frame `picture` shows with tiles missing: the last frame it drew
+ * at or before the picture's place in the display's count, since a frame the page did not update
+ * shows the one before. A picture the trace cannot place is checked.
+ */
+function isDrawnWithTilesMissing(
+  picture: TraceEvent,
+  reportedFrames: readonly CompositorFrame[],
+): boolean {
+  const pictured = picture.frame;
+  if (pictured === undefined) {
+    return false;
+  }
+  let shown: CompositorFrame | undefined;
+  for (const reported of reportedFrames) {
+    if (
+      reported.isPresented === true &&
+      reported.source === pictured.source &&
+      reported.sequence <= pictured.sequence &&
+      (shown === undefined || reported.sequence > shown.sequence)
+    ) {
+      shown = reported;
+    }
+  }
+  return shown?.isMissingTiles === true;
 }
 
 /**
