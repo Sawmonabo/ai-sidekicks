@@ -1,8 +1,8 @@
 // `LocalIpcGateway` over a real local socket: a malformed envelope never reaches a handler, a
-// handler reads the connection's device and calling process and never ones the request names,
-// and error replies carry
-// no paths or stack frames. Sockets live under `os.tmpdir()` with a random suffix so parallel
-// workers never collide.
+// handler reads the connection's device and calling process and never ones the request names, a
+// caller the system cannot name is reported and refused at its hello, and error replies carry no
+// paths or stack frames. Sockets live under `os.tmpdir()` with a random suffix so parallel workers
+// never collide.
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import * as fs from "node:fs/promises";
@@ -24,6 +24,7 @@ import { DeviceIdSchema } from "@ai-sidekicks/contracts/trust-statement";
 import { HOST_OPERATING_SYSTEM } from "../../../tests/helpers/host-operating-system.js";
 import { bootstrap } from "../../bootstrap/index.js";
 import { LocalIpcGateway } from "../local-gateway.js";
+import { ProtocolNegotiator } from "../protocol-negotiation.js";
 import { MethodRegistryImpl } from "../registry.js";
 
 import { passthroughSchema } from "../__fixtures__/schema-doubles.js";
@@ -31,9 +32,9 @@ import { connect } from "../__fixtures__/local-socket-client.js";
 
 const PROTOCOL_VERSION = "2026-05-01";
 
-// The system's own read of who opened each connection: here, this test's own process.
+// The system's own read of who is at each connection's client end: here, this test's process.
 const callerProcessReader = await HOST_OPERATING_SYSTEM.openCallerProcessReader();
-const readCallerProcessId = (socket: net.Socket): number =>
+const readCallerProcessId = (socket: net.Socket): number | undefined =>
   callerProcessReader.readPeerProcessId(socket);
 
 // The service's own device id, which every connection on its socket comes from.
@@ -489,6 +490,68 @@ describe("LocalIpcGateway outbound queue", () => {
     } finally {
       // A paused client never takes the queued bytes, so an orderly close would never finish.
       client.socket.destroy();
+      await gateway.stop();
+      await fs.rm(socketPath, { force: true });
+    }
+  });
+});
+
+describe("LocalIpcGateway caller read", () => {
+  const sessionToken = "d".repeat(64);
+  const readFailure = new Error("the system could not say");
+
+  it.each([
+    {
+      label: "a read that fails is reported",
+      readCallerProcessId: (): number => {
+        throw readFailure;
+      },
+      reported: [readFailure],
+    },
+    {
+      label: "a caller that already closed its end is not reported",
+      readCallerProcessId: (): undefined => undefined,
+      reported: [],
+    },
+  ])("$label, and the connection's hello is refused", async ({ readCallerProcessId, reported }) => {
+    const socketPath = ephemeralSocketPath("caller");
+    bootstrap({ localIpcPath: socketPath });
+    const negotiator = new ProtocolNegotiator(sessionToken, () => Promise.resolve(false));
+    const registry = negotiator.wrap(new MethodRegistryImpl());
+    negotiator.registerHandshakeMethod(registry);
+    const errors: unknown[] = [];
+    const gateway = new LocalIpcGateway({
+      registry,
+      deviceId: SERVICE_DEVICE_ID,
+      readCallerProcessId,
+      hooks: {
+        onDisconnect: (transport) => {
+          negotiator.cleanupTransport(transport.id);
+        },
+        onError: (_transport, error) => {
+          errors.push(error);
+        },
+        onListenerError: (error) => {
+          throw error;
+        },
+      },
+    });
+    await gateway.start();
+    const client = await connect(socketPath);
+    try {
+      client.send({
+        jsonrpc: JSONRPC_VERSION,
+        id: 1,
+        method: "daemon.hello",
+        protocolVersion: PROTOCOL_VERSION,
+        params: { sessionToken, protocolVersion: PROTOCOL_VERSION },
+      });
+      const [reply] = (await client.replies(1)) as JsonRpcErrorResponse[];
+
+      expect(reply?.error.data).toMatchObject({ type: "auth.caller_refused" });
+      expect(errors).toStrictEqual(reported);
+    } finally {
+      await client.close();
       await gateway.stop();
       await fs.rm(socketPath, { force: true });
     }

@@ -2,7 +2,8 @@
 // parent from `proc_pidinfo`'s short BSD record, both called through `koffi`.
 
 import { importKoffi } from "../../koffi.js";
-import { readSocketDescriptor, type CallerProcessReader } from "./contract.js";
+import type { CallerProcessReader } from "./contract.js";
+import { readSocketDescriptor } from "./socket-descriptor.js";
 
 // <sys/un.h>: the local socket level and its peer process id option.
 const SOL_LOCAL = 0;
@@ -12,8 +13,9 @@ const LOCAL_PEERPID = 2;
 const PROC_PIDT_SHORTBSDINFO = 13;
 const SHORT_BSD_INFO_BYTES = 64;
 const PARENT_PROCESS_ID_OFFSET = 4;
-// <sys/errno.h>: no process has the id.
+// <sys/errno.h>: no process has the id; the socket's other end has closed.
 const ESRCH = 3;
+const ENOTCONN = 57;
 const PROCESS_ID_BYTES = 4;
 
 /** Binds the calls from the system library; rejects when `koffi` cannot be loaded. */
@@ -35,7 +37,11 @@ export async function openMacCallerProcessReader(): Promise<CallerProcessReader>
       const length = [PROCESS_ID_BYTES];
       const descriptor = readSocketDescriptor(socket);
       if ((getsockopt(descriptor, SOL_LOCAL, LOCAL_PEERPID, value, length) as number) !== 0) {
-        throw new Error(`getsockopt(LOCAL_PEERPID) failed with errno ${String(koffi.errno())}`);
+        const errno = koffi.errno();
+        if (errno === ENOTCONN) {
+          return undefined;
+        }
+        throw new Error(`getsockopt(LOCAL_PEERPID) failed with errno ${String(errno)}`);
       }
       return value.readInt32LE(0);
     },

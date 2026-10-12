@@ -1,10 +1,12 @@
 // Linux: the peer process's id from the socket's `SO_PEERCRED` credentials, called through
 // `koffi`, and a process's parent from field 4 of `/proc/<id>/stat`.
 
-import { readFile } from "node:fs/promises";
+import { readLinuxProcessStatFields } from "@ai-sidekicks/contracts/process-identity";
 
 import { importKoffi } from "../../koffi.js";
-import { readSocketDescriptor, type CallerProcessReader } from "./contract.js";
+import { NODE_SYSTEM_ACCESS } from "../../node-system-access.js";
+import type { CallerProcessReader } from "./contract.js";
+import { readSocketDescriptor } from "./socket-descriptor.js";
 
 // <sys/socket.h>: the socket level and its peer credentials option, which fills a
 // `struct ucred { pid_t pid; uid_t uid; gid_t gid; }`.
@@ -38,20 +40,12 @@ export async function openLinuxCallerProcessReader(): Promise<CallerProcessReade
 }
 
 async function readLinuxParentProcessId(processId: number): Promise<number | undefined> {
-  let stat: string;
-  try {
-    stat = await readFile(`/proc/${String(processId)}/stat`, "utf8");
-  } catch (failure) {
-    // A process gone before the open has no folder; one ending during the read answers ESRCH.
-    const code = failure instanceof Error && "code" in failure ? failure.code : undefined;
-    if (code === "ENOENT" || code === "ESRCH") {
-      return undefined;
-    }
-    throw failure;
+  const fields = await readLinuxProcessStatFields(NODE_SYSTEM_ACCESS, processId);
+  if (fields === undefined) {
+    return undefined;
   }
-  // Field 2, the process's name, sits in parentheses and may hold spaces and parentheses itself,
-  // so the fields are counted from after the last `)`: field 3, the state, first, the parent next.
-  const parentField = stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1];
+  // The parent is field 4.
+  const parentField = fields[4 - 3];
   const parentProcessId = Number(parentField);
   if (parentField === undefined || !Number.isInteger(parentProcessId)) {
     throw new Error(`/proc/${String(processId)}/stat has no parent field`);

@@ -10,7 +10,7 @@
 // * `MethodRegistry` is injected at construction. `DaemonHello` version negotiation lives in
 //   `protocol-negotiation.ts` and streaming in `streaming-primitive.ts`.
 // * Every dispatch carries the connection's id, the service's own device id and the process the
-//   system says opened the connection, never one a request names.
+//   system names at the client's end, never one a request names.
 // * `protocolVersion` is an ISO 8601 `YYYY-MM-DD` date string.
 
 import * as net from "node:net";
@@ -104,8 +104,8 @@ interface ConnectionState {
   /** The connection's received bytes not yet framed; no state is shared across sockets. */
   readonly frames: FrameAccumulator;
   /**
-   * The process that opened the connection, read at the connect; `undefined` when the system could
-   * not say, which `onError` has reported.
+   * The process at the client's end, read at the connect; `undefined` when that end had already
+   * closed or the system could not say, which `onError` has reported.
    */
   readonly callerProcessId: number | undefined;
   /** Set once `onDisconnect` has fired, so a late socket event cannot fire it twice. */
@@ -141,8 +141,11 @@ export interface LocalIpcGatewayOptions {
    * Absent while the service repairs its database file, before it can read the id.
    */
   readonly deviceId?: DeviceId;
-  /** Reads which process opened an accepted connection; throws when the system cannot say. */
-  readonly readCallerProcessId: (socket: net.Socket) => number;
+  /**
+   * Reads which process is at the client's end of an accepted connection; `undefined` when that
+   * end has already closed, and throws when the system cannot say.
+   */
+  readonly readCallerProcessId: (socket: net.Socket) => number | undefined;
   readonly hooks?: SupervisionHooks;
 }
 
@@ -155,7 +158,7 @@ export interface LocalIpcGatewayOptions {
 export class LocalIpcGateway {
   readonly #registry: MethodRegistry;
   readonly #deviceId: DeviceId | undefined;
-  readonly #readCallerProcessId: (socket: net.Socket) => number;
+  readonly #readCallerProcessId: (socket: net.Socket) => number | undefined;
   readonly #hooks: SupervisionHooks | null;
   #server: net.Server | null;
   #connections: Map<number, ConnectionState>;
@@ -305,8 +308,8 @@ export class LocalIpcGateway {
 
   #onSocketConnect(socket: net.Socket): void {
     const transport: SupervisionTransport = { id: allocTransportId() };
-    // Read at once, while the connection is surely open; a caller nobody can name is refused at
-    // its hello.
+    // Read at once. A caller nobody can name is refused at its hello; only a failed read is
+    // reported, not one whose client has already closed its end.
     let callerProcessId: number | undefined;
     let callerReadFailure: unknown;
     try {

@@ -19,10 +19,14 @@ export class ProviderServiceProcesses {
 
   /**
    * Holds the process serving the dialed `socket` until the returned release is called, which
-   * releases once however often it is called. Throws when the system cannot name the process.
+   * releases once however often it is called. Throws when the system cannot name the process,
+   * the service having closed its end included.
    */
   holdServing(socket: net.Socket): () => void {
     const processId = this.#reader.readPeerProcessId(socket);
+    if (processId === undefined) {
+      throw new Error("The provider service closed its connection before its process was read");
+    }
     this.#holds.set(processId, (this.#holds.get(processId) ?? 0) + 1);
     let isReleased = false;
     return () => {
@@ -30,7 +34,8 @@ export class ProviderServiceProcesses {
         return;
       }
       isReleased = true;
-      const remaining = (this.#holds.get(processId) ?? 1) - 1;
+      // Still counted: an entry goes only when its last hold is released.
+      const remaining = this.#holds.get(processId)! - 1;
       if (remaining === 0) {
         this.#holds.delete(processId);
       } else {
